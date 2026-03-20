@@ -51,7 +51,7 @@ var configEditCmd = &cobra.Command{
 		if editor == "" {
 			editor = "vi"
 		}
-		c := exec.Command(editor, path)
+		c := exec.Command(editor, path) //nolint:gosec // editor is user-controlled via $EDITOR
 		c.Stdin = os.Stdin
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr

@@ -13,7 +13,7 @@ func TestLogger_RecordAndQuery(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.db")
 	l, err := NewLogger(path)
 	require.NoError(t, err)
-	defer l.Close(context.Background())
+	defer func() { _ = l.Close(context.Background()) }()
 
 	rec := Record{
 		Timestamp: time.Now(),
@@ -36,7 +36,7 @@ func TestLogger_QueryWithFilter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.db")
 	l, err := NewLogger(path)
 	require.NoError(t, err)
-	defer l.Close(context.Background())
+	defer func() { _ = l.Close(context.Background()) }()
 
 	for _, tool := range []string{"github.get_pr", "github.search", "linear.search"} {
 		err := l.Record(context.Background(), Record{
@@ -57,7 +57,7 @@ func TestLogger_QueryPagination(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.db")
 	l, err := NewLogger(path)
 	require.NoError(t, err)
-	defer l.Close(context.Background())
+	defer func() { _ = l.Close(context.Background()) }()
 
 	for i := range 5 {
 		err := l.Record(context.Background(), Record{
@@ -82,7 +82,7 @@ func TestLogger_RecordWithApproval(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.db")
 	l, err := NewLogger(path)
 	require.NoError(t, err)
-	defer l.Close(context.Background())
+	defer func() { _ = l.Close(context.Background()) }()
 
 	approved := true
 	err = l.Record(context.Background(), Record{

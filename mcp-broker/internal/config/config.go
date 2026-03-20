@@ -102,7 +102,7 @@ func Load(path string) (Config, error) {
 // Save writes cfg to path. Creates parent directories as needed.
 // Returns the path written.
 func Save(cfg Config, path string) (string, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return "", err
 	}
 

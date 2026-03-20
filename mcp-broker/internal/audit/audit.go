@@ -59,7 +59,7 @@ type Logger struct {
 
 // NewLogger creates a Logger that writes to the given database path.
 func NewLogger(path string) (*Logger, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("create audit dir: %w", err)
 	}
 
@@ -152,7 +152,9 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 
 	selectSQL := "SELECT timestamp, tool, args, verdict, approved, result, error FROM audit_records" +
 		where + " ORDER BY id DESC LIMIT ? OFFSET ?"
-	selectArgs := append(queryArgs, limit, opts.Offset)
+	selectArgs := make([]any, len(queryArgs), len(queryArgs)+2)
+	copy(selectArgs, queryArgs)
+	selectArgs = append(selectArgs, limit, opts.Offset)
 
 	rows, err := l.db.Query(selectSQL, selectArgs...)
 	if err != nil {

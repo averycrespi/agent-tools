@@ -158,4 +158,3 @@ func expandEnv(env map[string]string) map[string]string {
 	}
 	return result
 }
-

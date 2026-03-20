@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	gomcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -107,7 +109,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	mux.Handle("/", dashHandler)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
 	// Handle shutdown
 	stop := make(chan os.Signal, 1)
@@ -129,7 +131,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		}()
 		return srv.Shutdown(context.Background())
 	case err := <-errCh:
-		if err != http.ErrServerClosed {
+		if !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("server error: %w", err)
 		}
 		return nil

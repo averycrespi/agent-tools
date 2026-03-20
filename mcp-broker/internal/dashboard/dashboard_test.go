@@ -32,7 +32,7 @@ func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
 	// Get pending requests
 	resp, err := http.Get(srv.URL + "/api/pending")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var pending []pendingRequest
 	err = json.NewDecoder(resp.Body).Decode(&pending)
@@ -43,7 +43,7 @@ func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
 	body := `{"id":"` + pending[0].ID + `","decision":"approve"}`
 	resp2, err := http.Post(srv.URL+"/api/decide", "application/json", strings.NewReader(body))
 	require.NoError(t, err)
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp2.StatusCode)
 
 	approved := <-done
@@ -67,7 +67,7 @@ func TestDashboard_Review_DeniesViaAPI(t *testing.T) {
 
 	resp, err := http.Get(srv.URL + "/api/pending")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var pending []pendingRequest
 	err = json.NewDecoder(resp.Body).Decode(&pending)
@@ -76,7 +76,7 @@ func TestDashboard_Review_DeniesViaAPI(t *testing.T) {
 	body := `{"id":"` + pending[0].ID + `","decision":"deny"}`
 	resp2, err := http.Post(srv.URL+"/api/decide", "application/json", strings.NewReader(body))
 	require.NoError(t, err)
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 
 	approved := <-done
 	require.False(t, approved)
