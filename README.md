@@ -1,21 +1,16 @@
 # agent-tools
 
-Tools for working with AI coding agents.
+A collection of CLI tools that reduce the friction of working with AI coding agents.
 
 ## Tools
 
-### [wt](worktree-manager/) — Worktree Manager
+### Worktree Manager (wt)
 
-Manage git worktree workspaces with tmux integration. One command to spin up a workspace (worktree + tmux window + agent launch), one command to tear it down.
+Running multiple AI agents across different branches means a lot of repetitive setup: create a worktree, open a tmux window, copy config files, launch the agent. Tear it all down when you're done. Multiply by several concurrent tasks and it's a lot of ceremony.
 
-```bash
-wt add <branch>       # Create workspace
-wt rm <branch>        # Remove workspace
-wt attach [branch]    # Attach to session/window
-wt config edit        # Configure launch command, setup scripts, copy files
-```
+`wt` reduces that to two commands. `wt add <branch>` spins up a fully configured workspace — git worktree, tmux window, config files copied, agent launched. `wt rm <branch>` tears it down. `wt attach` lets you jump between workspaces. It's agent-agnostic: configure it to launch Claude Code, Cursor, or anything else.
 
-Install: `cd worktree-manager && go install .`
+See the [README](worktree-manager/README.md) for more information.
 
 ## License
 
