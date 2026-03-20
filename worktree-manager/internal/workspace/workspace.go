@@ -88,7 +88,7 @@ func (s *Service) Add(repoRoot, branch string) error {
 	// Create worktree if it doesn't exist
 	if _, err := os.Stat(worktreeDir); os.IsNotExist(err) {
 		s.logger.Info("creating worktree", "path", worktreeDir)
-		if err := os.MkdirAll(filepath.Dir(worktreeDir), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(worktreeDir), 0o755); err != nil { //nolint:gosec // 0755 is appropriate for worktree directories
 			return fmt.Errorf("could not create worktree directory: %w", err)
 		}
 		if err := s.git.AddWorktree(info.Root, worktreeDir, branch); err != nil {
@@ -150,14 +150,15 @@ func (s *Service) Remove(repoRoot, branch string, deleteBranch, forceDelete bool
 	}
 
 	// Close tmux window if it exists
-	if !s.tmux.SessionExists(tmuxSession) {
+	switch {
+	case !s.tmux.SessionExists(tmuxSession):
 		s.logger.Debug("tmux session does not exist", "session", tmuxSession)
-	} else if s.tmux.WindowExists(tmuxSession, windowName) {
+	case s.tmux.WindowExists(tmuxSession, windowName):
 		s.logger.Info("closing tmux window", "window", windowName)
 		if err := s.tmux.KillWindow(tmuxSession, windowName); err != nil {
 			return err
 		}
-	} else {
+	default:
 		s.logger.Debug("tmux window does not exist", "window", windowName)
 	}
 
@@ -243,12 +244,12 @@ func (s *Service) copyFile(repoRoot, worktreeDir, relPath string) {
 	src := filepath.Join(repoRoot, relPath)
 	dst := filepath.Join(worktreeDir, relPath)
 
-	srcFile, err := os.Open(src)
+	srcFile, err := os.Open(src) //nolint:gosec // path is constructed from config, not user input
 	if err != nil {
 		s.logger.Debug("copy source not found, skipping", "path", relPath)
 		return
 	}
-	defer srcFile.Close()
+	defer srcFile.Close() //nolint:errcheck // best-effort close on read-only file
 
 	if _, err := os.Stat(dst); err == nil {
 		s.logger.Debug("copy destination already exists, skipping", "path", relPath)
@@ -256,16 +257,16 @@ func (s *Service) copyFile(repoRoot, worktreeDir, relPath string) {
 	}
 
 	s.logger.Info("copying file to worktree", "path", relPath)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil { //nolint:gosec // 0755 is appropriate for worktree directories
 		s.logger.Warn("could not create directory for copy", "path", relPath, "error", err)
 		return
 	}
-	dstFile, err := os.Create(dst)
+	dstFile, err := os.Create(dst) //nolint:gosec // path is constructed from config, not user input
 	if err != nil {
 		s.logger.Warn("could not create destination file", "path", relPath, "error", err)
 		return
 	}
-	defer dstFile.Close()
+	defer dstFile.Close() //nolint:errcheck // best-effort close; errors caught by io.Copy
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
 		s.logger.Warn("copy failed", "path", relPath, "error", err)
 	}

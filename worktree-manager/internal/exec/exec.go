@@ -22,17 +22,17 @@ type OSRunner struct{}
 func NewOSRunner() *OSRunner { return &OSRunner{} }
 
 func (r *OSRunner) Run(name string, args ...string) ([]byte, error) {
-	return osexec.Command(name, args...).CombinedOutput()
+	return osexec.Command(name, args...).CombinedOutput() //nolint:gosec // command execution is the purpose of this abstraction
 }
 
 func (r *OSRunner) RunDir(dir, name string, args ...string) ([]byte, error) {
-	cmd := osexec.Command(name, args...)
+	cmd := osexec.Command(name, args...) //nolint:gosec // command execution is the purpose of this abstraction
 	cmd.Dir = dir
 	return cmd.CombinedOutput()
 }
 
 func (r *OSRunner) RunInteractive(name string, args ...string) error {
-	cmd := osexec.Command(name, args...)
+	cmd := osexec.Command(name, args...) //nolint:gosec // command execution is the purpose of this abstraction
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

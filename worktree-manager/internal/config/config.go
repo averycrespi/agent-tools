@@ -35,7 +35,7 @@ func Default() Config {
 func Refresh(logger *slog.Logger) error {
 	path := ConfigFilePath()
 
-	if err := os.MkdirAll(ConfigDir(), 0o755); err != nil {
+	if err := os.MkdirAll(ConfigDir(), 0o755); err != nil { //nolint:gosec // 0755 is appropriate for config directory
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -58,7 +58,7 @@ func Refresh(logger *slog.Logger) error {
 	}
 	data = append(data, '\n')
 
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o644); err != nil { //nolint:gosec // 0644 is appropriate for user config file
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 

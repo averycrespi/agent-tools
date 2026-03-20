@@ -48,7 +48,7 @@ var configEditCmd = &cobra.Command{
 			editor = "vi"
 		}
 		path := config.ConfigFilePath()
-		c := osexec.Command(editor, path)
+		c := osexec.Command(editor, path) //nolint:gosec // editor is from trusted EDITOR env var
 		c.Stdin = os.Stdin
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
