@@ -129,13 +129,29 @@ Simplified from Brocade's OS kernel metaphor:
 | Transporter     | (removed)     |
 | Kernel          | Broker        |
 
+## Go Module
+
+```
+agent-tools/              # repo root
+├── go.work               # Go workspace: references mcp-broker/
+├── .gitignore
+├── LICENSE
+├── README.md
+└── mcp-broker/
+    ├── go.mod             # module github.com/averycrespi/agent-tools/mcp-broker
+    ├── ...
+```
+
 ## Directory Structure
 
 ```
 mcp-broker/
 ├── go.mod
+├── .golangci.yml
+├── Makefile
 ├── cmd/mcp-broker/
-│   └── main.go              # CLI entry point (cobra): serve, config
+│   ├── main.go            # Entry point: cmd.Execute()
+│   └── serve.go           # serve command implementation
 ├── internal/
 │   ├── config/
 │   │   └── config.go        # Load/save/defaults for config.json
@@ -171,6 +187,39 @@ mcp-broker/
 **`dashboard/`** — Serves the web UI, its API endpoints, and manages the approval flow (pending request queue, decision channels). Embedded HTML via `go:embed`. Three tabs: pending approvals, tool catalog, audit log. Real-time updates via SSE.
 
 **`config/`** — Loads, saves, and validates config.json. Writes defaults on first run. Supports refresh (backfill new fields without overwriting existing).
+
+### Dependency Injection
+
+Services accept interfaces for testability. The broker accepts interfaces for rules, audit, dashboard, and server management — not concrete types.
+
+```go
+type Broker struct {
+    servers  ServerManager
+    rules    RulesEvaluator
+    audit    AuditLogger
+    dashboard Dashboard
+    logger   *slog.Logger
+}
+```
+
+Backend MCP connections are behind a `ServerManager` interface so tests can mock tool discovery and proxying without spawning real processes.
+
+### Logging
+
+Uses `log/slog` from the standard library. Log level is driven by config (`"log": {"level": "info"}`). The `serve` command accepts a `--log-level` flag to override.
+
+### Error Handling
+
+- All Cobra commands use `RunE` (not `Run`) to return errors.
+- Root command sets `SilenceUsage: true` and `SilenceErrors: true` — runtime errors don't dump usage text.
+- `main.go` handles the top-level error: log it with `slog.Error` and `os.Exit(1)`.
+- Wrap errors with context using `%w`: `fmt.Errorf("failed to connect to server %q: %w", name, err)`.
+
+### Testing
+
+- Unit tests use mock implementations of interfaces (`testify/mock`).
+- Test naming: `TestType_Method_Scenario`.
+- Always run with race detection: `go test -race ./...`.
 
 ## CLI
 
@@ -247,10 +296,44 @@ Filterable, paginated view of all tool calls. Each record shows:
 - No agent identity tracking — simplified away
 - No `auth` CLI command
 
-## Key Dependencies
+## Dependencies
 
-Carried over from Brocade:
-- `github.com/mark3labs/mcp-go` — MCP protocol library (frontend server + backend clients)
-- `github.com/spf13/cobra` — CLI framework
-- `github.com/mattn/go-sqlite3` — SQLite driver for audit log
-- `golang.org/x/sync/errgroup` — concurrent server management
+| Dependency | Purpose |
+|------------|---------|
+| `github.com/mark3labs/mcp-go` | MCP protocol library (frontend server + backend clients) |
+| `github.com/spf13/cobra` | CLI framework |
+| `github.com/ncruces/go-sqlite3` | SQLite driver for audit log (pure Go, no CGO) |
+| `golang.org/x/sync/errgroup` | Concurrent server management |
+| `github.com/stretchr/testify` | Testing assertions and mocks |
+
+### Go Module Tools
+
+Installed via `tool` directive in `go.mod`, run via `go tool <name>`:
+
+| Tool | Purpose |
+|------|---------|
+| `github.com/golangci/golangci-lint/cmd/golangci-lint` | Linting |
+| `golang.org/x/tools/cmd/goimports` | Formatting and import organization |
+| `golang.org/x/vuln/cmd/govulncheck` | Dependency vulnerability scanning |
+
+### Linter Configuration
+
+`.golangci.yml` (v2 format) at the `mcp-broker/` root:
+
+- `default: standard` enables the standard linter set (govet, staticcheck, errcheck, unused, ineffassign).
+- Additional linters: `errorlint`, `gocritic`, `gosec`.
+- Formatters: `goimports`.
+- Suppress `gosec` in test files.
+
+### Makefile
+
+| Target | Command |
+|--------|---------|
+| `build` | `go build -o /tmp/bin/mcp-broker ./cmd/mcp-broker` |
+| `test` | `go test -race ./...` |
+| `lint` | `go tool golangci-lint run` |
+| `fmt` | `go tool goimports -w .` |
+| `tidy` | `go mod tidy && go mod verify` |
+| `audit` | `tidy` + `fmt` + `lint` + `test` + `go tool govulncheck ./...` |
+
+`make audit` is the local equivalent of CI — run it before pushing.
