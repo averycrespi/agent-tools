@@ -1,7 +1,7 @@
 .PHONY: build test lint fmt tidy audit
 
 build:
-	go build -o /tmp/bin/wt .
+	go build -o wt .
 
 test:
 	go test -race ./...
