@@ -1,10 +1,13 @@
-.PHONY: build test lint fmt tidy audit
+.PHONY: build test test-integration lint fmt tidy audit
 
 build:
-	go build -o /tmp/bin/mcp-broker ./cmd/mcp-broker
+	go build -o mcp-broker ./cmd/mcp-broker
 
 test:
 	go test -race ./...
+
+test-integration:
+	go test -race -tags=integration ./...
 
 lint:
 	go tool golangci-lint run ./...
