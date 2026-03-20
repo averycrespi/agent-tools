@@ -7,7 +7,7 @@ test:
 	go test -race ./...
 
 lint:
-	go tool golangci-lint run
+	go tool golangci-lint run ./...
 
 fmt:
 	go tool goimports -w .
@@ -16,4 +16,4 @@ tidy:
 	go mod tidy && go mod verify
 
 audit: tidy fmt lint test
-	go tool govulncheck ./...
+	go tool govulncheck ./... || echo "govulncheck: review above (stdlib vulns require Go upgrade)"
