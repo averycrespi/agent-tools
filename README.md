@@ -12,6 +12,12 @@ Running multiple AI agents across different branches means a lot of repetitive s
 
 See the [README](worktree-manager/README.md) for more information.
 
+### MCP Broker
+
+A generic MCP proxy that connects to backend MCP servers and exposes them through a single endpoint with policy rules, human approval, and audit logging.
+
+See [`mcp-broker/`](mcp-broker/) for details.
+
 ## License
 
 MIT
