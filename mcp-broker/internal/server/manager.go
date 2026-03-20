@@ -159,11 +159,3 @@ func expandEnv(env map[string]string) map[string]string {
 	return result
 }
 
-// Stubs for backend implementations (replaced in Task 7)
-func newStdioBackend(_ context.Context, _ config.ServerConfig, _ *slog.Logger) (Backend, error) {
-	return nil, fmt.Errorf("stdio backend not yet implemented")
-}
-
-func newHTTPBackend(_ context.Context, _ config.ServerConfig) (Backend, error) {
-	return nil, fmt.Errorf("http backend not yet implemented")
-}
