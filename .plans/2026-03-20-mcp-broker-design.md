@@ -1,10 +1,16 @@
 # mcp-broker Design
 
+## Motivation
+
+AI coding agents like Claude Code are sandboxed — they can't hold credentials or reach external services directly. MCP servers bridge this gap, but connecting agents to multiple MCP servers creates a problem: there's no central point to enforce policy, require human approval for sensitive operations, or maintain an audit trail of what the agent did and why.
+
+mcp-broker solves this by sitting between the agent and its MCP servers. The agent connects to one endpoint — the broker. The broker connects to all the backend MCP servers, discovers their tools automatically, and exposes them through a single unified interface. Every tool call passes through a policy engine (allow/deny/require-approval), an optional human approval gate, and an audit log before reaching the backend.
+
+Adding a new backend service is a JSON config entry, not code. The broker handles discovery, namespacing, policy, and auditing generically.
+
 ## Overview
 
 mcp-broker is a generic MCP proxy that connects to multiple backend MCP servers, discovers their tools, and exposes them through a single frontend MCP endpoint — with policy rules, human approval, and audit logging in between.
-
-It is an adaptation and simplification of [Brocade](https://github.com/averycrespi/brocade). Where Brocade requires writing custom Go provider code for each backend service, mcp-broker replaces that with zero-code configuration: adding a backend is a JSON config entry, not a Go package.
 
 ## Core Flow
 
@@ -116,20 +122,9 @@ Exposed as:
 
 Rules use the prefixed names, so `github.*` matches all tools from the github server.
 
-## Terminology
-
-Simplified from Brocade's OS kernel metaphor:
-
-| Brocade         | mcp-broker    |
-|-----------------|---------------|
-| Provider        | Server        |
-| Capability      | Tool          |
-| Gatekeeper      | Rules         |
-| Approver        | Approval      |
-| Transporter     | (removed)     |
-| Kernel          | Broker        |
-
 ## Go Module
+
+Requires Go 1.25. Use `.tool-versions` with asdf for version management.
 
 ```
 agent-tools/              # repo root
@@ -139,6 +134,7 @@ agent-tools/              # repo root
 ├── README.md
 └── mcp-broker/
     ├── go.mod             # module github.com/averycrespi/agent-tools/mcp-broker
+    ├── .tool-versions     # golang 1.25.x
     ├── ...
 ```
 
@@ -148,10 +144,13 @@ agent-tools/              # repo root
 mcp-broker/
 ├── go.mod
 ├── .golangci.yml
+├── .tool-versions          # asdf: golang 1.25.x
 ├── Makefile
 ├── cmd/mcp-broker/
 │   ├── main.go            # Entry point: cmd.Execute()
-│   └── serve.go           # serve command implementation
+│   ├── root.go            # Root command, --log-level flag, service construction
+│   ├── serve.go           # serve command implementation
+│   └── config.go          # config path, config refresh, config edit
 ├── internal/
 │   ├── config/
 │   │   └── config.go        # Load/save/defaults for config.json
@@ -256,7 +255,7 @@ Claude Code config to connect to the broker:
 
 ## Dashboard
 
-Adapted from Brocade's embedded web UI. Three tabs:
+Embedded web UI with three tabs:
 
 ### Pending Approvals
 
