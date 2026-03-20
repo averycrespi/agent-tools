@@ -71,13 +71,7 @@ Single file at `~/.config/mcp-broker/config.json`:
     { "tool": "filesystem.write_file", "verdict": "require-approval" },
     { "tool": "*", "verdict": "deny" }
   ],
-  "listen": {
-    "port": 8200
-  },
-  "dashboard": {
-    "port": 8201,
-    "auto_open": false
-  },
+  "port": 8200,
   "audit": {
     "path": "~/.config/mcp-broker/audit.db"
   },
@@ -152,12 +146,10 @@ mcp-broker/
 │   │                        #   - proxy tool calls to backends
 │   ├── rules/
 │   │   └── rules.go         # Glob-based rule matching
-│   ├── approval/
-│   │   └── approval.go      # Pending request queue, decision channel
 │   ├── audit/
 │   │   └── audit.go         # SQLite audit log (record + query)
 │   ├── dashboard/
-│   │   ├── dashboard.go     # HTTP server: approval UI + audit viewer
+│   │   ├── dashboard.go     # HTTP server: approval UI + audit viewer + approval logic
 │   │   └── index.html       # Embedded HTML (go:embed)
 │   └── broker/
 │       └── broker.go        # Core — wires everything together
@@ -174,11 +166,9 @@ mcp-broker/
 
 **`rules/`** — Evaluates tool names against glob-based rules. Returns a verdict (allow/deny/require-approval). First match wins, default is require-approval.
 
-**`approval/`** — Manages pending approval requests. Each request gets a decision channel that blocks until a human approves or denies via the dashboard API.
-
 **`audit/`** — SQLite-backed audit log. Records every tool call with timestamp, tool name, arguments, rule verdict, approval decision, result, and error. Supports filtered/paginated queries for the dashboard.
 
-**`dashboard/`** — Serves the web UI and its API endpoints. Embedded HTML via `go:embed`. Three tabs: pending approvals, tool catalog, audit log. Real-time updates via SSE.
+**`dashboard/`** — Serves the web UI, its API endpoints, and manages the approval flow (pending request queue, decision channels). Embedded HTML via `go:embed`. Three tabs: pending approvals, tool catalog, audit log. Real-time updates via SSE.
 
 **`config/`** — Loads, saves, and validates config.json. Writes defaults on first run. Supports refresh (backfill new fields without overwriting existing).
 
@@ -196,10 +186,9 @@ mcp-broker config edit    # Open config in $EDITOR
 1. Load config (create default if missing)
 2. Connect to all backend servers (stdio spawn or HTTP connect)
 3. Discover tools from each backend via `tools/list`
-4. Start frontend MCP server on configured port
-5. Start dashboard on configured port
-6. Log: `"Discovered 12 tools from 3 servers"`
-7. Graceful shutdown on SIGINT
+4. Start HTTP server on configured port (MCP at `/mcp`, dashboard at `/`)
+5. Log: `"Discovered 12 tools from 3 servers"`
+6. Graceful shutdown on SIGINT
 
 ### Agent Connection
 
