@@ -6,12 +6,8 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
+	if err := rootCmd.Execute(); err != nil {
 		slog.Error("fatal error", "error", err)
 		os.Exit(1)
 	}
-}
-
-func run() error {
-	return nil
 }
