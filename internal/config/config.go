@@ -36,7 +36,7 @@ func Default() Config {
 // Load reads the config from disk. Returns Default() if the file doesn't exist.
 func Load() (Config, error) {
 	path := ConfigFilePath()
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is from ConfigFilePath(), not user input
 	if err != nil {
 		if os.IsNotExist(err) {
 			return Default(), nil
@@ -66,7 +66,7 @@ func Load() (Config, error) {
 // Refresh creates or updates the config file with default values for any missing fields.
 func Refresh(logger *slog.Logger) error {
 	dir := configDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("failed to create config dir %q: %w", dir, err)
 	}
 
@@ -96,7 +96,7 @@ func Refresh(logger *slog.Logger) error {
 	}
 
 	path := ConfigFilePath()
-	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 		return fmt.Errorf("failed to write config %q: %w", path, err)
 	}
 

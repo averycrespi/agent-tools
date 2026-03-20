@@ -79,7 +79,7 @@ func (s *Service) Create() error {
 		if err != nil {
 			return err
 		}
-		defer os.Remove(tmpFile)
+		defer func() { _ = os.Remove(tmpFile) }()
 
 		if err := s.lima.Create(tmpFile); err != nil {
 			return err
@@ -206,11 +206,16 @@ func writeTempFile(content string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer f.Close()
 
 	if _, err := f.WriteString(content); err != nil {
-		os.Remove(f.Name())
+		_ = f.Close()
+		_ = os.Remove(f.Name())
 		return "", fmt.Errorf("failed to write temp file: %w", err)
+	}
+
+	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
+		return "", fmt.Errorf("failed to close temp file: %w", err)
 	}
 
 	return f.Name(), nil
