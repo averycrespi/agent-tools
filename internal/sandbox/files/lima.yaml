@@ -1,0 +1,31 @@
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+
+cpus: {{.CPUs}}
+memory: "{{.Memory}}"
+disk: "{{.Disk}}"
+
+user:
+  name: "{{.Username}}"
+  uid: {{.UID}}
+  gid: {{.GID}}
+  home: "{{.HomeDir}}"
+
+containerd:
+  system: false
+  user: false
+
+{{- if .Mounts}}
+mounts:
+{{- range .Mounts}}
+  - location: "{{.}}"
+    mountPoint: "{{.}}"
+    writable: true
+{{- end}}
+{{- end}}
+
+message: |
+  sb sandbox VM is ready.
