@@ -15,6 +15,24 @@ type Config struct {
 	Log     LogConfig      `json:"log"`
 }
 
+// OAuthConfig holds OAuth settings for a backend server.
+// Supports "oauth": true (all defaults) or "oauth": {...} with overrides.
+type OAuthConfig struct {
+	ClientID      string   `json:"client_id,omitempty"`
+	ClientSecret  string   `json:"client_secret,omitempty"`
+	Scopes        []string `json:"scopes,omitempty"`
+	AuthServerURL string   `json:"auth_server_url,omitempty"`
+}
+
+// UnmarshalJSON supports both "oauth": true and "oauth": {...}.
+func (o *OAuthConfig) UnmarshalJSON(data []byte) error {
+	if string(data) == "true" {
+		return nil
+	}
+	type alias OAuthConfig
+	return json.Unmarshal(data, (*alias)(o))
+}
+
 // ServerConfig defines a backend MCP server.
 type ServerConfig struct {
 	Name    string            `json:"name"`
@@ -24,6 +42,7 @@ type ServerConfig struct {
 	Type    string            `json:"type,omitempty"`
 	URL     string            `json:"url,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
+	OAuth   *OAuthConfig      `json:"oauth,omitempty"`
 }
 
 // RuleConfig defines a policy rule mapping a tool glob to a verdict.
