@@ -1,6 +1,7 @@
 package sandbox_test
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -154,6 +155,81 @@ func TestService_Provision_NotRunning(t *testing.T) {
 	svc := sandbox.NewService(ml, config.Default(), nopLogger)
 	err := svc.Provision()
 	assert.ErrorContains(t, err, "not running")
+}
+
+func TestService_Create_AlreadyRunning(t *testing.T) {
+	ml := new(mockLima)
+	ml.On("Status").Return(lima.StatusRunning, nil)
+	ml.On("Exec", []string{"mkdir", "-p", "/home/user"}).Return([]byte(""), nil)
+	ml.On("Copy", "/home/user/.zshrc", "/home/user/.zshrc").Return(nil)
+
+	cfg := config.Default()
+	cfg.CopyPaths = []string{"/home/user/.zshrc"}
+
+	svc := sandbox.NewService(ml, cfg, nopLogger)
+	require.NoError(t, svc.Create())
+	ml.AssertNotCalled(t, "Start")
+	ml.AssertCalled(t, "Copy", "/home/user/.zshrc", "/home/user/.zshrc")
+}
+
+func TestService_Create_Stopped(t *testing.T) {
+	ml := new(mockLima)
+	ml.On("Status").Return(lima.StatusStopped, nil).Once()
+	ml.On("Start").Return(nil)
+	ml.On("Status").Return(lima.StatusRunning, nil)
+
+	cfg := config.Default()
+	svc := sandbox.NewService(ml, cfg, nopLogger)
+	require.NoError(t, svc.Create())
+	ml.AssertCalled(t, "Start")
+}
+
+func TestService_Provision_Scripts(t *testing.T) {
+	ml := new(mockLima)
+	ml.On("Status").Return(lima.StatusRunning, nil)
+	ml.On("Copy", "/home/user/setup.sh", "/tmp/sb-provision-script").Return(nil)
+	ml.On("Exec", []string{"chmod", "+x", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
+	ml.On("Exec", []string{"/tmp/sb-provision-script"}).Return([]byte(""), nil)
+	ml.On("Exec", []string{"rm", "-f", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
+
+	cfg := config.Default()
+	cfg.Scripts = []string{"/home/user/setup.sh"}
+
+	svc := sandbox.NewService(ml, cfg, nopLogger)
+	require.NoError(t, svc.Provision())
+	ml.AssertCalled(t, "Copy", "/home/user/setup.sh", "/tmp/sb-provision-script")
+	ml.AssertCalled(t, "Exec", []string{"chmod", "+x", "/tmp/sb-provision-script"})
+	ml.AssertCalled(t, "Exec", []string{"/tmp/sb-provision-script"})
+	ml.AssertCalled(t, "Exec", []string{"rm", "-f", "/tmp/sb-provision-script"})
+}
+
+func TestService_Provision_ScriptExecError(t *testing.T) {
+	ml := new(mockLima)
+	ml.On("Status").Return(lima.StatusRunning, nil)
+	ml.On("Copy", "/home/user/setup.sh", "/tmp/sb-provision-script").Return(nil)
+	ml.On("Exec", []string{"chmod", "+x", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
+	ml.On("Exec", []string{"/tmp/sb-provision-script"}).Return([]byte(""), fmt.Errorf("exit code 1"))
+
+	cfg := config.Default()
+	cfg.Scripts = []string{"/home/user/setup.sh"}
+
+	svc := sandbox.NewService(ml, cfg, nopLogger)
+	err := svc.Provision()
+	assert.ErrorContains(t, err, "failed to run script")
+}
+
+func TestService_Provision_CopyError(t *testing.T) {
+	ml := new(mockLima)
+	ml.On("Status").Return(lima.StatusRunning, nil)
+	ml.On("Exec", []string{"mkdir", "-p", "/home/user"}).Return([]byte(""), nil)
+	ml.On("Copy", "/home/user/.zshrc", "/home/user/.zshrc").Return(fmt.Errorf("copy failed"))
+
+	cfg := config.Default()
+	cfg.CopyPaths = []string{"/home/user/.zshrc"}
+
+	svc := sandbox.NewService(ml, cfg, nopLogger)
+	err := svc.Provision()
+	assert.ErrorContains(t, err, "failed to copy")
 }
 
 func TestService_Shell_Interactive(t *testing.T) {
