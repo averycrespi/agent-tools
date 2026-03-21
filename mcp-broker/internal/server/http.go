@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
@@ -16,7 +17,12 @@ type httpBackend struct {
 }
 
 func newHTTPBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend, error) {
-	c, err := client.NewStreamableHttpClient(srv.URL)
+	var opts []transport.StreamableHTTPCOption
+	if headers := expandEnv(srv.Headers); len(headers) > 0 {
+		opts = append(opts, transport.WithHTTPHeaders(headers))
+	}
+
+	c, err := client.NewStreamableHttpClient(srv.URL, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create HTTP client for %q: %w", srv.Name, err)
 	}

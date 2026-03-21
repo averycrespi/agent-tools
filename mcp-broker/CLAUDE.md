@@ -39,7 +39,7 @@ internal/
 - Errors are wrapped with context: `fmt.Errorf("doing X: %w", err)`
 - Audit write errors are intentionally discarded (`_ =`) — the pipeline should not fail because audit failed
 - Logger is nil-checked in packages that can be constructed without one (broker, dashboard, manager)
-- `expandEnv` in server package only expands full `$VAR` values, not embedded or `${VAR}` syntax
+- `expandEnv` in server package uses `os.ExpandEnv` — supports `$VAR` and `${VAR}` anywhere in the value (e.g., `"Bearer $TOKEN"`)
 - Config file permissions: `0o600` for files, `0o750` for directories
 - `mcp-go` HTTP client constructor is `client.NewStreamableHttpClient` (lowercase h)
 - `ncruces/go-sqlite3` requires `embed` import alongside `driver`

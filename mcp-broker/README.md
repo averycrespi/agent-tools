@@ -50,7 +50,8 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
     {
       "name": "remote",
       "type": "http",
-      "url": "http://localhost:3000/mcp"
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {"Authorization": "Bearer $GITHUB_TOKEN"}
     }
   ],
   "rules": [
@@ -77,9 +78,10 @@ Each server entry connects to a backend MCP server:
 | `name` | Unique name; used as tool prefix (e.g. `github.search`) |
 | `command` | Command to spawn (stdio transport, default) |
 | `args` | Command arguments |
-| `env` | Environment variables; values starting with `$` are expanded from the process environment |
+| `env` | Environment variables; `$VAR` and `${VAR}` references are expanded from the process environment |
 | `type` | Transport type: omit for stdio, `"http"` for Streamable HTTP |
 | `url` | URL for HTTP transport |
+| `headers` | HTTP headers; `$VAR` and `${VAR}` references are expanded from the process environment |
 
 ### Rules
 

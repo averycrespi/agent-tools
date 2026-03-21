@@ -99,3 +99,21 @@ func TestExpandEnv_SubstitutesVariables(t *testing.T) {
 	require.Equal(t, "secret123", result["TOKEN"])
 	require.Equal(t, "plainvalue", result["STATIC"])
 }
+
+func TestExpandEnv_EmbeddedVariables(t *testing.T) {
+	t.Setenv("MY_TOKEN", "ghp_abc123")
+	env := map[string]string{
+		"AUTH": "Bearer $MY_TOKEN",
+	}
+	result := expandEnv(env)
+	require.Equal(t, "Bearer ghp_abc123", result["AUTH"])
+}
+
+func TestExpandEnv_BraceSyntax(t *testing.T) {
+	t.Setenv("MY_TOKEN", "secret123")
+	env := map[string]string{
+		"TOKEN": "${MY_TOKEN}",
+	}
+	result := expandEnv(env)
+	require.Equal(t, "secret123", result["TOKEN"])
+}

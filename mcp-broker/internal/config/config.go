@@ -23,6 +23,7 @@ type ServerConfig struct {
 	Env     map[string]string `json:"env,omitempty"`
 	Type    string            `json:"type,omitempty"`
 	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 // RuleConfig defines a policy rule mapping a tool glob to a verdict.

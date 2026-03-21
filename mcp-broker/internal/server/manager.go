@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 )
@@ -143,18 +142,14 @@ func (m *Manager) Close() error {
 	return nil
 }
 
-// expandEnv substitutes $VAR references in env values from the process environment.
+// expandEnv substitutes $VAR and ${VAR} references in values from the process environment.
 func expandEnv(env map[string]string) map[string]string {
 	if env == nil {
 		return nil
 	}
 	result := make(map[string]string, len(env))
 	for k, v := range env {
-		if strings.HasPrefix(v, "$") {
-			result[k] = os.Getenv(v[1:])
-		} else {
-			result[k] = v
-		}
+		result[k] = os.ExpandEnv(v)
 	}
 	return result
 }
