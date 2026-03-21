@@ -14,7 +14,9 @@ See the [README](worktree-manager/README.md) for more information.
 
 ### MCP Broker
 
-Sandboxed agents need external tools but shouldn't hold secrets or have network access. mcp-broker runs on the host, holds the credentials, and proxies MCP tool calls through a policy layer — glob-based allow/deny rules, human approval for sensitive operations, and a full audit log in SQLite.
+Autonomous agents need to call external APIs (GitHub, Jira, Slack), but giving a sandboxed agent credentials and network access defeats the point of the sandbox. Punching holes per-tool doesn't scale — a real workflow needs dozens of permissions, and every new tool triggers another prompt.
+
+`mcp-broker` runs on the host, holds the secrets, and exposes backend MCP servers through a single endpoint. Agents connect to it as their only MCP server — no credentials, no network access required. Glob-based policy rules control which tools are allowed, sensitive operations require human approval via a web dashboard, and every call is audit-logged in SQLite.
 
 See the [README](mcp-broker/README.md) for more information.
 
