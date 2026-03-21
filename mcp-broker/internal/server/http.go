@@ -11,7 +11,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 )
 
-// httpBackend communicates with an MCP server via Streamable HTTP.
+// httpBackend communicates with an MCP server via Streamable HTTP or SSE.
 type httpBackend struct {
 	client *client.Client
 }
@@ -27,6 +27,32 @@ func newHTTPBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend,
 		return nil, fmt.Errorf("create HTTP client for %q: %w", srv.Name, err)
 	}
 
+	if err := initializeClient(ctx, c, srv.Name); err != nil {
+		return nil, err
+	}
+
+	return &httpBackend{client: c}, nil
+}
+
+func newSSEBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend, error) {
+	var opts []transport.ClientOption
+	if headers := expandEnv(srv.Headers); len(headers) > 0 {
+		opts = append(opts, transport.WithHeaders(headers))
+	}
+
+	c, err := client.NewSSEMCPClient(srv.URL, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("create SSE client for %q: %w", srv.Name, err)
+	}
+
+	if err := initializeClient(ctx, c, srv.Name); err != nil {
+		return nil, err
+	}
+
+	return &httpBackend{client: c}, nil
+}
+
+func initializeClient(ctx context.Context, c *client.Client, name string) error {
 	initReq := mcp.InitializeRequest{}
 	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initReq.Params.ClientInfo = mcp.Implementation{
@@ -36,10 +62,9 @@ func newHTTPBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend,
 
 	if _, err := c.Initialize(ctx, initReq); err != nil {
 		_ = c.Close()
-		return nil, fmt.Errorf("initialize HTTP server %q: %w", srv.Name, err)
+		return fmt.Errorf("initialize server %q: %w", name, err)
 	}
-
-	return &httpBackend{client: c}, nil
+	return nil
 }
 
 func (b *httpBackend) ListTools(ctx context.Context) ([]Tool, error) {

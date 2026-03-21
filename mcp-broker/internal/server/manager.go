@@ -75,6 +75,8 @@ func connect(ctx context.Context, srv config.ServerConfig, logger *slog.Logger) 
 	switch srv.Type {
 	case "http":
 		return newHTTPBackend(ctx, srv)
+	case "sse":
+		return newSSEBackend(ctx, srv)
 	default:
 		// stdio is the default
 		return newStdioBackend(ctx, srv, logger)

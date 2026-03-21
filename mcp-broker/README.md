@@ -48,10 +48,15 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
       "env": {"GITHUB_TOKEN": "$GITHUB_TOKEN"}
     },
     {
-      "name": "remote",
-      "type": "http",
+      "name": "github-remote",
+      "type": "sse",
       "url": "https://api.githubcopilot.com/mcp/",
       "headers": {"Authorization": "Bearer $GITHUB_TOKEN"}
+    },
+    {
+      "name": "internal",
+      "type": "http",
+      "url": "http://localhost:3000/mcp"
     }
   ],
   "rules": [
@@ -79,7 +84,7 @@ Each server entry connects to a backend MCP server:
 | `command` | Command to spawn (stdio transport, default) |
 | `args` | Command arguments |
 | `env` | Environment variables; `$VAR` and `${VAR}` references are expanded from the process environment |
-| `type` | Transport type: omit for stdio, `"http"` for Streamable HTTP |
+| `type` | Transport type: omit for stdio, `"http"` for Streamable HTTP, `"sse"` for SSE |
 | `url` | URL for HTTP transport |
 | `headers` | HTTP headers; `$VAR` and `${VAR}` references are expanded from the process environment |
 

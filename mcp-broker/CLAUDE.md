@@ -29,7 +29,7 @@ internal/
   config/               JSON config with XDG paths, default backfill on load
   rules/                Glob matching (filepath.Match), first-match-wins
   audit/                SQLite (ncruces/go-sqlite3, WASM, no CGO), WAL mode
-  server/               Backend interface with stdio and HTTP transports
+  server/               Backend interface with stdio, HTTP, and SSE transports
   dashboard/            Embedded HTML, SSE updates, implements Approver interface
   broker/               Orchestrator with ServerManager, AuditLogger, Approver interfaces
 ```
