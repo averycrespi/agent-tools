@@ -19,7 +19,7 @@ Run `make audit` before committing. Integration tests use `//go:build integratio
 
 ## Architecture
 
-Single binary, single port. `/mcp` for agents, `/` for the web dashboard.
+Single binary, single port. `/mcp` for agents, `/dashboard/` for the web dashboard.
 
 Pipeline: tool call → rules check → optional approval → proxy to backend → audit.
 
