@@ -16,6 +16,15 @@ type OAuthConfig struct {
     AuthServerURL string   `json:"auth_server_url,omitempty"`
 }
 
+// UnmarshalJSON supports both "oauth": true (all defaults) and "oauth": {...}.
+func (o *OAuthConfig) UnmarshalJSON(data []byte) error {
+    if string(data) == "true" {
+        return nil // zero-value struct = all defaults
+    }
+    type alias OAuthConfig
+    return json.Unmarshal(data, (*alias)(o))
+}
+
 type ServerConfig struct {
     // ... existing fields ...
     OAuth *OAuthConfig `json:"oauth,omitempty"`
@@ -29,7 +38,7 @@ type ServerConfig struct {
 - `scopes` — OAuth scopes to request. If omitted, the server grants its default scopes.
 - `auth_server_url` — Fallback when RFC 9728 metadata discovery doesn't work.
 
-OAuth is enabled when the `oauth` field is present (non-nil pointer).
+OAuth is enabled when the `oauth` field is present (non-nil pointer). Supports `"oauth": true` as shorthand for `"oauth": {}` (all defaults).
 
 **Example configs:**
 
@@ -38,7 +47,7 @@ OAuth is enabled when the `oauth` field is present (non-nil pointer).
   "name": "github",
   "type": "http",
   "url": "https://api.githubcopilot.com/mcp",
-  "oauth": {}
+  "oauth": true
 }
 ```
 
