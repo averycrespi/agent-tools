@@ -1,6 +1,6 @@
 # agent-tools
 
-A collection of CLI tools that reduce the friction of working with AI coding agents.
+A collection of tools that reduce the friction of working with AI coding agents.
 
 ## Tools
 
