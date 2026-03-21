@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(make:*)"
+      "Bash(make:*)",
+      "Bash(go build:*)",
+      "Bash(go install:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(go list:*)",
+      "Bash(go mod:*)",
+      "Bash(go work:*)",
+      "Bash(go tool:*)",
+      "Bash(go env:*)"
     ]
   }
 }
