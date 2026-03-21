@@ -113,7 +113,7 @@ func TestClient_Exec(t *testing.T) {
 
 func TestClient_Shell_Interactive(t *testing.T) {
 	r := new(mockRunner)
-	r.On("RunInteractive", "limactl", "shell", "--workdir", "/", "sb").Return(nil)
+	r.On("RunInteractive", "limactl", "shell", "sb").Return(nil)
 	c := lima.NewClient(r)
 	require.NoError(t, c.Shell())
 	r.AssertExpectations(t)
@@ -121,7 +121,7 @@ func TestClient_Shell_Interactive(t *testing.T) {
 
 func TestClient_Shell_WithCommand(t *testing.T) {
 	r := new(mockRunner)
-	r.On("RunInteractive", "limactl", "shell", "--workdir", "/", "sb", "--", "bash", "-c", "echo hello").Return(nil)
+	r.On("RunInteractive", "limactl", "shell", "sb", "--", "bash", "-c", "echo hello").Return(nil)
 	c := lima.NewClient(r)
 	require.NoError(t, c.Shell("bash", "-c", "echo hello"))
 	r.AssertExpectations(t)

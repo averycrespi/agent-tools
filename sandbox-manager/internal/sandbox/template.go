@@ -20,7 +20,6 @@ type TemplateParams struct {
 	Disk     string
 	Username string
 	UID      int
-	GID      int
 	HomeDir  string
 	Mounts   []string
 }
@@ -37,15 +36,9 @@ func HostTemplateParams() (TemplateParams, error) {
 		return TemplateParams{}, fmt.Errorf("failed to parse UID %q: %w", u.Uid, err)
 	}
 
-	gid, err := strconv.Atoi(u.Gid)
-	if err != nil {
-		return TemplateParams{}, fmt.Errorf("failed to parse GID %q: %w", u.Gid, err)
-	}
-
 	return TemplateParams{
 		Username: u.Username,
 		UID:      uid,
-		GID:      gid,
 		HomeDir:  u.HomeDir,
 	}, nil
 }

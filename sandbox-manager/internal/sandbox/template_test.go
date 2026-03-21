@@ -17,9 +17,9 @@ func TestRenderTemplate_ContainsImage(t *testing.T) {
 		Disk:     "100GiB",
 		Username: "testuser",
 		UID:      501,
-		GID:      20,
-		HomeDir:  "/Users/testuser",
-		Mounts:   []string{"/Users/testuser/work"},
+
+		HomeDir: "/Users/testuser",
+		Mounts:  []string{"/Users/testuser/work"},
 	}
 	out, err := sandbox.RenderTemplate(params)
 	require.NoError(t, err)
@@ -36,9 +36,9 @@ func TestRenderTemplate_NoMounts(t *testing.T) {
 		Disk:     "50GiB",
 		Username: "testuser",
 		UID:      501,
-		GID:      20,
-		HomeDir:  "/Users/testuser",
-		Mounts:   []string{},
+
+		HomeDir: "/Users/testuser",
+		Mounts:  []string{},
 	}
 	out, err := sandbox.RenderTemplate(params)
 	require.NoError(t, err)
@@ -53,9 +53,9 @@ func TestRenderTemplate_MultipleMounts(t *testing.T) {
 		Disk:     "100GiB",
 		Username: "testuser",
 		UID:      501,
-		GID:      20,
-		HomeDir:  "/Users/testuser",
-		Mounts:   []string{"/Users/testuser/work", "/Users/testuser/projects"},
+
+		HomeDir: "/Users/testuser",
+		Mounts:  []string{"/Users/testuser/work", "/Users/testuser/projects"},
 	}
 	out, err := sandbox.RenderTemplate(params)
 	require.NoError(t, err)
@@ -67,6 +67,5 @@ func TestHostTemplateParams(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, params.Username)
 	assert.NotZero(t, params.UID)
-	assert.NotZero(t, params.GID)
 	assert.NotEmpty(t, params.HomeDir)
 }

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/averycrespi/agent-tools/sandbox-manager/internal/config"
 	"github.com/averycrespi/agent-tools/sandbox-manager/internal/lima"
@@ -199,8 +200,8 @@ func (s *Service) Provision() error {
 			return fmt.Errorf("failed to chmod script: %w", err)
 		}
 
-		if _, err := s.lima.Exec(tmpDst); err != nil {
-			return fmt.Errorf("failed to run script %q: %w", script, err)
+		if out, err := s.lima.Exec(tmpDst); err != nil {
+			return fmt.Errorf("failed to run script %q: %s\n%w", script, strings.TrimSpace(string(out)), err)
 		}
 
 		if _, err := s.lima.Exec("rm", "-f", tmpDst); err != nil {

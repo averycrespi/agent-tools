@@ -125,7 +125,7 @@ func (c *Client) Exec(args ...string) ([]byte, error) {
 
 // Shell opens an interactive shell in the VM, or runs a command if args are provided.
 func (c *Client) Shell(args ...string) error {
-	cmdArgs := []string{"shell", "--workdir", "/", vmName}
+	cmdArgs := []string{"shell", vmName}
 	if len(args) > 0 {
 		cmdArgs = append(cmdArgs, "--")
 		cmdArgs = append(cmdArgs, args...)
