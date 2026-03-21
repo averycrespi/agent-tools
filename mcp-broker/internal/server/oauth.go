@@ -71,7 +71,7 @@ func buildOAuthConfig(srv config.ServerConfig) transport.OAuthConfig {
 		cfg.ClientID = srv.OAuth.ClientID
 		cfg.ClientSecret = os.ExpandEnv(srv.OAuth.ClientSecret)
 		cfg.Scopes = srv.OAuth.Scopes
-		cfg.AuthServerMetadataURL = srv.OAuth.AuthServerURL
+		cfg.AuthServerMetadataURL = os.ExpandEnv(srv.OAuth.AuthServerURL)
 	}
 	return cfg
 }
@@ -211,7 +211,7 @@ func runOAuthFlow(ctx context.Context, authErr error, port int) error {
 	openBrowser(authURL)
 
 	// Wait for callback
-	fmt.Fprintf(os.Stderr, "Waiting for authentication callback on localhost:%d...\n", port)
+	fmt.Fprintf(os.Stderr, "Waiting for authentication callback on 127.0.0.1:%d...\n", port)
 	var result callbackResult
 	select {
 	case result = <-callbackCh:
@@ -262,7 +262,7 @@ func startCallbackServer(port int, ch chan<- callbackResult) (*http.Server, erro
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		return nil, fmt.Errorf("listen for callback: %w", err)
 	}
