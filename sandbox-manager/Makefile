@@ -1,13 +1,13 @@
 .PHONY: build test lint fmt tidy audit
 
 build:
-	go build -o /tmp/bin/sb .
+	go build -o sb .
 
 test:
 	go test -race ./...
 
 lint:
-	go tool golangci-lint run
+	go tool golangci-lint run ./...
 
 fmt:
 	go tool goimports -w .
