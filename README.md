@@ -20,6 +20,14 @@ Autonomous agents need to call external APIs (GitHub, Jira, Slack), but giving a
 
 See the [README](mcp-broker/README.md) for more information.
 
+### Sandbox Manager (sb)
+
+Running AI agents with full host access is risky — one bad command can trash your environment. Containers help, but they're optimized for application isolation, not interactive development. What you want is a full VM that feels like a real development machine, is cheap to create and destroy, and can be provisioned to match your workflow.
+
+`sb` wraps Lima to manage a lightweight Linux VM on macOS. `sb create` spins up a provisioned Ubuntu VM with matching UID/GID, writable mounts, and any tools your provisioning scripts install. `sb shell` drops you in. `sb destroy` tears it down. Configuration drives resource allocation, file copying, and provisioning scripts.
+
+See the [README](sandbox-manager/README.md) for more information.
+
 ## License
 
 MIT
