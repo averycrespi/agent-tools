@@ -17,6 +17,10 @@ type httpBackend struct {
 }
 
 func newHTTPBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend, error) {
+	if srv.OAuth != nil {
+		return newOAuthHTTPBackend(ctx, srv)
+	}
+
 	var opts []transport.StreamableHTTPCOption
 	if headers := expandEnv(srv.Headers); len(headers) > 0 {
 		opts = append(opts, transport.WithHTTPHeaders(headers))
@@ -35,6 +39,10 @@ func newHTTPBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend,
 }
 
 func newSSEBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend, error) {
+	if srv.OAuth != nil {
+		return newOAuthSSEBackend(ctx, srv)
+	}
+
 	var opts []transport.ClientOption
 	if headers := expandEnv(srv.Headers); len(headers) > 0 {
 		opts = append(opts, transport.WithHeaders(headers))
