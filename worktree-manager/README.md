@@ -5,7 +5,7 @@ Manage git worktree workspaces with tmux integration. One command to spin up a w
 ## Install
 
 ```bash
-cd worktree-manager && go install .
+cd worktree-manager && make install
 ```
 
 Requires Go 1.25+ and tmux.
@@ -103,6 +103,7 @@ Branch names are sanitized: non-alphanumeric characters (except hyphens) become 
 
 ```bash
 make build    # Build to ./wt
+make install  # Install to $GOPATH/bin/wt
 make test     # Run tests with race detector
 make lint     # Run golangci-lint
 make fmt      # Format with goimports

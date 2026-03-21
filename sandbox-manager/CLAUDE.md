@@ -5,7 +5,8 @@ Go CLI tool (`sb`) for managing a Lima VM sandbox.
 ## Development
 
 ```bash
-make build    # go build -o sb .
+make build    # go build -o sb ./cmd/sb
+make install  # go install ./cmd/sb
 make test     # go test -race ./...
 make lint     # go tool golangci-lint run ./...
 make fmt      # go tool goimports -w .
@@ -18,7 +19,9 @@ Run `make audit` before committing.
 ## Architecture
 
 ```
-cmd/           Cobra commands (thin wrappers, no logic)
+cmd/
+  sb/          CLI entry point (main.go)
+  *.go         Cobra commands (thin wrappers, no logic)
 internal/
   exec/        Runner interface abstracting os/exec
   config/      Config struct + XDG path functions

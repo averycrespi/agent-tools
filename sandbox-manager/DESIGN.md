@@ -11,7 +11,8 @@ The key design goal: **the sandbox should feel like a fresh development machine,
 ## Architecture
 
 ```
-cmd/              Cobra CLI (thin wrappers)
+cmd/
+  sb/             CLI entry point (main.go)
   root.go         Service construction, flags, completion
   create.go       sb create
   start.go        sb start

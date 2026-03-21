@@ -5,7 +5,8 @@ Go CLI tool (`wt`) for managing git worktree workspaces with tmux integration.
 ## Development
 
 ```bash
-make build    # go build -o wt .
+make build    # go build -o wt ./cmd/wt
+make install  # go install ./cmd/wt
 make test     # go test -race ./...
 make lint     # go tool golangci-lint run
 make fmt      # go tool goimports -w .
@@ -18,7 +19,9 @@ Run `make audit` before committing.
 ## Architecture
 
 ```
-cmd/           Cobra commands (thin wrappers, no logic)
+cmd/
+  wt/          CLI entry point (main.go)
+  *.go         Cobra commands (thin wrappers, no logic)
 internal/
   exec/        Runner interface abstracting os/exec
   config/      Config struct + XDG path functions

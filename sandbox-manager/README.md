@@ -5,7 +5,7 @@ Manage a Lima VM sandbox for running AI coding agents in isolation. One command 
 ## Install
 
 ```bash
-cd sandbox-manager && go install .
+cd sandbox-manager && make install
 ```
 
 Requires Go 1.25+ and [Lima](https://lima-vm.io/).
@@ -125,6 +125,7 @@ Copy paths support two formats:
 
 ```bash
 make build    # Build to ./sb
+make install  # Install to $GOPATH/bin/sb
 make test     # Run tests with race detector
 make lint     # Run golangci-lint
 make fmt      # Format with goimports
@@ -137,7 +138,9 @@ make audit    # tidy + fmt + lint + test + govulncheck
 See [DESIGN.md](DESIGN.md) for the full design document.
 
 ```
-cmd/              Cobra CLI (thin wrappers)
+cmd/
+  sb/             CLI entry point
+  *.go            Cobra commands (thin wrappers)
 internal/
   exec/           Runner interface abstracting os/exec
   config/         Config loading + XDG path functions

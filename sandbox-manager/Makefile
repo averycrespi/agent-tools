@@ -1,7 +1,10 @@
-.PHONY: build test lint fmt tidy audit
+.PHONY: build install test lint fmt tidy audit
 
 build:
-	go build -o sb .
+	go build -o sb ./cmd/sb
+
+install:
+	go install ./cmd/sb
 
 test:
 	go test -race ./...

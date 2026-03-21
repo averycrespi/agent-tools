@@ -1,7 +1,10 @@
-.PHONY: build test test-integration lint fmt tidy audit
+.PHONY: build install test test-integration lint fmt tidy audit
 
 build:
 	go build -o mcp-broker ./cmd/mcp-broker
+
+install:
+	go install ./cmd/mcp-broker
 
 test:
 	go test -race ./...

@@ -11,7 +11,8 @@ It's agent-agnostic — configure it to launch Claude Code, Cursor, or anything 
 ## Architecture
 
 ```
-cmd/              Cobra CLI (thin wrappers)
+cmd/
+  wt/             CLI entry point (main.go)
   root.go         Service construction, flags, completion
   add.go          wt add
   rm.go           wt rm
