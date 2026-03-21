@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/averycrespi/agent-tools/sandbox-manager/internal/cmd"
+	"github.com/averycrespi/agent-tools/sandbox-manager/cmd"
 )
 
 func main() {

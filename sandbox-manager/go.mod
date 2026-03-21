@@ -1,6 +1,6 @@
 module github.com/averycrespi/agent-tools/sandbox-manager
 
-go 1.25.0
+go 1.25.7
 
 require (
 	github.com/spf13/cobra v1.10.2
