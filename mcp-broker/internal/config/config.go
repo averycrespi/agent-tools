@@ -8,11 +8,12 @@ import (
 
 // Config is the top-level configuration for mcp-broker.
 type Config struct {
-	Servers []ServerConfig `json:"servers"`
-	Rules   []RuleConfig   `json:"rules"`
-	Port    int            `json:"port"`
-	Audit   AuditConfig    `json:"audit"`
-	Log     LogConfig      `json:"log"`
+	Servers     []ServerConfig `json:"servers"`
+	Rules       []RuleConfig   `json:"rules"`
+	Port        int            `json:"port"`
+	OpenBrowser bool           `json:"open_browser"`
+	Audit       AuditConfig    `json:"audit"`
+	Log         LogConfig      `json:"log"`
 }
 
 // ServerConfig defines a backend MCP server.
@@ -70,7 +71,8 @@ func DefaultConfig() Config {
 		Rules: []RuleConfig{
 			{Tool: "*", Verdict: "require-approval"},
 		},
-		Port: 8200,
+		Port:        8200,
+		OpenBrowser: true,
 		Audit: AuditConfig{
 			Path: filepath.Join(xdgDataHome(), "mcp-broker", "audit.db"),
 		},

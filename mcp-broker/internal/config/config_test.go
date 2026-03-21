@@ -70,6 +70,23 @@ func TestConfig_ServerTypes(t *testing.T) {
 	require.Equal(t, "http://localhost:3000/mcp", cfg.Servers[1].URL)
 }
 
+func TestDefaultConfig_OpenBrowserDefaultsTrue(t *testing.T) {
+	cfg := DefaultConfig()
+	require.True(t, cfg.OpenBrowser)
+}
+
+func TestLoad_OpenBrowserFromJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	err := os.WriteFile(path, []byte(`{"open_browser": false}`), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.False(t, cfg.OpenBrowser)
+}
+
 func TestConfigPath_ReturnsXDGPath(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
