@@ -29,7 +29,7 @@ internal/
   config/               JSON config with XDG paths, default backfill on load
   rules/                Glob matching (filepath.Match), first-match-wins
   audit/                SQLite (ncruces/go-sqlite3, WASM, no CGO), WAL mode
-  server/               Backend interface with stdio, HTTP, and SSE transports
+  server/               Backend interface with stdio, HTTP, SSE, and OAuth transports
   dashboard/            Embedded HTML, SSE updates, implements Approver interface
   broker/               Orchestrator with ServerManager, AuditLogger, Approver interfaces
 ```
@@ -43,3 +43,6 @@ internal/
 - Config file permissions: `0o600` for files, `0o750` for directories
 - `mcp-go` HTTP client constructor is `client.NewStreamableHttpClient` (lowercase h)
 - `ncruces/go-sqlite3` requires `embed` import alongside `driver`
+- OAuth config supports `"oauth": true` (all defaults) or `"oauth": {...}` (with overrides) via custom `UnmarshalJSON`
+- OAuth tokens are stored in the OS keychain via `go-keyring` (service: `mcp-broker`, key: server name)
+- OAuth callback port is deterministic per server name (FNV hash → ephemeral port range)
