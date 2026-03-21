@@ -65,8 +65,9 @@ Render lima.yaml template with host user info + config
   → limactl start --name=sb <template>
   → Provision:
     → For each copy_paths entry:
-      → mkdir -p <parent> in VM
-      → limactl cp <local> sb:<guest>
+      → Expand ~/ to home directory, detect directories (trailing /)
+      → mkdir -p <parent> (or <dst> for directories) in VM
+      → limactl cp [-r] <local> sb:<guest>
     → For each script:
       → limactl cp <script> sb:/tmp/sb-provision-script
       → chmod +x

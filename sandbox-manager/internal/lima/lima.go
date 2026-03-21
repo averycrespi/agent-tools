@@ -97,10 +97,16 @@ func (c *Client) Delete() error {
 	return nil
 }
 
-// Copy copies a file from the host to the VM.
-func (c *Client) Copy(localPath, guestPath string) error {
+// Copy copies a file or directory from the host to the VM.
+// If recursive is true, the -r flag is passed to limactl cp.
+func (c *Client) Copy(localPath, guestPath string, recursive bool) error {
 	dst := vmName + ":" + guestPath
-	if _, err := c.runner.Run("limactl", "cp", localPath, dst); err != nil {
+	args := []string{"cp"}
+	if recursive {
+		args = append(args, "-r")
+	}
+	args = append(args, localPath, dst)
+	if _, err := c.runner.Run("limactl", args...); err != nil {
 		return fmt.Errorf("failed to copy %q to %q: %w", localPath, guestPath, err)
 	}
 	return nil

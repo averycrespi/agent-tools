@@ -17,7 +17,7 @@ type LimaClient interface {
 	Start() error
 	Stop() error
 	Delete() error
-	Copy(localPath, guestPath string) error
+	Copy(localPath, guestPath string, recursive bool) error
 	Exec(args ...string) ([]byte, error)
 	Shell(args ...string) error
 }
@@ -155,18 +155,33 @@ func (s *Service) Provision() error {
 		return fmt.Errorf("VM not running: cannot provision")
 	}
 
-	// Copy files.
+	// Copy files and directories.
 	for _, entry := range s.config.CopyPaths {
-		src, dst := config.ParseCopyPath(entry)
-		s.logger.Debug("copying file", "src", src, "dst", dst)
-
-		// Create parent directory in the VM.
-		parentDir := filepath.Dir(dst)
-		if _, err := s.lima.Exec("mkdir", "-p", parentDir); err != nil {
-			return fmt.Errorf("failed to create directory %q in VM: %w", parentDir, err)
+		src, dst, err := config.ParseCopyPath(entry)
+		if err != nil {
+			return fmt.Errorf("failed to parse copy path %q: %w", entry, err)
 		}
 
-		if err := s.lima.Copy(src, dst); err != nil {
+		info, err := os.Stat(src)
+		if err != nil {
+			return fmt.Errorf("failed to stat %q: %w", src, err)
+		}
+		isDir := info.IsDir()
+		s.logger.Debug("copying path", "src", src, "dst", dst, "dir", isDir)
+
+		// Create parent directory (or the directory itself for dir copies) in the VM.
+		if isDir {
+			if _, err := s.lima.Exec("mkdir", "-p", dst); err != nil {
+				return fmt.Errorf("failed to create directory %q in VM: %w", dst, err)
+			}
+		} else {
+			parentDir := filepath.Dir(dst)
+			if _, err := s.lima.Exec("mkdir", "-p", parentDir); err != nil {
+				return fmt.Errorf("failed to create directory %q in VM: %w", parentDir, err)
+			}
+		}
+
+		if err := s.lima.Copy(src, dst, isDir); err != nil {
 			return fmt.Errorf("failed to copy %q to %q: %w", src, dst, err)
 		}
 	}
@@ -176,7 +191,7 @@ func (s *Service) Provision() error {
 		s.logger.Debug("running script", "script", script)
 
 		tmpDst := "/tmp/sb-provision-script"
-		if err := s.lima.Copy(script, tmpDst); err != nil {
+		if err := s.lima.Copy(script, tmpDst, false); err != nil {
 			return fmt.Errorf("failed to copy script %q to VM: %w", script, err)
 		}
 

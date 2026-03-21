@@ -104,14 +104,43 @@ func Refresh(logger *slog.Logger) error {
 	return nil
 }
 
-// ParseCopyPath splits a copy_paths entry into source and destination.
+// ParseCopyPath splits a copy_paths entry into source and destination,
+// expanding leading "~/" to the user's home directory on both sides.
 // Format: "src:dst" or "src" (dst defaults to src).
-func ParseCopyPath(entry string) (src, dst string) {
+func ParseCopyPath(entry string) (src, dst string, err error) {
 	parts := strings.SplitN(entry, ":", 2)
 	if len(parts) == 2 {
-		return parts[0], parts[1]
+		src, dst = parts[0], parts[1]
+	} else {
+		src, dst = entry, entry
 	}
-	return entry, entry
+
+	src, err = expandTilde(src)
+	if err != nil {
+		return "", "", err
+	}
+	dst, err = expandTilde(dst)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Clean trailing slashes so callers get canonical paths.
+	src = strings.TrimRight(src, "/")
+	dst = strings.TrimRight(dst, "/")
+
+	return src, dst, nil
+}
+
+// expandTilde replaces a leading "~/" with the user's home directory.
+func expandTilde(path string) (string, error) {
+	if !strings.HasPrefix(path, "~/") {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to expand ~: %w", err)
+	}
+	return filepath.Join(home, path[2:]), nil
 }
 
 // ConfigFilePath returns the path to the config file.

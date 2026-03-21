@@ -90,7 +90,15 @@ func TestClient_Copy(t *testing.T) {
 	r := new(mockRunner)
 	r.On("Run", "limactl", "cp", "/host/file", "sb:/guest/file").Return([]byte(""), nil)
 	c := lima.NewClient(r)
-	require.NoError(t, c.Copy("/host/file", "/guest/file"))
+	require.NoError(t, c.Copy("/host/file", "/guest/file", false))
+	r.AssertExpectations(t)
+}
+
+func TestClient_Copy_Recursive(t *testing.T) {
+	r := new(mockRunner)
+	r.On("Run", "limactl", "cp", "-r", "/host/dir", "sb:/guest/dir").Return([]byte(""), nil)
+	c := lima.NewClient(r)
+	require.NoError(t, c.Copy("/host/dir", "/guest/dir", true))
 	r.AssertExpectations(t)
 }
 

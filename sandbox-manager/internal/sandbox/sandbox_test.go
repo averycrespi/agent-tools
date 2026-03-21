@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/sandbox-manager/internal/config"
@@ -43,8 +45,8 @@ func (m *mockLima) Delete() error {
 	return m.Called().Error(0)
 }
 
-func (m *mockLima) Copy(localPath, guestPath string) error {
-	return m.Called(localPath, guestPath).Error(0)
+func (m *mockLima) Copy(localPath, guestPath string, recursive bool) error {
+	return m.Called(localPath, guestPath, recursive).Error(0)
 }
 
 func (m *mockLima) Exec(args ...string) ([]byte, error) {
@@ -135,17 +137,37 @@ func TestService_Destroy_NotCreated(t *testing.T) {
 }
 
 func TestService_Provision_CopyPaths(t *testing.T) {
+	tmpFile := filepath.Join(t.TempDir(), ".zshrc")
+	require.NoError(t, os.WriteFile(tmpFile, []byte(""), 0o644))
+
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
-	ml.On("Exec", []string{"mkdir", "-p", "/home/user"}).Return([]byte(""), nil)
-	ml.On("Copy", "/home/user/.zshrc", "/home/user/.zshrc").Return(nil)
+	ml.On("Exec", []string{"mkdir", "-p", filepath.Dir(tmpFile)}).Return([]byte(""), nil)
+	ml.On("Copy", tmpFile, tmpFile, false).Return(nil)
 
 	cfg := config.Default()
-	cfg.CopyPaths = []string{"/home/user/.zshrc"}
+	cfg.CopyPaths = []string{tmpFile}
 
 	svc := sandbox.NewService(ml, cfg, nopLogger)
 	require.NoError(t, svc.Provision())
-	ml.AssertCalled(t, "Copy", "/home/user/.zshrc", "/home/user/.zshrc")
+	ml.AssertCalled(t, "Copy", tmpFile, tmpFile, false)
+}
+
+func TestService_Provision_CopyPaths_Directory(t *testing.T) {
+	tmpDir := filepath.Join(t.TempDir(), "commands")
+	require.NoError(t, os.MkdirAll(tmpDir, 0o755))
+
+	ml := new(mockLima)
+	ml.On("Status").Return(lima.StatusRunning, nil)
+	ml.On("Exec", []string{"mkdir", "-p", tmpDir}).Return([]byte(""), nil)
+	ml.On("Copy", tmpDir, tmpDir, true).Return(nil)
+
+	cfg := config.Default()
+	cfg.CopyPaths = []string{tmpDir}
+
+	svc := sandbox.NewService(ml, cfg, nopLogger)
+	require.NoError(t, svc.Provision())
+	ml.AssertCalled(t, "Copy", tmpDir, tmpDir, true)
 }
 
 func TestService_Provision_NotRunning(t *testing.T) {
@@ -158,18 +180,21 @@ func TestService_Provision_NotRunning(t *testing.T) {
 }
 
 func TestService_Create_AlreadyRunning(t *testing.T) {
+	tmpFile := filepath.Join(t.TempDir(), ".zshrc")
+	require.NoError(t, os.WriteFile(tmpFile, []byte(""), 0o644))
+
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
-	ml.On("Exec", []string{"mkdir", "-p", "/home/user"}).Return([]byte(""), nil)
-	ml.On("Copy", "/home/user/.zshrc", "/home/user/.zshrc").Return(nil)
+	ml.On("Exec", []string{"mkdir", "-p", filepath.Dir(tmpFile)}).Return([]byte(""), nil)
+	ml.On("Copy", tmpFile, tmpFile, false).Return(nil)
 
 	cfg := config.Default()
-	cfg.CopyPaths = []string{"/home/user/.zshrc"}
+	cfg.CopyPaths = []string{tmpFile}
 
 	svc := sandbox.NewService(ml, cfg, nopLogger)
 	require.NoError(t, svc.Create())
 	ml.AssertNotCalled(t, "Start")
-	ml.AssertCalled(t, "Copy", "/home/user/.zshrc", "/home/user/.zshrc")
+	ml.AssertCalled(t, "Copy", tmpFile, tmpFile, false)
 }
 
 func TestService_Create_Stopped(t *testing.T) {
@@ -187,7 +212,7 @@ func TestService_Create_Stopped(t *testing.T) {
 func TestService_Provision_Scripts(t *testing.T) {
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
-	ml.On("Copy", "/home/user/setup.sh", "/tmp/sb-provision-script").Return(nil)
+	ml.On("Copy", "/home/user/setup.sh", "/tmp/sb-provision-script", false).Return(nil)
 	ml.On("Exec", []string{"chmod", "+x", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
 	ml.On("Exec", []string{"/tmp/sb-provision-script"}).Return([]byte(""), nil)
 	ml.On("Exec", []string{"rm", "-f", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
@@ -197,7 +222,7 @@ func TestService_Provision_Scripts(t *testing.T) {
 
 	svc := sandbox.NewService(ml, cfg, nopLogger)
 	require.NoError(t, svc.Provision())
-	ml.AssertCalled(t, "Copy", "/home/user/setup.sh", "/tmp/sb-provision-script")
+	ml.AssertCalled(t, "Copy", "/home/user/setup.sh", "/tmp/sb-provision-script", false)
 	ml.AssertCalled(t, "Exec", []string{"chmod", "+x", "/tmp/sb-provision-script"})
 	ml.AssertCalled(t, "Exec", []string{"/tmp/sb-provision-script"})
 	ml.AssertCalled(t, "Exec", []string{"rm", "-f", "/tmp/sb-provision-script"})
@@ -206,7 +231,7 @@ func TestService_Provision_Scripts(t *testing.T) {
 func TestService_Provision_ScriptExecError(t *testing.T) {
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
-	ml.On("Copy", "/home/user/setup.sh", "/tmp/sb-provision-script").Return(nil)
+	ml.On("Copy", "/home/user/setup.sh", "/tmp/sb-provision-script", false).Return(nil)
 	ml.On("Exec", []string{"chmod", "+x", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
 	ml.On("Exec", []string{"/tmp/sb-provision-script"}).Return([]byte(""), fmt.Errorf("exit code 1"))
 
@@ -219,13 +244,16 @@ func TestService_Provision_ScriptExecError(t *testing.T) {
 }
 
 func TestService_Provision_CopyError(t *testing.T) {
+	tmpFile := filepath.Join(t.TempDir(), ".zshrc")
+	require.NoError(t, os.WriteFile(tmpFile, []byte(""), 0o644))
+
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
-	ml.On("Exec", []string{"mkdir", "-p", "/home/user"}).Return([]byte(""), nil)
-	ml.On("Copy", "/home/user/.zshrc", "/home/user/.zshrc").Return(fmt.Errorf("copy failed"))
+	ml.On("Exec", []string{"mkdir", "-p", filepath.Dir(tmpFile)}).Return([]byte(""), nil)
+	ml.On("Copy", tmpFile, tmpFile, false).Return(fmt.Errorf("copy failed"))
 
 	cfg := config.Default()
-	cfg.CopyPaths = []string{"/home/user/.zshrc"}
+	cfg.CopyPaths = []string{tmpFile}
 
 	svc := sandbox.NewService(ml, cfg, nopLogger)
 	err := svc.Provision()

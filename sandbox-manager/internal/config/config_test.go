@@ -66,15 +66,37 @@ func TestRefresh_CreatesDefaultConfig(t *testing.T) {
 }
 
 func TestParseCopyPath_PlainPath(t *testing.T) {
-	src, dst := config.ParseCopyPath("/home/user/.zshrc")
+	src, dst, err := config.ParseCopyPath("/home/user/.zshrc")
+	require.NoError(t, err)
 	assert.Equal(t, "/home/user/.zshrc", src)
 	assert.Equal(t, "/home/user/.zshrc", dst)
 }
 
 func TestParseCopyPath_MappedPath(t *testing.T) {
-	src, dst := config.ParseCopyPath("/host/settings.json:/guest/settings.json")
+	src, dst, err := config.ParseCopyPath("/host/settings.json:/guest/settings.json")
+	require.NoError(t, err)
 	assert.Equal(t, "/host/settings.json", src)
 	assert.Equal(t, "/guest/settings.json", dst)
+}
+
+func TestParseCopyPath_TildeExpansion(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	src, dst, err := config.ParseCopyPath("~/.zshrc")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, ".zshrc"), src)
+	assert.Equal(t, filepath.Join(home, ".zshrc"), dst)
+}
+
+func TestParseCopyPath_TildeExpansion_MappedPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	src, dst, err := config.ParseCopyPath("~/.claude/sandbox/CLAUDE.md:~/.claude/CLAUDE.md")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, ".claude/sandbox/CLAUDE.md"), src)
+	assert.Equal(t, filepath.Join(home, ".claude/CLAUDE.md"), dst)
 }
 
 func TestConfigFilePath_XDGOverride(t *testing.T) {

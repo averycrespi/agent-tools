@@ -105,7 +105,7 @@ Config file: `~/.config/sb/config.json` (follows XDG)
 | `memory`     | string   | `"4GiB"`         | Memory allocated to the VM                                            |
 | `disk`       | string   | `"100GiB"`       | Disk size for the VM                                                  |
 | `mounts`     | string[] | `[]`             | Host directories to mount (writable) in the VM                        |
-| `copy_paths` | string[] | `[]`             | Files to copy into the VM (format: `"src"` or `"src:dst"`)           |
+| `copy_paths` | string[] | `[]`             | Files/directories to copy into the VM (format: `"src"` or `"src:dst"`, `~/` supported) |
 | `scripts`    | string[] | `[]`             | Provisioning scripts to run in the VM (paths relative to host)        |
 
 ### Copy paths
@@ -113,6 +113,8 @@ Config file: `~/.config/sb/config.json` (follows XDG)
 Copy paths support two formats:
 - `"path/to/file"` — copies to the same path in the VM
 - `"local/path:guest/path"` — copies to a different path in the VM
+
+Paths starting with `~/` are expanded to the user's home directory. Directories are detected automatically and copied recursively.
 
 ## Paths
 
