@@ -45,6 +45,11 @@ func newSSEBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend, 
 		return nil, fmt.Errorf("create SSE client for %q: %w", srv.Name, err)
 	}
 
+	if err := c.Start(ctx); err != nil {
+		_ = c.Close()
+		return nil, fmt.Errorf("start SSE client for %q: %w", srv.Name, err)
+	}
+
 	if err := initializeClient(ctx, c, srv.Name); err != nil {
 		return nil, err
 	}
