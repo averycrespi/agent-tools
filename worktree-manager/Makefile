@@ -4,7 +4,7 @@ build:
 	go build -o wt ./cmd/wt
 
 install:
-	go install ./cmd/wt
+	GOBIN=$(shell go env GOPATH)/bin go install ./cmd/wt
 
 test:
 	go test -race ./...

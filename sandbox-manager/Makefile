@@ -4,7 +4,7 @@ build:
 	go build -o sb ./cmd/sb
 
 install:
-	go install ./cmd/sb
+	GOBIN=$(shell go env GOPATH)/bin go install ./cmd/sb
 
 test:
 	go test -race ./...

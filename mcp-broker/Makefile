@@ -4,7 +4,7 @@ build:
 	go build -o mcp-broker ./cmd/mcp-broker
 
 install:
-	go install ./cmd/mcp-broker
+	GOBIN=$(shell go env GOPATH)/bin go install ./cmd/mcp-broker
 
 test:
 	go test -race ./...
