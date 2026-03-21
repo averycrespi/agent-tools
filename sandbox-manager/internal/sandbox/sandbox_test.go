@@ -139,35 +139,40 @@ func TestService_Destroy_NotCreated(t *testing.T) {
 func TestService_Provision_CopyPaths(t *testing.T) {
 	tmpFile := filepath.Join(t.TempDir(), ".zshrc")
 	require.NoError(t, os.WriteFile(tmpFile, []byte(""), 0o644))
+	// EvalSymlinks resolves /var -> /private/var on macOS.
+	resolvedFile, err := filepath.EvalSymlinks(tmpFile)
+	require.NoError(t, err)
 
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
 	ml.On("Exec", []string{"mkdir", "-p", filepath.Dir(tmpFile)}).Return([]byte(""), nil)
-	ml.On("Copy", tmpFile, tmpFile, false).Return(nil)
+	ml.On("Copy", resolvedFile, tmpFile, false).Return(nil)
 
 	cfg := config.Default()
 	cfg.CopyPaths = []string{tmpFile}
 
 	svc := sandbox.NewService(ml, cfg, nopLogger)
 	require.NoError(t, svc.Provision())
-	ml.AssertCalled(t, "Copy", tmpFile, tmpFile, false)
+	ml.AssertCalled(t, "Copy", resolvedFile, tmpFile, false)
 }
 
 func TestService_Provision_CopyPaths_Directory(t *testing.T) {
 	tmpDir := filepath.Join(t.TempDir(), "commands")
 	require.NoError(t, os.MkdirAll(tmpDir, 0o755))
+	resolvedDir, err := filepath.EvalSymlinks(tmpDir)
+	require.NoError(t, err)
 
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
 	ml.On("Exec", []string{"mkdir", "-p", tmpDir}).Return([]byte(""), nil)
-	ml.On("Copy", tmpDir, tmpDir, true).Return(nil)
+	ml.On("Copy", resolvedDir, tmpDir, true).Return(nil)
 
 	cfg := config.Default()
 	cfg.CopyPaths = []string{tmpDir}
 
 	svc := sandbox.NewService(ml, cfg, nopLogger)
 	require.NoError(t, svc.Provision())
-	ml.AssertCalled(t, "Copy", tmpDir, tmpDir, true)
+	ml.AssertCalled(t, "Copy", resolvedDir, tmpDir, true)
 }
 
 func TestService_Provision_NotRunning(t *testing.T) {
@@ -182,11 +187,13 @@ func TestService_Provision_NotRunning(t *testing.T) {
 func TestService_Create_AlreadyRunning(t *testing.T) {
 	tmpFile := filepath.Join(t.TempDir(), ".zshrc")
 	require.NoError(t, os.WriteFile(tmpFile, []byte(""), 0o644))
+	resolvedFile, err := filepath.EvalSymlinks(tmpFile)
+	require.NoError(t, err)
 
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
 	ml.On("Exec", []string{"mkdir", "-p", filepath.Dir(tmpFile)}).Return([]byte(""), nil)
-	ml.On("Copy", tmpFile, tmpFile, false).Return(nil)
+	ml.On("Copy", resolvedFile, tmpFile, false).Return(nil)
 
 	cfg := config.Default()
 	cfg.CopyPaths = []string{tmpFile}
@@ -194,7 +201,7 @@ func TestService_Create_AlreadyRunning(t *testing.T) {
 	svc := sandbox.NewService(ml, cfg, nopLogger)
 	require.NoError(t, svc.Create())
 	ml.AssertNotCalled(t, "Start")
-	ml.AssertCalled(t, "Copy", tmpFile, tmpFile, false)
+	ml.AssertCalled(t, "Copy", resolvedFile, tmpFile, false)
 }
 
 func TestService_Create_Stopped(t *testing.T) {
@@ -246,17 +253,19 @@ func TestService_Provision_ScriptExecError(t *testing.T) {
 func TestService_Provision_CopyError(t *testing.T) {
 	tmpFile := filepath.Join(t.TempDir(), ".zshrc")
 	require.NoError(t, os.WriteFile(tmpFile, []byte(""), 0o644))
+	resolvedFile, err := filepath.EvalSymlinks(tmpFile)
+	require.NoError(t, err)
 
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
 	ml.On("Exec", []string{"mkdir", "-p", filepath.Dir(tmpFile)}).Return([]byte(""), nil)
-	ml.On("Copy", tmpFile, tmpFile, false).Return(fmt.Errorf("copy failed"))
+	ml.On("Copy", resolvedFile, tmpFile, false).Return(fmt.Errorf("copy failed"))
 
 	cfg := config.Default()
 	cfg.CopyPaths = []string{tmpFile}
 
 	svc := sandbox.NewService(ml, cfg, nopLogger)
-	err := svc.Provision()
+	err = svc.Provision()
 	assert.ErrorContains(t, err, "failed to copy")
 }
 

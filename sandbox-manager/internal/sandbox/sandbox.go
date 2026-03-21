@@ -163,12 +163,18 @@ func (s *Service) Provision() error {
 			return fmt.Errorf("failed to parse copy path %q: %w", entry, err)
 		}
 
-		info, err := os.Stat(src)
+		// Resolve symlinks so the actual file content is copied, not the link.
+		resolved, err := filepath.EvalSymlinks(src)
 		if err != nil {
-			return fmt.Errorf("failed to stat %q: %w", src, err)
+			return fmt.Errorf("failed to resolve symlink %q: %w", src, err)
+		}
+
+		info, err := os.Stat(resolved)
+		if err != nil {
+			return fmt.Errorf("failed to stat %q: %w", resolved, err)
 		}
 		isDir := info.IsDir()
-		s.logger.Debug("copying path", "src", src, "dst", dst, "dir", isDir)
+		s.logger.Debug("copying path", "src", resolved, "dst", dst, "dir", isDir)
 
 		// Create parent directory (or the directory itself for dir copies) in the VM.
 		if isDir {
@@ -182,8 +188,8 @@ func (s *Service) Provision() error {
 			}
 		}
 
-		if err := s.lima.Copy(src, dst, isDir); err != nil {
-			return fmt.Errorf("failed to copy %q to %q: %w", src, dst, err)
+		if err := s.lima.Copy(resolved, dst, isDir); err != nil {
+			return fmt.Errorf("failed to copy %q to %q: %w", resolved, dst, err)
 		}
 	}
 
