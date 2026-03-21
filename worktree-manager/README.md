@@ -102,8 +102,10 @@ Branch names are sanitized: non-alphanumeric characters (except hyphens) become 
 ## Development
 
 ```bash
+make build    # Build to ./wt
 make test     # Run tests with race detector
 make lint     # Run golangci-lint
-make build    # Build to /tmp/bin/wt
-make audit    # Run tidy + fmt + lint + test + govulncheck
+make fmt      # Format with goimports
+make tidy     # go mod tidy + verify
+make audit    # tidy + fmt + lint + test + govulncheck
 ```

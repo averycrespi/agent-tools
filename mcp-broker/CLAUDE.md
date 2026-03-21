@@ -1,33 +1,37 @@
 # mcp-broker
 
+MCP proxy that lets sandboxed agents use external tools without holding secrets.
+
 ## Development
 
-All commands run from the `mcp-broker/` directory.
-
 ```bash
-make build     # Build to ./mcp-broker
-make test      # Tests with -race
-make lint      # golangci-lint (must use ./... to find subdirectory packages)
-make audit     # Full quality gate: tidy, fmt, lint, test, govulncheck
+make build              # go build -o mcp-broker ./cmd/mcp-broker
+make test               # go test -race ./...
+make test-integration   # go test -race -tags=integration ./...
+make lint               # go tool golangci-lint run ./...
+make fmt                # go tool goimports -w .
+make tidy               # go mod tidy && go mod verify
+make audit              # tidy + fmt + lint + test + govulncheck
 ```
 
-Tool dependencies (golangci-lint, goimports, govulncheck) are declared as `tool` directives in `go.mod` and invoked via `go tool <name>`.
-
-Integration tests use `//go:build integration` and run with `go test -tags=integration ./...`.
+Run `make audit` before committing. Integration tests use `//go:build integration`.
 
 ## Architecture
 
-Single Go binary, single port. MCP endpoint at `/mcp`, web dashboard at `/`.
+Single binary, single port. `/mcp` for agents, `/` for the web dashboard.
 
-Pipeline: tool call -> rules check -> optional approval -> proxy to backend -> audit.
+Pipeline: tool call → rules check → optional approval → proxy to backend → audit.
 
-Key packages:
-- `internal/config` — JSON config with XDG paths, default backfill on load
-- `internal/rules` — glob matching via `filepath.Match`, first-match-wins
-- `internal/audit` — SQLite with `ncruces/go-sqlite3` (WASM, no CGO), WAL mode
-- `internal/server` — `Backend` interface with stdio and HTTP implementations; tools namespaced as `<server>.<tool>`
-- `internal/dashboard` — embedded HTML, SSE for real-time updates, implements `Approver` interface
-- `internal/broker` — orchestrator with `ServerManager`, `AuditLogger`, `Approver` interfaces
+```
+cmd/mcp-broker/         CLI entry point (Cobra)
+internal/
+  config/               JSON config with XDG paths, default backfill on load
+  rules/                Glob matching (filepath.Match), first-match-wins
+  audit/                SQLite (ncruces/go-sqlite3, WASM, no CGO), WAL mode
+  server/               Backend interface with stdio and HTTP transports
+  dashboard/            Embedded HTML, SSE updates, implements Approver interface
+  broker/               Orchestrator with ServerManager, AuditLogger, Approver interfaces
+```
 
 ## Conventions
 
@@ -36,10 +40,5 @@ Key packages:
 - Logger is nil-checked in packages that can be constructed without one (broker, dashboard, manager)
 - `expandEnv` in server package only expands full `$VAR` values, not embedded or `${VAR}` syntax
 - Config file permissions: `0o600` for files, `0o750` for directories
-
-## Dependencies
-
-- `mcp-go` v0.45.0 — HTTP client constructor is `client.NewStreamableHttpClient` (lowercase h), returns `*client.Client`
-- `ncruces/go-sqlite3` — WASM-based SQLite, requires `embed` import alongside `driver`
-- `cobra` — CLI framework
-- `testify` — test assertions and mocks
+- `mcp-go` HTTP client constructor is `client.NewStreamableHttpClient` (lowercase h)
+- `ncruces/go-sqlite3` requires `embed` import alongside `driver`

@@ -14,9 +14,9 @@ See the [README](worktree-manager/README.md) for more information.
 
 ### MCP Broker
 
-A generic MCP proxy that connects to backend MCP servers and exposes them through a single endpoint with policy rules, human approval, and audit logging.
+Sandboxed agents need external tools but shouldn't hold secrets or have network access. mcp-broker runs on the host, holds the credentials, and proxies MCP tool calls through a policy layer — glob-based allow/deny rules, human approval for sensitive operations, and a full audit log in SQLite.
 
-See [`mcp-broker/`](mcp-broker/) for details.
+See the [README](mcp-broker/README.md) for more information.
 
 ## License
 

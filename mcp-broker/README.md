@@ -106,12 +106,13 @@ mcp-broker config edit        # Open config in $EDITOR
 ## Development
 
 ```bash
-make build     # Build binary to ./mcp-broker
-make test      # Run tests with race detector
-make lint      # Run golangci-lint
-make fmt       # Format with goimports
-make tidy      # go mod tidy && verify
-make audit     # All of the above + govulncheck
+make build              # Build binary to ./mcp-broker
+make test               # Run tests with race detector
+make test-integration   # Run integration tests (-tags=integration)
+make lint               # Run golangci-lint
+make fmt                # Format with goimports
+make tidy               # go mod tidy + verify
+make audit              # tidy + fmt + lint + test + govulncheck
 ```
 
 Requires Go 1.25+. Tool dependencies (golangci-lint, goimports, govulncheck) are managed via `go tool` directives in `go.mod`.
