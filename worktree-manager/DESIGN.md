@@ -1,4 +1,4 @@
-# Design
+# worktree-manager Design
 
 ## Motivation
 

@@ -1,4 +1,4 @@
-# mcp-broker
+# MCP Broker
 
 An MCP proxy that lets sandboxed agents use external tools without holding secrets.
 
