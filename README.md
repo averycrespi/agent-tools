@@ -2,6 +2,20 @@
 
 A collection of tools that reduce the friction of working with AI coding agents.
 
+## Getting Started
+
+Requires Go 1.25+ and macOS.
+
+```bash
+# Install system dependencies
+brew bundle
+
+# Install a tool (from its directory)
+cd worktree-manager && make install
+cd sandbox-manager && make install
+cd mcp-broker && make install
+```
+
 ## Tools
 
 ### Worktree Manager (wt)
