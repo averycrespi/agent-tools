@@ -1,6 +1,6 @@
 # Worktree Manager (wt)
 
-Manage git worktree workspaces with tmux integration. One command to spin up a workspace (worktree + tmux window + agent launch), one command to tear it down.
+Manage git worktrees with tmux integration. One command to spin up a worktree with a tmux window and agent launch, one command to tear it down.
 
 ## Install
 
@@ -13,7 +13,7 @@ Requires Go 1.25+ and tmux.
 ## Quick Start
 
 ```bash
-# Create a workspace for a branch
+# Create a worktree for a branch
 wt add feat/my-feature
 
 # Create and immediately attach
@@ -25,10 +25,10 @@ wt attach
 # Attach to a specific branch window
 wt attach feat/my-feature
 
-# Remove a workspace
+# Remove a worktree
 wt rm feat/my-feature
 
-# Remove workspace and delete the branch
+# Remove worktree and delete the branch
 wt rm -d feat/my-feature
 ```
 
@@ -36,7 +36,7 @@ wt rm -d feat/my-feature
 
 ### `wt add <branch> [-a]`
 
-Creates a workspace for the given branch:
+Creates a worktree for the given branch:
 
 1. Creates a git worktree at `~/.local/share/wt/worktrees/<repo>/<repo>-<branch>`
 2. Copies any configured files from the main repo
@@ -48,7 +48,7 @@ Skips any steps already completed. Pass `-a` to attach after creation.
 
 ### `wt rm <branch> [-d | -D]`
 
-Removes the workspace for the given branch:
+Removes the worktree for the given branch:
 
 1. Removes the git worktree
 2. Kills the tmux window

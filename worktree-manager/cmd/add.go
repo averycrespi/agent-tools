@@ -9,8 +9,8 @@ import (
 
 var addCmd = &cobra.Command{
 	Use:   "add <branch>",
-	Short: "Add a workspace",
-	Long: `Add a workspace (worktree + tmux window) for a branch.
+	Short: "Add a worktree",
+	Long: `Add a worktree with a tmux window for a branch.
 
 Skips any steps which have already been completed.
 Must be run from the main repository, not a worktree.`,
@@ -32,7 +32,7 @@ Must be run from the main repository, not a worktree.`,
 }
 
 func init() {
-	addCmd.Flags().BoolP("attach", "a", false, "attach to the workspace after creation")
+	addCmd.Flags().BoolP("attach", "a", false, "attach to the worktree after creation")
 	addCmd.ValidArgsFunction = completeBranches
 	rootCmd.AddCommand(addCmd)
 }

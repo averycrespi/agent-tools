@@ -1,6 +1,6 @@
 # worktree-manager
 
-Go CLI tool (`wt`) for managing git worktree workspaces with tmux integration.
+Go CLI tool (`wt`) for managing git worktrees with tmux integration.
 
 ## Development
 

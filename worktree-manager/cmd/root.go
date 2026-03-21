@@ -21,7 +21,7 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:           "wt",
-	Short:         "Manage git worktree workspaces",
+	Short:         "Manage git worktrees",
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {

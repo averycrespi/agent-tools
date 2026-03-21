@@ -9,8 +9,8 @@ import (
 
 var rmCmd = &cobra.Command{
 	Use:   "rm <branch>",
-	Short: "Remove a workspace",
-	Long: `Remove the workspace (worktree + tmux window) for a branch.
+	Short: "Remove a worktree",
+	Long: `Remove the worktree and tmux window for a branch.
 
 Skips any steps which have already been completed.
 Does NOT delete the branch itself unless -d or -D is passed.

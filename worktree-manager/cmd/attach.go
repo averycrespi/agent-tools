@@ -10,7 +10,7 @@ import (
 var attachCmd = &cobra.Command{
 	Use:   "attach [branch]",
 	Short: "Attach to a window or session",
-	Long: `Attach to a workspace's window (if branch provided), or the session itself (otherwise).
+	Long: `Attach to a worktree's window (if branch provided), or the session itself (otherwise).
 
 Creates the session if it doesn't already exist.
 Switches windows (instead of attaching) if already inside the session.`,

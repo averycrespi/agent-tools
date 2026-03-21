@@ -4,7 +4,7 @@
 
 Working with AI coding agents across multiple branches means repetitive setup: create a git worktree, open a tmux window, copy config files, launch the agent. Reverse it all when done. Multiply by several concurrent tasks and it's a lot of ceremony.
 
-`wt` reduces that to `wt add <branch>` and `wt rm <branch>`. One command to create a fully configured workspace. One command to tear it down. One command (`wt attach`) to jump between them.
+`wt` reduces that to `wt add <branch>` and `wt rm <branch>`. One command to create a fully configured worktree. One command to tear it down. One command (`wt attach`) to jump between them.
 
 It's agent-agnostic — configure it to launch Claude Code, Cursor, or anything else.
 
@@ -51,7 +51,7 @@ All external commands flow through `exec.Runner`, an interface with `Run`, `RunD
 
 **XDG base directories.** Config in `$XDG_CONFIG_HOME/wt`, data in `$XDG_DATA_HOME/wt`. Falls back to `~/.config` and `~/.local/share` per the XDG spec.
 
-### Workspace Lifecycle
+### Worktree Lifecycle
 
 **Add (`wt add feat/thing`):**
 
