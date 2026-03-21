@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -27,6 +29,7 @@ import (
 func init() {
 	rootCmd.AddCommand(serveCmd)
 	serveCmd.Flags().String("log-level", "", "log level override (debug, info, warn, error)")
+	serveCmd.Flags().Bool("no-open", false, "do not open dashboard in browser")
 }
 
 var serveCmd = &cobra.Command{
@@ -126,6 +129,16 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		errCh <- srv.ListenAndServe()
 	}()
 
+	// Open browser if enabled
+	noOpen, _ := cmd.Flags().GetBool("no-open")
+	if cfg.OpenBrowser && !noOpen {
+		dashURL := fmt.Sprintf("http://localhost:%d/dashboard/", cfg.Port)
+		logger.Debug("opening browser", "url", dashURL)
+		if err := openBrowser(dashURL); err != nil {
+			logger.Warn("failed to open browser", "error", err)
+		}
+	}
+
 	select {
 	case <-stop:
 		logger.Info("shutting down, send again to force exit")
@@ -141,6 +154,17 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		}
 		return nil
 	}
+}
+
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	return cmd.Start()
 }
 
 func toolToMCPTool(t server.Tool) gomcp.Tool {
