@@ -99,6 +99,10 @@ func (c *Client) RemoveWorktree(repoRoot, path string) error {
 // DeleteBranch deletes a local git branch.
 // If force is true, uses -D (force delete). Otherwise uses -d (safe delete).
 func (c *Client) DeleteBranch(repoRoot, branch string, force bool) error {
+	// Check if the branch exists before attempting to delete it.
+	if _, err := c.runner.RunDir(repoRoot, "git", "rev-parse", "--verify", "refs/heads/"+branch); err != nil {
+		return nil
+	}
 	flag := "-d"
 	if force {
 		flag = "-D"

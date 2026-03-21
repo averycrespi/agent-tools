@@ -159,6 +159,7 @@ func TestClient_RemoveWorktree(t *testing.T) {
 
 func TestClient_DeleteBranch_Safe(t *testing.T) {
 	r := new(mockRunner)
+	r.On("RunDir", "/repo", "git", []string{"rev-parse", "--verify", "refs/heads/feat"}).Return([]byte("abc123"), nil)
 	r.On("RunDir", "/repo", "git", []string{"branch", "-d", "feat"}).Return([]byte(""), nil)
 
 	client := NewClient(r)
@@ -170,6 +171,7 @@ func TestClient_DeleteBranch_Safe(t *testing.T) {
 
 func TestClient_DeleteBranch_Force(t *testing.T) {
 	r := new(mockRunner)
+	r.On("RunDir", "/repo", "git", []string{"rev-parse", "--verify", "refs/heads/feat"}).Return([]byte("abc123"), nil)
 	r.On("RunDir", "/repo", "git", []string{"branch", "-D", "feat"}).Return([]byte(""), nil)
 
 	client := NewClient(r)
@@ -179,8 +181,20 @@ func TestClient_DeleteBranch_Force(t *testing.T) {
 	r.AssertExpectations(t)
 }
 
+func TestClient_DeleteBranch_NotFound(t *testing.T) {
+	r := new(mockRunner)
+	r.On("RunDir", "/repo", "git", []string{"rev-parse", "--verify", "refs/heads/feat"}).Return([]byte(""), assert.AnError)
+
+	client := NewClient(r)
+	err := client.DeleteBranch("/repo", "feat", false)
+
+	require.NoError(t, err)
+	r.AssertNotCalled(t, "RunDir", "/repo", "git", []string{"branch", "-d", "feat"})
+}
+
 func TestClient_DeleteBranch_Error(t *testing.T) {
 	r := new(mockRunner)
+	r.On("RunDir", "/repo", "git", []string{"rev-parse", "--verify", "refs/heads/feat"}).Return([]byte("abc123"), nil)
 	r.On("RunDir", "/repo", "git", []string{"branch", "-d", "feat"}).Return([]byte("error: branch 'feat' is not fully merged"), assert.AnError)
 
 	client := NewClient(r)
