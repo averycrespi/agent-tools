@@ -104,9 +104,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	streamHandler := mcpserver.NewStreamableHTTPServer(mcpSrv)
 	mux.Handle("/mcp", streamHandler)
 
-	// Mount dashboard at / (everything else)
+	// Mount dashboard at /dashboard
 	dashHandler := dash.Handler()
-	mux.Handle("/", dashHandler)
+	mux.Handle("/dashboard/", http.StripPrefix("/dashboard", dashHandler))
+
+	// Redirect root to dashboard
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/dashboard/", http.StatusFound)
+	})
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}

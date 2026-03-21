@@ -858,7 +858,7 @@ var cards = new Map();
 var toolDescriptions = {};
 
 // Load tool descriptions for use in approval cards
-fetch('/api/tools').then(function(r) { return r.json(); }).then(function(data) {
+fetch('api/tools').then(function(r) { return r.json(); }).then(function(data) {
   var tools = data.tools || [];
   tools.forEach(function(tool) {
     if (tool.description) toolDescriptions[tool.name] = tool.description;
@@ -908,7 +908,7 @@ function removeCard(id) {
 }
 
 function decide(id, decision) {
-  fetch('/api/decide', {
+  fetch('api/decide', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: id, decision: decision })
@@ -930,13 +930,13 @@ function addDecision(dr) {
 }
 
 // Load pending requests
-fetch('/api/pending').then(function(r) { return r.json(); }).then(function(items) {
+fetch('api/pending').then(function(r) { return r.json(); }).then(function(items) {
   items.sort(function(a, b) { return new Date(a.timestamp) - new Date(b.timestamp); });
   items.forEach(addCard);
 });
 
 // SSE for real-time updates
-var es = new EventSource('/events');
+var es = new EventSource('events');
 es.onmessage = function(e) {
   var msg = JSON.parse(e.data);
   if (msg.type === 'new') { addCard(msg.data); playChime(); showNotification(msg.data.tool); }
@@ -957,7 +957,7 @@ function loadTools() {
   var list = document.getElementById('tools-list');
   var emptyEl = document.getElementById('tools-empty');
 
-  fetch('/api/tools').then(function(r) { return r.json(); }).then(function(data) {
+  fetch('api/tools').then(function(r) { return r.json(); }).then(function(data) {
     var tools = data.tools || [];
     if (tools.length === 0) {
       list.innerHTML = '';
@@ -1090,7 +1090,7 @@ function loadAudit() {
   var pagination = document.getElementById('audit-pagination');
   var tableWrap = document.querySelector('.audit-table-wrap');
 
-  fetch('/api/audit?' + params.toString()).then(function(r) { return r.json(); }).then(function(data) {
+  fetch('api/audit?' + params.toString()).then(function(r) { return r.json(); }).then(function(data) {
     var records = data.records || [];
     auditTotal = data.total || 0;
     expandedAuditIdx = -1;
