@@ -67,6 +67,24 @@ func (c *Client) Fetch(repoPath, remote, refspec string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// ListRemoteRefs lists refs on a remote (branches, tags, etc.).
+func (c *Client) ListRemoteRefs(repoPath, remote string) (string, error) {
+	out, err := c.runner.RunDir(repoPath, "git", "ls-remote", remote)
+	if err != nil {
+		return "", fmt.Errorf("git ls-remote failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ListRemotes lists configured remotes with their URLs.
+func (c *Client) ListRemotes(repoPath string) (string, error) {
+	out, err := c.runner.RunDir(repoPath, "git", "remote", "-v")
+	if err != nil {
+		return "", fmt.Errorf("git remote failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // ValidateRepo checks that the given path is absolute and is a git repository.
 func (c *Client) ValidateRepo(repoPath string) error {
 	if !filepath.IsAbs(repoPath) {

@@ -140,6 +140,49 @@ func TestFetch_WithRefspec(t *testing.T) {
 	assert.Equal(t, []string{"fetch", "origin", "refs/heads/main"}, capturedArgs)
 }
 
+func TestListRemoteRefs_Success(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runDirFunc: func(dir, name string, args ...string) ([]byte, error) {
+			return []byte("abc123\trefs/heads/main\ndef456\trefs/heads/feature\n"), nil
+		},
+	})
+	out, err := c.ListRemoteRefs("/repo", "origin")
+	require.NoError(t, err)
+	assert.Contains(t, out, "refs/heads/main")
+	assert.Contains(t, out, "refs/heads/feature")
+}
+
+func TestListRemoteRefs_Error(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runDirFunc: func(dir, name string, args ...string) ([]byte, error) {
+			return []byte("fatal: not a git repository"), fmt.Errorf("exit status 128")
+		},
+	})
+	_, err := c.ListRemoteRefs("/repo", "origin")
+	assert.ErrorContains(t, err, "git ls-remote failed")
+}
+
+func TestListRemotes_Success(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runDirFunc: func(dir, name string, args ...string) ([]byte, error) {
+			return []byte("origin\tgit@github.com:user/repo.git (fetch)\norigin\tgit@github.com:user/repo.git (push)\n"), nil
+		},
+	})
+	out, err := c.ListRemotes("/repo")
+	require.NoError(t, err)
+	assert.Contains(t, out, "origin")
+}
+
+func TestListRemotes_Error(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runDirFunc: func(dir, name string, args ...string) ([]byte, error) {
+			return []byte("fatal: not a git repository"), fmt.Errorf("exit status 128")
+		},
+	})
+	_, err := c.ListRemotes("/repo")
+	assert.ErrorContains(t, err, "git remote failed")
+}
+
 func TestValidateRepo_RelativePath(t *testing.T) {
 	c := NewClient(&mockRunner{})
 	err := c.ValidateRepo("relative/path")
