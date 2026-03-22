@@ -156,3 +156,48 @@ func TestE2E_DashboardToolsListing(t *testing.T) {
 		}
 	}
 }
+
+func TestE2E_AuditLogPagination(t *testing.T) {
+	tools := []toolDef{
+		{Name: "say_hello", Description: "Says hello", Response: `{"message":"hello"}`},
+		{Name: "say_bye", Description: "Says bye", Response: `{"message":"bye"}`},
+	}
+	s := newTestStack(t, stackOpts{
+		Tools: tools,
+		Rules: []testRuleConfig{{Tool: "*", Verdict: "allow"}},
+	})
+
+	// Make 5 tool calls (3 say_hello, 2 say_bye).
+	for i := 0; i < 3; i++ {
+		_, err := s.callTool("echo.say_hello", map[string]any{})
+		require.NoError(t, err)
+	}
+	for i := 0; i < 2; i++ {
+		_, err := s.callTool("echo.say_bye", map[string]any{})
+		require.NoError(t, err)
+	}
+
+	// Verify total count.
+	all := s.getAudit("", 50, 0)
+	require.Equal(t, 5, all.Total)
+
+	// Verify pagination: page 1.
+	page1 := s.getAudit("", 2, 0)
+	require.Len(t, page1.Records, 2)
+	require.Equal(t, 5, page1.Total)
+
+	// Verify pagination: page 2.
+	page2 := s.getAudit("", 2, 2)
+	require.Len(t, page2.Records, 2)
+
+	// Verify pagination: page 3 (partial).
+	page3 := s.getAudit("", 2, 4)
+	require.Len(t, page3.Records, 1)
+
+	// Verify filtering by tool name.
+	filtered := s.getAudit("say_hello", 50, 0)
+	require.Equal(t, 3, filtered.Total)
+	for _, rec := range filtered.Records {
+		require.Contains(t, rec.Tool, "say_hello")
+	}
+}
