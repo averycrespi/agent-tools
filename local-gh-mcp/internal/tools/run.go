@@ -3,25 +3,191 @@ package tools
 import (
 	"context"
 
+	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
 	gomcp "github.com/mark3labs/mcp-go/mcp"
 )
 
 func (h *Handler) runTools() []gomcp.Tool {
-	return nil
+	return []gomcp.Tool{
+		{
+			Name:        "gh_list_runs",
+			Description: "List workflow runs for a repository",
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"owner": map[string]any{
+						"type":        "string",
+						"description": "Repository owner",
+					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Repository name",
+					},
+					"branch": map[string]any{
+						"type":        "string",
+						"description": "Filter by branch",
+					},
+					"status": map[string]any{
+						"type":        "string",
+						"description": "Filter by status",
+					},
+					"workflow": map[string]any{
+						"type":        "string",
+						"description": "Filter by workflow name",
+					},
+					"limit": map[string]any{
+						"type":        "number",
+						"description": "Max results (default 30, max 100)",
+					},
+				},
+				Required: []string{"owner", "repo"},
+			},
+		},
+		{
+			Name:        "gh_view_run",
+			Description: "View details of a workflow run",
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"owner": map[string]any{
+						"type":        "string",
+						"description": "Repository owner",
+					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Repository name",
+					},
+					"run_id": map[string]any{
+						"type":        "string",
+						"description": "Workflow run ID",
+					},
+					"log_failed": map[string]any{
+						"type":        "boolean",
+						"description": "Show failed log output instead of JSON",
+					},
+				},
+				Required: []string{"owner", "repo", "run_id"},
+			},
+		},
+		{
+			Name:        "gh_rerun",
+			Description: "Re-run a workflow run",
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"owner": map[string]any{
+						"type":        "string",
+						"description": "Repository owner",
+					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Repository name",
+					},
+					"run_id": map[string]any{
+						"type":        "string",
+						"description": "Workflow run ID",
+					},
+					"failed_only": map[string]any{
+						"type":        "boolean",
+						"description": "Only re-run failed jobs",
+					},
+				},
+				Required: []string{"owner", "repo", "run_id"},
+			},
+		},
+		{
+			Name:        "gh_cancel_run",
+			Description: "Cancel a workflow run",
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"owner": map[string]any{
+						"type":        "string",
+						"description": "Repository owner",
+					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Repository name",
+					},
+					"run_id": map[string]any{
+						"type":        "string",
+						"description": "Workflow run ID",
+					},
+				},
+				Required: []string{"owner", "repo", "run_id"},
+			},
+		},
+	}
 }
 
-func (h *Handler) handleListRuns(_ context.Context, _ gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
-	return gomcp.NewToolResultError("not implemented"), nil
+func (h *Handler) handleListRuns(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	opts := gh.ListRunsOpts{
+		Branch:   stringFromArgs(args, "branch"),
+		Status:   stringFromArgs(args, "status"),
+		Workflow: stringFromArgs(args, "workflow"),
+		Limit:    intFromArgs(args, "limit"),
+	}
+	out, err := h.gh.ListRuns(ctx, owner, repo, opts)
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	return gomcp.NewToolResultText(out), nil
 }
 
-func (h *Handler) handleViewRun(_ context.Context, _ gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
-	return gomcp.NewToolResultError("not implemented"), nil
+func (h *Handler) handleViewRun(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	runID := stringFromArgs(args, "run_id")
+	if runID == "" {
+		return gomcp.NewToolResultError("run_id is required"), nil
+	}
+	logFailed := boolFromArgs(args, "log_failed")
+	out, err := h.gh.ViewRun(ctx, owner, repo, runID, logFailed)
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	return gomcp.NewToolResultText(out), nil
 }
 
-func (h *Handler) handleRerun(_ context.Context, _ gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
-	return gomcp.NewToolResultError("not implemented"), nil
+func (h *Handler) handleRerun(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	runID := stringFromArgs(args, "run_id")
+	if runID == "" {
+		return gomcp.NewToolResultError("run_id is required"), nil
+	}
+	failedOnly := boolFromArgs(args, "failed_only")
+	out, err := h.gh.Rerun(ctx, owner, repo, runID, failedOnly)
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	return gomcp.NewToolResultText(out), nil
 }
 
-func (h *Handler) handleCancelRun(_ context.Context, _ gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
-	return gomcp.NewToolResultError("not implemented"), nil
+func (h *Handler) handleCancelRun(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	runID := stringFromArgs(args, "run_id")
+	if runID == "" {
+		return gomcp.NewToolResultError("run_id is required"), nil
+	}
+	out, err := h.gh.CancelRun(ctx, owner, repo, runID)
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	return gomcp.NewToolResultText(out), nil
 }
