@@ -14,6 +14,7 @@ brew bundle
 cd worktree-manager && make install
 cd sandbox-manager && make install
 cd mcp-broker && make install
+cd local-git-mcp && make install
 ```
 
 ## Tools
@@ -41,6 +42,14 @@ Running AI agents with full host access is risky — one bad command can trash y
 `sb` wraps Lima to manage a lightweight Linux VM on macOS. `sb create` spins up a provisioned Ubuntu VM with matching UID/GID, writable mounts, and any tools your provisioning scripts install. `sb shell` drops you in. `sb destroy` tears it down. Configuration drives resource allocation, file copying, and provisioning scripts.
 
 See the [README](sandbox-manager/README.md) for more information.
+
+### Local Git MCP
+
+Sandboxed agents can do most git operations locally — staging, committing, diffing, rebasing — because those don't need authentication. But pushing, pulling, and fetching require credentials that the sandbox intentionally doesn't have.
+
+`local-git-mcp` is a stdio MCP server that runs on the host where SSH keys and credential helpers are available. It exposes five tools — `git_push`, `git_pull`, `git_fetch`, `git_list_remote_refs`, and `git_list_remotes` — over MCP. Designed to be used as a backend for mcp-broker, letting agents push and pull without ever touching credentials.
+
+See the [README](local-git-mcp/README.md) for more information.
 
 ## License
 
