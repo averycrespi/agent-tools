@@ -47,5 +47,6 @@ internal/
 - Repo targeting: `-R owner/repo` flag (not repo_path)
 - JSON output: all list/view tools use `--json` with curated field sets
 - Limits: default 30, max 100, clamped silently (derived from gh CLI defaults and GitHub API page size)
+- User-controlled string args (search queries, run IDs, cache IDs) need `--` separator before positional args to prevent flag injection; integer args (PR/issue numbers via `strconv.Itoa`) are safe without it
 - Stdio MCP server setup: `mcpserver.NewMCPServer()` + `srv.AddTool(tool, handler.Handle)` + `mcpserver.ServeStdio(srv)`
-- `mcp-go` v0.45.0: use `req.GetArguments()` helper instead of `req.Params.Arguments`
+- `mcp-go` v0.45.0: use `req.GetArguments()` helper instead of `req.Params.Arguments`; JSON numbers arrive as `float64`, use type switch for int extraction
