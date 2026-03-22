@@ -21,6 +21,23 @@ An agent connects to mcp-broker as a single MCP server. mcp-broker connects to o
 3. **Proxy** — the call is forwarded to the backend server
 4. **Audit** — the call, verdict, and result are recorded in SQLite
 
+## Security
+
+mcp-broker is designed for **local use only** — it listens on localhost and must never be exposed to the public internet. The authentication layer is a lightweight guard against unauthorized local processes (rogue scripts, browser tabs, compromised extensions) accessing your tools and credentials. It is not a substitute for network-level security.
+
+**Threat model:** Prevent other processes on your machine from calling the broker's HTTP endpoints without authorization. This covers casual/accidental access and opportunistic localhost attacks, not a determined attacker with root access to your machine.
+
+**What auth provides:**
+- A random bearer token required on every request (MCP and dashboard)
+- Cookie-based session for the browser dashboard
+- Constant-time token comparison to prevent timing attacks
+
+**What auth does NOT provide:**
+- Protection against an attacker who can read your filesystem (they can read the token file)
+- TLS/encryption (traffic is plain HTTP on localhost)
+- User accounts or role-based access — there is one token for everything
+- Automatic token rotation (use `mcp-broker regen-token` to rotate manually)
+
 ## Quick start
 
 ```bash
@@ -30,8 +47,8 @@ make build
 # Run (creates default config on first run)
 ./mcp-broker serve
 
-# Dashboard at http://localhost:8200
-# MCP endpoint at http://localhost:8200/mcp
+# Dashboard URL (with auth token) is printed to stderr on startup
+# MCP endpoint at http://localhost:8200/mcp (requires Bearer token)
 ```
 
 ## Configuration
@@ -132,11 +149,40 @@ Rules are evaluated top-to-bottom, first match wins. Patterns use Go's `filepath
 
 Default (no matching rule): `require-approval`.
 
+## Authentication
+
+On first run, mcp-broker generates a random auth token and saves it to `~/.config/mcp-broker/auth-token`. All endpoints require this token.
+
+**MCP clients** pass the token as an HTTP header:
+
+```json
+{
+  "mcpServers": {
+    "broker": {
+      "type": "streamableHttp",
+      "url": "http://localhost:8200/mcp",
+      "headers": {
+        "Authorization": "Bearer <token>"
+      }
+    }
+  }
+}
+```
+
+**Dashboard** opens automatically in your browser with the token. A cookie is set on first visit so you don't need to re-authenticate. If you need the URL again, it's printed to stderr every time the broker starts.
+
+**Token rotation:**
+
+```bash
+mcp-broker regen-token    # Generate a new token (invalidates all existing sessions)
+```
+
 ## CLI
 
 ```
 mcp-broker serve              # Start the broker
 mcp-broker serve --log-level debug
+mcp-broker regen-token        # Regenerate auth token
 mcp-broker config path        # Print config file path
 mcp-broker config refresh     # Backfill new defaults into config
 mcp-broker config edit        # Open config in $EDITOR
