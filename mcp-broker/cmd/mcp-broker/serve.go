@@ -18,6 +18,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
 
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/auth"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/broker"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
@@ -65,6 +66,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
 	logger := slog.New(handler)
 	logger.Info("config loaded", "path", configPath())
+
+	// Load or generate auth token.
+	tokenPath := auth.TokenPath()
+	token, err := auth.EnsureToken(tokenPath)
+	if err != nil {
+		return fmt.Errorf("loading auth token: %w", err)
+	}
+	logger.Info("auth token loaded", "path", tokenPath)
 
 	// Create audit logger
 	auditor, err := audit.NewLogger(cfg.Audit.Path)
@@ -117,7 +126,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	})
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: auth.Middleware(token, mux), ReadHeaderTimeout: 10 * time.Second}
 
 	// Handle shutdown
 	stop := make(chan os.Signal, 1)
@@ -126,14 +135,15 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("listening", "addr", addr)
+		fmt.Fprintf(os.Stderr, "Dashboard: http://localhost:%d/dashboard/?token=%s\n", cfg.Port, token)
 		errCh <- srv.ListenAndServe()
 	}()
 
 	// Open browser if enabled
 	noOpen, _ := cmd.Flags().GetBool("no-open")
 	if cfg.OpenBrowser && !noOpen {
-		dashURL := fmt.Sprintf("http://localhost:%d/dashboard/", cfg.Port)
-		logger.Debug("opening browser", "url", dashURL)
+		dashURL := fmt.Sprintf("http://localhost:%d/dashboard/?token=%s", cfg.Port, token)
+		logger.Debug("opening browser")
 		if err := openBrowser(dashURL); err != nil {
 			logger.Warn("failed to open browser", "error", err)
 		}
