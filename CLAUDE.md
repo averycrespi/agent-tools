@@ -8,6 +8,7 @@ Monorepo of tools for working with AI coding agents.
 worktree-manager/    Git worktree manager with tmux integration — see worktree-manager/CLAUDE.md
 mcp-broker/          MCP proxy for sandboxed agents — see mcp-broker/CLAUDE.md
 sandbox-manager/     Lima VM sandbox manager for isolated agent environments — see sandbox-manager/CLAUDE.md
+local-git-mcp/       Stdio MCP server for authenticated git remote operations — see local-git-mcp/CLAUDE.md
 ```
 
 Each tool has its own `CLAUDE.md` with tool-specific instructions.
