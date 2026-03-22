@@ -107,9 +107,6 @@ func (b *Broker) Handle(ctx context.Context, tool string, args map[string]any) (
 
 	if result.IsError {
 		rec.Error = fmt.Sprintf("%v", result.Content)
-		rec.Result = result.Content
-	} else {
-		rec.Result = result.Content
 	}
 
 	// 3. Audit

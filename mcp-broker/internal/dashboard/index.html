@@ -704,7 +704,7 @@
             <th>Tool</th>
             <th>Verdict</th>
             <th>Approval</th>
-            <th>Result</th>
+            <th>Status</th>
           </tr>
         </thead>
         <tbody id="audit-body"></tbody>
@@ -1049,15 +1049,8 @@ function toggleAuditDetail(idx) {
   content += '<div class="audit-detail-value"><pre>' + esc(argsText) + '</pre></div>';
   content += '</div>';
 
-  // Error and Result (only shown when there's an error)
+  // Error (only shown when there's an error)
   if (rec.error) {
-    if (rec.result !== undefined && rec.result !== null) {
-      var resultText = JSON.stringify(rec.result, null, 2);
-      content += '<div class="audit-detail-field">';
-      content += '<div class="audit-detail-label">Result</div>';
-      content += '<div class="audit-detail-value"><pre>' + esc(resultText) + '</pre></div>';
-      content += '</div>';
-    }
     content += '<div class="audit-detail-field">';
     content += '<div class="audit-detail-label">Error</div>';
     content += '<div class="audit-detail-value">' + esc(rec.error) + '</div>';

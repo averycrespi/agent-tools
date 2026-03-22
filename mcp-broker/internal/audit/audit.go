@@ -21,7 +21,6 @@ type Record struct {
 	Args      map[string]any `json:"args,omitempty"`
 	Verdict   string         `json:"verdict"`
 	Approved  *bool          `json:"approved,omitempty"`
-	Result    any            `json:"result,omitempty"`
 	Error     string         `json:"error,omitempty"`
 }
 
@@ -40,15 +39,14 @@ CREATE TABLE IF NOT EXISTS audit_records (
     args      TEXT,
     verdict   TEXT    NOT NULL,
     approved  INTEGER,
-    result    TEXT,
     error     TEXT    NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_records(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_tool ON audit_records(tool);
 `
 
-const insertSQL = `INSERT INTO audit_records (timestamp, tool, args, verdict, approved, result, error)
-VALUES (?, ?, ?, ?, ?, ?, ?)`
+const insertSQL = `INSERT INTO audit_records (timestamp, tool, args, verdict, approved, error)
+VALUES (?, ?, ?, ?, ?, ?)`
 
 // Logger records and queries audit entries in a SQLite database.
 type Logger struct {
@@ -94,11 +92,6 @@ func (l *Logger) Record(_ context.Context, rec Record) error {
 		return fmt.Errorf("marshal args: %w", err)
 	}
 
-	resultJSON, err := marshalNullable(rec.Result)
-	if err != nil {
-		return fmt.Errorf("marshal result: %w", err)
-	}
-
 	var approved sql.NullInt64
 	if rec.Approved != nil {
 		if *rec.Approved {
@@ -117,7 +110,6 @@ func (l *Logger) Record(_ context.Context, rec Record) error {
 		argsJSON,
 		rec.Verdict,
 		approved,
-		resultJSON,
 		rec.Error,
 	)
 	if err != nil {
@@ -150,7 +142,7 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 		limit = 50
 	}
 
-	selectSQL := "SELECT timestamp, tool, args, verdict, approved, result, error FROM audit_records" +
+	selectSQL := "SELECT timestamp, tool, args, verdict, approved, error FROM audit_records" +
 		where + " ORDER BY id DESC LIMIT ? OFFSET ?"
 	selectArgs := make([]any, len(queryArgs), len(queryArgs)+2)
 	copy(selectArgs, queryArgs)
@@ -166,10 +158,10 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 	for rows.Next() {
 		var (
 			ts, tool, verdict, errStr string
-			argsJSON, resultJSON      sql.NullString
+			argsJSON                  sql.NullString
 			approved                  sql.NullInt64
 		)
-		if err := rows.Scan(&ts, &tool, &argsJSON, &verdict, &approved, &resultJSON, &errStr); err != nil {
+		if err := rows.Scan(&ts, &tool, &argsJSON, &verdict, &approved, &errStr); err != nil {
 			return nil, 0, fmt.Errorf("scan audit record: %w", err)
 		}
 
@@ -186,13 +178,6 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 			var args map[string]any
 			if err := json.Unmarshal([]byte(argsJSON.String), &args); err == nil {
 				rec.Args = args
-			}
-		}
-
-		if resultJSON.Valid {
-			var result any
-			if err := json.Unmarshal([]byte(resultJSON.String), &result); err == nil {
-				rec.Result = result
 			}
 		}
 
