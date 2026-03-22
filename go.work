@@ -1,6 +1,7 @@
 go 1.25.7
 
 use (
+	./local-git-mcp
 	./mcp-broker
 	./sandbox-manager
 	./worktree-manager
