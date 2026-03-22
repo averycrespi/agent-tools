@@ -90,3 +90,38 @@ func TestE2E_DenyToolCall(t *testing.T) {
 	require.NotNil(t, audit.Records[0].Approved)
 	require.False(t, *audit.Records[0].Approved)
 }
+
+func TestE2E_AllowedToolCall(t *testing.T) {
+	s := newTestStack(t, stackOpts{
+		Tools: defaultTools,
+		Rules: []testRuleConfig{{Tool: "echo.*", Verdict: "allow"}},
+	})
+
+	// Tool call should return immediately (no approval needed).
+	result, err := s.callTool("echo.say_hello", map[string]any{})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+
+	// Verify audit log shows verdict=allow and no approval field.
+	audit := s.getAudit("", 10, 0)
+	require.Equal(t, 1, audit.Total)
+	require.Equal(t, "allow", audit.Records[0].Verdict)
+	require.Nil(t, audit.Records[0].Approved)
+}
+
+func TestE2E_DeniedByRules(t *testing.T) {
+	s := newTestStack(t, stackOpts{
+		Tools: defaultTools,
+		Rules: []testRuleConfig{{Tool: "echo.*", Verdict: "deny"}},
+	})
+
+	// Tool call should return an error immediately.
+	result, err := s.callTool("echo.say_hello", map[string]any{})
+	require.NoError(t, err)        // MCP call succeeds...
+	require.True(t, result.IsError) // ...but tool result is an error.
+
+	// Verify audit log.
+	audit := s.getAudit("", 10, 0)
+	require.Equal(t, 1, audit.Total)
+	require.Equal(t, "deny", audit.Records[0].Verdict)
+}
