@@ -121,13 +121,6 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 
 // Shared helpers
 
-func stringOrDefault(args map[string]any, key, defaultVal string) string {
-	if v, ok := args[key].(string); ok && v != "" {
-		return v
-	}
-	return defaultVal
-}
-
 func intFromArgs(args map[string]any, key string) int {
 	switch v := args[key].(type) {
 	case float64:
