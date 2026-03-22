@@ -10,7 +10,10 @@ Requires Go 1.25+ and macOS.
 # Install system dependencies
 brew bundle
 
-# Install a tool (from its directory)
+# Install all tools
+make install
+
+# Install individual tools
 cd worktree-manager && make install
 cd sandbox-manager && make install
 cd mcp-broker && make install
