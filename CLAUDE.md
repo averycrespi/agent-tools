@@ -13,6 +13,17 @@ local-git-mcp/       Stdio MCP server for authenticated git remote operations â€
 
 Each tool has its own `CLAUDE.md` with tool-specific instructions.
 
+## Development
+
+```bash
+make install   # install all tools
+make build     # build all tools
+make test      # test all tools
+make audit     # tidy + fmt + lint + test + govulncheck for all tools
+```
+
+Targets are forwarded to each tool's Makefile. Run from any subdirectory for a single tool.
+
 ## Conventions
 
 - Each tool is a separate Go module under `go.work`
