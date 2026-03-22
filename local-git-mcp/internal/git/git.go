@@ -18,6 +18,55 @@ func NewClient(runner exec.Runner) *Client {
 	return &Client{runner: runner}
 }
 
+// Push pushes commits to a remote.
+// If force is true, uses --force-with-lease.
+func (c *Client) Push(repoPath, remote, refspec string, force bool) (string, error) {
+	args := []string{"push"}
+	if force {
+		args = append(args, "--force-with-lease")
+	}
+	args = append(args, remote)
+	if refspec != "" {
+		args = append(args, refspec)
+	}
+	out, err := c.runner.RunDir(repoPath, "git", args...)
+	if err != nil {
+		return "", fmt.Errorf("git push failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// Pull pulls from a remote.
+// If rebase is true, uses --rebase.
+func (c *Client) Pull(repoPath, remote, branch string, rebase bool) (string, error) {
+	args := []string{"pull"}
+	if rebase {
+		args = append(args, "--rebase")
+	}
+	args = append(args, remote)
+	if branch != "" {
+		args = append(args, branch)
+	}
+	out, err := c.runner.RunDir(repoPath, "git", args...)
+	if err != nil {
+		return "", fmt.Errorf("git pull failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// Fetch fetches from a remote without merging.
+func (c *Client) Fetch(repoPath, remote, refspec string) (string, error) {
+	args := []string{"fetch", remote}
+	if refspec != "" {
+		args = append(args, refspec)
+	}
+	out, err := c.runner.RunDir(repoPath, "git", args...)
+	if err != nil {
+		return "", fmt.Errorf("git fetch failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // ValidateRepo checks that the given path is absolute and is a git repository.
 func (c *Client) ValidateRepo(repoPath string) error {
 	if !filepath.IsAbs(repoPath) {
