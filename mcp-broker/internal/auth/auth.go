@@ -2,10 +2,14 @@ package auth
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 // TokenPath returns the default token file path under the XDG config directory.
@@ -53,4 +57,82 @@ func LoadToken(path string) (string, error) {
 		return "", fmt.Errorf("reading token file: %w", err)
 	}
 	return string(data), nil
+}
+
+const cookieName = "mcp-broker-auth"
+
+// Middleware returns an HTTP handler that checks every request for a valid auth token.
+func Middleware(token string, next http.Handler) http.Handler {
+	tokenBytes := []byte(token)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		// 1. /dashboard/unauthorized is always allowed.
+		if path == "/dashboard/unauthorized" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 2. Check Authorization: Bearer <token> header.
+		if checkBearer(r, tokenBytes) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 3. Check cookie.
+		if checkCookie(r, tokenBytes) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		isDashboard := strings.HasPrefix(path, "/dashboard")
+
+		// 4. Dashboard with ?token= query param: set cookie and redirect.
+		if isDashboard {
+			if qToken := r.URL.Query().Get("token"); qToken != "" {
+				if subtle.ConstantTimeCompare([]byte(qToken), tokenBytes) == 1 {
+					http.SetCookie(w, &http.Cookie{
+						Name:     cookieName,
+						Value:    token,
+						Path:     "/dashboard/",
+						HttpOnly: true,
+						SameSite: http.SameSiteStrictMode,
+						MaxAge:   int(365 * 24 * time.Hour / time.Second),
+					})
+					// Redirect to path without the token query param.
+					clean := *r.URL
+					q := clean.Query()
+					q.Del("token")
+					clean.RawQuery = q.Encode()
+					http.Redirect(w, r, clean.Path, http.StatusFound)
+					return
+				}
+			}
+
+			// 5. Dashboard, no valid auth: redirect to unauthorized page.
+			http.Redirect(w, r, "/dashboard/unauthorized", http.StatusFound)
+			return
+		}
+
+		// 6. Non-dashboard (i.e., /mcp): 401.
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+	})
+}
+
+func checkBearer(r *http.Request, token []byte) bool {
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return false
+	}
+	provided := []byte(strings.TrimPrefix(auth, "Bearer "))
+	return subtle.ConstantTimeCompare(provided, token) == 1
+}
+
+func checkCookie(r *http.Request, token []byte) bool {
+	cookie, err := r.Cookie(cookieName)
+	if err != nil {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(cookie.Value), token) == 1
 }
