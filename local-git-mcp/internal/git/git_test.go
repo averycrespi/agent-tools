@@ -35,7 +35,7 @@ func TestPush_DefaultArgs(t *testing.T) {
 	out, err := c.Push("/repo", "origin", "", false)
 	require.NoError(t, err)
 	assert.Equal(t, "Everything up-to-date", out)
-	assert.Equal(t, []string{"push", "origin"}, capturedArgs)
+	assert.Equal(t, []string{"push", "--", "origin"}, capturedArgs)
 }
 
 func TestPush_WithRefspec(t *testing.T) {
@@ -48,7 +48,7 @@ func TestPush_WithRefspec(t *testing.T) {
 	})
 	_, err := c.Push("/repo", "origin", "refs/heads/main", false)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"push", "origin", "refs/heads/main"}, capturedArgs)
+	assert.Equal(t, []string{"push", "--", "origin", "refs/heads/main"}, capturedArgs)
 }
 
 func TestPush_ForceWithLease(t *testing.T) {
@@ -61,7 +61,7 @@ func TestPush_ForceWithLease(t *testing.T) {
 	})
 	_, err := c.Push("/repo", "origin", "", true)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"push", "--force-with-lease", "origin"}, capturedArgs)
+	assert.Equal(t, []string{"push", "--force-with-lease", "--", "origin"}, capturedArgs)
 }
 
 func TestPush_Error(t *testing.T) {
@@ -85,7 +85,7 @@ func TestPull_DefaultArgs(t *testing.T) {
 	out, err := c.Pull("/repo", "origin", "", false)
 	require.NoError(t, err)
 	assert.Equal(t, "Already up to date.", out)
-	assert.Equal(t, []string{"pull", "origin"}, capturedArgs)
+	assert.Equal(t, []string{"pull", "--", "origin"}, capturedArgs)
 }
 
 func TestPull_WithBranch(t *testing.T) {
@@ -98,7 +98,7 @@ func TestPull_WithBranch(t *testing.T) {
 	})
 	_, err := c.Pull("/repo", "origin", "main", false)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"pull", "origin", "main"}, capturedArgs)
+	assert.Equal(t, []string{"pull", "--", "origin", "main"}, capturedArgs)
 }
 
 func TestPull_WithRebase(t *testing.T) {
@@ -111,7 +111,7 @@ func TestPull_WithRebase(t *testing.T) {
 	})
 	_, err := c.Pull("/repo", "origin", "", true)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"pull", "--rebase", "origin"}, capturedArgs)
+	assert.Equal(t, []string{"pull", "--rebase", "--", "origin"}, capturedArgs)
 }
 
 func TestFetch_DefaultArgs(t *testing.T) {
@@ -124,7 +124,7 @@ func TestFetch_DefaultArgs(t *testing.T) {
 	})
 	_, err := c.Fetch("/repo", "origin", "")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"fetch", "origin"}, capturedArgs)
+	assert.Equal(t, []string{"fetch", "--", "origin"}, capturedArgs)
 }
 
 func TestFetch_WithRefspec(t *testing.T) {
@@ -137,7 +137,7 @@ func TestFetch_WithRefspec(t *testing.T) {
 	})
 	_, err := c.Fetch("/repo", "origin", "refs/heads/main")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"fetch", "origin", "refs/heads/main"}, capturedArgs)
+	assert.Equal(t, []string{"fetch", "--", "origin", "refs/heads/main"}, capturedArgs)
 }
 
 func TestListRemoteRefs_Success(t *testing.T) {

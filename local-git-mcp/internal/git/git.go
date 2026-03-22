@@ -25,7 +25,7 @@ func (c *Client) Push(repoPath, remote, refspec string, force bool) (string, err
 	if force {
 		args = append(args, "--force-with-lease")
 	}
-	args = append(args, remote)
+	args = append(args, "--", remote)
 	if refspec != "" {
 		args = append(args, refspec)
 	}
@@ -43,7 +43,7 @@ func (c *Client) Pull(repoPath, remote, branch string, rebase bool) (string, err
 	if rebase {
 		args = append(args, "--rebase")
 	}
-	args = append(args, remote)
+	args = append(args, "--", remote)
 	if branch != "" {
 		args = append(args, branch)
 	}
@@ -56,7 +56,7 @@ func (c *Client) Pull(repoPath, remote, branch string, rebase bool) (string, err
 
 // Fetch fetches from a remote without merging.
 func (c *Client) Fetch(repoPath, remote, refspec string) (string, error) {
-	args := []string{"fetch", remote}
+	args := []string{"fetch", "--", remote}
 	if refspec != "" {
 		args = append(args, refspec)
 	}
@@ -69,7 +69,7 @@ func (c *Client) Fetch(repoPath, remote, refspec string) (string, error) {
 
 // ListRemoteRefs lists refs on a remote (branches, tags, etc.).
 func (c *Client) ListRemoteRefs(repoPath, remote string) (string, error) {
-	out, err := c.runner.RunDir(repoPath, "git", "ls-remote", remote)
+	out, err := c.runner.RunDir(repoPath, "git", "ls-remote", "--", remote)
 	if err != nil {
 		return "", fmt.Errorf("git ls-remote failed: %s", strings.TrimSpace(string(out)))
 	}
