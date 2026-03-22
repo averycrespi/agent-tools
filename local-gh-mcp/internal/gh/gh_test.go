@@ -319,11 +319,12 @@ func TestSearchPRs_Args(t *testing.T) {
 		State: "open",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, args, "fix bug")
 	assert.Contains(t, args, "--repo")
 	assert.Contains(t, args, "octocat/hello")
 	assert.Contains(t, args, "--state")
 	assert.Contains(t, args, "open")
+	assert.Contains(t, args, "--")
+	assert.Equal(t, "fix bug", args[len(args)-1], "query must be last arg after --")
 }
 
 func TestSearchCode_Args(t *testing.T) {
@@ -334,9 +335,46 @@ func TestSearchCode_Args(t *testing.T) {
 		Extension: "go",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, args, "fmt.Errorf")
 	assert.Contains(t, args, "--language")
 	assert.Contains(t, args, "go")
 	assert.Contains(t, args, "--extension")
 	assert.Contains(t, args, "go")
+	assert.Contains(t, args, "--")
+	assert.Equal(t, "fmt.Errorf", args[len(args)-1], "query must be last arg after --")
+}
+
+func TestViewRun_SeparatorBeforeRunID(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ViewRun(context.Background(), "octocat", "hello", "12345", false)
+	require.NoError(t, err)
+	assert.Contains(t, args, "--")
+	assert.Equal(t, "12345", args[len(args)-1], "runID must be last arg after --")
+}
+
+func TestRerun_SeparatorBeforeRunID(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.Rerun(context.Background(), "octocat", "hello", "12345", false)
+	require.NoError(t, err)
+	assert.Contains(t, args, "--")
+	assert.Equal(t, "12345", args[len(args)-1], "runID must be last arg after --")
+}
+
+func TestCancelRun_SeparatorBeforeRunID(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.CancelRun(context.Background(), "octocat", "hello", "67890")
+	require.NoError(t, err)
+	assert.Contains(t, args, "--")
+	assert.Equal(t, "67890", args[len(args)-1], "runID must be last arg after --")
+}
+
+func TestDeleteCache_SeparatorBeforeCacheID(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.DeleteCache(context.Background(), "octocat", "hello", "cache-abc-123")
+	require.NoError(t, err)
+	assert.Contains(t, args, "--")
+	assert.Equal(t, "cache-abc-123", args[len(args)-1], "cacheID must be last arg after --")
 }

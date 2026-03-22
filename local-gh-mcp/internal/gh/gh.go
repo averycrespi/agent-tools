@@ -33,8 +33,8 @@ const (
 
 // CreatePROpts holds options for creating a pull request.
 type CreatePROpts struct {
-	Title, Body, Base, Head string
-	Draft                   bool
+	Title, Body, Base, Head      string
+	Draft                        bool
 	Labels, Reviewers, Assignees []string
 }
 
@@ -53,10 +53,10 @@ type MergePROpts struct {
 
 // EditPROpts holds options for editing a pull request.
 type EditPROpts struct {
-	Title, Body, Base                   string
-	AddLabels, RemoveLabels             []string
-	AddReviewers, RemoveReviewers       []string
-	AddAssignees, RemoveAssignees       []string
+	Title, Body, Base             string
+	AddLabels, RemoveLabels       []string
+	AddReviewers, RemoveReviewers []string
+	AddAssignees, RemoveAssignees []string
 }
 
 var validNamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
@@ -317,7 +317,7 @@ const (
 // ListIssuesOpts holds options for listing issues.
 type ListIssuesOpts struct {
 	State, Author, Assignee, Label, Milestone, Search string
-	Limit                                              int
+	Limit                                             int
 }
 
 // ListRunsOpts holds options for listing workflow runs.
@@ -335,13 +335,13 @@ type ListCachesOpts struct {
 // SearchPRsOpts holds options for searching pull requests.
 type SearchPRsOpts struct {
 	Repo, Owner, State, Author, Label string
-	Limit                              int
+	Limit                             int
 }
 
 // SearchIssuesOpts holds options for searching issues.
 type SearchIssuesOpts struct {
 	Repo, Owner, State, Author, Label string
-	Limit                              int
+	Limit                             int
 }
 
 // SearchReposOpts holds options for searching repositories.
@@ -353,13 +353,13 @@ type SearchReposOpts struct {
 // SearchCodeOpts holds options for searching code.
 type SearchCodeOpts struct {
 	Repo, Owner, Language, Extension, Filename string
-	Limit                                       int
+	Limit                                      int
 }
 
 // SearchCommitsOpts holds options for searching commits.
 type SearchCommitsOpts struct {
 	Repo, Owner, Author string
-	Limit                int
+	Limit               int
 }
 
 // ViewIssue retrieves details for an issue.
@@ -432,9 +432,9 @@ func (c *Client) ListRuns(_ context.Context, owner, repo string, opts ListRunsOp
 func (c *Client) ViewRun(_ context.Context, owner, repo string, runID string, logFailed bool) (string, error) {
 	var args []string
 	if logFailed {
-		args = []string{"run", "view", "-R", repoFlag(owner, repo), "--log-failed", runID}
+		args = []string{"run", "view", "-R", repoFlag(owner, repo), "--log-failed", "--", runID}
 	} else {
-		args = []string{"run", "view", "-R", repoFlag(owner, repo), "--json", runViewFields, runID}
+		args = []string{"run", "view", "-R", repoFlag(owner, repo), "--json", runViewFields, "--", runID}
 	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
@@ -449,7 +449,7 @@ func (c *Client) Rerun(_ context.Context, owner, repo string, runID string, fail
 	if failedOnly {
 		args = append(args, "--failed")
 	}
-	args = append(args, runID)
+	args = append(args, "--", runID)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh run rerun failed: %s", strings.TrimSpace(string(out)))
@@ -459,7 +459,7 @@ func (c *Client) Rerun(_ context.Context, owner, repo string, runID string, fail
 
 // CancelRun cancels a workflow run.
 func (c *Client) CancelRun(_ context.Context, owner, repo string, runID string) (string, error) {
-	out, err := c.runner.Run("gh", "run", "cancel", "-R", repoFlag(owner, repo), runID)
+	out, err := c.runner.Run("gh", "run", "cancel", "-R", repoFlag(owner, repo), "--", runID)
 	if err != nil {
 		return "", fmt.Errorf("gh run cancel failed: %s", strings.TrimSpace(string(out)))
 	}
@@ -484,7 +484,7 @@ func (c *Client) ListCaches(_ context.Context, owner, repo string, opts ListCach
 
 // DeleteCache deletes a cache from a repository.
 func (c *Client) DeleteCache(_ context.Context, owner, repo string, cacheID string) (string, error) {
-	out, err := c.runner.Run("gh", "cache", "delete", "-R", repoFlag(owner, repo), cacheID)
+	out, err := c.runner.Run("gh", "cache", "delete", "-R", repoFlag(owner, repo), "--", cacheID)
 	if err != nil {
 		return "", fmt.Errorf("gh cache delete failed: %s", strings.TrimSpace(string(out)))
 	}
@@ -493,7 +493,7 @@ func (c *Client) DeleteCache(_ context.Context, owner, repo string, cacheID stri
 
 // SearchPRs searches for pull requests.
 func (c *Client) SearchPRs(_ context.Context, query string, opts SearchPRsOpts) (string, error) {
-	args := []string{"search", "prs", query, "--json", searchPRFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	args := []string{"search", "prs", "--json", searchPRFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
 	if opts.Repo != "" {
 		args = append(args, "--repo", opts.Repo)
 	}
@@ -509,6 +509,7 @@ func (c *Client) SearchPRs(_ context.Context, query string, opts SearchPRsOpts) 
 	if opts.Label != "" {
 		args = append(args, "--label", opts.Label)
 	}
+	args = append(args, "--", query)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh search prs failed: %s", strings.TrimSpace(string(out)))
@@ -518,7 +519,7 @@ func (c *Client) SearchPRs(_ context.Context, query string, opts SearchPRsOpts) 
 
 // SearchIssues searches for issues.
 func (c *Client) SearchIssues(_ context.Context, query string, opts SearchIssuesOpts) (string, error) {
-	args := []string{"search", "issues", query, "--json", searchIssueFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	args := []string{"search", "issues", "--json", searchIssueFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
 	if opts.Repo != "" {
 		args = append(args, "--repo", opts.Repo)
 	}
@@ -534,6 +535,7 @@ func (c *Client) SearchIssues(_ context.Context, query string, opts SearchIssues
 	if opts.Label != "" {
 		args = append(args, "--label", opts.Label)
 	}
+	args = append(args, "--", query)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh search issues failed: %s", strings.TrimSpace(string(out)))
@@ -543,7 +545,7 @@ func (c *Client) SearchIssues(_ context.Context, query string, opts SearchIssues
 
 // SearchRepos searches for repositories.
 func (c *Client) SearchRepos(_ context.Context, query string, opts SearchReposOpts) (string, error) {
-	args := []string{"search", "repos", query, "--json", searchRepoFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	args := []string{"search", "repos", "--json", searchRepoFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
 	if opts.Owner != "" {
 		args = append(args, "--owner", opts.Owner)
 	}
@@ -556,6 +558,7 @@ func (c *Client) SearchRepos(_ context.Context, query string, opts SearchReposOp
 	if opts.Stars != "" {
 		args = append(args, "--stars", opts.Stars)
 	}
+	args = append(args, "--", query)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh search repos failed: %s", strings.TrimSpace(string(out)))
@@ -565,7 +568,7 @@ func (c *Client) SearchRepos(_ context.Context, query string, opts SearchReposOp
 
 // SearchCode searches for code.
 func (c *Client) SearchCode(_ context.Context, query string, opts SearchCodeOpts) (string, error) {
-	args := []string{"search", "code", query, "--json", searchCodeFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	args := []string{"search", "code", "--json", searchCodeFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
 	if opts.Repo != "" {
 		args = append(args, "--repo", opts.Repo)
 	}
@@ -581,6 +584,7 @@ func (c *Client) SearchCode(_ context.Context, query string, opts SearchCodeOpts
 	if opts.Filename != "" {
 		args = append(args, "--filename", opts.Filename)
 	}
+	args = append(args, "--", query)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh search code failed: %s", strings.TrimSpace(string(out)))
@@ -590,7 +594,7 @@ func (c *Client) SearchCode(_ context.Context, query string, opts SearchCodeOpts
 
 // SearchCommits searches for commits.
 func (c *Client) SearchCommits(_ context.Context, query string, opts SearchCommitsOpts) (string, error) {
-	args := []string{"search", "commits", query, "--json", searchCommitFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	args := []string{"search", "commits", "--json", searchCommitFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
 	if opts.Repo != "" {
 		args = append(args, "--repo", opts.Repo)
 	}
@@ -600,6 +604,7 @@ func (c *Client) SearchCommits(_ context.Context, query string, opts SearchCommi
 	if opts.Author != "" {
 		args = append(args, "--author", opts.Author)
 	}
+	args = append(args, "--", query)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh search commits failed: %s", strings.TrimSpace(string(out)))

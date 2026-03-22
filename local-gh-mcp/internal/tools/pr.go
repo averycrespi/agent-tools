@@ -60,7 +60,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Assignees to add",
 					},
 				},
-				Required: []string{"owner", "repo", "title"},
+				Required: []string{"owner", "repo", "title", "body"},
 			},
 		},
 		{
@@ -368,9 +368,13 @@ func (h *Handler) handleCreatePR(ctx context.Context, req gomcp.CallToolRequest)
 	if title == "" {
 		return gomcp.NewToolResultError("title is required"), nil
 	}
+	body := stringFromArgs(args, "body")
+	if body == "" {
+		return gomcp.NewToolResultError("body is required"), nil
+	}
 	opts := gh.CreatePROpts{
 		Title:     title,
-		Body:      stringFromArgs(args, "body"),
+		Body:      body,
 		Base:      stringFromArgs(args, "base"),
 		Head:      stringFromArgs(args, "head"),
 		Draft:     boolFromArgs(args, "draft"),
