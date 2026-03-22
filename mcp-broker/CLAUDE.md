@@ -9,6 +9,7 @@ make build              # go build -o mcp-broker ./cmd/mcp-broker
 make install            # go install ./cmd/mcp-broker
 make test               # go test -race ./...
 make test-integration   # go test -race -tags=integration ./...
+make test-e2e           # go test -race -tags=e2e -timeout=60s ./test/e2e/...
 make lint               # go tool golangci-lint run ./...
 make fmt                # go tool goimports -w .
 make tidy               # go mod tidy && go mod verify
@@ -16,6 +17,7 @@ make audit              # tidy + fmt + lint + test + govulncheck
 ```
 
 Run `make audit` before committing. Integration tests use `//go:build integration`.
+E2E tests use `//go:build e2e` and live in `test/e2e/`. They build and run the real binary as a subprocess.
 
 ## Architecture
 

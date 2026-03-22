@@ -1,4 +1,4 @@
-.PHONY: build install test test-integration lint fmt tidy audit
+.PHONY: build install test test-integration test-e2e lint fmt tidy audit
 
 build:
 	go build -o mcp-broker ./cmd/mcp-broker
@@ -11,6 +11,9 @@ test:
 
 test-integration:
 	go test -race -tags=integration ./...
+
+test-e2e:
+	go test -race -tags=e2e -timeout=60s ./test/e2e/...
 
 lint:
 	go tool golangci-lint run ./...
