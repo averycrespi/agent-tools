@@ -108,7 +108,7 @@ func TestDashboard_UnauthorizedPage(t *testing.T) {
 
 	resp, err := http.Get(srv.URL + "/unauthorized")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // test cleanup
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	body, err := io.ReadAll(resp.Body)

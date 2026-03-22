@@ -18,8 +18,8 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
 
-	"github.com/averycrespi/agent-tools/mcp-broker/internal/auth"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/auth"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/broker"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/dashboard"
@@ -170,9 +170,9 @@ func openBrowser(url string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = exec.Command("open", url) //nolint:gosec // url is constructed internally, not user input
 	default:
-		cmd = exec.Command("xdg-open", url)
+		cmd = exec.Command("xdg-open", url) //nolint:gosec // url is constructed internally, not user input
 	}
 	return cmd.Start()
 }
