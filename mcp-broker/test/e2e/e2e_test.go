@@ -125,3 +125,34 @@ func TestE2E_DeniedByRules(t *testing.T) {
 	require.Equal(t, 1, audit.Total)
 	require.Equal(t, "deny", audit.Records[0].Verdict)
 }
+
+func TestE2E_DashboardToolsListing(t *testing.T) {
+	tools := []toolDef{
+		{Name: "greet", Description: "Greets the user", Response: `"hi"`},
+		{Name: "farewell", Description: "Says goodbye", Response: `"bye"`},
+		{Name: "status", Description: "Returns status", Response: `"ok"`},
+	}
+	s := newTestStack(t, stackOpts{
+		Tools: tools,
+		Rules: []testRuleConfig{{Tool: "*", Verdict: "allow"}},
+	})
+
+	resp := s.getTools()
+	require.Len(t, resp.Tools, 3)
+
+	// Tools should be sorted by name and prefixed with server name.
+	names := make([]string, len(resp.Tools))
+	for i, tool := range resp.Tools {
+		names[i] = tool.Name
+	}
+	require.Contains(t, names, "echo.farewell")
+	require.Contains(t, names, "echo.greet")
+	require.Contains(t, names, "echo.status")
+
+	// Verify descriptions are preserved.
+	for _, tool := range resp.Tools {
+		if tool.Name == "echo.greet" {
+			require.Equal(t, "Greets the user", tool.Description)
+		}
+	}
+}
