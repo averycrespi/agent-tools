@@ -57,6 +57,12 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
       "name": "internal",
       "type": "http",
       "url": "http://localhost:3000/mcp"
+    },
+    {
+      "name": "atlassian",
+      "type": "http",
+      "url": "https://mcp.atlassian.com",
+      "oauth": true
     }
   ],
   "rules": [
@@ -87,6 +93,32 @@ Each server entry connects to a backend MCP server:
 | `type` | Transport type: omit for stdio, `"http"` for Streamable HTTP, `"sse"` for SSE |
 | `url` | URL for HTTP transport |
 | `headers` | HTTP headers; `$VAR` and `${VAR}` references are expanded from the process environment |
+| `oauth` | OAuth config: `true` for defaults (dynamic registration, PKCE) or `{"client_id": "...", "scopes": [...]}` for overrides |
+
+### OAuth
+
+Servers that require OAuth can use `"oauth": true` for zero-config setup (dynamic client registration, PKCE, server-default scopes):
+
+```json
+{"name": "atlassian", "type": "http", "url": "https://mcp.atlassian.com", "oauth": true}
+```
+
+Or provide overrides when needed:
+
+```json
+{
+  "name": "custom",
+  "type": "http",
+  "url": "https://mcp.example.com",
+  "oauth": {
+    "client_id": "my-app",
+    "scopes": ["read", "write"],
+    "auth_server_url": "https://auth.example.com"
+  }
+}
+```
+
+On first connect, mcp-broker opens your browser to authenticate. Tokens are stored in the OS keychain (macOS Keychain / Linux Secret Service) and refreshed automatically.
 
 ### Rules
 
@@ -134,7 +166,7 @@ internal/
   config/               JSON config load/save/refresh
   rules/                Glob-based rule engine
   audit/                SQLite audit logger
-  server/               Backend MCP client (stdio + HTTP transports)
+  server/               Backend MCP client (stdio, HTTP, SSE, OAuth transports)
   dashboard/            Web UI with approval flow, SSE, audit viewer
   broker/               Core orchestrator (rules → approval → proxy → audit)
 ```
