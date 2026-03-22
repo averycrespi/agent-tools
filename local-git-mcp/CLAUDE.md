@@ -38,3 +38,6 @@ internal/
 - `cmd/` has no tests (thin wrappers); all internal packages have tests
 - Command failures use `%s` with trimmed output; Go errors use `%w` for wrapping
 - gosec nolint directives on os/exec are intentional for CLI
+- Always use `--` end-of-options separator before user-controlled positional args in git commands to prevent argument injection
+- Stdio MCP server setup: `mcpserver.NewMCPServer()` + `srv.AddTool(tool, handler.Handle)` + `mcpserver.ServeStdio(srv)` — handler signature is `func(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error)`
+- `mcp-go` v0.45.0: use `req.GetArguments()` helper instead of `req.Params.Arguments` (typed as `any`, not `map[string]any`)
