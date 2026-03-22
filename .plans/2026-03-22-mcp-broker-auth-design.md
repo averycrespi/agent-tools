@@ -14,7 +14,7 @@ Add bearer token authentication to all endpoints. A single random token is auto-
 
 - **Generation:** On first startup, if no token file exists, generate 32 cryptographically random bytes (hex-encoded → 64-char string) and write to `~/.config/mcp-broker/auth-token` with `0600` permissions.
 - **Loading:** On every startup, read the token file into memory. Fail startup if the file is missing or unreadable.
-- **Regeneration:** `--regen-token` CLI flag to force-generate a new token (invalidates all existing sessions/configs).
+- **Regeneration:** `mcp-broker regen-token` subcommand overwrites the token file with a new random token. Can be run while the server is stopped or running (server picks up the new token on next restart). Invalidates all existing client configs and dashboard cookies.
 - **No token is ever logged.** Startup prints: `Auth token loaded from <path>`.
 
 ### Auth Middleware
@@ -86,7 +86,8 @@ All endpoints require auth:
 ### Implementation Scope
 
 - **New file:** `internal/auth/auth.go` — token generation, loading, middleware
-- **Modified:** `cmd/mcp-broker/serve.go` — wrap mux with auth middleware, add `--regen-token` flag
+- **Modified:** `cmd/mcp-broker/serve.go` — wrap mux with auth middleware
+- **New file:** `cmd/mcp-broker/regentoken.go` — `regen-token` subcommand
 - **Modified:** `internal/dashboard/dashboard.go` — add `/unauthorized` route
 - **New file:** Token file at `~/.config/mcp-broker/auth-token`
 - **No external dependencies.** Uses only `crypto/rand`, `crypto/subtle`, `net/http`, `encoding/hex`.
@@ -95,5 +96,5 @@ All endpoints require auth:
 
 - TLS/HTTPS (not needed for localhost)
 - User accounts or role-based access (single token = single user)
-- Token rotation/expiry (manual regeneration via `--regen-token`)
+- Token rotation/expiry (manual regeneration via `mcp-broker regen-token`)
 - Rate limiting on auth failures (low priority for localhost)
