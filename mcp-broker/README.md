@@ -106,11 +106,16 @@ Servers that require OAuth can use `"oauth": true` for zero-config setup (dynami
 Or provide overrides when needed:
 
 ```json
-{"name": "custom", "type": "http", "url": "https://mcp.example.com", "oauth": {
-  "client_id": "my-app",
-  "scopes": ["read", "write"],
-  "auth_server_url": "https://auth.example.com"
-}}
+{
+  "name": "custom",
+  "type": "http",
+  "url": "https://mcp.example.com",
+  "oauth": {
+    "client_id": "my-app",
+    "scopes": ["read", "write"],
+    "auth_server_url": "https://auth.example.com"
+  }
+}
 ```
 
 On first connect, mcp-broker opens your browser to authenticate. Tokens are stored in the OS keychain (macOS Keychain / Linux Secret Service) and refreshed automatically.
