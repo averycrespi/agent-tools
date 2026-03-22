@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -97,4 +98,20 @@ func TestDashboard_Review_CancelsOnContextDone(t *testing.T) {
 
 	err := <-done
 	require.Error(t, err)
+}
+
+func TestDashboard_UnauthorizedPage(t *testing.T) {
+	d := New(nil, nil, nil)
+	mux := d.Handler()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/unauthorized")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Contains(t, string(body), "Unauthorized")
 }

@@ -74,6 +74,7 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("GET /api/pending", d.handlePending)
 	mux.HandleFunc("GET /api/tools", d.handleTools)
 	mux.HandleFunc("GET /api/audit", d.handleAudit)
+	mux.HandleFunc("GET /unauthorized", d.handleUnauthorized)
 	mux.HandleFunc("GET /", d.handleIndex)
 	return mux
 }
@@ -265,6 +266,22 @@ func (d *Dashboard) handleEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func (d *Dashboard) handleUnauthorized(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = fmt.Fprint(w, `<!DOCTYPE html>
+<html><head><title>Unauthorized - MCP Broker</title>
+<style>body{font-family:system-ui,sans-serif;max-width:600px;margin:80px auto;padding:0 20px;color:#333}
+h1{color:#c00}code{background:#f4f4f4;padding:2px 6px;border-radius:3px}</style>
+</head><body>
+<h1>Unauthorized</h1>
+<p>You need to authenticate to access the MCP Broker dashboard.</p>
+<p>Open the authenticated URL printed in the broker's startup output:</p>
+<pre>Dashboard: http://localhost:PORT/dashboard/?token=TOKEN</pre>
+<p>This sets a cookie so you won't need to do this again.</p>
+</body></html>`)
 }
 
 func (d *Dashboard) handleIndex(w http.ResponseWriter, _ *http.Request) {
