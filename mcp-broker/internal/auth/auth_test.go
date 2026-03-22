@@ -133,11 +133,11 @@ func TestMiddleware_SetsTokenCookieAndRedirects(t *testing.T) {
 		return http.ErrUseLastResponse
 	}}
 
-	resp, err := client.Get(srv.URL + "/dashboard/?token=" + token)
+	resp, err := client.Get(srv.URL + "/dashboard/?token=" + token + "&foo=bar")
 	require.NoError(t, err)
 	defer resp.Body.Close() //nolint:errcheck // test cleanup
 	require.Equal(t, http.StatusFound, resp.StatusCode)
-	require.Equal(t, "/dashboard/", resp.Header.Get("Location"))
+	require.Equal(t, "/dashboard/?foo=bar", resp.Header.Get("Location"))
 
 	// Should have set the cookie.
 	cookies := resp.Cookies()

@@ -105,7 +105,7 @@ func Middleware(token string, next http.Handler) http.Handler {
 					q := clean.Query()
 					q.Del("token")
 					clean.RawQuery = q.Encode()
-					http.Redirect(w, r, clean.Path, http.StatusFound)
+					http.Redirect(w, r, clean.RequestURI(), http.StatusFound)
 					return
 				}
 			}
