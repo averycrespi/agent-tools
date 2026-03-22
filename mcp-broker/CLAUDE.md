@@ -33,6 +33,7 @@ internal/
   audit/                SQLite (ncruces/go-sqlite3, WASM, no CGO), WAL mode
   server/               Backend interface with stdio, HTTP, SSE, and OAuth transports
   dashboard/            Embedded HTML, SSE updates, implements Approver interface
+  auth/                 Bearer token auth: generation, file storage, HTTP middleware
   broker/               Orchestrator with ServerManager, AuditLogger, Approver interfaces
 ```
 
@@ -48,3 +49,7 @@ internal/
 - OAuth config supports `"oauth": true` (all defaults) or `"oauth": {...}` (with overrides) via custom `UnmarshalJSON`
 - OAuth tokens are stored in the OS keychain via `go-keyring` (service: `mcp-broker`, key: server name)
 - OAuth callback port is deterministic per server name (FNV hash → ephemeral port range)
+- Auth token file permissions: `0o600`, parent directories: `0o750`
+- Auth token is 32 random bytes, hex-encoded (64 chars)
+- Token comparison uses `crypto/subtle.ConstantTimeCompare`
+- Dashboard auth uses `mcp-broker-auth` cookie (`HttpOnly`, `SameSite=Strict`)
