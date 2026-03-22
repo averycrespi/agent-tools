@@ -198,3 +198,145 @@ func TestClosePR_WithComment(t *testing.T) {
 	assert.Contains(t, args, "--comment")
 	assert.Contains(t, args, "Closing as duplicate")
 }
+
+func TestViewIssue_Args(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ViewIssue(context.Background(), "octocat", "hello", 99)
+	require.NoError(t, err)
+	assert.Contains(t, args, "-R")
+	assert.Contains(t, args, "octocat/hello")
+	assert.Contains(t, args, "99")
+	assert.Contains(t, args, "--json")
+	assert.Contains(t, args, issueViewFields)
+}
+
+func TestListIssues_WithFilters(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ListIssues(context.Background(), "octocat", "hello", ListIssuesOpts{
+		State: "open",
+		Label: "bug",
+		Limit: 10,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, args, "--state")
+	assert.Contains(t, args, "open")
+	assert.Contains(t, args, "--label")
+	assert.Contains(t, args, "bug")
+	assert.Contains(t, args, "--limit")
+	assert.Contains(t, args, "10")
+}
+
+func TestCommentIssue_Args(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.CommentIssue(context.Background(), "octocat", "hello", 5, "Thanks for reporting!")
+	require.NoError(t, err)
+	assert.Contains(t, args, "--body")
+	assert.Contains(t, args, "Thanks for reporting!")
+	assert.Contains(t, args, "5")
+}
+
+func TestListRuns_Args(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ListRuns(context.Background(), "octocat", "hello", ListRunsOpts{
+		Branch: "main",
+		Status: "failure",
+	})
+	require.NoError(t, err)
+	assert.Contains(t, args, "--branch")
+	assert.Contains(t, args, "main")
+	assert.Contains(t, args, "--status")
+	assert.Contains(t, args, "failure")
+}
+
+func TestViewRun_WithFailedLogs(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ViewRun(context.Background(), "octocat", "hello", "12345", true)
+	require.NoError(t, err)
+	assert.Contains(t, args, "--log-failed")
+	assert.NotContains(t, args, "--json")
+	assert.Contains(t, args, "12345")
+}
+
+func TestViewRun_WithoutLogs(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ViewRun(context.Background(), "octocat", "hello", "12345", false)
+	require.NoError(t, err)
+	assert.Contains(t, args, "--json")
+	assert.Contains(t, args, runViewFields)
+	assert.NotContains(t, args, "--log-failed")
+	assert.Contains(t, args, "12345")
+}
+
+func TestRerun_FailedOnly(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.Rerun(context.Background(), "octocat", "hello", "12345", true)
+	require.NoError(t, err)
+	assert.Contains(t, args, "--failed")
+	assert.Contains(t, args, "12345")
+}
+
+func TestCancelRun_Args(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.CancelRun(context.Background(), "octocat", "hello", "67890")
+	require.NoError(t, err)
+	assert.Contains(t, args, "67890")
+	assert.Contains(t, args, "-R")
+	assert.Contains(t, args, "octocat/hello")
+}
+
+func TestListCaches_Args(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ListCaches(context.Background(), "octocat", "hello", ListCachesOpts{Limit: 20})
+	require.NoError(t, err)
+	assert.Contains(t, args, "--limit")
+	assert.Contains(t, args, "20")
+}
+
+func TestDeleteCache_Args(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.DeleteCache(context.Background(), "octocat", "hello", "cache-abc-123")
+	require.NoError(t, err)
+	assert.Contains(t, args, "cache-abc-123")
+	assert.Contains(t, args, "-R")
+	assert.Contains(t, args, "octocat/hello")
+}
+
+func TestSearchPRs_Args(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchPRs(context.Background(), "fix bug", SearchPRsOpts{
+		Repo:  "octocat/hello",
+		State: "open",
+	})
+	require.NoError(t, err)
+	assert.Contains(t, args, "fix bug")
+	assert.Contains(t, args, "--repo")
+	assert.Contains(t, args, "octocat/hello")
+	assert.Contains(t, args, "--state")
+	assert.Contains(t, args, "open")
+}
+
+func TestSearchCode_Args(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchCode(context.Background(), "fmt.Errorf", SearchCodeOpts{
+		Language:  "go",
+		Extension: "go",
+	})
+	require.NoError(t, err)
+	assert.Contains(t, args, "fmt.Errorf")
+	assert.Contains(t, args, "--language")
+	assert.Contains(t, args, "go")
+	assert.Contains(t, args, "--extension")
+	assert.Contains(t, args, "go")
+}

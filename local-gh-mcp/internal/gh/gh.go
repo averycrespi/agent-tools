@@ -292,3 +292,317 @@ func (c *Client) ClosePR(_ context.Context, owner, repo string, number int, comm
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+
+// Issue field constants.
+const (
+	issueViewFields = "number,title,body,state,author,labels,assignees,milestone,url,createdAt,updatedAt,comments"
+	issueListFields = "number,title,state,author,labels,url,createdAt,updatedAt"
+)
+
+// Run field constants.
+const (
+	runListFields = "databaseId,name,displayTitle,status,conclusion,event,headBranch,url,createdAt,updatedAt"
+	runViewFields = "databaseId,name,displayTitle,status,conclusion,event,headBranch,headSha,url,createdAt,updatedAt,jobs"
+)
+
+// Search field constants.
+const (
+	searchPRFields     = "number,title,state,author,repository,url,createdAt,updatedAt"
+	searchIssueFields  = "number,title,state,author,repository,url,createdAt,updatedAt"
+	searchRepoFields   = "fullName,description,url,stargazersCount,language,updatedAt"
+	searchCodeFields   = "path,repository,sha,textMatches,url"
+	searchCommitFields = "sha,message,author,repository,url,committer"
+)
+
+// ListIssuesOpts holds options for listing issues.
+type ListIssuesOpts struct {
+	State, Author, Assignee, Label, Milestone, Search string
+	Limit                                              int
+}
+
+// ListRunsOpts holds options for listing workflow runs.
+type ListRunsOpts struct {
+	Branch, Status, Workflow string
+	Limit                    int
+}
+
+// ListCachesOpts holds options for listing caches.
+type ListCachesOpts struct {
+	Limit       int
+	Sort, Order string
+}
+
+// SearchPRsOpts holds options for searching pull requests.
+type SearchPRsOpts struct {
+	Repo, Owner, State, Author, Label string
+	Limit                              int
+}
+
+// SearchIssuesOpts holds options for searching issues.
+type SearchIssuesOpts struct {
+	Repo, Owner, State, Author, Label string
+	Limit                              int
+}
+
+// SearchReposOpts holds options for searching repositories.
+type SearchReposOpts struct {
+	Owner, Language, Topic, Stars string
+	Limit                         int
+}
+
+// SearchCodeOpts holds options for searching code.
+type SearchCodeOpts struct {
+	Repo, Owner, Language, Extension, Filename string
+	Limit                                       int
+}
+
+// SearchCommitsOpts holds options for searching commits.
+type SearchCommitsOpts struct {
+	Repo, Owner, Author string
+	Limit                int
+}
+
+// ViewIssue retrieves details for an issue.
+func (c *Client) ViewIssue(_ context.Context, owner, repo string, number int) (string, error) {
+	out, err := c.runner.Run("gh", "issue", "view", "-R", repoFlag(owner, repo), "--json", issueViewFields, strconv.Itoa(number))
+	if err != nil {
+		return "", fmt.Errorf("gh issue view failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ListIssues lists issues for a repository.
+func (c *Client) ListIssues(_ context.Context, owner, repo string, opts ListIssuesOpts) (string, error) {
+	args := []string{"issue", "list", "-R", repoFlag(owner, repo), "--json", issueListFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	if opts.State != "" {
+		args = append(args, "--state", opts.State)
+	}
+	if opts.Author != "" {
+		args = append(args, "--author", opts.Author)
+	}
+	if opts.Assignee != "" {
+		args = append(args, "--assignee", opts.Assignee)
+	}
+	if opts.Label != "" {
+		args = append(args, "--label", opts.Label)
+	}
+	if opts.Milestone != "" {
+		args = append(args, "--milestone", opts.Milestone)
+	}
+	if opts.Search != "" {
+		args = append(args, "--search", opts.Search)
+	}
+	out, err := c.runner.Run("gh", args...)
+	if err != nil {
+		return "", fmt.Errorf("gh issue list failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// CommentIssue adds a comment to an issue.
+func (c *Client) CommentIssue(_ context.Context, owner, repo string, number int, body string) (string, error) {
+	out, err := c.runner.Run("gh", "issue", "comment", "-R", repoFlag(owner, repo), "--body", body, strconv.Itoa(number))
+	if err != nil {
+		return "", fmt.Errorf("gh issue comment failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ListRuns lists workflow runs for a repository.
+func (c *Client) ListRuns(_ context.Context, owner, repo string, opts ListRunsOpts) (string, error) {
+	args := []string{"run", "list", "-R", repoFlag(owner, repo), "--json", runListFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	if opts.Branch != "" {
+		args = append(args, "--branch", opts.Branch)
+	}
+	if opts.Status != "" {
+		args = append(args, "--status", opts.Status)
+	}
+	if opts.Workflow != "" {
+		args = append(args, "--workflow", opts.Workflow)
+	}
+	out, err := c.runner.Run("gh", args...)
+	if err != nil {
+		return "", fmt.Errorf("gh run list failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ViewRun retrieves details for a workflow run. If logFailed is true, returns
+// the failed log output instead of JSON.
+func (c *Client) ViewRun(_ context.Context, owner, repo string, runID string, logFailed bool) (string, error) {
+	var args []string
+	if logFailed {
+		args = []string{"run", "view", "-R", repoFlag(owner, repo), "--log-failed", runID}
+	} else {
+		args = []string{"run", "view", "-R", repoFlag(owner, repo), "--json", runViewFields, runID}
+	}
+	out, err := c.runner.Run("gh", args...)
+	if err != nil {
+		return "", fmt.Errorf("gh run view failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// Rerun re-runs a workflow run.
+func (c *Client) Rerun(_ context.Context, owner, repo string, runID string, failedOnly bool) (string, error) {
+	args := []string{"run", "rerun", "-R", repoFlag(owner, repo)}
+	if failedOnly {
+		args = append(args, "--failed")
+	}
+	args = append(args, runID)
+	out, err := c.runner.Run("gh", args...)
+	if err != nil {
+		return "", fmt.Errorf("gh run rerun failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// CancelRun cancels a workflow run.
+func (c *Client) CancelRun(_ context.Context, owner, repo string, runID string) (string, error) {
+	out, err := c.runner.Run("gh", "run", "cancel", "-R", repoFlag(owner, repo), runID)
+	if err != nil {
+		return "", fmt.Errorf("gh run cancel failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ListCaches lists caches for a repository.
+func (c *Client) ListCaches(_ context.Context, owner, repo string, opts ListCachesOpts) (string, error) {
+	args := []string{"cache", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	if opts.Sort != "" {
+		args = append(args, "--sort", opts.Sort)
+	}
+	if opts.Order != "" {
+		args = append(args, "--order", opts.Order)
+	}
+	out, err := c.runner.Run("gh", args...)
+	if err != nil {
+		return "", fmt.Errorf("gh cache list failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// DeleteCache deletes a cache from a repository.
+func (c *Client) DeleteCache(_ context.Context, owner, repo string, cacheID string) (string, error) {
+	out, err := c.runner.Run("gh", "cache", "delete", "-R", repoFlag(owner, repo), cacheID)
+	if err != nil {
+		return "", fmt.Errorf("gh cache delete failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// SearchPRs searches for pull requests.
+func (c *Client) SearchPRs(_ context.Context, query string, opts SearchPRsOpts) (string, error) {
+	args := []string{"search", "prs", query, "--json", searchPRFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	if opts.Repo != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.Owner != "" {
+		args = append(args, "--owner", opts.Owner)
+	}
+	if opts.State != "" {
+		args = append(args, "--state", opts.State)
+	}
+	if opts.Author != "" {
+		args = append(args, "--author", opts.Author)
+	}
+	if opts.Label != "" {
+		args = append(args, "--label", opts.Label)
+	}
+	out, err := c.runner.Run("gh", args...)
+	if err != nil {
+		return "", fmt.Errorf("gh search prs failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// SearchIssues searches for issues.
+func (c *Client) SearchIssues(_ context.Context, query string, opts SearchIssuesOpts) (string, error) {
+	args := []string{"search", "issues", query, "--json", searchIssueFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	if opts.Repo != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.Owner != "" {
+		args = append(args, "--owner", opts.Owner)
+	}
+	if opts.State != "" {
+		args = append(args, "--state", opts.State)
+	}
+	if opts.Author != "" {
+		args = append(args, "--author", opts.Author)
+	}
+	if opts.Label != "" {
+		args = append(args, "--label", opts.Label)
+	}
+	out, err := c.runner.Run("gh", args...)
+	if err != nil {
+		return "", fmt.Errorf("gh search issues failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// SearchRepos searches for repositories.
+func (c *Client) SearchRepos(_ context.Context, query string, opts SearchReposOpts) (string, error) {
+	args := []string{"search", "repos", query, "--json", searchRepoFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	if opts.Owner != "" {
+		args = append(args, "--owner", opts.Owner)
+	}
+	if opts.Language != "" {
+		args = append(args, "--language", opts.Language)
+	}
+	if opts.Topic != "" {
+		args = append(args, "--topic", opts.Topic)
+	}
+	if opts.Stars != "" {
+		args = append(args, "--stars", opts.Stars)
+	}
+	out, err := c.runner.Run("gh", args...)
+	if err != nil {
+		return "", fmt.Errorf("gh search repos failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// SearchCode searches for code.
+func (c *Client) SearchCode(_ context.Context, query string, opts SearchCodeOpts) (string, error) {
+	args := []string{"search", "code", query, "--json", searchCodeFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	if opts.Repo != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.Owner != "" {
+		args = append(args, "--owner", opts.Owner)
+	}
+	if opts.Language != "" {
+		args = append(args, "--language", opts.Language)
+	}
+	if opts.Extension != "" {
+		args = append(args, "--extension", opts.Extension)
+	}
+	if opts.Filename != "" {
+		args = append(args, "--filename", opts.Filename)
+	}
+	out, err := c.runner.Run("gh", args...)
+	if err != nil {
+		return "", fmt.Errorf("gh search code failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// SearchCommits searches for commits.
+func (c *Client) SearchCommits(_ context.Context, query string, opts SearchCommitsOpts) (string, error) {
+	args := []string{"search", "commits", query, "--json", searchCommitFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	if opts.Repo != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.Owner != "" {
+		args = append(args, "--owner", opts.Owner)
+	}
+	if opts.Author != "" {
+		args = append(args, "--author", opts.Author)
+	}
+	out, err := c.runner.Run("gh", args...)
+	if err != nil {
+		return "", fmt.Errorf("gh search commits failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
