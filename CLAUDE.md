@@ -28,3 +28,5 @@ Targets are forwarded to each tool's Makefile. Run from any subdirectory for a s
 ## Conventions
 
 - Each tool is a separate Go module under `go.work`
+- When adding a new tool, add its name the root `Makefile` tools list
+
