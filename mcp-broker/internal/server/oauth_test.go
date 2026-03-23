@@ -42,6 +42,19 @@ func TestKeychainTokenStore_GetToken_NoToken(t *testing.T) {
 	require.ErrorIs(t, err, transport.ErrNoToken)
 }
 
+func TestKeychainTokenStore_GetToken_CorruptedToken(t *testing.T) {
+	// If the keychain contains invalid JSON, GetToken should return an unmarshal error.
+	store := &KeychainTokenStore{serverName: "corrupted-server"}
+	ctx := context.Background()
+
+	err := keyring.Set(keychainService, "corrupted-server", "not-valid-json")
+	require.NoError(t, err)
+
+	_, err = store.GetToken(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unmarshal token")
+}
+
 func TestCallbackPort_Deterministic(t *testing.T) {
 	port1 := callbackPort("github")
 	port2 := callbackPort("github")

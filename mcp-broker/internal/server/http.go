@@ -101,6 +101,8 @@ func newSSEBackend(ctx context.Context, name string, srv config.ServerConfig) (*
 	return &httpBackend{client: c}, nil
 }
 
+// initializeClient sends the MCP Initialize handshake.
+// On error, it closes the client before returning.
 func initializeClient(ctx context.Context, c *client.Client, name string) error {
 	initReq := mcp.InitializeRequest{}
 	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
