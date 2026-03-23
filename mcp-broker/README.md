@@ -57,31 +57,22 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
 
 ```json
 {
-  "servers": [
-    {
-      "name": "github",
+  "servers": {
+    "github": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"],
       "env": {"GITHUB_TOKEN": "$GITHUB_TOKEN"}
     },
-    {
-      "name": "github-remote",
+    "github-remote": {
       "type": "sse",
       "url": "https://api.githubcopilot.com/mcp/",
       "headers": {"Authorization": "Bearer $GITHUB_TOKEN"}
     },
-    {
-      "name": "internal",
-      "type": "http",
+    "internal": {
+      "type": "streamable-http",
       "url": "http://localhost:3000/mcp"
-    },
-    {
-      "name": "atlassian",
-      "type": "http",
-      "url": "https://mcp.atlassian.com",
-      "oauth": true
     }
-  ],
+  },
   "rules": [
     {"tool": "github.search_*", "verdict": "allow"},
     {"tool": "github.push*", "verdict": "require-approval"},
@@ -99,43 +90,20 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
 
 ### Servers
 
-Each server entry connects to a backend MCP server:
+Servers is a map keyed by server name. Each name is used as a tool prefix (e.g. `github.search`).
 
 | Field | Description |
 |-------|-------------|
-| `name` | Unique name; used as tool prefix (e.g. `github.search`) |
 | `command` | Command to spawn (stdio transport, default) |
 | `args` | Command arguments |
 | `env` | Environment variables; `$VAR` and `${VAR}` references are expanded from the process environment |
-| `type` | Transport type: omit for stdio, `"http"` for Streamable HTTP, `"sse"` for SSE |
-| `url` | URL for HTTP transport |
+| `type` | Transport type: omit for stdio, `"streamable-http"` for Streamable HTTP, `"sse"` for SSE |
+| `url` | URL for HTTP/SSE transport |
 | `headers` | HTTP headers; `$VAR` and `${VAR}` references are expanded from the process environment |
-| `oauth` | OAuth config: `true` for defaults (dynamic registration, PKCE) or `{"client_id": "...", "scopes": [...]}` for overrides |
 
 ### OAuth
 
-Servers that require OAuth can use `"oauth": true` for zero-config setup (dynamic client registration, PKCE, server-default scopes):
-
-```json
-{"name": "atlassian", "type": "http", "url": "https://mcp.atlassian.com", "oauth": true}
-```
-
-Or provide overrides when needed:
-
-```json
-{
-  "name": "custom",
-  "type": "http",
-  "url": "https://mcp.example.com",
-  "oauth": {
-    "client_id": "my-app",
-    "scopes": ["read", "write"],
-    "auth_server_url": "https://auth.example.com"
-  }
-}
-```
-
-On first connect, mcp-broker opens your browser to authenticate. Tokens are stored in the OS keychain (macOS Keychain / Linux Secret Service) and refreshed automatically.
+OAuth is handled automatically. When a server responds with HTTP 401, the broker runs an OAuth flow (dynamic client registration, PKCE, browser-based authorization). Tokens are stored in the OS keychain (macOS Keychain / Linux Secret Service) and refreshed automatically. No configuration is needed.
 
 ### Rules
 
