@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"hash/fnv"
 	"net"
@@ -28,11 +27,10 @@ type KeychainTokenStore struct {
 
 func (s *KeychainTokenStore) GetToken(ctx context.Context) (*transport.Token, error) {
 	data, err := keyring.Get(keychainService, s.serverName)
-	if errors.Is(err, keyring.ErrNotFound) {
-		return nil, transport.ErrNoToken
-	}
 	if err != nil {
-		return nil, fmt.Errorf("keychain get: %w", err)
+		// Treat any keychain error (not found, service unavailable) as no token.
+		// The OAuth flow will only trigger if the server returns 401.
+		return nil, transport.ErrNoToken
 	}
 	var token transport.Token
 	if err := json.Unmarshal([]byte(data), &token); err != nil {
