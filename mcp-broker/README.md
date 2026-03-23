@@ -36,7 +36,7 @@ mcp-broker is designed for **local use only** — it listens on localhost and mu
 - Protection against an attacker who can read your filesystem (they can read the token file)
 - TLS/encryption (traffic is plain HTTP on localhost)
 - User accounts or role-based access — there is one token for everything
-- Automatic token rotation (use `mcp-broker token regen` to rotate manually)
+- Automatic token rotation (use `mcp-broker token rotate` to rotate manually)
 
 ## Quick start
 
@@ -174,7 +174,7 @@ On first run, mcp-broker generates a random auth token and saves it to `~/.confi
 **Token rotation:**
 
 ```bash
-mcp-broker token regen    # Generate a new token (invalidates all existing sessions)
+mcp-broker token rotate    # Generate a new token (invalidates all existing sessions)
 ```
 
 ## CLI
@@ -182,7 +182,7 @@ mcp-broker token regen    # Generate a new token (invalidates all existing sessi
 ```
 mcp-broker serve              # Start the broker
 mcp-broker serve --log-level debug
-mcp-broker token regen        # Regenerate auth token
+mcp-broker token rotate        # Regenerate auth token
 mcp-broker config path        # Print config file path
 mcp-broker config refresh     # Backfill new defaults into config
 mcp-broker config edit        # Open config in $EDITOR

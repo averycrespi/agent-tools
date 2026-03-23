@@ -14,8 +14,8 @@ var tokenCmd = &cobra.Command{
 	Short: "Manage auth token",
 }
 
-var tokenRegenCmd = &cobra.Command{
-	Use:   "regen",
+var tokenRotateCmd = &cobra.Command{
+	Use:   "rotate",
 	Short: "Generate a new auth token (invalidates existing clients and dashboard sessions)",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
@@ -38,6 +38,6 @@ var tokenRegenCmd = &cobra.Command{
 }
 
 func init() {
-	tokenCmd.AddCommand(tokenRegenCmd)
+	tokenCmd.AddCommand(tokenRotateCmd)
 	rootCmd.AddCommand(tokenCmd)
 }
