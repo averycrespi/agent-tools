@@ -17,7 +17,7 @@ type stdioBackend struct {
 	client *client.Client
 }
 
-func newStdioBackend(ctx context.Context, srv config.ServerConfig, logger *slog.Logger) (*stdioBackend, error) {
+func newStdioBackend(ctx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (*stdioBackend, error) {
 	env := expandEnv(srv.Env)
 	envSlice := os.Environ()
 	for k, v := range env {
@@ -26,7 +26,7 @@ func newStdioBackend(ctx context.Context, srv config.ServerConfig, logger *slog.
 
 	c, err := client.NewStdioMCPClient(srv.Command, envSlice, srv.Args...)
 	if err != nil {
-		return nil, fmt.Errorf("spawn stdio server %q: %w", srv.Name, err)
+		return nil, fmt.Errorf("spawn stdio server %q: %w", name, err)
 	}
 
 	initReq := mcp.InitializeRequest{}
@@ -38,10 +38,10 @@ func newStdioBackend(ctx context.Context, srv config.ServerConfig, logger *slog.
 
 	if _, err := c.Initialize(ctx, initReq); err != nil {
 		_ = c.Close()
-		return nil, fmt.Errorf("initialize stdio server %q: %w", srv.Name, err)
+		return nil, fmt.Errorf("initialize stdio server %q: %w", name, err)
 	}
 
-	logger.Debug("stdio backend initialized", "name", srv.Name, "command", srv.Command)
+	logger.Debug("stdio backend initialized", "name", name, "command", srv.Command)
 
 	return &stdioBackend{client: c}, nil
 }

@@ -16,11 +16,7 @@ type httpBackend struct {
 	client *client.Client
 }
 
-func newHTTPBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend, error) {
-	if srv.OAuth != nil {
-		return newOAuthHTTPBackend(ctx, srv)
-	}
-
+func newHTTPBackend(ctx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
 	var opts []transport.StreamableHTTPCOption
 	if headers := expandEnv(srv.Headers); len(headers) > 0 {
 		opts = append(opts, transport.WithHTTPHeaders(headers))
@@ -28,21 +24,17 @@ func newHTTPBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend,
 
 	c, err := client.NewStreamableHttpClient(srv.URL, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("create HTTP client for %q: %w", srv.Name, err)
+		return nil, fmt.Errorf("create HTTP client for %q: %w", name, err)
 	}
 
-	if err := initializeClient(ctx, c, srv.Name); err != nil {
+	if err := initializeClient(ctx, c, name); err != nil {
 		return nil, err
 	}
 
 	return &httpBackend{client: c}, nil
 }
 
-func newSSEBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend, error) {
-	if srv.OAuth != nil {
-		return newOAuthSSEBackend(ctx, srv)
-	}
-
+func newSSEBackend(ctx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
 	var opts []transport.ClientOption
 	if headers := expandEnv(srv.Headers); len(headers) > 0 {
 		opts = append(opts, transport.WithHeaders(headers))
@@ -50,15 +42,15 @@ func newSSEBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend, 
 
 	c, err := client.NewSSEMCPClient(srv.URL, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("create SSE client for %q: %w", srv.Name, err)
+		return nil, fmt.Errorf("create SSE client for %q: %w", name, err)
 	}
 
 	if err := c.Start(ctx); err != nil {
 		_ = c.Close()
-		return nil, fmt.Errorf("start SSE client for %q: %w", srv.Name, err)
+		return nil, fmt.Errorf("start SSE client for %q: %w", name, err)
 	}
 
-	if err := initializeClient(ctx, c, srv.Name); err != nil {
+	if err := initializeClient(ctx, c, name); err != nil {
 		return nil, err
 	}
 

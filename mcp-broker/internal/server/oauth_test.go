@@ -8,8 +8,6 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/stretchr/testify/require"
 	"github.com/zalando/go-keyring"
-
-	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 )
 
 func init() {
@@ -60,11 +58,7 @@ func TestCallbackPort_DifferentServers(t *testing.T) {
 }
 
 func TestBuildOAuthConfig_RedirectURIMatchesCallbackPort(t *testing.T) {
-	srv := config.ServerConfig{
-		Name:  "github",
-		OAuth: &config.OAuthConfig{},
-	}
-	cfg := buildOAuthConfig(srv)
+	cfg := buildOAuthConfig("github")
 
 	port := callbackPort("github")
 	expected := fmt.Sprintf("http://localhost:%d/callback", port)

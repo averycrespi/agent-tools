@@ -60,25 +60,19 @@ func callbackPort(serverName string) int {
 }
 
 // buildOAuthConfig creates an mcp-go OAuthConfig from our config.
-func buildOAuthConfig(srv config.ServerConfig) transport.OAuthConfig {
-	port := callbackPort(srv.Name)
+func buildOAuthConfig(name string) transport.OAuthConfig {
+	port := callbackPort(name)
 	cfg := transport.OAuthConfig{
 		RedirectURI: fmt.Sprintf("http://localhost:%d/callback", port),
-		TokenStore:  &KeychainTokenStore{serverName: srv.Name},
+		TokenStore:  &KeychainTokenStore{serverName: name},
 		PKCEEnabled: true,
-	}
-	if srv.OAuth != nil {
-		cfg.ClientID = srv.OAuth.ClientID
-		cfg.ClientSecret = os.ExpandEnv(srv.OAuth.ClientSecret)
-		cfg.Scopes = srv.OAuth.Scopes
-		cfg.AuthServerMetadataURL = os.ExpandEnv(srv.OAuth.AuthServerURL)
 	}
 	return cfg
 }
 
 // newOAuthHTTPBackend creates an HTTP backend with OAuth support.
-func newOAuthHTTPBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend, error) {
-	oauthCfg := buildOAuthConfig(srv)
+func newOAuthHTTPBackend(ctx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
+	oauthCfg := buildOAuthConfig(name)
 
 	var opts []transport.StreamableHTTPCOption
 	if headers := expandEnv(srv.Headers); len(headers) > 0 {
@@ -87,10 +81,10 @@ func newOAuthHTTPBackend(ctx context.Context, srv config.ServerConfig) (*httpBac
 
 	c, err := client.NewOAuthStreamableHttpClient(srv.URL, oauthCfg, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("create OAuth HTTP client for %q: %w", srv.Name, err)
+		return nil, fmt.Errorf("create OAuth HTTP client for %q: %w", name, err)
 	}
 
-	if err := initializeOAuthClient(ctx, c, srv.Name); err != nil {
+	if err := initializeOAuthClient(ctx, c, name); err != nil {
 		return nil, err
 	}
 
@@ -98,8 +92,8 @@ func newOAuthHTTPBackend(ctx context.Context, srv config.ServerConfig) (*httpBac
 }
 
 // newOAuthSSEBackend creates an SSE backend with OAuth support.
-func newOAuthSSEBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend, error) {
-	oauthCfg := buildOAuthConfig(srv)
+func newOAuthSSEBackend(ctx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
+	oauthCfg := buildOAuthConfig(name)
 
 	var opts []transport.ClientOption
 	if headers := expandEnv(srv.Headers); len(headers) > 0 {
@@ -108,25 +102,25 @@ func newOAuthSSEBackend(ctx context.Context, srv config.ServerConfig) (*httpBack
 
 	c, err := client.NewOAuthSSEClient(srv.URL, oauthCfg, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("create OAuth SSE client for %q: %w", srv.Name, err)
+		return nil, fmt.Errorf("create OAuth SSE client for %q: %w", name, err)
 	}
 
 	if err := c.Start(ctx); err != nil {
 		if !client.IsOAuthAuthorizationRequiredError(err) {
 			_ = c.Close()
-			return nil, fmt.Errorf("start OAuth SSE client for %q: %w", srv.Name, err)
+			return nil, fmt.Errorf("start OAuth SSE client for %q: %w", name, err)
 		}
-		if err := runOAuthFlow(ctx, err, callbackPort(srv.Name)); err != nil {
+		if err := runOAuthFlow(ctx, err, callbackPort(name)); err != nil {
 			_ = c.Close()
-			return nil, fmt.Errorf("OAuth flow for %q: %w", srv.Name, err)
+			return nil, fmt.Errorf("OAuth flow for %q: %w", name, err)
 		}
 		if err := c.Start(ctx); err != nil {
 			_ = c.Close()
-			return nil, fmt.Errorf("start OAuth SSE client for %q after auth: %w", srv.Name, err)
+			return nil, fmt.Errorf("start OAuth SSE client for %q after auth: %w", name, err)
 		}
 	}
 
-	if err := initializeOAuthClient(ctx, c, srv.Name); err != nil {
+	if err := initializeOAuthClient(ctx, c, name); err != nil {
 		return nil, err
 	}
 
