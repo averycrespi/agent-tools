@@ -127,17 +127,16 @@ func startMockBackend(t *testing.T, tools []toolDef) string {
 // --- Config types (just enough to marshal config.json) ---
 
 type testConfig struct {
-	Servers     []testServerConfig `json:"servers"`
-	Rules       []testRuleConfig   `json:"rules"`
-	Port        int                `json:"port"`
-	OpenBrowser bool               `json:"open_browser"`
-	Audit       testAuditConfig    `json:"audit"`
-	Log         testLogConfig      `json:"log"`
+	Servers     map[string]testServerConfig `json:"servers"`
+	Rules       []testRuleConfig            `json:"rules"`
+	Port        int                         `json:"port"`
+	OpenBrowser bool                        `json:"open_browser"`
+	Audit       testAuditConfig             `json:"audit"`
+	Log         testLogConfig               `json:"log"`
 }
 
 type testServerConfig struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 	URL  string `json:"url"`
 }
 
@@ -186,8 +185,8 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 	// Write temp config.
 	tmpDir := t.TempDir()
 	cfg := testConfig{
-		Servers: []testServerConfig{
-			{Name: "echo", Type: "http", URL: backendURL},
+		Servers: map[string]testServerConfig{
+			"echo": {Type: "streamable-http", URL: backendURL},
 		},
 		Rules:       rules,
 		Port:        brokerPort,
