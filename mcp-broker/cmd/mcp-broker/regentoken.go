@@ -9,14 +9,16 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/auth"
 )
 
-func init() {
-	rootCmd.AddCommand(regenTokenCmd)
+var tokenCmd = &cobra.Command{
+	Use:   "token",
+	Short: "Manage auth token",
 }
 
-var regenTokenCmd = &cobra.Command{
-	Use:   "regen-token",
+var tokenRegenCmd = &cobra.Command{
+	Use:   "regen",
 	Short: "Generate a new auth token (invalidates existing clients and dashboard sessions)",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		path := auth.TokenPath()
 
 		// Delete existing token file so EnsureToken generates a new one.
@@ -33,4 +35,9 @@ var regenTokenCmd = &cobra.Command{
 		_ = token
 		return nil
 	},
+}
+
+func init() {
+	tokenCmd.AddCommand(tokenRegenCmd)
+	rootCmd.AddCommand(tokenCmd)
 }
