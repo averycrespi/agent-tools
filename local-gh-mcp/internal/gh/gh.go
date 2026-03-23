@@ -28,7 +28,7 @@ func clampLimit(limit int) int {
 const (
 	prViewFields  = "number,title,body,state,author,baseRefName,headRefName,url,isDraft,mergeable,reviewDecision,statusCheckRollup,labels,assignees,createdAt,updatedAt"
 	prListFields  = "number,title,state,author,headRefName,url,isDraft,createdAt,updatedAt"
-	prCheckFields = "name,state,description,targetUrl,startedAt,completedAt"
+	prCheckFields = "name,state,description,link,startedAt,completedAt"
 )
 
 // CreatePROpts holds options for creating a pull request.
@@ -311,7 +311,7 @@ const (
 	searchIssueFields  = "number,title,state,author,repository,url,createdAt,updatedAt"
 	searchRepoFields   = "fullName,description,url,stargazersCount,language,updatedAt"
 	searchCodeFields   = "path,repository,sha,textMatches,url"
-	searchCommitFields = "sha,message,author,repository,url,committer"
+	searchCommitFields = "sha,commit,author,repository,url,committer"
 )
 
 // ListIssuesOpts holds options for listing issues.
