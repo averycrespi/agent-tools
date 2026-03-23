@@ -8,8 +8,6 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/stretchr/testify/require"
 	"github.com/zalando/go-keyring"
-
-	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 )
 
 func init() {
@@ -44,6 +42,19 @@ func TestKeychainTokenStore_GetToken_NoToken(t *testing.T) {
 	require.ErrorIs(t, err, transport.ErrNoToken)
 }
 
+func TestKeychainTokenStore_GetToken_CorruptedToken(t *testing.T) {
+	// If the keychain contains invalid JSON, GetToken should return an unmarshal error.
+	store := &KeychainTokenStore{serverName: "corrupted-server"}
+	ctx := context.Background()
+
+	err := keyring.Set(keychainService, "corrupted-server", "not-valid-json")
+	require.NoError(t, err)
+
+	_, err = store.GetToken(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unmarshal token")
+}
+
 func TestCallbackPort_Deterministic(t *testing.T) {
 	port1 := callbackPort("github")
 	port2 := callbackPort("github")
@@ -59,14 +70,12 @@ func TestCallbackPort_DifferentServers(t *testing.T) {
 	require.NotEqual(t, portGH, portAT)
 }
 
-func TestBuildOAuthConfig_RedirectURIMatchesCallbackPort(t *testing.T) {
-	srv := config.ServerConfig{
-		Name:  "github",
-		OAuth: &config.OAuthConfig{},
-	}
-	cfg := buildOAuthConfig(srv)
+func TestOAuthConfig_RedirectURIMatchesCallbackPort(t *testing.T) {
+	cfg := oauthConfig("github")
 
 	port := callbackPort("github")
 	expected := fmt.Sprintf("http://localhost:%d/callback", port)
 	require.Equal(t, expected, cfg.RedirectURI)
+	require.True(t, cfg.PKCEEnabled)
+	require.NotNil(t, cfg.TokenStore)
 }

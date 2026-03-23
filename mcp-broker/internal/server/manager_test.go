@@ -2,8 +2,12 @@ package server
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
+	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -87,6 +91,41 @@ func TestManager_Call_UnknownToolReturnsError(t *testing.T) {
 	_, err := m.Call(context.Background(), "nonexistent.tool", nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown tool")
+}
+
+func TestConnect_UnknownTypeDefaultsToStdio(t *testing.T) {
+	// connect() with empty type should attempt stdio (which will fail without a real command,
+	// but the error message confirms the routing)
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	_, err := connect(ctx, "test", config.ServerConfig{Type: "", Command: "/nonexistent"}, logger)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "spawn stdio server")
+}
+
+func TestConnect_StreamableHTTPType(t *testing.T) {
+	// connect() with "streamable-http" should attempt HTTP (which will fail without a real server,
+	// but the error confirms routing)
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	_, err := connect(ctx, "test", config.ServerConfig{Type: "streamable-http", URL: "http://localhost:1/nonexistent"}, logger)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "initialize server")
+}
+
+func TestConnect_StreamableHTTPFailsGracefully(t *testing.T) {
+	// When connecting to a non-existent HTTP server, connect should fail
+	// with an error that includes the server name for debugging.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	_, err := connect(ctx, "broken", config.ServerConfig{
+		Type: "streamable-http",
+		URL:  "http://127.0.0.1:1/nonexistent",
+	}, logger)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "broken")
 }
 
 func TestExpandEnv_SubstitutesVariables(t *testing.T) {

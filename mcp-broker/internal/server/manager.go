@@ -45,22 +45,21 @@ type Manager struct {
 }
 
 // NewManager creates a Manager and connects to all configured backends.
-func NewManager(ctx context.Context, servers []config.ServerConfig, logger *slog.Logger) (*Manager, error) {
+func NewManager(ctx context.Context, servers map[string]config.ServerConfig, logger *slog.Logger) (*Manager, error) {
 	m := &Manager{
 		backends: make(map[string]Backend),
 		tools:    make(map[string]toolEntry),
 		logger:   logger,
 	}
 
-	for _, srv := range servers {
-		backend, err := connect(ctx, srv, logger)
+	for name, srv := range servers {
+		backend, err := connect(ctx, name, srv, logger)
 		if err != nil {
-			// Log and skip failed backends rather than failing entirely
-			logger.Error("failed to connect to backend", "name", srv.Name, "error", err)
+			logger.Error("failed to connect to backend", "name", name, "error", err)
 			continue
 		}
-		m.backends[srv.Name] = backend
-		logger.Info("connected to backend", "name", srv.Name)
+		m.backends[name] = backend
+		logger.Info("connected to backend", "name", name)
 	}
 
 	if err := m.discover(ctx); err != nil {
@@ -71,15 +70,14 @@ func NewManager(ctx context.Context, servers []config.ServerConfig, logger *slog
 }
 
 // connect creates a Backend for the given server config.
-func connect(ctx context.Context, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
+func connect(ctx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
 	switch srv.Type {
-	case "http":
-		return newHTTPBackend(ctx, srv)
+	case "streamable-http":
+		return newHTTPBackend(ctx, name, srv)
 	case "sse":
-		return newSSEBackend(ctx, srv)
+		return newSSEBackend(ctx, name, srv)
 	default:
-		// stdio is the default
-		return newStdioBackend(ctx, srv, logger)
+		return newStdioBackend(ctx, name, srv, logger)
 	}
 }
 

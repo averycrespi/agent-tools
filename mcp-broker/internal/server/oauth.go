@@ -17,8 +17,6 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/zalando/go-keyring"
-
-	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 )
 
 const keychainService = "mcp-broker"
@@ -30,11 +28,13 @@ type KeychainTokenStore struct {
 
 func (s *KeychainTokenStore) GetToken(ctx context.Context) (*transport.Token, error) {
 	data, err := keyring.Get(keychainService, s.serverName)
-	if errors.Is(err, keyring.ErrNotFound) {
-		return nil, transport.ErrNoToken
-	}
 	if err != nil {
-		return nil, fmt.Errorf("keychain get: %w", err)
+		// Treat any keychain error (not found, service unavailable) as no token.
+		// The OAuth flow will only trigger if the server returns 401.
+		if !errors.Is(err, keyring.ErrNotFound) {
+			fmt.Fprintf(os.Stderr, "keychain unavailable for %q, proceeding without cached token: %v\n", s.serverName, err)
+		}
+		return nil, transport.ErrNoToken
 	}
 	var token transport.Token
 	if err := json.Unmarshal([]byte(data), &token); err != nil {
@@ -59,78 +59,16 @@ func callbackPort(serverName string) int {
 	return int(h.Sum32()%(65535-10000)) + 10000
 }
 
-// buildOAuthConfig creates an mcp-go OAuthConfig from our config.
-func buildOAuthConfig(srv config.ServerConfig) transport.OAuthConfig {
-	port := callbackPort(srv.Name)
-	cfg := transport.OAuthConfig{
+// oauthConfig creates a minimal OAuth config for automatic discovery.
+// The mcp-go library handles 401 detection, metadata discovery, dynamic
+// client registration, and PKCE automatically.
+func oauthConfig(serverName string) transport.OAuthConfig {
+	port := callbackPort(serverName)
+	return transport.OAuthConfig{
 		RedirectURI: fmt.Sprintf("http://localhost:%d/callback", port),
-		TokenStore:  &KeychainTokenStore{serverName: srv.Name},
+		TokenStore:  &KeychainTokenStore{serverName: serverName},
 		PKCEEnabled: true,
 	}
-	if srv.OAuth != nil {
-		cfg.ClientID = srv.OAuth.ClientID
-		cfg.ClientSecret = os.ExpandEnv(srv.OAuth.ClientSecret)
-		cfg.Scopes = srv.OAuth.Scopes
-		cfg.AuthServerMetadataURL = os.ExpandEnv(srv.OAuth.AuthServerURL)
-	}
-	return cfg
-}
-
-// newOAuthHTTPBackend creates an HTTP backend with OAuth support.
-func newOAuthHTTPBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend, error) {
-	oauthCfg := buildOAuthConfig(srv)
-
-	var opts []transport.StreamableHTTPCOption
-	if headers := expandEnv(srv.Headers); len(headers) > 0 {
-		opts = append(opts, transport.WithHTTPHeaders(headers))
-	}
-
-	c, err := client.NewOAuthStreamableHttpClient(srv.URL, oauthCfg, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("create OAuth HTTP client for %q: %w", srv.Name, err)
-	}
-
-	if err := initializeOAuthClient(ctx, c, srv.Name); err != nil {
-		return nil, err
-	}
-
-	return &httpBackend{client: c}, nil
-}
-
-// newOAuthSSEBackend creates an SSE backend with OAuth support.
-func newOAuthSSEBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend, error) {
-	oauthCfg := buildOAuthConfig(srv)
-
-	var opts []transport.ClientOption
-	if headers := expandEnv(srv.Headers); len(headers) > 0 {
-		opts = append(opts, transport.WithHeaders(headers))
-	}
-
-	c, err := client.NewOAuthSSEClient(srv.URL, oauthCfg, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("create OAuth SSE client for %q: %w", srv.Name, err)
-	}
-
-	if err := c.Start(ctx); err != nil {
-		if !client.IsOAuthAuthorizationRequiredError(err) {
-			_ = c.Close()
-			return nil, fmt.Errorf("start OAuth SSE client for %q: %w", srv.Name, err)
-		}
-		if err := runOAuthFlow(ctx, err, callbackPort(srv.Name)); err != nil {
-			_ = c.Close()
-			return nil, fmt.Errorf("OAuth flow for %q: %w", srv.Name, err)
-		}
-		if err := c.Start(ctx); err != nil {
-			_ = c.Close()
-			return nil, fmt.Errorf("start OAuth SSE client for %q after auth: %w", srv.Name, err)
-		}
-	}
-
-	if err := initializeOAuthClient(ctx, c, srv.Name); err != nil {
-		return nil, err
-	}
-
-	return &httpBackend{client: c}, nil
 }
 
 // initializeOAuthClient sends the MCP Initialize handshake, handling OAuth auth if needed.

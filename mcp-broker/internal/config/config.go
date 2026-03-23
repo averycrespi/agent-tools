@@ -8,42 +8,22 @@ import (
 
 // Config is the top-level configuration for mcp-broker.
 type Config struct {
-	Servers     []ServerConfig `json:"servers"`
-	Rules       []RuleConfig   `json:"rules"`
-	Port        int            `json:"port"`
-	OpenBrowser bool           `json:"open_browser"`
-	Audit       AuditConfig    `json:"audit"`
-	Log         LogConfig      `json:"log"`
-}
-
-// OAuthConfig holds OAuth settings for a backend server.
-// Supports "oauth": true (all defaults) or "oauth": {...} with overrides.
-type OAuthConfig struct {
-	ClientID      string   `json:"client_id,omitempty"`
-	ClientSecret  string   `json:"client_secret,omitempty"`
-	Scopes        []string `json:"scopes,omitempty"`
-	AuthServerURL string   `json:"auth_server_url,omitempty"`
-}
-
-// UnmarshalJSON supports both "oauth": true and "oauth": {...}.
-func (o *OAuthConfig) UnmarshalJSON(data []byte) error {
-	if string(data) == "true" {
-		return nil
-	}
-	type alias OAuthConfig
-	return json.Unmarshal(data, (*alias)(o))
+	Servers     map[string]ServerConfig `json:"servers"`
+	Rules       []RuleConfig            `json:"rules"`
+	Port        int                     `json:"port"`
+	OpenBrowser bool                    `json:"open_browser"`
+	Audit       AuditConfig             `json:"audit"`
+	Log         LogConfig               `json:"log"`
 }
 
 // ServerConfig defines a backend MCP server.
 type ServerConfig struct {
-	Name    string            `json:"name"`
 	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	Type    string            `json:"type,omitempty"`
 	URL     string            `json:"url,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
-	OAuth   *OAuthConfig      `json:"oauth,omitempty"`
 }
 
 // RuleConfig defines a policy rule mapping a tool glob to a verdict.
@@ -86,7 +66,7 @@ func ConfigPath() string {
 // DefaultConfig returns a Config with all default values.
 func DefaultConfig() Config {
 	return Config{
-		Servers: []ServerConfig{},
+		Servers: map[string]ServerConfig{},
 		Rules: []RuleConfig{
 			{Tool: "*", Verdict: "require-approval"},
 		},

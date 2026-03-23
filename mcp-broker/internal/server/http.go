@@ -16,55 +16,93 @@ type httpBackend struct {
 	client *client.Client
 }
 
-func newHTTPBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend, error) {
-	if srv.OAuth != nil {
-		return newOAuthHTTPBackend(ctx, srv)
-	}
-
+func newHTTPBackend(ctx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
 	var opts []transport.StreamableHTTPCOption
 	if headers := expandEnv(srv.Headers); len(headers) > 0 {
 		opts = append(opts, transport.WithHTTPHeaders(headers))
 	}
 
+	// Try plain client first.
 	c, err := client.NewStreamableHttpClient(srv.URL, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("create HTTP client for %q: %w", srv.Name, err)
+		return nil, fmt.Errorf("create HTTP client for %q: %w", name, err)
 	}
 
-	if err := initializeClient(ctx, c, srv.Name); err != nil {
+	if err := initializeClient(ctx, c, name); err == nil {
+		return &httpBackend{client: c}, nil
+	} else if !client.IsOAuthAuthorizationRequiredError(err) {
+		return nil, err // initializeClient already closed c
+	}
+
+	// Server requires OAuth — reconnect with OAuth support.
+	oauthCfg := oauthConfig(name)
+	c, err = client.NewOAuthStreamableHttpClient(srv.URL, oauthCfg, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("create OAuth HTTP client for %q: %w", name, err)
+	}
+	if err := initializeOAuthClient(ctx, c, name); err != nil {
 		return nil, err
 	}
-
 	return &httpBackend{client: c}, nil
 }
 
-func newSSEBackend(ctx context.Context, srv config.ServerConfig) (*httpBackend, error) {
-	if srv.OAuth != nil {
-		return newOAuthSSEBackend(ctx, srv)
-	}
-
+func newSSEBackend(ctx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
 	var opts []transport.ClientOption
 	if headers := expandEnv(srv.Headers); len(headers) > 0 {
 		opts = append(opts, transport.WithHeaders(headers))
 	}
 
+	// Try plain client first.
 	c, err := client.NewSSEMCPClient(srv.URL, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("create SSE client for %q: %w", srv.Name, err)
+		return nil, fmt.Errorf("create SSE client for %q: %w", name, err)
 	}
 
+	needsOAuth := false
 	if err := c.Start(ctx); err != nil {
 		_ = c.Close()
-		return nil, fmt.Errorf("start SSE client for %q: %w", srv.Name, err)
+		if !client.IsOAuthAuthorizationRequiredError(err) {
+			return nil, fmt.Errorf("start SSE client for %q: %w", name, err)
+		}
+		needsOAuth = true
+	}
+	if !needsOAuth {
+		if err := initializeClient(ctx, c, name); err == nil {
+			return &httpBackend{client: c}, nil
+		} else if !client.IsOAuthAuthorizationRequiredError(err) {
+			return nil, err
+		}
+		// initializeClient closes c on error
 	}
 
-	if err := initializeClient(ctx, c, srv.Name); err != nil {
+	// Server requires OAuth — reconnect with OAuth support.
+	oauthCfg := oauthConfig(name)
+	c, err = client.NewOAuthSSEClient(srv.URL, oauthCfg, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("create OAuth SSE client for %q: %w", name, err)
+	}
+	if err := c.Start(ctx); err != nil {
+		if !client.IsOAuthAuthorizationRequiredError(err) {
+			_ = c.Close()
+			return nil, fmt.Errorf("start OAuth SSE client for %q: %w", name, err)
+		}
+		if err := runOAuthFlow(ctx, err, callbackPort(name)); err != nil {
+			_ = c.Close()
+			return nil, fmt.Errorf("OAuth flow for %q: %w", name, err)
+		}
+		if err := c.Start(ctx); err != nil {
+			_ = c.Close()
+			return nil, fmt.Errorf("start OAuth SSE client for %q after auth: %w", name, err)
+		}
+	}
+	if err := initializeOAuthClient(ctx, c, name); err != nil {
 		return nil, err
 	}
-
 	return &httpBackend{client: c}, nil
 }
 
+// initializeClient sends the MCP Initialize handshake.
+// On error, it closes the client before returning.
 func initializeClient(ctx context.Context, c *client.Client, name string) error {
 	initReq := mcp.InitializeRequest{}
 	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
