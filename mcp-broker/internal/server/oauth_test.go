@@ -57,10 +57,12 @@ func TestCallbackPort_DifferentServers(t *testing.T) {
 	require.NotEqual(t, portGH, portAT)
 }
 
-func TestBuildOAuthConfig_RedirectURIMatchesCallbackPort(t *testing.T) {
-	cfg := buildOAuthConfig("github")
+func TestOAuthConfig_RedirectURIMatchesCallbackPort(t *testing.T) {
+	cfg := oauthConfig("github")
 
 	port := callbackPort("github")
 	expected := fmt.Sprintf("http://localhost:%d/callback", port)
 	require.Equal(t, expected, cfg.RedirectURI)
+	require.True(t, cfg.PKCEEnabled)
+	require.NotNil(t, cfg.TokenStore)
 }

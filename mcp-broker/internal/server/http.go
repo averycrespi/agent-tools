@@ -17,17 +17,19 @@ type httpBackend struct {
 }
 
 func newHTTPBackend(ctx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
+	oauthCfg := oauthConfig(name)
+
 	var opts []transport.StreamableHTTPCOption
 	if headers := expandEnv(srv.Headers); len(headers) > 0 {
 		opts = append(opts, transport.WithHTTPHeaders(headers))
 	}
 
-	c, err := client.NewStreamableHttpClient(srv.URL, opts...)
+	c, err := client.NewOAuthStreamableHttpClient(srv.URL, oauthCfg, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create HTTP client for %q: %w", name, err)
 	}
 
-	if err := initializeClient(ctx, c, name); err != nil {
+	if err := initializeOAuthClient(ctx, c, name); err != nil {
 		return nil, err
 	}
 
@@ -35,41 +37,38 @@ func newHTTPBackend(ctx context.Context, name string, srv config.ServerConfig) (
 }
 
 func newSSEBackend(ctx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
+	oauthCfg := oauthConfig(name)
+
 	var opts []transport.ClientOption
 	if headers := expandEnv(srv.Headers); len(headers) > 0 {
 		opts = append(opts, transport.WithHeaders(headers))
 	}
 
-	c, err := client.NewSSEMCPClient(srv.URL, opts...)
+	c, err := client.NewOAuthSSEClient(srv.URL, oauthCfg, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create SSE client for %q: %w", name, err)
 	}
 
 	if err := c.Start(ctx); err != nil {
-		_ = c.Close()
-		return nil, fmt.Errorf("start SSE client for %q: %w", name, err)
+		if !client.IsOAuthAuthorizationRequiredError(err) {
+			_ = c.Close()
+			return nil, fmt.Errorf("start SSE client for %q: %w", name, err)
+		}
+		if err := runOAuthFlow(ctx, err, callbackPort(name)); err != nil {
+			_ = c.Close()
+			return nil, fmt.Errorf("OAuth flow for %q: %w", name, err)
+		}
+		if err := c.Start(ctx); err != nil {
+			_ = c.Close()
+			return nil, fmt.Errorf("start SSE client for %q after auth: %w", name, err)
+		}
 	}
 
-	if err := initializeClient(ctx, c, name); err != nil {
+	if err := initializeOAuthClient(ctx, c, name); err != nil {
 		return nil, err
 	}
 
 	return &httpBackend{client: c}, nil
-}
-
-func initializeClient(ctx context.Context, c *client.Client, name string) error {
-	initReq := mcp.InitializeRequest{}
-	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	initReq.Params.ClientInfo = mcp.Implementation{
-		Name:    "mcp-broker",
-		Version: "0.1.0",
-	}
-
-	if _, err := c.Initialize(ctx, initReq); err != nil {
-		_ = c.Close()
-		return fmt.Errorf("initialize server %q: %w", name, err)
-	}
-	return nil
 }
 
 func (b *httpBackend) ListTools(ctx context.Context) ([]Tool, error) {

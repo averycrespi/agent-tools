@@ -18,7 +18,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/zalando/go-keyring"
 
-	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 )
 
 const keychainService = "mcp-broker"
@@ -59,72 +58,16 @@ func callbackPort(serverName string) int {
 	return int(h.Sum32()%(65535-10000)) + 10000
 }
 
-// buildOAuthConfig creates an mcp-go OAuthConfig from our config.
-func buildOAuthConfig(name string) transport.OAuthConfig {
-	port := callbackPort(name)
-	cfg := transport.OAuthConfig{
+// oauthConfig creates a minimal OAuth config for automatic discovery.
+// The mcp-go library handles 401 detection, metadata discovery, dynamic
+// client registration, and PKCE automatically.
+func oauthConfig(serverName string) transport.OAuthConfig {
+	port := callbackPort(serverName)
+	return transport.OAuthConfig{
 		RedirectURI: fmt.Sprintf("http://localhost:%d/callback", port),
-		TokenStore:  &KeychainTokenStore{serverName: name},
+		TokenStore:  &KeychainTokenStore{serverName: serverName},
 		PKCEEnabled: true,
 	}
-	return cfg
-}
-
-// newOAuthHTTPBackend creates an HTTP backend with OAuth support.
-func newOAuthHTTPBackend(ctx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
-	oauthCfg := buildOAuthConfig(name)
-
-	var opts []transport.StreamableHTTPCOption
-	if headers := expandEnv(srv.Headers); len(headers) > 0 {
-		opts = append(opts, transport.WithHTTPHeaders(headers))
-	}
-
-	c, err := client.NewOAuthStreamableHttpClient(srv.URL, oauthCfg, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("create OAuth HTTP client for %q: %w", name, err)
-	}
-
-	if err := initializeOAuthClient(ctx, c, name); err != nil {
-		return nil, err
-	}
-
-	return &httpBackend{client: c}, nil
-}
-
-// newOAuthSSEBackend creates an SSE backend with OAuth support.
-func newOAuthSSEBackend(ctx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
-	oauthCfg := buildOAuthConfig(name)
-
-	var opts []transport.ClientOption
-	if headers := expandEnv(srv.Headers); len(headers) > 0 {
-		opts = append(opts, transport.WithHeaders(headers))
-	}
-
-	c, err := client.NewOAuthSSEClient(srv.URL, oauthCfg, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("create OAuth SSE client for %q: %w", name, err)
-	}
-
-	if err := c.Start(ctx); err != nil {
-		if !client.IsOAuthAuthorizationRequiredError(err) {
-			_ = c.Close()
-			return nil, fmt.Errorf("start OAuth SSE client for %q: %w", name, err)
-		}
-		if err := runOAuthFlow(ctx, err, callbackPort(name)); err != nil {
-			_ = c.Close()
-			return nil, fmt.Errorf("OAuth flow for %q: %w", name, err)
-		}
-		if err := c.Start(ctx); err != nil {
-			_ = c.Close()
-			return nil, fmt.Errorf("start OAuth SSE client for %q after auth: %w", name, err)
-		}
-	}
-
-	if err := initializeOAuthClient(ctx, c, name); err != nil {
-		return nil, err
-	}
-
-	return &httpBackend{client: c}, nil
 }
 
 // initializeOAuthClient sends the MCP Initialize handshake, handling OAuth auth if needed.
