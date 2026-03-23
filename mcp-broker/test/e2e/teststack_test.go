@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	gomcp "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
+	gomcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
@@ -158,6 +158,7 @@ type testLogConfig struct {
 
 type TestStack struct {
 	BrokerURL string
+	AuthToken string
 	Client    *client.Client
 	t         *testing.T
 }
@@ -207,6 +208,8 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 	brokerCmd := exec.Command(brokerBinary, "serve", "--config", cfgPath)
 	brokerCmd.Stdout = os.Stdout
 	brokerCmd.Stderr = os.Stderr
+	// Set XDG_CONFIG_HOME so the broker writes the auth token to a known location.
+	brokerCmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+tmpDir)
 	if err := brokerCmd.Start(); err != nil {
 		t.Fatalf("start broker: %v", err)
 	}
@@ -217,11 +220,11 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 
 	brokerURL := fmt.Sprintf("http://127.0.0.1:%d", brokerPort)
 
-	// Wait for broker to be ready (poll dashboard).
+	// Wait for broker to be ready (poll the unauthenticated page).
 	deadline := time.Now().Add(10 * time.Second)
 	brokerReady := false
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(brokerURL + "/dashboard/")
+		resp, err := http.Get(brokerURL + "/dashboard/unauthorized")
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
@@ -235,8 +238,17 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 		t.Fatal("broker not ready within 10s")
 	}
 
+	// Read the auto-generated auth token.
+	tokenData, err := os.ReadFile(filepath.Join(tmpDir, "mcp-broker", "auth-token"))
+	if err != nil {
+		t.Fatalf("read auth token: %v", err)
+	}
+	authToken := string(tokenData)
+
 	// Connect MCP client.
-	mcpClient, err := client.NewStreamableHttpClient(brokerURL+"/mcp", transport.WithHTTPHeaders(map[string]string{}))
+	mcpClient, err := client.NewStreamableHttpClient(brokerURL+"/mcp", transport.WithHTTPHeaders(map[string]string{
+		"Authorization": "Bearer " + authToken,
+	}))
 	if err != nil {
 		t.Fatalf("create MCP client: %v", err)
 	}
@@ -254,6 +266,7 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 
 	return &TestStack{
 		BrokerURL: brokerURL,
+		AuthToken: authToken,
 		Client:    mcpClient,
 		t:         t,
 	}
@@ -269,7 +282,9 @@ type pendingResponse []struct {
 
 func (s *TestStack) getPending() pendingResponse {
 	s.t.Helper()
-	resp, err := http.Get(s.BrokerURL + "/dashboard/api/pending")
+	req, _ := http.NewRequest("GET", s.BrokerURL+"/dashboard/api/pending", nil)
+	req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		s.t.Fatalf("get pending: %v", err)
 	}
@@ -299,7 +314,10 @@ func (s *TestStack) waitForPending(timeout time.Duration) pendingResponse {
 func (s *TestStack) decide(id, decision string) {
 	s.t.Helper()
 	body, _ := json.Marshal(map[string]string{"id": id, "decision": decision})
-	resp, err := http.Post(s.BrokerURL+"/dashboard/api/decide", "application/json", bytes.NewReader(body))
+	req, _ := http.NewRequest("POST", s.BrokerURL+"/dashboard/api/decide", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		s.t.Fatalf("decide: %v", err)
 	}
@@ -323,7 +341,9 @@ type toolsResponse struct {
 
 func (s *TestStack) getTools() toolsResponse {
 	s.t.Helper()
-	resp, err := http.Get(s.BrokerURL + "/dashboard/api/tools")
+	req, _ := http.NewRequest("GET", s.BrokerURL+"/dashboard/api/tools", nil)
+	req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		s.t.Fatalf("get tools: %v", err)
 	}
@@ -354,7 +374,9 @@ func (s *TestStack) getAudit(tool string, limit, offset int) auditResponse {
 	if tool != "" {
 		url += "&tool=" + tool
 	}
-	resp, err := http.Get(url)
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		s.t.Fatalf("get audit: %v", err)
 	}
