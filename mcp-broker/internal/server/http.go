@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -10,6 +11,13 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 )
+
+// isUnauthorized returns true if the error indicates a 401 response,
+// whether from a plain client (ErrUnauthorized) or an OAuth-aware client
+// (OAuthAuthorizationRequiredError).
+func isUnauthorized(err error) bool {
+	return client.IsOAuthAuthorizationRequiredError(err) || errors.Is(err, transport.ErrUnauthorized)
+}
 
 // httpBackend communicates with an MCP server via Streamable HTTP or SSE.
 type httpBackend struct {
@@ -30,7 +38,7 @@ func newHTTPBackend(ctx context.Context, name string, srv config.ServerConfig) (
 
 	if err := initializeClient(ctx, c, name); err == nil {
 		return &httpBackend{client: c}, nil
-	} else if !client.IsOAuthAuthorizationRequiredError(err) {
+	} else if !isUnauthorized(err) {
 		return nil, err // initializeClient already closed c
 	}
 
@@ -61,7 +69,7 @@ func newSSEBackend(ctx context.Context, name string, srv config.ServerConfig) (*
 	needsOAuth := false
 	if err := c.Start(ctx); err != nil {
 		_ = c.Close()
-		if !client.IsOAuthAuthorizationRequiredError(err) {
+		if !isUnauthorized(err) {
 			return nil, fmt.Errorf("start SSE client for %q: %w", name, err)
 		}
 		needsOAuth = true
@@ -69,7 +77,7 @@ func newSSEBackend(ctx context.Context, name string, srv config.ServerConfig) (*
 	if !needsOAuth {
 		if err := initializeClient(ctx, c, name); err == nil {
 			return &httpBackend{client: c}, nil
-		} else if !client.IsOAuthAuthorizationRequiredError(err) {
+		} else if !isUnauthorized(err) {
 			return nil, err
 		}
 		// initializeClient closes c on error
@@ -82,7 +90,7 @@ func newSSEBackend(ctx context.Context, name string, srv config.ServerConfig) (*
 		return nil, fmt.Errorf("create OAuth SSE client for %q: %w", name, err)
 	}
 	if err := c.Start(ctx); err != nil {
-		if !client.IsOAuthAuthorizationRequiredError(err) {
+		if !isUnauthorized(err) {
 			_ = c.Close()
 			return nil, fmt.Errorf("start OAuth SSE client for %q: %w", name, err)
 		}
