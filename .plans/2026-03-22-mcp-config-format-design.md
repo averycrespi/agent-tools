@@ -131,7 +131,27 @@ registration, PKCE, and token exchange. Our code just configures and orchestrate
 - OAuth-specific config tests removed
 - E2E tests updated
 
-### CLAUDE.md
+### Documentation
 
-- Remove OAuth config convention notes
-- Update any config examples
+#### `mcp-broker/README.md`
+
+- **Config example** (lines 58-98): Rewrite from array to map format, remove `name` fields,
+  change `"type": "http"` to `"type": "streamable-http"`, remove `"oauth": true` entry
+- **Servers table** (lines 100-113): Remove `name` row, update `type` description
+  (`"streamable-http"` instead of `"http"`), remove `oauth` row
+- **OAuth section** (lines 115-138): Remove entirely. Replace with a short note that OAuth is
+  auto-detected when a server responds with 401 (tokens stored in OS keychain)
+
+#### `mcp-broker/CLAUDE.md`
+
+- Line 49: Remove `OAuth config supports "oauth": true (all defaults) or "oauth": {...}` convention
+- Lines 50-51: Keep keychain and callback port conventions but reword to remove config framing
+  (e.g. "OAuth tokens are stored in the OS keychain" stays, just drop "config" references)
+
+#### `mcp-broker/DESIGN.md`
+
+- No changes needed — describes architecture, not config format
+
+#### `local-git-mcp/README.md` and `local-gh-mcp/README.md`
+
+- No changes needed — their broker config examples already use the new map format
