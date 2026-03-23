@@ -18,6 +18,7 @@ cd worktree-manager && make install
 cd sandbox-manager && make install
 cd mcp-broker && make install
 cd local-git-mcp && make install
+cd local-gh-mcp && make install
 ```
 
 ## Tools
@@ -53,6 +54,14 @@ Sandboxed agents can do most git operations locally — staging, committing, dif
 `local-git-mcp` is a stdio MCP server that runs on the host where SSH keys and credential helpers are available. It exposes five tools — `git_push`, `git_pull`, `git_fetch`, `git_list_remote_refs`, and `git_list_remotes` — over MCP. Designed to be used as a backend for mcp-broker, letting agents push and pull without ever touching credentials.
 
 See the [README](local-git-mcp/README.md) for more information.
+
+### Local GH MCP
+
+Sandboxed agents need to interact with GitHub — creating PRs, checking CI status, reading issues, debugging workflow failures — but giving them credentials defeats the purpose of sandboxing. The official GitHub MCP server requires OAuth or personal access tokens.
+
+`local-gh-mcp` is a stdio MCP server that runs on the host where `gh` CLI is already authenticated. It exposes 24 tools across PRs, issues, workflow runs, caches, and search — over MCP. Designed to be used as a backend for mcp-broker, letting agents interact with GitHub without managing additional credentials.
+
+See the [README](local-gh-mcp/README.md) for more information.
 
 ## License
 
