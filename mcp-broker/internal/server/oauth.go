@@ -17,7 +17,6 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/zalando/go-keyring"
-
 )
 
 const keychainService = "mcp-broker"
