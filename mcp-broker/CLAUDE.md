@@ -47,6 +47,7 @@ internal/
 - `mcp-go` HTTP client constructor is `client.NewStreamableHttpClient` (lowercase h)
 - `ncruces/go-sqlite3` requires `embed` import alongside `driver`
 - OAuth is auto-detected via 401 responses; tokens stored in OS keychain via `go-keyring` (service: `mcp-broker`, key: server name)
+- HTTP/SSE backends use plain client first, auto-upgrade to OAuth on 401 — do NOT use `client.NewOAuthStreamableHttpClient` directly as it proactively triggers OAuth flows even on non-OAuth servers
 - OAuth callback port is deterministic per server name (FNV hash → ephemeral port range)
 - Auth token file permissions: `0o600`, parent directories: `0o750`
 - Auth token is 32 random bytes, hex-encoded (64 chars)
