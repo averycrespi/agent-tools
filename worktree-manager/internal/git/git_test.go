@@ -35,6 +35,7 @@ func TestClient_RepoInfo_MainRepo(t *testing.T) {
 	r := new(mockRunner)
 	r.On("RunDir", "/repo", "git", []string{"rev-parse", "--is-inside-work-tree"}).Return([]byte("true\n"), nil)
 	r.On("RunDir", "/repo", "git", []string{"rev-parse", "--show-toplevel"}).Return([]byte("/repo\n"), nil)
+	r.On("RunDir", "/repo", "git", []string{"rev-parse", "--git-dir"}).Return([]byte(".git\n"), nil)
 	r.On("RunDir", "/repo", "git", []string{"rev-parse", "--git-common-dir"}).Return([]byte(".git\n"), nil)
 
 	client := NewClient(r)
@@ -47,11 +48,29 @@ func TestClient_RepoInfo_MainRepo(t *testing.T) {
 	r.AssertExpectations(t)
 }
 
+func TestClient_RepoInfo_MainRepoSubdir(t *testing.T) {
+	r := new(mockRunner)
+	r.On("RunDir", "/repo/subdir", "git", []string{"rev-parse", "--is-inside-work-tree"}).Return([]byte("true\n"), nil)
+	r.On("RunDir", "/repo/subdir", "git", []string{"rev-parse", "--show-toplevel"}).Return([]byte("/repo\n"), nil)
+	r.On("RunDir", "/repo/subdir", "git", []string{"rev-parse", "--git-dir"}).Return([]byte("/repo/.git\n"), nil)
+	r.On("RunDir", "/repo/subdir", "git", []string{"rev-parse", "--git-common-dir"}).Return([]byte("/repo/.git\n"), nil)
+
+	client := NewClient(r)
+	info, err := client.RepoInfo("/repo/subdir")
+
+	require.NoError(t, err)
+	assert.Equal(t, "repo", info.Name)
+	assert.Equal(t, "/repo", info.Root)
+	assert.False(t, info.IsWorktree)
+	r.AssertExpectations(t)
+}
+
 func TestClient_RepoInfo_Worktree(t *testing.T) {
 	r := new(mockRunner)
 	r.On("RunDir", "/wt", "git", []string{"rev-parse", "--is-inside-work-tree"}).Return([]byte("true\n"), nil)
 	r.On("RunDir", "/wt", "git", []string{"rev-parse", "--show-toplevel"}).Return([]byte("/wt\n"), nil)
-	r.On("RunDir", "/wt", "git", []string{"rev-parse", "--git-common-dir"}).Return([]byte("/repo/.git/worktrees/wt\n"), nil)
+	r.On("RunDir", "/wt", "git", []string{"rev-parse", "--git-dir"}).Return([]byte("/repo/.git/worktrees/wt\n"), nil)
+	r.On("RunDir", "/wt", "git", []string{"rev-parse", "--git-common-dir"}).Return([]byte("/repo/.git\n"), nil)
 
 	client := NewClient(r)
 	info, err := client.RepoInfo("/wt")

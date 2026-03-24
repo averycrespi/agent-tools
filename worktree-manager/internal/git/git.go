@@ -37,18 +37,40 @@ func (c *Client) RepoInfo(path string) (Info, error) {
 	}
 	root := strings.TrimSpace(string(out))
 
+	out, err = c.runner.RunDir(path, "git", "rev-parse", "--git-dir")
+	if err != nil {
+		return Info{}, fmt.Errorf("could not determine git dir: %w", err)
+	}
+	gitDir := strings.TrimSpace(string(out))
+
 	out, err = c.runner.RunDir(path, "git", "rev-parse", "--git-common-dir")
 	if err != nil {
 		return Info{}, fmt.Errorf("could not determine git common dir: %w", err)
 	}
 	commonDir := strings.TrimSpace(string(out))
-	isWorktree := commonDir != ".git"
+
+	// In the main repo, --git-dir and --git-common-dir resolve to the same
+	// path. In a worktree, --git-dir points to .git/worktrees/<name> while
+	// --git-common-dir points to the main repo's .git directory.
+	absGitDir := absOrJoin(path, gitDir)
+	absCommonDir := absOrJoin(path, commonDir)
+	isWorktree := absGitDir != absCommonDir
 
 	return Info{
 		Name:       filepath.Base(root),
 		Root:       root,
 		IsWorktree: isWorktree,
 	}, nil
+}
+
+// absOrJoin returns p as-is if it is already absolute, otherwise joins it
+// with base to produce an absolute path. This is used to normalize the
+// relative paths returned by git rev-parse.
+func absOrJoin(base, p string) string {
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p)
+	}
+	return filepath.Join(base, p)
 }
 
 // BranchExists checks if a local branch exists.
