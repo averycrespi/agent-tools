@@ -21,7 +21,7 @@ var rootCmd = &cobra.Command{
 	Use:           "sb",
 	Short:         "Manage a Lima VM sandbox",
 	SilenceUsage:  true,
-	SilenceErrors: true,
+	SilenceErrors: false,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		level := slog.LevelWarn
 		if verbose {
