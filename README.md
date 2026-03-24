@@ -63,6 +63,10 @@ Sandboxed agents need to interact with GitHub — creating PRs, checking CI stat
 
 See the [README](local-gh-mcp/README.md) for more information.
 
+## Related
+
+- [claudefiles](https://github.com/averycrespi/claudefiles) — My opinionated resources for working with Claude Code
+
 ## License
 
 MIT
