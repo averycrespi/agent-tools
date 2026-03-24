@@ -149,7 +149,8 @@ mcp-broker token rotate    # Generate a new token (invalidates all existing sess
 
 ```
 mcp-broker serve              # Start the broker
-mcp-broker serve --log-level debug
+mcp-broker serve -v           # Enable debug logging
+mcp-broker serve --log-level debug  # Same, with explicit level
 mcp-broker token rotate        # Regenerate auth token
 mcp-broker config path        # Print config file path
 mcp-broker config refresh     # Backfill new defaults into config

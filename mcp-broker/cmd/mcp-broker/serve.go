@@ -30,6 +30,7 @@ import (
 func init() {
 	rootCmd.AddCommand(serveCmd)
 	serveCmd.Flags().String("log-level", "", "log level override (debug, info, warn, error)")
+	serveCmd.Flags().BoolP("verbose", "v", false, "enable debug logging (shorthand for --log-level=debug)")
 	serveCmd.Flags().Bool("no-open", false, "do not open dashboard in browser")
 }
 
@@ -58,8 +59,15 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	if v, _ := cmd.Flags().GetString("log-level"); v != "" {
-		cfg.Log.Level = v
+	logLevel, _ := cmd.Flags().GetString("log-level")
+	verbose, _ := cmd.Flags().GetBool("verbose")
+	if logLevel != "" && verbose {
+		return fmt.Errorf("cannot use --verbose and --log-level together")
+	}
+	if verbose {
+		cfg.Log.Level = "debug"
+	} else if logLevel != "" {
+		cfg.Log.Level = logLevel
 	}
 
 	level := parseLogLevel(cfg.Log.Level)
