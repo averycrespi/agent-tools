@@ -23,7 +23,7 @@ var rootCmd = &cobra.Command{
 	Use:           "wt",
 	Short:         "Manage git worktrees",
 	SilenceUsage:  true,
-	SilenceErrors: true,
+	SilenceErrors: false,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		level := slog.LevelWarn
 		if verbose {

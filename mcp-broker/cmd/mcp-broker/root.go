@@ -14,7 +14,7 @@ var rootCmd = &cobra.Command{
 	Use:           "mcp-broker",
 	Short:         "MCP proxy with policy rules, approval, and audit logging",
 	SilenceUsage:  true,
-	SilenceErrors: true,
+	SilenceErrors: false,
 }
 
 func init() {
