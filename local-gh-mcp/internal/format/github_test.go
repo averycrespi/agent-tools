@@ -119,6 +119,24 @@ func TestFormatComments(t *testing.T) {
 	}
 }
 
+func TestFormatComments_NONEAssociation(t *testing.T) {
+	comments := []Comment{
+		{
+			Author:            Author{Login: "visitor"},
+			AuthorAssociation: "NONE",
+			Body:              "Nice work!",
+			CreatedAt:         "2025-01-01T00:00:00Z",
+		},
+	}
+	got := FormatComments(comments, 10000)
+	if strings.Contains(got, "[NONE]") {
+		t.Error("NONE author association should not be displayed")
+	}
+	if !strings.Contains(got, "### @visitor (") {
+		t.Errorf("expected header without association in:\n%s", got)
+	}
+}
+
 func TestFormatComments_Empty(t *testing.T) {
 	got := FormatComments(nil, 10000)
 	if got != "No comments." {
@@ -222,7 +240,7 @@ func TestFormatIssueListItem(t *testing.T) {
 		"Bug report",
 		"@user1",
 		"OPEN",
-		"bug, priority",
+		"labels: bug, priority",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
@@ -331,6 +349,7 @@ func TestFormatSearchRepoItem(t *testing.T) {
 		"GitHub's CLI",
 		"35000",
 		"Go",
+		"updated 2025-01-01",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
@@ -363,7 +382,7 @@ func TestFormatSearchCodeItem(t *testing.T) {
 func TestFormatSearchCommitItem(t *testing.T) {
 	item := SearchCommitItem{
 		SHA:        "abc1234567890",
-		Commit:     CommitDetail{Message: "fix: resolve issue"},
+		Commit:     CommitDetail{Message: "fix: resolve issue", Author: CommitAuthor{Date: "2025-06-15T00:00:00Z"}},
 		Author:     Author{Login: "dev"},
 		Repository: Repository{NameWithOwner: "cli/cli"},
 		URL:        "https://github.com/cli/cli/commit/abc1234",
@@ -374,9 +393,14 @@ func TestFormatSearchCommitItem(t *testing.T) {
 		"fix: resolve issue",
 		"@dev",
 		"cli/cli",
+		"2025-06-15",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
+	}
+	// SHA should not be wrapped in backticks
+	if strings.Contains(got, "`abc1234`") {
+		t.Error("SHA should not be wrapped in backticks")
 	}
 }

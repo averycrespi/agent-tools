@@ -195,7 +195,7 @@ func TestSearchCommits_FormatsMarkdown(t *testing.T) {
 	assert.False(t, result.IsError)
 	text := result.Content[0].(gomcp.TextContent).Text
 	assert.Contains(t, text, "**octocat/hello-world**")
-	assert.Contains(t, text, "`abc1234`")
+	assert.Contains(t, text, "abc1234")
 	assert.Contains(t, text, "Initial commit")
 	assert.Contains(t, text, "@alice")
 }

@@ -157,7 +157,13 @@ type SearchCodeItem struct {
 
 // CommitDetail holds the commit message for search results.
 type CommitDetail struct {
-	Message string `json:"message"`
+	Message string       `json:"message"`
+	Author  CommitAuthor `json:"author"`
+}
+
+// CommitAuthor represents the author metadata inside a commit object.
+type CommitAuthor struct {
+	Date string `json:"date"`
 }
 
 // SearchCommitItem represents a commit in search results.
@@ -221,7 +227,7 @@ func FormatComments(comments []Comment, maxBodyLen int) string {
 	for _, c := range comments {
 		sb.WriteString("\n")
 		header := FormatAuthor(c.Author)
-		if c.AuthorAssociation != "" {
+		if c.AuthorAssociation != "" && c.AuthorAssociation != "NONE" {
 			header += fmt.Sprintf(" [%s]", c.AuthorAssociation)
 		}
 		fmt.Fprintf(&sb, "### %s (%s)\n\n", header, FormatDate(c.CreatedAt))
@@ -265,7 +271,7 @@ func FormatPRListItem(pr PRListItem) string {
 
 // FormatIssueListItem formats a single issue list item as a markdown bullet.
 func FormatIssueListItem(item IssueListItem) string {
-	return fmt.Sprintf("- **#%d** %s — %s, %s, %s, updated %s",
+	return fmt.Sprintf("- **#%d** %s — %s, %s, labels: %s, updated %s",
 		item.Number, item.Title, FormatAuthor(item.Author), item.State,
 		FormatLabels(item.Labels), FormatDate(item.UpdatedAt))
 }
@@ -315,8 +321,8 @@ func FormatSearchPRItem(item SearchPRItem) string {
 
 // FormatSearchRepoItem formats a search repo item as a markdown bullet.
 func FormatSearchRepoItem(item SearchRepoItem) string {
-	return fmt.Sprintf("- **%s** %s — %d stars, %s",
-		item.FullName, item.Description, item.StargazersCount, item.Language)
+	return fmt.Sprintf("- **%s** %s — %d stars, %s, updated %s",
+		item.FullName, item.Description, item.StargazersCount, item.Language, FormatDate(item.UpdatedAt))
 }
 
 // FormatSearchCodeItem formats a search code item as a markdown bullet.
@@ -344,6 +350,6 @@ func FormatSearchCommitItem(item SearchCommitItem) string {
 	if idx := strings.IndexByte(msg, '\n'); idx >= 0 {
 		msg = msg[:idx]
 	}
-	return fmt.Sprintf("- **%s** `%s` %s — %s",
-		item.Repository.NameWithOwner, sha, msg, FormatAuthor(item.Author))
+	return fmt.Sprintf("- **%s** %s %s — %s, %s",
+		item.Repository.NameWithOwner, sha, msg, FormatAuthor(item.Author), FormatDate(item.Commit.Author.Date))
 }
