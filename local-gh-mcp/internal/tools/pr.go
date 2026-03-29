@@ -479,7 +479,7 @@ func (h *Handler) handleDiffPR(ctx context.Context, req gomcp.CallToolRequest) (
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(out), nil
+	return gomcp.NewToolResultText(format.FormatDiff(out)), nil
 }
 
 func (h *Handler) handleCommentPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {

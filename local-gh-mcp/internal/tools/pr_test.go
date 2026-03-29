@@ -374,3 +374,28 @@ func TestListPRComments_Success(t *testing.T) {
 	assert.Contains(t, text, "@reviewer [MEMBER]")
 	assert.Contains(t, text, "LGTM")
 }
+
+func TestDiffPR_FormatsWithSummary(t *testing.T) {
+	diffText := "diff --git a/foo.go b/foo.go\n--- a/foo.go\n+++ b/foo.go\n@@ -1,3 +1,4 @@\n line1\n+added\n line2\n line3"
+	h := NewHandler(&mockGHClient{
+		diffPRFunc: func(_ context.Context, owner, repo string, number int) (string, error) {
+			return diffText, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_diff_pr"
+	req.Params.Arguments = map[string]any{
+		"owner":  "octocat",
+		"repo":   "hello-world",
+		"number": float64(1),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "## Files changed (1)")
+	assert.Contains(t, text, "foo.go")
+	assert.Contains(t, text, "+1 -0")
+	assert.Contains(t, text, "## Diff")
+	assert.Contains(t, text, "+added")
+}
