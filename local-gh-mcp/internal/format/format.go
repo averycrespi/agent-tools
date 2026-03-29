@@ -104,11 +104,11 @@ func ParseDiffSummary(diff string) string {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("## Files changed (%d)\n\n", len(files)))
+	fmt.Fprintf(&sb, "## Files changed (%d)\n\n", len(files))
 	sb.WriteString("| File | Changes |\n")
 	sb.WriteString("|------|--------|\n")
 	for _, f := range files {
-		sb.WriteString(fmt.Sprintf("| %s | +%d -%d |\n", f.Path, f.Added, f.Removed))
+		fmt.Fprintf(&sb, "| %s | +%d -%d |\n", f.Path, f.Added, f.Removed)
 	}
 	return sb.String()
 }
