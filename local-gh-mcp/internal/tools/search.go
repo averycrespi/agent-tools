@@ -15,7 +15,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_search_prs",
-			Description: "Search for pull requests across repositories",
+			Description: "Search for pull requests. Returns markdown bullet list.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -53,7 +53,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_issues",
-			Description: "Search for issues across repositories",
+			Description: "Search for issues. Returns markdown bullet list.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -91,7 +91,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_repos",
-			Description: "Search for repositories",
+			Description: "Search for repositories. Returns markdown bullet list.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -125,7 +125,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_code",
-			Description: "Search for code across repositories",
+			Description: "Search for code. Returns markdown bullet list.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -163,7 +163,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_commits",
-			Description: "Search for commits across repositories",
+			Description: "Search for commits. Returns markdown bullet list.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{

@@ -68,7 +68,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_view_pr",
-			Description: "View details of a pull request",
+			Description: "View pull request details. Returns structured markdown with metadata and description.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -94,7 +94,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_list_prs",
-			Description: "List pull requests for a repository",
+			Description: "List pull requests. Returns markdown bullet list.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -140,7 +140,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_diff_pr",
-			Description: "Get the diff of a pull request",
+			Description: "Get pull request diff. Returns file summary table followed by unified diff.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -316,7 +316,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_check_pr",
-			Description: "View status checks for a pull request",
+			Description: "View status checks for a pull request. Returns markdown bullet list.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{

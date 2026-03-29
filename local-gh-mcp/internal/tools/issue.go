@@ -15,7 +15,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_view_issue",
-			Description: "View details of an issue",
+			Description: "View issue details. Returns structured markdown with metadata and description.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -41,7 +41,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_list_issues",
-			Description: "List issues for a repository",
+			Description: "List issues. Returns markdown bullet list.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
