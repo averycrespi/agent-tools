@@ -2,7 +2,10 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
+	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
 	gomcp "github.com/mark3labs/mcp-go/mcp"
 )
@@ -116,11 +119,16 @@ func (h *Handler) handleViewIssue(ctx context.Context, req gomcp.CallToolRequest
 	if number == 0 {
 		return gomcp.NewToolResultError("number is required"), nil
 	}
+	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
 	out, err := h.gh.ViewIssue(ctx, owner, repo, number)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(out), nil
+	var issue format.IssueView
+	if err := json.Unmarshal([]byte(out), &issue); err != nil {
+		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse issue JSON: %v", err)), nil
+	}
+	return gomcp.NewToolResultText(format.FormatIssueView(issue, maxBody)), nil
 }
 
 func (h *Handler) handleListIssues(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {

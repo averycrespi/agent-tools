@@ -113,3 +113,26 @@ func TestCommentIssue_MissingBody(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
+
+func TestViewIssue_FormatsMarkdown(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		viewIssueFunc: func(_ context.Context, owner, repo string, number int) (string, error) {
+			return `{"number":100,"title":"Bug report","body":"Steps to reproduce","state":"OPEN","author":{"login":"alice"},"labels":[{"name":"bug"}],"milestone":null,"createdAt":"2025-01-01T00:00:00Z","updatedAt":"2025-01-02T00:00:00Z"}`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_view_issue"
+	req.Params.Arguments = map[string]any{
+		"owner":  "octocat",
+		"repo":   "hello-world",
+		"number": float64(100),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "# Issue #100: Bug report (OPEN)")
+	assert.Contains(t, text, "@alice")
+	assert.Contains(t, text, "bug")
+	assert.Contains(t, text, "Steps to reproduce")
+}
