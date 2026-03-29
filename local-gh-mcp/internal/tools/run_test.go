@@ -79,6 +79,73 @@ func TestViewRun_MissingRunID(t *testing.T) {
 	assert.True(t, result.IsError)
 }
 
+func TestListRuns_FormatsMarkdown(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		listRunsFunc: func(_ context.Context, owner, repo string, opts gh.ListRunsOpts) (string, error) {
+			return `[{"databaseId":100,"name":"CI","displayTitle":"Fix tests","status":"completed","conclusion":"success","event":"push","headBranch":"main","updatedAt":"2025-01-02T00:00:00Z"}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_runs"
+	req.Params.Arguments = map[string]any{
+		"owner": "octocat",
+		"repo":  "hello-world",
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "**#100** Fix tests")
+	assert.Contains(t, text, "completed/success")
+	assert.Contains(t, text, "main")
+}
+
+func TestViewRun_FormatsMarkdown(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		viewRunFunc: func(_ context.Context, owner, repo string, runID string, logFailed bool) (string, error) {
+			assert.False(t, logFailed)
+			return `{"databaseId":100,"name":"CI","displayTitle":"Fix tests","status":"completed","conclusion":"success","event":"push","headBranch":"main","headSha":"abc1234567890","url":"https://github.com/octocat/hello-world/actions/runs/100","createdAt":"2025-01-01T00:00:00Z","updatedAt":"2025-01-02T00:00:00Z","jobs":[{"name":"build","status":"completed","conclusion":"success","url":""}]}`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_view_run"
+	req.Params.Arguments = map[string]any{
+		"owner":  "octocat",
+		"repo":   "hello-world",
+		"run_id": "100",
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "# Run #100: Fix tests")
+	assert.Contains(t, text, "completed/success")
+	assert.Contains(t, text, "## Jobs (1)")
+	assert.Contains(t, text, "- build: success")
+}
+
+func TestViewRun_LogFailed_Passthrough(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		viewRunFunc: func(_ context.Context, owner, repo string, runID string, logFailed bool) (string, error) {
+			assert.True(t, logFailed)
+			return "build  2025-01-01 FAIL step 3\nerror: exit code 1", nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_view_run"
+	req.Params.Arguments = map[string]any{
+		"owner":      "octocat",
+		"repo":       "hello-world",
+		"run_id":     "100",
+		"log_failed": true,
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "error: exit code 1")
+}
+
 func TestRerun_Success(t *testing.T) {
 	h := NewHandler(&mockGHClient{
 		rerunFunc: func(_ context.Context, owner, repo string, runID string, failedOnly bool) (string, error) {
