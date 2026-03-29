@@ -28,35 +28,37 @@ The server validates `gh auth status` on startup and exits immediately if not au
 
 ## Tools
 
-### PR Tools (10)
+### PR Tools (11)
 
 | Tool | Description |
 |------|-------------|
 | `gh_create_pr` | Create a pull request |
-| `gh_view_pr` | View PR details as JSON |
-| `gh_list_prs` | List PRs with filters |
-| `gh_diff_pr` | View the diff for a PR |
+| `gh_view_pr` | View PR metadata and description as structured markdown |
+| `gh_list_prs` | List PRs as markdown bullets |
+| `gh_diff_pr` | View diff with file summary table |
 | `gh_comment_pr` | Add a comment to a PR |
 | `gh_review_pr` | Submit a review (approve, request changes, or comment) |
 | `gh_merge_pr` | Merge a PR |
 | `gh_edit_pr` | Edit PR metadata |
-| `gh_check_pr` | View CI/status check results |
+| `gh_check_pr` | View CI/status checks as markdown bullet list |
 | `gh_close_pr` | Close a PR |
+| `gh_list_pr_comments` | List PR comments as markdown |
 
-### Issue Tools (3)
+### Issue Tools (4)
 
 | Tool | Description |
 |------|-------------|
-| `gh_view_issue` | View issue details as JSON |
-| `gh_list_issues` | List issues with filters |
+| `gh_view_issue` | View issue metadata and description as structured markdown |
+| `gh_list_issues` | List issues as markdown bullets |
 | `gh_comment_issue` | Add a comment to an issue |
+| `gh_list_issue_comments` | List issue comments as markdown |
 
 ### Workflow Run Tools (4)
 
 | Tool | Description |
 |------|-------------|
-| `gh_list_runs` | List workflow runs with filters |
-| `gh_view_run` | View run details and logs |
+| `gh_list_runs` | List workflow runs as markdown bullets |
+| `gh_view_run` | View run details as structured markdown (or raw logs with log_failed) |
 | `gh_rerun` | Rerun a failed or specific workflow run |
 | `gh_cancel_run` | Cancel an in-progress workflow run |
 
@@ -71,13 +73,15 @@ The server validates `gh auth status` on startup and exits immediately if not au
 
 | Tool | Description |
 |------|-------------|
-| `gh_search_prs` | Search pull requests across GitHub |
-| `gh_search_issues` | Search issues across GitHub |
-| `gh_search_repos` | Search repositories across GitHub |
-| `gh_search_code` | Search code across GitHub |
-| `gh_search_commits` | Search commits across GitHub |
+| `gh_search_prs` | Search pull requests, returns markdown bullets |
+| `gh_search_issues` | Search issues, returns markdown bullets |
+| `gh_search_repos` | Search repositories, returns markdown bullets |
+| `gh_search_code` | Search code, returns markdown bullets |
+| `gh_search_commits` | Search commits, returns markdown bullets |
 
-All tools targeting a specific repository use `owner` and `repo` parameters (mapped to `gh -R owner/repo`). Search tools use a `query` parameter instead, since they operate across repositories. List/search tools accept an optional `limit` (default 30, max 100).
+All tools targeting a specific repository use `owner` and `repo` parameters (mapped to `gh -R owner/repo`). Search tools use a `query` parameter instead, since they operate across repositories. List/search tools accept an optional `limit` (default 30, max 100). View and comment tools accept an optional `max_body_length` (default 2000, max 50000) to control text truncation.
+
+All read tools return **structured markdown** (not raw JSON) — author objects are flattened to `@login`, long bodies are truncated, and output is formatted with headers and labeled fields for easy LLM consumption. Write tools return plain text confirmations.
 
 ## Quick start
 
@@ -116,6 +120,7 @@ See [DESIGN.md](DESIGN.md) for the full design document.
 cmd/local-gh-mcp/       CLI entry point (Cobra)
 internal/
   exec/                  Runner interface for command execution
+  format/                Markdown formatting for tool output
   gh/                    GitHub operations via exec.Runner
   tools/
     tools.go             Tool registration and dispatch

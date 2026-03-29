@@ -119,8 +119,89 @@ func TestSearchCommits_Success(t *testing.T) {
 	assert.False(t, result.IsError)
 }
 
+func TestSearchPRs_FormatsMarkdown(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		searchPRsFunc: func(_ context.Context, query string, opts gh.SearchPRsOpts) (string, error) {
+			return `[{"number":1,"title":"Fix bug","state":"OPEN","author":{"login":"alice"},"repository":{"nameWithOwner":"octocat/hello-world"},"updatedAt":"2025-01-02T00:00:00Z"}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_search_prs"
+	req.Params.Arguments = map[string]any{
+		"query": "fix bug",
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "**octocat/hello-world#1** Fix bug")
+	assert.Contains(t, text, "@alice")
+	assert.Contains(t, text, "OPEN")
+}
+
+func TestSearchRepos_FormatsMarkdown(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		searchReposFunc: func(_ context.Context, query string, opts gh.SearchReposOpts) (string, error) {
+			return `[{"fullName":"kubernetes/kubernetes","description":"Container orchestration","url":"https://github.com/kubernetes/kubernetes","stargazersCount":100000,"language":"Go","updatedAt":"2025-01-02T00:00:00Z"}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_search_repos"
+	req.Params.Arguments = map[string]any{
+		"query": "kubernetes",
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "**kubernetes/kubernetes**")
+	assert.Contains(t, text, "100000 stars")
+	assert.Contains(t, text, "Go")
+}
+
+func TestSearchCode_FormatsMarkdown(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		searchCodeFunc: func(_ context.Context, query string, opts gh.SearchCodeOpts) (string, error) {
+			return `[{"path":"main.go","repository":{"nameWithOwner":"octocat/hello-world"},"sha":"abc1234","textMatches":[{"fragment":"func main()"}],"url":"https://github.com/octocat/hello-world/blob/abc1234/main.go"}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_search_code"
+	req.Params.Arguments = map[string]any{
+		"query": "func main",
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "**octocat/hello-world**")
+	assert.Contains(t, text, "main.go")
+	assert.Contains(t, text, "func main()")
+}
+
+func TestSearchCommits_FormatsMarkdown(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		searchCommitsFunc: func(_ context.Context, query string, opts gh.SearchCommitsOpts) (string, error) {
+			return `[{"sha":"abc1234567890","commit":{"message":"Initial commit\n\nWith details"},"author":{"login":"alice"},"repository":{"nameWithOwner":"octocat/hello-world"},"url":"https://github.com/octocat/hello-world/commit/abc1234"}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_search_commits"
+	req.Params.Arguments = map[string]any{
+		"query": "initial commit",
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "**octocat/hello-world**")
+	assert.Contains(t, text, "abc1234")
+	assert.Contains(t, text, "Initial commit")
+	assert.Contains(t, text, "@alice")
+}
+
 func TestToolCount(t *testing.T) {
 	h := NewHandler(&mockGHClient{})
 	tools := h.Tools()
-	assert.Equal(t, 24, len(tools), "expected 24 total tools")
+	assert.Equal(t, 26, len(tools), "expected 26 total tools")
 }

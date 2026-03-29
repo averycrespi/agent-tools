@@ -24,6 +24,8 @@ type mockGHClient struct {
 	viewIssueFunc     func(ctx context.Context, owner, repo string, number int) (string, error)
 	listIssuesFunc    func(ctx context.Context, owner, repo string, opts gh.ListIssuesOpts) (string, error)
 	commentIssueFunc  func(ctx context.Context, owner, repo string, number int, body string) (string, error)
+	prCommentsFunc    func(ctx context.Context, owner, repo string, number int, limit int) (string, error)
+	issueCommentsFunc func(ctx context.Context, owner, repo string, number int, limit int) (string, error)
 	listRunsFunc      func(ctx context.Context, owner, repo string, opts gh.ListRunsOpts) (string, error)
 	viewRunFunc       func(ctx context.Context, owner, repo string, runID string, logFailed bool) (string, error)
 	rerunFunc         func(ctx context.Context, owner, repo string, runID string, failedOnly bool) (string, error)
@@ -124,6 +126,20 @@ func (m *mockGHClient) ListIssues(ctx context.Context, owner, repo string, opts 
 func (m *mockGHClient) CommentIssue(ctx context.Context, owner, repo string, number int, body string) (string, error) {
 	if m.commentIssueFunc != nil {
 		return m.commentIssueFunc(ctx, owner, repo, number, body)
+	}
+	return "", nil
+}
+
+func (m *mockGHClient) PRComments(ctx context.Context, owner, repo string, number int, limit int) (string, error) {
+	if m.prCommentsFunc != nil {
+		return m.prCommentsFunc(ctx, owner, repo, number, limit)
+	}
+	return "", nil
+}
+
+func (m *mockGHClient) IssueComments(ctx context.Context, owner, repo string, number int, limit int) (string, error) {
+	if m.issueCommentsFunc != nil {
+		return m.issueCommentsFunc(ctx, owner, repo, number, limit)
 	}
 	return "", nil
 }
@@ -274,7 +290,7 @@ func TestViewPR_Success(t *testing.T) {
 			assert.Equal(t, "octocat", owner)
 			assert.Equal(t, "hello-world", repo)
 			assert.Equal(t, 42, number)
-			return `{"number":42,"title":"Fix bug"}`, nil
+			return `{"number":42,"title":"Fix bug","body":"Fixes it","state":"OPEN","author":{"login":"octocat","is_bot":false},"baseRefName":"main","headRefName":"fix","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","labels":[],"createdAt":"2025-01-01T00:00:00Z","updatedAt":"2025-01-02T00:00:00Z"}`, nil
 		},
 	})
 	req := gomcp.CallToolRequest{}
@@ -287,6 +303,11 @@ func TestViewPR_Success(t *testing.T) {
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "# PR #42: Fix bug (OPEN)")
+	assert.Contains(t, text, "@octocat")
+	assert.Contains(t, text, "main <- fix")
+	assert.Contains(t, text, "Fixes it")
 }
 
 func TestMergePR_InvalidMethod(t *testing.T) {
@@ -327,4 +348,97 @@ func TestUnknownTool(t *testing.T) {
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
+}
+
+func TestListPRComments_Success(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		prCommentsFunc: func(_ context.Context, owner, repo string, number int, limit int) (string, error) {
+			assert.Equal(t, "octocat", owner)
+			assert.Equal(t, "hello-world", repo)
+			assert.Equal(t, 42, number)
+			return `[{"author":{"login":"reviewer"},"authorAssociation":"MEMBER","body":"LGTM","createdAt":"2025-01-01T00:00:00Z","isMinimized":false,"minimizedReason":""}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_pr_comments"
+	req.Params.Arguments = map[string]any{
+		"owner":  "octocat",
+		"repo":   "hello-world",
+		"number": float64(42),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "## Comments (1)")
+	assert.Contains(t, text, "@reviewer [MEMBER]")
+	assert.Contains(t, text, "LGTM")
+}
+
+func TestDiffPR_FormatsWithSummary(t *testing.T) {
+	diffText := "diff --git a/foo.go b/foo.go\n--- a/foo.go\n+++ b/foo.go\n@@ -1,3 +1,4 @@\n line1\n+added\n line2\n line3"
+	h := NewHandler(&mockGHClient{
+		diffPRFunc: func(_ context.Context, owner, repo string, number int) (string, error) {
+			return diffText, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_diff_pr"
+	req.Params.Arguments = map[string]any{
+		"owner":  "octocat",
+		"repo":   "hello-world",
+		"number": float64(1),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "## Files changed (1)")
+	assert.Contains(t, text, "foo.go")
+	assert.Contains(t, text, "+1 -0")
+	assert.Contains(t, text, "## Diff")
+	assert.Contains(t, text, "+added")
+}
+
+func TestListPRs_FormatsMarkdown(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		listPRsFunc: func(_ context.Context, owner, repo string, opts gh.ListPROpts) (string, error) {
+			return `[{"number":1,"title":"Fix bug","state":"OPEN","author":{"login":"alice"},"headRefName":"fix-bug","isDraft":false,"updatedAt":"2025-01-02T00:00:00Z"},{"number":2,"title":"Add feature","state":"OPEN","author":{"login":"bob"},"headRefName":"add-feat","isDraft":true,"updatedAt":"2025-01-03T00:00:00Z"}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_prs"
+	req.Params.Arguments = map[string]any{
+		"owner": "octocat",
+		"repo":  "hello-world",
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "**#1** Fix bug")
+	assert.Contains(t, text, "@alice")
+	assert.Contains(t, text, "**#2** Add feature")
+	assert.Contains(t, text, "DRAFT")
+}
+
+func TestCheckPR_FormatsMarkdown(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		checkPRFunc: func(_ context.Context, owner, repo string, number int) (string, error) {
+			return `[{"name":"build","state":"SUCCESS","link":""},{"name":"test","state":"FAILURE","link":"https://example.com/run/1"}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_check_pr"
+	req.Params.Arguments = map[string]any{
+		"owner":  "octocat",
+		"repo":   "hello-world",
+		"number": float64(1),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "## Status Checks (2)")
+	assert.Contains(t, text, "- build: SUCCESS")
+	assert.Contains(t, text, "- test: FAILURE (https://example.com/run/1)")
 }

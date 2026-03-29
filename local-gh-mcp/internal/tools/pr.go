@@ -2,8 +2,11 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 
+	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
 	gomcp "github.com/mark3labs/mcp-go/mcp"
 )
@@ -65,7 +68,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_view_pr",
-			Description: "View details of a pull request",
+			Description: "View pull request details. Returns structured markdown with metadata and description.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -81,13 +84,17 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "number",
 						"description": "Pull request number",
 					},
+					"max_body_length": map[string]any{
+						"type":        "number",
+						"description": "Max body length in chars (default 2000, max 50000)",
+					},
 				},
 				Required: []string{"owner", "repo", "number"},
 			},
 		},
 		{
 			Name:        "gh_list_prs",
-			Description: "List pull requests for a repository",
+			Description: "List pull requests. Returns markdown bullet list.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -133,7 +140,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_diff_pr",
-			Description: "Get the diff of a pull request",
+			Description: "Get pull request diff. Returns file summary table followed by unified diff.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -309,7 +316,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_check_pr",
-			Description: "View status checks for a pull request",
+			Description: "View status checks for a pull request. Returns markdown bullet list.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -350,6 +357,36 @@ func (h *Handler) prTools() []gomcp.Tool {
 					"comment": map[string]any{
 						"type":        "string",
 						"description": "Comment to add when closing",
+					},
+				},
+				Required: []string{"owner", "repo", "number"},
+			},
+		},
+		{
+			Name:        "gh_list_pr_comments",
+			Description: "List comments on a pull request. Returns markdown-formatted comment list.",
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"owner": map[string]any{
+						"type":        "string",
+						"description": "Repository owner",
+					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Repository name",
+					},
+					"number": map[string]any{
+						"type":        "number",
+						"description": "Pull request number",
+					},
+					"max_body_length": map[string]any{
+						"type":        "number",
+						"description": "Max body length per comment in chars (default 2000, max 50000)",
+					},
+					"limit": map[string]any{
+						"type":        "number",
+						"description": "Max comments to return (default 30, max 100)",
 					},
 				},
 				Required: []string{"owner", "repo", "number"},
@@ -399,11 +436,16 @@ func (h *Handler) handleViewPR(ctx context.Context, req gomcp.CallToolRequest) (
 	if number == 0 {
 		return gomcp.NewToolResultError("number is required"), nil
 	}
+	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
 	out, err := h.gh.ViewPR(ctx, owner, repo, number)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(out), nil
+	var pr format.PRView
+	if err := json.Unmarshal([]byte(out), &pr); err != nil {
+		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse PR JSON: %v", err)), nil
+	}
+	return gomcp.NewToolResultText(format.FormatPRView(pr, maxBody)), nil
 }
 
 func (h *Handler) handleListPRs(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -425,7 +467,18 @@ func (h *Handler) handleListPRs(ctx context.Context, req gomcp.CallToolRequest) 
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(out), nil
+	var items []format.PRListItem
+	if err := json.Unmarshal([]byte(out), &items); err != nil {
+		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse PR list JSON: %v", err)), nil
+	}
+	var lines []string
+	for _, item := range items {
+		lines = append(lines, format.FormatPRListItem(item))
+	}
+	if len(lines) == 0 {
+		return gomcp.NewToolResultText("No pull requests found."), nil
+	}
+	return gomcp.NewToolResultText(strings.Join(lines, "\n")), nil
 }
 
 func (h *Handler) handleDiffPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -442,7 +495,7 @@ func (h *Handler) handleDiffPR(ctx context.Context, req gomcp.CallToolRequest) (
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(out), nil
+	return gomcp.NewToolResultText(format.FormatDiff(out)), nil
 }
 
 func (h *Handler) handleCommentPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -566,7 +619,11 @@ func (h *Handler) handleCheckPR(ctx context.Context, req gomcp.CallToolRequest) 
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(out), nil
+	var checks []format.Check
+	if err := json.Unmarshal([]byte(out), &checks); err != nil {
+		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse checks JSON: %v", err)), nil
+	}
+	return gomcp.NewToolResultText(format.FormatCheckList(checks)), nil
 }
 
 func (h *Handler) handleClosePR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -585,4 +642,27 @@ func (h *Handler) handleClosePR(ctx context.Context, req gomcp.CallToolRequest) 
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
 	return gomcp.NewToolResultText(out), nil
+}
+
+func (h *Handler) handleListPRComments(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	number := intFromArgs(args, "number")
+	if number == 0 {
+		return gomcp.NewToolResultError("number is required"), nil
+	}
+	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
+	limit := intFromArgs(args, "limit")
+	out, err := h.gh.PRComments(ctx, owner, repo, number, limit)
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	var comments []format.Comment
+	if err := json.Unmarshal([]byte(out), &comments); err != nil {
+		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse comments JSON: %v", err)), nil
+	}
+	return gomcp.NewToolResultText(format.FormatComments(comments, maxBody)), nil
 }

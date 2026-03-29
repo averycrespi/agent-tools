@@ -35,30 +35,32 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 
 ## Tools
 
-24 tools organized into 5 categories. All tools use verb-first naming with a `gh_` prefix for namespace safety.
+26 tools organized into 5 categories. All tools use verb-first naming with a `gh_` prefix for namespace safety.
 
-### PR Tools (10)
+### PR Tools (11)
 
 | Tool | Description | gh command |
 |------|-------------|------------|
 | `gh_create_pr` | Create a pull request | `gh pr create` |
-| `gh_view_pr` | View PR details as JSON | `gh pr view` |
-| `gh_list_prs` | List PRs with filters | `gh pr list` |
-| `gh_diff_pr` | View the diff for a PR | `gh pr diff` |
+| `gh_view_pr` | View PR metadata and description as structured markdown | `gh pr view` |
+| `gh_list_prs` | List PRs as markdown bullets | `gh pr list` |
+| `gh_diff_pr` | View the diff with file summary table | `gh pr diff` |
 | `gh_comment_pr` | Add a comment to a PR | `gh pr comment` |
 | `gh_review_pr` | Submit a review (approve, request changes, or comment) | `gh pr review` |
 | `gh_merge_pr` | Merge a PR | `gh pr merge` |
 | `gh_edit_pr` | Edit PR metadata | `gh pr edit` |
-| `gh_check_pr` | View CI/status check results | `gh pr checks` |
+| `gh_check_pr` | View CI/status checks as markdown bullet list | `gh pr checks` |
 | `gh_close_pr` | Close a PR | `gh pr close` |
+| `gh_list_pr_comments` | List PR comments as markdown | `gh pr view --json comments` |
 
-### Issue Tools (3)
+### Issue Tools (4)
 
 | Tool | Description | gh command |
 |------|-------------|------------|
-| `gh_view_issue` | View issue details as JSON | `gh issue view` |
-| `gh_list_issues` | List issues with filters | `gh issue list` |
+| `gh_view_issue` | View issue metadata and description as structured markdown | `gh issue view` |
+| `gh_list_issues` | List issues as markdown bullets | `gh issue list` |
 | `gh_comment_issue` | Add a comment to an issue | `gh issue comment` |
+| `gh_list_issue_comments` | List issue comments as markdown | `gh issue view --json comments` |
 
 ### Workflow Run Tools (4)
 
@@ -95,7 +97,7 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 | Tool | Required | Optional |
 |------|----------|----------|
 | `gh_create_pr` | **owner, repo, title, body** | base, head, draft, labels, reviewers, assignees |
-| `gh_view_pr` | **owner, repo, number** | — |
+| `gh_view_pr` | **owner, repo, number** | max_body_length |
 | `gh_list_prs` | **owner, repo** | state, author, label, base, head, search, limit |
 | `gh_diff_pr` | **owner, repo, number** | — |
 | `gh_comment_pr` | **owner, repo, number, body** | — |
@@ -104,14 +106,16 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 | `gh_edit_pr` | **owner, repo, number** | title, body, base, add_labels, remove_labels, add_reviewers, remove_reviewers, add_assignees, remove_assignees |
 | `gh_check_pr` | **owner, repo, number** | — |
 | `gh_close_pr` | **owner, repo, number** | comment |
+| `gh_list_pr_comments` | **owner, repo, number** | max_body_length, limit |
 
 ### Issue Tools
 
 | Tool | Required | Optional |
 |------|----------|----------|
-| `gh_view_issue` | **owner, repo, number** | — |
+| `gh_view_issue` | **owner, repo, number** | max_body_length |
 | `gh_list_issues` | **owner, repo** | state, author, assignee, label, milestone, search, limit |
 | `gh_comment_issue` | **owner, repo, number, body** | — |
+| `gh_list_issue_comments` | **owner, repo, number** | max_body_length, limit |
 
 ### Workflow Run Tools
 
@@ -163,14 +167,18 @@ Pagination is deliberately not supported. If 100 results isn't enough, the query
 
 ## Output Format
 
-All tools return JSON output using `gh`'s `--json` flag with a curated set of fields per tool. This keeps responses structured, predictable, and focused.
+All read tools return **structured markdown** instead of raw JSON. The `gh` CLI's `--json` output is parsed server-side into Go structs, then formatted as human/LLM-readable markdown. Write tools (create, comment, merge, edit, close, rerun, cancel, delete) return plain text confirmations.
 
-Example field sets:
-- `gh_view_pr`: `number,title,body,state,author,baseRefName,headRefName,url,isDraft,mergeable,reviewDecision,statusCheckRollup,labels,assignees,createdAt,updatedAt`
-- `gh_list_prs`: `number,title,state,author,headRefName,url,isDraft,createdAt,updatedAt`
-- `gh_view_run`: `databaseId,name,displayTitle,status,conclusion,event,headBranch,headSha,url,createdAt,updatedAt,jobs`
+### Formatting patterns
 
-For `gh_diff_pr`, the output is raw diff text (no JSON equivalent available from `gh`).
+- **Author flattening**: all author objects rendered as `@login` or `@login [bot]` — internal IDs and display names are dropped
+- **Body truncation**: tools returning text bodies accept a `max_body_length` param (default 2000, max 50000). Bodies exceeding the limit are cut on a whitespace boundary with `[truncated — N/M chars shown]`
+- **View tools** (`gh_view_pr`, `gh_view_issue`): markdown header with labeled metadata fields, followed by truncated description
+- **List/search tools**: markdown bullet per item with key fields inline
+- **Diff tool** (`gh_diff_pr`): file summary table (file names, +/- counts) prepended before the raw unified diff
+- **Check tool** (`gh_check_pr`): flat markdown bullet list; FAILURE/ERROR include link
+- **Comment tools** (`gh_list_pr_comments`, `gh_list_issue_comments`): headed blocks per comment; minimized/spam comments show `[minimized: REASON]`; images replaced with `[image]`
+- **Run view** (`gh_view_run`): structured header + job list; `log_failed=true` returns raw logs unchanged
 
 ## Project Structure
 
@@ -183,6 +191,11 @@ local-gh-mcp/
 │   ├── exec/
 │   │   ├── runner.go        # Runner interface for command execution
 │   │   └── runner_test.go
+│   ├── format/
+│   │   ├── format.go        # Core helpers (author, date, truncation, diff, images, labels)
+│   │   ├── format_test.go
+│   │   ├── github.go        # GitHub struct types + markdown formatters
+│   │   └── github_test.go
 │   ├── gh/
 │   │   ├── gh.go            # GH client wrapping exec.Runner
 │   │   └── gh_test.go
@@ -202,7 +215,7 @@ local-gh-mcp/
 └── go.sum
 ```
 
-Tools are split into separate files by category (unlike local-git-mcp which has 5 tools in one file) since we have 24 tools.
+Tools are split into separate files by category (unlike local-git-mcp which has 5 tools in one file) since we have 26 tools.
 
 ## GH Client Layer
 
@@ -227,6 +240,10 @@ type Client interface {
     ListIssues(ctx context.Context, owner, repo string, opts ListIssuesOpts) (string, error)
     CommentIssue(ctx context.Context, owner, repo string, number int, body string) (string, error)
 
+    // Comment listing operations
+    PRComments(ctx context.Context, owner, repo string, number int, limit int) (string, error)
+    IssueComments(ctx context.Context, owner, repo string, number int, limit int) (string, error)
+
     // Workflow run operations
     ListRuns(ctx context.Context, owner, repo string, opts ListRunsOpts) (string, error)
     ViewRun(ctx context.Context, owner, repo string, runID int, logFailed bool) (string, error)
@@ -249,7 +266,7 @@ type Client interface {
 }
 ```
 
-Each method returns `(string, error)` where the string is the raw JSON output from `gh`. The tool handlers pass this through as the MCP response — no parsing or re-serialization.
+Each method returns `(string, error)` where the string is the raw JSON output from `gh`. The tool handlers parse this JSON into typed structs from `internal/format/`, then call formatting functions to produce structured markdown.
 
 ## Validation and Error Handling
 
@@ -290,7 +307,7 @@ Each method returns `(string, error)` where the string is the raw JSON output fr
 
 **Explicit owner/repo, not repo_path.** Unlike local-git-mcp, most `gh` operations don't need a local clone. Passing `owner` and `repo` directly maps cleanly to `gh -R owner/repo` and lets agents operate on repos they haven't cloned.
 
-**JSON output always.** All list/view commands use `--json` with curated field sets. Agents get structured, predictable data rather than human-readable text they'd have to parse. The one exception is `gh_diff_pr`, which returns raw diff text.
+**Structured markdown output.** All read tools (view, list, search, diff, check) return structured markdown instead of raw JSON. The `gh` CLI's `--json` output is parsed server-side and formatted as concise, labeled markdown that's easy for LLMs to consume without wasting tokens on JSON syntax. Write tools return plain text confirmations.
 
 **Startup auth check.** Fail fast if `gh` isn't authenticated rather than returning auth errors on every tool call. This gives the operator immediate feedback.
 
