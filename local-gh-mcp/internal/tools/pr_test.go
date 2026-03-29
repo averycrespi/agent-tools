@@ -290,7 +290,7 @@ func TestViewPR_Success(t *testing.T) {
 			assert.Equal(t, "octocat", owner)
 			assert.Equal(t, "hello-world", repo)
 			assert.Equal(t, 42, number)
-			return `{"number":42,"title":"Fix bug"}`, nil
+			return `{"number":42,"title":"Fix bug","body":"Fixes it","state":"OPEN","author":{"login":"octocat","is_bot":false},"baseRefName":"main","headRefName":"fix","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","labels":[],"createdAt":"2025-01-01T00:00:00Z","updatedAt":"2025-01-02T00:00:00Z"}`, nil
 		},
 	})
 	req := gomcp.CallToolRequest{}
@@ -303,6 +303,11 @@ func TestViewPR_Success(t *testing.T) {
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "# PR #42: Fix bug (OPEN)")
+	assert.Contains(t, text, "@octocat")
+	assert.Contains(t, text, "main <- fix")
+	assert.Contains(t, text, "Fixes it")
 }
 
 func TestMergePR_InvalidMethod(t *testing.T) {

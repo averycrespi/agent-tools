@@ -2,8 +2,10 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
+	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
 	gomcp "github.com/mark3labs/mcp-go/mcp"
 )
@@ -399,11 +401,16 @@ func (h *Handler) handleViewPR(ctx context.Context, req gomcp.CallToolRequest) (
 	if number == 0 {
 		return gomcp.NewToolResultError("number is required"), nil
 	}
+	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
 	out, err := h.gh.ViewPR(ctx, owner, repo, number)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(out), nil
+	var pr format.PRView
+	if err := json.Unmarshal([]byte(out), &pr); err != nil {
+		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse PR JSON: %v", err)), nil
+	}
+	return gomcp.NewToolResultText(format.FormatPRView(pr, maxBody)), nil
 }
 
 func (h *Handler) handleListPRs(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
