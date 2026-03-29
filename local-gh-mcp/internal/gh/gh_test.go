@@ -370,6 +370,56 @@ func TestCancelRun_SeparatorBeforeRunID(t *testing.T) {
 	assert.Equal(t, "67890", args[len(args)-1], "runID must be last arg after --")
 }
 
+func TestPRComments_Args(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.PRComments(context.Background(), "octocat", "hello", 42, 10)
+	require.NoError(t, err)
+	assert.Contains(t, args, "pr")
+	assert.Contains(t, args, "view")
+	assert.Contains(t, args, "-R")
+	assert.Contains(t, args, "octocat/hello")
+	assert.Contains(t, args, "--json")
+	assert.Contains(t, args, "comments")
+	assert.Contains(t, args, "--jq")
+	assert.Contains(t, args, "42")
+}
+
+func TestPRComments_Error(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(name string, args ...string) ([]byte, error) {
+			return []byte("not found"), fmt.Errorf("exit 1")
+		},
+	})
+	_, err := c.PRComments(context.Background(), "o", "r", 1, 10)
+	assert.ErrorContains(t, err, "gh pr comments failed")
+}
+
+func TestIssueComments_Args(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.IssueComments(context.Background(), "octocat", "hello", 99, 5)
+	require.NoError(t, err)
+	assert.Contains(t, args, "issue")
+	assert.Contains(t, args, "view")
+	assert.Contains(t, args, "-R")
+	assert.Contains(t, args, "octocat/hello")
+	assert.Contains(t, args, "--json")
+	assert.Contains(t, args, "comments")
+	assert.Contains(t, args, "--jq")
+	assert.Contains(t, args, "99")
+}
+
+func TestIssueComments_Error(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(name string, args ...string) ([]byte, error) {
+			return []byte("not found"), fmt.Errorf("exit 1")
+		},
+	})
+	_, err := c.IssueComments(context.Background(), "o", "r", 1, 10)
+	assert.ErrorContains(t, err, "gh issue comments failed")
+}
+
 func TestDeleteCache_SeparatorBeforeCacheID(t *testing.T) {
 	var args []string
 	c := NewClient(capturedArgs(t, &args))

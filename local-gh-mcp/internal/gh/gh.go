@@ -26,7 +26,7 @@ func clampLimit(limit int) int {
 }
 
 const (
-	prViewFields  = "number,title,body,state,author,baseRefName,headRefName,url,isDraft,mergeable,reviewDecision,statusCheckRollup,labels,assignees,createdAt,updatedAt"
+	prViewFields  = "number,title,body,state,author,baseRefName,headRefName,url,isDraft,mergeable,reviewDecision,labels,assignees,createdAt,updatedAt"
 	prListFields  = "number,title,state,author,headRefName,url,isDraft,createdAt,updatedAt"
 	prCheckFields = "name,state,description,link,startedAt,completedAt"
 )
@@ -295,7 +295,7 @@ func (c *Client) ClosePR(_ context.Context, owner, repo string, number int, comm
 
 // Issue field constants.
 const (
-	issueViewFields = "number,title,body,state,author,labels,assignees,milestone,url,createdAt,updatedAt,comments"
+	issueViewFields = "number,title,body,state,author,labels,assignees,milestone,url,createdAt,updatedAt"
 	issueListFields = "number,title,state,author,labels,url,createdAt,updatedAt"
 )
 
@@ -404,6 +404,30 @@ func (c *Client) CommentIssue(_ context.Context, owner, repo string, number int,
 	out, err := c.runner.Run("gh", "issue", "comment", "-R", repoFlag(owner, repo), "--body", body, strconv.Itoa(number))
 	if err != nil {
 		return "", fmt.Errorf("gh issue comment failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// PRComments retrieves comments on a pull request.
+func (c *Client) PRComments(_ context.Context, owner, repo string, number int, limit int) (string, error) {
+	out, err := c.runner.Run("gh", "pr", "view", "-R", repoFlag(owner, repo),
+		"--json", "comments", "--jq",
+		fmt.Sprintf(".comments[:%d] | map({author,authorAssociation,body,createdAt,isMinimized,minimizedReason})", clampLimit(limit)),
+		strconv.Itoa(number))
+	if err != nil {
+		return "", fmt.Errorf("gh pr comments failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// IssueComments retrieves comments on an issue.
+func (c *Client) IssueComments(_ context.Context, owner, repo string, number int, limit int) (string, error) {
+	out, err := c.runner.Run("gh", "issue", "view", "-R", repoFlag(owner, repo),
+		"--json", "comments", "--jq",
+		fmt.Sprintf(".comments[:%d] | map({author,authorAssociation,body,createdAt,isMinimized,minimizedReason})", clampLimit(limit)),
+		strconv.Itoa(number))
+	if err != nil {
+		return "", fmt.Errorf("gh issue comments failed: %s", strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
