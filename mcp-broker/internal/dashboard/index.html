@@ -921,7 +921,7 @@ function addDecision(dr) {
   div.dataset.id = dr.id;
   var ts = new Date(dr.timestamp).toLocaleTimeString();
   var badgeClass = dr.decision === 'approved' ? 'approved' : 'denied';
-  var badgeText = dr.decision === 'approved' ? 'Approved' : 'Denied';
+  var badgeText = dr.decision === 'approved' ? 'approved' : 'denied';
   div.innerHTML =
     '<div class="method">' + esc(dr.tool) + ' <span class="badge ' + badgeClass + '">' + badgeText + '</span></div>' +
     '<div class="meta">' + ts + '</div>';
@@ -1116,8 +1116,8 @@ function loadAudit() {
 
       // Approval column
       var approval = '-';
-      if (rec.approved === true) approval = 'Approved';
-      else if (rec.approved === false) approval = 'Denied';
+      if (rec.approved === true) approval = 'approved';
+      else if (rec.approved === false) approval = 'denied';
 
       // Row color based on final outcome (error > denied > approved)
       var rowClass = '';
