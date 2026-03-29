@@ -122,5 +122,5 @@ func TestSearchCommits_Success(t *testing.T) {
 func TestToolCount(t *testing.T) {
 	h := NewHandler(&mockGHClient{})
 	tools := h.Tools()
-	assert.Equal(t, 24, len(tools), "expected 24 total tools")
+	assert.Equal(t, 26, len(tools), "expected 26 total tools")
 }

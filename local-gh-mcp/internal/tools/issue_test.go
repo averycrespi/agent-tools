@@ -136,3 +136,25 @@ func TestViewIssue_FormatsMarkdown(t *testing.T) {
 	assert.Contains(t, text, "bug")
 	assert.Contains(t, text, "Steps to reproduce")
 }
+
+func TestListIssueComments_Success(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		issueCommentsFunc: func(_ context.Context, owner, repo string, number int, limit int) (string, error) {
+			return `[{"author":{"login":"alice"},"authorAssociation":"NONE","body":"Thanks!","createdAt":"2025-01-01T00:00:00Z","isMinimized":false,"minimizedReason":""}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_issue_comments"
+	req.Params.Arguments = map[string]any{
+		"owner":  "octocat",
+		"repo":   "hello-world",
+		"number": float64(100),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "## Comments (1)")
+	assert.Contains(t, text, "@alice")
+	assert.Contains(t, text, "Thanks!")
+}

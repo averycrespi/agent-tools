@@ -349,3 +349,28 @@ func TestUnknownTool(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
+
+func TestListPRComments_Success(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		prCommentsFunc: func(_ context.Context, owner, repo string, number int, limit int) (string, error) {
+			assert.Equal(t, "octocat", owner)
+			assert.Equal(t, "hello-world", repo)
+			assert.Equal(t, 42, number)
+			return `[{"author":{"login":"reviewer"},"authorAssociation":"MEMBER","body":"LGTM","createdAt":"2025-01-01T00:00:00Z","isMinimized":false,"minimizedReason":""}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_pr_comments"
+	req.Params.Arguments = map[string]any{
+		"owner":  "octocat",
+		"repo":   "hello-world",
+		"number": float64(42),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "## Comments (1)")
+	assert.Contains(t, text, "@reviewer [MEMBER]")
+	assert.Contains(t, text, "LGTM")
+}

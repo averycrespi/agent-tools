@@ -95,6 +95,10 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 		return h.handleListIssues(ctx, req)
 	case "gh_comment_issue":
 		return h.handleCommentIssue(ctx, req)
+	case "gh_list_pr_comments":
+		return h.handleListPRComments(ctx, req)
+	case "gh_list_issue_comments":
+		return h.handleListIssueComments(ctx, req)
 	case "gh_list_runs":
 		return h.handleListRuns(ctx, req)
 	case "gh_view_run":

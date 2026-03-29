@@ -106,6 +106,36 @@ func (h *Handler) issueTools() []gomcp.Tool {
 				Required: []string{"owner", "repo", "number", "body"},
 			},
 		},
+		{
+			Name:        "gh_list_issue_comments",
+			Description: "List comments on an issue. Returns markdown-formatted comment list.",
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"owner": map[string]any{
+						"type":        "string",
+						"description": "Repository owner",
+					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Repository name",
+					},
+					"number": map[string]any{
+						"type":        "number",
+						"description": "Issue number",
+					},
+					"max_body_length": map[string]any{
+						"type":        "number",
+						"description": "Max body length per comment in chars (default 2000, max 50000)",
+					},
+					"limit": map[string]any{
+						"type":        "number",
+						"description": "Max comments to return (default 30, max 100)",
+					},
+				},
+				Required: []string{"owner", "repo", "number"},
+			},
+		},
 	}
 }
 
@@ -172,4 +202,27 @@ func (h *Handler) handleCommentIssue(ctx context.Context, req gomcp.CallToolRequ
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
 	return gomcp.NewToolResultText(out), nil
+}
+
+func (h *Handler) handleListIssueComments(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	number := intFromArgs(args, "number")
+	if number == 0 {
+		return gomcp.NewToolResultError("number is required"), nil
+	}
+	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
+	limit := intFromArgs(args, "limit")
+	out, err := h.gh.IssueComments(ctx, owner, repo, number, limit)
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	var comments []format.Comment
+	if err := json.Unmarshal([]byte(out), &comments); err != nil {
+		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse comments JSON: %v", err)), nil
+	}
+	return gomcp.NewToolResultText(format.FormatComments(comments, maxBody)), nil
 }
