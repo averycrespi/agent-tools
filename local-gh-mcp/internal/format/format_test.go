@@ -73,3 +73,48 @@ func TestFormatLabels_Empty(t *testing.T) {
 	got := FormatLabels(nil)
 	assert.Equal(t, "(none)", got)
 }
+
+func TestParseDiffSummary_TwoFiles(t *testing.T) {
+	diff := `diff --git a/foo.go b/foo.go
+index 1234567..abcdefg 100644
+--- a/foo.go
++++ b/foo.go
+@@ -1,3 +1,4 @@
+ package foo
++import "fmt"
++func hello() { fmt.Println("hi") }
+-func old() {}
+diff --git a/bar.go b/bar.go
+index 1234567..abcdefg 100644
+--- a/bar.go
++++ b/bar.go
+@@ -1,2 +1,3 @@
+ package bar
++func New() {}
+`
+	got := ParseDiffSummary(diff)
+	assert.Contains(t, got, "## Files changed (2)")
+	assert.Contains(t, got, "foo.go")
+	assert.Contains(t, got, "bar.go")
+	assert.Contains(t, got, "+2 -1") // foo.go: 2 added, 1 removed
+	assert.Contains(t, got, "+1 -0") // bar.go: 1 added, 0 removed
+}
+
+func TestParseDiffSummary_Empty(t *testing.T) {
+	got := ParseDiffSummary("")
+	assert.Equal(t, "", got)
+}
+
+func TestFormatDiff(t *testing.T) {
+	diff := `diff --git a/main.go b/main.go
+--- a/main.go
++++ b/main.go
+@@ -1,2 +1,3 @@
+ package main
++func init() {}
+`
+	got := FormatDiff(diff)
+	assert.Contains(t, got, "## Files changed")
+	assert.Contains(t, got, "## Diff")
+	assert.Contains(t, got, diff)
+}
