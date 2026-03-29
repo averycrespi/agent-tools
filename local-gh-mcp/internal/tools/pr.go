@@ -85,7 +85,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 					},
 					"max_body_length": map[string]any{
 						"type":        "number",
-						"description": "Max body length in chars (default 2000, max 50000). Set to 0 to omit body.",
+						"description": "Max body length in chars (default 2000, max 50000)",
 					},
 				},
 				Required: []string{"owner", "repo", "number"},
