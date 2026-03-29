@@ -23,8 +23,10 @@ type mockGHClient struct {
 	closePRFunc       func(ctx context.Context, owner, repo string, number int, comment string) (string, error)
 	viewIssueFunc     func(ctx context.Context, owner, repo string, number int) (string, error)
 	listIssuesFunc    func(ctx context.Context, owner, repo string, opts gh.ListIssuesOpts) (string, error)
-	commentIssueFunc  func(ctx context.Context, owner, repo string, number int, body string) (string, error)
-	listRunsFunc      func(ctx context.Context, owner, repo string, opts gh.ListRunsOpts) (string, error)
+	commentIssueFunc   func(ctx context.Context, owner, repo string, number int, body string) (string, error)
+	prCommentsFunc     func(ctx context.Context, owner, repo string, number int, limit int) (string, error)
+	issueCommentsFunc  func(ctx context.Context, owner, repo string, number int, limit int) (string, error)
+	listRunsFunc       func(ctx context.Context, owner, repo string, opts gh.ListRunsOpts) (string, error)
 	viewRunFunc       func(ctx context.Context, owner, repo string, runID string, logFailed bool) (string, error)
 	rerunFunc         func(ctx context.Context, owner, repo string, runID string, failedOnly bool) (string, error)
 	cancelRunFunc     func(ctx context.Context, owner, repo string, runID string) (string, error)
@@ -124,6 +126,20 @@ func (m *mockGHClient) ListIssues(ctx context.Context, owner, repo string, opts 
 func (m *mockGHClient) CommentIssue(ctx context.Context, owner, repo string, number int, body string) (string, error) {
 	if m.commentIssueFunc != nil {
 		return m.commentIssueFunc(ctx, owner, repo, number, body)
+	}
+	return "", nil
+}
+
+func (m *mockGHClient) PRComments(ctx context.Context, owner, repo string, number int, limit int) (string, error) {
+	if m.prCommentsFunc != nil {
+		return m.prCommentsFunc(ctx, owner, repo, number, limit)
+	}
+	return "", nil
+}
+
+func (m *mockGHClient) IssueComments(ctx context.Context, owner, repo string, number int, limit int) (string, error) {
+	if m.issueCommentsFunc != nil {
+		return m.issueCommentsFunc(ctx, owner, repo, number, limit)
 	}
 	return "", nil
 }

@@ -26,6 +26,9 @@ type GHClient interface {
 	ViewIssue(ctx context.Context, owner, repo string, number int) (string, error)
 	ListIssues(ctx context.Context, owner, repo string, opts gh.ListIssuesOpts) (string, error)
 	CommentIssue(ctx context.Context, owner, repo string, number int, body string) (string, error)
+	// Comment listing operations
+	PRComments(ctx context.Context, owner, repo string, number int, limit int) (string, error)
+	IssueComments(ctx context.Context, owner, repo string, number int, limit int) (string, error)
 	// Run operations - NOTE: runID is string
 	ListRuns(ctx context.Context, owner, repo string, opts gh.ListRunsOpts) (string, error)
 	ViewRun(ctx context.Context, owner, repo string, runID string, logFailed bool) (string, error)
@@ -156,6 +159,21 @@ func stringSliceFromArgs(args map[string]any, key string) []string {
 		return result
 	}
 	return nil
+}
+
+const (
+	defaultMaxBodyLength = 2000
+	maxMaxBodyLength     = 50000
+)
+
+func clampMaxBodyLength(v int) int {
+	if v <= 0 {
+		return defaultMaxBodyLength
+	}
+	if v > maxMaxBodyLength {
+		return maxMaxBodyLength
+	}
+	return v
 }
 
 func requireOwnerRepo(args map[string]any) (string, string, *gomcp.CallToolResult) {
