@@ -114,8 +114,18 @@ type RunView struct {
 }
 
 // Repository represents a GitHub repository reference.
+// Some gh subcommands use "nameWithOwner", others use "fullName".
 type Repository struct {
 	NameWithOwner string `json:"nameWithOwner"`
+	FullName      string `json:"fullName"`
+}
+
+// Name returns the best available repository identifier.
+func (r Repository) Name() string {
+	if r.NameWithOwner != "" {
+		return r.NameWithOwner
+	}
+	return r.FullName
 }
 
 // SearchPRItem represents a PR in search results.
@@ -315,7 +325,7 @@ func FormatRunView(run RunView) string {
 // FormatSearchPRItem formats a search PR/issue item as a markdown bullet.
 func FormatSearchPRItem(item SearchPRItem) string {
 	return fmt.Sprintf("- **%s#%d** %s — %s, %s, updated %s",
-		item.Repository.NameWithOwner, item.Number, item.Title,
+		item.Repository.Name(), item.Number, item.Title,
 		FormatAuthor(item.Author), item.State, FormatDate(item.UpdatedAt))
 }
 
@@ -336,7 +346,7 @@ func FormatSearchCodeItem(item SearchCodeItem) string {
 		match = " — " + strings.Join(fragments, " | ")
 	}
 	return fmt.Sprintf("- **%s** %s%s",
-		item.Repository.NameWithOwner, item.Path, match)
+		item.Repository.Name(), item.Path, match)
 }
 
 // FormatSearchCommitItem formats a search commit item as a markdown bullet.
@@ -351,5 +361,5 @@ func FormatSearchCommitItem(item SearchCommitItem) string {
 		msg = msg[:idx]
 	}
 	return fmt.Sprintf("- **%s** %s %s — %s, %s",
-		item.Repository.NameWithOwner, sha, msg, FormatAuthor(item.Author), FormatDate(item.Commit.Author.Date))
+		item.Repository.Name(), sha, msg, FormatAuthor(item.Author), FormatDate(item.Commit.Author.Date))
 }
