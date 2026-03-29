@@ -137,6 +137,29 @@ func TestViewIssue_FormatsMarkdown(t *testing.T) {
 	assert.Contains(t, text, "Steps to reproduce")
 }
 
+func TestListIssues_FormatsMarkdown(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		listIssuesFunc: func(_ context.Context, owner, repo string, opts gh.ListIssuesOpts) (string, error) {
+			return `[{"number":10,"title":"Bug report","state":"OPEN","author":{"login":"alice"},"labels":[{"name":"bug"}],"updatedAt":"2025-01-02T00:00:00Z"},{"number":11,"title":"Feature request","state":"CLOSED","author":{"login":"bob"},"labels":[],"updatedAt":"2025-01-03T00:00:00Z"}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_issues"
+	req.Params.Arguments = map[string]any{
+		"owner": "octocat",
+		"repo":  "hello-world",
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "**#10** Bug report")
+	assert.Contains(t, text, "@alice")
+	assert.Contains(t, text, "bug")
+	assert.Contains(t, text, "**#11** Feature request")
+	assert.Contains(t, text, "CLOSED")
+}
+
 func TestListIssueComments_Success(t *testing.T) {
 	h := NewHandler(&mockGHClient{
 		issueCommentsFunc: func(_ context.Context, owner, repo string, number int, limit int) (string, error) {

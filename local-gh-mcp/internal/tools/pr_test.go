@@ -400,6 +400,28 @@ func TestDiffPR_FormatsWithSummary(t *testing.T) {
 	assert.Contains(t, text, "+added")
 }
 
+func TestListPRs_FormatsMarkdown(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		listPRsFunc: func(_ context.Context, owner, repo string, opts gh.ListPROpts) (string, error) {
+			return `[{"number":1,"title":"Fix bug","state":"OPEN","author":{"login":"alice"},"headRefName":"fix-bug","isDraft":false,"updatedAt":"2025-01-02T00:00:00Z"},{"number":2,"title":"Add feature","state":"OPEN","author":{"login":"bob"},"headRefName":"add-feat","isDraft":true,"updatedAt":"2025-01-03T00:00:00Z"}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_prs"
+	req.Params.Arguments = map[string]any{
+		"owner": "octocat",
+		"repo":  "hello-world",
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "**#1** Fix bug")
+	assert.Contains(t, text, "@alice")
+	assert.Contains(t, text, "**#2** Add feature")
+	assert.Contains(t, text, "DRAFT")
+}
+
 func TestCheckPR_FormatsMarkdown(t *testing.T) {
 	h := NewHandler(&mockGHClient{
 		checkPRFunc: func(_ context.Context, owner, repo string, number int) (string, error) {

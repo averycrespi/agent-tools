@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
@@ -466,7 +467,18 @@ func (h *Handler) handleListPRs(ctx context.Context, req gomcp.CallToolRequest) 
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(out), nil
+	var items []format.PRListItem
+	if err := json.Unmarshal([]byte(out), &items); err != nil {
+		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse PR list JSON: %v", err)), nil
+	}
+	var lines []string
+	for _, item := range items {
+		lines = append(lines, format.FormatPRListItem(item))
+	}
+	if len(lines) == 0 {
+		return gomcp.NewToolResultText("No pull requests found."), nil
+	}
+	return gomcp.NewToolResultText(strings.Join(lines, "\n")), nil
 }
 
 func (h *Handler) handleDiffPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {

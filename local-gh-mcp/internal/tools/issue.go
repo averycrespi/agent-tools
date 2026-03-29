@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
@@ -184,7 +185,18 @@ func (h *Handler) handleListIssues(ctx context.Context, req gomcp.CallToolReques
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(out), nil
+	var items []format.IssueListItem
+	if err := json.Unmarshal([]byte(out), &items); err != nil {
+		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse issue list JSON: %v", err)), nil
+	}
+	var lines []string
+	for _, item := range items {
+		lines = append(lines, format.FormatIssueListItem(item))
+	}
+	if len(lines) == 0 {
+		return gomcp.NewToolResultText("No issues found."), nil
+	}
+	return gomcp.NewToolResultText(strings.Join(lines, "\n")), nil
 }
 
 func (h *Handler) handleCommentIssue(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
