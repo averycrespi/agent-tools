@@ -399,3 +399,24 @@ func TestDiffPR_FormatsWithSummary(t *testing.T) {
 	assert.Contains(t, text, "## Diff")
 	assert.Contains(t, text, "+added")
 }
+
+func TestCheckPR_FormatsMarkdown(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		checkPRFunc: func(_ context.Context, owner, repo string, number int) (string, error) {
+			return `[{"name":"build","state":"SUCCESS","link":""},{"name":"test","state":"FAILURE","link":"https://example.com/run/1"}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_check_pr"
+	req.Params.Arguments = map[string]any{
+		"owner":  "octocat",
+		"repo":   "hello-world",
+		"number": float64(1),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "## Status Checks (2)")
+	assert.Contains(t, text, "- build: SUCCESS")
+	assert.Contains(t, text, "- test: FAILURE (https://example.com/run/1)")
+}

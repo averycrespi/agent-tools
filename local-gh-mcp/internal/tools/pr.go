@@ -603,7 +603,11 @@ func (h *Handler) handleCheckPR(ctx context.Context, req gomcp.CallToolRequest) 
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(out), nil
+	var checks []format.Check
+	if err := json.Unmarshal([]byte(out), &checks); err != nil {
+		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse checks JSON: %v", err)), nil
+	}
+	return gomcp.NewToolResultText(format.FormatCheckList(checks)), nil
 }
 
 func (h *Handler) handleClosePR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
