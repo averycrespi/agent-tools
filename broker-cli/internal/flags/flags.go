@@ -118,7 +118,7 @@ func BuildArgs(cmd *cobra.Command, schema map[string]any) (map[string]any, error
 		}
 	}
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("missing required flags: %s\nhint: use --help to see all flags or --raw-input to pass the full input as JSON",
+		return nil, fmt.Errorf("missing required flags: %s; use --help to see all flags or --raw-input to pass the full input as JSON",
 			strings.Join(missing, ", "))
 	}
 
