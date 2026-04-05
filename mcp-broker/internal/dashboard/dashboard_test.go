@@ -22,7 +22,7 @@ func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
 	// Start a review in a goroutine
 	done := make(chan bool, 1)
 	go func() {
-		approved, err := d.Review(context.Background(), "github.push", map[string]any{"branch": "main"})
+		approved, _, err := d.Review(context.Background(), "github.push", map[string]any{"branch": "main"})
 		require.NoError(t, err)
 		done <- approved
 	}()
@@ -57,11 +57,15 @@ func TestDashboard_Review_DeniesViaAPI(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	done := make(chan bool, 1)
+	type result struct {
+		approved bool
+		reason   string
+	}
+	done := make(chan result, 1)
 	go func() {
-		approved, err := d.Review(context.Background(), "github.push", map[string]any{})
+		approved, reason, err := d.Review(context.Background(), "github.push", map[string]any{})
 		require.NoError(t, err)
-		done <- approved
+		done <- result{approved, reason}
 	}()
 
 	time.Sleep(50 * time.Millisecond)
@@ -79,8 +83,9 @@ func TestDashboard_Review_DeniesViaAPI(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = resp2.Body.Close() }()
 
-	approved := <-done
-	require.False(t, approved)
+	r := <-done
+	require.False(t, r.approved)
+	require.Equal(t, "user", r.reason)
 }
 
 func TestDashboard_Review_CancelsOnContextDone(t *testing.T) {
@@ -89,7 +94,7 @@ func TestDashboard_Review_CancelsOnContextDone(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := d.Review(ctx, "test.tool", nil)
+		_, _, err := d.Review(ctx, "test.tool", nil)
 		done <- err
 	}()
 
