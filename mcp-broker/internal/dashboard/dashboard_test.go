@@ -92,17 +92,24 @@ func TestDashboard_Review_CancelsOnContextDone(t *testing.T) {
 	d := New(nil, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
+	type result struct {
+		approved bool
+		reason   string
+		err      error
+	}
+	done := make(chan result, 1)
 	go func() {
-		_, _, err := d.Review(ctx, "test.tool", nil)
-		done <- err
+		approved, reason, err := d.Review(ctx, "test.tool", nil)
+		done <- result{approved, reason, err}
 	}()
 
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 
-	err := <-done
-	require.Error(t, err)
+	r := <-done
+	require.NoError(t, r.err)
+	require.False(t, r.approved)
+	require.Equal(t, "timeout", r.reason)
 }
 
 func TestDashboard_PendingRequest_HasDeadline(t *testing.T) {

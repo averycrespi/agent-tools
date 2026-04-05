@@ -83,7 +83,7 @@ func (d *Dashboard) Handler() http.Handler {
 
 // Review blocks until a human approves or denies the request via the web UI.
 // Returns (approved, denialReason, err). On explicit denial: denialReason="user".
-// On context cancellation: returns (false, "", ctx.Err()).
+// On context cancellation: returns (false, "timeout", nil).
 func (d *Dashboard) Review(ctx context.Context, tool string, args map[string]any) (bool, string, error) {
 	id := generateID()
 	ch := make(chan string, 1) // sends "" for approval, "user" for denial
@@ -117,7 +117,7 @@ func (d *Dashboard) Review(ctx context.Context, tool string, args map[string]any
 		delete(d.pending, id)
 		d.mu.Unlock()
 		d.broadcast(removedEvent(id))
-		return false, "", ctx.Err()
+		return false, "timeout", nil
 	}
 }
 
