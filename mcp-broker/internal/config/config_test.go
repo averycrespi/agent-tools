@@ -93,3 +93,32 @@ func TestConfigPath_ReturnsXDGPath(t *testing.T) {
 	path := ConfigPath()
 	require.Equal(t, filepath.Join(dir, "mcp-broker", "config.json"), path)
 }
+
+func TestLoad_TelegramConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	data := `{
+		"approval_timeout_seconds": 300,
+		"telegram": {
+			"enabled": true,
+			"token": "mytoken",
+			"chat_id": "123456"
+		}
+	}`
+	err := os.WriteFile(path, []byte(data), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, 300, cfg.ApprovalTimeoutSeconds)
+	require.True(t, cfg.Telegram.Enabled)
+	require.Equal(t, "mytoken", cfg.Telegram.Token)
+	require.Equal(t, "123456", cfg.Telegram.ChatID)
+}
+
+func TestDefaultConfig_TelegramDisabledByDefault(t *testing.T) {
+	cfg := DefaultConfig()
+	require.False(t, cfg.Telegram.Enabled)
+	require.Equal(t, 600, cfg.ApprovalTimeoutSeconds)
+}
