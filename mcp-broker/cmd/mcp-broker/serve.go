@@ -107,8 +107,15 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Create dashboard
 	dash := dashboard.New(mgr, auditor, logger.With("component", "dashboard"))
 
+	// Create multi-approver (currently wraps only dashboard; Telegram added in Task 9)
+	timeout := time.Duration(cfg.ApprovalTimeoutSeconds) * time.Second
+	if timeout == 0 {
+		timeout = 10 * time.Minute
+	}
+	multi := broker.NewMultiApprover(timeout, dash)
+
 	// Create broker
-	b := broker.New(mgr, engine, auditor, dash, logger.With("component", "broker"))
+	b := broker.New(mgr, engine, auditor, multi, logger.With("component", "broker"))
 
 	// Create MCP server
 	mcpSrv := mcpserver.NewMCPServer("mcp-broker", "0.1.0")
