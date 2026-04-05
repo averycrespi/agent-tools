@@ -19,13 +19,14 @@ func AddSchemaFlags(cmd *cobra.Command, schema map[string]any) {
 		d, _ := def.(map[string]any)
 		typ, _ := d["type"].(string)
 		desc, _ := d["description"].(string)
+		flagName := strings.ReplaceAll(name, "_", "-")
 		switch typ {
 		case "string":
-			cmd.Flags().String(name, "", desc)
+			cmd.Flags().String(flagName, "", desc)
 		case "boolean":
-			cmd.Flags().Bool(name, false, desc)
+			cmd.Flags().Bool(flagName, false, desc)
 		case "integer", "number":
-			cmd.Flags().Int64(name, 0, desc)
+			cmd.Flags().Int64(flagName, 0, desc)
 			// object/array/unknown: handled via --param
 		}
 	}
@@ -53,19 +54,20 @@ func BuildArgs(cmd *cobra.Command, schema map[string]any) (map[string]any, error
 	for name, def := range props {
 		d, _ := def.(map[string]any)
 		typ, _ := d["type"].(string)
-		f := cmd.Flags().Lookup(name)
+		flagName := strings.ReplaceAll(name, "_", "-")
+		f := cmd.Flags().Lookup(flagName)
 		if f == nil || !f.Changed {
 			continue
 		}
 		switch typ {
 		case "string":
-			v, _ := cmd.Flags().GetString(name)
+			v, _ := cmd.Flags().GetString(flagName)
 			args[name] = v
 		case "boolean":
-			v, _ := cmd.Flags().GetBool(name)
+			v, _ := cmd.Flags().GetBool(flagName)
 			args[name] = v
 		case "integer", "number":
-			v, _ := cmd.Flags().GetInt64(name)
+			v, _ := cmd.Flags().GetInt64(flagName)
 			args[name] = v
 		}
 	}
@@ -91,7 +93,7 @@ func BuildArgs(cmd *cobra.Command, schema map[string]any) (map[string]any, error
 	for _, r := range required {
 		name, _ := r.(string)
 		if _, ok := args[name]; !ok {
-			return nil, fmt.Errorf("missing required flag: --%s", name)
+			return nil, fmt.Errorf("missing required flag: --%s", strings.ReplaceAll(name, "_", "-"))
 		}
 	}
 

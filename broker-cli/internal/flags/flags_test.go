@@ -99,6 +99,20 @@ func TestRawInput_bypasses(t *testing.T) {
 	assert.Equal(t, map[string]any{"remote": "origin"}, args)
 }
 
+func TestUnderscoreFlag_normalizedToHyphen(t *testing.T) {
+	// Schema key "repo_path" → flag "--repo-path"; args map key stays "repo_path".
+	schema := map[string]any{
+		"properties": map[string]any{
+			"repo_path": map[string]any{"type": "string", "description": "Path to repo"},
+		},
+	}
+	cmd := makeCmd(schema)
+	require.NoError(t, parse(cmd, "--repo-path", "/tmp/repo"))
+	args, err := flags.BuildArgs(cmd, schema)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"repo_path": "/tmp/repo"}, args)
+}
+
 func TestUnsetOptional_omitted(t *testing.T) {
 	// Optional string flags that are not set should not appear in args.
 	schema := map[string]any{
