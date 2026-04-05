@@ -119,6 +119,14 @@ func (m *Manager) Tools() []Tool {
 	return tools
 }
 
+// ToolDescription returns the description for a named tool, or "" if not found.
+func (m *Manager) ToolDescription(name string) string {
+	if entry, ok := m.tools[name]; ok {
+		return entry.tool.Description
+	}
+	return ""
+}
+
 // Call proxies a tool call to the appropriate backend.
 func (m *Manager) Call(ctx context.Context, tool string, args map[string]any) (*ToolResult, error) {
 	entry, ok := m.tools[tool]

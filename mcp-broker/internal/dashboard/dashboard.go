@@ -23,16 +23,18 @@ type pendingRequest struct {
 	Tool      string         `json:"tool"`
 	Args      map[string]any `json:"args"`
 	Timestamp time.Time      `json:"timestamp"`
-	decision  chan bool
+	Deadline  time.Time      `json:"deadline,omitempty"`
+	decision  chan string
 }
 
 type decidedRequest struct {
-	ID        string         `json:"id"`
-	Tool      string         `json:"tool"`
-	Args      map[string]any `json:"args"`
-	Decision  string         `json:"decision"`
-	Timestamp time.Time      `json:"timestamp"`
-	DecidedAt time.Time      `json:"decided_at"`
+	ID           string         `json:"id"`
+	Tool         string         `json:"tool"`
+	Args         map[string]any `json:"args"`
+	Decision     string         `json:"decision"`
+	DenialReason string         `json:"denial_reason,omitempty"`
+	Timestamp    time.Time      `json:"timestamp"`
+	DecidedAt    time.Time      `json:"decided_at"`
 }
 
 // ToolLister provides the list of discovered tools.
@@ -80,9 +82,11 @@ func (d *Dashboard) Handler() http.Handler {
 }
 
 // Review blocks until a human approves or denies the request via the web UI.
-func (d *Dashboard) Review(ctx context.Context, tool string, args map[string]any) (bool, error) {
+// Returns (approved, denialReason, err). On explicit denial: denialReason="user".
+// On context cancellation: returns (false, "timeout", nil).
+func (d *Dashboard) Review(ctx context.Context, tool string, args map[string]any) (bool, string, error) {
 	id := generateID()
-	ch := make(chan bool, 1)
+	ch := make(chan string, 1) // sends "" for approval, "user" for denial
 
 	pr := &pendingRequest{
 		ID:        id,
@@ -90,6 +94,9 @@ func (d *Dashboard) Review(ctx context.Context, tool string, args map[string]any
 		Args:      args,
 		Timestamp: time.Now(),
 		decision:  ch,
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		pr.Deadline = deadline
 	}
 
 	d.mu.Lock()
@@ -102,14 +109,15 @@ func (d *Dashboard) Review(ctx context.Context, tool string, args map[string]any
 	d.broadcast(newRequestEvent(pr))
 
 	select {
-	case approved := <-ch:
-		return approved, nil
+	case denialReason := <-ch:
+		approved := denialReason == ""
+		return approved, denialReason, nil
 	case <-ctx.Done():
 		d.mu.Lock()
 		delete(d.pending, id)
 		d.mu.Unlock()
 		d.broadcast(removedEvent(id))
-		return false, ctx.Err()
+		return false, "timeout", nil
 	}
 }
 
@@ -136,19 +144,25 @@ func (d *Dashboard) handleDecide(w http.ResponseWriter, r *http.Request) {
 	}
 
 	approved := payload.Decision == "approve"
-	pr.decision <- approved
+	denialReason := ""
+	if !approved {
+		denialReason = "user"
+	}
+
+	pr.decision <- denialReason
 
 	decision := "denied"
 	if approved {
 		decision = "approved"
 	}
 	dr := decidedRequest{
-		ID:        pr.ID,
-		Tool:      pr.Tool,
-		Args:      pr.Args,
-		Decision:  decision,
-		Timestamp: pr.Timestamp,
-		DecidedAt: time.Now(),
+		ID:           pr.ID,
+		Tool:         pr.Tool,
+		Args:         pr.Args,
+		Decision:     decision,
+		DenialReason: denialReason,
+		Timestamp:    pr.Timestamp,
+		DecidedAt:    time.Now(),
 	}
 	d.mu.Lock()
 	d.decided = append(d.decided, dr)

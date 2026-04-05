@@ -8,12 +8,14 @@ import (
 
 // Config is the top-level configuration for mcp-broker.
 type Config struct {
-	Servers     map[string]ServerConfig `json:"servers"`
-	Rules       []RuleConfig            `json:"rules"`
-	Port        int                     `json:"port"`
-	OpenBrowser bool                    `json:"open_browser"`
-	Audit       AuditConfig             `json:"audit"`
-	Log         LogConfig               `json:"log"`
+	Servers                map[string]ServerConfig `json:"servers"`
+	Rules                  []RuleConfig            `json:"rules"`
+	Port                   int                     `json:"port"`
+	OpenBrowser            bool                    `json:"open_browser"`
+	Audit                  AuditConfig             `json:"audit"`
+	Log                    LogConfig               `json:"log"`
+	ApprovalTimeoutSeconds int                     `json:"approval_timeout_seconds"`
+	Telegram               TelegramConfig          `json:"telegram"`
 }
 
 // ServerConfig defines a backend MCP server.
@@ -40,6 +42,14 @@ type AuditConfig struct {
 // LogConfig controls logging behavior.
 type LogConfig struct {
 	Level string `json:"level"`
+}
+
+// TelegramConfig configures the optional Telegram approval notifier.
+// Token and ChatID support $VAR / ${VAR} environment variable expansion.
+type TelegramConfig struct {
+	Enabled bool   `json:"enabled"`
+	Token   string `json:"token"`
+	ChatID  string `json:"chat_id"`
 }
 
 func xdgConfigHome() string {
@@ -70,12 +80,14 @@ func DefaultConfig() Config {
 		Rules: []RuleConfig{
 			{Tool: "*", Verdict: "require-approval"},
 		},
-		Port:        8200,
-		OpenBrowser: true,
+		Port:                   8200,
+		OpenBrowser:            true,
+		ApprovalTimeoutSeconds: 600,
 		Audit: AuditConfig{
 			Path: filepath.Join(xdgDataHome(), "mcp-broker", "audit.db"),
 		},
-		Log: LogConfig{Level: "info"},
+		Log:      LogConfig{Level: "info"},
+		Telegram: TelegramConfig{Enabled: false},
 	}
 }
 

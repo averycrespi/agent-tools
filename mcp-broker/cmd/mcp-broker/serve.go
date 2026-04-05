@@ -25,6 +25,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/dashboard"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/rules"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/telegram"
 )
 
 func init() {
@@ -107,8 +108,24 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Create dashboard
 	dash := dashboard.New(mgr, auditor, logger.With("component", "dashboard"))
 
+	// Create multi-approver
+	timeout := time.Duration(cfg.ApprovalTimeoutSeconds) * time.Second
+	if timeout == 0 {
+		timeout = 10 * time.Minute
+	}
+	approvers := []broker.Approver{dash}
+	if cfg.Telegram.Enabled {
+		tgToken := os.ExpandEnv(cfg.Telegram.Token)
+		tgChatID := os.ExpandEnv(cfg.Telegram.ChatID)
+		tg := telegram.New(tgToken, tgChatID, logger.With("component", "telegram"))
+		tg.WithTools(mgr)
+		approvers = append(approvers, tg)
+		logger.Info("telegram approver enabled", "chat_id", tgChatID)
+	}
+	multi := broker.NewMultiApprover(timeout, approvers...)
+
 	// Create broker
-	b := broker.New(mgr, engine, auditor, dash, logger.With("component", "broker"))
+	b := broker.New(mgr, engine, auditor, multi, logger.With("component", "broker"))
 
 	// Create MCP server
 	mcpSrv := mcpserver.NewMCPServer("mcp-broker", "0.1.0")

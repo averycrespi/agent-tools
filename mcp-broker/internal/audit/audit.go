@@ -16,12 +16,13 @@ import (
 
 // Record captures the full lifecycle of a tool call.
 type Record struct {
-	Timestamp time.Time      `json:"timestamp"`
-	Tool      string         `json:"tool"`
-	Args      map[string]any `json:"args,omitempty"`
-	Verdict   string         `json:"verdict"`
-	Approved  *bool          `json:"approved,omitempty"`
-	Error     string         `json:"error,omitempty"`
+	Timestamp    time.Time      `json:"timestamp"`
+	Tool         string         `json:"tool"`
+	Args         map[string]any `json:"args,omitempty"`
+	Verdict      string         `json:"verdict"`
+	Approved     *bool          `json:"approved,omitempty"`
+	DenialReason string         `json:"denial_reason,omitempty"`
+	Error        string         `json:"error,omitempty"`
 }
 
 // QueryOpts controls filtering and pagination for audit queries.
@@ -33,20 +34,23 @@ type QueryOpts struct {
 
 const createSQL = `
 CREATE TABLE IF NOT EXISTS audit_records (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp TEXT    NOT NULL,
-    tool      TEXT    NOT NULL,
-    args      TEXT,
-    verdict   TEXT    NOT NULL,
-    approved  INTEGER,
-    error     TEXT    NOT NULL DEFAULT ''
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp     TEXT    NOT NULL,
+    tool          TEXT    NOT NULL,
+    args          TEXT,
+    verdict       TEXT    NOT NULL,
+    approved      INTEGER,
+    denial_reason TEXT    NOT NULL DEFAULT '',
+    error         TEXT    NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_records(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_tool ON audit_records(tool);
 `
 
-const insertSQL = `INSERT INTO audit_records (timestamp, tool, args, verdict, approved, error)
-VALUES (?, ?, ?, ?, ?, ?)`
+const migrateSQL = `ALTER TABLE audit_records ADD COLUMN denial_reason TEXT NOT NULL DEFAULT ''`
+
+const insertSQL = `INSERT INTO audit_records (timestamp, tool, args, verdict, approved, denial_reason, error)
+VALUES (?, ?, ?, ?, ?, ?, ?)`
 
 // Logger records and queries audit entries in a SQLite database.
 type Logger struct {
@@ -75,6 +79,9 @@ func NewLogger(path string) (*Logger, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("create audit table: %w", err)
 	}
+
+	// Migrate: add denial_reason column if it doesn't exist yet.
+	_, _ = db.Exec(migrateSQL)
 
 	stmt, err := db.Prepare(insertSQL)
 	if err != nil {
@@ -110,6 +117,7 @@ func (l *Logger) Record(_ context.Context, rec Record) error {
 		argsJSON,
 		rec.Verdict,
 		approved,
+		rec.DenialReason,
 		rec.Error,
 	)
 	if err != nil {
@@ -142,7 +150,7 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 		limit = 50
 	}
 
-	selectSQL := "SELECT timestamp, tool, args, verdict, approved, error FROM audit_records" +
+	selectSQL := "SELECT timestamp, tool, args, verdict, approved, denial_reason, error FROM audit_records" +
 		where + " ORDER BY id DESC LIMIT ? OFFSET ?"
 	selectArgs := make([]any, len(queryArgs), len(queryArgs)+2)
 	copy(selectArgs, queryArgs)
@@ -157,21 +165,22 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 	var records []Record
 	for rows.Next() {
 		var (
-			ts, tool, verdict, errStr string
-			argsJSON                  sql.NullString
-			approved                  sql.NullInt64
+			ts, tool, verdict, denialReason, errStr string
+			argsJSON                                sql.NullString
+			approved                                sql.NullInt64
 		)
-		if err := rows.Scan(&ts, &tool, &argsJSON, &verdict, &approved, &errStr); err != nil {
+		if err := rows.Scan(&ts, &tool, &argsJSON, &verdict, &approved, &denialReason, &errStr); err != nil {
 			return nil, 0, fmt.Errorf("scan audit record: %w", err)
 		}
 
 		timestamp, _ := time.Parse(time.RFC3339, ts)
 
 		rec := Record{
-			Timestamp: timestamp,
-			Tool:      tool,
-			Verdict:   verdict,
-			Error:     errStr,
+			Timestamp:    timestamp,
+			Tool:         tool,
+			Verdict:      verdict,
+			DenialReason: denialReason,
+			Error:        errStr,
 		}
 
 		if argsJSON.Valid {

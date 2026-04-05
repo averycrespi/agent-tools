@@ -22,7 +22,7 @@ func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
 	// Start a review in a goroutine
 	done := make(chan bool, 1)
 	go func() {
-		approved, err := d.Review(context.Background(), "github.push", map[string]any{"branch": "main"})
+		approved, _, err := d.Review(context.Background(), "github.push", map[string]any{"branch": "main"})
 		require.NoError(t, err)
 		done <- approved
 	}()
@@ -57,11 +57,15 @@ func TestDashboard_Review_DeniesViaAPI(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	done := make(chan bool, 1)
+	type result struct {
+		approved bool
+		reason   string
+	}
+	done := make(chan result, 1)
 	go func() {
-		approved, err := d.Review(context.Background(), "github.push", map[string]any{})
+		approved, reason, err := d.Review(context.Background(), "github.push", map[string]any{})
 		require.NoError(t, err)
-		done <- approved
+		done <- result{approved, reason}
 	}()
 
 	time.Sleep(50 * time.Millisecond)
@@ -79,25 +83,63 @@ func TestDashboard_Review_DeniesViaAPI(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = resp2.Body.Close() }()
 
-	approved := <-done
-	require.False(t, approved)
+	r := <-done
+	require.False(t, r.approved)
+	require.Equal(t, "user", r.reason)
 }
 
 func TestDashboard_Review_CancelsOnContextDone(t *testing.T) {
 	d := New(nil, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
+	type result struct {
+		approved bool
+		reason   string
+		err      error
+	}
+	done := make(chan result, 1)
 	go func() {
-		_, err := d.Review(ctx, "test.tool", nil)
-		done <- err
+		approved, reason, err := d.Review(ctx, "test.tool", nil)
+		done <- result{approved, reason, err}
 	}()
 
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 
-	err := <-done
-	require.Error(t, err)
+	r := <-done
+	require.NoError(t, r.err)
+	require.False(t, r.approved)
+	require.Equal(t, "timeout", r.reason)
+}
+
+func TestDashboard_PendingRequest_HasDeadline(t *testing.T) {
+	d := New(nil, nil, nil)
+
+	deadline := time.Now().Add(10 * time.Minute)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _, _ = d.Review(ctx, "test.tool", nil)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	d.mu.Lock()
+	var pr *pendingRequest
+	for _, p := range d.pending {
+		pr = p
+		break
+	}
+	d.mu.Unlock()
+
+	require.NotNil(t, pr)
+	require.WithinDuration(t, deadline, pr.Deadline, time.Second)
+
+	cancel()
+	<-done
 }
 
 func TestDashboard_UnauthorizedPage(t *testing.T) {

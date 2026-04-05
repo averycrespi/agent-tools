@@ -78,6 +78,27 @@ func TestLogger_QueryPagination(t *testing.T) {
 	require.Len(t, records2, 2)
 }
 
+func TestLogger_RecordWithDenialReason(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	l, err := NewLogger(path)
+	require.NoError(t, err)
+	defer func() { _ = l.Close(context.Background()) }()
+
+	denied := false
+	err = l.Record(context.Background(), Record{
+		Timestamp:    time.Now(),
+		Tool:         "fs.write",
+		Verdict:      "require-approval",
+		Approved:     &denied,
+		DenialReason: "timeout",
+	})
+	require.NoError(t, err)
+
+	records, _, err := l.Query(context.Background(), QueryOpts{Limit: 10})
+	require.NoError(t, err)
+	require.Equal(t, "timeout", records[0].DenialReason)
+}
+
 func TestLogger_RecordWithApproval(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.db")
 	l, err := NewLogger(path)
