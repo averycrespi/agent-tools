@@ -21,8 +21,8 @@ broker-cli git --help
 # Call a tool
 broker-cli git push --remote origin --branch main
 
-# Complex inputs via --param or --raw-input
-broker-cli github search-code --query "foo" --param 'include_patterns=["*.go"]'
+# Complex inputs via --raw-field or --raw-input
+broker-cli github search-code --query "foo" --raw-field 'include_patterns=["*.go"]'
 broker-cli github create-pr --raw-input '{"title":"Fix bug","body":"..."}'
 ```
 
@@ -40,8 +40,8 @@ All output is a JSON array on stdout. Errors are a JSON object on stderr.
 | Flag | Description |
 |---|---|
 | `--no-cache` | Bypass tool discovery cache |
-| `--timeout <seconds>` | Seconds to wait for approval (default: no timeout) |
-| `--param key=<json>` | Set a field as raw JSON (per tool command) |
+| `--timeout <seconds>` | Timeout in seconds (default: no timeout) |
+| `--raw-field key=<json>` | Set a field as raw JSON (per tool command) |
 | `--raw-input <json>` | Pass entire input as JSON, bypassing flags (per tool command) |
 
 ## Environment
