@@ -14,11 +14,22 @@ const rawInputFlag = "raw-input"
 // AddSchemaFlags adds cobra flags derived from a JSON Schema to cmd.
 // Also adds --param and --raw-input for complex types.
 func AddSchemaFlags(cmd *cobra.Command, schema map[string]any) {
+	required, _ := schema["required"].([]any)
+	requiredSet := make(map[string]bool, len(required))
+	for _, r := range required {
+		if s, ok := r.(string); ok {
+			requiredSet[s] = true
+		}
+	}
+
 	props, _ := schema["properties"].(map[string]any)
 	for name, def := range props {
 		d, _ := def.(map[string]any)
 		typ, _ := d["type"].(string)
 		desc, _ := d["description"].(string)
+		if requiredSet[name] {
+			desc += " (required)"
+		}
 		flagName := strings.ReplaceAll(name, "_", "-")
 		switch typ {
 		case "string":

@@ -113,6 +113,19 @@ func TestUnderscoreFlag_normalizedToHyphen(t *testing.T) {
 	assert.Equal(t, map[string]any{"repo_path": "/tmp/repo"}, args)
 }
 
+func TestRequiredFlag_hasRequiredSuffix(t *testing.T) {
+	schema := map[string]any{
+		"properties": map[string]any{
+			"query":    map[string]any{"type": "string", "description": "Search query"},
+			"optional": map[string]any{"type": "string", "description": "Optional param"},
+		},
+		"required": []any{"query"},
+	}
+	cmd := makeCmd(schema)
+	assert.Equal(t, "Search query (required)", cmd.Flags().Lookup("query").Usage)
+	assert.Equal(t, "Optional param", cmd.Flags().Lookup("optional").Usage)
+}
+
 func TestUnsetOptional_omitted(t *testing.T) {
 	// Optional string flags that are not set should not appear in args.
 	schema := map[string]any{
