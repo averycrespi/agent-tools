@@ -40,7 +40,6 @@ All output is a JSON array on stdout. Errors are a JSON object on stderr.
 | Flag | Description |
 |---|---|
 | `--no-cache` | Bypass tool discovery cache |
-| `--timeout <seconds>` | Timeout in seconds (default: no timeout) |
 | `--raw-field key=<json>` | Set a field as raw JSON (per tool command) |
 | `--raw-input <json>` | Pass entire input as JSON, bypassing flags (per tool command) |
 

@@ -15,10 +15,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	noCache bool
-	timeout int
-)
+var noCache bool
 
 var rootCmd = &cobra.Command{
 	Use:          "broker-cli",
@@ -34,7 +31,6 @@ Environment:
 
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&noCache, "no-cache", false, "Bypass tool discovery cache")
-	rootCmd.PersistentFlags().IntVar(&timeout, "timeout", 0, "Timeout in seconds (0 = no timeout)")
 }
 
 func buildTree() error {
@@ -86,12 +82,6 @@ func buildTree() error {
 
 func callTool(endpoint, token, toolName string, args map[string]any) error {
 	ctx := context.Background()
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
-		defer cancel()
-	}
-
 	c, err := client.New(ctx, endpoint+"/mcp", token)
 	if err != nil {
 		return fmt.Errorf("connect to broker: %w", err)
