@@ -40,5 +40,4 @@ internal/
 - `internal/client/` tests are integration-tagged (`//go:build integration`)
 - Tool discovery is cached in `$TMPDIR/broker-cli-tools-<hash>.json` (30s TTL)
 - Tool names: dots map to command hierarchy, underscores normalize to hyphens
-- Approval wait: broker holds the HTTP connection; CLI prints "waiting for approval..." to stderr after 1s via goroutine
 - `mcp-go` v0.45.0: `client.NewStreamableHttpClient` + `transport.WithHTTPHeaders` for auth
