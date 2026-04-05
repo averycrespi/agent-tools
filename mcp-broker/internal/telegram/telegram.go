@@ -17,6 +17,11 @@ const (
 	pollTimeout    = 30
 )
 
+// ToolLister provides descriptions for known tools.
+type ToolLister interface {
+	ToolDescription(name string) string
+}
+
 // Approver sends approval requests via Telegram and polls for responses.
 // It implements broker.Approver and requires no inbound connections — it only
 // makes outbound HTTP calls to the Telegram Bot API.
@@ -26,6 +31,12 @@ type Approver struct {
 	apiBase string
 	client  *http.Client
 	logger  *slog.Logger
+	tools   ToolLister
+}
+
+// WithTools attaches a ToolLister so Review can include tool descriptions in messages.
+func (a *Approver) WithTools(tl ToolLister) {
+	a.tools = tl
 }
 
 // New creates a TelegramApprover for production use.
@@ -51,7 +62,13 @@ func newWithBase(token, chatID, apiBase string, client *http.Client, logger *slo
 func (a *Approver) Review(ctx context.Context, tool string, args map[string]any) (bool, string, error) {
 	timeout := timeoutLabel(ctx)
 	argsStr := formatArgs(args)
-	text := fmt.Sprintf("🔧 <code>%s</code>\n\n<pre>%s</pre>\n\n⏳ %s", tool, argsStr, timeout)
+	desc := ""
+	if a.tools != nil {
+		if d := a.tools.ToolDescription(tool); d != "" {
+			desc = "\n" + truncate(d, 120)
+		}
+	}
+	text := fmt.Sprintf("🔧 <code>%s</code>%s\n\n<pre>%s</pre>\n\n⏳ %s", tool, desc, argsStr, timeout)
 
 	msgID, err := a.sendMessage(ctx, text)
 	if err != nil {
@@ -268,6 +285,14 @@ func timeoutLabel(ctx context.Context) string {
 		return "times out in 1 minute"
 	}
 	return fmt.Sprintf("times out in %d minutes", mins)
+}
+
+func truncate(s string, max int) string {
+	if utf8.RuneCountInString(s) <= max {
+		return s
+	}
+	runes := []rune(s)
+	return string(runes[:max]) + "…"
 }
 
 func formatArgs(args map[string]any) string {

@@ -118,6 +118,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		tgToken := os.ExpandEnv(cfg.Telegram.Token)
 		tgChatID := os.ExpandEnv(cfg.Telegram.ChatID)
 		tg := telegram.New(tgToken, tgChatID, logger.With("component", "telegram"))
+		tg.WithTools(mgr)
 		approvers = append(approvers, tg)
 		logger.Info("telegram approver enabled", "chat_id", tgChatID)
 	}
