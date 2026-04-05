@@ -166,8 +166,8 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 	for rows.Next() {
 		var (
 			ts, tool, verdict, denialReason, errStr string
-			argsJSON                                 sql.NullString
-			approved                                 sql.NullInt64
+			argsJSON                                sql.NullString
+			approved                                sql.NullInt64
 		)
 		if err := rows.Scan(&ts, &tool, &argsJSON, &verdict, &approved, &denialReason, &errStr); err != nil {
 			return nil, 0, fmt.Errorf("scan audit record: %w", err)
