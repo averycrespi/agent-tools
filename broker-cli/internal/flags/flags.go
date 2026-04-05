@@ -88,7 +88,7 @@ func BuildArgs(cmd *cobra.Command, schema map[string]any) (map[string]any, error
 	for _, p := range params {
 		eq := strings.IndexByte(p, '=')
 		if eq < 0 {
-			return nil, fmt.Errorf("invalid --param %q: expected key=value", p)
+			return nil, fmt.Errorf("invalid --raw-field %q: expected key=value", p)
 		}
 		key := p[:eq]
 		val := p[eq+1:]
@@ -101,11 +101,25 @@ func BuildArgs(cmd *cobra.Command, schema map[string]any) (map[string]any, error
 
 	// Validate required fields
 	required, _ := schema["required"].([]any)
+	var missing []string
 	for _, r := range required {
 		name, _ := r.(string)
 		if _, ok := args[name]; !ok {
-			return nil, fmt.Errorf("missing required flag: --%s", strings.ReplaceAll(name, "_", "-"))
+			flagName := strings.ReplaceAll(name, "_", "-")
+			desc := ""
+			if d, ok := props[name].(map[string]any); ok {
+				desc, _ = d["description"].(string)
+			}
+			if desc != "" {
+				missing = append(missing, fmt.Sprintf("--%s (%s)", flagName, desc))
+			} else {
+				missing = append(missing, "--"+flagName)
+			}
 		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("missing required flags: %s\nhint: use --help to see all flags or --raw-input to pass the full input as JSON",
+			strings.Join(missing, ", "))
 	}
 
 	return args, nil

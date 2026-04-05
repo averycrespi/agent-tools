@@ -68,7 +68,7 @@ func TestRequiredValidation_missing(t *testing.T) {
 	cmd := makeCmd(schema)
 	require.NoError(t, parse(cmd))
 	_, err := flags.BuildArgs(cmd, schema)
-	assert.ErrorContains(t, err, "missing required flag: --remote")
+	assert.ErrorContains(t, err, "missing required flags: --remote")
 }
 
 func TestParamFlag_overridesField(t *testing.T) {
