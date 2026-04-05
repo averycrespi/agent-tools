@@ -78,7 +78,7 @@ func TestParamFlag_overridesField(t *testing.T) {
 		},
 	}
 	cmd := makeCmd(schema)
-	require.NoError(t, parse(cmd, "--param", `items=["a","b"]`))
+	require.NoError(t, parse(cmd, "--raw-field", `items=["a","b"]`))
 	args, err := flags.BuildArgs(cmd, schema)
 	require.NoError(t, err)
 	assert.Equal(t, []any{"a", "b"}, args["items"])

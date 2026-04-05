@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const paramFlag = "param"
+const paramFlag = "raw-field"
 const rawInputFlag = "raw-input"
 
 // AddSchemaFlags adds cobra flags derived from a JSON Schema to cmd.
@@ -41,7 +41,7 @@ func AddSchemaFlags(cmd *cobra.Command, schema map[string]any) {
 			// object/array/unknown: handled via --param
 		}
 	}
-	cmd.Flags().StringArray(paramFlag, nil, "Set a field as raw JSON: --param 'key=value'")
+	cmd.Flags().StringArray(paramFlag, nil, "Set a field as raw JSON: --raw-field 'key=value'")
 	cmd.Flags().String(rawInputFlag, "", "Pass entire input as a JSON object, bypassing flags")
 }
 
