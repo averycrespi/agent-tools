@@ -31,7 +31,7 @@ func Build(root *cobra.Command, tools []client.Tool, exec ExecFn) {
 		if !ok {
 			nsCmd = &cobra.Command{
 				Use:   ns,
-				Short: ns,
+				Short: ns + " tools",
 			}
 			namespaces[ns] = nsCmd
 			root.AddCommand(nsCmd)
