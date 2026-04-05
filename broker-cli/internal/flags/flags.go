@@ -1,0 +1,99 @@
+package flags
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/spf13/cobra"
+)
+
+const paramFlag = "param"
+const rawInputFlag = "raw-input"
+
+// AddSchemaFlags adds cobra flags derived from a JSON Schema to cmd.
+// Also adds --param and --raw-input for complex types.
+func AddSchemaFlags(cmd *cobra.Command, schema map[string]any) {
+	props, _ := schema["properties"].(map[string]any)
+	for name, def := range props {
+		d, _ := def.(map[string]any)
+		typ, _ := d["type"].(string)
+		desc, _ := d["description"].(string)
+		switch typ {
+		case "string":
+			cmd.Flags().String(name, "", desc)
+		case "boolean":
+			cmd.Flags().Bool(name, false, desc)
+		case "integer", "number":
+			cmd.Flags().Int64(name, 0, desc)
+		// object/array/unknown: handled via --param
+		}
+	}
+	cmd.Flags().StringArray(paramFlag, nil, "Set a field as raw JSON: --param 'key=value'")
+	cmd.Flags().String(rawInputFlag, "", "Pass entire input as a JSON object, bypassing flags")
+}
+
+// BuildArgs reads flag values from cmd and returns a map[string]any for the broker.
+// --raw-input takes precedence over all other flags.
+// --param overrides individual fields.
+// Required fields are validated unless --raw-input is used.
+func BuildArgs(cmd *cobra.Command, schema map[string]any) (map[string]any, error) {
+	// --raw-input bypasses everything
+	if raw, err := cmd.Flags().GetString(rawInputFlag); err == nil && raw != "" {
+		var args map[string]any
+		if err := json.Unmarshal([]byte(raw), &args); err != nil {
+			return nil, fmt.Errorf("invalid --raw-input JSON: %w", err)
+		}
+		return args, nil
+	}
+
+	props, _ := schema["properties"].(map[string]any)
+	args := make(map[string]any)
+
+	for name, def := range props {
+		d, _ := def.(map[string]any)
+		typ, _ := d["type"].(string)
+		f := cmd.Flags().Lookup(name)
+		if f == nil || !f.Changed {
+			continue
+		}
+		switch typ {
+		case "string":
+			v, _ := cmd.Flags().GetString(name)
+			args[name] = v
+		case "boolean":
+			v, _ := cmd.Flags().GetBool(name)
+			args[name] = v
+		case "integer", "number":
+			v, _ := cmd.Flags().GetInt64(name)
+			args[name] = v
+		}
+	}
+
+	// Apply --param overrides
+	params, _ := cmd.Flags().GetStringArray(paramFlag)
+	for _, p := range params {
+		eq := strings.IndexByte(p, '=')
+		if eq < 0 {
+			return nil, fmt.Errorf("invalid --param %q: expected key=value", p)
+		}
+		key := p[:eq]
+		val := p[eq+1:]
+		var parsed any
+		if err := json.Unmarshal([]byte(val), &parsed); err != nil {
+			return nil, fmt.Errorf("invalid JSON in --param %q: %w", key, err)
+		}
+		args[key] = parsed
+	}
+
+	// Validate required fields
+	required, _ := schema["required"].([]any)
+	for _, r := range required {
+		name, _ := r.(string)
+		if _, ok := args[name]; !ok {
+			return nil, fmt.Errorf("missing required flag: --%s", name)
+		}
+	}
+
+	return args, nil
+}
