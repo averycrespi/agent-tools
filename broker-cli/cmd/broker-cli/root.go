@@ -34,7 +34,7 @@ Environment:
 
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&noCache, "no-cache", false, "Bypass tool discovery cache")
-	rootCmd.PersistentFlags().IntVar(&timeout, "timeout", 0, "Seconds to wait for approval (0 = no timeout)")
+	rootCmd.PersistentFlags().IntVar(&timeout, "timeout", 0, "Timeout in seconds (0 = no timeout)")
 }
 
 func buildTree() error {
@@ -102,18 +102,7 @@ func callTool(endpoint, token, toolName string, args map[string]any) error {
 		}
 	}()
 
-	// Print "waiting for approval..." to stderr if the call takes > 1s.
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-time.After(time.Second):
-			fmt.Fprintln(os.Stderr, "waiting for approval...")
-		case <-done:
-		}
-	}()
-
 	result, err := c.CallTool(ctx, toolName, args)
-	close(done)
 
 	if err != nil {
 		return err
