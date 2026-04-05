@@ -81,7 +81,11 @@ func (m *mcpClientImpl) ListTools(ctx context.Context) ([]Tool, error) {
 			schema["properties"] = t.InputSchema.Properties
 		}
 		if t.InputSchema.Required != nil {
-			schema["required"] = t.InputSchema.Required
+			req := make([]any, len(t.InputSchema.Required))
+			for i, r := range t.InputSchema.Required {
+				req[i] = r
+			}
+			schema["required"] = req
 		}
 		tools[i] = Tool{
 			Name:        t.Name,
