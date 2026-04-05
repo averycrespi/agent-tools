@@ -35,6 +35,10 @@ All output is a JSON array on stdout. Errors are a JSON object on stderr.
 {"error": "missing required flag: --branch"}  # stderr on error, exit 1
 ```
 
+## Tool Discovery Cache
+
+On startup, `broker-cli` fetches the tool list from the broker and caches it in `$TMPDIR` for 30 seconds. This avoids a round-trip on every invocation when the same broker is called repeatedly. Use `--no-cache` to bypass it if the tool list has changed.
+
 ## Flags
 
 | Flag | Description |
