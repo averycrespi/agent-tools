@@ -327,6 +327,17 @@
     color: var(--red);
   }
 
+  .badge-green { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+  .badge-red { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+
+  .countdown {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+  }
+  .countdown.urgent { color: var(--red); }
+  .badge-timeout { background: #78350f; color: #fbbf24; }
+
   .decisions-section {
     margin-top: 2rem;
   }
@@ -740,6 +751,26 @@ function esc(s) {
   return d.innerHTML;
 }
 
+function formatCountdown(deadlineISO) {
+  if (!deadlineISO) return '';
+  var ms = new Date(deadlineISO) - Date.now();
+  if (ms <= 0) return '0:00';
+  var totalSecs = Math.ceil(ms / 1000);
+  var mins = Math.floor(totalSecs / 60);
+  var secs = totalSecs % 60;
+  return mins + ':' + secs.toString().padStart(2, '0');
+}
+
+function decisionBadge(req) {
+  if (req.decision === 'approved') {
+    return '<span class="badge badge-green">&#x2705; Approved</span>';
+  }
+  if (req.denial_reason === 'timeout') {
+    return '<span class="badge badge-timeout">&#x23F1;&#xFE0F; Timed out</span>';
+  }
+  return '<span class="badge badge-red">&#x274C; Denied</span>';
+}
+
 // --- Notifications ---
 var audioCtx = null;
 
@@ -855,7 +886,9 @@ var statusLabel = document.getElementById('status-label');
 var historyDiv = document.getElementById('history');
 var decisionsSection = document.getElementById('decisions-section');
 var cards = new Map();
+var pendingData = new Map();
 var toolDescriptions = {};
+var countdownInterval = null;
 
 // Load tool descriptions for use in approval cards
 fetch('api/tools').then(function(r) { return r.json(); }).then(function(data) {
@@ -881,16 +914,35 @@ function renderQueue() {
   updateBadge();
 }
 
+function renderPending() {
+  pendingData.forEach(function(pr, id) {
+    var div = cards.get(id);
+    if (!div || !pr.deadline) return;
+    var countdownEl = div.querySelector('.countdown');
+    if (!countdownEl) return;
+    var remaining = formatCountdown(pr.deadline);
+    var ms = new Date(pr.deadline) - Date.now();
+    countdownEl.textContent = remaining ? 'Expires in ' + remaining : 'Expired';
+    if (ms <= 60000) {
+      countdownEl.classList.add('urgent');
+    } else {
+      countdownEl.classList.remove('urgent');
+    }
+  });
+}
+
 function addCard(pr) {
   var div = document.createElement('div');
   div.className = 'card pending';
   div.dataset.id = pr.id;
   var ts = new Date(pr.timestamp).toLocaleTimeString();
   var desc = toolDescriptions[pr.tool];
+  var countdownHtml = pr.deadline ? '<div class="countdown"></div>' : '';
   div.innerHTML =
     '<div class="method">' + esc(pr.tool) + '</div>' +
     (desc ? '<div class="description">' + esc(desc) + '</div>' : '') +
     '<div class="meta">' + ts + '</div>' +
+    countdownHtml +
     '<pre>' + esc(JSON.stringify(pr.args, null, 2)) + '</pre>' +
     '<div class="actions">' +
       '<button class="btn-approve" onclick="decide(\'' + pr.id + '\',\'approve\')">Approve</button>' +
@@ -898,12 +950,15 @@ function addCard(pr) {
     '</div>';
   queue.appendChild(div);
   cards.set(pr.id, div);
+  pendingData.set(pr.id, pr);
   renderQueue();
+  renderPending();
 }
 
 function removeCard(id) {
   var div = cards.get(id);
   if (div) { div.remove(); cards.delete(id); }
+  pendingData.delete(id);
   renderQueue();
 }
 
@@ -920,10 +975,8 @@ function addDecision(dr) {
   div.className = 'card decided';
   div.dataset.id = dr.id;
   var ts = new Date(dr.timestamp).toLocaleTimeString();
-  var badgeClass = dr.decision === 'approved' ? 'approved' : 'denied';
-  var badgeText = dr.decision === 'approved' ? 'approved' : 'denied';
   div.innerHTML =
-    '<div class="method">' + esc(dr.tool) + ' <span class="badge ' + badgeClass + '">' + badgeText + '</span></div>' +
+    '<div class="method">' + esc(dr.tool) + ' ' + decisionBadge(dr) + '</div>' +
     '<div class="meta">' + ts + '</div>';
   historyDiv.prepend(div);
   decisionsSection.style.display = 'block';
@@ -951,6 +1004,11 @@ es.onerror = function() {
   statusDot.classList.remove('connected');
   statusLabel.textContent = 'Disconnected';
 };
+
+// Live countdown update — initialized once
+if (!countdownInterval) {
+  countdownInterval = setInterval(renderPending, 1000);
+}
 
 // --- Tools ---
 function loadTools() {

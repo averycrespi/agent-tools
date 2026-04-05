@@ -23,6 +23,7 @@ type pendingRequest struct {
 	Tool      string         `json:"tool"`
 	Args      map[string]any `json:"args"`
 	Timestamp time.Time      `json:"timestamp"`
+	Deadline  time.Time      `json:"deadline,omitempty"`
 	decision  chan string
 }
 
@@ -93,6 +94,9 @@ func (d *Dashboard) Review(ctx context.Context, tool string, args map[string]any
 		Args:      args,
 		Timestamp: time.Now(),
 		decision:  ch,
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		pr.Deadline = deadline
 	}
 
 	d.mu.Lock()

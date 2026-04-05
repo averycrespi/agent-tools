@@ -105,6 +105,36 @@ func TestDashboard_Review_CancelsOnContextDone(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestDashboard_PendingRequest_HasDeadline(t *testing.T) {
+	d := New(nil, nil, nil)
+
+	deadline := time.Now().Add(10 * time.Minute)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _, _ = d.Review(ctx, "test.tool", nil)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	d.mu.Lock()
+	var pr *pendingRequest
+	for _, p := range d.pending {
+		pr = p
+		break
+	}
+	d.mu.Unlock()
+
+	require.NotNil(t, pr)
+	require.WithinDuration(t, deadline, pr.Deadline, time.Second)
+
+	cancel()
+	<-done
+}
+
 func TestDashboard_UnauthorizedPage(t *testing.T) {
 	d := New(nil, nil, nil)
 	mux := d.Handler()
