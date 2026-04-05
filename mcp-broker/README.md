@@ -10,14 +10,14 @@ Agents run in sandboxes with no credentials and restricted network access — bu
 Agent ──MCP──▶ mcp-broker ──MCP──▶ Backend servers
                   │
                   ├─ Rules engine (glob-based allow/deny/require-approval)
-                  ├─ Human approval via web dashboard
+                  ├─ Human approval via web dashboard + optional Telegram
                   └─ SQLite audit log
 ```
 
 An agent connects to mcp-broker as a single MCP server. mcp-broker connects to one or more backend MCP servers (via stdio or HTTP), discovers their tools, and re-exposes them with `<server>.<tool>` namespacing. Every tool call flows through the pipeline:
 
 1. **Rules check** — glob patterns match tool names to verdicts (`allow`, `deny`, `require-approval`)
-2. **Approval** — if the verdict is `require-approval`, the call blocks until a human approves or denies it via the web dashboard
+2. **Approval** — if the verdict is `require-approval`, the call blocks until a human approves or denies it via the web dashboard (and optionally Telegram). A configurable timeout (default 10 minutes) auto-denies if no response arrives.
 3. **Proxy** — the call is forwarded to the backend server
 4. **Audit** — the call, verdict, and result are recorded in SQLite
 
@@ -79,6 +79,12 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
     {"tool": "*", "verdict": "require-approval"}
   ],
   "port": 8200,
+  "approval_timeout_seconds": 600,
+  "telegram": {
+    "enabled": false,
+    "token": "$TELEGRAM_BOT_TOKEN",
+    "chat_id": "$TELEGRAM_CHAT_ID"
+  },
   "audit": {
     "path": "~/.local/share/mcp-broker/audit.db"
   },
@@ -104,6 +110,30 @@ Servers is a map keyed by server name. Each name is used as a tool prefix (e.g. 
 ### OAuth
 
 OAuth is handled automatically. When a server responds with HTTP 401, the broker runs an OAuth flow (dynamic client registration, PKCE, browser-based authorization). Tokens are stored in the OS keychain (macOS Keychain / Linux Secret Service) and refreshed automatically. No configuration is needed.
+
+### Mobile Approval (Telegram)
+
+To receive approval requests on your phone and approve/deny them from anywhere, enable the Telegram notifier:
+
+```json
+{
+  "approval_timeout_seconds": 600,
+  "telegram": {
+    "enabled": true,
+    "token": "$TELEGRAM_BOT_TOKEN",
+    "chat_id": "$TELEGRAM_CHAT_ID"
+  }
+}
+```
+
+`token` and `chat_id` support `$VAR` / `${VAR}` environment variable expansion.
+
+**Setup:**
+1. Create a bot via [@BotFather](https://t.me/BotFather) on Telegram — it gives you a bot token.
+2. Start a chat with your bot, then get your chat ID by calling `https://api.telegram.org/bot<TOKEN>/getUpdates` after sending any message to it.
+3. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in your environment and set `enabled: true` in config.
+
+When enabled, approval requests are sent to both the web dashboard and Telegram simultaneously. Either can resolve the request — the first response wins. The web dashboard shows a live countdown; Telegram messages are updated to show the outcome after a decision is made.
 
 ### Rules
 
@@ -183,5 +213,6 @@ internal/
   audit/                SQLite audit logger
   server/               Backend MCP client (stdio, HTTP, SSE, OAuth transports)
   dashboard/            Web UI with approval flow, SSE, audit viewer
+  telegram/             Telegram Bot API polling approver (opt-in)
   broker/               Core orchestrator (rules → approval → proxy → audit)
 ```

@@ -33,8 +33,10 @@ internal/
   audit/                SQLite (ncruces/go-sqlite3, WASM, no CGO), WAL mode
   server/               Backend interface with stdio, HTTP, SSE, and OAuth transports
   dashboard/            Embedded HTML, SSE updates, implements Approver interface
+  telegram/             Telegram Bot API polling approver (opt-in, outbound-only)
   auth/                 Bearer token auth: generation, file storage, HTTP middleware
-  broker/               Orchestrator with ServerManager, AuditLogger, Approver interfaces
+  broker/               Orchestrator with ServerManager, AuditLogger, Approver interfaces;
+                        MultiApprover fans requests to all approvers with shared timeout
 ```
 
 ## Conventions
@@ -53,3 +55,5 @@ internal/
 - Auth token is 32 random bytes, hex-encoded (64 chars)
 - Token comparison uses `crypto/subtle.ConstantTimeCompare`
 - Dashboard auth uses `mcp-broker-auth` cookie (`HttpOnly`, `SameSite=Strict`)
+- Telegram approver uses long-polling (`getUpdates?timeout=30`) — no inbound connections needed; correlates responses by Telegram `message_id`
+- `expandEnv` for Telegram token/chat_id is applied at startup in `serve.go` via `os.ExpandEnv`, not in the config package
