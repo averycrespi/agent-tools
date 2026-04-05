@@ -27,8 +27,10 @@ type AuditLogger interface {
 }
 
 // Approver handles human approval decisions.
+// It returns (approved, denialReason, err). denialReason is "user" for explicit
+// denials, "timeout" for timeouts, and "" when approved or not applicable.
 type Approver interface {
-	Review(ctx context.Context, tool string, args map[string]any) (bool, error)
+	Review(ctx context.Context, tool string, args map[string]any) (bool, string, error)
 }
 
 // Broker orchestrates the tool call pipeline.
@@ -80,8 +82,9 @@ func (b *Broker) Handle(ctx context.Context, tool string, args map[string]any) (
 			return nil, fmt.Errorf("approval required but no approver configured for: %s", tool)
 		}
 
-		approved, err := b.approver.Review(ctx, tool, args)
+		approved, denialReason, err := b.approver.Review(ctx, tool, args)
 		rec.Approved = &approved
+		rec.DenialReason = denialReason
 		if err != nil {
 			rec.Error = fmt.Sprintf("approver error: %v", err)
 			_ = b.auditor.Record(ctx, rec)

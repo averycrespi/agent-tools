@@ -39,9 +39,9 @@ func (m *mockAuditLogger) Query(ctx context.Context, opts audit.QueryOpts) ([]au
 
 type mockApprover struct{ mock.Mock }
 
-func (m *mockApprover) Review(ctx context.Context, tool string, args map[string]any) (bool, error) {
+func (m *mockApprover) Review(ctx context.Context, tool string, args map[string]any) (bool, string, error) {
 	a := m.Called(ctx, tool, args)
-	return a.Bool(0), a.Error(1)
+	return a.Bool(0), a.String(1), a.Error(2)
 }
 
 func TestBroker_Handle_AllowedTool(t *testing.T) {
@@ -100,7 +100,7 @@ func TestBroker_Handle_ApprovalRequired_Approved(t *testing.T) {
 	al.On("Record", mock.Anything, mock.Anything).Return(nil)
 
 	ap := new(mockApprover)
-	ap.On("Review", mock.Anything, "fs.write", map[string]any{"path": "/tmp"}).Return(true, nil)
+	ap.On("Review", mock.Anything, "fs.write", map[string]any{"path": "/tmp"}).Return(true, "", nil)
 
 	engine := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
 
@@ -121,7 +121,7 @@ func TestBroker_Handle_ApprovalRequired_Denied(t *testing.T) {
 	al.On("Record", mock.Anything, mock.Anything).Return(nil)
 
 	ap := new(mockApprover)
-	ap.On("Review", mock.Anything, "fs.write", mock.Anything).Return(false, nil)
+	ap.On("Review", mock.Anything, "fs.write", mock.Anything).Return(false, "", nil)
 
 	engine := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
 
@@ -135,4 +135,28 @@ func TestBroker_Handle_ApprovalRequired_Denied(t *testing.T) {
 	_, err := b.Handle(context.Background(), "fs.write", nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "denied")
+}
+
+func TestBroker_Handle_ApprovalRequired_DenialReasonPropagated(t *testing.T) {
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
+		return r.DenialReason == "timeout"
+	})).Return(nil)
+
+	ap := new(mockApprover)
+	ap.On("Review", mock.Anything, "fs.write", mock.Anything).Return(false, "timeout", nil)
+
+	engine := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
+
+	b := &Broker{
+		servers:  new(mockServerManager),
+		rules:    engine,
+		auditor:  al,
+		approver: ap,
+	}
+
+	_, err := b.Handle(context.Background(), "fs.write", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "denied")
+	al.AssertExpectations(t)
 }
