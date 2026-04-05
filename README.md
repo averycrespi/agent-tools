@@ -66,7 +66,7 @@ See the [README](local-gh-mcp/README.md) for more information.
 
 ### Broker CLI
 
-Calling MCP broker tools directly means crafting raw JSON payloads and parsing JSON responses — not practical for interactive use or shell scripts. A shell-friendly interface eliminates that friction.
+Some agents speak MCP natively — but others work better with a CLI. `broker-cli` is an alternative frontend for the MCP broker, for agents that prefer to interact via shell commands instead of connecting as an MCP client.
 
 `broker-cli` connects to the MCP broker, discovers available tools at startup, and builds a subcommand tree — one command per tool, grouped by namespace. Each command gets typed flags generated from the tool's JSON Schema. Output is always a JSON array on stdout; errors are JSON on stderr.
 
