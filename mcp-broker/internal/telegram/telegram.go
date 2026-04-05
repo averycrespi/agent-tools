@@ -49,9 +49,9 @@ func newWithBase(token, chatID, apiBase string, client *http.Client, logger *slo
 // Returns (approved, denialReason, err). On context cancellation/timeout:
 // returns (false, "timeout", nil) — the caller should not treat this as an error.
 func (a *Approver) Review(ctx context.Context, tool string, args map[string]any) (bool, string, error) {
-	remaining := remainingTime(ctx)
+	timeout := timeoutLabel(ctx)
 	argsStr := formatArgs(args)
-	text := fmt.Sprintf("🔧 <code>%s</code>\n\n<pre>%s</pre>\n\n⏳ %s remaining", tool, argsStr, remaining)
+	text := fmt.Sprintf("🔧 <code>%s</code>\n\n<pre>%s</pre>\n\n⏳ %s", tool, argsStr, timeout)
 
 	msgID, err := a.sendMessage(ctx, text)
 	if err != nil {
@@ -64,7 +64,7 @@ func (a *Approver) Review(ctx context.Context, tool string, args map[string]any)
 	approved, denialReason, err := a.pollForDecision(ctx, msgID)
 
 	// Best-effort: update the message to show the outcome.
-	outcome := resolvedText(approved, denialReason, err, ctx)
+	outcome := resolvedText(approved, denialReason, err, ctx, tool, argsStr)
 	_ = a.editMessage(context.Background(), msgID, outcome)
 
 	if err != nil {
@@ -243,6 +243,7 @@ func (a *Approver) editMessage(ctx context.Context, messageID int, text string) 
 		"chat_id":    a.chatID,
 		"message_id": messageID,
 		"text":       text,
+		"parse_mode": "HTML",
 	})
 	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, a.apiURL("editMessageText"), bytes.NewReader(body))
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -253,18 +254,20 @@ func (a *Approver) editMessage(ctx context.Context, messageID int, text string) 
 	return resp.Body.Close()
 }
 
-func remainingTime(ctx context.Context) string {
+func timeoutLabel(ctx context.Context) string {
 	deadline, ok := ctx.Deadline()
 	if !ok {
-		return "unknown"
+		return "times out in unknown"
 	}
-	d := time.Until(deadline).Round(time.Second)
+	d := time.Until(deadline).Round(time.Minute)
 	if d <= 0 {
-		return "0:00"
+		d = time.Minute
 	}
 	mins := int(d.Minutes())
-	secs := int(d.Seconds()) % 60
-	return fmt.Sprintf("%d:%02d", mins, secs)
+	if mins == 1 {
+		return "times out in 1 minute"
+	}
+	return fmt.Sprintf("times out in %d minutes", mins)
 }
 
 func formatArgs(args map[string]any) string {
@@ -283,17 +286,18 @@ func formatArgs(args map[string]any) string {
 	return s
 }
 
-func resolvedText(approved bool, denialReason string, err error, ctx context.Context) string {
+func resolvedText(approved bool, denialReason string, err error, ctx context.Context, tool, argsStr string) string {
+	context := fmt.Sprintf("\n\n🔧 <code>%s</code>\n<pre>%s</pre>", tool, argsStr)
 	switch {
 	case err != nil && ctx.Err() != nil:
-		return "⏱️ Timed out"
+		return "⏱️ Timed out" + context
 	case err != nil:
-		return "❌ Error"
+		return "❌ Error" + context
 	case approved:
-		return "✅ Approved"
+		return "✅ Approved" + context
 	case denialReason == "user":
-		return "❌ Denied"
+		return "❌ Denied" + context
 	default:
-		return "↩️ Resolved elsewhere"
+		return "↩️ Resolved elsewhere" + context
 	}
 }
