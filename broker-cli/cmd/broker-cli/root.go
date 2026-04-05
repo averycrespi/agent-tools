@@ -23,7 +23,8 @@ var (
 var rootCmd = &cobra.Command{
 	Use:          "broker-cli",
 	Short:        "CLI frontend for the MCP broker",
-	SilenceUsage: true,
+	SilenceUsage:  true,
+	SilenceErrors: true,
 	Long: `broker-cli connects to an MCP broker and exposes its tools as CLI subcommands.
 
 Environment:
