@@ -46,7 +46,7 @@ Autonomous agents need to call external APIs (GitHub, Jira, Slack), but giving a
 
 `mcp-broker` runs on the host, holds the secrets, and exposes backend MCP servers through a single endpoint. Agents connect to it as their only MCP server — no credentials, no network access required. Glob-based policy rules control which tools are allowed, sensitive operations require human approval via a web dashboard, and every call is audit-logged in SQLite.
 
-See the [README](mcp-broker/README.md) for more information.
+See the [README](mcp-broker/README.md) for more information, or the [architecture diagram](mcp-broker/ARCHITECTURE.md) for a visual overview of the request flow.
 
 ### Local Git MCP
 

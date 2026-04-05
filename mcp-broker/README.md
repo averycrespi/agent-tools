@@ -173,7 +173,7 @@ Requires Go 1.25+. Tool dependencies (golangci-lint, goimports, govulncheck) are
 
 ## Architecture
 
-See [DESIGN.md](DESIGN.md) for the full design document.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for a visual overview of the request flow, and [DESIGN.md](DESIGN.md) for the full design document.
 
 ```
 cmd/mcp-broker/         CLI entry point (Cobra)
