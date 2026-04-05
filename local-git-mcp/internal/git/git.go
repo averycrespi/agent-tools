@@ -8,6 +8,19 @@ import (
 	"github.com/averycrespi/agent-tools/local-git-mcp/internal/exec"
 )
 
+// Remote represents a configured git remote.
+type Remote struct {
+	Name     string `json:"name"`
+	FetchURL string `json:"fetch_url"`
+	PushURL  string `json:"push_url"`
+}
+
+// Ref represents a ref on a remote.
+type Ref struct {
+	SHA string `json:"sha"`
+	Ref string `json:"ref"`
+}
+
 // Client wraps git remote operations with an injectable command runner.
 type Client struct {
 	runner exec.Runner
@@ -68,21 +81,69 @@ func (c *Client) Fetch(repoPath, remote, refspec string) (string, error) {
 }
 
 // ListRemoteRefs lists refs on a remote (branches, tags, etc.).
-func (c *Client) ListRemoteRefs(repoPath, remote string) (string, error) {
+func (c *Client) ListRemoteRefs(repoPath, remote string) ([]Ref, error) {
 	out, err := c.runner.RunDir(repoPath, "git", "ls-remote", "--", remote)
 	if err != nil {
-		return "", fmt.Errorf("git ls-remote failed: %s", strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("git ls-remote failed: %s", strings.TrimSpace(string(out)))
 	}
-	return strings.TrimSpace(string(out)), nil
+	var refs []Ref
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		refs = append(refs, Ref{SHA: parts[0], Ref: parts[1]})
+	}
+	return refs, nil
 }
 
 // ListRemotes lists configured remotes with their URLs.
-func (c *Client) ListRemotes(repoPath string) (string, error) {
+func (c *Client) ListRemotes(repoPath string) ([]Remote, error) {
 	out, err := c.runner.RunDir(repoPath, "git", "remote", "-v")
 	if err != nil {
-		return "", fmt.Errorf("git remote failed: %s", strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("git remote failed: %s", strings.TrimSpace(string(out)))
 	}
-	return strings.TrimSpace(string(out)), nil
+	seen := make(map[string]*Remote)
+	var order []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		// Format: "<name>\t<url> (fetch)" or "<name>\t<url> (push)"
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		name := parts[0]
+		rest := parts[1]
+		var url, kind string
+		if strings.HasSuffix(rest, " (fetch)") {
+			url = strings.TrimSuffix(rest, " (fetch)")
+			kind = "fetch"
+		} else if strings.HasSuffix(rest, " (push)") {
+			url = strings.TrimSuffix(rest, " (push)")
+			kind = "push"
+		} else {
+			continue
+		}
+		if _, ok := seen[name]; !ok {
+			seen[name] = &Remote{Name: name}
+			order = append(order, name)
+		}
+		if kind == "fetch" {
+			seen[name].FetchURL = url
+		} else {
+			seen[name].PushURL = url
+		}
+	}
+	remotes := make([]Remote, 0, len(order))
+	for _, name := range order {
+		remotes = append(remotes, *seen[name])
+	}
+	return remotes, nil
 }
 
 // ValidateRepo checks that the given path is absolute and is a git repository.

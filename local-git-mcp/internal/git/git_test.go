@@ -146,10 +146,12 @@ func TestListRemoteRefs_Success(t *testing.T) {
 			return []byte("abc123\trefs/heads/main\ndef456\trefs/heads/feature\n"), nil
 		},
 	})
-	out, err := c.ListRemoteRefs("/repo", "origin")
+	refs, err := c.ListRemoteRefs("/repo", "origin")
 	require.NoError(t, err)
-	assert.Contains(t, out, "refs/heads/main")
-	assert.Contains(t, out, "refs/heads/feature")
+	assert.Equal(t, []Ref{
+		{SHA: "abc123", Ref: "refs/heads/main"},
+		{SHA: "def456", Ref: "refs/heads/feature"},
+	}, refs)
 }
 
 func TestListRemoteRefs_Error(t *testing.T) {
@@ -168,9 +170,11 @@ func TestListRemotes_Success(t *testing.T) {
 			return []byte("origin\tgit@github.com:user/repo.git (fetch)\norigin\tgit@github.com:user/repo.git (push)\n"), nil
 		},
 	})
-	out, err := c.ListRemotes("/repo")
+	remotes, err := c.ListRemotes("/repo")
 	require.NoError(t, err)
-	assert.Contains(t, out, "origin")
+	assert.Equal(t, []Remote{
+		{Name: "origin", FetchURL: "git@github.com:user/repo.git", PushURL: "git@github.com:user/repo.git"},
+	}, remotes)
 }
 
 func TestListRemotes_Error(t *testing.T) {

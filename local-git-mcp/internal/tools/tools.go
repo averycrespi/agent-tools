@@ -2,9 +2,12 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	gomcp "github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/averycrespi/agent-tools/local-git-mcp/internal/git"
 )
 
 // GitClient defines the git operations needed by MCP tool handlers.
@@ -13,8 +16,8 @@ type GitClient interface {
 	Push(repoPath, remote, refspec string, force bool) (string, error)
 	Pull(repoPath, remote, branch string, rebase bool) (string, error)
 	Fetch(repoPath, remote, refspec string) (string, error)
-	ListRemoteRefs(repoPath, remote string) (string, error)
-	ListRemotes(repoPath string) (string, error)
+	ListRemoteRefs(repoPath, remote string) ([]git.Ref, error)
+	ListRemotes(repoPath string) ([]git.Remote, error)
 }
 
 // Handler manages MCP tool definitions and dispatches calls to the git client.
@@ -184,18 +187,20 @@ func (h *Handler) Handle(_ context.Context, req gomcp.CallToolRequest) (*gomcp.C
 
 	case "git_list_remote_refs":
 		remote := stringOrDefault(args, "remote", "origin")
-		out, err := h.git.ListRemoteRefs(repoPath, remote)
+		refs, err := h.git.ListRemoteRefs(repoPath, remote)
 		if err != nil {
 			return gomcp.NewToolResultError(err.Error()), nil
 		}
-		return gomcp.NewToolResultText(out), nil
+		out, _ := json.Marshal(refs)
+		return gomcp.NewToolResultText(string(out)), nil
 
 	case "git_list_remotes":
-		out, err := h.git.ListRemotes(repoPath)
+		remotes, err := h.git.ListRemotes(repoPath)
 		if err != nil {
 			return gomcp.NewToolResultError(err.Error()), nil
 		}
-		return gomcp.NewToolResultText(out), nil
+		out, _ := json.Marshal(remotes)
+		return gomcp.NewToolResultText(string(out)), nil
 
 	default:
 		return gomcp.NewToolResultError(fmt.Sprintf("unknown tool: %s", req.Params.Name)), nil

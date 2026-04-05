@@ -2,12 +2,15 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
 	gomcp "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/averycrespi/agent-tools/local-git-mcp/internal/git"
 )
 
 type mockGitClient struct {
@@ -15,8 +18,8 @@ type mockGitClient struct {
 	pushFunc           func(repoPath, remote, refspec string, force bool) (string, error)
 	pullFunc           func(repoPath, remote, branch string, rebase bool) (string, error)
 	fetchFunc          func(repoPath, remote, refspec string) (string, error)
-	listRemoteRefsFunc func(repoPath, remote string) (string, error)
-	listRemotesFunc    func(repoPath string) (string, error)
+	listRemoteRefsFunc func(repoPath, remote string) ([]git.Ref, error)
+	listRemotesFunc    func(repoPath string) ([]git.Remote, error)
 }
 
 func (m *mockGitClient) ValidateRepo(repoPath string) error {
@@ -47,18 +50,18 @@ func (m *mockGitClient) Fetch(repoPath, remote, refspec string) (string, error) 
 	return "", nil
 }
 
-func (m *mockGitClient) ListRemoteRefs(repoPath, remote string) (string, error) {
+func (m *mockGitClient) ListRemoteRefs(repoPath, remote string) ([]git.Ref, error) {
 	if m.listRemoteRefsFunc != nil {
 		return m.listRemoteRefsFunc(repoPath, remote)
 	}
-	return "", nil
+	return nil, nil
 }
 
-func (m *mockGitClient) ListRemotes(repoPath string) (string, error) {
+func (m *mockGitClient) ListRemotes(repoPath string) ([]git.Remote, error) {
 	if m.listRemotesFunc != nil {
 		return m.listRemotesFunc(repoPath)
 	}
-	return "", nil
+	return nil, nil
 }
 
 func TestToolCount(t *testing.T) {
@@ -131,6 +134,46 @@ func TestPullHandler_WithRebase(t *testing.T) {
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
+}
+
+func TestListRemotesHandler_Success(t *testing.T) {
+	h := NewHandler(&mockGitClient{
+		listRemotesFunc: func(repoPath string) ([]git.Remote, error) {
+			return []git.Remote{
+				{Name: "origin", FetchURL: "git@github.com:user/repo.git", PushURL: "git@github.com:user/repo.git"},
+			}, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "git_list_remotes"
+	req.Params.Arguments = map[string]any{"repo_path": "/repo"}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	var remotes []git.Remote
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].(gomcp.TextContent).Text), &remotes))
+	assert.Equal(t, "origin", remotes[0].Name)
+	assert.Equal(t, "git@github.com:user/repo.git", remotes[0].FetchURL)
+}
+
+func TestListRemoteRefsHandler_Success(t *testing.T) {
+	h := NewHandler(&mockGitClient{
+		listRemoteRefsFunc: func(repoPath, remote string) ([]git.Ref, error) {
+			return []git.Ref{
+				{SHA: "abc123", Ref: "refs/heads/main"},
+			}, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "git_list_remote_refs"
+	req.Params.Arguments = map[string]any{"repo_path": "/repo"}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	var refs []git.Ref
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].(gomcp.TextContent).Text), &refs))
+	assert.Equal(t, "abc123", refs[0].SHA)
+	assert.Equal(t, "refs/heads/main", refs[0].Ref)
 }
 
 func TestUnknownTool(t *testing.T) {
