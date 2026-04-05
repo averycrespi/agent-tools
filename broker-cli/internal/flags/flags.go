@@ -26,7 +26,7 @@ func AddSchemaFlags(cmd *cobra.Command, schema map[string]any) {
 			cmd.Flags().Bool(name, false, desc)
 		case "integer", "number":
 			cmd.Flags().Int64(name, 0, desc)
-		// object/array/unknown: handled via --param
+			// object/array/unknown: handled via --param
 		}
 	}
 	cmd.Flags().StringArray(paramFlag, nil, "Set a field as raw JSON: --param 'key=value'")

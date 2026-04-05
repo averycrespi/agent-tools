@@ -61,7 +61,11 @@ func buildTree() error {
 		if err != nil {
 			return fmt.Errorf("connect to broker: %w", err)
 		}
-		defer c.Close()
+		defer func() {
+			if cerr := c.Close(); cerr != nil {
+				fmt.Fprintf(os.Stderr, "close client: %v\n", cerr)
+			}
+		}()
 
 		tools, err = c.ListTools(ctx)
 		if err != nil {
@@ -91,7 +95,11 @@ func callTool(endpoint, token, toolName string, args map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("connect to broker: %w", err)
 	}
-	defer c.Close()
+	defer func() {
+		if cerr := c.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "close client: %v\n", cerr)
+		}
+	}()
 
 	// Print "waiting for approval..." to stderr if the call takes > 1s.
 	done := make(chan struct{})
