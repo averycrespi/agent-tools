@@ -287,17 +287,19 @@ func formatArgs(args map[string]any) string {
 }
 
 func resolvedText(approved bool, denialReason string, err error, ctx context.Context, tool, argsStr string) string {
-	context := fmt.Sprintf("\n\n🔧 <code>%s</code>\n<pre>%s</pre>", tool, argsStr)
+	detail := fmt.Sprintf("\n\n🔧 <code>%s</code>\n<pre>%s</pre>", tool, argsStr)
 	switch {
-	case err != nil && ctx.Err() != nil:
-		return "⏱️ Timed out" + context
+	case err != nil && ctx.Err() == context.DeadlineExceeded:
+		return "⏱️ Timed out" + detail
+	case err != nil && ctx.Err() == context.Canceled:
+		return "↩️ Resolved elsewhere" + detail
 	case err != nil:
-		return "❌ Error" + context
+		return "❌ Error" + detail
 	case approved:
-		return "✅ Approved" + context
+		return "✅ Approved" + detail
 	case denialReason == "user":
-		return "❌ Denied" + context
+		return "❌ Denied" + detail
 	default:
-		return "↩️ Resolved elsewhere" + context
+		return "↩️ Resolved elsewhere" + detail
 	}
 }
