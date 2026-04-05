@@ -19,6 +19,7 @@ cd sandbox-manager && make install
 cd mcp-broker && make install
 cd local-git-mcp && make install
 cd local-gh-mcp && make install
+cd broker-cli && make install
 ```
 
 ## Tools
@@ -62,6 +63,14 @@ Sandboxed agents need to interact with GitHub — creating PRs, checking CI stat
 `local-gh-mcp` is a stdio MCP server that runs on the host where `gh` CLI is already authenticated. It exposes 24 tools across PRs, issues, workflow runs, caches, and search — over MCP. Designed to be used as a backend for mcp-broker, letting agents interact with GitHub without managing additional credentials.
 
 See the [README](local-gh-mcp/README.md) for more information.
+
+### Broker CLI
+
+Some agents speak MCP natively — but others work better with a CLI. `broker-cli` is an alternative frontend for the MCP broker, for agents that prefer to interact via shell commands instead of connecting as an MCP client.
+
+`broker-cli` connects to the MCP broker, discovers available tools at startup, and builds a subcommand tree — one command per tool, grouped by namespace. Each command gets typed flags generated from the tool's JSON Schema. Output is always a JSON array on stdout; errors are JSON on stderr.
+
+See the [README](broker-cli/README.md) for more information.
 
 ## Related
 

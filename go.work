@@ -1,6 +1,7 @@
 go 1.25.8
 
 use (
+	./broker-cli
 	./local-gh-mcp
 	./local-git-mcp
 	./mcp-broker
