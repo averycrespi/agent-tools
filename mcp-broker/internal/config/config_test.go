@@ -86,7 +86,6 @@ func TestLoad_OpenBrowserFromJSON(t *testing.T) {
 	require.False(t, cfg.OpenBrowser)
 }
 
-
 func TestConfigPath_ReturnsXDGPath(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)

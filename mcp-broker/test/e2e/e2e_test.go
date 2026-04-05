@@ -117,7 +117,7 @@ func TestE2E_DeniedByRules(t *testing.T) {
 
 	// Tool call should return an error immediately.
 	result, err := s.callTool("echo.say_hello", map[string]any{})
-	require.NoError(t, err)        // MCP call succeeds...
+	require.NoError(t, err)         // MCP call succeeds...
 	require.True(t, result.IsError) // ...but tool result is an error.
 
 	// Verify audit log.

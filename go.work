@@ -1,8 +1,8 @@
-go 1.25.7
+go 1.25.8
 
 use (
-	./local-git-mcp
 	./local-gh-mcp
+	./local-git-mcp
 	./mcp-broker
 	./sandbox-manager
 	./worktree-manager
