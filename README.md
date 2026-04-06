@@ -2,24 +2,38 @@
 
 A collection of tools that reduce the friction of working with AI coding agents.
 
+## Overview
+
+- **[Worktree Manager](#worktree-manager-wt)** — Manage git worktrees with tmux integration
+- **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
+- **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
+- **[Broker CLI](#broker-cli)** — CLI frontend for the MCP broker
+- **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
+- **[Local GH MCP](#local-gh-mcp)** — Stdio MCP server for GitHub operations via the gh CLI
+
 ## Getting Started
 
-Requires Go 1.25+ and macOS.
+Requirements:
+
+- Go 1.25+
+- GNU Make
+- macOS for `sandbox-manager`
 
 ```bash
-# Install system dependencies
+# Install dependencies on macOS
+# For Linux: install `tmux` from your preferred package manager
 brew bundle
 
 # Install all tools
 make install
 
-# Install individual tools
+# Or, to install individual tools
 cd worktree-manager && make install
 cd sandbox-manager && make install
 cd mcp-broker && make install
+cd broker-cli && make install
 cd local-git-mcp && make install
 cd local-gh-mcp && make install
-cd broker-cli && make install
 ```
 
 ## Tools
@@ -48,6 +62,14 @@ Autonomous agents need to call external APIs (GitHub, Jira, Slack), but giving a
 
 See the [README](mcp-broker/README.md) for more information, or the [architecture diagram](mcp-broker/ARCHITECTURE.md) for a visual overview of the request flow.
 
+### Broker CLI
+
+Some agents speak MCP natively — but others work better with a CLI. `broker-cli` is an alternative frontend for the MCP broker, for agents that prefer to interact via shell commands instead of connecting as an MCP client.
+
+`broker-cli` connects to the MCP broker, discovers available tools at startup, and builds a subcommand tree — one command per tool, grouped by namespace. Each command gets typed flags generated from the tool's JSON Schema. Output is always a JSON array on stdout; errors are JSON on stderr.
+
+See the [README](broker-cli/README.md) for more information.
+
 ### Local Git MCP
 
 Sandboxed agents can do most git operations locally — staging, committing, diffing, rebasing — because those don't need authentication. But pushing, pulling, and fetching require credentials that the sandbox intentionally doesn't have.
@@ -63,14 +85,6 @@ Sandboxed agents need to interact with GitHub — creating PRs, checking CI stat
 `local-gh-mcp` is a stdio MCP server that runs on the host where `gh` CLI is already authenticated. It exposes 24 tools across PRs, issues, workflow runs, caches, and search — over MCP. Designed to be used as a backend for mcp-broker, letting agents interact with GitHub without managing additional credentials.
 
 See the [README](local-gh-mcp/README.md) for more information.
-
-### Broker CLI
-
-Some agents speak MCP natively — but others work better with a CLI. `broker-cli` is an alternative frontend for the MCP broker, for agents that prefer to interact via shell commands instead of connecting as an MCP client.
-
-`broker-cli` connects to the MCP broker, discovers available tools at startup, and builds a subcommand tree — one command per tool, grouped by namespace. Each command gets typed flags generated from the tool's JSON Schema. Output is always a JSON array on stdout; errors are JSON on stderr.
-
-See the [README](broker-cli/README.md) for more information.
 
 ## Related
 
