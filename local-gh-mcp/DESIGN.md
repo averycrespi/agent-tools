@@ -246,13 +246,13 @@ type Client interface {
 
     // Workflow run operations
     ListRuns(ctx context.Context, owner, repo string, opts ListRunsOpts) (string, error)
-    ViewRun(ctx context.Context, owner, repo string, runID int, logFailed bool) (string, error)
-    Rerun(ctx context.Context, owner, repo string, runID int, failedOnly bool) (string, error)
-    CancelRun(ctx context.Context, owner, repo string, runID int) (string, error)
+    ViewRun(ctx context.Context, owner, repo string, runID string, logFailed bool) (string, error)
+    Rerun(ctx context.Context, owner, repo string, runID string, failedOnly bool) (string, error)
+    CancelRun(ctx context.Context, owner, repo string, runID string) (string, error)
 
     // Cache operations
     ListCaches(ctx context.Context, owner, repo string, opts ListCachesOpts) (string, error)
-    DeleteCache(ctx context.Context, owner, repo string, cacheID int) (string, error)
+    DeleteCache(ctx context.Context, owner, repo string, cacheID string) (string, error)
 
     // Search operations
     SearchPRs(ctx context.Context, query string, opts SearchPRsOpts) (string, error)
