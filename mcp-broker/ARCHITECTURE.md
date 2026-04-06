@@ -2,8 +2,6 @@
 
 ## Request Flow
 
-Agents run in a sandbox with no credentials or network access. The broker runs on the host and is their only way to reach external services.
-
 ```mermaid
 flowchart TD
     Agent["MCP Client"] -->|"HTTP + Bearer token"| MCP["MCP Server"]
@@ -18,7 +16,7 @@ flowchart TD
     Approver -->|approved| Proxy
     Approver -->|denied| Error
 
-    Proxy -->|stdio| Git["Local Git MCP Server"]
+    Proxy -->|stdio| Git["Local MCP Server"]
     Proxy -->|HTTP / SSE| Remote["Remote MCP Server"]
 
     Git --> Response["Return Response"]
@@ -43,9 +41,9 @@ flowchart TD
 ### Pipeline stages
 
 1. **Rules** -- Tool name matched against glob patterns, first match wins. Three verdicts: `allow`, `deny`, `require-approval`
-2. **Approval** -- If required, the call blocks until a human approves or denies via the web dashboard (notified over SSE)
+2. **Approval** -- If required, the call blocks until a human approves or denies
 3. **Proxy** -- Server Manager routes to the correct backend by tool prefix (e.g. `git.push` routes to the `git` backend)
-4. **Audit** -- Every call is recorded in SQLite: tool name, arguments, verdict, approval decision, and result
+4. **Audit** -- Every call is recorded in the audit log: tool name, arguments, verdict, approval decision, and success/error
 
 ### Entry points
 
