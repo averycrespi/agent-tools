@@ -93,7 +93,7 @@ The `Query` method supports:
 ### Server manager (`internal/server`)
 
 Manages connections to backend MCP servers. At startup:
-1. Connects to each configured server (stdio subprocess or HTTP)
+1. Connects to each configured server (stdio subprocess, HTTP, SSE, or OAuth)
 2. Sends MCP `initialize` handshake
 3. Calls `tools/list` to discover available tools
 4. Builds a registry of `<server>.<tool>` → backend mapping
@@ -101,10 +101,22 @@ Manages connections to backend MCP servers. At startup:
 The `Backend` interface abstracts transport:
 - `stdioBackend` — spawns a subprocess, communicates via stdin/stdout
 - `httpBackend` — connects via Streamable HTTP
+- `sseBackend` — connects via Server-Sent Events
+- `oauthBackend` — auto-detected on 401 responses from HTTP/SSE backends; tokens stored in OS keychain via `go-keyring` (service: `mcp-broker`, key: server name). OAuth callback port is deterministic per server name (FNV hash → ephemeral port range).
+
+HTTP/SSE backends use a plain client first and auto-upgrade to OAuth on 401 — they do not proactively trigger OAuth flows.
 
 Failed backends are logged and skipped rather than failing the entire startup.
 
 Environment variables in server config support `$VAR` expansion from the process environment, allowing secrets to be passed without hardcoding.
+
+### Auth (`internal/auth`)
+
+Bearer token authentication for the `/mcp` endpoint. Generates a 32-byte random token (hex-encoded, 64 chars) stored with `0600` file permissions (parent directories `0750`). The HTTP middleware validates tokens using `crypto/subtle.ConstantTimeCompare`. Token is generated on first `serve` if it doesn't already exist.
+
+### Telegram approver (`internal/telegram`)
+
+Optional Telegram Bot API-based approver. Uses long-polling (`getUpdates?timeout=30`) — no inbound connections needed. When an approval is required, a message is sent to the configured chat; responses are correlated by Telegram `message_id`. Bot token and chat ID support `$VAR` expansion via `os.ExpandEnv` at startup.
 
 ### Dashboard (`internal/dashboard`)
 
@@ -121,6 +133,8 @@ The orchestrator. Wires together rules, approval, proxy, and audit. The `Handle`
 - `ServerManager` — tool listing and call proxying
 - `AuditLogger` — recording and querying audit entries
 - `Approver` — human approval decisions
+
+`MultiApprover` fans approval requests to all configured approvers (e.g., dashboard + Telegram) concurrently with a shared timeout. First response wins.
 
 ### CLI (`cmd/mcp-broker`)
 
@@ -148,7 +162,7 @@ Cobra-based CLI with commands:
 
 **SQLite for audit, not a log file.** Enables querying, pagination, and filtering in the dashboard without external tools. WAL mode handles concurrent reads from the dashboard while the broker writes.
 
-**No authentication on dashboard.** mcp-broker is designed for local use (localhost). Adding auth is a future consideration for remote deployments.
+**Bearer token auth for agents, cookie auth for dashboard.** The `/mcp` endpoint requires a bearer token (32 random bytes, hex-encoded, stored with `0600` permissions). The dashboard uses a session cookie (`mcp-broker-auth`, `HttpOnly`, `SameSite=Strict`) so browsers don't need the raw token.
 
 **Failed backends don't block startup.** If one of several backend servers is unavailable, the broker starts with the remaining servers rather than failing entirely. The failed backend is logged.
 
