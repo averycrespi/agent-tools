@@ -13,7 +13,7 @@ import (
 
 const (
 	defaultAPIBase = "https://api.telegram.org"
-	maxArgLen      = 200
+	maxValueLen    = 120
 	pollTimeout    = 30
 )
 
@@ -299,16 +299,33 @@ func formatArgs(args map[string]any) string {
 	if len(args) == 0 {
 		return "(no args)"
 	}
-	b, err := json.MarshalIndent(args, "", "  ")
+	truncated := make(map[string]any, len(args))
+	for k, v := range args {
+		truncated[k] = truncateValue(v)
+	}
+	b, err := json.MarshalIndent(truncated, "", "  ")
 	if err != nil {
 		return "(error formatting args)"
 	}
-	s := string(b)
-	if utf8.RuneCountInString(s) > maxArgLen {
-		runes := []rune(s)
-		return string(runes[:maxArgLen]) + "... (truncated)"
+	return string(b)
+}
+
+// truncateValue marshals a single argument value and truncates it if too long.
+// String values are truncated directly; other types are marshaled to JSON first.
+func truncateValue(v any) any {
+	s, ok := v.(string)
+	if !ok {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return v
+		}
+		s = string(b)
 	}
-	return s
+	if utf8.RuneCountInString(s) <= maxValueLen {
+		return v
+	}
+	runes := []rune(s)
+	return string(runes[:maxValueLen]) + "… (truncated)"
 }
 
 func resolvedText(approved bool, denialReason string, err error, ctx context.Context, tool, argsStr string) string {

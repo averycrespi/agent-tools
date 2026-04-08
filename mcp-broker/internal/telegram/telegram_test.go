@@ -105,11 +105,21 @@ func TestApprover_Review_ContextCancelled(t *testing.T) {
 	require.Equal(t, "timeout", reason)
 }
 
-func TestFormatArgs_TruncatesLongJSON(t *testing.T) {
-	args := map[string]any{"key": strings.Repeat("x", 300)}
+func TestFormatArgs_TruncatesPerValue(t *testing.T) {
+	args := map[string]any{
+		"long":  strings.Repeat("x", 300),
+		"short": "hello",
+	}
 	result := formatArgs(args)
-	require.LessOrEqual(t, len([]rune(result)), maxArgLen+len("... (truncated)"))
 	require.Contains(t, result, "(truncated)")
+	require.Contains(t, result, `"short": "hello"`)
+}
+
+func TestFormatArgs_PreservesShortValues(t *testing.T) {
+	args := map[string]any{"key": "value"}
+	result := formatArgs(args)
+	require.NotContains(t, result, "truncated")
+	require.Contains(t, result, `"key": "value"`)
 }
 
 func TestFormatArgs_EmptyArgs(t *testing.T) {
