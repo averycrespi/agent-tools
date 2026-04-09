@@ -88,7 +88,7 @@ See the [README](local-gh-mcp/README.md) for more information.
 
 ## Related
 
-- [claudefiles](https://github.com/averycrespi/claudefiles) — My opinionated resources for working with Claude Code
+- [agent-config](https://github.com/averycrespi/agent-config) — My configuration for working with AI coding agents
 
 ## License
 
