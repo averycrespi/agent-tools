@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/rules"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 	"github.com/stretchr/testify/require"
 )
@@ -288,4 +289,101 @@ func TestHandleRules_NilLister(t *testing.T) {
 	require.Empty(t, body.Rules)
 	require.Empty(t, body.Unmatched)
 	require.Equal(t, "require-approval", body.DefaultVerdict)
+}
+
+func TestHandleRules_MalformedGlobPattern(t *testing.T) {
+	tools := &fakeToolLister{tools: []server.Tool{
+		{Name: "github.list_prs"},
+		{Name: "fs.write"},
+	}}
+	rules := &fakeRulesLister{rules: []config.RuleConfig{
+		{Tool: "[invalid", Verdict: "deny"},
+		{Tool: "*", Verdict: "require-approval"},
+	}}
+	d := New(tools, rules, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/rules")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Rules []struct {
+			Index   int      `json:"index"`
+			Tool    string   `json:"tool"`
+			Matches []string `json:"matches"`
+		} `json:"rules"`
+		Unmatched []string `json:"unmatched"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+
+	require.Len(t, body.Rules, 2)
+	// Malformed rule is present but matches nothing (filepath.Match errors are silently skipped)
+	require.Equal(t, "[invalid", body.Rules[0].Tool)
+	require.Empty(t, body.Rules[0].Matches)
+	// The catchall rule still catches both tools
+	require.ElementsMatch(t, []string{"fs.write", "github.list_prs"}, body.Rules[1].Matches)
+	require.Empty(t, body.Unmatched)
+}
+
+func TestHandleRules_AgreesWithEngineEvaluateWithRule(t *testing.T) {
+	ruleConfigs := []config.RuleConfig{
+		{Tool: "github.delete_*", Verdict: "deny"},
+		{Tool: "github.*", Verdict: "allow"},
+		{Tool: "fs.*", Verdict: "require-approval"},
+		{Tool: "*", Verdict: "allow"},
+	}
+	engine := rules.New(ruleConfigs)
+
+	toolList := []server.Tool{
+		{Name: "github.list_prs"},
+		{Name: "github.delete_repo"},
+		{Name: "fs.write"},
+		{Name: "linear.search"},
+	}
+	tools := &fakeToolLister{tools: toolList}
+
+	d := New(tools, engine, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/rules")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	var body struct {
+		Rules []struct {
+			Index   int      `json:"index"`
+			Matches []string `json:"matches"`
+		} `json:"rules"`
+		Unmatched []string `json:"unmatched"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+
+	// Build expected mapping by asking the engine directly
+	expectedMatches := make(map[int][]string, len(ruleConfigs))
+	for i := range ruleConfigs {
+		expectedMatches[i] = []string{}
+	}
+	var expectedUnmatched []string
+	for _, tool := range toolList {
+		_, idx := engine.EvaluateWithRule(tool.Name)
+		if idx >= 0 {
+			expectedMatches[idx] = append(expectedMatches[idx], tool.Name)
+		} else {
+			expectedUnmatched = append(expectedUnmatched, tool.Name)
+		}
+	}
+
+	// Compare handler output against the engine
+	require.Len(t, body.Rules, len(ruleConfigs))
+	for i, rv := range body.Rules {
+		require.ElementsMatch(t, expectedMatches[i], rv.Matches, "rule %d (%s) mismatch", i, ruleConfigs[i].Tool)
+	}
+	if expectedUnmatched == nil {
+		expectedUnmatched = []string{}
+	}
+	require.ElementsMatch(t, expectedUnmatched, body.Unmatched)
 }
