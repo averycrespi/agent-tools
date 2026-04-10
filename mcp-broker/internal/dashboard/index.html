@@ -1277,6 +1277,110 @@
         countdownInterval = setInterval(renderPending, 1000);
       }
 
+      // --- Tool schema rendering ---
+
+      // schemaTypeLabel returns a human-readable type for a JSON Schema property.
+      // Handles scalars, typed arrays, and falls back to 'object' or 'any' for
+      // unparseable shapes (oneOf, anyOf, nested objects, $ref, etc.).
+      function schemaTypeLabel(prop) {
+        if (!prop || typeof prop !== "object") return "any";
+        if (typeof prop.type === "string") {
+          if (
+            prop.type === "array" &&
+            prop.items &&
+            typeof prop.items.type === "string"
+          ) {
+            return "array<" + prop.items.type + ">";
+          }
+          return prop.type;
+        }
+        if (Array.isArray(prop.type)) return prop.type.join("|");
+        if (prop.oneOf || prop.anyOf || prop.allOf || prop.$ref)
+          return "object";
+        return "any";
+      }
+
+      // renderInputSchema builds the HTML for the detail panel body.
+      // Returns a string to be inserted into a .tool-detail div.
+      function renderInputSchema(schema) {
+        var hasProps =
+          schema &&
+          typeof schema === "object" &&
+          schema.properties &&
+          typeof schema.properties === "object" &&
+          Object.keys(schema.properties).length > 0;
+
+        if (!hasProps) {
+          return (
+            '<div class="tool-detail-label">Inputs</div>' +
+            '<div class="tool-schema-empty">This tool takes no arguments.</div>'
+          );
+        }
+
+        var required = {};
+        if (Array.isArray(schema.required)) {
+          schema.required.forEach(function (k) {
+            required[k] = true;
+          });
+        }
+
+        // Sort: required first, then alphabetical.
+        var keys = Object.keys(schema.properties).sort(function (a, b) {
+          if (required[a] !== required[b]) return required[a] ? -1 : 1;
+          return a < b ? -1 : a > b ? 1 : 0;
+        });
+
+        var rows = "";
+        keys.forEach(function (key) {
+          var prop = schema.properties[key] || {};
+          var desc = prop.description ? String(prop.description) : "";
+          if (Array.isArray(prop.enum)) {
+            var enumStr = prop.enum
+              .map(function (v) {
+                return JSON.stringify(v);
+              })
+              .join(", ");
+            desc = desc
+              ? desc + " (one of: " + enumStr + ")"
+              : "one of: " + enumStr;
+          }
+          rows +=
+            "<tr>" +
+            '<td class="col-name">' +
+            esc(key) +
+            "</td>" +
+            '<td class="col-type">' +
+            esc(schemaTypeLabel(prop)) +
+            "</td>" +
+            '<td class="col-req">' +
+            (required[key] ? "\u2713" : "") +
+            "</td>" +
+            '<td class="col-desc">' +
+            (desc ? esc(desc) : "\u2014") +
+            "</td>" +
+            "</tr>";
+        });
+
+        var html =
+          '<div class="tool-detail-label">Inputs</div>' +
+          '<table class="tool-schema-table">' +
+          "<thead><tr>" +
+          "<th>name</th><th>type</th><th>req</th><th>description</th>" +
+          "</tr></thead>" +
+          "<tbody>" +
+          rows +
+          "</tbody>" +
+          "</table>" +
+          '<details class="tool-schema-raw">' +
+          "<summary>view raw schema</summary>" +
+          "<pre>" +
+          esc(JSON.stringify(schema, null, 2)) +
+          "</pre>" +
+          "</details>";
+
+        return html;
+      }
+
       // --- Tools ---
       function loadTools() {
         var list = document.getElementById("tools-list");
