@@ -14,7 +14,7 @@ import (
 )
 
 func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
-	d := New(nil, nil, nil)
+	d := New(nil, nil, nil, nil)
 	mux := d.Handler()
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -52,7 +52,7 @@ func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
 }
 
 func TestDashboard_Review_DeniesViaAPI(t *testing.T) {
-	d := New(nil, nil, nil)
+	d := New(nil, nil, nil, nil)
 	mux := d.Handler()
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -89,7 +89,7 @@ func TestDashboard_Review_DeniesViaAPI(t *testing.T) {
 }
 
 func TestDashboard_Review_CancelsOnContextDone(t *testing.T) {
-	d := New(nil, nil, nil)
+	d := New(nil, nil, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	type result struct {
@@ -113,7 +113,7 @@ func TestDashboard_Review_CancelsOnContextDone(t *testing.T) {
 }
 
 func TestDashboard_PendingRequest_HasDeadline(t *testing.T) {
-	d := New(nil, nil, nil)
+	d := New(nil, nil, nil, nil)
 
 	deadline := time.Now().Add(10 * time.Minute)
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
@@ -143,7 +143,7 @@ func TestDashboard_PendingRequest_HasDeadline(t *testing.T) {
 }
 
 func TestDashboard_UnauthorizedPage(t *testing.T) {
-	d := New(nil, nil, nil)
+	d := New(nil, nil, nil, nil)
 	mux := d.Handler()
 	srv := httptest.NewServer(mux)
 	defer srv.Close()

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 )
 
@@ -42,6 +43,11 @@ type ToolLister interface {
 	Tools() []server.Tool
 }
 
+// RulesLister provides the configured policy rules in evaluation order.
+type RulesLister interface {
+	Rules() []config.RuleConfig
+}
+
 // AuditQuerier provides audit log queries.
 type AuditQuerier interface {
 	Query(ctx context.Context, opts audit.QueryOpts) ([]audit.Record, int, error)
@@ -54,15 +60,17 @@ type Dashboard struct {
 	decided []decidedRequest
 	clients []chan []byte
 	tools   ToolLister
+	rules   RulesLister
 	auditor AuditQuerier
 	logger  *slog.Logger
 }
 
 // New creates a Dashboard.
-func New(tools ToolLister, auditor AuditQuerier, logger *slog.Logger) *Dashboard {
+func New(tools ToolLister, rules RulesLister, auditor AuditQuerier, logger *slog.Logger) *Dashboard {
 	return &Dashboard{
 		pending: make(map[string]*pendingRequest),
 		tools:   tools,
+		rules:   rules,
 		auditor: auditor,
 		logger:  logger,
 	}
