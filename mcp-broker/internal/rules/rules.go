@@ -52,6 +52,11 @@ func New(rules []config.RuleConfig) *Engine {
 	return &Engine{rules: rules}
 }
 
+// Rules returns the configured rules in evaluation order.
+func (e *Engine) Rules() []config.RuleConfig {
+	return e.rules
+}
+
 // Evaluate returns the verdict for the given tool name.
 // First matching rule wins. Default is require-approval.
 func (e *Engine) Evaluate(tool string) Verdict {

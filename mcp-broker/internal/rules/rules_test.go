@@ -50,3 +50,17 @@ func TestVerdict_String(t *testing.T) {
 	require.Equal(t, "deny", Deny.String())
 	require.Equal(t, "require-approval", RequireApproval.String())
 }
+
+func TestEngine_Rules_ReturnsConfiguredRules(t *testing.T) {
+	input := []config.RuleConfig{
+		{Tool: "github.*", Verdict: "allow"},
+		{Tool: "*", Verdict: "deny"},
+	}
+	e := New(input)
+	require.Equal(t, input, e.Rules())
+}
+
+func TestEngine_Rules_EmptyWhenNil(t *testing.T) {
+	e := New(nil)
+	require.Empty(t, e.Rules())
+}
