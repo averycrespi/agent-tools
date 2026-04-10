@@ -969,6 +969,10 @@
         return d.innerHTML;
       }
 
+      function escAttr(s) {
+        return esc(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+      }
+
       function formatCountdown(deadlineISO) {
         if (!deadlineISO) return "";
         var ms = new Date(deadlineISO) - Date.now();
@@ -1382,9 +1386,14 @@
       }
 
       // --- Tools ---
+      var expandedToolName = null;
+
       function loadTools() {
         var list = document.getElementById("tools-list");
         var emptyEl = document.getElementById("tools-empty");
+
+        // Reset expansion state on tab (re-)entry so we start clean.
+        expandedToolName = null;
 
         fetch("api/tools")
           .then(function (r) {
@@ -1424,7 +1433,21 @@
               html += "</button>";
               html += '<div class="provider-capabilities hidden">';
               items.forEach(function (tool) {
-                html += '<div class="tool-item">';
+                var schemaAttr = escAttr(
+                  JSON.stringify(tool.inputSchema || {}),
+                );
+                html +=
+                  '<button type="button" class="tool-item" aria-expanded="false"' +
+                  ' data-tool-name="' +
+                  escAttr(tool.name) +
+                  '"' +
+                  ' data-schema="' +
+                  schemaAttr +
+                  '"' +
+                  ' onclick="toggleTool(this)">';
+                html += '<div class="tool-item-row">';
+                html += '<span class="chevron">&#9660;</span>';
+                html += '<div class="tool-item-text">';
                 html += '<div class="tool-name">' + esc(tool.name) + "</div>";
                 if (tool.description)
                   html +=
@@ -1432,6 +1455,8 @@
                     esc(tool.description) +
                     "</div>";
                 html += "</div>";
+                html += "</div>";
+                html += "</button>";
               });
               html += "</div></div>";
             });
@@ -1443,6 +1468,46 @@
         btn.classList.toggle("collapsed");
         var caps = btn.nextElementSibling;
         caps.classList.toggle("hidden");
+      }
+
+      function toggleTool(btn) {
+        var name = btn.getAttribute("data-tool-name");
+
+        // Collapse any currently-expanded tool.
+        if (expandedToolName) {
+          var prev = document.querySelector(".tool-item.expanded");
+          if (prev) {
+            prev.classList.remove("expanded");
+            prev.setAttribute("aria-expanded", "false");
+            var prevDetail = prev.nextElementSibling;
+            if (prevDetail && prevDetail.classList.contains("tool-detail")) {
+              prevDetail.remove();
+            }
+          }
+        }
+
+        // Second click on the same tool: just collapse.
+        if (expandedToolName === name) {
+          expandedToolName = null;
+          return;
+        }
+
+        // Expand the clicked tool.
+        var schema;
+        try {
+          schema = JSON.parse(btn.getAttribute("data-schema"));
+        } catch (e) {
+          schema = null;
+        }
+
+        var detail = document.createElement("div");
+        detail.className = "tool-detail";
+        detail.innerHTML = renderInputSchema(schema);
+
+        btn.classList.add("expanded");
+        btn.setAttribute("aria-expanded", "true");
+        btn.parentNode.insertBefore(detail, btn.nextSibling);
+        expandedToolName = name;
       }
 
       // --- Audit Log ---
