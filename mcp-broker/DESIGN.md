@@ -72,6 +72,7 @@ Each backend server has a name (from config). When tools are discovered, they ar
 Single JSON file at `~/.config/mcp-broker/config.json`. On first run, a default config is written. The `Refresh` function loads, overlays defaults for new fields, and writes back — useful for upgrading config after new features are added.
 
 Config is loaded once at startup. Defaults:
+
 - Port: 8200
 - Rules: `[{"tool": "*", "verdict": "require-approval"}]`
 - Audit path: `~/.local/share/mcp-broker/audit.db`
@@ -86,6 +87,7 @@ Stateless evaluator. Takes a list of `RuleConfig` (tool glob + verdict string) a
 SQLite database using `ncruces/go-sqlite3` (WASM-based, no CGO). WAL mode for concurrent read/write. Thread-safe via mutex. Records are inserted via prepared statement for performance.
 
 The `Query` method supports:
+
 - Tool name filtering (substring match via SQL LIKE)
 - Pagination (limit/offset)
 - Total count for pagination UI
@@ -93,12 +95,14 @@ The `Query` method supports:
 ### Server manager (`internal/server`)
 
 Manages connections to backend MCP servers. At startup:
+
 1. Connects to each configured server (stdio subprocess, HTTP, SSE, or OAuth)
 2. Sends MCP `initialize` handshake
 3. Calls `tools/list` to discover available tools
 4. Builds a registry of `<server>.<tool>` → backend mapping
 
 The `Backend` interface abstracts transport:
+
 - `stdioBackend` — spawns a subprocess, communicates via stdin/stdout
 - `httpBackend` — connects via Streamable HTTP
 - `sseBackend` — connects via Server-Sent Events
@@ -121,8 +125,10 @@ Optional Telegram Bot API-based approver. Uses long-polling (`getUpdates?timeout
 ### Dashboard (`internal/dashboard`)
 
 Embedded single-page web application serving:
+
 - **Approvals tab** — pending requests with approve/deny buttons, decided history
 - **Tools tab** — discovered tools grouped by server
+- **Rules tab** — configured rules with the discovered tools matching each (read-only; for debugging verdicts)
 - **Audit tab** — paginated audit log with tool filter
 
 Real-time updates via Server-Sent Events (SSE). The dashboard also implements the `Approver` interface — the `Review` method blocks until a human makes a decision via the `/api/decide` endpoint.
@@ -130,6 +136,7 @@ Real-time updates via Server-Sent Events (SSE). The dashboard also implements th
 ### Broker (`internal/broker`)
 
 The orchestrator. Wires together rules, approval, proxy, and audit. The `Handle` method is the single entry point for all tool calls. Interfaces:
+
 - `ServerManager` — tool listing and call proxying
 - `AuditLogger` — recording and querying audit entries
 - `Approver` — human approval decisions
@@ -139,6 +146,7 @@ The orchestrator. Wires together rules, approval, proxy, and audit. The `Handle`
 ### CLI (`cmd/mcp-broker`)
 
 Cobra-based CLI with commands:
+
 - `serve` — starts the broker (loads config, connects backends, serves HTTP)
 - `config path` — prints config file location
 - `config refresh` — backfills new defaults
@@ -146,13 +154,13 @@ Cobra-based CLI with commands:
 
 ## Tech stack
 
-| Component | Library |
-|-----------|---------|
-| MCP protocol | [mcp-go](https://github.com/mark3labs/mcp-go) |
-| CLI | [cobra](https://github.com/spf13/cobra) |
-| SQLite | [ncruces/go-sqlite3](https://github.com/ncruces/go-sqlite3) (WASM, no CGO) |
-| Logging | `log/slog` (stdlib) |
-| Testing | [testify](https://github.com/stretchr/testify) |
+| Component    | Library                                                                    |
+| ------------ | -------------------------------------------------------------------------- |
+| MCP protocol | [mcp-go](https://github.com/mark3labs/mcp-go)                              |
+| CLI          | [cobra](https://github.com/spf13/cobra)                                    |
+| SQLite       | [ncruces/go-sqlite3](https://github.com/ncruces/go-sqlite3) (WASM, no CGO) |
+| Logging      | `log/slog` (stdlib)                                                        |
+| Testing      | [testify](https://github.com/stretchr/testify)                             |
 
 ## Design decisions
 
