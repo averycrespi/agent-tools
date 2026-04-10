@@ -1,1221 +1,1531 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MCP Broker</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  :root {
-    --bg-base: #111111;
-    --bg-panel: #1a1a1a;
-    --bg-hover: #242424;
-    --text-primary: #e5e5e5;
-    --text-secondary: #a3a3a3;
-    --border: #333333;
-    --green: #22c55e;
-    --red: #ef4444;
-    --amber: #f59e0b;
-    --font-mono: 'JetBrains Mono', monospace;
-    --font-sans: 'DM Sans', sans-serif;
-  }
-
-  body {
-    font-family: var(--font-sans);
-    background: var(--bg-base);
-    color: var(--text-primary);
-    min-height: 100vh;
-  }
-
-  /* Header */
-  .header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1rem 1.5rem;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-panel);
-  }
-
-  .header-left {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .header h1 {
-    font-family: var(--font-sans);
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    letter-spacing: -0.01em;
-  }
-
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--red);
-    flex-shrink: 0;
-  }
-
-  .status-dot.connected {
-    background: var(--green);
-  }
-
-  .status-label {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    font-family: var(--font-mono);
-  }
-
-  .notify-toggle {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-left: 1rem;
-    padding-left: 1rem;
-    border-left: 1px solid var(--border);
-  }
-
-  .notify-label {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    font-family: var(--font-mono);
-    user-select: none;
-  }
-
-  .toggle-switch {
-    position: relative;
-    width: 32px;
-    height: 18px;
-    background: var(--bg-base);
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    cursor: pointer;
-    transition: background 0.2s;
-    flex-shrink: 0;
-  }
-
-  .toggle-switch.active {
-    background: var(--amber);
-    border-color: var(--amber);
-  }
-
-  .toggle-switch.denied {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-
-  .toggle-switch::after {
-    content: '';
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 12px;
-    height: 12px;
-    background: var(--text-secondary);
-    border-radius: 50%;
-    transition: transform 0.2s, background 0.2s;
-  }
-
-  .toggle-switch.active::after {
-    transform: translateX(14px);
-    background: #000;
-  }
-
-  /* Tab bar */
-  .tab-bar {
-    display: flex;
-    gap: 0;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-panel);
-    padding: 0 1.5rem;
-  }
-
-  .tab {
-    padding: 0.75rem 1.25rem;
-    font-family: var(--font-sans);
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: var(--text-secondary);
-    cursor: pointer;
-    border: none;
-    background: none;
-    border-bottom: 2px solid transparent;
-    transition: none;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    position: relative;
-    top: 1px;
-  }
-
-  .tab:hover {
-    color: var(--text-primary);
-  }
-
-  .tab.active {
-    color: var(--text-primary);
-    border-bottom-color: var(--text-primary);
-  }
-
-  .tab-badge {
-    font-family: var(--font-mono);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    background: var(--amber);
-    color: #000;
-    padding: 0.1rem 0.4rem;
-    border-radius: 9999px;
-    min-width: 1.25rem;
-    text-align: center;
-    line-height: 1.2;
-  }
-
-  .tab-badge.hidden {
-    display: none;
-  }
-
-  /* Content area */
-  .content {
-    padding: 1.5rem;
-    max-width: 1200px;
-    margin: 0 auto;
-  }
-
-  .tab-content {
-    display: none;
-  }
-
-  .tab-content.active {
-    display: block;
-  }
-
-  /* Approvals tab */
-  .section-title {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-secondary);
-    margin-bottom: 0.75rem;
-  }
-
-  .empty-state {
-    color: var(--text-secondary);
-    font-size: 0.875rem;
-    padding: 2rem;
-    text-align: center;
-    border: 1px dashed var(--border);
-    border-radius: 8px;
-    background: var(--bg-panel);
-  }
-
-  .card {
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1rem 1.25rem;
-    margin-bottom: 0.75rem;
-  }
-
-  .card.pending {
-    border-left: 3px solid var(--amber);
-    animation: pulse-amber 3s ease-in-out infinite;
-  }
-
-  @keyframes pulse-amber {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
-    50% { box-shadow: 0 0 12px 0 rgba(245, 158, 11, 0.08); }
-  }
-
-  .card .method {
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: 0.9375rem;
-    color: var(--text-primary);
-  }
-
-  .card .description {
-    color: var(--text-secondary);
-    font-size: 0.8125rem;
-    margin-top: 0.25rem;
-  }
-
-  .card .meta {
-    color: var(--text-secondary);
-    font-size: 0.8125rem;
-    margin: 0.25rem 0 0.625rem;
-    font-family: var(--font-mono);
-  }
-
-  .card pre {
-    background: var(--bg-base);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.625rem 0.75rem;
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    color: var(--text-secondary);
-    overflow-x: auto;
-    margin-bottom: 0.875rem;
-    line-height: 1.5;
-  }
-
-  .actions {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .actions button {
-    padding: 0.4rem 1rem;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    font-family: var(--font-sans);
-    font-size: 0.8125rem;
-    font-weight: 600;
-  }
-
-  .btn-approve {
-    background: var(--green);
-    color: #000;
-  }
-
-  .btn-approve:hover {
-    background: #16a34a;
-  }
-
-  .btn-deny {
-    background: var(--red);
-    color: #fff;
-  }
-
-  .btn-deny:hover {
-    background: #dc2626;
-  }
-
-  .card.decided {
-    opacity: 0.85;
-  }
-
-  .badge {
-    display: inline-block;
-    padding: 0.125rem 0.5rem;
-    border-radius: 4px;
-    font-family: var(--font-mono);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    vertical-align: middle;
-    margin-left: 0.5rem;
-  }
-
-  .badge.approved {
-    background: rgba(34, 197, 94, 0.15);
-    color: var(--green);
-  }
-
-  .badge.denied {
-    background: rgba(239, 68, 68, 0.15);
-    color: var(--red);
-  }
-
-  .badge-green { background: rgba(34, 197, 94, 0.15); color: var(--green); }
-  .badge-red { background: rgba(239, 68, 68, 0.15); color: var(--red); }
-
-  .countdown {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-  }
-  .countdown.urgent { color: var(--red); }
-  .badge-timeout { background: #78350f; color: #fbbf24; }
-
-  .decisions-section {
-    margin-top: 2rem;
-  }
-
-  /* Tools tab */
-  .provider-group {
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    margin-bottom: 0.75rem;
-    overflow: hidden;
-  }
-
-  .provider-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem 1rem;
-    cursor: pointer;
-    font-family: var(--font-sans);
-    font-weight: 600;
-    font-size: 0.9375rem;
-    background: none;
-    border: none;
-    color: var(--text-primary);
-    width: 100%;
-    text-align: left;
-  }
-
-  .provider-header:hover {
-    background: var(--bg-hover);
-  }
-
-  .provider-header-left {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .provider-header .chevron {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    transition: none;
-  }
-
-  .provider-header.collapsed .chevron {
-    transform: rotate(-90deg);
-  }
-
-  .provider-count {
-    font-family: var(--font-mono);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    background: var(--bg-base);
-    color: var(--text-secondary);
-    padding: 0.1rem 0.5rem;
-    border-radius: 9999px;
-    border: 1px solid var(--border);
-  }
-
-  .provider-capabilities {
-    border-top: 1px solid var(--border);
-  }
-
-  .provider-capabilities.hidden {
-    display: none;
-  }
-
-  .tool-item {
-    padding: 0.625rem 1rem 0.625rem 1.75rem;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
-  }
-
-  .tool-item:last-child {
-    border-bottom: none;
-  }
-
-  .tool-item:hover {
-    background: var(--bg-hover);
-  }
-
-  .tool-name {
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: var(--text-primary);
-  }
-
-  .tool-desc {
-    font-size: 0.8125rem;
-    color: var(--text-secondary);
-  }
-
-  /* Audit tab */
-  .audit-filters {
-    display: flex;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-    flex-wrap: wrap;
-    align-items: flex-end;
-  }
-
-  .filter-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .filter-group label {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-secondary);
-  }
-
-  .filter-group input {
-    padding: 0.4rem 0.625rem;
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    width: 180px;
-  }
-
-  .filter-group input::placeholder {
-    color: #555;
-  }
-
-  .filter-group input:focus {
-    outline: none;
-    border-color: var(--text-secondary);
-  }
-
-  .audit-table-wrap {
-    overflow-x: auto;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg-panel);
-  }
-
-  .audit-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.8125rem;
-  }
-
-  .audit-table th {
-    text-align: left;
-    padding: 0.625rem 1rem;
-    font-family: var(--font-sans);
-    font-weight: 600;
-    font-size: 0.6875rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-secondary);
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-base);
-  }
-
-  .audit-table td {
-    padding: 0.5rem 1rem;
-    border-bottom: 1px solid var(--border);
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    color: var(--text-primary);
-    white-space: nowrap;
-  }
-
-  .audit-table tbody tr {
-    cursor: pointer;
-  }
-
-  .audit-table tr:last-child td {
-    border-bottom: none;
-  }
-
-  .audit-table tbody tr:hover td {
-    background: var(--bg-hover);
-  }
-
-  .audit-table tr.row-approved td {
-    background: rgba(34, 197, 94, 0.12);
-  }
-
-  .audit-table tr.row-denied td {
-    background: rgba(245, 158, 11, 0.12);
-  }
-
-  .audit-table tr.row-error td {
-    background: rgba(239, 68, 68, 0.12);
-  }
-
-  .audit-table tbody tr.row-approved:hover td {
-    background: rgba(34, 197, 94, 0.2);
-  }
-
-  .audit-table tbody tr.row-denied:hover td {
-    background: rgba(245, 158, 11, 0.2);
-  }
-
-  .audit-table tbody tr.row-error:hover td {
-    background: rgba(239, 68, 68, 0.2);
-  }
-
-  .audit-table tr.audit-detail-row {
-    cursor: default;
-  }
-
-  .audit-table tr.audit-detail-row td {
-    padding: 0.75rem 1rem;
-    white-space: normal;
-    border-bottom: 2px solid var(--border);
-  }
-
-  .audit-detail-content {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .audit-detail-field {
-    display: flex;
-    gap: 0.75rem;
-    align-items: flex-start;
-  }
-
-  .audit-detail-label {
-    font-family: var(--font-sans);
-    font-weight: 600;
-    font-size: 0.6875rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-secondary);
-    min-width: 3.5rem;
-    padding-top: 0.125rem;
-  }
-
-  .audit-detail-value {
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    color: var(--text-primary);
-  }
-
-  .audit-detail-value pre {
-    margin: 0;
-    background: var(--bg-base);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.5rem 0.625rem;
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    color: var(--text-secondary);
-    overflow-x: auto;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
-  .verdict-allow {
-    color: var(--green);
-  }
-
-  .verdict-deny {
-    color: var(--red);
-  }
-
-  .verdict-require-approval {
-    color: var(--amber);
-  }
-
-  .audit-pagination {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem 0;
-    font-size: 0.8125rem;
-    color: var(--text-secondary);
-  }
-
-  .audit-pagination .page-info {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-  }
-
-  .pagination-btns {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .pagination-btns button {
-    padding: 0.35rem 0.875rem;
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    cursor: pointer;
-    font-family: var(--font-sans);
-    font-size: 0.8125rem;
-    font-weight: 500;
-  }
-
-  .pagination-btns button:hover:not(:disabled) {
-    background: var(--bg-hover);
-  }
-
-  .pagination-btns button:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-</style>
-</head>
-<body>
-
-<div class="header">
-  <div class="header-left">
-    <h1>MCP Broker</h1>
-  </div>
-  <div class="header-left">
-    <div class="status-dot" id="status"></div>
-    <span class="status-label" id="status-label">Disconnected</span>
-    <div class="notify-toggle">
-      <span class="notify-label">Notifications</span>
-      <div class="toggle-switch" id="notify-switch" onclick="toggleNotifications()" title="Enable desktop notifications"></div>
-    </div>
-  </div>
-</div>
-
-<div class="tab-bar">
-  <button class="tab active" onclick="switchTab('approvals')" id="tab-approvals">
-    Approvals
-    <span class="tab-badge hidden" id="pending-badge">0</span>
-  </button>
-  <button class="tab" onclick="switchTab('tools')" id="tab-tools">Tools</button>
-  <button class="tab" onclick="switchTab('audit')" id="tab-audit">Audit Log</button>
-</div>
-
-<div class="content">
-  <!-- Approvals Tab -->
-  <div class="tab-content active" id="content-approvals">
-    <div class="section-title">Pending Requests</div>
-    <div id="queue"></div>
-    <div id="empty" class="empty-state">No pending requests</div>
-    <div class="decisions-section" id="decisions-section" style="display:none;">
-      <div class="section-title">Recent Decisions</div>
-      <div id="history"></div>
-    </div>
-  </div>
-
-  <!-- Tools Tab -->
-  <div class="tab-content" id="content-tools">
-    <div class="section-title">Discovered Tools</div>
-    <div id="tools-list"></div>
-    <div id="tools-empty" class="empty-state" style="display:none;">No tools discovered</div>
-  </div>
-
-  <!-- Audit Log Tab -->
-  <div class="tab-content" id="content-audit">
-    <div class="audit-filters">
-      <div class="filter-group">
-        <label>Tool</label>
-        <input type="text" id="audit-tool" placeholder="e.g. github.push" oninput="debounceAudit()">
-      </div>
-    </div>
-    <div class="audit-table-wrap">
-      <table class="audit-table">
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Tool</th>
-            <th>Verdict</th>
-            <th>Approval</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="audit-body"></tbody>
-      </table>
-    </div>
-    <div id="audit-empty" class="empty-state" style="display:none; margin-top:1rem;">No audit records found</div>
-    <div class="audit-pagination" id="audit-pagination" style="display:none;">
-      <span class="page-info" id="page-info"></span>
-      <div class="pagination-btns">
-        <button id="btn-prev" onclick="auditPrev()" disabled>Prev</button>
-        <button id="btn-next" onclick="auditNext()" disabled>Next</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script>
-// --- Tab switching ---
-function switchTab(name) {
-  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
-  document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
-  document.getElementById('tab-' + name).classList.add('active');
-  document.getElementById('content-' + name).classList.add('active');
-
-  if (name === 'tools') loadTools();
-  if (name === 'audit') { auditOffset = 0; loadAudit(); }
-}
-
-// --- Utility ---
-function esc(s) {
-  var d = document.createElement('div');
-  d.textContent = s || '';
-  return d.innerHTML;
-}
-
-function formatCountdown(deadlineISO) {
-  if (!deadlineISO) return '';
-  var ms = new Date(deadlineISO) - Date.now();
-  if (ms <= 0) return '0:00';
-  var totalSecs = Math.ceil(ms / 1000);
-  var mins = Math.floor(totalSecs / 60);
-  var secs = totalSecs % 60;
-  return mins + ':' + secs.toString().padStart(2, '0');
-}
-
-function decisionBadge(req) {
-  if (req.decision === 'approved') {
-    return '<span class="badge badge-green">&#x2705; Approved</span>';
-  }
-  if (req.denial_reason === 'timeout') {
-    return '<span class="badge badge-timeout">&#x23F1;&#xFE0F; Timed out</span>';
-  }
-  return '<span class="badge badge-red">&#x274C; Denied</span>';
-}
-
-// --- Notifications ---
-var audioCtx = null;
-
-function initAudio() {
-  if (!audioCtx) {
-    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
-    catch(e) { /* Web Audio not supported */ }
-  }
-}
-
-// Unlock AudioContext on first user gesture
-document.addEventListener('click', initAudio, { once: true });
-
-function playChime() {
-  if (!audioCtx) return;
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-
-  var now = audioCtx.currentTime;
-
-  // First tone: C5 (523 Hz)
-  var osc1 = audioCtx.createOscillator();
-  var gain1 = audioCtx.createGain();
-  osc1.type = 'sine';
-  osc1.frequency.value = 523;
-  gain1.gain.setValueAtTime(0.3, now);
-  gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-  osc1.connect(gain1);
-  gain1.connect(audioCtx.destination);
-  osc1.start(now);
-  osc1.stop(now + 0.15);
-
-  // Second tone: E5 (659 Hz)
-  var osc2 = audioCtx.createOscillator();
-  var gain2 = audioCtx.createGain();
-  osc2.type = 'sine';
-  osc2.frequency.value = 659;
-  gain2.gain.setValueAtTime(0.3, now + 0.15);
-  gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
-  osc2.connect(gain2);
-  gain2.connect(audioCtx.destination);
-  osc2.start(now + 0.15);
-  osc2.stop(now + 0.3);
-}
-
-var notifyEnabled = localStorage.getItem('mcp-broker-notify') === 'true';
-
-function updateToggleUI() {
-  var sw = document.getElementById('notify-switch');
-  if (!('Notification' in window)) {
-    sw.classList.add('denied');
-    sw.title = 'Notifications not supported in this browser';
-    return;
-  }
-  if (Notification.permission === 'denied') {
-    sw.classList.remove('active');
-    sw.classList.add('denied');
-    sw.title = 'Notifications blocked — re-enable in browser settings';
-    notifyEnabled = false;
-    localStorage.setItem('mcp-broker-notify', 'false');
-    return;
-  }
-  sw.classList.remove('denied');
-  if (notifyEnabled && Notification.permission === 'granted') {
-    sw.classList.add('active');
-    sw.title = 'Desktop notifications enabled';
-  } else {
-    sw.classList.remove('active');
-    sw.title = 'Enable desktop notifications';
-    if (notifyEnabled && Notification.permission !== 'granted') {
-      notifyEnabled = false;
-      localStorage.setItem('mcp-broker-notify', 'false');
-    }
-  }
-}
-
-function toggleNotifications() {
-  if (!('Notification' in window) || Notification.permission === 'denied') return;
-  if (notifyEnabled) {
-    notifyEnabled = false;
-    localStorage.setItem('mcp-broker-notify', 'false');
-    updateToggleUI();
-    return;
-  }
-  if (Notification.permission === 'granted') {
-    notifyEnabled = true;
-    localStorage.setItem('mcp-broker-notify', 'true');
-    updateToggleUI();
-    return;
-  }
-  Notification.requestPermission().then(function(result) {
-    if (result === 'granted') {
-      notifyEnabled = true;
-      localStorage.setItem('mcp-broker-notify', 'true');
-    }
-    updateToggleUI();
-  });
-}
-
-function showNotification(tool) {
-  if (!notifyEnabled || Notification.permission !== 'granted') return;
-  if (document.visibilityState === 'visible') return;
-  var n = new Notification('mcp-broker \u2014 Approval Required', { body: tool, tag: 'mcp-broker-new' });
-  n.onclick = function() { window.focus(); n.close(); };
-}
-
-updateToggleUI();
-
-// --- Approvals ---
-var queue = document.getElementById('queue');
-var empty = document.getElementById('empty');
-var statusDot = document.getElementById('status');
-var statusLabel = document.getElementById('status-label');
-var historyDiv = document.getElementById('history');
-var decisionsSection = document.getElementById('decisions-section');
-var cards = new Map();
-var pendingData = new Map();
-var toolDescriptions = {};
-var countdownInterval = null;
-
-// Load tool descriptions for use in approval cards
-fetch('api/tools').then(function(r) { return r.json(); }).then(function(data) {
-  var tools = data.tools || [];
-  tools.forEach(function(tool) {
-    if (tool.description) toolDescriptions[tool.name] = tool.description;
-  });
-});
-
-function updateBadge() {
-  var badge = document.getElementById('pending-badge');
-  var count = cards.size;
-  badge.textContent = count;
-  if (count === 0) {
-    badge.classList.add('hidden');
-  } else {
-    badge.classList.remove('hidden');
-  }
-}
-
-function renderQueue() {
-  empty.style.display = cards.size === 0 ? 'block' : 'none';
-  updateBadge();
-}
-
-function renderPending() {
-  pendingData.forEach(function(pr, id) {
-    var div = cards.get(id);
-    if (!div || !pr.deadline) return;
-    var countdownEl = div.querySelector('.countdown');
-    if (!countdownEl) return;
-    var remaining = formatCountdown(pr.deadline);
-    var ms = new Date(pr.deadline) - Date.now();
-    countdownEl.textContent = remaining ? 'Expires in ' + remaining : 'Expired';
-    if (ms <= 60000) {
-      countdownEl.classList.add('urgent');
-    } else {
-      countdownEl.classList.remove('urgent');
-    }
-  });
-}
-
-function addCard(pr) {
-  var div = document.createElement('div');
-  div.className = 'card pending';
-  div.dataset.id = pr.id;
-  var ts = new Date(pr.timestamp).toLocaleTimeString();
-  var desc = toolDescriptions[pr.tool];
-  var countdownHtml = pr.deadline ? '<div class="countdown"></div>' : '';
-  div.innerHTML =
-    '<div class="method">' + esc(pr.tool) + '</div>' +
-    (desc ? '<div class="description">' + esc(desc) + '</div>' : '') +
-    '<div class="meta">' + ts + '</div>' +
-    countdownHtml +
-    '<pre>' + esc(JSON.stringify(pr.args, null, 2)) + '</pre>' +
-    '<div class="actions">' +
-      '<button class="btn-approve" onclick="decide(\'' + pr.id + '\',\'approve\')">Approve</button>' +
-      '<button class="btn-deny" onclick="decide(\'' + pr.id + '\',\'deny\')">Deny</button>' +
-    '</div>';
-  queue.appendChild(div);
-  cards.set(pr.id, div);
-  pendingData.set(pr.id, pr);
-  renderQueue();
-  renderPending();
-}
-
-function removeCard(id) {
-  var div = cards.get(id);
-  if (div) { div.remove(); cards.delete(id); }
-  pendingData.delete(id);
-  renderQueue();
-}
-
-function decide(id, decision) {
-  fetch('api/decide', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: id, decision: decision })
-  });
-}
-
-function addDecision(dr) {
-  var div = document.createElement('div');
-  div.className = 'card decided';
-  div.dataset.id = dr.id;
-  var ts = new Date(dr.timestamp).toLocaleTimeString();
-  div.innerHTML =
-    '<div class="method">' + esc(dr.tool) + ' ' + decisionBadge(dr) + '</div>' +
-    '<div class="meta">' + ts + '</div>';
-  historyDiv.prepend(div);
-  decisionsSection.style.display = 'block';
-}
-
-// Load pending requests
-fetch('api/pending').then(function(r) { return r.json(); }).then(function(items) {
-  items.sort(function(a, b) { return new Date(a.timestamp) - new Date(b.timestamp); });
-  items.forEach(addCard);
-});
-
-// SSE for real-time updates
-var es = new EventSource('events');
-es.onmessage = function(e) {
-  var msg = JSON.parse(e.data);
-  if (msg.type === 'new') { addCard(msg.data); playChime(); showNotification(msg.data.tool); }
-  if (msg.type === 'removed') removeCard(msg.data.id);
-  if (msg.type === 'decided') { removeCard(msg.data.id); addDecision(msg.data); }
-};
-es.onopen = function() {
-  statusDot.classList.add('connected');
-  statusLabel.textContent = 'Connected';
-};
-es.onerror = function() {
-  statusDot.classList.remove('connected');
-  statusLabel.textContent = 'Disconnected';
-};
-
-// Live countdown update — initialized once
-if (!countdownInterval) {
-  countdownInterval = setInterval(renderPending, 1000);
-}
-
-// --- Tools ---
-function loadTools() {
-  var list = document.getElementById('tools-list');
-  var emptyEl = document.getElementById('tools-empty');
-
-  fetch('api/tools').then(function(r) { return r.json(); }).then(function(data) {
-    var tools = data.tools || [];
-    if (tools.length === 0) {
-      list.innerHTML = '';
-      emptyEl.style.display = 'block';
-      return;
-    }
-    emptyEl.style.display = 'none';
-
-    // Group by provider prefix
-    var groups = {};
-    tools.forEach(function(tool) {
-      var parts = tool.name.split('.');
-      var provider = parts.length > 1 ? parts[0] : 'other';
-      if (!groups[provider]) groups[provider] = [];
-      groups[provider].push(tool);
-    });
-
-    var html = '';
-    var providers = Object.keys(groups).sort();
-    providers.forEach(function(provider) {
-      var items = groups[provider];
-      html += '<div class="provider-group">';
-      html += '<button class="provider-header collapsed" onclick="toggleProvider(this)">';
-      html += '<div class="provider-header-left"><span class="chevron">&#9660;</span> ' + esc(provider) + '</div>';
-      html += '<span class="provider-count">' + items.length + '</span>';
-      html += '</button>';
-      html += '<div class="provider-capabilities hidden">';
-      items.forEach(function(tool) {
-        html += '<div class="tool-item">';
-        html += '<div class="tool-name">' + esc(tool.name) + '</div>';
-        if (tool.description) html += '<div class="tool-desc">' + esc(tool.description) + '</div>';
-        html += '</div>';
-      });
-      html += '</div></div>';
-    });
-    list.innerHTML = html;
-  });
-}
-
-function toggleProvider(btn) {
-  btn.classList.toggle('collapsed');
-  var caps = btn.nextElementSibling;
-  caps.classList.toggle('hidden');
-}
-
-// --- Audit Log ---
-var auditLimit = 20;
-var auditOffset = 0;
-var auditTotal = 0;
-var auditTimer = null;
-var auditRecords = [];
-var expandedAuditIdx = -1;
-
-function toggleAuditDetail(idx) {
-  var body = document.getElementById('audit-body');
-  var existing = document.getElementById('audit-detail-' + idx);
-
-  // Collapse previously expanded row
-  if (expandedAuditIdx >= 0) {
-    var prev = document.getElementById('audit-detail-' + expandedAuditIdx);
-    if (prev) prev.remove();
-  }
-
-  // If clicking the same row, just collapse
-  if (expandedAuditIdx === idx) {
-    expandedAuditIdx = -1;
-    return;
-  }
-
-  expandedAuditIdx = idx;
-  var rec = auditRecords[idx];
-  var sourceRow = body.querySelector('tr[data-audit-idx="' + idx + '"]');
-  if (!sourceRow) return;
-
-  var rowClass = sourceRow.className;
-  var detailRow = document.createElement('tr');
-  detailRow.id = 'audit-detail-' + idx;
-  detailRow.className = rowClass + ' audit-detail-row';
-
-  var td = document.createElement('td');
-  td.colSpan = 5;
-
-  var content = '<div class="audit-detail-content">';
-
-  // Args
-  var argsText = rec.args ? JSON.stringify(rec.args, null, 2) : '-';
-  content += '<div class="audit-detail-field">';
-  content += '<div class="audit-detail-label">Args</div>';
-  content += '<div class="audit-detail-value"><pre>' + esc(argsText) + '</pre></div>';
-  content += '</div>';
-
-  // Error (only shown when there's an error)
-  if (rec.error) {
-    content += '<div class="audit-detail-field">';
-    content += '<div class="audit-detail-label">Error</div>';
-    content += '<div class="audit-detail-value">' + esc(rec.error) + '</div>';
-    content += '</div>';
-  }
-
-  content += '</div>';
-  td.innerHTML = content;
-  detailRow.appendChild(td);
-  sourceRow.after(detailRow);
-}
-
-function debounceAudit() {
-  clearTimeout(auditTimer);
-  auditTimer = setTimeout(function() {
-    auditOffset = 0;
-    loadAudit();
-  }, 300);
-}
-
-function loadAudit() {
-  var tool = document.getElementById('audit-tool').value.trim();
-  var params = new URLSearchParams();
-  if (tool) params.set('tool', tool);
-  params.set('limit', auditLimit);
-  params.set('offset', auditOffset);
-
-  var body = document.getElementById('audit-body');
-  var emptyEl = document.getElementById('audit-empty');
-  var pagination = document.getElementById('audit-pagination');
-  var tableWrap = document.querySelector('.audit-table-wrap');
-
-  fetch('api/audit?' + params.toString()).then(function(r) { return r.json(); }).then(function(data) {
-    var records = data.records || [];
-    auditTotal = data.total || 0;
-    expandedAuditIdx = -1;
-
-    if (records.length === 0) {
-      body.innerHTML = '';
-      tableWrap.style.display = 'none';
-      emptyEl.style.display = 'block';
-      pagination.style.display = 'none';
-      return;
-    }
-
-    tableWrap.style.display = 'block';
-    emptyEl.style.display = 'none';
-
-    var html = '';
-    auditRecords = records;
-    records.forEach(function(rec, idx) {
-      var ts = rec.timestamp ? new Date(rec.timestamp).toLocaleString() : '-';
-      var verdictClass = '';
-      var verdictText = rec.verdict || '-';
-      if (verdictText === 'allow') verdictClass = 'verdict-allow';
-      else if (verdictText === 'deny') verdictClass = 'verdict-deny';
-      else if (verdictText === 'require-approval') verdictClass = 'verdict-require-approval';
-
-      var result = 'success';
-      if (rec.error) {
-        result = 'error';
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MCP Broker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
       }
 
-      // Approval column
-      var approval = '-';
-      if (rec.approved === true) approval = 'approved';
-      else if (rec.approved === false) approval = 'denied';
-
-      // Row color based on final outcome (error > denied > approved)
-      var rowClass = '';
-      if (rec.error) {
-        rowClass = 'row-error';
-      } else if (verdictText === 'deny' || (verdictText === 'require-approval' && rec.approved === false)) {
-        rowClass = 'row-denied';
-      } else {
-        rowClass = 'row-approved';
+      :root {
+        --bg-base: #111111;
+        --bg-panel: #1a1a1a;
+        --bg-hover: #242424;
+        --text-primary: #e5e5e5;
+        --text-secondary: #a3a3a3;
+        --border: #333333;
+        --green: #22c55e;
+        --red: #ef4444;
+        --amber: #f59e0b;
+        --font-mono: "JetBrains Mono", monospace;
+        --font-sans: "DM Sans", sans-serif;
       }
 
-      html += '<tr class="' + rowClass + '" data-audit-idx="' + idx + '" onclick="toggleAuditDetail(' + idx + ')">';
-      html += '<td>' + esc(ts) + '</td>';
-      html += '<td>' + esc(rec.tool || '-') + '</td>';
-      html += '<td class="' + verdictClass + '">' + esc(verdictText) + '</td>';
-      html += '<td>' + esc(approval) + '</td>';
-      html += '<td>' + esc(result) + '</td>';
-      html += '</tr>';
-    });
-    body.innerHTML = html;
+      body {
+        font-family: var(--font-sans);
+        background: var(--bg-base);
+        color: var(--text-primary);
+        min-height: 100vh;
+      }
 
-    // Pagination
-    var start = auditOffset + 1;
-    var end = Math.min(auditOffset + records.length, auditTotal);
-    document.getElementById('page-info').textContent = 'Showing ' + start + '-' + end + ' of ' + auditTotal;
-    document.getElementById('btn-prev').disabled = auditOffset === 0;
-    document.getElementById('btn-next').disabled = (auditOffset + auditLimit) >= auditTotal;
-    pagination.style.display = 'flex';
-  });
-}
+      /* Header */
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-panel);
+      }
 
-function auditPrev() {
-  auditOffset = Math.max(0, auditOffset - auditLimit);
-  loadAudit();
-}
+      .header-left {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
 
-function auditNext() {
-  auditOffset += auditLimit;
-  loadAudit();
-}
-</script>
-</body>
+      .header h1 {
+        font-family: var(--font-sans);
+        font-size: 1.125rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        letter-spacing: -0.01em;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--red);
+        flex-shrink: 0;
+      }
+
+      .status-dot.connected {
+        background: var(--green);
+      }
+
+      .status-label {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        font-family: var(--font-mono);
+      }
+
+      .notify-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-left: 1rem;
+        padding-left: 1rem;
+        border-left: 1px solid var(--border);
+      }
+
+      .notify-label {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        font-family: var(--font-mono);
+        user-select: none;
+      }
+
+      .toggle-switch {
+        position: relative;
+        width: 32px;
+        height: 18px;
+        background: var(--bg-base);
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        cursor: pointer;
+        transition: background 0.2s;
+        flex-shrink: 0;
+      }
+
+      .toggle-switch.active {
+        background: var(--amber);
+        border-color: var(--amber);
+      }
+
+      .toggle-switch.denied {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .toggle-switch::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 12px;
+        height: 12px;
+        background: var(--text-secondary);
+        border-radius: 50%;
+        transition:
+          transform 0.2s,
+          background 0.2s;
+      }
+
+      .toggle-switch.active::after {
+        transform: translateX(14px);
+        background: #000;
+      }
+
+      /* Tab bar */
+      .tab-bar {
+        display: flex;
+        gap: 0;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-panel);
+        padding: 0 1.5rem;
+      }
+
+      .tab {
+        padding: 0.75rem 1.25rem;
+        font-family: var(--font-sans);
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        cursor: pointer;
+        border: none;
+        background: none;
+        border-bottom: 2px solid transparent;
+        transition: none;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        position: relative;
+        top: 1px;
+      }
+
+      .tab:hover {
+        color: var(--text-primary);
+      }
+
+      .tab.active {
+        color: var(--text-primary);
+        border-bottom-color: var(--text-primary);
+      }
+
+      .tab-badge {
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        background: var(--amber);
+        color: #000;
+        padding: 0.1rem 0.4rem;
+        border-radius: 9999px;
+        min-width: 1.25rem;
+        text-align: center;
+        line-height: 1.2;
+      }
+
+      .tab-badge.hidden {
+        display: none;
+      }
+
+      /* Content area */
+      .content {
+        padding: 1.5rem;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      .tab-content {
+        display: none;
+      }
+
+      .tab-content.active {
+        display: block;
+      }
+
+      /* Approvals tab */
+      .section-title {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        margin-bottom: 0.75rem;
+      }
+
+      .empty-state {
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        padding: 2rem;
+        text-align: center;
+        border: 1px dashed var(--border);
+        border-radius: 8px;
+        background: var(--bg-panel);
+      }
+
+      .card {
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 1rem 1.25rem;
+        margin-bottom: 0.75rem;
+      }
+
+      .card.pending {
+        border-left: 3px solid var(--amber);
+        animation: pulse-amber 3s ease-in-out infinite;
+      }
+
+      @keyframes pulse-amber {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+        }
+        50% {
+          box-shadow: 0 0 12px 0 rgba(245, 158, 11, 0.08);
+        }
+      }
+
+      .card .method {
+        font-family: var(--font-mono);
+        font-weight: 600;
+        font-size: 0.9375rem;
+        color: var(--text-primary);
+      }
+
+      .card .description {
+        color: var(--text-secondary);
+        font-size: 0.8125rem;
+        margin-top: 0.25rem;
+      }
+
+      .card .meta {
+        color: var(--text-secondary);
+        font-size: 0.8125rem;
+        margin: 0.25rem 0 0.625rem;
+        font-family: var(--font-mono);
+      }
+
+      .card pre {
+        background: var(--bg-base);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.625rem 0.75rem;
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        overflow-x: auto;
+        margin-bottom: 0.875rem;
+        line-height: 1.5;
+      }
+
+      .actions {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      .actions button {
+        padding: 0.4rem 1rem;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-family: var(--font-sans);
+        font-size: 0.8125rem;
+        font-weight: 600;
+      }
+
+      .btn-approve {
+        background: var(--green);
+        color: #000;
+      }
+
+      .btn-approve:hover {
+        background: #16a34a;
+      }
+
+      .btn-deny {
+        background: var(--red);
+        color: #fff;
+      }
+
+      .btn-deny:hover {
+        background: #dc2626;
+      }
+
+      .card.decided {
+        opacity: 0.85;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 0.125rem 0.5rem;
+        border-radius: 4px;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        vertical-align: middle;
+        margin-left: 0.5rem;
+      }
+
+      .badge.approved {
+        background: rgba(34, 197, 94, 0.15);
+        color: var(--green);
+      }
+
+      .badge.denied {
+        background: rgba(239, 68, 68, 0.15);
+        color: var(--red);
+      }
+
+      .badge-green {
+        background: rgba(34, 197, 94, 0.15);
+        color: var(--green);
+      }
+      .badge-red {
+        background: rgba(239, 68, 68, 0.15);
+        color: var(--red);
+      }
+
+      .countdown {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+      }
+      .countdown.urgent {
+        color: var(--red);
+      }
+      .badge-timeout {
+        background: #78350f;
+        color: #fbbf24;
+      }
+
+      .decisions-section {
+        margin-top: 2rem;
+      }
+
+      /* Tools tab */
+      .provider-group {
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin-bottom: 0.75rem;
+        overflow: hidden;
+      }
+
+      .provider-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.75rem 1rem;
+        cursor: pointer;
+        font-family: var(--font-sans);
+        font-weight: 600;
+        font-size: 0.9375rem;
+        background: none;
+        border: none;
+        color: var(--text-primary);
+        width: 100%;
+        text-align: left;
+      }
+
+      .provider-header:hover {
+        background: var(--bg-hover);
+      }
+
+      .provider-header-left {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .provider-header .chevron {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        transition: none;
+      }
+
+      .provider-header.collapsed .chevron {
+        transform: rotate(-90deg);
+      }
+
+      .provider-count {
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        background: var(--bg-base);
+        color: var(--text-secondary);
+        padding: 0.1rem 0.5rem;
+        border-radius: 9999px;
+        border: 1px solid var(--border);
+      }
+
+      .provider-capabilities {
+        border-top: 1px solid var(--border);
+      }
+
+      .provider-capabilities.hidden {
+        display: none;
+      }
+
+      .tool-item {
+        padding: 0.625rem 1rem 0.625rem 1.75rem;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+      }
+
+      .tool-item:last-child {
+        border-bottom: none;
+      }
+
+      .tool-item:hover {
+        background: var(--bg-hover);
+      }
+
+      .tool-name {
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: var(--text-primary);
+      }
+
+      .tool-desc {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+      }
+
+      /* Tool item becomes a button */
+      .tool-item {
+        background: none;
+        border: none;
+        border-bottom: 1px solid var(--border);
+        color: inherit;
+        width: 100%;
+        text-align: left;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .tool-item:focus-visible {
+        outline: 2px solid var(--text-secondary);
+        outline-offset: -2px;
+      }
+
+      .tool-item-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .tool-item .chevron {
+        font-size: 0.625rem;
+        color: var(--text-secondary);
+        transform: rotate(-90deg);
+        display: inline-block;
+        width: 0.75rem;
+        flex-shrink: 0;
+      }
+
+      .tool-item.expanded .chevron {
+        transform: rotate(0deg);
+      }
+
+      .tool-item-text {
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+        min-width: 0;
+      }
+
+      /* Detail panel */
+      .tool-detail {
+        padding: 0.75rem 1rem 0.875rem 2.5rem;
+        background: var(--bg-base);
+        border-bottom: 1px solid var(--border);
+        border-left: 2px solid var(--text-secondary);
+      }
+
+      .tool-detail-label {
+        font-family: var(--font-sans);
+        font-weight: 600;
+        font-size: 0.6875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        margin-bottom: 0.375rem;
+      }
+
+      .tool-schema-empty {
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        font-style: italic;
+      }
+
+      .tool-schema-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8125rem;
+      }
+
+      .tool-schema-table th {
+        text-align: left;
+        padding: 0.375rem 0.625rem;
+        font-family: var(--font-sans);
+        font-weight: 600;
+        font-size: 0.6875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .tool-schema-table td {
+        padding: 0.375rem 0.625rem;
+        border-bottom: 1px solid var(--border);
+        font-family: var(--font-mono);
+        color: var(--text-primary);
+        vertical-align: top;
+      }
+
+      .tool-schema-table tr:last-child td {
+        border-bottom: none;
+      }
+
+      .tool-schema-table .col-name {
+        color: var(--text-primary);
+        white-space: nowrap;
+      }
+
+      .tool-schema-table .col-type {
+        color: var(--text-secondary);
+        white-space: nowrap;
+      }
+
+      .tool-schema-table .col-req {
+        color: var(--green);
+        text-align: center;
+        width: 1.5rem;
+      }
+
+      .tool-schema-table .col-desc {
+        color: var(--text-secondary);
+        font-family: var(--font-sans);
+        word-break: break-word;
+      }
+
+      .tool-schema-raw {
+        margin-top: 0.75rem;
+      }
+
+      .tool-schema-raw summary {
+        font-family: var(--font-sans);
+        font-size: 0.6875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .tool-schema-raw summary:hover {
+        color: var(--text-primary);
+      }
+
+      .tool-schema-raw pre {
+        margin-top: 0.5rem;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.5rem 0.625rem;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        overflow-x: auto;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      /* Audit tab */
+      .audit-filters {
+        display: flex;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+        align-items: flex-end;
+      }
+
+      .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      .filter-group label {
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+      }
+
+      .filter-group input {
+        padding: 0.4rem 0.625rem;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        color: var(--text-primary);
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        width: 180px;
+      }
+
+      .filter-group input::placeholder {
+        color: #555;
+      }
+
+      .filter-group input:focus {
+        outline: none;
+        border-color: var(--text-secondary);
+      }
+
+      .audit-table-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-panel);
+      }
+
+      .audit-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8125rem;
+      }
+
+      .audit-table th {
+        text-align: left;
+        padding: 0.625rem 1rem;
+        font-family: var(--font-sans);
+        font-weight: 600;
+        font-size: 0.6875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-base);
+      }
+
+      .audit-table td {
+        padding: 0.5rem 1rem;
+        border-bottom: 1px solid var(--border);
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        color: var(--text-primary);
+        white-space: nowrap;
+      }
+
+      .audit-table tbody tr {
+        cursor: pointer;
+      }
+
+      .audit-table tr:last-child td {
+        border-bottom: none;
+      }
+
+      .audit-table tbody tr:hover td {
+        background: var(--bg-hover);
+      }
+
+      .audit-table tr.row-approved td {
+        background: rgba(34, 197, 94, 0.12);
+      }
+
+      .audit-table tr.row-denied td {
+        background: rgba(245, 158, 11, 0.12);
+      }
+
+      .audit-table tr.row-error td {
+        background: rgba(239, 68, 68, 0.12);
+      }
+
+      .audit-table tbody tr.row-approved:hover td {
+        background: rgba(34, 197, 94, 0.2);
+      }
+
+      .audit-table tbody tr.row-denied:hover td {
+        background: rgba(245, 158, 11, 0.2);
+      }
+
+      .audit-table tbody tr.row-error:hover td {
+        background: rgba(239, 68, 68, 0.2);
+      }
+
+      .audit-table tr.audit-detail-row {
+        cursor: default;
+      }
+
+      .audit-table tr.audit-detail-row td {
+        padding: 0.75rem 1rem;
+        white-space: normal;
+        border-bottom: 2px solid var(--border);
+      }
+
+      .audit-detail-content {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+
+      .audit-detail-field {
+        display: flex;
+        gap: 0.75rem;
+        align-items: flex-start;
+      }
+
+      .audit-detail-label {
+        font-family: var(--font-sans);
+        font-weight: 600;
+        font-size: 0.6875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        min-width: 3.5rem;
+        padding-top: 0.125rem;
+      }
+
+      .audit-detail-value {
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        color: var(--text-primary);
+      }
+
+      .audit-detail-value pre {
+        margin: 0;
+        background: var(--bg-base);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.5rem 0.625rem;
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        overflow-x: auto;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .verdict-allow {
+        color: var(--green);
+      }
+
+      .verdict-deny {
+        color: var(--red);
+      }
+
+      .verdict-require-approval {
+        color: var(--amber);
+      }
+
+      .audit-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.75rem 0;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+      }
+
+      .audit-pagination .page-info {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+      }
+
+      .pagination-btns {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      .pagination-btns button {
+        padding: 0.35rem 0.875rem;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        color: var(--text-primary);
+        cursor: pointer;
+        font-family: var(--font-sans);
+        font-size: 0.8125rem;
+        font-weight: 500;
+      }
+
+      .pagination-btns button:hover:not(:disabled) {
+        background: var(--bg-hover);
+      }
+
+      .pagination-btns button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <div class="header-left">
+        <h1>MCP Broker</h1>
+      </div>
+      <div class="header-left">
+        <div class="status-dot" id="status"></div>
+        <span class="status-label" id="status-label">Disconnected</span>
+        <div class="notify-toggle">
+          <span class="notify-label">Notifications</span>
+          <div
+            class="toggle-switch"
+            id="notify-switch"
+            onclick="toggleNotifications()"
+            title="Enable desktop notifications"
+          ></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-bar">
+      <button
+        class="tab active"
+        onclick="switchTab('approvals')"
+        id="tab-approvals"
+      >
+        Approvals
+        <span class="tab-badge hidden" id="pending-badge">0</span>
+      </button>
+      <button class="tab" onclick="switchTab('tools')" id="tab-tools">
+        Tools
+      </button>
+      <button class="tab" onclick="switchTab('audit')" id="tab-audit">
+        Audit Log
+      </button>
+    </div>
+
+    <div class="content">
+      <!-- Approvals Tab -->
+      <div class="tab-content active" id="content-approvals">
+        <div class="section-title">Pending Requests</div>
+        <div id="queue"></div>
+        <div id="empty" class="empty-state">No pending requests</div>
+        <div
+          class="decisions-section"
+          id="decisions-section"
+          style="display: none"
+        >
+          <div class="section-title">Recent Decisions</div>
+          <div id="history"></div>
+        </div>
+      </div>
+
+      <!-- Tools Tab -->
+      <div class="tab-content" id="content-tools">
+        <div class="section-title">Discovered Tools</div>
+        <div id="tools-list"></div>
+        <div id="tools-empty" class="empty-state" style="display: none">
+          No tools discovered
+        </div>
+      </div>
+
+      <!-- Audit Log Tab -->
+      <div class="tab-content" id="content-audit">
+        <div class="audit-filters">
+          <div class="filter-group">
+            <label>Tool</label>
+            <input
+              type="text"
+              id="audit-tool"
+              placeholder="e.g. github.push"
+              oninput="debounceAudit()"
+            />
+          </div>
+        </div>
+        <div class="audit-table-wrap">
+          <table class="audit-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Tool</th>
+                <th>Verdict</th>
+                <th>Approval</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="audit-body"></tbody>
+          </table>
+        </div>
+        <div
+          id="audit-empty"
+          class="empty-state"
+          style="display: none; margin-top: 1rem"
+        >
+          No audit records found
+        </div>
+        <div
+          class="audit-pagination"
+          id="audit-pagination"
+          style="display: none"
+        >
+          <span class="page-info" id="page-info"></span>
+          <div class="pagination-btns">
+            <button id="btn-prev" onclick="auditPrev()" disabled>Prev</button>
+            <button id="btn-next" onclick="auditNext()" disabled>Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // --- Tab switching ---
+      function switchTab(name) {
+        document.querySelectorAll(".tab").forEach(function (t) {
+          t.classList.remove("active");
+        });
+        document.querySelectorAll(".tab-content").forEach(function (c) {
+          c.classList.remove("active");
+        });
+        document.getElementById("tab-" + name).classList.add("active");
+        document.getElementById("content-" + name).classList.add("active");
+
+        if (name === "tools") loadTools();
+        if (name === "audit") {
+          auditOffset = 0;
+          loadAudit();
+        }
+      }
+
+      // --- Utility ---
+      function esc(s) {
+        var d = document.createElement("div");
+        d.textContent = s || "";
+        return d.innerHTML;
+      }
+
+      function formatCountdown(deadlineISO) {
+        if (!deadlineISO) return "";
+        var ms = new Date(deadlineISO) - Date.now();
+        if (ms <= 0) return "0:00";
+        var totalSecs = Math.ceil(ms / 1000);
+        var mins = Math.floor(totalSecs / 60);
+        var secs = totalSecs % 60;
+        return mins + ":" + secs.toString().padStart(2, "0");
+      }
+
+      function decisionBadge(req) {
+        if (req.decision === "approved") {
+          return '<span class="badge badge-green">&#x2705; Approved</span>';
+        }
+        if (req.denial_reason === "timeout") {
+          return '<span class="badge badge-timeout">&#x23F1;&#xFE0F; Timed out</span>';
+        }
+        return '<span class="badge badge-red">&#x274C; Denied</span>';
+      }
+
+      // --- Notifications ---
+      var audioCtx = null;
+
+      function initAudio() {
+        if (!audioCtx) {
+          try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          } catch (e) {
+            /* Web Audio not supported */
+          }
+        }
+      }
+
+      // Unlock AudioContext on first user gesture
+      document.addEventListener("click", initAudio, { once: true });
+
+      function playChime() {
+        if (!audioCtx) return;
+        if (audioCtx.state === "suspended") audioCtx.resume();
+
+        var now = audioCtx.currentTime;
+
+        // First tone: C5 (523 Hz)
+        var osc1 = audioCtx.createOscillator();
+        var gain1 = audioCtx.createGain();
+        osc1.type = "sine";
+        osc1.frequency.value = 523;
+        gain1.gain.setValueAtTime(0.3, now);
+        gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+        osc1.connect(gain1);
+        gain1.connect(audioCtx.destination);
+        osc1.start(now);
+        osc1.stop(now + 0.15);
+
+        // Second tone: E5 (659 Hz)
+        var osc2 = audioCtx.createOscillator();
+        var gain2 = audioCtx.createGain();
+        osc2.type = "sine";
+        osc2.frequency.value = 659;
+        gain2.gain.setValueAtTime(0.3, now + 0.15);
+        gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+        osc2.connect(gain2);
+        gain2.connect(audioCtx.destination);
+        osc2.start(now + 0.15);
+        osc2.stop(now + 0.3);
+      }
+
+      var notifyEnabled = localStorage.getItem("mcp-broker-notify") === "true";
+
+      function updateToggleUI() {
+        var sw = document.getElementById("notify-switch");
+        if (!("Notification" in window)) {
+          sw.classList.add("denied");
+          sw.title = "Notifications not supported in this browser";
+          return;
+        }
+        if (Notification.permission === "denied") {
+          sw.classList.remove("active");
+          sw.classList.add("denied");
+          sw.title = "Notifications blocked — re-enable in browser settings";
+          notifyEnabled = false;
+          localStorage.setItem("mcp-broker-notify", "false");
+          return;
+        }
+        sw.classList.remove("denied");
+        if (notifyEnabled && Notification.permission === "granted") {
+          sw.classList.add("active");
+          sw.title = "Desktop notifications enabled";
+        } else {
+          sw.classList.remove("active");
+          sw.title = "Enable desktop notifications";
+          if (notifyEnabled && Notification.permission !== "granted") {
+            notifyEnabled = false;
+            localStorage.setItem("mcp-broker-notify", "false");
+          }
+        }
+      }
+
+      function toggleNotifications() {
+        if (!("Notification" in window) || Notification.permission === "denied")
+          return;
+        if (notifyEnabled) {
+          notifyEnabled = false;
+          localStorage.setItem("mcp-broker-notify", "false");
+          updateToggleUI();
+          return;
+        }
+        if (Notification.permission === "granted") {
+          notifyEnabled = true;
+          localStorage.setItem("mcp-broker-notify", "true");
+          updateToggleUI();
+          return;
+        }
+        Notification.requestPermission().then(function (result) {
+          if (result === "granted") {
+            notifyEnabled = true;
+            localStorage.setItem("mcp-broker-notify", "true");
+          }
+          updateToggleUI();
+        });
+      }
+
+      function showNotification(tool) {
+        if (!notifyEnabled || Notification.permission !== "granted") return;
+        if (document.visibilityState === "visible") return;
+        var n = new Notification("mcp-broker \u2014 Approval Required", {
+          body: tool,
+          tag: "mcp-broker-new",
+        });
+        n.onclick = function () {
+          window.focus();
+          n.close();
+        };
+      }
+
+      updateToggleUI();
+
+      // --- Approvals ---
+      var queue = document.getElementById("queue");
+      var empty = document.getElementById("empty");
+      var statusDot = document.getElementById("status");
+      var statusLabel = document.getElementById("status-label");
+      var historyDiv = document.getElementById("history");
+      var decisionsSection = document.getElementById("decisions-section");
+      var cards = new Map();
+      var pendingData = new Map();
+      var toolDescriptions = {};
+      var countdownInterval = null;
+
+      // Load tool descriptions for use in approval cards
+      fetch("api/tools")
+        .then(function (r) {
+          return r.json();
+        })
+        .then(function (data) {
+          var tools = data.tools || [];
+          tools.forEach(function (tool) {
+            if (tool.description)
+              toolDescriptions[tool.name] = tool.description;
+          });
+        });
+
+      function updateBadge() {
+        var badge = document.getElementById("pending-badge");
+        var count = cards.size;
+        badge.textContent = count;
+        if (count === 0) {
+          badge.classList.add("hidden");
+        } else {
+          badge.classList.remove("hidden");
+        }
+      }
+
+      function renderQueue() {
+        empty.style.display = cards.size === 0 ? "block" : "none";
+        updateBadge();
+      }
+
+      function renderPending() {
+        pendingData.forEach(function (pr, id) {
+          var div = cards.get(id);
+          if (!div || !pr.deadline) return;
+          var countdownEl = div.querySelector(".countdown");
+          if (!countdownEl) return;
+          var remaining = formatCountdown(pr.deadline);
+          var ms = new Date(pr.deadline) - Date.now();
+          countdownEl.textContent = remaining
+            ? "Expires in " + remaining
+            : "Expired";
+          if (ms <= 60000) {
+            countdownEl.classList.add("urgent");
+          } else {
+            countdownEl.classList.remove("urgent");
+          }
+        });
+      }
+
+      function addCard(pr) {
+        var div = document.createElement("div");
+        div.className = "card pending";
+        div.dataset.id = pr.id;
+        var ts = new Date(pr.timestamp).toLocaleTimeString();
+        var desc = toolDescriptions[pr.tool];
+        var countdownHtml = pr.deadline ? '<div class="countdown"></div>' : "";
+        div.innerHTML =
+          '<div class="method">' +
+          esc(pr.tool) +
+          "</div>" +
+          (desc ? '<div class="description">' + esc(desc) + "</div>" : "") +
+          '<div class="meta">' +
+          ts +
+          "</div>" +
+          countdownHtml +
+          "<pre>" +
+          esc(JSON.stringify(pr.args, null, 2)) +
+          "</pre>" +
+          '<div class="actions">' +
+          '<button class="btn-approve" onclick="decide(\'' +
+          pr.id +
+          "','approve')\">Approve</button>" +
+          '<button class="btn-deny" onclick="decide(\'' +
+          pr.id +
+          "','deny')\">Deny</button>" +
+          "</div>";
+        queue.appendChild(div);
+        cards.set(pr.id, div);
+        pendingData.set(pr.id, pr);
+        renderQueue();
+        renderPending();
+      }
+
+      function removeCard(id) {
+        var div = cards.get(id);
+        if (div) {
+          div.remove();
+          cards.delete(id);
+        }
+        pendingData.delete(id);
+        renderQueue();
+      }
+
+      function decide(id, decision) {
+        fetch("api/decide", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: id, decision: decision }),
+        });
+      }
+
+      function addDecision(dr) {
+        var div = document.createElement("div");
+        div.className = "card decided";
+        div.dataset.id = dr.id;
+        var ts = new Date(dr.timestamp).toLocaleTimeString();
+        div.innerHTML =
+          '<div class="method">' +
+          esc(dr.tool) +
+          " " +
+          decisionBadge(dr) +
+          "</div>" +
+          '<div class="meta">' +
+          ts +
+          "</div>";
+        historyDiv.prepend(div);
+        decisionsSection.style.display = "block";
+      }
+
+      // Load pending requests
+      fetch("api/pending")
+        .then(function (r) {
+          return r.json();
+        })
+        .then(function (items) {
+          items.sort(function (a, b) {
+            return new Date(a.timestamp) - new Date(b.timestamp);
+          });
+          items.forEach(addCard);
+        });
+
+      // SSE for real-time updates
+      var es = new EventSource("events");
+      es.onmessage = function (e) {
+        var msg = JSON.parse(e.data);
+        if (msg.type === "new") {
+          addCard(msg.data);
+          playChime();
+          showNotification(msg.data.tool);
+        }
+        if (msg.type === "removed") removeCard(msg.data.id);
+        if (msg.type === "decided") {
+          removeCard(msg.data.id);
+          addDecision(msg.data);
+        }
+      };
+      es.onopen = function () {
+        statusDot.classList.add("connected");
+        statusLabel.textContent = "Connected";
+      };
+      es.onerror = function () {
+        statusDot.classList.remove("connected");
+        statusLabel.textContent = "Disconnected";
+      };
+
+      // Live countdown update — initialized once
+      if (!countdownInterval) {
+        countdownInterval = setInterval(renderPending, 1000);
+      }
+
+      // --- Tools ---
+      function loadTools() {
+        var list = document.getElementById("tools-list");
+        var emptyEl = document.getElementById("tools-empty");
+
+        fetch("api/tools")
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (data) {
+            var tools = data.tools || [];
+            if (tools.length === 0) {
+              list.innerHTML = "";
+              emptyEl.style.display = "block";
+              return;
+            }
+            emptyEl.style.display = "none";
+
+            // Group by provider prefix
+            var groups = {};
+            tools.forEach(function (tool) {
+              var parts = tool.name.split(".");
+              var provider = parts.length > 1 ? parts[0] : "other";
+              if (!groups[provider]) groups[provider] = [];
+              groups[provider].push(tool);
+            });
+
+            var html = "";
+            var providers = Object.keys(groups).sort();
+            providers.forEach(function (provider) {
+              var items = groups[provider];
+              html += '<div class="provider-group">';
+              html +=
+                '<button class="provider-header collapsed" onclick="toggleProvider(this)">';
+              html +=
+                '<div class="provider-header-left"><span class="chevron">&#9660;</span> ' +
+                esc(provider) +
+                "</div>";
+              html +=
+                '<span class="provider-count">' + items.length + "</span>";
+              html += "</button>";
+              html += '<div class="provider-capabilities hidden">';
+              items.forEach(function (tool) {
+                html += '<div class="tool-item">';
+                html += '<div class="tool-name">' + esc(tool.name) + "</div>";
+                if (tool.description)
+                  html +=
+                    '<div class="tool-desc">' +
+                    esc(tool.description) +
+                    "</div>";
+                html += "</div>";
+              });
+              html += "</div></div>";
+            });
+            list.innerHTML = html;
+          });
+      }
+
+      function toggleProvider(btn) {
+        btn.classList.toggle("collapsed");
+        var caps = btn.nextElementSibling;
+        caps.classList.toggle("hidden");
+      }
+
+      // --- Audit Log ---
+      var auditLimit = 20;
+      var auditOffset = 0;
+      var auditTotal = 0;
+      var auditTimer = null;
+      var auditRecords = [];
+      var expandedAuditIdx = -1;
+
+      function toggleAuditDetail(idx) {
+        var body = document.getElementById("audit-body");
+        var existing = document.getElementById("audit-detail-" + idx);
+
+        // Collapse previously expanded row
+        if (expandedAuditIdx >= 0) {
+          var prev = document.getElementById(
+            "audit-detail-" + expandedAuditIdx,
+          );
+          if (prev) prev.remove();
+        }
+
+        // If clicking the same row, just collapse
+        if (expandedAuditIdx === idx) {
+          expandedAuditIdx = -1;
+          return;
+        }
+
+        expandedAuditIdx = idx;
+        var rec = auditRecords[idx];
+        var sourceRow = body.querySelector('tr[data-audit-idx="' + idx + '"]');
+        if (!sourceRow) return;
+
+        var rowClass = sourceRow.className;
+        var detailRow = document.createElement("tr");
+        detailRow.id = "audit-detail-" + idx;
+        detailRow.className = rowClass + " audit-detail-row";
+
+        var td = document.createElement("td");
+        td.colSpan = 5;
+
+        var content = '<div class="audit-detail-content">';
+
+        // Args
+        var argsText = rec.args ? JSON.stringify(rec.args, null, 2) : "-";
+        content += '<div class="audit-detail-field">';
+        content += '<div class="audit-detail-label">Args</div>';
+        content +=
+          '<div class="audit-detail-value"><pre>' +
+          esc(argsText) +
+          "</pre></div>";
+        content += "</div>";
+
+        // Error (only shown when there's an error)
+        if (rec.error) {
+          content += '<div class="audit-detail-field">';
+          content += '<div class="audit-detail-label">Error</div>';
+          content +=
+            '<div class="audit-detail-value">' + esc(rec.error) + "</div>";
+          content += "</div>";
+        }
+
+        content += "</div>";
+        td.innerHTML = content;
+        detailRow.appendChild(td);
+        sourceRow.after(detailRow);
+      }
+
+      function debounceAudit() {
+        clearTimeout(auditTimer);
+        auditTimer = setTimeout(function () {
+          auditOffset = 0;
+          loadAudit();
+        }, 300);
+      }
+
+      function loadAudit() {
+        var tool = document.getElementById("audit-tool").value.trim();
+        var params = new URLSearchParams();
+        if (tool) params.set("tool", tool);
+        params.set("limit", auditLimit);
+        params.set("offset", auditOffset);
+
+        var body = document.getElementById("audit-body");
+        var emptyEl = document.getElementById("audit-empty");
+        var pagination = document.getElementById("audit-pagination");
+        var tableWrap = document.querySelector(".audit-table-wrap");
+
+        fetch("api/audit?" + params.toString())
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (data) {
+            var records = data.records || [];
+            auditTotal = data.total || 0;
+            expandedAuditIdx = -1;
+
+            if (records.length === 0) {
+              body.innerHTML = "";
+              tableWrap.style.display = "none";
+              emptyEl.style.display = "block";
+              pagination.style.display = "none";
+              return;
+            }
+
+            tableWrap.style.display = "block";
+            emptyEl.style.display = "none";
+
+            var html = "";
+            auditRecords = records;
+            records.forEach(function (rec, idx) {
+              var ts = rec.timestamp
+                ? new Date(rec.timestamp).toLocaleString()
+                : "-";
+              var verdictClass = "";
+              var verdictText = rec.verdict || "-";
+              if (verdictText === "allow") verdictClass = "verdict-allow";
+              else if (verdictText === "deny") verdictClass = "verdict-deny";
+              else if (verdictText === "require-approval")
+                verdictClass = "verdict-require-approval";
+
+              var result = "success";
+              if (rec.error) {
+                result = "error";
+              }
+
+              // Approval column
+              var approval = "-";
+              if (rec.approved === true) approval = "approved";
+              else if (rec.approved === false) approval = "denied";
+
+              // Row color based on final outcome (error > denied > approved)
+              var rowClass = "";
+              if (rec.error) {
+                rowClass = "row-error";
+              } else if (
+                verdictText === "deny" ||
+                (verdictText === "require-approval" && rec.approved === false)
+              ) {
+                rowClass = "row-denied";
+              } else {
+                rowClass = "row-approved";
+              }
+
+              html +=
+                '<tr class="' +
+                rowClass +
+                '" data-audit-idx="' +
+                idx +
+                '" onclick="toggleAuditDetail(' +
+                idx +
+                ')">';
+              html += "<td>" + esc(ts) + "</td>";
+              html += "<td>" + esc(rec.tool || "-") + "</td>";
+              html +=
+                '<td class="' +
+                verdictClass +
+                '">' +
+                esc(verdictText) +
+                "</td>";
+              html += "<td>" + esc(approval) + "</td>";
+              html += "<td>" + esc(result) + "</td>";
+              html += "</tr>";
+            });
+            body.innerHTML = html;
+
+            // Pagination
+            var start = auditOffset + 1;
+            var end = Math.min(auditOffset + records.length, auditTotal);
+            document.getElementById("page-info").textContent =
+              "Showing " + start + "-" + end + " of " + auditTotal;
+            document.getElementById("btn-prev").disabled = auditOffset === 0;
+            document.getElementById("btn-next").disabled =
+              auditOffset + auditLimit >= auditTotal;
+            pagination.style.display = "flex";
+          });
+      }
+
+      function auditPrev() {
+        auditOffset = Math.max(0, auditOffset - auditLimit);
+        loadAudit();
+      }
+
+      function auditNext() {
+        auditOffset += auditLimit;
+        loadAudit();
+      }
+    </script>
+  </body>
 </html>
