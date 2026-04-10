@@ -64,3 +64,39 @@ func TestEngine_Rules_EmptyWhenNil(t *testing.T) {
 	e := New(nil)
 	require.Empty(t, e.Rules())
 }
+
+func TestEngine_EvaluateWithRule_FirstMatchWins(t *testing.T) {
+	e := New([]config.RuleConfig{
+		{Tool: "github.push", Verdict: "require-approval"}, // index 0
+		{Tool: "github.*", Verdict: "allow"},               // index 1
+		{Tool: "*", Verdict: "deny"},                       // index 2
+	})
+
+	v, idx := e.EvaluateWithRule("github.push")
+	require.Equal(t, RequireApproval, v)
+	require.Equal(t, 0, idx)
+
+	v, idx = e.EvaluateWithRule("github.get_pr")
+	require.Equal(t, Allow, v)
+	require.Equal(t, 1, idx)
+
+	v, idx = e.EvaluateWithRule("linear.search")
+	require.Equal(t, Deny, v)
+	require.Equal(t, 2, idx)
+}
+
+func TestEngine_EvaluateWithRule_NoMatchReturnsNegativeOne(t *testing.T) {
+	e := New([]config.RuleConfig{
+		{Tool: "github.*", Verdict: "allow"},
+	})
+	v, idx := e.EvaluateWithRule("linear.search")
+	require.Equal(t, RequireApproval, v) // default
+	require.Equal(t, -1, idx)
+}
+
+func TestEngine_EvaluateWithRule_EmptyRules(t *testing.T) {
+	e := New(nil)
+	v, idx := e.EvaluateWithRule("anything")
+	require.Equal(t, RequireApproval, v)
+	require.Equal(t, -1, idx)
+}
