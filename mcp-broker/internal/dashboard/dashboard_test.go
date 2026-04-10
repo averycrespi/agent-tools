@@ -10,8 +10,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 	"github.com/stretchr/testify/require"
 )
+
+type fakeToolLister struct{ tools []server.Tool }
+
+func (f *fakeToolLister) Tools() []server.Tool { return f.tools }
+
+type fakeRulesLister struct{ rules []config.RuleConfig }
+
+func (f *fakeRulesLister) Rules() []config.RuleConfig { return f.rules }
 
 func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
 	d := New(nil, nil, nil, nil)
@@ -156,4 +166,126 @@ func TestDashboard_UnauthorizedPage(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	require.Contains(t, string(body), "Unauthorized")
+}
+
+func TestHandleRules_GroupsToolsByMatchingRule(t *testing.T) {
+	tools := &fakeToolLister{tools: []server.Tool{
+		{Name: "github.list_prs"},
+		{Name: "github.view_pr"},
+		{Name: "github.delete_repo"},
+		{Name: "fs.write"},
+	}}
+	rules := &fakeRulesLister{rules: []config.RuleConfig{
+		{Tool: "github.delete_*", Verdict: "deny"},
+		{Tool: "github.*", Verdict: "allow"},
+		{Tool: "*", Verdict: "require-approval"},
+	}}
+	d := New(tools, rules, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/rules")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Rules []struct {
+			Index   int      `json:"index"`
+			Tool    string   `json:"tool"`
+			Verdict string   `json:"verdict"`
+			Matches []string `json:"matches"`
+		} `json:"rules"`
+		Unmatched      []string `json:"unmatched"`
+		DefaultVerdict string   `json:"default_verdict"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+
+	require.Len(t, body.Rules, 3)
+
+	require.Equal(t, 0, body.Rules[0].Index)
+	require.Equal(t, "github.delete_*", body.Rules[0].Tool)
+	require.Equal(t, "deny", body.Rules[0].Verdict)
+	require.Equal(t, []string{"github.delete_repo"}, body.Rules[0].Matches)
+
+	require.Equal(t, 1, body.Rules[1].Index)
+	require.Equal(t, "github.*", body.Rules[1].Tool)
+	require.Equal(t, "allow", body.Rules[1].Verdict)
+	require.ElementsMatch(t, []string{"github.list_prs", "github.view_pr"}, body.Rules[1].Matches)
+
+	require.Equal(t, 2, body.Rules[2].Index)
+	require.Equal(t, "*", body.Rules[2].Tool)
+	require.Equal(t, "require-approval", body.Rules[2].Verdict)
+	require.Equal(t, []string{"fs.write"}, body.Rules[2].Matches)
+
+	require.Empty(t, body.Unmatched)
+	require.Equal(t, "require-approval", body.DefaultVerdict)
+}
+
+func TestHandleRules_EmptyRules(t *testing.T) {
+	tools := &fakeToolLister{tools: []server.Tool{{Name: "fs.write"}}}
+	rules := &fakeRulesLister{rules: nil}
+	d := New(tools, rules, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/rules")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	var body struct {
+		Rules          []any    `json:"rules"`
+		Unmatched      []string `json:"unmatched"`
+		DefaultVerdict string   `json:"default_verdict"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Empty(t, body.Rules)
+	require.Equal(t, []string{"fs.write"}, body.Unmatched)
+	require.Equal(t, "require-approval", body.DefaultVerdict)
+}
+
+func TestHandleRules_RuleWithNoMatches(t *testing.T) {
+	tools := &fakeToolLister{tools: []server.Tool{{Name: "fs.write"}}}
+	rules := &fakeRulesLister{rules: []config.RuleConfig{
+		{Tool: "github.*", Verdict: "allow"},
+		{Tool: "*", Verdict: "require-approval"},
+	}}
+	d := New(tools, rules, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/rules")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	var body struct {
+		Rules []struct {
+			Matches []string `json:"matches"`
+		} `json:"rules"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Len(t, body.Rules, 2)
+	require.Empty(t, body.Rules[0].Matches) // github.* has no matches
+	require.Equal(t, []string{"fs.write"}, body.Rules[1].Matches)
+}
+
+func TestHandleRules_NilLister(t *testing.T) {
+	d := New(nil, nil, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/rules")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Rules          []any    `json:"rules"`
+		Unmatched      []string `json:"unmatched"`
+		DefaultVerdict string   `json:"default_verdict"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Empty(t, body.Rules)
+	require.Empty(t, body.Unmatched)
+	require.Equal(t, "require-approval", body.DefaultVerdict)
 }
