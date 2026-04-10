@@ -1308,7 +1308,11 @@
 
               var html = "";
               rules.forEach(function (rule) {
-                var verdictClass = "verdict-" + rule.verdict;
+                var verdictClass = "";
+                if (rule.verdict === "allow") verdictClass = "verdict-allow";
+                else if (rule.verdict === "deny") verdictClass = "verdict-deny";
+                else if (rule.verdict === "require-approval")
+                  verdictClass = "verdict-require-approval";
                 html += '<div class="rule-card">';
                 html += '<div class="rule-header">';
                 html +=
