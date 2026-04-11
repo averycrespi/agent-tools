@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 )
 
@@ -42,6 +44,11 @@ type ToolLister interface {
 	Tools() []server.Tool
 }
 
+// RulesLister provides the configured policy rules in evaluation order.
+type RulesLister interface {
+	Rules() []config.RuleConfig
+}
+
 // AuditQuerier provides audit log queries.
 type AuditQuerier interface {
 	Query(ctx context.Context, opts audit.QueryOpts) ([]audit.Record, int, error)
@@ -54,15 +61,17 @@ type Dashboard struct {
 	decided []decidedRequest
 	clients []chan []byte
 	tools   ToolLister
+	rules   RulesLister
 	auditor AuditQuerier
 	logger  *slog.Logger
 }
 
 // New creates a Dashboard.
-func New(tools ToolLister, auditor AuditQuerier, logger *slog.Logger) *Dashboard {
+func New(tools ToolLister, rules RulesLister, auditor AuditQuerier, logger *slog.Logger) *Dashboard {
 	return &Dashboard{
 		pending: make(map[string]*pendingRequest),
 		tools:   tools,
+		rules:   rules,
 		auditor: auditor,
 		logger:  logger,
 	}
@@ -75,6 +84,7 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("POST /api/decide", d.handleDecide)
 	mux.HandleFunc("GET /api/pending", d.handlePending)
 	mux.HandleFunc("GET /api/tools", d.handleTools)
+	mux.HandleFunc("GET /api/rules", d.handleRules)
 	mux.HandleFunc("GET /api/audit", d.handleAudit)
 	mux.HandleFunc("GET /unauthorized", d.handleUnauthorized)
 	mux.HandleFunc("GET /", d.handleIndex)
@@ -198,6 +208,67 @@ func (d *Dashboard) handleTools(w http.ResponseWriter, _ *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"tools": tools})
+}
+
+func (d *Dashboard) handleRules(w http.ResponseWriter, _ *http.Request) {
+	type ruleView struct {
+		Index   int      `json:"index"`
+		Tool    string   `json:"tool"`
+		Verdict string   `json:"verdict"`
+		Matches []string `json:"matches"`
+	}
+
+	var rules []config.RuleConfig
+	if d.rules != nil {
+		rules = d.rules.Rules()
+	}
+
+	var tools []server.Tool
+	if d.tools != nil {
+		tools = d.tools.Tools()
+	}
+
+	views := make([]ruleView, len(rules))
+	for i, r := range rules {
+		views[i] = ruleView{
+			Index:   i,
+			Tool:    r.Tool,
+			Verdict: r.Verdict,
+			Matches: []string{},
+		}
+	}
+
+	unmatched := []string{}
+	for _, tool := range tools {
+		idx := -1
+		for i, r := range rules {
+			matched, err := filepath.Match(r.Tool, tool.Name)
+			if err != nil {
+				continue
+			}
+			if matched {
+				idx = i
+				break
+			}
+		}
+		if idx >= 0 {
+			views[idx].Matches = append(views[idx].Matches, tool.Name)
+		} else {
+			unmatched = append(unmatched, tool.Name)
+		}
+	}
+
+	sort.Strings(unmatched)
+	for i := range views {
+		sort.Strings(views[i].Matches)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"rules":           views,
+		"unmatched":       unmatched,
+		"default_verdict": "require-approval",
+	})
 }
 
 func (d *Dashboard) handleAudit(w http.ResponseWriter, r *http.Request) {

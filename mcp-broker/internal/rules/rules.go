@@ -52,17 +52,29 @@ func New(rules []config.RuleConfig) *Engine {
 	return &Engine{rules: rules}
 }
 
+// Rules returns the configured rules in evaluation order.
+func (e *Engine) Rules() []config.RuleConfig {
+	return e.rules
+}
+
 // Evaluate returns the verdict for the given tool name.
 // First matching rule wins. Default is require-approval.
 func (e *Engine) Evaluate(tool string) Verdict {
-	for _, rule := range e.rules {
+	v, _ := e.EvaluateWithRule(tool)
+	return v
+}
+
+// EvaluateWithRule returns the verdict and the zero-based index of the rule
+// that matched. Returns (RequireApproval, -1) when no rule matches.
+func (e *Engine) EvaluateWithRule(tool string) (Verdict, int) {
+	for i, rule := range e.rules {
 		matched, err := filepath.Match(rule.Tool, tool)
 		if err != nil {
 			continue
 		}
 		if matched {
-			return ParseVerdict(rule.Verdict)
+			return ParseVerdict(rule.Verdict), i
 		}
 	}
-	return RequireApproval
+	return RequireApproval, -1
 }

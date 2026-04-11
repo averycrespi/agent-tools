@@ -128,6 +128,7 @@ Embedded single-page web application serving:
 
 - **Approvals tab** — pending requests with approve/deny buttons, decided history
 - **Tools tab** — discovered tools grouped by server; click a tool to see its input schema
+- **Rules tab** — configured rules with the discovered tools matching each (read-only; for debugging verdicts)
 - **Audit tab** — paginated audit log with tool filter
 
 Real-time updates via Server-Sent Events (SSE). The dashboard also implements the `Approver` interface — the `Review` method blocks until a human makes a decision via the `/api/decide` endpoint.

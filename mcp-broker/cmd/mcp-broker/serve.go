@@ -106,7 +106,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	engine := rules.New(cfg.Rules)
 
 	// Create dashboard
-	dash := dashboard.New(mgr, auditor, logger.With("component", "dashboard"))
+	dash := dashboard.New(mgr, engine, auditor, logger.With("component", "dashboard"))
 
 	// Create multi-approver
 	timeout := time.Duration(cfg.ApprovalTimeoutSeconds) * time.Second

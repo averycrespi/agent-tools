@@ -612,6 +612,79 @@
         word-break: break-word;
       }
 
+      /* Rules tab */
+      .rule-card {
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin-bottom: 0.75rem;
+        overflow: hidden;
+      }
+
+      .rule-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .rule-index {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        min-width: 2rem;
+      }
+
+      .rule-tool {
+        font-family: var(--font-mono);
+        font-size: 0.875rem;
+        color: var(--text-primary);
+        flex: 1;
+      }
+
+      .rule-verdict {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+
+      .rule-match-count {
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        background: var(--bg-base);
+        color: var(--text-secondary);
+        padding: 0.1rem 0.5rem;
+        border-radius: 9999px;
+        border: 1px solid var(--border);
+      }
+
+      .rule-matches {
+        padding: 0.5rem 0;
+      }
+
+      .rule-match-item {
+        padding: 0.375rem 1rem 0.375rem 2.5rem;
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        color: var(--text-primary);
+      }
+
+      .rule-matches-empty {
+        padding: 0.5rem 1rem 0.5rem 2.5rem;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        font-style: italic;
+      }
+
+      .rules-unmatched-desc {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.5rem;
+      }
+
       /* Audit tab */
       .audit-filters {
         display: flex;
@@ -865,6 +938,9 @@
       <button class="tab" onclick="switchTab('tools')" id="tab-tools">
         Tools
       </button>
+      <button class="tab" onclick="switchTab('rules')" id="tab-rules">
+        Rules
+      </button>
       <button class="tab" onclick="switchTab('audit')" id="tab-audit">
         Audit Log
       </button>
@@ -892,6 +968,22 @@
         <div id="tools-list"></div>
         <div id="tools-empty" class="empty-state" style="display: none">
           No tools discovered
+        </div>
+      </div>
+
+      <!-- Rules Tab -->
+      <div class="tab-content" id="content-rules">
+        <div class="section-title">Rules (evaluated first-match-wins)</div>
+        <div id="rules-list"></div>
+        <div id="rules-unmatched-section" style="display: none">
+          <div class="section-title" style="margin-top: 1.5rem">
+            Unmatched tools
+          </div>
+          <div id="rules-unmatched-desc" class="rules-unmatched-desc"></div>
+          <div id="rules-unmatched-list"></div>
+        </div>
+        <div id="rules-empty" class="empty-state" style="display: none">
+          No rules configured
         </div>
       </div>
 
@@ -956,6 +1048,7 @@
         document.getElementById("content-" + name).classList.add("active");
 
         if (name === "tools") loadTools();
+        if (name === "rules") loadRules();
         if (name === "audit") {
           auditOffset = 0;
           loadAudit();
@@ -1508,6 +1601,85 @@
         btn.setAttribute("aria-expanded", "true");
         btn.parentNode.insertBefore(detail, btn.nextSibling);
         expandedToolName = name;
+      }
+
+      // --- Rules ---
+      function loadRules() {
+        var listEl = document.getElementById("rules-list");
+        var emptyEl = document.getElementById("rules-empty");
+        var unmatchedSection = document.getElementById(
+          "rules-unmatched-section",
+        );
+        var unmatchedDesc = document.getElementById("rules-unmatched-desc");
+        var unmatchedList = document.getElementById("rules-unmatched-list");
+
+        fetch("api/rules")
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (data) {
+            var rules = data.rules || [];
+            var unmatched = data.unmatched || [];
+            var defaultVerdict = data.default_verdict || "require-approval";
+
+            if (rules.length === 0) {
+              listEl.innerHTML = "";
+              emptyEl.style.display = "block";
+            } else {
+              emptyEl.style.display = "none";
+
+              var html = "";
+              rules.forEach(function (rule) {
+                var verdictClass = "";
+                if (rule.verdict === "allow") verdictClass = "verdict-allow";
+                else if (rule.verdict === "deny") verdictClass = "verdict-deny";
+                else if (rule.verdict === "require-approval")
+                  verdictClass = "verdict-require-approval";
+                html += '<div class="rule-card">';
+                html += '<div class="rule-header">';
+                html +=
+                  '<span class="rule-index">#' + (rule.index + 1) + "</span>";
+                html += '<span class="rule-tool">' + esc(rule.tool) + "</span>";
+                html +=
+                  '<span class="rule-verdict ' +
+                  verdictClass +
+                  '">' +
+                  esc(rule.verdict) +
+                  "</span>";
+                html +=
+                  '<span class="rule-match-count">' +
+                  rule.matches.length +
+                  "</span>";
+                html += "</div>";
+                html += '<div class="rule-matches">';
+                if (rule.matches.length === 0) {
+                  html +=
+                    '<div class="rule-matches-empty">no matching tools</div>';
+                } else {
+                  rule.matches.forEach(function (m) {
+                    html += '<div class="rule-match-item">' + esc(m) + "</div>";
+                  });
+                }
+                html += "</div>";
+                html += "</div>";
+              });
+              listEl.innerHTML = html;
+            }
+
+            if (unmatched.length === 0) {
+              unmatchedSection.style.display = "none";
+            } else {
+              unmatchedSection.style.display = "block";
+              unmatchedDesc.textContent =
+                "These tools fall through to the default verdict: " +
+                defaultVerdict;
+              var uhtml = "";
+              unmatched.forEach(function (name) {
+                uhtml += '<div class="rule-match-item">' + esc(name) + "</div>";
+              });
+              unmatchedList.innerHTML = uhtml;
+            }
+          });
       }
 
       // --- Audit Log ---
