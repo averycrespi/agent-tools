@@ -87,6 +87,7 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("GET /api/rules", d.handleRules)
 	mux.HandleFunc("GET /api/audit", d.handleAudit)
 	mux.HandleFunc("GET /unauthorized", d.handleUnauthorized)
+	mux.HandleFunc("GET /favicon.svg", d.handleFavicon)
 	mux.HandleFunc("GET /", d.handleIndex)
 	return mux
 }
@@ -374,6 +375,12 @@ func (d *Dashboard) handleIndex(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(indexHTML)
 }
 
+func (d *Dashboard) handleFavicon(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(faviconSVG)
+}
+
 func (d *Dashboard) broadcast(data []byte) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -413,3 +420,6 @@ func generateID() string {
 
 //go:embed index.html
 var indexHTML []byte
+
+//go:embed favicon.svg
+var faviconSVG []byte
