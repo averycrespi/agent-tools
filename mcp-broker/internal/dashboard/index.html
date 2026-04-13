@@ -651,17 +651,6 @@
         font-weight: 600;
       }
 
-      .rule-match-count {
-        font-family: var(--font-mono);
-        font-size: 0.6875rem;
-        font-weight: 600;
-        background: var(--bg-base);
-        color: var(--text-secondary);
-        padding: 0.1rem 0.5rem;
-        border-radius: 9999px;
-        border: 1px solid var(--border);
-      }
-
       .rule-matches {
         padding: 0.5rem 0;
       }
@@ -1647,17 +1636,13 @@
                 html += '<div class="rule-header">';
                 html +=
                   '<span class="rule-index">#' + (rule.index + 1) + "</span>";
-                html += '<span class="rule-tool">' + esc(rule.tool) + "</span>";
                 html +=
                   '<span class="rule-verdict ' +
                   verdictClass +
                   '">' +
                   esc(rule.verdict) +
                   "</span>";
-                html +=
-                  '<span class="rule-match-count">' +
-                  rule.matches.length +
-                  "</span>";
+                html += '<span class="rule-tool">' + esc(rule.tool) + "</span>";
                 html += "</div>";
                 html += '<div class="rule-matches">';
                 if (rule.matches.length === 0) {
