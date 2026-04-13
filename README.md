@@ -71,8 +71,8 @@ AI agents need to call external APIs (GitHub, Jira, Slack), but giving a sandbox
 - The user connects their individual MCP servers to the MCP Broker.
 - Agents connect to the broker as their only MCP server, with no secrets exposed to the agent.
 - Rules control which MCP tools are auto-allowed, auto-denied, or sent for human approval.
-- A web dashboard handles approval requests in real time and surfaces the configured rules, discovered tools, and searchable audit log.
 - Every tool call is audit-logged in SQLite for maximum observability.
+- A web dashboard handles approval requests in real time and surfaces the configured rules, discovered tools, and searchable audit log.
 
 See the [mcp-broker README](mcp-broker/README.md) for more information, or the [architecture diagram](mcp-broker/ARCHITECTURE.md) for a visual overview of the request flow.
 
