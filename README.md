@@ -17,7 +17,7 @@ Requirements:
 
 - Go 1.25+
 - GNU Make
-- macOS for `sandbox-manager`
+- macOS for `sandbox-manager` (requires Lima)
 
 ```bash
 # Install dependencies on macOS
@@ -42,49 +42,78 @@ cd local-gh-mcp && make install
 
 Running multiple AI agents across different branches means a lot of repetitive setup: create a worktree, open a tmux window, copy config files, launch the agent. Tear it all down when you're done. Multiply by several concurrent tasks and it's a lot of ceremony.
 
-`wt` reduces that to two commands. `wt add <branch>` spins up a fully configured worktree — tmux window, config files copied, agent launched. `wt rm <branch>` tears it down. `wt attach` lets you jump between worktrees. It's agent-agnostic: configure it to launch Claude Code, Cursor, or anything else.
+`wt` simplifies that flow to a pair of commands:
 
-See the [README](worktree-manager/README.md) for more information.
+- `wt add <branch>` spins up a fully configured worktree — tmux window, config files copied, agent launched.
+- `wt rm <branch>` tears it down, optionally deleting the branch as well.
+
+See the [worktree-manager README](worktree-manager/README.md) for more information.
 
 ### Sandbox Manager (sb)
 
 Running AI agents with full host access is risky — one bad command can trash your environment. Containers help, but they're optimized for application isolation, not interactive development. What you want is a full VM that feels like a real development machine, is cheap to create and destroy, and can be provisioned to match your workflow.
 
-`sb` wraps Lima to manage a lightweight Linux VM on macOS. `sb create` spins up a provisioned Ubuntu VM with matching UID/GID, writable mounts, and any tools your provisioning scripts install. `sb shell` drops you in. `sb destroy` tears it down. Configuration drives resource allocation, file copying, and provisioning scripts.
+`sb` wraps Lima to manage a lightweight Linux VM on macOS:
 
-See the [README](sandbox-manager/README.md) for more information.
+- `sb create` spins up a provisioned Ubuntu VM with matching UID/GID, writable mounts, and any tools your provisioning scripts install.
+- `sb shell` drops you in.
+- `sb provision` re-provisions a running VM.
+- `sb destroy` tears it down.
+
+See the [sandbox-manager README](sandbox-manager/README.md) for more information.
 
 ### MCP Broker
 
-Autonomous agents need to call external APIs (GitHub, Jira, Slack), but giving a sandboxed agent credentials and network access defeats the point of the sandbox. Punching holes per-tool doesn't scale — a real workflow needs dozens of permissions, and every new tool triggers another prompt.
+AI agents need to call external APIs (GitHub, Jira, Slack), but giving a sandboxed agent credentials or direct MCP access defeats the point of the sandbox. What you want is a single broker that holds the credentials, enforces policy on every tool call, and gives you a place to see and approve what the agent is doing.
 
-`mcp-broker` runs on the host, holds the secrets, and exposes backend MCP servers through a single endpoint. Agents connect to it as their only MCP server — no credentials, no network access required. Glob-based policy rules control which tools are allowed, sensitive operations require human approval via a web dashboard, and every call is audit-logged in SQLite.
+`mcp-broker` runs on the host, holds the secrets, and exposes backend MCP servers through a single endpoint:
 
-See the [README](mcp-broker/README.md) for more information, or the [architecture diagram](mcp-broker/ARCHITECTURE.md) for a visual overview of the request flow.
+- The user connects their individual MCP servers to the MCP Broker.
+- Agents connect to the broker as their only MCP server, with no secrets exposed to the agent.
+- Rules control which MCP tools are auto-allowed, auto-denied, or sent for human approval.
+- A web dashboard handles approval requests in real time and surfaces the configured rules, discovered tools, and searchable audit log.
+- Every tool call is audit-logged in SQLite for maximum observability.
+
+See the [mcp-broker README](mcp-broker/README.md) for more information, or the [architecture diagram](mcp-broker/ARCHITECTURE.md) for a visual overview of the request flow.
 
 ### Broker CLI
 
-Some agents speak MCP natively — but others work better with a CLI. `broker-cli` is an alternative frontend for the MCP broker, for agents that prefer to interact via shell commands instead of connecting as an MCP client.
+Some agents speak MCP natively, but others work better by running shell commands — and writing a wrapper per tool means keeping a second set of stubs in sync with whatever the broker currently exposes. What you want is a CLI that mirrors the broker's tool list automatically, with typed flags and predictable JSON output.
 
-`broker-cli` connects to the MCP broker, discovers available tools at startup, and builds a subcommand tree — one command per tool, grouped by namespace. Each command gets typed flags generated from the tool's JSON Schema. Output is always a JSON array on stdout; errors are JSON on stderr.
+`broker-cli` connects to the MCP broker, discovers available tools at startup, and builds the full command tree on the fly:
 
-See the [README](broker-cli/README.md) for more information.
+- One subcommand per tool, grouped by namespace (e.g. `broker-cli git push --remote origin`).
+- Typed flags generated from each tool's JSON Schema, with `--raw-field` and `--raw-input` escape hatches for complex inputs.
+- Output is always a JSON array on stdout; errors are a JSON object on stderr — easy to pipe into `jq`.
+- Tool list is cached to keep repeated calls fast.
+
+See the [broker-cli README](broker-cli/README.md) for more information.
 
 ### Local Git MCP
 
-Sandboxed agents can do most git operations locally — staging, committing, diffing, rebasing — because those don't need authentication. But pushing, pulling, and fetching require credentials that the sandbox intentionally doesn't have.
+Sandboxed agents can do most git operations locally — staging, committing, diffing, rebasing — because those don't need authentication. But pushing, pulling, and fetching require credentials that the sandbox intentionally doesn't have. What you want is a host-side helper that performs just the credentialed operations on the agent's behalf, without ever exposing your SSH keys or credential store to the sandbox.
 
-`local-git-mcp` is a stdio MCP server that runs on the host where SSH keys and credential helpers are available. It exposes five tools — `git_push`, `git_pull`, `git_fetch`, `git_list_remote_refs`, and `git_list_remotes` — over MCP. Designed to be used as a backend for mcp-broker, letting agents push and pull without ever touching credentials.
+`local-git-mcp` is a stdio MCP server that runs on the host and shells out to the user's existing `git` setup:
 
-See the [README](local-git-mcp/README.md) for more information.
+- Five tools — `git_push`, `git_pull`, `git_fetch`, `git_list_remote_refs`, and `git_list_remotes` — cover every remote operation an agent typically needs.
+- Uses the host's existing SSH keys and credential helpers; no tokens or keys ever cross into the sandbox.
+- Designed to sit behind `mcp-broker`, so the broker's rules and audit log apply to every push and pull.
+- No config, no state, no network listener — spawned as a subprocess over stdio.
+
+See the [local-git-mcp README](local-git-mcp/README.md) for more information.
 
 ### Local GH MCP
 
-Sandboxed agents need to interact with GitHub — creating PRs, checking CI status, reading issues, debugging workflow failures — but giving them credentials defeats the purpose of sandboxing. The official GitHub MCP server requires OAuth or personal access tokens.
+Sandboxed agents need to interact with GitHub — opening PRs, reading issues, checking CI, debugging workflow failures — but giving them credentials defeats the purpose of sandboxing. There's an official GitHub MCP server, but it requires OAuth (with a GitHub App) or a powerful personal access token. Meanwhile, the host machine already has `gh` authenticated. What you want is a host-side MCP server that reuses that existing `gh` login instead of demanding its own secret.
 
-`local-gh-mcp` is a stdio MCP server that runs on the host where `gh` CLI is already authenticated. It exposes 24 tools across PRs, issues, workflow runs, caches, and search — over MCP. Designed to be used as a backend for mcp-broker, letting agents interact with GitHub without managing additional credentials.
+`local-gh-mcp` is a stdio MCP server that runs on the host and shells out to the `gh` CLI:
 
-See the [README](local-gh-mcp/README.md) for more information.
+- Covers PRs, issues, workflow runs, Actions caches, and search across repos — over two dozen tools in all.
+- Uses the host's existing `gh auth login`; no tokens or OAuth flow inside the sandbox.
+- Read tools return structured Markdown (not raw JSON) with authors flattened to `@login` and long bodies truncated, which is a better fit for LLM consumption.
+- Designed to sit behind `mcp-broker`, so the broker's rules and audit log apply to every GitHub call.
+
+See the [local-gh-mcp README](local-gh-mcp/README.md) for more information.
 
 ## Related
 
