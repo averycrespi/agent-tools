@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -78,6 +79,8 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.handleList(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/grants":
 		a.handleCreate(w, r)
+	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/grants/"):
+		a.handleRevoke(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -95,6 +98,20 @@ func (a *API) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(grants)
+}
+
+func (a *API) handleRevoke(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/grants/")
+	if id == "" || strings.Contains(id, "/") {
+		http.Error(w, "missing grant id", http.StatusBadRequest)
+		return
+	}
+	if err := a.store.Revoke(r.Context(), id, time.Now().UTC()); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	a.engine.Invalidate(id)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *API) handleCreate(w http.ResponseWriter, r *http.Request) {

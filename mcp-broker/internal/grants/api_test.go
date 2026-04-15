@@ -98,3 +98,32 @@ func TestListGrantsEndpoint(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&got))
 	require.Len(t, got, 2)
 }
+
+func TestRevokeGrantEndpoint(t *testing.T) {
+	store, _ := NewStore(context.Background(), openTestDB(t))
+	engine := NewEngine(store)
+	api := NewAPI(store, engine)
+
+	cred, _ := NewCredential()
+	now := time.Now().UTC()
+	require.NoError(t, store.Create(context.Background(), Grant{
+		ID:        cred.ID,
+		Entries:   []Entry{{Tool: "x.y", ArgSchema: json.RawMessage(`{}`)}},
+		CreatedAt: now,
+		ExpiresAt: now.Add(time.Hour),
+	}, cred.TokenHash))
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/grants/"+cred.ID, nil)
+	rr := httptest.NewRecorder()
+	api.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusNoContent, rr.Code)
+
+	// idempotent — revoking again is also 204
+	rr2 := httptest.NewRecorder()
+	api.ServeHTTP(rr2, req)
+	require.Equal(t, http.StatusNoContent, rr2.Code)
+
+	g, _ := store.LookupByID(context.Background(), cred.ID)
+	require.NotNil(t, g)
+	require.NotNil(t, g.RevokedAt)
+}
