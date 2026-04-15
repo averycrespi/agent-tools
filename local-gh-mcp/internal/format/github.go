@@ -49,6 +49,42 @@ type Comment struct {
 	MinimizedReason   string `json:"minimizedReason"`
 }
 
+// Review represents a top-level PR review submission from `gh pr view --json reviews`.
+type Review struct {
+	Author            Author `json:"author"`
+	AuthorAssociation string `json:"authorAssociation"`
+	Body              string `json:"body"`
+	State             string `json:"state"`
+	SubmittedAt       string `json:"submittedAt"`
+}
+
+// RESTUser represents a user from a GitHub REST API response.
+// The REST API uses `login` and `type` (User/Bot) rather than gh's `login`/`is_bot`.
+type RESTUser struct {
+	Login string `json:"login"`
+	Type  string `json:"type"`
+}
+
+// Author converts a RESTUser to the common Author type.
+func (u RESTUser) Author() Author {
+	return Author{Login: u.Login, IsBot: u.Type == "Bot"}
+}
+
+// ReviewComment represents a single inline review comment on a PR diff, from the REST API.
+type ReviewComment struct {
+	ID                  int64    `json:"id"`
+	InReplyToID         int64    `json:"in_reply_to_id"`
+	PullRequestReviewID int64    `json:"pull_request_review_id"`
+	User                RESTUser `json:"user"`
+	Body                string   `json:"body"`
+	Path                string   `json:"path"`
+	Line                int      `json:"line"`
+	OriginalLine        int      `json:"original_line"`
+	Side                string   `json:"side"`
+	DiffHunk            string   `json:"diff_hunk"`
+	CreatedAt           string   `json:"created_at"`
+}
+
 // Check represents a single status check on a PR.
 type Check struct {
 	Name  string `json:"name"`
@@ -250,6 +286,116 @@ func FormatComments(comments []Comment, maxBodyLen int) string {
 		}
 	}
 	return sb.String()
+}
+
+// FormatReviews formats top-level PR reviews as markdown.
+func FormatReviews(reviews []Review, maxBodyLen int) string {
+	if len(reviews) == 0 {
+		return "No reviews."
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "## Reviews (%d)\n", len(reviews))
+	for _, r := range reviews {
+		sb.WriteString("\n")
+		header := FormatAuthor(r.Author)
+		if r.AuthorAssociation != "" && r.AuthorAssociation != "NONE" {
+			header += fmt.Sprintf(" [%s]", r.AuthorAssociation)
+		}
+		state := r.State
+		if state == "" {
+			state = "(no state)"
+		}
+		fmt.Fprintf(&sb, "### %s — %s (%s)\n\n", header, state, FormatDate(r.SubmittedAt))
+		body := TruncateBody(StripImages(r.Body), maxBodyLen)
+		if body == "" {
+			sb.WriteString("(no body)\n")
+		} else {
+			sb.WriteString(body)
+			sb.WriteString("\n")
+		}
+	}
+	return sb.String()
+}
+
+// FormatReviewComments formats inline PR review comments as markdown,
+// grouped by file path and threaded by in_reply_to_id.
+func FormatReviewComments(comments []ReviewComment, maxBodyLen int) string {
+	if len(comments) == 0 {
+		return "No review comments."
+	}
+
+	// Group comments by file, preserving first-seen order.
+	byFile := make(map[string][]ReviewComment)
+	var fileOrder []string
+	for _, c := range comments {
+		if _, seen := byFile[c.Path]; !seen {
+			fileOrder = append(fileOrder, c.Path)
+		}
+		byFile[c.Path] = append(byFile[c.Path], c)
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "## Review Comments (%d)\n", len(comments))
+
+	for _, path := range fileOrder {
+		fileComments := byFile[path]
+		fmt.Fprintf(&sb, "\n### %s\n", path)
+
+		// Build parent → replies map; roots are comments with InReplyToID == 0
+		// or whose parent is not present in this page.
+		indexByID := make(map[int64]int, len(fileComments))
+		for i, c := range fileComments {
+			indexByID[c.ID] = i
+		}
+		replies := make(map[int64][]int)
+		var roots []int
+		for i, c := range fileComments {
+			if c.InReplyToID == 0 {
+				roots = append(roots, i)
+				continue
+			}
+			if _, ok := indexByID[c.InReplyToID]; !ok {
+				// Parent not in the page — treat as root.
+				roots = append(roots, i)
+				continue
+			}
+			replies[c.InReplyToID] = append(replies[c.InReplyToID], i)
+		}
+
+		for _, i := range roots {
+			writeReviewCommentThread(&sb, fileComments, replies, i, 0, maxBodyLen)
+		}
+	}
+	return sb.String()
+}
+
+// writeReviewCommentThread renders one review comment and its replies with indentation.
+func writeReviewCommentThread(sb *strings.Builder, comments []ReviewComment, replies map[int64][]int, idx, depth, maxBodyLen int) {
+	c := comments[idx]
+	indent := strings.Repeat("  ", depth)
+	header := FormatAuthor(c.User.Author())
+	line := c.Line
+	if line == 0 {
+		line = c.OriginalLine
+	}
+	sb.WriteString("\n")
+	if depth == 0 {
+		fmt.Fprintf(sb, "%s- **Line %d** — %s (%s):\n", indent, line, header, FormatDate(c.CreatedAt))
+	} else {
+		fmt.Fprintf(sb, "%s- ↳ %s (%s):\n", indent, header, FormatDate(c.CreatedAt))
+	}
+	body := TruncateBody(StripImages(c.Body), maxBodyLen)
+	if body == "" {
+		fmt.Fprintf(sb, "%s  (no body)\n", indent)
+	} else {
+		// Indent each line of the body.
+		for _, bl := range strings.Split(body, "\n") {
+			fmt.Fprintf(sb, "%s  %s\n", indent, bl)
+		}
+	}
+	for _, childIdx := range replies[c.ID] {
+		writeReviewCommentThread(sb, comments, replies, childIdx, depth+1, maxBodyLen)
+	}
 }
 
 // FormatCheckList formats status checks as a markdown bullet list.

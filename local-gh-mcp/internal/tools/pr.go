@@ -364,7 +364,67 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_list_pr_comments",
-			Description: "List comments on a pull request. Returns markdown-formatted comment list.",
+			Description: "List conversation (issue-style) comments on a pull request. Does NOT include review summaries or inline diff comments — for those, use gh_list_pr_reviews and gh_list_pr_review_comments. Returns markdown-formatted comment list.",
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"owner": map[string]any{
+						"type":        "string",
+						"description": "Repository owner",
+					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Repository name",
+					},
+					"number": map[string]any{
+						"type":        "number",
+						"description": "Pull request number",
+					},
+					"max_body_length": map[string]any{
+						"type":        "number",
+						"description": "Max body length per comment in chars (default 2000, max 50000)",
+					},
+					"limit": map[string]any{
+						"type":        "number",
+						"description": "Max comments to return (default 30, max 100)",
+					},
+				},
+				Required: []string{"owner", "repo", "number"},
+			},
+		},
+		{
+			Name:        "gh_list_pr_reviews",
+			Description: "List top-level review submissions on a pull request (approve, request-changes, comment) with their state, body, author, and submission date. For inline diff comments use gh_list_pr_review_comments. Returns markdown.",
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"owner": map[string]any{
+						"type":        "string",
+						"description": "Repository owner",
+					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Repository name",
+					},
+					"number": map[string]any{
+						"type":        "number",
+						"description": "Pull request number",
+					},
+					"max_body_length": map[string]any{
+						"type":        "number",
+						"description": "Max body length per review in chars (default 2000, max 50000)",
+					},
+					"limit": map[string]any{
+						"type":        "number",
+						"description": "Max reviews to return (default 30, max 100)",
+					},
+				},
+				Required: []string{"owner", "repo", "number"},
+			},
+		},
+		{
+			Name:        "gh_list_pr_review_comments",
+			Description: "List inline review comments on a pull request's diff (comments attached to specific file and line). Grouped by file and threaded by reply. For top-level review summaries use gh_list_pr_reviews; for issue-style comments use gh_list_pr_comments. Returns markdown.",
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -665,4 +725,50 @@ func (h *Handler) handleListPRComments(ctx context.Context, req gomcp.CallToolRe
 		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse comments JSON: %v", err)), nil
 	}
 	return gomcp.NewToolResultText(format.FormatComments(comments, maxBody)), nil
+}
+
+func (h *Handler) handleListPRReviews(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	number := intFromArgs(args, "number")
+	if number == 0 {
+		return gomcp.NewToolResultError("number is required"), nil
+	}
+	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
+	limit := intFromArgs(args, "limit")
+	out, err := h.gh.PRReviews(ctx, owner, repo, number, limit)
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	var reviews []format.Review
+	if err := json.Unmarshal([]byte(out), &reviews); err != nil {
+		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse reviews JSON: %v", err)), nil
+	}
+	return gomcp.NewToolResultText(format.FormatReviews(reviews, maxBody)), nil
+}
+
+func (h *Handler) handleListPRReviewComments(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	number := intFromArgs(args, "number")
+	if number == 0 {
+		return gomcp.NewToolResultError("number is required"), nil
+	}
+	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
+	limit := intFromArgs(args, "limit")
+	out, err := h.gh.PRReviewComments(ctx, owner, repo, number, limit)
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	var comments []format.ReviewComment
+	if err := json.Unmarshal([]byte(out), &comments); err != nil {
+		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse review comments JSON: %v", err)), nil
+	}
+	return gomcp.NewToolResultText(format.FormatReviewComments(comments, maxBody)), nil
 }

@@ -420,6 +420,62 @@ func TestIssueComments_Error(t *testing.T) {
 	assert.ErrorContains(t, err, "gh issue comments failed")
 }
 
+func TestPRReviews_Args(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.PRReviews(context.Background(), "octocat", "hello", 42, 10)
+	require.NoError(t, err)
+	assert.Contains(t, args, "pr")
+	assert.Contains(t, args, "view")
+	assert.Contains(t, args, "-R")
+	assert.Contains(t, args, "octocat/hello")
+	assert.Contains(t, args, "--json")
+	assert.Contains(t, args, "reviews")
+	assert.Contains(t, args, "--jq")
+	assert.Contains(t, args, "42")
+}
+
+func TestPRReviews_Error(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(name string, args ...string) ([]byte, error) {
+			return []byte("not found"), fmt.Errorf("exit 1")
+		},
+	})
+	_, err := c.PRReviews(context.Background(), "o", "r", 1, 10)
+	assert.ErrorContains(t, err, "gh pr reviews failed")
+}
+
+func TestPRReviewComments_Args(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.PRReviewComments(context.Background(), "octocat", "hello", 42, 10)
+	require.NoError(t, err)
+	assert.Contains(t, args, "api")
+	assert.Contains(t, args, "--jq")
+	assert.Contains(t, args, "--")
+	endpoint := args[len(args)-1]
+	assert.Equal(t, "repos/octocat/hello/pulls/42/comments?per_page=10", endpoint)
+}
+
+func TestPRReviewComments_ClampsLimit(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.PRReviewComments(context.Background(), "octocat", "hello", 42, 500)
+	require.NoError(t, err)
+	endpoint := args[len(args)-1]
+	assert.Contains(t, endpoint, "per_page=100", "limit above maxLimit should clamp to 100")
+}
+
+func TestPRReviewComments_Error(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(name string, args ...string) ([]byte, error) {
+			return []byte("not found"), fmt.Errorf("exit 1")
+		},
+	})
+	_, err := c.PRReviewComments(context.Background(), "o", "r", 1, 10)
+	assert.ErrorContains(t, err, "gh pr review comments failed")
+}
+
 func TestDeleteCache_SeparatorBeforeCacheID(t *testing.T) {
 	var args []string
 	c := NewClient(capturedArgs(t, &args))

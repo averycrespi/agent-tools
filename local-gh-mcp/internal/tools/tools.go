@@ -28,6 +28,8 @@ type GHClient interface {
 	CommentIssue(ctx context.Context, owner, repo string, number int, body string) (string, error)
 	// Comment listing operations
 	PRComments(ctx context.Context, owner, repo string, number int, limit int) (string, error)
+	PRReviews(ctx context.Context, owner, repo string, number int, limit int) (string, error)
+	PRReviewComments(ctx context.Context, owner, repo string, number int, limit int) (string, error)
 	IssueComments(ctx context.Context, owner, repo string, number int, limit int) (string, error)
 	// Run operations - NOTE: runID is string
 	ListRuns(ctx context.Context, owner, repo string, opts gh.ListRunsOpts) (string, error)
@@ -97,6 +99,10 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 		return h.handleCommentIssue(ctx, req)
 	case "gh_list_pr_comments":
 		return h.handleListPRComments(ctx, req)
+	case "gh_list_pr_reviews":
+		return h.handleListPRReviews(ctx, req)
+	case "gh_list_pr_review_comments":
+		return h.handleListPRReviewComments(ctx, req)
 	case "gh_list_issue_comments":
 		return h.handleListIssueComments(ctx, req)
 	case "gh_list_runs":

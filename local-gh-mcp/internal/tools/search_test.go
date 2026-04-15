@@ -203,5 +203,5 @@ func TestSearchCommits_FormatsMarkdown(t *testing.T) {
 func TestToolCount(t *testing.T) {
 	h := NewHandler(&mockGHClient{})
 	tools := h.Tools()
-	assert.Equal(t, 26, len(tools), "expected 26 total tools")
+	assert.Equal(t, 28, len(tools), "expected 28 total tools")
 }

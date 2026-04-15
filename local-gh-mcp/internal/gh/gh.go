@@ -420,6 +420,31 @@ func (c *Client) PRComments(_ context.Context, owner, repo string, number int, l
 	return strings.TrimSpace(string(out)), nil
 }
 
+// PRReviews retrieves top-level review submissions on a pull request.
+func (c *Client) PRReviews(_ context.Context, owner, repo string, number int, limit int) (string, error) {
+	out, err := c.runner.Run("gh", "pr", "view", "-R", repoFlag(owner, repo),
+		"--json", "reviews", "--jq",
+		fmt.Sprintf(".reviews[:%d] | map({author,authorAssociation,body,state,submittedAt})", clampLimit(limit)),
+		strconv.Itoa(number))
+	if err != nil {
+		return "", fmt.Errorf("gh pr reviews failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// PRReviewComments retrieves inline review comments on a pull request.
+// Uses the REST API via `gh api` because `gh pr view --json` does not expose inline comments.
+// Clamped limit maps to the per_page query param (max 100 per GitHub REST API).
+func (c *Client) PRReviewComments(_ context.Context, owner, repo string, number int, limit int) (string, error) {
+	endpoint := fmt.Sprintf("repos/%s/pulls/%d/comments?per_page=%d", repoFlag(owner, repo), number, clampLimit(limit))
+	jq := "map({id, in_reply_to_id, pull_request_review_id, user: {login: .user.login, type: .user.type}, body, path, line, original_line, side, diff_hunk, created_at})"
+	out, err := c.runner.Run("gh", "api", "--jq", jq, "--", endpoint)
+	if err != nil {
+		return "", fmt.Errorf("gh pr review comments failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // IssueComments retrieves comments on an issue.
 func (c *Client) IssueComments(_ context.Context, owner, repo string, number int, limit int) (string, error) {
 	out, err := c.runner.Run("gh", "issue", "view", "-R", repoFlag(owner, repo),

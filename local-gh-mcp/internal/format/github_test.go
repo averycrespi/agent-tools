@@ -161,6 +161,136 @@ func TestFormatComments_StripImages(t *testing.T) {
 	}
 }
 
+func TestFormatReviews(t *testing.T) {
+	reviews := []Review{
+		{
+			Author:            Author{Login: "alice"},
+			AuthorAssociation: "MEMBER",
+			Body:              "LGTM",
+			State:             "APPROVED",
+			SubmittedAt:       "2026-04-10T00:00:00Z",
+		},
+		{
+			Author:            Author{Login: "bob"},
+			AuthorAssociation: "NONE",
+			Body:              "",
+			State:             "COMMENTED",
+			SubmittedAt:       "2026-04-11T00:00:00Z",
+		},
+	}
+	got := FormatReviews(reviews, 10000)
+	for _, want := range []string{
+		"## Reviews (2)",
+		"### @alice [MEMBER] — APPROVED (2026-04-10)",
+		"LGTM",
+		"### @bob — COMMENTED (2026-04-11)",
+		"(no body)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "[NONE]") {
+		t.Error("NONE author association should not be displayed")
+	}
+}
+
+func TestFormatReviews_Empty(t *testing.T) {
+	got := FormatReviews(nil, 10000)
+	if got != "No reviews." {
+		t.Errorf("got %q, want %q", got, "No reviews.")
+	}
+}
+
+func TestFormatReviewComments(t *testing.T) {
+	comments := []ReviewComment{
+		{
+			ID:        1,
+			User:      RESTUser{Login: "alice", Type: "User"},
+			Body:      "nil-check this",
+			Path:      "src/foo.go",
+			Line:      42,
+			CreatedAt: "2026-04-10T00:00:00Z",
+		},
+		{
+			ID:          2,
+			InReplyToID: 1,
+			User:        RESTUser{Login: "author", Type: "User"},
+			Body:        "done",
+			Path:        "src/foo.go",
+			Line:        42,
+			CreatedAt:   "2026-04-11T00:00:00Z",
+		},
+		{
+			ID:        3,
+			User:      RESTUser{Login: "bot", Type: "Bot"},
+			Body:      "style issue",
+			Path:      "src/bar.go",
+			Line:      7,
+			CreatedAt: "2026-04-12T00:00:00Z",
+		},
+	}
+	got := FormatReviewComments(comments, 10000)
+	for _, want := range []string{
+		"## Review Comments (3)",
+		"### src/foo.go",
+		"**Line 42** — @alice (2026-04-10):",
+		"nil-check this",
+		"↳ @author (2026-04-11):",
+		"done",
+		"### src/bar.go",
+		"**Line 7** — @bot [bot] (2026-04-12):",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestFormatReviewComments_Empty(t *testing.T) {
+	got := FormatReviewComments(nil, 10000)
+	if got != "No review comments." {
+		t.Errorf("got %q, want %q", got, "No review comments.")
+	}
+}
+
+func TestFormatReviewComments_OrphanReply(t *testing.T) {
+	// Reply whose parent isn't in the page should render as a root.
+	comments := []ReviewComment{
+		{
+			ID:          5,
+			InReplyToID: 999,
+			User:        RESTUser{Login: "late", Type: "User"},
+			Body:        "late reply",
+			Path:        "x.go",
+			Line:        1,
+			CreatedAt:   "2026-04-15T00:00:00Z",
+		},
+	}
+	got := FormatReviewComments(comments, 10000)
+	if !strings.Contains(got, "**Line 1** — @late") {
+		t.Errorf("orphan reply should render as root, got:\n%s", got)
+	}
+}
+
+func TestFormatReviewComments_FallsBackToOriginalLine(t *testing.T) {
+	comments := []ReviewComment{
+		{
+			ID:           1,
+			User:         RESTUser{Login: "alice", Type: "User"},
+			Body:         "outdated",
+			Path:         "x.go",
+			Line:         0,
+			OriginalLine: 17,
+			CreatedAt:    "2026-04-10T00:00:00Z",
+		},
+	}
+	got := FormatReviewComments(comments, 10000)
+	if !strings.Contains(got, "**Line 17**") {
+		t.Errorf("expected original_line fallback to Line 17, got:\n%s", got)
+	}
+}
+
 func TestFormatCheckList(t *testing.T) {
 	checks := []Check{
 		{Name: "build", State: "SUCCESS"},

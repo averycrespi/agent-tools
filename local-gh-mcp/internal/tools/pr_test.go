@@ -11,32 +11,34 @@ import (
 )
 
 type mockGHClient struct {
-	createPRFunc      func(ctx context.Context, owner, repo string, opts gh.CreatePROpts) (string, error)
-	viewPRFunc        func(ctx context.Context, owner, repo string, number int) (string, error)
-	listPRsFunc       func(ctx context.Context, owner, repo string, opts gh.ListPROpts) (string, error)
-	diffPRFunc        func(ctx context.Context, owner, repo string, number int) (string, error)
-	commentPRFunc     func(ctx context.Context, owner, repo string, number int, body string) (string, error)
-	reviewPRFunc      func(ctx context.Context, owner, repo string, number int, event, body string) (string, error)
-	mergePRFunc       func(ctx context.Context, owner, repo string, number int, opts gh.MergePROpts) (string, error)
-	editPRFunc        func(ctx context.Context, owner, repo string, number int, opts gh.EditPROpts) (string, error)
-	checkPRFunc       func(ctx context.Context, owner, repo string, number int) (string, error)
-	closePRFunc       func(ctx context.Context, owner, repo string, number int, comment string) (string, error)
-	viewIssueFunc     func(ctx context.Context, owner, repo string, number int) (string, error)
-	listIssuesFunc    func(ctx context.Context, owner, repo string, opts gh.ListIssuesOpts) (string, error)
-	commentIssueFunc  func(ctx context.Context, owner, repo string, number int, body string) (string, error)
-	prCommentsFunc    func(ctx context.Context, owner, repo string, number int, limit int) (string, error)
-	issueCommentsFunc func(ctx context.Context, owner, repo string, number int, limit int) (string, error)
-	listRunsFunc      func(ctx context.Context, owner, repo string, opts gh.ListRunsOpts) (string, error)
-	viewRunFunc       func(ctx context.Context, owner, repo string, runID string, logFailed bool) (string, error)
-	rerunFunc         func(ctx context.Context, owner, repo string, runID string, failedOnly bool) (string, error)
-	cancelRunFunc     func(ctx context.Context, owner, repo string, runID string) (string, error)
-	listCachesFunc    func(ctx context.Context, owner, repo string, opts gh.ListCachesOpts) (string, error)
-	deleteCacheFunc   func(ctx context.Context, owner, repo string, cacheID string) (string, error)
-	searchPRsFunc     func(ctx context.Context, query string, opts gh.SearchPRsOpts) (string, error)
-	searchIssuesFunc  func(ctx context.Context, query string, opts gh.SearchIssuesOpts) (string, error)
-	searchReposFunc   func(ctx context.Context, query string, opts gh.SearchReposOpts) (string, error)
-	searchCodeFunc    func(ctx context.Context, query string, opts gh.SearchCodeOpts) (string, error)
-	searchCommitsFunc func(ctx context.Context, query string, opts gh.SearchCommitsOpts) (string, error)
+	createPRFunc         func(ctx context.Context, owner, repo string, opts gh.CreatePROpts) (string, error)
+	viewPRFunc           func(ctx context.Context, owner, repo string, number int) (string, error)
+	listPRsFunc          func(ctx context.Context, owner, repo string, opts gh.ListPROpts) (string, error)
+	diffPRFunc           func(ctx context.Context, owner, repo string, number int) (string, error)
+	commentPRFunc        func(ctx context.Context, owner, repo string, number int, body string) (string, error)
+	reviewPRFunc         func(ctx context.Context, owner, repo string, number int, event, body string) (string, error)
+	mergePRFunc          func(ctx context.Context, owner, repo string, number int, opts gh.MergePROpts) (string, error)
+	editPRFunc           func(ctx context.Context, owner, repo string, number int, opts gh.EditPROpts) (string, error)
+	checkPRFunc          func(ctx context.Context, owner, repo string, number int) (string, error)
+	closePRFunc          func(ctx context.Context, owner, repo string, number int, comment string) (string, error)
+	viewIssueFunc        func(ctx context.Context, owner, repo string, number int) (string, error)
+	listIssuesFunc       func(ctx context.Context, owner, repo string, opts gh.ListIssuesOpts) (string, error)
+	commentIssueFunc     func(ctx context.Context, owner, repo string, number int, body string) (string, error)
+	prCommentsFunc       func(ctx context.Context, owner, repo string, number int, limit int) (string, error)
+	prReviewsFunc        func(ctx context.Context, owner, repo string, number int, limit int) (string, error)
+	prReviewCommentsFunc func(ctx context.Context, owner, repo string, number int, limit int) (string, error)
+	issueCommentsFunc    func(ctx context.Context, owner, repo string, number int, limit int) (string, error)
+	listRunsFunc         func(ctx context.Context, owner, repo string, opts gh.ListRunsOpts) (string, error)
+	viewRunFunc          func(ctx context.Context, owner, repo string, runID string, logFailed bool) (string, error)
+	rerunFunc            func(ctx context.Context, owner, repo string, runID string, failedOnly bool) (string, error)
+	cancelRunFunc        func(ctx context.Context, owner, repo string, runID string) (string, error)
+	listCachesFunc       func(ctx context.Context, owner, repo string, opts gh.ListCachesOpts) (string, error)
+	deleteCacheFunc      func(ctx context.Context, owner, repo string, cacheID string) (string, error)
+	searchPRsFunc        func(ctx context.Context, query string, opts gh.SearchPRsOpts) (string, error)
+	searchIssuesFunc     func(ctx context.Context, query string, opts gh.SearchIssuesOpts) (string, error)
+	searchReposFunc      func(ctx context.Context, query string, opts gh.SearchReposOpts) (string, error)
+	searchCodeFunc       func(ctx context.Context, query string, opts gh.SearchCodeOpts) (string, error)
+	searchCommitsFunc    func(ctx context.Context, query string, opts gh.SearchCommitsOpts) (string, error)
 }
 
 func (m *mockGHClient) CreatePR(ctx context.Context, owner, repo string, opts gh.CreatePROpts) (string, error) {
@@ -133,6 +135,20 @@ func (m *mockGHClient) CommentIssue(ctx context.Context, owner, repo string, num
 func (m *mockGHClient) PRComments(ctx context.Context, owner, repo string, number int, limit int) (string, error) {
 	if m.prCommentsFunc != nil {
 		return m.prCommentsFunc(ctx, owner, repo, number, limit)
+	}
+	return "", nil
+}
+
+func (m *mockGHClient) PRReviews(ctx context.Context, owner, repo string, number int, limit int) (string, error) {
+	if m.prReviewsFunc != nil {
+		return m.prReviewsFunc(ctx, owner, repo, number, limit)
+	}
+	return "", nil
+}
+
+func (m *mockGHClient) PRReviewComments(ctx context.Context, owner, repo string, number int, limit int) (string, error) {
+	if m.prReviewCommentsFunc != nil {
+		return m.prReviewCommentsFunc(ctx, owner, repo, number, limit)
 	}
 	return "", nil
 }
@@ -373,6 +389,83 @@ func TestListPRComments_Success(t *testing.T) {
 	assert.Contains(t, text, "## Comments (1)")
 	assert.Contains(t, text, "@reviewer [MEMBER]")
 	assert.Contains(t, text, "LGTM")
+}
+
+func TestListPRReviews_Success(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		prReviewsFunc: func(_ context.Context, owner, repo string, number int, limit int) (string, error) {
+			assert.Equal(t, "octocat", owner)
+			assert.Equal(t, "hello-world", repo)
+			assert.Equal(t, 42, number)
+			return `[{"author":{"login":"alice"},"authorAssociation":"MEMBER","body":"LGTM","state":"APPROVED","submittedAt":"2026-04-10T00:00:00Z"}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_pr_reviews"
+	req.Params.Arguments = map[string]any{
+		"owner":  "octocat",
+		"repo":   "hello-world",
+		"number": float64(42),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "## Reviews (1)")
+	assert.Contains(t, text, "@alice [MEMBER] — APPROVED")
+	assert.Contains(t, text, "LGTM")
+}
+
+func TestListPRReviews_MissingNumber(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_pr_reviews"
+	req.Params.Arguments = map[string]any{
+		"owner": "octocat",
+		"repo":  "hello-world",
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+func TestListPRReviewComments_Success(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		prReviewCommentsFunc: func(_ context.Context, owner, repo string, number int, limit int) (string, error) {
+			assert.Equal(t, "octocat", owner)
+			assert.Equal(t, "hello-world", repo)
+			assert.Equal(t, 42, number)
+			return `[{"id":1,"in_reply_to_id":0,"pull_request_review_id":100,"user":{"login":"alice","type":"User"},"body":"nil-check","path":"src/foo.go","line":42,"original_line":42,"side":"RIGHT","diff_hunk":"@@ ...","created_at":"2026-04-10T00:00:00Z"}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_pr_review_comments"
+	req.Params.Arguments = map[string]any{
+		"owner":  "octocat",
+		"repo":   "hello-world",
+		"number": float64(42),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "## Review Comments (1)")
+	assert.Contains(t, text, "### src/foo.go")
+	assert.Contains(t, text, "**Line 42** — @alice")
+	assert.Contains(t, text, "nil-check")
+}
+
+func TestListPRReviewComments_MissingNumber(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_pr_review_comments"
+	req.Params.Arguments = map[string]any{
+		"owner": "octocat",
+		"repo":  "hello-world",
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
 }
 
 func TestDiffPR_FormatsWithSummary(t *testing.T) {
