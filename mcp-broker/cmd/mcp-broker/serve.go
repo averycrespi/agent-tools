@@ -142,9 +142,9 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("initializing grant store: %w", err)
 	}
-	_ = grantStore // consumed by Task 15 (mount grants API)
-
 	grantEngine := grants.NewEngine(grantStore)
+
+	grantsAPI := grants.NewAPI(grantStore, grantEngine)
 
 	// Create broker
 	b := broker.New(mgr, engine, auditor, multi, logger.With("component", "broker"), grantEngine)
@@ -171,6 +171,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/dashboard/", http.StatusFound)
 	})
+
+	// Mount grants API
+	mux.Handle("POST /api/grants", grantsAPI)
+	mux.Handle("GET /api/grants", grantsAPI)
+	mux.Handle("DELETE /api/grants/", grantsAPI)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	srv := &http.Server{Addr: addr, Handler: auth.Middleware(token, auth.GrantTokenMiddleware(mux)), ReadHeaderTimeout: 10 * time.Second}
