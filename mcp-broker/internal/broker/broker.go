@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/grants"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/rules"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 )
@@ -40,16 +41,19 @@ type Broker struct {
 	auditor  AuditLogger
 	approver Approver
 	logger   *slog.Logger
+	engine   *grants.Engine
 }
 
 // New creates a Broker with the given components.
-func New(servers ServerManager, rulesEngine *rules.Engine, auditor AuditLogger, approver Approver, logger *slog.Logger) *Broker {
+// engine may be nil; when nil, grant evaluation is skipped.
+func New(servers ServerManager, rulesEngine *rules.Engine, auditor AuditLogger, approver Approver, logger *slog.Logger, engine *grants.Engine) *Broker {
 	return &Broker{
 		servers:  servers,
 		rules:    rulesEngine,
 		auditor:  auditor,
 		approver: approver,
 		logger:   logger,
+		engine:   engine,
 	}
 }
 
@@ -59,6 +63,37 @@ func (b *Broker) Handle(ctx context.Context, tool string, args map[string]any) (
 		Timestamp: time.Now(),
 		Tool:      tool,
 		Args:      args,
+	}
+
+	// 0. Grant check (short-circuits rules + approval when matched)
+	var gr grants.Result
+	if b.engine != nil {
+		token := grants.TokenFromContext(ctx)
+		var err error
+		gr, err = b.engine.Evaluate(ctx, token, tool, args)
+		if err != nil {
+			if b.logger != nil {
+				b.logger.Warn("grant evaluation failed", "err", err)
+			}
+			gr = grants.Result{Outcome: grants.NotPresented}
+		}
+	}
+	rec.GrantID = gr.GrantID
+	rec.GrantOutcome = string(gr.Outcome)
+
+	if gr.Outcome == grants.Matched {
+		rec.Verdict = rules.Allow.String()
+		result, err := b.servers.Call(ctx, tool, args)
+		if err != nil {
+			rec.Error = err.Error()
+			_ = b.auditor.Record(ctx, rec)
+			return nil, fmt.Errorf("backend error for %s: %w", tool, err)
+		}
+		if result.IsError {
+			rec.Error = fmt.Sprintf("%v", result.Content)
+		}
+		_ = b.auditor.Record(ctx, rec)
+		return result.Content, nil
 	}
 
 	// 1. Rules check

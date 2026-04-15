@@ -124,8 +124,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	multi := broker.NewMultiApprover(timeout, approvers...)
 
-	// Create broker
-	b := broker.New(mgr, engine, auditor, multi, logger.With("component", "broker"))
+	// Create broker (grants engine wired in Task 11)
+	b := broker.New(mgr, engine, auditor, multi, logger.With("component", "broker"), nil)
 
 	// Create MCP server
 	mcpSrv := mcpserver.NewMCPServer("mcp-broker", "0.1.0")

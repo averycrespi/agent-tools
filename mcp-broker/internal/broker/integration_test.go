@@ -37,7 +37,7 @@ func TestBroker_Integration_FullPipeline(t *testing.T) {
 		{Name: "echo.ping", Description: "Echo a message"},
 	})
 
-	b := New(sm, engine, auditor, nil, nil)
+	b := New(sm, engine, auditor, nil, nil, nil)
 
 	// Allowed call
 	result, err := b.Handle(context.Background(), "echo.ping", map[string]any{"message": "hello"})
