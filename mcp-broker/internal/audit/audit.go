@@ -23,6 +23,8 @@ type Record struct {
 	Approved     *bool          `json:"approved,omitempty"`
 	DenialReason string         `json:"denial_reason,omitempty"`
 	Error        string         `json:"error,omitempty"`
+	GrantID      string         `json:"grant_id,omitempty"`
+	GrantOutcome string         `json:"grant_outcome,omitempty"`
 }
 
 // QueryOpts controls filtering and pagination for audit queries.
@@ -41,16 +43,16 @@ CREATE TABLE IF NOT EXISTS audit_records (
     verdict       TEXT    NOT NULL,
     approved      INTEGER,
     denial_reason TEXT    NOT NULL DEFAULT '',
-    error         TEXT    NOT NULL DEFAULT ''
+    error         TEXT    NOT NULL DEFAULT '',
+    grant_id      TEXT,
+    grant_outcome TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_records(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_tool ON audit_records(tool);
 `
 
-const migrateSQL = `ALTER TABLE audit_records ADD COLUMN denial_reason TEXT NOT NULL DEFAULT ''`
-
-const insertSQL = `INSERT INTO audit_records (timestamp, tool, args, verdict, approved, denial_reason, error)
-VALUES (?, ?, ?, ?, ?, ?, ?)`
+const insertSQL = `INSERT INTO audit_records (timestamp, tool, args, verdict, approved, denial_reason, error, grant_id, grant_outcome)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // Logger records and queries audit entries in a SQLite database.
 type Logger struct {
@@ -80,8 +82,11 @@ func NewLogger(path string) (*Logger, error) {
 		return nil, fmt.Errorf("create audit table: %w", err)
 	}
 
-	// Migrate: add denial_reason column if it doesn't exist yet.
-	_, _ = db.Exec(migrateSQL)
+	// Migrate: add columns if they don't exist yet (errors ignored on duplicate columns).
+	_, _ = db.Exec(`ALTER TABLE audit_records ADD COLUMN denial_reason TEXT NOT NULL DEFAULT ''`)
+	_, _ = db.Exec(`ALTER TABLE audit_records ADD COLUMN grant_id TEXT`)
+	_, _ = db.Exec(`ALTER TABLE audit_records ADD COLUMN grant_outcome TEXT`)
+	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_grant_id ON audit_records(grant_id)`)
 
 	stmt, err := db.Prepare(insertSQL)
 	if err != nil {
@@ -119,6 +124,8 @@ func (l *Logger) Record(_ context.Context, rec Record) error {
 		approved,
 		rec.DenialReason,
 		rec.Error,
+		rec.GrantID,
+		rec.GrantOutcome,
 	)
 	if err != nil {
 		return fmt.Errorf("insert audit record: %w", err)
@@ -150,7 +157,7 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 		limit = 50
 	}
 
-	selectSQL := "SELECT timestamp, tool, args, verdict, approved, denial_reason, error FROM audit_records" +
+	selectSQL := "SELECT timestamp, tool, args, verdict, approved, denial_reason, error, grant_id, grant_outcome FROM audit_records" +
 		where + " ORDER BY id DESC LIMIT ? OFFSET ?"
 	selectArgs := make([]any, len(queryArgs), len(queryArgs)+2)
 	copy(selectArgs, queryArgs)
@@ -168,8 +175,9 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 			ts, tool, verdict, denialReason, errStr string
 			argsJSON                                sql.NullString
 			approved                                sql.NullInt64
+			grantID, grantOutcome                   sql.NullString
 		)
-		if err := rows.Scan(&ts, &tool, &argsJSON, &verdict, &approved, &denialReason, &errStr); err != nil {
+		if err := rows.Scan(&ts, &tool, &argsJSON, &verdict, &approved, &denialReason, &errStr, &grantID, &grantOutcome); err != nil {
 			return nil, 0, fmt.Errorf("scan audit record: %w", err)
 		}
 
@@ -181,6 +189,8 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 			Verdict:      verdict,
 			DenialReason: denialReason,
 			Error:        errStr,
+			GrantID:      grantID.String,
+			GrantOutcome: grantOutcome.String,
 		}
 
 		if argsJSON.Valid {

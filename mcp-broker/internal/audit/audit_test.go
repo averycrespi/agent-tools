@@ -119,3 +119,36 @@ func TestLogger_RecordWithApproval(t *testing.T) {
 	require.NotNil(t, records[0].Approved)
 	require.True(t, *records[0].Approved)
 }
+
+func TestRecordWithGrant(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	l, err := NewLogger(path)
+	require.NoError(t, err)
+	defer func() { _ = l.Close(context.Background()) }()
+
+	err = l.Record(context.Background(), Record{
+		Timestamp:    time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC),
+		Tool:         "git.git_push",
+		Args:         map[string]any{"branch": "feat/foo"},
+		Verdict:      "allow",
+		GrantID:      "grt_abc",
+		GrantOutcome: "matched",
+	})
+	require.NoError(t, err)
+
+	records, _, err := l.Query(context.Background(), QueryOpts{Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	require.Equal(t, "grt_abc", records[0].GrantID)
+	require.Equal(t, "matched", records[0].GrantOutcome)
+}
+
+func TestAuditSchemaIsIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	l1, err := NewLogger(path)
+	require.NoError(t, err)
+	require.NoError(t, l1.Close(context.Background()))
+	l2, err := NewLogger(path)
+	require.NoError(t, err)
+	require.NoError(t, l2.Close(context.Background()))
+}
