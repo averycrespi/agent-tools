@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,11 +19,15 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
 
+	_ "github.com/ncruces/go-sqlite3/driver"
+	_ "github.com/ncruces/go-sqlite3/embed"
+
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/auth"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/broker"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/dashboard"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/grants"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/rules"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/telegram"
@@ -124,8 +129,25 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	multi := broker.NewMultiApprover(timeout, approvers...)
 
-	// Create broker (grants engine wired in Task 11)
-	b := broker.New(mgr, engine, auditor, multi, logger.With("component", "broker"), nil)
+	// Open a separate SQLite connection for the grants store (Option B: fresh
+	// connection to the same file; both packages use CREATE TABLE IF NOT EXISTS
+	// so schema coexistence is clean; WAL mode allows concurrent readers).
+	grantDB, err := sql.Open("sqlite3", cfg.Audit.Path)
+	if err != nil {
+		return fmt.Errorf("opening grants db: %w", err)
+	}
+	defer func() { _ = grantDB.Close() }()
+
+	grantStore, err := grants.NewStore(ctx, grantDB)
+	if err != nil {
+		return fmt.Errorf("initializing grant store: %w", err)
+	}
+	_ = grantStore // consumed by Task 15 (mount grants API)
+
+	grantEngine := grants.NewEngine(grantStore)
+
+	// Create broker
+	b := broker.New(mgr, engine, auditor, multi, logger.With("component", "broker"), grantEngine)
 
 	// Create MCP server
 	mcpSrv := mcpserver.NewMCPServer("mcp-broker", "0.1.0")
@@ -151,7 +173,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	})
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	srv := &http.Server{Addr: addr, Handler: auth.Middleware(token, mux), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: auth.Middleware(token, auth.GrantTokenMiddleware(mux)), ReadHeaderTimeout: 10 * time.Second}
 
 	// Handle shutdown
 	stop := make(chan os.Signal, 1)
