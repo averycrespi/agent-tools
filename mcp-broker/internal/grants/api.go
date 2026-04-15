@@ -74,11 +74,27 @@ func NewAPI(store *Store, engine *Engine) *API {
 
 func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/api/grants":
+		a.handleList(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/grants":
 		a.handleCreate(w, r)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (a *API) handleList(w http.ResponseWriter, r *http.Request) {
+	all := r.URL.Query().Get("status") == "all"
+	grants, err := a.store.List(r.Context(), all)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if grants == nil {
+		grants = []Grant{} // stable JSON: [] not null
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(grants)
 }
 
 func (a *API) handleCreate(w http.ResponseWriter, r *http.Request) {

@@ -60,3 +60,41 @@ func TestCreateGrantRejectsBadSchema(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 }
+
+func TestListGrantsEndpoint(t *testing.T) {
+	store, _ := NewStore(context.Background(), openTestDB(t))
+	api := NewAPI(store, NewEngine(store))
+
+	// seed two grants, revoke one
+	for _, desc := range []string{"keep", "revoke"} {
+		cred, _ := NewCredential()
+		now := time.Now().UTC()
+		require.NoError(t, store.Create(context.Background(), Grant{
+			ID:          cred.ID,
+			Description: desc,
+			Entries:     []Entry{{Tool: "x.y", ArgSchema: json.RawMessage(`{}`)}},
+			CreatedAt:   now,
+			ExpiresAt:   now.Add(time.Hour),
+		}, cred.TokenHash))
+		if desc == "revoke" {
+			require.NoError(t, store.Revoke(context.Background(), cred.ID, time.Now().UTC()))
+		}
+	}
+
+	// default: active only
+	req := httptest.NewRequest(http.MethodGet, "/api/grants", nil)
+	rr := httptest.NewRecorder()
+	api.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
+	var got []Grant
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&got))
+	require.Len(t, got, 1)
+	require.Equal(t, "keep", got[0].Description)
+
+	// all
+	req = httptest.NewRequest(http.MethodGet, "/api/grants?status=all", nil)
+	rr = httptest.NewRecorder()
+	api.ServeHTTP(rr, req)
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&got))
+	require.Len(t, got, 2)
+}
