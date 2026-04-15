@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/grants"
 	"github.com/stretchr/testify/require"
 )
 
@@ -178,4 +179,20 @@ func TestMiddleware_AllowsUnauthorizedPage(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close() //nolint:errcheck // test cleanup
 	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func TestGrantTokenMiddleware(t *testing.T) {
+	var got string
+	h := GrantTokenMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = grants.TokenFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	req.Header.Set("X-Grant-Token", "gr_abc")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	require.Equal(t, "gr_abc", got)
 }

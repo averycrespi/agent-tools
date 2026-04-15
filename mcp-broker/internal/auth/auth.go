@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/grants"
 )
 
 // TokenPath returns the default token file path under the XDG config directory.
@@ -135,4 +137,17 @@ func checkCookie(r *http.Request, token []byte) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(cookie.Value), token) == 1
+}
+
+// GrantTokenMiddleware reads X-Grant-Token from the request and, if
+// present, attaches it to the request context via grants.ContextWithToken.
+// Absence of the header is not an error: downstream code treats an empty
+// token as "no grant presented."
+func GrantTokenMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if t := r.Header.Get("X-Grant-Token"); t != "" {
+			r = r.WithContext(grants.ContextWithToken(r.Context(), t))
+		}
+		next.ServeHTTP(w, r)
+	})
 }
