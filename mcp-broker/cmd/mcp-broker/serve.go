@@ -159,8 +159,18 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Create combined HTTP server
 	mux := http.NewServeMux()
 
-	// Mount MCP at /mcp
-	streamHandler := mcpserver.NewStreamableHTTPServer(mcpSrv)
+	// Mount MCP at /mcp. StreamableHTTPServer creates its own context for
+	// MCP handlers, so the X-Grant-Token stashed by auth.GrantTokenMiddleware
+	// via r.Context() would be discarded. Re-inject it here so broker.Handle
+	// can read it via grants.TokenFromContext.
+	streamHandler := mcpserver.NewStreamableHTTPServer(mcpSrv,
+		mcpserver.WithHTTPContextFunc(func(ctx context.Context, r *http.Request) context.Context {
+			if tok := r.Header.Get("X-Grant-Token"); tok != "" {
+				return grants.ContextWithToken(ctx, tok)
+			}
+			return ctx
+		}),
+	)
 	mux.Handle("/mcp", streamHandler)
 
 	// Mount dashboard at /dashboard
