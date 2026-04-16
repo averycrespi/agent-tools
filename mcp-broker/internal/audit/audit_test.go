@@ -143,6 +143,38 @@ func TestRecordWithGrant(t *testing.T) {
 	require.Equal(t, "matched", records[0].GrantOutcome)
 }
 
+func TestQueryGrantFilters(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	l, err := NewLogger(path)
+	require.NoError(t, err)
+	defer func() { _ = l.Close(context.Background()) }()
+
+	ctx := context.Background()
+	seed := []Record{
+		{Timestamp: time.Now(), Tool: "x.y", Verdict: "allow"},
+		{Timestamp: time.Now(), Tool: "x.y", Verdict: "allow", GrantID: "grt_aaaa", GrantOutcome: "matched"},
+		{Timestamp: time.Now(), Tool: "x.y", Verdict: "allow", GrantID: "grt_bbbb", GrantOutcome: "fell_through"},
+	}
+	for _, r := range seed {
+		require.NoError(t, l.Record(ctx, r))
+	}
+
+	got, total, err := l.Query(ctx, QueryOpts{HasGrant: true, Limit: 10})
+	require.NoError(t, err)
+	require.Equal(t, 2, total, "HasGrant must exclude rows without a grant_id")
+	require.Len(t, got, 2)
+
+	got, total, err = l.Query(ctx, QueryOpts{GrantID: "aaaa", Limit: 10})
+	require.NoError(t, err)
+	require.Equal(t, 1, total, "GrantID substring must match exactly one row")
+	require.Equal(t, "grt_aaaa", got[0].GrantID)
+
+	got, total, err = l.Query(ctx, QueryOpts{GrantID: "grt_", Limit: 10})
+	require.NoError(t, err)
+	require.Equal(t, 2, total, "GrantID prefix substring must match both grant rows")
+	require.Len(t, got, 2)
+}
+
 func TestAuditSchemaIsIdempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.db")
 	l1, err := NewLogger(path)

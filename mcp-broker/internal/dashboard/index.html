@@ -2031,8 +2031,7 @@
                     ? rec.grant_id.slice(0, 12) + "\u2026"
                     : rec.grant_id;
                 var outcome = rec.grant_outcome || "unknown";
-                var pillClass =
-                  "grant-pill grant-" + outcome.replace(/_/g, "_");
+                var pillClass = "grant-pill grant-" + outcome;
                 toolCell +=
                   ' <span class="' +
                   escAttr(pillClass) +
