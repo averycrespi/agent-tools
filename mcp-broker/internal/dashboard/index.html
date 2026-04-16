@@ -990,6 +990,33 @@
         background: rgba(239, 68, 68, 0.15);
         color: var(--red);
       }
+
+      /* Grant pill in audit rows */
+      .grant-pill {
+        display: inline-block;
+        margin-left: 0.4rem;
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        vertical-align: middle;
+      }
+
+      .grant-matched {
+        background: rgba(34, 197, 94, 0.15);
+        color: var(--green);
+      }
+
+      .grant-fell_through {
+        background: rgba(245, 158, 11, 0.15);
+        color: #d97706;
+      }
+
+      .grant-invalid {
+        background: rgba(239, 68, 68, 0.15);
+        color: var(--red);
+      }
     </style>
   </head>
   <body>
@@ -1094,6 +1121,36 @@
               placeholder="e.g. github.push"
               oninput="debounceAudit()"
             />
+          </div>
+          <div class="filter-group">
+            <label>Grant ID</label>
+            <input
+              type="text"
+              id="audit-grant-id"
+              placeholder="e.g. grt_abc"
+              oninput="debounceAudit()"
+            />
+          </div>
+          <div class="filter-group" style="justify-content: flex-end">
+            <label
+              style="
+                flex-direction: row;
+                align-items: center;
+                gap: 0.35rem;
+                text-transform: none;
+                letter-spacing: 0;
+                font-size: 0.8125rem;
+                font-weight: 400;
+                color: var(--text-primary);
+              "
+            >
+              <input
+                type="checkbox"
+                id="audit-has-grant"
+                onchange="debounceAudit()"
+              />
+              Only rows with a grant
+            </label>
           </div>
         </div>
         <div class="audit-table-wrap">
@@ -1886,8 +1943,12 @@
 
       function loadAudit() {
         var tool = document.getElementById("audit-tool").value.trim();
+        var grantId = document.getElementById("audit-grant-id").value.trim();
+        var hasGrant = document.getElementById("audit-has-grant").checked;
         var params = new URLSearchParams();
         if (tool) params.set("tool", tool);
+        if (grantId) params.set("grant_id", grantId);
+        if (hasGrant) params.set("has_grant", "1");
         params.set("limit", auditLimit);
         params.set("offset", auditOffset);
 
@@ -1961,7 +2022,28 @@
                 idx +
                 ')">';
               html += "<td>" + esc(ts) + "</td>";
-              html += "<td>" + esc(rec.tool || "-") + "</td>";
+
+              // Tool cell with optional grant pill
+              var toolCell = esc(rec.tool || "-");
+              if (rec.grant_id) {
+                var shortId =
+                  rec.grant_id.length > 12
+                    ? rec.grant_id.slice(0, 12) + "\u2026"
+                    : rec.grant_id;
+                var outcome = rec.grant_outcome || "unknown";
+                var pillClass =
+                  "grant-pill grant-" + outcome.replace(/_/g, "_");
+                toolCell +=
+                  ' <span class="' +
+                  escAttr(pillClass) +
+                  '">\uD83C\uDFAB ' +
+                  esc(shortId) +
+                  " (" +
+                  esc(outcome) +
+                  ")</span>";
+              }
+              html += "<td>" + toolCell + "</td>";
+
               html +=
                 '<td class="' +
                 verdictClass +

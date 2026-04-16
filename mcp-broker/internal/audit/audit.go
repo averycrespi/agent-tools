@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,9 +30,11 @@ type Record struct {
 
 // QueryOpts controls filtering and pagination for audit queries.
 type QueryOpts struct {
-	Tool   string
-	Limit  int
-	Offset int
+	Tool     string
+	GrantID  string // substring match on grant_id
+	HasGrant bool   // if true, only rows where grant_id IS NOT NULL
+	Limit    int
+	Offset   int
 }
 
 const createSQL = `
@@ -138,12 +141,24 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	where := ""
+	var conditions []string
 	var queryArgs []any
 
 	if opts.Tool != "" {
-		where = " WHERE tool LIKE '%' || ? || '%'"
+		conditions = append(conditions, "tool LIKE '%' || ? || '%'")
 		queryArgs = append(queryArgs, opts.Tool)
+	}
+	if opts.HasGrant {
+		conditions = append(conditions, "grant_id IS NOT NULL AND grant_id != ''")
+	}
+	if opts.GrantID != "" {
+		conditions = append(conditions, "grant_id LIKE '%' || ? || '%'")
+		queryArgs = append(queryArgs, opts.GrantID)
+	}
+
+	where := ""
+	if len(conditions) > 0 {
+		where = " WHERE " + strings.Join(conditions, " AND ")
 	}
 
 	var total int
