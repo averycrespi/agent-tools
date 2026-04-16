@@ -23,7 +23,7 @@ E2E tests use `//go:build e2e` and live in `test/e2e/`. They build and run the r
 
 Single binary, single port. `/mcp` for agents, `/dashboard/` for the web dashboard.
 
-Pipeline: tool call → rules check → optional approval → proxy to backend → audit.
+Pipeline: tool call → grant check → rules check → optional approval → proxy to backend → audit.
 
 ```
 cmd/mcp-broker/         CLI entry point (Cobra)
@@ -35,6 +35,7 @@ internal/
   dashboard/            Embedded HTML, SSE updates, implements Approver interface
   telegram/             Telegram Bot API polling approver (opt-in, outbound-only)
   auth/                 Bearer token auth: generation, file storage, HTTP middleware
+  grants/               SQLite-backed time-bounded authorizations; complement to rules engine
   broker/               Orchestrator with ServerManager, AuditLogger, Approver interfaces;
                         MultiApprover fans requests to all approvers with shared timeout
 ```
@@ -57,3 +58,5 @@ internal/
 - Dashboard auth uses `mcp-broker-auth` cookie (`HttpOnly`, `SameSite=Strict`)
 - Telegram approver uses long-polling (`getUpdates?timeout=30`) — no inbound connections needed; correlates responses by Telegram `message_id`
 - `expandEnv` for Telegram token/chat_id is applied at startup in `serve.go` via `os.ExpandEnv`, not in the config package
+- Grant bearer tokens follow the same pattern as the auth token: 32 random bytes, hex-encoded, only SHA-256(token) persisted in SQLite
+- Grants are additive only — a presented grant can allow a call but never blocks one; invalid/mismatched grants fall through to the rules engine

@@ -29,6 +29,7 @@ internal/
   flags/             JSON Schema → cobra flags mapper
   output/            MCP content blocks → JSON array formatter
   tree/              Dynamic cobra command tree builder
+  grants/            HTTP client and CLI grammar for the broker's /api/grants endpoints
 ```
 
 ## Conventions
@@ -41,3 +42,4 @@ internal/
 - Tool discovery is cached in `$TMPDIR/broker-cli-tools-<hash>.json` (30s TTL)
 - Tool names: dots map to command hierarchy, underscores normalize to hyphens
 - `mcp-go` v0.45.0: `client.NewStreamableHttpClient` + `transport.WithHTTPHeaders` for auth
+- Grant create flags follow a --tool-grouped shape: every --arg-_ flag attaches to the most recent --tool; --arg-schema-file is mutually exclusive with other --arg-_ flags for the same tool
