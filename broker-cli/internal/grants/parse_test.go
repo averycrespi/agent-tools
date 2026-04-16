@@ -16,38 +16,38 @@ func TestSplitByToolBoundaries(t *testing.T) {
 		"--arg-equal", "force=false",
 		"--tool", "git.git_fetch",
 	}
-	global, groups, err := splitByTool(args)
+	global, groups, err := SplitByTool(args)
 	require.NoError(t, err)
 	require.Equal(t, []string{"--ttl", "1h", "--description", "push feat/foo"}, global)
 	require.Len(t, groups, 2)
-	require.Equal(t, "git.git_push", groups[0].tool)
-	require.Equal(t, []string{"--arg-equal", "branch=feat/foo", "--arg-equal", "force=false"}, groups[0].flags)
-	require.Equal(t, "git.git_fetch", groups[1].tool)
-	require.Empty(t, groups[1].flags)
+	require.Equal(t, "git.git_push", groups[0].Tool)
+	require.Equal(t, []string{"--arg-equal", "branch=feat/foo", "--arg-equal", "force=false"}, groups[0].Flags)
+	require.Equal(t, "git.git_fetch", groups[1].Tool)
+	require.Empty(t, groups[1].Flags)
 }
 
 func TestSplitByToolNoTool(t *testing.T) {
-	_, _, err := splitByTool([]string{"--ttl", "1h"})
+	_, _, err := SplitByTool([]string{"--ttl", "1h"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "at least one --tool")
 }
 
 func TestSplitByToolMissingName(t *testing.T) {
-	_, _, err := splitByTool([]string{"--tool"})
+	_, _, err := SplitByTool([]string{"--tool"})
 	require.Error(t, err)
 }
 
 func TestBuildSchema_AllOperators(t *testing.T) {
-	group := toolGroup{
-		tool: "git.git_push",
-		flags: []string{
+	group := ToolGroup{
+		Tool: "git.git_push",
+		Flags: []string{
 			"--arg-equal", "branch=feat/foo",
 			"--arg-equal", "force=false",
 			"--arg-match", "tag=^v[0-9]+$",
 			"--arg-enum", "remote=origin,upstream",
 		},
 	}
-	schema, err := buildSchema(group)
+	schema, err := BuildSchema(group)
 	require.NoError(t, err)
 
 	var decoded map[string]any
@@ -65,11 +65,11 @@ func TestBuildSchema_AllOperators(t *testing.T) {
 }
 
 func TestBuildSchema_DotPathNesting(t *testing.T) {
-	group := toolGroup{
-		tool:  "x.y",
-		flags: []string{"--arg-equal", "config.max_retries=3"},
+	group := ToolGroup{
+		Tool:  "x.y",
+		Flags: []string{"--arg-equal", "config.max_retries=3"},
 	}
-	schema, err := buildSchema(group)
+	schema, err := BuildSchema(group)
 	require.NoError(t, err)
 
 	var decoded map[string]any
@@ -82,14 +82,14 @@ func TestBuildSchema_DotPathNesting(t *testing.T) {
 }
 
 func TestBuildSchema_SchemaFileExclusive(t *testing.T) {
-	group := toolGroup{
-		tool: "x.y",
-		flags: []string{
+	group := ToolGroup{
+		Tool: "x.y",
+		Flags: []string{
 			"--arg-schema-file", "foo.json",
 			"--arg-equal", "branch=main",
 		},
 	}
-	_, err := buildSchema(group)
+	_, err := BuildSchema(group)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "--arg-schema-file is mutually exclusive")
 }

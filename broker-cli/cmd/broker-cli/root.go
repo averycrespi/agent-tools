@@ -77,6 +77,7 @@ func buildTree() error {
 	}
 
 	tree.Build(rootCmd, tools, exec)
+	rootCmd.AddCommand(newGrantCmd(endpoint, token))
 	return nil
 }
 

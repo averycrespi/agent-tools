@@ -8,19 +8,20 @@ import (
 	"strings"
 )
 
-type toolGroup struct {
-	tool  string
-	flags []string
+// ToolGroup holds the parsed --tool name and its associated --arg-* flags.
+type ToolGroup struct {
+	Tool  string
+	Flags []string
 }
 
-// splitByTool separates command-line args into global flags and tool-scoped
+// SplitByTool separates command-line args into global flags and tool-scoped
 // flag groups. The first --tool delimits the boundary between globals and
 // groups; every subsequent --tool opens a new group.
-func splitByTool(args []string) ([]string, []toolGroup, error) {
+func SplitByTool(args []string) ([]string, []ToolGroup, error) {
 	var (
 		global []string
-		groups []toolGroup
-		cur    *toolGroup
+		groups []ToolGroup
+		cur    *ToolGroup
 	)
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -28,7 +29,7 @@ func splitByTool(args []string) ([]string, []toolGroup, error) {
 			if i+1 >= len(args) {
 				return nil, nil, errors.New("--tool requires a name")
 			}
-			groups = append(groups, toolGroup{tool: args[i+1]})
+			groups = append(groups, ToolGroup{Tool: args[i+1]})
 			cur = &groups[len(groups)-1]
 			i++
 			continue
@@ -36,7 +37,7 @@ func splitByTool(args []string) ([]string, []toolGroup, error) {
 		if cur == nil {
 			global = append(global, a)
 		} else {
-			cur.flags = append(cur.flags, a)
+			cur.Flags = append(cur.Flags, a)
 		}
 	}
 	if len(groups) == 0 {
@@ -45,11 +46,11 @@ func splitByTool(args []string) ([]string, []toolGroup, error) {
 	return global, groups, nil
 }
 
-// buildSchema compiles one tool group's flags into a JSON Schema fragment.
+// BuildSchema compiles one tool group's flags into a JSON Schema fragment.
 // Returns the raw JSON bytes suitable for an Entry's ArgSchema.
-func buildSchema(g toolGroup) (json.RawMessage, error) {
-	if schemaFile := findSchemaFileFlag(g.flags); schemaFile != "" {
-		if hasOtherArgFlags(g.flags) {
+func BuildSchema(g ToolGroup) (json.RawMessage, error) {
+	if schemaFile := findSchemaFileFlag(g.Flags); schemaFile != "" {
+		if hasOtherArgFlags(g.Flags) {
 			return nil, errors.New("--arg-schema-file is mutually exclusive with other --arg-* flags")
 		}
 		return os.ReadFile(schemaFile)
@@ -58,12 +59,12 @@ func buildSchema(g toolGroup) (json.RawMessage, error) {
 	root := map[string]any{"type": "object", "properties": map[string]any{}}
 	required := []string{}
 
-	for i := 0; i < len(g.flags); i++ {
-		flag := g.flags[i]
-		if i+1 >= len(g.flags) {
+	for i := 0; i < len(g.Flags); i++ {
+		flag := g.Flags[i]
+		if i+1 >= len(g.Flags) {
 			return nil, fmt.Errorf("flag %s requires a value", flag)
 		}
-		val := g.flags[i+1]
+		val := g.Flags[i+1]
 		i++
 
 		key, rawValue, err := parseKV(val)
