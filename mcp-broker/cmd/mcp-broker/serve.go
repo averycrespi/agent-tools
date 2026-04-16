@@ -110,8 +110,23 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Create rules engine
 	engine := rules.New(cfg.Rules)
 
+	// Open a separate SQLite connection for the grants store (Option B: fresh
+	// connection to the same file; both packages use CREATE TABLE IF NOT EXISTS
+	// so schema coexistence is clean; WAL mode allows concurrent readers).
+	grantDB, err := sql.Open("sqlite3", cfg.Audit.Path)
+	if err != nil {
+		return fmt.Errorf("opening grants db: %w", err)
+	}
+	defer func() { _ = grantDB.Close() }()
+
+	grantStore, err := grants.NewStore(ctx, grantDB)
+	if err != nil {
+		return fmt.Errorf("initializing grant store: %w", err)
+	}
+	grantEngine := grants.NewEngine(grantStore)
+
 	// Create dashboard
-	dash := dashboard.New(mgr, engine, auditor, logger.With("component", "dashboard"))
+	dash := dashboard.New(mgr, engine, auditor, grantStore, logger.With("component", "dashboard"))
 
 	// Create multi-approver
 	timeout := time.Duration(cfg.ApprovalTimeoutSeconds) * time.Second
@@ -128,21 +143,6 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		logger.Info("telegram approver enabled", "chat_id", tgChatID)
 	}
 	multi := broker.NewMultiApprover(timeout, approvers...)
-
-	// Open a separate SQLite connection for the grants store (Option B: fresh
-	// connection to the same file; both packages use CREATE TABLE IF NOT EXISTS
-	// so schema coexistence is clean; WAL mode allows concurrent readers).
-	grantDB, err := sql.Open("sqlite3", cfg.Audit.Path)
-	if err != nil {
-		return fmt.Errorf("opening grants db: %w", err)
-	}
-	defer func() { _ = grantDB.Close() }()
-
-	grantStore, err := grants.NewStore(ctx, grantDB)
-	if err != nil {
-		return fmt.Errorf("initializing grant store: %w", err)
-	}
-	grantEngine := grants.NewEngine(grantStore)
 
 	grantsAPI := grants.NewAPI(grantStore, grantEngine)
 

@@ -25,7 +25,7 @@ type fakeRulesLister struct{ rules []config.RuleConfig }
 func (f *fakeRulesLister) Rules() []config.RuleConfig { return f.rules }
 
 func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
-	d := New(nil, nil, nil, nil)
+	d := New(nil, nil, nil, nil, nil)
 	mux := d.Handler()
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -63,7 +63,7 @@ func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
 }
 
 func TestDashboard_Review_DeniesViaAPI(t *testing.T) {
-	d := New(nil, nil, nil, nil)
+	d := New(nil, nil, nil, nil, nil)
 	mux := d.Handler()
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -100,7 +100,7 @@ func TestDashboard_Review_DeniesViaAPI(t *testing.T) {
 }
 
 func TestDashboard_Review_CancelsOnContextDone(t *testing.T) {
-	d := New(nil, nil, nil, nil)
+	d := New(nil, nil, nil, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	type result struct {
@@ -124,7 +124,7 @@ func TestDashboard_Review_CancelsOnContextDone(t *testing.T) {
 }
 
 func TestDashboard_PendingRequest_HasDeadline(t *testing.T) {
-	d := New(nil, nil, nil, nil)
+	d := New(nil, nil, nil, nil, nil)
 
 	deadline := time.Now().Add(10 * time.Minute)
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
@@ -154,7 +154,7 @@ func TestDashboard_PendingRequest_HasDeadline(t *testing.T) {
 }
 
 func TestDashboard_UnauthorizedPage(t *testing.T) {
-	d := New(nil, nil, nil, nil)
+	d := New(nil, nil, nil, nil, nil)
 	mux := d.Handler()
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -181,7 +181,7 @@ func TestHandleRules_GroupsToolsByMatchingRule(t *testing.T) {
 		{Tool: "github.*", Verdict: "allow"},
 		{Tool: "*", Verdict: "require-approval"},
 	}}
-	d := New(tools, rules, nil, nil)
+	d := New(tools, rules, nil, nil, nil)
 	srv := httptest.NewServer(d.Handler())
 	defer srv.Close()
 
@@ -226,7 +226,7 @@ func TestHandleRules_GroupsToolsByMatchingRule(t *testing.T) {
 func TestHandleRules_EmptyRules(t *testing.T) {
 	tools := &fakeToolLister{tools: []server.Tool{{Name: "fs.write"}}}
 	rules := &fakeRulesLister{rules: nil}
-	d := New(tools, rules, nil, nil)
+	d := New(tools, rules, nil, nil, nil)
 	srv := httptest.NewServer(d.Handler())
 	defer srv.Close()
 
@@ -251,7 +251,7 @@ func TestHandleRules_RuleWithNoMatches(t *testing.T) {
 		{Tool: "github.*", Verdict: "allow"},
 		{Tool: "*", Verdict: "require-approval"},
 	}}
-	d := New(tools, rules, nil, nil)
+	d := New(tools, rules, nil, nil, nil)
 	srv := httptest.NewServer(d.Handler())
 	defer srv.Close()
 
@@ -271,7 +271,7 @@ func TestHandleRules_RuleWithNoMatches(t *testing.T) {
 }
 
 func TestHandleRules_NilLister(t *testing.T) {
-	d := New(nil, nil, nil, nil)
+	d := New(nil, nil, nil, nil, nil)
 	srv := httptest.NewServer(d.Handler())
 	defer srv.Close()
 
@@ -300,7 +300,7 @@ func TestHandleRules_MalformedGlobPattern(t *testing.T) {
 		{Tool: "[invalid", Verdict: "deny"},
 		{Tool: "*", Verdict: "require-approval"},
 	}}
-	d := New(tools, rules, nil, nil)
+	d := New(tools, rules, nil, nil, nil)
 	srv := httptest.NewServer(d.Handler())
 	defer srv.Close()
 
@@ -345,7 +345,7 @@ func TestHandleRules_AgreesWithEngineEvaluateWithRule(t *testing.T) {
 	}
 	tools := &fakeToolLister{tools: toolList}
 
-	d := New(tools, engine, nil, nil)
+	d := New(tools, engine, nil, nil, nil)
 	srv := httptest.NewServer(d.Handler())
 	defer srv.Close()
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/grants"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 )
 
@@ -56,24 +57,26 @@ type AuditQuerier interface {
 
 // Dashboard serves the web UI and manages the approval flow.
 type Dashboard struct {
-	mu      sync.Mutex
-	pending map[string]*pendingRequest
-	decided []decidedRequest
-	clients []chan []byte
-	tools   ToolLister
-	rules   RulesLister
-	auditor AuditQuerier
-	logger  *slog.Logger
+	mu         sync.Mutex
+	pending    map[string]*pendingRequest
+	decided    []decidedRequest
+	clients    []chan []byte
+	tools      ToolLister
+	rules      RulesLister
+	auditor    AuditQuerier
+	grantStore *grants.Store
+	logger     *slog.Logger
 }
 
 // New creates a Dashboard.
-func New(tools ToolLister, rules RulesLister, auditor AuditQuerier, logger *slog.Logger) *Dashboard {
+func New(tools ToolLister, rules RulesLister, auditor AuditQuerier, grantStore *grants.Store, logger *slog.Logger) *Dashboard {
 	return &Dashboard{
-		pending: make(map[string]*pendingRequest),
-		tools:   tools,
-		rules:   rules,
-		auditor: auditor,
-		logger:  logger,
+		pending:    make(map[string]*pendingRequest),
+		tools:      tools,
+		rules:      rules,
+		auditor:    auditor,
+		grantStore: grantStore,
+		logger:     logger,
 	}
 }
 
@@ -86,6 +89,7 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tools", d.handleTools)
 	mux.HandleFunc("GET /api/rules", d.handleRules)
 	mux.HandleFunc("GET /api/audit", d.handleAudit)
+	mux.HandleFunc("GET /api/grants", d.handleGrants)
 	mux.HandleFunc("GET /unauthorized", d.handleUnauthorized)
 	mux.HandleFunc("GET /favicon.svg", d.handleFavicon)
 	mux.HandleFunc("GET /", d.handleIndex)
@@ -305,6 +309,25 @@ func (d *Dashboard) handleAudit(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"records": records, "total": total})
+}
+
+func (d *Dashboard) handleGrants(w http.ResponseWriter, r *http.Request) {
+	if d.grantStore == nil {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]grants.Grant{})
+		return
+	}
+	all := r.URL.Query().Get("status") == "all"
+	list, err := d.grantStore.List(r.Context(), all)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if list == nil {
+		list = []grants.Grant{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(list)
 }
 
 func (d *Dashboard) handleEvents(w http.ResponseWriter, r *http.Request) {
