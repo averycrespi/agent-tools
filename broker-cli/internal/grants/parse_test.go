@@ -1,6 +1,7 @@
 package grants
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -34,4 +35,61 @@ func TestSplitByToolNoTool(t *testing.T) {
 func TestSplitByToolMissingName(t *testing.T) {
 	_, _, err := splitByTool([]string{"--tool"})
 	require.Error(t, err)
+}
+
+func TestBuildSchema_AllOperators(t *testing.T) {
+	group := toolGroup{
+		tool: "git.git_push",
+		flags: []string{
+			"--arg-equal", "branch=feat/foo",
+			"--arg-equal", "force=false",
+			"--arg-match", "tag=^v[0-9]+$",
+			"--arg-enum", "remote=origin,upstream",
+		},
+	}
+	schema, err := buildSchema(group)
+	require.NoError(t, err)
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(schema, &decoded))
+
+	require.Equal(t, "object", decoded["type"])
+	props := decoded["properties"].(map[string]any)
+	require.Equal(t, "feat/foo", props["branch"].(map[string]any)["const"])
+	require.Equal(t, false, props["force"].(map[string]any)["const"])
+	require.Equal(t, "^v[0-9]+$", props["tag"].(map[string]any)["pattern"])
+	require.ElementsMatch(t, []any{"origin", "upstream"}, props["remote"].(map[string]any)["enum"])
+
+	required := decoded["required"].([]any)
+	require.ElementsMatch(t, []any{"branch", "force", "tag", "remote"}, required)
+}
+
+func TestBuildSchema_DotPathNesting(t *testing.T) {
+	group := toolGroup{
+		tool:  "x.y",
+		flags: []string{"--arg-equal", "config.max_retries=3"},
+	}
+	schema, err := buildSchema(group)
+	require.NoError(t, err)
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(schema, &decoded))
+	props := decoded["properties"].(map[string]any)
+	config := props["config"].(map[string]any)
+	require.Equal(t, "object", config["type"])
+	nested := config["properties"].(map[string]any)
+	require.EqualValues(t, 3, nested["max_retries"].(map[string]any)["const"])
+}
+
+func TestBuildSchema_SchemaFileExclusive(t *testing.T) {
+	group := toolGroup{
+		tool: "x.y",
+		flags: []string{
+			"--arg-schema-file", "foo.json",
+			"--arg-equal", "branch=main",
+		},
+	}
+	_, err := buildSchema(group)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--arg-schema-file is mutually exclusive")
 }

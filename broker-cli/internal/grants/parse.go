@@ -1,6 +1,12 @@
 package grants
 
-import "errors"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+)
 
 type toolGroup struct {
 	tool  string
@@ -37,4 +43,149 @@ func splitByTool(args []string) ([]string, []toolGroup, error) {
 		return nil, nil, errors.New("at least one --tool is required")
 	}
 	return global, groups, nil
+}
+
+// buildSchema compiles one tool group's flags into a JSON Schema fragment.
+// Returns the raw JSON bytes suitable for an Entry's ArgSchema.
+func buildSchema(g toolGroup) (json.RawMessage, error) {
+	if schemaFile := findSchemaFileFlag(g.flags); schemaFile != "" {
+		if hasOtherArgFlags(g.flags) {
+			return nil, errors.New("--arg-schema-file is mutually exclusive with other --arg-* flags")
+		}
+		return os.ReadFile(schemaFile)
+	}
+
+	root := map[string]any{"type": "object", "properties": map[string]any{}}
+	required := []string{}
+
+	for i := 0; i < len(g.flags); i++ {
+		flag := g.flags[i]
+		if i+1 >= len(g.flags) {
+			return nil, fmt.Errorf("flag %s requires a value", flag)
+		}
+		val := g.flags[i+1]
+		i++
+
+		key, rawValue, err := parseKV(val)
+		if err != nil {
+			return nil, err
+		}
+		constraint, err := operatorToConstraint(flag, rawValue)
+		if err != nil {
+			return nil, err
+		}
+
+		parent := root
+		parts := strings.Split(key, ".")
+		for depth, part := range parts {
+			props := parent["properties"].(map[string]any)
+			if depth == len(parts)-1 {
+				props[part] = constraint
+				required = appendUnique(required, part)
+				break
+			}
+			child, ok := props[part].(map[string]any)
+			if !ok {
+				child = map[string]any{"type": "object", "properties": map[string]any{}}
+				props[part] = child
+			}
+			reqRaw, _ := parent["required"].([]any)
+			already := false
+			for _, v := range reqRaw {
+				if v == part {
+					already = true
+					break
+				}
+			}
+			if !already {
+				parent["required"] = append(reqRaw, part)
+			}
+			parent = child
+		}
+	}
+
+	if len(required) > 0 {
+		existing, _ := root["required"].([]any)
+		for _, r := range required {
+			appendIfAbsent(&existing, r)
+		}
+		root["required"] = existing
+	}
+	return json.Marshal(root)
+}
+
+func parseKV(s string) (key string, rawValue string, err error) {
+	eq := strings.IndexByte(s, '=')
+	if eq <= 0 {
+		return "", "", fmt.Errorf("expected key=value, got %q", s)
+	}
+	key = s[:eq]
+	if strings.Contains(key, "..") || strings.HasPrefix(key, ".") || strings.HasSuffix(key, ".") {
+		return "", "", fmt.Errorf("invalid key %q", key)
+	}
+	return key, s[eq+1:], nil
+}
+
+func operatorToConstraint(flag, raw string) (map[string]any, error) {
+	switch flag {
+	case "--arg-equal":
+		return map[string]any{"const": parseLiteral(raw)}, nil
+	case "--arg-match":
+		return map[string]any{"pattern": raw}, nil
+	case "--arg-enum":
+		parts := strings.Split(raw, ",")
+		vals := make([]any, len(parts))
+		for i, p := range parts {
+			vals[i] = parseLiteral(p)
+		}
+		return map[string]any{"enum": vals}, nil
+	case "--arg-schema-file":
+		return nil, errors.New("--arg-schema-file must stand alone")
+	default:
+		return nil, fmt.Errorf("unknown flag %q", flag)
+	}
+}
+
+func parseLiteral(s string) any {
+	var v any
+	if err := json.Unmarshal([]byte(s), &v); err == nil {
+		return v
+	}
+	return s
+}
+
+func findSchemaFileFlag(flags []string) string {
+	for i, f := range flags {
+		if f == "--arg-schema-file" && i+1 < len(flags) {
+			return flags[i+1]
+		}
+	}
+	return ""
+}
+
+func hasOtherArgFlags(flags []string) bool {
+	for _, f := range flags {
+		if strings.HasPrefix(f, "--arg-") && f != "--arg-schema-file" {
+			return true
+		}
+	}
+	return false
+}
+
+func appendUnique(ss []string, s string) []string {
+	for _, v := range ss {
+		if v == s {
+			return ss
+		}
+	}
+	return append(ss, s)
+}
+
+func appendIfAbsent(dst *[]any, v string) {
+	for _, s := range *dst {
+		if s == v {
+			return
+		}
+	}
+	*dst = append(*dst, v)
 }
