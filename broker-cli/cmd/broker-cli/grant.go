@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -21,6 +22,8 @@ func newGrantCmd(endpoint, authToken string) *cobra.Command {
 		Short: "Manage time-bounded authorization grants",
 	}
 	cmd.AddCommand(newGrantCreateCmd(endpoint, authToken))
+	cmd.AddCommand(newGrantListCmd(endpoint, authToken))
+	cmd.AddCommand(newGrantRevokeCmd(endpoint, authToken))
 	return cmd
 }
 
@@ -181,4 +184,62 @@ func (ew *errWriter) printf(format string, args ...any) {
 		return
 	}
 	_, ew.err = fmt.Fprintf(ew.w, format, args...)
+}
+
+func newGrantListCmd(endpoint, authToken string) *cobra.Command {
+	var all, asJSON bool
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List grants",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			grants, err := grantsclient.NewClient(endpoint, authToken).List(cmd.Context(), all)
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				return json.NewEncoder(os.Stdout).Encode(grants)
+			}
+			tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			_, _ = fmt.Fprintln(tw, "ID\tTOOLS\tEXPIRES\tSTATUS\tDESCRIPTION")
+			for _, g := range grants {
+				tools := make([]string, len(g.Entries))
+				for i, e := range g.Entries {
+					tools[i] = e.Tool
+				}
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+					g.ID, strings.Join(tools, ","),
+					g.ExpiresAt.Format(time.RFC3339),
+					statusOf(&g), g.Description)
+			}
+			return tw.Flush()
+		},
+	}
+	cmd.Flags().BoolVar(&all, "all", false, "include expired and revoked grants")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "machine-readable JSON output")
+	return cmd
+}
+
+func statusOf(g *grantsclient.Grant) string {
+	if g.RevokedAt != nil {
+		return "revoked"
+	}
+	if time.Now().After(g.ExpiresAt) {
+		return "expired"
+	}
+	return "active"
+}
+
+func newGrantRevokeCmd(endpoint, authToken string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "revoke <grant-id>",
+		Short: "Revoke a grant",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := grantsclient.NewClient(endpoint, authToken).Revoke(cmd.Context(), args[0]); err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(os.Stdout, "revoked %s\n", args[0])
+			return nil
+		},
+	}
 }
