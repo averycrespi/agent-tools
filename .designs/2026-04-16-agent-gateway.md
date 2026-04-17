@@ -26,7 +26,8 @@ therefore fail upstream naturally) rather than leaking real credentials.
   superset of onecli's capability.
 - Three verdicts: `allow` (with credential injection), `deny`, and
   `require-approval`.
-- HCL-authored rules loaded from a directory, hot-reloaded via `fsnotify`.
+- HCL-authored rules loaded from a directory; picked up by the daemon
+  on `agent-gateway rules reload`.
 - SQLite-backed encrypted secret store; master key stored in the OS keychain
   (file fallback if keychain is unavailable).
 - Per-agent identity via tokens, with per-rule and per-secret scoping.
@@ -104,9 +105,9 @@ Each deferred to v1.1+ with a one-line rationale so future-us has the context.
   All of these are purely additive UI expansions — see §8.
 - **`rules check --request` / `--replay` CLI forms.** v1's `rules check`
   validates syntax only. Synthetic-request matching and
-  audit-row-replay are useful authoring aids but the
-  fsnotify-driven iteration loop (edit → save → agent retries →
-  see `matched_rule` update on live feed) covers v1 without them.
+  audit-row-replay are useful authoring aids but the explicit-reload
+  iteration loop (edit → `rules reload` → agent retries → see
+  `matched_rule` update on live feed) covers v1 without them.
 
 ### Success criteria
 
@@ -128,14 +129,14 @@ repos/*/issues`" works against a real sandbox running `gh` without the
 ```
 cmd/agent-gateway/      CLI: serve, agent {add,list,rm,rotate,show},
                              secret {set,list,rotate,rm,master rotate,export},
-                             rules check, token rotate admin, ca {export,rotate},
-                             config {path,edit,refresh}
+                             rules {check,reload}, token rotate admin,
+                             ca {export,rotate}, config {path,edit,refresh}
 
 internal/proxy/         MITM HTTP/HTTPS proxy, CONNECT handler, per-host
                         *tls.Config cache, ALPN (h1 + h2), body buffering
 internal/ca/            Root CA load/generate, leaf issuance (24h, 1h refresh buffer)
-internal/rules/         HCL loader (directory glob), matcher, fsnotify hot-reload,
-                        first-match-wins ordered evaluation
+internal/rules/         HCL loader (directory glob), matcher, explicit
+                        reload via SIGHUP, first-match-wins ordered evaluation
 internal/inject/        Header verbs (set_header, remove_header),
                         ${secrets.X} / ${agent.X} template expansion
 internal/secrets/       SQLite-backed AES-256-GCM store, master key via
@@ -226,11 +227,13 @@ snapshot.
 ### CLI / daemon coordination
 
 State-mutating CLI commands (`secret set/rotate/rm`, `agent add/rm/rotate`,
-`token rotate admin`, `ca rotate`, `config refresh`) write SQLite directly
-and then signal the running daemon to reload. Specifically:
+`token rotate admin`, `ca rotate`, `config refresh`, `rules reload`)
+apply the change (write SQLite for state, or just re-read files for
+`rules reload`) and then signal the running daemon to reload. Specifically:
 
 1. CLI opens the DB with `busy_timeout=5s` (covers transient contention
-   with the daemon's audit writer under WAL).
+   with the daemon's audit writer under WAL). `rules reload` skips this
+   step — it touches no DB state.
 2. On successful write, CLI reads the PID file and sends `SIGHUP` to the
    daemon. If the daemon isn't running, the CLI is a no-op beyond the DB
    write — the daemon picks up the new state on next start.
@@ -246,8 +249,12 @@ and then signal the running daemon to reload. Specifically:
    comm-name check is one syscall and catches the race cleanly without
    extra state to keep in sync.
 
-`rules.d/` changes continue to use `fsnotify` — that path is unchanged.
-`SIGHUP` remains the user-invocable trigger for "reload everything now."
+SIGHUP is _the_ reload mechanism — no auxiliary filesystem watcher.
+Rule edits are picked up via explicit `agent-gateway rules reload`;
+this keeps the reload path single, avoids half-written-file races from
+editor saves, and fits the same pattern as `secret set` and friends
+(every state change has a corresponding CLI command). Users who want
+the tighter loop can wrap their editor or run `entr -r` externally.
 
 ## 4. Rule Model
 
@@ -402,21 +409,23 @@ inject {
 
 This keeps intent visible in code review.
 
-### Hot reload
+### Reload
 
-`fsnotify` on `rules.d/`. On any create/modify/delete:
+Rule changes are picked up via `agent-gateway rules reload`, which
+sends `SIGHUP` to the daemon (see §3 CLI / daemon coordination). On
+`SIGHUP`:
 
-1. Re-parse the whole directory.
+1. Re-parse the whole `rules.d/` directory.
 2. Validate HCL syntax, glob/regex compilation, and template syntax
    (existence of referenced secrets/agents is NOT checked — that is
    request-time lazy; see Template expansion above).
 3. On success: swap the `atomic.Pointer[ruleset]`. In-flight requests finish
    on the old set; new requests use the new set.
-4. On failure: log error to stderr + push a dashboard event; keep previous
-   rule-set live.
+4. On failure: log error to stderr; keep previous rule-set live.
 
-`SIGHUP` triggers the same pipeline as fsnotify (also re-reads `config.hcl`
-and rebuilds agent/secret caches; see §3 CLI / daemon coordination).
+`SIGHUP` also re-reads `config.hcl`, rebuilds agent/secret caches, and
+invalidates the decrypted-secret LRU — a single coarse reload path for
+all state.
 
 ### CLI
 
@@ -425,15 +434,19 @@ agent-gateway rules check     # syntax validation; exits non-zero on errors
 ```
 
 Validates HCL syntax, glob/regex compilation, and template syntax for
-every file in `rules.d/` — the same checks run at load time and on
-fsnotify reload. Unresolved `${secrets.*}` references surface as
+every file in `rules.d/` — the same checks run at daemon load time and
+on `rules reload`. Unresolved `${secrets.*}` references surface as
 warnings (not errors); the dashboard renders the same badges on the
 Rules tab.
 
+```
+agent-gateway rules reload    # sends SIGHUP after the comm-name check
+```
+
 Deferred to v1.1: a `--request '<json>'` form that runs the matcher
 against a synthetic request, and a `--replay <request-id>` form that
-re-runs against a previously audited request. The live feed's
-fsnotify-driven authoring loop (edit → save → agent retries → see
+re-runs against a previously audited request. The explicit-reload
+authoring loop (edit → `rules reload` → agent retries → see
 `matched_rule` update) covers rule iteration in v1; synthetic-request
 testing is additive.
 
@@ -1153,7 +1166,7 @@ pattern). `config edit` opens in `$EDITOR`. `config path` prints location.
    variable existence; see §4 two-phase validation). Fail startup on
    invalid rules.
 6. Write PID file (see §3 CLI / daemon coordination).
-7. Start `fsnotify` watcher on `rules.d/`.
+7. Install `SIGHUP` handler for coarse reload.
 8. Start background workers: audit prune, `last_seen_at` flush, secret
    cache sweep, leaf-cert cache sweep.
 9. Bind proxy (`:8220`) and dashboard (`:8221`).
@@ -1178,7 +1191,7 @@ LRU. Idempotent; safe to send repeatedly.
 ```
 agent-gateway serve
 agent-gateway config {path, edit, refresh}
-agent-gateway rules check
+agent-gateway rules {check, reload}
 agent-gateway agent {add, list, rm, rotate, show}
 agent-gateway secret {set, list, rotate, rm, master rotate, export}
 agent-gateway ca {export, rotate}
@@ -1245,7 +1258,7 @@ Listed here so implementation planning budgets it honestly — by line
 count this is roughly the other half of the codebase.
 
 - PID file handling + daemon-reload signalling (`SIGHUP` handler,
-  `fsnotify` watcher on `rules.d/`).
+  comm-name verification before signalling).
 - Encrypted secret store (SQLite rows + AES-256-GCM) and master-key
   management (`go-keyring` with `master.key` file fallback).
 - Root-CA generation, persistence, and per-hostname leaf issuance with
@@ -1279,8 +1292,8 @@ Concrete places agent-gateway diverges and does more:
   post-v1.16 force-MITMs all authenticated traffic; we deliberately keep
   tunnel-default so unauthenticated transit like package-registry fetches
   works without per-host rules — see §6 CONNECT-time intercept decision).
-- Rules-as-code HCL directory with hot reload (onecli is dashboard-edit
-  only).
+- Rules-as-code HCL directory with CLI-triggered reload (onecli is
+  dashboard-edit only).
 - OS-keychain-protected master key (onecli uses an env var).
 - HTTP/2 ALPN end-to-end.
 - Agent-scoped secrets (stable-id audit trail across rotations is
@@ -1353,11 +1366,11 @@ edit, refresh}` works, `state.db` opens with WAL + `busy_timeout=5s`,
    `Host` header and returns 200, and the agent sees the 200. Test
    covers both h1↔h1 and h1↔h2 bridging and a streaming-response
    fixture (chunked body flushed every 100 ms).
-3. **Rule engine.** HCL loader, matcher, fsnotify hot-reload, two-phase
-   validation.
+3. **Rule engine.** HCL loader, matcher, explicit reload via
+   `rules reload` / SIGHUP, two-phase validation.
    _Done when:_ `TestRuleReloadHotSwap` passes — daemon starts with a
-   rule referencing `${secrets.x}` (secret doesn't exist); reload
-   succeeds; request matches rule and is audited as
+   rule referencing `${secrets.x}` (secret doesn't exist);
+   `rules reload` succeeds; request matches rule and is audited as
    `injection='failed', error='secret_unresolved'`. A second test edits
    the rule file to have invalid HCL and verifies the previous ruleset
    stays live.
