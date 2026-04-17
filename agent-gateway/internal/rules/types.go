@@ -1,7 +1,32 @@
 // Package rules loads and validates HCL rule files for agent-gateway.
 package rules
 
-import "regexp"
+import (
+	"net/http"
+	"regexp"
+)
+
+// Request is a normalised view of an HTTP request used for rule evaluation.
+type Request struct {
+	// Agent is the authenticated agent name.
+	Agent string
+	// Host is the target hostname (no port).
+	Host string
+	// Method is the HTTP method, expected in uppercase (e.g. "GET").
+	Method string
+	// Path is the request path (e.g. "/repos/octocat/Hello-World/issues").
+	Path string
+	// Header contains the canonical request headers.
+	Header http.Header
+}
+
+// MatchResult is returned by Engine.Evaluate when a rule matches.
+type MatchResult struct {
+	// Rule is a pointer to the matching rule.
+	Rule *Rule
+	// Index is the zero-based position of the rule in the rule set.
+	Index int
+}
 
 // Rule is the parsed, validated representation of a single rule block.
 type Rule struct {
@@ -80,7 +105,7 @@ func (*TextBodyMatch) isBodyMatcher() {}
 // globMatcher is a compiled host/path glob.
 type globMatcher struct {
 	pattern string
-	// segments holds the split pattern for segment-aware * matching;
-	// populated by compileGlob in parse.go.
-	segments []string
+	// re is the compiled regular expression derived from the glob pattern.
+	// It is nil when the pattern is empty (no constraint).
+	re *regexp.Regexp
 }

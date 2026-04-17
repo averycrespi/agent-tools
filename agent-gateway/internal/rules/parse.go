@@ -460,10 +460,10 @@ func validateTemplates(s, location string) []string {
 // compileRule compiles globs, regexps, and body matchers in-place.
 func compileRule(r *Rule) error {
 	if r.Match.Host != "" {
-		r.hostGlob = compileGlob(r.Match.Host)
+		r.hostGlob = compileGlob(r.Match.Host, ".")
 	}
 	if r.Match.Path != "" {
-		r.pathGlob = compileGlob(r.Match.Path)
+		r.pathGlob = compileGlob(r.Match.Path, "/")
 	}
 	if len(r.Match.Headers) > 0 {
 		r.headerREs = make(map[string]*regexp.Regexp, len(r.Match.Headers))
@@ -506,11 +506,58 @@ func compileRule(r *Rule) error {
 }
 
 // compileGlob builds a globMatcher from a pattern string.
-func compileGlob(pattern string) globMatcher {
+// The sep parameter is the segment separator: "." for host, "/" for path.
+// Glob semantics:
+//
+//   - "**" matches any number of segments (including zero) across the separator.
+//   - "*"  matches any sequence of characters within a single segment (no sep crossing).
+//   - All other characters are treated as literals.
+func compileGlob(pattern, sep string) globMatcher {
+	re := globToRegexp(pattern, sep)
 	return globMatcher{
-		pattern:  pattern,
-		segments: strings.Split(pattern, "/"),
+		pattern: pattern,
+		re:      regexp.MustCompile(re),
 	}
+}
+
+// globToRegexp translates a glob pattern and separator into an anchored
+// regular expression string.
+func globToRegexp(pattern, sep string) string {
+	// Escape the separator for use in the regex character class.
+	escapedSep := regexp.QuoteMeta(sep)
+
+	var sb strings.Builder
+	sb.WriteString("^")
+	i := 0
+	for i < len(pattern) {
+		// Check for ** (must come before * check).
+		if i+1 < len(pattern) && pattern[i] == '*' && pattern[i+1] == '*' {
+			i += 2
+			// If "**" is immediately followed by the separator, the separator
+			// must also be optional so that zero segments matches the suffix
+			// without a leading separator (e.g. "**.enterprise.local" matches
+			// "enterprise.local" as well as "sub.enterprise.local").
+			if i < len(pattern) && string(pattern[i]) == sep {
+				sb.WriteString("(?:.*" + escapedSep + ")?")
+				i++ // consume the separator
+			} else {
+				// "**" matches zero or more characters across separators (any depth).
+				sb.WriteString(".*")
+			}
+			continue
+		}
+		if pattern[i] == '*' {
+			// "*" matches any sequence within a segment (no separator crossing).
+			sb.WriteString("[^" + escapedSep + "]*")
+			i++
+			continue
+		}
+		// Literal character — escape it for use in a regex.
+		sb.WriteString(regexp.QuoteMeta(string(pattern[i])))
+		i++
+	}
+	sb.WriteString("$")
+	return sb.String()
 }
 
 // blocksOfType filters an hcl.Blocks slice by block type.
