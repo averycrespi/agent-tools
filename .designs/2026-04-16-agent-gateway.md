@@ -494,12 +494,15 @@ CREATE TABLE requests (
   error            TEXT                    -- structured tag, e.g. secret_unresolved,
                                            -- queue_full, body_matcher_bypassed:size
 );
-CREATE INDEX idx_req_ts        ON requests(ts);
-CREATE INDEX idx_req_agent     ON requests(ts, agent);
-CREATE INDEX idx_req_host      ON requests(ts, host);
-CREATE INDEX idx_req_rule      ON requests(matched_rule, ts);
-CREATE INDEX idx_req_injected  ON requests(ts) WHERE injection = 'applied';
-CREATE INDEX idx_req_blocked   ON requests(ts) WHERE outcome = 'blocked';
+CREATE INDEX idx_req_ts    ON requests(ts);
+CREATE INDEX idx_req_agent ON requests(ts, agent);
+CREATE INDEX idx_req_host  ON requests(ts, host);
+CREATE INDEX idx_req_rule  ON requests(matched_rule, ts);
+-- Partial indexes on injection='applied' / outcome='blocked' are
+-- deferred to v1.1. Forensic queries use sequential scans over the
+-- ts-ordered B-tree; at 90-day retention on a local-dev tool this is
+-- milliseconds even for full-table filters. Added later without
+-- migration pain: CREATE INDEX IF NOT EXISTS ... WHERE ...
 ```
 
 Foreign keys: audit rows `ON DELETE SET NULL` (history survives agent
@@ -543,12 +546,14 @@ Representative rows:
 
 **Forensic queries** become straightforward:
 
-- "Which requests got real credentials?" → `WHERE injection = 'applied'`
-  (the `idx_req_injected` partial index serves this directly).
+- "Which requests got real credentials?" → `WHERE injection = 'applied'`.
 - "What's been blocked?" → `WHERE outcome = 'blocked'`.
 - "Broken rules (matched but couldn't inject)" →
   `WHERE injection = 'failed'`.
 - "Blind traffic (no visibility)" → `WHERE interception = 'tunnel'`.
+
+All four use a `ts` range bound (dashboard filters are always
+time-scoped) so `idx_req_ts` covers them in v1.
 
 The invariant `credential_id IS NOT NULL ⟺ injection = 'applied'` holds —
 code-enforced, not DB-enforced.
