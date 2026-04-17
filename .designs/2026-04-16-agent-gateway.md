@@ -1386,6 +1386,11 @@ mcp-broker's `testStack`.
 
 ### Conventions
 
+- SQLite driver is `ncruces/go-sqlite3` (WASM-embedded, no CGO) — matches
+  mcp-broker and keeps the monorepo CGO-free. All features this design
+  relies on (WAL, partial indexes, JSON1 if needed) are supported.
+  Requires the `embed` import alongside `driver`, per mcp-broker's
+  convention.
 - Constructors take context-free dependencies; `context.Context` is the
   _first_ parameter on every method that does I/O, cancellation, or audit.
 - No package-level singletons. No `init()` side effects. Everything is
