@@ -165,11 +165,13 @@ Both override-able via `config.hcl` and CLI flags. Ports chosen to be adjacent
    credential intact) → audit with `matched_rule=NULL`,
    `outcome='forwarded'`. This is the fail-safe: forgotten routes fail
    upstream as unauthenticated rather than leaking real credentials.
-7. Rule matched but credential resolution failed (secret missing or
-   agent-scope mismatch): same network behaviour as (6), but audited as
-   `injection='failed'` with `error='secret_not_found'` or
-   `error='access_restricted'`. Dashboard renders these distinctly so
-   broken rules are discoverable.
+7. Rule matched but credential resolution failed (secret missing, or
+   exists but not under a scope the caller can access): same network
+   behaviour as (6), but audited as `injection='failed'` with
+   `error='secret_unresolved'`. Dashboard renders a badge on the rule so
+   broken references are discoverable. (v1 collapses "missing" and
+   "scope-excluded" into one value — splitting them back apart later is
+   additive.)
 
 ### Agent-to-gateway authentication
 
@@ -340,10 +342,10 @@ backslashes is inserted literally.
   are variable names well-formed (`secrets.<identifier>` or `agent.<field>`)?
   An invalid reload is rejected; the previous valid rule-set stays live.
 - **Request time (lazy):** the referenced secret either resolves or
-  doesn't. Missing secret → the rule fails soft: dummy credentials go
-  upstream untouched and the audit row records `injection='failed'`
-  with `error='secret_not_found'` (or `access_restricted` when the secret
-  exists but the calling agent isn't scoped to it). The `pass-through`
+  doesn't. Any unresolved reference (missing entirely, or exists but
+  only under a scope the caller can't access) → the rule fails soft:
+  dummy credentials go upstream untouched and the audit row records
+  `injection='failed'`, `error='secret_unresolved'`. The `pass-through`
   fail-safe is preserved.
 
 This split lets a user write a rule that references a secret before
@@ -484,9 +486,8 @@ CREATE TABLE requests (
   credential_ref   TEXT,                   -- "gh_bot"
   credential_scope TEXT,                   -- "global" or agent name
   credential_id    TEXT,                   -- stable secrets.id at time of use
-  error            TEXT                    -- structured tag, e.g. secret_not_found,
-                                           -- access_restricted, queue_full,
-                                           -- body_matcher_bypassed:size
+  error            TEXT                    -- structured tag, e.g. secret_unresolved,
+                                           -- queue_full, body_matcher_bypassed:size
 );
 CREATE INDEX idx_req_ts        ON requests(ts);
 CREATE INDEX idx_req_agent     ON requests(ts, agent);
@@ -565,20 +566,22 @@ without needing a separate "kind" discriminator column.
 
 Resolution outcomes:
 
-- **Resolved (same name, either scope):** proceed with injection;
-  audit `injection='applied'`, `credential_scope` set to the matched
-  scope value (`'global'` or the agent name).
-- **Not found (no global, no agent-scoped):** rule fails soft; audit
-  `injection='failed'`, `error='secret_not_found'`. Dummy credential
-  goes upstream.
-- **Exists but scope-excluded:** if a secret with this name exists but
-  only under a different agent's scope (e.g. `gh_bot` exists with
-  `scope='codex-sandbox'` and the caller is `claude-review`), this is
-  distinguished from "missing" in the audit row as
-  `error='access_restricted'`. Same network behaviour (dummy goes
-  upstream), different forensic signal.
+- **Resolved:** proceed with injection; audit `injection='applied'`,
+  `credential_scope` set to the matched scope value (`'global'` or the
+  agent name).
+- **Unresolved:** either no row matches (no global, no caller-scoped)
+  or a row exists only under a different agent's scope (e.g. `gh_bot`
+  exists with `scope='codex-sandbox'` and the caller is
+  `claude-review`). Rule fails soft; audit `injection='failed'`,
+  `error='secret_unresolved'`. Dummy credential goes upstream.
 
-Both failure modes preserve the fail-safe: no real credential ever
+The "missing entirely" vs "scope-excluded" distinction is collapsed in
+v1 — both are forensically "the rule couldn't inject." If we later need
+to tell them apart (e.g. to spot misconfigured agent scopes vs genuinely
+absent secrets), we add a second value without changing the fail-safe
+behaviour.
+
+The fail-safe is preserved either way: no real credential ever
 substitutes a dummy for a request the gateway can't confidently
 authorise.
 
@@ -1295,7 +1298,7 @@ edit, refresh}` works, `state.db` opens with WAL + `busy_timeout=5s`,
    _Done when:_ `TestRuleReloadHotSwap` passes — daemon starts with a
    rule referencing `${secrets.x}` (secret doesn't exist); reload
    succeeds; request matches rule and is audited as
-   `injection='failed', error='secret_not_found'`. A second test edits
+   `injection='failed', error='secret_unresolved'`. A second test edits
    the rule file to have invalid HCL and verifies the previous ruleset
    stays live.
 4. **Secrets.** SQLite + AES-256-GCM, keychain + file fallback, CLI
