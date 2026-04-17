@@ -711,9 +711,43 @@ agent-gateway token rotate admin
 Cobra-based. `serve` holds a PID file in the config dir and refuses to start
 if one is live (second instance would contend on DB + ports).
 
-## 10. Borrow List from Siblings
+## 10. Prior Art & Attribution
 
-From **mcp-broker** (~1500 LOC carried over near-verbatim):
+agent-gateway draws on two reference points with fundamentally different
+relationships. The distinction matters for licensing posture and for how
+we credit them.
+
+### Relationship summary
+
+- **mcp-broker** — sibling tool in this same monorepo, same author, same
+  license. About 1500 LOC of transport-agnostic infrastructure ports
+  directly with minimal change. This is internal code reuse, not
+  third-party incorporation.
+- **onecli** (<https://github.com/onecli/onecli>) — external Rust tool in
+  the same problem space. We treat it strictly as **architectural
+  inspiration and prior art**:
+  - No code is copied. agent-gateway is a clean-room Go reimplementation.
+  - No binary artifacts (CA tooling, Node SDK, Next.js dashboard) from
+    onecli are redistributed, wrapped, or embedded.
+  - Different language (Rust → Go), different storage backend
+    (Postgres → SQLite), different dependency stack — independent
+    implementation throughout.
+  - The design _ideas_ we adopt (listed below) are taken as concepts, not
+    as implementation details. Where our implementation borrows a specific
+    numeric choice (e.g. 24h leaf validity, 5-minute approval timeout),
+    those are commodity values in the broader proxy/MITM ecosystem and
+    not unique to onecli.
+  - When agent-gateway ships, the README and a `NOTICE` file in the tool
+    directory will credit onecli as prior art in this problem space.
+    There is no license-compliance obligation beyond this attribution
+    because no code or assets cross over.
+
+This is the same category of relationship any clean-room reimplementation
+has with its predecessor in a problem space.
+
+### From mcp-broker (code carried over)
+
+~1500 LOC of transport-agnostic infrastructure ports near-verbatim:
 
 - XDG-aware JSON/HCL config loader pattern.
 - SQLite WAL audit module (extended schema).
@@ -723,16 +757,21 @@ From **mcp-broker** (~1500 LOC carried over near-verbatim):
 - Cobra-based CLI with `config {path,edit,refresh}` UX.
 - testify mocks + e2e subprocess tests.
 
-From **onecli** (architecture, not code):
+### From onecli (ideas, re-implemented)
+
+Architectural concepts adopted; all code written fresh in Go:
 
 - CA + leaf issuance model (10y CA, 24h leaf, 1h refresh buffer,
   per-hostname tls.Config cache).
-- `Proxy-Authorization: Basic base64("x:<token>")` convention.
+- `Proxy-Authorization: Basic base64("x:<token>")` convention (itself a
+  mimicry of GitHub-PAT URL auth — pre-existing ecosystem convention).
 - Opt-in per-rule approval verdict with timeout.
 - `GET /ca.pem` distribution endpoint.
 - 60s in-memory resolution cache keyed by `(agent, host)`.
 
-Improvements over onecli, explicitly:
+### Improvements over onecli, explicitly
+
+Concrete places agent-gateway diverges and does more:
 
 - Header + content-type-aware body matching (onecli matches path + method
   only).
@@ -744,6 +783,16 @@ Improvements over onecli, explicitly:
 - OS-keychain-protected master key (onecli uses an env var).
 - HTTP/2 ALPN end-to-end.
 - Agent-scoped secrets with stable-id audit trail.
+
+### Shipping-time documentation requirements
+
+Tracked here so it isn't forgotten at release:
+
+- `agent-gateway/README.md` — "Prior art" section linking to onecli with a
+  one-paragraph note that it is the primary inspiration for this tool.
+- `agent-gateway/NOTICE` — short attribution file naming onecli as prior
+  art, confirming no code is incorporated. Not required by any license,
+  but good-citizen practice for clean-room reimplementations.
 
 ## 11. Open Questions & Risks
 
