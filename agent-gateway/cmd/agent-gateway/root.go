@@ -30,6 +30,7 @@ func newRootCmd() *cobra.Command {
 		return paths.ConfigFile()
 	}
 
+	root.AddCommand(newCACmd())
 	root.AddCommand(newConfigCmd(configPath))
 	root.AddCommand(newServeCmd(configPath))
 
