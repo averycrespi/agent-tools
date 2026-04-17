@@ -18,7 +18,7 @@ func TestOpen_CreatesWAL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	db, err := store.Open(path)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	var mode string
 	require.NoError(t, db.QueryRow("PRAGMA journal_mode").Scan(&mode))
@@ -69,7 +69,7 @@ func TestMigration_AtomicRollback(t *testing.T) {
 	// Inspect the DB directly (bypass migrations) to verify nothing persisted.
 	raw, err := sql.Open("sqlite3", path)
 	require.NoError(t, err)
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 
 	var n int
 	err = raw.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='t'").Scan(&n)

@@ -3,7 +3,6 @@
 package daemon
 
 import (
-	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
