@@ -454,7 +454,7 @@ CREATE TABLE agents (
 CREATE TABLE secrets (
   id           TEXT PRIMARY KEY,           -- sec_<ulid>; stable across rotations
   name         TEXT NOT NULL,              -- referenced as ${secrets.<name>}
-  scope        TEXT NOT NULL,              -- 'global' or <agent-name>
+  scope        TEXT NOT NULL,              -- 'global' | 'agent:<name>' | (future: 'group:...', etc.)
   ciphertext   BLOB NOT NULL,              -- AES-256-GCM
   nonce        BLOB NOT NULL,              -- 12-byte per-row nonce
   created_at   INTEGER NOT NULL,
@@ -484,7 +484,7 @@ CREATE TABLE requests (
   injection        TEXT,                   -- applied | failed; NULL if n/a
   outcome          TEXT NOT NULL,          -- forwarded | blocked
   credential_ref   TEXT,                   -- "gh_bot"
-  credential_scope TEXT,                   -- "global" or agent name
+  credential_scope TEXT,                   -- 'global' | 'agent:<name>' (mirrors secrets.scope)
   credential_id    TEXT,                   -- stable secrets.id at time of use
   error            TEXT                    -- structured tag, e.g. secret_unresolved,
                                            -- queue_full, body_matcher_bypassed:size
@@ -500,7 +500,7 @@ CREATE INDEX idx_req_blocked   ON requests(ts) WHERE outcome = 'blocked';
 Foreign keys: audit rows `ON DELETE SET NULL` (history survives agent
 deletion for forensics). `secrets.scope` has no FK; when an agent is
 removed, `agent rm <name>` issues a transactional cascade in code:
-`DELETE FROM secrets WHERE scope = ?; DELETE FROM agents WHERE name = ?;`
+`DELETE FROM secrets WHERE scope = 'agent:'||?; DELETE FROM agents WHERE name = ?;`
 This is grep-able and keeps "what happens when I delete an agent"
 visible at the call site rather than hidden in schema DDL.
 
@@ -548,6 +548,18 @@ Representative rows:
 The invariant `credential_id IS NOT NULL ⟺ injection = 'applied'` holds —
 code-enforced, not DB-enforced.
 
+### Scope format
+
+Scope values are always prefixed or the literal `'global'`:
+
+- `'global'` — applies to any agent.
+- `'agent:<name>'` — applies only to the named agent.
+- Future types (deferred): `'group:<name>'` for agent groups, etc.
+
+Prefixing leaves room for additional scope types without reserving
+agent names or migrating the column. Parsing is a simple prefix check
+(`scope == 'global'` vs `strings.HasPrefix(scope, "agent:")`).
+
 ### Scope resolution
 
 Most-specific-wins: agent-scoped beats global on the same name. Single SQL
@@ -555,23 +567,23 @@ query with deterministic ordering:
 
 ```sql
 SELECT * FROM secrets
-WHERE name = ?1 AND scope IN (?2, 'global')
+WHERE name = ?1 AND scope IN ('global', 'agent:' || ?2)
 ORDER BY scope = 'global' ASC
 LIMIT 1;
 ```
 
-`'global'` is a reserved scope value — it cannot be an agent name
-(see §7 agent naming rules). This keeps the scope column unambiguous
-without needing a separate "kind" discriminator column.
+`?2` is the calling agent's name; the caller prepends the `agent:`
+prefix at the storage boundary so the rest of the code works with
+already-typed values.
 
 Resolution outcomes:
 
 - **Resolved:** proceed with injection; audit `injection='applied'`,
-  `credential_scope` set to the matched scope value (`'global'` or the
-  agent name).
+  `credential_scope` set to the matched scope value (`'global'` or
+  `'agent:<name>'`).
 - **Unresolved:** either no row matches (no global, no caller-scoped)
   or a row exists only under a different agent's scope (e.g. `gh_bot`
-  exists with `scope='codex-sandbox'` and the caller is
+  exists with `scope='agent:codex-sandbox'` and the caller is
   `claude-review`). Rule fails soft; audit `injection='failed'`,
   `error='secret_unresolved'`. Dummy credential goes upstream.
 
@@ -587,17 +599,18 @@ authorise.
 
 ### Shadow warnings
 
-`agent-gateway secret set gh_bot --agent claude-review` warns if a
-`gh_bot` with `scope='global'` already exists. Reverse direction also
-warns. `secret list` surfaces scope in its own column so shadows are
-visible at a glance.
+`agent-gateway secret set gh_bot --agent claude-review` (stored as
+`scope='agent:claude-review'`) warns if a `gh_bot` with
+`scope='global'` already exists. Reverse direction also warns.
+`secret list` surfaces scope in its own column so shadows are visible
+at a glance.
 
 ### Audit differentiation
 
 Each audit row records three fields for credential tracing:
 
 - `credential_ref` — the name in the rule template (what was asked for).
-- `credential_scope` — `"global"` or the agent name (what actually resolved).
+- `credential_scope` — `'global'` or `'agent:<name>'` (what actually resolved).
 - `credential_id` — the stable `secrets.id` used at that moment. Survives
   rotations; a delete+recreate issues a new id. Lets forensics answer "which
   requests used the secret I rotated last Tuesday?"
@@ -775,14 +788,6 @@ tokens visibly agent-gateway tokens in logs (à la `ghp_`, `sk-`).
 
 Proxy-Authorization value is `Basic base64("x:" + full-token)`, onecli
 convention.
-
-### Reserved agent names
-
-The literal string `global` is reserved — it cannot be used as an agent
-name. `agent add global` fails with a clear error. Rationale: the
-secrets table's `scope` column (§5) uses `'global'` as a sentinel for
-unscoped secrets; allowing an agent named `global` would make
-`scope='global'` ambiguous. This is the only reserved name.
 
 ### Persistence
 
