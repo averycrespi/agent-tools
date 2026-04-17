@@ -1,18 +1,54 @@
 package rules
 
-// Engine evaluates a Request against a compiled set of rules using
-// first-match-wins semantics.
-type Engine struct {
-	rules []Rule
+// ruleset is the immutable compiled representation of a rule list.
+// It is stored inside an atomic.Pointer inside Engine and replaced wholesale
+// on each successful Reload. Keeping it unexported prevents callers from
+// accidentally retaining a stale snapshot.
+type ruleset struct {
+	rules     []Rule
+	hostIndex map[string]map[string]struct{} // agent → set of host-glob patterns
 }
 
-// Compile creates an Engine from a slice of already-compiled rules.
+// Compile creates a *ruleset from a slice of already-compiled rules.
 // The rules are evaluated in the order provided (first-match-wins).
-func Compile(rs []Rule) *Engine {
-	// Defensive copy so the caller cannot mutate the engine's rule list.
+// This is the low-level constructor used by tests and by Engine internally.
+func Compile(rs []Rule) *ruleset {
+	// Defensive copy so the caller cannot mutate the ruleset's rule list.
 	cp := make([]Rule, len(rs))
 	copy(cp, rs)
-	return &Engine{rules: cp}
+	return &ruleset{
+		rules:     cp,
+		hostIndex: buildHostsForAgent(cp),
+	}
+}
+
+// buildHostsForAgent constructs the agent→hosts index from a rule slice.
+// Rules with nil Agents (all-agents wildcard) are stored under the special
+// sentinel key "" and merged into every agent's result at lookup time.
+func buildHostsForAgent(rs []Rule) map[string]map[string]struct{} {
+	m := make(map[string]map[string]struct{})
+	for i := range rs {
+		r := &rs[i]
+		host := r.Match.Host
+		if host == "" {
+			continue // no host constraint → not meaningful for CONNECT decisions
+		}
+		if r.Agents == nil {
+			// nil Agents means "applies to all agents"; store under sentinel "".
+			if m[""] == nil {
+				m[""] = make(map[string]struct{})
+			}
+			m[""][host] = struct{}{}
+		} else {
+			for _, agent := range r.Agents {
+				if m[agent] == nil {
+					m[agent] = make(map[string]struct{})
+				}
+				m[agent][host] = struct{}{}
+			}
+		}
+	}
+	return m
 }
 
 // Evaluate walks the rule list in order and returns the first MatchResult
@@ -22,9 +58,9 @@ func Compile(rs []Rule) *Engine {
 // returns a MatchResult with a non-empty Error field and no verdict so that
 // the audit logger can record the bypass reason. The first bypassed rule wins;
 // subsequent rules are not evaluated.
-func (e *Engine) Evaluate(req *Request) *MatchResult {
-	for i := range e.rules {
-		r := &e.rules[i]
+func (rs *ruleset) Evaluate(req *Request) *MatchResult {
+	for i := range rs.rules {
+		r := &rs.rules[i]
 		matched, bypassErr := matchRule(r, req)
 		if matched {
 			return &MatchResult{Rule: r, Index: i}
@@ -36,6 +72,21 @@ func (e *Engine) Evaluate(req *Request) *MatchResult {
 		}
 	}
 	return nil
+}
+
+// hostsForAgent returns the merged set of host-glob patterns for the given
+// agent: the agent's own rules plus the all-agents wildcard rules (nil Agents).
+func (rs *ruleset) hostsForAgent(agent string) map[string]struct{} {
+	out := make(map[string]struct{})
+	// Add hosts from rules scoped to this specific agent.
+	for h := range rs.hostIndex[agent] {
+		out[h] = struct{}{}
+	}
+	// Add hosts from rules that apply to all agents (nil Agents, stored under "").
+	for h := range rs.hostIndex[""] {
+		out[h] = struct{}{}
+	}
+	return out
 }
 
 // matchRule checks whether every criterion in r is satisfied by req.
