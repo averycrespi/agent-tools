@@ -1170,6 +1170,24 @@ the exact implementation:
 - Cobra-based CLI with `config {path,edit,refresh}` UX.
 - testify mocks + e2e subprocess tests with `testStack` wiring pattern.
 
+### Net-new infrastructure (no prior art in-repo)
+
+Code with no pattern to port from mcp-broker; written from scratch.
+Listed here so implementation planning budgets it honestly — by line
+count this is roughly the other half of the codebase.
+
+- PID file handling + daemon-reload signalling (`SIGHUP` handler,
+  `fsnotify` watcher on `rules.d/`).
+- Encrypted secret store (SQLite rows + AES-256-GCM) and master-key
+  management (`go-keyring` with `master.key` file fallback).
+- Root-CA generation, persistence, and per-hostname leaf issuance with
+  the `*tls.Config` cache and background sweeper.
+- HCL rules parser and matcher (host/path globs, header regex,
+  `json_body` / `form_body` matchers, RE2 compilation at load time).
+- HTTP CONNECT handler and MITM pipeline (h1/h2 bridging, ALPN on both
+  sides, upstream `http.Transport` with strict verification, streaming
+  body forwarding).
+
 ### From onecli (ideas, re-implemented)
 
 Architectural concepts adopted; all code written fresh in Go:
