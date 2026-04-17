@@ -15,13 +15,20 @@ import (
 	"time"
 )
 
-// Authority holds a loaded or freshly-generated root CA certificate and key.
+// Authority holds a loaded or freshly-generated root CA certificate and key,
+// together with a cache of issued leaf TLS configs.
 type Authority struct {
 	cert     *x509.Certificate
 	key      *ecdsa.PrivateKey
 	rootPEM  []byte
 	keyPath  string
 	certPath string
+
+	// Leaf cert cache and tunable knobs (set by initLeafFields).
+	cache         *leafCache
+	leafLifetime  time.Duration
+	sweepBuffer   time.Duration
+	sweepInterval time.Duration
 }
 
 // RootPEM returns the PEM-encoded DER certificate for the root CA.
@@ -93,13 +100,15 @@ func load(keyPath, certPath string) (*Authority, error) {
 		return nil, err
 	}
 
-	return &Authority{
+	a := &Authority{
 		cert:     cert,
 		key:      key,
 		rootPEM:  certBytes,
 		keyPath:  keyPath,
 		certPath: certPath,
-	}, nil
+	}
+	initLeafFields(a)
+	return a, nil
 }
 
 func generate(keyPath, certPath string) (*Authority, error) {
@@ -152,13 +161,15 @@ func generate(keyPath, certPath string) (*Authority, error) {
 		return nil, err
 	}
 
-	return &Authority{
+	a := &Authority{
 		cert:     cert,
 		key:      key,
 		rootPEM:  certPEM,
 		keyPath:  keyPath,
 		certPath: certPath,
-	}, nil
+	}
+	initLeafFields(a)
+	return a, nil
 }
 
 // randomSerial returns a random 128-bit serial number suitable for x509.
