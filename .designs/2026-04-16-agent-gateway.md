@@ -79,6 +79,11 @@ Each deferred to v1.1+ with a one-line rationale so future-us has the context.
   (Google returns 400 for missing keys). Useful diagnostic, not core
   functionality. Note: onecli's implementation buffers the full body —
   if we adopt this, use a peek-and-rejoin-stream pattern instead.
+- **SSE Last-Event-ID replay + close-on-slow backpressure.** v1 uses
+  mcp-broker's drop-on-full pattern for the live feed; the paginated
+  `/api/audit` endpoint covers "what happened while I was away." Adding
+  durable replay + slow-client eviction later is additive — ULIDs are
+  already on `id:` frames, no protocol change needed.
 
 ### Success criteria
 
@@ -914,23 +919,26 @@ One SSE endpoint: `GET /api/events`. Event types:
 - `backlog-warning` — approval queue at ≥90% or audit write errors
   observed.
 
-**Reconnect replay (via Last-Event-ID):** the browser automatically sets
-the `Last-Event-ID` header on SSE reconnects. The server responds by
-querying `SELECT * FROM requests WHERE id > :since ORDER BY id ASC` and
-streaming the backlog before switching to live push. Non-`request` event
-types are ephemeral — only the newest live state is shown; historical
-approval-state transitions (beyond what's currently pending) are not
-replayable.
+**Backpressure (drop-on-full):** each subscriber has a 32-event
+buffered channel. Broadcasts use a non-blocking send; if the buffer is
+full, the event is dropped for that subscriber and the hot path
+continues. Matches mcp-broker's pattern. Slow clients silently miss
+events; the initial page load for the dashboard uses a paginated
+`/api/audit` query (covering the last N rows from the requests table),
+so the "what happened while I wasn't watching" use case is served by
+the audit API, not by the live feed.
 
-**Backpressure (close-on-slow):** each subscriber has a 32-event
-buffered channel. If a send would block, the server closes the
-subscriber's connection and logs a warning with the client's last
-acknowledged event ID. The browser's EventSource reconnects
-automatically with `Last-Event-ID` set, and the query-based replay
-above catches it up. Slow clients self-heal without silent event loss.
+**Keep-alive:** the server sends `:keepalive\n\n` every 15s so dead
+connections are detected and subscriber channels get cleaned up.
 
-**Keep-alive:** the server sends `:keepalive\n\n` every 15s. Detects
-dead connections so close-on-slow actually fires.
+**Deferred to v1.1:** Last-Event-ID replay (server honours the
+reconnect header and streams missed rows from SQLite) and close-on-slow
+backpressure (server closes a stalled subscriber so the browser
+auto-reconnects with the header set). Together these turn the live
+feed into a durable append-only view across reconnects, but v1 doesn't
+need durability — the paginated audit endpoint already answers "what
+happened while I was away." Added later without protocol changes since
+ULIDs are already in `id:` frames.
 
 ### Admin auth
 
@@ -1165,8 +1173,8 @@ the exact implementation:
   and streaming concerns are new).
 - Bearer-token auth middleware with constant-time comparison and
   cookie-promotion.
-- Embedded-HTML SPA with SSE event bus (extended with Last-Event-ID
-  replay via SQLite query; mcp-broker doesn't have this).
+- Embedded-HTML SPA with SSE event bus (same drop-on-full pattern;
+  Last-Event-ID replay deferred to v1.1 — see §8).
 - Cobra-based CLI with `config {path,edit,refresh}` UX.
 - testify mocks + e2e subprocess tests with `testStack` wiring pattern.
 
@@ -1297,13 +1305,13 @@ edit, refresh}` works, `state.db` opens with WAL + `busy_timeout=5s`,
    next matched request has `Authorization: Bearer <real>` on upstream
    while agent only ever sees dummy.
 5. **Audit log + dashboard live feed.** SQLite audit table with new
-   column set, SSE endpoint with Last-Event-ID replay, close-on-slow
-   backpressure, approve/deny UI.
-   _Done when:_ `TestSSEReplayAfterReconnect` passes — 20 requests
-   happen, dashboard connects after the fact with
-   `Last-Event-ID: 0` and receives all 20. Second test holds an SSE
-   connection, forces backpressure (slow read), and verifies the
-   server closes the connection after the buffer fills.
+   column set, SSE endpoint with drop-on-full broadcast + 15s
+   keepalive, paginated `/api/audit` for initial page load,
+   approve/deny UI.
+   _Done when:_ `TestDashboardLiveFeed` passes — dashboard subscribes
+   to `/api/events`, 20 requests happen live, the browser sees all 20
+   on the feed. A second test verifies the `/api/audit` endpoint
+   returns the same 20 rows with correct pagination.
 6. **Agents.** Token mint/auth, per-agent rule scoping (CONNECT-time
    filter), per-agent secret scoping, audit-field propagation.
    _Done when:_ `TestAgentScopeFilter` passes — two agents with
