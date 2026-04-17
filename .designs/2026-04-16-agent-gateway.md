@@ -312,8 +312,12 @@ text_body {                                // text/*
 }
 ```
 
-If the actual `Content-Type` doesn't match the declared block type, the rule
-fails to match (no silent coercion). Out of scope for v1: multipart,
+A rule with a `json_body`, `form_body`, or `text_body` block matches
+only requests that both (a) carry a body and (b) have a `Content-Type`
+matching the declared block type. Requests without a body — including
+`GET`, `DELETE`, `HEAD`, and `POST`/`PUT` with `Content-Length: 0` —
+never match a body-matcher rule. No silent coercion (e.g. empty body
+is not treated as empty JSON). Out of scope for v1: multipart,
 protobuf, gRPC.
 
 ### Matching semantics
