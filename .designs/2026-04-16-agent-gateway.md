@@ -745,7 +745,12 @@ exfiltration attempt (fails for the same reason — also good).
 ### CONNECT-time intercept decision (normative)
 
 At CONNECT time the gateway decides between **tunnel**, **MITM**, and
-**reject**. Four inputs:
+**reject**. The `Proxy-Authorization` header is the standard one set
+by HTTP clients when `HTTPS_PROXY=http://x:<token>@host:port` — see §3
+"Agent-to-gateway authentication" for the convention and §7 for token
+format.
+
+Four inputs:
 
 1. Does the CONNECT carry a valid `Proxy-Authorization` for a known agent?
 2. Is the target host in `proxy_behavior.no_intercept_hosts`?
