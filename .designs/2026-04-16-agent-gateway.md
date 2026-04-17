@@ -945,15 +945,18 @@ content-based disambiguation, the rule author should narrow the
 
 ### Approval queue limits
 
-Pending approvals are bounded (config: `approval.max_pending_per_agent`,
-`approval.max_pending_global`). When the limit is hit, new
+Pending approvals are bounded by a single global cap
+(`approval.max_pending`, default 50). When the cap is hit, new
 `require-approval` requests are rejected synchronously with
 `403 Forbidden` + `Retry-After: 30`, body
-`{"error":"approval_queue_full","limit":"per_agent"}`. The rejection is
-audited (`outcome='blocked'`, `error='queue_full'`).
+`{"error":"approval_queue_full"}`. The rejection is audited
+(`outcome='blocked'`, `error='queue_full'`).
 
-The dashboard shows a banner when any queue is ≥90% of its cap so
-operators can intervene before overflow.
+Queue pressure is visible on the live feed as the pending-count pill
+in the dashboard header (§8). A separate 90%-banner warning + per-agent
+caps + overflow-behaviour variants (`enqueue-fifo`, agent-side
+backpressure) are deferred to v1.1 — single-user local-dev doesn't
+need the nuance.
 
 **Restart behaviour:** pending approvals are in-memory only. A daemon
 restart returns `504 Gateway Timeout` to every parked request. No
@@ -1084,10 +1087,8 @@ audit {
 }
 
 approval {
-  timeout               = "5m"
-  max_pending_per_agent = 20
-  max_pending_global    = 200
-  overflow_behavior     = "deny"   # v1: only "deny" is supported
+  timeout     = "5m"
+  max_pending = 50      # global cap; 403 + Retry-After: 30 when hit
 }
 
 proxy_behavior {
@@ -1380,8 +1381,8 @@ edit, refresh}` works, `state.db` opens with WAL + `busy_timeout=5s`,
    different rule sets; each sees only MITM behaviour for their own
    scoped hosts; the other's scoped hosts tunnel.
 7. **Polish.** Shadow warnings, retention pruning, startup summary,
-   approval queue caps + overflow behaviour, unauthorized re-auth form,
-   documentation (README + NOTICE per §10).
+   approval `max_pending` cap + 403 rejection, unauthorized re-auth
+   form, documentation (README + NOTICE per §10).
    _Done when:_ the `agent-tools` repo-level `make audit` passes for
    the new tool, README includes install + first-run + prior-art
    sections, and a fresh-machine smoke test (trust CA, add agent, add
