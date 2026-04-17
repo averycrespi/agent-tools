@@ -96,6 +96,12 @@ Each deferred to v1.1+ with a one-line rationale so future-us has the context.
   can't tell rotate-in-place from delete-then-recreate — but accurate
   enough for v1. Adding `secrets.id` (ULID) + `requests.credential_id`
   later is a simple migration.
+- **Dashboard Approvals / Tunneled-hosts tabs, rich Audit filters,
+  test-request form.** v1 ships five tabs (Live feed, Audit, Rules,
+  Agents, Secrets). Pending approvals pin to the top of Live feed
+  with inline approve/deny; tunneled-hosts discoverability surfaces
+  as a Live-feed banner; Audit ships with time-range pagination only.
+  All of these are purely additive UI expansions — see §8.
 
 ### Success criteria
 
@@ -877,43 +883,56 @@ agent-gateway agent rotate <name>           # no grace window; new token immedia
 ### Dashboard
 
 Embedded SPA at `:8221/dashboard/`, vanilla JS + HTML, no build step (same
-pattern as mcp-broker). Tabs:
+pattern as mcp-broker). Five tabs in v1:
 
-- **Live feed** — SSE stream. Each row: timestamp, agent,
-  `METHOD host/path`, interception/outcome badges, matched rule (clickable
-  → jump to rule file path), duration, status. Pulses amber for pending
-  `require-approval` rows with inline approve/deny buttons. Tunnel rows
-  (no method/path) render dimmer and are collapsible behind a toggle.
-- **Approvals** — pending approvals only.
-  Each card shows agent, matched rule name, `METHOD host/path`, and the
-  per-agent pending count (for spotting retry loops). **Body contents
-  are not displayed** — see "Approval view invariant" below.
-- **Audit** — paginated, filterable history. Filters: agent, host,
-  matched-rule, `interception`, `rule_verdict`, `injection`, `outcome`,
-  `approval`, time range, free-text path/error. Rows expand to the full
-  audit record (metadata only; no bodies, no values).
-- **Rules** — rendered by file, with "last matched at" and "match count
-  (24h)" from the audit index. Rules with zero matches in 24h show a
-  subtle "never matched" indicator. Rules with unresolved
-  `${secrets.*}` references show a "missing secret" badge. Read-only.
-  A "test request" form runs the same matcher as `rules check --request`.
-- **Tunneled hosts (24h)** — list of hosts the agent talked to that
-  no rule covers, with request counts and first/last seen. Primary
-  discoverability aid for "which hosts do I need to write rules for".
+- **Live feed** — SSE stream plus a pinned "pending approvals" section
+  at the top. Each feed row: timestamp, agent, `METHOD host/path`,
+  interception/outcome badges, matched rule (clickable → jump to rule
+  file path), duration, status. Tunnel rows (no method/path) render
+  dimmer and are collapsible behind a toggle. Pending-approval rows
+  pin to the top of the feed with a distinctive background and inline
+  approve/deny buttons; on resolution they animate down into the
+  stream. A pending-count pill in the header jumps to the pinned
+  section when clicked. **Body contents are never displayed on
+  pending rows** — see "Approval view invariant" below. Initial page
+  load pulls the last 200 rows via `/api/audit` so the feed has
+  history before the first SSE event arrives.
+- **Audit** — paginated history, time-range only in v1. Rows render
+  the full audit record (metadata only; no bodies, no values). Rich
+  filters (agent, host, matched-rule, interception, verdict,
+  injection, outcome, approval, free-text path/error) are deferred to
+  v1.1 — for v1 the corresponding SQL is runnable directly against
+  `state.db` via the CLI if forensics needs it.
+- **Rules** — rendered by file, read-only. "Last matched at" and
+  "match count (24h)" per rule from the audit index. Rules with zero
+  matches in 24h show a subtle "never matched" indicator; rules with
+  unresolved `${secrets.*}` references show a "missing secret" badge.
 - **Agents** — list with last-seen, request-count-by-outcome (24h).
   Plaintext tokens never shown after `agent add`; only the 8-char prefix.
 - **Secrets** — list by (name, scope, created, rotated, last-used,
   referencing-rule count). No values, no export.
 
+**Deferred to v1.1:**
+
+- **Approvals tab.** Pending approvals live inline in Live feed (pinned
+  to the top); a dedicated tab would be a filtered view of the same
+  state.
+- **Tunneled hosts (24h) tab.** v1 surfaces this as a dismissible
+  banner on Live feed when the 24h-tunneled-host count changes
+  (discoverability prompt for rule authoring); no separate tab.
+- **"Test request" form on the Rules tab.** Tied to
+  `rules check --request` which is itself deferred — see §4 CLI.
+- **Rich Audit filters.** See Audit tab above.
+
 ### Approval view invariant
 
-The approval card shows:
+A pending-approval row (pinned at the top of Live feed in v1) shows:
 
 - Agent name, matched rule name, request method, host, path, query.
-- The count of identical retries currently folded into this decision
-  (typically 1; higher numbers indicate an agent retry loop).
+- The per-agent pending count beside the agent name (typically 1;
+  higher numbers indicate a retry loop).
 
-The card does **not** show:
+The row does **not** show:
 
 - Request or response body contents.
 - Header values beyond the matched-rule's own assertions.
