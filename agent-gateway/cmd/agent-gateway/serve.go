@@ -1,0 +1,231 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/config"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/daemon"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/store"
+)
+
+// serveDeps holds injectable dependencies for RunServe. Tests supply custom
+// channels for synchronisation; production code uses newServeDeps().
+type serveDeps struct {
+	// ConfigPath is the path to the config file to load. If empty, RunServe
+	// falls back to paths.ConfigFile() (the XDG default location).
+	ConfigPath string
+
+	// Logger is the structured logger used by the server.
+	Logger *slog.Logger
+
+	// Ready is closed (or receives a value) once both listeners are bound and
+	// the HTTP servers are ready to accept connections. Tests block on this.
+	Ready chan struct{}
+
+	// ProxyAddr receives the bound proxy address (host:port) after startup.
+	// Must be buffered (cap >= 1) if non-nil.
+	ProxyAddr chan string
+
+	// DashboardAddr receives the bound dashboard address (host:port) after startup.
+	// Must be buffered (cap >= 1) if non-nil.
+	DashboardAddr chan string
+
+	// Reload is called when SIGHUP is received.
+	// TODO(Task 19): wire engine.Reload() here.
+	Reload func()
+}
+
+// newServeDeps returns production-ready defaults. Tests may override fields.
+func newServeDeps() serveDeps {
+	return serveDeps{
+		Logger: slog.Default(),
+		// Ready is nil by default; RunServe checks before sending.
+		Reload: func() { /* no-op; TODO wire engine.Reload() in Task 19 */ },
+	}
+}
+
+// newServeCmd returns a cobra.Command that runs RunServe.
+func newServeCmd(configPath func() string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "serve",
+		Short: "Start the agent-gateway proxy and dashboard",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			deps := newServeDeps()
+			deps.ConfigPath = configPath()
+			return RunServe(cmd.Context(), deps)
+		},
+	}
+}
+
+// RunServe binds the proxy and dashboard listeners, starts placeholder HTTP
+// servers, installs signal handlers, and blocks until ctx is cancelled or a
+// shutdown signal (SIGTERM/SIGINT) arrives. Returns nil on clean shutdown.
+func RunServe(ctx context.Context, d serveDeps) error {
+	log := d.Logger
+	if log == nil {
+		log = slog.Default()
+	}
+	if d.Reload == nil {
+		d.Reload = func() {}
+	}
+
+	// 1. Load config.
+	cfgPath := d.ConfigPath
+	if cfgPath == "" {
+		cfgPath = paths.ConfigFile()
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	// 2. Ensure config and data directories exist.
+	if err := os.MkdirAll(paths.ConfigDir(), 0o750); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+	if err := os.MkdirAll(paths.DataDir(), 0o750); err != nil {
+		return fmt.Errorf("create data dir: %w", err)
+	}
+
+	// 3. Open database.
+	db, err := store.Open(paths.StateDB())
+	if err != nil {
+		return fmt.Errorf("open state.db: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Warn("failed to close state.db", "err", err)
+		}
+	}()
+
+	// 4. Acquire PID file.
+	pidHandle, err := daemon.Acquire(paths.PIDFile())
+	if err != nil {
+		return fmt.Errorf("acquire pid file: %w", err)
+	}
+	defer func() {
+		if releaseErr := pidHandle.Release(); releaseErr != nil {
+			log.Warn("failed to release pid file", "err", releaseErr)
+		}
+	}()
+
+	// 5. Bind proxy listener.
+	proxyLn, err := net.Listen("tcp", cfg.Proxy.Listen)
+	if err != nil {
+		return fmt.Errorf("bind proxy listener: %w", err)
+	}
+	defer func() { _ = proxyLn.Close() }()
+
+	// 5b. Bind dashboard listener.
+	dashLn, err := net.Listen("tcp", cfg.Dashboard.Listen)
+	if err != nil {
+		return fmt.Errorf("bind dashboard listener: %w", err)
+	}
+	defer func() { _ = dashLn.Close() }()
+
+	// 6. Build placeholder HTTP servers.
+	proxySrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "not implemented", http.StatusNotImplemented)
+		}),
+	}
+	dashSrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, "hello")
+		}),
+	}
+
+	// Start serving.
+	proxyErr := make(chan error, 1)
+	go func() {
+		if err := proxySrv.Serve(proxyLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			proxyErr <- err
+		}
+	}()
+
+	dashErr := make(chan error, 1)
+	go func() {
+		if err := dashSrv.Serve(dashLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			dashErr <- err
+		}
+	}()
+
+	// Send bound addresses to callers that want them.
+	if d.ProxyAddr != nil {
+		d.ProxyAddr <- proxyLn.Addr().String()
+	}
+	if d.DashboardAddr != nil {
+		d.DashboardAddr <- dashLn.Addr().String()
+	}
+
+	// 8. Signal ready.
+	if d.Ready != nil {
+		close(d.Ready)
+	}
+
+	log.Info("agent-gateway started",
+		"proxy", proxyLn.Addr(),
+		"dashboard", dashLn.Addr(),
+	)
+
+	// 7. Install signal handlers.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	defer signal.Stop(sigCh)
+
+	// Block until shutdown is requested.
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("context cancelled; shutting down")
+			return shutdown(log, proxySrv, dashSrv)
+
+		case sig := <-sigCh:
+			switch sig {
+			case syscall.SIGHUP:
+				log.Info("received SIGHUP; reloading config")
+				d.Reload()
+			case syscall.SIGTERM, syscall.SIGINT:
+				log.Info("received signal; shutting down", "signal", sig)
+				return shutdown(log, proxySrv, dashSrv)
+			}
+
+		case err := <-proxyErr:
+			return fmt.Errorf("proxy server error: %w", err)
+		case err := <-dashErr:
+			return fmt.Errorf("dashboard server error: %w", err)
+		}
+	}
+}
+
+// shutdown gracefully shuts down both HTTP servers with a 30-second timeout.
+func shutdown(log *slog.Logger, servers ...*http.Server) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var errs []error
+	for _, srv := range servers {
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Warn("server shutdown error", "err", err)
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return errs[0]
+	}
+	return nil
+}
