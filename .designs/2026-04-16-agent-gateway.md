@@ -963,6 +963,11 @@ content-based disambiguation, the rule author should narrow the
 `match` block until matching = intent. This invariant eliminates the
 "did the dashboard leak something" risk class entirely.
 
+This is test-enforced — a dedicated e2e (§12 milestone 5) fires a
+request with a distinctive body + non-asserted headers through a
+`require-approval` rule and asserts neither surfaces on the SSE
+`approval` event or the `/api/pending` response.
+
 ### Approval queue limits
 
 Pending approvals are bounded by a single global cap
@@ -1394,7 +1399,11 @@ edit, refresh}` works, `state.db` opens with WAL + `busy_timeout=5s`,
    _Done when:_ `TestDashboardLiveFeed` passes — dashboard subscribes
    to `/api/events`, 20 requests happen live, the browser sees all 20
    on the feed. A second test verifies the `/api/audit` endpoint
-   returns the same 20 rows with correct pagination.
+   returns the same 20 rows with correct pagination. A third test
+   (`TestApprovalViewInvariant`) fires a request with a distinctive
+   body and unasserted headers through a `require-approval` rule and
+   asserts neither appears on the SSE `approval` event or the
+   `/api/pending` response (see §8 approval view invariant).
 6. **Agents.** Token mint/auth, per-agent rule scoping (CONNECT-time
    filter), per-agent secret scoping, audit-field propagation.
    _Done when:_ `TestAgentScopeFilter` passes — two agents with
