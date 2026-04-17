@@ -3,6 +3,7 @@ package proxy_test
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -131,6 +132,79 @@ func TestCONNECT_HandshakeTimeout(t *testing.T) {
 	assert.Error(t, readErr, "expected proxy to close connection after handshake timeout")
 	assert.WithinDuration(t, time.Now(), deadline, 5*handshakeTimeout,
 		"proxy should close connection well before our outer deadline")
+}
+
+// TestCONNECT_PreservesUpstreamPort is a regression test for the port-handling
+// bug: when the CONNECT target is host:port with port != 443, both
+// req.URL.Host and req.Host forwarded to the upstream must include the port.
+//
+// The test fails on pre-fix code that stripped or ignored the port, and passes
+// with the current fix.
+func TestCONNECT_PreservesUpstreamPort(t *testing.T) {
+	// Spin up a real TLS server on an ephemeral port to use as the "upstream"
+	// address the client will CONNECT to. We don't need the server to accept
+	// real connections; we only need a valid port that is != 443.
+	upstream, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	upstreamPort := upstream.Addr().(*net.TCPAddr).Port
+	_ = upstream.Close()
+	target := fmt.Sprintf("127.0.0.1:%d", upstreamPort)
+
+	// Fake RoundTripper that records URL.Host and Host from the forwarded request.
+	type recorded struct {
+		urlHost string
+		host    string
+	}
+	ch := make(chan recorded, 1)
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		ch <- recorded{urlHost: r.URL.Host, host: r.Host}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("ok")),
+			Request:    r,
+		}, nil
+	})
+
+	auth := newTestAuthority(t)
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+	})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	go p.Serve(ln)
+	t.Cleanup(func() { _ = ln.Close() })
+
+	// Build a root pool trusting our test CA.
+	rootPool := x509.NewCertPool()
+	rootPool.AppendCertsFromPEM(auth.RootPEM())
+
+	// Configure a transport that routes through our proxy and trusts the test CA.
+	proxyURL := &url.URL{Scheme: "http", Host: ln.Addr().String()}
+	transport := &http.Transport{
+		Proxy:           http.ProxyURL(proxyURL),
+		TLSClientConfig: &tls.Config{RootCAs: rootPool},
+	}
+	client := &http.Client{Transport: transport}
+
+	// Issue GET https://127.0.0.1:<ephemeral-port>/whatever.
+	// The client will send CONNECT 127.0.0.1:<port> HTTP/1.1, which is != 443.
+	resp, err := client.Get("https://" + target + "/whatever")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Retrieve what the fake upstream received.
+	var rec recorded
+	select {
+	case rec = <-ch:
+	default:
+		t.Fatal("fake RoundTripper was never called")
+	}
+
+	assert.Equal(t, target, rec.urlHost, "req.URL.Host must preserve port")
+	assert.Equal(t, target, rec.host, "req.Host must preserve port")
 }
 
 func TestCONNECT_NonCONNECT_Returns400(t *testing.T) {

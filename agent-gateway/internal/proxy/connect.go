@@ -38,10 +38,16 @@ func (p *Proxy) serveConn(conn net.Conn) {
 	// TODO(Task 24): consult no_intercept_hosts and per-agent rule set to
 	// decide tunnel vs MITM. For this milestone we always MITM.
 
-	host, _, err := net.SplitHostPort(req.Host)
+	// connectTarget is the full "host:port" from the CONNECT request (used
+	// as the upstream URL host so the correct port is dialled).
+	connectTarget := req.Host
+
+	// hostOnly is the bare hostname without port, used for TLS SNI and leaf
+	// certificate issuance. If SplitHostPort fails the target has no port
+	// (unusual) so use it as-is.
+	hostOnly, _, err := net.SplitHostPort(connectTarget)
 	if err != nil {
-		// Host without port — use host as-is (unusual but possible).
-		host = req.Host
+		hostOnly = connectTarget
 	}
 
 	// Acknowledge the CONNECT.
@@ -57,10 +63,10 @@ func (p *Proxy) serveConn(conn net.Conn) {
 		tlsBase = &connWithBuffer{Conn: conn, r: io.MultiReader(br, conn)}
 	}
 
-	// Obtain the leaf TLS config for this host.
-	tlsCfg, err := p.ca.ServerConfig(host)
+	// Obtain the leaf TLS config for this host (bare hostname, no port).
+	tlsCfg, err := p.ca.ServerConfig(hostOnly)
 	if err != nil {
-		p.log.Error("proxy: ServerConfig failed", "host", host, "err", err)
+		p.log.Error("proxy: ServerConfig failed", "host", hostOnly, "err", err)
 		return
 	}
 
@@ -69,25 +75,26 @@ func (p *Proxy) serveConn(conn net.Conn) {
 	// goroutine indefinitely (DoS mitigation).
 	tlsConn := tls.Server(tlsBase, tlsCfg)
 	if err := tlsBase.SetDeadline(time.Now().Add(p.handshakeTimeout)); err != nil {
-		p.log.Debug("proxy: SetDeadline failed", "host", host, "err", err)
+		p.log.Debug("proxy: SetDeadline failed", "host", hostOnly, "err", err)
 		return
 	}
 	if err := tlsConn.Handshake(); err != nil {
-		p.log.Debug("proxy: TLS handshake failed", "host", host, "err", err)
+		p.log.Debug("proxy: TLS handshake failed", "host", hostOnly, "err", err)
 		return
 	}
 	// Clear the deadline so normal request processing is not bounded.
 	if err := tlsConn.SetDeadline(time.Time{}); err != nil {
-		p.log.Debug("proxy: clear deadline failed", "host", host, "err", err)
+		p.log.Debug("proxy: clear deadline failed", "host", hostOnly, "err", err)
 		return
 	}
 
-	// Dispatch based on negotiated ALPN.
+	// Dispatch based on negotiated ALPN. Pass the full host:port target so
+	// the upstream URL is constructed correctly.
 	proto := tlsConn.ConnectionState().NegotiatedProtocol
 	if proto == "h2" {
-		p.serveH2(tlsConn, host)
+		p.serveH2(tlsConn, connectTarget)
 	} else {
-		p.serveH1(tlsConn, host)
+		p.serveH1(tlsConn, connectTarget)
 	}
 }
 

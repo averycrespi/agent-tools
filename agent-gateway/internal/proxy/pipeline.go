@@ -40,7 +40,7 @@ func stripHopByHop(h http.Header) {
 // handle is the per-request handler. It forwards the request upstream via
 // p.rt and copies the response back to w. Both H1 and H2 paths call this.
 //
-// host is the CONNECT target hostname (used to rewrite req.URL).
+// host is the CONNECT target host:port (used to rewrite req.URL.Host and req.Host).
 func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 	// TODO(Task 24): rules evaluation — check per-agent rule set, apply
 	// allow/deny/require-approval verdict. For this milestone every request
