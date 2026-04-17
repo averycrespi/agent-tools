@@ -66,6 +66,19 @@ Each deferred to v1.1+ with a one-line rationale so future-us has the context.
 - **Explicit scope-pinning in rule templates** (e.g. `${secrets.global.X}`).
   Rules rely on implicit most-specific-wins resolution; can add pinning
   syntax later without breaking existing rules.
+- **Duplicate-approval deduplication.** If an agent retries a
+  `require-approval` request, each retry creates its own pending card. The
+  per-agent and global approval caps (§8) bound the blast radius; folding
+  N identical requests into one decision is additive and deferable.
+- **Agent / admin-token rotation grace window.** `agent rotate` and
+  `token rotate admin` invalidate the old token immediately. Coordinated
+  rotation (mint → update sandbox env → restart agent) is a local-dev
+  workflow; dual-accept can be added when a concrete need appears.
+- **Upstream auth-error body peek.** onecli inspects the first 8 KB of
+  upstream 4xx bodies for auth-failure keywords to emit structured errors
+  (Google returns 400 for missing keys). Useful diagnostic, not core
+  functionality. Note: onecli's implementation buffers the full body —
+  if we adopt this, use a peek-and-rejoin-stream pattern instead.
 
 ### Success criteria
 
@@ -123,27 +136,35 @@ Both override-able via `config.hcl` and CLI flags. Ports chosen to be adjacent
 1. Agent opens TCP to `:8220`, sends
    `CONNECT api.github.com:443 HTTP/1.1` with
    `Proxy-Authorization: Basic base64("x:agw_…")`.
-2. Proxy validates agent token → resolves agent name. Looks up whether
-   `api.github.com` appears in any currently-loaded rule's host glob. **No
-   match → pure TCP tunnel** (audit row with bytes-in/out + duration only).
-3. Match → MITM: 200 OK back to agent; handshake using a cached-or-issued leaf
-   cert for `api.github.com` signed by our root CA; ALPN advertises
+2. Proxy validates agent token → resolves agent name. The **MITM decision
+   table in §6** is consulted (inputs: valid token, `no_intercept_hosts`,
+   any agent-scoped rule matching the host, IP-literal target).
+   **Tunnel path → pure TCP relay**; audit row has `interception='tunnel'`,
+   bytes in/out + duration only (no method/path).
+3. MITM path → 200 OK back to agent; handshake using a cached-or-issued
+   leaf cert for `api.github.com` signed by our root CA; ALPN advertises
    `h2,http/1.1`.
 4. Request decoded (h2 frames or h1). Matcher evaluates rules in filename
-   order × within-file order → first match wins → verdict.
-5. Verdict dispatch:
+   order × within-file order → first match wins → rule verdict.
+5. Rule verdict dispatch:
    - **allow**: apply `inject` block (set_header / remove_header with
      `${secrets.X}` / `${agent.X}` expansion) → dial upstream using system
      trust store with strict TLS verification → stream request → stream
-     response → audit.
-   - **deny**: synthesise `403 Forbidden`, audit.
+     response → audit with `injection='applied'`, `outcome='forwarded'`.
+   - **deny**: synthesise `403 Forbidden`; audit with `outcome='blocked'`.
    - **require-approval**: park request in approval store, push SSE event to
-     dashboard, block until decision or 5-minute timeout. Approved → continue
-     as allow. Denied or timed-out → `403` (timeout is `504 Gateway Timeout`).
+     dashboard, block until decision or approval timeout. Approved → continue
+     as allow. Denied → `403` (`outcome='blocked'`). Timed-out →
+     `504 Gateway Timeout`.
 6. Unmatched request on a MITM'd host: pass through untouched (dummy
-   credential intact) → audit with `matched_rule=NULL`. This is the
-   fail-safe: forgotten routes fail upstream as unauthenticated rather than
-   leaking real credentials.
+   credential intact) → audit with `matched_rule=NULL`,
+   `outcome='forwarded'`. This is the fail-safe: forgotten routes fail
+   upstream as unauthenticated rather than leaking real credentials.
+7. Rule matched but credential resolution failed (secret missing or
+   agent-scope mismatch): same network behaviour as (6), but audited as
+   `injection='failed'` with `error='secret_not_found'` or
+   `error='access_restricted'`. Dashboard renders these distinctly so
+   broken rules are discoverable.
 
 ### Agent-to-gateway authentication
 
@@ -172,6 +193,29 @@ Rules, agents, and secrets snapshots live in `atomic.Pointer[state]`; readers
 never block, reloads swap the pointer, in-flight requests finish on the old
 snapshot.
 
+### CLI / daemon coordination
+
+State-mutating CLI commands (`secret set/rotate/rm`, `agent add/rm/rotate`,
+`token rotate admin`, `ca rotate`, `config refresh`) write SQLite directly
+and then signal the running daemon to reload. Specifically:
+
+1. CLI opens the DB with `busy_timeout=5s` (covers transient contention
+   with the daemon's audit writer under WAL).
+2. On successful write, CLI reads the PID file and sends `SIGHUP` to the
+   daemon. If the daemon isn't running, the CLI is a no-op beyond the DB
+   write — the daemon picks up the new state on next start.
+3. Daemon's `SIGHUP` handler triggers a **coarse reload**: re-parse
+   `config.hcl`, re-parse `rules.d/`, rebuild the agent prefix→hash map,
+   invalidate the decrypted-secret LRU. Request handlers continue to
+   read from the pre-reload `atomic.Pointer` snapshot until the swap
+   completes.
+4. PID file includes a startup nonce; CLI checks
+   `{pid, nonce} matches running process` before signalling to avoid
+   signalling a stale or reused PID.
+
+`rules.d/` changes continue to use `fsnotify` — that path is unchanged.
+`SIGHUP` remains the user-invocable trigger for "reload everything now."
+
 ## 4. Rule Model
 
 ### File layout
@@ -186,18 +230,18 @@ file, rules evaluate top-to-bottom. First match wins. Prefixing files with
 
 ```hcl
 rule "github-issue-create" {
-  agents = ["claude-review", "codex-sandbox"]  // optional; default = all
+  agents = ["claude-review", "codex-sandbox"]  // optional; omit = all agents
 
   match {
     host   = "api.github.com"              // glob: * within segment, ** multi-segment
     method = "POST"                        // optional; default = any
     path   = "/repos/*/*/issues"
 
-    headers = {                            // name -> regex (RE2); AND
+    headers = {                            // attribute map: name -> regex (RE2); AND
       "X-GitHub-Api-Version" = "^2022-"
     }
 
-    json_body {                            // implies Content-Type: application/json
+    json_body {                            // labeled block; implies Content-Type: application/json
       jsonpath "$.title"     { matches = "^\\[bot\\]" }
       jsonpath "$.labels[*]" { matches = "^automation$" }
     }
@@ -241,7 +285,32 @@ protobuf, gRPC.
   All declared matchers must succeed (AND).
 - Body matchers require buffering the request body up to
   `proxy_behavior.max_body_buffer` (default `1MiB`); beyond the cap, body
-  matchers auto-fail and a warning is logged.
+  matchers auto-fail, the audit row records
+  `error='body_matcher_bypassed:size'`, and a warning is logged.
+- Body buffering is additionally bounded by `timeouts.body_buffer_read`
+  (§9); exceeding the wall clock triggers
+  `error='body_matcher_bypassed:timeout'` with the same fail-soft semantics.
+
+### Authoring conventions
+
+Two HCL shapes are used, chosen by what the construct needs to express:
+
+- **Attribute maps** (`headers = { ... }`, `set_header = { ... }`) for simple
+  name → value mappings. Concise for the common "match a header's
+  pattern" / "set a header's value" case.
+- **Labeled blocks** (`jsonpath "$.x" { ... }`, `field "name" { ... }`) for
+  constructs that associate a path/field with multiple attributes
+  (e.g. a matcher with `matches`). Labelled blocks are extensible —
+  future attributes can be added without breaking existing rules.
+
+Rule authors don't choose between the two; each matcher has a fixed shape.
+
+### `agents` attribute
+
+- Omitted → rule applies to all agents (default).
+- Non-empty list → rule applies only to listed agent names.
+- `agents = []` (empty list) → **load-time error.** Use rule deletion to
+  disable a rule; don't express "applies to no agents" as an empty list.
 
 ### Verdict precedence
 
@@ -253,12 +322,31 @@ explicitly via filename prefixes.
 
 Only at injection time. Variables:
 
-- `${secrets.<name>}` — resolved against the secrets table.
+- `${secrets.<name>}` — resolved against the secrets table at request time.
 - `${agent.name}`, `${agent.id}` — the calling agent.
 
-Undefined variables are **load-time** errors, not request-time. Validation
-runs during `agent-gateway rules check` and on hot-reload. An invalid
-reload is rejected; the previous valid rule-set stays live.
+**Secret values are interpolated as opaque bytes.** No re-expansion, no
+escaping, no recursive template resolution. A secret containing `${x}` or
+backslashes is inserted literally.
+
+**Two-phase validation:**
+
+- **Load time (strict):** template syntax only — does the template parse,
+  are variable names well-formed (`secrets.<identifier>` or `agent.<field>`)?
+  An invalid reload is rejected; the previous valid rule-set stays live.
+- **Request time (lazy):** the referenced secret either resolves or
+  doesn't. Missing secret → the rule fails soft: dummy credentials go
+  upstream untouched and the audit row records `injection='failed'`
+  with `error='secret_not_found'` (or `access_restricted` when the secret
+  exists but the calling agent isn't scoped to it). The `pass-through`
+  fail-safe is preserved.
+
+This split lets a user write a rule that references a secret before
+creating the secret, delete a secret that's still referenced, or temporarily
+remove an agent's scope — all without breaking the running daemon.
+`agent-gateway rules check` surfaces unresolved references as warnings
+(not errors); the dashboard renders a "missing secret" badge on affected
+rules.
 
 ### Injection verbs
 
@@ -286,21 +374,45 @@ This keeps intent visible in code review.
 `fsnotify` on `rules.d/`. On any create/modify/delete:
 
 1. Re-parse the whole directory.
-2. Validate template references against the live agents/secrets tables.
+2. Validate HCL syntax, glob/regex compilation, and template syntax
+   (existence of referenced secrets/agents is NOT checked — that is
+   request-time lazy; see Template expansion above).
 3. On success: swap the `atomic.Pointer[ruleset]`. In-flight requests finish
    on the old set; new requests use the new set.
 4. On failure: log error to stderr + push a dashboard event; keep previous
    rule-set live.
 
+`SIGHUP` triggers the same pipeline as fsnotify (also re-reads `config.hcl`
+and rebuilds agent/secret caches; see §3 CLI / daemon coordination).
+
 ### CLI
 
 ```
 agent-gateway rules check
-agent-gateway rules check --request '{"host":"api.github.com","method":"POST","path":"/repos/org/repo/issues",...}'
+agent-gateway rules check --request '<json>'
 ```
 
-The dry-run form prints the matched rule (and why) for a synthetic request.
-Debugging aid for rule authoring.
+The `--request` form prints the matched rule (and why) for a synthetic
+request. Schema:
+
+```json
+{
+  "agent": "claude-review",
+  "method": "POST",
+  "host": "api.github.com",
+  "path": "/repos/org/repo/issues",
+  "query": "q=search",
+  "headers": { "X-GitHub-Api-Version": "2022-11-28" },
+  "content_type": "application/json",
+  "body": "<raw body bytes, or base64: prefix>"
+}
+```
+
+All fields are optional except `host`. `body` accepts raw UTF-8 or a
+`base64:<data>` prefix for binary payloads. The output names the matched
+rule, the verdict, and — if injection would apply — which secret
+references resolved and which did not (secret-missing warnings surface
+here, not as errors).
 
 ## 5. Secrets
 
@@ -351,26 +463,33 @@ CREATE TABLE requests (
   id               INTEGER PRIMARY KEY,
   ts               INTEGER NOT NULL,
   agent            TEXT REFERENCES agents(name) ON DELETE SET NULL,
-  method           TEXT NOT NULL,
+  interception     TEXT NOT NULL,          -- tunnel | mitm
+  method           TEXT,                   -- NULL for tunnel rows
   host             TEXT NOT NULL,
-  path             TEXT NOT NULL,
+  path             TEXT,                   -- NULL for tunnel rows
   query            TEXT,
   status           INTEGER,                -- NULL on transport error
   duration_ms      INTEGER NOT NULL,
   bytes_in         INTEGER NOT NULL,
   bytes_out        INTEGER NOT NULL,
-  matched_rule     TEXT,                   -- rule name; NULL = pass-through/tunnel
-  verdict          TEXT,                   -- allow | deny | require-approval | pass-through | tunnel
+  matched_rule     TEXT,                   -- rule name; NULL if no match
+  rule_verdict     TEXT,                   -- allow | deny | require-approval; NULL if no match
   approval         TEXT,                   -- approved | denied | timed-out; NULL if n/a
+  injection        TEXT,                   -- applied | failed; NULL if n/a
+  outcome          TEXT NOT NULL,          -- forwarded | blocked
   credential_ref   TEXT,                   -- "gh_bot"
   credential_scope TEXT,                   -- "global" or agent name
   credential_id    TEXT,                   -- stable secrets.id at time of use
-  error            TEXT
+  error            TEXT                    -- structured tag, e.g. secret_not_found,
+                                           -- access_restricted, queue_full,
+                                           -- body_matcher_bypassed:size
 );
-CREATE INDEX idx_req_ts    ON requests(ts);
-CREATE INDEX idx_req_agent ON requests(ts, agent);
-CREATE INDEX idx_req_host  ON requests(ts, host);
-CREATE INDEX idx_req_rule  ON requests(matched_rule, ts);
+CREATE INDEX idx_req_ts        ON requests(ts);
+CREATE INDEX idx_req_agent     ON requests(ts, agent);
+CREATE INDEX idx_req_host      ON requests(ts, host);
+CREATE INDEX idx_req_rule      ON requests(matched_rule, ts);
+CREATE INDEX idx_req_injected  ON requests(ts) WHERE injection = 'applied';
+CREATE INDEX idx_req_blocked   ON requests(ts) WHERE outcome = 'blocked';
 ```
 
 Foreign keys: secrets `ON DELETE CASCADE` (removing an agent scrubs its
@@ -380,6 +499,46 @@ deletion for forensics).
 Only `secrets.ciphertext` is encrypted at rest. Agents and audit tables
 contain no secret values by design (names, hashes, prefixes only).
 Filesystem `0600` is the at-rest protection for the DB file itself.
+
+### Audit columns: the request story
+
+Five orthogonal columns describe what happened to each request. Each
+answers exactly one question, so queries and dashboard filters stay
+clean.
+
+| Column         | Values                                           | Question it answers          |
+| -------------- | ------------------------------------------------ | ---------------------------- |
+| `interception` | `tunnel` \| `mitm`                               | Did we decrypt TLS?          |
+| `matched_rule` | rule name, or NULL                               | Did any rule match?          |
+| `rule_verdict` | `allow` \| `deny` \| `require-approval`, or NULL | What did the rule declare?   |
+| `approval`     | `approved` \| `denied` \| `timed-out`, or NULL   | What did the approver say?   |
+| `injection`    | `applied` \| `failed`, or NULL                   | Did real credentials go out? |
+| `outcome`      | `forwarded` \| `blocked`                         | Did the agent get its bytes? |
+
+Representative rows:
+
+| interception | matched_rule     | rule_verdict     | approval  | injection | outcome   | notes                               |
+| ------------ | ---------------- | ---------------- | --------- | --------- | --------- | ----------------------------------- |
+| tunnel       | NULL             | NULL             | NULL      | NULL      | forwarded | host had no rule; no MITM           |
+| mitm         | NULL             | NULL             | NULL      | NULL      | forwarded | MITM'd host, no rule matched path   |
+| mitm         | github-issues    | allow            | NULL      | applied   | forwarded | happy path                          |
+| mitm         | github-issues    | allow            | NULL      | failed    | forwarded | secret missing; dummy went upstream |
+| mitm         | prod-deploy      | require-approval | approved  | applied   | forwarded | human-in-the-loop approved          |
+| mitm         | prod-deploy      | require-approval | denied    | NULL      | blocked   | human-in-the-loop denied            |
+| mitm         | prod-deploy      | require-approval | timed-out | NULL      | blocked   | 504 to agent                        |
+| mitm         | block-all-delete | deny             | NULL      | NULL      | blocked   | deny rule                           |
+
+**Forensic queries** become straightforward:
+
+- "Which requests got real credentials?" → `WHERE injection = 'applied'`
+  (the `idx_req_injected` partial index serves this directly).
+- "What's been blocked?" → `WHERE outcome = 'blocked'`.
+- "Broken rules (matched but couldn't inject)" →
+  `WHERE injection = 'failed'`.
+- "Blind traffic (no visibility)" → `WHERE interception = 'tunnel'`.
+
+The invariant `credential_id IS NOT NULL ⟺ injection = 'applied'` holds —
+code-enforced, not DB-enforced.
 
 ### Scope resolution
 
@@ -394,8 +553,23 @@ ORDER BY agent IS NULL ASC
 LIMIT 1;
 ```
 
-Not found → rule fails with a logged error; request falls through to
-pass-through (dummy credential intact). Preserves the fail-safe.
+Resolution outcomes:
+
+- **Resolved (same name, either scope):** proceed with injection;
+  audit `injection='applied'`, `credential_scope` set accordingly.
+- **Not found (no global, no agent-scoped):** rule fails soft; audit
+  `injection='failed'`, `error='secret_not_found'`. Dummy credential
+  goes upstream.
+- **Exists but scope-excluded:** if a secret with this name exists but
+  only under a different agent scope (e.g. `gh_bot` exists for
+  `codex-sandbox` and the caller is `claude-review`), this is
+  distinguished from "missing" in the audit row as
+  `error='access_restricted'`. Same network behaviour (dummy goes
+  upstream), different forensic signal.
+
+Both failure modes preserve the fail-safe: no real credential ever
+substitutes a dummy for a request the gateway can't confidently
+authorise.
 
 ### Shadow warnings
 
@@ -422,8 +596,12 @@ agent-gateway secret list                               # no values, ever
 agent-gateway secret rotate <name> [--agent <agent>]
 agent-gateway secret rm <name> [--agent <agent>]
 agent-gateway secret master rotate
-agent-gateway secret export <name> --confirm-insecure   # stdout; no logs
+agent-gateway secret export <name> --confirm-insecure   # refuses if stdout is a TTY
 ```
+
+`secret export` refuses to run when stdout is a TTY — the caller must
+redirect to a pipe or file (`… | gh auth login --with-token`, `… > /tmp/x`).
+This prevents accidental disclosure via shell history and scrollback.
 
 ### Runtime hygiene
 
@@ -460,21 +638,83 @@ Background sweeper removes expired entries every 5 min.
 
 ### ALPN & HTTP/2
 
-Leaf `tls.Config.NextProtos = []string{"h2", "http/1.1"}`. We negotiate
-independently with the agent and with the upstream, and bridge h1↔h2 if
-needed using Go's stdlib. Trailers, server-push, and CONNECT-over-h2 are out
-of scope.
+**Agent-facing:** leaf `tls.Config.NextProtos = []string{"h2", "http/1.1"}`
+so modern clients negotiate h2 when they prefer it.
 
-### CONNECT-time intercept decision
+**Upstream-facing:** `http.Transport{ForceAttemptHTTP2: true}` with a
+system trust store. The transport negotiates h2 or h1 per upstream, and
+Go's stdlib handles h1↔h2 bridging transparently for request/response
+body bytes. Trailers, server-push, and CONNECT-over-h2 are out of scope
+for v1.
 
-Hostname is known, path/headers/body are not. Rules loader maintains a
-derived "any rule whose host glob matches X" lookup, refreshed on every
-reload:
+**Streaming correctness:** response bodies are forwarded via the standard
+`io.Copy` + `http.Flusher` pattern. No buffering. SSE and streaming-token
+responses reach the agent chunk-by-chunk as upstream emits them. This is
+explicitly required for Anthropic streaming output and is verified by
+the e2e test suite (§12 milestone 2).
 
-1. Exact or glob host match → MITM.
-2. Host on `proxy_behavior.no_intercept_hosts` (pinned upstreams) → force
-   pass-through, even if a rule would match.
-3. No match → pure TCP tunnel (bytes-in/out + duration audited).
+### SNI vs CONNECT target (trust boundary)
+
+The leaf cert we issue is bound to the **CONNECT line's hostname**, not
+to the TLS SNI the agent subsequently sends. If an agent CONNECTs to
+`api.github.com:443` and then sends `evil.com` as SNI in the TLS
+handshake, the leaf cert for `api.github.com` will fail TLS name
+verification on the agent side. This is correct: the agent cannot claim
+one host at the proxy layer and connect as a different host at the TLS
+layer.
+
+Modern clients always send SNI matching the CONNECT target. The mismatch
+case is either a misbehaving client (fails fast and loudly — good) or an
+exfiltration attempt (fails for the same reason — also good).
+
+### CONNECT-time intercept decision (normative)
+
+At CONNECT time the gateway decides between **tunnel**, **MITM**, and
+**reject**. Four inputs:
+
+1. Does the CONNECT carry a valid `Proxy-Authorization` for a known agent?
+2. Is the target host in `proxy_behavior.no_intercept_hosts`?
+3. Does any currently-loaded rule have a `host` glob matching the target
+   **and** apply to this agent (either `agents` omitted, or listing this
+   agent's name)?
+4. Is the target host an IP literal (v4 or v6)?
+
+| Valid token | In `no_intercept_hosts` | Rule matches (agent-scoped) | IP literal | Decision                                         |
+| ----------- | ----------------------- | --------------------------- | ---------- | ------------------------------------------------ |
+| no          | —                       | —                           | —          | **reject** (`407 Proxy Authentication Required`) |
+| yes         | yes                     | —                           | —          | **tunnel**                                       |
+| yes         | no                      | no                          | —          | **tunnel**                                       |
+| yes         | no                      | yes                         | yes        | **tunnel** (globs are hostname-only)             |
+| yes         | no                      | yes                         | no         | **MITM**                                         |
+
+The derived lookup table `host → {agent-names-with-rule | "all"}` is
+rebuilt on every rules reload. Filtering by the calling agent at CONNECT
+avoids wasted TLS handshakes for hosts the agent has no rule for.
+
+**MITM path:** complete TLS with the agent using a leaf cert for the
+CONNECT hostname, decode the request (h1 or h2), evaluate rules, dispatch
+per verdict. Every request gets a full audit row
+(`interception='mitm'`, method/path/etc. populated).
+
+**Tunnel path:** proxy raw TCP bytes via `io.Copy`. Never decrypts TLS.
+Audit row records `interception='tunnel'`, `host`, bytes/duration — no
+method/path (we couldn't see them).
+
+**Reload interaction:** CONNECT-time decisions commit for the lifetime
+of the TLS session. Rule edits mid-session don't retroactively change
+tunnel/MITM — they apply to subsequent CONNECTs. Per-request rule
+evaluation inside a MITM'd session does use the latest snapshot
+(`atomic.Pointer[ruleset]`), so adding an `allow` rule during an open
+MITM session takes effect on the next request over that session.
+
+**Implications for rule authors:**
+
+- `agents = ["codex"]` is invisible to agent `claude` — `claude`'s
+  traffic to that host tunnels.
+- `agents` omitted → rule applies to all agents → MITM for any caller.
+- The dashboard's "tunneled hosts (24h)" view (§8) surfaces hosts the
+  agent is talking to that no rule covers. This is the primary
+  discoverability aid for rule authoring.
 
 ### Upstream TLS
 
@@ -537,6 +777,19 @@ to a single candidate.
 `last_seen_at` updates are coalesced in a background goroutine, flushed at
 most once per 30s per agent. Keeps the hot path free of writes.
 
+### Request identity
+
+Every request gets an ID — the `requests.id` INTEGER PRIMARY KEY assigned
+at audit-insert time. The ID is:
+
+- Threaded through `context.Context` so every log line associated with
+  the request carries it via `slog` attributes.
+- Surfaced to agents as `X-Request-ID: <id>` on any gateway-generated
+  response (403, 502, 504, synthesised errors). Agents that log
+  `X-Request-ID` on failure can correlate directly with audit rows.
+- **Not** surfaced on forwarded responses. We don't rewrite upstream
+  responses; the upstream's own correlation ID (if any) is preserved.
+
 ### CLI
 
 ```
@@ -556,26 +809,101 @@ agent-gateway agent rotate <name>           # no grace window; new token immedia
 Embedded SPA at `:8221/dashboard/`, vanilla JS + HTML, no build step (same
 pattern as mcp-broker). Tabs:
 
-- **Live feed** — SSE stream. Each row: timestamp, agent, `METHOD host/path`,
-  verdict badge, matched rule (clickable → jump to rule file path),
-  duration, status. Pulses amber for pending `require-approval` rows with
-  inline approve/deny buttons.
-- **Approvals** — filter of the feed showing only pending approvals, with
-  full match context (which headers/body fields triggered the rule) so the
-  approver can decide in one view.
+- **Live feed** — SSE stream. Each row: timestamp, agent,
+  `METHOD host/path`, interception/outcome badges, matched rule (clickable
+  → jump to rule file path), duration, status. Pulses amber for pending
+  `require-approval` rows with inline approve/deny buttons. Tunnel rows
+  (no method/path) render dimmer and are collapsible behind a toggle.
+- **Approvals** — pending approvals only.
+  Each card shows agent, matched rule name, `METHOD host/path`, and the
+  per-agent pending count (for spotting retry loops). **Body contents
+  are not displayed** — see "Approval view invariant" below.
 - **Audit** — paginated, filterable history. Filters: agent, host,
-  matched-rule, verdict, time range, free-text path. Rows expand to show
-  the full audit record (no bodies, no values).
-- **Rules** — rendered by file, with "last matched" and "match count (24h)"
-  from the audit index. Read-only. A "test request" form runs the same
-  matcher as `rules check --request`.
-- **Agents** — list with last-seen, request-count-by-verdict (24h).
+  matched-rule, `interception`, `rule_verdict`, `injection`, `outcome`,
+  `approval`, time range, free-text path/error. Rows expand to the full
+  audit record (metadata only; no bodies, no values).
+- **Rules** — rendered by file, with "last matched at" and "match count
+  (24h)" from the audit index. Rules with zero matches in 24h show a
+  subtle "never matched" indicator. Rules with unresolved
+  `${secrets.*}` references show a "missing secret" badge. Read-only.
+  A "test request" form runs the same matcher as `rules check --request`.
+- **Tunneled hosts (24h)** — list of hosts the agent talked to that
+  no rule covers, with request counts and first/last seen. Primary
+  discoverability aid for "which hosts do I need to write rules for".
+- **Agents** — list with last-seen, request-count-by-outcome (24h).
   Plaintext tokens never shown after `agent add`; only the 8-char prefix.
 - **Secrets** — list by (name, scope, created, rotated, last-used,
   referencing-rule count). No values, no export.
 
-SSE ring buffer of last 200 events on the server for refresh rehydration
-without a DB round-trip.
+### Approval view invariant
+
+The approval card shows:
+
+- Agent name, matched rule name, request method, host, path, query.
+- The count of identical retries currently folded into this decision
+  (typically 1; higher numbers indicate an agent retry loop).
+
+The card does **not** show:
+
+- Request or response body contents.
+- Header values beyond the matched-rule's own assertions.
+- Any secret material (the request carries dummy credentials because
+  injection has not happened yet).
+
+Rationale: approvers decide based on agent identity + matched-rule
+semantics, not request payload. If a class of requests needs
+content-based disambiguation, the rule author should narrow the
+`match` block until matching = intent. This invariant eliminates the
+"did the dashboard leak something" risk class entirely.
+
+### Approval queue limits
+
+Pending approvals are bounded (config: `approval.max_pending_per_agent`,
+`approval.max_pending_global`). When the limit is hit, new
+`require-approval` requests are rejected synchronously with
+`403 Forbidden` + `Retry-After: 30`, body
+`{"error":"approval_queue_full","limit":"per_agent"}`. The rejection is
+audited (`outcome='blocked'`, `error='queue_full'`).
+
+The dashboard shows a banner when any queue is ≥90% of its cap so
+operators can intervene before overflow.
+
+**Restart behaviour:** pending approvals are in-memory only. A daemon
+restart returns `504 Gateway Timeout` to every parked request. No
+persistence in v1.
+
+### SSE event stream
+
+One SSE endpoint: `GET /api/events`. Event types:
+
+- `request` — an audit row was written. `id:` on the SSE frame is the
+  `requests.id` PK.
+- `approval` — new pending approval created, includes the approval card
+  fields listed above.
+- `approval-resolved` — a pending approval was approved / denied /
+  timed-out.
+- `rule-reload` — rules reloaded (success or failure + reason).
+- `secret-change` — a secret was added / rotated / removed.
+- `backlog-warning` — approval queue at ≥90% or audit write errors
+  observed.
+
+**Reconnect replay (via Last-Event-ID):** the browser automatically sets
+the `Last-Event-ID` header on SSE reconnects. The server responds by
+querying `SELECT * FROM requests WHERE id > :since ORDER BY id ASC` and
+streaming the backlog before switching to live push. Non-`request` event
+types are ephemeral — only the newest live state is shown; historical
+approval-state transitions (beyond what's currently pending) are not
+replayable.
+
+**Backpressure (close-on-slow):** each subscriber has a 32-event
+buffered channel. If a send would block, the server closes the
+subscriber's connection and logs a warning with the client's last
+acknowledged event ID. The browser's EventSource reconnects
+automatically with `Last-Event-ID` set, and the query-based replay
+above catches it up. Slow clients self-heal without silent event loss.
+
+**Keep-alive:** the server sends `:keepalive\n\n` every 15s. Detects
+dead connections so close-on-slow actually fires.
 
 ### Admin auth
 
@@ -585,19 +913,28 @@ generated on first run, printed once to stdout. Presented via
 Rotatable via `agent-gateway token rotate admin`.
 
 Protects every dashboard endpoint including writes (`/api/decide` for
-approval). Admin tokens and agent tokens are cryptographically distinct and
-live in different files/tables; no cross-use. Same role as mcp-broker's auth
-token; renamed for clarity because agent-gateway also has per-agent tokens.
+approval) and the SSE stream (`/api/events`). Admin tokens and agent
+tokens are cryptographically distinct and live in different files/tables;
+no cross-use. `GET /ca.pem` is the only explicitly unauthenticated
+dashboard-port endpoint (public-key material by design).
+
+**Unauthorized page has a re-auth form.** If the cookie is missing/expired
+(private browsing, cache clear), the user lands on
+`/dashboard/unauthorized` with a "paste admin token" input that posts to
+the same token-promotion flow. Prevents the "I lost my cookie, now I
+need to dig the admin URL back out of the terminal" dead-end that
+mcp-broker's pattern has.
 
 ### Audit write path
 
-One prepared INSERT per completed request (success or failure). Audit errors
-are logged but never block the request pipeline (`_ = auditor.Record(...)`
-pattern from mcp-broker).
+One prepared INSERT per completed request (success or failure). Audit
+errors are logged but never block the request pipeline (`_ = auditor.Record(...)`
+pattern from mcp-broker). Sustained audit-write failures emit a
+`backlog-warning` SSE event so operators notice a broken audit DB.
 
-Pass-through (non-MITM) tunnels get a row with `matched_rule=NULL`,
-`verdict="tunnel"`, bytes/duration only — no method/path because we
-couldn't see them. No invisible traffic.
+Tunnel rows (non-MITM) have `interception='tunnel'`, `matched_rule=NULL`,
+`method=NULL`, `path=NULL`, and `outcome='forwarded'`; only `host`,
+bytes, and duration are known. No invisible traffic.
 
 ### Retention
 
@@ -650,16 +987,38 @@ secrets {
 audit {
   retention_days = 90
   prune_at       = "04:00"
-  sse_ring_size  = 200
 }
 
 approval {
-  timeout = "5m"
+  timeout               = "5m"
+  max_pending_per_agent = 20
+  max_pending_global    = 200
+  overflow_behavior     = "deny"   # v1: only "deny" is supported
 }
 
 proxy_behavior {
   no_intercept_hosts = []
   max_body_buffer    = "1MiB"
+}
+
+timeouts {
+  # agent-facing (we're the server)
+  connect_read_header      = "10s"
+  mitm_handshake           = "10s"
+  idle_keepalive           = "120s"
+
+  # upstream-facing (we're the client)
+  upstream_dial            = "10s"
+  upstream_tls             = "10s"
+  upstream_response_header = "30s"
+  upstream_idle_keepalive  = "90s"
+
+  # body-buffering for matchers (bounded to defeat slowloris)
+  body_buffer_read         = "30s"
+
+  # deliberately unbounded (streaming correctness)
+  request_body_read        = "0"
+  response_body_read       = "0"
 }
 
 log {
@@ -668,33 +1027,56 @@ log {
 }
 ```
 
+**Timeout rationale.** These values let Go's stdlib enforce slowloris
+defences on the agent side while keeping streaming responses (SSE,
+Anthropic streaming tokens) un-deadlined. `upstream_response_header =
+30s` protects against upstream hangs before the first byte; once bytes
+flow, the response stream has no deadline. `body_buffer_read = 30s`
+caps how long body-matcher buffering can stall a request — exceeding it
+auto-fails the body matchers (same path as `> max_body_buffer`) so
+rule-matching never stalls forever. These defaults are best-guesses for
+v1; the production-tuning pass is flagged in §11.
+
+**Phase ordering (for reference):**
+`connect_read_header` → `mitm_handshake` → rule eval (instant) →
+approval wait (if applicable; bounded by `approval.timeout`) →
+`upstream_dial` → `upstream_tls` → `upstream_response_header` →
+streaming (unbounded).
+
 `config refresh` re-reads defaults and preserves overrides (mcp-broker
 pattern). `config edit` opens in `$EDITOR`. `config path` prints location.
 
 ### Startup sequence (`serve`)
 
 1. Load + validate `config.hcl`. Fail fast on parse errors.
-2. Open `state.db`, run idempotent migrations (`PRAGMA user_version` +
-   numbered Go migration functions).
+2. Open `state.db` with `busy_timeout=5s`, run idempotent migrations
+   (`PRAGMA user_version` + numbered Go migration functions).
 3. Load root CA (generate on first run).
 4. Resolve master key: OS keychain, else `master.key` file, else generate +
    store.
-5. Parse `rules.d/*.hcl`, validate template references. Fail startup on
+5. Parse `rules.d/*.hcl`, validate HCL syntax and template syntax (not
+   variable existence; see §4 two-phase validation). Fail startup on
    invalid rules.
-6. Start `fsnotify` watcher on `rules.d/`.
-7. Start background workers: audit prune, `last_seen_at` flush, secret cache
-   sweep, leaf-cert cache sweep.
-8. Bind proxy (`:8220`) and dashboard (`:8221`).
-9. If `open_browser` and stdout is a TTY and no `--headless`, open
-   `http://127.0.0.1:8221/dashboard?token=<admin>` once.
-10. Log startup summary: admin URL (first run only), agent count, secret
+6. Write PID file with a startup nonce (see §3 CLI / daemon coordination).
+7. Start `fsnotify` watcher on `rules.d/`.
+8. Start background workers: audit prune, `last_seen_at` flush, secret
+   cache sweep, leaf-cert cache sweep.
+9. Bind proxy (`:8220`) and dashboard (`:8221`).
+10. If `open_browser` and stdout is a TTY and no `--headless`, open
+    `http://127.0.0.1:8221/dashboard?token=<admin>` once.
+11. Log startup summary: admin URL (first run only), agent count, secret
     count, loaded-rule count, MITM-eligible host list.
 
 ### Shutdown
 
 `SIGTERM`/`SIGINT` → stop accepting new connections, 30s grace for in-flight,
-flush pending `last_seen_at`, close DB cleanly. `SIGHUP` is an explicit
-rules+config reload trigger (defensive; fsnotify normally covers this).
+cancel all parked approvals (agents receive `504 Gateway Timeout`), flush
+pending `last_seen_at`, close DB cleanly.
+
+`SIGHUP` is the **primary CLI→daemon reload trigger** (see §3 CLI /
+daemon coordination). Re-reads `config.hcl`, re-parses `rules.d/`,
+rebuilds the agent prefix→hash map, invalidates the decrypted-secret
+LRU. Idempotent; safe to send repeatedly.
 
 ### CLI surface
 
@@ -720,8 +1102,9 @@ we credit them.
 ### Relationship summary
 
 - **mcp-broker** — sibling tool in this same monorepo, same author, same
-  license. About 1500 LOC of transport-agnostic infrastructure ports
-  directly with minimal change. This is internal code reuse, not
+  license. Meaningful reuse across auth, audit, dashboard embed, and CLI
+  scaffolding — read the specific subsystems listed below rather than
+  inferring a total line count. This is internal code reuse, not
   third-party incorporation.
 - **onecli** (<https://github.com/onecli/onecli>) — external Rust tool in
   the same problem space. We treat it strictly as **architectural
@@ -747,15 +1130,18 @@ has with its predecessor in a problem space.
 
 ### From mcp-broker (code carried over)
 
-~1500 LOC of transport-agnostic infrastructure ports near-verbatim:
+Transport-agnostic infrastructure ports near-verbatim. The pattern, not
+the exact implementation:
 
 - XDG-aware JSON/HCL config loader pattern.
-- SQLite WAL audit module (extended schema).
+- SQLite WAL audit module (extended schema — the verdict decomposition
+  and streaming concerns are new).
 - Bearer-token auth middleware with constant-time comparison and
   cookie-promotion.
-- Embedded-HTML SPA with SSE event bus.
+- Embedded-HTML SPA with SSE event bus (extended with Last-Event-ID
+  replay via SQLite query; mcp-broker doesn't have this).
 - Cobra-based CLI with `config {path,edit,refresh}` UX.
-- testify mocks + e2e subprocess tests.
+- testify mocks + e2e subprocess tests with `testStack` wiring pattern.
 
 ### From onecli (ideas, re-implemented)
 
@@ -776,8 +1162,10 @@ Concrete places agent-gateway diverges and does more:
 - Header + content-type-aware body matching (onecli matches path + method
   only).
 - Per-request audit log (onecli's `AuditLog` is operator-action only).
-- Match-and-swap model with pass-through for unmatched hosts (onecli MITMs
-  everything).
+- Match-and-swap model with tunnel-default for unmatched hosts (onecli
+  post-v1.16 force-MITMs all authenticated traffic; we deliberately keep
+  tunnel-default so unauthenticated transit like package-registry fetches
+  works without per-host rules — see §6 CONNECT-time intercept decision).
 - Rules-as-code HCL directory with hot reload (onecli is dashboard-edit
   only).
 - OS-keychain-protected master key (onecli uses an env var).
@@ -796,49 +1184,95 @@ Tracked here so it isn't forgotten at release:
 
 ## 11. Open Questions & Risks
 
-- **Body buffering cap correctness.** `max_body_buffer = 1MiB` covers almost
-  every API call but will auto-fail body matchers on large uploads. We
-  should expose "body matcher bypassed due to size" prominently in the
-  audit row so users don't silently lose rule coverage on large payloads.
-- **HTTP/2 end-to-end streaming.** Go's stdlib handles h1↔h2 bridging, but
-  long-lived streaming responses (SSE from upstream, Anthropic
-  streaming-token output) need verification. The proxy must not buffer
-  response bodies.
+- **Timeout defaults are guesses.** `timeouts.*` values in §9 are
+  reasonable starting points but unvalidated against real workloads.
+  Slow-network legitimate uploads, long-lived Anthropic streaming
+  sessions, and gRPC-over-h2 edges need real-world observation.
+  v1.1 should revisit every number after ~1 month of production use,
+  with metrics backing the choice.
+- **Body buffering cap correctness.** `max_body_buffer = 1MiB` covers
+  almost every API call but will auto-fail body matchers on large
+  uploads. The audit row's `error` column surfaces
+  `body_matcher_bypassed:size` and `:timeout` tags; make sure the
+  dashboard prominently shows these so users don't silently lose rule
+  coverage on large payloads.
+- **HTTP/2 end-to-end streaming.** Go's stdlib handles h1↔h2 bridging,
+  but long-lived streaming responses (SSE from upstream, Anthropic
+  streaming-token output) need verification. Milestone 2's e2e test
+  should include a streaming-response fixture, not just
+  request/response pairs.
 - **Keychain availability on headless Linux.** `go-keyring` requires a
-  running Secret Service daemon. Fallback to `master.key` file is fine but
-  users on CI-ish machines will hit this. The startup warning must be
-  loud.
-- **Rule template validation at reload time depends on the live secrets
-  table.** If a user writes a rule referencing a secret they haven't created
-  yet and hot-reload runs before `secret set`, the reload fails. Workable
-  but surprising. Could add a `--defer-validation` flag on `secret set` or
-  loosen reload validation to warnings. Revisit after real-world use.
-- **Rule ordering across files.** Lexical filename order is predictable but
-  opaque at the UI level. The dashboard should render "effective order" (the
-  flat evaluated list) as well as per-file views so users can audit priority
-  at a glance.
-- **Pinned-client detection.** We have no way to detect pinning before the
-  handshake failure. Config-driven `no_intercept_hosts` is the only mitigation.
-  A future improvement could observe repeated TLS verify failures from the
-  agent side and auto-propose a pass-through entry.
+  running Secret Service daemon. Fallback to `master.key` file is fine
+  but users on CI-ish machines will hit this. The startup warning must
+  be loud and include remediation ("install gnome-keyring / keyring").
+- **Rule ordering across files.** Lexical filename order is predictable
+  but opaque at the UI level. The dashboard should render "effective
+  order" (the flat evaluated list) as well as per-file views so users
+  can audit priority at a glance.
+- **Pinned-client detection.** We have no way to detect pinning before
+  the handshake failure. Config-driven `no_intercept_hosts` is the only
+  mitigation. A future improvement could observe repeated TLS verify
+  failures from the agent side and auto-propose a pass-through entry.
+- **Audit DB failure visibility.** A sustained audit-write failure
+  (disk full, corruption) doesn't block requests, which is right for
+  correctness but can go unnoticed. The `backlog-warning` SSE event
+  exposes it — verify operators actually notice when testing.
 
 ## 12. Milestones
 
-Rough sequencing for implementation planning:
+Rough sequencing for implementation planning. Each milestone lists its
+acceptance criterion — the single test (or small set) that must pass
+to consider the milestone done.
 
-1. Core skeleton: binary, config loader, XDG paths, SQLite migrations, CLI
-   scaffolding. Can `serve` and bind ports.
-2. CA + MITM plumbing: root CA, leaf issuance, CONNECT handler, h1 + h2 ALPN.
-   End-to-end test: agent → MITM → example.com → agent, no rules.
-3. Rule engine: HCL loader, matcher, hot-reload. First rule matches and
-   sets a header.
-4. Secrets: SQLite + AES-GCM + keychain, CLI verbs, template expansion in
-   inject. Real GitHub PAT substitution works end-to-end.
-5. Audit log + dashboard live feed + approve/deny. SSE replay buffer.
-6. Agents: token mint/auth, per-agent rule scoping, per-agent secret
-   scoping, audit fields.
-7. Polish: `rules check --request`, shadow warnings, dashboard search,
-   retention pruning, startup summary, documentation.
+1. **Core skeleton.** Binary, config loader, XDG paths, SQLite
+   migrations, CLI scaffolding. PID file with startup nonce.
+   _Done when:_ `agent-gateway serve` binds both ports, `config {path,
+edit, refresh}` works, `state.db` opens with WAL + `busy_timeout=5s`,
+   second `serve` refuses due to PID file.
+2. **CA + MITM plumbing.** Root CA generation, leaf issuance with per-
+   hostname cache, CONNECT handler, ALPN on both sides.
+   _Done when:_ `TestMITMEndToEnd` passes — a subprocess agent with
+   `HTTPS_PROXY` set and our CA trusted makes a GET to an
+   `httptest.Server`, the server sees a proxied request with a correct
+   `Host` header and returns 200, and the agent sees the 200. Test
+   covers both h1↔h1 and h1↔h2 bridging and a streaming-response
+   fixture (chunked body flushed every 100 ms).
+3. **Rule engine.** HCL loader, matcher, fsnotify hot-reload, two-phase
+   validation.
+   _Done when:_ `TestRuleReloadHotSwap` passes — daemon starts with a
+   rule referencing `${secrets.x}` (secret doesn't exist); reload
+   succeeds; request matches rule and is audited as
+   `injection='failed', error='secret_not_found'`. A second test edits
+   the rule file to have invalid HCL and verifies the previous ruleset
+   stays live.
+4. **Secrets.** SQLite + AES-256-GCM, keychain + file fallback, CLI
+   verbs, template expansion.
+   _Done when:_ `TestSecretSubstitution` passes — CLI runs
+   `secret set gh_bot`, daemon picks up via SIGHUP (not restart),
+   next matched request has `Authorization: Bearer <real>` on upstream
+   while agent only ever sees dummy.
+5. **Audit log + dashboard live feed.** SQLite audit table with new
+   column set, SSE endpoint with Last-Event-ID replay, close-on-slow
+   backpressure, approve/deny UI.
+   _Done when:_ `TestSSEReplayAfterReconnect` passes — 20 requests
+   happen, dashboard connects after the fact with
+   `Last-Event-ID: 0` and receives all 20. Second test holds an SSE
+   connection, forces backpressure (slow read), and verifies the
+   server closes the connection after the buffer fills.
+6. **Agents.** Token mint/auth, per-agent rule scoping (CONNECT-time
+   filter), per-agent secret scoping, audit-field propagation.
+   _Done when:_ `TestAgentScopeFilter` passes — two agents with
+   different rule sets; each sees only MITM behaviour for their own
+   scoped hosts; the other's scoped hosts tunnel.
+7. **Polish.** `rules check --request`, shadow warnings, dashboard
+   filters/search, retention pruning, startup summary, approval queue
+   caps + overflow behaviour, unauthorized re-auth form, documentation
+   (README + NOTICE per §10).
+   _Done when:_ the `agent-tools` repo-level `make audit` passes for
+   the new tool, README includes install + first-run + prior-art
+   sections, and a fresh-machine smoke test (trust CA, add agent, add
+   secret, add rule, agent makes a request) succeeds in under two
+   minutes.
 
 ## 13. Code Organization & Testing Patterns
 
@@ -933,7 +1367,56 @@ mcp-broker's `testStack`.
   (`var ErrNotFound = errors.New(...)`) at package boundaries where callers
   need to branch.
 - Structured logging via `log/slog`; a `slog.Logger` is a constructor
-  dependency, not a global. Request ID threaded through `context.Context`.
+  dependency, not a global. Request ID threaded through `context.Context`
+  (see §7 Request identity).
 - No panic on the request path. Panics in background workers log + continue.
 - Concurrency contracts documented on each interface: which methods are safe
   to call concurrently, which are not.
+
+### Required patterns
+
+Two patterns are load-bearing enough to call out explicitly:
+
+**1. Context propagation for cancellation.**
+The agent-facing `http.Request` has a context that Go's `http.Server`
+cancels when the agent's TCP connection closes. Every upstream request
+in `internal/proxy` **must** be built with
+`http.NewRequestWithContext(agentReq.Context(), ...)` so that
+agent-disconnect propagates to the upstream call and closes the upstream
+TCP connection. Forgetting this creates zombie upstream requests when
+agents Ctrl-C. The pattern is enforced by a lint rule (`go vet` custom
+analyser) and covered by a dedicated e2e test
+(`TestAgentCancelPropagatesToUpstream`).
+
+**2. Approval cleanup on agent disconnect (`ApprovalGuard`).**
+A request parked in `internal/approval` subscribes to a decision channel
+and blocks up to `approval.timeout`. If the agent disconnects mid-wait,
+the pending entry should be removed immediately (not left to the 5-minute
+timeout). Implementation pattern: register the pending entry, create a
+cleanup closure, schedule it via `defer cleanup()`, and disarm the
+cleanup only on a normal-path resolution:
+
+```go
+id := broker.register(pending)
+disarm := false
+defer func() {
+    if !disarm {
+        broker.remove(id)   // agent disconnected or context cancelled
+    }
+}()
+
+select {
+case decision := <-pending.ch:
+    disarm = true
+    return decision, nil
+case <-ctx.Done():
+    return nil, ctx.Err()   // guard's defer runs, cleans up pending
+case <-time.After(timeout):
+    disarm = true            // timeout path resolves normally
+    return nil, ErrTimeout
+}
+```
+
+This eliminates the "operator sees a ghost approval card for a request
+whose agent is already gone" class of bugs, borrowed directly from
+onecli's `ApprovalGuard` RAII pattern.
