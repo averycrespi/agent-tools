@@ -849,8 +849,10 @@ name])` entry in an in-memory map populated at startup and invalidated on
 `agent add/rm/rotate`. One argon2id comparison per request — prefix filters
 to a single candidate.
 
-`last_seen_at` updates are coalesced in a background goroutine, flushed at
-most once per 30s per agent. Keeps the hot path free of writes.
+`last_seen_at` is written directly on every successful CONNECT — one
+SQL UPDATE per auth. At single-user scale this is a non-issue;
+coalescing (background goroutine, 30s-per-agent debounce) is
+deferrable to v1.1 if profiling ever shows write contention.
 
 ### Request identity
 
@@ -1167,8 +1169,8 @@ pattern). `config edit` opens in `$EDITOR`. `config path` prints location.
    invalid rules.
 6. Write PID file (see §3 CLI / daemon coordination).
 7. Install `SIGHUP` handler for coarse reload.
-8. Start background workers: audit prune, `last_seen_at` flush, secret
-   cache sweep, leaf-cert cache sweep.
+8. Start background workers: audit prune, secret cache sweep,
+   leaf-cert cache sweep.
 9. Bind proxy (`:8220`) and dashboard (`:8221`).
 10. If `open_browser` and stdout is a TTY and no `--headless`, open
     `http://127.0.0.1:8221/dashboard?token=<admin>` once.
@@ -1178,8 +1180,8 @@ pattern). `config edit` opens in `$EDITOR`. `config path` prints location.
 ### Shutdown
 
 `SIGTERM`/`SIGINT` → stop accepting new connections, 30s grace for in-flight,
-cancel all parked approvals (agents receive `504 Gateway Timeout`), flush
-pending `last_seen_at`, close DB cleanly.
+cancel all parked approvals (agents receive `504 Gateway Timeout`),
+close DB cleanly.
 
 `SIGHUP` is the **primary CLI→daemon reload trigger** (see §3 CLI /
 daemon coordination). Re-reads `config.hcl`, re-parses `rules.d/`,
