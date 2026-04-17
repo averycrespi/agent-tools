@@ -790,3 +790,101 @@ Rough sequencing for implementation planning:
    scoping, audit fields.
 7. Polish: `rules check --request`, shadow warnings, dashboard search,
    retention pruning, startup summary, documentation.
+
+## 13. Code Organization & Testing Patterns
+
+### Interface boundaries
+
+Each `internal/<pkg>` exports **one primary interface** (the port) and one or
+more concrete implementations (the adapters). Other packages depend on the
+interface, not the struct. Example shapes:
+
+```go
+// internal/rules
+type Engine interface {
+    Evaluate(ctx context.Context, req *Request) (*Verdict, error)
+    Reload() error
+}
+
+// internal/secrets
+type Store interface {
+    Get(ctx context.Context, name, agent string) (string, *Metadata, error)
+    Set(ctx context.Context, name, agent, value string) error
+    Rotate(ctx context.Context, id string, newValue string) error
+    // ... list / delete / master-rotate
+}
+
+// internal/audit
+type Logger interface {
+    Record(ctx context.Context, entry Entry) error
+    Query(ctx context.Context, filter Filter) ([]Entry, error)
+    Prune(ctx context.Context, before time.Time) (int, error)
+}
+
+// internal/agents
+type Registry interface {
+    Authenticate(ctx context.Context, token string) (*Agent, error)
+    Add(ctx context.Context, name, description string) (token string, err error)
+    // ...
+}
+
+// internal/approval
+type Broker interface {
+    Request(ctx context.Context, r *PendingRequest) (Decision, error)
+    Pending() []*PendingRequest
+    Decide(id string, decision Decision) error
+}
+
+// internal/ca
+type Authority interface {
+    RootPEM() []byte
+    ServerConfig(host string) (*tls.Config, error)
+}
+
+// internal/inject
+type Injector interface {
+    Apply(req *http.Request, binding Binding) error
+}
+```
+
+Constructors return the interface (`func NewEngine(...) Engine`).
+`internal/proxy` holds struct fields typed as the interfaces — every
+dependency can be swapped for a mock in tests, and nothing in `proxy` needs
+to know whether rules came from HCL files or an in-memory fixture.
+
+### Test layering
+
+Three distinct layers, matching mcp-broker's convention:
+
+- **Unit tests** (`*_test.go`, default build): per-package, mock dependencies
+  via `testify/mock`. Table-driven for matchers, parsers, template expansion,
+  glob/regex edge cases. Should run in under 5 seconds for the whole repo.
+- **Integration tests** (`//go:build integration`): real SQLite on
+  `t.TempDir()`, real filesystem, real CA generation, real HCL parsing.
+  Exercise two-or-three packages together (e.g. rules + secrets + inject →
+  verify a rule actually produces the right header). No network, no child
+  processes.
+- **E2E tests** (`//go:build e2e`): built binary spawned as subprocess, real
+  proxy port, real dashboard port, a mock upstream `httptest.Server` (we are
+  a strict TLS client to it, so its cert is added to a test trust bundle).
+  A test HTTP client sets `HTTPS_PROXY` to the subprocess, trusts the test
+  CA, and makes real requests. Covers both intercept and tunnel paths.
+
+Test helpers live in `test/testutil/` — a `Stack` builder that wires
+real-or-mock components with one call, and per-layer defaults. Patterned on
+mcp-broker's `testStack`.
+
+### Conventions
+
+- Constructors take context-free dependencies; `context.Context` is the
+  _first_ parameter on every method that does I/O, cancellation, or audit.
+- No package-level singletons. No `init()` side effects. Everything is
+  constructed in `cmd/agent-gateway/serve.go` and passed down.
+- Errors wrapped with `fmt.Errorf("doing X: %w", err)`; sentinels
+  (`var ErrNotFound = errors.New(...)`) at package boundaries where callers
+  need to branch.
+- Structured logging via `log/slog`; a `slog.Logger` is a constructor
+  dependency, not a global. Request ID threaded through `context.Context`.
+- No panic on the request path. Panics in background workers log + continue.
+- Concurrency contracts documented on each interface: which methods are safe
+  to call concurrently, which are not.
