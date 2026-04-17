@@ -32,6 +32,7 @@ func newRootCmd() *cobra.Command {
 
 	root.AddCommand(newCACmd())
 	root.AddCommand(newConfigCmd(configPath))
+	root.AddCommand(newRulesCmd())
 	root.AddCommand(newServeCmd(configPath))
 
 	return root
