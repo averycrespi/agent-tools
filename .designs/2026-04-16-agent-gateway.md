@@ -447,20 +447,19 @@ CREATE TABLE agents (
 CREATE TABLE secrets (
   id           TEXT PRIMARY KEY,           -- sec_<ulid>; stable across rotations
   name         TEXT NOT NULL,              -- referenced as ${secrets.<name>}
-  agent        TEXT REFERENCES agents(name) ON DELETE CASCADE,
-                                            -- NULL = global
+  scope        TEXT NOT NULL,              -- 'global' or <agent-name>
   ciphertext   BLOB NOT NULL,              -- AES-256-GCM
   nonce        BLOB NOT NULL,              -- 12-byte per-row nonce
   created_at   INTEGER NOT NULL,
   rotated_at   INTEGER NOT NULL,
   last_used_at INTEGER,
   description  TEXT,
-  UNIQUE(name, agent)
+  UNIQUE(name, scope)
 );
-CREATE INDEX idx_secrets_agent ON secrets(agent);
+CREATE INDEX idx_secrets_scope ON secrets(scope);
 
 CREATE TABLE requests (
-  id               INTEGER PRIMARY KEY,
+  id               TEXT PRIMARY KEY,        -- ULID assigned at request decode
   ts               INTEGER NOT NULL,
   agent            TEXT REFERENCES agents(name) ON DELETE SET NULL,
   interception     TEXT NOT NULL,          -- tunnel | mitm
@@ -492,9 +491,12 @@ CREATE INDEX idx_req_injected  ON requests(ts) WHERE injection = 'applied';
 CREATE INDEX idx_req_blocked   ON requests(ts) WHERE outcome = 'blocked';
 ```
 
-Foreign keys: secrets `ON DELETE CASCADE` (removing an agent scrubs its
-scoped secrets); audit rows `ON DELETE SET NULL` (history survives agent
-deletion for forensics).
+Foreign keys: audit rows `ON DELETE SET NULL` (history survives agent
+deletion for forensics). `secrets.scope` has no FK; when an agent is
+removed, `agent rm <name>` issues a transactional cascade in code:
+`DELETE FROM secrets WHERE scope = ?; DELETE FROM agents WHERE name = ?;`
+This is grep-able and keeps "what happens when I delete an agent"
+visible at the call site rather than hidden in schema DDL.
 
 Only `secrets.ciphertext` is encrypted at rest. Agents and audit tables
 contain no secret values by design (names, hashes, prefixes only).
@@ -547,22 +549,26 @@ query with deterministic ordering:
 
 ```sql
 SELECT * FROM secrets
-WHERE name = ?1
-  AND (agent = ?2 OR agent IS NULL)
-ORDER BY agent IS NULL ASC
+WHERE name = ?1 AND scope IN (?2, 'global')
+ORDER BY scope = 'global' ASC
 LIMIT 1;
 ```
+
+`'global'` is a reserved scope value — it cannot be an agent name
+(see §7 agent naming rules). This keeps the scope column unambiguous
+without needing a separate "kind" discriminator column.
 
 Resolution outcomes:
 
 - **Resolved (same name, either scope):** proceed with injection;
-  audit `injection='applied'`, `credential_scope` set accordingly.
+  audit `injection='applied'`, `credential_scope` set to the matched
+  scope value (`'global'` or the agent name).
 - **Not found (no global, no agent-scoped):** rule fails soft; audit
   `injection='failed'`, `error='secret_not_found'`. Dummy credential
   goes upstream.
 - **Exists but scope-excluded:** if a secret with this name exists but
-  only under a different agent scope (e.g. `gh_bot` exists for
-  `codex-sandbox` and the caller is `claude-review`), this is
+  only under a different agent's scope (e.g. `gh_bot` exists with
+  `scope='codex-sandbox'` and the caller is `claude-review`), this is
   distinguished from "missing" in the audit row as
   `error='access_restricted'`. Same network behaviour (dummy goes
   upstream), different forensic signal.
@@ -573,9 +579,10 @@ authorise.
 
 ### Shadow warnings
 
-`agent-gateway secret set gh_bot --agent claude-review` warns if a global
-`gh_bot` already exists. Reverse direction also warns. `secret list` surfaces
-scope in its own column so shadows are visible at a glance.
+`agent-gateway secret set gh_bot --agent claude-review` warns if a
+`gh_bot` with `scope='global'` already exists. Reverse direction also
+warns. `secret list` surfaces scope in its own column so shadows are
+visible at a glance.
 
 ### Audit differentiation
 
@@ -761,6 +768,14 @@ tokens visibly agent-gateway tokens in logs (à la `ghp_`, `sk-`).
 Proxy-Authorization value is `Basic base64("x:" + full-token)`, onecli
 convention.
 
+### Reserved agent names
+
+The literal string `global` is reserved — it cannot be used as an agent
+name. `agent add global` fails with a clear error. Rationale: the
+secrets table's `scope` column (§5) uses `'global'` as a sentinel for
+unscoped secrets; allowing an agent named `global` would make
+`scope='global'` ambiguous. This is the only reserved name.
+
 ### Persistence
 
 Only the hash is stored (`argon2id`). Plaintext is printed once at
@@ -779,16 +794,28 @@ most once per 30s per agent. Keeps the hot path free of writes.
 
 ### Request identity
 
-Every request gets an ID — the `requests.id` INTEGER PRIMARY KEY assigned
-at audit-insert time. The ID is:
+Every request gets a ULID assigned at request decode — immediately after
+the MITM TLS handshake completes (or immediately after CONNECT for tunnel
+rows), before rule evaluation. This is the `requests.id` TEXT PRIMARY KEY.
+Assigning it upfront (rather than at audit-insert time) means:
 
-- Threaded through `context.Context` so every log line associated with
-  the request carries it via `slog` attributes.
-- Surfaced to agents as `X-Request-ID: <id>` on any gateway-generated
-  response (403, 502, 504, synthesised errors). Agents that log
-  `X-Request-ID` on failure can correlate directly with audit rows.
-- **Not** surfaced on forwarded responses. We don't rewrite upstream
-  responses; the upstream's own correlation ID (if any) is preserved.
+- The ID exists during the request lifetime, so it can be threaded
+  through `context.Context` and appear in every `slog` attribute from
+  decode onward.
+- Gateway-synthesised responses (403, 502, 504, including the 504 that
+  fires when a parked `require-approval` request times out) can carry
+  `X-Request-ID: <ulid>` before any audit row is written. Agents that
+  log `X-Request-ID` on failure can correlate directly with audit rows.
+- The in-memory approval store and SSE event stream can reference the
+  ULID without a DB roundtrip; the audit INSERT at request completion
+  uses the same ID.
+
+ULIDs are 26-char lexicographically sortable, so SSE `id:` frames and the
+`WHERE id > :since ORDER BY id ASC` replay query in §8 work unchanged.
+
+`X-Request-ID` is **not** surfaced on forwarded responses. We don't
+rewrite upstream responses; the upstream's own correlation ID (if any)
+is preserved.
 
 ### CLI
 
@@ -877,7 +904,7 @@ persistence in v1.
 One SSE endpoint: `GET /api/events`. Event types:
 
 - `request` — an audit row was written. `id:` on the SSE frame is the
-  `requests.id` PK.
+  `requests.id` ULID.
 - `approval` — new pending approval created, includes the approval card
   fields listed above.
 - `approval-resolved` — a pending approval was approved / denied /
