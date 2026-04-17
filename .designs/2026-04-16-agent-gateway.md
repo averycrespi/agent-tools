@@ -89,6 +89,13 @@ Each deferred to v1.1+ with a one-line rationale so future-us has the context.
   (`request`, `approval`, `approval-resolved`). Rule/secret edits come
   from the user so they can refresh the tab; audit-write failures log
   to stderr. Additional types are purely additive.
+- **Stable `credential_id` across rotations.** v1 records
+  `credential_ref` + `credential_scope` and answers "which requests
+  used the pre-rotation version?" with a JOIN against
+  `secrets.rotated_at` (see §5 audit differentiation). Approximate —
+  can't tell rotate-in-place from delete-then-recreate — but accurate
+  enough for v1. Adding `secrets.id` (ULID) + `requests.credential_id`
+  later is a simple migration.
 
 ### Success criteria
 
@@ -457,7 +464,7 @@ CREATE TABLE agents (
 );
 
 CREATE TABLE secrets (
-  id           TEXT PRIMARY KEY,           -- sec_<ulid>; stable across rotations
+  id           INTEGER PRIMARY KEY,        -- SQLite rowid; no external meaning
   name         TEXT NOT NULL,              -- referenced as ${secrets.<name>}
   scope        TEXT NOT NULL,              -- 'global' | 'agent:<name>' | (future: 'group:...', etc.)
   ciphertext   BLOB NOT NULL,              -- AES-256-GCM
@@ -490,7 +497,6 @@ CREATE TABLE requests (
   outcome          TEXT NOT NULL,          -- forwarded | blocked
   credential_ref   TEXT,                   -- "gh_bot"
   credential_scope TEXT,                   -- 'global' | 'agent:<name>' (mirrors secrets.scope)
-  credential_id    TEXT,                   -- stable secrets.id at time of use
   error            TEXT                    -- structured tag, e.g. secret_unresolved,
                                            -- queue_full, body_matcher_bypassed:size
 );
@@ -555,7 +561,7 @@ Representative rows:
 All four use a `ts` range bound (dashboard filters are always
 time-scoped) so `idx_req_ts` covers them in v1.
 
-The invariant `credential_id IS NOT NULL ⟺ injection = 'applied'` holds —
+The invariant `credential_ref IS NOT NULL ⟺ injection = 'applied'` holds —
 code-enforced, not DB-enforced.
 
 ### Scope format
@@ -617,13 +623,27 @@ at a glance.
 
 ### Audit differentiation
 
-Each audit row records three fields for credential tracing:
+Each audit row records two fields for credential tracing:
 
 - `credential_ref` — the name in the rule template (what was asked for).
 - `credential_scope` — `'global'` or `'agent:<name>'` (what actually resolved).
-- `credential_id` — the stable `secrets.id` used at that moment. Survives
-  rotations; a delete+recreate issues a new id. Lets forensics answer "which
-  requests used the secret I rotated last Tuesday?"
+
+"Which requests used the pre-rotation version of gh_bot?" is answered
+approximately with a JOIN against `secrets.rotated_at`:
+
+```sql
+SELECT r.* FROM requests r
+JOIN secrets s
+  ON s.name = r.credential_ref AND s.scope = r.credential_scope
+WHERE s.name = 'gh_bot' AND s.scope = 'global'
+  AND r.ts < s.rotated_at;
+```
+
+This is approximate — it can't tell a rotate-in-place from a
+rm-then-set with the same name. That ambiguity is acceptable for v1;
+the right advice is "use `secret rotate`, not delete-then-set." A
+stable `credential_id` that survives rotations is deferred to v1.1
+(see §2 non-goals).
 
 ### CLI
 
@@ -1245,7 +1265,8 @@ Concrete places agent-gateway diverges and does more:
   only).
 - OS-keychain-protected master key (onecli uses an env var).
 - HTTP/2 ALPN end-to-end.
-- Agent-scoped secrets with stable-id audit trail.
+- Agent-scoped secrets (stable-id audit trail across rotations is
+  deferred to v1.1; v1 uses name + scope + `secrets.rotated_at`).
 
 ### Shipping-time documentation requirements
 
