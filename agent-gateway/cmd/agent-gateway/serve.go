@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"errors"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net"
@@ -14,9 +14,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/ca"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/config"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/daemon"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/proxy"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/store"
 )
 
@@ -136,12 +138,42 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	}
 	defer func() { _ = dashLn.Close() }()
 
-	// 6. Build placeholder HTTP servers.
-	proxySrv := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			http.Error(w, "not implemented", http.StatusNotImplemented)
-		}),
+	// 6a. Load or generate root CA.
+	authority, err := ca.LoadOrGenerate(paths.CAKey(), paths.CACert())
+	if err != nil {
+		return fmt.Errorf("load or generate CA: %w", err)
 	}
+	authority.Start(ctx)
+
+	// 6b. Build upstream RoundTripper with config-driven timeouts.
+	upstreamRT := &http.Transport{
+		ForceAttemptHTTP2: true,
+		TLSClientConfig:   &tls.Config{MinVersion: tls.VersionTLS12}, //nolint:gosec
+		DialContext: (&net.Dialer{
+			Timeout: cfg.Timeouts.UpstreamDial,
+		}).DialContext,
+		TLSHandshakeTimeout: cfg.Timeouts.UpstreamTLS,
+		IdleConnTimeout:     cfg.Timeouts.UpstreamIdleKeepalive,
+	}
+
+	// 6c. Build the real MITM proxy.
+	p := proxy.New(proxy.Deps{
+		CA:                   authority,
+		UpstreamRoundTripper: upstreamRT,
+		Logger:               log,
+		HandshakeTimeout:     cfg.Timeouts.MITMHandshake,
+		ReadHeaderTimeout:    cfg.Timeouts.ConnectReadHeader,
+		IdleTimeout:          cfg.Timeouts.IdleKeepalive,
+	})
+
+	// Start proxy: Serve blocks on Accept; close proxyLn on ctx.Done to stop it.
+	go func() {
+		<-ctx.Done()
+		_ = proxyLn.Close()
+	}()
+	go p.Serve(proxyLn)
+
+	// 6d. Dashboard placeholder HTTP server.
 	dashSrv := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -149,17 +181,9 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		}),
 	}
 
-	// Start serving.
-	proxyErr := make(chan error, 1)
-	go func() {
-		if err := proxySrv.Serve(proxyLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			proxyErr <- err
-		}
-	}()
-
 	dashErr := make(chan error, 1)
 	go func() {
-		if err := dashSrv.Serve(dashLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := dashSrv.Serve(dashLn); err != nil && err != http.ErrServerClosed {
 			dashErr <- err
 		}
 	}()
@@ -192,7 +216,7 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		select {
 		case <-ctx.Done():
 			log.Info("context cancelled; shutting down")
-			return shutdown(log, proxySrv, dashSrv)
+			return shutdown(log, dashSrv)
 
 		case sig := <-sigCh:
 			switch sig {
@@ -201,11 +225,9 @@ func RunServe(ctx context.Context, d serveDeps) error {
 				d.Reload()
 			case syscall.SIGTERM, syscall.SIGINT:
 				log.Info("received signal; shutting down", "signal", sig)
-				return shutdown(log, proxySrv, dashSrv)
+				return shutdown(log, dashSrv)
 			}
 
-		case err := <-proxyErr:
-			return fmt.Errorf("proxy server error: %w", err)
 		case err := <-dashErr:
 			return fmt.Errorf("dashboard server error: %w", err)
 		}

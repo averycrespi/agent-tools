@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -55,7 +57,7 @@ func TestServe_BindsAndShutsDown(t *testing.T) {
 	}
 }
 
-func TestServe_ProxyReturns501AndDashboardReturns200(t *testing.T) {
+func TestServe_ProxyAcceptsCONNECTAndDashboardReturns200(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("XDG_DATA_HOME", dir)
@@ -91,19 +93,27 @@ func TestServe_ProxyReturns501AndDashboardReturns200(t *testing.T) {
 	pAddr := <-proxyAddr
 	dAddr := <-dashAddr
 
-	// Proxy should return 501 Not Implemented.
-	resp, err := http.Get(fmt.Sprintf("http://%s/", pAddr))
+	// Proxy must respond to CONNECT with 200 Connection Established.
+	conn, err := net.DialTimeout("tcp", pAddr, 5*time.Second)
 	require.NoError(t, err)
-	require.NoError(t, resp.Body.Close())
-	assert.Equal(t, http.StatusNotImplemented, resp.StatusCode)
+	defer func() { _ = conn.Close() }()
+
+	_, err = fmt.Fprintf(conn, "CONNECT a.invalid:443 HTTP/1.1\r\nHost: a.invalid:443\r\n\r\n")
+	require.NoError(t, err)
+
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "Connection Established", resp.Status[4:]) // strip "200 "
 
 	// Dashboard should return 200 with "hello".
-	resp, err = http.Get(fmt.Sprintf("http://%s/", dAddr))
+	dresp, err := http.Get(fmt.Sprintf("http://%s/", dAddr))
 	require.NoError(t, err)
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, resp.Body.Close())
+	body, err := io.ReadAll(dresp.Body)
+	require.NoError(t, dresp.Body.Close())
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, http.StatusOK, dresp.StatusCode)
 	assert.Equal(t, "hello", string(body))
 
 	cancel()
