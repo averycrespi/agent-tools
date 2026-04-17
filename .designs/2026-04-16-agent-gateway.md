@@ -102,6 +102,11 @@ Each deferred to v1.1+ with a one-line rationale so future-us has the context.
   with inline approve/deny; tunneled-hosts discoverability surfaces
   as a Live-feed banner; Audit ships with time-range pagination only.
   All of these are purely additive UI expansions — see §8.
+- **`rules check --request` / `--replay` CLI forms.** v1's `rules check`
+  validates syntax only. Synthetic-request matching and
+  audit-row-replay are useful authoring aids but the
+  fsnotify-driven iteration loop (edit → save → agent retries →
+  see `matched_rule` update on live feed) covers v1 without them.
 
 ### Success criteria
 
@@ -416,31 +421,21 @@ and rebuilds agent/secret caches; see §3 CLI / daemon coordination).
 ### CLI
 
 ```
-agent-gateway rules check
-agent-gateway rules check --request '<json>'
+agent-gateway rules check     # syntax validation; exits non-zero on errors
 ```
 
-The `--request` form prints the matched rule (and why) for a synthetic
-request. Schema:
+Validates HCL syntax, glob/regex compilation, and template syntax for
+every file in `rules.d/` — the same checks run at load time and on
+fsnotify reload. Unresolved `${secrets.*}` references surface as
+warnings (not errors); the dashboard renders the same badges on the
+Rules tab.
 
-```json
-{
-  "agent": "claude-review",
-  "method": "POST",
-  "host": "api.github.com",
-  "path": "/repos/org/repo/issues",
-  "query": "q=search",
-  "headers": { "X-GitHub-Api-Version": "2022-11-28" },
-  "content_type": "application/json",
-  "body": "<raw body bytes, or base64: prefix>"
-}
-```
-
-All fields are optional except `host`. `body` accepts raw UTF-8 or a
-`base64:<data>` prefix for binary payloads. The output names the matched
-rule, the verdict, and — if injection would apply — which secret
-references resolved and which did not (secret-missing warnings surface
-here, not as errors).
+Deferred to v1.1: a `--request '<json>'` form that runs the matcher
+against a synthetic request, and a `--replay <request-id>` form that
+re-runs against a previously audited request. The live feed's
+fsnotify-driven authoring loop (edit → save → agent retries → see
+`matched_rule` update) covers rule iteration in v1; synthetic-request
+testing is additive.
 
 ## 5. Secrets
 
@@ -1182,7 +1177,7 @@ LRU. Idempotent; safe to send repeatedly.
 ```
 agent-gateway serve
 agent-gateway config {path, edit, refresh}
-agent-gateway rules check [--request '...']
+agent-gateway rules check
 agent-gateway agent {add, list, rm, rotate, show}
 agent-gateway secret {set, list, rotate, rm, master rotate, export}
 agent-gateway ca {export, rotate}
@@ -1384,10 +1379,9 @@ edit, refresh}` works, `state.db` opens with WAL + `busy_timeout=5s`,
    _Done when:_ `TestAgentScopeFilter` passes — two agents with
    different rule sets; each sees only MITM behaviour for their own
    scoped hosts; the other's scoped hosts tunnel.
-7. **Polish.** `rules check --request`, shadow warnings, dashboard
-   filters/search, retention pruning, startup summary, approval queue
-   caps + overflow behaviour, unauthorized re-auth form, documentation
-   (README + NOTICE per §10).
+7. **Polish.** Shadow warnings, retention pruning, startup summary,
+   approval queue caps + overflow behaviour, unauthorized re-auth form,
+   documentation (README + NOTICE per §10).
    _Done when:_ the `agent-tools` repo-level `make audit` passes for
    the new tool, README includes install + first-run + prior-art
    sections, and a fresh-machine smoke test (trust CA, add agent, add
