@@ -84,6 +84,11 @@ Each deferred to v1.1+ with a one-line rationale so future-us has the context.
   `/api/audit` endpoint covers "what happened while I was away." Adding
   durable replay + slow-client eviction later is additive — ULIDs are
   already on `id:` frames, no protocol change needed.
+- **Ambient SSE event types** (`rule-reload`, `secret-change`,
+  `backlog-warning`). v1 ships only request-lifecycle events
+  (`request`, `approval`, `approval-resolved`). Rule/secret edits come
+  from the user so they can refresh the tab; audit-write failures log
+  to stderr. Additional types are purely additive.
 
 ### Success criteria
 
@@ -914,7 +919,7 @@ persistence in v1.
 
 ### SSE event stream
 
-One SSE endpoint: `GET /api/events`. Event types:
+One SSE endpoint: `GET /api/events`. Three event types in v1:
 
 - `request` — an audit row was written. `id:` on the SSE frame is the
   `requests.id` ULID.
@@ -922,10 +927,13 @@ One SSE endpoint: `GET /api/events`. Event types:
   fields listed above.
 - `approval-resolved` — a pending approval was approved / denied /
   timed-out.
-- `rule-reload` — rules reloaded (success or failure + reason).
-- `secret-change` — a secret was added / rotated / removed.
-- `backlog-warning` — approval queue at ≥90% or audit write errors
-  observed.
+
+**Deferred to v1.1:** `rule-reload` (Rules tab refreshes on reload),
+`secret-change` (Secrets tab refreshes on change), `backlog-warning`
+(audit-write failures or approval-queue pressure). Users trigger rule
+and secret changes themselves and can refresh the relevant tab; backlog
+warnings go to stderr in v1 (see §11). Additional types are purely
+additive — no protocol change needed.
 
 **Backpressure (drop-on-full):** each subscriber has a 32-event
 buffered channel. Broadcasts use a non-blocking send; if the buffer is
@@ -972,8 +980,9 @@ mcp-broker's pattern has.
 
 One prepared INSERT per completed request (success or failure). Audit
 errors are logged but never block the request pipeline (`_ = auditor.Record(...)`
-pattern from mcp-broker). Sustained audit-write failures emit a
-`backlog-warning` SSE event so operators notice a broken audit DB.
+pattern from mcp-broker). Sustained audit-write failures are logged to
+stderr at `error` level; a dashboard `backlog-warning` event is
+deferred to v1.1 (§11).
 
 Tunnel rows (non-MITM) have `interception='tunnel'`, `matched_rule=NULL`,
 `method=NULL`, `path=NULL`, and `outcome='forwarded'`; only `host`,
@@ -1276,8 +1285,9 @@ Tracked here so it isn't forgotten at release:
   failures from the agent side and auto-propose a pass-through entry.
 - **Audit DB failure visibility.** A sustained audit-write failure
   (disk full, corruption) doesn't block requests, which is right for
-  correctness but can go unnoticed. The `backlog-warning` SSE event
-  exposes it — verify operators actually notice when testing.
+  correctness but can go unnoticed in v1 since we only log to stderr.
+  Revisit in v1.1 with a dashboard `backlog-warning` event (deferred
+  with the other nice-to-have SSE event types in §8).
 
 ## 12. Milestones
 
