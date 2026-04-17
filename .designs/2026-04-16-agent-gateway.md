@@ -234,9 +234,12 @@ and then signal the running daemon to reload. Specifically:
    invalidate the decrypted-secret LRU. Request handlers continue to
    read from the pre-reload `atomic.Pointer` snapshot until the swap
    completes.
-4. PID file includes a startup nonce; CLI checks
-   `{pid, nonce} matches running process` before signalling to avoid
-   signalling a stale or reused PID.
+4. Before signalling, CLI verifies the process at that PID is actually
+   `agent-gateway` by reading `/proc/<pid>/comm` (Linux) or
+   `ps -p <pid> -o comm=` (macOS). PID reuse on a local-dev machine is
+   rare but SIGHUP to, say, a user's editor would be disruptive — the
+   comm-name check is one syscall and catches the race cleanly without
+   extra state to keep in sync.
 
 `rules.d/` changes continue to use `fsnotify` — that path is unchanged.
 `SIGHUP` remains the user-invocable trigger for "reload everything now."
@@ -1153,7 +1156,7 @@ pattern). `config edit` opens in `$EDITOR`. `config path` prints location.
 5. Parse `rules.d/*.hcl`, validate HCL syntax and template syntax (not
    variable existence; see §4 two-phase validation). Fail startup on
    invalid rules.
-6. Write PID file with a startup nonce (see §3 CLI / daemon coordination).
+6. Write PID file (see §3 CLI / daemon coordination).
 7. Start `fsnotify` watcher on `rules.d/`.
 8. Start background workers: audit prune, `last_seen_at` flush, secret
    cache sweep, leaf-cert cache sweep.
@@ -1341,7 +1344,8 @@ acceptance criterion — the single test (or small set) that must pass
 to consider the milestone done.
 
 1. **Core skeleton.** Binary, config loader, XDG paths, SQLite
-   migrations, CLI scaffolding. PID file with startup nonce.
+   migrations, CLI scaffolding. PID file + comm-name check on
+   signalling.
    _Done when:_ `agent-gateway serve` binds both ports, `config {path,
 edit, refresh}` works, `state.db` opens with WAL + `busy_timeout=5s`,
    second `serve` refuses due to PID file.
