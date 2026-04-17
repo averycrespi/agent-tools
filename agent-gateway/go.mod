@@ -3,6 +3,7 @@ module github.com/averycrespi/agent-tools/agent-gateway
 go 1.25.8
 
 require (
+	github.com/PaesslerAG/jsonpath v0.1.1
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/ncruces/go-sqlite3 v0.32.0
 	github.com/spf13/cobra v1.10.2
@@ -12,6 +13,7 @@ require (
 )
 
 require (
+	github.com/PaesslerAG/gval v1.0.0 // indirect
 	github.com/agext/levenshtein v1.2.1 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect

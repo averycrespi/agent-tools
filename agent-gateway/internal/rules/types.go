@@ -18,14 +18,30 @@ type Request struct {
 	Path string
 	// Header contains the canonical request headers.
 	Header http.Header
+
+	// Body is the buffered request body. It is nil (or zero-length) when the
+	// request carries no body. Set by the proxy buffer layer (Task 17).
+	Body []byte
+	// BodyTruncated is true when the body exceeded the max_body_buffer cap and
+	// was not fully read. Body matchers must auto-fail when this is set.
+	BodyTruncated bool
+	// BodyTimedOut is true when the body buffer read exceeded the wall-clock
+	// timeout. Body matchers must auto-fail when this is set.
+	BodyTimedOut bool
 }
 
-// MatchResult is returned by Engine.Evaluate when a rule matches.
+// MatchResult is returned by Engine.Evaluate when a rule matches or when a
+// body-matcher bypass occurs (BodyTruncated / BodyTimedOut). A non-empty Error
+// indicates that the body matcher was bypassed; the rule itself did not match
+// and the Error is surfaced to the audit log only.
 type MatchResult struct {
-	// Rule is a pointer to the matching rule.
+	// Rule is a pointer to the matching (or first bypassed) rule.
 	Rule *Rule
 	// Index is the zero-based position of the rule in the rule set.
 	Index int
+	// Error is non-empty only on body-matcher bypass cases.
+	// Values: "body_matcher_bypassed:size" or "body_matcher_bypassed:timeout".
+	Error string
 }
 
 // Rule is the parsed, validated representation of a single rule block.

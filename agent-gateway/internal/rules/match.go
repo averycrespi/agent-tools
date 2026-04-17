@@ -17,20 +17,32 @@ func Compile(rs []Rule) *Engine {
 
 // Evaluate walks the rule list in order and returns the first MatchResult
 // whose criteria are satisfied by req. It returns nil if no rule matches.
-// Body matching is not performed here (deferred to Task 15).
+//
+// When a body matcher is bypassed (BodyTruncated or BodyTimedOut), Evaluate
+// returns a MatchResult with a non-empty Error field and no verdict so that
+// the audit logger can record the bypass reason. The first bypassed rule wins;
+// subsequent rules are not evaluated.
 func (e *Engine) Evaluate(req *Request) *MatchResult {
 	for i := range e.rules {
 		r := &e.rules[i]
-		if matchRule(r, req) {
+		matched, bypassErr := matchRule(r, req)
+		if matched {
 			return &MatchResult{Rule: r, Index: i}
+		}
+		if bypassErr != "" {
+			// Body matcher was bypassed — surface the reason for audit, but do
+			// not return a verdict.
+			return &MatchResult{Rule: r, Index: i, Error: bypassErr}
 		}
 	}
 	return nil
 }
 
-// matchRule returns true when every criterion present in r is satisfied
-// by req. An absent criterion (empty string / nil map) is a wildcard.
-func matchRule(r *Rule, req *Request) bool {
+// matchRule checks whether every criterion in r is satisfied by req.
+// It returns (matched bool, bypassError string). bypassError is non-empty only
+// when a body matcher was bypassed due to size or timeout; in that case matched
+// is always false. An absent criterion (empty string / nil map) is a wildcard.
+func matchRule(r *Rule, req *Request) (matched bool, bypassError string) {
 	// Agent filter.
 	if r.Agents != nil {
 		found := false
@@ -41,28 +53,28 @@ func matchRule(r *Rule, req *Request) bool {
 			}
 		}
 		if !found {
-			return false
+			return false, ""
 		}
 	}
 
 	// Host glob.
 	if r.hostGlob.re != nil {
 		if !r.hostGlob.re.MatchString(req.Host) {
-			return false
+			return false, ""
 		}
 	}
 
 	// Path glob.
 	if r.pathGlob.re != nil {
 		if !r.pathGlob.re.MatchString(req.Path) {
-			return false
+			return false, ""
 		}
 	}
 
 	// Method exact match (case-sensitive; callers are expected to uppercase).
 	if r.Match.Method != "" {
 		if r.Match.Method != req.Method {
-			return false
+			return false, ""
 		}
 	}
 
@@ -71,12 +83,21 @@ func matchRule(r *Rule, req *Request) bool {
 		val := req.Header.Get(name)
 		if val == "" {
 			// Header absent — no match.
-			return false
+			return false, ""
 		}
 		if !re.MatchString(val) {
-			return false
+			return false, ""
 		}
 	}
 
-	return true
+	// Body matcher (evaluated last; may produce a bypass error).
+	bodyMatched, bypassErr := matchBody(r, req)
+	if bypassErr != "" {
+		return false, bypassErr
+	}
+	if !bodyMatched {
+		return false, ""
+	}
+
+	return true, ""
 }
