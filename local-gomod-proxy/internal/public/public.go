@@ -18,9 +18,6 @@ func New(upstream *url.URL) *Fetcher {
 	orig := rp.Director
 	rp.Director = func(r *http.Request) {
 		orig(r)
-		// Never leak our inbound auth to the upstream.
-		r.Header.Del("Authorization")
-		// Ensure Host matches the upstream.
 		r.Host = upstream.Host
 	}
 	return &Fetcher{proxy: rp}

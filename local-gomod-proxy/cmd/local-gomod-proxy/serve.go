@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/auth"
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/exec"
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/goenv"
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/private"
@@ -62,11 +61,6 @@ var serveCmd = &cobra.Command{
 				"goversion", env.GOVERSION)
 		}
 
-		token, err := auth.EnsureToken(auth.TokenPath())
-		if err != nil {
-			return fmt.Errorf("ensuring auth token: %w", err)
-		}
-
 		upstream, err := url.Parse(serveUpstream)
 		if err != nil {
 			return fmt.Errorf("parsing upstream URL: %w", err)
@@ -77,7 +71,6 @@ var serveCmd = &cobra.Command{
 			private.New(runner),
 			public.New(upstream),
 		)
-		handler = auth.Middleware(token, handler)
 
 		srv := &http.Server{
 			Addr:              serveAddr,
@@ -90,8 +83,7 @@ var serveCmd = &cobra.Command{
 			"goprivate", private_,
 			"gomodcache", env.GOMODCACHE,
 			"goversion", env.GOVERSION,
-			"upstream", serveUpstream,
-			"token_present", token != "")
+			"upstream", serveUpstream)
 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()

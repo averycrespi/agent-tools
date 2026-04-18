@@ -6,9 +6,9 @@ Sandboxed AI agents often work in Go projects that depend on private modules hos
 
 `local-git-mcp` solves this for explicit git operations the agent performs on its working repo, but it does not help when the Go toolchain needs to resolve a transitive private dependency during module graph resolution (`go build`, `go test`, `go mod tidy`).
 
-local-gomod-proxy solves this by running a minimal HTTP server on the host that implements the Go module proxy protocol. Public modules are forwarded to `proxy.golang.org`. Private modules are resolved using the host's git credentials and served back to the sandbox. The sandbox holds only a short-lived bearer token — no git credentials.
+local-gomod-proxy solves this by running a minimal HTTP server on the host that implements the Go module proxy protocol. Public modules are forwarded to `proxy.golang.org`. Private modules are resolved using the host's git credentials and served back to the sandbox.
 
-This follows the same pattern as `mcp-broker`, `local-git-mcp`, and `local-gh-mcp`: the host holds credentials, the sandbox holds only a scoped token.
+The proxy is **unauthenticated** and expected to bind to a local-only interface (the Lima host-side bridge IP) so only the co-located sandbox can reach it. The host still holds the git credentials; the sandbox reaches the proxy over the bridge and carries nothing. See [Design decisions](#design-decisions) for why auth was removed.
 
 ## Architecture
 
@@ -33,11 +33,10 @@ local-gomod-proxy is a single HTTP binary. No config file, no persistent state b
 ### Request flow
 
 1. The sandbox's `go` tool makes a Go module proxy protocol request (`GET /<module>/@v/...`).
-2. The HTTP server validates HTTP Basic auth against the stored bearer token (constant-time compare).
-3. The router checks the module path against the configured `GOPRIVATE` glob patterns using `golang.org/x/mod/module.MatchPrefixPatterns` — the same function Go's own toolchain uses.
-4. **Private match** — `PrivateFetcher` shells out to `go mod download -json <module>@<version>` in the server's working directory, inheriting the host's git credentials via its environment. It parses the JSON result for absolute paths to the `.info`, `.mod`, and `.zip` files inside the host's `GOMODCACHE` and streams those files back.
-5. **No private match** — `PublicFetcher` reverse-proxies the request unchanged to `https://proxy.golang.org/<same-path>`.
-6. The response flows back to the sandbox's `go` tool.
+2. The router checks the module path against the configured `GOPRIVATE` glob patterns using `golang.org/x/mod/module.MatchPrefixPatterns` — the same function Go's own toolchain uses.
+3. **Private match** — `PrivateFetcher` shells out to `go mod download -json <module>@<version>` in the server's working directory, inheriting the host's git credentials via its environment. It parses the JSON result for absolute paths to the `.info`, `.mod`, and `.zip` files inside the host's `GOMODCACHE` and streams those files back.
+4. **No private match** — `PublicFetcher` reverse-proxies the request unchanged to `https://proxy.golang.org/<same-path>`.
+5. The response flows back to the sandbox's `go` tool.
 
 ## Protocol endpoints
 
@@ -61,14 +60,8 @@ local-gomod-proxy/
 │   └── local-gomod-proxy/
 │       ├── main.go              # Entry point
 │       ├── root.go              # Cobra root command, DI wiring
-│       ├── serve.go             # `serve` subcommand
-│       └── token.go             # `token` subcommand — prints current token to stdout
+│       └── serve.go             # `serve` subcommand
 ├── internal/
-│   ├── auth/
-│   │   ├── token.go             # Token gen/store/load (XDG path, 0600)
-│   │   ├── token_test.go
-│   │   ├── middleware.go        # HTTP Basic auth middleware (constant-time compare)
-│   │   └── middleware_test.go
 │   ├── exec/
 │   │   ├── exec.go              # Runner interface (same pattern as siblings)
 │   │   └── exec_test.go
@@ -92,7 +85,7 @@ local-gomod-proxy/
 │       └── server_test.go
 ├── test/
 │   └── e2e/
-│       └── e2e_test.go          # E2E tests (go:build e2e; currently skipped — see Security)
+│       └── e2e_test.go          # E2E tests (go:build e2e)
 ├── go.mod
 ├── Makefile
 ├── CLAUDE.md
@@ -107,7 +100,6 @@ Every request validates the module path and version before any shell-out:
 1. **URL parse** — path must match the Go module proxy protocol pattern.
 2. **Module path** — URL-unescaped via `module.UnescapePath` before being passed as argv to `go mod download`. No shell interpolation — argv slice only. `go mod download` rejects malformed module paths itself.
 3. **Version** — URL-unescaped via `module.UnescapeVersion` before being passed as argv to `go mod download`; `go mod download` rejects malformed versions itself.
-4. **Auth** — HTTP 401 for missing or invalid token; checked before routing.
 
 Errors from `go mod download` include the command's stderr so callers get actionable output (e.g., "repository not found", "permission denied").
 
@@ -121,12 +113,10 @@ Startup validation:
 
 ## Security
 
-- **Auth gate** — HTTP Basic bearer token, constant-time comparison (`crypto/subtle.ConstantTimeCompare`). The username field is ignored; only the password (token) is checked.
-- **Token storage** — `0600` file, parent directory `0750`, under `$XDG_CONFIG_HOME/local-gomod-proxy/auth-token`.
+- **Local-only deployment** — the proxy is unauthenticated. Its security model relies entirely on being reachable only from the co-located sandbox. The expected deployment binds to the host-side Lima bridge IP; binding to a public interface exposes the host's git credentials to anyone who can reach the port.
 - **No shell interpolation** — `go mod download` is invoked via `exec.Command` with an argv slice. Module paths and versions are URL-unescaped via `module.UnescapePath` / `module.UnescapeVersion` before use; `go mod download` rejects malformed inputs itself.
-- **Plain HTTP** — traffic stays on the Lima bridge and never leaves the host. See Design decisions below.
-- **Auth-over-HTTP limitation** — Go >= 1.22 refuses to send URL-embedded Basic Auth credentials over plain HTTP (`cmd/go/internal/web/http.go:244`, Go issue #42135). Production use requires TLS termination or an alternative auth transport. See README for details.
-- **Request logging** — module path, version, private/public verdict, cache hit/miss, and latency logged via `log/slog`. The token is never logged.
+- **Plain HTTP** — traffic stays on the Lima bridge and never leaves the host.
+- **Request logging** — module path, version, private/public verdict, cache hit/miss, and latency logged via `log/slog`.
 
 ## Tech stack
 
@@ -146,9 +136,9 @@ No Athens, no `golang.org/x/mod/zip` — `go mod download` hands us finished art
 
 **Reverse-proxy public modules to `proxy.golang.org`.** Leverages the upstream CDN and existing cache. Zero host CPU for the common case. The sandbox doesn't need direct egress to `proxy.golang.org` — only to the host.
 
-**Bearer token auth via HTTP Basic.** Mirrors `mcp-broker`'s token model. 32 random bytes, hex-encoded. The token's only job is to block other machines on the Lima bridge from reaching the proxy. A compromised sandbox already has access to whatever private source it downloaded.
+**No application-level auth.** An earlier iteration used an HTTP Basic bearer token. Go ≥ 1.22 (cf. [Go issue #42135](https://github.com/golang/go/issues/42135)) refuses to send URL-embedded credentials over plain HTTP, and every other auth mechanism the `go` tool supports (`.netrc`, `GOAUTH`) is likewise HTTPS-gated (`cmd/go/internal/auth/auth.go` panics if the request scheme isn't HTTPS). Adding auth therefore requires TLS termination. Given the trust boundary — the sandbox is a co-located peer on a host-local bridge and the host already holds the git credentials — the cost of cert provisioning outweighed the benefit. Security is enforced at the network layer: bind to a local-only interface so no external caller can reach the port. This is the same posture Athens recommends for local dev deployments.
 
-**Plain HTTP, no TLS.** Traffic stays on the Lima bridge and never reaches the public internet. TLS adds cert-provisioning complexity for no real-world benefit at this trust boundary. However, Go >= 1.22 refuses URL-embedded Basic Auth over plain HTTP — so until TLS termination is added, production deployments must use an alternative auth transport. See README.
+**Plain HTTP, no TLS.** Traffic stays on the Lima bridge and never reaches the public internet. TLS adds cert-provisioning complexity for no real-world benefit at this trust boundary.
 
 **Read `GOPRIVATE` and `GOMODCACHE` via `go env -json`, not `os.Getenv`.** Users commonly set these via `go env -w`, which persists to `~/.config/go/env` and is invisible to `os.Getenv`. Reading via `go env` gives a single source of truth matching what the host toolchain actually uses.
 
@@ -160,8 +150,8 @@ No Athens, no `golang.org/x/mod/zip` — `go mod download` hands us finished art
 
 ## Testing
 
-| Layer                             | What it covers                                                                                                                                                                                              |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unit (`make test`)                | Mock `exec.Runner` for PrivateFetcher; mock upstream HTTP for PublicFetcher; unit-test GOPRIVATE glob matching; unit-test token gen + constant-time compare                                                 |
-| Integration (`-tags=integration`) | Real `go mod download` against a local file:// git repo; PrivateFetcher serves the correct bytes                                                                                                            |
-| E2E (`-tags=e2e`)                 | Build real binary, start it, run `go mod download` as subprocess — exercises the full wire protocol. **Currently skipped** pending TLS support (Go >= 1.22 refuses URL-embedded Basic Auth over plain HTTP) |
+| Layer                             | What it covers                                                                                                                      |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Unit (`make test`)                | Mock `exec.Runner` for PrivateFetcher; mock upstream HTTP for PublicFetcher; unit-test GOPRIVATE glob matching                      |
+| Integration (`-tags=integration`) | Real `go mod download` against a local file:// git repo; PrivateFetcher serves the correct bytes                                    |
+| E2E (`-tags=e2e`)                 | Build real binary, start it, run `go mod download` against it as a subprocess — exercises the full wire protocol for public modules |

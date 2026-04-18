@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/auth"
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/private"
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/public"
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/router"
@@ -77,38 +76,6 @@ func TestHandler_BadPath(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/not-a-module", nil))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestHandler_AuthMiddlewareEnforced(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, "public-response")
-	}))
-	defer upstream.Close()
-	u, _ := url.Parse(upstream.URL)
-
-	handler := New(router.New("github.com/private/*"), private.New(&stubRunner{}), public.New(u))
-	protected := auth.Middleware("secret", handler)
-
-	// No Authorization header → 401.
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/rsc.io/quote/@v/list", nil)
-	protected.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-
-	// Wrong token → 401.
-	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/rsc.io/quote/@v/list", nil)
-	req.Header.Set("Authorization", "Bearer wrong")
-	protected.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-
-	// Correct token → handler reached (200 on a public route).
-	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/rsc.io/quote/@v/list", nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	protected.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "public-response", w.Body.String())
 }
 
 func mustURL(t *testing.T, s string) *url.URL {

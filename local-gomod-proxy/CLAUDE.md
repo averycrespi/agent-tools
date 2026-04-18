@@ -20,21 +20,20 @@ Run `make audit` before committing. Integration tests use `//go:build integratio
 
 ## Architecture
 
-Single HTTP binary. No config file, no persistent state beyond the auth token file.
+Single HTTP binary. No config file, no persistent state.
 
 Private module requests shell out to `go mod download -json` on the host and stream the resulting files from `GOMODCACHE`. Public module requests are reverse-proxied to `proxy.golang.org`.
 
 ```
-cmd/local-gomod-proxy/  CLI entry point (Cobra) — serve + token subcommands
+cmd/local-gomod-proxy/  CLI entry point (Cobra) — serve subcommand
 internal/
-  auth/                  Bearer token gen/store/verify + HTTP middleware
   exec/                  Runner interface for command execution
   goenv/                 Reads GOPRIVATE / GOMODCACHE / GOVERSION via `go env -json`
   router/                GOPRIVATE glob matching — selects private or public fetcher
   private/               PrivateFetcher — shells out to `go mod download`, streams files
   public/                PublicFetcher — reverse-proxy to proxy.golang.org
-  server/                HTTP handler wiring router + fetchers + auth
-test/e2e/               End-to-end tests (currently skipped — see auth limitation below)
+  server/                HTTP handler wiring router + fetchers
+test/e2e/               End-to-end tests
 ```
 
 ## Conventions
@@ -46,5 +45,4 @@ test/e2e/               End-to-end tests (currently skipped — see auth limitat
 - gosec `nolint` directives on `os/exec` calls are acceptable inside the `exec` package only; also acceptable inside `private.streamFile` on `os.Open`
 - `--private` flag overrides `go env GOPRIVATE`; if neither is set, startup fails with an actionable error
 - `GOPRIVATE` and `GOMODCACHE` are read via `go env -json`, not `os.Getenv` — users commonly set these via `go env -w`
-- Auth token lives at XDG `$XDG_CONFIG_HOME/local-gomod-proxy/auth-token` (default: `~/.config/local-gomod-proxy/auth-token`), `0600`, parent dir `0750`
-- E2E tests are skipped: Go >= 1.22 refuses URL-embedded Basic Auth over plain HTTP (Go issue #42135); the harness needs TLS or an alternative auth mechanism
+- No application-level auth — the proxy relies on binding to a local-only interface. See DESIGN.md for rationale (Go ≥ 1.22 HTTPS gate on every supported auth mechanism)
