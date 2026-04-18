@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"golang.org/x/net/http2"
 )
 
@@ -60,7 +61,7 @@ func (p *Proxy) serveConn(conn net.Conn) {
 			if err := writeResponse(conn, http.StatusOK, "Connection Established"); err != nil {
 				return
 			}
-			p.serveTunnel(conn, br, connectTarget)
+			p.serveTunnel(conn, br, connectTarget, authedAgent.Name)
 			return
 		default: // DecisionMITM
 			if err := writeResponse(conn, http.StatusOK, "Connection Established"); err != nil {
@@ -125,16 +126,62 @@ func (p *Proxy) serveMITM(conn net.Conn, br *bufio.Reader, connectTarget, hostOn
 	}
 }
 
+// countingWriter wraps an io.Writer and counts total bytes written.
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
+}
+
 // serveTunnel relays raw TCP traffic bidirectionally between conn and the
 // upstream address named in connectTarget. It dials connectTarget directly and
 // pipes data in both directions until either side closes.
-func (p *Proxy) serveTunnel(conn net.Conn, br *bufio.Reader, connectTarget string) {
-	upstream, err := net.Dial("tcp", connectTarget)
-	if err != nil {
-		p.log.Debug("proxy: tunnel dial failed", "target", connectTarget, "err", err)
+//
+// agentName is the authenticated agent name (may be empty when no registry is
+// configured). connectTarget is the full "host:port" from the CONNECT line.
+func (p *Proxy) serveTunnel(conn net.Conn, br *bufio.Reader, connectTarget, agentName string) {
+	reqID := NewULID()
+	start := time.Now()
+
+	// hostOnly is the bare hostname for the audit Host field.
+	hostOnly, _, splitErr := net.SplitHostPort(connectTarget)
+	if splitErr != nil {
+		hostOnly = connectTarget
+	}
+
+	// Dial upstream first; if it fails we record a "blocked" audit entry.
+	upstream, dialErr := net.Dial("tcp", connectTarget)
+	if dialErr != nil {
+		p.log.Debug("proxy: tunnel dial failed", "target", connectTarget, "err", dialErr)
+		if p.auditor != nil {
+			agentPtr := agentNamePtr(agentName)
+			entry := audit.Entry{
+				ID:           reqID,
+				TS:           start,
+				Agent:        agentPtr,
+				Interception: "tunnel",
+				Host:         hostOnly,
+				DurationMS:   time.Since(start).Milliseconds(),
+				Outcome:      "blocked",
+			}
+			if err := p.auditor.Record(context.Background(), entry); err != nil {
+				p.log.Warn("proxy: audit record failed", "request_id", reqID, "err", err)
+			}
+		}
 		return
 	}
 	defer func() { _ = upstream.Close() }()
+
+	// Byte counters for both directions.
+	// bytesOut = client → upstream (data the agent is sending out).
+	// bytesIn  = upstream → client (data the agent is receiving).
+	cwUp := &countingWriter{w: upstream} // client → upstream
+	cwDown := &countingWriter{w: conn}   // upstream → client
 
 	// If the bufio.Reader buffered bytes beyond the CONNECT line, drain them
 	// first into the upstream connection before starting the bidirectional copy.
@@ -144,15 +191,16 @@ func (p *Proxy) serveTunnel(conn net.Conn, br *bufio.Reader, connectTarget strin
 		if _, err := upstream.Write(pre); err != nil {
 			return
 		}
+		cwUp.n += int64(len(pre))
 	}
 
 	done := make(chan struct{}, 2)
 	go func() {
-		_, _ = io.Copy(upstream, conn)
+		_, _ = io.Copy(cwUp, conn)
 		done <- struct{}{}
 	}()
 	go func() {
-		_, _ = io.Copy(conn, upstream)
+		_, _ = io.Copy(cwDown, upstream)
 		done <- struct{}{}
 	}()
 	<-done
@@ -160,6 +208,32 @@ func (p *Proxy) serveTunnel(conn net.Conn, br *bufio.Reader, connectTarget strin
 	_ = conn.Close()
 	_ = upstream.Close()
 	<-done
+
+	if p.auditor != nil {
+		agentPtr := agentNamePtr(agentName)
+		entry := audit.Entry{
+			ID:           reqID,
+			TS:           start,
+			Agent:        agentPtr,
+			Interception: "tunnel",
+			Host:         hostOnly,
+			DurationMS:   time.Since(start).Milliseconds(),
+			BytesOut:     cwUp.n,
+			BytesIn:      cwDown.n,
+			Outcome:      "forwarded",
+		}
+		if err := p.auditor.Record(context.Background(), entry); err != nil {
+			p.log.Warn("proxy: audit record failed", "request_id", reqID, "err", err)
+		}
+	}
+}
+
+// agentNamePtr returns a *string for agentName, or nil if empty.
+func agentNamePtr(agentName string) *string {
+	if agentName == "" {
+		return nil
+	}
+	return &agentName
 }
 
 // writeResponse writes a minimal HTTP/1.1 response on conn.

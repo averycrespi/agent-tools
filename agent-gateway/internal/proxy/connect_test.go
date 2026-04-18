@@ -1,6 +1,8 @@
 package proxy_test
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -232,4 +234,112 @@ func TestCONNECT_NonCONNECT_Returns400(t *testing.T) {
 	n, _ := conn.Read(buf)
 	status := string(buf[:n])
 	assert.Contains(t, status, "400")
+}
+
+// TestConnect_TunnelAudits verifies §5 row 1: the tunnel path writes an audit
+// entry with Interception="tunnel", nil Method, nil Path, and a non-zero
+// BytesIn + BytesOut when data flows through the tunnel.
+func TestConnect_TunnelAudits(t *testing.T) {
+	auth := newTestAuthority(t)
+	cl := newCapturingLogger(t)
+
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: roundTripperFunc(testEchoHandler),
+		Auditor:              cl,
+	})
+
+	// Spin up a real TCP upstream that echoes everything it receives.
+	upLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = upLn.Close() })
+
+	go func() {
+		conn, aErr := upLn.Accept()
+		if aErr != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_, _ = io.Copy(conn, conn) // echo
+	}()
+
+	target := upLn.Addr().String()
+
+	// Build a pair of connected net.Conns to simulate the client side.
+	clientConn, serverConn := net.Pipe()
+	defer func() { _ = clientConn.Close() }()
+
+	// Run serveTunnel in a goroutine; it blocks until both sides close.
+	const agentName = "test-agent"
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		br := bufio.NewReader(bytes.NewReader(nil)) // empty pre-read buffer
+		p.ServeTunnelForTest(serverConn, br, target, agentName)
+	}()
+
+	// Send some bytes through the tunnel and then close the client side.
+	msg := []byte("hello tunnel")
+	_, err = clientConn.Write(msg)
+	require.NoError(t, err)
+
+	// Read the echo back (the upstream echoes what we sent).
+	readBuf := make([]byte, len(msg))
+	_, err = io.ReadFull(clientConn, readBuf)
+	require.NoError(t, err)
+	assert.Equal(t, msg, readBuf)
+
+	// Close the client side to unblock serveTunnel.
+	_ = clientConn.Close()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("serveTunnel did not finish within timeout")
+	}
+
+	// Assert the audit entry was recorded.
+	require.NotNil(t, cl.last, "audit entry must be recorded for tunnel")
+	e := cl.last
+
+	assert.Equal(t, "tunnel", e.Interception)
+	assert.Nil(t, e.Method, "tunnel rows must have nil Method")
+	assert.Nil(t, e.Path, "tunnel rows must have nil Path")
+	assert.Equal(t, "forwarded", e.Outcome)
+	require.NotNil(t, e.Agent)
+	assert.Equal(t, agentName, *e.Agent)
+	assert.Greater(t, e.BytesOut, int64(0), "BytesOut must be > 0 when data was sent")
+	assert.Greater(t, e.BytesIn, int64(0), "BytesIn must be > 0 when echo was received")
+	assert.NotEmpty(t, e.ID, "audit entry must have a request ID")
+}
+
+// TestConnect_TunnelAudits_DialFail verifies that when the tunnel dial fails,
+// a "blocked" audit entry is still recorded.
+func TestConnect_TunnelAudits_DialFail(t *testing.T) {
+	auth := newTestAuthority(t)
+	cl := newCapturingLogger(t)
+
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: roundTripperFunc(testEchoHandler),
+		Auditor:              cl,
+	})
+
+	// Use a port that is not listening so the dial will fail immediately.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	closedTarget := ln.Addr().String()
+	_ = ln.Close() // close immediately so dial fails
+
+	clientConn, serverConn := net.Pipe()
+	defer func() { _ = clientConn.Close() }()
+	defer func() { _ = serverConn.Close() }()
+
+	br := bufio.NewReader(bytes.NewReader(nil))
+	p.ServeTunnelForTest(serverConn, br, closedTarget, "test-agent")
+
+	require.NotNil(t, cl.last, "audit entry must be recorded even on dial failure")
+	assert.Equal(t, "tunnel", cl.last.Interception)
+	assert.Equal(t, "blocked", cl.last.Outcome)
+	assert.Nil(t, cl.last.Method)
+	assert.Nil(t, cl.last.Path)
 }

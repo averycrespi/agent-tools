@@ -1,7 +1,9 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
+	"net"
 	"net/http"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/agents"
@@ -35,6 +37,7 @@ type AuditRecord struct {
 	RequestID       string
 	MatchedRule     string
 	Verdict         string
+	Approval        string
 	Injection       string
 	CredentialScope string
 	CredentialRef   string
@@ -52,9 +55,16 @@ func AuditFromContext(ctx context.Context) *AuditRecord {
 		RequestID:       a.RequestID,
 		MatchedRule:     a.MatchedRule,
 		Verdict:         a.Verdict,
+		Approval:        a.Approval,
 		Injection:       a.Injection,
 		CredentialScope: a.CredentialScope,
 		CredentialRef:   a.CredentialRef,
 		Error:           a.Error,
 	}
+}
+
+// ServeTunnelForTest exposes serveTunnel for white-box testing so tests can
+// invoke the tunnel path without setting up a full authenticated CONNECT flow.
+func (p *Proxy) ServeTunnelForTest(conn net.Conn, br *bufio.Reader, connectTarget, agentName string) {
+	p.serveTunnel(conn, br, connectTarget, agentName)
 }

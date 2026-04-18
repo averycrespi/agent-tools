@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/agents"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/inject"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
 )
@@ -138,6 +139,10 @@ type Deps struct {
 	// If nil, injection is skipped (even if the rule has an inject block).
 	Injector Injector
 
+	// Auditor records per-request audit entries to the requests table.
+	// If nil, auditing is skipped (nil-safe).
+	Auditor audit.Logger
+
 	// Logger is the structured logger. If nil, the default slog logger is used.
 	Logger *slog.Logger
 
@@ -165,6 +170,7 @@ type Proxy struct {
 	rules             RulesEngine
 	approval          ApprovalBroker
 	injector          Injector
+	auditor           audit.Logger
 	log               *slog.Logger
 	handshakeTimeout  time.Duration
 	readHeaderTimeout time.Duration
@@ -211,6 +217,7 @@ func New(d Deps) *Proxy {
 		rules:             d.Rules,
 		approval:          d.Approval,
 		injector:          d.Injector,
+		auditor:           d.Auditor,
 		log:               log,
 		handshakeTimeout:  ht,
 		readHeaderTimeout: rht,

@@ -47,6 +47,78 @@ CREATE TABLE agents (
 `)
 		return err
 	},
+
+	// Migration 4: requests audit table with four covering indexes.
+	func(tx *sql.Tx) error {
+		_, err := tx.Exec(`
+CREATE TABLE requests (
+  id               TEXT PRIMARY KEY,
+  ts               INTEGER NOT NULL,
+  agent            TEXT REFERENCES agents(name) ON DELETE SET NULL,
+  interception     TEXT NOT NULL,
+  method           TEXT,
+  host             TEXT NOT NULL,
+  path             TEXT,
+  query            TEXT,
+  status           INTEGER,
+  duration_ms      INTEGER NOT NULL,
+  bytes_in         INTEGER NOT NULL,
+  bytes_out        INTEGER NOT NULL,
+  matched_rule     TEXT,
+  rule_verdict     TEXT,
+  approval         TEXT,
+  injection        TEXT,
+  outcome          TEXT NOT NULL,
+  credential_ref   TEXT,
+  credential_scope TEXT,
+  error            TEXT
+);
+CREATE INDEX idx_req_ts    ON requests(ts);
+CREATE INDEX idx_req_agent ON requests(ts, agent);
+CREATE INDEX idx_req_host  ON requests(ts, host);
+CREATE INDEX idx_req_rule  ON requests(matched_rule, ts);
+`)
+		return err
+	},
+
+	// Migration 5: drop the FK on requests.agent so that audit rows can
+	// reference agents that have been deleted (or never existed). SQLite does
+	// not support DROP CONSTRAINT, so we recreate the table without the FK.
+	// All data and indexes are preserved.
+	func(tx *sql.Tx) error {
+		_, err := tx.Exec(`
+CREATE TABLE requests_new (
+  id               TEXT PRIMARY KEY,
+  ts               INTEGER NOT NULL,
+  agent            TEXT,
+  interception     TEXT NOT NULL,
+  method           TEXT,
+  host             TEXT NOT NULL,
+  path             TEXT,
+  query            TEXT,
+  status           INTEGER,
+  duration_ms      INTEGER NOT NULL,
+  bytes_in         INTEGER NOT NULL,
+  bytes_out        INTEGER NOT NULL,
+  matched_rule     TEXT,
+  rule_verdict     TEXT,
+  approval         TEXT,
+  injection        TEXT,
+  outcome          TEXT NOT NULL,
+  credential_ref   TEXT,
+  credential_scope TEXT,
+  error            TEXT
+);
+INSERT INTO requests_new SELECT * FROM requests;
+DROP TABLE requests;
+ALTER TABLE requests_new RENAME TO requests;
+CREATE INDEX idx_req_ts    ON requests(ts);
+CREATE INDEX idx_req_agent ON requests(ts, agent);
+CREATE INDEX idx_req_host  ON requests(ts, host);
+CREATE INDEX idx_req_rule  ON requests(matched_rule, ts);
+`)
+		return err
+	},
 }
 
 // runMigrations reads the current user_version, then runs each pending migration

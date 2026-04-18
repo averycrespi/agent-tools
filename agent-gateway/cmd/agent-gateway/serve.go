@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/ca"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/config"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/daemon"
@@ -173,12 +174,15 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		IdleConnTimeout:     cfg.Timeouts.UpstreamIdleKeepalive,
 	}
 
-	// 6c. Build the real MITM proxy.
+	// 6c. Build the audit logger and the real MITM proxy.
+	auditor := audit.NewLogger(db)
+
 	p := proxy.New(proxy.Deps{
 		CA:                   authority,
 		UpstreamRoundTripper: upstreamRT,
 		Rules:                engine,
 		Injector:             proxyInjector,
+		Auditor:              auditor,
 		Logger:               log,
 		HandshakeTimeout:     cfg.Timeouts.MITMHandshake,
 		ReadHeaderTimeout:    cfg.Timeouts.ConnectReadHeader,

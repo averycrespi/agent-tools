@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/inject"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
 )
@@ -23,7 +25,8 @@ type auditRecord struct {
 	RequestID       string
 	MatchedRule     string
 	Verdict         string
-	Injection       string // "applied", "failed", "none"
+	Approval        string // "approved", "denied", "timed-out"
+	Injection       string // "applied", "failed"
 	CredentialScope string
 	CredentialRef   string
 	Error           string
@@ -115,6 +118,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 	// 1. Assign a request-scoped ULID. Synthesised error responses carry this ID
 	// in X-Request-ID; forwarded responses do not.
 	reqID := NewULID()
+	start := time.Now()
 
 	// 2. Initialise the per-request audit record and thread both the audit and
 	// the request ID through context. The typed requestIDKey allows any package
@@ -125,18 +129,77 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 	ctx = contextWithAudit(ctx, a)
 	r = r.WithContext(ctx)
 
+	// Audit tracking: mutable variables captured by the defer closure.
+	// outcome defaults to "blocked"; set to "forwarded" only when we actually
+	// stream a response back to the client.
+	outcome := "blocked"
+	var respStatus *int
+	var bytesIn int64
+	var bytesOut int64
+
+	// hostOnly is the bare hostname used in audit entries and rule matching.
+	hostOnly, _, splitErr := net.SplitHostPort(host)
+	if splitErr != nil {
+		hostOnly = host
+	}
+
+	// 2b. Defer the audit Record call so it fires regardless of which return
+	// path is taken. The closure captures outcome, respStatus, and bytesIn by
+	// reference so they reflect final state.
+	defer func() {
+		if p.auditor == nil {
+			return
+		}
+		method := r.Method
+		path := r.URL.Path
+		entry := audit.Entry{
+			ID:           reqID,
+			TS:           start,
+			Interception: "mitm",
+			Method:       &method,
+			Host:         hostOnly,
+			Path:         &path,
+			Status:       respStatus,
+			DurationMS:   time.Since(start).Milliseconds(),
+			BytesIn:      bytesIn,
+			BytesOut:     bytesOut,
+			Outcome:      outcome,
+		}
+		if a.MatchedRule != "" {
+			entry.MatchedRule = &a.MatchedRule
+		}
+		if a.Verdict != "" {
+			entry.RuleVerdict = &a.Verdict
+		}
+		// Approval is populated later via the auditRecord if needed.
+		if a.Approval != "" {
+			entry.Approval = &a.Approval
+		}
+		switch a.Injection {
+		case "applied":
+			entry.Injection = &a.Injection
+			if a.CredentialRef != "" {
+				entry.CredentialRef = &a.CredentialRef
+			}
+			if a.CredentialScope != "" {
+				entry.CredentialScope = &a.CredentialScope
+			}
+		case "failed":
+			entry.Injection = &a.Injection
+			if a.Error != "" {
+				entry.Error = &a.Error
+			}
+		}
+		if err := p.auditor.Record(r.Context(), entry); err != nil {
+			p.log.Warn("proxy: audit record failed", "request_id", reqID, "err", err)
+		}
+	}()
+
 	// 3. Track the matched rule for the injection step.
 	var matchedRule *rules.Rule
 
 	// 4. Evaluate rules if an engine is configured.
 	if p.rules != nil {
-		// hostOnly strips any port suffix for rule matching; host matchers in
-		// HCL rules use bare hostnames (e.g. "api.github.com").
-		hostOnly, _, err := net.SplitHostPort(host)
-		if err != nil {
-			hostOnly = host
-		}
-
 		rreq := &rules.Request{
 			Agent:  "", // TODO(Task 24): agent name from ProxyAuth
 			Host:   hostOnly,
@@ -182,14 +245,17 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 				}
 				switch decision {
 				case DecisionDenied:
+					a.Approval = "denied"
 					w.Header().Set("X-Request-ID", reqID)
 					http.Error(w, "Forbidden", http.StatusForbidden)
 					return
 				case DecisionTimeout:
+					a.Approval = "timed-out"
 					w.Header().Set("X-Request-ID", reqID)
 					http.Error(w, "approval timed out", http.StatusGatewayTimeout)
 					return
 				case DecisionApproved:
+					a.Approval = "approved"
 					// Fall through to injection step.
 				}
 
@@ -224,6 +290,12 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 	// Copy headers, then strip hop-by-hop.
 	upReq.Header = r.Header.Clone()
 	stripHopByHop(upReq.Header)
+
+	// Wrap the upstream request body in a counting reader so we can record
+	// BytesOut (bytes sent to upstream) in the audit entry.
+	if upReq.Body != nil {
+		upReq.Body = &countingReadCloser{ReadCloser: upReq.Body, n: &bytesOut}
+	}
 
 	// 6. Injection step: if the matched rule has an inject block and an
 	// injector is configured, apply header mutations to the upstream clone.
@@ -261,10 +333,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 		default:
 			// StatusNoInject (rule has no inject block) — should not happen here
 			// since we already checked matchedRule.Inject != nil, but handle it.
-			a.Injection = "none"
 		}
-	} else {
-		a.Injection = "none"
 	}
 
 	// 7. Forward to upstream.
@@ -275,6 +344,10 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	// Capture status for audit.
+	sc := resp.StatusCode
+	respStatus = &sc
 
 	// Copy response headers back to the client (strip hop-by-hop first).
 	stripHopByHop(resp.Header)
@@ -293,7 +366,11 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 	for {
 		nr, readErr := resp.Body.Read(buf)
 		if nr > 0 {
+			bytesIn += int64(nr)
 			if _, writeErr := w.Write(buf[:nr]); writeErr != nil {
+				// Client disconnected mid-stream: mark as forwarded since we did
+				// establish the upstream response.
+				outcome = "forwarded"
 				return
 			}
 			if canFlush {
@@ -304,7 +381,21 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 			if readErr != io.EOF {
 				p.log.Debug("proxy: body read error", "err", readErr)
 			}
-			return
+			break
 		}
 	}
+	outcome = "forwarded"
+}
+
+// countingReadCloser wraps an io.ReadCloser and counts bytes consumed.
+// It is used to measure BytesOut (bytes sent to upstream in the request body).
+type countingReadCloser struct {
+	io.ReadCloser
+	n *int64
+}
+
+func (c *countingReadCloser) Read(p []byte) (int, error) {
+	n, err := c.ReadCloser.Read(p)
+	*c.n += int64(n)
+	return n, err
 }
