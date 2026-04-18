@@ -11,6 +11,26 @@ import (
 var migrations = []func(*sql.Tx) error{
 	// Migration 1: placeholder — no schema changes yet.
 	func(_ *sql.Tx) error { return nil },
+
+	// Migration 2: secrets table (AES-256-GCM encrypted values, per-row nonce).
+	func(tx *sql.Tx) error {
+		_, err := tx.Exec(`
+CREATE TABLE secrets (
+  id           INTEGER PRIMARY KEY,
+  name         TEXT NOT NULL,
+  scope        TEXT NOT NULL,
+  ciphertext   BLOB NOT NULL,
+  nonce        BLOB NOT NULL,
+  created_at   INTEGER NOT NULL,
+  rotated_at   INTEGER NOT NULL,
+  last_used_at INTEGER,
+  description  TEXT,
+  UNIQUE(name, scope)
+);
+CREATE INDEX idx_secrets_scope ON secrets(scope);
+`)
+		return err
+	},
 }
 
 // runMigrations reads the current user_version, then runs each pending migration
