@@ -1,6 +1,6 @@
 module github.com/averycrespi/agent-tools/local-git-mcp
 
-go 1.25.8
+go 1.25.9
 
 require (
 	github.com/mark3labs/mcp-go v0.45.0
