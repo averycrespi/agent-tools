@@ -10,6 +10,7 @@ A collection of tools that reduce the friction of working with AI coding agents.
 - **[Broker CLI](#broker-cli)** — CLI frontend for the MCP broker
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local GH MCP](#local-gh-mcp)** — Stdio MCP server for GitHub operations via the gh CLI
+- **[Agent Gateway](#agent-gateway)** — Host-native HTTP/HTTPS proxy that injects credentials into sandboxed agent traffic
 
 ## Getting Started
 
@@ -34,6 +35,7 @@ cd mcp-broker && make install
 cd broker-cli && make install
 cd local-git-mcp && make install
 cd local-gh-mcp && make install
+cd agent-gateway && make install
 ```
 
 ## Tools
@@ -114,6 +116,20 @@ Sandboxed agents need to interact with GitHub — opening PRs, reading issues, c
 - Designed to sit behind `mcp-broker`, so the broker's rules and audit log apply to every GitHub call.
 
 See the [local-gh-mcp README](local-gh-mcp/README.md) for more information.
+
+### Agent Gateway
+
+Sandboxed agents need to call external APIs (GitHub, npm, LLM providers), but giving them real credentials defeats the purpose of sandboxing. What you want is a transparent proxy that holds credentials on the host, injects them into matching requests, and blocks or holds anything suspicious for human review — without the agent ever seeing the real token.
+
+`agent-gateway` runs on the host and intercepts all HTTPS traffic from the sandbox via `HTTPS_PROXY`:
+
+- Sandboxes receive dummy credentials and point `HTTPS_PROXY` at the gateway; real credentials are never inside the sandbox.
+- HCL rules match on host, method, path, headers, and body fields; matched requests get credentials injected at the header level.
+- Three verdicts: auto-allow (with injection), auto-deny, or hold for human approval via an embedded web dashboard.
+- Every intercepted request is audit-logged in SQLite — matched rule, agent identity, verdict, and which credential (by name) was used.
+- MITM TLS via a local root CA; HTTP/2 supported end-to-end.
+
+See the [agent-gateway README](agent-gateway/README.md) for more information.
 
 ## Related
 
