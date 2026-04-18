@@ -92,6 +92,33 @@ func TestFetcher_PropagatesToolError(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestFetcher_Info_FileMissing(t *testing.T) {
+	// Runner returns valid JSON but with a path that does not exist on disk.
+	runner := &stubRunner{
+		out: []byte(`{"Info":"/nonexistent/path/v1.2.3.info","GoMod":"/x","Zip":"/y","Version":"v1.2.3"}`),
+	}
+	f := New(runner)
+
+	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
+	w := httptest.NewRecorder()
+	err := f.Serve(w, httptest.NewRequest(http.MethodGet, "/", nil), req)
+	assert.Error(t, err)
+}
+
+func TestFetcher_ReportsDownloadError(t *testing.T) {
+	// Runner exits cleanly but JSON contains an Error field.
+	runner := &stubRunner{
+		out: []byte(`{"Error":"go: no such module"}`),
+	}
+	f := New(runner)
+
+	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
+	w := httptest.NewRecorder()
+	err := f.Serve(w, httptest.NewRequest(http.MethodGet, "/", nil), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "go: no such module")
+}
+
 type assertErr struct{}
 
 func (assertErr) Error() string { return "boom" }

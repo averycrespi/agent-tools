@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,10 +17,11 @@ import (
 
 type stubRunner struct {
 	out []byte
+	err error
 }
 
-func (s *stubRunner) Run(_ string, _ ...string) ([]byte, error)              { return s.out, nil }
-func (s *stubRunner) RunDir(_ string, _ string, _ ...string) ([]byte, error) { return s.out, nil }
+func (s *stubRunner) Run(_ string, _ ...string) ([]byte, error)              { return s.out, s.err }
+func (s *stubRunner) RunDir(_ string, _ string, _ ...string) ([]byte, error) { return s.out, s.err }
 
 func TestHandler_PublicRoute(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -52,6 +54,21 @@ func TestHandler_PrivateRoute(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "v1.0.0")
+}
+
+func TestHandler_PrivateRoute_BadGateway(t *testing.T) {
+	runner := &stubRunner{err: fmt.Errorf("boom")}
+	h := New(
+		router.New("github.com/private/*"),
+		private.New(runner),
+		public.New(mustURL(t, "http://127.0.0.1:1")), // should never be hit
+	)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/github.com/private/repo/@v/v1.0.0.info", nil)
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadGateway, w.Code)
 }
 
 func TestHandler_BadPath(t *testing.T) {
