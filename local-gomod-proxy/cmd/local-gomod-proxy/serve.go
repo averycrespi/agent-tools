@@ -51,8 +51,8 @@ var serveCmd = &cobra.Command{
 			private_ = env.GOPRIVATE
 		}
 		if private_ == "" {
-			return errors.New("GOPRIVATE is not set. Run `go env -w GOPRIVATE=github.com/your-org/*` on the host, " +
-				"or pass --private explicitly. With no private patterns, the proxy has no work to do.")
+			return errors.New("GOPRIVATE is not set; run `go env -w GOPRIVATE=github.com/your-org/*` on the host, " +
+				"or pass --private explicitly; with no private patterns, the proxy has no work to do")
 		}
 		if env.GOMODCACHE == "" {
 			return errors.New("GOMODCACHE is empty; ensure the host's go toolchain is configured")
