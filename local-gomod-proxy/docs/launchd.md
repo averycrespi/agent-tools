@@ -14,8 +14,8 @@ gh auth setup-git
 
 # Rewrite any ssh://git@github.com URLs in existing go.mod files to HTTPS
 # so they also flow through the gh credential helper.
-git config --global url."https://github.com/".insteadOf "git@github.com:"
-git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
 
 # Tell go which module paths are private.
 go env -w GOPRIVATE='github.com/your-org/*'
@@ -27,7 +27,7 @@ If your org enforces SAML-SSO and blocks HTTPS PATs, or you need to reach a git 
 
 ```bash
 # 1. Build and install the binary.
-make install   # drops it at $(go env GOBIN), defaulting to ~/go/bin.
+make install   # drops it at $(go env GOPATH)/bin, typically ~/go/bin.
 
 # 2. Render the example plist with your username and drop it into
 #    ~/Library/LaunchAgents/.

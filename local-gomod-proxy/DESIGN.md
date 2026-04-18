@@ -8,7 +8,7 @@ Sandboxed AI agents often work in Go projects that depend on private modules hos
 
 local-gomod-proxy solves this by running a minimal HTTP server on the host that implements the Go module proxy protocol. Public modules are forwarded to `proxy.golang.org`. Private modules are resolved using the host's git credentials and served back to the sandbox.
 
-The proxy is **unauthenticated** and binds to the host loopback (`127.0.0.1:7070`) by default. The Lima sandbox reaches it via `host.lima.internal:7070` — Lima's default user-mode networking forwards the guest's `host.lima.internal` to the host's loopback, so no bridge IP discovery is needed. The host still holds the git credentials; the sandbox reaches the proxy over the bridge and carries nothing. See [Design decisions](#design-decisions) for why auth was removed.
+The proxy is **unauthenticated** and binds to the host loopback (`127.0.0.1:7070`) by default. The Lima sandbox reaches it via `host.lima.internal:7070` — Lima's default user-mode networking forwards the guest's `host.lima.internal` to the host's loopback, so no bridge IP discovery is needed. The host still holds the git credentials; the sandbox reaches the proxy over the bridge and carries nothing. See [Design decisions](#design-decisions) for why there is no auth.
 
 ## Architecture
 
@@ -120,7 +120,7 @@ Startup validation:
 ## Security
 
 - **Local-only deployment** — the proxy is unauthenticated. Its security model relies entirely on being reachable only from the co-located sandbox. The default `--addr` is `127.0.0.1:7070` (host loopback); the Lima sandbox reaches it via `host.lima.internal:7070`. Overriding `--addr` to a public interface or `0.0.0.0` exposes the host's git credentials to anyone who can reach the port.
-- **No shell interpolation** — `go mod download` is invoked via `exec.Command` with an argv slice. Module paths and versions are URL-unescaped via `module.UnescapePath` / `module.UnescapeVersion` before use; `go mod download` rejects malformed inputs itself.
+- **No shell interpolation** — `go mod download` is invoked via `os/exec` with an argv slice. Module paths and versions are URL-unescaped via `module.UnescapePath` / `module.UnescapeVersion` before use; `go mod download` rejects malformed inputs itself.
 - **Plain HTTP** — traffic stays on the Lima bridge and never leaves the host.
 - **Request logging** — module path, version, and private/public verdict logged via `log/slog`.
 
@@ -142,7 +142,7 @@ No Athens, no `golang.org/x/mod/zip` — `go mod download` hands us finished art
 
 **Reverse-proxy public modules to `proxy.golang.org`.** Leverages the upstream CDN and existing cache. Zero host CPU for the common case. The sandbox doesn't need direct egress to `proxy.golang.org` — only to the host.
 
-**No application-level auth.** An earlier iteration used an HTTP Basic bearer token. Go ≥ 1.22 (cf. [Go issue #42135](https://github.com/golang/go/issues/42135)) refuses to send URL-embedded credentials over plain HTTP, and every other auth mechanism the `go` tool supports (`.netrc`, `GOAUTH`) is likewise HTTPS-gated (`cmd/go/internal/auth/auth.go` panics if the request scheme isn't HTTPS). Adding auth therefore requires TLS termination. Given the trust boundary — the sandbox is a co-located peer on a host-local bridge and the host already holds the git credentials — the cost of cert provisioning outweighed the benefit. Security is enforced at the network layer: bind to a local-only interface so no external caller can reach the port. This is the same posture Athens recommends for local dev deployments.
+**No application-level auth.** Go ≥ 1.22 (cf. [Go issue #42135](https://github.com/golang/go/issues/42135)) refuses to send URL-embedded credentials over plain HTTP, and every other auth mechanism the `go` tool supports (`.netrc`, `GOAUTH`) is likewise HTTPS-gated (`cmd/go/internal/auth/auth.go` panics if the request scheme isn't HTTPS). Adding auth therefore requires TLS termination. Given the trust boundary — the sandbox is a co-located peer on a host-local bridge and the host already holds the git credentials — the cost of cert provisioning outweighs the benefit. Security is enforced at the network layer: bind to a local-only interface so no external caller can reach the port. This is the same posture Athens recommends for local dev deployments.
 
 **Plain HTTP, no TLS.** Traffic stays on the Lima bridge and never reaches the public internet. TLS adds cert-provisioning complexity for no real-world benefit at this trust boundary.
 
