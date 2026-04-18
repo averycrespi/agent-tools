@@ -3,6 +3,7 @@ package audit_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -341,6 +342,56 @@ func TestLogger_QueryFilter(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, got2, 1)
 		assert.NotEqual(t, got[0].ID, got2[0].ID)
+	})
+}
+
+// TestLogger_Count verifies that Count returns the total matching rows,
+// ignoring Limit and Offset (i.e. the true total, not the page size).
+func TestLogger_Count(t *testing.T) {
+	db := openTestDB(t)
+	logger := audit.NewLogger(db)
+	ctx := context.Background()
+
+	base := time.Now().UTC().Truncate(time.Second)
+	for i := 0; i < 5; i++ {
+		e := audit.Entry{
+			ID:           fmt.Sprintf("01COUNT00000000000000000%d", i+1),
+			TS:           base.Add(time.Duration(-i) * time.Minute),
+			Agent:        strPtr("agent-count"),
+			Interception: "mitm",
+			Host:         "count.example.com",
+			Method:       strPtr("GET"),
+			Path:         strPtr("/count"),
+			DurationMS:   1,
+			BytesIn:      0,
+			BytesOut:     0,
+			Outcome:      "forwarded",
+		}
+		require.NoError(t, logger.Record(ctx, e))
+	}
+
+	t.Run("unfiltered total", func(t *testing.T) {
+		n, err := logger.Count(ctx, audit.Filter{})
+		require.NoError(t, err)
+		assert.Equal(t, 5, n)
+	})
+
+	t.Run("limit ignored by count", func(t *testing.T) {
+		lim := 2
+		n, err := logger.Count(ctx, audit.Filter{Limit: &lim})
+		require.NoError(t, err)
+		// Count must return 5, not 2.
+		assert.Equal(t, 5, n)
+	})
+
+	t.Run("filtered count", func(t *testing.T) {
+		n, err := logger.Count(ctx, audit.Filter{Agent: strPtr("agent-count")})
+		require.NoError(t, err)
+		assert.Equal(t, 5, n)
+
+		n2, err := logger.Count(ctx, audit.Filter{Agent: strPtr("nobody")})
+		require.NoError(t, err)
+		assert.Equal(t, 0, n2)
 	})
 }
 

@@ -34,6 +34,10 @@ func (c *capturingLogger) Query(ctx context.Context, f audit.Filter) ([]audit.En
 	return c.logger.Query(ctx, f)
 }
 
+func (c *capturingLogger) Count(ctx context.Context, f audit.Filter) (int, error) {
+	return c.logger.Count(ctx, f)
+}
+
 func (c *capturingLogger) Prune(ctx context.Context, before time.Time) (int, error) {
 	return c.logger.Prune(ctx, before)
 }

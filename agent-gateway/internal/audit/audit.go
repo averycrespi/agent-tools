@@ -90,11 +90,15 @@ type Filter struct {
 //
 // Query returns entries in descending timestamp order.
 //
+// Count returns the total number of rows that match filter, ignoring Limit and
+// Offset. This is used to return the true total alongside a paginated page.
+//
 // Prune removes all entries with ts strictly less than before (not ≤).
 // It returns the number of rows deleted.
 type Logger interface {
 	Record(ctx context.Context, entry Entry) error
 	Query(ctx context.Context, filter Filter) ([]Entry, error)
+	Count(ctx context.Context, filter Filter) (int, error)
 	Prune(ctx context.Context, before time.Time) (int, error)
 }
 
@@ -336,6 +340,48 @@ func (l *sqlLogger) Query(ctx context.Context, f Filter) ([]Entry, error) {
 		return nil, fmt.Errorf("audit: rows: %w", err)
 	}
 	return entries, nil
+}
+
+// Count returns the number of rows matching filter, ignoring Limit and Offset.
+// It uses the same WHERE clauses as Query so the caller gets the true total
+// for a paginated result set.
+func (l *sqlLogger) Count(ctx context.Context, f Filter) (int, error) {
+	var (
+		conds []string
+		args  []any
+	)
+
+	if f.After != nil {
+		conds = append(conds, "ts > ?")
+		args = append(args, f.After.UnixMilli())
+	}
+	if f.Before != nil {
+		conds = append(conds, "ts < ?")
+		args = append(args, f.Before.UnixMilli())
+	}
+	if f.Agent != nil {
+		conds = append(conds, "agent = ?")
+		args = append(args, *f.Agent)
+	}
+	if f.Host != nil {
+		conds = append(conds, "host = ?")
+		args = append(args, *f.Host)
+	}
+	if f.Rule != nil {
+		conds = append(conds, "matched_rule = ?")
+		args = append(args, *f.Rule)
+	}
+
+	q := "SELECT COUNT(*) FROM requests"
+	if len(conds) > 0 {
+		q += " WHERE " + strings.Join(conds, " AND ")
+	}
+
+	var n int
+	if err := l.db.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("audit: count: %w", err)
+	}
+	return n, nil
 }
 
 // Prune deletes all rows with ts strictly less than before (WHERE ts < before).
