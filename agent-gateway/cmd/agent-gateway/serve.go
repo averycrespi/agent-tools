@@ -174,8 +174,16 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		IdleConnTimeout:     cfg.Timeouts.UpstreamIdleKeepalive,
 	}
 
-	// 6c. Build the audit logger and the real MITM proxy.
+	// 6c. Build the audit logger, start the nightly retention pruner, and build
+	// the real MITM proxy.
 	auditor := audit.NewLogger(db)
+
+	pruneAt, err := audit.ParsePruneAt(cfg.Audit.PruneAt)
+	if err != nil {
+		return fmt.Errorf("parse audit.prune_at: %w", err)
+	}
+	retention := time.Duration(cfg.Audit.RetentionDays) * 24 * time.Hour
+	go audit.RunPruneLoop(ctx, auditor, log, retention, pruneAt, audit.RealClock{})
 
 	p := proxy.New(proxy.Deps{
 		CA:                   authority,
