@@ -201,6 +201,17 @@ func (s *Service) Provision() error {
 		}
 		s.logger.Debug("running script", "script", expanded)
 
+		info, err := os.Stat(expanded)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("provisioning script %q does not exist (configured as %q)", expanded, script)
+			}
+			return fmt.Errorf("failed to stat provisioning script %q: %w", expanded, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("provisioning script %q is a directory, expected a file", expanded)
+		}
+
 		tmpDst := "/tmp/sb-provision-script"
 		if err := s.lima.Copy(expanded, tmpDst, false); err != nil {
 			return fmt.Errorf("failed to copy script %q to VM: %w", expanded, err)
