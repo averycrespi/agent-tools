@@ -122,7 +122,7 @@ Startup validation:
 - **Local-only deployment** — the proxy is unauthenticated. Its security model relies entirely on being reachable only from the co-located sandbox. The default `--addr` is `127.0.0.1:7070` (host loopback); the Lima sandbox reaches it via `host.lima.internal:7070`. Overriding `--addr` to a public interface or `0.0.0.0` exposes the host's git credentials to anyone who can reach the port.
 - **No shell interpolation** — `go mod download` is invoked via `exec.Command` with an argv slice. Module paths and versions are URL-unescaped via `module.UnescapePath` / `module.UnescapeVersion` before use; `go mod download` rejects malformed inputs itself.
 - **Plain HTTP** — traffic stays on the Lima bridge and never leaves the host.
-- **Request logging** — module path, version, private/public verdict, cache hit/miss, and latency logged via `log/slog`.
+- **Request logging** — module path, version, and private/public verdict logged via `log/slog`.
 
 ## Tech stack
 
