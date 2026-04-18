@@ -51,7 +51,8 @@ func (s *stubInjector) LastReqContext() context.Context {
 
 // stubRulesEngine implements proxy.RulesEngine for tests.
 type stubRulesEngine struct {
-	result *rules.MatchResult
+	result          *rules.MatchResult
+	needsBodyBuffer bool
 }
 
 func (s *stubRulesEngine) Evaluate(_ *rules.Request) *rules.MatchResult {
@@ -60,6 +61,10 @@ func (s *stubRulesEngine) Evaluate(_ *rules.Request) *rules.MatchResult {
 
 func (s *stubRulesEngine) HostsForAgent(_ string) map[string]struct{} {
 	return nil
+}
+
+func (s *stubRulesEngine) NeedsBodyBuffer(_, _ string) bool {
+	return s.needsBodyBuffer
 }
 
 // stubApprovalBroker implements proxy.ApprovalBroker using a channel to
@@ -421,6 +426,106 @@ func TestPipeline_FailSoftOnUnresolvedSecret(t *testing.T) {
 	require.NotNil(t, a, "audit must be present in request context")
 	assert.Equal(t, "failed", a.Injection, "audit.injection must be 'failed'")
 	assert.Equal(t, "secret_unresolved", a.Error, "audit.error must be 'secret_unresolved'")
+}
+
+// captureRulesEngine is a stubRulesEngine variant that captures the
+// rules.Request passed to Evaluate so tests can inspect Body, etc.
+type captureRulesEngine struct {
+	needsBodyBuffer bool
+	captured        *rules.Request
+	result          *rules.MatchResult
+}
+
+func (c *captureRulesEngine) Evaluate(req *rules.Request) *rules.MatchResult {
+	cp := *req
+	c.captured = &cp
+	return c.result
+}
+
+func (c *captureRulesEngine) HostsForAgent(_ string) map[string]struct{} { return nil }
+
+func (c *captureRulesEngine) NeedsBodyBuffer(_, _ string) bool { return c.needsBodyBuffer }
+
+// TestPipeline_BodyBuffer_SkippedWhenNotNeeded verifies that when no rule on
+// the target host declares a body matcher (NeedsBodyBuffer returns false), the
+// proxy passes rreq.Body == nil to Evaluate without buffering anything.
+func TestPipeline_BodyBuffer_SkippedWhenNotNeeded(t *testing.T) {
+	auth := newTestAuthority(t)
+
+	engine := &captureRulesEngine{
+		needsBodyBuffer: false,
+		result:          allowMatchResult(),
+	}
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("ok")),
+			Request:    r,
+		}, nil
+	})
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                engine,
+	})
+
+	r := httptest.NewRequest(http.MethodPost, "https://api.example.com:443/data",
+		strings.NewReader(`{"key":"value"}`))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.HandleForTest(w, r, "api.example.com:443", "")
+
+	require.NotNil(t, engine.captured, "Evaluate should have been called")
+	assert.Nil(t, engine.captured.Body,
+		"Body must be nil when NeedsBodyBuffer returns false (no buffering overhead)")
+}
+
+// TestPipeline_BodyBuffer_BufferedWhenNeeded verifies that when a rule on the
+// target host declares a body matcher (NeedsBodyBuffer returns true), the proxy
+// buffers the request body into rreq.Body before calling Evaluate.
+func TestPipeline_BodyBuffer_BufferedWhenNeeded(t *testing.T) {
+	auth := newTestAuthority(t)
+
+	engine := &captureRulesEngine{
+		needsBodyBuffer: true,
+		result:          allowMatchResult(),
+	}
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		// Also verify the upstream still receives the full body.
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != `{"key":"value"}` {
+			return &http.Response{
+				StatusCode: http.StatusBadRequest,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader("body mismatch")),
+				Request:    r,
+			}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("ok")),
+			Request:    r,
+		}, nil
+	})
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                engine,
+	})
+
+	r := httptest.NewRequest(http.MethodPost, "https://api.example.com:443/data",
+		strings.NewReader(`{"key":"value"}`))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.HandleForTest(w, r, "api.example.com:443", "")
+
+	resp := w.Result()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "upstream must receive the full body")
+	require.NotNil(t, engine.captured, "Evaluate should have been called")
+	assert.Equal(t, []byte(`{"key":"value"}`), engine.captured.Body,
+		"Body must be buffered when NeedsBodyBuffer returns true")
 }
 
 // TestPipeline_RequireApproval_NilBroker verifies that when no approval broker

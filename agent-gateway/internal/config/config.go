@@ -447,7 +447,7 @@ func Load(path string) (Config, error) {
 func Refresh(path string) error {
 	cfg, err := Load(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("config: refresh: %w", err)
 	}
 	return Save(cfg, path)
 }

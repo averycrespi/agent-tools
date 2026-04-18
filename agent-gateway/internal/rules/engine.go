@@ -32,7 +32,7 @@ func NewEngine(dir string) (*Engine, error) {
 func (e *Engine) Reload() error {
 	rs, err := load(e.dir)
 	if err != nil {
-		return err
+		return fmt.Errorf("rules: reload: %w", err)
 	}
 	e.snapshot.Store(rs)
 	return nil
@@ -66,6 +66,17 @@ func (e *Engine) Rules() []*Rule {
 // against concrete hostnames.
 func (e *Engine) HostsForAgent(agent string) map[string]struct{} {
 	return e.snapshot.Load().hostsForAgent(agent)
+}
+
+// NeedsBodyBuffer reports whether any rule that could match the given agent
+// and host contains a body matcher. Callers use this to avoid the cost of
+// buffering request bodies when no rule can ever examine them.
+//
+// The check is conservative: it returns true whenever any rule whose agent
+// filter includes agent (or whose Agents list is nil, i.e. all-agents) AND
+// whose host glob matches host has a non-nil body matcher.
+func (e *Engine) NeedsBodyBuffer(agent, host string) bool {
+	return e.snapshot.Load().needsBodyBuffer(agent, host)
 }
 
 // AllRuleHosts returns a deduplicated slice of every host-glob pattern

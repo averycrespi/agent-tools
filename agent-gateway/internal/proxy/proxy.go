@@ -23,6 +23,8 @@ const (
 	defaultHandshakeTimeout  = 10 * time.Second
 	defaultReadHeaderTimeout = 10 * time.Second
 	defaultIdleTimeout       = 90 * time.Second
+	defaultMaxBodyBuffer     = 1 << 20 // 1 MiB
+	defaultBodyBufferTimeout = 5 * time.Second
 )
 
 // CA is the interface required by Proxy for TLS interception.
@@ -50,6 +52,9 @@ type RulesEngine interface {
 	// HostsForAgent returns the set of host-glob patterns with at least one
 	// rule applying to agent. Used at CONNECT time to decide MITM vs tunnel.
 	HostsForAgent(agent string) map[string]struct{}
+	// NeedsBodyBuffer reports whether any rule that could match agent+host has
+	// a body matcher, so the proxy knows whether to buffer the request body.
+	NeedsBodyBuffer(agent, host string) bool
 }
 
 // ApprovalDecision is the outcome of an approval request.
@@ -164,6 +169,14 @@ type Deps struct {
 	// IdleTimeout is the maximum time an idle HTTP/2 server connection may
 	// remain open. Zero uses the default of 90s.
 	IdleTimeout time.Duration
+
+	// MaxBodyBuffer is the maximum number of bytes to buffer from the request
+	// body for body-matcher evaluation. Zero uses the default of 1 MiB.
+	MaxBodyBuffer int64
+
+	// BodyBufferTimeout is the maximum wall-clock time allowed to read the
+	// buffered body prefix. Zero uses the default of 5s.
+	BodyBufferTimeout time.Duration
 }
 
 // Proxy is the MITM proxy. Create one with New and call Serve to accept
@@ -182,6 +195,8 @@ type Proxy struct {
 	handshakeTimeout  time.Duration
 	readHeaderTimeout time.Duration
 	idleTimeout       time.Duration
+	maxBodyBuffer     int64
+	bodyBufferTimeout time.Duration
 }
 
 // New constructs a Proxy from the given Deps. It panics if Deps.CA is nil.
@@ -216,6 +231,14 @@ func New(d Deps) *Proxy {
 	if it == 0 {
 		it = defaultIdleTimeout
 	}
+	mbb := d.MaxBodyBuffer
+	if mbb == 0 {
+		mbb = defaultMaxBodyBuffer
+	}
+	bbt := d.BodyBufferTimeout
+	if bbt == 0 {
+		bbt = defaultBodyBufferTimeout
+	}
 	return &Proxy{
 		ca:                d.CA,
 		registry:          d.Registry,
@@ -230,6 +253,8 @@ func New(d Deps) *Proxy {
 		handshakeTimeout:  ht,
 		readHeaderTimeout: rht,
 		idleTimeout:       it,
+		maxBodyBuffer:     mbb,
+		bodyBufferTimeout: bbt,
 	}
 }
 

@@ -214,8 +214,29 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 			Method: r.Method,
 			Path:   r.URL.Path,
 			Header: r.Header,
-			// Body: nil — Task 17 buffer wired in next step
 		}
+
+		// Buffer the request body only when at least one rule for this
+		// agent+host declares a body matcher. This avoids the buffering
+		// overhead for the common case where no body matching is needed.
+		if p.rules.NeedsBodyBuffer(agentName, hostOnly) && r.Body != nil {
+			body, truncated, timedOut, rewound, bufErr := bufferBody(
+				r.Context(), r.Body, r.Header,
+				p.maxBodyBuffer, p.bodyBufferTimeout,
+			)
+			if bufErr == nil {
+				rreq.Body = body
+				rreq.BodyTruncated = truncated
+				rreq.BodyTimedOut = timedOut
+				// Replace r.Body with the rewound reader so the upstream still
+				// receives the full original body bytes.
+				r.Body = rewound
+			} else {
+				p.log.Warn("proxy: body buffer read error; body matchers will not fire",
+					"request_id", reqID, "err", bufErr)
+			}
+		}
+
 		m := p.rules.Evaluate(rreq)
 
 		if m != nil && m.Rule != nil && m.Error == "" {

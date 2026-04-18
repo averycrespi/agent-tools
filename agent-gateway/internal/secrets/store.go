@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 )
@@ -191,18 +192,18 @@ func (s *sqlStore) Delete(ctx context.Context, name, agent string) error {
 func (s *sqlStore) MasterRotate(ctx context.Context) error {
 	newKey, err := generateKey()
 	if err != nil {
-		return err
+		return fmt.Errorf("secrets: master-rotate: generate key: %w", err)
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("secrets: master-rotate: begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	rows, err := tx.QueryContext(ctx, `SELECT id, ciphertext, nonce FROM secrets`)
 	if err != nil {
-		return err
+		return fmt.Errorf("secrets: master-rotate: query secrets: %w", err)
 	}
 
 	type row struct {
@@ -215,35 +216,35 @@ func (s *sqlStore) MasterRotate(ctx context.Context) error {
 		var r row
 		if err := rows.Scan(&r.id, &r.ciphertext, &r.nonce); err != nil {
 			_ = rows.Close()
-			return err
+			return fmt.Errorf("secrets: master-rotate: scan row: %w", err)
 		}
 		all = append(all, r)
 	}
 	if err := rows.Close(); err != nil {
-		return err
+		return fmt.Errorf("secrets: master-rotate: close rows: %w", err)
 	}
 	if err := rows.Err(); err != nil {
-		return err
+		return fmt.Errorf("secrets: master-rotate: rows error: %w", err)
 	}
 
 	for _, r := range all {
 		plain, err := decrypt(s.key, r.nonce, r.ciphertext)
 		if err != nil {
-			return err
+			return fmt.Errorf("secrets: master-rotate: decrypt: %w", err)
 		}
 		newNonce, newCipher, err := encrypt(newKey, plain)
 		if err != nil {
-			return err
+			return fmt.Errorf("secrets: master-rotate: encrypt: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE secrets SET ciphertext=?, nonce=? WHERE id=?`,
 			newCipher, newNonce, r.id); err != nil {
-			return err
+			return fmt.Errorf("secrets: master-rotate: update row: %w", err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return err
+		return fmt.Errorf("secrets: master-rotate: commit: %w", err)
 	}
 
 	// Only after the TX commits do we update the in-memory key and persist it.

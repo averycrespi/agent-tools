@@ -246,6 +246,8 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		HandshakeTimeout:  cfg.Timeouts.MITMHandshake,
 		ReadHeaderTimeout: cfg.Timeouts.ConnectReadHeader,
 		IdleTimeout:       cfg.Timeouts.IdleKeepalive,
+		MaxBodyBuffer:     cfg.ProxyBehavior.MaxBodyBuffer,
+		BodyBufferTimeout: cfg.Timeouts.BodyBufferRead,
 	})
 
 	// Start proxy: Serve blocks on Accept; close proxyLn on ctx.Done to stop it.

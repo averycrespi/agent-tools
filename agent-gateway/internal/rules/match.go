@@ -89,6 +89,36 @@ func (rs *ruleset) hostsForAgent(agent string) map[string]struct{} {
 	return out
 }
 
+// needsBodyBuffer reports whether any rule that could match the given agent
+// and host has a body matcher. It uses a conservative check: host glob must
+// match and the rule's agent filter must include agent (or be nil).
+func (rs *ruleset) needsBodyBuffer(agent, host string) bool {
+	for i := range rs.rules {
+		r := &rs.rules[i]
+		// Agent filter: nil means all agents.
+		if r.Agents != nil {
+			found := false
+			for _, a := range r.Agents {
+				if a == agent {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+		// Host glob: empty means any host.
+		if r.hostGlob.re != nil && !r.hostGlob.re.MatchString(host) {
+			continue
+		}
+		if r.body != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // matchRule checks whether every criterion in r is satisfied by req.
 // It returns (matched bool, bypassError string). bypassError is non-empty only
 // when a body matcher was bypassed due to size or timeout; in that case matched

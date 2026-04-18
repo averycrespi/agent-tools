@@ -146,7 +146,7 @@ func runMigration(db *sql.DB, version int, fn func(*sql.Tx) error) error {
 	defer func() { _ = tx.Rollback() }()
 
 	if err := fn(tx); err != nil {
-		return err
+		return fmt.Errorf("migration v%d: %w", version, err)
 	}
 
 	// PRAGMA user_version cannot be set inside a transaction via a bound

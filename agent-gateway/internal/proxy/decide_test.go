@@ -83,6 +83,8 @@ func (e *decideStubEngine) HostsForAgent(_ string) map[string]struct{} {
 	return e.hosts
 }
 
+func (e *decideStubEngine) NeedsBodyBuffer(_, _ string) bool { return false }
+
 // ---- helpers --------------------------------------------------------------
 
 // makeProxyAuthHeader builds a valid Basic Proxy-Authorization header.
