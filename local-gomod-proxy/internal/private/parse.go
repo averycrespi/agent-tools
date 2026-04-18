@@ -35,8 +35,8 @@ func ParseRequest(path string) (Request, error) {
 	}
 
 	// /@latest form
-	if idx := strings.LastIndex(trimmed, "/@latest"); idx >= 0 && idx == len(trimmed)-len("/@latest") {
-		modEsc := trimmed[:idx]
+	if strings.HasSuffix(trimmed, "/@latest") {
+		modEsc := strings.TrimSuffix(trimmed, "/@latest")
 		mod, err := module.UnescapePath(modEsc)
 		if err != nil {
 			return Request{}, fmt.Errorf("invalid module path: %w", err)

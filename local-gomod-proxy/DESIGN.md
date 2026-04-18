@@ -12,7 +12,7 @@ The proxy is **unauthenticated** and binds to the host loopback (`127.0.0.1:7070
 
 ## Architecture
 
-local-gomod-proxy is a single HTTP binary. No config file, no persistent state beyond the auth token file.
+local-gomod-proxy is a single HTTP binary. No config file, no persistent state.
 
 ```
                          ┌────────────────────────────────┐
@@ -83,7 +83,7 @@ local-gomod-proxy/
 │   │   ├── public.go            # PublicFetcher — httputil.ReverseProxy to proxy.golang.org
 │   │   └── public_test.go
 │   └── server/
-│       ├── server.go            # HTTP handler wiring router + fetchers + auth
+│       ├── server.go            # HTTP handler wiring router + fetchers
 │       └── server_test.go
 ├── test/
 │   └── e2e/
