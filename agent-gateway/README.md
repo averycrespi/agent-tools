@@ -111,7 +111,7 @@ limactl shell default -- bash -c '
 
 ## Architecture
 
-See [`.designs/2026-04-16-agent-gateway.md`](../.designs/2026-04-16-agent-gateway.md) for the full design document.
+See [`DESIGN.md`](./DESIGN.md) for the full design document.
 
 ```
 cmd/agent-gateway/      CLI entry point (Cobra): serve, agent, secret, rules,
@@ -195,4 +195,4 @@ Run `make audit` before committing. Integration tests use `//go:build integratio
 
 `agent-gateway` is architecturally inspired by [onecli](https://github.com/onecli/onecli), an HTTP proxy that injects credentials into requests from sandboxed agents. The core match-and-swap concept and the `Proxy-Authorization` userinfo convention (`http://x:<token>@host:port`) both originate there.
 
-`agent-gateway` extends the model with HCL rules, content-type-aware body matching, a human-approval flow, a live SSE audit dashboard, and per-agent identity. It is a clean-room Go reimplementation; no code is shared. See `NOTICE` for attribution.
+`agent-gateway` extends the model with HCL rules, content-type-aware body matching, a human-approval flow, a live SSE audit dashboard, and per-agent identity. It is a clean-room Go reimplementation; no code is shared.

@@ -1,5 +1,0 @@
-agent-gateway is a clean-room Go reimplementation inspired by onecli
-(https://github.com/onecli/onecli); no code is incorporated. The
-architectural concepts listed in the design document are the only
-overlap. This file exists as good-citizen attribution; no license
-compliance obligation is asserted.
