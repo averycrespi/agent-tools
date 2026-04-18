@@ -73,11 +73,11 @@ echo -n "ghp_…" | agent-gateway secret set gh_token
 ```bash
 mkdir -p ~/.config/agent-gateway/rules.d
 cat > ~/.config/agent-gateway/rules.d/github.hcl <<'EOF'
-rule "github-issues" {
+rule "github-user" {
   match {
     host   = "api.github.com"
-    method = "POST"
-    path   = "/repos/*/*/issues"
+    method = "GET"
+    path   = "/user"
   }
 
   verdict = "allow"
@@ -92,6 +92,8 @@ EOF
 
 agent-gateway rules reload
 ```
+
+This rule matches the authenticated-user lookup (`GET /user`) and swaps the dummy bearer token for the real one. Read-only by design — a good shape for verifying the pipeline end-to-end without side effects.
 
 See [docs/rules.md](./docs/rules.md) for full rule syntax.
 
@@ -115,8 +117,9 @@ export HTTPS_PROXY=http://x:agw_a1b2c3…@<gateway-host>:8220
 export HTTP_PROXY=http://x:agw_a1b2c3…@<gateway-host>:8220
 export NO_PROXY=localhost,127.0.0.1
 
-# Traffic now flows through the gateway.
-gh issue create --repo owner/repo --title "Test" --body "Hello"
+# Traffic now flows through the gateway. The dummy bearer is swapped for
+# the real gh_token secret by the rule from step 4.
+curl -s -H "Authorization: Bearer dummy" https://api.github.com/user
 ```
 
 The request appears on the dashboard live feed with the rule match, injection status, and outcome.
