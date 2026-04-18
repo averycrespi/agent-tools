@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/agents"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/inject"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
 )
@@ -110,6 +111,16 @@ type Deps struct {
 	// CA provides leaf TLS configs for MITM interception. Required.
 	CA CA
 
+	// Registry authenticates agent tokens from Proxy-Authorization headers.
+	// If nil, all CONNECT requests are accepted without authentication (legacy
+	// behaviour; real deployments must provide a registry).
+	Registry agents.Registry
+
+	// NoInterceptHosts is the list of host-glob patterns from the
+	// no_intercept_hosts config field. CONNECT targets that match any of these
+	// patterns are tunnelled rather than MITM'd, regardless of the rule set.
+	NoInterceptHosts []string
+
 	// UpstreamRoundTripper is used to forward decoded requests to the real
 	// upstream server. If nil, a default http.Transport is used (set during
 	// Serve). Inject a fake in tests.
@@ -148,6 +159,8 @@ type Deps struct {
 // connections.
 type Proxy struct {
 	ca                CA
+	registry          agents.Registry
+	noInterceptHosts  []string
 	rt                http.RoundTripper
 	rules             RulesEngine
 	approval          ApprovalBroker
@@ -192,6 +205,8 @@ func New(d Deps) *Proxy {
 	}
 	return &Proxy{
 		ca:                d.CA,
+		registry:          d.Registry,
+		noInterceptHosts:  d.NoInterceptHosts,
 		rt:                rt,
 		rules:             d.Rules,
 		approval:          d.Approval,

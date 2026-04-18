@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -13,8 +14,8 @@ import (
 )
 
 // serveConn handles a single inbound TCP connection. It reads the initial
-// HTTP request, dispatches CONNECT to the MITM path, and rejects anything
-// else with 400.
+// HTTP CONNECT request, authenticates the agent (when a registry is
+// configured), makes the tunnel-vs-MITM decision, and dispatches accordingly.
 func (p *Proxy) serveConn(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 
@@ -31,30 +32,56 @@ func (p *Proxy) serveConn(conn net.Conn) {
 		return
 	}
 
-	// TODO(Task 24): parse Proxy-Authorization and authenticate the agent.
-	// For this milestone any (or no) Proxy-Authorization is accepted.
-	// _ = req.Header.Get("Proxy-Authorization")
-
-	// TODO(Task 24): consult no_intercept_hosts and per-agent rule set to
-	// decide tunnel vs MITM. For this milestone we always MITM.
-
-	// connectTarget is the full "host:port" from the CONNECT request (used
-	// as the upstream URL host so the correct port is dialled).
+	// connectTarget is the full "host:port" from the CONNECT request.
 	connectTarget := req.Host
 
 	// hostOnly is the bare hostname without port, used for TLS SNI and leaf
 	// certificate issuance. If SplitHostPort fails the target has no port
 	// (unusual) so use it as-is.
-	hostOnly, _, err := net.SplitHostPort(connectTarget)
-	if err != nil {
+	hostOnly, _, splitErr := net.SplitHostPort(connectTarget)
+	if splitErr != nil {
 		hostOnly = connectTarget
 	}
 
-	// Acknowledge the CONNECT.
+	// --- Authentication + intercept decision ---
+	if p.registry != nil {
+		authedAgent, authErr := Authenticate(context.Background(), p.registry, req.Header)
+		if authErr != nil {
+			_ = write407(conn)
+			return
+		}
+
+		decision := Decide(context.Background(), connectTarget, authedAgent, p.rules, p.noInterceptHosts)
+		switch decision {
+		case DecisionReject:
+			_ = write407(conn)
+			return
+		case DecisionTunnel:
+			if err := writeResponse(conn, http.StatusOK, "Connection Established"); err != nil {
+				return
+			}
+			p.serveTunnel(conn, br, connectTarget)
+			return
+		default: // DecisionMITM
+			if err := writeResponse(conn, http.StatusOK, "Connection Established"); err != nil {
+				return
+			}
+			p.serveMITM(conn, br, connectTarget, hostOnly)
+			return
+		}
+	}
+
+	// No registry configured: legacy path — always MITM without auth.
 	if err := writeResponse(conn, http.StatusOK, "Connection Established"); err != nil {
 		return
 	}
+	p.serveMITM(conn, br, connectTarget, hostOnly)
+}
 
+// serveMITM performs TLS interception on conn. br is the buffered reader
+// wrapping conn (may contain already-read bytes). connectTarget is the full
+// host:port; hostOnly is the bare hostname for leaf-cert issuance.
+func (p *Proxy) serveMITM(conn net.Conn, br *bufio.Reader, connectTarget, hostOnly string) {
 	// The bufio reader may have buffered bytes beyond the CONNECT request line.
 	// For a well-behaved client the CONNECT body is empty so the reader buffer
 	// should be empty here, but we drain it defensively.
@@ -98,10 +125,57 @@ func (p *Proxy) serveConn(conn net.Conn) {
 	}
 }
 
+// serveTunnel relays raw TCP traffic bidirectionally between conn and the
+// upstream address named in connectTarget. It dials connectTarget directly and
+// pipes data in both directions until either side closes.
+func (p *Proxy) serveTunnel(conn net.Conn, br *bufio.Reader, connectTarget string) {
+	upstream, err := net.Dial("tcp", connectTarget)
+	if err != nil {
+		p.log.Debug("proxy: tunnel dial failed", "target", connectTarget, "err", err)
+		return
+	}
+	defer func() { _ = upstream.Close() }()
+
+	// If the bufio.Reader buffered bytes beyond the CONNECT line, drain them
+	// first into the upstream connection before starting the bidirectional copy.
+	if br.Buffered() > 0 {
+		pre := make([]byte, br.Buffered())
+		_, _ = io.ReadFull(br, pre)
+		if _, err := upstream.Write(pre); err != nil {
+			return
+		}
+	}
+
+	done := make(chan struct{}, 2)
+	go func() {
+		_, _ = io.Copy(upstream, conn)
+		done <- struct{}{}
+	}()
+	go func() {
+		_, _ = io.Copy(conn, upstream)
+		done <- struct{}{}
+	}()
+	<-done
+	// Close both ends so the other goroutine unblocks.
+	_ = conn.Close()
+	_ = upstream.Close()
+	<-done
+}
+
 // writeResponse writes a minimal HTTP/1.1 response on conn.
 func writeResponse(conn net.Conn, code int, msg string) error {
 	line := fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", code, msg)
 	_, err := io.WriteString(conn, line)
+	return err
+}
+
+// write407 writes a 407 Proxy Authentication Required response including the
+// mandatory Proxy-Authenticate challenge header.
+func write407(conn net.Conn) error {
+	const resp = "HTTP/1.1 407 Proxy Authentication Required\r\n" +
+		"Proxy-Authenticate: Basic realm=\"agent-gateway\"\r\n" +
+		"\r\n"
+	_, err := io.WriteString(conn, resp)
 	return err
 }
 
