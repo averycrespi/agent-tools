@@ -44,6 +44,19 @@ func (e *Engine) Evaluate(req *Request) *MatchResult {
 	return e.snapshot.Load().Evaluate(req)
 }
 
+// Rules returns the current rule list in evaluation order. The caller receives
+// a copy of the slice from the current atomic snapshot; the underlying Rule
+// values are immutable so shallow copies are safe to read concurrently.
+func (e *Engine) Rules() []*Rule {
+	rs := e.snapshot.Load()
+	out := make([]*Rule, len(rs.rules))
+	for i := range rs.rules {
+		r := rs.rules[i] // copy
+		out[i] = &r
+	}
+	return out
+}
+
 // HostsForAgent returns the set of host-glob patterns that have at least one
 // rule applying to the given agent. Rules with no agent filter (nil Agents)
 // are included for every agent.

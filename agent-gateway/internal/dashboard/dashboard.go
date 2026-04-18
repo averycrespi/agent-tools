@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/agents"
@@ -58,10 +60,10 @@ type Deps struct {
 
 // Server is the dashboard HTTP handler.
 type Server struct {
-	deps  Deps
-	sse   *sseBroker
-	log   *slog.Logger
-	token string // loaded once in Handler()
+	deps     Deps
+	sse      *sseBroker
+	log      *slog.Logger
+	tokenPtr atomic.Pointer[string] // current admin token; swapped atomically on SIGHUP
 }
 
 // New constructs a dashboard Server from Deps.
@@ -78,13 +80,15 @@ func New(deps Deps) *Server {
 }
 
 // Handler returns the HTTP handler for the dashboard, wrapped in auth middleware.
-func (s *Server) Handler() http.Handler {
-	token, err := EnsureAdminToken(s.deps.AdminTokenPath)
+// It also returns created=true when the admin token file was newly generated
+// (i.e. this is the first run), and false when an existing token was loaded.
+func (s *Server) Handler() (http.Handler, bool) {
+	token, created, err := EnsureAdminTokenCreated(s.deps.AdminTokenPath)
 	if err != nil {
 		s.log.Error("dashboard: failed to load admin token", "error", err)
 		token = ""
 	}
-	s.token = token
+	s.tokenPtr.Store(&token)
 
 	mux := http.NewServeMux()
 
@@ -110,7 +114,29 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /dashboard/api/rules", s.handleRules)
 	mux.HandleFunc("GET /dashboard/api/secrets", s.handleSecrets)
 
-	return authMiddleware(token, mux)
+	return authMiddleware(&s.tokenPtr, mux), created
+}
+
+// ReloadToken re-reads the admin token file and atomically swaps the in-memory
+// token. After this returns, new requests are validated against the new token;
+// any in-flight cookie carrying the old token is rejected.
+func (s *Server) ReloadToken() error {
+	data, err := os.ReadFile(s.deps.AdminTokenPath)
+	if err != nil {
+		return fmt.Errorf("dashboard: reload token: %w", err)
+	}
+	tok := strings.TrimSpace(string(data))
+	s.tokenPtr.Store(&tok)
+	return nil
+}
+
+// Token returns the current admin token (used for URL generation at startup).
+func (s *Server) Token() string {
+	p := s.tokenPtr.Load()
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // handleCAPem serves the CA certificate (unauthenticated).
@@ -142,11 +168,12 @@ func (s *Server) handleUnauthorizedPOST(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	submitted := r.FormValue("token")
-	tokenBytes := []byte(s.token)
+	current := s.Token()
+	tokenBytes := []byte(current)
 	if subtle.ConstantTimeCompare([]byte(submitted), tokenBytes) == 1 {
 		http.SetCookie(w, &http.Cookie{
 			Name:     cookieName,
-			Value:    s.token,
+			Value:    current,
 			Path:     "/dashboard/",
 			HttpOnly: true,
 			SameSite: http.SameSiteStrictMode,

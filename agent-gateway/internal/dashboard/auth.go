@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,27 +19,53 @@ const cookieName = "agent-gateway-auth"
 // EnsureAdminToken loads the admin token from path, or generates and writes a
 // new one if the file does not exist. Returns the 64-character hex token.
 func EnsureAdminToken(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err == nil {
-		return strings.TrimSpace(string(data)), nil
+	tok, _, err := EnsureAdminTokenCreated(path)
+	return tok, err
+}
+
+// EnsureAdminTokenCreated is like EnsureAdminToken but also returns created=true
+// when the file was newly generated (first run), and false when an existing
+// token was loaded.
+func EnsureAdminTokenCreated(path string) (token string, created bool, err error) {
+	data, readErr := os.ReadFile(path)
+	if readErr == nil {
+		return strings.TrimSpace(string(data)), false, nil
 	}
-	if !os.IsNotExist(err) {
-		return "", fmt.Errorf("reading admin token file: %w", err)
+	if !os.IsNotExist(readErr) {
+		return "", false, fmt.Errorf("reading admin token file: %w", readErr)
 	}
 
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
+		return "", false, fmt.Errorf("generating admin token: %w", err)
+	}
+	tok := hex.EncodeToString(b)
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return "", false, fmt.Errorf("creating token directory: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(tok), 0o600); err != nil {
+		return "", false, fmt.Errorf("writing admin token file: %w", err)
+	}
+	return tok, true, nil
+}
+
+// GenerateAdminToken generates a new random token, overwrites the file at
+// path, and returns the new 64-character hex token.
+func GenerateAdminToken(path string) (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generating admin token: %w", err)
 	}
-	token := hex.EncodeToString(b)
+	tok := hex.EncodeToString(b)
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return "", fmt.Errorf("creating token directory: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(token), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(tok), 0o600); err != nil {
 		return "", fmt.Errorf("writing admin token file: %w", err)
 	}
-	return token, nil
+	return tok, nil
 }
 
 // authMiddleware wraps next, enforcing admin token auth for /dashboard/* paths.
@@ -50,9 +77,10 @@ func EnsureAdminToken(path string) (string, error) {
 //
 // Any dashboard request without valid auth is redirected to /dashboard/unauthorized.
 // Non-dashboard requests (future API endpoints not under /dashboard/) receive 401.
-func authMiddleware(token string, next http.Handler) http.Handler {
-	tokenBytes := []byte(token)
-
+//
+// tokenPtr is read atomically on every request so a SIGHUP-triggered token
+// rotation takes effect immediately without restarting the server.
+func authMiddleware(tokenPtr *atomic.Pointer[string], next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
@@ -60,6 +88,13 @@ func authMiddleware(token string, next http.Handler) http.Handler {
 		if path == "/ca.pem" || path == "/dashboard/unauthorized" {
 			next.ServeHTTP(w, r)
 			return
+		}
+
+		// Load the current token atomically on every request.
+		cur := tokenPtr.Load()
+		var tokenBytes []byte
+		if cur != nil {
+			tokenBytes = []byte(*cur)
 		}
 
 		// Check Authorization: Bearer header.
@@ -80,6 +115,10 @@ func authMiddleware(token string, next http.Handler) http.Handler {
 		if isDashboard {
 			if qToken := r.URL.Query().Get("token"); qToken != "" {
 				if subtle.ConstantTimeCompare([]byte(qToken), tokenBytes) == 1 {
+					token := ""
+					if cur != nil {
+						token = *cur
+					}
 					http.SetCookie(w, &http.Cookie{
 						Name:     cookieName,
 						Value:    token,

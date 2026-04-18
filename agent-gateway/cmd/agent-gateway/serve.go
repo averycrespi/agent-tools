@@ -3,21 +3,27 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/agents"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/approval"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/ca"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/config"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/daemon"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/dashboard"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/inject"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/proxy"
@@ -47,6 +53,15 @@ type serveDeps struct {
 	// DashboardAddr receives the bound dashboard address (host:port) after startup.
 	// Must be buffered (cap >= 1) if non-nil.
 	DashboardAddr chan string
+
+	// Headless, when true, suppresses the open-browser call regardless of the
+	// config value. Tests and CI set this to avoid launching a real browser.
+	Headless bool
+
+	// OpenBrowserFn is called with the dashboard URL when the server starts for
+	// the first time (first-run) and Headless is false and cfg.Dashboard.OpenBrowser
+	// is true. If nil, the default platform-specific opener is used.
+	OpenBrowserFn func(url string) error
 }
 
 // newServeDeps returns production-ready defaults. Tests may override fields.
@@ -59,21 +74,27 @@ func newServeDeps() serveDeps {
 
 // newServeCmd returns a cobra.Command that runs RunServe.
 func newServeCmd(configPath func() string) *cobra.Command {
-	return &cobra.Command{
+	var headless bool
+
+	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the agent-gateway proxy and dashboard",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			deps := newServeDeps()
 			deps.ConfigPath = configPath()
+			deps.Headless = headless
 			return RunServe(cmd.Context(), deps)
 		},
 	}
+
+	cmd.Flags().BoolVar(&headless, "headless", false, "suppress open-browser on first run (useful for CI and headless servers)")
+	return cmd
 }
 
-// RunServe binds the proxy and dashboard listeners, starts placeholder HTTP
-// servers, installs signal handlers, and blocks until ctx is cancelled or a
-// shutdown signal (SIGTERM/SIGINT) arrives. Returns nil on clean shutdown.
+// RunServe binds the proxy and dashboard listeners, starts HTTP servers,
+// installs signal handlers, and blocks until ctx is cancelled or a shutdown
+// signal (SIGTERM/SIGINT) arrives. Returns nil on clean shutdown.
 func RunServe(ctx context.Context, d serveDeps) error {
 	log := d.Logger
 	if log == nil {
@@ -130,6 +151,18 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		inj = inject.NewInjector(secretsStore, cfg.Secrets.CacheTTL)
 		proxyInjector = &injectAdapter{inj: inj}
 	}
+
+	// 3c. Initialise the agents registry and approval broker.
+	agentsRegistry, agentsErr := agents.NewRegistry(ctx, db)
+	if agentsErr != nil {
+		log.Warn("agents registry unavailable", "err", agentsErr)
+		agentsRegistry = nil
+	}
+
+	approvalBroker := approval.New(approval.Opts{
+		MaxPending: cfg.Approval.MaxPending,
+		Timeout:    cfg.Approval.Timeout,
+	})
 
 	// 4. Acquire PID file.
 	pidHandle, err := daemon.Acquire(paths.PIDFile())
@@ -204,13 +237,20 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	}()
 	go p.Serve(proxyLn)
 
-	// 6d. Dashboard placeholder HTTP server.
-	dashSrv := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			_, _ = fmt.Fprint(w, "hello")
-		}),
-	}
+	// 6d. Build and start the real dashboard server.
+	dashServer := dashboard.New(dashboard.Deps{
+		AdminTokenPath: paths.AdminTokenFile(),
+		Rules:          engine,
+		Agents:         agentsRegistry,
+		Secrets:        secretsStore,
+		Auditor:        auditor,
+		Approval:       approvalBroker,
+		CAPath:         paths.CACert(),
+		Logger:         log,
+	})
+	dashHandler, firstRun := dashServer.Handler()
+
+	dashSrv := &http.Server{Handler: dashHandler}
 
 	dashErr := make(chan error, 1)
 	go func() {
@@ -227,17 +267,34 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		d.DashboardAddr <- dashLn.Addr().String()
 	}
 
-	// 8. Signal ready.
+	// 7. Signal ready.
 	if d.Ready != nil {
 		close(d.Ready)
 	}
 
+	dashURL := fmt.Sprintf("http://%s/dashboard/?token=%s", dashLn.Addr(), dashServer.Token())
 	log.Info("agent-gateway started",
 		"proxy", proxyLn.Addr(),
 		"dashboard", dashLn.Addr(),
 	)
 
-	// 7. Install signal handlers.
+	// Print the authenticated URL on first run (token file was just created).
+	if firstRun {
+		fmt.Printf("Dashboard: %s\n", dashURL)
+	}
+
+	// Open browser if configured and not headless.
+	if firstRun && !d.Headless && cfg.Dashboard.OpenBrowser {
+		openFn := d.OpenBrowserFn
+		if openFn == nil {
+			openFn = openBrowser
+		}
+		if err := openFn(dashURL); err != nil {
+			log.Warn("failed to open browser", "err", err)
+		}
+	}
+
+	// 8. Install signal handlers.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
@@ -252,7 +309,7 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		case sig := <-sigCh:
 			switch sig {
 			case syscall.SIGHUP:
-				log.Info("received SIGHUP; reloading rules")
+				log.Info("received SIGHUP; reloading")
 				if reloadErr := engine.Reload(); reloadErr != nil {
 					log.Error("rules reload failed", "err", reloadErr)
 					// Previous ruleset stays live — keep serving.
@@ -263,6 +320,11 @@ func RunServe(ctx context.Context, d serveDeps) error {
 					inj.InvalidateCache()
 					log.Info("injector cache invalidated")
 				}
+				if reloadErr := dashServer.ReloadToken(); reloadErr != nil {
+					log.Warn("admin token reload failed", "err", reloadErr)
+				} else {
+					log.Info("admin token reloaded")
+				}
 			case syscall.SIGTERM, syscall.SIGINT:
 				log.Info("received signal; shutting down", "signal", sig)
 				return shutdown(log, dashSrv)
@@ -271,6 +333,19 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		case err := <-dashErr:
 			return fmt.Errorf("dashboard server error: %w", err)
 		}
+	}
+}
+
+// openBrowser launches the default browser for url using the platform's
+// native open command.
+func openBrowser(url string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", url).Start()
+	case "linux":
+		return exec.Command("xdg-open", url).Start()
+	default:
+		return errors.New("open browser: unsupported platform")
 	}
 }
 
