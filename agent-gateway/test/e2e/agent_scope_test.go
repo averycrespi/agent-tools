@@ -2,7 +2,8 @@
 
 package e2e_test
 
-// TestAgentScopeFilter is the M6 acceptance gate (Task 39).
+// TestAgentScopeFilter verifies that the rule `agents` filter selects MITM
+// vs tunnel per authenticated agent.
 //
 // Scenario:
 //  1. Start the stack with two registered agents: "a1" and "a2".

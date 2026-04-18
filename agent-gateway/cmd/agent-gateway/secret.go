@@ -47,7 +47,8 @@ func sendHUP(pidPath string) error {
 	if err == nil || errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	// Stale PID, wrong comm, etc. — all tolerated per Task 9 convention.
+	// Stale PID, wrong comm, etc. — all tolerated: the CLI write already
+	// succeeded, and the daemon picks up the new state on next start.
 	return nil
 }
 

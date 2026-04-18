@@ -2,8 +2,8 @@
 
 package e2e_test
 
-// TestBodyMatcher_JSONBodyMatches is the body-buffering integration acceptance
-// gate (Task 41 blocker fix).
+// TestBodyMatcher_JSONBodyMatches verifies end-to-end that json_body matchers
+// fire on buffered request bodies.
 //
 // Scenario:
 //  1. Start the stack with a mock upstream that echoes back a sentinel

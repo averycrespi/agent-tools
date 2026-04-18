@@ -2,7 +2,7 @@
 
 package e2e_test
 
-// TestDashboardLiveFeed is the M5 SSE live-feed acceptance gate (Task 38).
+// TestDashboardLiveFeed verifies the SSE live feed and audit API.
 //
 // Scenario:
 //  1. Subscribe to /dashboard/api/events.
@@ -10,7 +10,8 @@ package e2e_test
 //  3. Assert 20 "request" SSE events arrive on the stream.
 //  4. Fetch /dashboard/api/audit?limit=100 → 20 rows.
 
-// TestApprovalViewInvariant is the M5 approval-view acceptance gate (Task 38).
+// TestApprovalViewInvariant verifies the approval view does not leak body
+// bytes or asserted header values.
 //
 // Scenario:
 //  1. Write a require-approval rule.
@@ -20,7 +21,8 @@ package e2e_test
 //  4. Fetch /dashboard/api/pending; same assertion.
 //  5. Approve via /dashboard/api/decide; request completes.
 
-// TestAgentCancelPropagatesToUpstream is the M5 cancel-propagation gate (Task 38).
+// TestAgentCancelPropagatesToUpstream verifies that context cancellation from
+// the agent side propagates to the upstream handler.
 //
 // Scenario:
 //  1. Start a slow upstream that blocks on reading the request body.

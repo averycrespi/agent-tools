@@ -2,7 +2,8 @@
 
 package e2e_test
 
-// TestSecretSubstitution is the M4 acceptance gate (Task 26).
+// TestSecretSubstitution verifies secret values are substituted into injected
+// headers (and that the agent never sees the real secret).
 //
 // Scenario:
 //  1. Start the stack. Mock upstream echoes back the Authorization header it

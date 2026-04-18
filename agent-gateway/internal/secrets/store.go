@@ -279,5 +279,8 @@ func (s *sqlStore) MasterRotate(ctx context.Context) error {
 	return nil
 }
 
-// InvalidateCache is a hook for future cache invalidation (Task 24).
+// InvalidateCache is a no-op: the sqlStore holds no in-memory cache.
+// The decrypted-secret cache lives on the injector, which invalidates itself
+// on SIGHUP; this method exists so sqlStore satisfies interfaces that pair
+// the store with that cache.
 func (s *sqlStore) InvalidateCache() {}

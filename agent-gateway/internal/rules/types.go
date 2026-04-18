@@ -20,7 +20,7 @@ type Request struct {
 	Header http.Header
 
 	// Body is the buffered request body. It is nil (or zero-length) when the
-	// request carries no body. Set by the proxy buffer layer (Task 17).
+	// request carries no body. Set by the proxy buffer layer.
 	Body []byte
 	// BodyTruncated is true when the body exceeded the max_body_buffer cap and
 	// was not fully read. Body matchers must auto-fail when this is set.

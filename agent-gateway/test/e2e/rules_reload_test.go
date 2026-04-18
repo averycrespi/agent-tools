@@ -16,7 +16,7 @@ package e2e_test
 //  6. Assert the previous (valid) ruleset stays live: the same request still
 //     matches the old rule (the daemon does not swap rules on parse failure).
 //
-// TODO (Task 33): add audit-row assertions:
+// TODO: add audit-row assertions:
 //   SELECT injection, error FROM requests ORDER BY ts DESC LIMIT 1
 //   → injection='failed', error='secret_unresolved'
 
@@ -105,7 +105,7 @@ rule "inject-x" {
 		t.Errorf("fail-soft: response body %q, want %q", string(body1), wantAuth)
 	}
 
-	// TODO (Task 33): query audit DB for injection='failed', error='secret_unresolved':
+	// TODO: query audit DB for injection='failed', error='secret_unresolved':
 	//   SELECT injection, error FROM requests ORDER BY ts DESC LIMIT 1;
 
 	// -------------------------------------------------------------------------
@@ -149,6 +149,6 @@ rule "inject-x" {
 		t.Errorf("after bad reload: response body %q, want %q", string(body2), wantAuth)
 	}
 
-	// TODO (Task 33): assert audit row for this second request also has
+	// TODO: assert audit row for this second request also has
 	// injection='failed', error='secret_unresolved' (old rule still in effect).
 }

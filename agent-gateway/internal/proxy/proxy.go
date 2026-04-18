@@ -74,7 +74,8 @@ const (
 type ApprovalRequest struct {
 	// RequestID is the ULID assigned to this request.
 	RequestID string
-	// Agent is the name of the authenticated agent (may be empty pre-Task 24).
+	// Agent is the name of the authenticated agent (empty only in the test-only
+	// no-registry path).
 	Agent string
 	// Host is the CONNECT target host:port.
 	Host string
@@ -87,8 +88,8 @@ type ApprovalRequest struct {
 }
 
 // ApprovalBroker is the interface used by Proxy to gate require-approval
-// verdicts. The real implementation lives in the approval package (Task 31);
-// for now tests inject a stub.
+// verdicts. The real implementation lives in the approval package; tests
+// inject a stub.
 //
 // If nil and a require-approval verdict fires, the proxy returns 504 with the
 // message "no approval broker configured".
