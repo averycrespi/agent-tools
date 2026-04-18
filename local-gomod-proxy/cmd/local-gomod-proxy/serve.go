@@ -29,7 +29,7 @@ var (
 )
 
 func init() {
-	serveCmd.Flags().StringVar(&serveAddr, "addr", ":7070", "address to listen on")
+	serveCmd.Flags().StringVar(&serveAddr, "addr", "127.0.0.1:7070", "address to listen on")
 	serveCmd.Flags().StringVar(&servePrivate, "private", "", "GOPRIVATE-style patterns (overrides `go env GOPRIVATE`)")
 	serveCmd.Flags().StringVar(&serveUpstream, "upstream", "https://proxy.golang.org", "public upstream proxy URL")
 	rootCmd.AddCommand(serveCmd)

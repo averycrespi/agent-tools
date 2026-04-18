@@ -2,7 +2,7 @@
 
 A host-side Go module proxy that lets sandboxed agents resolve private Go dependencies without holding the host's git credentials. Public modules are forwarded to `proxy.golang.org`; private modules (matched by `GOPRIVATE` patterns) are fetched via the host's git credentials and served back to the sandbox.
 
-> **Local-only. Do not expose to the public internet.** The proxy currently runs unauthenticated over plain HTTP. It is intended to listen on a host-local interface reachable only by a co-located sandbox (e.g. the Lima bridge). Binding it to a public interface would let anyone on the network resolve modules against your git credentials. Binding it to `0.0.0.0` on a laptop on a public Wi-Fi network is equivalent to exposing it. A future version will restrict the listen address to the sandbox bridge IP.
+> **Local-only. Do not expose to the public internet.** The proxy runs unauthenticated over plain HTTP. It defaults to binding `127.0.0.1:7070`, which the Lima sandbox reaches via `host.lima.internal:7070` (Lima's default user-mode networking forwards the guest's `host.lima.internal` to the host's loopback). Do not override `--addr` to a public interface or `0.0.0.0` — doing so lets anyone on the network resolve modules against your git credentials.
 
 ## Install
 
@@ -23,14 +23,14 @@ make install
 ## Run
 
 ```bash
-local-gomod-proxy serve [--addr :7070] [--private PATTERN] [--upstream URL]
+local-gomod-proxy serve [--addr 127.0.0.1:7070] [--private PATTERN] [--upstream URL]
 ```
 
-| Flag         | Default                      | Description                                                                      |
-| ------------ | ---------------------------- | -------------------------------------------------------------------------------- |
-| `--addr`     | `:7070`                      | Address to listen on                                                             |
-| `--private`  | _(reads `go env GOPRIVATE`)_ | GOPRIVATE-style glob patterns for private modules. Overrides `go env GOPRIVATE`. |
-| `--upstream` | `https://proxy.golang.org`   | Public upstream proxy URL                                                        |
+| Flag         | Default                      | Description                                                                                      |
+| ------------ | ---------------------------- | ------------------------------------------------------------------------------------------------ |
+| `--addr`     | `127.0.0.1:7070`             | Address to listen on. Loopback by default; the Lima sandbox reaches it via `host.lima.internal`. |
+| `--private`  | _(reads `go env GOPRIVATE`)_ | GOPRIVATE-style glob patterns for private modules. Overrides `go env GOPRIVATE`.                 |
+| `--upstream` | `https://proxy.golang.org`   | Public upstream proxy URL                                                                        |
 
 `GOPRIVATE` must be set — either via `go env -w GOPRIVATE=github.com/your-org/*` on the host or via `--private`. If neither is set, startup fails with an actionable error.
 
@@ -53,7 +53,7 @@ go env -u GOPRIVATE  # clears any `go env -w` persisted value
 
 ## Security
 
-- **Run on a local-only interface.** This proxy is unauthenticated. Anyone who can reach its listen address can resolve modules against your host's git credentials. Do not bind it to a public interface, a VPN-reachable interface, or `0.0.0.0` on an untrusted network. The expected deployment binds to the host-side Lima bridge IP so only the sandbox VM can reach it.
+- **Run on a local-only interface.** This proxy is unauthenticated. Anyone who can reach its listen address can resolve modules against your host's git credentials. The default `--addr` of `127.0.0.1:7070` binds loopback only; the Lima sandbox still reaches it via `host.lima.internal:7070` because Lima's default user-mode networking forwards the guest's `host.lima.internal` to the host loopback. Do not override `--addr` to a public interface, a VPN-reachable interface, or `0.0.0.0`. If you run a custom Lima network (`networks:` in `lima.yaml`) whose gateway is not the host loopback, bind explicitly to that gateway IP instead.
 - Module paths are validated before any shell-out. No shell interpolation — `go mod download` is invoked via `exec.Command` with an argv slice.
 
 ## Development

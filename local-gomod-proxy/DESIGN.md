@@ -8,7 +8,7 @@ Sandboxed AI agents often work in Go projects that depend on private modules hos
 
 local-gomod-proxy solves this by running a minimal HTTP server on the host that implements the Go module proxy protocol. Public modules are forwarded to `proxy.golang.org`. Private modules are resolved using the host's git credentials and served back to the sandbox.
 
-The proxy is **unauthenticated** and expected to bind to a local-only interface (the Lima host-side bridge IP) so only the co-located sandbox can reach it. The host still holds the git credentials; the sandbox reaches the proxy over the bridge and carries nothing. See [Design decisions](#design-decisions) for why auth was removed.
+The proxy is **unauthenticated** and binds to the host loopback (`127.0.0.1:7070`) by default. The Lima sandbox reaches it via `host.lima.internal:7070` — Lima's default user-mode networking forwards the guest's `host.lima.internal` to the host's loopback, so no bridge IP discovery is needed. The host still holds the git credentials; the sandbox reaches the proxy over the bridge and carries nothing. See [Design decisions](#design-decisions) for why auth was removed.
 
 ## Architecture
 
@@ -113,7 +113,7 @@ Startup validation:
 
 ## Security
 
-- **Local-only deployment** — the proxy is unauthenticated. Its security model relies entirely on being reachable only from the co-located sandbox. The expected deployment binds to the host-side Lima bridge IP; binding to a public interface exposes the host's git credentials to anyone who can reach the port.
+- **Local-only deployment** — the proxy is unauthenticated. Its security model relies entirely on being reachable only from the co-located sandbox. The default `--addr` is `127.0.0.1:7070` (host loopback); the Lima sandbox reaches it via `host.lima.internal:7070`. Overriding `--addr` to a public interface or `0.0.0.0` exposes the host's git credentials to anyone who can reach the port.
 - **No shell interpolation** — `go mod download` is invoked via `exec.Command` with an argv slice. Module paths and versions are URL-unescaped via `module.UnescapePath` / `module.UnescapeVersion` before use; `go mod download` rejects malformed inputs itself.
 - **Plain HTTP** — traffic stays on the Lima bridge and never leaves the host.
 - **Request logging** — module path, version, private/public verdict, cache hit/miss, and latency logged via `log/slog`.
