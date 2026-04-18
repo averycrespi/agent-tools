@@ -2,6 +2,7 @@ package proxy_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,11 +10,44 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/inject"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/proxy"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// stubInjector implements proxy.Injector for tests.
+type stubInjector struct {
+	// headerToSet is the header name→value to inject on success.
+	headerToSet map[string]string
+	// scope is the credential scope returned on success.
+	scope string
+	// err is the error to return (nil = success).
+	err error
+	// lastReq captures the upstream clone passed to Apply.
+	lastReq *http.Request
+}
+
+func (s *stubInjector) Apply(req *http.Request, _ *rules.Rule, _ string) (inject.InjectionStatus, string, error) {
+	s.lastReq = req
+	if s.err != nil {
+		return inject.StatusFailed, "", s.err
+	}
+	for k, v := range s.headerToSet {
+		req.Header.Set(k, v)
+	}
+	return inject.StatusApplied, s.scope, nil
+}
+
+// LastReqContext returns the context of the most recent request seen by Apply.
+// It is used in tests to read audit data threaded through context.
+func (s *stubInjector) LastReqContext() context.Context {
+	if s.lastReq == nil {
+		return context.Background()
+	}
+	return s.lastReq.Context()
+}
 
 // stubRulesEngine implements proxy.RulesEngine for tests.
 type stubRulesEngine struct {
@@ -78,6 +112,21 @@ func allowMatchResult() *rules.MatchResult {
 func requireApprovalMatchResult() *rules.MatchResult {
 	return &rules.MatchResult{
 		Rule: &rules.Rule{Verdict: "require-approval"},
+	}
+}
+
+// allowMatchResultWithInject returns a MatchResult for an allow rule with an
+// inject block that references a secret template.
+func allowMatchResultWithInject() *rules.MatchResult {
+	return &rules.MatchResult{
+		Rule: &rules.Rule{
+			Verdict: "allow",
+			Inject: &rules.Inject{
+				SetHeaders: map[string]string{
+					"Authorization": "Bearer ${secrets.gh_token}",
+				},
+			},
+		},
 	}
 }
 
@@ -268,6 +317,110 @@ func TestPipeline_RequireApproval_Timeout(t *testing.T) {
 	assert.Equal(t, http.StatusGatewayTimeout, resp.StatusCode)
 	assert.False(t, called, "upstream should NOT be called on timeout")
 	assert.NotEmpty(t, resp.Header.Get("X-Request-ID"), "timeout response must have X-Request-ID")
+}
+
+// TestPipeline_InjectsOnAllow verifies that when the injector succeeds the
+// upstream receives the injected header and the audit context records
+// injection="applied".
+func TestPipeline_InjectsOnAllow(t *testing.T) {
+	auth := newTestAuthority(t)
+
+	var upstreamAuthHeader string
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		upstreamAuthHeader = r.Header.Get("Authorization")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("ok")),
+			Request:    r,
+		}, nil
+	})
+
+	inj := &stubInjector{
+		headerToSet: map[string]string{"Authorization": "Bearer injected-token"},
+		scope:       "agent:test",
+	}
+
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                stubEngineReturning(allowMatchResultWithInject()),
+		Injector:             inj,
+	})
+
+	// Send a request with a dummy credential that should be replaced.
+	r := httptest.NewRequest(http.MethodGet, "https://api.example.com:443/repos", nil)
+	r.Header.Set("Authorization", "Bearer dummy-cred")
+	w := httptest.NewRecorder()
+	p.HandleForTest(w, r, "api.example.com:443")
+
+	resp := w.Result()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// The upstream received the injected header.
+	assert.Equal(t, "Bearer injected-token", upstreamAuthHeader,
+		"upstream must receive the injected Authorization header")
+
+	// The original inbound request is unchanged (injector worked on the clone).
+	assert.Equal(t, "Bearer dummy-cred", r.Header.Get("Authorization"),
+		"original request must not be mutated")
+
+	// Audit context must record injection="applied".
+	a := proxy.AuditFromContext(inj.LastReqContext())
+	require.NotNil(t, a, "audit must be present in request context")
+	assert.Equal(t, "applied", a.Injection, "audit.injection must be 'applied'")
+	assert.Equal(t, "agent:test", a.CredentialScope)
+}
+
+// TestPipeline_FailSoftOnUnresolvedSecret verifies that when the injector
+// returns ErrSecretUnresolved the request is forwarded unchanged (dummy
+// credential intact) and the audit context records injection="failed",
+// error="secret_unresolved".
+func TestPipeline_FailSoftOnUnresolvedSecret(t *testing.T) {
+	auth := newTestAuthority(t)
+
+	var upstreamAuthHeader string
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		upstreamAuthHeader = r.Header.Get("Authorization")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("ok")),
+			Request:    r,
+		}, nil
+	})
+
+	inj := &stubInjector{
+		err: fmt.Errorf("inject set_header %q: %w", "Authorization", inject.ErrSecretUnresolved), //nolint:goerr113
+	}
+
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                stubEngineReturning(allowMatchResultWithInject()),
+		Injector:             inj,
+	})
+
+	// Send a request with a dummy credential that must be preserved.
+	r := httptest.NewRequest(http.MethodGet, "https://api.example.com:443/repos", nil)
+	r.Header.Set("Authorization", "Bearer dummy-cred")
+	w := httptest.NewRecorder()
+	p.HandleForTest(w, r, "api.example.com:443")
+
+	resp := w.Result()
+	// Fail-soft: request is forwarded (200 from upstream stub).
+	require.Equal(t, http.StatusOK, resp.StatusCode,
+		"fail-soft: request must still be forwarded upstream")
+
+	// Upstream receives the original dummy credential unchanged.
+	assert.Equal(t, "Bearer dummy-cred", upstreamAuthHeader,
+		"upstream must receive the original (unmodified) Authorization header on fail-soft")
+
+	// Audit context records the failure.
+	a := proxy.AuditFromContext(inj.LastReqContext())
+	require.NotNil(t, a, "audit must be present in request context")
+	assert.Equal(t, "failed", a.Injection, "audit.injection must be 'failed'")
+	assert.Equal(t, "secret_unresolved", a.Error, "audit.error must be 'secret_unresolved'")
 }
 
 // TestPipeline_RequireApproval_NilBroker verifies that when no approval broker

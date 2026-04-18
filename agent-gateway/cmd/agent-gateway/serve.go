@@ -17,9 +17,11 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/ca"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/config"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/daemon"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/inject"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/proxy"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/secrets"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/store"
 )
 
@@ -115,6 +117,17 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		}
 	}()
 
+	// 3b. Initialise the secrets store and header injector.
+	// Failure to open the secrets store is non-fatal: the injector is omitted and
+	// rules with inject blocks will be forwarded with fail-soft behaviour.
+	var proxyInjector proxy.Injector
+	secretsStore, secretsErr := secrets.NewStore(db, log)
+	if secretsErr != nil {
+		log.Warn("secrets store unavailable; header injection disabled", "err", secretsErr)
+	} else {
+		proxyInjector = &injectAdapter{inj: inject.NewInjector(secretsStore, cfg.Secrets.CacheTTL)}
+	}
+
 	// 4. Acquire PID file.
 	pidHandle, err := daemon.Acquire(paths.PIDFile())
 	if err != nil {
@@ -163,6 +176,7 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		CA:                   authority,
 		UpstreamRoundTripper: upstreamRT,
 		Rules:                engine,
+		Injector:             proxyInjector,
 		Logger:               log,
 		HandshakeTimeout:     cfg.Timeouts.MITMHandshake,
 		ReadHeaderTimeout:    cfg.Timeouts.ConnectReadHeader,
@@ -242,6 +256,17 @@ func RunServe(ctx context.Context, d serveDeps) error {
 			return fmt.Errorf("dashboard server error: %w", err)
 		}
 	}
+}
+
+// injectAdapter adapts *inject.Injector to the proxy.Injector interface by
+// extracting the context from req.Context() rather than accepting it as a
+// separate parameter. This keeps the proxy.Injector interface simple.
+type injectAdapter struct {
+	inj *inject.Injector
+}
+
+func (a *injectAdapter) Apply(req *http.Request, rule *rules.Rule, agent string) (inject.InjectionStatus, string, error) {
+	return a.inj.Apply(req.Context(), req, rule, agent)
 }
 
 // shutdown gracefully shuts down both HTTP servers with a 30-second timeout.

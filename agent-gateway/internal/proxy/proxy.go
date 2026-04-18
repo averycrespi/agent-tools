@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/inject"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
 )
 
@@ -90,6 +91,20 @@ type ApprovalBroker interface {
 	Request(ctx context.Context, pending ApprovalRequest) (ApprovalDecision, error)
 }
 
+// Injector is the interface used by Proxy to apply header mutations defined in
+// a rule's inject block to an outgoing request. It is satisfied by
+// *inject.Injector but kept as an interface for testability.
+//
+// If nil, no header injection is performed even if a matched rule has an
+// inject block.
+type Injector interface {
+	// Apply expands the inject block of rule for agent and mutates req in place.
+	// It returns the injection status, the credential scope (may be empty), and
+	// any error. On inject.ErrSecretUnresolved the caller must forward the
+	// request unchanged (fail-soft).
+	Apply(req *http.Request, rule *rules.Rule, agent string) (inject.InjectionStatus, string, error)
+}
+
 // Deps groups all injectable dependencies for a Proxy.
 type Deps struct {
 	// CA provides leaf TLS configs for MITM interception. Required.
@@ -107,6 +122,10 @@ type Deps struct {
 	// Approval is the broker used to gate require-approval verdicts.
 	// If nil and a require-approval verdict fires, the proxy returns 504.
 	Approval ApprovalBroker
+
+	// Injector applies header mutations from a matched rule's inject block.
+	// If nil, injection is skipped (even if the rule has an inject block).
+	Injector Injector
 
 	// Logger is the structured logger. If nil, the default slog logger is used.
 	Logger *slog.Logger
@@ -132,6 +151,7 @@ type Proxy struct {
 	rt                http.RoundTripper
 	rules             RulesEngine
 	approval          ApprovalBroker
+	injector          Injector
 	log               *slog.Logger
 	handshakeTimeout  time.Duration
 	readHeaderTimeout time.Duration
@@ -175,6 +195,7 @@ func New(d Deps) *Proxy {
 		rt:                rt,
 		rules:             d.Rules,
 		approval:          d.Approval,
+		injector:          d.Injector,
 		log:               log,
 		handshakeTimeout:  ht,
 		readHeaderTimeout: rht,
