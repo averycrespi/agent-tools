@@ -45,7 +45,7 @@ func TestStore_SetThenGet(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	err := s.Set(ctx, "gh_bot", "global", "token-value", "GitHub bot token")
+	err := s.Set(ctx, "gh_bot", "", "token-value", "GitHub bot token")
 	require.NoError(t, err)
 
 	val, scope, err := s.Get(ctx, "gh_bot", "any-agent")
@@ -59,9 +59,9 @@ func TestStore_ScopeResolution(t *testing.T) {
 	ctx := context.Background()
 
 	// Set a global secret.
-	require.NoError(t, s.Set(ctx, "gh_bot", "global", "global-value", "global"))
+	require.NoError(t, s.Set(ctx, "gh_bot", "", "global-value", "global"))
 	// Set an agent-scoped secret for "foo".
-	require.NoError(t, s.Set(ctx, "gh_bot", "agent:foo", "foo-value", "foo scoped"))
+	require.NoError(t, s.Set(ctx, "gh_bot", "foo", "foo-value", "foo scoped"))
 
 	// agent "foo" gets the agent-scoped value.
 	val, scope, err := s.Get(ctx, "gh_bot", "foo")
@@ -76,7 +76,7 @@ func TestStore_ScopeResolution(t *testing.T) {
 	assert.Equal(t, "global", scope)
 
 	// Delete the global secret; now agent "baz" gets ErrNotFound.
-	require.NoError(t, s.Delete(ctx, "gh_bot", "global"))
+	require.NoError(t, s.Delete(ctx, "gh_bot", ""))
 	_, _, err = s.Get(ctx, "gh_bot", "baz")
 	assert.True(t, errors.Is(err, secrets.ErrNotFound), "expected ErrNotFound, got %v", err)
 }
@@ -92,7 +92,7 @@ func TestStore_EncryptionAtRest(t *testing.T) {
 
 	ctx := context.Background()
 	plaintext := "super-secret-token-value-12345"
-	require.NoError(t, s.Set(ctx, "mykey", "global", plaintext, ""))
+	require.NoError(t, s.Set(ctx, "mykey", "", plaintext, ""))
 
 	// Read the raw ciphertext column directly.
 	var ciphertext []byte
@@ -111,6 +111,7 @@ func TestStore_EncryptionAtRest(t *testing.T) {
 }
 
 func TestStore_MasterRotate(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	db := openTestDB(t)
 	key := make([]byte, 32)
 	for i := range key {
@@ -120,8 +121,8 @@ func TestStore_MasterRotate(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	require.NoError(t, s.Set(ctx, "secret1", "global", "value-one", ""))
-	require.NoError(t, s.Set(ctx, "secret2", "agent:bar", "value-two", ""))
+	require.NoError(t, s.Set(ctx, "secret1", "", "value-one", ""))
+	require.NoError(t, s.Set(ctx, "secret2", "bar", "value-two", ""))
 
 	// Rotate master key.
 	require.NoError(t, s.MasterRotate(ctx))
@@ -140,8 +141,8 @@ func TestStore_List(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, s.Set(ctx, "alpha", "global", "v1", "desc alpha"))
-	require.NoError(t, s.Set(ctx, "beta", "agent:mybot", "v2", "desc beta"))
+	require.NoError(t, s.Set(ctx, "alpha", "", "v1", "desc alpha"))
+	require.NoError(t, s.Set(ctx, "beta", "mybot", "v2", "desc beta"))
 
 	list, err := s.List(ctx)
 	require.NoError(t, err)
@@ -159,11 +160,11 @@ func TestStore_Rotate(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, s.Set(ctx, "tok", "global", "old-value", ""))
+	require.NoError(t, s.Set(ctx, "tok", "", "old-value", ""))
 
 	// Small sleep to ensure rotated_at changes.
 	time.Sleep(2 * time.Millisecond)
-	require.NoError(t, s.Rotate(ctx, "tok", "global", "new-value"))
+	require.NoError(t, s.Rotate(ctx, "tok", "", "new-value"))
 
 	val, _, err := s.Get(ctx, "tok", "any")
 	require.NoError(t, err)
@@ -174,8 +175,8 @@ func TestStore_Delete(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, s.Set(ctx, "tok", "global", "value", ""))
-	require.NoError(t, s.Delete(ctx, "tok", "global"))
+	require.NoError(t, s.Set(ctx, "tok", "", "value", ""))
+	require.NoError(t, s.Delete(ctx, "tok", ""))
 
 	_, _, err := s.Get(ctx, "tok", "any")
 	assert.True(t, errors.Is(err, secrets.ErrNotFound))

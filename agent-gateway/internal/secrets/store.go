@@ -25,6 +25,9 @@ type Metadata struct {
 }
 
 // Store manages encrypted secrets.
+//
+// The agent parameter is the agent name (e.g. "mybot") or empty string for the
+// global scope. The store internally maps "" → "global" and "x" → "agent:x".
 type Store interface {
 	Get(ctx context.Context, name, agent string) (value string, scope string, err error)
 	Set(ctx context.Context, name, agent, value, description string) error
@@ -33,6 +36,15 @@ type Store interface {
 	Delete(ctx context.Context, name, agent string) error
 	MasterRotate(ctx context.Context) error
 	InvalidateCache()
+}
+
+// agentToScope converts an agent name to a scope string.
+// Empty agent means global scope; non-empty means "agent:<name>".
+func agentToScope(agent string) string {
+	if agent == "" {
+		return "global"
+	}
+	return "agent:" + agent
 }
 
 // sqlStore is the production implementation of Store.
@@ -87,12 +99,13 @@ LIMIT 1`
 	return string(plaintext), scope, nil
 }
 
-// Set stores a new secret. The scope parameter should be "global" or "agent:<name>".
-func (s *sqlStore) Set(ctx context.Context, name, scope, value, description string) error {
+// Set stores a new secret. agent is the agent name (empty → global scope).
+func (s *sqlStore) Set(ctx context.Context, name, agent, value, description string) error {
 	nonce, ciphertext, err := encrypt(s.key, []byte(value))
 	if err != nil {
 		return err
 	}
+	scope := agentToScope(agent)
 	now := time.Now().Unix()
 	const q = `
 INSERT INTO secrets (name, scope, ciphertext, nonce, created_at, rotated_at, description)
@@ -137,11 +150,13 @@ FROM secrets ORDER BY name, scope`
 }
 
 // Rotate updates the encrypted value for an existing secret and bumps rotated_at.
-func (s *sqlStore) Rotate(ctx context.Context, name, scope, newValue string) error {
+// agent is the agent name (empty → global scope).
+func (s *sqlStore) Rotate(ctx context.Context, name, agent, newValue string) error {
 	nonce, ciphertext, err := encrypt(s.key, []byte(newValue))
 	if err != nil {
 		return err
 	}
+	scope := agentToScope(agent)
 	now := time.Now().Unix()
 	const q = `UPDATE secrets SET ciphertext=?, nonce=?, rotated_at=? WHERE name=? AND scope=?`
 	res, err := s.db.ExecContext(ctx, q, ciphertext, nonce, now, name, scope)
@@ -155,8 +170,9 @@ func (s *sqlStore) Rotate(ctx context.Context, name, scope, newValue string) err
 	return nil
 }
 
-// Delete removes a secret by name and scope.
-func (s *sqlStore) Delete(ctx context.Context, name, scope string) error {
+// Delete removes a secret by name and agent (empty → global scope).
+func (s *sqlStore) Delete(ctx context.Context, name, agent string) error {
+	scope := agentToScope(agent)
 	const q = `DELETE FROM secrets WHERE name=? AND scope=?`
 	res, err := s.db.ExecContext(ctx, q, name, scope)
 	if err != nil {
