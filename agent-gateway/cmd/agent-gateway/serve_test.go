@@ -95,7 +95,9 @@ func TestServe_ProxyAcceptsCONNECTAndDashboardReturns200(t *testing.T) {
 	pAddr := <-proxyAddr
 	dAddr := <-dashAddr
 
-	// Proxy must respond to CONNECT with 200 Connection Established.
+	// Proxy must respond to an unauthenticated CONNECT with 407 Proxy
+	// Authentication Required, because the registry is enabled and no
+	// Proxy-Authorization header was supplied.
 	conn, err := net.DialTimeout("tcp", pAddr, 5*time.Second)
 	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()
@@ -106,8 +108,7 @@ func TestServe_ProxyAcceptsCONNECTAndDashboardReturns200(t *testing.T) {
 	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, "Connection Established", resp.Status[4:]) // strip "200 "
+	assert.Equal(t, http.StatusProxyAuthRequired, resp.StatusCode)
 
 	// Dashboard /dashboard/unauthorized is accessible without auth.
 	dresp, err := http.Get(fmt.Sprintf("http://%s/dashboard/unauthorized", dAddr))

@@ -109,7 +109,7 @@ func sendAuditRequest(t *testing.T, p *proxy.Proxy, cl *capturingLogger, method,
 	t.Helper()
 	r := httptest.NewRequest(method, "https://"+host+path, nil)
 	w := httptest.NewRecorder()
-	p.HandleForTest(w, r, host)
+	p.HandleForTest(w, r, host, "")
 	// The defer in handle runs synchronously, so cl.last is populated when HandleForTest returns.
 	return cl.last
 }
@@ -310,6 +310,6 @@ func TestPipeline_Audit_NilAuditor(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "https://example.com:443/ok", nil)
 	w := httptest.NewRecorder()
 	require.NotPanics(t, func() {
-		p.HandleForTest(w, r, "example.com:443")
+		p.HandleForTest(w, r, "example.com:443", "")
 	})
 }

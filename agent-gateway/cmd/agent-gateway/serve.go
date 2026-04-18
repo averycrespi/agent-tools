@@ -230,6 +230,8 @@ func RunServe(ctx context.Context, d serveDeps) error {
 
 	p := proxy.New(proxy.Deps{
 		CA:                   authority,
+		Registry:             agentsRegistry,
+		NoInterceptHosts:     cfg.ProxyBehavior.NoInterceptHosts,
 		UpstreamRoundTripper: upstreamRT,
 		Rules:                engine,
 		Approval:             approvalBroker,
@@ -338,6 +340,13 @@ func RunServe(ctx context.Context, d serveDeps) error {
 				if inj != nil {
 					inj.InvalidateCache()
 					log.Info("injector cache invalidated")
+				}
+				if agentsRegistry != nil {
+					if reloadErr := agentsRegistry.ReloadFromDB(ctx); reloadErr != nil {
+						log.Warn("agents registry reload failed", "err", reloadErr)
+					} else {
+						log.Info("agents registry reloaded")
+					}
 				}
 				if reloadErr := dashServer.ReloadToken(); reloadErr != nil {
 					log.Warn("admin token reload failed", "err", reloadErr)

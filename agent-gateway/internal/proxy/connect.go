@@ -67,7 +67,7 @@ func (p *Proxy) serveConn(conn net.Conn) {
 			if err := writeResponse(conn, http.StatusOK, "Connection Established"); err != nil {
 				return
 			}
-			p.serveMITM(conn, br, connectTarget, hostOnly)
+			p.serveMITM(conn, br, connectTarget, hostOnly, authedAgent.Name)
 			return
 		}
 	}
@@ -76,13 +76,14 @@ func (p *Proxy) serveConn(conn net.Conn) {
 	if err := writeResponse(conn, http.StatusOK, "Connection Established"); err != nil {
 		return
 	}
-	p.serveMITM(conn, br, connectTarget, hostOnly)
+	p.serveMITM(conn, br, connectTarget, hostOnly, "")
 }
 
 // serveMITM performs TLS interception on conn. br is the buffered reader
 // wrapping conn (may contain already-read bytes). connectTarget is the full
 // host:port; hostOnly is the bare hostname for leaf-cert issuance.
-func (p *Proxy) serveMITM(conn net.Conn, br *bufio.Reader, connectTarget, hostOnly string) {
+// agentName is the authenticated agent name (empty when no registry is configured).
+func (p *Proxy) serveMITM(conn net.Conn, br *bufio.Reader, connectTarget, hostOnly, agentName string) {
 	// The bufio reader may have buffered bytes beyond the CONNECT request line.
 	// For a well-behaved client the CONNECT body is empty so the reader buffer
 	// should be empty here, but we drain it defensively.
@@ -120,9 +121,9 @@ func (p *Proxy) serveMITM(conn net.Conn, br *bufio.Reader, connectTarget, hostOn
 	// the upstream URL is constructed correctly.
 	proto := tlsConn.ConnectionState().NegotiatedProtocol
 	if proto == "h2" {
-		p.serveH2(tlsConn, connectTarget)
+		p.serveH2(tlsConn, connectTarget, agentName)
 	} else {
-		p.serveH1(tlsConn, connectTarget)
+		p.serveH1(tlsConn, connectTarget, agentName)
 	}
 }
 
@@ -254,25 +255,27 @@ func write407(conn net.Conn) error {
 }
 
 // serveH2 serves the MITM'd connection using HTTP/2.
-func (p *Proxy) serveH2(conn *tls.Conn, host string) {
+// agentName is the authenticated agent name (may be empty for legacy unauthenticated mode).
+func (p *Proxy) serveH2(conn *tls.Conn, host, agentName string) {
 	srv := &http2.Server{
 		IdleTimeout: p.idleTimeout,
 	}
 	srv.ServeConn(conn, &http2.ServeConnOpts{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			p.handle(w, r, host)
+			p.handle(w, r, host, agentName)
 		}),
 	})
 }
 
 // serveH1 serves the MITM'd connection using HTTP/1 by looping over requests.
-func (p *Proxy) serveH1(conn *tls.Conn, host string) {
+// agentName is the authenticated agent name (may be empty for legacy unauthenticated mode).
+func (p *Proxy) serveH1(conn *tls.Conn, host, agentName string) {
 	// Wrap in a single-connection net.Listener so http.Server can drive the
 	// loop (including keep-alive). This is simpler than hand-rolling the loop.
 	ln := newSingleConnListener(conn)
 	srv := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			p.handle(w, r, host)
+			p.handle(w, r, host, agentName)
 		}),
 		ReadHeaderTimeout: p.readHeaderTimeout, //nolint:gosec
 	}

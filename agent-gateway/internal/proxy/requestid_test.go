@@ -42,7 +42,7 @@ func TestRequestID_AssignedImmediately(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodGet, "https://example.com:443/hello", nil)
 	w := httptest.NewRecorder()
-	p.HandleForTest(w, r, "example.com:443")
+	p.HandleForTest(w, r, "example.com:443", "")
 
 	require.NotNil(t, capturedCtx, "round tripper must have been called")
 

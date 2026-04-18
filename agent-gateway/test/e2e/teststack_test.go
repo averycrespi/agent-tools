@@ -184,6 +184,7 @@ type TestStack struct {
 	DashboardAddr string
 	UpstreamURL   string
 	CAPath        string       // path to the daemon's ca.pem
+	CAPEM         []byte       // PEM bytes of the daemon's CA cert
 	AgentClient   *http.Client // pre-configured to proxy through agent-gateway
 
 	// XDG directories — exposed so helpers can run CLI subcommands in the
@@ -281,32 +282,44 @@ dashboard {
 		t.Fatalf("read ca.pem: %v", err)
 	}
 
-	// 9. Build agent-side http.Client: proxy through agent-gateway, trust its CA.
-	rootPool := x509.NewCertPool()
-	if !rootPool.AppendCertsFromPEM(caPEM) {
-		t.Fatal("failed to add agent-gateway CA to root pool")
-	}
-	proxyURL, _ := url.Parse("http://" + proxyAddr)
-	agentClient := &http.Client{
-		Transport: &http.Transport{
-			Proxy: http.ProxyURL(proxyURL),
-			TLSClientConfig: &tls.Config{
-				RootCAs: rootPool,
-			},
-		},
-	}
+	// Rewrite the upstream URL to use "localhost" instead of "127.0.0.1" so that
+	// the proxy can MITM the connection (IP literals always tunnel per §6).
+	// The upstream TLS cert is valid for both localhost (DNS SAN) and 127.0.0.1
+	// (IP SAN), so this substitution is safe.
+	upstreamURL := strings.Replace(upstream.URL, "127.0.0.1", "localhost", 1)
 
-	return &TestStack{
+	stack := &TestStack{
 		ProxyAddr:     proxyAddr,
 		DashboardAddr: dashAddr,
-		UpstreamURL:   upstream.URL,
+		UpstreamURL:   upstreamURL,
 		CAPath:        caPath,
-		AgentClient:   agentClient,
+		CAPEM:         caPEM,
 		CfgHome:       cfgHome,
 		DataHome:      dataHome,
 		CfgPath:       cfgPath,
 		RulesDir:      filepath.Join(cfgDir, "rules.d"),
 	}
+
+	// 9. Write a catch-all MITM rule (last in sort order) for all agents,
+	// register a default agent, and build AgentClient authenticated as that agent.
+	// The wildcard rule ensures existing tests MITM through localhost (IP literals
+	// always tunnel, so the hostname rewrite above is required).
+	// Tests that need fine-grained scope control should overwrite or remove this
+	// file before writing their own rules.
+	stack.writeRule(t, "zz-allow-all.hcl", `
+rule "allow-all" {
+  verdict = "allow"
+  match {
+    host = "**"
+  }
+}
+`)
+	defaultToken := stack.agentAdd(t, "default")
+	// Wait for the SIGHUP-triggered rules + registry reload to settle.
+	time.Sleep(300 * time.Millisecond)
+	stack.AgentClient = stack.agentHTTPClient(t, caPEM, defaultToken)
+
+	return stack
 }
 
 // xdgEnv returns the XDG environment variables for running CLI subcommands
@@ -349,5 +362,60 @@ func (s *TestStack) rulesReload(t *testing.T) {
 	cmd.Env = s.xdgEnv()
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("rules reload: %v", err)
+	}
+}
+
+// agentAdd registers a new agent via the CLI and returns the minted token.
+// The CLI writes to the daemon's data directory via XDG env vars, then sends
+// SIGHUP so the daemon reloads its in-memory agent prefix map.
+func (s *TestStack) agentAdd(t *testing.T, name string) string {
+	t.Helper()
+	var buf strings.Builder
+	cmd := exec.Command(gatewayBinary, "agent", "add", name)
+	cmd.Stdout = &buf
+	cmd.Stderr = os.Stderr
+	cmd.Env = s.xdgEnv()
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("agent add %q: %v", name, err)
+	}
+
+	// The CLI prints:
+	//   token: <TOKEN>
+	//   HTTPS_PROXY=http://x:<TOKEN>@<ADDR>
+	//   HTTP_PROXY=...
+	// Extract the token from the first line.
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if tok, ok := strings.CutPrefix(line, "token: "); ok {
+			return strings.TrimSpace(tok)
+		}
+	}
+	t.Fatalf("agent add %q: could not parse token from output: %q", name, buf.String())
+	return ""
+}
+
+// agentHTTPClient builds an http.Client that proxies through this stack's
+// proxy and authenticates as the agent identified by token. The client trusts
+// the gateway CA (for MITM TLS verification) but not the upstream's own CA,
+// so a tunnelled connection to the TLS upstream would fail cert verification
+// (the upstream uses a different CA than the gateway).
+func (s *TestStack) agentHTTPClient(t *testing.T, caPEM []byte, token string) *http.Client {
+	t.Helper()
+
+	rootPool := x509.NewCertPool()
+	if !rootPool.AppendCertsFromPEM(caPEM) {
+		t.Fatal("failed to add agent-gateway CA to root pool")
+	}
+
+	// Encode Proxy-Authorization: Basic base64("x:<token>")
+	// The proxy's parseAuth extracts the token from the password field.
+	proxyURL, _ := url.Parse("http://x:" + token + "@" + s.ProxyAddr)
+
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+			TLSClientConfig: &tls.Config{
+				RootCAs: rootPool,
+			},
+		},
 	}
 }

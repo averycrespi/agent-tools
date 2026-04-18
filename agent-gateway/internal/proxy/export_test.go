@@ -11,8 +11,9 @@ import (
 
 // HandleForTest exposes the internal handle method for white-box testing of
 // the pipeline verdict dispatch without requiring a full TLS connection.
-func (p *Proxy) HandleForTest(w http.ResponseWriter, r *http.Request, host string) {
-	p.handle(w, r, host)
+// agentName is the authenticated agent name (empty string for unauthenticated tests).
+func (p *Proxy) HandleForTest(w http.ResponseWriter, r *http.Request, host, agentName string) {
+	p.handle(w, r, host, agentName)
 }
 
 // ParseAuthForTest exposes parseAuth for white-box testing.

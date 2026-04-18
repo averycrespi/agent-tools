@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -50,13 +49,13 @@ func TestMITMEndToEnd_H2(t *testing.T) {
 	if !ok {
 		t.Fatal("unexpected transport type")
 	}
-	// Clone the base transport and force H2.
+	// Clone the base transport and force H2. Re-use the existing proxy function
+	// (which carries the Proxy-Authorization credentials) rather than
+	// constructing a new unauthenticated proxy URL.
 	h2Transport := baseTransport.Clone()
 	h2Transport.ForceAttemptHTTP2 = true
 	h2Transport.TLSClientConfig.NextProtos = []string{"h2"}
-
-	proxyURL, _ := url.Parse("http://" + stack.ProxyAddr)
-	h2Transport.Proxy = http.ProxyURL(proxyURL)
+	// h2Transport.Proxy is already set from the Clone (same auth-bearing proxy URL).
 
 	client := &http.Client{Transport: h2Transport}
 

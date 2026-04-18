@@ -142,7 +142,7 @@ func sendRequestThroughProxy(t *testing.T, p *proxy.Proxy, method, host, path st
 	w := httptest.NewRecorder()
 
 	// Call the exported HandleForTest helper.
-	p.HandleForTest(w, r, host)
+	p.HandleForTest(w, r, host, "")
 
 	return w.Result()
 }
@@ -311,7 +311,7 @@ func TestPipeline_RequireApproval_Timeout(t *testing.T) {
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
-	p.HandleForTest(w, r, "api.example.com:443")
+	p.HandleForTest(w, r, "api.example.com:443", "")
 
 	resp := w.Result()
 	assert.Equal(t, http.StatusGatewayTimeout, resp.StatusCode)
@@ -352,7 +352,7 @@ func TestPipeline_InjectsOnAllow(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "https://api.example.com:443/repos", nil)
 	r.Header.Set("Authorization", "Bearer dummy-cred")
 	w := httptest.NewRecorder()
-	p.HandleForTest(w, r, "api.example.com:443")
+	p.HandleForTest(w, r, "api.example.com:443", "")
 
 	resp := w.Result()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -405,7 +405,7 @@ func TestPipeline_FailSoftOnUnresolvedSecret(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "https://api.example.com:443/repos", nil)
 	r.Header.Set("Authorization", "Bearer dummy-cred")
 	w := httptest.NewRecorder()
-	p.HandleForTest(w, r, "api.example.com:443")
+	p.HandleForTest(w, r, "api.example.com:443", "")
 
 	resp := w.Result()
 	// Fail-soft: request is forwarded (200 from upstream stub).

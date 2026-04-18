@@ -114,7 +114,9 @@ func stripHopByHop(h http.Header) {
 // p.rt and copies the response back to w. Both H1 and H2 paths call this.
 //
 // host is the CONNECT target host:port (used to rewrite req.URL.Host and req.Host).
-func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
+// agentName is the authenticated agent name from the CONNECT handshake (empty when
+// no registry is configured or in legacy unauthenticated mode).
+func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName string) {
 	// 1. Assign a request-scoped ULID. Synthesised error responses carry this ID
 	// in X-Request-ID; forwarded responses do not.
 	reqID := NewULID()
@@ -155,6 +157,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 		entry := audit.Entry{
 			ID:           reqID,
 			TS:           start,
+			Agent:        agentNamePtr(agentName),
 			Interception: "mitm",
 			Method:       &method,
 			Host:         hostOnly,
@@ -206,7 +209,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 	// 4. Evaluate rules if an engine is configured.
 	if p.rules != nil {
 		rreq := &rules.Request{
-			Agent:  "", // TODO(Task 24): agent name from ProxyAuth
+			Agent:  agentName,
 			Host:   hostOnly,
 			Method: r.Method,
 			Path:   r.URL.Path,
@@ -236,7 +239,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 				}
 				decision, apErr := p.approval.Request(r.Context(), ApprovalRequest{
 					RequestID: reqID,
-					Agent:     "", // TODO(Task 24)
+					Agent:     agentName,
 					Host:      host,
 					Method:    r.Method,
 					Path:      r.URL.Path,
