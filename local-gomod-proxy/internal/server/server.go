@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -24,6 +25,11 @@ func New(r *router.Router, priv *private.Fetcher, pub *public.Fetcher) http.Hand
 		if r.IsPrivate(parsed.Module) {
 			slog.Info("serving private", "module", parsed.Module, "version", parsed.Version)
 			if err := priv.Serve(w, req, parsed); err != nil {
+				if errors.Is(err, private.ErrModuleNotFound) {
+					slog.Info("private module not found", "module", parsed.Module, "err", err)
+					http.Error(w, err.Error(), http.StatusNotFound)
+					return
+				}
 				slog.Error("private fetcher failed", "module", parsed.Module, "err", err)
 				http.Error(w, "upstream error", http.StatusBadGateway)
 			}

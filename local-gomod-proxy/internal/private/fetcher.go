@@ -55,14 +55,14 @@ func (f *Fetcher) Serve(w http.ResponseWriter, _ *http.Request, req Request) err
 func (f *Fetcher) serveArtifact(w http.ResponseWriter, req Request) error {
 	out, err := f.runner.Run("go", "mod", "download", "-json", req.Module+"@"+req.Version)
 	if err != nil {
-		return fmt.Errorf("go mod download: %w: %s", err, out)
+		return wrapRunError("go mod download", out, err)
 	}
 	var r downloadResult
 	if err := json.Unmarshal(out, &r); err != nil {
 		return fmt.Errorf("parsing go mod download output: %w", err)
 	}
 	if r.Error != "" {
-		return fmt.Errorf("go mod download reported: %s", r.Error)
+		return classifyError(fmt.Errorf("go mod download reported: %s", r.Error), r.Error)
 	}
 	var path, contentType string
 	switch req.Artifact {
@@ -79,11 +79,14 @@ func (f *Fetcher) serveArtifact(w http.ResponseWriter, req Request) error {
 func (f *Fetcher) serveList(w http.ResponseWriter, req Request) error {
 	out, err := f.runner.Run("go", "list", "-m", "-json", "-versions", req.Module+"@latest")
 	if err != nil {
-		return fmt.Errorf("go list: %w: %s", err, out)
+		return wrapRunError("go list", out, err)
 	}
 	var r listResult
 	if err := json.Unmarshal(out, &r); err != nil {
 		return fmt.Errorf("parsing go list output: %w", err)
+	}
+	if r.Error != "" {
+		return classifyError(fmt.Errorf("go list reported: %s", r.Error), r.Error)
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -97,16 +100,35 @@ func (f *Fetcher) serveList(w http.ResponseWriter, req Request) error {
 func (f *Fetcher) serveLatest(w http.ResponseWriter, req Request) error {
 	out, err := f.runner.Run("go", "list", "-m", "-json", req.Module+"@latest")
 	if err != nil {
-		return fmt.Errorf("go list: %w: %s", err, out)
+		return wrapRunError("go list", out, err)
 	}
 	var r listResult
 	if err := json.Unmarshal(out, &r); err != nil {
 		return fmt.Errorf("parsing go list output: %w", err)
 	}
+	if r.Error != "" {
+		return classifyError(fmt.Errorf("go list reported: %s", r.Error), r.Error)
+	}
 	info := map[string]string{"Version": r.Version, "Time": r.Time}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	return json.NewEncoder(w).Encode(info)
+}
+
+// wrapRunError classifies a failed `go` invocation. When the tool emitted
+// structured JSON with an Error field, we prefer that for classification
+// (it's the authoritative reason). Otherwise we classify against the raw
+// combined output.
+func wrapRunError(stage string, out []byte, runErr error) error {
+	trimmed := strings.TrimSpace(string(out))
+	msg := trimmed
+	var e struct {
+		Error string `json:"Error"`
+	}
+	if json.Unmarshal(out, &e) == nil && e.Error != "" {
+		msg = e.Error
+	}
+	return classifyError(fmt.Errorf("%s: %w: %s", stage, runErr, trimmed), msg)
 }
 
 func streamFile(w http.ResponseWriter, path, contentType string) error {

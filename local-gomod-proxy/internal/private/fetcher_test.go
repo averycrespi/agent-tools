@@ -131,6 +131,77 @@ func TestFetcher_Info_MalformedJSON(t *testing.T) {
 	assert.Contains(t, err.Error(), "parsing go mod download output")
 }
 
+func TestFetcher_Info_NotFound_ReportedError(t *testing.T) {
+	// Command exits cleanly, JSON Error field signals missing version.
+	runner := &stubRunner{
+		out: []byte(`{"Error":"github.com/foo/bar@v99.99.99: invalid version: unknown revision v99.99.99"}`),
+	}
+	f := New(runner)
+
+	req := Request{Module: "github.com/foo/bar", Version: "v99.99.99", Artifact: ArtifactInfo}
+	w := httptest.NewRecorder()
+	err := f.Serve(w, httptest.NewRequest(http.MethodGet, "/", nil), req)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrModuleNotFound)
+}
+
+func TestFetcher_Info_NotFound_CommandFailed(t *testing.T) {
+	// Command exits non-zero AND emits JSON with Error field — prefers JSON.
+	runner := &stubRunner{
+		err: assertErr{},
+		out: []byte(`{"Error":"reading https://proxy.golang.org/...: 404 Not Found"}`),
+	}
+	f := New(runner)
+
+	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
+	w := httptest.NewRecorder()
+	err := f.Serve(w, httptest.NewRequest(http.MethodGet, "/", nil), req)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrModuleNotFound)
+}
+
+func TestFetcher_Info_NotClassifiedAsNotFound(t *testing.T) {
+	// Auth failure must NOT be classified as not-found.
+	runner := &stubRunner{
+		err: assertErr{},
+		out: []byte(`could not read Username for 'https://github.com': terminal prompts disabled`),
+	}
+	f := New(runner)
+
+	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
+	w := httptest.NewRecorder()
+	err := f.Serve(w, httptest.NewRequest(http.MethodGet, "/", nil), req)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrModuleNotFound)
+}
+
+func TestFetcher_List_NotFound(t *testing.T) {
+	runner := &stubRunner{
+		out: []byte(`{"Path":"github.com/foo/ghost","Error":"repository does not exist"}`),
+	}
+	f := New(runner)
+
+	req := Request{Module: "github.com/foo/ghost", Artifact: ArtifactList}
+	w := httptest.NewRecorder()
+	err := f.Serve(w, httptest.NewRequest(http.MethodGet, "/", nil), req)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrModuleNotFound)
+}
+
+func TestFetcher_Latest_NotFound(t *testing.T) {
+	runner := &stubRunner{
+		err: assertErr{},
+		out: []byte(`{"Error":"no matching versions for query \"latest\""}`),
+	}
+	f := New(runner)
+
+	req := Request{Module: "github.com/foo/bar", Artifact: ArtifactLatest}
+	w := httptest.NewRecorder()
+	err := f.Serve(w, httptest.NewRequest(http.MethodGet, "/", nil), req)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrModuleNotFound)
+}
+
 type assertErr struct{}
 
 func (assertErr) Error() string { return "boom" }

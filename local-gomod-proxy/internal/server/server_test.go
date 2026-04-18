@@ -71,6 +71,26 @@ func TestHandler_PrivateRoute_BadGateway(t *testing.T) {
 	assert.Equal(t, http.StatusBadGateway, w.Code)
 }
 
+func TestHandler_PrivateRoute_NotFound(t *testing.T) {
+	// go mod download reports a missing version — server maps to 404 so the
+	// Go client gets the expected "not found" signal instead of a 502 retry.
+	runner := &stubRunner{
+		out: []byte(`{"Error":"github.com/private/repo@v99.0.0: invalid version: unknown revision v99.0.0"}`),
+	}
+	h := New(
+		router.New("github.com/private/*"),
+		private.New(runner),
+		public.New(mustURL(t, "http://127.0.0.1:1")),
+	)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/github.com/private/repo/@v/v99.0.0.info", nil)
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "unknown revision")
+}
+
 func TestHandler_BadPath(t *testing.T) {
 	h := New(router.New(""), nil, nil)
 	w := httptest.NewRecorder()

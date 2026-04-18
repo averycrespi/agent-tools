@@ -76,6 +76,8 @@ local-gomod-proxy/
 │   │   ├── fetcher_test.go
 │   │   ├── parse.go             # URL path parser for module/version/endpoint
 │   │   ├── parse_test.go
+│   │   ├── classify.go          # Maps toolchain error strings to 404 vs 502
+│   │   ├── classify_test.go
 │   │   └── integration_test.go  # Integration tests (go:build integration)
 │   ├── public/
 │   │   ├── public.go            # PublicFetcher — httputil.ReverseProxy to proxy.golang.org
@@ -102,6 +104,8 @@ Every request validates the module path and version before any shell-out:
 3. **Version** — URL-unescaped via `module.UnescapeVersion` before being passed as argv to `go mod download`; `go mod download` rejects malformed versions itself.
 
 Errors from `go mod download` include the command's stderr so callers get actionable output (e.g., "repository not found", "permission denied").
+
+Errors are classified before responding. When the toolchain emits a known "module/version does not exist" signal (`unknown revision`, `invalid version`, `repository does not exist`, `repository not found`, `no matching versions`, or an upstream `404 Not Found` / `410 Gone`), the server responds with **HTTP 404** so the Go client surfaces a clean "not found" error and, if multiple GOPROXY sources are configured, falls through to the next. Everything else (auth failures, network errors, unexpected toolchain output) stays **502** so transient issues are not silently masked as missing modules. Classification lives in `internal/private/classify.go`; see that file's comments for the substring list and its sources. Caveat (golang/go#42751): GitHub returns 404 for inaccessible private repos, so an auth problem against GitHub can surface as `unknown revision` and be mapped to 404 — that is a Go tooling limitation we cannot disambiguate from the toolchain's output.
 
 Startup validation:
 
