@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent for local-gomod-proxy. Runs the proxy in the background
+  whenever the user is logged in.
+
+  Before installing:
+    1. Replace every occurrence of USERNAME below with your macOS short
+       username (see `whoami`). The README's install snippet does this for
+       you with sed.
+    2. If `go install` put the binary somewhere other than ~/go/bin, update
+       the ProgramArguments path accordingly.
+
+  See README.md ("Run as a launchd agent") for install and verify steps.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>dev.agent-tools.local-gomod-proxy</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/USERNAME/go/bin/local-gomod-proxy</string>
+        <string>serve</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- PATH must contain `go` and `git`. Defaults cover Homebrew on
+             Apple Silicon (/opt/homebrew/bin), Homebrew on Intel
+             (/usr/local/bin), and the official Go tarball layout
+             (/usr/local/go/bin). -->
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/local/go/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+
+        <!-- Uncomment if you installed the ssh-agent LaunchAgent from
+             ssh-agent.plist (see README "SSH fallback"). -->
+        <!--
+        <key>SSH_AUTH_SOCK</key>
+        <string>/Users/USERNAME/.ssh/agent.sock</string>
+        -->
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/USERNAME</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/USERNAME/Library/Logs/local-gomod-proxy.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/USERNAME/Library/Logs/local-gomod-proxy.err.log</string>
+</dict>
+</plist>

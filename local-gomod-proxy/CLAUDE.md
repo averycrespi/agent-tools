@@ -36,6 +36,18 @@ internal/
 test/e2e/               End-to-end tests
 ```
 
+## Documentation
+
+Keep all docs in sync when changing behavior, flags, layout, or deployment. The full set:
+
+- `CLAUDE.md` — this file. Conventions, architecture summary, and doc-sync rules.
+- `DESIGN.md` — motivation, request flow, protocol endpoints, and design decisions.
+- `README.md` — user-facing install, run, sandbox integration, and security notes.
+- `docs/*.md` — topic-specific guides (e.g. `docs/launchd.md`).
+- `examples/**` — example configs referenced from the docs above (e.g. `examples/launchd/*.plist`).
+
+When you change a flag, endpoint, env-var contract, or file layout, audit every doc listed above and update the ones that reference it. Don't leave a stale flag name in README and a fresh one in DESIGN.md.
+
 ## Conventions
 
 - Errors are wrapped with context: `fmt.Errorf("doing X: %w", err)`

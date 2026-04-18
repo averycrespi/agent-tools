@@ -51,6 +51,10 @@ go env -u GOPRIVATE  # clears any `go env -w` persisted value
 
 `GOSUMDB=off` is acceptable in the sandbox because `go.sum` (committed to the repo) is the primary integrity check.
 
+## Run as a launchd agent (macOS)
+
+To keep the proxy running in the background whenever you're logged in, install it as a per-user LaunchAgent. See [docs/launchd.md](docs/launchd.md) for setup (including git auth under launchd), install, verify, and manage steps.
+
 ## Security
 
 - **Run on a local-only interface.** This proxy is unauthenticated. Anyone who can reach its listen address can resolve modules against your host's git credentials. The default `--addr` of `127.0.0.1:7070` binds loopback only; the Lima sandbox still reaches it via `host.lima.internal:7070` because Lima's default user-mode networking forwards the guest's `host.lima.internal` to the host loopback. Do not override `--addr` to a public interface, a VPN-reachable interface, or `0.0.0.0`. If you run a custom Lima network (`networks:` in `lima.yaml`) whose gateway is not the host loopback, bind explicitly to that gateway IP instead.
