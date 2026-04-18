@@ -68,6 +68,29 @@ func (e *Engine) HostsForAgent(agent string) map[string]struct{} {
 	return e.snapshot.Load().hostsForAgent(agent)
 }
 
+// AllRuleHosts returns a deduplicated slice of every host-glob pattern
+// mentioned in any rule across all agents. Patterns with an empty host
+// constraint (i.e. rules that match any host) are not included because they
+// represent wildcards rather than specific hosts.
+//
+// The primary use-case is the tunneled-hosts API endpoint: callers intersect
+// this set with tunnel audit rows to surface hosts that have been tunneled but
+// have no rule coverage.
+func (e *Engine) AllRuleHosts() []string {
+	rs := e.snapshot.Load()
+	seen := make(map[string]struct{})
+	for _, hosts := range rs.hostIndex {
+		for h := range hosts {
+			seen[h] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for h := range seen {
+		out = append(out, h)
+	}
+	return out
+}
+
 // load is the shared helper for NewEngine and Reload: parse + compile.
 func load(dir string) (*ruleset, error) {
 	rules, _, err := ParseDir(dir)

@@ -596,9 +596,67 @@ function renderSecrets(secrets) {
   if (body) body.innerHTML = html;
 }
 
+// ---------- Tunneled-hosts banner ----------
+
+var BANNER_DISMISSED_KEY = "tunneled-banner-dismissed";
+
+function initTunneledHostsBanner() {
+  if (localStorage.getItem(BANNER_DISMISSED_KEY) === "true") {
+    return; // dismissed by user
+  }
+  fetch("/dashboard/api/stats/tunneled-hosts?since=24h")
+    .then(function (r) {
+      return r.json();
+    })
+    .then(function (hosts) {
+      if (!Array.isArray(hosts) || hosts.length === 0) return;
+      renderTunneledBanner(hosts);
+    })
+    .catch(function () {
+      /* ignore */
+    });
+}
+
+function renderTunneledBanner(hosts) {
+  var existing = document.getElementById("tunneled-banner");
+  if (existing) existing.remove();
+
+  var banner = document.createElement("div");
+  banner.id = "tunneled-banner";
+  banner.className = "tunneled-banner";
+
+  var hostItems = hosts
+    .map(function (h) {
+      return (
+        '<span class="tunneled-host">' +
+        esc(h.host) +
+        " (" +
+        esc(String(h.count)) +
+        ")</span>"
+      );
+    })
+    .join(", ");
+
+  banner.innerHTML =
+    "<strong>Tunneled hosts without rules (last 24h):</strong> " +
+    hostItems +
+    " &mdash; consider adding rules for these hosts." +
+    '<button class="tunneled-dismiss" onclick="dismissTunneledBanner()">Dismiss</button>';
+
+  var body = document.body;
+  if (body) body.insertBefore(banner, body.firstChild);
+}
+
+function dismissTunneledBanner() {
+  localStorage.setItem(BANNER_DISMISSED_KEY, "true");
+  var banner = document.getElementById("tunneled-banner");
+  if (banner) banner.remove();
+}
+
 // ---------- Init ----------
 
 document.addEventListener("DOMContentLoaded", function () {
   initLiveFeed();
+  initTunneledHostsBanner();
   switchTab("live");
 });

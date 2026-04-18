@@ -299,6 +299,30 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		"dashboard", dashLn.Addr(),
 	)
 
+	// Startup summary: log counts and MITM-eligible hosts.
+	{
+		agentCount := 0
+		if agentsRegistry != nil {
+			if list, listErr := agentsRegistry.List(ctx); listErr == nil {
+				agentCount = len(list)
+			}
+		}
+		secretCount := 0
+		if secretsStore != nil {
+			if list, listErr := secretsStore.List(ctx); listErr == nil {
+				secretCount = len(list)
+			}
+		}
+		ruleCount := len(engine.Rules())
+		mitmHosts := engine.AllRuleHosts()
+		log.Info("startup summary",
+			"agents", agentCount,
+			"secrets", secretCount,
+			"rules", ruleCount,
+			"mitm_hosts", mitmHosts,
+		)
+	}
+
 	// Print the authenticated URL on first run (token file was just created).
 	if firstRun {
 		fmt.Printf("Dashboard: %s\n", dashURL)

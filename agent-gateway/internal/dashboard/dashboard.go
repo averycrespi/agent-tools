@@ -37,9 +37,11 @@ var stylesCSS []byte
 //go:embed favicon.svg
 var faviconSVG []byte
 
-// RulesLister provides the configured rules in evaluation order.
+// RulesLister provides the configured rules in evaluation order and host
+// coverage for the tunneled-hosts API.
 type RulesLister interface {
 	Rules() []*rules.Rule
+	AllRuleHosts() []string
 }
 
 // ApprovalBrokerIface is a subset of *approval.Broker used by the dashboard.
@@ -126,6 +128,7 @@ func (s *Server) Handler() (http.Handler, bool) {
 	mux.HandleFunc("GET /dashboard/api/agents", s.handleAgents)
 	mux.HandleFunc("GET /dashboard/api/rules", s.handleRules)
 	mux.HandleFunc("GET /dashboard/api/secrets", s.handleSecrets)
+	mux.HandleFunc("GET /dashboard/api/stats/tunneled-hosts", s.handleTunneledHosts)
 
 	return authMiddleware(&s.tokenPtr, mux), created
 }
@@ -412,6 +415,71 @@ func (s *Server) handleStylesCSS(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleFaviconSVG(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "image/svg+xml")
 	_, _ = w.Write(faviconSVG)
+}
+
+// tunneledHostEntry is one item in the /api/stats/tunneled-hosts response.
+type tunneledHostEntry struct {
+	Host  string `json:"host"`
+	Count int    `json:"count"`
+}
+
+// handleTunneledHosts returns hosts that appeared in tunnel audit rows within
+// the requested window (default 24h) but are NOT covered by any current rule.
+//
+// Query param: since=<duration> (e.g. "24h", "7d"). Defaults to "24h".
+func (s *Server) handleTunneledHosts(w http.ResponseWriter, r *http.Request) {
+	// Parse the since window; default to 24h.
+	sinceDur := 24 * time.Hour
+	if v := r.URL.Query().Get("since"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			sinceDur = d
+		}
+	}
+
+	if s.deps.Auditor == nil {
+		writeJSON(w, []tunneledHostEntry{})
+		return
+	}
+
+	after := time.Now().Add(-sinceDur)
+	f := audit.Filter{After: &after}
+	entries, err := s.deps.Auditor.Query(r.Context(), f)
+	if err != nil {
+		s.log.Error("dashboard: tunneled-hosts query failed", "error", err)
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+
+	// Build the set of all hosts covered by current rules.
+	covered := make(map[string]struct{})
+	if s.deps.Rules != nil {
+		for _, h := range s.deps.Rules.AllRuleHosts() {
+			covered[h] = struct{}{}
+		}
+	}
+
+	// Count tunnel rows, excluding hosts already covered by a rule.
+	counts := make(map[string]int)
+	order := []string{}
+	for _, e := range entries {
+		if e.Interception != "tunnel" {
+			continue
+		}
+		host := e.Host
+		if _, ok := covered[host]; ok {
+			continue
+		}
+		if _, exists := counts[host]; !exists {
+			order = append(order, host)
+		}
+		counts[host]++
+	}
+
+	result := make([]tunneledHostEntry, 0, len(order))
+	for _, host := range order {
+		result = append(result, tunneledHostEntry{Host: host, Count: counts[host]})
+	}
+	writeJSON(w, result)
 }
 
 // writeJSON writes v as JSON with Content-Type: application/json.

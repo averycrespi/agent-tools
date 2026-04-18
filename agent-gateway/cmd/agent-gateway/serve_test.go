@@ -2,9 +2,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -386,4 +388,51 @@ func TestTokenRotateAdmin_InvalidatesCookie(t *testing.T) {
 	require.NoError(t, err)
 	_ = resp3.Body.Close()
 	assert.Equal(t, http.StatusOK, resp3.StatusCode, "new token must be accepted after rotation")
+}
+
+// TestServe_StartupSummaryLogged verifies that RunServe emits a structured
+// "startup summary" log line containing the agent count, secret count, rule
+// count, and mitm_hosts field.
+func TestServe_StartupSummaryLogged(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_DATA_HOME", dir)
+
+	cfg := config.DefaultConfig()
+	cfg.Proxy.Listen = "127.0.0.1:0"
+	cfg.Dashboard.Listen = "127.0.0.1:0"
+	cfg.Dashboard.OpenBrowser = false
+	require.NoError(t, config.Save(cfg, paths.ConfigFile()))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Capture log output in a buffer.
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	ready := make(chan struct{})
+	deps := newServeDeps()
+	deps.Logger = logger
+	deps.Ready = ready
+	deps.Headless = true
+
+	done := make(chan error, 1)
+	go func() { done <- RunServe(ctx, deps) }()
+
+	select {
+	case <-ready:
+	case <-time.After(30 * time.Second):
+		t.Fatal("serve did not become ready within 30s")
+	}
+
+	cancel()
+	require.NoError(t, <-done)
+
+	logs := buf.String()
+	assert.Contains(t, logs, "startup summary", "startup summary log line must be present")
+	assert.Contains(t, logs, "agents=", "startup summary must include agents count")
+	assert.Contains(t, logs, "secrets=", "startup summary must include secrets count")
+	assert.Contains(t, logs, "rules=", "startup summary must include rules count")
+	assert.Contains(t, logs, "mitm_hosts=", "startup summary must include mitm_hosts field")
 }
