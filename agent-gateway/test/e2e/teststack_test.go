@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -184,6 +185,13 @@ type TestStack struct {
 	UpstreamURL   string
 	CAPath        string       // path to the daemon's ca.pem
 	AgentClient   *http.Client // pre-configured to proxy through agent-gateway
+
+	// XDG directories — exposed so helpers can run CLI subcommands in the
+	// same environment as the daemon.
+	CfgHome  string // XDG_CONFIG_HOME for this stack
+	DataHome string // XDG_DATA_HOME for this stack
+	CfgPath  string // path to config.hcl
+	RulesDir string // path to the rules.d directory
 }
 
 func newTestStack(t *testing.T, handler http.Handler) *TestStack {
@@ -211,6 +219,10 @@ func newTestStack(t *testing.T, handler http.Handler) *TestStack {
 	cfgDir := filepath.Join(cfgHome, "agent-gateway")
 	if err := os.MkdirAll(cfgDir, 0o750); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
+	}
+	rulesDir := filepath.Join(cfgDir, "rules.d")
+	if err := os.MkdirAll(rulesDir, 0o750); err != nil {
+		t.Fatalf("mkdir rules dir: %v", err)
 	}
 	cfgPath := filepath.Join(cfgDir, "config.hcl")
 	cfgContent := fmt.Sprintf(`
@@ -290,5 +302,52 @@ dashboard {
 		UpstreamURL:   upstream.URL,
 		CAPath:        caPath,
 		AgentClient:   agentClient,
+		CfgHome:       cfgHome,
+		DataHome:      dataHome,
+		CfgPath:       cfgPath,
+		RulesDir:      filepath.Join(cfgDir, "rules.d"),
+	}
+}
+
+// xdgEnv returns the XDG environment variables for running CLI subcommands
+// in the same environment as the daemon.
+func (s *TestStack) xdgEnv() []string {
+	return append(os.Environ(),
+		"XDG_CONFIG_HOME="+s.CfgHome,
+		"XDG_DATA_HOME="+s.DataHome,
+	)
+}
+
+// writeRule writes content to <RulesDir>/<filename>.
+func (s *TestStack) writeRule(t *testing.T, filename, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(s.RulesDir, filename), []byte(content), 0o600); err != nil {
+		t.Fatalf("writeRule %q: %v", filename, err)
+	}
+}
+
+// setSecret calls "agent-gateway secret set <name>" piping value via stdin.
+// XDG env vars are forwarded so the CLI writes to the daemon's data directory.
+func (s *TestStack) setSecret(t *testing.T, name, value string) {
+	t.Helper()
+	cmd := exec.Command(gatewayBinary, "secret", "set", name)
+	cmd.Stdin = strings.NewReader(value)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = s.xdgEnv()
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("secret set %q: %v", name, err)
+	}
+}
+
+// rulesReload calls "agent-gateway rules reload" to signal the daemon via SIGHUP.
+func (s *TestStack) rulesReload(t *testing.T) {
+	t.Helper()
+	cmd := exec.Command(gatewayBinary, "rules", "reload")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = s.xdgEnv()
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("rules reload: %v", err)
 	}
 }

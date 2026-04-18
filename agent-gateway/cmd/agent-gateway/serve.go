@@ -121,11 +121,13 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	// Failure to open the secrets store is non-fatal: the injector is omitted and
 	// rules with inject blocks will be forwarded with fail-soft behaviour.
 	var proxyInjector proxy.Injector
+	var inj *inject.Injector // kept for SIGHUP cache invalidation
 	secretsStore, secretsErr := secrets.NewStore(db, log)
 	if secretsErr != nil {
 		log.Warn("secrets store unavailable; header injection disabled", "err", secretsErr)
 	} else {
-		proxyInjector = &injectAdapter{inj: inject.NewInjector(secretsStore, cfg.Secrets.CacheTTL)}
+		inj = inject.NewInjector(secretsStore, cfg.Secrets.CacheTTL)
+		proxyInjector = &injectAdapter{inj: inj}
 	}
 
 	// 4. Acquire PID file.
@@ -245,8 +247,10 @@ func RunServe(ctx context.Context, d serveDeps) error {
 				} else {
 					log.Info("rules reloaded")
 				}
-				// TODO(Task 22): secrets.InvalidateCache()
-				// TODO(Task 26): agents.ReloadFromDB()
+				if inj != nil {
+					inj.InvalidateCache()
+					log.Info("injector cache invalidated")
+				}
 			case syscall.SIGTERM, syscall.SIGINT:
 				log.Info("received signal; shutting down", "signal", sig)
 				return shutdown(log, dashSrv)
