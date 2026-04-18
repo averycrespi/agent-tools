@@ -26,7 +26,7 @@ Pipeline (HTTPS MITM path): CONNECT → agent auth → intercept decision → TL
 
 ```
 cmd/agent-gateway/      CLI entry point (Cobra): serve, agent {add,list,rm,rotate,show},
-                        secret {set,list,rotate,rm,master rotate,export},
+                        secret {set,list,rotate,rm,master rotate},
                         rules {check,reload}, token rotate admin,
                         ca {export,rotate}, config {path,edit,refresh}
 

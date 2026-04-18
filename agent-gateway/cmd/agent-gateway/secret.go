@@ -26,11 +26,6 @@ var stdinIsTTY = func() bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
-// stdoutIsTTY is a package-level variable for testing stdout TTY detection.
-var stdoutIsTTY = func() bool {
-	return term.IsTerminal(int(os.Stdout.Fd()))
-}
-
 // openSecretStore opens a short-lived secrets store using the state DB.
 // Callers must close the returned *sql.DB when done.
 func openSecretStore() (secrets.Store, func(), error) {
@@ -80,7 +75,6 @@ func newSecretCmd() *cobra.Command {
 	secretCmd.AddCommand(newSecretListCmd())
 	secretCmd.AddCommand(newSecretRotateCmd())
 	secretCmd.AddCommand(newSecretRMCmd())
-	secretCmd.AddCommand(newSecretExportCmd())
 	secretCmd.AddCommand(newSecretMasterCmd())
 
 	return secretCmd
@@ -294,55 +288,6 @@ func execSecretRM(
 	_, _ = fmt.Fprintf(out, "deleted: %s\n", name)
 	_ = signalFn(paths.PIDFile())
 	return nil
-}
-
-// newSecretExportCmd returns the "secret export <name>" command.
-func newSecretExportCmd() *cobra.Command {
-	var agent string
-	cmd := &cobra.Command{
-		Use:   "export <name>",
-		Short: "Print the raw secret value to stdout (refuses when stdout is a TTY)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			s, cleanup, err := openSecretStore()
-			if err != nil {
-				return err
-			}
-			defer cleanup()
-			return execSecretExport(
-				cmd.Context(),
-				s,
-				args[0],
-				agent,
-				cmd.OutOrStdout(),
-				stdoutIsTTY(),
-			)
-		},
-	}
-	cmd.Flags().StringVar(&agent, "agent", "", "agent name (omit for global scope)")
-	return cmd
-}
-
-// execSecretExport implements "secret export". Separated for testability.
-func execSecretExport(
-	ctx context.Context,
-	s secrets.Store,
-	name, agent string,
-	out io.Writer,
-	isTTY bool,
-) error {
-	if isTTY {
-		return fmt.Errorf("must pipe output (stdout is a TTY)")
-	}
-
-	value, _, err := s.Get(ctx, name, agent)
-	if err != nil {
-		return fmt.Errorf("secret export: %w", err)
-	}
-
-	// Write raw bytes, no trailing newline.
-	_, err = io.WriteString(out, value)
-	return err
 }
 
 // newSecretMasterCmd returns the "secret master" command group.

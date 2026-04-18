@@ -216,51 +216,6 @@ func TestSecretRM_Agent(t *testing.T) {
 	assert.Equal(t, "global", scope2)
 }
 
-// TestSecretExport_RefusesTTY verifies that export refuses when stdout is a TTY.
-func TestSecretExport_RefusesTTY(t *testing.T) {
-	db := secretTestDB(t)
-	s := newTestSecretStore(t, db)
-	ctx := context.Background()
-
-	require.NoError(t, s.Set(ctx, "tok", "", "myval", ""))
-
-	var out bytes.Buffer
-	// stdoutIsTTY=true simulates a TTY stdout.
-	err := execSecretExport(ctx, s, "tok", "", &out, true)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pipe")
-}
-
-// TestSecretExport_WritesRawValue verifies that export writes raw bytes without newline.
-func TestSecretExport_WritesRawValue(t *testing.T) {
-	db := secretTestDB(t)
-	s := newTestSecretStore(t, db)
-	ctx := context.Background()
-
-	require.NoError(t, s.Set(ctx, "tok", "", "myval", ""))
-
-	var out bytes.Buffer
-	err := execSecretExport(ctx, s, "tok", "", &out, false)
-	require.NoError(t, err)
-	// Exactly the raw value, no trailing newline.
-	assert.Equal(t, "myval", out.String())
-}
-
-// TestSecretExport_Agent verifies that export resolves the agent-scoped value.
-func TestSecretExport_Agent(t *testing.T) {
-	db := secretTestDB(t)
-	s := newTestSecretStore(t, db)
-	ctx := context.Background()
-
-	require.NoError(t, s.Set(ctx, "tok", "", "global-val", ""))
-	require.NoError(t, s.Set(ctx, "tok", "mybot", "agent-val", ""))
-
-	var out bytes.Buffer
-	err := execSecretExport(ctx, s, "tok", "mybot", &out, false)
-	require.NoError(t, err)
-	assert.Equal(t, "agent-val", out.String())
-}
-
 // TestSecretMasterRotate verifies that "secret master rotate" calls MasterRotate.
 func TestSecretMasterRotate(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())

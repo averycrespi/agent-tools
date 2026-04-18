@@ -113,19 +113,6 @@ Delete a secret.
 | ---------------- | ----------------------------------------------------------- |
 | `--agent <name>` | Delete the agent-scoped row; omit to delete the global row. |
 
-### `secret export <name>`
-
-Print the raw secret value to stdout. **Refuses when stdout is a TTY** — the caller must redirect to a pipe or file to avoid accidental disclosure via shell history and scrollback.
-
-```bash
-agent-gateway secret export gh_bot | gh auth login --with-token
-agent-gateway secret export gh_bot > /tmp/gh_token
-```
-
-| Flag             | Description                       |
-| ---------------- | --------------------------------- |
-| `--agent <name>` | Scope lookup to a specific agent. |
-
 ### `secret master rotate`
 
 Generate a new master key and re-encrypt every secret under it in a single SQLite transaction. The new key is only committed to storage after the re-encryption transaction succeeds — a crash mid-rotation leaves the old key authoritative.
@@ -204,4 +191,4 @@ Rewrite the config file, preserving existing overrides and back-filling any new 
 ## Exit codes
 
 - `0` — success, or "no daemon running" on commands that signal the daemon.
-- Non-zero — parse errors, unrecoverable I/O failures, missing records (`agent show`, `secret rotate` / `rm` / `export` against a missing name).
+- Non-zero — parse errors, unrecoverable I/O failures, missing records (`agent show`, `secret rotate` / `rm` against a missing name).

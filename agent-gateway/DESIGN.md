@@ -123,7 +123,7 @@ Each deferred to v1.1+ with a one-line rationale so future-us has the context.
 
 ```
 cmd/agent-gateway/      CLI: serve, agent {add,list,rm,rotate,show},
-                             secret {set,list,rotate,rm,master rotate,export},
+                             secret {set,list,rotate,rm,master rotate},
                              rules {check,reload}, token rotate admin,
                              ca {export,rotate}, config {path,edit,refresh}
 
@@ -625,19 +625,17 @@ survives rotations is deferred to v1.1 (see §2 non-goals).
 ### CLI
 
 ```
-agent-gateway secret set <name>                         # TTY prompt or stdin
-agent-gateway secret set <name> --agent <agent> --from-file <path>
+agent-gateway secret set <name> [--agent <agent>]       # value read from stdin
 agent-gateway secret list                               # no values, ever
 agent-gateway secret rotate <name> [--agent <agent>]
 agent-gateway secret rm <name> [--agent <agent>]
 agent-gateway secret master rotate
-agent-gateway secret export <name> --confirm-insecure   # refuses if stdout is a TTY
 ```
 
-`secret export` refuses to run when stdout is a TTY — the caller must
-redirect to a pipe or file (`… | gh auth login --with-token`,
-`… > /tmp/x`). This prevents accidental disclosure via shell history and
-scrollback.
+Plaintext read-out is intentionally not exposed through the CLI. The only
+code path that can touch a plaintext secret is template expansion inside
+the request pipeline; bulk export via the CLI would create a shell-history
+disclosure vector with no legitimate in-product use case.
 
 ### Runtime hygiene
 
@@ -1116,7 +1114,7 @@ agent-gateway serve
 agent-gateway config {path, edit, refresh}
 agent-gateway rules {check, reload}
 agent-gateway agent {add, list, rm, rotate, show}
-agent-gateway secret {set, list, rotate, rm, master rotate, export}
+agent-gateway secret {set, list, rotate, rm, master rotate}
 agent-gateway ca {export, rotate}
 agent-gateway token rotate admin
 ```
