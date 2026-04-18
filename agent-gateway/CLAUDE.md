@@ -97,3 +97,15 @@ State-mutating CLI commands write to SQLite (with `busy_timeout=5s`), then read 
 - `internal/proxy.ConnectDecision` constants: `DecisionTunnel` (0), `DecisionMITM` (1), `DecisionReject` (2)
 - `internal/approval.ErrQueueFull` is returned synchronously (no block) when `MaxPending` is reached; `ErrUnknownID` is returned by `Decide` for already-resolved or never-created IDs
 - PID file at `$XDG_RUNTIME_DIR/agent-gateway/agent-gateway.pid` (or `$XDG_DATA_HOME/agent-gateway/` fallback); written on `serve` start, deleted on clean shutdown
+
+## Documentation
+
+User-facing surface changes must be reflected in the corresponding doc. When changing code, update the matching doc in the same change:
+
+- CLI commands, flags, exit codes → `docs/cli.md`
+- Rule HCL syntax, matchers, verdicts, `inject` verbs, template expansion, reload semantics → `docs/rules.md`
+- Sandbox integration steps, provisioning flow, networking assumptions → `docs/sandbox-manager.md`
+- Architecture, package layout, request lifecycle, audit schema, open questions → `DESIGN.md` (and the package list above in this file)
+- Install, quickstart, concepts, limitations, links → `README.md`
+
+If a change doesn't fit any of the above, it doesn't need a doc update. Err on the side of updating — drift across the doc set is the failure mode we're guarding against.
