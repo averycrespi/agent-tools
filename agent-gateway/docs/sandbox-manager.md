@@ -98,7 +98,7 @@ When the agent token is rotated on the host:
 
 ```bash
 # On the host:
-agent-gateway agent rotate my-agent > ~/.config/sb/agent-gateway-token
+agent-gateway agent rotate my-agent | awk '/^token:/ {print $2}' > ~/.config/sb/agent-gateway-token
 sb provision
 ```
 

@@ -72,7 +72,7 @@ Tunnel rows are audited with `interception='tunnel'`, bytes in/out, and duration
 
 ### ApprovalGuard pattern
 
-`internal/approval.Broker.Request` parks the in-flight `proxy.PendingRequest` in an in-memory map, fires the `OnEvent` callback (which the dashboard SSE handler uses to push a card), then blocks on a per-request channel until `Broker.Decide` is called, the context is cancelled, or `Timeout` elapses. The calling goroutine holds the request body in `internal/approval.Buffer` (a capped `io.Reader` wrapper); once the decision arrives the goroutine either proceeds with injection or synthesises a `403` / `504`.
+`internal/approval.Broker.Request` parks the in-flight `proxy.ApprovalRequest` in an in-memory map, fires the `OnEvent` callback (which the dashboard SSE handler uses to push a card), then blocks on a per-request channel until `Broker.Decide` is called, the context is cancelled, or `Timeout` elapses. The calling goroutine has already buffered the request body via `internal/proxy.bufferBody` (capped by `proxy_behavior.body_peek_bytes`) so the upstream can still receive all original bytes once injection runs; on decision the goroutine either proceeds with injection or synthesises a `403` / `504`.
 
 ### CLI → daemon coordination
 
@@ -84,10 +84,10 @@ State-mutating CLI commands write to SQLite (with `busy_timeout=5s`), then read 
 - Audit write errors are intentionally discarded (`_ =`) — the pipeline must not fail because audit failed
 - `log/slog` throughout; pass `*slog.Logger` as an explicit parameter (nil-checked in packages that can be constructed without one)
 - SQLite driver: `ncruces/go-sqlite3` (WASM, no CGO); always import `_ "github.com/ncruces/go-sqlite3/driver"` alongside `_ "github.com/ncruces/go-sqlite3/embed"`; WAL mode enabled on `store.Open`
-- Master key: `go-keyring` (service: `agent-gateway`, key: `master`); file fallback writes to `$XDG_DATA_HOME/agent-gateway/master.key` with `0o600`; warn via slog when falling back
+- Master key: `go-keyring` (service: `agent-gateway`, account: `master-key`); file fallback writes to `$XDG_CONFIG_HOME/agent-gateway/master.key` with `0o600`; warn via slog when falling back
 - Config file: HCL (not JSON); path `$XDG_CONFIG_HOME/agent-gateway/config.hcl`; file `0o600`, parent dir `0o750`
 - Admin token: 32 random bytes, hex-encoded (64 chars); stored at `$XDG_CONFIG_HOME/agent-gateway/admin-token` with `0o600`; token comparison uses `crypto/subtle.ConstantTimeCompare`
-- Agent tokens: `agw_` prefix + 32 random bytes hex-encoded; stored as bcrypt hashes in SQLite
+- Agent tokens: `agw_` prefix + 32 random bytes base62-encoded (47 chars total); stored as argon2id hashes with per-agent salt in SQLite
 - Rule files: HCL in `$XDG_CONFIG_HOME/agent-gateway/rules.d/`; loaded with `filepath.Glob("*.hcl")` in filename order; `rules check` validates syntax only (no daemon needed)
 - `${secrets.X}` and `${agent.X}` expansion happens in `internal/inject` at injection time, not at rule-load time — secrets are always the current live value
 - Leaf certs: issued per MITM'd host, 24h validity, regenerated 1h before expiry, cached in `sync.Map`; key is the hostname
@@ -96,7 +96,7 @@ State-mutating CLI commands write to SQLite (with `busy_timeout=5s`), then read 
 - Dashboard SSE feed: drop-on-full ring buffer (mcp-broker pattern); paginated `/api/audit` covers "what happened while disconnected"
 - `internal/proxy.ConnectDecision` constants: `DecisionTunnel` (0), `DecisionMITM` (1), `DecisionReject` (2)
 - `internal/approval.ErrQueueFull` is returned synchronously (no block) when `MaxPending` is reached; `ErrUnknownID` is returned by `Decide` for already-resolved or never-created IDs
-- PID file at `$XDG_RUNTIME_DIR/agent-gateway/agent-gateway.pid` (or `$XDG_DATA_HOME/agent-gateway/` fallback); written on `serve` start, deleted on clean shutdown
+- PID file at `$XDG_CONFIG_HOME/agent-gateway/agent-gateway.pid`; written on `serve` start, deleted on clean shutdown
 
 ## Documentation
 

@@ -113,7 +113,7 @@ Valid on `allow` and `require-approval` verdicts. Two verbs:
 Inside `replace_header` values, two namespaces are available:
 
 - `${secrets.<name>}` — resolved against the secrets store at request time.
-- `${agent.name}`, `${agent.id}` — the calling agent.
+- `${agent.name}` — the calling agent's name.
 
 Expansion happens **at injection time**, not at rule-load time. Secrets are always the current live value — rotating a secret takes effect on the next request with no restart.
 

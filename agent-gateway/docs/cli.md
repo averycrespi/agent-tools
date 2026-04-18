@@ -50,7 +50,7 @@ Signals:
 
 ## `agent`
 
-Manage registered agents. Every agent has a name, a token (`agw_…`, printed once at `add`), and an 8-char token prefix used for disambiguation in listings.
+Manage registered agents. Every agent has a name, a token (`agw_…`, printed once at `add`), and a 12-char token prefix (`agw_` + 8 body chars) used for disambiguation in listings.
 
 ### `agent add <name>`
 
@@ -85,7 +85,7 @@ Mint a new token for an existing agent. The previous token is invalidated **imme
 
 ### `agent rm <name>`
 
-Remove an agent. Transactionally cascades to agent-scoped secrets (`scope = 'agent:<name>'`). Audit rows referencing the agent have their `agent` column set to `NULL` (history survives deletion for forensics).
+Remove an agent. Transactionally cascades to agent-scoped secrets (`scope = 'agent:<name>'`). Audit rows referencing the agent retain the agent name as-is (no FK on `requests.agent`, so values are left intact — history survives deletion for forensics).
 
 | Flag      | Description               |
 | --------- | ------------------------- |

@@ -82,7 +82,7 @@ Each deferred to v1.1+ with a one-line rationale so future-us has the context.
   if we adopt this, use a peek-and-rejoin-stream pattern instead.
 - **SSE Last-Event-ID replay + close-on-slow backpressure.** v1 uses
   mcp-broker's drop-on-full pattern for the live feed; the paginated
-  `/api/audit` endpoint covers "what happened while I was away." Adding
+  `/dashboard/api/audit` endpoint covers "what happened while I was away." Adding
   durable replay + slow-client eviction later is additive — ULIDs are
   already on `id:` frames, no protocol change needed.
 - **Ambient SSE event types** (`rule-reload`, `secret-change`,
@@ -361,7 +361,7 @@ explicitly via filename prefixes.
 Only at injection time. Variables:
 
 - `${secrets.<name>}` — resolved against the secrets table at request time.
-- `${agent.name}`, `${agent.id}` — the calling agent.
+- `${agent.name}` — the calling agent's name.
 
 **Secret values are interpolated as opaque bytes.** No re-expansion, no
 escaping, no recursive template resolution. A secret containing `${x}` or
@@ -458,7 +458,8 @@ All state lives in a single SQLite DB at
 CREATE TABLE agents (
   name         TEXT PRIMARY KEY,
   token_hash   BLOB NOT NULL,              -- argon2id
-  token_prefix TEXT NOT NULL,              -- first 8 chars of raw token, plaintext
+  token_prefix TEXT NOT NULL,              -- first 12 chars of raw token ("agw_" + 8 body chars), plaintext
+  argon2_salt  BLOB NOT NULL,              -- 16-byte per-row salt
   created_at   INTEGER NOT NULL,
   last_seen_at INTEGER,
   description  TEXT
@@ -481,7 +482,7 @@ CREATE INDEX idx_secrets_scope ON secrets(scope);
 CREATE TABLE requests (
   id               TEXT PRIMARY KEY,        -- ULID assigned at request decode
   ts               INTEGER NOT NULL,
-  agent            TEXT REFERENCES agents(name) ON DELETE SET NULL,
+  agent            TEXT,                   -- agent name at request time; no FK (see migration 5)
   interception     TEXT NOT NULL,          -- tunnel | mitm
   method           TEXT,                   -- NULL for tunnel rows
   host             TEXT NOT NULL,
@@ -506,9 +507,10 @@ CREATE INDEX idx_req_host  ON requests(ts, host);
 CREATE INDEX idx_req_rule  ON requests(matched_rule, ts);
 ```
 
-Foreign keys: audit rows `ON DELETE SET NULL` (history survives agent
-deletion for forensics). `secrets.scope` has no FK; when an agent is
-removed, `agent rm <name>` issues a transactional cascade in code:
+Foreign keys: `requests.agent` has no FK (migration 5 dropped it); audit rows
+retain the agent name at request time even after the agent is deleted, so
+history survives for forensics. `secrets.scope` has no FK either; when an
+agent is removed, `agent rm <name>` issues a transactional cascade in code:
 `DELETE FROM secrets WHERE scope = 'agent:'||?; DELETE FROM agents WHERE name = ?;`
 This is grep-able and keeps "what happens when I delete an agent" visible at
 the call site rather than hidden in schema DDL.
@@ -789,17 +791,19 @@ pass-through for named hosts. Clients we care about for agent workflows
 
 ### Token format
 
-`agw_` + 32 bytes of base62 entropy (~38 chars total). Chosen prefix makes
-tokens visibly agent-gateway tokens in logs (à la `ghp_`, `sk-`).
+`agw_` + 32 random bytes encoded as base62 (47 chars total: `agw_` + 43
+base62 chars, zero-padded). The prefix makes tokens visibly agent-gateway
+tokens in logs (à la `ghp_`, `sk-`).
 
 Proxy-Authorization value is `Basic base64("x:" + full-token)`, onecli
 convention.
 
 ### Persistence
 
-Only the hash is stored (`argon2id`). Plaintext is printed once at
-`agent add`; if lost, rotate. `token_prefix` (first 8 chars) is stored
-plaintext for disambiguation in dashboard / CLI listings.
+Only the hash is stored (`argon2id`, with a per-row 16-byte salt).
+Plaintext is printed once at `agent add`; if lost, rotate. `token_prefix`
+(first 12 chars: `agw_` + 8 body chars) is stored plaintext for
+disambiguation in dashboard / CLI listings and for O(1) auth lookup.
 
 ### Auth hot path
 
@@ -864,7 +868,7 @@ pattern as mcp-broker). Five tabs in v1:
   on resolution they animate down into the stream. A pending-count pill in
   the header jumps to the pinned section when clicked. **Body contents are
   never displayed on pending rows** — see "Approval view invariant" below.
-  Initial page load pulls the last 200 rows via `/api/audit` so the feed
+  Initial page load pulls the last 200 rows via `/dashboard/api/audit` so the feed
   has history before the first SSE event arrives.
 - **Audit** — paginated history, time-range only in v1. Rows render the
   full audit record (metadata only; no bodies, no values). Rich filters are
@@ -903,7 +907,7 @@ something" risk class entirely.
 This is test-enforced — a dedicated e2e (§12 milestone 5) fires a request
 with a distinctive body + non-asserted headers through a `require-approval`
 rule and asserts neither surfaces on the SSE `approval` event or the
-`/api/pending` response.
+`/dashboard/api/pending` response.
 
 ### Approval queue limits
 
@@ -925,7 +929,7 @@ persistence in v1.
 
 ### SSE event stream
 
-One SSE endpoint: `GET /api/events`. Three event types in v1:
+One SSE endpoint: `GET /dashboard/api/events`. Three event types in v1:
 
 - `request` — an audit row was written. `id:` on the SSE frame is the
   `requests.id` ULID.
@@ -938,7 +942,7 @@ One SSE endpoint: `GET /api/events`. Three event types in v1:
 channel. Broadcasts use a non-blocking send; if the buffer is full, the
 event is dropped for that subscriber and the hot path continues. Matches
 mcp-broker's pattern. Slow clients silently miss events; the initial page
-load for the dashboard uses a paginated `/api/audit` query, so the "what
+load for the dashboard uses a paginated `/dashboard/api/audit` query, so the "what
 happened while I wasn't watching" use case is served by the audit API, not
 by the live feed.
 
@@ -952,8 +956,9 @@ generated on first run, printed once to stdout. Presented via
 `?token=<x>` on first load, then set as `HttpOnly; SameSite=Strict` cookie.
 Rotatable via `agent-gateway token rotate admin`.
 
-Protects every dashboard endpoint including writes (`/api/decide` for
-approval) and the SSE stream (`/api/events`). Admin tokens and agent tokens
+Protects every dashboard endpoint including writes (`/dashboard/api/decide`
+for approval) and the SSE stream (`/dashboard/api/events`). Admin tokens and
+agent tokens
 are cryptographically distinct and live in different files/tables; no
 cross-use. `GET /ca.pem` is the only explicitly unauthenticated
 dashboard-port endpoint (public-key material by design).
@@ -1280,14 +1285,14 @@ error='secret_unresolved'`. A second test edits the rule file to have
    agent only ever sees dummy.
 5. **Audit log + dashboard live feed.** SQLite audit table with new column
    set, SSE endpoint with drop-on-full broadcast + 15s keepalive, paginated
-   `/api/audit` for initial page load, approve/deny UI.
+   `/dashboard/api/audit` for initial page load, approve/deny UI.
    _Done when:_ `TestDashboardLiveFeed` passes — dashboard subscribes to
-   `/api/events`, 20 requests happen live, the browser sees all 20 on the
-   feed. A second test verifies the `/api/audit` endpoint returns the same
+   `/dashboard/api/events`, 20 requests happen live, the browser sees all 20
+   on the feed. A second test verifies the `/dashboard/api/audit` endpoint returns the same
    20 rows with correct pagination. A third test
    (`TestApprovalViewInvariant`) fires a request with a distinctive body
    and unasserted headers through a `require-approval` rule and asserts
-   neither appears on the SSE `approval` event or the `/api/pending`
+   neither appears on the SSE `approval` event or the `/dashboard/api/pending`
    response (see §8 approval view invariant).
 6. **Agents.** Token mint/auth, per-agent rule scoping (CONNECT-time
    filter), per-agent secret scoping, audit-field propagation.
