@@ -46,7 +46,7 @@ All external commands flow through `exec.Runner`, an interface with `Run` and `R
 
 **Interface segregation in sandbox.** The sandbox package defines its own `LimaClient` interface containing only the methods it needs, rather than depending on the concrete type. This keeps coupling minimal and tests focused.
 
-**Config-driven provisioning.** What to copy in, which scripts to run, resource allocation — all driven by `~/.config/sb/config.json`. The tool has no hardcoded knowledge of any specific agent or development workflow.
+**Config-driven provisioning.** What to copy in, which scripts to run, resource allocation — all driven by `~/.config/sb/config.json`. The tool has no hardcoded knowledge of any specific agent or development workflow. The repo ships example provisioning scripts under `examples/provision/` as reference material, but `sb` itself has no awareness of them — they're plain files referenced by absolute path from user configs.
 
 **Smart create.** `sb create` is the primary entry point and handles all states: if the VM doesn't exist, it creates and provisions it; if it's stopped, it starts and provisions it; if it's running, it re-provisions it. This makes it safe to re-run without thinking about current state.
 
