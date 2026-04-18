@@ -33,6 +33,12 @@ type Opts struct {
 	// Timeout is how long Request will block waiting for a decision before
 	// returning proxy.DecisionTimeout. Zero means block forever.
 	Timeout time.Duration
+
+	// OnEvent, if non-nil, is called with a short kind string ("approval") and
+	// a JSON-serialisable payload whenever a pending entry is added (on Request)
+	// or resolved (on Decide). The callback must be non-blocking; it is called
+	// while the broker mutex is NOT held.
+	OnEvent func(kind string, data any)
 }
 
 // pendingEntry is a single in-flight approval request stored in the broker.
@@ -57,6 +63,7 @@ type Broker struct {
 	mu      sync.Mutex
 	pending map[string]*pendingEntry
 	opts    Opts
+	onEvent func(kind string, data any) // alias to opts.OnEvent; nil-safe
 }
 
 // New constructs a Broker with the given options.
@@ -64,6 +71,7 @@ func New(opts Opts) *Broker {
 	return &Broker{
 		pending: make(map[string]*pendingEntry),
 		opts:    opts,
+		onEvent: opts.OnEvent,
 	}
 }
 
@@ -88,6 +96,11 @@ func (b *Broker) Request(ctx context.Context, p proxy.ApprovalRequest) (proxy.Ap
 	}
 	b.pending[p.RequestID] = entry
 	b.mu.Unlock()
+
+	// Notify listeners (e.g. dashboard SSE) that a new pending item was added.
+	if b.onEvent != nil {
+		b.onEvent("approval", p)
+	}
 
 	// ApprovalGuard: defer cleanup that fires unless disarmed by a normal-path
 	// resolution. This ensures the entry is removed on context cancellation even
@@ -161,6 +174,14 @@ func (b *Broker) Decide(id string, decision proxy.ApprovalDecision) error {
 
 	// The channel is buffered(1); this never blocks.
 	entry.ch <- decision
+
+	// Notify listeners that the pending item was resolved.
+	if b.onEvent != nil {
+		b.onEvent("approval", struct {
+			RequestID string                 `json:"request_id"`
+			Decision  proxy.ApprovalDecision `json:"decision"`
+		}{RequestID: id, Decision: decision})
+	}
 	return nil
 }
 

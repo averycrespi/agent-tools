@@ -143,6 +143,12 @@ type Deps struct {
 	// If nil, auditing is skipped (nil-safe).
 	Auditor audit.Logger
 
+	// OnRequest, if non-nil, is called with the completed audit.Entry after
+	// each request is audited. It is called from the request goroutine after
+	// the audit record is written (or skipped when Auditor is nil). The
+	// callback must be non-blocking.
+	OnRequest func(entry audit.Entry)
+
 	// Logger is the structured logger. If nil, the default slog logger is used.
 	Logger *slog.Logger
 
@@ -171,6 +177,7 @@ type Proxy struct {
 	approval          ApprovalBroker
 	injector          Injector
 	auditor           audit.Logger
+	onRequest         func(entry audit.Entry)
 	log               *slog.Logger
 	handshakeTimeout  time.Duration
 	readHeaderTimeout time.Duration
@@ -218,6 +225,7 @@ func New(d Deps) *Proxy {
 		approval:          d.Approval,
 		injector:          d.Injector,
 		auditor:           d.Auditor,
+		onRequest:         d.OnRequest,
 		log:               log,
 		handshakeTimeout:  ht,
 		readHeaderTimeout: rht,

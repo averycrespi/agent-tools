@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/oklog/ulid/v2"
+
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/agents"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/approval"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
@@ -77,6 +79,17 @@ func New(deps Deps) *Server {
 		sse:  newSSEBroker(),
 		log:  log,
 	}
+}
+
+// Broadcast fans an event out to all current SSE subscribers. It is safe to
+// call from any goroutine. Callers supply a human-readable kind string (e.g.
+// "request", "approval") and any JSON-serialisable data payload.
+func (s *Server) Broadcast(kind string, data any) {
+	s.sse.Broadcast(Event{
+		Kind: kind,
+		ID:   ulid.Make(),
+		Data: data,
+	})
 }
 
 // Handler returns the HTTP handler for the dashboard, wrapped in auth middleware.

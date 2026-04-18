@@ -147,7 +147,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 	// path is taken. The closure captures outcome, respStatus, and bytesIn by
 	// reference so they reflect final state.
 	defer func() {
-		if p.auditor == nil {
+		if p.auditor == nil && p.onRequest == nil {
 			return
 		}
 		method := r.Method
@@ -190,8 +190,13 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 				entry.Error = &a.Error
 			}
 		}
-		if err := p.auditor.Record(r.Context(), entry); err != nil {
-			p.log.Warn("proxy: audit record failed", "request_id", reqID, "err", err)
+		if p.auditor != nil {
+			if err := p.auditor.Record(r.Context(), entry); err != nil {
+				p.log.Warn("proxy: audit record failed", "request_id", reqID, "err", err)
+			}
+		}
+		if p.onRequest != nil {
+			p.onRequest(entry)
 		}
 	}()
 
@@ -235,7 +240,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 					Host:      host,
 					Method:    r.Method,
 					Path:      r.URL.Path,
-					Header:    r.Header.Clone(),
+					Header:    assertedHeaders(r.Header, m.Rule.Match.Headers),
 				})
 				if apErr != nil {
 					p.log.Error("proxy: approval broker error", "request_id", reqID, "err", apErr)
@@ -398,4 +403,21 @@ func (c *countingReadCloser) Read(p []byte) (int, error) {
 	n, err := c.ReadCloser.Read(p)
 	*c.n += int64(n)
 	return n, err
+}
+
+// assertedHeaders returns a new http.Header containing only the header names
+// that appear in assertedNames (the rule's Match.Headers keys). This enforces
+// the §8 approval view invariant: the approval view must not contain body
+// content or header values that the rule did not assert.
+//
+// assertedNames is the map[string]string from rules.Match.Headers; only the
+// keys are used (the canonical header name, case-insensitive via http.Header).
+func assertedHeaders(src http.Header, assertedNames map[string]string) http.Header {
+	out := make(http.Header, len(assertedNames))
+	for name := range assertedNames {
+		if vals := src[http.CanonicalHeaderKey(name)]; len(vals) > 0 {
+			out[http.CanonicalHeaderKey(name)] = append([]string(nil), vals...)
+		}
+	}
+	return out
 }

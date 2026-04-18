@@ -159,9 +159,19 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		agentsRegistry = nil
 	}
 
+	// dashBroadcast is set to dashServer.Broadcast after the dashboard server is
+	// constructed (below). The closures here capture the variable by reference so
+	// they resolve to the real function at call time, after it has been assigned.
+	var dashBroadcast func(kind string, data any)
+
 	approvalBroker := approval.New(approval.Opts{
 		MaxPending: cfg.Approval.MaxPending,
 		Timeout:    cfg.Approval.Timeout,
+		OnEvent: func(kind string, data any) {
+			if dashBroadcast != nil {
+				dashBroadcast(kind, data)
+			}
+		},
 	})
 
 	// 4. Acquire PID file.
@@ -222,12 +232,18 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		CA:                   authority,
 		UpstreamRoundTripper: upstreamRT,
 		Rules:                engine,
+		Approval:             approvalBroker,
 		Injector:             proxyInjector,
 		Auditor:              auditor,
-		Logger:               log,
-		HandshakeTimeout:     cfg.Timeouts.MITMHandshake,
-		ReadHeaderTimeout:    cfg.Timeouts.ConnectReadHeader,
-		IdleTimeout:          cfg.Timeouts.IdleKeepalive,
+		OnRequest: func(entry audit.Entry) {
+			if dashBroadcast != nil {
+				dashBroadcast("request", entry)
+			}
+		},
+		Logger:            log,
+		HandshakeTimeout:  cfg.Timeouts.MITMHandshake,
+		ReadHeaderTimeout: cfg.Timeouts.ConnectReadHeader,
+		IdleTimeout:       cfg.Timeouts.IdleKeepalive,
 	})
 
 	// Start proxy: Serve blocks on Accept; close proxyLn on ctx.Done to stop it.
@@ -248,6 +264,9 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		CAPath:         paths.CACert(),
 		Logger:         log,
 	})
+	// Wire the dashboard SSE broadcast so proxy and approval callbacks fire it.
+	dashBroadcast = dashServer.Broadcast
+
 	dashHandler, firstRun := dashServer.Handler()
 
 	dashSrv := &http.Server{Handler: dashHandler}
