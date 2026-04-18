@@ -118,8 +118,10 @@ type Deps struct {
 	CA CA
 
 	// Registry authenticates agent tokens from Proxy-Authorization headers.
-	// If nil, all CONNECT requests are accepted without authentication (legacy
-	// behaviour; real deployments must provide a registry).
+	// Production callers must provide one; the serve entry point refuses to
+	// start if registry initialisation fails. If nil, CONNECT requests skip
+	// authentication and the intercept decision — this path exists only so
+	// unit tests can exercise the pipeline without stubbing authentication.
 	Registry agents.Registry
 
 	// NoInterceptHosts is the list of host-glob patterns from the

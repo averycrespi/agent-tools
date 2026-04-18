@@ -153,10 +153,13 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	}
 
 	// 3c. Initialise the agents registry and approval broker.
-	agentsRegistry, agentsErr := agents.NewRegistry(ctx, db)
-	if agentsErr != nil {
-		log.Warn("agents registry unavailable", "err", agentsErr)
-		agentsRegistry = nil
+	// Registry failure is fatal: without it, the proxy cannot authenticate
+	// CONNECT requests and would silently accept any caller, ignore
+	// no_intercept_hosts, and resolve only global secrets. Fail closed
+	// rather than boot into that degraded state.
+	agentsRegistry, err := agents.NewRegistry(ctx, db)
+	if err != nil {
+		return fmt.Errorf("initialise agents registry: %w", err)
 	}
 
 	// dashBroadcast is set to dashServer.Broadcast after the dashboard server is
@@ -304,10 +307,8 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	// Startup summary: log counts and MITM-eligible hosts.
 	{
 		agentCount := 0
-		if agentsRegistry != nil {
-			if list, listErr := agentsRegistry.List(ctx); listErr == nil {
-				agentCount = len(list)
-			}
+		if list, listErr := agentsRegistry.List(ctx); listErr == nil {
+			agentCount = len(list)
 		}
 		secretCount := 0
 		if secretsStore != nil {
@@ -367,12 +368,10 @@ func RunServe(ctx context.Context, d serveDeps) error {
 					inj.InvalidateCache()
 					log.Info("injector cache invalidated")
 				}
-				if agentsRegistry != nil {
-					if reloadErr := agentsRegistry.ReloadFromDB(ctx); reloadErr != nil {
-						log.Warn("agents registry reload failed", "err", reloadErr)
-					} else {
-						log.Info("agents registry reloaded")
-					}
+				if reloadErr := agentsRegistry.ReloadFromDB(ctx); reloadErr != nil {
+					log.Warn("agents registry reload failed", "err", reloadErr)
+				} else {
+					log.Info("agents registry reloaded")
 				}
 				if reloadErr := dashServer.ReloadToken(); reloadErr != nil {
 					log.Warn("admin token reload failed", "err", reloadErr)

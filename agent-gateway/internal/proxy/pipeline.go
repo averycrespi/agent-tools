@@ -114,8 +114,8 @@ func stripHopByHop(h http.Header) {
 // p.rt and copies the response back to w. Both H1 and H2 paths call this.
 //
 // host is the CONNECT target host:port (used to rewrite req.URL.Host and req.Host).
-// agentName is the authenticated agent name from the CONNECT handshake (empty when
-// no registry is configured or in legacy unauthenticated mode).
+// agentName is the authenticated agent name from the CONNECT handshake (empty
+// only in the test-only no-registry path).
 func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName string) {
 	// 1. Assign a request-scoped ULID. Synthesised error responses carry this ID
 	// in X-Request-ID; forwarded responses do not.

@@ -72,7 +72,8 @@ func (p *Proxy) serveConn(conn net.Conn) {
 		}
 	}
 
-	// No registry configured: legacy path — always MITM without auth.
+	// No registry configured: test-only path — always MITM without auth.
+	// Production always provides a registry (serve refuses to start without one).
 	if err := writeResponse(conn, http.StatusOK, "Connection Established"); err != nil {
 		return
 	}
@@ -82,7 +83,8 @@ func (p *Proxy) serveConn(conn net.Conn) {
 // serveMITM performs TLS interception on conn. br is the buffered reader
 // wrapping conn (may contain already-read bytes). connectTarget is the full
 // host:port; hostOnly is the bare hostname for leaf-cert issuance.
-// agentName is the authenticated agent name (empty when no registry is configured).
+// agentName is the authenticated agent name (empty only in the test-only
+// no-registry path).
 func (p *Proxy) serveMITM(conn net.Conn, br *bufio.Reader, connectTarget, hostOnly, agentName string) {
 	// The bufio reader may have buffered bytes beyond the CONNECT request line.
 	// For a well-behaved client the CONNECT body is empty so the reader buffer
@@ -143,8 +145,8 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 // upstream address named in connectTarget. It dials connectTarget directly and
 // pipes data in both directions until either side closes.
 //
-// agentName is the authenticated agent name (may be empty when no registry is
-// configured). connectTarget is the full "host:port" from the CONNECT line.
+// agentName is the authenticated agent name (empty only in the test-only
+// no-registry path). connectTarget is the full "host:port" from the CONNECT line.
 func (p *Proxy) serveTunnel(conn net.Conn, br *bufio.Reader, connectTarget, agentName string) {
 	reqID := NewULID()
 	start := time.Now()
@@ -255,7 +257,8 @@ func write407(conn net.Conn) error {
 }
 
 // serveH2 serves the MITM'd connection using HTTP/2.
-// agentName is the authenticated agent name (may be empty for legacy unauthenticated mode).
+// agentName is the authenticated agent name (empty only in the test-only
+// no-registry path).
 func (p *Proxy) serveH2(conn *tls.Conn, host, agentName string) {
 	srv := &http2.Server{
 		IdleTimeout: p.idleTimeout,
@@ -268,7 +271,8 @@ func (p *Proxy) serveH2(conn *tls.Conn, host, agentName string) {
 }
 
 // serveH1 serves the MITM'd connection using HTTP/1 by looping over requests.
-// agentName is the authenticated agent name (may be empty for legacy unauthenticated mode).
+// agentName is the authenticated agent name (empty only in the test-only
+// no-registry path).
 func (p *Proxy) serveH1(conn *tls.Conn, host, agentName string) {
 	// Wrap in a single-connection net.Listener so http.Server can drive the
 	// loop (including keep-alive). This is simpler than hand-rolling the loop.
