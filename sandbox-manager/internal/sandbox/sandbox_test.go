@@ -235,6 +235,25 @@ func TestService_Provision_Scripts(t *testing.T) {
 	ml.AssertCalled(t, "Exec", []string{"rm", "-f", "/tmp/sb-provision-script"})
 }
 
+func TestService_Provision_Scripts_TildeExpansion(t *testing.T) {
+	t.Setenv("HOME", "/home/alice")
+	expanded := "/home/alice/setup.sh"
+
+	ml := new(mockLima)
+	ml.On("Status").Return(lima.StatusRunning, nil)
+	ml.On("Copy", expanded, "/tmp/sb-provision-script", false).Return(nil)
+	ml.On("Exec", []string{"chmod", "+x", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
+	ml.On("Exec", []string{"/tmp/sb-provision-script"}).Return([]byte(""), nil)
+	ml.On("Exec", []string{"rm", "-f", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
+
+	cfg := config.Default()
+	cfg.Scripts = []string{"~/setup.sh"}
+
+	svc := sandbox.NewService(ml, cfg, nopLogger)
+	require.NoError(t, svc.Provision())
+	ml.AssertCalled(t, "Copy", expanded, "/tmp/sb-provision-script", false)
+}
+
 func TestService_Provision_ScriptExecError(t *testing.T) {
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)

@@ -115,11 +115,11 @@ func ParseCopyPath(entry string) (src, dst string, err error) {
 		src, dst = entry, entry
 	}
 
-	src, err = expandTilde(src)
+	src, err = ExpandTilde(src)
 	if err != nil {
 		return "", "", err
 	}
-	dst, err = expandTilde(dst)
+	dst, err = ExpandTilde(dst)
 	if err != nil {
 		return "", "", err
 	}
@@ -131,8 +131,8 @@ func ParseCopyPath(entry string) (src, dst string, err error) {
 	return src, dst, nil
 }
 
-// expandTilde replaces a leading "~/" with the user's home directory.
-func expandTilde(path string) (string, error) {
+// ExpandTilde replaces a leading "~/" with the user's home directory.
+func ExpandTilde(path string) (string, error) {
 	if !strings.HasPrefix(path, "~/") {
 		return path, nil
 	}
