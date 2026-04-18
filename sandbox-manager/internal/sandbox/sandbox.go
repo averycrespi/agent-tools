@@ -195,11 +195,26 @@ func (s *Service) Provision() error {
 
 	// Run scripts.
 	for _, script := range s.config.Scripts {
-		s.logger.Debug("running script", "script", script)
+		expanded, err := config.ExpandTilde(script)
+		if err != nil {
+			return fmt.Errorf("failed to expand script path %q: %w", script, err)
+		}
+		s.logger.Debug("running script", "script", expanded)
+
+		info, err := os.Stat(expanded)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("provisioning script %q does not exist (configured as %q)", expanded, script)
+			}
+			return fmt.Errorf("failed to stat provisioning script %q: %w", expanded, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("provisioning script %q is a directory, expected a file", expanded)
+		}
 
 		tmpDst := "/tmp/sb-provision-script"
-		if err := s.lima.Copy(script, tmpDst, false); err != nil {
-			return fmt.Errorf("failed to copy script %q to VM: %w", script, err)
+		if err := s.lima.Copy(expanded, tmpDst, false); err != nil {
+			return fmt.Errorf("failed to copy script %q to VM: %w", expanded, err)
 		}
 
 		if _, err := s.lima.Exec("chmod", "+x", tmpDst); err != nil {
