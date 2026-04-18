@@ -90,9 +90,12 @@ func (f *Fetcher) serveList(w http.ResponseWriter, req Request) error {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(w, strings.Join(r.Versions, "\n"))
+	body := strings.Join(r.Versions, "\n")
 	if len(r.Versions) > 0 {
-		_, _ = io.WriteString(w, "\n")
+		body += "\n"
+	}
+	if _, err := io.WriteString(w, body); err != nil {
+		return fmt.Errorf("%w: writing list body: %w", ErrResponseCommitted, err)
 	}
 	return nil
 }
@@ -112,7 +115,10 @@ func (f *Fetcher) serveLatest(w http.ResponseWriter, req Request) error {
 	info := map[string]string{"Version": r.Version, "Time": r.Time}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	return json.NewEncoder(w).Encode(info)
+	if err := json.NewEncoder(w).Encode(info); err != nil {
+		return fmt.Errorf("%w: encoding latest info: %w", ErrResponseCommitted, err)
+	}
+	return nil
 }
 
 // wrapRunError classifies a failed `go` invocation. When the tool emitted
@@ -139,6 +145,8 @@ func streamFile(w http.ResponseWriter, path, contentType string) error {
 	defer func() { _ = f.Close() }()
 	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(http.StatusOK)
-	_, err = io.Copy(w, f)
-	return err
+	if _, err := io.Copy(w, f); err != nil {
+		return fmt.Errorf("%w: streaming %s: %w", ErrResponseCommitted, path, err)
+	}
+	return nil
 }

@@ -12,6 +12,13 @@ import (
 // requires so clients fall through cleanly instead of retrying.
 var ErrModuleNotFound = errors.New("module not found")
 
+// ErrResponseCommitted signals that an error occurred after response headers
+// were already written — typically an io.Copy or client-disconnect mid-body.
+// Callers use errors.Is to log rather than attempt a second WriteHeader,
+// which would emit a "superfluous WriteHeader" warning and append error-text
+// bytes to an already-in-flight artifact.
+var ErrResponseCommitted = errors.New("response headers already written")
+
 // notFoundPatterns are substrings in `go mod download` / `go list` output that
 // we treat as authoritative "module or version does not exist" signals.
 //

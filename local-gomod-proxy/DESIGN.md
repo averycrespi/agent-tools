@@ -107,6 +107,8 @@ Errors from `go mod download` include the command's stderr so callers get action
 
 Errors are classified before responding. When the toolchain emits a known "module/version does not exist" signal (`unknown revision`, `invalid version`, `repository does not exist`, `repository not found`, `no matching versions`, or an upstream `404 Not Found` / `410 Gone`), the server responds with **HTTP 404** so the Go client surfaces a clean "not found" error and, if multiple GOPROXY sources are configured, falls through to the next. Everything else (auth failures, network errors, unexpected toolchain output) stays **502** so transient issues are not silently masked as missing modules. Classification lives in `internal/private/classify.go`; see that file's comments for the substring list and its sources. Caveat (golang/go#42751): GitHub returns 404 for inaccessible private repos, so an auth problem against GitHub can surface as `unknown revision` and be mapped to 404 — that is a Go tooling limitation we cannot disambiguate from the toolchain's output.
 
+Errors that occur after the response headers are written (mid-stream `io.Copy` failures, client disconnects, disk I/O errors on `GOMODCACHE`) are wrapped with `ErrResponseCommitted`. The server handler logs these at `Warn` and returns without a second `http.Error`, avoiding the "superfluous WriteHeader" warning and the appended error-text bytes that would corrupt the in-flight artifact.
+
 Startup validation:
 
 | Variable     | If empty or missing                                                            |

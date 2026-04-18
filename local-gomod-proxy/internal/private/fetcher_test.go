@@ -1,6 +1,7 @@
 package private
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -205,3 +206,63 @@ func TestFetcher_Latest_NotFound(t *testing.T) {
 type assertErr struct{}
 
 func (assertErr) Error() string { return "boom" }
+
+// failingWriter accepts header writes but errors on every body Write,
+// simulating a mid-stream failure (disk I/O error or client disconnect).
+type failingWriter struct {
+	hdr  http.Header
+	code int
+}
+
+func (f *failingWriter) Header() http.Header {
+	if f.hdr == nil {
+		f.hdr = http.Header{}
+	}
+	return f.hdr
+}
+func (f *failingWriter) WriteHeader(c int)         { f.code = c }
+func (f *failingWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
+
+func TestFetcher_StreamFile_ResponseCommitted(t *testing.T) {
+	// Runner points at a real on-disk .info file so os.Open succeeds and
+	// headers get written; io.Copy then fails on the failing writer. The
+	// returned error must satisfy ErrResponseCommitted so the server skips
+	// http.Error and avoids a superfluous WriteHeader.
+	tmp := t.TempDir()
+	infoPath := filepath.Join(tmp, "v1.2.3.info")
+	require.NoError(t, os.WriteFile(infoPath, []byte(`{"Version":"v1.2.3"}`), 0o600))
+
+	runner := &stubRunner{
+		out: []byte(`{"Info":"` + infoPath + `","GoMod":"/x","Zip":"/y","Version":"v1.2.3"}`),
+	}
+	f := New(runner)
+
+	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
+	err := f.Serve(&failingWriter{}, httptest.NewRequest(http.MethodGet, "/", nil), req)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrResponseCommitted)
+}
+
+func TestFetcher_List_ResponseCommitted(t *testing.T) {
+	runner := &stubRunner{
+		out: []byte(`{"Versions":["v1.0.0","v1.1.0"]}`),
+	}
+	f := New(runner)
+
+	req := Request{Module: "github.com/foo/bar", Artifact: ArtifactList}
+	err := f.Serve(&failingWriter{}, httptest.NewRequest(http.MethodGet, "/", nil), req)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrResponseCommitted)
+}
+
+func TestFetcher_Latest_ResponseCommitted(t *testing.T) {
+	runner := &stubRunner{
+		out: []byte(`{"Version":"v1.1.0","Time":"2024-01-01T00:00:00Z"}`),
+	}
+	f := New(runner)
+
+	req := Request{Module: "github.com/foo/bar", Artifact: ArtifactLatest}
+	err := f.Serve(&failingWriter{}, httptest.NewRequest(http.MethodGet, "/", nil), req)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrResponseCommitted)
+}
