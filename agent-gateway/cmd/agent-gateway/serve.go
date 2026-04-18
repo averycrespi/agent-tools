@@ -162,6 +162,7 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	p := proxy.New(proxy.Deps{
 		CA:                   authority,
 		UpstreamRoundTripper: upstreamRT,
+		Rules:                engine,
 		Logger:               log,
 		HandshakeTimeout:     cfg.Timeouts.MITMHandshake,
 		ReadHeaderTimeout:    cfg.Timeouts.ConnectReadHeader,

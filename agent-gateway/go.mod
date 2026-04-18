@@ -6,6 +6,7 @@ require (
 	github.com/PaesslerAG/jsonpath v0.1.1
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/ncruces/go-sqlite3 v0.32.0
+	github.com/oklog/ulid/v2 v2.1.1
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/zclconf/go-cty v1.16.3

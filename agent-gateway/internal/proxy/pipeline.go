@@ -1,9 +1,16 @@
 package proxy
 
 import (
+	"crypto/rand"
 	"io"
+	"net"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/oklog/ulid/v2"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
 )
 
 // hopByHopHeaders is the set of headers that must not be forwarded to the
@@ -37,14 +44,95 @@ func stripHopByHop(h http.Header) {
 	}
 }
 
+// newRequestID returns a new ULID string using a cryptographically-random
+// entropy source. Panics only if the system's random source is broken, which
+// is never expected in normal operation.
+func newRequestID() string {
+	entropy := ulid.Monotonic(rand.Reader, 0)
+	return ulid.MustNew(ulid.Timestamp(time.Now()), entropy).String()
+}
+
 // handle is the per-request handler. It forwards the request upstream via
 // p.rt and copies the response back to w. Both H1 and H2 paths call this.
 //
 // host is the CONNECT target host:port (used to rewrite req.URL.Host and req.Host).
 func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
-	// TODO(Task 24): rules evaluation — check per-agent rule set, apply
-	// allow/deny/require-approval verdict. For this milestone every request
-	// is forwarded unconditionally.
+	// Assign a request-scoped ULID. Synthesised error responses carry this ID
+	// in X-Request-ID; forwarded responses do not.
+	reqID := newRequestID()
+
+	// Evaluate rules if an engine is configured.
+	if p.rules != nil {
+		// hostOnly strips any port suffix for rule matching; host matchers in
+		// HCL rules use bare hostnames (e.g. "api.github.com").
+		hostOnly, _, err := net.SplitHostPort(host)
+		if err != nil {
+			hostOnly = host
+		}
+
+		rreq := &rules.Request{
+			Agent:  "", // TODO(Task 24): agent name from ProxyAuth
+			Host:   hostOnly,
+			Method: r.Method,
+			Path:   r.URL.Path,
+			Header: r.Header,
+			// Body: nil — Task 17 buffer wired in next step
+		}
+		m := p.rules.Evaluate(rreq)
+
+		if m != nil && m.Rule != nil && m.Error == "" {
+			switch m.Rule.Verdict {
+			case "deny":
+				w.Header().Set("X-Request-ID", reqID)
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+
+			case "require-approval":
+				if p.approval == nil {
+					p.log.Error("proxy: require-approval verdict but no ApprovalBroker configured",
+						"request_id", reqID, "host", host)
+					w.Header().Set("X-Request-ID", reqID)
+					http.Error(w, "no approval broker configured", http.StatusGatewayTimeout)
+					return
+				}
+				decision, apErr := p.approval.Request(r.Context(), ApprovalRequest{
+					RequestID: reqID,
+					Agent:     "", // TODO(Task 24)
+					Host:      host,
+					Method:    r.Method,
+					Path:      r.URL.Path,
+					Header:    r.Header.Clone(),
+				})
+				if apErr != nil {
+					p.log.Error("proxy: approval broker error", "request_id", reqID, "err", apErr)
+					w.Header().Set("X-Request-ID", reqID)
+					http.Error(w, "approval error", http.StatusBadGateway)
+					return
+				}
+				switch decision {
+				case DecisionDenied:
+					w.Header().Set("X-Request-ID", reqID)
+					http.Error(w, "Forbidden", http.StatusForbidden)
+					return
+				case DecisionTimeout:
+					w.Header().Set("X-Request-ID", reqID)
+					http.Error(w, "approval timed out", http.StatusGatewayTimeout)
+					return
+				case DecisionApproved:
+					// Fall through to upstream forwarding.
+				}
+
+			case "allow":
+				// Explicit allow — fall through to forwarding.
+
+			default:
+				// Unknown verdict: treat as allow to be forward-compatible.
+				p.log.Warn("proxy: unknown rule verdict; treating as allow",
+					"verdict", m.Rule.Verdict, "request_id", reqID)
+			}
+		}
+		// nil match, bypass error, or allow → fall through to forwarding.
+	}
 
 	// TODO(Task 24): credential injection — apply matching rule's secret
 	// binding to the outgoing request headers.

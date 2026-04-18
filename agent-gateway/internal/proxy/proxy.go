@@ -6,11 +6,14 @@
 package proxy
 
 import (
+	"context"
 	"crypto/tls"
 	"log/slog"
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
 )
 
 const (
@@ -31,6 +34,62 @@ type CA interface {
 	ServerConfig(host string) (*tls.Config, error)
 }
 
+// RulesEngine is the interface required by Proxy for evaluating per-request
+// rules. It is satisfied by *rules.Engine but kept as an interface so tests
+// can inject a lightweight stub.
+//
+// If nil, all requests are treated as if the rule engine returned a nil match
+// (implicit allow).
+type RulesEngine interface {
+	// Evaluate returns the first matching rule result for req, or nil if no
+	// rule matches. A nil result means the request is implicitly allowed.
+	Evaluate(req *rules.Request) *rules.MatchResult
+	// HostsForAgent returns the set of host-glob patterns with at least one
+	// rule applying to agent. Used at CONNECT time to decide MITM vs tunnel.
+	HostsForAgent(agent string) map[string]struct{}
+}
+
+// ApprovalDecision is the outcome of an approval request.
+type ApprovalDecision string
+
+const (
+	// DecisionApproved means the approver accepted the request; forward upstream.
+	DecisionApproved ApprovalDecision = "approved"
+	// DecisionDenied means the approver rejected the request; return 403.
+	DecisionDenied ApprovalDecision = "denied"
+	// DecisionTimeout means no decision arrived before the deadline; return 504.
+	DecisionTimeout ApprovalDecision = "timeout"
+)
+
+// ApprovalRequest carries the details of an intercepted request that requires
+// human (or automated) approval before being forwarded.
+type ApprovalRequest struct {
+	// RequestID is the ULID assigned to this request.
+	RequestID string
+	// Agent is the name of the authenticated agent (may be empty pre-Task 24).
+	Agent string
+	// Host is the CONNECT target host:port.
+	Host string
+	// Method is the HTTP method.
+	Method string
+	// Path is the request path.
+	Path string
+	// Header contains the canonical request headers.
+	Header http.Header
+}
+
+// ApprovalBroker is the interface used by Proxy to gate require-approval
+// verdicts. The real implementation lives in the approval package (Task 31);
+// for now tests inject a stub.
+//
+// If nil and a require-approval verdict fires, the proxy returns 504 with the
+// message "no approval broker configured".
+type ApprovalBroker interface {
+	// Request blocks until an approval decision is made for pending, or until
+	// ctx is cancelled. Cancellation must return DecisionTimeout, nil.
+	Request(ctx context.Context, pending ApprovalRequest) (ApprovalDecision, error)
+}
+
 // Deps groups all injectable dependencies for a Proxy.
 type Deps struct {
 	// CA provides leaf TLS configs for MITM interception. Required.
@@ -40,6 +99,14 @@ type Deps struct {
 	// upstream server. If nil, a default http.Transport is used (set during
 	// Serve). Inject a fake in tests.
 	UpstreamRoundTripper http.RoundTripper
+
+	// Rules is the rules engine used to evaluate per-request verdicts.
+	// If nil, all requests are forwarded (implicit allow).
+	Rules RulesEngine
+
+	// Approval is the broker used to gate require-approval verdicts.
+	// If nil and a require-approval verdict fires, the proxy returns 504.
+	Approval ApprovalBroker
 
 	// Logger is the structured logger. If nil, the default slog logger is used.
 	Logger *slog.Logger
@@ -63,6 +130,8 @@ type Deps struct {
 type Proxy struct {
 	ca                CA
 	rt                http.RoundTripper
+	rules             RulesEngine
+	approval          ApprovalBroker
 	log               *slog.Logger
 	handshakeTimeout  time.Duration
 	readHeaderTimeout time.Duration
@@ -104,6 +173,8 @@ func New(d Deps) *Proxy {
 	return &Proxy{
 		ca:                d.CA,
 		rt:                rt,
+		rules:             d.Rules,
+		approval:          d.Approval,
 		log:               log,
 		handshakeTimeout:  ht,
 		readHeaderTimeout: rht,
