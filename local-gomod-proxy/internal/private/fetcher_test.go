@@ -119,6 +119,18 @@ func TestFetcher_ReportsDownloadError(t *testing.T) {
 	assert.Contains(t, err.Error(), "go: no such module")
 }
 
+func TestFetcher_Info_MalformedJSON(t *testing.T) {
+	// Runner exits cleanly but returns invalid JSON.
+	runner := &stubRunner{out: []byte("not-json")}
+	f := New(runner)
+
+	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
+	w := httptest.NewRecorder()
+	err := f.Serve(w, httptest.NewRequest(http.MethodGet, "/", nil), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parsing go mod download output")
+}
+
 type assertErr struct{}
 
 func (assertErr) Error() string { return "boom" }
