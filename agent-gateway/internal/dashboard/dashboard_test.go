@@ -362,6 +362,36 @@ func TestSSE_Events_KeepaliveComment(t *testing.T) {
 	require.True(t, found, "expected keepalive comment in SSE stream")
 }
 
+// ---------- Static assets ----------
+
+func TestIndexServesHTMLWithEmbeddedBundle(t *testing.T) {
+	srv, token := newTestServer(t, Deps{})
+
+	// GET /dashboard/ → 200; body contains title and app.js script tag.
+	req, _ := http.NewRequest("GET", srv.URL+"/dashboard/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close() //nolint:errcheck
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Contains(t, resp.Header.Get("Content-Type"), "text/html")
+
+	body, _ := io.ReadAll(resp.Body)
+	require.Contains(t, string(body), "<title>agent-gateway</title>")
+	require.Contains(t, string(body), "app.js")
+
+	// GET /dashboard/app.js → 200 non-empty.
+	req2, _ := http.NewRequest("GET", srv.URL+"/dashboard/app.js", nil)
+	req2.Header.Set("Authorization", "Bearer "+token)
+	resp2, err := http.DefaultClient.Do(req2)
+	require.NoError(t, err)
+	defer resp2.Body.Close() //nolint:errcheck
+	require.Equal(t, http.StatusOK, resp2.StatusCode)
+
+	body2, _ := io.ReadAll(resp2.Body)
+	require.NotEmpty(t, body2)
+}
+
 // ---------- fakes ----------
 
 type fakeBroker struct {

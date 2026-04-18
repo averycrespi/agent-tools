@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"crypto/subtle"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,18 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/secrets"
 )
+
+//go:embed index.html
+var indexHTML []byte
+
+//go:embed app.js
+var appJS []byte
+
+//go:embed styles.css
+var stylesCSS []byte
+
+//go:embed favicon.svg
+var faviconSVG []byte
 
 // RulesLister provides the configured rules in evaluation order.
 type RulesLister interface {
@@ -79,6 +92,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /ca.pem", s.handleCAPem)
 	mux.HandleFunc("GET /dashboard/unauthorized", s.handleUnauthorizedGET)
 	mux.HandleFunc("POST /dashboard/unauthorized", s.handleUnauthorizedPOST)
+
+	// Static assets (authenticated; served under /dashboard/).
+	mux.HandleFunc("GET /dashboard/", s.handleIndex)
+	mux.HandleFunc("GET /dashboard/app.js", s.handleAppJS)
+	mux.HandleFunc("GET /dashboard/styles.css", s.handleStylesCSS)
+	mux.HandleFunc("GET /dashboard/favicon.svg", s.handleFaviconSVG)
 
 	// Authenticated API routes (under /dashboard/api/* so the auth cookie
 	// Path "/dashboard/" covers them — browsers send the cookie with every
@@ -329,6 +348,30 @@ func (s *Server) handleSecrets(w http.ResponseWriter, r *http.Request) {
 		list = []secrets.Metadata{}
 	}
 	writeJSON(w, map[string]any{"secrets": list})
+}
+
+// handleIndex serves the embedded SPA index page.
+func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(indexHTML)
+}
+
+// handleAppJS serves the embedded app.js bundle.
+func (s *Server) handleAppJS(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	_, _ = w.Write(appJS)
+}
+
+// handleStylesCSS serves the embedded styles.css.
+func (s *Server) handleStylesCSS(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	_, _ = w.Write(stylesCSS)
+}
+
+// handleFaviconSVG serves the embedded favicon.svg.
+func (s *Server) handleFaviconSVG(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	_, _ = w.Write(faviconSVG)
 }
 
 // writeJSON writes v as JSON with Content-Type: application/json.

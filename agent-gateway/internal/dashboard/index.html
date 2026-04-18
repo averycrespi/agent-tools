@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>agent-gateway</title>
+    <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg" />
+    <link rel="stylesheet" href="/dashboard/styles.css" />
+  </head>
+  <body>
+    <div class="header">
+      <div class="header-left">
+        <img src="/dashboard/favicon.svg" alt="" width="24" height="24" />
+        <h1>agent-gateway</h1>
+      </div>
+      <div class="header-left">
+        <div class="status-dot" id="status"></div>
+        <span class="status-label" id="status-label">Disconnected</span>
+      </div>
+    </div>
+
+    <div class="tab-bar">
+      <button class="tab active" id="tab-live" onclick="switchTab('live')">
+        Live feed
+        <span class="tab-badge hidden" id="pending-badge">0</span>
+      </button>
+      <button class="tab" id="tab-audit" onclick="switchTab('audit')">
+        Audit
+      </button>
+      <button class="tab" id="tab-rules" onclick="switchTab('rules')">
+        Rules
+      </button>
+      <button class="tab" id="tab-agents" onclick="switchTab('agents')">
+        Agents
+      </button>
+      <button class="tab" id="tab-secrets" onclick="switchTab('secrets')">
+        Secrets
+      </button>
+    </div>
+
+    <div class="content">
+      <!-- Live feed tab -->
+      <div class="tab-pane active" id="pane-live">
+        <div class="pending-section" id="pending-section" style="display: none">
+          <div class="section-title">Pending Approvals</div>
+          <div id="pending-cards"></div>
+        </div>
+        <div class="section-title">Live feed</div>
+        <div class="feed-container" id="feed-rows"></div>
+      </div>
+
+      <!-- Audit tab -->
+      <div class="tab-pane" id="pane-audit">
+        <div class="filters">
+          <div class="filter-group">
+            <label for="audit-agent">Agent</label>
+            <input
+              type="text"
+              id="audit-agent"
+              placeholder="agent id"
+              oninput="debounceAudit()"
+            />
+          </div>
+        </div>
+        <div id="audit-table-wrap" class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Agent</th>
+                <th>Tool</th>
+                <th>Host</th>
+                <th>Rule</th>
+                <th>Verdict</th>
+              </tr>
+            </thead>
+            <tbody id="audit-body"></tbody>
+          </table>
+        </div>
+        <div id="audit-empty" class="empty-state" style="display: none">
+          No audit records found
+        </div>
+        <div class="pagination" id="audit-pagination" style="display: none">
+          <span id="audit-page-info"></span>
+          <div class="pagination-btns">
+            <button id="audit-prev" onclick="auditPrev()" disabled>Prev</button>
+            <button id="audit-next" onclick="auditNext()" disabled>Next</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Rules tab -->
+      <div class="tab-pane" id="pane-rules">
+        <div class="section-title">
+          Rules (first-match-wins, grouped by file)
+        </div>
+        <div id="rules-container"></div>
+        <div id="rules-empty" class="empty-state" style="display: none">
+          No rules configured
+        </div>
+      </div>
+
+      <!-- Agents tab -->
+      <div class="tab-pane" id="pane-agents">
+        <div id="agents-table-wrap" class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Last seen</th>
+                <th>Allow (24h)</th>
+                <th>Deny (24h)</th>
+                <th>Approval (24h)</th>
+              </tr>
+            </thead>
+            <tbody id="agents-body"></tbody>
+          </table>
+        </div>
+        <div id="agents-empty" class="empty-state" style="display: none">
+          No agents registered
+        </div>
+      </div>
+
+      <!-- Secrets tab -->
+      <div class="tab-pane" id="pane-secrets">
+        <p class="secrets-note">
+          Secret values are never displayed. Metadata only.
+        </p>
+        <div id="secrets-table-wrap" class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Scope</th>
+                <th>Created</th>
+                <th>Rotated</th>
+                <th>Last used</th>
+                <th>Refcount</th>
+              </tr>
+            </thead>
+            <tbody id="secrets-body"></tbody>
+          </table>
+        </div>
+        <div id="secrets-empty" class="empty-state" style="display: none">
+          No secrets configured
+        </div>
+      </div>
+    </div>
+
+    <script src="/dashboard/app.js"></script>
+  </body>
+</html>
