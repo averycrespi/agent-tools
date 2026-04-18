@@ -157,16 +157,9 @@ Validate rule files without running the daemon.
 
 ```bash
 agent-gateway rules check
-agent-gateway rules check --rules-dir /path/to/rules.d
-agent-gateway rules check --secrets-list gh_bot,jira_token
 ```
 
-| Flag                     | Description                                                                                                                                                                                                   |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--rules-dir <path>`     | Override the rules directory. Default: `$XDG_CONFIG_HOME/agent-gateway/rules.d`.                                                                                                                              |
-| `--secrets-list <names>` | Comma-separated list of known secret names. If provided, `${secrets.X}` references to unknown names become warnings. Without this flag, all references warn — the absence of the flag does not imply success. |
-
-Exits non-zero on parse errors. Warnings are printed to stdout but do not affect the exit code.
+Reads rules from `$XDG_CONFIG_HOME/agent-gateway/rules.d/` and cross-references `${secrets.X}` template references against the live state DB. Exits non-zero on parse errors. Unknown secret references are reported as warnings on stdout but do not affect the exit code. If the state DB is unavailable (e.g. on a fresh install), a single "could not open state db" warning is written to stderr and every `${secrets.X}` reference becomes a warning — fail-open, so `rules check` never blocks on missing infrastructure.
 
 ### `rules reload`
 

@@ -115,6 +115,29 @@ VALUES (?, ?, ?, ?, ?, ?, ?)`
 	return err
 }
 
+// ListNames returns the distinct set of secret names in db, in lexical
+// order. It reads only the name column so it does not require the master
+// key — callers that want to enumerate names without triggering keychain
+// access (e.g. `rules check`) can use this directly against an open
+// *sql.DB without constructing a Store.
+func ListNames(ctx context.Context, db *sql.DB) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `SELECT DISTINCT name FROM secrets ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		names = append(names, n)
+	}
+	return names, rows.Err()
+}
+
 // List returns metadata for all secrets (no plaintext).
 func (s *sqlStore) List(ctx context.Context) ([]Metadata, error) {
 	const q = `

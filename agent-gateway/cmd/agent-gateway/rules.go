@@ -1,34 +1,57 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/daemon"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/secrets"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/store"
 )
 
-// secretsLister lists known secret names. An empty slice means no secrets
-// store is available (Task 22 will wire the real implementation).
+// secretsLister lists known secret names. The staticSecretsLister
+// implementation is used by tests; production wiring queries the live
+// state DB (see loadKnownSecrets).
 type secretsLister interface {
 	List() []string
 }
 
-// staticSecretsLister is a stub that returns a fixed set of secret names.
-// Used when --secrets-list is provided (and for tests before Task 22).
+// staticSecretsLister returns a fixed set of secret names. Production wiring
+// builds one from the live state DB; tests construct one directly.
 type staticSecretsLister struct {
 	names []string
 }
 
 func (s *staticSecretsLister) List() []string { return s.names }
+
+// loadKnownSecrets opens the state DB and reads the set of known secret
+// names without requiring the master key. Returns an empty lister and logs
+// a warning on stderr if the DB is unavailable — the check then proceeds
+// and every ${secrets.X} reference becomes a warning (fail-open).
+func loadKnownSecrets(errOut io.Writer) secretsLister {
+	db, err := store.Open(paths.StateDB())
+	if err != nil {
+		_, _ = fmt.Fprintf(errOut, "warning: could not open state db: %v\n", err)
+		return &staticSecretsLister{}
+	}
+	defer func() { _ = db.Close() }()
+
+	names, err := secrets.ListNames(context.Background(), db)
+	if err != nil {
+		_, _ = fmt.Fprintf(errOut, "warning: could not list secret names: %v\n", err)
+		return &staticSecretsLister{}
+	}
+	return &staticSecretsLister{names: names}
+}
 
 // secretsRefRE matches ${secrets.<name>} in inject set_header values.
 // It intentionally does NOT match ${agent.name} or ${agent.id}.
@@ -85,46 +108,15 @@ func execRulesReload(
 }
 
 func newRulesCheckCmd() *cobra.Command {
-	var (
-		rulesDir    string
-		secretsList string
-	)
-
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "check",
 		Short: "Validate rules files for syntax errors and undefined secrets",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			dir := rulesDir
-			if dir == "" {
-				dir = paths.RulesDir()
-			}
-
-			// Build the secrets lister from --secrets-list flag.
-			var lister secretsLister
-			if secretsList != "" {
-				parts := strings.Split(secretsList, ",")
-				// Trim whitespace around each name.
-				names := make([]string, 0, len(parts))
-				for _, p := range parts {
-					if s := strings.TrimSpace(p); s != "" {
-						names = append(names, s)
-					}
-				}
-				lister = &staticSecretsLister{names: names}
-			} else {
-				// No secrets list provided — stub that returns empty (all refs warn).
-				lister = &staticSecretsLister{names: nil}
-			}
-
-			return execRulesCheck(cmd, dir, lister)
+			lister := loadKnownSecrets(cmd.ErrOrStderr())
+			return execRulesCheck(cmd, paths.RulesDir(), lister)
 		},
 	}
-
-	cmd.Flags().StringVar(&rulesDir, "rules-dir", "", fmt.Sprintf("rules directory (default %q)", paths.RulesDir()))
-	cmd.Flags().StringVar(&secretsList, "secrets-list", "", "comma-separated list of known secret names (bypasses secrets store)")
-
-	return cmd
 }
 
 // execRulesCheck parses the rules directory, reports parse errors and missing
