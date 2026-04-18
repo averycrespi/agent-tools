@@ -4,6 +4,7 @@ use (
 	./broker-cli
 	./local-gh-mcp
 	./local-git-mcp
+	./local-gomod-proxy
 	./mcp-broker
 	./sandbox-manager
 	./worktree-manager
