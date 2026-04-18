@@ -2,16 +2,12 @@ package proxy
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"io"
 	"net"
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
-
-	"github.com/oklog/ulid/v2"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/inject"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
@@ -111,14 +107,6 @@ func stripHopByHop(h http.Header) {
 	}
 }
 
-// newRequestID returns a new ULID string using a cryptographically-random
-// entropy source. Panics only if the system's random source is broken, which
-// is never expected in normal operation.
-func newRequestID() string {
-	entropy := ulid.Monotonic(rand.Reader, 0)
-	return ulid.MustNew(ulid.Timestamp(time.Now()), entropy).String()
-}
-
 // handle is the per-request handler. It forwards the request upstream via
 // p.rt and copies the response back to w. Both H1 and H2 paths call this.
 //
@@ -126,11 +114,15 @@ func newRequestID() string {
 func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host string) {
 	// 1. Assign a request-scoped ULID. Synthesised error responses carry this ID
 	// in X-Request-ID; forwarded responses do not.
-	reqID := newRequestID()
+	reqID := NewULID()
 
-	// 2. Initialise the per-request audit record and thread it through context.
+	// 2. Initialise the per-request audit record and thread both the audit and
+	// the request ID through context. The typed requestIDKey allows any package
+	// that imports proxy to call RequestIDFromContext without depending on the
+	// unexported auditRecord type.
 	a := &auditRecord{RequestID: reqID}
-	ctx := contextWithAudit(r.Context(), a)
+	ctx := withRequestID(r.Context(), reqID)
+	ctx = contextWithAudit(ctx, a)
 	r = r.WithContext(ctx)
 
 	// 3. Track the matched rule for the injection step.
