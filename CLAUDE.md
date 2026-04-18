@@ -11,6 +11,7 @@ broker-cli/          CLI frontend for the MCP broker — see broker-cli/CLAUDE.m
 sandbox-manager/     Lima VM sandbox manager for isolated agent environments — see sandbox-manager/CLAUDE.md
 local-git-mcp/       Stdio MCP server for authenticated git remote operations — see local-git-mcp/CLAUDE.md
 local-gh-mcp/       Stdio MCP server for GitHub operations via gh CLI — see local-gh-mcp/CLAUDE.md
+local-gomod-proxy/  Host-side Go module proxy for sandboxed agents — see local-gomod-proxy/CLAUDE.md
 ```
 
 Each tool has its own `CLAUDE.md` with tool-specific instructions.
@@ -30,4 +31,3 @@ Targets are forwarded to each tool's Makefile. Run from any subdirectory for a s
 
 - Each tool is a separate Go module under `go.work`
 - When adding a new tool, add its name the root `Makefile` tools list
-
