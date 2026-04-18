@@ -40,7 +40,7 @@ var serveCmd = &cobra.Command{
 	Short: "Start the HTTP proxy server",
 	RunE: func(_ *cobra.Command, _ []string) error {
 		runner := exec.NewOSRunner()
-		env, err := goenv.Read(runner)
+		env, err := goenv.Read(context.Background(), runner)
 		if err != nil {
 			return fmt.Errorf("reading go env: %w", err)
 		}

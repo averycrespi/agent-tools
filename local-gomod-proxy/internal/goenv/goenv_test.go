@@ -1,6 +1,7 @@
 package goenv
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -13,13 +14,14 @@ type stubRunner struct {
 	err error
 }
 
-func (s stubRunner) Run(_ string, _ ...string) ([]byte, error)              { return s.out, s.err }
-func (s stubRunner) RunDir(_ string, _ string, _ ...string) ([]byte, error) { return s.out, s.err }
+func (s stubRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, error) {
+	return s.out, s.err
+}
 
 func TestRead_ParsesJSON(t *testing.T) {
 	runner := stubRunner{out: []byte(`{"GOPRIVATE":"github.com/foo/*","GOMODCACHE":"/home/x/pkg/mod","GOVERSION":"go1.25.8"}`)}
 
-	env, err := Read(runner)
+	env, err := Read(context.Background(), runner)
 	require.NoError(t, err)
 	assert.Equal(t, "github.com/foo/*", env.GOPRIVATE)
 	assert.Equal(t, "/home/x/pkg/mod", env.GOMODCACHE)
@@ -28,6 +30,6 @@ func TestRead_ParsesJSON(t *testing.T) {
 
 func TestRead_PropagatesError(t *testing.T) {
 	runner := stubRunner{err: errors.New("boom")}
-	_, err := Read(runner)
+	_, err := Read(context.Background(), runner)
 	assert.Error(t, err)
 }

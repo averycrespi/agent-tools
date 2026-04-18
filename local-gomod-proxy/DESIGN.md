@@ -152,7 +152,7 @@ No Athens, no `golang.org/x/mod/zip` — `go mod download` hands us finished art
 
 **Rely on the host's `GOMODCACHE`, no separate proxy cache.** `go mod download` populates the shared host cache. Subsequent requests for the same `<module>@<version>` hit the same cache entry. Zero extra code, automatic cleanup via `go clean -modcache`, no cache-coherence bugs.
 
-**Graceful shutdown.** On SIGINT/SIGTERM, the HTTP server is given 5 s to drain in-flight requests via `Server.Shutdown`. In-flight `go mod download` subprocesses do not receive context cancellation — they run to completion (this is a known limitation; upgrading `exec.Runner` to accept a `context.Context` is future work).
+**Graceful shutdown.** On SIGINT/SIGTERM, the HTTP server is given 5 s to drain in-flight requests via `Server.Shutdown`. `exec.Runner.Run` takes a `context.Context` and `OSRunner` uses `exec.CommandContext`, so `Server.Shutdown`'s per-request context cancellation also kills any in-flight `go mod download` / `go list` subprocess (SIGKILL). The same mechanism propagates client disconnects: a sandbox client aborting its HTTP request cancels the request context, which terminates the subprocess instead of letting it complete unwanted work.
 
 ## Testing
 

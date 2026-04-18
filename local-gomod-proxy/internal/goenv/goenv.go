@@ -1,6 +1,7 @@
 package goenv
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -15,8 +16,8 @@ type Env struct {
 }
 
 // Read shells out to `go env -json` and parses the result.
-func Read(runner exec.Runner) (Env, error) {
-	out, err := runner.Run("go", "env", "-json", "GOPRIVATE", "GOMODCACHE", "GOVERSION")
+func Read(ctx context.Context, runner exec.Runner) (Env, error) {
+	out, err := runner.Run(ctx, "go", "env", "-json", "GOPRIVATE", "GOMODCACHE", "GOVERSION")
 	if err != nil {
 		return Env{}, fmt.Errorf("running go env: %w: %s", err, out)
 	}

@@ -1,6 +1,7 @@
 package private
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,22 +39,25 @@ type listResult struct {
 	Error    string   `json:"Error"`
 }
 
-// Serve handles a single Request.
-func (f *Fetcher) Serve(w http.ResponseWriter, _ *http.Request, req Request) error {
+// Serve handles a single Request. The HTTP request's context is threaded
+// into every subprocess invocation so client disconnects and server
+// shutdown terminate in-flight `go` commands.
+func (f *Fetcher) Serve(w http.ResponseWriter, httpReq *http.Request, req Request) error {
+	ctx := httpReq.Context()
 	switch req.Artifact {
 	case ArtifactInfo, ArtifactMod, ArtifactZip:
-		return f.serveArtifact(w, req)
+		return f.serveArtifact(ctx, w, req)
 	case ArtifactList:
-		return f.serveList(w, req)
+		return f.serveList(ctx, w, req)
 	case ArtifactLatest:
-		return f.serveLatest(w, req)
+		return f.serveLatest(ctx, w, req)
 	default:
 		return fmt.Errorf("unsupported artifact: %d", req.Artifact)
 	}
 }
 
-func (f *Fetcher) serveArtifact(w http.ResponseWriter, req Request) error {
-	out, err := f.runner.Run("go", "mod", "download", "-json", req.Module+"@"+req.Version)
+func (f *Fetcher) serveArtifact(ctx context.Context, w http.ResponseWriter, req Request) error {
+	out, err := f.runner.Run(ctx, "go", "mod", "download", "-json", req.Module+"@"+req.Version)
 	if err != nil {
 		return wrapRunError("go mod download", out, err)
 	}
@@ -76,8 +80,8 @@ func (f *Fetcher) serveArtifact(w http.ResponseWriter, req Request) error {
 	return streamFile(w, path, contentType)
 }
 
-func (f *Fetcher) serveList(w http.ResponseWriter, req Request) error {
-	out, err := f.runner.Run("go", "list", "-m", "-json", "-versions", req.Module+"@latest")
+func (f *Fetcher) serveList(ctx context.Context, w http.ResponseWriter, req Request) error {
+	out, err := f.runner.Run(ctx, "go", "list", "-m", "-json", "-versions", req.Module+"@latest")
 	if err != nil {
 		return wrapRunError("go list", out, err)
 	}
@@ -100,8 +104,8 @@ func (f *Fetcher) serveList(w http.ResponseWriter, req Request) error {
 	return nil
 }
 
-func (f *Fetcher) serveLatest(w http.ResponseWriter, req Request) error {
-	out, err := f.runner.Run("go", "list", "-m", "-json", req.Module+"@latest")
+func (f *Fetcher) serveLatest(ctx context.Context, w http.ResponseWriter, req Request) error {
+	out, err := f.runner.Run(ctx, "go", "list", "-m", "-json", req.Module+"@latest")
 	if err != nil {
 		return wrapRunError("go list", out, err)
 	}

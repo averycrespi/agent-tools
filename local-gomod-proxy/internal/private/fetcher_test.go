@@ -1,6 +1,7 @@
 package private
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -16,19 +17,14 @@ type stubRunner struct {
 	out []byte
 	err error
 	got struct {
-		dir  string
+		ctx  context.Context
 		name string
 		args []string
 	}
 }
 
-func (s *stubRunner) Run(name string, args ...string) ([]byte, error) {
-	s.got.name, s.got.args = name, args
-	return s.out, s.err
-}
-
-func (s *stubRunner) RunDir(dir, name string, args ...string) ([]byte, error) {
-	s.got.dir, s.got.name, s.got.args = dir, name, args
+func (s *stubRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	s.got.ctx, s.got.name, s.got.args = ctx, name, args
 	return s.out, s.err
 }
 
@@ -253,6 +249,28 @@ func TestFetcher_List_ResponseCommitted(t *testing.T) {
 	err := f.Serve(&failingWriter{}, httptest.NewRequest(http.MethodGet, "/", nil), req)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrResponseCommitted)
+}
+
+func TestFetcher_PropagatesRequestContext(t *testing.T) {
+	// The HTTP request's context must reach the runner so cancellation
+	// (client disconnect, server shutdown) terminates the subprocess.
+	tmp := t.TempDir()
+	infoPath := filepath.Join(tmp, "v1.2.3.info")
+	require.NoError(t, os.WriteFile(infoPath, []byte(`{"Version":"v1.2.3"}`), 0o600))
+
+	runner := &stubRunner{
+		out: []byte(`{"Info":"` + infoPath + `","GoMod":"/x","Zip":"/y","Version":"v1.2.3"}`),
+	}
+	f := New(runner)
+
+	type ctxKey struct{}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "sentinel")
+	httpReq := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
+	require.NoError(t, f.Serve(httptest.NewRecorder(), httpReq, req))
+
+	require.NotNil(t, runner.got.ctx)
+	assert.Equal(t, "sentinel", runner.got.ctx.Value(ctxKey{}))
 }
 
 func TestFetcher_Latest_ResponseCommitted(t *testing.T) {

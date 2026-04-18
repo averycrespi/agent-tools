@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,8 +21,9 @@ type stubRunner struct {
 	err error
 }
 
-func (s *stubRunner) Run(_ string, _ ...string) ([]byte, error)              { return s.out, s.err }
-func (s *stubRunner) RunDir(_ string, _ string, _ ...string) ([]byte, error) { return s.out, s.err }
+func (s *stubRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, error) {
+	return s.out, s.err
+}
 
 func TestHandler_PublicRoute(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
