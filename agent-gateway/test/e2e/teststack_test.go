@@ -353,6 +353,20 @@ func (s *TestStack) setSecret(t *testing.T, name, value string) {
 	}
 }
 
+// setAgentSecret calls "agent-gateway secret set --agent <agent> <name>" piping
+// value via stdin, writing an agent-scoped secret.
+func (s *TestStack) setAgentSecret(t *testing.T, agent, name, value string) {
+	t.Helper()
+	cmd := exec.Command(gatewayBinary, "secret", "set", "--agent", agent, name)
+	cmd.Stdin = strings.NewReader(value)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = s.xdgEnv()
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("secret set --agent %q %q: %v", agent, name, err)
+	}
+}
+
 // rulesReload calls "agent-gateway rules reload" to signal the daemon via SIGHUP.
 func (s *TestStack) rulesReload(t *testing.T) {
 	t.Helper()

@@ -333,7 +333,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 	if matchedRule != nil && matchedRule.Inject != nil && p.injector != nil {
 		a.CredentialRef = firstSecretRef(matchedRule.Inject)
 
-		status, scope, injErr := p.injector.Apply(upReq, matchedRule, a.MatchedRule)
+		status, scope, injErr := p.injector.Apply(upReq, matchedRule, agentName)
 		switch {
 		case injErr == nil && status == inject.StatusApplied:
 			a.Injection = "applied"
