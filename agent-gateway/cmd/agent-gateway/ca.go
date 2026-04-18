@@ -42,11 +42,21 @@ func newCAExportCmd() *cobra.Command {
 }
 
 func newCARotateCmd() *cobra.Command {
-	return &cobra.Command{
+	var force bool
+	cmd := &cobra.Command{
 		Use:   "rotate",
 		Short: "Rotate the root CA (regenerate and replace on disk)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			ok, err := confirm(cmd.InOrStdin(), cmd.OutOrStdout(), stdinIsTTY(), force,
+				"Rotate the root CA? Every sandbox must re-trust the new certificate.")
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return nil
+			}
+
 			authority, err := ca.LoadOrGenerate(paths.CAKey(), paths.CACert())
 			if err != nil {
 				return fmt.Errorf("load CA: %w", err)
@@ -72,4 +82,6 @@ func newCARotateCmd() *cobra.Command {
 			return err
 		},
 	}
+	cmd.Flags().BoolVar(&force, "force", false, "skip confirmation prompt")
+	return cmd
 }

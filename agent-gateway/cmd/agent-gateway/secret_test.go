@@ -41,6 +41,12 @@ func newTestSecretStore(t *testing.T, db *sql.DB) secrets.Store {
 // noSIGHUP is a no-op SIGHUP sender for tests.
 func noSIGHUP(_ string) error { return nil }
 
+// confirmYes is a confirmFn stub that always approves (skips interactive prompt).
+func confirmYes() (bool, error) { return true, nil }
+
+// confirmNo is a confirmFn stub that always cancels (simulates user typing "n").
+func confirmNo() (bool, error) { return false, nil }
+
 // TestSecretSet_Global verifies that "secret set <name>" with non-TTY stdin stores a global row.
 func TestSecretSet_Global(t *testing.T) {
 	db := secretTestDB(t)
@@ -149,7 +155,7 @@ func TestSecretRotate(t *testing.T) {
 	require.NoError(t, s.Set(ctx, "tok", "", "old-val", ""))
 
 	var out bytes.Buffer
-	err := execSecretRotate(ctx, s, "tok", "", strings.NewReader("new-val\n"), &out, false, noSIGHUP)
+	err := execSecretRotate(ctx, s, "tok", "", strings.NewReader("new-val\n"), &out, false, confirmYes, noSIGHUP)
 	require.NoError(t, err)
 
 	val, _, getErr := s.Get(ctx, "tok", "")
@@ -166,7 +172,7 @@ func TestSecretRotate_Agent(t *testing.T) {
 	require.NoError(t, s.Set(ctx, "tok", "mybot", "old-val", ""))
 
 	var out bytes.Buffer
-	err := execSecretRotate(ctx, s, "tok", "mybot", strings.NewReader("new-val\n"), &out, false, noSIGHUP)
+	err := execSecretRotate(ctx, s, "tok", "mybot", strings.NewReader("new-val\n"), &out, false, confirmYes, noSIGHUP)
 	require.NoError(t, err)
 
 	val, _, getErr := s.Get(ctx, "tok", "mybot")
@@ -183,11 +189,29 @@ func TestSecretRM(t *testing.T) {
 	require.NoError(t, s.Set(ctx, "tok", "", "val", ""))
 
 	var out bytes.Buffer
-	err := execSecretRM(ctx, s, "tok", "", &out, noSIGHUP)
+	err := execSecretRM(ctx, s, "tok", "", &out, confirmYes, noSIGHUP)
 	require.NoError(t, err)
 
 	_, _, getErr := s.Get(ctx, "tok", "")
 	assert.True(t, errors.Is(getErr, secrets.ErrNotFound))
+}
+
+// TestSecretRM_Cancelled verifies that a cancelled confirmation leaves the
+// secret untouched.
+func TestSecretRM_Cancelled(t *testing.T) {
+	db := secretTestDB(t)
+	s := newTestSecretStore(t, db)
+	ctx := context.Background()
+
+	require.NoError(t, s.Set(ctx, "tok", "", "val", ""))
+
+	var out bytes.Buffer
+	err := execSecretRM(ctx, s, "tok", "", &out, confirmNo, noSIGHUP)
+	require.NoError(t, err, "cancelled confirmation should not be an error")
+
+	val, _, getErr := s.Get(ctx, "tok", "")
+	require.NoError(t, getErr)
+	assert.Equal(t, "val", val, "secret should still exist after cancel")
 }
 
 // TestSecretRM_Agent verifies that "--agent" scopes the deletion.
@@ -200,7 +224,7 @@ func TestSecretRM_Agent(t *testing.T) {
 	require.NoError(t, s.Set(ctx, "tok", "mybot", "agent-val", ""))
 
 	var out bytes.Buffer
-	err := execSecretRM(ctx, s, "tok", "mybot", &out, noSIGHUP)
+	err := execSecretRM(ctx, s, "tok", "mybot", &out, confirmYes, noSIGHUP)
 	require.NoError(t, err)
 
 	// Agent-scoped secret gone; global still present and returned for mybot.
@@ -226,7 +250,7 @@ func TestSecretMasterRotate(t *testing.T) {
 	require.NoError(t, s.Set(ctx, "tok", "", "val", ""))
 
 	var out bytes.Buffer
-	err := execSecretMasterRotate(ctx, s, &out, noSIGHUP)
+	err := execSecretMasterRotate(ctx, s, &out, confirmYes, noSIGHUP)
 	require.NoError(t, err)
 	assert.Contains(t, out.String(), "rotated master key")
 

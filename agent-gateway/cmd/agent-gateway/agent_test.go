@@ -196,7 +196,7 @@ func TestAgentRotate_InvalidatesPrevious(t *testing.T) {
 	require.NoError(t, err)
 
 	var out bytes.Buffer
-	err = execAgentRotate(ctx, r, "spinner", "127.0.0.1:8220", &out, noSIGHUP)
+	err = execAgentRotate(ctx, r, "spinner", "127.0.0.1:8220", &out, confirmYes, noSIGHUP)
 	require.NoError(t, err)
 
 	output := out.String()
@@ -230,7 +230,7 @@ func TestAgentRotate_InvalidatesPrevious(t *testing.T) {
 func TestAgentRotate_NotFound(t *testing.T) {
 	r := newTestRegistry(t)
 	var out bytes.Buffer
-	err := execAgentRotate(context.Background(), r, "ghost", "127.0.0.1:8220", &out, noSIGHUP)
+	err := execAgentRotate(context.Background(), r, "ghost", "127.0.0.1:8220", &out, confirmYes, noSIGHUP)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, agents.ErrNotFound)
 }
@@ -245,7 +245,7 @@ func TestAgentRm_RemovesAgent(t *testing.T) {
 	require.NoError(t, err)
 
 	var out bytes.Buffer
-	err = execAgentRm(ctx, r, "doomed", &out, noSIGHUP)
+	err = execAgentRm(ctx, r, "doomed", &out, confirmYes, noSIGHUP)
 	require.NoError(t, err)
 	assert.Contains(t, out.String(), "doomed")
 
@@ -263,7 +263,7 @@ func TestAgentRm_RemovesAgent(t *testing.T) {
 func TestAgentRm_NotFound(t *testing.T) {
 	r := newTestRegistry(t)
 	var out bytes.Buffer
-	err := execAgentRm(context.Background(), r, "ghost", &out, noSIGHUP)
+	err := execAgentRm(context.Background(), r, "ghost", &out, confirmYes, noSIGHUP)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, agents.ErrNotFound)
 }

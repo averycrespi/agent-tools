@@ -12,6 +12,22 @@
 
 State-mutating commands write to SQLite (or to the filesystem, for rules and admin tokens) and then signal the running daemon via `SIGHUP`. If no daemon is running, the write still succeeds and the daemon picks up the new state on next start. Before signalling, the CLI verifies the PID's `comm` name to guard against PID reuse.
 
+## Confirmation prompts
+
+Destructive commands prompt for `[y/N]` confirmation before proceeding:
+
+- `agent rotate <name>`
+- `agent rm <name>`
+- `secret rotate <name>`
+- `secret rm <name>`
+- `secret master rotate`
+- `ca rotate`
+- `token rotate admin`
+
+Each of these accepts a `--force` flag to skip the prompt. When stdin is not a TTY (scripted use), the prompt cannot be shown and the command refuses unless `--force` is passed — scripts must opt into destructive actions explicitly.
+
+`secret rotate` reads the new value from stdin, so its confirmation prompt reads from `/dev/tty` instead of stdin. If `/dev/tty` is unavailable (headless CI without a controlling terminal), pass `--force`.
+
 ## `serve`
 
 Start the proxy and dashboard.
@@ -63,9 +79,17 @@ Show agent metadata (name, description, created, last-seen). Token and prefix ar
 
 Mint a new token for an existing agent. The previous token is invalidated **immediately** — there is no grace window. Prints the new token and proxy URL block, same format as `agent add`.
 
+| Flag      | Description               |
+| --------- | ------------------------- |
+| `--force` | Skip confirmation prompt. |
+
 ### `agent rm <name>`
 
 Remove an agent. Transactionally cascades to agent-scoped secrets (`scope = 'agent:<name>'`). Audit rows referencing the agent have their `agent` column set to `NULL` (history survives deletion for forensics).
+
+| Flag      | Description               |
+| --------- | ------------------------- |
+| `--force` | Skip confirmation prompt. |
 
 ## `secret`
 
@@ -104,6 +128,7 @@ agent-gateway secret rotate gh_bot --agent claude-review
 | Flag             | Description                             |
 | ---------------- | --------------------------------------- |
 | `--agent <name>` | Scope the rotation to a specific agent. |
+| `--force`        | Skip confirmation prompt.               |
 
 ### `secret rm <name>`
 
@@ -112,10 +137,15 @@ Delete a secret.
 | Flag             | Description                                                 |
 | ---------------- | ----------------------------------------------------------- |
 | `--agent <name>` | Delete the agent-scoped row; omit to delete the global row. |
+| `--force`        | Skip confirmation prompt.                                   |
 
 ### `secret master rotate`
 
 Generate a new master key and re-encrypt every secret under it in a single SQLite transaction. The new key is only committed to storage after the re-encryption transaction succeeds — a crash mid-rotation leaves the old key authoritative.
+
+| Flag      | Description               |
+| --------- | ------------------------- |
+| `--force` | Skip confirmation prompt. |
 
 ## `rules`
 
@@ -152,6 +182,10 @@ Generate a new admin dashboard token. The new token is written to `$XDG_CONFIG_H
 agent-gateway token rotate admin
 ```
 
+| Flag      | Description               |
+| --------- | ------------------------- |
+| `--force` | Skip confirmation prompt. |
+
 The dashboard cookie from the old token becomes invalid immediately. Re-authenticate by visiting `http://127.0.0.1:8221/dashboard/?token=<new-token>` or via the re-auth form on the unauthorized page.
 
 ## `ca`
@@ -171,6 +205,10 @@ The gateway also serves the CA at `http://127.0.0.1:8221/ca.pem` (unauthenticate
 ### `ca rotate`
 
 Generate a fresh root CA, replacing the one on disk. **Disruptive** — every sandbox must re-trust the new CA. The running daemon is signalled so new TLS sessions use the new root.
+
+| Flag      | Description               |
+| --------- | ------------------------- |
+| `--force` | Skip confirmation prompt. |
 
 ## `config`
 

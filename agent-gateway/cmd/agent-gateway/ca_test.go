@@ -59,7 +59,7 @@ func TestCmdCARotate(t *testing.T) {
 
 	var out bytes.Buffer
 	cmd := newRootCmd()
-	cmd.SetArgs([]string{"ca", "rotate"})
+	cmd.SetArgs([]string{"ca", "rotate", "--force"})
 	cmd.SetOut(&out)
 	require.NoError(t, cmd.Execute())
 
@@ -86,7 +86,7 @@ func TestCmdCARotateNoDaemon(t *testing.T) {
 	require.NoError(t, err)
 
 	cmd := newRootCmd()
-	cmd.SetArgs([]string{"ca", "rotate"})
+	cmd.SetArgs([]string{"ca", "rotate", "--force"})
 	require.NoError(t, cmd.Execute())
 }
 
@@ -102,7 +102,7 @@ func TestCmdCARotateOutputFormat(t *testing.T) {
 
 	var out bytes.Buffer
 	cmd := newRootCmd()
-	cmd.SetArgs([]string{"ca", "rotate"})
+	cmd.SetArgs([]string{"ca", "rotate", "--force"})
 	cmd.SetOut(&out)
 	require.NoError(t, cmd.Execute())
 

@@ -196,7 +196,10 @@ func execSecretList(ctx context.Context, s secrets.Store, out io.Writer) error {
 
 // newSecretRotateCmd returns the "secret rotate <name>" command.
 func newSecretRotateCmd() *cobra.Command {
-	var agent string
+	var (
+		agent string
+		force bool
+	)
 	cmd := &cobra.Command{
 		Use:   "rotate <name>",
 		Short: "Update the value of an existing secret (reads new value from stdin)",
@@ -207,6 +210,10 @@ func newSecretRotateCmd() *cobra.Command {
 				return err
 			}
 			defer cleanup()
+			confirmFn := func() (bool, error) {
+				return confirmViaTTY(cmd.OutOrStdout(), force,
+					fmt.Sprintf("Rotate secret %q? The previous value will be overwritten.", args[0]))
+			}
 			return execSecretRotate(
 				cmd.Context(),
 				s,
@@ -215,11 +222,13 @@ func newSecretRotateCmd() *cobra.Command {
 				cmd.InOrStdin(),
 				cmd.OutOrStdout(),
 				stdinIsTTY(),
+				confirmFn,
 				func(pidPath string) error { return sendHUP(pidPath) },
 			)
 		},
 	}
 	cmd.Flags().StringVar(&agent, "agent", "", "agent name (omit for global scope)")
+	cmd.Flags().BoolVar(&force, "force", false, "skip confirmation prompt")
 	return cmd
 }
 
@@ -231,11 +240,20 @@ func execSecretRotate(
 	in io.Reader,
 	out io.Writer,
 	isTTY bool,
+	confirmFn func() (bool, error),
 	signalFn func(string) error,
 ) error {
 	newValue, err := readStdinValue(in, isTTY)
 	if err != nil {
 		return err
+	}
+
+	ok, err := confirmFn()
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
 	}
 
 	if err := s.Rotate(ctx, name, agent, newValue); err != nil {
@@ -249,7 +267,10 @@ func execSecretRotate(
 
 // newSecretRMCmd returns the "secret rm <name>" command.
 func newSecretRMCmd() *cobra.Command {
-	var agent string
+	var (
+		agent string
+		force bool
+	)
 	cmd := &cobra.Command{
 		Use:   "rm <name>",
 		Short: "Delete a secret",
@@ -260,17 +281,23 @@ func newSecretRMCmd() *cobra.Command {
 				return err
 			}
 			defer cleanup()
+			confirmFn := func() (bool, error) {
+				return confirm(cmd.InOrStdin(), cmd.OutOrStdout(), stdinIsTTY(), force,
+					fmt.Sprintf("Delete secret %q?", args[0]))
+			}
 			return execSecretRM(
 				cmd.Context(),
 				s,
 				args[0],
 				agent,
 				cmd.OutOrStdout(),
+				confirmFn,
 				func(pidPath string) error { return sendHUP(pidPath) },
 			)
 		},
 	}
 	cmd.Flags().StringVar(&agent, "agent", "", "agent name (omit for global scope)")
+	cmd.Flags().BoolVar(&force, "force", false, "skip confirmation prompt")
 	return cmd
 }
 
@@ -280,8 +307,16 @@ func execSecretRM(
 	s secrets.Store,
 	name, agent string,
 	out io.Writer,
+	confirmFn func() (bool, error),
 	signalFn func(string) error,
 ) error {
+	ok, err := confirmFn()
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
 	if err := s.Delete(ctx, name, agent); err != nil {
 		return fmt.Errorf("secret rm: %w", err)
 	}
@@ -302,7 +337,8 @@ func newSecretMasterCmd() *cobra.Command {
 
 // newSecretMasterRotateCmd returns the "secret master rotate" command.
 func newSecretMasterRotateCmd() *cobra.Command {
-	return &cobra.Command{
+	var force bool
+	cmd := &cobra.Command{
 		Use:   "rotate",
 		Short: "Re-encrypt all secrets under a new master key",
 		Args:  cobra.NoArgs,
@@ -312,14 +348,21 @@ func newSecretMasterRotateCmd() *cobra.Command {
 				return err
 			}
 			defer cleanup()
+			confirmFn := func() (bool, error) {
+				return confirm(cmd.InOrStdin(), cmd.OutOrStdout(), stdinIsTTY(), force,
+					"Rotate the master key? Every secret will be re-encrypted.")
+			}
 			return execSecretMasterRotate(
 				cmd.Context(),
 				s,
 				cmd.OutOrStdout(),
+				confirmFn,
 				func(pidPath string) error { return sendHUP(pidPath) },
 			)
 		},
 	}
+	cmd.Flags().BoolVar(&force, "force", false, "skip confirmation prompt")
+	return cmd
 }
 
 // execSecretMasterRotate implements "secret master rotate". Separated for testability.
@@ -327,8 +370,16 @@ func execSecretMasterRotate(
 	ctx context.Context,
 	s secrets.Store,
 	out io.Writer,
+	confirmFn func() (bool, error),
 	signalFn func(string) error,
 ) error {
+	ok, err := confirmFn()
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
 	if err := s.MasterRotate(ctx); err != nil {
 		return fmt.Errorf("secret master rotate: %w", err)
 	}

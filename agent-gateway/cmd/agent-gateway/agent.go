@@ -209,7 +209,8 @@ func execAgentShow(ctx context.Context, r agents.Registry, name string, out io.W
 
 // newAgentRotateCmd returns the "agent rotate <name>" command.
 func newAgentRotateCmd(configPath func() string) *cobra.Command {
-	return &cobra.Command{
+	var force bool
+	cmd := &cobra.Command{
 		Use:   "rotate <name>",
 		Short: "Mint a new token for an agent, invalidating the previous one",
 		Args:  cobra.ExactArgs(1),
@@ -221,16 +222,23 @@ func newAgentRotateCmd(configPath func() string) *cobra.Command {
 			defer cleanup()
 
 			listenAddr := proxyListenAddr(configPath())
+			confirmFn := func() (bool, error) {
+				return confirm(cmd.InOrStdin(), cmd.OutOrStdout(), stdinIsTTY(), force,
+					fmt.Sprintf("Rotate token for agent %q? The previous token will be invalidated immediately.", args[0]))
+			}
 			return execAgentRotate(
 				cmd.Context(),
 				r,
 				args[0],
 				listenAddr,
 				cmd.OutOrStdout(),
+				confirmFn,
 				func(pidPath string) error { return sendHUP(pidPath) },
 			)
 		},
 	}
+	cmd.Flags().BoolVar(&force, "force", false, "skip confirmation prompt")
+	return cmd
 }
 
 // execAgentRotate implements "agent rotate". Separated for testability.
@@ -239,8 +247,16 @@ func execAgentRotate(
 	r agents.Registry,
 	name, listenAddr string,
 	out io.Writer,
+	confirmFn func() (bool, error),
 	signalFn func(string) error,
 ) error {
+	ok, err := confirmFn()
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
 	newTok, err := r.Rotate(ctx, name)
 	if err != nil {
 		if errors.Is(err, agents.ErrNotFound) {
@@ -255,7 +271,8 @@ func execAgentRotate(
 
 // newAgentRmCmd returns the "agent rm <name>" command.
 func newAgentRmCmd() *cobra.Command {
-	return &cobra.Command{
+	var force bool
+	cmd := &cobra.Command{
 		Use:   "rm <name>",
 		Short: "Remove an agent and cascade-delete its scoped secrets",
 		Args:  cobra.ExactArgs(1),
@@ -266,15 +283,22 @@ func newAgentRmCmd() *cobra.Command {
 			}
 			defer cleanup()
 
+			confirmFn := func() (bool, error) {
+				return confirm(cmd.InOrStdin(), cmd.OutOrStdout(), stdinIsTTY(), force,
+					fmt.Sprintf("Remove agent %q? Agent-scoped secrets will be deleted along with it.", args[0]))
+			}
 			return execAgentRm(
 				cmd.Context(),
 				r,
 				args[0],
 				cmd.OutOrStdout(),
+				confirmFn,
 				func(pidPath string) error { return sendHUP(pidPath) },
 			)
 		},
 	}
+	cmd.Flags().BoolVar(&force, "force", false, "skip confirmation prompt")
+	return cmd
 }
 
 // execAgentRm implements "agent rm". Separated for testability.
@@ -283,8 +307,16 @@ func execAgentRm(
 	r agents.Registry,
 	name string,
 	out io.Writer,
+	confirmFn func() (bool, error),
 	signalFn func(string) error,
 ) error {
+	ok, err := confirmFn()
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
 	if err := r.Rm(ctx, name); err != nil {
 		return err
 	}

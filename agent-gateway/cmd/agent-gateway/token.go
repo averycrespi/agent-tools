@@ -32,20 +32,28 @@ func newTokenRotateCmd() *cobra.Command {
 }
 
 func newTokenRotateAdminCmd() *cobra.Command {
-	return &cobra.Command{
+	var force bool
+	cmd := &cobra.Command{
 		Use:   "admin",
 		Short: "Rotate the admin dashboard token and reload the running daemon",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			confirmFn := func() (bool, error) {
+				return confirm(cmd.InOrStdin(), cmd.OutOrStdout(), stdinIsTTY(), force,
+					"Rotate the admin dashboard token? Existing dashboard sessions will be invalidated.")
+			}
 			return execTokenRotateAdmin(
 				paths.AdminTokenFile(),
 				paths.PIDFile(),
 				daemon.DefaultVerifyComm,
 				daemon.DefaultSendSignal,
 				cmd.OutOrStdout(),
+				confirmFn,
 			)
 		},
 	}
+	cmd.Flags().BoolVar(&force, "force", false, "skip confirmation prompt")
+	return cmd
 }
 
 // execTokenRotateAdmin generates a new admin token, writes it to tokenPath,
@@ -59,7 +67,15 @@ func execTokenRotateAdmin(
 	verify func(pid int) (bool, error),
 	send func(pid int, sig os.Signal) error,
 	out io.Writer,
+	confirmFn func() (bool, error),
 ) error {
+	ok, err := confirmFn()
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
 	tok, err := dashboard.GenerateAdminToken(tokenPath)
 	if err != nil {
 		return fmt.Errorf("token rotate admin: %w", err)

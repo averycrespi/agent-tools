@@ -356,6 +356,7 @@ func TestTokenRotateAdmin_InvalidatesCookie(t *testing.T) {
 			return p.Signal(sig)
 		},
 		io.Discard,
+		confirmYes,
 	)
 	require.NoError(t, err)
 	assert.True(t, signalled.Load())
