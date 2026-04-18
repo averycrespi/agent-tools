@@ -1,13 +1,17 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/daemon"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
 )
@@ -36,7 +40,48 @@ func newRulesCmd() *cobra.Command {
 		Short: "Manage agent-gateway rules",
 	}
 	rulesCmd.AddCommand(newRulesCheckCmd())
+	rulesCmd.AddCommand(newRulesReloadCmd())
 	return rulesCmd
+}
+
+// newRulesReloadCmd returns a cobra.Command for "rules reload".
+func newRulesReloadCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reload",
+		Short: "Signal the running daemon to reload rules",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return execRulesReload(
+				cmd,
+				paths.PIDFile(),
+				daemon.DefaultVerifyComm,
+				daemon.DefaultSendSignal,
+				cmd.OutOrStdout(),
+			)
+		},
+	}
+}
+
+// execRulesReload sends SIGHUP to the daemon identified by the PID file at
+// pidPath. verify and send are injectable for tests. Output is written to out.
+// If no PID file exists the function prints "no daemon running" and returns nil.
+func execRulesReload(
+	_ interface{},
+	pidPath string,
+	verify func(pid int) (bool, error),
+	send func(pid int, sig os.Signal) error,
+	out io.Writer,
+) error {
+	err := daemon.SignalDaemonWithVerifier(pidPath, verify, send)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			_, _ = fmt.Fprintln(out, "no daemon running")
+			return nil
+		}
+		return fmt.Errorf("rules reload: %w", err)
+	}
+	_, _ = fmt.Fprintln(out, "reloaded")
+	return nil
 }
 
 func newRulesCheckCmd() *cobra.Command {

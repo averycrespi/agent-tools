@@ -19,6 +19,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/daemon"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/proxy"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/store"
 )
 
@@ -43,10 +44,6 @@ type serveDeps struct {
 	// DashboardAddr receives the bound dashboard address (host:port) after startup.
 	// Must be buffered (cap >= 1) if non-nil.
 	DashboardAddr chan string
-
-	// Reload is called when SIGHUP is received.
-	// TODO(Task 19): wire engine.Reload() here.
-	Reload func()
 }
 
 // newServeDeps returns production-ready defaults. Tests may override fields.
@@ -54,7 +51,6 @@ func newServeDeps() serveDeps {
 	return serveDeps{
 		Logger: slog.Default(),
 		// Ready is nil by default; RunServe checks before sending.
-		Reload: func() { /* no-op; TODO wire engine.Reload() in Task 19 */ },
 	}
 }
 
@@ -80,9 +76,6 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	if log == nil {
 		log = slog.Default()
 	}
-	if d.Reload == nil {
-		d.Reload = func() {}
-	}
 
 	// 1. Load config.
 	cfgPath := d.ConfigPath
@@ -94,12 +87,21 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	// 2. Ensure config and data directories exist.
+	// 2. Ensure config, data, and rules directories exist.
 	if err := os.MkdirAll(paths.ConfigDir(), 0o750); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 	if err := os.MkdirAll(paths.DataDir(), 0o750); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
+	}
+	if err := os.MkdirAll(paths.RulesDir(), 0o750); err != nil {
+		return fmt.Errorf("create rules dir: %w", err)
+	}
+
+	// 2b. Initialise the rules engine (0 rules is valid).
+	engine, err := rules.NewEngine(paths.RulesDir())
+	if err != nil {
+		return fmt.Errorf("init rules engine: %w", err)
 	}
 
 	// 3. Open database.
@@ -221,8 +223,15 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		case sig := <-sigCh:
 			switch sig {
 			case syscall.SIGHUP:
-				log.Info("received SIGHUP; reloading config")
-				d.Reload()
+				log.Info("received SIGHUP; reloading rules")
+				if reloadErr := engine.Reload(); reloadErr != nil {
+					log.Error("rules reload failed", "err", reloadErr)
+					// Previous ruleset stays live — keep serving.
+				} else {
+					log.Info("rules reloaded")
+				}
+				// TODO(Task 22): secrets.InvalidateCache()
+				// TODO(Task 26): agents.ReloadFromDB()
 			case syscall.SIGTERM, syscall.SIGINT:
 				log.Info("received signal; shutting down", "signal", sig)
 				return shutdown(log, dashSrv)

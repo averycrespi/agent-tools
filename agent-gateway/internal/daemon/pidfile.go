@@ -130,3 +130,15 @@ func defaultSendSignal(pid int, sig os.Signal) error {
 	}
 	return p.Signal(sig)
 }
+
+// DefaultVerifyComm is the exported wrapper around defaultVerifyComm for use
+// by callers outside this package (e.g. the rules reload CLI command).
+func DefaultVerifyComm(pid int) (bool, error) {
+	return defaultVerifyComm(pid)
+}
+
+// DefaultSendSignal is the exported wrapper around defaultSendSignal for use
+// by callers outside this package (e.g. the rules reload CLI command).
+func DefaultSendSignal(pid int, sig os.Signal) error {
+	return defaultSendSignal(pid, sig)
+}
