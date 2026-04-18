@@ -31,6 +31,22 @@ CREATE INDEX idx_secrets_scope ON secrets(scope);
 `)
 		return err
 	},
+
+	// Migration 3: agents table (argon2id token auth, per-row salt).
+	func(tx *sql.Tx) error {
+		_, err := tx.Exec(`
+CREATE TABLE agents (
+  name         TEXT PRIMARY KEY,
+  token_hash   BLOB NOT NULL,
+  token_prefix TEXT NOT NULL,
+  argon2_salt  BLOB NOT NULL,
+  created_at   INTEGER NOT NULL,
+  last_seen_at INTEGER,
+  description  TEXT
+);
+`)
+		return err
+	},
 }
 
 // runMigrations reads the current user_version, then runs each pending migration
