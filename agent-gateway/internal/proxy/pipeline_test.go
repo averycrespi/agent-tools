@@ -127,7 +127,7 @@ func allowMatchResultWithInject() *rules.MatchResult {
 		Rule: &rules.Rule{
 			Verdict: "allow",
 			Inject: &rules.Inject{
-				SetHeaders: map[string]string{
+				ReplaceHeaders: map[string]string{
 					"Authorization": "Bearer ${secrets.gh_token}",
 				},
 			},
@@ -396,7 +396,7 @@ func TestPipeline_FailSoftOnUnresolvedSecret(t *testing.T) {
 	})
 
 	inj := &stubInjector{
-		err: fmt.Errorf("inject set_header %q: %w", "Authorization", inject.ErrSecretUnresolved), //nolint:goerr113
+		err: fmt.Errorf("inject replace_header %q: %w", "Authorization", inject.ErrSecretUnresolved), //nolint:goerr113
 	}
 
 	p := proxy.New(proxy.Deps{

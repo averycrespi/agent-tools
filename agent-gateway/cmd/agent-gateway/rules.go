@@ -53,7 +53,7 @@ func loadKnownSecrets(errOut io.Writer) secretsLister {
 	return &staticSecretsLister{names: names}
 }
 
-// secretsRefRE matches ${secrets.<name>} in inject set_header values.
+// secretsRefRE matches ${secrets.<name>} in inject replace_header values.
 // It intentionally does NOT match ${agent.name} or ${agent.id}.
 var secretsRefRE = regexp.MustCompile(`\$\{secrets\.([A-Za-z_][A-Za-z0-9_]*)\}`)
 
@@ -151,7 +151,7 @@ func execRulesCheck(cmd *cobra.Command, dir string, lister secretsLister) error 
 		if rule.Inject == nil {
 			continue
 		}
-		for _, val := range rule.Inject.SetHeaders {
+		for _, val := range rule.Inject.ReplaceHeaders {
 			matches := secretsRefRE.FindAllStringSubmatch(val, -1)
 			for _, m := range matches {
 				secretName := m[1]

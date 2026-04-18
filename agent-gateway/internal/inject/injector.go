@@ -65,9 +65,9 @@ func (s *scopedCachingStore) Get(ctx context.Context, name, agent string) (strin
 //
 // Algorithm:
 //  1. If rule.Inject is nil, return StatusNoInject immediately.
-//  2. Expand ALL set_header templates first, collecting (name→value). On the
-//     first unresolved secret, return StatusFailed without touching req.
-//  3. Apply set_header mutations to req.
+//  2. Expand ALL replace_header templates first, collecting (name→value). On
+//     the first unresolved secret, return StatusFailed without touching req.
+//  3. Apply replace_header mutations to req.
 //  4. Apply remove_header deletions.
 //  5. Return StatusApplied and the first credential scope encountered.
 func (inj *Injector) Apply(ctx context.Context, req *http.Request, rule *rules.Rule, agent string) (InjectionStatus, string, error) {
@@ -85,26 +85,26 @@ func (inj *Injector) Apply(ctx context.Context, req *http.Request, rule *rules.R
 		}
 	}
 
-	// Phase 1: expand all set_header values. Collect results before mutating.
+	// Phase 1: expand all replace_header values. Collect results before mutating.
 	type headerMutation struct {
 		name  string
 		value string
 	}
-	mutations := make([]headerMutation, 0, len(rule.Inject.SetHeaders))
+	mutations := make([]headerMutation, 0, len(rule.Inject.ReplaceHeaders))
 	var firstScope string
 
 	// Iterate in sorted order for deterministic behaviour.
-	headerNames := make([]string, 0, len(rule.Inject.SetHeaders))
-	for k := range rule.Inject.SetHeaders {
+	headerNames := make([]string, 0, len(rule.Inject.ReplaceHeaders))
+	for k := range rule.Inject.ReplaceHeaders {
 		headerNames = append(headerNames, k)
 	}
 	sort.Strings(headerNames)
 
 	for _, hName := range headerNames {
-		tmpl := rule.Inject.SetHeaders[hName]
+		tmpl := rule.Inject.ReplaceHeaders[hName]
 		expanded, scope, err := Expand(ctx, tmpl, agent, effectiveStore)
 		if err != nil {
-			return StatusFailed, "", fmt.Errorf("inject set_header %q: %w", hName, err)
+			return StatusFailed, "", fmt.Errorf("inject replace_header %q: %w", hName, err)
 		}
 		if firstScope == "" && scope != "" {
 			firstScope = scope

@@ -14,7 +14,7 @@ rule "github-issue-create" {
   verdict = "allow"
 
   inject {
-    set_header = {
+    replace_header = {
       "Authorization" = "Bearer ${secrets.gh_bot}"
     }
   }

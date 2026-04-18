@@ -102,10 +102,10 @@ type TextBodyMatch struct {
 	re      *regexp.Regexp
 }
 
-// Inject specifies headers to set or remove on matched requests.
+// Inject specifies headers to replace or remove on matched requests.
 type Inject struct {
-	SetHeaders    map[string]string
-	RemoveHeaders []string
+	ReplaceHeaders map[string]string
+	RemoveHeaders  []string
 }
 
 // bodyMatcher is the sealed interface for compiled body matchers.

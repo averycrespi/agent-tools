@@ -58,7 +58,7 @@ rule "inject-x" {
     host = %q
   }
   inject {
-    set_header = {
+    replace_header = {
       "Authorization" = "Bearer ${secrets.x}"
     }
   }

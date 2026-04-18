@@ -46,22 +46,22 @@ func auditFromContext(ctx context.Context) *auditRecord {
 // secretRefRE matches ${secrets.<ident>} tokens in inject template strings.
 var secretRefRE = regexp.MustCompile(`\$\{secrets\.([A-Za-z_][A-Za-z0-9_]*)\}`)
 
-// firstSecretRef scans the SetHeaders values in an inject block and returns the
-// name of the first ${secrets.<ident>} reference found (in sorted key order).
-// Returns "" when there are no secret references.
+// firstSecretRef scans the ReplaceHeaders values in an inject block and
+// returns the name of the first ${secrets.<ident>} reference found (in
+// sorted key order). Returns "" when there are no secret references.
 func firstSecretRef(inj *rules.Inject) string {
 	if inj == nil {
 		return ""
 	}
 	// Iterate in sorted order for determinism.
-	keys := make([]string, 0, len(inj.SetHeaders))
-	for k := range inj.SetHeaders {
+	keys := make([]string, 0, len(inj.ReplaceHeaders))
+	for k := range inj.ReplaceHeaders {
 		keys = append(keys, k)
 	}
 	// Use strings.Clone-free sort.
 	sortedKeys(keys)
 	for _, k := range keys {
-		m := secretRefRE.FindStringSubmatch(inj.SetHeaders[k])
+		m := secretRefRE.FindStringSubmatch(inj.ReplaceHeaders[k])
 		if m != nil {
 			return m[1]
 		}

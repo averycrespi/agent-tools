@@ -39,7 +39,7 @@ internal/ca/            Root CA load/generate; leaf issuance (24h, 1h refresh
                         buffer); shared sync.Map cert cache
 internal/rules/         HCL directory loader (filepath.Glob), first-match-wins
                         ordered evaluation, hot reload via SIGHUP
-internal/inject/        Header verbs (set_header, remove_header),
+internal/inject/        Header verbs (replace_header, remove_header),
                         ${secrets.X} / ${agent.X} template expansion
 internal/secrets/       SQLite-backed AES-256-GCM store, master key via
                         go-keyring (file fallback when keychain unavailable)

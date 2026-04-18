@@ -54,7 +54,7 @@ rule "github-issue-create" {
   }
   verdict = "allow"
   inject {
-    set_header = {
+    replace_header = {
       "Authorization" = "Bearer ${secrets.gh_bot}"
     }
   }
@@ -102,7 +102,7 @@ rule "github-issue-create" {
   }
   verdict = "allow"
   inject {
-    set_header = {
+    replace_header = {
       "Authorization" = "Bearer ${secrets.does_not_exist}"
     }
   }
@@ -123,7 +123,7 @@ rule "agent-header" {
   match   { host = "api.example.com" }
   verdict = "allow"
   inject {
-    set_header = {
+    replace_header = {
       "X-Agent-Name" = "${agent.name}"
       "X-Agent-ID"   = "${agent.id}"
     }

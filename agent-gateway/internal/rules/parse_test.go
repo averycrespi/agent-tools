@@ -23,7 +23,7 @@ func TestParse_SimpleAllow(t *testing.T) {
 	assert.Equal(t, "^2022-", rs[0].Match.Headers["X-GitHub-Api-Version"])
 	assert.Equal(t, "allow", rs[0].Verdict)
 	require.NotNil(t, rs[0].Inject)
-	assert.Equal(t, "Bearer ${secrets.gh_bot}", rs[0].Inject.SetHeaders["Authorization"])
+	assert.Equal(t, "Bearer ${secrets.gh_bot}", rs[0].Inject.ReplaceHeaders["Authorization"])
 }
 
 func TestParse_JSONBodyMatcher(t *testing.T) {
@@ -134,7 +134,7 @@ rule "bad-template" {
   match { host = "example.com" }
   verdict = "allow"
   inject {
-    set_header = {
+    replace_header = {
       "Authorization" = "Bearer ${invalid.token}"
     }
   }
@@ -153,7 +153,7 @@ rule "valid-templates" {
   match { host = "example.com" }
   verdict = "allow"
   inject {
-    set_header = {
+    replace_header = {
       "Authorization" = "Bearer ${secrets.my_token}"
       "X-Agent"       = "${agent.name}"
       "X-Agent-ID"    = "${agent.id}"

@@ -40,7 +40,7 @@ rule "github-issue-create" {
   verdict = "allow"                            # allow | deny | require-approval
 
   inject {                                     # allowed on allow / require-approval
-    set_header = {
+    replace_header = {
       "Authorization" = "Bearer ${secrets.gh_bot}"
     }
     remove_header = ["X-Agent-Hint"]
@@ -101,16 +101,16 @@ Regex applied directly to the raw body.
 
 Valid on `allow` and `require-approval` verdicts. Two verbs:
 
-| Attribute       | Type            | Semantics                 |
-| --------------- | --------------- | ------------------------- |
-| `set_header`    | map of strings  | Create or overwrite.      |
-| `remove_header` | list of strings | Remove the named headers. |
+| Attribute        | Type            | Semantics                                                   |
+| ---------------- | --------------- | ----------------------------------------------------------- |
+| `replace_header` | map of strings  | Create or overwrite each named header with the given value. |
+| `remove_header`  | list of strings | Remove the named headers.                                   |
 
-Both verbs run at injection time. `remove_header` runs before `set_header`, so stripping a dummy `Authorization` and setting a real one in the same rule works as expected.
+`replace_header` covers the common "strip the dummy and set the real" case in a single verb — the header is unconditionally overwritten whether it was present or not. `remove_header` exists for the strip-only case (headers the agent set that the upstream should never see). `remove_header` is applied after `replace_header`.
 
 ### Template expansion
 
-Inside `set_header` values, two namespaces are available:
+Inside `replace_header` values, two namespaces are available:
 
 - `${secrets.<name>}` — resolved against the secrets store at request time.
 - `${agent.name}`, `${agent.id}` — the calling agent.

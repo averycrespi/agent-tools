@@ -71,7 +71,7 @@ func allowRuleWithInjectAndName(name string) *rules.MatchResult {
 			Name:    name,
 			Verdict: "allow",
 			Inject: &rules.Inject{
-				SetHeaders: map[string]string{
+				ReplaceHeaders: map[string]string{
 					"Authorization": "Bearer ${secrets.gh_bot}",
 				},
 			},
@@ -95,7 +95,7 @@ func requireApprovalRuleWithName(name string) *rules.MatchResult {
 			Name:    name,
 			Verdict: "require-approval",
 			Inject: &rules.Inject{
-				SetHeaders: map[string]string{
+				ReplaceHeaders: map[string]string{
 					"Authorization": "Bearer ${secrets.deploy_key}",
 				},
 			},

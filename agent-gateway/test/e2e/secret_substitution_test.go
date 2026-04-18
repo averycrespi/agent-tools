@@ -68,7 +68,7 @@ rule "inject-gh-bot" {
     host = %q
   }
   inject {
-    set_header = {
+    replace_header = {
       "Authorization" = "Bearer ${secrets.gh_bot}"
     }
   }

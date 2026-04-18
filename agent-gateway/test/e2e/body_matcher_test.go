@@ -77,7 +77,7 @@ rule "body-allow" {
     }
   }
   inject {
-    set_header = {
+    replace_header = {
       "X-Body-Matched" = "true"
     }
   }

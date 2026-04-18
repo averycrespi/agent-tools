@@ -78,7 +78,7 @@ func TestTemplate_UnknownExpression_ReturnsError(t *testing.T) {
 	assert.ErrorIs(t, err, inject.ErrUnknownExpression)
 }
 
-func TestInjector_SetHeaderOverwrites(t *testing.T) {
+func TestInjector_ReplaceHeaderOverwrites(t *testing.T) {
 	store := stubSecrets{
 		"tok": {value: "secret", scope: "global"},
 	}
@@ -90,7 +90,7 @@ func TestInjector_SetHeaderOverwrites(t *testing.T) {
 
 	rule := &rules.Rule{
 		Inject: &rules.Inject{
-			SetHeaders: map[string]string{
+			ReplaceHeaders: map[string]string{
 				"Authorization": "Bearer ${secrets.tok}",
 			},
 		},
@@ -144,7 +144,7 @@ func TestInjector_UnresolvedSecret_StatusFailed(t *testing.T) {
 
 	rule := &rules.Rule{
 		Inject: &rules.Inject{
-			SetHeaders: map[string]string{
+			ReplaceHeaders: map[string]string{
 				"Authorization": "Bearer ${secrets.missing}",
 			},
 		},
@@ -202,7 +202,7 @@ func TestInjector_ScopeConsistentAcrossCachedApplies(t *testing.T) {
 
 	rule := &rules.Rule{
 		Inject: &rules.Inject{
-			SetHeaders: map[string]string{
+			ReplaceHeaders: map[string]string{
 				"Authorization": "Bearer ${secrets.tok}",
 			},
 		},

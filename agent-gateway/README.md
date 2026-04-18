@@ -9,7 +9,7 @@ Sandbox ─HTTPS_PROXY─▶ agent-gateway ─▶ upstream API
                             │
                             ├─ MITM TLS (local root CA, ALPN h1+h2)
                             ├─ HCL rules (host / method / path / header / body)
-                            ├─ Credential injection (set_header / remove_header)
+                            ├─ Credential injection (replace_header / remove_header)
                             ├─ Human approval via web dashboard
                             └─ SQLite audit log
 ```
@@ -83,7 +83,7 @@ rule "github-user" {
   verdict = "allow"
 
   inject {
-    set_header = {
+    replace_header = {
       "Authorization" = "Bearer ${secrets.gh_token}"
     }
   }

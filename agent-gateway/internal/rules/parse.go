@@ -57,7 +57,7 @@ var matchBodySchema = &hcl.BodySchema{
 // injectBodySchema describes the attributes inside an `inject` block.
 var injectBodySchema = &hcl.BodySchema{
 	Attributes: []hcl.AttributeSchema{
-		{Name: "set_header", Required: false},
+		{Name: "replace_header", Required: false},
 		{Name: "remove_header", Required: false},
 	},
 }
@@ -403,12 +403,12 @@ func decodeInjectBlock(block *hcl.Block, ruleName, path string) (Inject, []strin
 	var inj Inject
 	var warnings []string
 
-	if attr, ok := content.Attributes["set_header"]; ok {
-		kvMap, err := decodeStringTemplateMap(attr.Expr, fmt.Sprintf("rule %q inject.set_header", ruleName))
+	if attr, ok := content.Attributes["replace_header"]; ok {
+		kvMap, err := decodeStringTemplateMap(attr.Expr, fmt.Sprintf("rule %q inject.replace_header", ruleName))
 		if err != nil {
 			return Inject{}, nil, err
 		}
-		inj.SetHeaders = kvMap
+		inj.ReplaceHeaders = kvMap
 		// Validate template syntax for each value in deterministic order.
 		keys := make([]string, 0, len(kvMap))
 		for k := range kvMap {
@@ -416,7 +416,7 @@ func decodeInjectBlock(block *hcl.Block, ruleName, path string) (Inject, []strin
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			w := validateTemplates(kvMap[k], fmt.Sprintf("rule %q inject.set_header[%q]", ruleName, k))
+			w := validateTemplates(kvMap[k], fmt.Sprintf("rule %q inject.replace_header[%q]", ruleName, k))
 			warnings = append(warnings, w...)
 		}
 	}

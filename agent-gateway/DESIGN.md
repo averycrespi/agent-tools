@@ -132,7 +132,7 @@ internal/proxy/         MITM HTTP/HTTPS proxy, CONNECT handler, per-host
 internal/ca/            Root CA load/generate, leaf issuance (24h, 1h refresh buffer)
 internal/rules/         HCL loader (directory glob), matcher, explicit
                         reload via SIGHUP, first-match-wins ordered evaluation
-internal/inject/        Header verbs (set_header, remove_header),
+internal/inject/        Header verbs (replace_header, remove_header),
                         ${secrets.X} / ${agent.X} template expansion
 internal/secrets/       SQLite-backed AES-256-GCM store, master key via
                         go-keyring (file fallback)
@@ -173,7 +173,7 @@ Both override-able via `config.hcl` and CLI flags. Ports chosen to be adjacent
 4. Request decoded (h2 frames or h1). Matcher evaluates rules in filename
    order × within-file order → first match wins → rule verdict.
 5. Rule verdict dispatch:
-   - **allow**: apply `inject` block (set_header / remove_header with
+   - **allow**: apply `inject` block (replace_header / remove_header with
      `${secrets.X}` / `${agent.X}` expansion) → dial upstream using system
      trust store with strict TLS verification → stream request → stream
      response → audit with `injection='applied'`, `outcome='forwarded'`.
@@ -285,8 +285,8 @@ rule "github-issue-create" {
   verdict = "allow"                        // allow | deny | require-approval
 
   inject {                                 // only for allow / require-approval
-    set_header    = { "Authorization" = "Bearer ${secrets.gh_bot}" }
-    remove_header = ["X-Agent-Hint"]
+    replace_header = { "Authorization" = "Bearer ${secrets.gh_bot}" }
+    remove_header  = ["X-Agent-Hint"]
   }
 }
 ```
@@ -333,9 +333,9 @@ empty JSON). Out of scope for v1: multipart, protobuf, gRPC.
 
 Two HCL shapes are used, chosen by what the construct needs to express:
 
-- **Attribute maps** (`headers = { ... }`, `set_header = { ... }`) for simple
-  name → value mappings. Concise for the common "match a header's pattern" /
-  "set a header's value" case.
+- **Attribute maps** (`headers = { ... }`, `replace_header = { ... }`) for
+  simple name → value mappings. Concise for the common "match a header's
+  pattern" / "replace a header's value" case.
 - **Labeled blocks** (`jsonpath "$.x" { ... }`, `field "name" { ... }`) for
   constructs that associate a path/field with multiple attributes (e.g. a
   matcher with `matches`). Labelled blocks are extensible — future attributes
@@ -389,18 +389,22 @@ errors); the dashboard renders a "missing secret" badge on affected rules.
 
 Two in v1:
 
-- `set_header` — create-or-overwrite. `{ "Name" = "value" }`.
-- `remove_header` — `["Name1", "Name2"]`.
+- `replace_header` — create-or-overwrite. `{ "Name" = "value" }`. Covers the
+  common "strip the dummy, set the real one" case in one verb: the header is
+  unconditionally overwritten whether it was present on the incoming request
+  or not.
+- `remove_header` — `["Name1", "Name2"]`. For the strip-only case where no
+  replacement is desired.
 
-onecli's `ReplaceHeader` (set-only-if-present) is redundant because the same
-condition can be expressed in the `match` block:
+onecli's set-only-if-present verb is redundant because the same condition
+can be expressed in the `match` block:
 
 ```hcl
 match {
   headers = { "Authorization" = "^Bearer " }   // match only requests that DID auth
 }
 inject {
-  set_header = { "Authorization" = "Bearer ${secrets.gh_bot}" }
+  replace_header = { "Authorization" = "Bearer ${secrets.gh_bot}" }
 }
 ```
 
