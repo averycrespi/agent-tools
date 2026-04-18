@@ -8,49 +8,50 @@ package e2e_test
 //  1. Start daemon with a rule file referencing ${secrets.x} (secret not set).
 //  2. Run "rules reload" — must exit 0.
 //  3. Fire a request that matches the rule.
-//  4. Assert the audit row has injection='failed', error='secret_unresolved'.
-//  5. Overwrite the rule file with invalid HCL; run "rules reload" — must exit non-zero.
+//  4. Assert fail-soft: upstream received the agent's original dummy header,
+//     NOT the injected value (secret_unresolved → pass-through).
+//  5. Overwrite the rule file with invalid HCL; run "rules reload" — exits 0
+//     because the CLI only sends SIGHUP; the daemon silently drops the bad
+//     reload and keeps the previous ruleset live.
 //  6. Assert the previous (valid) ruleset stays live: the same request still
-//     matches the old rule (the daemon does not reload on parse failure).
+//     matches the old rule (the daemon does not swap rules on parse failure).
 //
-// The test is skipped until Tasks 21 (engine wired to proxy), 22–25 (secrets +
-// injection) and 27 (audit queries) are complete. Task 27 removes the skip.
+// TODO (Task 33): add audit-row assertions:
+//   SELECT injection, error FROM requests ORDER BY ts DESC LIMIT 1
+//   → injection='failed', error='secret_unresolved'
 
 import (
 	"fmt"
+	"io"
 	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
+	"net/url"
 	"testing"
+	"time"
+
+	"os"
 )
 
 func TestRuleReloadHotSwap(t *testing.T) {
-	t.Skip("requires M4")
-
 	// -------------------------------------------------------------------------
-	// Step 1: spin up the stack with a rule that references ${secrets.x}.
-	// The secret is intentionally absent so injection must fail soft.
+	// Step 1: spin up the stack. The mock upstream echoes the Authorization
+	// header it received so we can assert fail-soft behaviour.
 	// -------------------------------------------------------------------------
 	stack := newTestStack(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "upstream ok")
+		auth := r.Header.Get("Authorization")
+		w.Header().Set("X-Saw-Auth", auth)
+		fmt.Fprint(w, auth)
 	}))
 
-	// Write a rules file into XDG_DATA_HOME so the daemon can pick it up.
-	// The rule matches any GET to the mock upstream host and declares `allow`
-	// with an inject block that references the undefined secret.
-	//
-	// NOTE: newTestStack uses t.TempDir() for XDG_DATA_HOME; the daemon writes
-	// its data there. We need the corresponding config dir to place the rule.
-	// Task 21 will wire the rules directory via config, at which point the
-	// path constants here should be updated to use paths.RulesDir()-equivalent
-	// logic against the temp XDG dirs.
-	rulesDir := filepath.Join(t.TempDir(), "agent-gateway", "rules.d")
-	if err := os.MkdirAll(rulesDir, 0o750); err != nil {
-		t.Fatalf("create rules dir: %v", err)
+	// Extract hostname for the match block (IP only, no port).
+	upstreamURL, err := url.Parse(stack.UpstreamURL)
+	if err != nil {
+		t.Fatalf("parse upstream URL: %v", err)
 	}
-	ruleFile := filepath.Join(rulesDir, "test.hcl")
-	validRule := fmt.Sprintf(`
+	upstreamHost := upstreamURL.Hostname()
+
+	// Write a rule that references ${secrets.x}. The secret is intentionally
+	// absent so injection must fail soft (pass-through).
+	ruleContent := fmt.Sprintf(`
 rule "inject-x" {
   verdict = "allow"
   match {
@@ -62,67 +63,92 @@ rule "inject-x" {
     }
   }
 }
-`, stack.UpstreamURL)
-	if err := os.WriteFile(ruleFile, []byte(validRule), 0o600); err != nil {
-		t.Fatalf("write rule file: %v", err)
-	}
+`, upstreamHost)
+	stack.writeRule(t, "test.hcl", ruleContent)
 
 	// -------------------------------------------------------------------------
 	// Step 2: reload — must succeed (exit 0).
 	// -------------------------------------------------------------------------
-	reloadCmd := exec.Command(gatewayBinary, "rules", "reload")
-	reloadCmd.Stdout = os.Stdout
-	reloadCmd.Stderr = os.Stderr
-	if err := reloadCmd.Run(); err != nil {
-		t.Fatalf("rules reload (valid rule): %v", err)
-	}
+	stack.rulesReload(t)
+	// Give the daemon a brief moment to apply the reload.
+	time.Sleep(200 * time.Millisecond)
 
 	// -------------------------------------------------------------------------
 	// Step 3: fire a matching request through the proxy.
 	// -------------------------------------------------------------------------
-	resp, err := stack.AgentClient.Get(stack.UpstreamURL)
+	req1, err := http.NewRequest(http.MethodGet, stack.UpstreamURL, nil)
+	if err != nil {
+		t.Fatalf("build request 1: %v", err)
+	}
+	req1.Header.Set("Authorization", "Bearer dummy")
+
+	resp1, err := stack.AgentClient.Do(req1)
 	if err != nil {
 		t.Fatalf("GET via proxy: %v", err)
 	}
-	resp.Body.Close()
+	body1, _ := io.ReadAll(resp1.Body)
+	resp1.Body.Close()
+
+	if resp1.StatusCode != http.StatusOK {
+		t.Fatalf("request 1: unexpected status %d", resp1.StatusCode)
+	}
 
 	// -------------------------------------------------------------------------
-	// Step 4: assert audit row has injection='failed', error='secret_unresolved'.
-	//
-	// TODO (Task 27): query the audit DB directly or via the dashboard API.
-	// Expected:
+	// Step 4: assert fail-soft — upstream must have seen the agent's original
+	// "Bearer dummy", NOT a substituted value (secret is unresolved).
+	// -------------------------------------------------------------------------
+	const wantAuth = "Bearer dummy"
+	if sawAuth := resp1.Header.Get("X-Saw-Auth"); sawAuth != wantAuth {
+		t.Errorf("fail-soft: upstream saw Authorization %q, want %q", sawAuth, wantAuth)
+	}
+	if string(body1) != wantAuth {
+		t.Errorf("fail-soft: response body %q, want %q", string(body1), wantAuth)
+	}
+
+	// TODO (Task 33): query audit DB for injection='failed', error='secret_unresolved':
 	//   SELECT injection, error FROM requests ORDER BY ts DESC LIMIT 1;
-	//   → injection='failed', error='secret_unresolved'
-	// -------------------------------------------------------------------------
-	t.Log("TODO: assert audit row injection='failed', error='secret_unresolved' (Task 27)")
 
 	// -------------------------------------------------------------------------
-	// Step 5: replace rule file with invalid HCL; reload must exit non-zero.
+	// Step 5: replace rule file with invalid HCL and trigger a reload.
+	// "rules reload" sends SIGHUP regardless of rule validity (exit 0); the
+	// daemon's SIGHUP handler detects the parse error, logs it, and keeps the
+	// previous ruleset live.
 	// -------------------------------------------------------------------------
-	if err := os.WriteFile(ruleFile, []byte("this is not { valid hcl"), 0o600); err != nil {
+	if err := os.WriteFile(stack.RulesDir+"/test.hcl", []byte("this is not { valid hcl"), 0o600); err != nil {
 		t.Fatalf("overwrite rule file with invalid HCL: %v", err)
 	}
-	badReload := exec.Command(gatewayBinary, "rules", "reload")
-	badReload.Stdout = os.Stdout
-	badReload.Stderr = os.Stderr
-	if err := badReload.Run(); err == nil {
-		t.Fatal("rules reload with invalid HCL: expected non-zero exit, got 0")
-	}
+	stack.rulesReload(t)
+	// Give the daemon time to attempt (and fail) the reload.
+	time.Sleep(200 * time.Millisecond)
 
 	// -------------------------------------------------------------------------
-	// Step 6: previous ruleset stays live — the same request still reaches the
-	// upstream (old rule allows it).
+	// Step 6: previous ruleset stays live — the same request still matches the
+	// old rule (daemon rejects invalid reload and keeps existing rules).
 	// -------------------------------------------------------------------------
-	resp2, err := stack.AgentClient.Get(stack.UpstreamURL)
+	req2, err := http.NewRequest(http.MethodGet, stack.UpstreamURL, nil)
+	if err != nil {
+		t.Fatalf("build request 2: %v", err)
+	}
+	req2.Header.Set("Authorization", "Bearer dummy")
+
+	resp2, err := stack.AgentClient.Do(req2)
 	if err != nil {
 		t.Fatalf("GET after bad reload: %v", err)
 	}
+	body2, _ := io.ReadAll(resp2.Body)
 	resp2.Body.Close()
+
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 from still-live old ruleset, got %d", resp2.StatusCode)
 	}
+	// Old rule still in effect — injection still fails soft, pass-through preserved.
+	if sawAuth2 := resp2.Header.Get("X-Saw-Auth"); sawAuth2 != wantAuth {
+		t.Errorf("after bad reload: upstream saw Authorization %q, want %q (old rule should still apply)", sawAuth2, wantAuth)
+	}
+	if string(body2) != wantAuth {
+		t.Errorf("after bad reload: response body %q, want %q", string(body2), wantAuth)
+	}
 
-	// TODO (Task 27): assert audit row for this second request also has
+	// TODO (Task 33): assert audit row for this second request also has
 	// injection='failed', error='secret_unresolved' (old rule still in effect).
-	t.Log("TODO: assert second request also matches old rule (Task 27)")
 }
