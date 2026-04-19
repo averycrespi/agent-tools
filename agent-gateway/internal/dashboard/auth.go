@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/atomicfile"
 )
 
 const cookieName = "agent-gateway-auth"
@@ -44,7 +46,7 @@ func EnsureAdminTokenCreated(path string) (token string, created bool, err error
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return "", false, fmt.Errorf("creating token directory: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(tok), 0o600); err != nil {
+	if err := atomicfile.Write(path, []byte(tok), 0o600); err != nil {
 		return "", false, fmt.Errorf("writing admin token file: %w", err)
 	}
 	return tok, true, nil
@@ -62,7 +64,7 @@ func GenerateAdminToken(path string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return "", fmt.Errorf("creating token directory: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(tok), 0o600); err != nil {
+	if err := atomicfile.Write(path, []byte(tok), 0o600); err != nil {
 		return "", fmt.Errorf("writing admin token file: %w", err)
 	}
 	return tok, nil

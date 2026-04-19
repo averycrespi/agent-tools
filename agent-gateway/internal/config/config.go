@@ -15,6 +15,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclparse"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/atomicfile"
 )
 
 //go:embed default.hcl
@@ -397,7 +399,7 @@ func Save(cfg Config, path string) error {
 		return fmt.Errorf("config: mkdir %s: %w", filepath.Dir(path), err)
 	}
 	content := renderHCL(cfg)
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+	if err := atomicfile.Write(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("config: write %s: %w", path, err)
 	}
 	return nil

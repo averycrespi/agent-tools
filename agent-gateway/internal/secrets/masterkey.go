@@ -11,6 +11,7 @@ import (
 
 	keyring "github.com/zalando/go-keyring"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/atomicfile"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 )
 
@@ -90,12 +91,12 @@ func persistWithPath(key []byte, service, account, filePath string, logger *slog
 	return nil
 }
 
-// writeKeyFile writes key as a hex string to path at mode 0o600.
+// writeKeyFile writes key as a hex string to path at mode 0o600, atomically.
 func writeKeyFile(key []byte, path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("create dir: %w", err)
 	}
-	return os.WriteFile(path, []byte(keyToHex(key)), 0o600)
+	return atomicfile.Write(path, []byte(keyToHex(key)), 0o600)
 }
 
 func keyToHex(key []byte) string {

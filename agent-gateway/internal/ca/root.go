@@ -13,6 +13,8 @@ import (
 	"math/big"
 	"os"
 	"time"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/atomicfile"
 )
 
 // Authority holds a loaded or freshly-generated root CA certificate and key,
@@ -153,11 +155,10 @@ func generate(keyPath, certPath string) (*Authority, error) {
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 
-	// Atomic write: write to .new files then rename into place.
-	if err := writeAtomic(keyPath, keyPEM, 0o600); err != nil {
+	if err := atomicfile.Write(keyPath, keyPEM, 0o600); err != nil {
 		return nil, err
 	}
-	if err := writeAtomic(certPath, certPEM, 0o644); err != nil {
+	if err := atomicfile.Write(certPath, certPEM, 0o644); err != nil {
 		return nil, err
 	}
 
@@ -176,13 +177,4 @@ func generate(keyPath, certPath string) (*Authority, error) {
 func randomSerial() (*big.Int, error) {
 	max := new(big.Int).Lsh(big.NewInt(1), 128)
 	return rand.Int(rand.Reader, max)
-}
-
-// writeAtomic writes data to path.new then renames it into place with perm.
-func writeAtomic(path string, data []byte, perm os.FileMode) error {
-	tmp := path + ".new"
-	if err := os.WriteFile(tmp, data, perm); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
 }

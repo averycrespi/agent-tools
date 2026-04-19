@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/atomicfile"
 )
 
 // ErrAlreadyRunning is returned by Acquire when a live agent-gateway process
@@ -113,10 +115,10 @@ func isAlive(pid int) bool {
 	return p.Signal(syscall.Signal(0)) == nil
 }
 
-// writePID writes the current process's PID to path (mode 0o600).
+// writePID writes the current process's PID to path (mode 0o600), atomically.
 func writePID(path string) error {
 	data := []byte(strconv.Itoa(os.Getpid()))
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := atomicfile.Write(path, data, 0o600); err != nil {
 		return fmt.Errorf("write pid file: %w", err)
 	}
 	return nil
