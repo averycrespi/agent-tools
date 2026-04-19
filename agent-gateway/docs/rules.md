@@ -57,14 +57,16 @@ rule "github-issue-create" {
 
 ### `match` block
 
-Every criterion is optional; an absent criterion is a wildcard. All declared criteria must succeed (AND).
+`host` is **required** — see the note below. Every other criterion is optional; an absent criterion is a wildcard. All declared criteria must succeed (AND).
 
-| Attribute | Type           | Semantics                                                                                       |
-| --------- | -------------- | ----------------------------------------------------------------------------------------------- |
-| `host`    | string glob    | `*` within a hostname segment, `**` across segments.                                            |
-| `method`  | string         | Exact match, uppercase.                                                                         |
-| `path`    | string glob    | Same glob syntax as `host`.                                                                     |
-| `headers` | map of strings | Each value is a Go RE2 regex matched against the canonical header. Missing headers never match. |
+| Attribute | Type           | Required | Semantics                                                                                       |
+| --------- | -------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `host`    | string glob    | yes      | `*` within a hostname segment, `**` across segments. Use `host = "**"` to match every host.     |
+| `method`  | string         | no       | Exact match, uppercase.                                                                         |
+| `path`    | string glob    | no       | Same glob syntax as `host`.                                                                     |
+| `headers` | map of strings | no       | Each value is a Go RE2 regex matched against the canonical header. Missing headers never match. |
+
+> **Why `host` is required.** The CONNECT-time decision filter consults each agent's set of rule hosts to decide whether to MITM or tunnel. A rule with no `host` would not appear in that index, so its verdict (especially a `deny`) would silently never fire. Spell `host = "**"` if you genuinely want to match every host.
 
 At most **one** body matcher per rule. A body matcher only runs on requests that (a) carry a body and (b) have a matching `Content-Type`. Requests without a body — `GET`, `DELETE`, `HEAD`, and `POST`/`PUT` with `Content-Length: 0` — never match a body-matcher rule.
 

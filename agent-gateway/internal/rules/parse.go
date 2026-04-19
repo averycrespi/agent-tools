@@ -224,6 +224,18 @@ func decodeRuleBlock(block *hcl.Block, path string) (Rule, []string, error) {
 	warnings = append(warnings, warns...)
 	r.Match = m
 
+	// match.host is required so the CONNECT-time decision can target the rule
+	// at a specific host (or set of hosts via glob). An empty host would make
+	// the rule invisible to the host-scoped CONNECT filter and produce a
+	// silent tunnel — a security trap. Operators wanting "all hosts" must
+	// spell it explicitly.
+	if r.Match.Host == "" {
+		return Rule{}, nil, fmt.Errorf(
+			"rules: rule %q in %q: match.host is required (use host = \"**\" to match all hosts)",
+			name, path,
+		)
+	}
+
 	// Decode inject block (optional, at most one).
 	injectBlocks := blocksOfType(content.Blocks, "inject")
 	if len(injectBlocks) > 1 {

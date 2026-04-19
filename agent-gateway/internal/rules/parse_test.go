@@ -212,6 +212,41 @@ rule "text-rule" {
 	assert.Equal(t, "deploy-token-v2", rs[0].Match.TextBody.Matches)
 }
 
+// TestParse_EmptyHostIsError verifies that omitting match.host fails parsing
+// rather than silently tunnelling every host past the rule. The error must
+// point operators at the host = "**" wildcard.
+func TestParse_EmptyHostIsError(t *testing.T) {
+	dir := t.TempDir()
+	writeHCL(t, dir, "no-host.hcl", `
+rule "deny-all" {
+  match {
+    method = "POST"
+  }
+  verdict = "deny"
+}
+`)
+	_, _, err := rules.ParseDir(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "match.host is required")
+	assert.Contains(t, err.Error(), `host = "**"`)
+}
+
+// TestParse_DoubleStarHostIsAccepted verifies the "all hosts" alternative
+// pointed to by the empty-host error message is itself a valid configuration.
+func TestParse_DoubleStarHostIsAccepted(t *testing.T) {
+	dir := t.TempDir()
+	writeHCL(t, dir, "all-hosts.hcl", `
+rule "deny-all" {
+  match { host = "**" }
+  verdict = "deny"
+}
+`)
+	rs, _, err := rules.ParseDir(dir)
+	require.NoError(t, err)
+	require.Len(t, rs, 1)
+	assert.Equal(t, "**", rs[0].Match.Host)
+}
+
 func TestParse_MultipleBodyBlocksIsError(t *testing.T) {
 	dir := t.TempDir()
 	writeHCL(t, dir, "multi-body.hcl", `

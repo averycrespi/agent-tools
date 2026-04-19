@@ -31,7 +31,11 @@ func buildHostsForAgent(rs []Rule) map[string]map[string]struct{} {
 		r := &rs[i]
 		host := r.Match.Host
 		if host == "" {
-			continue // no host constraint → not meaningful for CONNECT decisions
+			// Defence-in-depth: the HCL parser rejects empty host (see
+			// decodeRuleBlock in parse.go). This branch only fires for rules
+			// constructed directly via Compile() in tests; skipping them here
+			// preserves the previous tunnel behaviour for that narrow path.
+			continue
 		}
 		if r.Agents == nil {
 			// nil Agents means "applies to all agents"; store under sentinel "".
