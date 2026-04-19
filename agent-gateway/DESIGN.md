@@ -1280,6 +1280,21 @@ Concrete places agent-gateway diverges and does more:
   but can go unnoticed in v1 since we only log to stderr. Revisit in v1.1
   with a dashboard `backlog-warning` event (deferred with the other
   nice-to-have SSE event types in §8).
+- **Hostname normalization on rule and CONNECT-target ingest (deferred to
+  vnext).** The host glob compiler in `internal/rules/parse.go` and the
+  CONNECT-target extraction in `internal/proxy/connect.go` both keep the
+  hostname verbatim — no `strings.ToLower`, no trailing-dot strip. A rule
+  written `host = "Api.GitHub.com"` therefore won't match a CONNECT to
+  `api.github.com`, and `api.github.com.` (the FQDN form some clients
+  emit) won't match `api.github.com`. Same in reverse for
+  `no_intercept_hosts` patterns. In single-user trusted-agent mode the
+  practical exposure is operator-typo footguns rather than active bypass
+  (Go-based clients lowercase URL hosts before CONNECT), but the surface
+  grows with every additional sandbox tool. Plan: a tiny
+  `internal/hostnorm` package that lowercases + strips one trailing dot,
+  applied at the three ingest points (HCL `m.Host`, CONNECT extraction,
+  config `no_intercept_hosts`), with a doc note pointing IDN users at
+  punycode for now. Tracked as audit finding #6.
 
 ## 12. Milestones
 
