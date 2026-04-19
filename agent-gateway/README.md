@@ -146,7 +146,7 @@ The request appears on the dashboard live feed with the rule match, injection st
 ## Limitations
 
 - **Tools that bypass proxy env vars escape the gateway.** A small number of tools ignore `HTTPS_PROXY` (some Go binaries with `net/http.Transport{Proxy: nil}`, pinned mobile SDKs). Those requests leave the sandbox directly and are not visible to the gateway. iptables-level interception is a possible future extension.
-- **Pinned clients reject the MITM certificate.** Upstreams that pin TLS fingerprints will refuse the gateway's leaf cert. Add the hostname to `proxy_behavior.no_intercept_hosts` in `config.hcl` to force pass-through for those hosts.
+- **Pinned clients reject the MITM certificate.** Upstreams that pin TLS fingerprints will refuse the gateway's leaf cert. Add the hostname to `proxy_behavior.no_intercept_hosts` in `config.hcl` to force pass-through for those hosts. Entries must be specific hosts or label-scoped wildcards (e.g. `pinned.example.com`, `*.googleapis.com`); wildcard-only patterns like `**`, `*`, or `*.*` are rejected at config load to prevent silently disabling MITM globally.
 - **Headless Linux may lack an OS keychain.** If `go-keyring` can't reach a Secret Service daemon, the master key falls back to `~/.config/agent-gateway/master-key-<id>` (where `<id>` is the active key id from the SQLite `meta` table, starting at `1`), mode `0600`. A loud startup warning flags this.
 
 ## Development

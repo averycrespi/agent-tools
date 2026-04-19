@@ -393,8 +393,13 @@ func DefaultConfig() Config {
 // Save
 // ---------------------------------------------------------------------------
 
-// Save writes cfg to path at 0600, creating parent directories at 0750.
+// Save writes cfg to path at 0600, creating parent directories at 0750. The
+// config is validated before any disk I/O so an invalid config never reaches
+// disk via CLI paths.
 func Save(cfg Config, path string) error {
+	if err := validateConfig(cfg); err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("config: mkdir %s: %w", filepath.Dir(path), err)
 	}
@@ -435,6 +440,10 @@ func Load(path string) (Config, error) {
 	defaults := DefaultConfig()
 	if err := mergeWire(&defaults, w); err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
+	}
+
+	if err := validateConfig(defaults); err != nil {
+		return Config{}, fmt.Errorf("config: %s: %w", path, err)
 	}
 
 	return defaults, nil

@@ -68,6 +68,37 @@ dashboard { listen = "127.0.0.1:9221" }
 	assert.True(t, cfg.Dashboard.OpenBrowser, "open_browser default must be preserved when omitted")
 }
 
+func TestLoad_RejectsWildcardNoInterceptHost(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.hcl")
+	require.NoError(t, os.WriteFile(path, []byte(`
+proxy_behavior {
+  no_intercept_hosts = ["**"]
+  max_body_buffer    = "1MiB"
+}
+`), 0o600))
+
+	_, err := config.Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no_intercept_hosts")
+	assert.Contains(t, err.Error(), "matches every")
+}
+
+func TestSave_RejectsWildcardNoInterceptHost(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.hcl")
+	cfg := config.DefaultConfig()
+	cfg.ProxyBehavior.NoInterceptHosts = []string{"**"}
+
+	err := config.Save(cfg, path)
+	require.Error(t, err)
+
+	// File must not have been written.
+	_, statErr := os.Stat(path)
+	assert.True(t, os.IsNotExist(statErr),
+		"Save must not write a file when validation fails")
+}
+
 func TestLoad_InvalidDurationReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.hcl")

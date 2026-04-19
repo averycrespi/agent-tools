@@ -798,6 +798,17 @@ and will refuse our leaf. Configurable `no_intercept_hosts` forces
 pass-through for named hosts. Clients we care about for agent workflows
 (`curl`, `gh`, `git`, Node, Python, Go `net/http`) do not pin.
 
+`no_intercept_hosts` entries are validated at config load by
+`internal/config.validateNoInterceptHosts`. Any pattern composed entirely
+of `*` and `.` characters (e.g. `**`, `*`, `*.*`, `**.**`) is rejected —
+the check sits before rule evaluation in `Decide`, so accepting a global
+wildcard would silently disable every rule, audit row, and injection.
+Real entries always have literal text in them; the validator rejects the
+nuke-everything family explicitly so a misconfiguration can't reach a
+running daemon. Both `Load` (startup) and `Save` (CLI write paths) call
+the validator, so an invalid config never lands on disk via the CLI
+either.
+
 ### Trust distribution
 
 - `GET :8221/ca.pem` — serves root cert, unauthenticated. Public-key
