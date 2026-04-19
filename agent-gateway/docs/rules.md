@@ -185,7 +185,9 @@ Body matchers require the request body to be buffered. Two bounds apply:
 - **Size.** `proxy_behavior.max_body_buffer` (default `1MiB`) caps how much is buffered.
 - **Time.** `timeouts.body_buffer_read` (default `30s`) caps how long buffering may stall a request.
 
-Exceeding either bound causes all body matchers to **auto-fail** (the rule does not match). The audit row records `error='body_matcher_bypassed:size'` or `:timeout`. This fail-soft behaviour means rule matching never stalls forever — a slow or oversized upload bypasses body matchers but the request is still forwarded.
+Exceeding either bound triggers a **bypass**: the body could not be evaluated. Evaluation short-circuits at the first bypassed rule and the request is **blocked with a 403** regardless of that rule's verdict (`deny`, `allow`, or `require-approval`). The audit row records `error='body_matcher_bypassed:size'` (or `:timeout`), the rule name, and the rule's intended verdict so operators can see what was blocked and why.
+
+This is fail-closed: a request whose body condition we cannot evaluate never reaches the upstream, because we cannot know whether a deny would have fired or whether an allow's narrowing condition is satisfied. If you see frequent bypass-blocks for legitimate large uploads, raise `proxy_behavior.max_body_buffer` or `timeouts.body_buffer_read`.
 
 ## `rules check`
 
@@ -206,5 +208,5 @@ If the state DB is unavailable (e.g. on a fresh install before any `secret set`)
 
 - **Start specific, widen as needed.** A narrow `match` block is safer than a broad one — the worst case for a too-broad rule is injecting real credentials into an unintended request.
 - **Use the `match` block, not rule proliferation.** If you find yourself writing two rules that differ only in header values, fold them into one rule with a `headers = { … }` block.
-- **Don't rely on body content to authorise.** Body matchers run after header matchers; if a request has bypassed the size/timeout cap, body matchers auto-fail. Use body matchers to narrow intent, not as the sole authorisation signal.
+- **Body bypass blocks the request.** If a body exceeds `max_body_buffer` or buffering times out, the rule cannot be evaluated and the request is blocked with 403. Tune `max_body_buffer` or rewrite the rule to match on headers instead if you expect large legitimate payloads.
 - **Keep rule intent visible at code review.** Express "only set the header if it's already present" as a `headers` match on the dummy value, not as an implicit injection behaviour.

@@ -322,12 +322,17 @@ empty JSON). Out of scope for v1: multipart, protobuf, gRPC.
 - `headers`, `json_body`/`form_body`/`text_body` matchers: Go `regexp` (RE2).
   All declared matchers must succeed (AND).
 - Body matchers require buffering the request body up to
-  `proxy_behavior.max_body_buffer` (default `1MiB`); beyond the cap, body
-  matchers auto-fail, the audit row records
-  `error='body_matcher_bypassed:size'`, and a warning is logged.
+  `proxy_behavior.max_body_buffer` (default `1MiB`); beyond the cap, the
+  body cannot be evaluated and the request is **blocked with 403**
+  (fail-closed) regardless of the rule's verdict. The audit row records
+  `error='body_matcher_bypassed:size'`, the bypassed rule name, and the
+  rule's intended verdict.
 - Body buffering is additionally bounded by `timeouts.body_buffer_read`
   (§9); exceeding the wall clock triggers
-  `error='body_matcher_bypassed:timeout'` with the same fail-soft semantics.
+  `error='body_matcher_bypassed:timeout'` with the same fail-closed
+  semantics. Treating a bypass as fail-closed prevents an agent from
+  evading a `deny` rule by padding the body past the cap, and prevents
+  an `allow` rule's narrowing condition from being silently skipped.
 
 ### Authoring conventions
 
@@ -1111,8 +1116,9 @@ defences on the agent side while keeping streaming responses (SSE, Anthropic
 streaming tokens) un-deadlined. `upstream_response_header = 30s` protects
 against upstream hangs before the first byte; once bytes flow, the response
 stream has no deadline. `body_buffer_read = 30s` caps how long body-matcher
-buffering can stall a request — exceeding it auto-fails the body matchers
-(same path as `> max_body_buffer`) so rule-matching never stalls forever.
+buffering can stall a request — exceeding it bypasses body-matched rules
+(same path as `> max_body_buffer`), which fails closed with 403 (see §4)
+so an agent cannot evade a body-matched deny by stalling the upload.
 
 **Phase ordering (for reference):**
 `connect_read_header` → `mitm_handshake` → rule eval (instant) → approval
@@ -1266,9 +1272,10 @@ Concrete places agent-gateway diverges and does more:
   gRPC-over-h2 edges need real-world observation. v1.1 should revisit every
   number after ~1 month of production use, with metrics backing the choice.
 - **Body buffering cap correctness.** `max_body_buffer = 1MiB` covers almost
-  every API call but will auto-fail body matchers on large uploads. The
-  audit row's `error` column surfaces `body_matcher_bypassed:size` and
-  `:timeout` tags; make sure the dashboard prominently shows these so users
+  every API call but will block large uploads against any rule with a body
+  matcher (fail-closed; see §4). The audit row's `error` column surfaces
+  `body_matcher_bypassed:size` and `:timeout` tags; make sure the dashboard
+  prominently shows these so users
   don't silently lose rule coverage on large payloads.
 - **HTTP/2 end-to-end streaming.** Go's stdlib handles h1↔h2 bridging, but
   long-lived streaming responses (SSE from upstream, Anthropic streaming-

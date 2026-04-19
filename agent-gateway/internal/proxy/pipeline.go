@@ -239,6 +239,22 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 
 		m := p.rules.Evaluate(rreq)
 
+		// Body-matcher bypass (size cap or read timeout): the rule's body
+		// condition could not be evaluated. Fail closed regardless of the
+		// rule's verdict — an unevaluable rule is unsafe to forward past,
+		// because we cannot know whether a deny would have fired or whether
+		// an allow's narrowing condition is satisfied. The audit row records
+		// the bypassed rule and the bypass reason so operators can tune
+		// max_body_buffer or rewrite the rule.
+		if m != nil && m.Rule != nil && m.Error != "" {
+			a.MatchedRule = m.Rule.Name
+			a.Verdict = m.Rule.Verdict
+			a.Error = m.Error
+			w.Header().Set("X-Request-ID", reqID)
+			http.Error(w, "Forbidden: rule body matcher bypassed", http.StatusForbidden)
+			return
+		}
+
 		if m != nil && m.Rule != nil && m.Error == "" {
 			matchedRule = m.Rule
 			a.MatchedRule = m.Rule.Name
@@ -297,7 +313,8 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 					"verdict", m.Rule.Verdict, "request_id", reqID)
 			}
 		}
-		// nil match, bypass error, or allow → fall through to injection step.
+		// nil match or allow → fall through to injection step. The bypass-
+		// error case is handled above and short-circuits with 403.
 	}
 
 	// 5. Build the upstream request as a CLONE of the inbound request so that

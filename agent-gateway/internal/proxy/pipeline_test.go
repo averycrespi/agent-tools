@@ -324,6 +324,108 @@ func TestPipeline_RequireApproval_Timeout(t *testing.T) {
 	assert.NotEmpty(t, resp.Header.Get("X-Request-ID"), "timeout response must have X-Request-ID")
 }
 
+// bypassMatchResult returns a MatchResult representing a body-matcher bypass
+// (size cap or read timeout) on a rule with the given verdict. The Error
+// field carries the bypass reason; the verdict is on the Rule but is not
+// honored by the pipeline because the body condition could not be evaluated.
+func bypassMatchResult(verdict string) *rules.MatchResult {
+	return &rules.MatchResult{
+		Rule:  &rules.Rule{Name: "bypass-rule", Verdict: verdict},
+		Error: "body_matcher_bypassed:size",
+	}
+}
+
+// TestPipeline_BypassOnDenyBlocks verifies that a body-matcher bypass on a
+// deny rule fails closed with 403 — the previous fall-through behaviour
+// allowed an agent to evade a deny by padding the request body past
+// max_body_buffer.
+func TestPipeline_BypassOnDenyBlocks(t *testing.T) {
+	auth := newTestAuthority(t)
+
+	var called bool
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
+	})
+
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                stubEngineReturning(bypassMatchResult("deny")),
+	})
+
+	resp := sendRequestThroughProxy(t, p, http.MethodPost, "api.example.com:443", "/whatever")
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.False(t, called, "upstream must NOT be called when a deny rule's body matcher bypasses")
+	assert.NotEmpty(t, resp.Header.Get("X-Request-ID"), "bypass-block response must carry X-Request-ID")
+}
+
+// TestPipeline_BypassOnAllowBlocks verifies that a body-matcher bypass on an
+// allow rule also fails closed: the rule's narrowing condition could not be
+// confirmed, so we cannot trust the allow.
+func TestPipeline_BypassOnAllowBlocks(t *testing.T) {
+	auth := newTestAuthority(t)
+
+	var called bool
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
+	})
+
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                stubEngineReturning(bypassMatchResult("allow")),
+	})
+
+	resp := sendRequestThroughProxy(t, p, http.MethodPost, "api.example.com:443", "/whatever")
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.False(t, called, "upstream must NOT be called when an allow rule's body matcher bypasses")
+}
+
+// TestPipeline_BypassOnRequireApprovalBlocks verifies that a body-matcher
+// bypass on a require-approval rule also fails closed without invoking the
+// broker — we cannot meaningfully ask an approver about a body we could not
+// buffer.
+func TestPipeline_BypassOnRequireApprovalBlocks(t *testing.T) {
+	auth := newTestAuthority(t)
+
+	var called bool
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
+	})
+
+	brokerInvoked := false
+	broker := &brokerSpy{onRequest: func() { brokerInvoked = true }}
+
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                stubEngineReturning(bypassMatchResult("require-approval")),
+		Approval:             broker,
+	})
+
+	resp := sendRequestThroughProxy(t, p, http.MethodPost, "api.example.com:443", "/whatever")
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.False(t, called, "upstream must NOT be called when require-approval rule bypasses")
+	assert.False(t, brokerInvoked, "approval broker must NOT be invoked when body cannot be buffered")
+}
+
+// brokerSpy is a minimal ApprovalBroker that records whether Request was
+// called. Used by the bypass-on-require-approval test to assert we do not
+// route to the human approver when we have no body to show them.
+type brokerSpy struct {
+	onRequest func()
+}
+
+func (b *brokerSpy) Request(_ context.Context, _ proxy.ApprovalRequest) (proxy.ApprovalDecision, error) {
+	if b.onRequest != nil {
+		b.onRequest()
+	}
+	return proxy.DecisionApproved, nil
+}
+
 // TestPipeline_InjectsOnAllow verifies that when the injector succeeds the
 // upstream receives the injected header and the audit context records
 // injection="applied".
