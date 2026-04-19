@@ -93,7 +93,7 @@ Remove an agent. Transactionally cascades to agent-scoped secrets (`scope = 'age
 
 ## `secret`
 
-Manage encrypted secrets. Values are stored AES-256-GCM-encrypted in SQLite; the master key lives in the OS keychain (with a `master.key` file fallback). Values are never logged, never surfaced on the dashboard, and never reflected through HTTP.
+Manage encrypted secrets. Values are stored AES-256-GCM-encrypted in SQLite; the master key lives in the OS keychain at `master-key-<id>` (with a `master-key-<id>` file fallback). The active id is tracked in the SQLite `meta` table; rotation increments it. Values are never logged, never surfaced on the dashboard, and never reflected through HTTP.
 
 ### `secret set <name>`
 

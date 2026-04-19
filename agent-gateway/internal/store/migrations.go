@@ -119,6 +119,21 @@ CREATE INDEX idx_req_rule  ON requests(matched_rule, ts);
 `)
 		return err
 	},
+
+	// Migration 6: meta key/value table tracking the active master-key id.
+	// Seeded to id=1 so existing installs map onto the legacy on-disk key
+	// (the secrets package handles the one-time legacy → master-key-1
+	// migration on first load).
+	func(tx *sql.Tx) error {
+		_, err := tx.Exec(`
+CREATE TABLE meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+INSERT INTO meta (key, value) VALUES ('active_key_id', '1');
+`)
+		return err
+	},
 }
 
 // runMigrations reads the current user_version, then runs each pending migration

@@ -438,16 +438,34 @@ agent-gateway rules reload    # sends SIGHUP after the comm-name check
 
 ### Master key
 
-On first run, `internal/secrets` generates a 32-byte random key and attempts
-to store it in the OS keychain (`go-keyring`; service `agent-gateway`,
-account `master-key`). Fallback: `~/.config/agent-gateway/master.key` at mode
-`0600`, with a prominent startup warning. `master.key` is only present when
-keychain is unavailable.
+The master key is versioned. The currently active id is stored in the
+SQLite `meta` table (`key='active_key_id'`, value parsed as an integer);
+the corresponding key bytes are stored in the OS keychain
+(`go-keyring`; service `agent-gateway`, account `master-key-<id>`) with a
+file fallback at `~/.config/agent-gateway/master-key-<id>` (mode `0600`,
+written via the `internal/atomicfile` helper). Files are only present when
+the keychain is unavailable; a prominent startup warning logs the fallback.
 
-`agent-gateway secret master rotate` generates a new key, re-encrypts every
-secret row inside a single SQLite transaction, and only commits the new key
-to storage after the re-encryption transaction succeeds. A crash
-mid-rotation leaves the old key authoritative.
+On first run `internal/secrets` reads `meta.active_key_id` (seeded to `1`
+by migration 6), and `ResolveID(1, ...)` either finds an existing key,
+migrates a pre-versioning `master-key` account / `master.key` file to the
+id=1 location, or generates and persists a new key.
+
+`agent-gateway secret master rotate` performs a crash-safe rotation:
+
+1. Generate a new key, persist it under id `active+1` BEFORE opening any
+   transaction.
+2. In a single SQLite transaction: re-encrypt every secret row with the
+   new key, then `UPDATE meta SET value = '<new id>' WHERE key =
+   'active_key_id'`, then commit.
+3. Best-effort delete the previous id's key from keychain and disk.
+
+A crash before commit leaves `meta.active_key_id` pointing at the old id
+(rollback) and the orphaned new key is removed by a deferred cleanup. A
+crash after commit but before step 3 leaves `active_key_id` pointing at
+the new id, which decrypts every row; the previous key becomes a harmless
+orphan. In every case the persisted `active_key_id` names a key that can
+decrypt every persisted row.
 
 ### Schema
 
@@ -997,7 +1015,8 @@ Background loop; idempotent.
     10-atlassian.hcl
     20-anthropic.hcl
   admin-token                 # 0600, printed once at first run
-  master.key                  # 0600, ONLY if OS keychain unavailable
+  master-key-<id>             # 0600, ONLY if OS keychain unavailable;
+                              # <id> matches meta.active_key_id (seeded 1)
 
 ~/.local/share/agent-gateway/
   state.db                    # 0600; agents + secrets + requests, WAL
@@ -1090,8 +1109,10 @@ pattern). `config edit` opens in `$EDITOR`. `config path` prints location.
 2. Open `state.db` with `busy_timeout=5s`, run idempotent migrations
    (`PRAGMA user_version` + numbered Go migration functions).
 3. Load root CA (generate on first run).
-4. Resolve master key: OS keychain, else `master.key` file, else generate +
-   store.
+4. Read `meta.active_key_id`. Resolve master key for that id from OS
+   keychain, else file fallback, else (one-time) migrate from the
+   pre-versioning `master-key` / `master.key` location, else generate +
+   persist a fresh key.
 5. Parse `rules.d/*.hcl`, validate HCL syntax and template syntax (not
    variable existence; see §4 two-phase validation). Fail startup on invalid
    rules.
@@ -1178,7 +1199,8 @@ Code with no pattern to port from mcp-broker; written from scratch.
 - PID file handling + daemon-reload signalling (`SIGHUP` handler, comm-name
   verification before signalling).
 - Encrypted secret store (SQLite rows + AES-256-GCM) and master-key
-  management (`go-keyring` with `master.key` file fallback).
+  management (`go-keyring` with `master-key-<id>` file fallback,
+  versioned via `meta.active_key_id`).
 - Root-CA generation, persistence, and per-hostname leaf issuance with the
   `*tls.Config` cache and background sweeper.
 - HCL rules parser and matcher (host/path globs, header regex, `json_body`

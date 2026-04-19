@@ -135,6 +135,145 @@ func TestStore_MasterRotate(t *testing.T) {
 	val2, _, err := s.Get(ctx, "secret2", "bar")
 	require.NoError(t, err)
 	assert.Equal(t, "value-two", val2)
+
+	// meta.active_key_id should advance to 2.
+	var idStr string
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT value FROM meta WHERE key='active_key_id'`).Scan(&idStr))
+	assert.Equal(t, "2", idStr)
+}
+
+// TestStore_RotateThenReopen verifies the full crash-safe rotation path: after
+// rotating, closing, and re-opening the database, NewStore must read the new
+// active key id from meta and decrypt rows under the new key. This is the
+// recovery-from-restart scenario that the old "commit then persist" ordering
+// could permanently brick.
+func TestStore_RotateThenReopen(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dbPath := filepath.Join(t.TempDir(), "state.db")
+	db, err := store.Open(dbPath)
+	require.NoError(t, err)
+
+	// First boot: fresh store, set secrets, rotate.
+	s1, err := secrets.NewStore(db, slog.Default())
+	require.NoError(t, err)
+	ctx := context.Background()
+	require.NoError(t, s1.Set(ctx, "alpha", "", "alpha-value", ""))
+	require.NoError(t, s1.Set(ctx, "beta", "agent1", "beta-value", ""))
+	require.NoError(t, s1.MasterRotate(ctx))
+	require.NoError(t, db.Close())
+
+	// Second boot: reopen, NewStore must resolve active_key_id=2 and decrypt.
+	db2, err := store.Open(dbPath)
+	require.NoError(t, err)
+	defer func() { _ = db2.Close() }()
+	s2, err := secrets.NewStore(db2, slog.Default())
+	require.NoError(t, err)
+
+	val, _, err := s2.Get(ctx, "alpha", "")
+	require.NoError(t, err)
+	assert.Equal(t, "alpha-value", val)
+
+	val, _, err = s2.Get(ctx, "beta", "agent1")
+	require.NoError(t, err)
+	assert.Equal(t, "beta-value", val)
+
+	// A second rotation should advance to id=3 and still decrypt.
+	require.NoError(t, s2.MasterRotate(ctx))
+	val, _, err = s2.Get(ctx, "alpha", "")
+	require.NoError(t, err)
+	assert.Equal(t, "alpha-value", val)
+}
+
+// TestStore_RotateOrphanCleanupOnFailure verifies that if the re-encryption
+// transaction fails (here: a row whose ciphertext cannot be decrypted), the
+// new key persisted under the next id is removed from disk so it doesn't
+// accumulate as an orphan. The previous active key remains usable.
+func TestStore_RotateOrphanCleanupOnFailure(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	db := openTestDB(t)
+	ctx := context.Background()
+
+	s, err := secrets.NewStore(db, slog.Default())
+	require.NoError(t, err)
+	require.NoError(t, s.Set(ctx, "good", "", "good-value", ""))
+
+	// Corrupt one row so MasterRotate's decrypt fails.
+	_, err = db.ExecContext(ctx,
+		`UPDATE secrets SET ciphertext = X'00' WHERE name = 'good'`)
+	require.NoError(t, err)
+
+	require.Error(t, s.MasterRotate(ctx))
+
+	// meta.active_key_id must still be 1 (rollback).
+	var idStr string
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT value FROM meta WHERE key='active_key_id'`).Scan(&idStr))
+	assert.Equal(t, "1", idStr)
+
+	// On filesystems where the new key fell back to a file (no keychain),
+	// the orphan must be removed. Where the keychain accepted it, the file
+	// path won't exist anyway — so this assertion is meaningful in the
+	// failure-mode-of-interest path and trivially true otherwise.
+	orphan := filepath.Join(xdg, "agent-gateway", "master-key-2")
+	_, statErr := os.Stat(orphan)
+	assert.True(t, os.IsNotExist(statErr),
+		"orphan key file %q must be cleaned up after failed rotation", orphan)
+}
+
+// TestStore_LegacyKeyMigration verifies that a master.key file written under
+// the pre-versioned scheme is migrated to master-key-1 on first NewStore call,
+// and that secrets encrypted with that legacy key continue to decrypt.
+func TestStore_LegacyKeyMigration(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+
+	// Plant a legacy master.key.
+	legacyKey := make([]byte, 32)
+	for i := range legacyKey {
+		legacyKey[i] = byte(i + 7)
+	}
+	legacyPath := filepath.Join(xdg, "agent-gateway", "master.key")
+	require.NoError(t, os.MkdirAll(filepath.Dir(legacyPath), 0o750))
+	require.NoError(t, os.WriteFile(legacyPath,
+		[]byte(hexEncode(legacyKey)), 0o600))
+
+	// Seed a row encrypted under the legacy key by setting a secret via a
+	// store constructed with that exact key. This bypasses the legacy
+	// migration and writes the row directly.
+	db := openTestDB(t)
+	ctx := context.Background()
+	pre, err := secrets.NewStoreWithKey(db, slog.Default(), legacyKey)
+	require.NoError(t, err)
+	require.NoError(t, pre.Set(ctx, "tok", "", "legacy-value", ""))
+
+	// Now boot a real NewStore: it should detect the legacy file and
+	// migrate it to master-key-1, then decrypt the seeded row.
+	s, err := secrets.NewStore(db, slog.Default())
+	require.NoError(t, err)
+	got, _, err := s.Get(ctx, "tok", "")
+	require.NoError(t, err)
+	assert.Equal(t, "legacy-value", got)
+
+	// On systems without a keychain, the migration writes to the new file.
+	// On systems with a keychain, the migration removes the legacy file and
+	// places the key in the keychain — either way the legacy file is gone.
+	_, statErr := os.Stat(legacyPath)
+	assert.True(t, os.IsNotExist(statErr),
+		"legacy master.key %q must be removed after migration", legacyPath)
+}
+
+// hexEncode is a tiny local helper to avoid importing encoding/hex just for
+// the legacy-migration test.
+func hexEncode(b []byte) string {
+	const hexdigits = "0123456789abcdef"
+	out := make([]byte, len(b)*2)
+	for i, v := range b {
+		out[i*2] = hexdigits[v>>4]
+		out[i*2+1] = hexdigits[v&0x0f]
+	}
+	return string(out)
 }
 
 func TestStore_List(t *testing.T) {

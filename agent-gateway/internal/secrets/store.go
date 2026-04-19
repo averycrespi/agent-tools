@@ -52,26 +52,55 @@ func agentToScope(agent string) string {
 type sqlStore struct {
 	db     *sql.DB
 	key    []byte
+	keyID  int
 	logger *slog.Logger
 }
 
-// NewStore creates a Store, resolving the master key via keychain / file fallback.
+// NewStore creates a Store, reading the active master-key id from the meta
+// table and resolving the corresponding key via keychain / file fallback.
 func NewStore(db *sql.DB, logger *slog.Logger) (Store, error) {
-	key, _, err := resolveKey(logger)
+	id, err := readActiveKeyID(context.Background(), db)
+	if err != nil {
+		return nil, fmt.Errorf("secrets: read active key id: %w", err)
+	}
+	key, _, err := ResolveID(id, logger)
 	if err != nil {
 		return nil, err
 	}
-	return &sqlStore{db: db, key: key, logger: logger}, nil
+	return &sqlStore{db: db, key: key, keyID: id, logger: logger}, nil
 }
 
-// NewStoreWithKey creates a Store using the provided key (for testing).
+// NewStoreWithKey creates a Store using the provided key (for testing). The
+// store assumes id=1 — tests using this helper must not depend on the key
+// being persisted under a particular keychain account.
 func NewStoreWithKey(db *sql.DB, logger *slog.Logger, key []byte) (Store, error) {
 	if len(key) != 32 {
 		return nil, errors.New("key must be 32 bytes")
 	}
 	cp := make([]byte, 32)
 	copy(cp, key)
-	return &sqlStore{db: db, key: cp, logger: logger}, nil
+	return &sqlStore{db: db, key: cp, keyID: 1, logger: logger}, nil
+}
+
+// readActiveKeyID reads meta.active_key_id. Returns 1 (the seed value) if the
+// row is missing — defensive against migrations being out-of-sync with code.
+func readActiveKeyID(ctx context.Context, db *sql.DB) (int, error) {
+	var s string
+	err := db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'active_key_id'`).Scan(&s)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 1, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var id int
+	if _, err := fmt.Sscanf(s, "%d", &id); err != nil {
+		return 0, fmt.Errorf("parse active_key_id %q: %w", s, err)
+	}
+	if id < 1 {
+		return 0, fmt.Errorf("invalid active_key_id %d", id)
+	}
+	return id, nil
 }
 
 // Get retrieves the plaintext value of a secret using scope resolution:
@@ -209,14 +238,33 @@ func (s *sqlStore) Delete(ctx context.Context, name, agent string) error {
 	return nil
 }
 
-// MasterRotate generates a new key, re-encrypts every row in one transaction,
-// then replaces the in-memory key. The new key is written to storage only after
-// the transaction commits.
+// MasterRotate generates a new master key, persists it under a fresh id,
+// re-encrypts every row inside a single transaction that also bumps
+// meta.active_key_id, then deletes the previous key from storage.
+//
+// Crash safety: the new key is persisted to storage BEFORE the re-encryption
+// transaction commits, so a crash at any point leaves a consistent state —
+// either meta.active_key_id still names a key that decrypts every row, or it
+// names the new key after a successful commit. If the transaction fails, the
+// orphaned new key is best-effort cleaned up before the function returns.
 func (s *sqlStore) MasterRotate(ctx context.Context) error {
+	oldID := s.keyID
+	newID := oldID + 1
+
 	newKey, err := generateKey()
 	if err != nil {
 		return fmt.Errorf("secrets: master-rotate: generate key: %w", err)
 	}
+
+	if err := PersistID(newKey, newID, s.logger); err != nil {
+		return fmt.Errorf("secrets: master-rotate: persist new key: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			DeleteID(newID, s.logger)
+		}
+	}()
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -266,16 +314,24 @@ func (s *sqlStore) MasterRotate(ctx context.Context) error {
 		}
 	}
 
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE meta SET value = ? WHERE key = 'active_key_id'`,
+		fmt.Sprintf("%d", newID)); err != nil {
+		return fmt.Errorf("secrets: master-rotate: bump active_key_id: %w", err)
+	}
+
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("secrets: master-rotate: commit: %w", err)
 	}
+	committed = true
 
-	// Only after the TX commits do we update the in-memory key and persist it.
 	s.key = newKey
-	if err := persistKey(newKey, s.logger); err != nil {
-		s.logger.Warn("master-rotate: failed to persist new key; in-memory key updated but storage not updated",
-			"error", err)
-	}
+	s.keyID = newID
+
+	// Best-effort cleanup of the previous key. Failures are logged inside
+	// DeleteID and never propagated — an orphan is harmless and we never want
+	// a successful rotation to surface an error to the caller.
+	DeleteID(oldID, s.logger)
 	return nil
 }
 

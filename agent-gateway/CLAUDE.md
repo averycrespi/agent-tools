@@ -84,7 +84,7 @@ State-mutating CLI commands write to SQLite (with `busy_timeout=5s`), then read 
 - Audit write errors are intentionally discarded (`_ =`) — the pipeline must not fail because audit failed
 - `log/slog` throughout; pass `*slog.Logger` as an explicit parameter (nil-checked in packages that can be constructed without one)
 - SQLite driver: `ncruces/go-sqlite3` (WASM, no CGO); always import `_ "github.com/ncruces/go-sqlite3/driver"` alongside `_ "github.com/ncruces/go-sqlite3/embed"`; WAL mode enabled on `store.Open`
-- Master key: `go-keyring` (service: `agent-gateway`, account: `master-key`); file fallback writes to `$XDG_CONFIG_HOME/agent-gateway/master.key` with `0o600`; warn via slog when falling back
+- Master key: `go-keyring` (service: `agent-gateway`, account: `master-key-<id>`); file fallback writes to `$XDG_CONFIG_HOME/agent-gateway/master-key-<id>` with `0o600`; warn via slog when falling back. The active id is tracked in the SQLite `meta` table (`active_key_id`); rotation generates a new id, persists the new key BEFORE committing the re-encryption transaction, then deletes the previous id best-effort. A pre-versioning `master-key` keychain account / `master.key` file is migrated to id=1 on first load.
 - Config file: HCL (not JSON); path `$XDG_CONFIG_HOME/agent-gateway/config.hcl`; file `0o600`, parent dir `0o750`
 - Admin token: 32 random bytes, hex-encoded (64 chars); stored at `$XDG_CONFIG_HOME/agent-gateway/admin-token` with `0o600`; token comparison uses `crypto/subtle.ConstantTimeCompare`
 - Agent tokens: `agw_` prefix + 32 random bytes base62-encoded (47 chars total); stored as argon2id hashes with per-agent salt in SQLite
