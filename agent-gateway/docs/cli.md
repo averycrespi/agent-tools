@@ -45,7 +45,7 @@ Binds `:8220` (proxy) and `:8221` (dashboard) per config. On first run, prints t
 
 Signals:
 
-- `SIGHUP` — reload rules, invalidate injector cache, reload agents registry, reload admin token.
+- `SIGHUP` — reload rules, invalidate injector cache, reload agents registry, reload admin token, reload root CA (re-reads `ca.key`/`ca.pem` from disk and clears the leaf-cert cache).
 - `SIGTERM` / `SIGINT` — graceful shutdown with 30s in-flight grace.
 
 ## `agent`

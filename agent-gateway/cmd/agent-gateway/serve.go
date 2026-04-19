@@ -378,6 +378,11 @@ func RunServe(ctx context.Context, d serveDeps) error {
 				} else {
 					log.Info("admin token reloaded")
 				}
+				if reloadErr := authority.Reload(); reloadErr != nil {
+					log.Warn("CA reload failed; previous CA stays live", "err", reloadErr)
+				} else {
+					log.Info("CA reloaded; leaf cache cleared")
+				}
 			case syscall.SIGTERM, syscall.SIGINT:
 				log.Info("received signal; shutting down", "signal", sig)
 				return shutdown(log, dashSrv)

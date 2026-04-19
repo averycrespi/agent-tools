@@ -12,17 +12,25 @@ import (
 	"errors"
 	"math/big"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/atomicfile"
 )
 
+// rootBundle holds the rotatable cert/key/PEM triple. Stored behind an
+// atomic.Pointer so concurrent leaf issuance never observes a torn state and
+// rotation/reload can swap atomically without locking the issuance path.
+type rootBundle struct {
+	cert    *x509.Certificate
+	key     *ecdsa.PrivateKey
+	rootPEM []byte
+}
+
 // Authority holds a loaded or freshly-generated root CA certificate and key,
 // together with a cache of issued leaf TLS configs.
 type Authority struct {
-	cert     *x509.Certificate
-	key      *ecdsa.PrivateKey
-	rootPEM  []byte
+	current  atomic.Pointer[rootBundle]
 	keyPath  string
 	certPath string
 
@@ -35,7 +43,7 @@ type Authority struct {
 
 // RootPEM returns the PEM-encoded DER certificate for the root CA.
 func (a *Authority) RootPEM() []byte {
-	return a.rootPEM
+	return a.current.Load().rootPEM
 }
 
 // LoadOrGenerate loads an existing CA from keyPath / certPath when both files
@@ -52,17 +60,48 @@ func LoadOrGenerate(keyPath, certPath string) (*Authority, error) {
 	return generate(keyPath, certPath)
 }
 
-// Rotate generates a new root CA, atomically replaces the on-disk files, and
-// updates the Authority in place.
+// Rotate generates a new root CA, atomically replaces the on-disk files, swaps
+// the in-memory bundle, and clears the leaf cache so subsequent ServerConfig
+// calls issue leaves signed by the new root. In-flight TLS handshakes that
+// already hold an old leaf complete normally.
 func (a *Authority) Rotate() error {
 	next, err := generate(a.keyPath, a.certPath)
 	if err != nil {
 		return err
 	}
-	a.cert = next.cert
-	a.key = next.key
-	a.rootPEM = next.rootPEM
+	a.current.Store(next.current.Load())
+	a.clearLeafCache()
 	return nil
+}
+
+// Reload re-reads the on-disk CA files into a fresh bundle, swaps it in, and
+// clears the leaf cache. Used by SIGHUP to pick up a `ca rotate` performed by
+// a sibling CLI process. If reading or parsing fails, the previous bundle
+// remains live and the error is returned — caller should log and continue.
+func (a *Authority) Reload() error {
+	next, err := load(a.keyPath, a.certPath)
+	if err != nil {
+		return err
+	}
+	a.current.Store(next.current.Load())
+	a.clearLeafCache()
+	return nil
+}
+
+// clearLeafCache drops every entry from the leaf cache so subsequent
+// ServerConfig calls issue fresh leaves under the current root.
+func (a *Authority) clearLeafCache() {
+	if a.cache == nil {
+		return
+	}
+	var keys []string
+	a.cache.rangeAll(func(host string, _ *cacheEntry) bool {
+		keys = append(keys, host)
+		return true
+	})
+	for _, k := range keys {
+		a.cache.delete(k)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -103,12 +142,10 @@ func load(keyPath, certPath string) (*Authority, error) {
 	}
 
 	a := &Authority{
-		cert:     cert,
-		key:      key,
-		rootPEM:  certBytes,
 		keyPath:  keyPath,
 		certPath: certPath,
 	}
+	a.current.Store(&rootBundle{cert: cert, key: key, rootPEM: certBytes})
 	initLeafFields(a)
 	return a, nil
 }
@@ -163,12 +200,10 @@ func generate(keyPath, certPath string) (*Authority, error) {
 	}
 
 	a := &Authority{
-		cert:     cert,
-		key:      key,
-		rootPEM:  certPEM,
 		keyPath:  keyPath,
 		certPath: certPath,
 	}
+	a.current.Store(&rootBundle{cert: cert, key: key, rootPEM: certPEM})
 	initLeafFields(a)
 	return a, nil
 }

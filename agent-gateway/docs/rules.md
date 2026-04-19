@@ -165,7 +165,7 @@ Rule files are picked up via `agent-gateway rules reload`, which sends `SIGHUP` 
 3. On success: the rule set is swapped atomically. In-flight requests finish on the old set; new requests use the new set.
 4. On failure: the error is logged to stderr and the previous rule set stays live. This is the **fail-safe reload** — invalid edits never break the running daemon.
 
-`SIGHUP` also re-reads `config.hcl`, rebuilds agent/secret caches, and invalidates the decrypted-secret LRU.
+`SIGHUP` also re-reads `config.hcl`, rebuilds agent/secret caches, invalidates the decrypted-secret LRU, and reloads the root CA (re-reads `ca.key`/`ca.pem` from disk and clears the leaf-cert cache so subsequent connections are signed under the new root).
 
 ## Two-phase validation
 

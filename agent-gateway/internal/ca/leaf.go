@@ -157,7 +157,8 @@ func (a *Authority) issueLeaf(host string) (*cacheEntry, error) {
 		template.DNSNames = []string{host}
 	}
 
-	derBytes, err := x509.CreateCertificate(rand.Reader, template, a.cert, &leafKey.PublicKey, a.key)
+	bundle := a.current.Load()
+	derBytes, err := x509.CreateCertificate(rand.Reader, template, bundle.cert, &leafKey.PublicKey, bundle.key)
 	if err != nil {
 		return nil, err
 	}

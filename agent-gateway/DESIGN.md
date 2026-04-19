@@ -423,9 +423,11 @@ Rule changes are picked up via `agent-gateway rules reload`, which sends
    on the old set; new requests use the new set.
 4. On failure: log error to stderr; keep previous rule-set live.
 
-`SIGHUP` also re-reads `config.hcl`, rebuilds agent/secret caches, and
-invalidates the decrypted-secret LRU — a single coarse reload path for all
-state.
+`SIGHUP` also re-reads `config.hcl`, rebuilds agent/secret caches,
+invalidates the decrypted-secret LRU, and reloads the root CA (re-reads
+`ca.key`/`ca.pem` from disk and clears the leaf-cert cache so subsequent
+TLS handshakes are signed under the rotated root) — a single coarse
+reload path for all state.
 
 ### CLI
 
@@ -683,8 +685,14 @@ The CA key is **not** stored in the OS keychain — it needs to be loadable on
 every start before the keychain is unlocked, and `0600` filesystem
 protection is equivalent for a single-user local tool.
 
-`agent-gateway ca rotate` generates a fresh root atomically; documented as
-disruptive (every sandbox must re-trust).
+`agent-gateway ca rotate` generates a fresh root atomically (see
+`internal/atomicfile`) and signals the running daemon via `SIGHUP`. The
+daemon's reload handler calls `Authority.Reload`, which re-reads
+`ca.key`/`ca.pem` from disk into a fresh `rootBundle`, swaps the
+`atomic.Pointer` on the in-memory `Authority`, and clears the leaf-cert
+cache so subsequent TLS handshakes are signed under the new root.
+In-flight handshakes that already hold an old leaf complete normally.
+Documented as disruptive (every sandbox must re-trust).
 
 ### Leaf issuance
 
