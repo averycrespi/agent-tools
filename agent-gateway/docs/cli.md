@@ -71,10 +71,6 @@ Prints the raw token once, followed by a ready-to-paste `HTTPS_PROXY` / `HTTP_PR
 
 List all agents with metadata (no tokens, only prefixes).
 
-### `agent show <name>`
-
-Show agent metadata (name, description, created, last-seen). Token and prefix are not shown.
-
 ### `agent rotate <name>`
 
 Mint a new token for an existing agent. The previous token is invalidated **immediately** — there is no grace window. Prints the new token and proxy URL block, same format as `agent add`.
@@ -250,4 +246,4 @@ Rewrite the config file, preserving existing overrides and back-filling any new 
 ## Exit codes
 
 - `0` — success, or "no daemon running" on commands that signal the daemon.
-- Non-zero — parse errors, unrecoverable I/O failures, missing records (`agent show`, `secret rotate` / `rm` against a missing name).
+- Non-zero — parse errors, unrecoverable I/O failures, missing records (`agent rotate` / `rm`, `secret rotate` / `rm` against a missing name).

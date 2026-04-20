@@ -174,39 +174,6 @@ func TestAgentList_TabularColumns(t *testing.T) {
 	assert.Contains(t, output, "second")
 }
 
-// TestAgentShow_NoTokenNoPrefix verifies that "agent show <name>" prints
-// metadata but neither the full token nor the prefix.
-func TestAgentShow_NoTokenNoPrefix(t *testing.T) {
-	r := newTestRegistry(t)
-	ctx := context.Background()
-
-	tok, err := r.Add(ctx, "showme", "show description")
-	require.NoError(t, err)
-
-	var out bytes.Buffer
-	err = execAgentShow(ctx, r, "showme", &out)
-	require.NoError(t, err)
-
-	output := out.String()
-	// Full token must not appear.
-	assert.NotContains(t, output, tok)
-	// Even the 12-char prefix must not appear.
-	assert.NotContains(t, output, agents.Prefix(tok))
-	// Name and description must appear.
-	assert.Contains(t, output, "showme")
-	assert.Contains(t, output, "show description")
-}
-
-// TestAgentShow_NotFound verifies that "agent show <name>" returns an error
-// for a non-existent agent.
-func TestAgentShow_NotFound(t *testing.T) {
-	r := newTestRegistry(t)
-	var out bytes.Buffer
-	err := execAgentShow(context.Background(), r, "ghost", &out)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, agents.ErrNotFound)
-}
-
 // TestAgentRotate_InvalidatesPrevious verifies that after "agent rotate <name>"
 // the output contains a new token + URL and the old token is invalidated.
 func TestAgentRotate_InvalidatesPrevious(t *testing.T) {

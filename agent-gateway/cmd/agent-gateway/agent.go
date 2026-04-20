@@ -68,7 +68,6 @@ func newAgentCmd(configPath func() string) *cobra.Command {
 
 	agentCmd.AddCommand(newAgentAddCmd(configPath))
 	agentCmd.AddCommand(newAgentListCmd())
-	agentCmd.AddCommand(newAgentShowCmd())
 	agentCmd.AddCommand(newAgentRotateCmd(configPath))
 	agentCmd.AddCommand(newAgentRmCmd())
 
@@ -165,49 +164,6 @@ func execAgentList(ctx context.Context, r agents.Registry, out io.Writer) error 
 		)
 	}
 	return w.Flush()
-}
-
-// newAgentShowCmd returns the "agent show <name>" command.
-func newAgentShowCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "show <name>",
-		Short: "Show agent metadata (no token, no prefix)",
-		Args:  exactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			r, cleanup, err := openAgentRegistry()
-			if err != nil {
-				return err
-			}
-			defer cleanup()
-			return execAgentShow(cmd.Context(), r, args[0], cmd.OutOrStdout())
-		},
-	}
-}
-
-// execAgentShow implements "agent show". Separated for testability.
-// Prints metadata only — no token, not even the prefix.
-func execAgentShow(ctx context.Context, r agents.Registry, name string, out io.Writer) error {
-	metas, err := r.List(ctx)
-	if err != nil {
-		return fmt.Errorf("agent show: %w", err)
-	}
-
-	for _, m := range metas {
-		if m.Name != name {
-			continue
-		}
-		lastSeen := "-"
-		if m.LastSeenAt != nil {
-			lastSeen = m.LastSeenAt.UTC().Format(time.RFC3339)
-		}
-		_, _ = fmt.Fprintf(out, "name:        %s\n", m.Name)
-		_, _ = fmt.Fprintf(out, "description: %s\n", m.Description)
-		_, _ = fmt.Fprintf(out, "created:     %s\n", m.CreatedAt.UTC().Format(time.RFC3339))
-		_, _ = fmt.Fprintf(out, "last_seen:   %s\n", lastSeen)
-		return nil
-	}
-
-	return agents.ErrNotFound
 }
 
 // newAgentRotateCmd returns the "agent rotate <name>" command.

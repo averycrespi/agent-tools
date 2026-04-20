@@ -927,7 +927,6 @@ agent-gateway agent add <name> [--description "..."]
   → prints token once + ready-to-paste HTTPS_PROXY URL
 
 agent-gateway agent list
-agent-gateway agent show <name>
 agent-gateway agent rm <name>
 agent-gateway agent rotate <name>           # no grace window; new token immediately
 ```
