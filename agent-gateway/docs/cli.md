@@ -97,24 +97,52 @@ Manage encrypted secrets. Values are stored AES-256-GCM-encrypted in SQLite; the
 
 ### `secret set <name>`
 
-Store or update a secret. The value is read from **stdin** (piped input only — refuses when stdin is a TTY).
+Store a new secret. The value is read from **stdin** (piped input only — refuses when stdin is a TTY). Every secret must be bound to at least one host glob via `--host` (repeatable). Bindings gate which rules may inject this secret: a `${secrets.X}` reference expanded into a request whose target host does not match any of the secret's bound hosts produces a hard `403 Forbidden` and an audit row with `error='secret_host_scope_violation'`.
 
 ```bash
-echo -n "ghp_abc123…" | agent-gateway secret set gh_bot
-agent-gateway secret set gh_bot --agent claude-review --desc "GitHub bot token"
-pbpaste | agent-gateway secret set gh_bot          # macOS
+echo -n "ghp_abc123…" | agent-gateway secret set gh_bot --host "*.github.com"
+agent-gateway secret set gh_bot --host api.github.com --host "*.githubusercontent.com" --agent claude-review --desc "GitHub bot token"
+agent-gateway secret set unrestricted --host "**"    # explicit all-hosts opt-in
 ```
 
-| Flag             | Description                                       |
-| ---------------- | ------------------------------------------------- |
-| `--agent <name>` | Scope to a specific agent. Omit for global scope. |
-| `--desc <text>`  | Human-readable description.                       |
+| Flag             | Description                                                                                                                                                            |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--host <glob>`  | Host glob the secret may be injected into. Repeatable; at least one is **required**. Same glob semantics as rule `match.host`. Use `"**"` for an explicit all-hosts opt-in. Wildcard-only patterns like `*`, `*.*`, or `..` are rejected. |
+| `--agent <name>` | Scope to a specific agent. Omit for global scope.                                                                                                                      |
+| `--desc <text>`  | Human-readable description.                                                                                                                                            |
 
 A warning is printed if an agent-scoped set would shadow an existing global secret of the same name. Scope resolution is most-specific-wins: `agent:<name>` beats `global` for the same `<name>`.
 
+### `secret bind <name>`
+
+Add one or more host globs to an existing secret's `allowed_hosts` list. Idempotent — re-binding an existing pattern is a no-op.
+
+```bash
+agent-gateway secret bind gh_bot --host "*.github.com"
+agent-gateway secret bind gh_bot --host api.github.com --host "*.githubusercontent.com"
+```
+
+| Flag             | Description                                                |
+| ---------------- | ---------------------------------------------------------- |
+| `--host <glob>`  | Host glob to add. Repeatable; at least one is required.    |
+| `--agent <name>` | Scope to the agent-scoped row for this secret name.        |
+
+### `secret unbind <name>`
+
+Remove one or more host globs from a secret's `allowed_hosts` list. **Errors** if the removal would leave the list empty — every secret must remain bound to at least one host. Rebind first, or use `secret rm` to delete the secret outright.
+
+```bash
+agent-gateway secret unbind gh_bot --host "*.github.com"
+```
+
+| Flag             | Description                                                |
+| ---------------- | ---------------------------------------------------------- |
+| `--host <glob>`  | Host glob to remove. Repeatable; at least one is required. |
+| `--agent <name>` | Scope to the agent-scoped row for this secret name.        |
+
 ### `secret list`
 
-List secrets (metadata only — no values, ever).
+List secrets (metadata only — no values, ever). The `HOSTS` column shows the comma-separated `allowed_hosts` list for each row.
 
 ### `secret rotate <name>`
 

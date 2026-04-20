@@ -125,10 +125,10 @@ func TestRegistry_RmCascadesSecrets(t *testing.T) {
 	ss, err := secrets.NewStoreWithKey(db, slog.Default(), key)
 	require.NoError(t, err)
 
-	require.NoError(t, ss.Set(ctx, "my-secret", "agent1", "super-secret", ""))
+	require.NoError(t, ss.Set(ctx, "my-secret", "agent1", "super-secret", "", []string{"**"}))
 
 	// Verify the secret exists under agent scope.
-	val, scope, err := ss.Get(ctx, "my-secret", "agent1")
+	val, scope, _, err := ss.Get(ctx, "my-secret", "agent1")
 	require.NoError(t, err)
 	assert.Equal(t, "super-secret", val)
 	assert.Equal(t, "agent:agent1", scope)

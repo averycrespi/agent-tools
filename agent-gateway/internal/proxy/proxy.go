@@ -107,10 +107,13 @@ type ApprovalBroker interface {
 // inject block.
 type Injector interface {
 	// Apply expands the inject block of rule for agent and mutates req in place.
+	// host is the target hostname (no port), already normalised via
+	// hostnorm.Normalize, used to enforce a secret's allowed_hosts scope.
 	// It returns the injection status, the credential scope (may be empty), and
 	// any error. On inject.ErrSecretUnresolved the caller must forward the
-	// request unchanged (fail-soft).
-	Apply(req *http.Request, rule *rules.Rule, agent string) (inject.InjectionStatus, string, error)
+	// request unchanged (fail-soft). On inject.ErrSecretHostScopeViolation the
+	// caller MUST respond 403 and not forward the request.
+	Apply(req *http.Request, rule *rules.Rule, agent, host string) (inject.InjectionStatus, string, error)
 }
 
 // Deps groups all injectable dependencies for a Proxy.

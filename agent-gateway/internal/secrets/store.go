@@ -5,36 +5,54 @@ package secrets
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/hostnorm"
 )
 
 // ErrNotFound is returned by Get when no matching secret exists.
 var ErrNotFound = errors.New("secret not found")
 
+// ErrNoAllowedHosts is returned by Set/Bind/Unbind when the operation would
+// leave a secret with an empty allowed_hosts list. Every secret must be
+// explicitly bound to at least one host glob (use "**" for the explicit
+// all-hosts opt-in).
+var ErrNoAllowedHosts = errors.New("secret requires at least one allowed host")
+
 // Metadata holds non-secret metadata about a stored secret.
 type Metadata struct {
-	ID          int64
-	Name        string
-	Scope       string
-	CreatedAt   time.Time
-	RotatedAt   time.Time
-	LastUsedAt  *time.Time
-	Description string
+	ID           int64
+	Name         string
+	Scope        string
+	AllowedHosts []string
+	CreatedAt    time.Time
+	RotatedAt    time.Time
+	LastUsedAt   *time.Time
+	Description  string
 }
 
 // Store manages encrypted secrets.
 //
 // The agent parameter is the agent name (e.g. "mybot") or empty string for the
 // global scope. The store internally maps "" → "global" and "x" → "agent:x".
+//
+// Every row carries a non-empty allowed_hosts list of normalised host globs
+// that gate where the secret may be injected. Callers (the inject layer) are
+// responsible for enforcing the host check — the store surfaces the list on
+// Get so the caller can assert "this request's host matches one of these
+// globs" before expanding a ${secrets.X} reference.
 type Store interface {
-	Get(ctx context.Context, name, agent string) (value string, scope string, err error)
-	Set(ctx context.Context, name, agent, value, description string) error
+	Get(ctx context.Context, name, agent string) (value string, scope string, allowedHosts []string, err error)
+	Set(ctx context.Context, name, agent, value, description string, allowedHosts []string) error
 	List(ctx context.Context) ([]Metadata, error)
 	Rotate(ctx context.Context, name, agent, newValue string) error
 	Delete(ctx context.Context, name, agent string) error
+	Bind(ctx context.Context, name, agent string, hosts []string) error
+	Unbind(ctx context.Context, name, agent string, hosts []string) error
 	MasterRotate(ctx context.Context) error
 	InvalidateCache()
 }
@@ -104,43 +122,59 @@ func readActiveKeyID(ctx context.Context, db *sql.DB) (int, error) {
 }
 
 // Get retrieves the plaintext value of a secret using scope resolution:
-// agent:<agent> wins over global; ErrNotFound if neither exists.
-func (s *sqlStore) Get(ctx context.Context, name, agent string) (string, string, error) {
+// agent:<agent> wins over global; ErrNotFound if neither exists. The
+// allowedHosts slice contains the normalised host globs the caller must
+// check the request host against before injecting.
+func (s *sqlStore) Get(ctx context.Context, name, agent string) (string, string, []string, error) {
 	const q = `
-SELECT ciphertext, nonce, scope FROM secrets
+SELECT ciphertext, nonce, scope, allowed_hosts FROM secrets
 WHERE name = ?1 AND scope IN ('global', 'agent:' || ?2)
 ORDER BY scope = 'global' ASC
 LIMIT 1`
 
 	var ciphertext, nonce []byte
-	var scope string
-	err := s.db.QueryRowContext(ctx, q, name, agent).Scan(&ciphertext, &nonce, &scope)
+	var scope, allowedHostsJSON string
+	err := s.db.QueryRowContext(ctx, q, name, agent).Scan(&ciphertext, &nonce, &scope, &allowedHostsJSON)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", "", ErrNotFound
+		return "", "", nil, ErrNotFound
 	}
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 
 	plaintext, err := decrypt(s.key, nonce, ciphertext)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
-	return string(plaintext), scope, nil
+	allowedHosts, err := decodeAllowedHosts(allowedHostsJSON)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("decode allowed_hosts for %q: %w", name, err)
+	}
+	return string(plaintext), scope, allowedHosts, nil
 }
 
 // Set stores a new secret. agent is the agent name (empty → global scope).
-func (s *sqlStore) Set(ctx context.Context, name, agent, value, description string) error {
+// allowedHosts must contain at least one glob; patterns are normalised via
+// hostnorm.NormalizeGlob and de-duplicated in insertion order.
+func (s *sqlStore) Set(ctx context.Context, name, agent, value, description string, allowedHosts []string) error {
+	cleaned, err := sanitizeAllowedHosts(allowedHosts)
+	if err != nil {
+		return err
+	}
 	nonce, ciphertext, err := encrypt(s.key, []byte(value))
+	if err != nil {
+		return err
+	}
+	encoded, err := encodeAllowedHosts(cleaned)
 	if err != nil {
 		return err
 	}
 	scope := agentToScope(agent)
 	now := time.Now().Unix()
 	const q = `
-INSERT INTO secrets (name, scope, ciphertext, nonce, created_at, rotated_at, description)
-VALUES (?, ?, ?, ?, ?, ?, ?)`
-	_, err = s.db.ExecContext(ctx, q, name, scope, ciphertext, nonce, now, now, description)
+INSERT INTO secrets (name, scope, ciphertext, nonce, created_at, rotated_at, description, allowed_hosts)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err = s.db.ExecContext(ctx, q, name, scope, ciphertext, nonce, now, now, description, encoded)
 	return err
 }
 
@@ -170,7 +204,7 @@ func ListNames(ctx context.Context, db *sql.DB) ([]string, error) {
 // List returns metadata for all secrets (no plaintext).
 func (s *sqlStore) List(ctx context.Context) ([]Metadata, error) {
 	const q = `
-SELECT id, name, scope, created_at, rotated_at, last_used_at, description
+SELECT id, name, scope, created_at, rotated_at, last_used_at, description, allowed_hosts
 FROM secrets ORDER BY name, scope`
 
 	rows, err := s.db.QueryContext(ctx, q)
@@ -185,7 +219,8 @@ FROM secrets ORDER BY name, scope`
 		var createdUnix, rotatedUnix int64
 		var lastUsedUnix *int64
 		var desc *string
-		if err := rows.Scan(&m.ID, &m.Name, &m.Scope, &createdUnix, &rotatedUnix, &lastUsedUnix, &desc); err != nil {
+		var allowedHostsJSON string
+		if err := rows.Scan(&m.ID, &m.Name, &m.Scope, &createdUnix, &rotatedUnix, &lastUsedUnix, &desc, &allowedHostsJSON); err != nil {
 			return nil, err
 		}
 		m.CreatedAt = time.Unix(createdUnix, 0)
@@ -197,9 +232,224 @@ FROM secrets ORDER BY name, scope`
 		if desc != nil {
 			m.Description = *desc
 		}
+		hosts, err := decodeAllowedHosts(allowedHostsJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode allowed_hosts for %q: %w", m.Name, err)
+		}
+		m.AllowedHosts = hosts
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// Bind adds hosts to the secret's allowed_hosts list. Duplicates (post-
+// normalization) are silently ignored. ErrNotFound is returned when no
+// (name, scope) row matches.
+func (s *sqlStore) Bind(ctx context.Context, name, agent string, hosts []string) error {
+	if len(hosts) == 0 {
+		return fmt.Errorf("bind: %w", ErrNoAllowedHosts)
+	}
+	additions, err := sanitizeAllowedHosts(hosts)
+	if err != nil {
+		return err
+	}
+	return s.mutateAllowedHosts(ctx, name, agent, func(existing []string) ([]string, error) {
+		return mergeHosts(existing, additions), nil
+	})
+}
+
+// Unbind removes hosts from the secret's allowed_hosts list. Hosts are
+// normalised before comparison. Returns ErrNoAllowedHosts when the removal
+// would leave the list empty — callers must rebind or rm the secret.
+func (s *sqlStore) Unbind(ctx context.Context, name, agent string, hosts []string) error {
+	if len(hosts) == 0 {
+		return fmt.Errorf("unbind: at least one host required")
+	}
+	removals, err := sanitizeAllowedHosts(hosts)
+	if err != nil {
+		return err
+	}
+	return s.mutateAllowedHosts(ctx, name, agent, func(existing []string) ([]string, error) {
+		next := subtractHosts(existing, removals)
+		if len(next) == 0 {
+			return nil, ErrNoAllowedHosts
+		}
+		return next, nil
+	})
+}
+
+// mutateAllowedHosts reads the current allowed_hosts for (name, scope),
+// applies fn, and writes the result back. Runs in a single transaction so
+// concurrent bind/unbind cannot race.
+func (s *sqlStore) mutateAllowedHosts(ctx context.Context, name, agent string, fn func([]string) ([]string, error)) error {
+	scope := agentToScope(agent)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var encoded string
+	err = tx.QueryRowContext(ctx,
+		`SELECT allowed_hosts FROM secrets WHERE name=? AND scope=?`,
+		name, scope,
+	).Scan(&encoded)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	existing, err := decodeAllowedHosts(encoded)
+	if err != nil {
+		return err
+	}
+	next, err := fn(existing)
+	if err != nil {
+		return err
+	}
+	nextEncoded, err := encodeAllowedHosts(next)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE secrets SET allowed_hosts=? WHERE name=? AND scope=?`,
+		nextEncoded, name, scope,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// sanitizeAllowedHosts normalises each glob via hostnorm.NormalizeGlob,
+// rejects empty input and wildcard-only patterns (matching the policy used
+// for config no_intercept_hosts), and returns a de-duplicated slice in
+// first-seen order.
+func sanitizeAllowedHosts(hosts []string) ([]string, error) {
+	if len(hosts) == 0 {
+		return nil, ErrNoAllowedHosts
+	}
+	seen := make(map[string]struct{}, len(hosts))
+	out := make([]string, 0, len(hosts))
+	for i, h := range hosts {
+		trimmed := h
+		if trimmed == "" {
+			return nil, fmt.Errorf("allowed_hosts[%d]: pattern is empty", i)
+		}
+		// Reject wildcard-only entries with the same rule as no_intercept_hosts:
+		// a pattern of only '*' and '.' characters is a "match everything"
+		// footgun. To bind a secret to every host, pass "**" explicitly.
+		// "**" has a literal character count > 0 under this rule because we
+		// count non-{*,.} runes; we special-case it below.
+		if trimmed == "**" {
+			out = append(out, "**")
+			seen["**"] = struct{}{}
+			continue
+		}
+		literalCount := 0
+		for _, r := range trimmed {
+			if r != '*' && r != '.' {
+				literalCount++
+			}
+		}
+		if literalCount == 0 {
+			return nil, fmt.Errorf(
+				"allowed_hosts[%d]: pattern %q matches every (or nearly every) host; use \"**\" for explicit all-hosts binding",
+				i, h,
+			)
+		}
+		normalized, err := hostnorm.NormalizeGlob(trimmed)
+		if err != nil {
+			return nil, fmt.Errorf("allowed_hosts[%d]: %w", i, err)
+		}
+		if _, dup := seen[normalized]; dup {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+	return out, nil
+}
+
+// mergeHosts returns the union of existing and additions, preserving
+// existing order and appending new entries in addition order.
+func mergeHosts(existing, additions []string) []string {
+	seen := make(map[string]struct{}, len(existing))
+	for _, h := range existing {
+		seen[h] = struct{}{}
+	}
+	out := append([]string(nil), existing...)
+	for _, h := range additions {
+		if _, dup := seen[h]; dup {
+			continue
+		}
+		seen[h] = struct{}{}
+		out = append(out, h)
+	}
+	return out
+}
+
+// subtractHosts returns existing with every entry in removals deleted.
+func subtractHosts(existing, removals []string) []string {
+	remove := make(map[string]struct{}, len(removals))
+	for _, h := range removals {
+		remove[h] = struct{}{}
+	}
+	out := make([]string, 0, len(existing))
+	for _, h := range existing {
+		if _, drop := remove[h]; drop {
+			continue
+		}
+		out = append(out, h)
+	}
+	return out
+}
+
+// encodeAllowedHosts marshals hosts to a stable JSON array, sorted for
+// stable disk representation. Empty hosts is rejected so the physical
+// default of '[]' can never slip into a valid row.
+func encodeAllowedHosts(hosts []string) (string, error) {
+	if len(hosts) == 0 {
+		return "", ErrNoAllowedHosts
+	}
+	// Preserve caller order — callers deduplicate and sort when they mean to.
+	b, err := json.Marshal(hosts)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// decodeAllowedHosts unmarshals the JSON array stored in the allowed_hosts
+// column. An empty or absent list produces ErrNoAllowedHosts so callers can
+// distinguish legitimate rows from the migration-only DEFAULT '[]'.
+func decodeAllowedHosts(encoded string) ([]string, error) {
+	if encoded == "" {
+		return nil, ErrNoAllowedHosts
+	}
+	var hosts []string
+	if err := json.Unmarshal([]byte(encoded), &hosts); err != nil {
+		return nil, err
+	}
+	if len(hosts) == 0 {
+		return nil, ErrNoAllowedHosts
+	}
+	return hosts, nil
+}
+
+// HostScopeAllows reports whether host (already hostnorm-normalised) matches
+// any pattern in allowedHosts. Callers that need to enforce the host scope
+// of an injection should call this before expanding a ${secrets.X} value.
+//
+// This helper lives here so that every caller uses one matching
+// implementation. The pattern set is small per secret so linear scan is fine.
+func HostScopeAllows(allowedHosts []string, host string) bool {
+	for _, pat := range allowedHosts {
+		if hostnorm.MatchHostGlob(pat, host) {
+			return true
+		}
+	}
+	return false
 }
 
 // Rotate updates the encrypted value for an existing secret and bumps rotated_at.

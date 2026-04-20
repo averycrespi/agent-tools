@@ -134,6 +134,19 @@ INSERT INTO meta (key, value) VALUES ('active_key_id', '1');
 `)
 		return err
 	},
+
+	// Migration 7: bind each secret to a non-empty set of host globs that
+	// gate where the secret may be injected. Stored as a JSON-encoded array
+	// of normalized glob patterns (see internal/hostnorm.NormalizeGlob).
+	// SQLite ADD COLUMN NOT NULL requires a default; the default '[]' is a
+	// physical placeholder only — app-level validation rejects empty lists
+	// on every write path, so no production row ever carries '[]'.
+	func(tx *sql.Tx) error {
+		_, err := tx.Exec(`
+ALTER TABLE secrets ADD COLUMN allowed_hosts TEXT NOT NULL DEFAULT '[]';
+`)
+		return err
+	},
 }
 
 // runMigrations reads the current user_version, then runs each pending migration

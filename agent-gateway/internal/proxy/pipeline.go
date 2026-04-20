@@ -348,16 +348,31 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 
 	// 6. Injection step: if the matched rule has an inject block and an
 	// injector is configured, apply header mutations to the upstream clone.
-	// On failure the upstream clone is discarded and the original request
-	// (with its headers intact) is forwarded instead (fail-soft).
+	// On most failures the upstream clone is discarded and the original
+	// request (with its headers intact) is forwarded instead (fail-soft).
+	// Host-scope violations are a policy error and MUST NOT forward — we
+	// synthesise a 403 instead so the misconfig is loud.
 	if matchedRule != nil && matchedRule.Inject != nil && p.injector != nil {
 		a.CredentialRef = firstSecretRef(matchedRule.Inject)
 
-		status, scope, injErr := p.injector.Apply(upReq, matchedRule, agentName)
+		status, scope, injErr := p.injector.Apply(upReq, matchedRule, agentName, hostOnly)
 		switch {
 		case injErr == nil && status == inject.StatusApplied:
 			a.Injection = "applied"
 			a.CredentialScope = scope
+
+		case injErr != nil && errors.Is(injErr, inject.ErrSecretHostScopeViolation):
+			// Hard 403: the rule matched, but a secret in its inject block
+			// is not bound to this host. Do NOT forward — forwarding with
+			// the agent's dummy credential would quietly succeed as a 401
+			// from upstream and the misconfig would go unnoticed.
+			p.log.Warn("proxy: secret host scope violation; refusing to forward",
+				"request_id", reqID, "host", hostOnly, "err", injErr)
+			a.Injection = "failed"
+			a.Error = "secret_host_scope_violation"
+			w.Header().Set("X-Request-ID", reqID)
+			http.Error(w, "Forbidden: secret not bound to this host", http.StatusForbidden)
+			return
 
 		case injErr != nil && errors.Is(injErr, inject.ErrSecretUnresolved):
 			// Fail-soft: log, record audit, forward original request unchanged.

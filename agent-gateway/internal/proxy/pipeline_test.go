@@ -29,7 +29,7 @@ type stubInjector struct {
 	lastReq *http.Request
 }
 
-func (s *stubInjector) Apply(req *http.Request, _ *rules.Rule, _ string) (inject.InjectionStatus, string, error) {
+func (s *stubInjector) Apply(req *http.Request, _ *rules.Rule, _, _ string) (inject.InjectionStatus, string, error) {
 	s.lastReq = req
 	if s.err != nil {
 		return inject.StatusFailed, "", s.err

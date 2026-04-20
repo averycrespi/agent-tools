@@ -615,9 +615,15 @@ values.
 
 Resolution outcomes:
 
-- **Resolved:** proceed with injection; audit `injection='applied'`,
+- **Resolved and in scope:** proceed with injection; audit `injection='applied'`,
   `credential_scope` set to the matched scope value (`'global'` or
   `'agent:<name>'`).
+- **Host-scope violation:** the secret resolved, but its `allowed_hosts`
+  does not cover the request's target host. Rule fails **hard**: the gateway
+  synthesises a `403 Forbidden` and audits `injection='failed'`,
+  `error='secret_host_scope_violation'`. The request is not forwarded —
+  forwarding with the dummy credential would mask the misconfig as an
+  upstream 401.
 - **Unresolved:** either no row matches (no global, no caller-scoped) or a
   row exists only under a different agent's scope. Rule fails soft; audit
   `injection='failed'`, `error='secret_unresolved'`. Dummy credential goes
@@ -625,6 +631,27 @@ Resolution outcomes:
 
 The fail-safe is preserved either way: no real credential ever substitutes a
 dummy for a request the gateway can't confidently authorise.
+
+#### Host-scope binding
+
+Every row in the `secrets` table carries a non-empty `allowed_hosts` JSON
+array (migration 7) of normalised host globs — same semantics as rule
+`match.host`. Bindings are created at `secret set` time via one or more
+`--host` flags; later adjustments go through `secret bind` / `secret
+unbind`. `secret unbind` refuses to leave a secret with an empty list —
+the only way to "un-bind everything" is `secret rm`, which forces the
+operator to acknowledge that the credential is being decommissioned.
+
+The runtime check lives in `internal/inject`: `Expand` (and `Injector.Apply`
+by extension) takes a `host` argument and calls
+`secrets.HostScopeAllows(allowedHosts, host)` before substituting the
+expanded value into the header. A mismatch returns
+`inject.ErrSecretHostScopeViolation`, which the proxy pipeline translates
+to the 403 described above. Rule load-time in `cmd/agent-gateway`'s
+`warnSecretCoverage` helper warns when a rule references a secret whose
+`allowed_hosts` does not obviously cover the rule's `match.host`; the
+check is approximate (glob-pattern subset is non-trivial) but catches the
+common "bound to wrong host" misconfig before first request.
 
 ### Shadow warnings
 

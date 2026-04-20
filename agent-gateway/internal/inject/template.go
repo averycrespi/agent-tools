@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/secrets"
 )
 
 // ErrSecretUnresolved is returned when a ${secrets.X} expression cannot be
@@ -18,9 +20,18 @@ var ErrSecretUnresolved = errors.New("secret unresolved")
 // that is not a recognised form (secrets.<ident> or agent.name / agent.id).
 var ErrUnknownExpression = errors.New("unknown template expression")
 
-// SecretsGetter resolves secret values for a given agent.
+// ErrSecretHostScopeViolation is returned when a ${secrets.X} expression
+// resolves, but the request's host does not match any glob in the secret's
+// allowed_hosts list. A scope violation is a policy error, not a transient
+// lookup failure: the proxy pipeline reacts by synthesising a 403 instead
+// of fail-softing to the original request.
+var ErrSecretHostScopeViolation = errors.New("secret host scope violation")
+
+// SecretsGetter resolves secret values for a given agent. The returned
+// allowedHosts slice gates injection: callers must check the request host
+// against it before expanding the secret into a header.
 type SecretsGetter interface {
-	Get(ctx context.Context, name, agent string) (value, scope string, err error)
+	Get(ctx context.Context, name, agent string) (value, scope string, allowedHosts []string, err error)
 }
 
 // tokenRE matches all ${...} expressions in a template string.
@@ -33,22 +44,25 @@ var secretIdentRE = regexp.MustCompile(`^secrets\.([A-Za-z_][A-Za-z0-9_]*)$`)
 //
 // Recognised forms:
 //   - ${secrets.<ident>} — resolved via store.Get; requires store != nil.
+//     The host argument is checked against the secret's allowed_hosts list;
+//     a mismatch returns ErrSecretHostScopeViolation.
 //   - ${agent.name}, ${agent.id} — replaced with agentName.
 //
 // Any other ${...} form returns ErrUnknownExpression.
-// When a secret cannot be resolved, ErrSecretUnresolved is returned.
+// When a secret cannot be resolved (missing, store error), ErrSecretUnresolved
+// is returned. host must already be normalised via hostnorm.Normalize.
 //
 // Substitution is strictly single-pass: values returned by the store are
 // inserted verbatim and are never re-scanned for further ${...} tokens.
 //
 // The returned scope is the scope of the first secret resolved (empty when no
 // secret tokens are present).
-func Expand(ctx context.Context, tmpl, agentName string, store SecretsGetter) (string, string, error) {
-	return expandInternal(ctx, tmpl, agentName, store)
+func Expand(ctx context.Context, tmpl, agentName, host string, store SecretsGetter) (string, string, error) {
+	return expandInternal(ctx, tmpl, agentName, host, store)
 }
 
 // expandInternal is the implementation of Expand.
-func expandInternal(ctx context.Context, tmpl, agentName string, store SecretsGetter) (string, string, error) {
+func expandInternal(ctx context.Context, tmpl, agentName, host string, store SecretsGetter) (string, string, error) {
 	var firstScope string
 	var prevScope string
 	var buildErr error
@@ -75,9 +89,16 @@ func expandInternal(ctx context.Context, tmpl, agentName string, store SecretsGe
 				buildErr = fmt.Errorf("%w: no store configured", ErrSecretUnresolved)
 				return token
 			}
-			value, scope, err := store.Get(ctx, secretName, agentName)
+			value, scope, allowedHosts, err := store.Get(ctx, secretName, agentName)
 			if err != nil {
 				buildErr = fmt.Errorf("%w: %s: %w", ErrSecretUnresolved, secretName, err)
+				return token
+			}
+			if !secrets.HostScopeAllows(allowedHosts, host) {
+				buildErr = fmt.Errorf(
+					"%w: secret %q is not bound to host %q (allowed: %v)",
+					ErrSecretHostScopeViolation, secretName, host, allowedHosts,
+				)
 				return token
 			}
 			if firstScope == "" {

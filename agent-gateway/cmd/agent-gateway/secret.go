@@ -76,6 +76,8 @@ func newSecretCmd() *cobra.Command {
 	secretCmd.AddCommand(newSecretListCmd())
 	secretCmd.AddCommand(newSecretRotateCmd())
 	secretCmd.AddCommand(newSecretRMCmd())
+	secretCmd.AddCommand(newSecretBindCmd())
+	secretCmd.AddCommand(newSecretUnbindCmd())
 	secretCmd.AddCommand(newSecretMasterCmd())
 
 	return secretCmd
@@ -86,12 +88,19 @@ func newSecretSetCmd() *cobra.Command {
 	var (
 		agent string
 		desc  string
+		hosts []string
 	)
 	cmd := &cobra.Command{
 		Use:   "set <name>",
 		Short: "Store a secret value (reads from stdin)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Store a secret value read from stdin. Every secret must be bound\n" +
+			"to at least one host glob via --host (repeatable). Use --host \"**\"\n" +
+			"for an explicit all-hosts binding.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(hosts) == 0 {
+				return fmt.Errorf("at least one --host is required (use --host \"**\" to allow every host)")
+			}
 			s, cleanup, err := openSecretStore()
 			if err != nil {
 				return err
@@ -104,6 +113,7 @@ func newSecretSetCmd() *cobra.Command {
 				args[0],
 				agent,
 				desc,
+				hosts,
 				cmd.InOrStdin(),
 				cmd.OutOrStdout(),
 				stdinIsTTY(),
@@ -113,6 +123,7 @@ func newSecretSetCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&agent, "agent", "", "agent name (omit for global scope)")
 	cmd.Flags().StringVar(&desc, "desc", "", "human-readable description")
+	cmd.Flags().StringSliceVar(&hosts, "host", nil, "host glob the secret may be injected into (repeatable, required)")
 	return cmd
 }
 
@@ -122,6 +133,7 @@ func execSecretSet(
 	ctx context.Context,
 	s secrets.Store,
 	name, agent, desc string,
+	hosts []string,
 	in io.Reader,
 	out io.Writer,
 	isTTY bool,
@@ -132,13 +144,13 @@ func execSecretSet(
 		return err
 	}
 
-	if err := s.Set(ctx, name, agent, value, desc); err != nil {
+	if err := s.Set(ctx, name, agent, value, desc, hosts); err != nil {
 		return fmt.Errorf("secret set: %w", err)
 	}
 
 	// Shadow warning: if agent-scoped, check whether a global row also exists.
 	if agent != "" {
-		_, _, globalErr := s.Get(ctx, name, "")
+		_, _, _, globalErr := s.Get(ctx, name, "")
 		if globalErr == nil {
 			// A global row exists for this name — print shadow warning.
 			_, _ = fmt.Fprintf(out,
@@ -150,6 +162,73 @@ func execSecretSet(
 
 	_ = signalFn(paths.PIDFile())
 	return nil
+}
+
+// newSecretBindCmd returns the "secret bind <name>" command.
+func newSecretBindCmd() *cobra.Command {
+	var (
+		agent string
+		hosts []string
+	)
+	cmd := &cobra.Command{
+		Use:   "bind <name>",
+		Short: "Add host globs to a secret's allowed_hosts list",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(hosts) == 0 {
+				return fmt.Errorf("at least one --host is required")
+			}
+			s, cleanup, err := openSecretStore()
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			if err := s.Bind(cmd.Context(), args[0], agent, hosts); err != nil {
+				return fmt.Errorf("secret bind: %w", err)
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "bound: %s\n", args[0])
+			_ = sendHUP(paths.PIDFile())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&agent, "agent", "", "agent name (omit for global scope)")
+	cmd.Flags().StringSliceVar(&hosts, "host", nil, "host glob to add (repeatable)")
+	return cmd
+}
+
+// newSecretUnbindCmd returns the "secret unbind <name>" command.
+func newSecretUnbindCmd() *cobra.Command {
+	var (
+		agent string
+		hosts []string
+	)
+	cmd := &cobra.Command{
+		Use:   "unbind <name>",
+		Short: "Remove host globs from a secret's allowed_hosts list",
+		Long: "Remove host globs from a secret's allowed_hosts list. Fails if\n" +
+			"the removal would leave the list empty — rebind first, or use\n" +
+			"`secret rm` to delete the secret entirely.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(hosts) == 0 {
+				return fmt.Errorf("at least one --host is required")
+			}
+			s, cleanup, err := openSecretStore()
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			if err := s.Unbind(cmd.Context(), args[0], agent, hosts); err != nil {
+				return fmt.Errorf("secret unbind: %w", err)
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "unbound: %s\n", args[0])
+			_ = sendHUP(paths.PIDFile())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&agent, "agent", "", "agent name (omit for global scope)")
+	cmd.Flags().StringSliceVar(&hosts, "host", nil, "host glob to remove (repeatable)")
+	return cmd
 }
 
 // newSecretListCmd returns the "secret list" command.
@@ -177,15 +256,20 @@ func execSecretList(ctx context.Context, s secrets.Store, out io.Writer) error {
 	}
 
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "NAME\tSCOPE\tCREATED\tROTATED\tLAST-USED\tDESCRIPTION")
+	_, _ = fmt.Fprintln(w, "NAME\tSCOPE\tHOSTS\tCREATED\tROTATED\tLAST-USED\tDESCRIPTION")
 	for _, m := range metas {
 		lastUsed := "-"
 		if m.LastUsedAt != nil {
 			lastUsed = m.LastUsedAt.UTC().Format(time.RFC3339)
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		hosts := strings.Join(m.AllowedHosts, ",")
+		if hosts == "" {
+			hosts = "-"
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			m.Name,
 			m.Scope,
+			hosts,
 			m.CreatedAt.UTC().Format(time.RFC3339),
 			m.RotatedAt.UTC().Format(time.RFC3339),
 			lastUsed,

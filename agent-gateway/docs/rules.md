@@ -123,6 +123,14 @@ Expansion happens **at injection time**, not at rule-load time. Secrets are alwa
 
 Secret values are interpolated as opaque bytes. No re-expansion, no escaping, no recursive resolution. A secret whose value contains `${x}` or backslashes is inserted literally.
 
+### Host scope
+
+Every secret is bound to a non-empty `allowed_hosts` list at creation time (`secret set --host <glob> --host <glob>`). A `${secrets.X}` reference is only expanded when the request's target host matches one of that secret's globs; otherwise the gateway synthesises a `403 Forbidden` and audits the request with `error='secret_host_scope_violation'`. The request is **never forwarded** — this is deliberately loud so misconfigs surface immediately instead of quietly failing upstream as 401.
+
+The daemon also cross-checks coverage at load time and on `SIGHUP`: when a rule references `${secrets.X}` but the secret's `allowed_hosts` does not obviously cover the rule's `match.host`, a warning is logged. The runtime check is authoritative — this warning is a heads-up, not a hard error.
+
+Use `secret bind <name> --host <glob>` and `secret unbind <name> --host <glob>` to adjust bindings after creation; changes take effect on the next `SIGHUP`-driven cache invalidation.
+
 ## Verdicts
 
 | Verdict            | Behaviour                                                                                                                                                     |
@@ -138,6 +146,10 @@ If no rule matches, the request passes through untouched. The dummy credential i
 ### Credential resolution failure
 
 A rule matches but the referenced secret cannot be resolved (doesn't exist, or exists only under a scope the caller can't access): the rule fails soft. Dummy credentials go upstream untouched. The audit row records `injection='failed'` and `error='secret_unresolved'`, and the dashboard renders a "missing secret" badge on the offending rule. `agent-gateway rules check` surfaces unresolved references as warnings.
+
+### Secret host scope violation
+
+A rule matches, the secret exists, but its `allowed_hosts` doesn't cover the request's target host: the rule fails **hard**. The gateway returns `403 Forbidden` to the agent and audits `injection='failed'` with `error='secret_host_scope_violation'`. Unlike an unresolved secret, this is a policy mismatch — forwarding the agent's dummy credential would mask the misconfig as an upstream 401. A hard 403 makes the misconfig obvious.
 
 ## Agent scoping
 

@@ -45,10 +45,10 @@ func TestStore_SetThenGet(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	err := s.Set(ctx, "gh_bot", "", "token-value", "GitHub bot token")
+	err := s.Set(ctx, "gh_bot", "", "token-value", "GitHub bot token", []string{"**"})
 	require.NoError(t, err)
 
-	val, scope, err := s.Get(ctx, "gh_bot", "any-agent")
+	val, scope, _, err := s.Get(ctx, "gh_bot", "any-agent")
 	require.NoError(t, err)
 	assert.Equal(t, "token-value", val)
 	assert.Equal(t, "global", scope)
@@ -59,25 +59,25 @@ func TestStore_ScopeResolution(t *testing.T) {
 	ctx := context.Background()
 
 	// Set a global secret.
-	require.NoError(t, s.Set(ctx, "gh_bot", "", "global-value", "global"))
+	require.NoError(t, s.Set(ctx, "gh_bot", "", "global-value", "global", []string{"**"}))
 	// Set an agent-scoped secret for "foo".
-	require.NoError(t, s.Set(ctx, "gh_bot", "foo", "foo-value", "foo scoped"))
+	require.NoError(t, s.Set(ctx, "gh_bot", "foo", "foo-value", "foo scoped", []string{"**"}))
 
 	// agent "foo" gets the agent-scoped value.
-	val, scope, err := s.Get(ctx, "gh_bot", "foo")
+	val, scope, _, err := s.Get(ctx, "gh_bot", "foo")
 	require.NoError(t, err)
 	assert.Equal(t, "foo-value", val)
 	assert.Equal(t, "agent:foo", scope)
 
 	// agent "bar" falls back to the global value.
-	val, scope, err = s.Get(ctx, "gh_bot", "bar")
+	val, scope, _, err = s.Get(ctx, "gh_bot", "bar")
 	require.NoError(t, err)
 	assert.Equal(t, "global-value", val)
 	assert.Equal(t, "global", scope)
 
 	// Delete the global secret; now agent "baz" gets ErrNotFound.
 	require.NoError(t, s.Delete(ctx, "gh_bot", ""))
-	_, _, err = s.Get(ctx, "gh_bot", "baz")
+	_, _, _, err = s.Get(ctx, "gh_bot", "baz")
 	assert.True(t, errors.Is(err, secrets.ErrNotFound), "expected ErrNotFound, got %v", err)
 }
 
@@ -92,7 +92,7 @@ func TestStore_EncryptionAtRest(t *testing.T) {
 
 	ctx := context.Background()
 	plaintext := "super-secret-token-value-12345"
-	require.NoError(t, s.Set(ctx, "mykey", "", plaintext, ""))
+	require.NoError(t, s.Set(ctx, "mykey", "", plaintext, "", []string{"**"}))
 
 	// Read the raw ciphertext column directly.
 	var ciphertext []byte
@@ -121,18 +121,18 @@ func TestStore_MasterRotate(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	require.NoError(t, s.Set(ctx, "secret1", "", "value-one", ""))
-	require.NoError(t, s.Set(ctx, "secret2", "bar", "value-two", ""))
+	require.NoError(t, s.Set(ctx, "secret1", "", "value-one", "", []string{"**"}))
+	require.NoError(t, s.Set(ctx, "secret2", "bar", "value-two", "", []string{"**"}))
 
 	// Rotate master key.
 	require.NoError(t, s.MasterRotate(ctx))
 
 	// Both secrets should still decrypt correctly.
-	val1, _, err := s.Get(ctx, "secret1", "any")
+	val1, _, _, err := s.Get(ctx, "secret1", "any")
 	require.NoError(t, err)
 	assert.Equal(t, "value-one", val1)
 
-	val2, _, err := s.Get(ctx, "secret2", "bar")
+	val2, _, _, err := s.Get(ctx, "secret2", "bar")
 	require.NoError(t, err)
 	assert.Equal(t, "value-two", val2)
 
@@ -158,8 +158,8 @@ func TestStore_RotateThenReopen(t *testing.T) {
 	s1, err := secrets.NewStore(db, slog.Default())
 	require.NoError(t, err)
 	ctx := context.Background()
-	require.NoError(t, s1.Set(ctx, "alpha", "", "alpha-value", ""))
-	require.NoError(t, s1.Set(ctx, "beta", "agent1", "beta-value", ""))
+	require.NoError(t, s1.Set(ctx, "alpha", "", "alpha-value", "", []string{"**"}))
+	require.NoError(t, s1.Set(ctx, "beta", "agent1", "beta-value", "", []string{"**"}))
 	require.NoError(t, s1.MasterRotate(ctx))
 	require.NoError(t, db.Close())
 
@@ -170,17 +170,17 @@ func TestStore_RotateThenReopen(t *testing.T) {
 	s2, err := secrets.NewStore(db2, slog.Default())
 	require.NoError(t, err)
 
-	val, _, err := s2.Get(ctx, "alpha", "")
+	val, _, _, err := s2.Get(ctx, "alpha", "")
 	require.NoError(t, err)
 	assert.Equal(t, "alpha-value", val)
 
-	val, _, err = s2.Get(ctx, "beta", "agent1")
+	val, _, _, err = s2.Get(ctx, "beta", "agent1")
 	require.NoError(t, err)
 	assert.Equal(t, "beta-value", val)
 
 	// A second rotation should advance to id=3 and still decrypt.
 	require.NoError(t, s2.MasterRotate(ctx))
-	val, _, err = s2.Get(ctx, "alpha", "")
+	val, _, _, err = s2.Get(ctx, "alpha", "")
 	require.NoError(t, err)
 	assert.Equal(t, "alpha-value", val)
 }
@@ -197,7 +197,7 @@ func TestStore_RotateOrphanCleanupOnFailure(t *testing.T) {
 
 	s, err := secrets.NewStore(db, slog.Default())
 	require.NoError(t, err)
-	require.NoError(t, s.Set(ctx, "good", "", "good-value", ""))
+	require.NoError(t, s.Set(ctx, "good", "", "good-value", "", []string{"**"}))
 
 	// Corrupt one row so MasterRotate's decrypt fails.
 	_, err = db.ExecContext(ctx,
@@ -246,13 +246,13 @@ func TestStore_LegacyKeyMigration(t *testing.T) {
 	ctx := context.Background()
 	pre, err := secrets.NewStoreWithKey(db, slog.Default(), legacyKey)
 	require.NoError(t, err)
-	require.NoError(t, pre.Set(ctx, "tok", "", "legacy-value", ""))
+	require.NoError(t, pre.Set(ctx, "tok", "", "legacy-value", "", []string{"**"}))
 
 	// Now boot a real NewStore: it should detect the legacy file and
 	// migrate it to master-key-1, then decrypt the seeded row.
 	s, err := secrets.NewStore(db, slog.Default())
 	require.NoError(t, err)
-	got, _, err := s.Get(ctx, "tok", "")
+	got, _, _, err := s.Get(ctx, "tok", "")
 	require.NoError(t, err)
 	assert.Equal(t, "legacy-value", got)
 
@@ -280,8 +280,8 @@ func TestStore_List(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, s.Set(ctx, "alpha", "", "v1", "desc alpha"))
-	require.NoError(t, s.Set(ctx, "beta", "mybot", "v2", "desc beta"))
+	require.NoError(t, s.Set(ctx, "alpha", "", "v1", "desc alpha", []string{"**"}))
+	require.NoError(t, s.Set(ctx, "beta", "mybot", "v2", "desc beta", []string{"**"}))
 
 	list, err := s.List(ctx)
 	require.NoError(t, err)
@@ -299,13 +299,13 @@ func TestStore_Rotate(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, s.Set(ctx, "tok", "", "old-value", ""))
+	require.NoError(t, s.Set(ctx, "tok", "", "old-value", "", []string{"**"}))
 
 	// Small sleep to ensure rotated_at changes.
 	time.Sleep(2 * time.Millisecond)
 	require.NoError(t, s.Rotate(ctx, "tok", "", "new-value"))
 
-	val, _, err := s.Get(ctx, "tok", "any")
+	val, _, _, err := s.Get(ctx, "tok", "any")
 	require.NoError(t, err)
 	assert.Equal(t, "new-value", val)
 }
@@ -314,11 +314,87 @@ func TestStore_Delete(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, s.Set(ctx, "tok", "", "value", ""))
+	require.NoError(t, s.Set(ctx, "tok", "", "value", "", []string{"**"}))
 	require.NoError(t, s.Delete(ctx, "tok", ""))
 
-	_, _, err := s.Get(ctx, "tok", "any")
+	_, _, _, err := s.Get(ctx, "tok", "any")
 	assert.True(t, errors.Is(err, secrets.ErrNotFound))
+}
+
+func TestStore_Set_RejectsEmptyAllowedHosts(t *testing.T) {
+	s := newTestStore(t)
+	err := s.Set(context.Background(), "tok", "", "v", "", nil)
+	assert.ErrorIs(t, err, secrets.ErrNoAllowedHosts)
+}
+
+func TestStore_Set_RejectsWildcardOnly(t *testing.T) {
+	s := newTestStore(t)
+	err := s.Set(context.Background(), "tok", "", "v", "", []string{"*.*"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "matches every")
+}
+
+func TestStore_Set_NormalizesHosts(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	require.NoError(t, s.Set(ctx, "tok", "", "v", "", []string{"API.GitHub.COM.", "*.Example.com"}))
+	_, _, hosts, err := s.Get(ctx, "tok", "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"api.github.com", "*.example.com"}, hosts)
+}
+
+func TestStore_BindUnbind(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	require.NoError(t, s.Set(ctx, "tok", "", "v", "", []string{"api.github.com"}))
+
+	// Bind adds a new host.
+	require.NoError(t, s.Bind(ctx, "tok", "", []string{"*.github.com"}))
+	_, _, hosts, err := s.Get(ctx, "tok", "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"api.github.com", "*.github.com"}, hosts)
+
+	// Bind is idempotent — re-binding an existing pattern is a no-op.
+	require.NoError(t, s.Bind(ctx, "tok", "", []string{"api.github.com"}))
+	_, _, hosts, err = s.Get(ctx, "tok", "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"api.github.com", "*.github.com"}, hosts)
+
+	// Unbind one.
+	require.NoError(t, s.Unbind(ctx, "tok", "", []string{"api.github.com"}))
+	_, _, hosts, err = s.Get(ctx, "tok", "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"*.github.com"}, hosts)
+
+	// Unbind the last one errors.
+	err = s.Unbind(ctx, "tok", "", []string{"*.github.com"})
+	assert.ErrorIs(t, err, secrets.ErrNoAllowedHosts)
+}
+
+func TestStore_Bind_NotFound(t *testing.T) {
+	s := newTestStore(t)
+	err := s.Bind(context.Background(), "missing", "", []string{"example.com"})
+	assert.ErrorIs(t, err, secrets.ErrNotFound)
+}
+
+func TestHostScopeAllows(t *testing.T) {
+	cases := []struct {
+		hosts []string
+		host  string
+		want  bool
+	}{
+		{[]string{"api.github.com"}, "api.github.com", true},
+		{[]string{"api.github.com"}, "evil.com", false},
+		{[]string{"*.github.com"}, "api.github.com", true},
+		{[]string{"*.github.com"}, "a.b.github.com", false},
+		{[]string{"**.github.com"}, "a.b.github.com", true},
+		{[]string{"**"}, "anything.example.com", true},
+		{[]string{"api.github.com", "*.internal"}, "service.internal", true},
+	}
+	for _, tc := range cases {
+		got := secrets.HostScopeAllows(tc.hosts, tc.host)
+		assert.Equal(t, tc.want, got, "HostScopeAllows(%v, %q)", tc.hosts, tc.host)
+	}
 }
 
 func TestStore_InvalidateCache(t *testing.T) {

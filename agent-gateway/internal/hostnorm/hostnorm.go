@@ -19,6 +19,7 @@ package hostnorm
 import (
 	"fmt"
 	"net"
+	"regexp"
 	"strings"
 
 	"golang.org/x/net/idna"
@@ -73,6 +74,53 @@ func NormalizeGlob(pattern string) (string, error) {
 		}
 	}
 	return strings.Join(segments, "."), nil
+}
+
+// MatchHostGlob reports whether host matches the given glob pattern using the
+// project's label-aware glob semantics:
+//
+//   - "*"  matches any sequence within a single label (no "." crossing).
+//   - "**" matches any number of labels across ".".
+//
+// Both arguments should already be normalised via Normalize / NormalizeGlob —
+// this helper does not re-normalise so callers can pre-compile patterns at
+// load time.
+func MatchHostGlob(pattern, host string) bool {
+	re := regexp.MustCompile(hostGlobToRegexp(pattern))
+	return re.MatchString(host)
+}
+
+// hostGlobToRegexp translates a host glob pattern to an anchored regexp
+// string. Separator is "." for hostname labels. Kept in sync with the
+// equivalent helper in internal/rules/parse.go and internal/proxy/decide.go;
+// unifying those callers into this helper is tracked as a refactor.
+func hostGlobToRegexp(pattern string) string {
+	const sep = "."
+	const escapedSep = `\.`
+	var sb strings.Builder
+	sb.WriteString("^")
+	i := 0
+	for i < len(pattern) {
+		if i+1 < len(pattern) && pattern[i] == '*' && pattern[i+1] == '*' {
+			i += 2
+			if i < len(pattern) && string(pattern[i]) == sep {
+				sb.WriteString(`(?:.*` + escapedSep + `)?`)
+				i++
+			} else {
+				sb.WriteString(`.*`)
+			}
+			continue
+		}
+		if pattern[i] == '*' {
+			sb.WriteString(`[^` + escapedSep + `]*`)
+			i++
+			continue
+		}
+		sb.WriteString(regexp.QuoteMeta(string(pattern[i])))
+		i++
+	}
+	sb.WriteString("$")
+	return sb.String()
 }
 
 // asIPLiteral reports whether host is an IP literal (v4, v6, or bracketed v6)

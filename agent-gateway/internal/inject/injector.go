@@ -42,35 +42,44 @@ func NewInjector(store SecretsGetter, ttl time.Duration) *Injector {
 }
 
 // scopedCachingStore wraps SecretsGetter with an in-process TTL cache.
-// Both value and scope are stored together so that the scope is correctly
-// returned on cache hits as well as cache misses.
+// Value, scope, and allowed_hosts are stored together so the full tuple
+// is returned on cache hits as well as cache misses. Cached allowed_hosts
+// means bind/unbind CLI actions only take effect after SIGHUP invalidates
+// the cache — the same cadence that applies to value rotations.
 type scopedCachingStore struct {
 	inner SecretsGetter
 	cache *Cache
 }
 
-func (s *scopedCachingStore) Get(ctx context.Context, name, agent string) (string, string, error) {
-	if value, scope, ok := s.cache.Get(agent, name); ok {
-		return value, scope, nil
+func (s *scopedCachingStore) Get(ctx context.Context, name, agent string) (string, string, []string, error) {
+	if value, scope, hosts, ok := s.cache.Get(agent, name); ok {
+		return value, scope, hosts, nil
 	}
-	value, scope, err := s.inner.Get(ctx, name, agent)
+	value, scope, hosts, err := s.inner.Get(ctx, name, agent)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
-	s.cache.Set(agent, name, value, scope, time.Time{})
-	return value, scope, nil
+	s.cache.Set(agent, name, value, scope, hosts, time.Time{})
+	return value, scope, hosts, nil
 }
 
 // Apply applies the inject block of rule to req for the given agent.
 //
+// host is the request's target hostname (no port), already normalised via
+// hostnorm.Normalize. It is passed through to template expansion so each
+// ${secrets.X} reference can assert the host is in the secret's
+// allowed_hosts list before being injected. A scope mismatch surfaces as
+// ErrSecretHostScopeViolation wrapped by StatusFailed.
+//
 // Algorithm:
 //  1. If rule.Inject is nil, return StatusNoInject immediately.
 //  2. Expand ALL replace_header templates first, collecting (name→value). On
-//     the first unresolved secret, return StatusFailed without touching req.
+//     the first unresolved secret or scope violation, return StatusFailed
+//     without touching req.
 //  3. Apply replace_header mutations to req.
 //  4. Apply remove_header deletions.
 //  5. Return StatusApplied and the first credential scope encountered.
-func (inj *Injector) Apply(ctx context.Context, req *http.Request, rule *rules.Rule, agent string) (InjectionStatus, string, error) {
+func (inj *Injector) Apply(ctx context.Context, req *http.Request, rule *rules.Rule, agent, host string) (InjectionStatus, string, error) {
 	if rule.Inject == nil {
 		return StatusNoInject, "", nil
 	}
@@ -102,7 +111,7 @@ func (inj *Injector) Apply(ctx context.Context, req *http.Request, rule *rules.R
 
 	for _, hName := range headerNames {
 		tmpl := rule.Inject.ReplaceHeaders[hName]
-		expanded, scope, err := Expand(ctx, tmpl, agent, effectiveStore)
+		expanded, scope, err := Expand(ctx, tmpl, agent, host, effectiveStore)
 		if err != nil {
 			return StatusFailed, "", fmt.Errorf("inject replace_header %q: %w", hName, err)
 		}

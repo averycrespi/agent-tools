@@ -155,6 +155,16 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		proxyInjector = &injectAdapter{inj: inj}
 	}
 
+	// 3b.1. Surface coverage warnings: rules that reference ${secrets.X} but
+	// whose match.host pattern may not be covered by the secret's
+	// allowed_hosts. Non-fatal; the runtime will still enforce scope on each
+	// request via ErrSecretHostScopeViolation.
+	if secretsStore != nil {
+		for _, w := range warnSecretCoverage(ctx, engine, secretsStore) {
+			log.Warn(w)
+		}
+	}
+
 	// 3c. Initialise the agents registry and approval broker.
 	// Registry failure is fatal: without it, the proxy cannot authenticate
 	// CONNECT requests and would silently accept any caller, ignore
@@ -371,6 +381,13 @@ func RunServe(ctx context.Context, d serveDeps) error {
 					inj.InvalidateCache()
 					log.Info("injector cache invalidated")
 				}
+				// Re-check secret coverage: either the ruleset or a secret's
+				// allowed_hosts may have changed since the last reload.
+				if secretsStore != nil {
+					for _, w := range warnSecretCoverage(ctx, engine, secretsStore) {
+						log.Warn(w)
+					}
+				}
 				if reloadErr := agentsRegistry.ReloadFromDB(ctx); reloadErr != nil {
 					log.Warn("agents registry reload failed", "err", reloadErr)
 				} else {
@@ -417,8 +434,8 @@ type injectAdapter struct {
 	inj *inject.Injector
 }
 
-func (a *injectAdapter) Apply(req *http.Request, rule *rules.Rule, agent string) (inject.InjectionStatus, string, error) {
-	return a.inj.Apply(req.Context(), req, rule, agent)
+func (a *injectAdapter) Apply(req *http.Request, rule *rules.Rule, agent, host string) (inject.InjectionStatus, string, error) {
+	return a.inj.Apply(req.Context(), req, rule, agent, host)
 }
 
 // shutdown gracefully shuts down both HTTP servers with a 30-second timeout.
