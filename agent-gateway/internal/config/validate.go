@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/net/publicsuffix"
+
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/hostnorm"
 )
 
@@ -74,6 +76,51 @@ func validateNoInterceptHosts(patterns []string) ([]string, error) {
 			))
 			patterns[i] = normalized
 		}
+		if w := warnIfPublicSuffix(i, patterns[i]); w != "" {
+			warnings = append(warnings, w)
+		}
 	}
 	return warnings, nil
+}
+
+// warnIfPublicSuffix returns a warning when a no_intercept_hosts pattern,
+// after stripping its leading wildcard labels, reduces to an ICANN-managed
+// public suffix. Such an entry would tunnel every host under a registry-
+// controlled TLD past MITM — almost always a mistake (e.g. "*.com" tunnels
+// the entire internet; "*.co.uk" tunnels every UK commercial domain).
+//
+// Patterns whose stripped form is not a public suffix (e.g. "*.example.com"),
+// or whose suffix is on the private/non-ICANN portion of the PSL (e.g.
+// "*.internal", "*.k8s.local"), do not produce a warning.
+func warnIfPublicSuffix(idx int, pattern string) string {
+	stripped := stripLeadingWildcardLabels(pattern)
+	if stripped == "" {
+		return ""
+	}
+	suffix, icann := publicsuffix.PublicSuffix(stripped)
+	if !icann || stripped != suffix {
+		return ""
+	}
+	return fmt.Sprintf(
+		"config: proxy_behavior.no_intercept_hosts[%d] %q strips to public suffix %q; tunneling would bypass MITM for every host under %q",
+		idx, pattern, suffix, suffix,
+	)
+}
+
+// stripLeadingWildcardLabels removes any sequence of leading "*." or "**."
+// label prefixes. Returns "" when the entire pattern is wildcards (callers
+// reject that case separately).
+func stripLeadingWildcardLabels(p string) string {
+	for {
+		switch {
+		case strings.HasPrefix(p, "**."):
+			p = p[3:]
+		case strings.HasPrefix(p, "*."):
+			p = p[2:]
+		case p == "*" || p == "**":
+			return ""
+		default:
+			return p
+		}
+	}
 }

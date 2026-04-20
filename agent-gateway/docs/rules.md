@@ -66,7 +66,7 @@ rule "github-issue-create" {
 | `path`    | string glob    | no       | Same glob syntax as `host`.                                                                     |
 | `headers` | map of strings | no       | Each value is a Go RE2 regex matched against the canonical header. Missing headers never match. |
 
-> **Why `host` is required.** The CONNECT-time decision filter consults each agent's set of rule hosts to decide whether to MITM or tunnel. A rule with no `host` would not appear in that index, so its verdict (especially a `deny`) would silently never fire. Spell `host = "**"` if you genuinely want to match every host.
+> **Why `host` is required.** The CONNECT-time decision filter consults each agent's set of rule hosts to decide whether to MITM or tunnel. A rule with no `host` would not appear in that index, so its verdict (especially a `deny`) would silently never fire. Spell `host = "**"` if you genuinely want to match every host — the loader accepts it and emits a soft warning naming the rule so unscoped matches remain visible in logs and `rules check`.
 
 > **Host canonicalisation.** `host` is normalised at load time: ASCII is lowercased, a trailing `.` is stripped, and Unicode labels are mapped to punycode via the IDNA `Lookup` profile. `Api.GitHub.com`, `api.github.com.`, and `api.github.com` all compile to the same pattern. If normalisation rewrites your input you'll see a warning on the next `rules check` or daemon start showing the stored form. The same canonicalisation runs on incoming CONNECT targets, so rules written in one form match requests in any form. Mixed wildcard+literal segments (e.g. `api-*.github.com`) are ASCII-lowercased only — Unicode in mixed segments is unsupported; write the literal portion in ASCII.
 

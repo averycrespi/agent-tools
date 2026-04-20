@@ -3,6 +3,7 @@ package rules_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
@@ -232,7 +233,8 @@ rule "deny-all" {
 }
 
 // TestParse_DoubleStarHostIsAccepted verifies the "all hosts" alternative
-// pointed to by the empty-host error message is itself a valid configuration.
+// pointed to by the empty-host error message is itself a valid configuration
+// and produces a soft warning naming the rule.
 func TestParse_DoubleStarHostIsAccepted(t *testing.T) {
 	dir := t.TempDir()
 	writeHCL(t, dir, "all-hosts.hcl", `
@@ -241,10 +243,19 @@ rule "deny-all" {
   verdict = "deny"
 }
 `)
-	rs, _, err := rules.ParseDir(dir)
+	rs, warnings, err := rules.ParseDir(dir)
 	require.NoError(t, err)
 	require.Len(t, rs, 1)
 	assert.Equal(t, "**", rs[0].Match.Host)
+
+	var found bool
+	for _, w := range warnings {
+		if strings.Contains(w, `rule "deny-all"`) && strings.Contains(w, `match.host = "**"`) {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected match.host = \"**\" warning naming rule, got: %v", warnings)
 }
 
 func TestParse_MultipleBodyBlocksIsError(t *testing.T) {

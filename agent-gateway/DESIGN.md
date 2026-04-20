@@ -844,6 +844,14 @@ running daemon. Both `Load` (startup) and `Save` (CLI write paths) call
 the validator, so an invalid config never lands on disk via the CLI
 either.
 
+The validator also soft-warns on entries that, after stripping leading
+wildcard labels, resolve to an ICANN-managed public suffix (e.g.
+`*.com`, `**.co.uk`, `com`). Such an entry would tunnel every host under
+a registry-controlled TLD past MITM — almost always a typo, but
+permitted in case an operator genuinely intends it. The warning surfaces
+at daemon startup (config is not re-read on `SIGHUP`, so config changes
+require a restart to re-check).
+
 ### Trust distribution
 
 - `GET :8221/ca.pem` — serves root cert, unauthenticated. Public-key

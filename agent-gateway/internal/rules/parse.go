@@ -285,6 +285,12 @@ func decodeMatchBlock(block *hcl.Block, ruleName, path string) (Match, []string,
 				ruleName, raw, normalized,
 			))
 		}
+		if normalized == "**" {
+			warnings = append(warnings, fmt.Sprintf(
+				"rules: rule %q match.host = \"**\" matches every host; ensure this rule is intentionally unscoped",
+				ruleName,
+			))
+		}
 		m.Host = normalized
 	}
 	if attr, ok := content.Attributes["method"]; ok {

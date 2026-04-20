@@ -77,3 +77,53 @@ func TestValidateNoInterceptHosts_PointsAtBadIndex(t *testing.T) {
 		t.Errorf("error should name the offending index, got: %v", err)
 	}
 }
+
+func TestValidateNoInterceptHosts_WarnsPublicSuffix(t *testing.T) {
+	for _, p := range []string{
+		"*.com",
+		"**.com",
+		"*.co.uk",
+		"com",
+		"*.*.com",
+	} {
+		t.Run(p, func(t *testing.T) {
+			warnings, err := validateNoInterceptHosts([]string{p})
+			if err != nil {
+				t.Fatalf("unexpected error for %q: %v", p, err)
+			}
+			var found bool
+			for _, w := range warnings {
+				if strings.Contains(w, "public suffix") {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected public-suffix warning for %q, got: %v", p, warnings)
+			}
+		})
+	}
+}
+
+func TestValidateNoInterceptHosts_NoPublicSuffixWarningForSafeEntries(t *testing.T) {
+	for _, p := range []string{
+		"*.example.com",
+		"api.example.com",
+		"*.googleapis.com",
+		"*.internal",
+		"*.k8s.local",
+		"localhost",
+	} {
+		t.Run(p, func(t *testing.T) {
+			warnings, err := validateNoInterceptHosts([]string{p})
+			if err != nil {
+				t.Fatalf("unexpected error for %q: %v", p, err)
+			}
+			for _, w := range warnings {
+				if strings.Contains(w, "public suffix") {
+					t.Errorf("unexpected public-suffix warning for %q: %q", p, w)
+				}
+			}
+		})
+	}
+}
