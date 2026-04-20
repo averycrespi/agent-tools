@@ -63,7 +63,7 @@ local-gomod-proxy/
 │       └── serve.go             # `serve` subcommand
 ├── internal/
 │   ├── exec/
-│   │   ├── exec.go              # Runner interface (same pattern as siblings)
+│   │   ├── exec.go              # Runner interface — extends the sibling pattern with a context for subprocess cancellation on shutdown
 │   │   └── exec_test.go
 │   ├── goenv/
 │   │   ├── goenv.go             # Reads GOPRIVATE / GOMODCACHE / GOVERSION via `go env -json`
