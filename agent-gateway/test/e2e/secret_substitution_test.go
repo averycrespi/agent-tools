@@ -125,7 +125,7 @@ rule "inject-gh-bot" {
 	// Step 5: Set the secret. The CLI sends SIGHUP after writing the secret;
 	// the SIGHUP handler invalidates the injector cache.
 	// -------------------------------------------------------------------------
-	stack.setSecret(t, "gh_bot", "realtoken")
+	stack.setSecret(t, "gh_bot", "realtoken", upstreamHost)
 
 	// -------------------------------------------------------------------------
 	// Step 6: Give the daemon a moment to process SIGHUP.

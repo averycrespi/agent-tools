@@ -62,8 +62,8 @@ func TestAgentScopedSecretResolution(t *testing.T) {
 
 	// Step 2 + 3: write both a global and an a1-scoped value for the same name,
 	// with different values, so we can tell which scope the injector resolved.
-	stack.setSecret(t, "gh_bot", "global-token")
-	stack.setAgentSecret(t, "a1", "gh_bot", "agent-token")
+	stack.setSecret(t, "gh_bot", "global-token", upstreamHost)
+	stack.setAgentSecret(t, "a1", "gh_bot", "agent-token", upstreamHost)
 
 	// Step 4: replace the catch-all rule with one whose name differs from the
 	// agent name. If the pipeline passes the rule name instead of the agent

@@ -339,11 +339,20 @@ func (s *TestStack) writeRule(t *testing.T, filename, content string) {
 	}
 }
 
-// setSecret calls "agent-gateway secret set <name>" piping value via stdin.
+// setSecret calls "agent-gateway secret set <name> --host <glob> ..." piping
+// value via stdin. At least one host is required; use "**" for tests that
+// don't care about scoping.
 // XDG env vars are forwarded so the CLI writes to the daemon's data directory.
-func (s *TestStack) setSecret(t *testing.T, name, value string) {
+func (s *TestStack) setSecret(t *testing.T, name, value string, hosts ...string) {
 	t.Helper()
-	cmd := exec.Command(gatewayBinary, "secret", "set", name)
+	if len(hosts) == 0 {
+		t.Fatalf("setSecret %q: at least one host glob required", name)
+	}
+	args := []string{"secret", "set", name}
+	for _, h := range hosts {
+		args = append(args, "--host", h)
+	}
+	cmd := exec.Command(gatewayBinary, args...)
 	cmd.Stdin = strings.NewReader(value)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -353,11 +362,18 @@ func (s *TestStack) setSecret(t *testing.T, name, value string) {
 	}
 }
 
-// setAgentSecret calls "agent-gateway secret set --agent <agent> <name>" piping
-// value via stdin, writing an agent-scoped secret.
-func (s *TestStack) setAgentSecret(t *testing.T, agent, name, value string) {
+// setAgentSecret calls "agent-gateway secret set --agent <agent> <name>
+// --host <glob> ..." piping value via stdin, writing an agent-scoped secret.
+func (s *TestStack) setAgentSecret(t *testing.T, agent, name, value string, hosts ...string) {
 	t.Helper()
-	cmd := exec.Command(gatewayBinary, "secret", "set", "--agent", agent, name)
+	if len(hosts) == 0 {
+		t.Fatalf("setAgentSecret %q/%q: at least one host glob required", agent, name)
+	}
+	args := []string{"secret", "set", "--agent", agent, name}
+	for _, h := range hosts {
+		args = append(args, "--host", h)
+	}
+	cmd := exec.Command(gatewayBinary, args...)
 	cmd.Stdin = strings.NewReader(value)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
