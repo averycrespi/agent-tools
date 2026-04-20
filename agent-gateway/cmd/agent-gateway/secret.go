@@ -394,6 +394,27 @@ func execSecretRM(
 	confirmFn func() (bool, error),
 	signalFn func(string) error,
 ) error {
+	// Fail early if the (name, scope) pair doesn't exist — confirming the
+	// removal of something that isn't there would just be a confusing ritual.
+	metas, err := s.List(ctx)
+	if err != nil {
+		return fmt.Errorf("secret rm: %w", err)
+	}
+	wantScope := "global"
+	if agent != "" {
+		wantScope = "agent:" + agent
+	}
+	found := false
+	for _, m := range metas {
+		if m.Name == name && m.Scope == wantScope {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return secrets.ErrNotFound
+	}
+
 	ok, err := confirmFn()
 	if err != nil {
 		return err

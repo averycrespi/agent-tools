@@ -269,6 +269,23 @@ func execAgentRm(
 	confirmFn func() (bool, error),
 	signalFn func(string) error,
 ) error {
+	// Fail early if the agent doesn't exist — confirming the removal of
+	// something that isn't there would just be a confusing ritual.
+	metas, err := r.List(ctx)
+	if err != nil {
+		return fmt.Errorf("agent rm: %w", err)
+	}
+	found := false
+	for _, m := range metas {
+		if m.Name == name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return agents.ErrNotFound
+	}
+
 	ok, err := confirmFn()
 	if err != nil {
 		return err

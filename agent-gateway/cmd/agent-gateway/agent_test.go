@@ -247,11 +247,19 @@ func TestAgentRm_RemovesAgent(t *testing.T) {
 	assert.NotContains(t, listOut.String(), "doomed")
 }
 
-// TestAgentRm_NotFound verifies that rm on a non-existent agent returns ErrNotFound.
+// TestAgentRm_NotFound verifies that rm on a non-existent agent returns
+// ErrNotFound without invoking the confirmation prompt — it's pointless to
+// ask "are you sure?" about something that isn't there.
 func TestAgentRm_NotFound(t *testing.T) {
 	r := newTestRegistry(t)
 	var out bytes.Buffer
-	err := execAgentRm(context.Background(), r, "ghost", &out, confirmYes, noSIGHUP)
+	confirmCalled := false
+	confirm := func() (bool, error) {
+		confirmCalled = true
+		return true, nil
+	}
+	err := execAgentRm(context.Background(), r, "ghost", &out, confirm, noSIGHUP)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, agents.ErrNotFound)
+	assert.False(t, confirmCalled, "confirm prompt must not be shown for a non-existent agent")
 }

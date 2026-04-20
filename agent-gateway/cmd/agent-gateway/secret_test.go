@@ -239,3 +239,43 @@ func TestSecretRM_Agent(t *testing.T) {
 	assert.Equal(t, "global-val", val2)
 	assert.Equal(t, "global", scope2)
 }
+
+// TestSecretRM_NotFound verifies that rm on a non-existent secret returns
+// ErrNotFound without invoking the confirmation prompt.
+func TestSecretRM_NotFound(t *testing.T) {
+	db := secretTestDB(t)
+	s := newTestSecretStore(t, db)
+
+	var out bytes.Buffer
+	confirmCalled := false
+	confirm := func() (bool, error) {
+		confirmCalled = true
+		return true, nil
+	}
+	err := execSecretRM(context.Background(), s, "ghost", "", &out, confirm, noSIGHUP)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, secrets.ErrNotFound)
+	assert.False(t, confirmCalled, "confirm prompt must not be shown for a non-existent secret")
+}
+
+// TestSecretRM_AgentScopeMismatch verifies that an agent-scoped rm against a
+// name that exists only globally reports NotFound (no fallback to the global
+// row) and skips the confirmation prompt.
+func TestSecretRM_AgentScopeMismatch(t *testing.T) {
+	db := secretTestDB(t)
+	s := newTestSecretStore(t, db)
+	ctx := context.Background()
+
+	require.NoError(t, s.Set(ctx, "tok", "", "global-val", "", []string{"**"}))
+
+	var out bytes.Buffer
+	confirmCalled := false
+	confirm := func() (bool, error) {
+		confirmCalled = true
+		return true, nil
+	}
+	err := execSecretRM(ctx, s, "tok", "mybot", &out, confirm, noSIGHUP)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, secrets.ErrNotFound)
+	assert.False(t, confirmCalled)
+}
