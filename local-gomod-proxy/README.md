@@ -36,7 +36,17 @@ local-gomod-proxy serve [--addr 127.0.0.1:7070] [--private PATTERN] [--upstream 
 
 ## How the sandbox consumes it
 
-The intended configuration inside the sandbox is:
+If you use [`sandbox-manager`](../sandbox-manager/), add [`examples/provision/gomod-proxy.sh`](examples/provision/gomod-proxy.sh) to your `~/.config/sb/config.json`:
+
+```json
+{
+  "scripts": [
+    "~/Workspace/agent-tools/local-gomod-proxy/examples/provision/gomod-proxy.sh"
+  ]
+}
+```
+
+Otherwise, apply the equivalent configuration by hand inside the sandbox:
 
 ```sh
 export GOPROXY=http://host.lima.internal:7070/
