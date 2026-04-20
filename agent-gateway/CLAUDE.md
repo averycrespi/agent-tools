@@ -25,9 +25,9 @@ Single binary, two ports. `:8220` for the proxy (HTTP CONNECT + plain HTTP); `:8
 Pipeline (HTTPS MITM path): CONNECT → agent auth → intercept decision → TLS handshake → rule match → verdict dispatch (allow / deny / require-approval) → inject credentials → upstream dial → stream response → audit.
 
 ```
-cmd/agent-gateway/      CLI entry point (Cobra): serve, agent {add,list,rm,rotate,show},
-                        secret {set,list,rotate,rm,master rotate},
-                        rules {check,reload}, token rotate admin,
+cmd/agent-gateway/      CLI entry point (Cobra): serve, agent {add,list,rm,rotate},
+                        secret {add,list,update,rm,master rotate},
+                        rules {check,reload}, admin-token rotate,
                         ca {export,rotate}, config {path,edit,refresh}
 
 internal/proxy/         MITM HTTP/HTTPS proxy — CONNECT handler, per-host

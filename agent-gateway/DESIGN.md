@@ -72,7 +72,7 @@ Each deferred to v1.1+ with a one-line rationale so future-us has the context.
   global approval cap (§8) bounds the blast radius; folding N identical
   requests into one decision is additive and deferable.
 - **Agent / admin-token rotation grace window.** `agent rotate` and
-  `token rotate admin` invalidate the old token immediately. Coordinated
+  `admin-token rotate` invalidate the old token immediately. Coordinated
   rotation (mint → update sandbox env → restart agent) is a local-dev
   workflow; dual-accept can be added when a concrete need appears.
 - **Upstream auth-error body peek.** onecli inspects the first 8 KB of
@@ -124,7 +124,7 @@ Each deferred to v1.1+ with a one-line rationale so future-us has the context.
 ```
 cmd/agent-gateway/      CLI: serve, agent {add,list,rm,rotate,show},
                              secret {set,list,rotate,rm,master rotate},
-                             rules {check,reload}, token rotate admin,
+                             rules {check,reload}, admin-token rotate,
                              ca {export,rotate}, config {path,edit,refresh}
 
 internal/proxy/         MITM HTTP/HTTPS proxy, CONNECT handler, per-host
@@ -226,7 +226,7 @@ snapshot.
 ### CLI / daemon coordination
 
 State-mutating CLI commands (`secret add/update/rm`, `agent add/rm/rotate`,
-`token rotate admin`, `ca rotate`, `config refresh`, `rules reload`) apply
+`admin-token rotate`, `ca rotate`, `config refresh`, `rules reload`) apply
 the change (write SQLite for state, or just re-read files for `rules reload`)
 and then signal the running daemon to reload. Specifically:
 
@@ -1033,7 +1033,7 @@ connections are detected and subscriber channels get cleaned up.
 Single admin bearer token at `~/.config/agent-gateway/admin-token` (`0600`),
 generated on first run, printed to stdout on every startup. Presented via
 `?token=<x>` on first load, then set as `HttpOnly; SameSite=Strict` cookie.
-Rotatable via `agent-gateway token rotate admin`.
+Rotatable via `agent-gateway admin-token rotate`.
 
 Protects every dashboard endpoint including writes (`/dashboard/api/decide`
 for approval) and the SSE stream (`/dashboard/api/events`). Admin tokens and
@@ -1209,7 +1209,7 @@ agent-gateway rules {check, reload}
 agent-gateway agent {add, list, rm, rotate, show}
 agent-gateway secret {set, list, rotate, rm, master rotate}
 agent-gateway ca {export, rotate}
-agent-gateway token rotate admin
+agent-gateway admin-token rotate
 ```
 
 Cobra-based. `serve` holds a PID file in the config dir and refuses to

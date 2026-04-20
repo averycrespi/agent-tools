@@ -13,28 +13,19 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 )
 
-func newTokenCmd() *cobra.Command {
+func newAdminTokenCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "token",
-		Short: "Manage admin tokens",
+		Use:   "admin-token",
+		Short: "Manage the admin dashboard token",
 	}
-	cmd.AddCommand(newTokenRotateCmd())
+	cmd.AddCommand(newAdminTokenRotateCmd())
 	return cmd
 }
 
-func newTokenRotateCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "rotate",
-		Short: "Rotate an admin token",
-	}
-	cmd.AddCommand(newTokenRotateAdminCmd())
-	return cmd
-}
-
-func newTokenRotateAdminCmd() *cobra.Command {
+func newAdminTokenRotateCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
-		Use:   "admin",
+		Use:   "rotate",
 		Short: "Rotate the admin dashboard token and reload the running daemon",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -42,7 +33,7 @@ func newTokenRotateAdminCmd() *cobra.Command {
 				return confirm(cmd.InOrStdin(), cmd.OutOrStdout(), stdinIsTTY(), force,
 					"Rotate the admin dashboard token? Existing dashboard sessions will be invalidated.")
 			}
-			return execTokenRotateAdmin(
+			return execAdminTokenRotate(
 				paths.AdminTokenFile(),
 				paths.PIDFile(),
 				daemon.DefaultVerifyComm,
@@ -56,12 +47,12 @@ func newTokenRotateAdminCmd() *cobra.Command {
 	return cmd
 }
 
-// execTokenRotateAdmin generates a new admin token, writes it to tokenPath,
+// execAdminTokenRotate generates a new admin token, writes it to tokenPath,
 // and sends SIGHUP to the running daemon so it reloads the token in memory.
 // If no daemon is running the token is still rotated (so the next startup
 // picks up the new value). Output is written to out. verify and send are
 // injectable for tests.
-func execTokenRotateAdmin(
+func execAdminTokenRotate(
 	tokenPath string,
 	pidPath string,
 	verify func(pid int) (bool, error),
@@ -78,7 +69,7 @@ func execTokenRotateAdmin(
 	}
 	tok, err := dashboard.GenerateAdminToken(tokenPath)
 	if err != nil {
-		return fmt.Errorf("token rotate admin: %w", err)
+		return fmt.Errorf("admin-token rotate: %w", err)
 	}
 	_, _ = fmt.Fprintln(out, "rotated admin token:", tok)
 

@@ -363,10 +363,10 @@ func TestServe_OpenBrowserCalledOnSubsequentRun(t *testing.T) {
 	assert.Equal(t, int32(1), runOnce(), "browser should open on subsequent run")
 }
 
-// TestTokenRotateAdmin_InvalidatesCookie verifies that after "token rotate
-// admin" is executed, the running server rejects the old token (simulated via
+// TestAdminTokenRotate_InvalidatesCookie verifies that after "admin-token
+// rotate" is executed, the running server rejects the old token (simulated via
 // the SIGHUP reload path) and accepts the new one.
-func TestTokenRotateAdmin_InvalidatesCookie(t *testing.T) {
+func TestAdminTokenRotate_InvalidatesCookie(t *testing.T) {
 	dAddr, cancel, done := startServe(t)
 	defer func() {
 		cancel()
@@ -385,7 +385,7 @@ func TestTokenRotateAdmin_InvalidatesCookie(t *testing.T) {
 
 	// Rotate: generate a new token file, then signal the process via SIGHUP.
 	var signalled atomic.Bool
-	err = execTokenRotateAdmin(
+	err = execAdminTokenRotate(
 		paths.AdminTokenFile(),
 		paths.PIDFile(),
 		func(pid int) (bool, error) { return true, nil }, // pretend it's agent-gateway

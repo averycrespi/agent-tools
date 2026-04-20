@@ -22,7 +22,7 @@ Destructive commands prompt for `[y/N]` confirmation before proceeding:
 - `secret rm <name>`
 - `secret master rotate`
 - `ca rotate`
-- `token rotate admin`
+- `admin-token rotate`
 
 Each of these accepts a `--force` flag to skip the prompt. When stdin is not a TTY (scripted use), the prompt cannot be shown and the command refuses unless `--force` is passed — scripts must opt into destructive actions explicitly.
 
@@ -191,12 +191,12 @@ Signal the running daemon to re-parse `rules.d/`. Prints `reloaded` on success, 
 
 Invalid rule files leave the previous rule-set live — see [rules.md](./rules.md#reload) for the fail-safe behaviour.
 
-## `token rotate admin`
+## `admin-token rotate`
 
 Generate a new admin dashboard token. The new token is written to `$XDG_CONFIG_HOME/agent-gateway/admin-token` and printed to stdout. The running daemon is signalled to reload the token in memory.
 
 ```bash
-agent-gateway token rotate admin
+agent-gateway admin-token rotate
 ```
 
 | Flag      | Description               |
