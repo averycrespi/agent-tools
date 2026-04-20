@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>agent-gateway</title>
+    <title>Agent Gateway</title>
     <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg" />
     <link rel="stylesheet" href="/dashboard/styles.css" />
   </head>
@@ -11,7 +11,7 @@
     <div class="header">
       <div class="header-left">
         <img src="/dashboard/favicon.svg" alt="" width="24" height="24" />
-        <h1>agent-gateway</h1>
+        <h1>Agent Gateway</h1>
       </div>
       <div class="header-left">
         <div class="status-dot" id="status"></div>
@@ -21,11 +21,11 @@
 
     <div class="tab-bar">
       <button class="tab active" id="tab-live" onclick="switchTab('live')">
-        Live feed
+        Live Feed
         <span class="tab-badge hidden" id="pending-badge">0</span>
       </button>
       <button class="tab" id="tab-audit" onclick="switchTab('audit')">
-        Audit
+        Audit Log
       </button>
       <button class="tab" id="tab-rules" onclick="switchTab('rules')">
         Rules
@@ -45,7 +45,7 @@
           <div class="section-title">Pending Approvals</div>
           <div id="pending-cards"></div>
         </div>
-        <div class="section-title">Live feed</div>
+        <div class="section-title">Live Feed</div>
         <div class="feed-container" id="feed-rows"></div>
       </div>
 

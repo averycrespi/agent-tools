@@ -216,13 +216,13 @@ func unauthorizedForm(errMsg string) string {
 		errHTML = `<p class="err">` + html.EscapeString(errMsg) + `</p>`
 	}
 	return `<!DOCTYPE html>
-<html><head><title>Unauthorized - agent-gateway</title>
+<html><head><title>Unauthorized - Agent Gateway</title>
 <style>body{font-family:system-ui,sans-serif;max-width:600px;margin:80px auto;padding:0 20px;color:#333}
 h1{color:#c00}.err{color:#c00;font-weight:bold}input{padding:6px 10px;font-size:1em;width:100%}
 button{margin-top:8px;padding:8px 16px;font-size:1em;cursor:pointer}</style>
 </head><body>
 <h1>Unauthorized</h1>
-<p>You need to authenticate to access the agent-gateway dashboard.</p>
+<p>You need to authenticate to access the Agent Gateway dashboard.</p>
 <p>Open the authenticated URL printed at startup:</p>
 <pre>Dashboard: http://localhost:PORT/dashboard/?token=TOKEN</pre>
 ` + errHTML + `

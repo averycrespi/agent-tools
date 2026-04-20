@@ -377,7 +377,7 @@ func TestIndexServesHTMLWithEmbeddedBundle(t *testing.T) {
 	require.Contains(t, resp.Header.Get("Content-Type"), "text/html")
 
 	body, _ := io.ReadAll(resp.Body)
-	require.Contains(t, string(body), "<title>agent-gateway</title>")
+	require.Contains(t, string(body), "<title>Agent Gateway</title>")
 	require.Contains(t, string(body), "app.js")
 
 	// GET /dashboard/app.js → 200 non-empty.
