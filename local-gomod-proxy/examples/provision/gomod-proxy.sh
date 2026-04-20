@@ -14,26 +14,20 @@ set -euo pipefail
 command_exists() { command -v "$1" &>/dev/null; }
 
 if ! command_exists go; then
-    echo "error: go not found on PATH — install Go first (e.g. asdf-golang.sh)" >&2
-    exit 1
+	echo "error: go not found on PATH — install Go first (e.g. asdf-golang.sh)" >&2
+	exit 1
 fi
 
 MARKER_START="# >>> local-gomod-proxy >>>"
 MARKER_END="# <<< local-gomod-proxy <<<"
 
-# Clear any persisted `go env -w GOPRIVATE=…`. If GOPRIVATE is set, matching
-# modules bypass GOPROXY and try to clone directly — which fails because the
-# sandbox has no git credentials. The `unset` in ~/.bashrc below is the
-# defense-in-depth partner to this persistent clear.
-go env -u GOPRIVATE
-
 if grep -qF "$MARKER_START" "$HOME/.bashrc" 2>/dev/null; then
-    echo "local-gomod-proxy env already configured in ~/.bashrc, skipping"
-    exit 0
+	echo "local-gomod-proxy env already configured in ~/.bashrc, skipping"
+	exit 0
 fi
 
 echo "Configuring GOPROXY in ~/.bashrc"
-cat >> "$HOME/.bashrc" <<EOF
+cat >>"$HOME/.bashrc" <<EOF
 
 $MARKER_START
 # Route Go module resolution through the host's local-gomod-proxy.
