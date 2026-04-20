@@ -106,7 +106,50 @@ func TestSecretAdd_NoShadowWarning(t *testing.T) {
 	var out bytes.Buffer
 	err := execSecretAdd(ctx, s, "tok", "", "", []string{"**"}, strings.NewReader("val\n"), &out, false, noSIGHUP)
 	require.NoError(t, err)
-	assert.Empty(t, out.String())
+	assert.Equal(t, "added: tok\n", out.String(),
+		"success message must be printed, and no shadow warning when set globally")
+}
+
+// TestSecretAdd_DuplicateMessage verifies that re-adding an existing secret
+// returns a user-friendly error that names the secret and suggests
+// "secret update", rather than leaking a SQLite constraint message.
+func TestSecretAdd_DuplicateMessage(t *testing.T) {
+	db := secretTestDB(t)
+	s := newTestSecretStore(t, db)
+	ctx := context.Background()
+
+	var out bytes.Buffer
+	require.NoError(t, execSecretAdd(ctx, s, "dupe", "", "", []string{"**"}, strings.NewReader("v1\n"), &out, false, noSIGHUP))
+
+	out.Reset()
+	err := execSecretAdd(ctx, s, "dupe", "", "", []string{"**"}, strings.NewReader("v2\n"), &out, false, noSIGHUP)
+	require.Error(t, err)
+
+	msg := err.Error()
+	assert.Contains(t, msg, `"dupe"`)
+	assert.Contains(t, msg, "already exists")
+	assert.Contains(t, msg, "secret update dupe")
+	assert.NotContains(t, msg, "sqlite", "raw sqlite error must not leak")
+}
+
+// TestSecretAdd_DuplicateMessage_Agent verifies the agent-scoped duplicate
+// message includes the --agent flag in the suggested update command.
+func TestSecretAdd_DuplicateMessage_Agent(t *testing.T) {
+	db := secretTestDB(t)
+	s := newTestSecretStore(t, db)
+	ctx := context.Background()
+
+	var out bytes.Buffer
+	require.NoError(t, execSecretAdd(ctx, s, "dupe", "mybot", "", []string{"**"}, strings.NewReader("v1\n"), &out, false, noSIGHUP))
+
+	out.Reset()
+	err := execSecretAdd(ctx, s, "dupe", "mybot", "", []string{"**"}, strings.NewReader("v2\n"), &out, false, noSIGHUP)
+	require.Error(t, err)
+
+	msg := err.Error()
+	assert.Contains(t, msg, `"dupe"`)
+	assert.Contains(t, msg, `agent "mybot"`)
+	assert.Contains(t, msg, "secret update dupe --agent mybot")
 }
 
 // TestSecretAdd_RefusesTTY verifies that set returns an error when stdin is a TTY.

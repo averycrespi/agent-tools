@@ -126,6 +126,17 @@ func newSecretAddCmd() *cobra.Command {
 	return cmd
 }
 
+// duplicateSecretError formats the user-facing error returned when
+// "secret add" is invoked for an (name, scope) pair that already exists.
+// The message names the existing secret and points at "secret update" as
+// the right way to change its value.
+func duplicateSecretError(name, agent string) error {
+	if agent == "" {
+		return fmt.Errorf("secret %q already exists. To change its value, use: agent-gateway secret update %s", name, name)
+	}
+	return fmt.Errorf("secret %q already exists for agent %q. To change its value, use: agent-gateway secret update %s --agent %s", name, agent, name, agent)
+}
+
 // execSecretAdd implements "secret add". Separated for testability.
 // signalFn receives the PID file path and is responsible for sending SIGHUP.
 func execSecretAdd(
@@ -144,8 +155,13 @@ func execSecretAdd(
 	}
 
 	if err := s.Set(ctx, name, agent, value, desc, hosts); err != nil {
+		if errors.Is(err, secrets.ErrDuplicate) {
+			return duplicateSecretError(name, agent)
+		}
 		return fmt.Errorf("secret add: %w", err)
 	}
+
+	_, _ = fmt.Fprintf(out, "added: %s\n", name)
 
 	// Shadow warning: if agent-scoped, check whether a global row also exists.
 	if agent != "" {

@@ -23,6 +23,10 @@ var ErrNotFound = errors.New("secret not found")
 // all-hosts opt-in).
 var ErrNoAllowedHosts = errors.New("secret requires at least one allowed host")
 
+// ErrDuplicate is returned by Set when a secret with the given (name, scope)
+// already exists.
+var ErrDuplicate = errors.New("secret already exists")
+
 // Metadata holds non-secret metadata about a stored secret.
 type Metadata struct {
 	ID           int64
@@ -156,11 +160,25 @@ LIMIT 1`
 // Set stores a new secret. agent is the agent name (empty → global scope).
 // allowedHosts must contain at least one glob; patterns are normalised via
 // hostnorm.NormalizeGlob and de-duplicated in insertion order.
+//
+// Returns ErrDuplicate if a secret with the same (name, scope) already exists.
 func (s *sqlStore) Set(ctx context.Context, name, agent, value, description string, allowedHosts []string) error {
 	cleaned, err := sanitizeAllowedHosts(allowedHosts)
 	if err != nil {
 		return err
 	}
+	scope := agentToScope(agent)
+
+	var existing string
+	switch err := s.db.QueryRowContext(ctx, `SELECT name FROM secrets WHERE name=? AND scope=?`, name, scope).Scan(&existing); {
+	case err == nil:
+		return ErrDuplicate
+	case errors.Is(err, sql.ErrNoRows):
+		// Not a duplicate; proceed to insert.
+	default:
+		return fmt.Errorf("secrets: check duplicate: %w", err)
+	}
+
 	nonce, ciphertext, err := encrypt(s.key, []byte(value))
 	if err != nil {
 		return err
@@ -169,7 +187,6 @@ func (s *sqlStore) Set(ctx context.Context, name, agent, value, description stri
 	if err != nil {
 		return err
 	}
-	scope := agentToScope(agent)
 	now := time.Now().Unix()
 	const q = `
 INSERT INTO secrets (name, scope, ciphertext, nonce, created_at, rotated_at, description, allowed_hosts)

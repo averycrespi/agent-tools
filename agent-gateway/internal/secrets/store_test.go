@@ -327,6 +327,18 @@ func TestStore_Set_RejectsEmptyAllowedHosts(t *testing.T) {
 	assert.ErrorIs(t, err, secrets.ErrNoAllowedHosts)
 }
 
+func TestStore_Set_Duplicate(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	require.NoError(t, s.Set(ctx, "dupe", "", "v1", "", []string{"**"}))
+
+	err := s.Set(ctx, "dupe", "", "v2", "", []string{"**"})
+	assert.ErrorIs(t, err, secrets.ErrDuplicate)
+
+	// Global and agent-scoped with same name are distinct — not duplicates.
+	require.NoError(t, s.Set(ctx, "dupe", "mybot", "v3", "", []string{"**"}))
+}
+
 func TestStore_Set_RejectsWildcardOnly(t *testing.T) {
 	s := newTestStore(t)
 	err := s.Set(context.Background(), "tok", "", "v", "", []string{"*.*"})
