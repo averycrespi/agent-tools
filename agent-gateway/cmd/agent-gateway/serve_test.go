@@ -317,6 +317,52 @@ func TestServe_OpenBrowserSkippedWhenHeadless(t *testing.T) {
 	assert.False(t, browserCalled.Load(), "openBrowser must not be called when --headless is set")
 }
 
+// TestServe_OpenBrowserCalledOnSubsequentRun verifies that the browser is
+// opened on every serve start, not only on the first run. Regression guard
+// for the previous behaviour where OpenBrowser was gated on firstRun.
+func TestServe_OpenBrowserCalledOnSubsequentRun(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_DATA_HOME", dir)
+
+	cfg := config.DefaultConfig()
+	cfg.Proxy.Listen = "127.0.0.1:0"
+	cfg.Dashboard.Listen = "127.0.0.1:0"
+	cfg.Dashboard.OpenBrowser = true
+	require.NoError(t, config.Save(cfg, paths.ConfigFile()))
+
+	// Run once to create the admin-token file (first run).
+	runOnce := func() int32 {
+		var calls atomic.Int32
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		ready := make(chan struct{})
+		deps := newServeDeps()
+		deps.Ready = ready
+		deps.OpenBrowserFn = func(_ string) error {
+			calls.Add(1)
+			return nil
+		}
+
+		done := make(chan error, 1)
+		go func() { done <- RunServe(ctx, deps) }()
+
+		select {
+		case <-ready:
+		case <-time.After(30 * time.Second):
+			t.Fatal("serve did not become ready within 30s")
+		}
+
+		cancel()
+		require.NoError(t, <-done)
+		return calls.Load()
+	}
+
+	assert.Equal(t, int32(1), runOnce(), "browser should open on first run")
+	assert.Equal(t, int32(1), runOnce(), "browser should open on subsequent run")
+}
+
 // TestTokenRotateAdmin_InvalidatesCookie verifies that after "token rotate
 // admin" is executed, the running server rejects the old token (simulated via
 // the SIGHUP reload path) and accepts the new one.

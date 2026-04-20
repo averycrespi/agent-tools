@@ -43,7 +43,7 @@ agent-gateway is designed to run on the host while one or more sandboxed agents 
 agent-gateway serve
 ```
 
-The dashboard URL (with admin token) is printed once on first run:
+The dashboard URL (with admin token) is printed on every startup:
 
 ```
 Dashboard: http://127.0.0.1:8221/dashboard/?token=<admin-token>

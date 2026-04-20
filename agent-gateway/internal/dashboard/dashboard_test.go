@@ -26,7 +26,7 @@ func newTestServer(t *testing.T, deps Deps) (*httptest.Server, string) {
 		deps.AdminTokenPath = filepath.Join(dir, "admin-token")
 	}
 	s := New(deps)
-	h, _ := s.Handler()
+	h := s.Handler()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	// read back generated token

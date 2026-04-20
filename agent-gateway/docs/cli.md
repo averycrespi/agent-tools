@@ -39,9 +39,9 @@ agent-gateway serve --headless
 
 | Flag         | Description                                                               |
 | ------------ | ------------------------------------------------------------------------- |
-| `--headless` | Suppress the first-run browser launch. Useful on CI and headless servers. |
+| `--headless` | Suppress the browser launch on startup. Useful on CI and headless servers. |
 
-Binds `:8220` (proxy) and `:8221` (dashboard) per config. On first run, prints the dashboard URL with its admin token to stdout and optionally opens it in a browser. On subsequent runs, the admin token is read from `$XDG_CONFIG_HOME/agent-gateway/admin-token` without being re-printed.
+Binds `:8220` (proxy) and `:8221` (dashboard) per config. On every startup, prints the dashboard URL with its admin token to stdout and opens it in a browser when `dashboard.open_browser = true` (the default) and `--headless` is not set. The admin token is generated on first run and persisted at `$XDG_CONFIG_HOME/agent-gateway/admin-token`.
 
 Signals:
 

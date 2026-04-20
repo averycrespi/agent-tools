@@ -58,9 +58,9 @@ type serveDeps struct {
 	// config value. Tests and CI set this to avoid launching a real browser.
 	Headless bool
 
-	// OpenBrowserFn is called with the dashboard URL when the server starts for
-	// the first time (first-run) and Headless is false and cfg.Dashboard.OpenBrowser
-	// is true. If nil, the default platform-specific opener is used.
+	// OpenBrowserFn is called with the dashboard URL on every serve start
+	// when Headless is false and cfg.Dashboard.OpenBrowser is true. If nil,
+	// the default platform-specific opener is used.
 	OpenBrowserFn func(url string) error
 }
 
@@ -287,7 +287,7 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	// Wire the dashboard SSE broadcast so proxy and approval callbacks fire it.
 	dashBroadcast = dashServer.Broadcast
 
-	dashHandler, firstRun := dashServer.Handler()
+	dashHandler := dashServer.Handler()
 
 	dashSrv := &http.Server{Handler: dashHandler}
 
@@ -339,13 +339,11 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		)
 	}
 
-	// Print the authenticated URL on first run (token file was just created).
-	if firstRun {
-		fmt.Printf("Dashboard: %s\n", dashURL)
-	}
+	// Print the authenticated dashboard URL on every serve start.
+	fmt.Printf("Dashboard: %s\n", dashURL)
 
 	// Open browser if configured and not headless.
-	if firstRun && !d.Headless && cfg.Dashboard.OpenBrowser {
+	if !d.Headless && cfg.Dashboard.OpenBrowser {
 		openFn := d.OpenBrowserFn
 		if openFn == nil {
 			openFn = openBrowser

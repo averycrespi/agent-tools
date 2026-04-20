@@ -95,10 +95,8 @@ func (s *Server) Broadcast(kind string, data any) {
 }
 
 // Handler returns the HTTP handler for the dashboard, wrapped in auth middleware.
-// It also returns created=true when the admin token file was newly generated
-// (i.e. this is the first run), and false when an existing token was loaded.
-func (s *Server) Handler() (http.Handler, bool) {
-	token, created, err := EnsureAdminTokenCreated(s.deps.AdminTokenPath)
+func (s *Server) Handler() http.Handler {
+	token, err := EnsureAdminToken(s.deps.AdminTokenPath)
 	if err != nil {
 		s.log.Error("dashboard: failed to load admin token", "error", err)
 		token = ""
@@ -130,7 +128,7 @@ func (s *Server) Handler() (http.Handler, bool) {
 	mux.HandleFunc("GET /dashboard/api/secrets", s.handleSecrets)
 	mux.HandleFunc("GET /dashboard/api/stats/tunneled-hosts", s.handleTunneledHosts)
 
-	return authMiddleware(&s.tokenPtr, mux), created
+	return authMiddleware(&s.tokenPtr, mux)
 }
 
 // ReloadToken re-reads the admin token file and atomically swaps the in-memory

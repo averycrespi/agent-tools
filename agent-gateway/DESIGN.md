@@ -1032,7 +1032,7 @@ connections are detected and subscriber channels get cleaned up.
 ### Admin auth
 
 Single admin bearer token at `~/.config/agent-gateway/admin-token` (`0600`),
-generated on first run, printed once to stdout. Presented via
+generated on first run, printed to stdout on every startup. Presented via
 `?token=<x>` on first load, then set as `HttpOnly; SameSite=Strict` cookie.
 Rotatable via `agent-gateway token rotate admin`.
 
@@ -1076,7 +1076,7 @@ Background loop; idempotent.
     10-github.hcl
     10-atlassian.hcl
     20-anthropic.hcl
-  admin-token                 # 0600, printed once at first run
+  admin-token                 # 0600, generated on first run
   master-key-<id>             # 0600, ONLY if OS keychain unavailable;
                               # <id> matches meta.active_key_id (seeded 1)
 
@@ -1185,9 +1185,10 @@ pattern). `config edit` opens in `$EDITOR`. `config path` prints location.
    cache sweep.
 9. Bind proxy (`:8220`) and dashboard (`:8221`).
 10. If `open_browser` and stdout is a TTY and no `--headless`, open
-    `http://127.0.0.1:8221/dashboard?token=<admin>` once.
-11. Log startup summary: admin URL (first run only), agent count, secret
-    count, loaded-rule count, MITM-eligible host list.
+    `http://127.0.0.1:8221/dashboard?token=<admin>` (every serve start,
+    not just first run).
+11. Log startup summary: admin URL, agent count, secret count,
+    loaded-rule count, MITM-eligible host list.
 
 ### Shutdown
 

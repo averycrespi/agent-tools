@@ -21,35 +21,27 @@ const cookieName = "agent-gateway-auth"
 // EnsureAdminToken loads the admin token from path, or generates and writes a
 // new one if the file does not exist. Returns the 64-character hex token.
 func EnsureAdminToken(path string) (string, error) {
-	tok, _, err := EnsureAdminTokenCreated(path)
-	return tok, err
-}
-
-// EnsureAdminTokenCreated is like EnsureAdminToken but also returns created=true
-// when the file was newly generated (first run), and false when an existing
-// token was loaded.
-func EnsureAdminTokenCreated(path string) (token string, created bool, err error) {
 	data, readErr := os.ReadFile(path)
 	if readErr == nil {
-		return strings.TrimSpace(string(data)), false, nil
+		return strings.TrimSpace(string(data)), nil
 	}
 	if !os.IsNotExist(readErr) {
-		return "", false, fmt.Errorf("reading admin token file: %w", readErr)
+		return "", fmt.Errorf("reading admin token file: %w", readErr)
 	}
 
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		return "", false, fmt.Errorf("generating admin token: %w", err)
+		return "", fmt.Errorf("generating admin token: %w", err)
 	}
 	tok := hex.EncodeToString(b)
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return "", false, fmt.Errorf("creating token directory: %w", err)
+		return "", fmt.Errorf("creating token directory: %w", err)
 	}
 	if err := atomicfile.Write(path, []byte(tok), 0o600); err != nil {
-		return "", false, fmt.Errorf("writing admin token file: %w", err)
+		return "", fmt.Errorf("writing admin token file: %w", err)
 	}
-	return tok, true, nil
+	return tok, nil
 }
 
 // GenerateAdminToken generates a new random token, overwrites the file at
