@@ -125,7 +125,7 @@ Secret values are interpolated as opaque bytes. No re-expansion, no escaping, no
 
 ### Host scope
 
-Every secret is bound to a non-empty `allowed_hosts` list at creation time (`secret set --host <glob> --host <glob>`). A `${secrets.X}` reference is only expanded when the request's target host matches one of that secret's globs; otherwise the gateway synthesises a `403 Forbidden` and audits the request with `error='secret_host_scope_violation'`. The request is **never forwarded** — this is deliberately loud so misconfigs surface immediately instead of quietly failing upstream as 401.
+Every secret is bound to a non-empty `allowed_hosts` list at creation time (`secret add --host <glob> --host <glob>`). A `${secrets.X}` reference is only expanded when the request's target host matches one of that secret's globs; otherwise the gateway synthesises a `403 Forbidden` and audits the request with `error='secret_host_scope_violation'`. The request is **never forwarded** — this is deliberately loud so misconfigs surface immediately instead of quietly failing upstream as 401.
 
 The daemon also cross-checks coverage at load time and on `SIGHUP`: when a rule references `${secrets.X}` but the secret's `allowed_hosts` does not obviously cover the rule's `match.host`, a warning is logged. The runtime check is authoritative — this warning is a heads-up, not a hard error.
 
@@ -216,7 +216,7 @@ Reads from `$XDG_CONFIG_HOME/agent-gateway/rules.d/` and cross-references `${sec
 - Parse errors (exits non-zero).
 - Unresolved `${secrets.X}` references (warnings only, does not affect exit code).
 
-If the state DB is unavailable (e.g. on a fresh install before any `secret set`), every `${secrets.X}` reference becomes a warning — fail-open, so the check never blocks on missing infrastructure.
+If the state DB is unavailable (e.g. on a fresh install before any `secret add`), every `${secrets.X}` reference becomes a warning — fail-open, so the check never blocks on missing infrastructure.
 
 ## Authoring tips
 

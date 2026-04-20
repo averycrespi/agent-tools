@@ -91,14 +91,14 @@ Remove an agent. Transactionally cascades to agent-scoped secrets (`scope = 'age
 
 Manage encrypted secrets. Values are stored AES-256-GCM-encrypted in SQLite; the master key lives in the OS keychain at `master-key-<id>` (with a `master-key-<id>` file fallback). The active id is tracked in the SQLite `meta` table; rotation increments it. Values are never logged, never surfaced on the dashboard, and never reflected through HTTP.
 
-### `secret set <name>`
+### `secret add <name>`
 
 Store a new secret. The value is read from **stdin** (piped input only — refuses when stdin is a TTY). Every secret must be bound to at least one host glob via `--host` (repeatable). Bindings gate which rules may inject this secret: a `${secrets.X}` reference expanded into a request whose target host does not match any of the secret's bound hosts produces a hard `403 Forbidden` and an audit row with `error='secret_host_scope_violation'`.
 
 ```bash
-echo -n "ghp_abc123…" | agent-gateway secret set gh_bot --host "*.github.com"
-agent-gateway secret set gh_bot --host api.github.com --host "*.githubusercontent.com" --agent claude-review --desc "GitHub bot token"
-agent-gateway secret set unrestricted --host "**"    # explicit all-hosts opt-in
+echo -n "ghp_abc123…" | agent-gateway secret add gh_bot --host "*.github.com"
+agent-gateway secret add gh_bot --host api.github.com --host "*.githubusercontent.com" --agent claude-review --desc "GitHub bot token"
+agent-gateway secret add unrestricted --host "**"    # explicit all-hosts opt-in
 ```
 
 | Flag             | Description                                                                                                                                                            |
@@ -107,7 +107,7 @@ agent-gateway secret set unrestricted --host "**"    # explicit all-hosts opt-in
 | `--agent <name>` | Scope to a specific agent. Omit for global scope.                                                                                                                      |
 | `--desc <text>`  | Human-readable description.                                                                                                                                            |
 
-A warning is printed if an agent-scoped set would shadow an existing global secret of the same name. Scope resolution is most-specific-wins: `agent:<name>` beats `global` for the same `<name>`.
+A warning is printed if an agent-scoped add would shadow an existing global secret of the same name. Scope resolution is most-specific-wins: `agent:<name>` beats `global` for the same `<name>`.
 
 ### `secret bind <name>`
 

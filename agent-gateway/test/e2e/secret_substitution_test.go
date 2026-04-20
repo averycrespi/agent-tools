@@ -13,7 +13,7 @@ package e2e_test
 //  4. Agent sends a request with Authorization: Bearer dummy.
 //     Secret is not yet set — injection fails soft.
 //     Upstream sees the agent's original Bearer dummy.
-//  5. Set the secret via "secret set gh_bot" piping "realtoken".
+//  5. Set the secret via "secret add gh_bot" piping "realtoken".
 //     The CLI sends SIGHUP after mutation; the SIGHUP handler invalidates the
 //     injector cache.
 //  6. Give the daemon a moment to process the signal.
@@ -115,10 +115,10 @@ rule "inject-gh-bot" {
 	// Before the secret is set, the injector fails soft and passes through the
 	// agent's own header unchanged.
 	if sawAuth1 != "Bearer dummy" {
-		t.Errorf("before secret set: upstream saw Authorization %q, want %q", sawAuth1, "Bearer dummy")
+		t.Errorf("before secret add: upstream saw Authorization %q, want %q", sawAuth1, "Bearer dummy")
 	}
 	if string(body1) != "Bearer dummy" {
-		t.Errorf("before secret set: response body %q, want %q", string(body1), "Bearer dummy")
+		t.Errorf("before secret add: response body %q, want %q", string(body1), "Bearer dummy")
 	}
 
 	// -------------------------------------------------------------------------
@@ -161,10 +161,10 @@ rule "inject-gh-bot" {
 	mu.Unlock()
 
 	if sawAuth2 != "Bearer realtoken" {
-		t.Errorf("after secret set: upstream saw Authorization %q, want %q", sawAuth2, "Bearer realtoken")
+		t.Errorf("after secret add: upstream saw Authorization %q, want %q", sawAuth2, "Bearer realtoken")
 	}
 	if string(body2) != "Bearer realtoken" {
-		t.Errorf("after secret set: response body %q, want %q", string(body2), "Bearer realtoken")
+		t.Errorf("after secret add: response body %q, want %q", string(body2), "Bearer realtoken")
 	}
 
 	// -------------------------------------------------------------------------

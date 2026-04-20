@@ -62,10 +62,10 @@ agent-gateway agent add my-agent
 
 ### 3. Store a secret
 
-Values are read from stdin — `secret set` refuses a TTY to keep values out of shell history:
+Values are read from stdin — `secret add` refuses a TTY to keep values out of shell history:
 
 ```bash
-echo -n "ghp_…" | agent-gateway secret set gh_token
+echo -n "ghp_…" | agent-gateway secret add gh_token
 ```
 
 ### 4. Write a rule

@@ -72,7 +72,7 @@ func newSecretCmd() *cobra.Command {
 		Short: "Manage encrypted secrets",
 	}
 
-	secretCmd.AddCommand(newSecretSetCmd())
+	secretCmd.AddCommand(newSecretAddCmd())
 	secretCmd.AddCommand(newSecretListCmd())
 	secretCmd.AddCommand(newSecretRotateCmd())
 	secretCmd.AddCommand(newSecretRMCmd())
@@ -83,15 +83,15 @@ func newSecretCmd() *cobra.Command {
 	return secretCmd
 }
 
-// newSecretSetCmd returns the "secret set <name>" command.
-func newSecretSetCmd() *cobra.Command {
+// newSecretAddCmd returns the "secret add <name>" command.
+func newSecretAddCmd() *cobra.Command {
 	var (
 		agent string
 		desc  string
 		hosts []string
 	)
 	cmd := &cobra.Command{
-		Use:   "set <name>",
+		Use:   "add <name>",
 		Short: "Store a secret value (reads from stdin)",
 		Long: "Store a secret value read from stdin. Every secret must be bound\n" +
 			"to at least one host glob via --host (repeatable). Use --host \"**\"\n" +
@@ -107,7 +107,7 @@ func newSecretSetCmd() *cobra.Command {
 			}
 			defer cleanup()
 
-			return execSecretSet(
+			return execSecretAdd(
 				cmd.Context(),
 				s,
 				args[0],
@@ -127,9 +127,9 @@ func newSecretSetCmd() *cobra.Command {
 	return cmd
 }
 
-// execSecretSet implements "secret set". Separated for testability.
+// execSecretAdd implements "secret add". Separated for testability.
 // signalFn receives the PID file path and is responsible for sending SIGHUP.
-func execSecretSet(
+func execSecretAdd(
 	ctx context.Context,
 	s secrets.Store,
 	name, agent, desc string,
@@ -145,7 +145,7 @@ func execSecretSet(
 	}
 
 	if err := s.Set(ctx, name, agent, value, desc, hosts); err != nil {
-		return fmt.Errorf("secret set: %w", err)
+		return fmt.Errorf("secret add: %w", err)
 	}
 
 	// Shadow warning: if agent-scoped, check whether a global row also exists.

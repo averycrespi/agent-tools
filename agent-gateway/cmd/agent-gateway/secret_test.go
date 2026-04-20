@@ -47,13 +47,13 @@ func confirmYes() (bool, error) { return true, nil }
 // confirmNo is a confirmFn stub that always cancels (simulates user typing "n").
 func confirmNo() (bool, error) { return false, nil }
 
-// TestSecretSet_Global verifies that "secret set <name>" with non-TTY stdin stores a global row.
-func TestSecretSet_Global(t *testing.T) {
+// TestSecretAdd_Global verifies that "secret add <name>" with non-TTY stdin stores a global row.
+func TestSecretAdd_Global(t *testing.T) {
 	db := secretTestDB(t)
 	s := newTestSecretStore(t, db)
 
 	var out bytes.Buffer
-	err := execSecretSet(context.Background(), s, "mytoken", "", "my token", []string{"**"}, strings.NewReader("s3cr3t\n"), &out, false, noSIGHUP)
+	err := execSecretAdd(context.Background(), s, "mytoken", "", "my token", []string{"**"}, strings.NewReader("s3cr3t\n"), &out, false, noSIGHUP)
 	require.NoError(t, err)
 
 	val, scope, _, getErr := s.Get(context.Background(), "mytoken", "")
@@ -62,13 +62,13 @@ func TestSecretSet_Global(t *testing.T) {
 	assert.Equal(t, "global", scope)
 }
 
-// TestSecretSet_Agent verifies that "secret set <name> --agent <a>" creates an agent-scoped row.
-func TestSecretSet_Agent(t *testing.T) {
+// TestSecretAdd_Agent verifies that "secret add <name> --agent <a>" creates an agent-scoped row.
+func TestSecretAdd_Agent(t *testing.T) {
 	db := secretTestDB(t)
 	s := newTestSecretStore(t, db)
 
 	var out bytes.Buffer
-	err := execSecretSet(context.Background(), s, "mytoken", "mybot", "desc", []string{"**"}, strings.NewReader("s3cr3t\n"), &out, false, noSIGHUP)
+	err := execSecretAdd(context.Background(), s, "mytoken", "mybot", "desc", []string{"**"}, strings.NewReader("s3cr3t\n"), &out, false, noSIGHUP)
 	require.NoError(t, err)
 
 	val, scope, _, getErr := s.Get(context.Background(), "mytoken", "mybot")
@@ -77,9 +77,9 @@ func TestSecretSet_Agent(t *testing.T) {
 	assert.Equal(t, "agent:mybot", scope)
 }
 
-// TestSecretSet_ShadowWarning verifies that a shadow warning is printed when
+// TestSecretAdd_ShadowWarning verifies that a shadow warning is printed when
 // an agent-scoped set shadows an existing global row.
-func TestSecretSet_ShadowWarning(t *testing.T) {
+func TestSecretAdd_ShadowWarning(t *testing.T) {
 	db := secretTestDB(t)
 	s := newTestSecretStore(t, db)
 	ctx := context.Background()
@@ -88,7 +88,7 @@ func TestSecretSet_ShadowWarning(t *testing.T) {
 	require.NoError(t, s.Set(ctx, "mytoken", "", "global-val", "global", []string{"**"}))
 
 	var out bytes.Buffer
-	err := execSecretSet(ctx, s, "mytoken", "mybot", "desc", []string{"**"}, strings.NewReader("agent-val\n"), &out, false, noSIGHUP)
+	err := execSecretAdd(ctx, s, "mytoken", "mybot", "desc", []string{"**"}, strings.NewReader("agent-val\n"), &out, false, noSIGHUP)
 	require.NoError(t, err)
 
 	// Shadow warning must appear in output.
@@ -96,27 +96,27 @@ func TestSecretSet_ShadowWarning(t *testing.T) {
 	assert.Contains(t, out.String(), `"mybot"`)
 }
 
-// TestSecretSet_NoShadowWarning verifies that no shadow warning is printed
+// TestSecretAdd_NoShadowWarning verifies that no shadow warning is printed
 // when set globally (even if agent rows exist).
-func TestSecretSet_NoShadowWarning(t *testing.T) {
+func TestSecretAdd_NoShadowWarning(t *testing.T) {
 	db := secretTestDB(t)
 	s := newTestSecretStore(t, db)
 	ctx := context.Background()
 
 	var out bytes.Buffer
-	err := execSecretSet(ctx, s, "tok", "", "", []string{"**"}, strings.NewReader("val\n"), &out, false, noSIGHUP)
+	err := execSecretAdd(ctx, s, "tok", "", "", []string{"**"}, strings.NewReader("val\n"), &out, false, noSIGHUP)
 	require.NoError(t, err)
 	assert.Empty(t, out.String())
 }
 
-// TestSecretSet_RefusesTTY verifies that set returns an error when stdin is a TTY.
-func TestSecretSet_RefusesTTY(t *testing.T) {
+// TestSecretAdd_RefusesTTY verifies that set returns an error when stdin is a TTY.
+func TestSecretAdd_RefusesTTY(t *testing.T) {
 	db := secretTestDB(t)
 	s := newTestSecretStore(t, db)
 
 	var out bytes.Buffer
 	// isTTY=true simulates a TTY stdin.
-	err := execSecretSet(context.Background(), s, "tok", "", "", []string{"**"}, strings.NewReader(""), &out, true, noSIGHUP)
+	err := execSecretAdd(context.Background(), s, "tok", "", "", []string{"**"}, strings.NewReader(""), &out, true, noSIGHUP)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pipe")
 }

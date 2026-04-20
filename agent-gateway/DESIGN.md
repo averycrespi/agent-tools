@@ -225,7 +225,7 @@ snapshot.
 
 ### CLI / daemon coordination
 
-State-mutating CLI commands (`secret set/rotate/rm`, `agent add/rm/rotate`,
+State-mutating CLI commands (`secret add/rotate/rm`, `agent add/rm/rotate`,
 `token rotate admin`, `ca rotate`, `config refresh`, `rules reload`) apply
 the change (write SQLite for state, or just re-read files for `rules reload`)
 and then signal the running daemon to reload. Specifically:
@@ -250,7 +250,7 @@ and then signal the running daemon to reload. Specifically:
 SIGHUP is _the_ reload mechanism — no auxiliary filesystem watcher. Rule
 edits are picked up via explicit `agent-gateway rules reload`; this keeps the
 reload path single, avoids half-written-file races from editor saves, and
-fits the same pattern as `secret set` and friends (every state change has a
+fits the same pattern as `secret add` and friends (every state change has a
 corresponding CLI command). Users who want the tighter loop can wrap their
 editor or run `entr -r` externally.
 
@@ -636,7 +636,7 @@ dummy for a request the gateway can't confidently authorise.
 
 Every row in the `secrets` table carries a non-empty `allowed_hosts` JSON
 array (migration 7) of normalised host globs — same semantics as rule
-`match.host`. Bindings are created at `secret set` time via one or more
+`match.host`. Bindings are created at `secret add` time via one or more
 `--host` flags; later adjustments go through `secret bind` / `secret
 unbind`. `secret unbind` refuses to leave a secret with an empty list —
 the only way to "un-bind everything" is `secret rm`, which forces the
@@ -655,7 +655,7 @@ common "bound to wrong host" misconfig before first request.
 
 ### Shadow warnings
 
-`agent-gateway secret set gh_bot --agent claude-review` (stored as
+`agent-gateway secret add gh_bot --agent claude-review` (stored as
 `scope='agent:claude-review'`) warns if a `gh_bot` with `scope='global'`
 already exists. Reverse direction also warns. `secret list` surfaces scope
 in its own column so shadows are visible at a glance.
@@ -686,7 +686,7 @@ survives rotations is deferred to v1.1 (see §2 non-goals).
 ### CLI
 
 ```
-agent-gateway secret set <name> [--agent <agent>]       # value read from stdin
+agent-gateway secret add <name> [--agent <agent>]       # value read from stdin
 agent-gateway secret list                               # no values, ever
 agent-gateway secret rotate <name> [--agent <agent>]
 agent-gateway secret rm <name> [--agent <agent>]
@@ -1435,7 +1435,7 @@ error='secret_unresolved'`. A second test edits the rule file to have
 4. **Secrets.** SQLite + AES-256-GCM, keychain + file fallback, CLI verbs,
    template expansion.
    _Done when:_ `TestSecretSubstitution` passes — CLI runs
-   `secret set gh_bot`, daemon picks up via SIGHUP (not restart), next
+   `secret add gh_bot`, daemon picks up via SIGHUP (not restart), next
    matched request has `Authorization: Bearer <real>` on upstream while
    agent only ever sees dummy.
 5. **Audit log + dashboard live feed.** SQLite audit table with new column
