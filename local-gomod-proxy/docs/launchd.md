@@ -17,7 +17,11 @@ gh auth setup-git
 git config --global --add url."https://github.com/".insteadOf "git@github.com:"
 git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
 
-# Tell go which module paths are private.
+# Tell go which module paths are private. Must be persisted via `go env -w`
+# (or set in the plist's EnvironmentVariables block, see below) — a shell
+# export in .zshrc/.bashrc won't reach launchd, and `go mod download`
+# subprocesses spawned by the proxy need GOPRIVATE too or they'll hit
+# sum.golang.org and then fall through to an unauthenticated git fetch.
 go env -w GOPRIVATE='github.com/your-org/*'
 ```
 

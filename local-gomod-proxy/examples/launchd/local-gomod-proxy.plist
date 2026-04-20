@@ -39,6 +39,17 @@
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/local/go/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
 
+        <!-- Uncomment (and edit the pattern) unless you've persisted
+             GOPRIVATE via `go env -w` on the host. Shell exports in
+             .zshrc/.bashrc don't reach launchd, and the `go mod download`
+             subprocesses spawned by the proxy need GOPRIVATE or they'll
+             hit sum.golang.org and then fall through to an unauthenticated
+             git fetch. -->
+        <!--
+        <key>GOPRIVATE</key>
+        <string>github.com/your-org/*</string>
+        -->
+
         <!-- Uncomment if you installed the ssh-agent LaunchAgent from
              ssh-agent.plist (see README "SSH fallback"). -->
         <!--
