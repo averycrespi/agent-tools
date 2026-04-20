@@ -28,6 +28,11 @@ var (
 	serveUpstream string
 )
 
+// maxConcurrentPrivate caps in-flight `go mod download` subprocesses so a
+// runaway client cannot exhaust host resources. Sized for typical go build
+// parallelism; most hosts will never reach it.
+const maxConcurrentPrivate = 8
+
 func init() {
 	serveCmd.Flags().StringVar(&serveAddr, "addr", "127.0.0.1:7070", "address to listen on")
 	serveCmd.Flags().StringVar(&servePrivate, "private", "", "GOPRIVATE-style patterns (overrides `go env GOPRIVATE`)")
@@ -70,12 +75,18 @@ var serveCmd = &cobra.Command{
 			router.New(private_),
 			private.New(runner),
 			public.New(upstream),
+			maxConcurrentPrivate,
 		)
 
 		srv := &http.Server{
 			Addr:              serveAddr,
 			Handler:           handler,
 			ReadHeaderTimeout: 10 * time.Second,
+			// Generous WriteTimeout: private .zip artifacts can be many MB
+			// and are streamed from disk over a potentially slow upstream.
+			WriteTimeout:   5 * time.Minute,
+			IdleTimeout:    60 * time.Second,
+			MaxHeaderBytes: 16 << 10,
 		}
 
 		slog.Info("starting local-gomod-proxy",
