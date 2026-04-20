@@ -461,7 +461,7 @@ by migration 6), and `ResolveID(1, ...)` either finds an existing key,
 migrates a pre-versioning `master-key` account / `master.key` file to the
 id=1 location, or generates and persists a new key.
 
-`agent-gateway secret master rotate` performs a crash-safe rotation:
+`agent-gateway master-key rotate` performs a crash-safe rotation:
 
 1. Generate a new key, persist it under id `active+1` BEFORE opening any
    transaction.
@@ -690,7 +690,7 @@ agent-gateway secret add <name> [--agent <agent>]       # value read from stdin
 agent-gateway secret list                               # no values, ever
 agent-gateway secret update <name> [--agent <agent>]
 agent-gateway secret rm <name> [--agent <agent>]
-agent-gateway secret master rotate
+agent-gateway master-key rotate
 ```
 
 Plaintext read-out is intentionally not exposed through the CLI. The only
@@ -702,7 +702,7 @@ disclosure vector with no legitimate in-product use case.
 
 Decrypted values cached in-memory LRU keyed by `(agent, name)`, TTL
 configurable (default 60s). Cache cleared on `secret update`, on
-`secret master rotate`, and on rules reload. Plaintexts never written to any
+`master-key rotate`, and on rules reload. Plaintexts never written to any
 log or audit row, never reflected through dashboard or HTTP. The only code
 path that can touch plaintext is template expansion inside the request
 pipeline.

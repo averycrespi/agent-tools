@@ -20,7 +20,7 @@ Destructive commands prompt for `[y/N]` confirmation before proceeding:
 - `agent rm <name>`
 - `secret update <name>`
 - `secret rm <name>`
-- `secret master rotate`
+- `master-key rotate`
 - `ca rotate`
 - `admin-token rotate`
 
@@ -163,7 +163,7 @@ Delete a secret.
 | `--agent <name>` | Delete the agent-scoped row; omit to delete the global row. |
 | `--force`        | Skip confirmation prompt.                                   |
 
-### `secret master rotate`
+## `master-key rotate`
 
 Generate a new master key and re-encrypt every secret under it in a single SQLite transaction. The new key is only committed to storage after the re-encryption transaction succeeds — a crash mid-rotation leaves the old key authoritative.
 

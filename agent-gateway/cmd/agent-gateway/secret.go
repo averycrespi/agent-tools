@@ -78,7 +78,6 @@ func newSecretCmd() *cobra.Command {
 	secretCmd.AddCommand(newSecretRMCmd())
 	secretCmd.AddCommand(newSecretBindCmd())
 	secretCmd.AddCommand(newSecretUnbindCmd())
-	secretCmd.AddCommand(newSecretMasterCmd())
 
 	return secretCmd
 }
@@ -406,69 +405,6 @@ func execSecretRM(
 		return fmt.Errorf("secret rm: %w", err)
 	}
 	_, _ = fmt.Fprintf(out, "deleted: %s\n", name)
-	_ = signalFn(paths.PIDFile())
-	return nil
-}
-
-// newSecretMasterCmd returns the "secret master" command group.
-func newSecretMasterCmd() *cobra.Command {
-	masterCmd := &cobra.Command{
-		Use:   "master",
-		Short: "Master key operations",
-	}
-	masterCmd.AddCommand(newSecretMasterRotateCmd())
-	return masterCmd
-}
-
-// newSecretMasterRotateCmd returns the "secret master rotate" command.
-func newSecretMasterRotateCmd() *cobra.Command {
-	var force bool
-	cmd := &cobra.Command{
-		Use:   "rotate",
-		Short: "Re-encrypt all secrets under a new master key",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			s, cleanup, err := openSecretStore()
-			if err != nil {
-				return err
-			}
-			defer cleanup()
-			confirmFn := func() (bool, error) {
-				return confirm(cmd.InOrStdin(), cmd.OutOrStdout(), stdinIsTTY(), force,
-					"Rotate the master key? Every secret will be re-encrypted.")
-			}
-			return execSecretMasterRotate(
-				cmd.Context(),
-				s,
-				cmd.OutOrStdout(),
-				confirmFn,
-				func(pidPath string) error { return sendHUP(pidPath) },
-			)
-		},
-	}
-	cmd.Flags().BoolVar(&force, "force", false, "skip confirmation prompt")
-	return cmd
-}
-
-// execSecretMasterRotate implements "secret master rotate". Separated for testability.
-func execSecretMasterRotate(
-	ctx context.Context,
-	s secrets.Store,
-	out io.Writer,
-	confirmFn func() (bool, error),
-	signalFn func(string) error,
-) error {
-	ok, err := confirmFn()
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return nil
-	}
-	if err := s.MasterRotate(ctx); err != nil {
-		return fmt.Errorf("secret master rotate: %w", err)
-	}
-	_, _ = fmt.Fprintln(out, "rotated master key")
 	_ = signalFn(paths.PIDFile())
 	return nil
 }

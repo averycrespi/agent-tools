@@ -37,6 +37,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newSecretCmd())
 	root.AddCommand(newServeCmd(configPath))
 	root.AddCommand(newAdminTokenCmd())
+	root.AddCommand(newMasterKeyCmd())
 
 	return root
 }
