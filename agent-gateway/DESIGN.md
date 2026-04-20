@@ -751,7 +751,7 @@ Trailers, server-push, and CONNECT-over-h2 are out of scope for v1.
 `io.Copy` + `http.Flusher` pattern. No buffering. SSE and streaming-token
 responses reach the agent chunk-by-chunk as upstream emits them. This is
 explicitly required for Anthropic streaming output and is verified by the
-e2e test suite (§12 milestone 2).
+e2e test suite (§13 milestone 2).
 
 ### SNI vs CONNECT target (trust boundary)
 
@@ -984,7 +984,7 @@ disambiguation, the rule author should narrow the `match` block until
 matching = intent. This invariant eliminates the "did the dashboard leak
 something" risk class entirely.
 
-This is test-enforced — a dedicated e2e (§12 milestone 5) fires a request
+This is test-enforced — a dedicated e2e (§13 milestone 5) fires a request
 with a distinctive body + non-asserted headers through a `require-approval`
 rule and asserts neither surfaces on the SSE `approval` event or the
 `/dashboard/api/pending` response.
@@ -1215,7 +1215,62 @@ agent-gateway token rotate admin
 Cobra-based. `serve` holds a PID file in the config dir and refuses to
 start if one is live (second instance would contend on DB + ports).
 
-## 10. Prior Art & Attribution
+## 10. Threat Model
+
+agent-gateway is a **confused-deputy system**: it holds real credentials on
+behalf of sandboxed, untrusted agents and decides, per request, whether to
+inject them. Every defense below exists to prevent an agent — or an operator
+misconfiguration — from causing a real credential to reach a request that
+shouldn't carry one.
+
+### Trust boundaries
+
+- **Untrusted.** The sandboxed agent — arbitrary code, arbitrary requests.
+  The gateway must behave correctly for any traffic it sends, including
+  deliberately malicious traffic.
+- **Trusted.** The gateway process, its config files (`0o600`), the state
+  DB, the master key (keychain or `0o600` file), and the dashboard operator.
+- **Out of scope.** Host OS compromise, admin-token theft via filesystem
+  read, and upstream server vulnerabilities. These are pre-conditions the
+  gateway cannot defend against; callers must keep them intact.
+
+### Attack classes and defenses
+
+Each row names a concrete way injection could go wrong and the mechanism
+that prevents it. File:line anchors are the authoritative places to review
+the defense.
+
+| # | Attack class | Concrete worry | Defense | Location |
+|---|---|---|---|---|
+| 1 | Host-suffix tricks | `github.com.attacker.com` masquerades as `github.com` | Host globs compile to anchored regexes (`^…$`); no substring matching | `internal/rules/parse.go:545` (`compileGlob`); regressions in `internal/rules/match_test.go` |
+| 2 | Case / IDN / trailing-dot drift | `GitHub.Com.`, punycoded labels, or `github.com.` evade a literal rule `github.com` | Every host ingress point routes through `hostnorm.Normalize` / `NormalizeGlob` before comparison | Callers at `internal/proxy/connect.go:26`, `internal/proxy/decide.go:144`, `internal/rules/parse.go:278`, `internal/ca/leaf.go:83` |
+| 3 | In-tunnel `Host:` header mismatch | Agent `CONNECT`s to `api.github.com:443` then sends `Host: attacker.com` inside the TLS tunnel | CONNECT target wins — `upReq.Host` is rewritten before rule evaluation | `internal/proxy/pipeline.go:336` |
+| 4 | Redirect leakage | Upstream returns `302` to an attacker location, which would carry the injected credential forward | Proxy does a single `RoundTrip`; redirects are returned to the agent verbatim. A followed redirect triggers a fresh CONNECT, which re-enters decide → match → inject against the new host | `internal/proxy/pipeline.go:404` |
+| 5 | Over-broad rules | Operator writes `host = "**"` or `no_intercept_hosts = ["*.com"]`, silently disabling MITM or scoping | Hard rejection of unambiguous cases (wildcard-only `no_intercept_hosts`, missing `match.host`). Soft warnings for legal-but-suspicious cases (`host = "**"`, public-suffix `no_intercept_hosts`) surface at load and in `rules check` | `internal/config/validate.go` `validateNoInterceptHosts`; `internal/rules/parse.go` `decodeMatchBlock` |
+| 6 | Out-of-scope secret injection | A `*.example.com` rule matches and tries to inject a secret that was only intended for `api.github.com` | Per-secret `allowed_hosts` enforced hard at inject time. Scope mismatch → `ErrSecretHostScopeViolation` → `403 Forbidden`, audit `error='secret_host_scope_violation'`; request **never forwarded** | `internal/inject` (`Expand`); handler at `internal/proxy/pipeline.go:364-372` |
+| 7 | Body matcher bypassed | Request body exceeds `max_body_buffer` or buffering times out; a `deny` rule with a body matcher can no longer fire | Fail closed — request blocked with `403` regardless of the rule's intended verdict; audit `error='body_matcher_bypassed:size\|:timeout'` | `internal/proxy/pipeline.go:245-257` |
+| 8 | Missing secret at inject time | Rule references `${secrets.foo}` but `foo` is not in the store (typo, not-yet-created, deleted) | Fail soft — dummy credentials pass through untouched; audit `error='secret_unresolved'`. A real credential is never fabricated to fill the gap | `internal/proxy/pipeline.go` injection dispatch |
+| 9 | Rule-reload failure | Operator `SIGHUP`s with a broken HCL file | Previous ruleset stays live; `atomic.Pointer` swap only on successful parse + compile | `internal/rules/engine.go:32-39` (`Reload`) |
+| 10 | Agent impersonation | One agent tries to piggyback on another agent's rule scope or agent-scoped secret | Every CONNECT verifies `Proxy-Authorization` constant-time against the argon2id-hashed token store. The authenticated agent name — not the rule name — feeds agent-scoped secret lookup and the per-agent `HostsForAgent` index | `internal/agents/registry.go`; audit trail carries the authenticated name on every row |
+
+### Non-goals
+
+Explicit things agent-gateway does **not** try to defend against, so a
+reviewer knows not to look for them:
+
+- Compromise of the host OS or keychain. The master key is a local secret;
+  an attacker with user-level access has it.
+- Admin-token theft via filesystem read. `0o600` is the only protection.
+- Upstream server compromise. A secret injected into a legitimate
+  destination can still be misused by a compromised upstream.
+- Traffic analysis. Destination hosts and timing are visible to anyone on
+  the network path between gateway and upstream.
+- Denial-of-service. No rate limiting on agent-facing ports; a malicious
+  sandbox can exhaust gateway resources.
+- Post-exfiltration detection. Once a secret has been legitimately
+  injected, the gateway has no view into how the upstream handles it.
+
+## 11. Prior Art & Attribution
 
 agent-gateway draws on two reference points with fundamentally different
 relationships.
@@ -1302,7 +1357,7 @@ Concrete places agent-gateway diverges and does more:
 - Agent-scoped secrets (stable-id audit trail across rotations is deferred
   to v1.1; v1 uses name + scope + `secrets.rotated_at`).
 
-## 11. Open Questions & Risks
+## 12. Open Questions & Risks
 
 - **Timeout defaults are guesses.** `timeouts.*` values in §9 are reasonable
   starting points but unvalidated against real workloads. Slow-network
@@ -1351,7 +1406,7 @@ Concrete places agent-gateway diverges and does more:
   ASCII-lowercased only — Unicode in mixed segments is unsupported and
   must be spelled ASCII. Tracked as audit finding #6.
 
-## 12. Milestones
+## 13. Milestones
 
 Rough sequencing for implementation planning. Each milestone lists its
 acceptance criterion — the single test (or small set) that must pass to
@@ -1407,7 +1462,7 @@ error='secret_unresolved'`. A second test edits the rule file to have
    and a fresh-machine smoke test (trust CA, add agent, add secret, add
    rule, agent makes a request) succeeds in under two minutes.
 
-## 13. Code Organization & Testing Patterns
+## 14. Code Organization & Testing Patterns
 
 ### Interface boundaries
 
