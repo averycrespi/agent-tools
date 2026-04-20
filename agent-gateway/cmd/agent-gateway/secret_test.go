@@ -146,8 +146,8 @@ func TestSecretList(t *testing.T) {
 	assert.NotContains(t, output, "v2")
 }
 
-// TestSecretRotate verifies that "secret rotate <name>" updates the value.
-func TestSecretRotate(t *testing.T) {
+// TestSecretUpdate verifies that "secret update <name>" updates the value.
+func TestSecretUpdate(t *testing.T) {
 	db := secretTestDB(t)
 	s := newTestSecretStore(t, db)
 	ctx := context.Background()
@@ -155,7 +155,7 @@ func TestSecretRotate(t *testing.T) {
 	require.NoError(t, s.Set(ctx, "tok", "", "old-val", "", []string{"**"}))
 
 	var out bytes.Buffer
-	err := execSecretRotate(ctx, s, "tok", "", strings.NewReader("new-val\n"), &out, false, confirmYes, noSIGHUP)
+	err := execSecretUpdate(ctx, s, "tok", "", strings.NewReader("new-val\n"), &out, false, confirmYes, noSIGHUP)
 	require.NoError(t, err)
 
 	val, _, _, getErr := s.Get(ctx, "tok", "")
@@ -163,8 +163,8 @@ func TestSecretRotate(t *testing.T) {
 	assert.Equal(t, "new-val", val)
 }
 
-// TestSecretRotate_Agent verifies agent-scoped rotate.
-func TestSecretRotate_Agent(t *testing.T) {
+// TestSecretUpdate_Agent verifies agent-scoped update.
+func TestSecretUpdate_Agent(t *testing.T) {
 	db := secretTestDB(t)
 	s := newTestSecretStore(t, db)
 	ctx := context.Background()
@@ -172,7 +172,7 @@ func TestSecretRotate_Agent(t *testing.T) {
 	require.NoError(t, s.Set(ctx, "tok", "mybot", "old-val", "", []string{"**"}))
 
 	var out bytes.Buffer
-	err := execSecretRotate(ctx, s, "tok", "mybot", strings.NewReader("new-val\n"), &out, false, confirmYes, noSIGHUP)
+	err := execSecretUpdate(ctx, s, "tok", "mybot", strings.NewReader("new-val\n"), &out, false, confirmYes, noSIGHUP)
 	require.NoError(t, err)
 
 	val, _, _, getErr := s.Get(ctx, "tok", "mybot")

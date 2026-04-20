@@ -225,7 +225,7 @@ snapshot.
 
 ### CLI / daemon coordination
 
-State-mutating CLI commands (`secret add/rotate/rm`, `agent add/rm/rotate`,
+State-mutating CLI commands (`secret add/update/rm`, `agent add/rm/rotate`,
 `token rotate admin`, `ca rotate`, `config refresh`, `rules reload`) apply
 the change (write SQLite for state, or just re-read files for `rules reload`)
 and then signal the running daemon to reload. Specifically:
@@ -678,9 +678,9 @@ WHERE s.name = 'gh_bot' AND s.scope = 'global'
   AND r.ts < s.rotated_at;
 ```
 
-This is approximate — it can't tell a rotate-in-place from a rm-then-set
+This is approximate — it can't tell an update-in-place from a rm-then-add
 with the same name. That ambiguity is acceptable for v1; the right advice is
-"use `secret rotate`, not delete-then-set." A stable `credential_id` that
+"use `secret update`, not delete-then-add." A stable `credential_id` that
 survives rotations is deferred to v1.1 (see §2 non-goals).
 
 ### CLI
@@ -688,7 +688,7 @@ survives rotations is deferred to v1.1 (see §2 non-goals).
 ```
 agent-gateway secret add <name> [--agent <agent>]       # value read from stdin
 agent-gateway secret list                               # no values, ever
-agent-gateway secret rotate <name> [--agent <agent>]
+agent-gateway secret update <name> [--agent <agent>]
 agent-gateway secret rm <name> [--agent <agent>]
 agent-gateway secret master rotate
 ```
@@ -701,7 +701,7 @@ disclosure vector with no legitimate in-product use case.
 ### Runtime hygiene
 
 Decrypted values cached in-memory LRU keyed by `(agent, name)`, TTL
-configurable (default 60s). Cache cleared on `secret rotate`, on
+configurable (default 60s). Cache cleared on `secret update`, on
 `secret master rotate`, and on rules reload. Plaintexts never written to any
 log or audit row, never reflected through dashboard or HTTP. The only code
 path that can touch plaintext is template expansion inside the request

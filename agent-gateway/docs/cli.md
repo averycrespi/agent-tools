@@ -18,7 +18,7 @@ Destructive commands prompt for `[y/N]` confirmation before proceeding:
 
 - `agent rotate <name>`
 - `agent rm <name>`
-- `secret rotate <name>`
+- `secret update <name>`
 - `secret rm <name>`
 - `secret master rotate`
 - `ca rotate`
@@ -26,7 +26,7 @@ Destructive commands prompt for `[y/N]` confirmation before proceeding:
 
 Each of these accepts a `--force` flag to skip the prompt. When stdin is not a TTY (scripted use), the prompt cannot be shown and the command refuses unless `--force` is passed — scripts must opt into destructive actions explicitly.
 
-`secret rotate` reads the new value from stdin, so its confirmation prompt reads from `/dev/tty` instead of stdin. If `/dev/tty` is unavailable (headless CI without a controlling terminal), pass `--force`.
+`secret update` reads the new value from stdin, so its confirmation prompt reads from `/dev/tty` instead of stdin. If `/dev/tty` is unavailable (headless CI without a controlling terminal), pass `--force`.
 
 ## `serve`
 
@@ -140,18 +140,18 @@ agent-gateway secret unbind gh_bot --host "*.github.com"
 
 List secrets (metadata only — no values, ever). The `HOSTS` column shows the comma-separated `allowed_hosts` list for each row.
 
-### `secret rotate <name>`
+### `secret update <name>`
 
-Update the value of an existing secret. Reads the new value from stdin. On rotation, the decrypted-secret LRU is invalidated so the next request uses the new value.
+Update the value of an existing secret. Reads the new value from stdin. On update, the decrypted-secret LRU is invalidated so the next request uses the new value.
 
 ```bash
-echo -n "new-value" | agent-gateway secret rotate gh_bot
-agent-gateway secret rotate gh_bot --agent claude-review
+echo -n "new-value" | agent-gateway secret update gh_bot
+agent-gateway secret update gh_bot --agent claude-review
 ```
 
 | Flag             | Description                             |
 | ---------------- | --------------------------------------- |
-| `--agent <name>` | Scope the rotation to a specific agent. |
+| `--agent <name>` | Scope the update to a specific agent. |
 | `--force`        | Skip confirmation prompt.               |
 
 ### `secret rm <name>`
@@ -246,4 +246,4 @@ Rewrite the config file, preserving existing overrides and back-filling any new 
 ## Exit codes
 
 - `0` — success, or "no daemon running" on commands that signal the daemon.
-- Non-zero — parse errors, unrecoverable I/O failures, missing records (`agent rotate` / `rm`, `secret rotate` / `rm` against a missing name).
+- Non-zero — parse errors, unrecoverable I/O failures, missing records (`agent rotate` / `rm`, `secret update` / `rm` against a missing name).

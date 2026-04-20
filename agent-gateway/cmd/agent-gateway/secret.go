@@ -74,7 +74,7 @@ func newSecretCmd() *cobra.Command {
 
 	secretCmd.AddCommand(newSecretAddCmd())
 	secretCmd.AddCommand(newSecretListCmd())
-	secretCmd.AddCommand(newSecretRotateCmd())
+	secretCmd.AddCommand(newSecretUpdateCmd())
 	secretCmd.AddCommand(newSecretRMCmd())
 	secretCmd.AddCommand(newSecretBindCmd())
 	secretCmd.AddCommand(newSecretUnbindCmd())
@@ -279,14 +279,14 @@ func execSecretList(ctx context.Context, s secrets.Store, out io.Writer) error {
 	return w.Flush()
 }
 
-// newSecretRotateCmd returns the "secret rotate <name>" command.
-func newSecretRotateCmd() *cobra.Command {
+// newSecretUpdateCmd returns the "secret update <name>" command.
+func newSecretUpdateCmd() *cobra.Command {
 	var (
 		agent string
 		force bool
 	)
 	cmd := &cobra.Command{
-		Use:   "rotate <name>",
+		Use:   "update <name>",
 		Short: "Update the value of an existing secret (reads new value from stdin)",
 		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -297,9 +297,9 @@ func newSecretRotateCmd() *cobra.Command {
 			defer cleanup()
 			confirmFn := func() (bool, error) {
 				return confirmViaTTY(cmd.OutOrStdout(), force,
-					fmt.Sprintf("Rotate secret %q? The previous value will be overwritten.", args[0]))
+					fmt.Sprintf("Update secret %q? The previous value will be overwritten.", args[0]))
 			}
-			return execSecretRotate(
+			return execSecretUpdate(
 				cmd.Context(),
 				s,
 				args[0],
@@ -317,8 +317,8 @@ func newSecretRotateCmd() *cobra.Command {
 	return cmd
 }
 
-// execSecretRotate implements "secret rotate". Separated for testability.
-func execSecretRotate(
+// execSecretUpdate implements "secret update". Separated for testability.
+func execSecretUpdate(
 	ctx context.Context,
 	s secrets.Store,
 	name, agent string,
@@ -342,10 +342,10 @@ func execSecretRotate(
 	}
 
 	if err := s.Rotate(ctx, name, agent, newValue); err != nil {
-		return fmt.Errorf("secret rotate: %w", err)
+		return fmt.Errorf("secret update: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(out, "rotated: %s\n", name)
+	_, _ = fmt.Fprintf(out, "updated: %s\n", name)
 	_ = signalFn(paths.PIDFile())
 	return nil
 }

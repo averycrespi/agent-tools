@@ -36,7 +36,7 @@ func confirm(in io.Reader, out io.Writer, isTTY, force bool, message string) (bo
 }
 
 // confirmViaTTY prompts via /dev/tty for commands whose stdin is already
-// consumed (e.g. secret rotate, which reads the new value from stdin).
+// consumed (e.g. secret update, which reads the new value from stdin).
 // When force is true, returns (true, nil) without opening /dev/tty.
 func confirmViaTTY(out io.Writer, force bool, message string) (bool, error) {
 	if force {
