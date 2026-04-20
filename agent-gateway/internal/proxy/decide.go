@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/agents"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/hostnorm"
 )
 
 // ConnectDecision is the outcome of the CONNECT-time intercept decision.
@@ -133,10 +134,15 @@ func Decide(
 	engine RulesEngine,
 	noIntercept []string,
 ) ConnectDecision {
-	// Strip port if present.
+	// Strip port if present, then canonicalise via hostnorm. Normalization
+	// is idempotent so it's safe if callers already normalised; doing it
+	// here too keeps Decide self-contained.
 	hostOnly := host
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		hostOnly = h
+	}
+	if canon, err := hostnorm.Normalize(hostOnly); err == nil {
+		hostOnly = canon
 	}
 
 	// no_intercept_hosts: glob-matched list → tunnel.

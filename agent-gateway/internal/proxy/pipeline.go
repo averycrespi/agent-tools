@@ -140,10 +140,13 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 	var bytesOut int64
 
 	// hostOnly is the bare hostname used in audit entries and rule matching.
+	// host has already been canonicalised at CONNECT ingress; re-normalise
+	// idempotently so this layer cannot drift from the rest of the pipeline.
 	hostOnly, _, splitErr := net.SplitHostPort(host)
 	if splitErr != nil {
 		hostOnly = host
 	}
+	hostOnly = normalizeHostSilently(hostOnly, p.log)
 
 	// 2b. Defer the audit Record call so it fires regardless of which return
 	// path is taken. The closure captures outcome, respStatus, and bytesIn by

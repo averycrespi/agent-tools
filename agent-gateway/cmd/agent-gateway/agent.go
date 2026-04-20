@@ -36,7 +36,7 @@ func openAgentRegistry() (agents.Registry, func(), error) {
 // configPath. Falls back to the compiled-in default if the file cannot be
 // loaded.
 func proxyListenAddr(configPath string) string {
-	cfg, err := config.Load(configPath)
+	cfg, _, err := config.Load(configPath)
 	if err != nil {
 		slog.Warn("could not load config; using default proxy listen address", "err", err)
 		return config.DefaultConfig().Proxy.Listen

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/hostnorm"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -273,7 +274,18 @@ func decodeMatchBlock(block *hcl.Block, ruleName, path string) (Match, []string,
 		if diags.HasErrors() {
 			return Match{}, nil, fmt.Errorf("rules: rule %q match.host: %s", ruleName, diags.Error())
 		}
-		m.Host = val.AsString()
+		raw := val.AsString()
+		normalized, err := hostnorm.NormalizeGlob(raw)
+		if err != nil {
+			return Match{}, nil, fmt.Errorf("rules: rule %q match.host: %w", ruleName, err)
+		}
+		if normalized != raw {
+			warnings = append(warnings, fmt.Sprintf(
+				"rules: rule %q match.host %q normalized to %q",
+				ruleName, raw, normalized,
+			))
+		}
+		m.Host = normalized
 	}
 	if attr, ok := content.Attributes["method"]; ok {
 		val, diags := attr.Expr.Value(nil)

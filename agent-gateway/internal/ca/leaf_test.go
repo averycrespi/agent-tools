@@ -43,6 +43,15 @@ func TestServerConfig_CacheHitReusesConfig(t *testing.T) {
 	assert.Same(t, c1, c2)
 }
 
+func TestServerConfig_NormalizesCacheKey(t *testing.T) {
+	a := newTestAuthority(t)
+	c1, err := a.ServerConfig("API.GitHub.COM.")
+	require.NoError(t, err)
+	c2, err := a.ServerConfig("api.github.com")
+	require.NoError(t, err)
+	assert.Same(t, c1, c2, "case/trailing-dot variants must share one cache entry")
+}
+
 func TestServerConfig_DifferentHostsDifferentCerts(t *testing.T) {
 	a := newTestAuthority(t)
 	c1, err := a.ServerConfig("a.example.com")

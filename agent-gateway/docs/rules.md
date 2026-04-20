@@ -68,6 +68,8 @@ rule "github-issue-create" {
 
 > **Why `host` is required.** The CONNECT-time decision filter consults each agent's set of rule hosts to decide whether to MITM or tunnel. A rule with no `host` would not appear in that index, so its verdict (especially a `deny`) would silently never fire. Spell `host = "**"` if you genuinely want to match every host.
 
+> **Host canonicalisation.** `host` is normalised at load time: ASCII is lowercased, a trailing `.` is stripped, and Unicode labels are mapped to punycode via the IDNA `Lookup` profile. `Api.GitHub.com`, `api.github.com.`, and `api.github.com` all compile to the same pattern. If normalisation rewrites your input you'll see a warning on the next `rules check` or daemon start showing the stored form. The same canonicalisation runs on incoming CONNECT targets, so rules written in one form match requests in any form. Mixed wildcard+literal segments (e.g. `api-*.github.com`) are ASCII-lowercased only — Unicode in mixed segments is unsupported; write the literal portion in ASCII.
+
 At most **one** body matcher per rule. A body matcher only runs on requests that (a) carry a body and (b) have a matching `Content-Type`. Requests without a body — `GET`, `DELETE`, `HEAD`, and `POST`/`PUT` with `Content-Length: 0` — never match a body-matcher rule.
 
 #### `json_body` (Content-Type: application/json)

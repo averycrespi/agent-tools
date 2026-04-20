@@ -11,8 +11,27 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/hostnorm"
 	"golang.org/x/net/http2"
 )
+
+// normalizeHostSilently returns the canonical form of host. If normalization
+// fails (malformed hostname) it logs at debug and returns host unchanged so
+// the caller can still make an intercept decision — a host we cannot
+// normalize will not match any rule and will fall through to tunnel or
+// reject via the existing decision path.
+func normalizeHostSilently(host string, log interface {
+	Debug(msg string, args ...any)
+}) string {
+	out, err := hostnorm.Normalize(host)
+	if err != nil {
+		if log != nil {
+			log.Debug("hostnorm failed; falling back to raw host", "host", host, "err", err)
+		}
+		return host
+	}
+	return out
+}
 
 // serveConn handles a single inbound TCP connection. It reads the initial
 // HTTP CONNECT request, authenticates the agent (when a registry is
@@ -39,9 +58,19 @@ func (p *Proxy) serveConn(conn net.Conn) {
 	// hostOnly is the bare hostname without port, used for TLS SNI and leaf
 	// certificate issuance. If SplitHostPort fails the target has no port
 	// (unusual) so use it as-is.
-	hostOnly, _, splitErr := net.SplitHostPort(connectTarget)
+	hostOnly, port, splitErr := net.SplitHostPort(connectTarget)
 	if splitErr != nil {
 		hostOnly = connectTarget
+		port = ""
+	}
+	// Canonicalise via hostnorm so that downstream rule matching, cert
+	// caching, and audit rows all see the same byte-for-byte form regardless
+	// of how the agent spelled the target (case, trailing dot, IDN).
+	hostOnly = normalizeHostSilently(hostOnly, p.log)
+	if port != "" {
+		connectTarget = net.JoinHostPort(hostOnly, port)
+	} else {
+		connectTarget = hostOnly
 	}
 
 	// --- Authentication + intercept decision ---
@@ -151,11 +180,14 @@ func (p *Proxy) serveTunnel(conn net.Conn, br *bufio.Reader, connectTarget, agen
 	reqID := NewULID()
 	start := time.Now()
 
-	// hostOnly is the bare hostname for the audit Host field.
+	// hostOnly is the bare hostname for the audit Host field. connectTarget
+	// has already been canonicalised at serveConn ingress, but re-normalise
+	// idempotently for defence in depth.
 	hostOnly, _, splitErr := net.SplitHostPort(connectTarget)
 	if splitErr != nil {
 		hostOnly = connectTarget
 	}
+	hostOnly = normalizeHostSilently(hostOnly, p.log)
 
 	// Dial upstream first; if it fails we record a "blocked" audit entry.
 	upstream, dialErr := net.Dial("tcp", connectTarget)

@@ -147,6 +147,9 @@ internal/config/        XDG-aware, rules dir glob, ports, log, timeouts
 internal/store/         Single SQLite file, WAL mode, migrations
 internal/daemon/        PID file write/read/delete for CLI→daemon SIGHUP
 internal/paths/         XDG-conformant path helpers
+internal/hostnorm/      Canonical host + host-glob normalization (IDNA
+                        Lookup, case-fold, trailing-dot strip); used at
+                        every rule/config/CONNECT ingress point
 ```
 
 ### Ports
@@ -1298,21 +1301,20 @@ Concrete places agent-gateway diverges and does more:
   but can go unnoticed in v1 since we only log to stderr. Revisit in v1.1
   with a dashboard `backlog-warning` event (deferred with the other
   nice-to-have SSE event types in §8).
-- **Hostname normalization on rule and CONNECT-target ingest (deferred to
-  vnext).** The host glob compiler in `internal/rules/parse.go` and the
-  CONNECT-target extraction in `internal/proxy/connect.go` both keep the
-  hostname verbatim — no `strings.ToLower`, no trailing-dot strip. A rule
-  written `host = "Api.GitHub.com"` therefore won't match a CONNECT to
-  `api.github.com`, and `api.github.com.` (the FQDN form some clients
-  emit) won't match `api.github.com`. Same in reverse for
-  `no_intercept_hosts` patterns. In single-user trusted-agent mode the
-  practical exposure is operator-typo footguns rather than active bypass
-  (Go-based clients lowercase URL hosts before CONNECT), but the surface
-  grows with every additional sandbox tool. Plan: a tiny
-  `internal/hostnorm` package that lowercases + strips one trailing dot,
-  applied at the three ingest points (HCL `m.Host`, CONNECT extraction,
-  config `no_intercept_hosts`), with a doc note pointing IDN users at
-  punycode for now. Tracked as audit finding #6.
+- **Hostname normalization on rule and CONNECT-target ingest (shipped).**
+  Canonicalisation lives in `internal/hostnorm`: `Normalize(host)` for bare
+  hostnames (CONNECT target, cert cache key) and `NormalizeGlob(pattern)`
+  for host-glob patterns (rule `match.host`, config `no_intercept_hosts`).
+  Both lowercase via the IDNA `Lookup` profile, strip a single trailing
+  `.`, and map Unicode labels to punycode. IP literals pass through
+  unchanged. Normalization is applied at every ingress point — HCL parse,
+  config load, CONNECT extraction, proxy pipeline handle, cert cache key,
+  and `Decide()` — so the five paths cannot drift. Load-time
+  normalisation is warn-on-change (operators see a one-liner telling them
+  the stored form); runtime normalisation is silent with fallback to raw
+  input on error. Mixed-wildcard segments (e.g. `api-*.github.com`) are
+  ASCII-lowercased only — Unicode in mixed segments is unsupported and
+  must be spelled ASCII. Tracked as audit finding #6.
 
 ## 12. Milestones
 

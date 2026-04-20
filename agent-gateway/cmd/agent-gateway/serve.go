@@ -106,9 +106,12 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	if cfgPath == "" {
 		cfgPath = paths.ConfigFile()
 	}
-	cfg, err := config.Load(cfgPath)
+	cfg, cfgWarnings, err := config.Load(cfgPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+	for _, w := range cfgWarnings {
+		log.Warn(w)
 	}
 
 	// 2. Ensure config, data, and rules directories exist.

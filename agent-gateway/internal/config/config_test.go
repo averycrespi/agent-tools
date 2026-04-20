@@ -15,7 +15,7 @@ func TestLoad_MissingWritesDefault(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.hcl")
 
-	cfg, err := config.Load(path)
+	cfg, _, err := config.Load(path)
 	require.NoError(t, err)
 
 	assert.Equal(t, "127.0.0.1:8220", cfg.Proxy.Listen)
@@ -38,7 +38,7 @@ func TestLoad_PartialOverridesKept(t *testing.T) {
 proxy { listen = "127.0.0.1:9999" }
 `), 0o600))
 
-	cfg, err := config.Load(path)
+	cfg, _, err := config.Load(path)
 	require.NoError(t, err)
 	assert.Equal(t, "127.0.0.1:9999", cfg.Proxy.Listen)
 	assert.Equal(t, "127.0.0.1:8221", cfg.Dashboard.Listen)
@@ -49,7 +49,7 @@ func TestLoad_ParseError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.hcl")
 	require.NoError(t, os.WriteFile(path, []byte(`proxy { listen = }`), 0o600))
-	_, err := config.Load(path)
+	_, _, err := config.Load(path)
 	require.Error(t, err)
 }
 
@@ -61,7 +61,7 @@ func TestLoad_PartialDashboardPreservesOpenBrowser(t *testing.T) {
 dashboard { listen = "127.0.0.1:9221" }
 `), 0o600))
 
-	cfg, err := config.Load(path)
+	cfg, _, err := config.Load(path)
 	require.NoError(t, err)
 	assert.Equal(t, "127.0.0.1:9221", cfg.Dashboard.Listen)
 	// Default is true; omitting open_browser must NOT flip it to false.
@@ -78,7 +78,7 @@ proxy_behavior {
 }
 `), 0o600))
 
-	_, err := config.Load(path)
+	_, _, err := config.Load(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no_intercept_hosts")
 	assert.Contains(t, err.Error(), "matches every")
@@ -99,6 +99,27 @@ func TestSave_RejectsWildcardNoInterceptHost(t *testing.T) {
 		"Save must not write a file when validation fails")
 }
 
+func TestLoad_NoInterceptHosts_NormalizesAndWarns(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.hcl")
+	require.NoError(t, os.WriteFile(path, []byte(`
+proxy_behavior {
+  no_intercept_hosts = ["API.GITHUB.COM", "*.Example.COM."]
+  max_body_buffer    = "1MiB"
+}
+`), 0o600))
+
+	cfg, warnings, err := config.Load(path)
+	require.NoError(t, err)
+	assert.Equal(t,
+		[]string{"api.github.com", "*.example.com"},
+		cfg.ProxyBehavior.NoInterceptHosts,
+	)
+	require.Len(t, warnings, 2)
+	assert.Contains(t, warnings[0], `"API.GITHUB.COM"`)
+	assert.Contains(t, warnings[0], `"api.github.com"`)
+}
+
 func TestLoad_InvalidDurationReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.hcl")
@@ -106,7 +127,7 @@ func TestLoad_InvalidDurationReturnsError(t *testing.T) {
 secrets { cache_ttl = "xyz" }
 `), 0o600))
 
-	_, err := config.Load(path)
+	_, _, err := config.Load(path)
 	require.Error(t, err, "malformed duration string must cause Load to return an error")
 }
 

@@ -11,6 +11,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/hostnorm"
 )
 
 const (
@@ -72,7 +74,15 @@ func initLeafFields(a *Authority) {
 // ServerConfig returns a *tls.Config whose Certificates slice contains a
 // freshly issued (or cached) leaf certificate for host signed by the root CA.
 // The same pointer is returned on subsequent calls for the same host.
+//
+// host is canonicalised via hostnorm before use as the cache key so that
+// "API.github.com" and "api.github.com" share a single cert. Inputs that
+// fail normalization are used as-is (the proxy layer has already made the
+// intercept decision; we should not fail handshake here).
 func (a *Authority) ServerConfig(host string) (*tls.Config, error) {
+	if canon, err := hostnorm.Normalize(host); err == nil {
+		host = canon
+	}
 	if e, ok := a.cache.load(host); ok {
 		return e.cfg, nil
 	}

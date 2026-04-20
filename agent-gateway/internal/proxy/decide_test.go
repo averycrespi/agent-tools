@@ -216,6 +216,23 @@ func TestDecide_NoInterceptGlobSingleLabel(t *testing.T) {
 	assert.Equal(t, proxy.DecisionMITM, decision)
 }
 
+// Decide applies host normalization: a CONNECT target in uppercase matches
+// a rule stored as lowercase (both sides go through hostnorm).
+func TestDecide_HostNormalization_CaseMismatch_MITM(t *testing.T) {
+	ag := &agents.Agent{Name: "test-agent"}
+	engine := newDecideStubEngine("api.github.com")
+	decision := proxy.DecideForTest(context.Background(), "API.GitHub.COM", ag, engine, nil)
+	assert.Equal(t, proxy.DecisionMITM, decision)
+}
+
+// Decide: a trailing-dot (FQDN) CONNECT target matches the non-FQDN rule.
+func TestDecide_HostNormalization_TrailingDot_MITM(t *testing.T) {
+	ag := &agents.Agent{Name: "test-agent"}
+	engine := newDecideStubEngine("api.github.com")
+	decision := proxy.DecideForTest(context.Background(), "api.github.com.", ag, engine, nil)
+	assert.Equal(t, proxy.DecisionMITM, decision)
+}
+
 // no_intercept_hosts: **.example.com matches a.b.example.com (multi-label glob)
 func TestDecide_NoInterceptDoubleGlob_Tunnel(t *testing.T) {
 	ag := &agents.Agent{Name: "test-agent"}

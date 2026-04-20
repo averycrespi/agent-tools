@@ -15,7 +15,7 @@ func TestValidateNoInterceptHosts_AcceptsRealEntries(t *testing.T) {
 		"a",
 	} {
 		t.Run(p, func(t *testing.T) {
-			if err := validateNoInterceptHosts([]string{p}); err != nil {
+			if _, err := validateNoInterceptHosts([]string{p}); err != nil {
 				t.Errorf("expected %q to validate, got: %v", p, err)
 			}
 		})
@@ -23,10 +23,10 @@ func TestValidateNoInterceptHosts_AcceptsRealEntries(t *testing.T) {
 }
 
 func TestValidateNoInterceptHosts_AcceptsEmptyList(t *testing.T) {
-	if err := validateNoInterceptHosts(nil); err != nil {
+	if _, err := validateNoInterceptHosts(nil); err != nil {
 		t.Errorf("nil list: %v", err)
 	}
-	if err := validateNoInterceptHosts([]string{}); err != nil {
+	if _, err := validateNoInterceptHosts([]string{}); err != nil {
 		t.Errorf("empty list: %v", err)
 	}
 }
@@ -43,7 +43,7 @@ func TestValidateNoInterceptHosts_RejectsWildcardOnly(t *testing.T) {
 		"..",
 	} {
 		t.Run(p, func(t *testing.T) {
-			err := validateNoInterceptHosts([]string{p})
+			_, err := validateNoInterceptHosts([]string{p})
 			if err == nil {
 				t.Fatalf("expected %q to be rejected", p)
 			}
@@ -57,7 +57,7 @@ func TestValidateNoInterceptHosts_RejectsWildcardOnly(t *testing.T) {
 func TestValidateNoInterceptHosts_RejectsEmptyEntry(t *testing.T) {
 	for _, p := range []string{"", " ", "\t", "\n  "} {
 		t.Run("blank", func(t *testing.T) {
-			err := validateNoInterceptHosts([]string{p})
+			_, err := validateNoInterceptHosts([]string{p})
 			if err == nil {
 				t.Fatalf("expected %q to be rejected", p)
 			}
@@ -69,7 +69,7 @@ func TestValidateNoInterceptHosts_RejectsEmptyEntry(t *testing.T) {
 }
 
 func TestValidateNoInterceptHosts_PointsAtBadIndex(t *testing.T) {
-	err := validateNoInterceptHosts([]string{"api.example.com", "**", "other.example.com"})
+	_, err := validateNoInterceptHosts([]string{"api.example.com", "**", "other.example.com"})
 	if err == nil {
 		t.Fatal("expected error")
 	}

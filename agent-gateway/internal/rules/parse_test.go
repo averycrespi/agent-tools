@@ -285,6 +285,51 @@ rule "bad-re" {
 	require.Error(t, err)
 }
 
+func TestParse_HostNormalization_WarnsAndNormalizes(t *testing.T) {
+	dir := t.TempDir()
+	writeHCL(t, dir, "mixed-case.hcl", `
+rule "case-mismatch" {
+  match   { host = "API.GitHub.COM." }
+  verdict = "allow"
+}
+`)
+	rs, warnings, err := rules.ParseDir(dir)
+	require.NoError(t, err)
+	require.Len(t, rs, 1)
+	assert.Equal(t, "api.github.com", rs[0].Match.Host)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], `"API.GitHub.COM."`)
+	assert.Contains(t, warnings[0], `"api.github.com"`)
+}
+
+func TestParse_HostNormalization_UnicodeToPunycode(t *testing.T) {
+	dir := t.TempDir()
+	writeHCL(t, dir, "unicode.hcl", `
+rule "unicode-host" {
+  match   { host = "*.MÜNCHEN.de" }
+  verdict = "allow"
+}
+`)
+	rs, warnings, err := rules.ParseDir(dir)
+	require.NoError(t, err)
+	require.Len(t, rs, 1)
+	assert.Equal(t, "*.xn--mnchen-3ya.de", rs[0].Match.Host)
+	require.Len(t, warnings, 1)
+}
+
+func TestParse_HostNormalization_AlreadyNormal_NoWarning(t *testing.T) {
+	dir := t.TempDir()
+	writeHCL(t, dir, "clean.hcl", `
+rule "clean-host" {
+  match   { host = "api.github.com" }
+  verdict = "allow"
+}
+`)
+	_, warnings, err := rules.ParseDir(dir)
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+}
+
 func TestParse_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	rs, warnings, err := rules.ParseDir(dir)

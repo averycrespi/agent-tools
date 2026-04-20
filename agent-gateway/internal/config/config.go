@@ -395,9 +395,10 @@ func DefaultConfig() Config {
 
 // Save writes cfg to path at 0600, creating parent directories at 0750. The
 // config is validated before any disk I/O so an invalid config never reaches
-// disk via CLI paths.
+// disk via CLI paths. Normalization warnings raised during validation are
+// discarded; they would already have surfaced on the preceding Load.
 func Save(cfg Config, path string) error {
-	if err := validateConfig(cfg); err != nil {
+	if _, err := validateConfig(&cfg); err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
@@ -416,22 +417,26 @@ func Save(cfg Config, path string) error {
 
 // Load reads the config from path. If the file does not exist it writes the
 // defaults and returns them. Parse errors are returned as non-nil errors.
-func Load(path string) (Config, error) {
+//
+// The returned []string carries soft warnings (e.g. host-glob normalization
+// notices) that callers should log. Warnings are never set when the error is
+// non-nil.
+func Load(path string) (Config, []string, error) {
 	src, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		defaults := DefaultConfig()
 		if err := Save(defaults, path); err != nil {
-			return Config{}, err
+			return Config{}, nil, err
 		}
-		return defaults, nil
+		return defaults, nil, nil
 	}
 	if err != nil {
-		return Config{}, fmt.Errorf("config: read %s: %w", path, err)
+		return Config{}, nil, fmt.Errorf("config: read %s: %w", path, err)
 	}
 
 	w, err := parseHCL(src, path)
 	if err != nil {
-		return Config{}, fmt.Errorf("config: parse %s: %w", path, err)
+		return Config{}, nil, fmt.Errorf("config: parse %s: %w", path, err)
 	}
 
 	// Merge: start from defaults and overwrite with parsed wire values.
@@ -439,14 +444,15 @@ func Load(path string) (Config, error) {
 	// in the wire struct indicate "not set". We apply non-zero overrides.
 	defaults := DefaultConfig()
 	if err := mergeWire(&defaults, w); err != nil {
-		return Config{}, fmt.Errorf("config: %w", err)
+		return Config{}, nil, fmt.Errorf("config: %w", err)
 	}
 
-	if err := validateConfig(defaults); err != nil {
-		return Config{}, fmt.Errorf("config: %s: %w", path, err)
+	warnings, err := validateConfig(&defaults)
+	if err != nil {
+		return Config{}, nil, fmt.Errorf("config: %s: %w", path, err)
 	}
 
-	return defaults, nil
+	return defaults, warnings, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -454,9 +460,10 @@ func Load(path string) (Config, error) {
 // ---------------------------------------------------------------------------
 
 // Refresh loads the config at path and saves it back, backfilling any new
-// defaults introduced by upgrades.
+// defaults introduced by upgrades. Any load-time warnings are discarded; the
+// caller is expected to surface them via a prior Load call if interactive.
 func Refresh(path string) error {
-	cfg, err := Load(path)
+	cfg, _, err := Load(path)
 	if err != nil {
 		return fmt.Errorf("config: refresh: %w", err)
 	}
