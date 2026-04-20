@@ -141,6 +141,7 @@ The request appears on the dashboard live feed with the rule match, injection st
 - [docs/rules.md](./docs/rules.md) — Rule syntax, matchers, verdicts, injection, template expansion, reload semantics.
 - [docs/cli.md](./docs/cli.md) — Every CLI command, flag, and exit code.
 - [docs/sandbox-manager.md](./docs/sandbox-manager.md) — Integrating with `sandbox-manager` (Lima-based sandboxes).
+- [docs/security-model.md](./docs/security-model.md) — Trust boundaries, what the gateway protects against, operator responsibilities.
 - [DESIGN.md](./DESIGN.md) — Full design document: request lifecycle, TLS MITM mechanics, audit schema, open questions.
 
 ## Limitations
@@ -169,4 +170,4 @@ Run `make audit` before committing. Integration tests use `//go:build integratio
 
 `agent-gateway` is architecturally inspired by [onecli](https://github.com/onecli/onecli), an HTTP proxy that injects credentials into requests from sandboxed agents. The core match-and-swap concept and the `Proxy-Authorization` userinfo convention (`http://x:<token>@host:port`) both originate there.
 
-`agent-gateway` extends the model with HCL rules, content-type-aware body matching, a human-approval flow, a live SSE audit dashboard, and per-agent identity. It is a clean-room Go reimplementation; no code is shared. See [DESIGN.md §10](./DESIGN.md) for the full attribution.
+`agent-gateway` extends the model with HCL rules, content-type-aware body matching, a human-approval flow, a live SSE audit dashboard, and per-agent identity. It is a clean-room Go reimplementation; no code is shared. See [DESIGN.md §11](./DESIGN.md) for the full attribution.
