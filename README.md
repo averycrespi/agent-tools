@@ -125,7 +125,7 @@ Sandboxed agents often work in Go projects that depend on private modules hosted
 
 - Public modules are reverse-proxied to `proxy.golang.org` with zero host CPU overhead.
 - Private modules (matched by `GOPRIVATE`) are fetched via `go mod download` on the host, inheriting its git credentials, and streamed back to the sandbox.
-- The sandbox holds only a short-lived bearer token — no git credentials ever cross into it.
+- Git credentials stay on the host; the sandbox reaches the proxy over Lima's host-local bridge and carries none.
 - Follows the same host-holds-credentials pattern as `mcp-broker`, `local-git-mcp`, and `local-gh-mcp`.
 
 See the [local-gomod-proxy README](local-gomod-proxy/README.md) for more information.
