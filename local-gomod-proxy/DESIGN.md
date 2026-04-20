@@ -50,7 +50,7 @@ Standard Go module proxy protocol:
 | `GET /<module>/@v/<version>.zip`  | Module source zip       |
 | `GET /<module>/@latest`           | Latest version info     |
 
-For private modules, `/list` and `/@latest` are implemented via `go list -m -json -versions <module>@latest` with output transformed to the proxy protocol's expected shape. For public modules, all endpoints are forwarded to `proxy.golang.org` unchanged.
+For private modules, `/list` is implemented via `go list -m -json -versions <module>@latest` (the `-versions` flag populates the full version set), and `/@latest` via `go list -m -json <module>@latest` (no `-versions` — only the resolved latest is needed). Output is transformed to the proxy protocol's expected shape. For public modules, all endpoints are forwarded to `proxy.golang.org` unchanged.
 
 ## Project structure
 
