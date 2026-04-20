@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/agents"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/secrets"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/store"
 	"github.com/stretchr/testify/assert"
@@ -38,6 +39,17 @@ func newTestSecretStore(t *testing.T, db *sql.DB) secrets.Store {
 	return s
 }
 
+// registryWithAgent creates a registry backed by db and registers the named
+// agent so execSecretAdd's existence check passes in tests that use --agent.
+func registryWithAgent(t *testing.T, db *sql.DB, name string) agents.Registry {
+	t.Helper()
+	r, err := agents.NewRegistry(context.Background(), db)
+	require.NoError(t, err)
+	_, err = r.Add(context.Background(), name, "")
+	require.NoError(t, err)
+	return r
+}
+
 // noSIGHUP is a no-op SIGHUP sender for tests.
 func noSIGHUP(_ string) error { return nil }
 
@@ -53,7 +65,7 @@ func TestSecretAdd_Global(t *testing.T) {
 	s := newTestSecretStore(t, db)
 
 	var out bytes.Buffer
-	err := execSecretAdd(context.Background(), s, "mytoken", "", "my token", []string{"**"}, strings.NewReader("s3cr3t\n"), &out, false, noSIGHUP)
+	err := execSecretAdd(context.Background(), s, nil, "mytoken", "", "my token", []string{"**"}, strings.NewReader("s3cr3t\n"), &out, false, noSIGHUP)
 	require.NoError(t, err)
 
 	val, scope, _, getErr := s.Get(context.Background(), "mytoken", "")
@@ -66,9 +78,10 @@ func TestSecretAdd_Global(t *testing.T) {
 func TestSecretAdd_Agent(t *testing.T) {
 	db := secretTestDB(t)
 	s := newTestSecretStore(t, db)
+	r := registryWithAgent(t, db, "mybot")
 
 	var out bytes.Buffer
-	err := execSecretAdd(context.Background(), s, "mytoken", "mybot", "desc", []string{"**"}, strings.NewReader("s3cr3t\n"), &out, false, noSIGHUP)
+	err := execSecretAdd(context.Background(), s, r, "mytoken", "mybot", "desc", []string{"**"}, strings.NewReader("s3cr3t\n"), &out, false, noSIGHUP)
 	require.NoError(t, err)
 
 	val, scope, _, getErr := s.Get(context.Background(), "mytoken", "mybot")
@@ -82,13 +95,14 @@ func TestSecretAdd_Agent(t *testing.T) {
 func TestSecretAdd_ShadowWarning(t *testing.T) {
 	db := secretTestDB(t)
 	s := newTestSecretStore(t, db)
+	r := registryWithAgent(t, db, "mybot")
 	ctx := context.Background()
 
 	// Set a global row first.
 	require.NoError(t, s.Set(ctx, "mytoken", "", "global-val", "global", []string{"**"}))
 
 	var out bytes.Buffer
-	err := execSecretAdd(ctx, s, "mytoken", "mybot", "desc", []string{"**"}, strings.NewReader("agent-val\n"), &out, false, noSIGHUP)
+	err := execSecretAdd(ctx, s, r, "mytoken", "mybot", "desc", []string{"**"}, strings.NewReader("agent-val\n"), &out, false, noSIGHUP)
 	require.NoError(t, err)
 
 	// Shadow warning must appear in output.
@@ -104,10 +118,33 @@ func TestSecretAdd_NoShadowWarning(t *testing.T) {
 	ctx := context.Background()
 
 	var out bytes.Buffer
-	err := execSecretAdd(ctx, s, "tok", "", "", []string{"**"}, strings.NewReader("val\n"), &out, false, noSIGHUP)
+	err := execSecretAdd(ctx, s, nil, "tok", "", "", []string{"**"}, strings.NewReader("val\n"), &out, false, noSIGHUP)
 	require.NoError(t, err)
 	assert.Equal(t, "added: tok\n", out.String(),
 		"success message must be printed, and no shadow warning when set globally")
+}
+
+// TestSecretAdd_AgentDoesNotExist verifies that adding an agent-scoped secret
+// whose target agent isn't registered fails with a clear hint, without
+// touching the secrets store.
+func TestSecretAdd_AgentDoesNotExist(t *testing.T) {
+	db := secretTestDB(t)
+	s := newTestSecretStore(t, db)
+	r, err := agents.NewRegistry(context.Background(), db)
+	require.NoError(t, err)
+
+	var out bytes.Buffer
+	err = execSecretAdd(context.Background(), s, r, "tok", "ghost", "", []string{"**"}, strings.NewReader("v\n"), &out, false, noSIGHUP)
+	require.Error(t, err)
+
+	msg := err.Error()
+	assert.Contains(t, msg, `agent "ghost"`)
+	assert.Contains(t, msg, "does not exist")
+	assert.Contains(t, msg, "agent add ghost")
+
+	// Secret must not have been written.
+	_, _, _, getErr := s.Get(context.Background(), "tok", "ghost")
+	assert.ErrorIs(t, getErr, secrets.ErrNotFound)
 }
 
 // TestSecretAdd_DuplicateMessage verifies that re-adding an existing secret
@@ -119,10 +156,10 @@ func TestSecretAdd_DuplicateMessage(t *testing.T) {
 	ctx := context.Background()
 
 	var out bytes.Buffer
-	require.NoError(t, execSecretAdd(ctx, s, "dupe", "", "", []string{"**"}, strings.NewReader("v1\n"), &out, false, noSIGHUP))
+	require.NoError(t, execSecretAdd(ctx, s, nil, "dupe", "", "", []string{"**"}, strings.NewReader("v1\n"), &out, false, noSIGHUP))
 
 	out.Reset()
-	err := execSecretAdd(ctx, s, "dupe", "", "", []string{"**"}, strings.NewReader("v2\n"), &out, false, noSIGHUP)
+	err := execSecretAdd(ctx, s, nil, "dupe", "", "", []string{"**"}, strings.NewReader("v2\n"), &out, false, noSIGHUP)
 	require.Error(t, err)
 
 	msg := err.Error()
@@ -137,13 +174,14 @@ func TestSecretAdd_DuplicateMessage(t *testing.T) {
 func TestSecretAdd_DuplicateMessage_Agent(t *testing.T) {
 	db := secretTestDB(t)
 	s := newTestSecretStore(t, db)
+	r := registryWithAgent(t, db, "mybot")
 	ctx := context.Background()
 
 	var out bytes.Buffer
-	require.NoError(t, execSecretAdd(ctx, s, "dupe", "mybot", "", []string{"**"}, strings.NewReader("v1\n"), &out, false, noSIGHUP))
+	require.NoError(t, execSecretAdd(ctx, s, r, "dupe", "mybot", "", []string{"**"}, strings.NewReader("v1\n"), &out, false, noSIGHUP))
 
 	out.Reset()
-	err := execSecretAdd(ctx, s, "dupe", "mybot", "", []string{"**"}, strings.NewReader("v2\n"), &out, false, noSIGHUP)
+	err := execSecretAdd(ctx, s, r, "dupe", "mybot", "", []string{"**"}, strings.NewReader("v2\n"), &out, false, noSIGHUP)
 	require.Error(t, err)
 
 	msg := err.Error()
@@ -159,7 +197,7 @@ func TestSecretAdd_RefusesTTY(t *testing.T) {
 
 	var out bytes.Buffer
 	// isTTY=true simulates a TTY stdin.
-	err := execSecretAdd(context.Background(), s, "tok", "", "", []string{"**"}, strings.NewReader(""), &out, true, noSIGHUP)
+	err := execSecretAdd(context.Background(), s, nil, "tok", "", "", []string{"**"}, strings.NewReader(""), &out, true, noSIGHUP)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pipe")
 }

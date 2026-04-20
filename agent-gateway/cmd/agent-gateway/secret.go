@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/agents"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/daemon"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/secrets"
@@ -106,9 +107,23 @@ func newSecretAddCmd() *cobra.Command {
 			}
 			defer cleanup()
 
+			// Agent registry is only consulted when --agent is set; open it
+			// lazily so callers that don't scope to an agent don't pay the
+			// argon2-table load.
+			var r agents.Registry
+			if agent != "" {
+				reg, regCleanup, err := openAgentRegistry()
+				if err != nil {
+					return err
+				}
+				defer regCleanup()
+				r = reg
+			}
+
 			return execSecretAdd(
 				cmd.Context(),
 				s,
+				r,
 				args[0],
 				agent,
 				desc,
@@ -139,9 +154,11 @@ func duplicateSecretError(name, agent string) error {
 
 // execSecretAdd implements "secret add". Separated for testability.
 // signalFn receives the PID file path and is responsible for sending SIGHUP.
+// r may be nil when agent is empty (global scope).
 func execSecretAdd(
 	ctx context.Context,
 	s secrets.Store,
+	r agents.Registry,
 	name, agent, desc string,
 	hosts []string,
 	in io.Reader,
@@ -149,6 +166,26 @@ func execSecretAdd(
 	isTTY bool,
 	signalFn func(string) error,
 ) error {
+	// Fail early if the target agent doesn't exist — a dangling agent-scoped
+	// secret can never resolve at runtime, so it's always a typo or a missed
+	// "agent add" step.
+	if agent != "" {
+		metas, err := r.List(ctx)
+		if err != nil {
+			return fmt.Errorf("secret add: list agents: %w", err)
+		}
+		found := false
+		for _, m := range metas {
+			if m.Name == agent {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("agent %q does not exist. To register it, use: agent-gateway agent add %s", agent, agent)
+		}
+	}
+
 	value, err := readStdinValue(in, isTTY)
 	if err != nil {
 		return err
