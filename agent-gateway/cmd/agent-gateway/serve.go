@@ -364,7 +364,8 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Info("context cancelled; shutting down")
+			log.Info("context cancelled; shutting down, send signal again to force exit")
+			go forceExitOnSecondSignal(sigCh, log)
 			return shutdown(log, dashSrv)
 
 		case sig := <-sigCh:
@@ -404,7 +405,8 @@ func RunServe(ctx context.Context, d serveDeps) error {
 					log.Info("CA reloaded; leaf cache cleared")
 				}
 			case syscall.SIGTERM, syscall.SIGINT:
-				log.Info("received signal; shutting down", "signal", sig)
+				log.Info("received signal; shutting down, send again to force exit", "signal", sig)
+				go forceExitOnSecondSignal(sigCh, log)
 				return shutdown(log, dashSrv)
 			}
 
@@ -436,6 +438,18 @@ type injectAdapter struct {
 
 func (a *injectAdapter) Apply(req *http.Request, rule *rules.Rule, agent, host string) (inject.InjectionStatus, string, error) {
 	return a.inj.Apply(req.Context(), req, rule, agent, host)
+}
+
+// forceExitOnSecondSignal blocks on sigCh after graceful shutdown has begun.
+// If a second SIGINT/SIGTERM arrives before shutdown completes, the process
+// exits immediately with status 1.
+func forceExitOnSecondSignal(sigCh <-chan os.Signal, log *slog.Logger) {
+	for sig := range sigCh {
+		if sig == syscall.SIGINT || sig == syscall.SIGTERM {
+			log.Warn("forced shutdown", "signal", sig)
+			os.Exit(1)
+		}
+	}
 }
 
 // shutdown gracefully shuts down both HTTP servers with a 30-second timeout.

@@ -248,7 +248,7 @@ func TestServe_DashboardServesIndex(t *testing.T) {
 
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	assert.Contains(t, string(body), "<title>agent-gateway</title>")
+	assert.Contains(t, string(body), "<title>Agent Gateway</title>")
 }
 
 // TestServe_DashboardRequiresAuth verifies that unauthenticated requests to
