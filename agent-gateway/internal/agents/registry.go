@@ -19,6 +19,10 @@ var ErrNotFound = errors.New("agent not found")
 // ErrInvalidToken is returned when authentication fails.
 var ErrInvalidToken = errors.New("invalid token")
 
+// ErrDuplicateName is returned by Add when an agent with the given name
+// already exists.
+var ErrDuplicateName = errors.New("agent name already exists")
+
 // argon2id parameters (time=1, memory=64 KiB, threads=4, keyLen=32).
 const (
 	argon2Time    = 1
@@ -81,7 +85,18 @@ func NewRegistry(ctx context.Context, db *sql.DB) (Registry, error) {
 }
 
 // Add registers a new agent, mints a token, and returns it (shown once).
+// Returns ErrDuplicateName if an agent with the given name already exists.
 func (r *sqlRegistry) Add(ctx context.Context, name, description string) (string, error) {
+	var existing string
+	switch err := r.db.QueryRowContext(ctx, `SELECT name FROM agents WHERE name = ?`, name).Scan(&existing); {
+	case err == nil:
+		return "", fmt.Errorf("%w: %q", ErrDuplicateName, name)
+	case errors.Is(err, sql.ErrNoRows):
+		// Not a duplicate; proceed to insert.
+	default:
+		return "", fmt.Errorf("agents: check duplicate: %w", err)
+	}
+
 	tok := MintToken()
 	prefix := Prefix(tok)
 

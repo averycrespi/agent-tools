@@ -245,3 +245,13 @@ func TestRegistry_RotateNotFound(t *testing.T) {
 	_, err := r.Rotate(context.Background(), "nonexistent")
 	assert.ErrorIs(t, err, agents.ErrNotFound)
 }
+
+func TestRegistry_AddDuplicateName(t *testing.T) {
+	r := newRegistry(t)
+	ctx := context.Background()
+	_, err := r.Add(ctx, "dupe", "")
+	require.NoError(t, err)
+
+	_, err = r.Add(ctx, "dupe", "")
+	assert.ErrorIs(t, err, agents.ErrDuplicateName)
+}

@@ -115,6 +115,9 @@ func execAgentAdd(
 ) error {
 	tok, err := r.Add(ctx, name, desc)
 	if err != nil {
+		if errors.Is(err, agents.ErrDuplicateName) {
+			return fmt.Errorf("agent %q already exists. To rotate its token, use: agent-gateway agent rotate %s", name, name)
+		}
 		return fmt.Errorf("agent add: %w", err)
 	}
 	printTokenBlock(out, tok, listenAddr)

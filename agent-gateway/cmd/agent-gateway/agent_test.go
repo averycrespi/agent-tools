@@ -106,6 +106,27 @@ func TestAgentAdd_TokenLineAppearsOnce(t *testing.T) {
 	assert.Len(t, tokenLines, 1, "exactly one 'token: ...' line must be printed")
 }
 
+// TestAgentAdd_DuplicateNameMessage verifies that re-adding an existing
+// agent returns a user-friendly error that names the agent and suggests
+// the `agent rotate` command, rather than leaking a SQLite constraint
+// message.
+func TestAgentAdd_DuplicateNameMessage(t *testing.T) {
+	r := newTestRegistry(t)
+	ctx := context.Background()
+	var out bytes.Buffer
+
+	require.NoError(t, execAgentAdd(ctx, r, "dupe", "", "127.0.0.1:8220", &out, noSIGHUP))
+
+	err := execAgentAdd(ctx, r, "dupe", "", "127.0.0.1:8220", &out, noSIGHUP)
+	require.Error(t, err)
+
+	msg := err.Error()
+	assert.Contains(t, msg, `"dupe"`, "error should name the duplicated agent")
+	assert.Contains(t, msg, "already exists")
+	assert.Contains(t, msg, "agent rotate dupe", "error should suggest rotate as the next step")
+	assert.NotContains(t, msg, "sqlite", "raw sqlite error must not leak")
+}
+
 // TestAgentList_NeverShowsFullToken verifies that "agent list" output
 // never contains the full token — only the 12-char prefix is visible.
 func TestAgentList_NeverShowsFullToken(t *testing.T) {
