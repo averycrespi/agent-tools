@@ -81,7 +81,7 @@ func newAgentAddCmd(configPath func() string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add <name>",
 		Short: "Register a new agent and print its token",
-		Args:  cobra.ExactArgs(1),
+		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r, cleanup, err := openAgentRegistry()
 			if err != nil {
@@ -169,7 +169,7 @@ func newAgentShowCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <name>",
 		Short: "Show agent metadata (no token, no prefix)",
-		Args:  cobra.ExactArgs(1),
+		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r, cleanup, err := openAgentRegistry()
 			if err != nil {
@@ -213,7 +213,7 @@ func newAgentRotateCmd(configPath func() string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rotate <name>",
 		Short: "Mint a new token for an agent, invalidating the previous one",
-		Args:  cobra.ExactArgs(1),
+		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r, cleanup, err := openAgentRegistry()
 			if err != nil {
@@ -275,7 +275,7 @@ func newAgentRmCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rm <name>",
 		Short: "Remove an agent and cascade-delete its scoped secrets",
-		Args:  cobra.ExactArgs(1),
+		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r, cleanup, err := openAgentRegistry()
 			if err != nil {

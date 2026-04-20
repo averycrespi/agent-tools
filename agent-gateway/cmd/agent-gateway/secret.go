@@ -96,7 +96,7 @@ func newSecretSetCmd() *cobra.Command {
 		Long: "Store a secret value read from stdin. Every secret must be bound\n" +
 			"to at least one host glob via --host (repeatable). Use --host \"**\"\n" +
 			"for an explicit all-hosts binding.",
-		Args: cobra.ExactArgs(1),
+		Args: exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(hosts) == 0 {
 				return fmt.Errorf("at least one --host is required (use --host \"**\" to allow every host)")
@@ -173,7 +173,7 @@ func newSecretBindCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "bind <name>",
 		Short: "Add host globs to a secret's allowed_hosts list",
-		Args:  cobra.ExactArgs(1),
+		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(hosts) == 0 {
 				return fmt.Errorf("at least one --host is required")
@@ -208,7 +208,7 @@ func newSecretUnbindCmd() *cobra.Command {
 		Long: "Remove host globs from a secret's allowed_hosts list. Fails if\n" +
 			"the removal would leave the list empty — rebind first, or use\n" +
 			"`secret rm` to delete the secret entirely.",
-		Args: cobra.ExactArgs(1),
+		Args: exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(hosts) == 0 {
 				return fmt.Errorf("at least one --host is required")
@@ -288,7 +288,7 @@ func newSecretRotateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rotate <name>",
 		Short: "Update the value of an existing secret (reads new value from stdin)",
-		Args:  cobra.ExactArgs(1),
+		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, cleanup, err := openSecretStore()
 			if err != nil {
@@ -359,7 +359,7 @@ func newSecretRMCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rm <name>",
 		Short: "Delete a secret",
-		Args:  cobra.ExactArgs(1),
+		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, cleanup, err := openSecretStore()
 			if err != nil {
