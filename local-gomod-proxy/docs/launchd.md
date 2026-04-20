@@ -53,7 +53,8 @@ launchctl print gui/$UID/dev.agent-tools.local-gomod-proxy | grep -E '^\s+state'
 curl -sI http://127.0.0.1:7070/github.com/stretchr/testify/@latest
 
 # Tail logs. slog writes to stderr by default, so .err.log carries
-# startup and request logs; .out.log is reserved for anything on stdout.
+# startup and request logs; .out.log stays empty unless something
+# unusual (e.g. a panic or stray println) hits stdout.
 tail -f ~/Library/Logs/local-gomod-proxy.{out,err}.log
 ```
 
