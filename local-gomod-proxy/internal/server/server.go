@@ -31,7 +31,7 @@ func New(r *router.Router, priv *private.Fetcher, pub *public.Fetcher) http.Hand
 				}
 				if errors.Is(err, private.ErrModuleNotFound) {
 					slog.Info("private module not found", "module", parsed.Module, "err", err)
-					http.Error(w, err.Error(), http.StatusNotFound)
+					http.Error(w, "module not found", http.StatusNotFound)
 					return
 				}
 				slog.Error("private fetcher failed", "module", parsed.Module, "err", err)

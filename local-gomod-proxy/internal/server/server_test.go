@@ -76,8 +76,11 @@ func TestHandler_PrivateRoute_BadGateway(t *testing.T) {
 func TestHandler_PrivateRoute_NotFound(t *testing.T) {
 	// go mod download reports a missing version — server maps to 404 so the
 	// Go client gets the expected "not found" signal instead of a 502 retry.
+	// The response body must be a generic string: the underlying toolchain
+	// output can contain host paths, usernames, and git-credential-helper
+	// details that we don't want to leak to the sandboxed client.
 	runner := &stubRunner{
-		out: []byte(`{"Error":"github.com/private/repo@v99.0.0: invalid version: unknown revision v99.0.0"}`),
+		out: []byte(`{"Error":"github.com/private/repo@v99.0.0: invalid version: unknown revision v99.0.0 (from /Users/secret/go/pkg/mod/cache)"}`),
 	}
 	h := New(
 		router.New("github.com/private/*"),
@@ -90,7 +93,35 @@ func TestHandler_PrivateRoute_NotFound(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Contains(t, w.Body.String(), "unknown revision")
+	body := w.Body.String()
+	assert.Contains(t, body, "module not found")
+	assert.NotContains(t, body, "/Users/secret")
+	assert.NotContains(t, body, "unknown revision")
+}
+
+func TestHandler_PrivateRoute_BadGateway_NoLeak(t *testing.T) {
+	// Subprocess errors can contain filesystem paths, git credential-helper
+	// output, or SSH diagnostics. None of it should reach the HTTP response.
+	runner := &stubRunner{
+		out: []byte("fatal: could not read Username for 'https://github.com': terminal prompts disabled\n/Users/secret/.netrc: bad syntax"),
+		err: fmt.Errorf("exit status 1"),
+	}
+	h := New(
+		router.New("github.com/private/*"),
+		private.New(runner),
+		public.New(mustURL(t, "http://127.0.0.1:1")),
+	)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/github.com/private/repo/@v/v1.0.0.info", nil)
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadGateway, w.Code)
+	body := w.Body.String()
+	assert.Contains(t, body, "upstream error")
+	assert.NotContains(t, body, "/Users/secret")
+	assert.NotContains(t, body, ".netrc")
+	assert.NotContains(t, body, "terminal prompts")
 }
 
 func TestHandler_BadPath(t *testing.T) {
