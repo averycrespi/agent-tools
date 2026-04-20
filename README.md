@@ -11,6 +11,7 @@ A collection of tools that reduce the friction of working with AI coding agents.
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local GH MCP](#local-gh-mcp)** — Stdio MCP server for GitHub operations via the gh CLI
 - **[Agent Gateway](#agent-gateway)** — Host-native HTTP/HTTPS proxy that injects credentials into sandboxed agent traffic
+- **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
 
 ## Getting Started
 
@@ -36,6 +37,7 @@ cd broker-cli && make install
 cd local-git-mcp && make install
 cd local-gh-mcp && make install
 cd agent-gateway && make install
+cd local-gomod-proxy && make install
 ```
 
 ## Tools
@@ -130,6 +132,19 @@ Sandboxed agents need to call external APIs (GitHub, npm, LLM providers), but gi
 - MITM TLS via a local root CA; HTTP/2 supported end-to-end.
 
 See the [agent-gateway README](agent-gateway/README.md) for more information.
+
+### Local Gomod Proxy
+
+Sandboxed agents often work in Go projects that depend on private modules hosted in private GitHub repositories. On the host, those dependencies resolve transparently via the user's git credentials. Inside the sandbox, those credentials are intentionally absent — so `go mod download` fails for any private dependency.
+
+`local-gomod-proxy` is a minimal HTTP Go module proxy that runs on the host and bridges the gap:
+
+- Public modules are reverse-proxied to `proxy.golang.org` with zero host CPU overhead.
+- Private modules (matched by `GOPRIVATE`) are fetched via `go mod download` on the host, inheriting its git credentials, and streamed back to the sandbox.
+- Git credentials stay on the host; the sandbox reaches the proxy over Lima's host-local bridge and carries none.
+- Follows the same host-holds-credentials pattern as `mcp-broker`, `local-git-mcp`, and `local-gh-mcp`.
+
+See the [local-gomod-proxy README](local-gomod-proxy/README.md) for more information.
 
 ## Related
 

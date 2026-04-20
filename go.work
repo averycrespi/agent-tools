@@ -1,10 +1,11 @@
-go 1.25.8
+go 1.25.9
 
 use (
 	./agent-gateway
 	./broker-cli
 	./local-gh-mcp
 	./local-git-mcp
+	./local-gomod-proxy
 	./mcp-broker
 	./sandbox-manager
 	./worktree-manager

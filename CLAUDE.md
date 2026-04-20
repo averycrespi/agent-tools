@@ -12,6 +12,7 @@ sandbox-manager/     Lima VM sandbox manager for isolated agent environments —
 local-git-mcp/       Stdio MCP server for authenticated git remote operations — see local-git-mcp/CLAUDE.md
 local-gh-mcp/       Stdio MCP server for GitHub operations via gh CLI — see local-gh-mcp/CLAUDE.md
 agent-gateway/      Host-native HTTP/HTTPS proxy for sandboxed agents — see agent-gateway/CLAUDE.md
+local-gomod-proxy/  Host-side Go module proxy for sandboxed agents — see local-gomod-proxy/CLAUDE.md
 ```
 
 Each tool has its own `CLAUDE.md` with tool-specific instructions.
