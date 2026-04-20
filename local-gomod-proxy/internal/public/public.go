@@ -19,6 +19,11 @@ func New(upstream *url.URL) *Fetcher {
 	rp.Director = func(r *http.Request) {
 		orig(r)
 		r.Host = upstream.Host
+		// Strip client-supplied auth so a compromised sandbox can't
+		// inject headers into the upstream's access logs.
+		r.Header.Del("Authorization")
+		r.Header.Del("Proxy-Authorization")
+		r.Header.Del("Cookie")
 	}
 	return &Fetcher{proxy: rp}
 }

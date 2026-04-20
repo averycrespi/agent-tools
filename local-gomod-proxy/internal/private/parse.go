@@ -37,9 +37,9 @@ func ParseRequest(path string) (Request, error) {
 	// /@latest form
 	if strings.HasSuffix(trimmed, "/@latest") {
 		modEsc := strings.TrimSuffix(trimmed, "/@latest")
-		mod, err := module.UnescapePath(modEsc)
+		mod, err := unescapeAndValidateModule(modEsc)
 		if err != nil {
-			return Request{}, fmt.Errorf("invalid module path: %w", err)
+			return Request{}, err
 		}
 		return Request{Module: mod, Artifact: ArtifactLatest}, nil
 	}
@@ -52,9 +52,9 @@ func ParseRequest(path string) (Request, error) {
 	modEsc := trimmed[:idx]
 	rest := trimmed[idx+len("/@v/"):]
 
-	mod, err := module.UnescapePath(modEsc)
+	mod, err := unescapeAndValidateModule(modEsc)
 	if err != nil {
-		return Request{}, fmt.Errorf("invalid module path: %w", err)
+		return Request{}, err
 	}
 
 	if rest == "list" {
@@ -84,4 +84,19 @@ func ParseRequest(path string) (Request, error) {
 		return Request{}, fmt.Errorf("unsupported artifact extension: %q", ext)
 	}
 	return Request{Module: mod, Version: ver, Artifact: art}, nil
+}
+
+// unescapeAndValidateModule applies the proxy-protocol case-escape rules then
+// authoritatively validates the module path. Rejecting junk before we shell
+// out saves a subprocess spawn and narrows the attacker-controlled surface
+// that reaches `go`.
+func unescapeAndValidateModule(escaped string) (string, error) {
+	mod, err := module.UnescapePath(escaped)
+	if err != nil {
+		return "", fmt.Errorf("invalid module path: %w", err)
+	}
+	if err := module.CheckPath(mod); err != nil {
+		return "", fmt.Errorf("invalid module path: %w", err)
+	}
+	return mod, nil
 }

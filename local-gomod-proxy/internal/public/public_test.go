@@ -32,3 +32,26 @@ func TestFetcher_ForwardsToUpstream(t *testing.T) {
 	assert.Equal(t, "/rsc.io/quote/@v/list", gotPath)
 	assert.Contains(t, w.Body.String(), "v1.0.0")
 }
+
+func TestFetcher_StripsClientAuthHeaders(t *testing.T) {
+	var gotHeaders http.Header
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeaders = r.Header.Clone()
+	}))
+	defer upstream.Close()
+
+	u, err := url.Parse(upstream.URL)
+	require.NoError(t, err)
+	f := New(u)
+
+	req := httptest.NewRequest(http.MethodGet, "/rsc.io/quote/@v/list", nil)
+	req.Header.Set("Authorization", "Bearer sandbox-injected-token")
+	req.Header.Set("Proxy-Authorization", "Basic c2FuZGJveA==")
+	req.Header.Set("Cookie", "session=stolen")
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, req)
+
+	assert.Empty(t, gotHeaders.Get("Authorization"))
+	assert.Empty(t, gotHeaders.Get("Proxy-Authorization"))
+	assert.Empty(t, gotHeaders.Get("Cookie"))
+}

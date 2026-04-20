@@ -50,6 +50,10 @@ var serveCmd = &cobra.Command{
 			return fmt.Errorf("reading go env: %w", err)
 		}
 
+		if err := server.ValidateLoopbackAddr(serveAddr); err != nil {
+			return err
+		}
+
 		private_ := servePrivate
 		if private_ == "" {
 			private_ = env.GOPRIVATE

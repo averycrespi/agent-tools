@@ -25,6 +25,8 @@ func TestParseRequest(t *testing.T) {
 		{"bad path", "/not-a-module", "", "", 0, true},
 		{"bad artifact", "/github.com/foo/bar/@v/v1.0.0.tar", "", "", 0, true},
 		{"traversal attempt", "/../@v/list", "", "", 0, true},
+		{"empty module", "//@v/v1.0.0.info", "", "", 0, true},
+		{"invalid path chars", "/github.com/foo bar/baz/@v/v1.0.0.info", "", "", 0, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
