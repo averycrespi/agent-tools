@@ -156,6 +156,9 @@ function handleSSEEvent(msg) {
 
 function appendFeedRow(rec, prepend) {
   if (!feedContainer) return;
+  var empty = document.getElementById("live-empty");
+  if (empty) empty.style.display = "none";
+  feedContainer.style.display = "";
   var div = document.createElement("div");
   var isTunnel = rec.type === "tunnel" || rec.tunnel === true;
   div.className = "feed-row" + (isTunnel ? " tunnel tunnel-header" : "");
