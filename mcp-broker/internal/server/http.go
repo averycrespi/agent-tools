@@ -94,7 +94,7 @@ func newSSEBackend(ctx context.Context, name string, srv config.ServerConfig) (*
 			_ = c.Close()
 			return nil, fmt.Errorf("start OAuth SSE client for %q: %w", name, err)
 		}
-		if err := runOAuthFlow(ctx, err, callbackPort(name)); err != nil {
+		if err := runOAuthFlow(ctx, err, name); err != nil {
 			_ = c.Close()
 			return nil, fmt.Errorf("OAuth flow for %q: %w", name, err)
 		}

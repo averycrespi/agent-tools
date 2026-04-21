@@ -134,7 +134,7 @@ func initializeOAuthClient(ctx context.Context, c *client.Client, name string) e
 		return fmt.Errorf("initialize server %q: %w", name, err)
 	}
 
-	if err := runOAuthFlow(ctx, err, callbackPort(name)); err != nil {
+	if err := runOAuthFlow(ctx, err, name); err != nil {
 		_ = c.Close()
 		return fmt.Errorf("OAuth flow for %q: %w", name, err)
 	}
@@ -147,16 +147,27 @@ func initializeOAuthClient(ctx context.Context, c *client.Client, name string) e
 }
 
 // runOAuthFlow runs the interactive browser-based OAuth flow.
-func runOAuthFlow(ctx context.Context, authErr error, port int) error {
+func runOAuthFlow(ctx context.Context, authErr error, serverName string) error {
+	port := callbackPort(serverName)
 	handler := client.GetOAuthHandler(authErr)
 	if handler == nil {
 		return fmt.Errorf("no OAuth handler in error")
 	}
 
-	// Dynamic client registration if no client ID
+	// Dynamic client registration if no client ID. Persist the resulting
+	// client_id/client_secret so refresh flows after restart carry the right
+	// client_id — otherwise the server rejects refresh and we fall back to
+	// a full browser flow daily.
 	if handler.GetClientID() == "" {
 		if err := handler.RegisterClient(ctx, "mcp-broker"); err != nil {
 			return fmt.Errorf("register client: %w", err)
+		}
+		creds := clientCreds{
+			ClientID:     handler.GetClientID(),
+			ClientSecret: handler.GetClientSecret(),
+		}
+		if err := saveClientCreds(serverName, creds); err != nil {
+			fmt.Fprintf(os.Stderr, "save client creds for %q: %v\n", serverName, err)
 		}
 	}
 
