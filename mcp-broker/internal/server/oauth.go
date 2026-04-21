@@ -94,16 +94,25 @@ func callbackPort(serverName string) int {
 	return int(h.Sum32()%(65535-10000)) + 10000
 }
 
-// oauthConfig creates a minimal OAuth config for automatic discovery.
-// The mcp-go library handles 401 detection, metadata discovery, dynamic
-// client registration, and PKCE automatically.
+// oauthConfig creates an OAuth config for mcp-go's transport.
+// It seeds ClientID/ClientSecret from stored creds if available, so that
+// refresh POSTs after restart carry the correct client_id. On keychain
+// error, it logs and returns an empty-creds config (graceful degradation:
+// mcp-go will re-register, which triggers a browser flow but is correct).
 func oauthConfig(serverName string) transport.OAuthConfig {
 	port := callbackPort(serverName)
-	return transport.OAuthConfig{
+	cfg := transport.OAuthConfig{
 		RedirectURI: fmt.Sprintf("http://localhost:%d/callback", port),
 		TokenStore:  &KeychainTokenStore{serverName: serverName},
 		PKCEEnabled: true,
 	}
+	if creds, err := getClientCreds(serverName); err != nil {
+		fmt.Fprintf(os.Stderr, "load client creds for %q: %v\n", serverName, err)
+	} else if creds != nil {
+		cfg.ClientID = creds.ClientID
+		cfg.ClientSecret = creds.ClientSecret
+	}
+	return cfg
 }
 
 // initializeOAuthClient sends the MCP Initialize handshake, handling OAuth auth if needed.

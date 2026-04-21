@@ -99,3 +99,21 @@ func TestClientCreds_GetNoCreds(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, got)
 }
+
+func TestOAuthConfig_SeedsFromStoredCreds(t *testing.T) {
+	err := saveClientCreds("seeded-server", clientCreds{
+		ClientID:     "stored-cid",
+		ClientSecret: "stored-secret",
+	})
+	require.NoError(t, err)
+
+	cfg := oauthConfig("seeded-server")
+	require.Equal(t, "stored-cid", cfg.ClientID)
+	require.Equal(t, "stored-secret", cfg.ClientSecret)
+}
+
+func TestOAuthConfig_EmptyWhenNoStoredCreds(t *testing.T) {
+	cfg := oauthConfig("no-creds-server")
+	require.Empty(t, cfg.ClientID)
+	require.Empty(t, cfg.ClientSecret)
+}
