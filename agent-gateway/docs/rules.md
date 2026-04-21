@@ -224,3 +224,7 @@ If the state DB is unavailable (e.g. on a fresh install before any `secret add`)
 - **Use the `match` block, not rule proliferation.** If you find yourself writing two rules that differ only in header values, fold them into one rule with a `headers = { … }` block.
 - **Body bypass blocks the request.** If a body exceeds `max_body_buffer` or buffering times out, the rule cannot be evaluated and the request is blocked with 403. Tune `max_body_buffer` or rewrite the rule to match on headers instead if you expect large legitimate payloads.
 - **Keep rule intent visible at code review.** Express "only set the header if it's already present" as a `headers` match on the dummy value, not as an implicit injection behaviour.
+
+## Examples
+
+Ready-to-use rule files for common upstreams live in [`examples/rules.d/`](../examples/rules.d/). Copy one into `~/.config/agent-gateway/rules.d/`, follow the setup comment at the top for the secrets it references, and run `agent-gateway rules reload`.

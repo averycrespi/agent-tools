@@ -142,6 +142,7 @@ The request appears on the dashboard live feed with the rule match, injection st
 - [docs/cli.md](./docs/cli.md) — Every CLI command, flag, and exit code.
 - [docs/sandbox-manager.md](./docs/sandbox-manager.md) — Integrating with `sandbox-manager` (Lima-based sandboxes).
 - [docs/security-model.md](./docs/security-model.md) — Trust boundaries, what the gateway protects against, operator responsibilities.
+- [examples/rules.d/](./examples/rules.d/) — Copy-pasteable rule files for common upstreams.
 - [DESIGN.md](./DESIGN.md) — Full design document: request lifecycle, TLS MITM mechanics, audit schema, open questions.
 
 ## Limitations
