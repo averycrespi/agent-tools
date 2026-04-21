@@ -41,7 +41,7 @@ If you use [`sandbox-manager`](../sandbox-manager/), add [`examples/provision/go
 ```json
 {
   "scripts": [
-    "~/Workspace/agent-tools/local-gomod-proxy/examples/provision/gomod-proxy.sh"
+    "/path/to/agent-tools/local-gomod-proxy/examples/provision/gomod-proxy.sh"
   ]
 }
 ```
