@@ -79,3 +79,23 @@ func TestOAuthConfig_RedirectURIMatchesCallbackPort(t *testing.T) {
 	require.True(t, cfg.PKCEEnabled)
 	require.NotNil(t, cfg.TokenStore)
 }
+
+func TestClientCreds_SaveAndGet(t *testing.T) {
+	err := saveClientCreds("test-server", clientCreds{
+		ClientID:     "cid-123",
+		ClientSecret: "csecret-456",
+	})
+	require.NoError(t, err)
+
+	got, err := getClientCreds("test-server")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, "cid-123", got.ClientID)
+	require.Equal(t, "csecret-456", got.ClientSecret)
+}
+
+func TestClientCreds_GetNoCreds(t *testing.T) {
+	got, err := getClientCreds("unregistered-server")
+	require.NoError(t, err)
+	require.Nil(t, got)
+}

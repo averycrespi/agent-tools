@@ -51,6 +51,41 @@ func (s *KeychainTokenStore) SaveToken(ctx context.Context, token *transport.Tok
 	return keyring.Set(keychainService, s.serverName, string(data))
 }
 
+// clientCreds holds the dynamic client registration (RFC 7591) issued by
+// the OAuth server. Persisting it across restarts lets mcp-go reuse the
+// same client_id when refreshing tokens; otherwise the server rejects the
+// refresh because the stored refresh_token was bound to a prior registration.
+type clientCreds struct {
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret,omitempty"`
+}
+
+// getClientCreds returns the stored dynamic client registration for a server,
+// or (nil, nil) if none has been saved yet (first-run).
+func getClientCreds(serverName string) (*clientCreds, error) {
+	data, err := keyring.Get(keychainService, serverName+".client")
+	if err != nil {
+		if errors.Is(err, keyring.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get client creds for %q: %w", serverName, err)
+	}
+	var creds clientCreds
+	if err := json.Unmarshal([]byte(data), &creds); err != nil {
+		return nil, fmt.Errorf("unmarshal client creds: %w", err)
+	}
+	return &creds, nil
+}
+
+// saveClientCreds persists the dynamic client registration for a server.
+func saveClientCreds(serverName string, creds clientCreds) error {
+	data, err := json.Marshal(creds)
+	if err != nil {
+		return fmt.Errorf("marshal client creds: %w", err)
+	}
+	return keyring.Set(keychainService, serverName+".client", string(data))
+}
+
 // callbackPort returns a deterministic port for the OAuth callback server,
 // derived from the server name. Maps to ephemeral range 10000-65535.
 func callbackPort(serverName string) int {
