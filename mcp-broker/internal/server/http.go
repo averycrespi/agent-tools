@@ -129,6 +129,9 @@ func initializeClient(ctx context.Context, c *client.Client, name string) error 
 func (b *httpBackend) ListTools(ctx context.Context) ([]Tool, error) {
 	req := mcp.ListToolsRequest{}
 	resp, err := b.client.ListTools(ctx, req)
+	if err != nil && isUnauthorized(err) {
+		resp, err = b.client.ListTools(ctx, req) // single retry — see CallTool
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +161,12 @@ func (b *httpBackend) CallTool(ctx context.Context, name string, arguments map[s
 	req.Params.Arguments = arguments
 
 	resp, err := b.client.CallTool(ctx, req)
+	if err != nil && isUnauthorized(err) {
+		// Retry once: mcp-go's getValidToken re-runs refresh, which often
+		// succeeds after a transient Atlassian refresh failure. If the
+		// retry also fails, surface the error — user restarts the broker.
+		resp, err = b.client.CallTool(ctx, req)
+	}
 	if err != nil {
 		return nil, err
 	}
