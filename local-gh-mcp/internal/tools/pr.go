@@ -16,6 +16,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		{
 			Name:        "gh_create_pr",
 			Description: "Create a new pull request",
+			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -69,6 +70,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		{
 			Name:        "gh_view_pr",
 			Description: "View pull request details. Returns structured markdown with metadata and description.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -95,6 +97,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		{
 			Name:        "gh_list_prs",
 			Description: "List pull requests. Returns markdown bullet list.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -141,6 +144,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		{
 			Name:        "gh_diff_pr",
 			Description: "Get pull request diff. Returns file summary table followed by unified diff.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -163,6 +167,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		{
 			Name:        "gh_comment_pr",
 			Description: "Add a comment to a pull request",
+			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -189,6 +194,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		{
 			Name:        "gh_review_pr",
 			Description: "Submit a review on a pull request",
+			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -219,6 +225,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		{
 			Name:        "gh_merge_pr",
 			Description: "Merge a pull request",
+			Annotations: annDestructive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -253,6 +260,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		{
 			Name:        "gh_edit_pr",
 			Description: "Edit a pull request",
+			Annotations: annIdempotent,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -317,6 +325,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		{
 			Name:        "gh_check_pr",
 			Description: "View status checks for a pull request. Returns markdown bullet list.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -339,6 +348,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		{
 			Name:        "gh_close_pr",
 			Description: "Close a pull request",
+			Annotations: annDestructive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -365,6 +375,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		{
 			Name:        "gh_list_pr_comments",
 			Description: "List conversation (issue-style) comments on a pull request. Does NOT include review summaries or inline diff comments — for those, use gh_list_pr_reviews and gh_list_pr_review_comments. Returns markdown-formatted comment list.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -395,6 +406,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		{
 			Name:        "gh_list_pr_reviews",
 			Description: "List top-level review submissions on a pull request (approve, request-changes, comment) with their state, body, author, and submission date. For inline diff comments use gh_list_pr_review_comments. Returns markdown.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -425,6 +437,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		{
 			Name:        "gh_list_pr_review_comments",
 			Description: "List inline review comments on a pull request's diff (comments attached to specific file and line). Grouped by file and threaded by reply. For top-level review summaries use gh_list_pr_reviews; for issue-style comments use gh_list_pr_comments. Returns markdown.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{

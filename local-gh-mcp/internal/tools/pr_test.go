@@ -515,6 +515,41 @@ func TestListPRs_FormatsMarkdown(t *testing.T) {
 	assert.Contains(t, text, "DRAFT")
 }
 
+func TestPRToolAnnotations(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	tools := h.prTools()
+	byName := make(map[string]gomcp.Tool, len(tools))
+	for _, tool := range tools {
+		byName[tool.Name] = tool
+	}
+
+	cases := []struct {
+		name     string
+		expected gomcp.ToolAnnotation
+	}{
+		{"gh_create_pr", annAdditive},
+		{"gh_view_pr", annRead},
+		{"gh_list_prs", annRead},
+		{"gh_diff_pr", annRead},
+		{"gh_comment_pr", annAdditive},
+		{"gh_review_pr", annAdditive},
+		{"gh_merge_pr", annDestructive},
+		{"gh_edit_pr", annIdempotent},
+		{"gh_check_pr", annRead},
+		{"gh_close_pr", annDestructive},
+		{"gh_list_pr_comments", annRead},
+		{"gh_list_pr_reviews", annRead},
+		{"gh_list_pr_review_comments", annRead},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tool, ok := byName[tc.name]
+			require.True(t, ok, "tool %s not registered", tc.name)
+			assert.Equal(t, tc.expected, tool.Annotations)
+		})
+	}
+}
+
 func TestCheckPR_FormatsMarkdown(t *testing.T) {
 	h := NewHandler(&mockGHClient{
 		checkPRFunc: func(_ context.Context, owner, repo string, number int) (string, error) {
