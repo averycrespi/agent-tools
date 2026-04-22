@@ -117,3 +117,25 @@ func TestOAuthConfig_EmptyWhenNoStoredCreds(t *testing.T) {
 	require.Empty(t, cfg.ClientID)
 	require.Empty(t, cfg.ClientSecret)
 }
+
+func TestClientCreds_GetCorruptedCreds(t *testing.T) {
+	// If the keychain contains invalid JSON, getClientCreds should return an unmarshal error.
+	err := keyring.Set(keychainService, "corrupted-creds-server.client", "not-valid-json")
+	require.NoError(t, err)
+
+	_, err = getClientCreds("corrupted-creds-server")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unmarshal client creds")
+}
+
+func TestOAuthConfig_KeychainErrorContinuesWithEmptyCreds(t *testing.T) {
+	// If the keychain contains invalid JSON for the client entry, oauthConfig
+	// should log to stderr and return a config with empty ClientID/ClientSecret
+	// (graceful degradation: mcp-go will re-register rather than failing).
+	err := keyring.Set(keychainService, "keychain-error-server.client", "not-valid-json")
+	require.NoError(t, err)
+
+	cfg := oauthConfig("keychain-error-server")
+	require.Empty(t, cfg.ClientID)
+	require.Empty(t, cfg.ClientSecret)
+}
