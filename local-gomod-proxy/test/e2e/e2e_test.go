@@ -131,12 +131,8 @@ func downloadThroughProxy(t *testing.T, proxyAddr, creds, certPath, modVersion s
 
 	cache := newGOMODCACHE(t)
 
-	host, _, err := net.SplitHostPort(proxyAddr)
-	require.NoError(t, err)
-
 	env := append([]string{
 		fmt.Sprintf("GOPROXY=https://%s@%s/", creds, proxyAddr),
-		"GOINSECURE=" + host,
 		"SSL_CERT_FILE=" + certPath,
 		"GOSUMDB=off",
 		"GOPRIVATE=",
