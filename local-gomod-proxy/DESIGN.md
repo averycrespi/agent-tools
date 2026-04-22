@@ -6,26 +6,26 @@ Sandboxed AI agents often work in Go projects that depend on private modules hos
 
 `local-git-mcp` solves this for explicit git operations the agent performs on its working repo, but it does not help when the Go toolchain needs to resolve a transitive private dependency during module graph resolution (`go build`, `go test`, `go mod tidy`).
 
-local-gomod-proxy solves this by running a minimal HTTP server on the host that implements the Go module proxy protocol. Public modules are forwarded to `proxy.golang.org`. Private modules are resolved using the host's git credentials and served back to the sandbox.
+local-gomod-proxy solves this by running a minimal HTTPS server on the host that implements the Go module proxy protocol. Public modules are forwarded to `proxy.golang.org`. Private modules are resolved using the host's git credentials and served back to the sandbox.
 
-The proxy is **unauthenticated** and binds to the host loopback (`127.0.0.1:7070`) by default. The Lima sandbox reaches it via `host.lima.internal:7070` — Lima's default user-mode networking forwards the guest's `host.lima.internal` to the host's loopback, so no bridge IP discovery is needed. The host still holds the git credentials; the sandbox reaches the proxy over the bridge and carries nothing. See [Design decisions](#design-decisions) for why there is no auth.
+The proxy binds to the host loopback (`127.0.0.1:7070`) by default and requires TLS + HTTP Basic auth on every request. The Lima sandbox reaches it via `host.lima.internal:7070` — Lima's default user-mode networking forwards the guest's `host.lima.internal` to the host's loopback, so no bridge IP discovery is needed. The host still holds the git credentials; the sandbox carries only a short-lived token from the credentials file. TLS + auth layer on top of the loopback binding; they do not replace the network boundary. See [Design decisions](#design-decisions) for the rationale.
 
 ## Architecture
 
-local-gomod-proxy is a single HTTP binary. No config file, no persistent state.
+local-gomod-proxy is a single HTTPS binary. State (TLS cert + credentials) is persisted under `$XDG_STATE_HOME/local-gomod-proxy/` and loaded or generated on startup.
 
 ```
                          ┌────────────────────────────────┐
                          │  host: local-gomod-proxy       │
  sandbox (Lima VM)       │                                │
  ┌────────────┐          │   ┌─ router (GOPRIVATE) ─┐     │
- │  go build  │ ──HTTP──►│   │                      ▼     │
- │            │          │   │           PrivateFetcher   │
- │ GOPROXY=   │          │   │           (go mod download)│──► github.com (host git creds)
- │ http://... │          │   │                            │
- │            │          │   │           PublicFetcher    │
- │            │          │   │           (httputil        │──► proxy.golang.org
- │            │          │   │            .ReverseProxy)  │
+ │  go build  │──HTTPS   │   │                      ▼     │
+ │            │ (basic   │   │           PrivateFetcher   │
+ │ GOPROXY=   │ auth)───►│   │           (go mod download)│──► github.com (host git creds)
+ │ https://   │          │   │                            │
+ │ x:…@host.  │          │   │           PublicFetcher    │
+ │ lima.int.: │          │   │           (httputil        │──► proxy.golang.org
+ │ 7070/      │          │   │            .ReverseProxy)  │
  └────────────┘          │   └────────────────────────────┘
                          └────────────────────────────────┘
 ```
@@ -37,6 +37,19 @@ local-gomod-proxy is a single HTTP binary. No config file, no persistent state.
 3. **Private match** — `PrivateFetcher` shells out to `go mod download -json <module>@<version>` in the server's working directory, inheriting the host's git credentials via its environment. It parses the JSON result for absolute paths to the `.info`, `.mod`, and `.zip` files inside the host's `GOMODCACHE` and streams those files back.
 4. **No private match** — `PublicFetcher` reverse-proxies the request unchanged to `https://proxy.golang.org/<same-path>`.
 5. The response flows back to the sandbox's `go` tool.
+
+### State directory
+
+On first launch, the proxy creates and populates `$XDG_STATE_HOME/local-gomod-proxy/` (fallback: `~/.local/state/local-gomod-proxy/` if `$XDG_STATE_HOME` is unset). Subsequent launches reuse existing files unless the cert is within 30 days of expiry, in which case a fresh cert is generated.
+
+```
+$XDG_STATE_HOME/local-gomod-proxy/
+├── cert.pem       (0644) — self-signed ECDSA P-256, SANs: localhost/127.0.0.1/::1/host.lima.internal, 1y validity
+├── key.pem        (0600)
+└── credentials    (0600) — single line "x:<token>\n"
+```
+
+The credentials file is a host-local secret — any process running as the same user can read it. `0600` prevents other OS-level users from reading it.
 
 ## Protocol endpoints
 
@@ -119,10 +132,10 @@ Startup validation:
 
 ## Security
 
-- **Local-only deployment** — the proxy is unauthenticated. Its security model relies entirely on being reachable only from the co-located sandbox. The default `--addr` is `127.0.0.1:7070` (host loopback); the Lima sandbox reaches it via `host.lima.internal:7070`. Overriding `--addr` to a public interface or `0.0.0.0` exposes the host's git credentials to anyone who can reach the port.
+- **Authenticated over TLS** — every request requires HTTP Basic auth against a credentials file in `$XDG_STATE_HOME/local-gomod-proxy/credentials`. TLS uses a generated self-signed cert. The listener is still loopback-only; TLS + auth add defense-in-depth against same-user processes on the host, not replace the network boundary.
+- **TLS, self-signed cert** — traffic stays on the Lima bridge; cert rotation is manual via `rm -rf $state_dir` followed by restart + sandbox re-provision. Cert is regenerated automatically 30 days before expiry on the next startup.
 - **No shell interpolation** — `go mod download` is invoked via `os/exec` with an argv slice. Module paths and versions are URL-unescaped via `module.UnescapePath` / `module.UnescapeVersion` before use; `go mod download` rejects malformed inputs itself.
-- **Plain HTTP** — traffic stays on the Lima bridge and never leaves the host.
-- **Request logging** — module path, version, and private/public verdict logged via `log/slog`.
+- **Request logging** — module path, version, and private/public verdict logged via `log/slog`. The password is never logged.
 
 ## Tech stack
 
@@ -142,9 +155,9 @@ No Athens, no `golang.org/x/mod/zip` — `go mod download` hands us finished art
 
 **Reverse-proxy public modules to `proxy.golang.org`.** Leverages the upstream CDN and existing cache. Zero host CPU for the common case. The sandbox doesn't need direct egress to `proxy.golang.org` — only to the host.
 
-**No application-level auth.** Go ≥ 1.22 (cf. [Go issue #42135](https://github.com/golang/go/issues/42135)) refuses to send URL-embedded credentials over plain HTTP, and every other auth mechanism the `go` tool supports (`.netrc`, `GOAUTH`) is likewise HTTPS-gated (`cmd/go/internal/auth/auth.go` panics if the request scheme isn't HTTPS). Adding auth therefore requires TLS termination. Given the trust boundary — the sandbox is a co-located peer on a host-local bridge and the host already holds the git credentials — the cost of cert provisioning outweighs the benefit. Security is enforced at the network layer: bind to a local-only interface so no external caller can reach the port. This is the same posture Athens recommends for local dev deployments.
+**HTTPS + basic auth, not plain HTTP.** Loopback-only binding protects against other hosts; it does not protect against other processes running as the same user (browser extensions, random CLIs that probe `localhost:7070`). Requiring an auth token from a `0600` file they have no reason to read adds cheap defense-in-depth. TLS is required because every auth mechanism the `go` tool supports (URL-embedded, `.netrc`, `GOAUTH`) is HTTPS-gated since Go 1.22 (cf. [Go issue #42135](https://github.com/golang/go/issues/42135)) — plain HTTP is not an option if we want credentials.
 
-**Plain HTTP, no TLS.** Traffic stays on the Lima bridge and never reaches the public internet. TLS adds cert-provisioning complexity for no real-world benefit at this trust boundary.
+**Self-signed cert installed into the sandbox trust store** (not `GOINSECURE`). `GOINSECURE` does not make Go trust an unknown cert for an HTTPS GOPROXY — it only enables HTTP fallback on cert-verification failure, which our HTTPS-only proxy can't satisfy. The alternatives are (a) install the cert into the sandbox's system CA store via `update-ca-certificates`, or (b) export `SSL_CERT_FILE` pointing at the cert. (b) is rejected because setting `SSL_CERT_FILE` globally REPLACES the system root set for every tool that honors the env var (curl, python, etc.), breaking HTTPS to anything else. (a) costs one `sudo update-ca-certificates` at provision time (Lima sandboxes have passwordless sudo) and one re-provision per cert rotation (annual at most).
 
 **Read `GOPRIVATE` and `GOMODCACHE` via `go env -json`, not `os.Getenv`.** Users commonly set these via `go env -w`, which persists to `~/.config/go/env` and is invisible to `os.Getenv`. Reading via `go env` gives a single source of truth matching what the host toolchain actually uses.
 
@@ -156,8 +169,8 @@ No Athens, no `golang.org/x/mod/zip` — `go mod download` hands us finished art
 
 ## Testing
 
-| Layer                             | What it covers                                                                                                                      |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Unit (`make test`)                | Mock `exec.Runner` for PrivateFetcher; mock upstream HTTP for PublicFetcher; unit-test GOPRIVATE glob matching                      |
-| Integration (`-tags=integration`) | Real `go mod download` against a local file:// git repo; PrivateFetcher serves the correct bytes                                    |
-| E2E (`-tags=e2e`)                 | Build real binary, start it, run `go mod download` against it as a subprocess — exercises the full wire protocol for public modules |
+| Layer                             | What it covers                                                                                                                                                                                   |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Unit (`make test`)                | Mock `exec.Runner` for PrivateFetcher; mock upstream HTTP for PublicFetcher; unit-test GOPRIVATE glob matching; `internal/state` cert + credentials load-or-generate; `internal/auth` middleware |
+| Integration (`-tags=integration`) | Real `go mod download` against a local file:// git repo; PrivateFetcher serves the correct bytes; `tls_integration_test.go` runs the full auth handler behind a real TLS listener                |
+| E2E (`-tags=e2e`)                 | Build real binary, start it, run `go mod download` against it as a subprocess — exercises the full wire protocol including TLS + basic auth                                                      |
