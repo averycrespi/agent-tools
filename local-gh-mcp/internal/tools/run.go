@@ -16,6 +16,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 		{
 			Name:        "gh_list_runs",
 			Description: "List workflow runs. Returns markdown bullet list.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -50,6 +51,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 		{
 			Name:        "gh_view_run",
 			Description: "View workflow run details. Returns structured markdown with job list. Use log_failed=true for raw failure logs.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -76,6 +78,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 		{
 			Name:        "gh_rerun",
 			Description: "Re-run a workflow run",
+			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -102,6 +105,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 		{
 			Name:        "gh_cancel_run",
 			Description: "Cancel a workflow run",
+			Annotations: annDestructive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{

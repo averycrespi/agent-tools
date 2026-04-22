@@ -189,3 +189,29 @@ func TestCancelRun_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 }
+
+func TestRunToolAnnotations(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	tools := h.runTools()
+	byName := make(map[string]gomcp.Tool, len(tools))
+	for _, tool := range tools {
+		byName[tool.Name] = tool
+	}
+
+	cases := []struct {
+		name     string
+		expected gomcp.ToolAnnotation
+	}{
+		{"gh_list_runs", annRead},
+		{"gh_view_run", annRead},
+		{"gh_rerun", annAdditive},
+		{"gh_cancel_run", annDestructive},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tool, ok := byName[tc.name]
+			require.True(t, ok, "tool %s not registered", tc.name)
+			assert.Equal(t, tc.expected, tool.Annotations)
+		})
+	}
+}
