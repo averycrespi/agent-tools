@@ -79,7 +79,7 @@ func getClientCreds(serverName string) (*clientCreds, error) {
 
 // saveClientCreds persists the dynamic client registration for a server.
 func saveClientCreds(serverName string, creds clientCreds) error {
-	data, err := json.Marshal(creds)
+	data, err := json.Marshal(creds) //nolint:gosec // client_secret is intentionally persisted to the OS keychain
 	if err != nil {
 		return fmt.Errorf("marshal client creds: %w", err)
 	}
