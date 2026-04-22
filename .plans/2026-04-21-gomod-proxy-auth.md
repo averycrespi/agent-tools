@@ -4,7 +4,10 @@
 
 **Goal:** Add TLS and HTTP basic auth to `local-gomod-proxy`, using a generated self-signed cert and random credentials persisted under `$XDG_STATE_HOME/local-gomod-proxy/`. The sandbox provisioning script reads both files via Lima's `$HOME` mount, installs the cert into the sandbox's system trust store (`sudo update-ca-certificates`), and sets `GOPROXY=https://x:<token>@host.lima.internal:7070/`.
 
-**Note** (update applied during execution): the original design doc specified `GOINSECURE=host.lima.internal` in the sandbox. Task 7 established empirically that `GOINSECURE` does NOT trust an unknown cert for an HTTPS GOPROXY — it only enables HTTP fallback, which our HTTPS-only proxy can't satisfy. Tasks 8 and 9 reflect the corrected approach (trust-store install).
+**Note** (updates applied during execution):
+
+1. The original design doc specified `GOINSECURE=host.lima.internal` in the sandbox. Task 7 established empirically that `GOINSECURE` does NOT trust an unknown cert for an HTTPS GOPROXY — it only enables HTTP fallback, which our HTTPS-only proxy can't satisfy. Tasks 8 and 9 reflect the corrected approach (trust-store install).
+2. The original design assumed Lima's default `$HOME` mount would make host state visible inside the sandbox at the same path. `sandbox-manager` does NOT mount `$HOME` — it ships files in via the `copy_paths` config option. The provisioning script + Task 9's README now direct users to list both `cert.pem` and `credentials` under `copy_paths` so they land at the same `~/.local/state/local-gomod-proxy/` path inside the sandbox. Rotation still works: `sb provision` re-runs `copy_paths` before `scripts`.
 
 **Architecture:** Two new internal packages — `internal/state/` (dir/cert/creds load-or-generate) and `internal/auth/` (basic-auth middleware). The `serve` command loads state on startup, wraps the existing handler with the auth middleware, and calls `ListenAndServeTLS` instead of `ListenAndServe`. No new flags except `--state-dir`. Plain-HTTP mode is removed — single deployment shape.
 
@@ -1355,22 +1358,23 @@ git commit -m "feat(provision): install proxy cert into sandbox trust store"
 
    | `--state-dir` | `$XDG_STATE_HOME/local-gomod-proxy` | Directory for TLS cert + credentials. Defaults under `~/.local/state/` if `$XDG_STATE_HOME` is unset. |
 
-3. Rewrite **How the sandbox consumes it** → the "Otherwise, apply the equivalent configuration by hand" block:
+3. Rewrite **How the sandbox consumes it** to reflect the `copy_paths` + `scripts` pairing. The sandbox does NOT mount the host's `$HOME` — `sandbox-manager` ships files in via `copy_paths`. Show a config snippet:
 
-   ```sh
-   # One-time: install the proxy's self-signed cert into the sandbox trust store.
-   sudo cp $HOME/.local/state/local-gomod-proxy/cert.pem \
-           /usr/local/share/ca-certificates/local-gomod-proxy.crt
-   sudo update-ca-certificates
-
-   # Point the Go toolchain at the proxy (cert is now trusted; no GOINSECURE needed).
-   export GOPROXY="https://$(tr -d '\n' < $HOME/.local/state/local-gomod-proxy/credentials)@host.lima.internal:7070/"
-   export GOSUMDB=off
-   unset GOPRIVATE
-   go env -u GOPRIVATE
+   ```json
+   {
+     "copy_paths": [
+       "~/.local/state/local-gomod-proxy/cert.pem",
+       "~/.local/state/local-gomod-proxy/credentials"
+     ],
+     "scripts": [
+       "/path/to/agent-tools/local-gomod-proxy/examples/provision/gomod-proxy.sh"
+     ]
+   }
    ```
 
-   Re-run the `sudo cp` + `update-ca-certificates` pair if the host regenerates the cert (annual at expiry, or manual `rm -rf $state_dir`).
+   Both files land at the same `~/.local/state/local-gomod-proxy/` path inside the sandbox. The provisioning script then installs the cert into the system trust store (`sudo update-ca-certificates`) and writes `GOPROXY` to `~/.bashrc`. Cert rotation: re-run `sb provision` after the host regenerates its cert — `copy_paths` re-runs before `scripts`, so the new cert flows through transparently.
+
+   For sandboxes not using `sandbox-manager`, document the equivalent manual steps: copy both files in via whatever mechanism the caller uses, install the cert (`sudo cp ... /usr/local/share/ca-certificates/local-gomod-proxy.crt && sudo update-ca-certificates`), then export `GOPROXY=https://$(tr -d '\n' < ~/.local/state/local-gomod-proxy/credentials)@host.lima.internal:7070/`, `GOSUMDB=off`, `unset GOPRIVATE`.
 
 4. Replace the **Security** section with three bullets that map to the "Honest limits" list in `.designs/2026-04-21-gomod-proxy-auth.md`:
    - What's blocked: browser JS, casual `localhost` probes, any process that doesn't know to read the credentials file.
