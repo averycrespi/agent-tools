@@ -213,7 +213,8 @@ func (h *Handler) prTools() []gomcp.Tool {
 					},
 					"event": map[string]any{
 						"type":        "string",
-						"description": "Review event: approve, request_changes, comment",
+						"enum":        []string{"approve", "request_changes", "comment"},
+						"description": "Review event type.",
 					},
 					"body": map[string]any{
 						"type":        "string",

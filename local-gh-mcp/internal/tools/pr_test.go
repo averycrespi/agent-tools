@@ -571,6 +571,21 @@ func TestCheckPR_FormatsMarkdown(t *testing.T) {
 	assert.Contains(t, text, "- test: FAILURE (https://example.com/run/1)")
 }
 
+func TestReviewPR_EventEnum(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	for _, tool := range h.prTools() {
+		if tool.Name != "gh_review_pr" {
+			continue
+		}
+		prop := tool.InputSchema.Properties["event"].(map[string]any)
+		enum, ok := prop["enum"].([]string)
+		require.True(t, ok, "event must declare an enum")
+		assert.ElementsMatch(t, []string{"approve", "request_changes", "comment"}, enum)
+		return
+	}
+	t.Fatal("gh_review_pr not found")
+}
+
 func TestListPRs_StateEnum(t *testing.T) {
 	h := NewHandler(&mockGHClient{})
 	for _, tool := range h.prTools() {
