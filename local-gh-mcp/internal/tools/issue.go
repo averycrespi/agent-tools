@@ -15,7 +15,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_view_issue",
-			Description: "View issue details. Returns structured markdown with metadata and description.",
+			Description: "View issue metadata and description as structured markdown. For comments, use gh_list_issue_comments.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -43,7 +43,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_list_issues",
-			Description: "List issues. Returns markdown bullet list.",
+			Description: "List issues in a single repository. Use this when you know owner/repo. For cross-repo queries or GitHub search DSL filters, use gh_search_issues instead.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -92,7 +92,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_comment_issue",
-			Description: "Add a comment to an issue",
+			Description: "Post a comment on an issue. Returns the comment URL on success.",
 			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -119,7 +119,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_list_issue_comments",
-			Description: "List comments on an issue. Returns markdown-formatted comment list.",
+			Description: "For the issue body itself, use gh_view_issue. List comments on an issue. Returns markdown-formatted comment list.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
