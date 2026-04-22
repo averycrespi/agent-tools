@@ -628,6 +628,28 @@ func TestViewPR_ParseError_TerseMessage(t *testing.T) {
 	assert.Equal(t, "internal error: unable to parse gh output; check server logs", textContent.Text)
 }
 
+func TestCreatePR_BatchMissingFields(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_create_pr"
+	req.Params.Arguments = map[string]any{
+		"owner": "octocat",
+		"repo":  "hello-world",
+		// title and body intentionally missing
+	}
+
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+
+	require.Len(t, result.Content, 1)
+	textContent, ok := result.Content[0].(gomcp.TextContent)
+	require.True(t, ok)
+	// Must mention BOTH missing fields.
+	assert.Contains(t, textContent.Text, "title")
+	assert.Contains(t, textContent.Text, "body")
+}
+
 func TestListPRs_StateEnum(t *testing.T) {
 	h := NewHandler(&mockGHClient{})
 	for _, tool := range h.prTools() {

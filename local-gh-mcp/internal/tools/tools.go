@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
 	gomcp "github.com/mark3labs/mcp-go/mcp"
@@ -196,6 +197,22 @@ func clampMaxBodyLength(v int) int {
 		return maxMaxBodyLength
 	}
 	return v
+}
+
+// requireStringFields returns an error result if any of the given string
+// fields are missing or empty. The error message lists all missing fields at
+// once so the caller can fix them in one round-trip.
+func requireStringFields(toolName string, args map[string]any, fields ...string) *gomcp.CallToolResult {
+	var missing []string
+	for _, f := range fields {
+		if v, _ := args[f].(string); v == "" {
+			missing = append(missing, f)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return gomcp.NewToolResultError(fmt.Sprintf("%s: required fields missing: %s", toolName, strings.Join(missing, ", ")))
 }
 
 func requireOwnerRepo(args map[string]any) (string, string, *gomcp.CallToolResult) {

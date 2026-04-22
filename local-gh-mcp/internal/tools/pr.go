@@ -485,14 +485,11 @@ func (h *Handler) handleCreatePR(ctx context.Context, req gomcp.CallToolRequest)
 	if errResult != nil {
 		return errResult, nil
 	}
+	if errResult := requireStringFields("gh_create_pr", args, "title", "body"); errResult != nil {
+		return errResult, nil
+	}
 	title := stringFromArgs(args, "title")
-	if title == "" {
-		return gomcp.NewToolResultError("title is required"), nil
-	}
 	body := stringFromArgs(args, "body")
-	if body == "" {
-		return gomcp.NewToolResultError("body is required"), nil
-	}
 	opts := gh.CreatePROpts{
 		Title:     title,
 		Body:      body,
@@ -592,10 +589,10 @@ func (h *Handler) handleCommentPR(ctx context.Context, req gomcp.CallToolRequest
 	if number == 0 {
 		return gomcp.NewToolResultError("number is required"), nil
 	}
-	body := stringFromArgs(args, "body")
-	if body == "" {
-		return gomcp.NewToolResultError("body is required"), nil
+	if errResult := requireStringFields("gh_comment_pr", args, "body"); errResult != nil {
+		return errResult, nil
 	}
+	body := stringFromArgs(args, "body")
 	out, err := h.gh.CommentPR(ctx, owner, repo, number, body)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
@@ -612,6 +609,9 @@ func (h *Handler) handleReviewPR(ctx context.Context, req gomcp.CallToolRequest)
 	number := intFromArgs(args, "number")
 	if number == 0 {
 		return gomcp.NewToolResultError("number is required"), nil
+	}
+	if errResult := requireStringFields("gh_review_pr", args, "event"); errResult != nil {
+		return errResult, nil
 	}
 	event := stringFromArgs(args, "event")
 	switch event {

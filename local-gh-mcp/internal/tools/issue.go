@@ -217,10 +217,10 @@ func (h *Handler) handleCommentIssue(ctx context.Context, req gomcp.CallToolRequ
 	if number == 0 {
 		return gomcp.NewToolResultError("number is required"), nil
 	}
-	body := stringFromArgs(args, "body")
-	if body == "" {
-		return gomcp.NewToolResultError("body is required"), nil
+	if errResult := requireStringFields("gh_comment_issue", args, "body"); errResult != nil {
+		return errResult, nil
 	}
+	body := stringFromArgs(args, "body")
 	out, err := h.gh.CommentIssue(ctx, owner, repo, number, body)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
