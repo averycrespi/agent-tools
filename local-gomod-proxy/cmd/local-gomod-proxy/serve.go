@@ -131,8 +131,8 @@ var serveCmd = &cobra.Command{
 			"gomodcache", env.GOMODCACHE,
 			"goversion", env.GOVERSION,
 			"upstream", serveUpstream,
-			"state_dir", stateDir,
-			"cert_fp", fingerprint)
+			"statedir", stateDir,
+			"certfp", fingerprint)
 
 		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 
