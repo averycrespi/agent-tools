@@ -27,9 +27,9 @@
 #   (b) writes a marker-fenced GOPROXY block to ~/.bashrc.
 # Both steps are idempotent.
 #
-# Cert rotation: if the host regenerates the cert (annual at expiry, or
-# manual via rm -rf $state_dir), re-run `sb provision` to re-copy the cert
-# and refresh the trust store.
+# Rotation: if the host regenerates state (annual cert expiry, or manual via
+# rm -rf $state_dir which refreshes both cert AND credentials), re-run
+# `sb provision` to re-copy both files and refresh the trust store.
 
 set -euo pipefail
 

@@ -33,6 +33,8 @@ local-gomod-proxy serve [--addr 127.0.0.1:7070] [--private PATTERN] [--upstream 
 | `--state-dir` | `$XDG_STATE_HOME/local-gomod-proxy` | Directory for TLS cert + credentials. Defaults under `~/.local/state/` if `$XDG_STATE_HOME` is unset. |
 | `--upstream`  | `https://proxy.golang.org`          | Public upstream proxy URL                                                                             |
 
+On first launch, the proxy creates `$XDG_STATE_HOME/local-gomod-proxy/` (mode 0700) and generates a self-signed TLS cert, private key, and a random basic-auth credential inside it. Subsequent launches reuse those files; the cert is regenerated automatically 30 days before expiry. See [Security](#security) for rotation.
+
 `GOPRIVATE` must be set — either via `go env -w GOPRIVATE=github.com/your-org/*` on the host or via `--private`. If neither is set, startup fails with an actionable error.
 
 ## How the sandbox consumes it
@@ -61,21 +63,7 @@ Both files land at `~/.local/state/local-gomod-proxy/` inside the sandbox. The p
 
 ### Without sandbox-manager
 
-Copy both files into the sandbox via whatever mechanism your setup uses, then run:
-
-```sh
-# Install the cert into the system trust store (Lima sandboxes have passwordless sudo).
-sudo cp ~/.local/state/local-gomod-proxy/cert.pem /usr/local/share/ca-certificates/local-gomod-proxy.crt
-sudo update-ca-certificates
-
-# Configure GOPROXY. The credentials file contains a single line "x:<token>".
-export GOPROXY="https://$(tr -d '\n' < ~/.local/state/local-gomod-proxy/credentials)@host.lima.internal:7070/"
-# go.sum (committed to the repo) is the primary integrity check.
-export GOSUMDB=off
-# Explicitly clear GOPRIVATE so all modules route through GOPROXY.
-unset GOPRIVATE
-go env -u GOPRIVATE
-```
+Copy both files into the sandbox via whatever mechanism your setup uses, then run [`examples/provision/gomod-proxy.sh`](examples/provision/gomod-proxy.sh) — it installs the cert into the system trust store and writes the `GOPROXY` / `GOSUMDB` block to `~/.bashrc`. The script targets Debian/Ubuntu sandboxes (uses `update-ca-certificates`); adapt the cert-install step for other distros.
 
 ## Run as a launchd agent (macOS)
 

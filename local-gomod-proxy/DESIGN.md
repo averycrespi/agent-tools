@@ -40,7 +40,7 @@ local-gomod-proxy is a single HTTPS binary. State (TLS cert + credentials) is pe
 
 ### State directory
 
-On first launch, the proxy creates and populates `$XDG_STATE_HOME/local-gomod-proxy/` (fallback: `~/.local/state/local-gomod-proxy/` if `$XDG_STATE_HOME` is unset). Subsequent launches reuse existing files unless the cert is within 30 days of expiry, in which case a fresh cert is generated.
+On first launch, the proxy creates and populates `$XDG_STATE_HOME/local-gomod-proxy/` (fallback: `~/.local/state/local-gomod-proxy/` if `$XDG_STATE_HOME` is unset). Subsequent launches reuse existing files unless the cert is missing, unparseable, or within 30 days of expiry, in which case a fresh cert is generated (logged at Info). Cert files are machine-managed, so silent regen on corruption is safe. Credentials, by contrast, are never silently regenerated once present — a malformed credentials file fails startup, because a user may have hand-edited it and silent clobber would invalidate every provisioned sandbox.
 
 ```
 $XDG_STATE_HOME/local-gomod-proxy/
