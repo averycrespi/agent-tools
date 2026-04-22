@@ -26,7 +26,8 @@ func (h *Handler) cacheTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
-						"description": "Max results (default 30, max 100)",
+						"default":     30,
+						"description": "Max results (default 30, max 100).",
 					},
 					"sort": map[string]any{
 						"type":        "string",

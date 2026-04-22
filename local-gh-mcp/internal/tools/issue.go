@@ -34,7 +34,8 @@ func (h *Handler) issueTools() []gomcp.Tool {
 					},
 					"max_body_length": map[string]any{
 						"type":        "number",
-						"description": "Max body length in chars (default 2000, max 50000)",
+						"default":     2000,
+						"description": "Max body length in chars (default 2000, max 50000).",
 					},
 				},
 				Required: []string{"owner", "repo", "number"},
@@ -82,7 +83,8 @@ func (h *Handler) issueTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
-						"description": "Max results (default 30, max 100)",
+						"default":     30,
+						"description": "Max results (default 30, max 100).",
 					},
 				},
 				Required: []string{"owner", "repo"},
@@ -136,11 +138,13 @@ func (h *Handler) issueTools() []gomcp.Tool {
 					},
 					"max_body_length": map[string]any{
 						"type":        "number",
-						"description": "Max body length per comment in chars (default 2000, max 50000)",
+						"default":     2000,
+						"description": "Max body length per comment in chars (default 2000, max 50000).",
 					},
 					"limit": map[string]any{
 						"type":        "number",
-						"description": "Max comments to return (default 30, max 100)",
+						"default":     30,
+						"description": "Max comments to return (default 30, max 100).",
 					},
 				},
 				Required: []string{"owner", "repo", "number"},

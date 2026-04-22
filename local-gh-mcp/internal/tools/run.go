@@ -43,7 +43,8 @@ func (h *Handler) runTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
-						"description": "Max results (default 30, max 100)",
+						"default":     30,
+						"description": "Max results (default 30, max 100).",
 					},
 				},
 				Required: []string{"owner", "repo"},

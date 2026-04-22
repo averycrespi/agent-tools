@@ -58,3 +58,47 @@ func TestEveryToolHasOpenWorldHint(t *testing.T) {
 		})
 	}
 }
+
+func TestEveryLimitParamDeclaresDefault(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	for _, tool := range h.Tools() {
+		prop, ok := tool.InputSchema.Properties["limit"].(map[string]any)
+		if !ok {
+			continue
+		}
+		t.Run(tool.Name+"/limit", func(t *testing.T) {
+			def, ok := prop["default"]
+			require.True(t, ok, "tool %s: limit must declare a default", tool.Name)
+			switch v := def.(type) {
+			case int:
+				assert.Equal(t, 30, v)
+			case float64:
+				assert.Equal(t, float64(30), v)
+			default:
+				t.Fatalf("tool %s: limit default wrong type %T", tool.Name, def)
+			}
+		})
+	}
+}
+
+func TestEveryMaxBodyLengthParamDeclaresDefault(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	for _, tool := range h.Tools() {
+		prop, ok := tool.InputSchema.Properties["max_body_length"].(map[string]any)
+		if !ok {
+			continue
+		}
+		t.Run(tool.Name+"/max_body_length", func(t *testing.T) {
+			def, ok := prop["default"]
+			require.True(t, ok, "tool %s: max_body_length must declare a default", tool.Name)
+			switch v := def.(type) {
+			case int:
+				assert.Equal(t, 2000, v)
+			case float64:
+				assert.Equal(t, float64(2000), v)
+			default:
+				t.Fatalf("tool %s: max_body_length default wrong type %T", tool.Name, def)
+			}
+		})
+	}
+}
