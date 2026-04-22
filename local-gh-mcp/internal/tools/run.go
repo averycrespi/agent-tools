@@ -15,7 +15,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_list_runs",
-			Description: "List workflow runs. Returns markdown bullet list.",
+			Description: "List workflow runs for a repository. Filter by branch, status, or workflow to narrow results.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -52,7 +52,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_view_run",
-			Description: "View workflow run details. Returns structured markdown with job list. Use log_failed=true for raw failure logs.",
+			Description: "View workflow run details. With log_failed=false (default), returns structured markdown: run header + per-job status list. With log_failed=true, returns raw concatenated logs for failed jobs — useful for debugging failures.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -79,7 +79,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_rerun",
-			Description: "Re-run a workflow run",
+			Description: "Rerun a workflow run. Creates a new run attempt from the original commit. Use failed_only=true to rerun only the failed jobs rather than the full workflow.",
 			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -106,7 +106,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_cancel_run",
-			Description: "Cancel a workflow run",
+			Description: "Cancel an in-progress workflow run. No effect on completed runs.",
 			Annotations: annDestructive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
