@@ -16,6 +16,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 		{
 			Name:        "gh_view_issue",
 			Description: "View issue details. Returns structured markdown with metadata and description.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -42,6 +43,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 		{
 			Name:        "gh_list_issues",
 			Description: "List issues. Returns markdown bullet list.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -88,6 +90,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 		{
 			Name:        "gh_comment_issue",
 			Description: "Add a comment to an issue",
+			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -114,6 +117,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 		{
 			Name:        "gh_list_issue_comments",
 			Description: "List comments on an issue. Returns markdown-formatted comment list.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{

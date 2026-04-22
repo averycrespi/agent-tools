@@ -160,6 +160,32 @@ func TestListIssues_FormatsMarkdown(t *testing.T) {
 	assert.Contains(t, text, "CLOSED")
 }
 
+func TestIssueToolAnnotations(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	tools := h.issueTools()
+	byName := make(map[string]gomcp.Tool, len(tools))
+	for _, tool := range tools {
+		byName[tool.Name] = tool
+	}
+
+	cases := []struct {
+		name     string
+		expected gomcp.ToolAnnotation
+	}{
+		{"gh_view_issue", annRead},
+		{"gh_list_issues", annRead},
+		{"gh_comment_issue", annAdditive},
+		{"gh_list_issue_comments", annRead},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tool, ok := byName[tc.name]
+			require.True(t, ok, "tool %s not registered", tc.name)
+			assert.Equal(t, tc.expected, tool.Annotations)
+		})
+	}
+}
+
 func TestListIssueComments_Success(t *testing.T) {
 	h := NewHandler(&mockGHClient{
 		issueCommentsFunc: func(_ context.Context, owner, repo string, number int, limit int) (string, error) {
