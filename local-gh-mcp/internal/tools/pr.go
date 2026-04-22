@@ -111,7 +111,8 @@ func (h *Handler) prTools() []gomcp.Tool {
 					},
 					"state": map[string]any{
 						"type":        "string",
-						"description": "Filter by state: open, closed, merged, all",
+						"enum":        []string{"open", "closed", "merged", "all"},
+						"description": "Filter by state.",
 					},
 					"author": map[string]any{
 						"type":        "string",

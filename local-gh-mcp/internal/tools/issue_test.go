@@ -207,3 +207,19 @@ func TestListIssueComments_Success(t *testing.T) {
 	assert.Contains(t, text, "@alice")
 	assert.Contains(t, text, "Thanks!")
 }
+
+func TestListIssues_StateEnum(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	for _, tool := range h.issueTools() {
+		if tool.Name != "gh_list_issues" {
+			continue
+		}
+		prop, ok := tool.InputSchema.Properties["state"].(map[string]any)
+		require.True(t, ok, "state property missing or wrong shape")
+		enum, ok := prop["enum"].([]string)
+		require.True(t, ok, "state must declare an enum")
+		assert.ElementsMatch(t, []string{"open", "closed", "all"}, enum)
+		return
+	}
+	t.Fatal("gh_list_issues not found")
+}

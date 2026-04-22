@@ -227,6 +227,38 @@ func TestSearchToolAnnotations(t *testing.T) {
 	}
 }
 
+func TestSearchPRs_StateEnum(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	for _, tool := range h.searchTools() {
+		if tool.Name != "gh_search_prs" {
+			continue
+		}
+		prop, ok := tool.InputSchema.Properties["state"].(map[string]any)
+		require.True(t, ok, "state property missing or wrong shape")
+		enum, ok := prop["enum"].([]string)
+		require.True(t, ok, "state must declare an enum")
+		assert.ElementsMatch(t, []string{"open", "closed", "merged", "all"}, enum)
+		return
+	}
+	t.Fatal("gh_search_prs not found")
+}
+
+func TestSearchIssues_StateEnum(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	for _, tool := range h.searchTools() {
+		if tool.Name != "gh_search_issues" {
+			continue
+		}
+		prop, ok := tool.InputSchema.Properties["state"].(map[string]any)
+		require.True(t, ok, "state property missing or wrong shape")
+		enum, ok := prop["enum"].([]string)
+		require.True(t, ok, "state must declare an enum")
+		assert.ElementsMatch(t, []string{"open", "closed", "all"}, enum)
+		return
+	}
+	t.Fatal("gh_search_issues not found")
+}
+
 func TestToolCount(t *testing.T) {
 	h := NewHandler(&mockGHClient{})
 	tools := h.Tools()

@@ -570,3 +570,19 @@ func TestCheckPR_FormatsMarkdown(t *testing.T) {
 	assert.Contains(t, text, "- build: SUCCESS")
 	assert.Contains(t, text, "- test: FAILURE (https://example.com/run/1)")
 }
+
+func TestListPRs_StateEnum(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	for _, tool := range h.prTools() {
+		if tool.Name != "gh_list_prs" {
+			continue
+		}
+		prop, ok := tool.InputSchema.Properties["state"].(map[string]any)
+		require.True(t, ok, "state property missing or wrong shape")
+		enum, ok := prop["enum"].([]string)
+		require.True(t, ok, "state must declare an enum")
+		assert.ElementsMatch(t, []string{"open", "closed", "merged", "all"}, enum)
+		return
+	}
+	t.Fatal("gh_list_prs not found")
+}

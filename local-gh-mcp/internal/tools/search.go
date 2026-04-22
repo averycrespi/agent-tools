@@ -34,7 +34,8 @@ func (h *Handler) searchTools() []gomcp.Tool {
 					},
 					"state": map[string]any{
 						"type":        "string",
-						"description": "Filter by state: open, closed, merged",
+						"enum":        []string{"open", "closed", "merged", "all"},
+						"description": "Filter by state.",
 					},
 					"author": map[string]any{
 						"type":        "string",
@@ -73,7 +74,8 @@ func (h *Handler) searchTools() []gomcp.Tool {
 					},
 					"state": map[string]any{
 						"type":        "string",
-						"description": "Filter by state: open, closed",
+						"enum":        []string{"open", "closed", "all"},
+						"description": "Filter by state.",
 					},
 					"author": map[string]any{
 						"type":        "string",

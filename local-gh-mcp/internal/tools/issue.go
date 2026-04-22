@@ -57,7 +57,8 @@ func (h *Handler) issueTools() []gomcp.Tool {
 					},
 					"state": map[string]any{
 						"type":        "string",
-						"description": "Filter by state: open, closed, all",
+						"enum":        []string{"open", "closed", "all"},
+						"description": "Filter by state.",
 					},
 					"author": map[string]any{
 						"type":        "string",
