@@ -245,7 +245,8 @@ func (h *Handler) prTools() []gomcp.Tool {
 					},
 					"method": map[string]any{
 						"type":        "string",
-						"description": "Merge method: merge, squash, rebase",
+						"enum":        []string{"merge", "squash", "rebase"},
+						"description": "Merge method.",
 					},
 					"delete_branch": map[string]any{
 						"type":        "boolean",

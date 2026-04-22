@@ -586,6 +586,21 @@ func TestReviewPR_EventEnum(t *testing.T) {
 	t.Fatal("gh_review_pr not found")
 }
 
+func TestMergePR_MethodEnum(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	for _, tool := range h.prTools() {
+		if tool.Name != "gh_merge_pr" {
+			continue
+		}
+		prop := tool.InputSchema.Properties["method"].(map[string]any)
+		enum, ok := prop["enum"].([]string)
+		require.True(t, ok, "method must declare an enum")
+		assert.ElementsMatch(t, []string{"merge", "squash", "rebase"}, enum)
+		return
+	}
+	t.Fatal("gh_merge_pr not found")
+}
+
 func TestListPRs_StateEnum(t *testing.T) {
 	h := NewHandler(&mockGHClient{})
 	for _, tool := range h.prTools() {
