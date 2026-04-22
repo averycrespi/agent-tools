@@ -34,7 +34,8 @@ func (h *Handler) runTools() []gomcp.Tool {
 					},
 					"status": map[string]any{
 						"type":        "string",
-						"description": "Filter by status",
+						"enum":        []string{"queued", "in_progress", "completed", "waiting", "requested", "pending", "cancelled", "failure", "skipped", "stale", "startup_failure", "success", "timed_out", "action_required", "neutral"},
+						"description": "Filter by workflow run status.",
 					},
 					"workflow": map[string]any{
 						"type":        "string",

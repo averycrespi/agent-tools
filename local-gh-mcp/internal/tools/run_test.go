@@ -190,6 +190,27 @@ func TestCancelRun_Success(t *testing.T) {
 	assert.False(t, result.IsError)
 }
 
+func TestListRuns_StatusEnum(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	for _, tool := range h.runTools() {
+		if tool.Name != "gh_list_runs" {
+			continue
+		}
+		prop := tool.InputSchema.Properties["status"].(map[string]any)
+		enum, ok := prop["enum"].([]string)
+		require.True(t, ok, "status must declare an enum")
+		// Full set from gh run list --status.
+		expected := []string{
+			"queued", "in_progress", "completed", "waiting", "requested", "pending",
+			"cancelled", "failure", "skipped", "stale", "startup_failure", "success",
+			"timed_out", "action_required", "neutral",
+		}
+		assert.ElementsMatch(t, expected, enum)
+		return
+	}
+	t.Fatal("gh_list_runs not found")
+}
+
 func TestRunToolAnnotations(t *testing.T) {
 	h := NewHandler(&mockGHClient{})
 	tools := h.runTools()
