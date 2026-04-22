@@ -15,14 +15,14 @@ func (h *Handler) searchTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_search_prs",
-			Description: "Search for pull requests. Returns markdown bullet list.",
+			Description: "Search pull requests across GitHub using the GitHub search DSL. Example: 'is:open author:@me review-requested:@me'. Use gh_list_prs instead if you have a specific owner/repo. Results truncated at 100; refine your query if you need more.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
 					"query": map[string]any{
 						"type":        "string",
-						"description": "Search query",
+						"description": "GitHub search DSL query (see tool description for example).",
 					},
 					"repo": map[string]any{
 						"type":        "string",
@@ -56,14 +56,14 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_issues",
-			Description: "Search for issues. Returns markdown bullet list.",
+			Description: "Search issues across GitHub using the GitHub search DSL. Example: 'is:open label:bug author:@me'. Use gh_list_issues instead if you have a specific owner/repo. Results truncated at 100; refine your query if you need more.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
 					"query": map[string]any{
 						"type":        "string",
-						"description": "Search query",
+						"description": "GitHub search DSL query (see tool description for example).",
 					},
 					"repo": map[string]any{
 						"type":        "string",
@@ -97,14 +97,14 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_repos",
-			Description: "Search for repositories. Returns markdown bullet list.",
+			Description: "Search repositories across GitHub using the GitHub search DSL. Example: 'language:go stars:>100 topic:cli'. Results truncated at 100; refine your query if you need more.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
 					"query": map[string]any{
 						"type":        "string",
-						"description": "Search query",
+						"description": "GitHub search DSL query (see tool description for example).",
 					},
 					"owner": map[string]any{
 						"type":        "string",
@@ -133,14 +133,14 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_code",
-			Description: "Search for code. Returns markdown bullet list.",
+			Description: "Search code across GitHub using the GitHub search DSL. Example: 'addEventListener language:javascript repo:facebook/react'. Results truncated at 100; refine your query if you need more.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
 					"query": map[string]any{
 						"type":        "string",
-						"description": "Search query",
+						"description": "GitHub search DSL query (see tool description for example).",
 					},
 					"repo": map[string]any{
 						"type":        "string",
@@ -173,14 +173,14 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_commits",
-			Description: "Search for commits. Returns markdown bullet list.",
+			Description: "Search commits across GitHub using the GitHub search DSL. Example: 'author:octocat repo:github/docs merge:false'. Results truncated at 100; refine your query if you need more.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
 					"query": map[string]any{
 						"type":        "string",
-						"description": "Search query",
+						"description": "GitHub search DSL query (see tool description for example).",
 					},
 					"repo": map[string]any{
 						"type":        "string",
