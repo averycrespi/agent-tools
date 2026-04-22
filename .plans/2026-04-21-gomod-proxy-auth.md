@@ -2,7 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use Skill(executing-plans) to implement this plan task-by-task.
 
-**Goal:** Add TLS and HTTP basic auth to `local-gomod-proxy`, using a generated self-signed cert and random credentials persisted under `$XDG_STATE_HOME/local-gomod-proxy/`. The sandbox reads the credentials over Lima's `$HOME` mount and sets `GOPROXY=https://x:<token>@host.lima.internal:7070/` + `GOINSECURE=host.lima.internal`.
+**Goal:** Add TLS and HTTP basic auth to `local-gomod-proxy`, using a generated self-signed cert and random credentials persisted under `$XDG_STATE_HOME/local-gomod-proxy/`. The sandbox provisioning script reads both files via Lima's `$HOME` mount, installs the cert into the sandbox's system trust store (`sudo update-ca-certificates`), and sets `GOPROXY=https://x:<token>@host.lima.internal:7070/`.
+
+**Note** (update applied during execution): the original design doc specified `GOINSECURE=host.lima.internal` in the sandbox. Task 7 established empirically that `GOINSECURE` does NOT trust an unknown cert for an HTTPS GOPROXY — it only enables HTTP fallback, which our HTTPS-only proxy can't satisfy. Tasks 8 and 9 reflect the corrected approach (trust-store install).
 
 **Architecture:** Two new internal packages — `internal/state/` (dir/cert/creds load-or-generate) and `internal/auth/` (basic-auth middleware). The `serve` command loads state on startup, wraps the existing handler with the auth middleware, and calls `ListenAndServeTLS` instead of `ListenAndServe`. No new flags except `--state-dir`. Plain-HTTP mode is removed — single deployment shape.
 
@@ -1181,7 +1183,14 @@ git commit -m "test(e2e): thread TLS + auth through E2E harness"
 
 - Modify: `local-gomod-proxy/examples/provision/gomod-proxy.sh`
 
-**What it does:** The script runs inside the Lima sandbox. It must read `$HOME/.local/state/local-gomod-proxy/credentials` from the host (available at the same path inside the VM thanks to Lima's `$HOME` mount), refuse to continue if absent, and write `GOPROXY=https://x:<token>@host.lima.internal:7070/` + `GOINSECURE=host.lima.internal` into `~/.bashrc`.
+**What it does:** The script runs inside the Lima sandbox as the sandbox user. It (a) reads the host-written cert and credentials via Lima's `$HOME` mount, (b) installs the cert into the sandbox's system trust store via `sudo update-ca-certificates`, and (c) writes a marker-fenced `GOPROXY` block to `~/.bashrc`. Both steps are idempotent.
+
+**Design rationale** (reflect in DESIGN.md in Task 9): Task 7 established empirically that `GOINSECURE` does NOT make Go trust an unknown cert for an HTTPS GOPROXY — it only enables HTTP fallback. Since our proxy is HTTPS-only, we need a real trust mechanism. Two viable paths:
+
+1. **System trust store via `update-ca-certificates`** — works for every tool (go, curl, python), but couples sandbox state to host cert rotation (re-run this script after host regenerates the cert, which happens annually).
+2. **`SSL_CERT_FILE` globally** — simpler for rotation but REPLACES system roots for every tool that honors the env var, breaking HTTPS to anything not signed by our cert.
+
+We go with (1). Lima sandboxes have passwordless sudo, so the install step runs non-interactively. Cert rotation is annual at most.
 
 **Read first:** current `local-gomod-proxy/examples/provision/gomod-proxy.sh` — note the marker-fenced idempotency pattern and the existing `GOPRIVATE` clearing logic.
 
@@ -1194,12 +1203,21 @@ git commit -m "test(e2e): thread TLS + auth through E2E harness"
 #
 # Depends on the host running local-gomod-proxy (either manually via
 # `local-gomod-proxy serve` or via the launchd agent; see docs/launchd.md).
-# That process writes a credentials file to
-# $HOME/.local/state/local-gomod-proxy/credentials which Lima's default $HOME
-# mount makes visible inside the sandbox at the same path.
+# That process writes the TLS cert to
+# $HOME/.local/state/local-gomod-proxy/cert.pem and credentials to
+# $HOME/.local/state/local-gomod-proxy/credentials. Lima's default $HOME
+# mount makes both visible inside the sandbox at the same path.
 #
-# Idempotent: writes a marker-fenced block to ~/.bashrc once and exits early
-# on re-runs.
+# This script:
+#   (a) installs the proxy's self-signed cert into the sandbox's system
+#       trust store via sudo update-ca-certificates (Lima sandboxes have
+#       passwordless sudo).
+#   (b) writes a marker-fenced GOPROXY block to ~/.bashrc.
+# Both steps are idempotent.
+#
+# Cert rotation: if the host regenerates the cert (annual at expiry, or
+# manual via rm -rf $state_dir), re-run this script in the sandbox to
+# refresh the trust store.
 
 set -euo pipefail
 
@@ -1209,17 +1227,25 @@ if ! command_exists go; then
 	echo "error: go not found on PATH — install Go first (e.g. asdf-golang.sh)" >&2
 	exit 1
 fi
+if ! command_exists update-ca-certificates; then
+	echo "error: update-ca-certificates not found; this script targets Debian/Ubuntu sandboxes" >&2
+	exit 1
+fi
 
-CREDS_FILE="$HOME/.local/state/local-gomod-proxy/credentials"
-if [[ ! -r "$CREDS_FILE" ]]; then
+STATE_DIR="$HOME/.local/state/local-gomod-proxy"
+CERT_FILE="$STATE_DIR/cert.pem"
+CREDS_FILE="$STATE_DIR/credentials"
+INSTALLED_CERT="/usr/local/share/ca-certificates/local-gomod-proxy.crt"
+
+if [[ ! -r "$CERT_FILE" || ! -r "$CREDS_FILE" ]]; then
 	cat >&2 <<EOF
-error: $CREDS_FILE is not readable from the sandbox.
+error: missing $CERT_FILE and/or $CREDS_FILE.
 
-Start the proxy on the host first — it creates this file on first launch:
+Start the proxy on the host first — it creates both files on first launch:
   local-gomod-proxy serve
 or install the launchd agent (see local-gomod-proxy/docs/launchd.md).
 
-If the host is running but the file still isn't visible, confirm that Lima's
+If the host is running but the files still aren't visible, confirm that Lima's
 default \$HOME mount is enabled for this VM (see \`limactl list --json\`).
 EOF
 	exit 1
@@ -1230,6 +1256,17 @@ CREDS="$(tr -d '\n' < "$CREDS_FILE")"
 if [[ -z "$CREDS" || "$CREDS" != x:* ]]; then
 	echo "error: $CREDS_FILE is malformed (expected 'x:<token>')" >&2
 	exit 1
+fi
+
+# Install cert into the system trust store. update-ca-certificates picks up
+# anything in /usr/local/share/ca-certificates/*.crt. Skip the rewrite +
+# trust-store rebuild if the installed cert already matches byte-for-byte.
+if ! [[ -f "$INSTALLED_CERT" ]] || ! sudo cmp -s "$CERT_FILE" "$INSTALLED_CERT"; then
+	echo "Installing local-gomod-proxy cert into system trust store"
+	sudo cp "$CERT_FILE" "$INSTALLED_CERT"
+	sudo update-ca-certificates >/dev/null
+else
+	echo "local-gomod-proxy cert already in system trust store, skipping"
 fi
 
 MARKER_START="# >>> local-gomod-proxy >>>"
@@ -1245,14 +1282,12 @@ cat >>"$HOME/.bashrc" <<EOF
 
 $MARKER_START
 # Route Go module resolution through the host's local-gomod-proxy over HTTPS.
-# Host binds 127.0.0.1:7070; Lima forwards host.lima.internal to it.
+# The proxy's self-signed cert is installed into the sandbox's system trust
+# store (see the install step in gomod-proxy.sh) so Go can verify it.
 # Credentials live in \$HOME/.local/state/local-gomod-proxy/credentials on the
 # host and are visible at the same path inside the sandbox via Lima's \$HOME
 # mount.
 export GOPROXY="https://\$(tr -d '\n' < \$HOME/.local/state/local-gomod-proxy/credentials)@host.lima.internal:7070/"
-# Skip cert verification for the proxy only — the cert is self-signed and
-# traffic stays on the Lima host-local bridge.
-export GOINSECURE=host.lima.internal
 # go.sum (committed to the repo) is the primary integrity check; disable the
 # public checksum database so private modules don't leak to sum.golang.org.
 export GOSUMDB=off
@@ -1266,36 +1301,17 @@ EOF
 **Step 2: Lint the script**
 
 ```bash
-shellcheck local-gomod-proxy/examples/provision/gomod-proxy.sh || true
 bash -n local-gomod-proxy/examples/provision/gomod-proxy.sh
+shellcheck local-gomod-proxy/examples/provision/gomod-proxy.sh || true
 ```
 
-Expected: `bash -n` exits 0. Address any shellcheck findings that aren't already present in the original.
+Expected: `bash -n` exits 0. Address any shellcheck findings that aren't already present in the original. Full dry-run is not practical (requires a sandbox with passwordless sudo and the `update-ca-certificates` binary); syntax check is enough.
 
-**Step 3: Dry-run the script locally**
-
-```bash
-# Sanity check: run in a throwaway HOME, with a fake creds file.
-tmp=$(mktemp -d)
-mkdir -p "$tmp/.local/state/local-gomod-proxy"
-printf 'x:fake-token\n' > "$tmp/.local/state/local-gomod-proxy/credentials"
-chmod 600 "$tmp/.local/state/local-gomod-proxy/credentials"
-touch "$tmp/.bashrc"
-HOME="$tmp" bash local-gomod-proxy/examples/provision/gomod-proxy.sh
-grep -q 'GOPROXY=' "$tmp/.bashrc" && echo OK || echo FAIL
-grep -q 'GOINSECURE=host.lima.internal' "$tmp/.bashrc" && echo OK || echo FAIL
-# Second run should be a no-op.
-HOME="$tmp" bash local-gomod-proxy/examples/provision/gomod-proxy.sh
-rm -rf "$tmp"
-```
-
-Expected: two `OK` lines and a "skipping" message on the re-run.
-
-**Step 4: Commit**
+**Step 3: Commit**
 
 ```bash
 git add local-gomod-proxy/examples/provision/gomod-proxy.sh
-git commit -m "feat(provision): read proxy creds, use HTTPS + GOINSECURE"
+git commit -m "feat(provision): install proxy cert into sandbox trust store"
 ```
 
 ---
@@ -1329,7 +1345,7 @@ git commit -m "feat(provision): read proxy creds, use HTTPS + GOINSECURE"
    - Replace the "Plain HTTP" bullet with: **TLS, self-signed cert** — traffic stays on the Lima bridge; cert rotation is manual via `rm -rf $state_dir` followed by restart + sandbox re-provision.
 5. In **Design decisions**, replace the "No application-level auth" and "Plain HTTP, no TLS" entries with:
    - **HTTPS + basic auth, not plain HTTP.** Loopback-only binding protects against other hosts; it does not protect against other processes running as the same user (browser extensions, random CLIs that probe `localhost:7070`). Requiring an auth token from a `0600` file they have no reason to read adds cheap defense-in-depth. TLS is required because every auth mechanism the `go` tool supports (URL-embedded, `.netrc`, `GOAUTH`) is HTTPS-gated since Go 1.22.
-   - **Self-signed cert + `GOINSECURE` in the sandbox** (not trust-store install). `GOINSECURE=host.lima.internal` is scoped to the Go toolchain only and, more importantly, decouples sandbox re-provisioning from proxy cert rotation: regenerating the cert on the host doesn't require re-running the provision script in every live sandbox. Installing into the trust store would couple the two.
+   - **Self-signed cert installed into the sandbox trust store** (not `GOINSECURE`). `GOINSECURE` does not make Go trust an unknown cert for an HTTPS GOPROXY — it only enables HTTP fallback on cert-verification failure, which our HTTPS-only proxy can't satisfy. The alternatives are (a) install the cert into the sandbox's system CA store via `update-ca-certificates`, or (b) export `SSL_CERT_FILE` pointing at the cert. (b) is rejected because setting `SSL_CERT_FILE` globally REPLACES the system root set for every tool that honors the env var (curl, python, etc.), breaking HTTPS to anything else. (a) costs one `sudo update-ca-certificates` at provision time (Lima sandboxes have passwordless sudo) and one re-provision per cert rotation (annual at most).
 6. In **Testing**, add the new `internal/state` and `internal/auth` unit suites and the `tls_integration_test.go` to the Unit and Integration rows.
 
 ### README.md
@@ -1342,14 +1358,19 @@ git commit -m "feat(provision): read proxy creds, use HTTPS + GOINSECURE"
 3. Rewrite **How the sandbox consumes it** → the "Otherwise, apply the equivalent configuration by hand" block:
 
    ```sh
-   # Read the credentials from the host (visible inside the sandbox via Lima's $HOME mount).
+   # One-time: install the proxy's self-signed cert into the sandbox trust store.
+   sudo cp $HOME/.local/state/local-gomod-proxy/cert.pem \
+           /usr/local/share/ca-certificates/local-gomod-proxy.crt
+   sudo update-ca-certificates
+
+   # Point the Go toolchain at the proxy (cert is now trusted; no GOINSECURE needed).
    export GOPROXY="https://$(tr -d '\n' < $HOME/.local/state/local-gomod-proxy/credentials)@host.lima.internal:7070/"
-   # Skip cert verification for the proxy only (self-signed cert).
-   export GOINSECURE=host.lima.internal
    export GOSUMDB=off
    unset GOPRIVATE
    go env -u GOPRIVATE
    ```
+
+   Re-run the `sudo cp` + `update-ca-certificates` pair if the host regenerates the cert (annual at expiry, or manual `rm -rf $state_dir`).
 
 4. Replace the **Security** section with three bullets that map to the "Honest limits" list in `.designs/2026-04-21-gomod-proxy-auth.md`:
    - What's blocked: browser JS, casual `localhost` probes, any process that doesn't know to read the credentials file.
