@@ -44,3 +44,17 @@ func TestAnnotationPresets_Destructive(t *testing.T) {
 	assert.True(t, *a.OpenWorldHint)
 	assert.Nil(t, a.ReadOnlyHint)
 }
+
+func TestEveryToolHasOpenWorldHint(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	tools := h.Tools()
+	require.NotEmpty(t, tools)
+	for _, tool := range tools {
+		t.Run(tool.Name, func(t *testing.T) {
+			require.NotNilf(t, tool.Annotations.OpenWorldHint,
+				"tool %s must set OpenWorldHint", tool.Name)
+			assert.Truef(t, *tool.Annotations.OpenWorldHint,
+				"tool %s: OpenWorldHint must be true (all tools touch GitHub)", tool.Name)
+		})
+	}
+}
