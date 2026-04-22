@@ -15,7 +15,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_create_pr",
-			Description: "Create a new pull request",
+			Description: "Create a new pull request. Fails if a PR already exists for the head branch. Returns the PR URL.",
 			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -69,7 +69,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_view_pr",
-			Description: "View pull request details. Returns structured markdown with metadata and description.",
+			Description: "View PR metadata and description as structured markdown. For the diff, use gh_diff_pr; for CI status, use gh_check_pr; for conversation, use gh_list_pr_comments/reviews/review_comments.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -97,7 +97,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_list_prs",
-			Description: "List pull requests. Returns markdown bullet list.",
+			Description: "List PRs in a single repository. Use this when you know owner/repo. For cross-repo queries or GitHub search DSL filters (is:open, author:@me, etc.), use gh_search_prs instead.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -146,7 +146,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_diff_pr",
-			Description: "Get pull request diff. Returns file summary table followed by unified diff.",
+			Description: "View a PR's diff. Returns a file summary table followed by the full unified diff. Large PRs can be long; if you only need which files changed, consider the file summary alone.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -169,7 +169,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_comment_pr",
-			Description: "Add a comment to a pull request",
+			Description: "Post a conversation comment on a PR (issue-style, not tied to a line of the diff). For inline review comments, use gh_review_pr instead.",
 			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -196,7 +196,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_review_pr",
-			Description: "Submit a review on a pull request",
+			Description: "Submit a review: approve, request_changes, or comment. Requires owner, repo, PR number, and event. A body is optional for approve and comment; request_changes requires a body.",
 			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -228,7 +228,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_merge_pr",
-			Description: "Merge a pull request",
+			Description: "Merge a pull request. Method defaults to the repo's default; specify merge/squash/rebase explicitly to override. Set auto=true to enable auto-merge when checks pass.",
 			Annotations: annDestructive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -264,7 +264,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_edit_pr",
-			Description: "Edit a pull request",
+			Description: "Edit PR metadata (title, body, base, labels, reviewers, assignees). Cannot change state or draft status — use gh_close_pr/gh_ready_pr/gh_draft_pr/gh_reopen_pr for those.",
 			Annotations: annIdempotent,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -329,7 +329,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_check_pr",
-			Description: "View status checks for a pull request. Returns markdown bullet list.",
+			Description: "List CI status checks for a PR. Returns markdown bullets per check with state (success/failure/pending) and link.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -352,7 +352,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_close_pr",
-			Description: "Close a pull request",
+			Description: "Close a PR without merging. Optionally attach a closing comment. To reopen later, use gh_reopen_pr.",
 			Annotations: annDestructive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
