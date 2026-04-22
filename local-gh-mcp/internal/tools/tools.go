@@ -194,3 +194,29 @@ func requireOwnerRepo(args map[string]any) (string, string, *gomcp.CallToolResul
 	}
 	return owner, repo, nil
 }
+
+// Annotation presets used across all tool definitions.
+// See .designs/2026-04-21-local-gh-mcp-improvements.md section #1 for the classification table.
+var (
+	// Read tools: inspect GitHub state, never mutate.
+	annRead = gomcp.ToolAnnotation{
+		ReadOnlyHint:  gomcp.ToBoolPtr(true),
+		OpenWorldHint: gomcp.ToBoolPtr(true),
+	}
+	// Additive writes: create new state (PRs, comments, reviews). Not destructive.
+	annAdditive = gomcp.ToolAnnotation{
+		DestructiveHint: gomcp.ToBoolPtr(false),
+		OpenWorldHint:   gomcp.ToBoolPtr(true),
+	}
+	// Idempotent writes: edits or state transitions where repeat calls with same args have no additional effect.
+	annIdempotent = gomcp.ToolAnnotation{
+		IdempotentHint:  gomcp.ToBoolPtr(true),
+		DestructiveHint: gomcp.ToBoolPtr(false),
+		OpenWorldHint:   gomcp.ToBoolPtr(true),
+	}
+	// Destructive: removes or rewrites state in ways that cannot be trivially reversed.
+	annDestructive = gomcp.ToolAnnotation{
+		DestructiveHint: gomcp.ToBoolPtr(true),
+		OpenWorldHint:   gomcp.ToBoolPtr(true),
+	}
+)
