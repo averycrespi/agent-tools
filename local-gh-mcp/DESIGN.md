@@ -283,6 +283,7 @@ Each method returns `(string, error)` where the string is the raw JSON output fr
 - `limit` values clamped to [1, 100] range
 - `event` parameter for `gh_review_pr` validated against allowed values: `approve`, `request_changes`, `comment`
 - `method` parameter for `gh_merge_pr` validated against: `merge`, `squash`, `rebase`
+- `event`, `method`, and `state` parameters declare enums in JSON Schema and are also validated in the handler for defense-in-depth.
 
 **Command errors:**
 

@@ -53,3 +53,6 @@ internal/
 - User-controlled string args (search queries, run IDs, cache IDs) need `--` separator before positional args to prevent flag injection; integer args (PR/issue numbers via `strconv.Itoa`) are safe without it
 - Stdio MCP server setup: `mcpserver.NewMCPServer()` + `srv.AddTool(tool, handler.Handle)` + `mcpserver.ServeStdio(srv)`
 - `mcp-go` v0.45.0: use `req.GetArguments()` helper instead of `req.Params.Arguments`; JSON numbers arrive as `float64`, use type switch for int extraction
+- Tool annotations: every `gomcp.Tool` in `internal/tools/*.go` must set `Annotations` to one of the four presets declared in `tools.go` (`annRead`, `annAdditive`, `annIdempotent`, `annDestructive`). Coverage enforced by `TestEveryToolHasOpenWorldHint`.
+- Enums: parameters with a fixed value set declare `"enum": []string{...}` in the schema. Handler-side validation remains as defense-in-depth; the schema surfaces the set to agents without requiring a failed call first.
+- Parse errors: all JSON unmarshal call sites route through `parseError` in `tools.go`, which logs the raw `gh` output at `slog.Error` and returns a terse message (`"internal error: unable to parse gh output; check server logs"`). Never surface the raw parser error to the agent.
