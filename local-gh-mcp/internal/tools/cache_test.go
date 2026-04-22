@@ -76,3 +76,27 @@ func TestDeleteCache_MissingCacheID(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
+
+func TestCacheToolAnnotations(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	tools := h.cacheTools()
+	byName := make(map[string]gomcp.Tool, len(tools))
+	for _, tool := range tools {
+		byName[tool.Name] = tool
+	}
+
+	cases := []struct {
+		name     string
+		expected gomcp.ToolAnnotation
+	}{
+		{"gh_list_caches", annRead},
+		{"gh_delete_cache", annDestructive},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tool, ok := byName[tc.name]
+			require.True(t, ok, "tool %s not registered", tc.name)
+			assert.Equal(t, tc.expected, tool.Annotations)
+		})
+	}
+}

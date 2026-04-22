@@ -12,6 +12,7 @@ func (h *Handler) cacheTools() []gomcp.Tool {
 		{
 			Name:        "gh_list_caches",
 			Description: "List caches for a repository",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -42,6 +43,7 @@ func (h *Handler) cacheTools() []gomcp.Tool {
 		{
 			Name:        "gh_delete_cache",
 			Description: "Delete a cache from a repository",
+			Annotations: annDestructive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
