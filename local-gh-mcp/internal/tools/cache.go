@@ -30,11 +30,13 @@ func (h *Handler) cacheTools() []gomcp.Tool {
 					},
 					"sort": map[string]any{
 						"type":        "string",
-						"description": "Sort field",
+						"enum":        []string{"created_at", "last_accessed_at", "size_in_bytes"},
+						"description": "Sort key.",
 					},
 					"order": map[string]any{
 						"type":        "string",
-						"description": "Sort order: asc, desc",
+						"enum":        []string{"asc", "desc"},
+						"description": "Sort order.",
 					},
 				},
 				Required: []string{"owner", "repo"},

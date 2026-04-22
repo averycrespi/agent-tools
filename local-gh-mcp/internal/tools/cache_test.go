@@ -77,6 +77,26 @@ func TestDeleteCache_MissingCacheID(t *testing.T) {
 	assert.True(t, result.IsError)
 }
 
+func TestListCaches_SortOrderEnums(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	for _, tool := range h.cacheTools() {
+		if tool.Name != "gh_list_caches" {
+			continue
+		}
+		sortProp := tool.InputSchema.Properties["sort"].(map[string]any)
+		sortEnum, ok := sortProp["enum"].([]string)
+		require.True(t, ok, "sort must declare an enum")
+		assert.ElementsMatch(t, []string{"created_at", "last_accessed_at", "size_in_bytes"}, sortEnum)
+
+		orderProp := tool.InputSchema.Properties["order"].(map[string]any)
+		orderEnum, ok := orderProp["enum"].([]string)
+		require.True(t, ok, "order must declare an enum")
+		assert.ElementsMatch(t, []string{"asc", "desc"}, orderEnum)
+		return
+	}
+	t.Fatal("gh_list_caches not found")
+}
+
 func TestCacheToolAnnotations(t *testing.T) {
 	h := NewHandler(&mockGHClient{})
 	tools := h.cacheTools()
