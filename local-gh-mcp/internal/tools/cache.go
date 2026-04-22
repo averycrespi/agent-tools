@@ -11,7 +11,7 @@ func (h *Handler) cacheTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_list_caches",
-			Description: "List caches for a repository",
+			Description: "List GitHub Actions caches for a repository. Sort by created_at, last_accessed_at, or size_in_bytes. Useful for finding stale or oversized caches before deletion.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -45,7 +45,7 @@ func (h *Handler) cacheTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_delete_cache",
-			Description: "Delete a cache from a repository",
+			Description: "Delete a GitHub Actions cache by its numeric ID (obtained from gh_list_caches). Irreversible — the cache must be rebuilt from the next run.",
 			Annotations: annDestructive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
