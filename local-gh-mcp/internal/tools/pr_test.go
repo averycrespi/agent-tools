@@ -601,6 +601,33 @@ func TestMergePR_MethodEnum(t *testing.T) {
 	t.Fatal("gh_merge_pr not found")
 }
 
+func TestViewPR_ParseError_TerseMessage(t *testing.T) {
+	mock := &mockGHClient{
+		viewPRFunc: func(ctx context.Context, owner, repo string, number int) (string, error) {
+			return "this is not valid JSON", nil
+		},
+	}
+	h := NewHandler(mock)
+
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_view_pr"
+	req.Params.Arguments = map[string]any{
+		"owner":  "octocat",
+		"repo":   "hello-world",
+		"number": float64(1),
+	}
+
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.IsError)
+
+	require.Len(t, result.Content, 1)
+	textContent, ok := result.Content[0].(gomcp.TextContent)
+	require.True(t, ok)
+	assert.Equal(t, "internal error: unable to parse gh output; check server logs", textContent.Text)
+}
+
 func TestListPRs_StateEnum(t *testing.T) {
 	h := NewHandler(&mockGHClient{})
 	for _, tool := range h.prTools() {

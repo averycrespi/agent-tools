@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
@@ -148,7 +147,7 @@ func (h *Handler) handleListRuns(ctx context.Context, req gomcp.CallToolRequest)
 	}
 	var items []format.RunListItem
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse run list JSON: %v", err)), nil
+		return parseError("gh_list_runs", err, out), nil
 	}
 	var lines []string
 	for _, item := range items {
@@ -180,7 +179,7 @@ func (h *Handler) handleViewRun(ctx context.Context, req gomcp.CallToolRequest) 
 	}
 	var run format.RunView
 	if err := json.Unmarshal([]byte(out), &run); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse run JSON: %v", err)), nil
+		return parseError("gh_view_run", err, out), nil
 	}
 	return gomcp.NewToolResultText(format.FormatRunView(run)), nil
 }

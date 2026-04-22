@@ -527,7 +527,7 @@ func (h *Handler) handleViewPR(ctx context.Context, req gomcp.CallToolRequest) (
 	}
 	var pr format.PRView
 	if err := json.Unmarshal([]byte(out), &pr); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse PR JSON: %v", err)), nil
+		return parseError("gh_view_pr", err, out), nil
 	}
 	return gomcp.NewToolResultText(format.FormatPRView(pr, maxBody)), nil
 }
@@ -553,7 +553,7 @@ func (h *Handler) handleListPRs(ctx context.Context, req gomcp.CallToolRequest) 
 	}
 	var items []format.PRListItem
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse PR list JSON: %v", err)), nil
+		return parseError("gh_list_prs", err, out), nil
 	}
 	var lines []string
 	for _, item := range items {
@@ -705,7 +705,7 @@ func (h *Handler) handleCheckPR(ctx context.Context, req gomcp.CallToolRequest) 
 	}
 	var checks []format.Check
 	if err := json.Unmarshal([]byte(out), &checks); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse checks JSON: %v", err)), nil
+		return parseError("gh_check_pr", err, out), nil
 	}
 	return gomcp.NewToolResultText(format.FormatCheckList(checks)), nil
 }
@@ -746,7 +746,7 @@ func (h *Handler) handleListPRComments(ctx context.Context, req gomcp.CallToolRe
 	}
 	var comments []format.Comment
 	if err := json.Unmarshal([]byte(out), &comments); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse comments JSON: %v", err)), nil
+		return parseError("gh_list_pr_comments", err, out), nil
 	}
 	return gomcp.NewToolResultText(format.FormatComments(comments, maxBody)), nil
 }
@@ -769,7 +769,7 @@ func (h *Handler) handleListPRReviews(ctx context.Context, req gomcp.CallToolReq
 	}
 	var reviews []format.Review
 	if err := json.Unmarshal([]byte(out), &reviews); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse reviews JSON: %v", err)), nil
+		return parseError("gh_list_pr_reviews", err, out), nil
 	}
 	return gomcp.NewToolResultText(format.FormatReviews(reviews, maxBody)), nil
 }
@@ -792,7 +792,7 @@ func (h *Handler) handleListPRReviewComments(ctx context.Context, req gomcp.Call
 	}
 	var comments []format.ReviewComment
 	if err := json.Unmarshal([]byte(out), &comments); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse review comments JSON: %v", err)), nil
+		return parseError("gh_list_pr_review_comments", err, out), nil
 	}
 	return gomcp.NewToolResultText(format.FormatReviewComments(comments, maxBody)), nil
 }

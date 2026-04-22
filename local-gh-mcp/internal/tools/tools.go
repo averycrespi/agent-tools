@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
 	gomcp "github.com/mark3labs/mcp-go/mcp"
@@ -130,6 +131,17 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 	default:
 		return gomcp.NewToolResultError(fmt.Sprintf("unknown tool: %s", req.Params.Name)), nil
 	}
+}
+
+// parseError logs the raw gh output at error level and returns a terse
+// tool-result error. Parse failures are server bugs; we don't leak internals
+// to agents, but operators need the raw output to diagnose.
+func parseError(toolName string, err error, raw string) *gomcp.CallToolResult {
+	slog.Error("failed to parse gh output",
+		"tool", toolName,
+		"err", err,
+		"raw", raw)
+	return gomcp.NewToolResultError("internal error: unable to parse gh output; check server logs")
 }
 
 // Shared helpers

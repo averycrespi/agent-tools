@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
@@ -170,7 +169,7 @@ func (h *Handler) handleViewIssue(ctx context.Context, req gomcp.CallToolRequest
 	}
 	var issue format.IssueView
 	if err := json.Unmarshal([]byte(out), &issue); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse issue JSON: %v", err)), nil
+		return parseError("gh_view_issue", err, out), nil
 	}
 	return gomcp.NewToolResultText(format.FormatIssueView(issue, maxBody)), nil
 }
@@ -196,7 +195,7 @@ func (h *Handler) handleListIssues(ctx context.Context, req gomcp.CallToolReques
 	}
 	var items []format.IssueListItem
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse issue list JSON: %v", err)), nil
+		return parseError("gh_list_issues", err, out), nil
 	}
 	var lines []string
 	for _, item := range items {
@@ -247,7 +246,7 @@ func (h *Handler) handleListIssueComments(ctx context.Context, req gomcp.CallToo
 	}
 	var comments []format.Comment
 	if err := json.Unmarshal([]byte(out), &comments); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse comments JSON: %v", err)), nil
+		return parseError("gh_list_issue_comments", err, out), nil
 	}
 	return gomcp.NewToolResultText(format.FormatComments(comments, maxBody)), nil
 }

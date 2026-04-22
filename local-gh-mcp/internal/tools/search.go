@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
@@ -226,7 +225,7 @@ func (h *Handler) handleSearchPRs(ctx context.Context, req gomcp.CallToolRequest
 	}
 	var items []format.SearchPRItem
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse search PRs JSON: %v", err)), nil
+		return parseError("gh_search_prs", err, out), nil
 	}
 	var lines []string
 	for _, item := range items {
@@ -258,7 +257,7 @@ func (h *Handler) handleSearchIssues(ctx context.Context, req gomcp.CallToolRequ
 	}
 	var items []format.SearchPRItem
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse search issues JSON: %v", err)), nil
+		return parseError("gh_search_issues", err, out), nil
 	}
 	var lines []string
 	for _, item := range items {
@@ -289,7 +288,7 @@ func (h *Handler) handleSearchRepos(ctx context.Context, req gomcp.CallToolReque
 	}
 	var items []format.SearchRepoItem
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse search repos JSON: %v", err)), nil
+		return parseError("gh_search_repos", err, out), nil
 	}
 	var lines []string
 	for _, item := range items {
@@ -321,7 +320,7 @@ func (h *Handler) handleSearchCode(ctx context.Context, req gomcp.CallToolReques
 	}
 	var items []format.SearchCodeItem
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse search code JSON: %v", err)), nil
+		return parseError("gh_search_code", err, out), nil
 	}
 	var lines []string
 	for _, item := range items {
@@ -351,7 +350,7 @@ func (h *Handler) handleSearchCommits(ctx context.Context, req gomcp.CallToolReq
 	}
 	var items []format.SearchCommitItem
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse search commits JSON: %v", err)), nil
+		return parseError("gh_search_commits", err, out), nil
 	}
 	var lines []string
 	for _, item := range items {
