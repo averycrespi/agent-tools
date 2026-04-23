@@ -47,6 +47,8 @@ type GHClient interface {
 	SearchRepos(ctx context.Context, query string, opts gh.SearchReposOpts) (string, error)
 	SearchCode(ctx context.Context, query string, opts gh.SearchCodeOpts) (string, error)
 	SearchCommits(ctx context.Context, query string, opts gh.SearchCommitsOpts) (string, error)
+	// Context operations
+	ViewUser(ctx context.Context) (string, error)
 }
 
 // Handler manages MCP tool definitions and dispatches calls to the GH client.
@@ -62,6 +64,7 @@ func NewHandler(gh GHClient) *Handler {
 // Tools returns all MCP tool definitions.
 func (h *Handler) Tools() []gomcp.Tool {
 	var tools []gomcp.Tool
+	tools = append(tools, h.contextTools()...)
 	tools = append(tools, h.prTools()...)
 	tools = append(tools, h.issueTools()...)
 	tools = append(tools, h.runTools()...)
@@ -73,6 +76,8 @@ func (h *Handler) Tools() []gomcp.Tool {
 // Handle dispatches an MCP tool call to the appropriate handler.
 func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
 	switch req.Params.Name {
+	case "gh_whoami":
+		return h.handleWhoami(ctx, req)
 	case "gh_create_pr":
 		return h.handleCreatePR(ctx, req)
 	case "gh_view_pr":

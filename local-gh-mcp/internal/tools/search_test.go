@@ -262,5 +262,5 @@ func TestSearchIssues_StateEnum(t *testing.T) {
 func TestToolCount(t *testing.T) {
 	h := NewHandler(&mockGHClient{})
 	tools := h.Tools()
-	assert.Equal(t, 28, len(tools), "expected 28 total tools")
+	assert.Equal(t, 29, len(tools), "expected 29 total tools")
 }

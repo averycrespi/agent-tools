@@ -102,6 +102,15 @@ func (c *Client) AuthStatus(_ context.Context) error {
 	return nil
 }
 
+// ViewUser returns the authenticated user as JSON from `gh api /user`.
+func (c *Client) ViewUser(_ context.Context) (string, error) {
+	out, err := c.runner.Run("gh", "api", "/user")
+	if err != nil {
+		return "", fmt.Errorf("gh api /user failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // CreatePR creates a new pull request.
 func (c *Client) CreatePR(_ context.Context, owner, repo string, opts CreatePROpts) (string, error) {
 	args := []string{"pr", "create", "-R", repoFlag(owner, repo), "--title", opts.Title, "--body", opts.Body}

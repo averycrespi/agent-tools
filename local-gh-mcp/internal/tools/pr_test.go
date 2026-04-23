@@ -39,6 +39,7 @@ type mockGHClient struct {
 	searchReposFunc      func(ctx context.Context, query string, opts gh.SearchReposOpts) (string, error)
 	searchCodeFunc       func(ctx context.Context, query string, opts gh.SearchCodeOpts) (string, error)
 	searchCommitsFunc    func(ctx context.Context, query string, opts gh.SearchCommitsOpts) (string, error)
+	viewUserFunc         func(ctx context.Context) (string, error)
 }
 
 func (m *mockGHClient) CreatePR(ctx context.Context, owner, repo string, opts gh.CreatePROpts) (string, error) {
@@ -233,6 +234,13 @@ func (m *mockGHClient) SearchCode(ctx context.Context, query string, opts gh.Sea
 func (m *mockGHClient) SearchCommits(ctx context.Context, query string, opts gh.SearchCommitsOpts) (string, error) {
 	if m.searchCommitsFunc != nil {
 		return m.searchCommitsFunc(ctx, query, opts)
+	}
+	return "", nil
+}
+
+func (m *mockGHClient) ViewUser(ctx context.Context) (string, error) {
+	if m.viewUserFunc != nil {
+		return m.viewUserFunc(ctx)
 	}
 	return "", nil
 }
