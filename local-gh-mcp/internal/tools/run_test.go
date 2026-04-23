@@ -157,7 +157,7 @@ func TestRerun_Success(t *testing.T) {
 		},
 	})
 	req := gomcp.CallToolRequest{}
-	req.Params.Name = "gh_rerun"
+	req.Params.Name = "gh_rerun_run"
 	req.Params.Arguments = map[string]any{
 		"owner":       "octocat",
 		"repo":        "hello-world",
@@ -225,7 +225,7 @@ func TestRunToolAnnotations(t *testing.T) {
 	}{
 		{"gh_list_runs", annRead},
 		{"gh_view_run", annRead},
-		{"gh_rerun", annAdditive},
+		{"gh_rerun_run", annAdditive},
 		{"gh_cancel_run", annDestructive},
 	}
 	for _, tc := range cases {

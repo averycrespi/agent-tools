@@ -77,7 +77,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 			},
 		},
 		{
-			Name:        "gh_rerun",
+			Name:        "gh_rerun_run",
 			Description: "Rerun a workflow run. Creates a new run attempt from the original commit. Use failed_only=true to rerun only the failed jobs rather than the full workflow.",
 			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
@@ -184,7 +184,7 @@ func (h *Handler) handleViewRun(ctx context.Context, req gomcp.CallToolRequest) 
 	return gomcp.NewToolResultText(format.FormatRunView(run)), nil
 }
 
-func (h *Handler) handleRerun(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+func (h *Handler) handleRerunRun(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
 	args := req.GetArguments()
 	owner, repo, errResult := requireOwnerRepo(args)
 	if errResult != nil {

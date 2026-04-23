@@ -111,8 +111,8 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 		return h.handleListRuns(ctx, req)
 	case "gh_view_run":
 		return h.handleViewRun(ctx, req)
-	case "gh_rerun":
-		return h.handleRerun(ctx, req)
+	case "gh_rerun_run":
+		return h.handleRerunRun(ctx, req)
 	case "gh_cancel_run":
 		return h.handleCancelRun(ctx, req)
 	case "gh_list_caches":
