@@ -127,6 +127,7 @@ type RunListItem struct {
 
 // Job represents a single job within a workflow run.
 type Job struct {
+	DatabaseID int64  `json:"databaseId"`
 	Name       string `json:"name"`
 	Status     string `json:"status"`
 	Conclusion string `json:"conclusion"`
@@ -459,9 +460,9 @@ func FormatRunView(run RunView) string {
 		fmt.Fprintf(&sb, "\n## Jobs (%d)\n\n", len(run.Jobs))
 		for _, j := range run.Jobs {
 			if j.Conclusion == "failure" && j.URL != "" {
-				fmt.Fprintf(&sb, "- %s: %s (%s)\n", j.Name, j.Conclusion, j.URL)
+				fmt.Fprintf(&sb, "- `%s` (job_id: %d) — %s (%s)\n", j.Name, j.DatabaseID, j.Conclusion, j.URL)
 			} else {
-				fmt.Fprintf(&sb, "- %s: %s\n", j.Name, j.Conclusion)
+				fmt.Fprintf(&sb, "- `%s` (job_id: %d) — %s\n", j.Name, j.DatabaseID, j.Conclusion)
 			}
 		}
 	}

@@ -39,6 +39,7 @@ type GHClient interface {
 	// Run operations - NOTE: runID is string
 	ListRuns(ctx context.Context, owner, repo string, opts gh.ListRunsOpts) (string, error)
 	ViewRun(ctx context.Context, owner, repo string, runID string, logFailed bool) (string, error)
+	ViewRunJobLog(ctx context.Context, owner, repo string, jobID int64, tailLines int) (string, error)
 	Rerun(ctx context.Context, owner, repo string, runID string, failedOnly bool) (string, error)
 	CancelRun(ctx context.Context, owner, repo string, runID string) (string, error)
 	// Cache operations - NOTE: cacheID is string
@@ -130,6 +131,8 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 		return h.handleListRuns(ctx, req)
 	case "gh_view_run":
 		return h.handleViewRun(ctx, req)
+	case "gh_view_run_job_logs":
+		return h.handleViewRunJobLogs(ctx, req)
 	case "gh_rerun_run":
 		return h.handleRerunRun(ctx, req)
 	case "gh_cancel_run":
@@ -178,6 +181,16 @@ func intFromArgs(args map[string]any, key string) int {
 		return v
 	}
 	return 0
+}
+
+func intFromArgsOr(args map[string]any, key string, defaultVal int) int {
+	switch v := args[key].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	}
+	return defaultVal
 }
 
 func stringFromArgs(args map[string]any, key string) string {

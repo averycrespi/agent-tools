@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
@@ -104,7 +105,7 @@ func TestViewRun_FormatsMarkdown(t *testing.T) {
 	h := NewHandler(&mockGHClient{
 		viewRunFunc: func(_ context.Context, owner, repo string, runID string, logFailed bool) (string, error) {
 			assert.False(t, logFailed)
-			return `{"databaseId":100,"name":"CI","displayTitle":"Fix tests","status":"completed","conclusion":"success","event":"push","headBranch":"main","headSha":"abc1234567890","url":"https://github.com/octocat/hello-world/actions/runs/100","createdAt":"2025-01-01T00:00:00Z","updatedAt":"2025-01-02T00:00:00Z","jobs":[{"name":"build","status":"completed","conclusion":"success","url":""}]}`, nil
+			return `{"databaseId":100,"name":"CI","displayTitle":"Fix tests","status":"completed","conclusion":"success","event":"push","headBranch":"main","headSha":"abc1234567890","url":"https://github.com/octocat/hello-world/actions/runs/100","createdAt":"2025-01-01T00:00:00Z","updatedAt":"2025-01-02T00:00:00Z","jobs":[{"databaseId":12345,"name":"build","status":"completed","conclusion":"success","url":""}]}`, nil
 		},
 	})
 	req := gomcp.CallToolRequest{}
@@ -121,7 +122,7 @@ func TestViewRun_FormatsMarkdown(t *testing.T) {
 	assert.Contains(t, text, "# Run #100: Fix tests")
 	assert.Contains(t, text, "completed/success")
 	assert.Contains(t, text, "## Jobs (1)")
-	assert.Contains(t, text, "- build: success")
+	assert.Contains(t, text, "(job_id: 12345)")
 }
 
 func TestViewRun_LogFailed_Passthrough(t *testing.T) {
@@ -190,6 +191,54 @@ func TestCancelRun_Success(t *testing.T) {
 	assert.False(t, result.IsError)
 }
 
+func TestGhViewRunJobLogs(t *testing.T) {
+	var capturedJobID int64
+	var capturedTail int
+	mock := &mockGHClient{
+		viewRunJobLogFunc: func(_ context.Context, _, _ string, jobID int64, tail int) (string, error) {
+			capturedJobID, capturedTail = jobID, tail
+			return "line 1\nline 2\nline 3\n", nil
+		},
+	}
+	h := NewHandler(mock)
+	res, err := h.Handle(context.Background(), gomcp.CallToolRequest{
+		Params: gomcp.CallToolParams{Name: "gh_view_run_job_logs", Arguments: map[string]any{
+			"owner": "x", "repo": "y", "job_id": float64(12345),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedJobID != 12345 {
+		t.Errorf("job_id not threaded: %d", capturedJobID)
+	}
+	if capturedTail != 500 {
+		t.Errorf("default tail_lines should be 500, got %d", capturedTail)
+	}
+	if !strings.Contains(textOf(res), "line 1") {
+		t.Errorf("log body missing, got: %s", textOf(res))
+	}
+}
+
+func TestGhViewRunJobLogsRespectsTailLines(t *testing.T) {
+	var capturedTail int
+	mock := &mockGHClient{
+		viewRunJobLogFunc: func(_ context.Context, _, _ string, _ int64, tail int) (string, error) {
+			capturedTail = tail
+			return "", nil
+		},
+	}
+	h := NewHandler(mock)
+	_, _ = h.Handle(context.Background(), gomcp.CallToolRequest{
+		Params: gomcp.CallToolParams{Name: "gh_view_run_job_logs", Arguments: map[string]any{
+			"owner": "x", "repo": "y", "job_id": float64(1), "tail_lines": float64(100),
+		}},
+	})
+	if capturedTail != 100 {
+		t.Errorf("tail_lines not threaded: %d", capturedTail)
+	}
+}
+
 func TestListRuns_StatusEnum(t *testing.T) {
 	h := NewHandler(&mockGHClient{})
 	for _, tool := range h.runTools() {
@@ -225,6 +274,7 @@ func TestRunToolAnnotations(t *testing.T) {
 	}{
 		{"gh_list_runs", annRead},
 		{"gh_view_run", annRead},
+		{"gh_view_run_job_logs", annRead},
 		{"gh_rerun_run", annAdditive},
 		{"gh_cancel_run", annDestructive},
 	}

@@ -418,8 +418,8 @@ func TestFormatRunView(t *testing.T) {
 		CreatedAt:    "2025-01-01T00:00:00Z",
 		UpdatedAt:    "2025-01-02T00:00:00Z",
 		Jobs: []Job{
-			{Name: "build", Status: "completed", Conclusion: "success", URL: "https://example.com/job/1"},
-			{Name: "test", Status: "completed", Conclusion: "failure", URL: "https://example.com/job/2"},
+			{DatabaseID: 111, Name: "build", Status: "completed", Conclusion: "success", URL: "https://example.com/job/1"},
+			{DatabaseID: 222, Name: "test", Status: "completed", Conclusion: "failure", URL: "https://example.com/job/2"},
 		},
 	}
 	got := FormatRunView(run)
@@ -428,8 +428,10 @@ func TestFormatRunView(t *testing.T) {
 		"completed/failure",
 		"abc1234",
 		"feature",
-		"- build: success",
-		"- test: failure (https://example.com/job/2)",
+		"(job_id: 111)",
+		"(job_id: 222)",
+		"— success",
+		"— failure (https://example.com/job/2)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)

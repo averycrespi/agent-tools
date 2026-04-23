@@ -528,6 +528,20 @@ func (c *Client) ViewRun(_ context.Context, owner, repo string, runID string, lo
 	return strings.TrimSpace(string(out)), nil
 }
 
+// ViewRunJobLog fetches the log output for a single workflow job by ID.
+// If tailLines > 0, only the last tailLines lines are returned.
+func (c *Client) ViewRunJobLog(_ context.Context, owner, repo string, jobID int64, tailLines int) (string, error) {
+	out, err := c.runner.Run("gh", "run", "view", "--job", fmt.Sprintf("%d", jobID), "--log", "-R", repoFlag(owner, repo))
+	if err != nil {
+		return "", fmt.Errorf("gh run view --job failed: %s", strings.TrimSpace(string(out)))
+	}
+	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	if tailLines > 0 && len(lines) > tailLines {
+		lines = lines[len(lines)-tailLines:]
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
 // Rerun re-runs a workflow run.
 func (c *Client) Rerun(_ context.Context, owner, repo string, runID string, failedOnly bool) (string, error) {
 	args := []string{"run", "rerun", "-R", repoFlag(owner, repo)}

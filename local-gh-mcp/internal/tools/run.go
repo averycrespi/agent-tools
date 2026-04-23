@@ -126,6 +126,34 @@ func (h *Handler) runTools() []gomcp.Tool {
 				Required: []string{"owner", "repo", "run_id"},
 			},
 		},
+		{
+			Name:        "gh_view_run_job_logs",
+			Description: "Fetch logs for a single workflow job by ID. Returns the last `tail_lines` lines (default 500, max 5000). Complementary to gh_view_run's log_failed=true, which concatenates all failed-job logs. Use gh_view_run first to discover job IDs.",
+			Annotations: annRead,
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"owner": map[string]any{
+						"type":        "string",
+						"description": "Repository owner.",
+					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Repository name.",
+					},
+					"job_id": map[string]any{
+						"type":        "number",
+						"description": "GitHub job ID (obtained from gh_view_run output).",
+					},
+					"tail_lines": map[string]any{
+						"type":        "number",
+						"default":     500,
+						"description": "Return the last N lines (default 500, max 5000).",
+					},
+				},
+				Required: []string{"owner", "repo", "job_id"},
+			},
+		},
 	}
 }
 
@@ -213,6 +241,29 @@ func (h *Handler) handleCancelRun(ctx context.Context, req gomcp.CallToolRequest
 		return gomcp.NewToolResultError("run_id is required"), nil
 	}
 	out, err := h.gh.CancelRun(ctx, owner, repo, runID)
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	return gomcp.NewToolResultText(out), nil
+}
+
+func (h *Handler) handleViewRunJobLogs(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	jobIDInt := intFromArgs(args, "job_id")
+	if jobIDInt == 0 {
+		if _, present := args["job_id"]; !present {
+			return gomcp.NewToolResultError("gh_view_run_job_logs: required field missing: job_id"), nil
+		}
+	}
+	tail := intFromArgsOr(args, "tail_lines", 500)
+	if tail > 5000 {
+		tail = 5000
+	}
+	out, err := h.gh.ViewRunJobLog(ctx, owner, repo, int64(jobIDInt), tail)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}

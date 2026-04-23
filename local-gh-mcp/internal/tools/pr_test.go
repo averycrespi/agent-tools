@@ -47,6 +47,7 @@ type mockGHClient struct {
 	reopenPRFunc         func(ctx context.Context, owner, repo string, number int) (string, error)
 	listPRFilesFunc      func(ctx context.Context, owner, repo string, number, limit int) (string, error)
 	listBranchesFunc     func(ctx context.Context, owner, repo string, limit int) (string, error)
+	viewRunJobLogFunc    func(ctx context.Context, owner, repo string, jobID int64, tail int) (string, error)
 }
 
 func (m *mockGHClient) CreatePR(ctx context.Context, owner, repo string, opts gh.CreatePROpts) (string, error) {
@@ -283,6 +284,13 @@ func (m *mockGHClient) ListPRFiles(ctx context.Context, owner, repo string, numb
 func (m *mockGHClient) ListBranches(ctx context.Context, owner, repo string, limit int) (string, error) {
 	if m.listBranchesFunc != nil {
 		return m.listBranchesFunc(ctx, owner, repo, limit)
+	}
+	return "", nil
+}
+
+func (m *mockGHClient) ViewRunJobLog(ctx context.Context, owner, repo string, jobID int64, tail int) (string, error) {
+	if m.viewRunJobLogFunc != nil {
+		return m.viewRunJobLogFunc(ctx, owner, repo, jobID, tail)
 	}
 	return "", nil
 }
