@@ -74,6 +74,35 @@ func TestDefaultConfig_OpenBrowserDefaultsTrue(t *testing.T) {
 	require.True(t, cfg.OpenBrowser)
 }
 
+func TestDefaultConfig_HostDefaultsToLoopback(t *testing.T) {
+	cfg := DefaultConfig()
+	require.Equal(t, "127.0.0.1", cfg.Host)
+}
+
+func TestLoad_HostBackfillsToLoopbackWhenMissing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	err := os.WriteFile(path, []byte(`{"port": 9000}`), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "127.0.0.1", cfg.Host)
+}
+
+func TestLoad_HostFromJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	err := os.WriteFile(path, []byte(`{"host": "localhost"}`), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "localhost", cfg.Host)
+}
+
 func TestLoad_OpenBrowserFromJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")

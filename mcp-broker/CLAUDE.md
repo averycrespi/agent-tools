@@ -42,6 +42,7 @@ internal/
 ## Conventions
 
 - Errors are wrapped with context: `fmt.Errorf("doing X: %w", err)`
+- Listener binds loopback only. `serve.go` calls `server.ValidateLoopbackAddr` before `ListenAndServe`, which rejects anything but `127.0.0.0/8`, `::1`, or `localhost`. The bearer token is defense-in-depth; the network boundary is the load-bearing security boundary. Sandboxed agents reach the broker via Lima's user-mode forwarding of `host.lima.internal` to the host's loopback — do not relax this to support non-loopback binds
 - Audit write errors are intentionally discarded (`_ =`) — the pipeline should not fail because audit failed
 - Logger is nil-checked in packages that can be constructed without one (broker, dashboard, manager)
 - `expandEnv` in server package uses `os.ExpandEnv` — supports `$VAR` and `${VAR}` anywhere in the value (e.g., `"Bearer $TOKEN"`)

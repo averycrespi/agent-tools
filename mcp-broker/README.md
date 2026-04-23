@@ -23,20 +23,24 @@ An agent connects to mcp-broker as a single MCP server. mcp-broker connects to o
 
 ## Security
 
-mcp-broker is designed for **local use only** — it listens on localhost and must never be exposed to the public internet. The authentication layer is a lightweight guard against unauthorized local processes (rogue scripts, browser tabs, compromised extensions) accessing your tools and credentials. It is not a substitute for network-level security.
+mcp-broker is designed for **local use only**. Startup refuses to bind anything but a loopback interface (`127.0.0.1`, `::1`, or `localhost`) — binding to `0.0.0.0` or a LAN IP is a hard error, not a warning. This is the load-bearing security boundary; the bearer token is defense-in-depth on top of it.
 
 **Threat model:** Prevent other processes on your machine from calling the broker's HTTP endpoints without authorization. This covers casual/accidental access and opportunistic localhost attacks, not a determined attacker with root access to your machine.
 
 **What auth provides:**
+
 - A random bearer token required on every request (MCP and dashboard)
 - Cookie-based session for the browser dashboard
 - Constant-time token comparison to prevent timing attacks
 
 **What auth does NOT provide:**
+
 - Protection against an attacker who can read your filesystem (they can read the token file)
 - TLS/encryption (traffic is plain HTTP on localhost)
 - User accounts or role-based access — there is one token for everything
 - Automatic token rotation (use `mcp-broker token rotate` to rotate manually)
+
+**Sandboxed agents** reach the broker via Lima's user-mode networking, which forwards guest connections to `host.lima.internal:8200` to the host's loopback. Set `MCP_BROKER_ENDPOINT=http://host.lima.internal:8200` inside the sandbox.
 
 ## Quick start
 
@@ -61,12 +65,12 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
     "github": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": {"GITHUB_TOKEN": "$GITHUB_TOKEN"}
+      "env": { "GITHUB_TOKEN": "$GITHUB_TOKEN" }
     },
     "github-remote": {
       "type": "sse",
       "url": "https://api.githubcopilot.com/mcp/",
-      "headers": {"Authorization": "Bearer $GITHUB_TOKEN"}
+      "headers": { "Authorization": "Bearer $GITHUB_TOKEN" }
     },
     "internal": {
       "type": "streamable-http",
@@ -74,10 +78,11 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
     }
   },
   "rules": [
-    {"tool": "github.search_*", "verdict": "allow"},
-    {"tool": "github.push*", "verdict": "require-approval"},
-    {"tool": "*", "verdict": "require-approval"}
+    { "tool": "github.search_*", "verdict": "allow" },
+    { "tool": "github.push*", "verdict": "require-approval" },
+    { "tool": "*", "verdict": "require-approval" }
   ],
+  "host": "127.0.0.1",
   "port": 8200,
   "approval_timeout_seconds": 600,
   "telegram": {
@@ -98,14 +103,14 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
 
 Servers is a map keyed by server name. Each name is used as a tool prefix (e.g. `github.search`).
 
-| Field | Description |
-|-------|-------------|
-| `command` | Command to spawn (stdio transport, default) |
-| `args` | Command arguments |
-| `env` | Environment variables; `$VAR` and `${VAR}` references are expanded from the process environment |
-| `type` | Transport type: omit for stdio, `"streamable-http"` for Streamable HTTP, `"sse"` for SSE |
-| `url` | URL for HTTP/SSE transport |
-| `headers` | HTTP headers; `$VAR` and `${VAR}` references are expanded from the process environment |
+| Field     | Description                                                                                     |
+| --------- | ----------------------------------------------------------------------------------------------- |
+| `command` | Command to spawn (stdio transport, default)                                                     |
+| `args`    | Command arguments                                                                               |
+| `env`     | Environment variables; `$VAR` and `${VAR}` references are expanded from the process environment |
+| `type`    | Transport type: omit for stdio, `"streamable-http"` for Streamable HTTP, `"sse"` for SSE        |
+| `url`     | URL for HTTP/SSE transport                                                                      |
+| `headers` | HTTP headers; `$VAR` and `${VAR}` references are expanded from the process environment          |
 
 ### OAuth
 
@@ -129,6 +134,7 @@ To receive approval requests on your phone and approve/deny them from anywhere, 
 `token` and `chat_id` support `$VAR` / `${VAR}` environment variable expansion.
 
 **Setup:**
+
 1. Create a bot via [@BotFather](https://t.me/BotFather) on Telegram — it gives you a bot token.
 2. Start a chat with your bot, then get your chat ID by calling `https://api.telegram.org/bot<TOKEN>/getUpdates` after sending any message to it.
 3. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in your environment and set `enabled: true` in config.
@@ -139,10 +145,10 @@ When enabled, approval requests are sent to both the web dashboard and Telegram 
 
 Rules are evaluated top-to-bottom, first match wins. Patterns use Go's `filepath.Match` glob syntax.
 
-| Verdict | Behavior |
-|---------|----------|
-| `allow` | Tool call proceeds immediately |
-| `deny` | Tool call is rejected |
+| Verdict            | Behavior                                      |
+| ------------------ | --------------------------------------------- |
+| `allow`            | Tool call proceeds immediately                |
+| `deny`             | Tool call is rejected                         |
 | `require-approval` | Tool call blocks until approved via dashboard |
 
 Default (no matching rule): `require-approval`.
