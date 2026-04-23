@@ -51,6 +51,41 @@ func (s *KeychainTokenStore) SaveToken(ctx context.Context, token *transport.Tok
 	return keyring.Set(keychainService, s.serverName, string(data))
 }
 
+// clientCreds holds the dynamic client registration (RFC 7591) issued by
+// the OAuth server. Persisting it across restarts lets mcp-go reuse the
+// same client_id when refreshing tokens; otherwise the server rejects the
+// refresh because the stored refresh_token was bound to a prior registration.
+type clientCreds struct {
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret,omitempty"`
+}
+
+// getClientCreds returns the stored dynamic client registration for a server,
+// or (nil, nil) if none has been saved yet (first-run).
+func getClientCreds(serverName string) (*clientCreds, error) {
+	data, err := keyring.Get(keychainService, serverName+".client")
+	if err != nil {
+		if errors.Is(err, keyring.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get client creds for %q: %w", serverName, err)
+	}
+	var creds clientCreds
+	if err := json.Unmarshal([]byte(data), &creds); err != nil {
+		return nil, fmt.Errorf("unmarshal client creds: %w", err)
+	}
+	return &creds, nil
+}
+
+// saveClientCreds persists the dynamic client registration for a server.
+func saveClientCreds(serverName string, creds clientCreds) error {
+	data, err := json.Marshal(creds) //nolint:gosec // client_secret is intentionally persisted to the OS keychain
+	if err != nil {
+		return fmt.Errorf("marshal client creds: %w", err)
+	}
+	return keyring.Set(keychainService, serverName+".client", string(data))
+}
+
 // callbackPort returns a deterministic port for the OAuth callback server,
 // derived from the server name. Maps to ephemeral range 10000-65535.
 func callbackPort(serverName string) int {
@@ -59,16 +94,25 @@ func callbackPort(serverName string) int {
 	return int(h.Sum32()%(65535-10000)) + 10000
 }
 
-// oauthConfig creates a minimal OAuth config for automatic discovery.
-// The mcp-go library handles 401 detection, metadata discovery, dynamic
-// client registration, and PKCE automatically.
+// oauthConfig creates an OAuth config for mcp-go's transport.
+// It seeds ClientID/ClientSecret from stored creds if available, so that
+// refresh POSTs after restart carry the correct client_id. On keychain
+// error, it logs and returns an empty-creds config (graceful degradation:
+// mcp-go will re-register, which triggers a browser flow but is correct).
 func oauthConfig(serverName string) transport.OAuthConfig {
 	port := callbackPort(serverName)
-	return transport.OAuthConfig{
+	cfg := transport.OAuthConfig{
 		RedirectURI: fmt.Sprintf("http://localhost:%d/callback", port),
 		TokenStore:  &KeychainTokenStore{serverName: serverName},
 		PKCEEnabled: true,
 	}
+	if creds, err := getClientCreds(serverName); err != nil {
+		fmt.Fprintf(os.Stderr, "load client creds for %q: %v\n", serverName, err)
+	} else if creds != nil {
+		cfg.ClientID = creds.ClientID
+		cfg.ClientSecret = creds.ClientSecret
+	}
+	return cfg
 }
 
 // initializeOAuthClient sends the MCP Initialize handshake, handling OAuth auth if needed.
@@ -90,7 +134,7 @@ func initializeOAuthClient(ctx context.Context, c *client.Client, name string) e
 		return fmt.Errorf("initialize server %q: %w", name, err)
 	}
 
-	if err := runOAuthFlow(ctx, err, callbackPort(name)); err != nil {
+	if err := runOAuthFlow(ctx, err, name); err != nil {
 		_ = c.Close()
 		return fmt.Errorf("OAuth flow for %q: %w", name, err)
 	}
@@ -103,16 +147,27 @@ func initializeOAuthClient(ctx context.Context, c *client.Client, name string) e
 }
 
 // runOAuthFlow runs the interactive browser-based OAuth flow.
-func runOAuthFlow(ctx context.Context, authErr error, port int) error {
+func runOAuthFlow(ctx context.Context, authErr error, serverName string) error {
+	port := callbackPort(serverName)
 	handler := client.GetOAuthHandler(authErr)
 	if handler == nil {
 		return fmt.Errorf("no OAuth handler in error")
 	}
 
-	// Dynamic client registration if no client ID
+	// Dynamic client registration if no client ID. Persist the resulting
+	// client_id/client_secret so refresh flows after restart carry the right
+	// client_id — otherwise the server rejects refresh and we fall back to
+	// a full browser flow daily.
 	if handler.GetClientID() == "" {
 		if err := handler.RegisterClient(ctx, "mcp-broker"); err != nil {
 			return fmt.Errorf("register client: %w", err)
+		}
+		creds := clientCreds{
+			ClientID:     handler.GetClientID(),
+			ClientSecret: handler.GetClientSecret(),
+		}
+		if err := saveClientCreds(serverName, creds); err != nil {
+			fmt.Fprintf(os.Stderr, "save client creds for %q: %v\n", serverName, err)
 		}
 	}
 

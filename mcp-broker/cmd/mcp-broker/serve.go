@@ -150,7 +150,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		http.Redirect(w, r, "/dashboard/", http.StatusFound)
 	})
 
-	addr := fmt.Sprintf(":%d", cfg.Port)
+	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	if err := server.ValidateLoopbackAddr(addr); err != nil {
+		return err
+	}
 	srv := &http.Server{Addr: addr, Handler: auth.Middleware(token, mux), ReadHeaderTimeout: 10 * time.Second}
 
 	// Handle shutdown

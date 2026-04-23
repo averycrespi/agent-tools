@@ -7,9 +7,14 @@ import (
 )
 
 // Config is the top-level configuration for mcp-broker.
+//
+// Host must resolve to a loopback interface — startup rejects anything else.
+// The broker is protected only by a bearer token over plain HTTP; its
+// security posture relies on not being network-reachable.
 type Config struct {
 	Servers                map[string]ServerConfig `json:"servers"`
 	Rules                  []RuleConfig            `json:"rules"`
+	Host                   string                  `json:"host"`
 	Port                   int                     `json:"port"`
 	OpenBrowser            bool                    `json:"open_browser"`
 	Audit                  AuditConfig             `json:"audit"`
@@ -80,6 +85,7 @@ func DefaultConfig() Config {
 		Rules: []RuleConfig{
 			{Tool: "*", Verdict: "require-approval"},
 		},
+		Host:                   "127.0.0.1",
 		Port:                   8200,
 		OpenBrowser:            true,
 		ApprovalTimeoutSeconds: 600,

@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,12 +17,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/auth"
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/exec"
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/goenv"
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/private"
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/public"
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/router"
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/server"
+	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/state"
 	"github.com/spf13/cobra"
 )
 
@@ -26,6 +32,7 @@ var (
 	serveAddr     string
 	servePrivate  string
 	serveUpstream string
+	serveStateDir string
 )
 
 // maxConcurrentPrivate caps in-flight `go mod download` subprocesses so a
@@ -37,6 +44,8 @@ func init() {
 	serveCmd.Flags().StringVar(&serveAddr, "addr", "127.0.0.1:7070", "address to listen on")
 	serveCmd.Flags().StringVar(&servePrivate, "private", "", "GOPRIVATE-style patterns (overrides `go env GOPRIVATE`)")
 	serveCmd.Flags().StringVar(&serveUpstream, "upstream", "https://proxy.golang.org", "public upstream proxy URL")
+	serveCmd.Flags().StringVar(&serveStateDir, "state-dir", "",
+		"directory for TLS cert + credentials (default $XDG_STATE_HOME/local-gomod-proxy)")
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -75,11 +84,34 @@ var serveCmd = &cobra.Command{
 			return fmt.Errorf("parsing upstream URL: %w", err)
 		}
 
-		handler := server.New(
-			router.New(private_),
-			private.New(runner),
-			public.New(upstream),
-			maxConcurrentPrivate,
+		stateDir, err := state.ResolveDir(serveStateDir)
+		if err != nil {
+			return fmt.Errorf("resolving state dir: %w", err)
+		}
+		if err := state.EnsureDir(stateDir); err != nil {
+			return err
+		}
+		certPath, keyPath, err := state.LoadOrGenerateCert(stateDir)
+		if err != nil {
+			return fmt.Errorf("loading cert: %w", err)
+		}
+		creds, err := state.LoadOrGenerateCredentials(stateDir)
+		if err != nil {
+			return fmt.Errorf("loading credentials: %w", err)
+		}
+		fingerprint, err := certFingerprint(certPath)
+		if err != nil {
+			return fmt.Errorf("reading cert fingerprint: %w", err)
+		}
+
+		handler := auth.Middleware(
+			server.New(
+				router.New(private_),
+				private.New(runner),
+				public.New(upstream),
+				maxConcurrentPrivate,
+			),
+			creds,
 		)
 
 		srv := &http.Server{
@@ -98,14 +130,18 @@ var serveCmd = &cobra.Command{
 			"goprivate", private_,
 			"gomodcache", env.GOMODCACHE,
 			"goversion", env.GOVERSION,
-			"upstream", serveUpstream)
+			"upstream", serveUpstream,
+			"statedir", stateDir,
+			"certfp", fingerprint)
+
+		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
 		errCh := make(chan error, 1)
 		go func() {
-			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := srv.ListenAndServeTLS(certPath, keyPath); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				errCh <- err
 			}
 		}()
@@ -120,4 +156,20 @@ var serveCmd = &cobra.Command{
 			return err
 		}
 	},
+}
+
+// certFingerprint returns the first 16 hex chars of the SHA-256 over the
+// leaf cert DER. Logged at startup so operators can confirm which cert was
+// loaded without touching the key material.
+func certFingerprint(certPath string) (string, error) {
+	raw, err := os.ReadFile(certPath)
+	if err != nil {
+		return "", err
+	}
+	block, _ := pem.Decode(raw)
+	if block == nil {
+		return "", fmt.Errorf("no PEM block in %s", certPath)
+	}
+	sum := sha256.Sum256(block.Bytes)
+	return hex.EncodeToString(sum[:])[:16], nil
 }

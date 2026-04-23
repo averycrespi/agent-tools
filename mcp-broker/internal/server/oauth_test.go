@@ -79,3 +79,63 @@ func TestOAuthConfig_RedirectURIMatchesCallbackPort(t *testing.T) {
 	require.True(t, cfg.PKCEEnabled)
 	require.NotNil(t, cfg.TokenStore)
 }
+
+func TestClientCreds_SaveAndGet(t *testing.T) {
+	err := saveClientCreds("test-server", clientCreds{
+		ClientID:     "cid-123",
+		ClientSecret: "csecret-456",
+	})
+	require.NoError(t, err)
+
+	got, err := getClientCreds("test-server")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, "cid-123", got.ClientID)
+	require.Equal(t, "csecret-456", got.ClientSecret)
+}
+
+func TestClientCreds_GetNoCreds(t *testing.T) {
+	got, err := getClientCreds("unregistered-server")
+	require.NoError(t, err)
+	require.Nil(t, got)
+}
+
+func TestOAuthConfig_SeedsFromStoredCreds(t *testing.T) {
+	err := saveClientCreds("seeded-server", clientCreds{
+		ClientID:     "stored-cid",
+		ClientSecret: "stored-secret",
+	})
+	require.NoError(t, err)
+
+	cfg := oauthConfig("seeded-server")
+	require.Equal(t, "stored-cid", cfg.ClientID)
+	require.Equal(t, "stored-secret", cfg.ClientSecret)
+}
+
+func TestOAuthConfig_EmptyWhenNoStoredCreds(t *testing.T) {
+	cfg := oauthConfig("no-creds-server")
+	require.Empty(t, cfg.ClientID)
+	require.Empty(t, cfg.ClientSecret)
+}
+
+func TestClientCreds_GetCorruptedCreds(t *testing.T) {
+	// If the keychain contains invalid JSON, getClientCreds should return an unmarshal error.
+	err := keyring.Set(keychainService, "corrupted-creds-server.client", "not-valid-json")
+	require.NoError(t, err)
+
+	_, err = getClientCreds("corrupted-creds-server")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unmarshal client creds")
+}
+
+func TestOAuthConfig_KeychainErrorContinuesWithEmptyCreds(t *testing.T) {
+	// If the keychain contains invalid JSON for the client entry, oauthConfig
+	// should log to stderr and return a config with empty ClientID/ClientSecret
+	// (graceful degradation: mcp-go will re-register rather than failing).
+	err := keyring.Set(keychainService, "keychain-error-server.client", "not-valid-json")
+	require.NoError(t, err)
+
+	cfg := oauthConfig("keychain-error-server")
+	require.Empty(t, cfg.ClientID)
+	require.Empty(t, cfg.ClientSecret)
+}
