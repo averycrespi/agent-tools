@@ -27,7 +27,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"issue_number": map[string]any{
 						"type":        "number",
 						"description": "Issue number",
 					},
@@ -37,7 +37,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 						"description": "Max body length in chars (default 2000, max 50000).",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "issue_number"},
 			},
 		},
 		{
@@ -104,7 +104,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"issue_number": map[string]any{
 						"type":        "number",
 						"description": "Issue number",
 					},
@@ -113,7 +113,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 						"description": "Comment body",
 					},
 				},
-				Required: []string{"owner", "repo", "number", "body"},
+				Required: []string{"owner", "repo", "issue_number", "body"},
 			},
 		},
 		{
@@ -131,7 +131,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"issue_number": map[string]any{
 						"type":        "number",
 						"description": "Issue number",
 					},
@@ -146,7 +146,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 						"description": "Max comments to return (default 30, max 100).",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "issue_number"},
 			},
 		},
 	}
@@ -158,9 +158,9 @@ func (h *Handler) handleViewIssue(ctx context.Context, req gomcp.CallToolRequest
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
+	number := intFromArgs(args, "issue_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+		return gomcp.NewToolResultError("issue_number is required"), nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
 	out, err := h.gh.ViewIssue(ctx, owner, repo, number)
@@ -213,9 +213,9 @@ func (h *Handler) handleCommentIssue(ctx context.Context, req gomcp.CallToolRequ
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
+	number := intFromArgs(args, "issue_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+		return gomcp.NewToolResultError("issue_number is required"), nil
 	}
 	if errResult := requireStringFields("gh_comment_issue", args, "body"); errResult != nil {
 		return errResult, nil
@@ -234,9 +234,9 @@ func (h *Handler) handleListIssueComments(ctx context.Context, req gomcp.CallToo
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
+	number := intFromArgs(args, "issue_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+		return gomcp.NewToolResultError("issue_number is required"), nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
 	limit := intFromArgs(args, "limit")

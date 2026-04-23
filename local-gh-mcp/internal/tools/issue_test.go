@@ -22,9 +22,9 @@ func TestViewIssue_Success(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_view_issue"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(7),
+		"owner":        "octocat",
+		"repo":         "hello-world",
+		"issue_number": float64(7),
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -90,10 +90,10 @@ func TestCommentIssue_Success(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_comment_issue"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(3),
-		"body":   "Nice find!",
+		"owner":        "octocat",
+		"repo":         "hello-world",
+		"issue_number": float64(3),
+		"body":         "Nice find!",
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -105,9 +105,9 @@ func TestCommentIssue_MissingBody(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_comment_issue"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(3),
+		"owner":        "octocat",
+		"repo":         "hello-world",
+		"issue_number": float64(3),
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -123,9 +123,9 @@ func TestViewIssue_FormatsMarkdown(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_view_issue"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(100),
+		"owner":        "octocat",
+		"repo":         "hello-world",
+		"issue_number": float64(100),
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -195,9 +195,9 @@ func TestListIssueComments_Success(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_list_issue_comments"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(100),
+		"owner":        "octocat",
+		"repo":         "hello-world",
+		"issue_number": float64(100),
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
