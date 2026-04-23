@@ -266,7 +266,7 @@ func (h *Handler) handleViewRunJobLogs(ctx context.Context, req gomcp.CallToolRe
 	jobIDInt := intFromArgs(args, "job_id")
 	if jobIDInt == 0 {
 		if _, present := args["job_id"]; !present {
-			return gomcp.NewToolResultError("gh_view_run_job_logs: required field missing: job_id"), nil
+			return gomcp.NewToolResultError("job_id is required"), nil
 		}
 	}
 	tail := intFromArgsOr(args, "tail_lines", 500)

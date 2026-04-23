@@ -301,7 +301,7 @@ func (c *Client) ClosePR(_ context.Context, owner, repo string, number int, comm
 
 // ReadyPR marks a draft pull request as ready for review.
 func (c *Client) ReadyPR(_ context.Context, owner, repo string, number int) (string, error) {
-	out, err := c.runner.Run("gh", "pr", "ready", fmt.Sprintf("%d", number), "-R", repoFlag(owner, repo))
+	out, err := c.runner.Run("gh", "pr", "ready", strconv.Itoa(number), "-R", repoFlag(owner, repo))
 	if err != nil {
 		return "", fmt.Errorf("gh pr ready failed: %s", strings.TrimSpace(string(out)))
 	}
@@ -310,7 +310,7 @@ func (c *Client) ReadyPR(_ context.Context, owner, repo string, number int) (str
 
 // DraftPR converts a pull request back to draft.
 func (c *Client) DraftPR(_ context.Context, owner, repo string, number int) (string, error) {
-	out, err := c.runner.Run("gh", "pr", "ready", fmt.Sprintf("%d", number), "--undo", "-R", repoFlag(owner, repo))
+	out, err := c.runner.Run("gh", "pr", "ready", strconv.Itoa(number), "--undo", "-R", repoFlag(owner, repo))
 	if err != nil {
 		return "", fmt.Errorf("gh pr ready --undo failed: %s", strings.TrimSpace(string(out)))
 	}
@@ -319,7 +319,7 @@ func (c *Client) DraftPR(_ context.Context, owner, repo string, number int) (str
 
 // ReopenPR reopens a closed pull request.
 func (c *Client) ReopenPR(_ context.Context, owner, repo string, number int) (string, error) {
-	out, err := c.runner.Run("gh", "pr", "reopen", fmt.Sprintf("%d", number), "-R", repoFlag(owner, repo))
+	out, err := c.runner.Run("gh", "pr", "reopen", strconv.Itoa(number), "-R", repoFlag(owner, repo))
 	if err != nil {
 		return "", fmt.Errorf("gh pr reopen failed: %s", strings.TrimSpace(string(out)))
 	}
@@ -532,7 +532,7 @@ func (c *Client) ViewRun(_ context.Context, owner, repo string, runID string, lo
 // ViewRunJobLog fetches the log output for a single workflow job by ID.
 // If tailLines > 0, only the last tailLines lines are returned.
 func (c *Client) ViewRunJobLog(_ context.Context, owner, repo string, jobID int64, tailLines int) (string, error) {
-	out, err := c.runner.Run("gh", "run", "view", "--job", fmt.Sprintf("%d", jobID), "--log", "-R", repoFlag(owner, repo))
+	out, err := c.runner.Run("gh", "run", "view", "--job", strconv.FormatInt(jobID, 10), "--log", "-R", repoFlag(owner, repo))
 	if err != nil {
 		return "", fmt.Errorf("gh run view --job failed: %s", strings.TrimSpace(string(out)))
 	}

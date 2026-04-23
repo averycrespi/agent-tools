@@ -845,7 +845,7 @@ func (h *Handler) handleReadyPR(ctx context.Context, req gomcp.CallToolRequest) 
 	}
 	number := intFromArgs(args, "pr_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("gh_ready_pr: required field missing: pr_number"), nil
+		return gomcp.NewToolResultError("pr_number is required"), nil
 	}
 	if _, err := h.gh.ReadyPR(ctx, owner, repo, number); err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
@@ -861,7 +861,7 @@ func (h *Handler) handleDraftPR(ctx context.Context, req gomcp.CallToolRequest) 
 	}
 	number := intFromArgs(args, "pr_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("gh_draft_pr: required field missing: pr_number"), nil
+		return gomcp.NewToolResultError("pr_number is required"), nil
 	}
 	if _, err := h.gh.DraftPR(ctx, owner, repo, number); err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
@@ -877,7 +877,7 @@ func (h *Handler) handleReopenPR(ctx context.Context, req gomcp.CallToolRequest)
 	}
 	number := intFromArgs(args, "pr_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("gh_reopen_pr: required field missing: pr_number"), nil
+		return gomcp.NewToolResultError("pr_number is required"), nil
 	}
 	if _, err := h.gh.ReopenPR(ctx, owner, repo, number); err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
@@ -893,7 +893,7 @@ func (h *Handler) handleListPRFiles(ctx context.Context, req gomcp.CallToolReque
 	}
 	number := intFromArgs(args, "pr_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("gh_list_pr_files: required field missing: pr_number"), nil
+		return gomcp.NewToolResultError("pr_number is required"), nil
 	}
 	limit := clampLimit(intFromArgs(args, "limit"))
 	raw, err := h.gh.ListPRFiles(ctx, owner, repo, number, limit)

@@ -48,7 +48,7 @@ func (h *Handler) handleListReleases(ctx context.Context, req gomcp.CallToolRequ
 	if errResult != nil {
 		return errResult, nil
 	}
-	limit := clampLimit(intFromArgsOr(args, "limit", defaultLimit))
+	limit := clampLimit(intFromArgs(args, "limit"))
 	raw, err := h.gh.ListReleases(ctx, owner, repo, limit)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
