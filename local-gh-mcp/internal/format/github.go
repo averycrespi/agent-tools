@@ -520,6 +520,35 @@ func FormatPRFiles(files []PRFile, limit int) string {
 	return b.String()
 }
 
+// Branch represents a single branch from the GitHub REST branches API.
+type Branch struct {
+	Name   string `json:"name"`
+	Commit struct {
+		SHA string `json:"sha"`
+	} `json:"commit"`
+}
+
+// FormatBranches formats a list of branches with HEAD commit short-SHAs.
+// Branches beyond limit are truncated; a trailer is appended when truncation occurs.
+func FormatBranches(branches []Branch, limit int) string {
+	total := len(branches)
+	if limit > 0 && total > limit {
+		branches = branches[:limit]
+	}
+	var b strings.Builder
+	for _, br := range branches {
+		shortSHA := br.Commit.SHA
+		if len(shortSHA) > 7 {
+			shortSHA = shortSHA[:7]
+		}
+		fmt.Fprintf(&b, "- `%s` (%s)\n", br.Name, shortSHA)
+	}
+	if limit > 0 && total > limit {
+		fmt.Fprintf(&b, "\n[truncated — showing %d of %d branches]\n", limit, total)
+	}
+	return b.String()
+}
+
 // FormatSearchCommitItem formats a search commit item as a markdown bullet.
 func FormatSearchCommitItem(item SearchCommitItem) string {
 	sha := item.SHA

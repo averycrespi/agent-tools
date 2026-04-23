@@ -54,6 +54,8 @@ type GHClient interface {
 	ListPRFiles(ctx context.Context, owner, repo string, number, limit int) (string, error)
 	// Context operations
 	ViewUser(ctx context.Context) (string, error)
+	// Branch operations
+	ListBranches(ctx context.Context, owner, repo string, limit int) (string, error)
 }
 
 // Handler manages MCP tool definitions and dispatches calls to the GH client.
@@ -75,6 +77,7 @@ func (h *Handler) Tools() []gomcp.Tool {
 	tools = append(tools, h.runTools()...)
 	tools = append(tools, h.cacheTools()...)
 	tools = append(tools, h.searchTools()...)
+	tools = append(tools, h.branchTools()...)
 	return tools
 }
 
@@ -147,6 +150,8 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 		return h.handleSearchCommits(ctx, req)
 	case "gh_list_pr_files":
 		return h.handleListPRFiles(ctx, req)
+	case "gh_list_branches":
+		return h.handleListBranches(ctx, req)
 	default:
 		return gomcp.NewToolResultError(fmt.Sprintf("unknown tool: %s", req.Params.Name)), nil
 	}
