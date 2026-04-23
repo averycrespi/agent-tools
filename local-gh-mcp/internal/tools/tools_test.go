@@ -102,3 +102,16 @@ func TestEveryMaxBodyLengthParamDeclaresDefault(t *testing.T) {
 		})
 	}
 }
+
+func TestNoBareIDParameters(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	banned := []string{"number", "id"}
+	for _, tool := range h.Tools() {
+		for _, key := range banned {
+			_, exists := tool.InputSchema.Properties[key]
+			require.Falsef(t, exists,
+				"tool %q exposes bare %q property; use a resource-qualified name (pr_number, issue_number, run_id, cache_id)",
+				tool.Name, key)
+		}
+	}
+}
