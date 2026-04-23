@@ -302,6 +302,33 @@ func (c *Client) ClosePR(_ context.Context, owner, repo string, number int, comm
 	return strings.TrimSpace(string(out)), nil
 }
 
+// ReadyPR marks a draft pull request as ready for review.
+func (c *Client) ReadyPR(_ context.Context, owner, repo string, number int) (string, error) {
+	out, err := c.runner.Run("gh", "pr", "ready", fmt.Sprintf("%d", number), "-R", repoFlag(owner, repo))
+	if err != nil {
+		return "", fmt.Errorf("gh pr ready failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// DraftPR converts a pull request back to draft.
+func (c *Client) DraftPR(_ context.Context, owner, repo string, number int) (string, error) {
+	out, err := c.runner.Run("gh", "pr", "ready", fmt.Sprintf("%d", number), "--undo", "-R", repoFlag(owner, repo))
+	if err != nil {
+		return "", fmt.Errorf("gh pr ready --undo failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ReopenPR reopens a closed pull request.
+func (c *Client) ReopenPR(_ context.Context, owner, repo string, number int) (string, error) {
+	out, err := c.runner.Run("gh", "pr", "reopen", fmt.Sprintf("%d", number), "-R", repoFlag(owner, repo))
+	if err != nil {
+		return "", fmt.Errorf("gh pr reopen failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // Issue field constants.
 const (
 	issueViewFields = "number,title,body,state,author,labels,assignees,milestone,url,createdAt,updatedAt"

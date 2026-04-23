@@ -11,6 +11,18 @@ import (
 	gomcp "github.com/mark3labs/mcp-go/mcp"
 )
 
+func prNumberOnlySchema(prDesc string) gomcp.ToolInputSchema {
+	return gomcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]any{
+			"owner":     map[string]any{"type": "string", "description": "Repository owner."},
+			"repo":      map[string]any{"type": "string", "description": "Repository name."},
+			"pr_number": map[string]any{"type": "number", "description": prDesc},
+		},
+		Required: []string{"owner", "repo", "pr_number"},
+	}
+}
+
 func (h *Handler) prTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
@@ -476,6 +488,24 @@ func (h *Handler) prTools() []gomcp.Tool {
 				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
+		{
+			Name:        "gh_ready_pr",
+			Description: "Mark a draft pull request as ready for review (`gh pr ready`). See also gh_draft_pr to convert back, gh_close_pr / gh_reopen_pr for state transitions.",
+			Annotations: annIdempotent,
+			InputSchema: prNumberOnlySchema("Pull request number to mark ready."),
+		},
+		{
+			Name:        "gh_draft_pr",
+			Description: "Convert a pull request back to draft (`gh pr ready --undo`). See also gh_ready_pr.",
+			Annotations: annIdempotent,
+			InputSchema: prNumberOnlySchema("Pull request number to convert to draft."),
+		},
+		{
+			Name:        "gh_reopen_pr",
+			Description: "Reopen a closed pull request (`gh pr reopen`). See also gh_close_pr.",
+			Annotations: annIdempotent,
+			InputSchema: prNumberOnlySchema("Pull request number to reopen."),
+		},
 	}
 }
 
@@ -795,4 +825,52 @@ func (h *Handler) handleListPRReviewComments(ctx context.Context, req gomcp.Call
 		return parseError("gh_list_pr_review_comments", err, out), nil
 	}
 	return gomcp.NewToolResultText(format.FormatReviewComments(comments, maxBody)), nil
+}
+
+func (h *Handler) handleReadyPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	number := intFromArgs(args, "pr_number")
+	if number == 0 {
+		return gomcp.NewToolResultError("gh_ready_pr: required field missing: pr_number"), nil
+	}
+	if _, err := h.gh.ReadyPR(ctx, owner, repo, number); err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	return gomcp.NewToolResultText(fmt.Sprintf("PR #%d in %s/%s marked ready for review", number, owner, repo)), nil
+}
+
+func (h *Handler) handleDraftPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	number := intFromArgs(args, "pr_number")
+	if number == 0 {
+		return gomcp.NewToolResultError("gh_draft_pr: required field missing: pr_number"), nil
+	}
+	if _, err := h.gh.DraftPR(ctx, owner, repo, number); err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	return gomcp.NewToolResultText(fmt.Sprintf("PR #%d in %s/%s converted to draft", number, owner, repo)), nil
+}
+
+func (h *Handler) handleReopenPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	number := intFromArgs(args, "pr_number")
+	if number == 0 {
+		return gomcp.NewToolResultError("gh_reopen_pr: required field missing: pr_number"), nil
+	}
+	if _, err := h.gh.ReopenPR(ctx, owner, repo, number); err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	return gomcp.NewToolResultText(fmt.Sprintf("PR #%d in %s/%s reopened", number, owner, repo)), nil
 }

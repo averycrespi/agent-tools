@@ -24,6 +24,9 @@ type GHClient interface {
 	EditPR(ctx context.Context, owner, repo string, number int, opts gh.EditPROpts) (string, error)
 	CheckPR(ctx context.Context, owner, repo string, number int) (string, error)
 	ClosePR(ctx context.Context, owner, repo string, number int, comment string) (string, error)
+	ReadyPR(ctx context.Context, owner, repo string, number int) (string, error)
+	DraftPR(ctx context.Context, owner, repo string, number int) (string, error)
+	ReopenPR(ctx context.Context, owner, repo string, number int) (string, error)
 	// Issue operations
 	ViewIssue(ctx context.Context, owner, repo string, number int) (string, error)
 	ListIssues(ctx context.Context, owner, repo string, opts gh.ListIssuesOpts) (string, error)
@@ -98,6 +101,12 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 		return h.handleListPRChecks(ctx, req)
 	case "gh_close_pr":
 		return h.handleClosePR(ctx, req)
+	case "gh_ready_pr":
+		return h.handleReadyPR(ctx, req)
+	case "gh_draft_pr":
+		return h.handleDraftPR(ctx, req)
+	case "gh_reopen_pr":
+		return h.handleReopenPR(ctx, req)
 	case "gh_view_issue":
 		return h.handleViewIssue(ctx, req)
 	case "gh_list_issues":

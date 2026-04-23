@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
@@ -40,6 +42,9 @@ type mockGHClient struct {
 	searchCodeFunc       func(ctx context.Context, query string, opts gh.SearchCodeOpts) (string, error)
 	searchCommitsFunc    func(ctx context.Context, query string, opts gh.SearchCommitsOpts) (string, error)
 	viewUserFunc         func(ctx context.Context) (string, error)
+	readyPRFunc          func(ctx context.Context, owner, repo string, number int) (string, error)
+	draftPRFunc          func(ctx context.Context, owner, repo string, number int) (string, error)
+	reopenPRFunc         func(ctx context.Context, owner, repo string, number int) (string, error)
 }
 
 func (m *mockGHClient) CreatePR(ctx context.Context, owner, repo string, opts gh.CreatePROpts) (string, error) {
@@ -243,6 +248,114 @@ func (m *mockGHClient) ViewUser(ctx context.Context) (string, error) {
 		return m.viewUserFunc(ctx)
 	}
 	return "", nil
+}
+
+func (m *mockGHClient) ReadyPR(ctx context.Context, owner, repo string, number int) (string, error) {
+	if m.readyPRFunc != nil {
+		return m.readyPRFunc(ctx, owner, repo, number)
+	}
+	return "", nil
+}
+
+func (m *mockGHClient) DraftPR(ctx context.Context, owner, repo string, number int) (string, error) {
+	if m.draftPRFunc != nil {
+		return m.draftPRFunc(ctx, owner, repo, number)
+	}
+	return "", nil
+}
+
+func (m *mockGHClient) ReopenPR(ctx context.Context, owner, repo string, number int) (string, error) {
+	if m.reopenPRFunc != nil {
+		return m.reopenPRFunc(ctx, owner, repo, number)
+	}
+	return "", nil
+}
+
+func TestGhReadyPR(t *testing.T) {
+	var capturedOwner, capturedRepo string
+	var capturedNumber int
+	mock := &mockGHClient{
+		readyPRFunc: func(_ context.Context, owner, repo string, number int) (string, error) {
+			capturedOwner, capturedRepo, capturedNumber = owner, repo, number
+			return "https://github.com/x/y/pull/42", nil
+		},
+	}
+	h := NewHandler(mock)
+	res, err := h.Handle(context.Background(), gomcp.CallToolRequest{
+		Params: gomcp.CallToolParams{Name: "gh_ready_pr", Arguments: map[string]any{
+			"owner": "x", "repo": "y", "pr_number": float64(42),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedOwner != "x" || capturedRepo != "y" || capturedNumber != 42 {
+		t.Errorf("client args not threaded: %q/%q/#%d", capturedOwner, capturedRepo, capturedNumber)
+	}
+	out := textOf(res)
+	if !strings.Contains(out, "PR #42 in x/y marked ready for review") {
+		t.Errorf("confirmation missing, got: %s", out)
+	}
+}
+
+func TestGhDraftPR(t *testing.T) {
+	mock := &mockGHClient{
+		draftPRFunc: func(_ context.Context, _ /*owner*/, _ /*repo*/ string, _ /*number*/ int) (string, error) {
+			return "", nil
+		},
+	}
+	h := NewHandler(mock)
+	res, err := h.Handle(context.Background(), gomcp.CallToolRequest{
+		Params: gomcp.CallToolParams{Name: "gh_draft_pr", Arguments: map[string]any{
+			"owner": "x", "repo": "y", "pr_number": float64(7),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(textOf(res), "PR #7 in x/y converted to draft") {
+		t.Errorf("confirmation missing, got: %s", textOf(res))
+	}
+}
+
+func TestGhReopenPR(t *testing.T) {
+	mock := &mockGHClient{
+		reopenPRFunc: func(_ context.Context, _ /*owner*/, _ /*repo*/ string, _ /*number*/ int) (string, error) {
+			return "", nil
+		},
+	}
+	h := NewHandler(mock)
+	res, err := h.Handle(context.Background(), gomcp.CallToolRequest{
+		Params: gomcp.CallToolParams{Name: "gh_reopen_pr", Arguments: map[string]any{
+			"owner": "x", "repo": "y", "pr_number": float64(99),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(textOf(res), "PR #99 in x/y reopened") {
+		t.Errorf("confirmation missing, got: %s", textOf(res))
+	}
+}
+
+func TestGhReadyPRPassesThroughGhError(t *testing.T) {
+	mock := &mockGHClient{
+		readyPRFunc: func(_ context.Context, _, _ string, _ int) (string, error) {
+			return "", fmt.Errorf("gh pr ready failed: Pull request is already ready for review")
+		},
+	}
+	h := NewHandler(mock)
+	res, _ := h.Handle(context.Background(), gomcp.CallToolRequest{
+		Params: gomcp.CallToolParams{Name: "gh_ready_pr", Arguments: map[string]any{
+			"owner": "x", "repo": "y", "pr_number": float64(42),
+		}},
+	})
+	if res == nil || !res.IsError {
+		t.Fatalf("expected error result, got %+v", res)
+	}
+	if !strings.Contains(textOf(res), "already ready for review") {
+		t.Errorf("gh error message not surfaced, got: %s", textOf(res))
+	}
 }
 
 func TestCreatePR_Success(t *testing.T) {
