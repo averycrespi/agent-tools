@@ -82,7 +82,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
 						"description": "Pull request number",
 					},
@@ -92,7 +92,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Max body length in chars (default 2000, max 50000).",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
 		{
@@ -159,12 +159,12 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
 						"description": "Pull request number",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
 		{
@@ -182,7 +182,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
 						"description": "Pull request number",
 					},
@@ -191,7 +191,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Comment body",
 					},
 				},
-				Required: []string{"owner", "repo", "number", "body"},
+				Required: []string{"owner", "repo", "pr_number", "body"},
 			},
 		},
 		{
@@ -209,7 +209,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
 						"description": "Pull request number",
 					},
@@ -223,7 +223,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Review body",
 					},
 				},
-				Required: []string{"owner", "repo", "number", "event"},
+				Required: []string{"owner", "repo", "pr_number", "event"},
 			},
 		},
 		{
@@ -241,7 +241,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
 						"description": "Pull request number",
 					},
@@ -259,7 +259,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Enable auto-merge",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
 		{
@@ -277,7 +277,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
 						"description": "Pull request number",
 					},
@@ -324,7 +324,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Assignees to remove",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
 		{
@@ -342,12 +342,12 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
 						"description": "Pull request number",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
 		{
@@ -365,7 +365,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
 						"description": "Pull request number",
 					},
@@ -374,7 +374,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Comment to add when closing",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
 		{
@@ -392,7 +392,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
 						"description": "Pull request number",
 					},
@@ -407,7 +407,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Max comments to return (default 30, max 100).",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
 		{
@@ -425,7 +425,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
 						"description": "Pull request number",
 					},
@@ -440,7 +440,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Max reviews to return (default 30, max 100).",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
 		{
@@ -458,7 +458,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
 						"description": "Pull request number",
 					},
@@ -473,7 +473,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Max comments to return (default 30, max 100).",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
 	}
@@ -513,9 +513,9 @@ func (h *Handler) handleViewPR(ctx context.Context, req gomcp.CallToolRequest) (
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
+	number := intFromArgs(args, "pr_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+		return gomcp.NewToolResultError("pr_number is required"), nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
 	out, err := h.gh.ViewPR(ctx, owner, repo, number)
@@ -568,9 +568,9 @@ func (h *Handler) handleDiffPR(ctx context.Context, req gomcp.CallToolRequest) (
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
+	number := intFromArgs(args, "pr_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+		return gomcp.NewToolResultError("pr_number is required"), nil
 	}
 	out, err := h.gh.DiffPR(ctx, owner, repo, number)
 	if err != nil {
@@ -585,9 +585,9 @@ func (h *Handler) handleCommentPR(ctx context.Context, req gomcp.CallToolRequest
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
+	number := intFromArgs(args, "pr_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+		return gomcp.NewToolResultError("pr_number is required"), nil
 	}
 	if errResult := requireStringFields("gh_comment_pr", args, "body"); errResult != nil {
 		return errResult, nil
@@ -606,9 +606,9 @@ func (h *Handler) handleReviewPR(ctx context.Context, req gomcp.CallToolRequest)
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
+	number := intFromArgs(args, "pr_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+		return gomcp.NewToolResultError("pr_number is required"), nil
 	}
 	if errResult := requireStringFields("gh_review_pr", args, "event"); errResult != nil {
 		return errResult, nil
@@ -638,9 +638,9 @@ func (h *Handler) handleMergePR(ctx context.Context, req gomcp.CallToolRequest) 
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
+	number := intFromArgs(args, "pr_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+		return gomcp.NewToolResultError("pr_number is required"), nil
 	}
 	method := stringFromArgs(args, "method")
 	switch method {
@@ -667,9 +667,9 @@ func (h *Handler) handleEditPR(ctx context.Context, req gomcp.CallToolRequest) (
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
+	number := intFromArgs(args, "pr_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+		return gomcp.NewToolResultError("pr_number is required"), nil
 	}
 	opts := gh.EditPROpts{
 		Title:           stringFromArgs(args, "title"),
@@ -695,9 +695,9 @@ func (h *Handler) handleCheckPR(ctx context.Context, req gomcp.CallToolRequest) 
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
+	number := intFromArgs(args, "pr_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+		return gomcp.NewToolResultError("pr_number is required"), nil
 	}
 	out, err := h.gh.CheckPR(ctx, owner, repo, number)
 	if err != nil {
@@ -716,9 +716,9 @@ func (h *Handler) handleClosePR(ctx context.Context, req gomcp.CallToolRequest) 
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
+	number := intFromArgs(args, "pr_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+		return gomcp.NewToolResultError("pr_number is required"), nil
 	}
 	comment := stringFromArgs(args, "comment")
 	out, err := h.gh.ClosePR(ctx, owner, repo, number, comment)
@@ -734,9 +734,9 @@ func (h *Handler) handleListPRComments(ctx context.Context, req gomcp.CallToolRe
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
+	number := intFromArgs(args, "pr_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+		return gomcp.NewToolResultError("pr_number is required"), nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
 	limit := intFromArgs(args, "limit")
@@ -757,9 +757,9 @@ func (h *Handler) handleListPRReviews(ctx context.Context, req gomcp.CallToolReq
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
+	number := intFromArgs(args, "pr_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+		return gomcp.NewToolResultError("pr_number is required"), nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
 	limit := intFromArgs(args, "limit")
@@ -780,9 +780,9 @@ func (h *Handler) handleListPRReviewComments(ctx context.Context, req gomcp.Call
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
+	number := intFromArgs(args, "pr_number")
 	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+		return gomcp.NewToolResultError("pr_number is required"), nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
 	limit := intFromArgs(args, "limit")

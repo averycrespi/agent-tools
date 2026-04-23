@@ -312,9 +312,9 @@ func TestViewPR_Success(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_view_pr"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(42),
+		"owner":     "octocat",
+		"repo":      "hello-world",
+		"pr_number": float64(42),
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -331,10 +331,10 @@ func TestMergePR_InvalidMethod(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_merge_pr"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(42),
-		"method": "fast-forward",
+		"owner":     "octocat",
+		"repo":      "hello-world",
+		"pr_number": float64(42),
+		"method":    "fast-forward",
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -346,10 +346,10 @@ func TestReviewPR_InvalidEvent(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_review_pr"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(42),
-		"event":  "reject",
+		"owner":     "octocat",
+		"repo":      "hello-world",
+		"pr_number": float64(42),
+		"event":     "reject",
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -378,9 +378,9 @@ func TestListPRComments_Success(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_list_pr_comments"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(42),
+		"owner":     "octocat",
+		"repo":      "hello-world",
+		"pr_number": float64(42),
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -403,9 +403,9 @@ func TestListPRReviews_Success(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_list_pr_reviews"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(42),
+		"owner":     "octocat",
+		"repo":      "hello-world",
+		"pr_number": float64(42),
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -441,9 +441,9 @@ func TestListPRReviewComments_Success(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_list_pr_review_comments"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(42),
+		"owner":     "octocat",
+		"repo":      "hello-world",
+		"pr_number": float64(42),
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -478,9 +478,9 @@ func TestDiffPR_FormatsWithSummary(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_diff_pr"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(1),
+		"owner":     "octocat",
+		"repo":      "hello-world",
+		"pr_number": float64(1),
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -559,9 +559,9 @@ func TestCheckPR_FormatsMarkdown(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_check_pr"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(1),
+		"owner":     "octocat",
+		"repo":      "hello-world",
+		"pr_number": float64(1),
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -612,9 +612,9 @@ func TestViewPR_ParseError_TerseMessage(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_view_pr"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(1),
+		"owner":     "octocat",
+		"repo":      "hello-world",
+		"pr_number": float64(1),
 	}
 
 	result, err := h.Handle(context.Background(), req)
