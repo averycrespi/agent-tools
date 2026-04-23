@@ -39,6 +39,7 @@ if ! command_exists go; then
 	echo "error: go not found on PATH — install Go first (e.g. asdf-golang.sh)" >&2
 	exit 1
 fi
+
 if ! command_exists update-ca-certificates; then
 	echo "error: update-ca-certificates not found; this script targets Debian/Ubuntu sandboxes" >&2
 	exit 1
@@ -56,20 +57,13 @@ error: missing $CERT_FILE and/or $CREDS_FILE.
 These files are created on the host by local-gomod-proxy on first launch and
 must be copied into the sandbox via sandbox-manager's copy_paths config.
 
-Checklist:
-  1. The proxy is running on the host (\`local-gomod-proxy serve\` or the
-     launchd agent; see local-gomod-proxy/docs/launchd.md). This creates
-     \$HOME/.local/state/local-gomod-proxy/{cert.pem,credentials}.
-  2. Your \`~/.config/sb/config.json\` lists both files under "copy_paths":
-       "~/.local/state/local-gomod-proxy/cert.pem",
-       "~/.local/state/local-gomod-proxy/credentials"
-  3. You ran \`sb provision\` (or \`sb create\`) after editing the config.
+See the local-gomod-proxy docs for more information.
 EOF
 	exit 1
 fi
 
 # File format is a single line "x:<token>\n". Strip the trailing newline.
-CREDS="$(tr -d '\n' < "$CREDS_FILE")"
+CREDS="$(tr -d '\n' <"$CREDS_FILE")"
 if [[ -z "$CREDS" || "$CREDS" != x:* ]]; then
 	echo "error: $CREDS_FILE is malformed (expected 'x:<token>')" >&2
 	exit 1
