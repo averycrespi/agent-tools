@@ -49,7 +49,7 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 | `gh_review_pr`               | Submit a review (approve, request changes, or comment)  | `gh pr review`                      |
 | `gh_merge_pr`                | Merge a PR                                              | `gh pr merge`                       |
 | `gh_edit_pr`                 | Edit PR metadata                                        | `gh pr edit`                        |
-| `gh_check_pr`                | View CI/status checks as markdown bullet list           | `gh pr checks`                      |
+| `gh_list_pr_checks`          | View CI/status checks as markdown bullet list           | `gh pr checks`                      |
 | `gh_close_pr`                | Close a PR                                              | `gh pr close`                       |
 | `gh_list_pr_comments`        | List PR conversation (issue-style) comments as markdown | `gh pr view --json comments`        |
 | `gh_list_pr_reviews`         | List top-level review submissions with state and body   | `gh pr view --json reviews`         |
@@ -70,7 +70,7 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 | --------------- | --------------------------------------- | --------------- |
 | `gh_list_runs`  | List workflow runs with filters         | `gh run list`   |
 | `gh_view_run`   | View run details and logs               | `gh run view`   |
-| `gh_rerun`      | Rerun a failed or specific workflow run | `gh run rerun`  |
+| `gh_rerun_run`  | Rerun a failed or specific workflow run | `gh run rerun`  |
 | `gh_cancel_run` | Cancel an in-progress workflow run      | `gh run cancel` |
 
 ### Cache Tools (2)
@@ -96,30 +96,30 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 
 ### PR Tools
 
-| Tool                         | Required                       | Optional                                                                                                       |
-| ---------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| `gh_create_pr`               | **owner, repo, title, body**   | base, head, draft, labels, reviewers, assignees                                                                |
-| `gh_view_pr`                 | **owner, repo, number**        | max_body_length                                                                                                |
-| `gh_list_prs`                | **owner, repo**                | state, author, label, base, head, search, limit                                                                |
-| `gh_diff_pr`                 | **owner, repo, number**        | —                                                                                                              |
-| `gh_comment_pr`              | **owner, repo, number, body**  | —                                                                                                              |
-| `gh_review_pr`               | **owner, repo, number, event** | body                                                                                                           |
-| `gh_merge_pr`                | **owner, repo, number**        | method (merge/squash/rebase), delete_branch, auto                                                              |
-| `gh_edit_pr`                 | **owner, repo, number**        | title, body, base, add_labels, remove_labels, add_reviewers, remove_reviewers, add_assignees, remove_assignees |
-| `gh_check_pr`                | **owner, repo, number**        | —                                                                                                              |
-| `gh_close_pr`                | **owner, repo, number**        | comment                                                                                                        |
-| `gh_list_pr_comments`        | **owner, repo, number**        | max_body_length, limit                                                                                         |
-| `gh_list_pr_reviews`         | **owner, repo, number**        | max_body_length, limit                                                                                         |
-| `gh_list_pr_review_comments` | **owner, repo, number**        | max_body_length, limit                                                                                         |
+| Tool                         | Required                          | Optional                                                                                                       |
+| ---------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `gh_create_pr`               | **owner, repo, title, body**      | base, head, draft, labels, reviewers, assignees                                                                |
+| `gh_view_pr`                 | **owner, repo, pr_number**        | max_body_length                                                                                                |
+| `gh_list_prs`                | **owner, repo**                   | state, author, label, base, head, search, limit                                                                |
+| `gh_diff_pr`                 | **owner, repo, pr_number**        | —                                                                                                              |
+| `gh_comment_pr`              | **owner, repo, pr_number, body**  | —                                                                                                              |
+| `gh_review_pr`               | **owner, repo, pr_number, event** | body                                                                                                           |
+| `gh_merge_pr`                | **owner, repo, pr_number**        | method (merge/squash/rebase), delete_branch, auto                                                              |
+| `gh_edit_pr`                 | **owner, repo, pr_number**        | title, body, base, add_labels, remove_labels, add_reviewers, remove_reviewers, add_assignees, remove_assignees |
+| `gh_list_pr_checks`          | **owner, repo, pr_number**        | —                                                                                                              |
+| `gh_close_pr`                | **owner, repo, pr_number**        | comment                                                                                                        |
+| `gh_list_pr_comments`        | **owner, repo, pr_number**        | max_body_length, limit                                                                                         |
+| `gh_list_pr_reviews`         | **owner, repo, pr_number**        | max_body_length, limit                                                                                         |
+| `gh_list_pr_review_comments` | **owner, repo, pr_number**        | max_body_length, limit                                                                                         |
 
 ### Issue Tools
 
-| Tool                     | Required                      | Optional                                                 |
-| ------------------------ | ----------------------------- | -------------------------------------------------------- |
-| `gh_view_issue`          | **owner, repo, number**       | max_body_length                                          |
-| `gh_list_issues`         | **owner, repo**               | state, author, assignee, label, milestone, search, limit |
-| `gh_comment_issue`       | **owner, repo, number, body** | —                                                        |
-| `gh_list_issue_comments` | **owner, repo, number**       | max_body_length, limit                                   |
+| Tool                     | Required                            | Optional                                                 |
+| ------------------------ | ----------------------------------- | -------------------------------------------------------- |
+| `gh_view_issue`          | **owner, repo, issue_number**       | max_body_length                                          |
+| `gh_list_issues`         | **owner, repo**                     | state, author, assignee, label, milestone, search, limit |
+| `gh_comment_issue`       | **owner, repo, issue_number, body** | —                                                        |
+| `gh_list_issue_comments` | **owner, repo, issue_number**       | max_body_length, limit                                   |
 
 ### Workflow Run Tools
 
@@ -127,7 +127,7 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 | --------------- | ----------------------- | ------------------------------- |
 | `gh_list_runs`  | **owner, repo**         | branch, status, workflow, limit |
 | `gh_view_run`   | **owner, repo, run_id** | log_failed                      |
-| `gh_rerun`      | **owner, repo, run_id** | failed_only                     |
+| `gh_rerun_run`  | **owner, repo, run_id** | failed_only                     |
 | `gh_cancel_run` | **owner, repo, run_id** | —                               |
 
 ### Cache Tools
@@ -180,7 +180,7 @@ All read tools return **structured markdown** instead of raw JSON. The `gh` CLI'
 - **View tools** (`gh_view_pr`, `gh_view_issue`): markdown header with labeled metadata fields, followed by truncated description
 - **List/search tools**: markdown bullet per item with key fields inline
 - **Diff tool** (`gh_diff_pr`): file summary table (file names, +/- counts) prepended before the raw unified diff
-- **Check tool** (`gh_check_pr`): flat markdown bullet list; FAILURE/ERROR include link
+- **Check tool** (`gh_list_pr_checks`): flat markdown bullet list; FAILURE/ERROR include link
 - **Comment tools** (`gh_list_pr_comments`, `gh_list_issue_comments`): headed blocks per comment; minimized/spam comments show `[minimized: REASON]`; images replaced with `[image]`
 - **Review list** (`gh_list_pr_reviews`): headed blocks per review showing state (APPROVED/CHANGES_REQUESTED/COMMENTED/DISMISSED), author, date; empty bodies rendered as `(no body)`
 - **Review comment list** (`gh_list_pr_review_comments`): grouped by file path; threaded by `in_reply_to_id` with indented replies; falls back to `original_line` when `line` is null (outdated comments)

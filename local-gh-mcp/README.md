@@ -40,7 +40,7 @@ The server validates `gh auth status` on startup and exits immediately if not au
 | `gh_review_pr`               | Submit a review (approve, request changes, or comment)                          |
 | `gh_merge_pr`                | Merge a PR                                                                      |
 | `gh_edit_pr`                 | Edit PR metadata                                                                |
-| `gh_check_pr`                | View CI/status checks as markdown bullet list                                   |
+| `gh_list_pr_checks`          | View CI/status checks as markdown bullet list                                   |
 | `gh_close_pr`                | Close a PR                                                                      |
 | `gh_list_pr_comments`        | List PR conversation (issue-style) comments as markdown                         |
 | `gh_list_pr_reviews`         | List top-level review submissions (approve/request-changes/comment) as markdown |
@@ -61,7 +61,7 @@ The server validates `gh auth status` on startup and exits immediately if not au
 | --------------- | --------------------------------------------------------------------- |
 | `gh_list_runs`  | List workflow runs as markdown bullets                                |
 | `gh_view_run`   | View run details as structured markdown (or raw logs with log_failed) |
-| `gh_rerun`      | Rerun a failed or specific workflow run                               |
+| `gh_rerun_run`  | Rerun a failed or specific workflow run                               |
 | `gh_cancel_run` | Cancel an in-progress workflow run                                    |
 
 ### Cache Tools (2)
