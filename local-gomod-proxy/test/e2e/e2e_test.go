@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,9 +23,9 @@ import (
 // through PublicFetcher.
 func TestE2E_PublicModuleRoundtrip(t *testing.T) {
 	bin := buildBinary(t)
-	addr := startProxy(t, bin, "example.invalid/private/*", nil)
+	addr, creds, certPath := startProxy(t, bin, "example.invalid/private/*", nil)
 
-	clientCache := downloadThroughProxy(t, addr, "rsc.io/quote@v1.5.2", nil)
+	clientCache := downloadThroughProxy(t, addr, creds, certPath, "rsc.io/quote@v1.5.2", nil)
 
 	zipPath := filepath.Join(clientCache, "cache/download/rsc.io/quote/@v/v1.5.2.zip")
 	_, err := os.Stat(zipPath)
@@ -48,9 +49,9 @@ func TestE2E_PrivateModuleRoundtrip(t *testing.T) {
 		"GOMODCACHE=" + proxyCache,
 		"GOPROXY=https://proxy.golang.org,direct",
 	}
-	addr := startProxy(t, bin, "rsc.io/*", proxyEnv)
+	addr, creds, certPath := startProxy(t, bin, "rsc.io/*", proxyEnv)
 
-	clientCache := downloadThroughProxy(t, addr, "rsc.io/quote@v1.5.2", nil)
+	clientCache := downloadThroughProxy(t, addr, creds, certPath, "rsc.io/quote@v1.5.2", nil)
 
 	// Client cache must contain the zip — proving PrivateFetcher streamed it
 	// back over HTTP.
@@ -77,28 +78,39 @@ func buildBinary(t *testing.T) string {
 	return bin
 }
 
-func startProxy(t *testing.T, bin, private string, extraEnv []string) string {
+func startProxy(t *testing.T, bin, private string, extraEnv []string) (addr, creds, certPath string) {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	addr := l.Addr().String()
+	addr = l.Addr().String()
 	require.NoError(t, l.Close())
+
+	stateDir := t.TempDir()
+	certPath = filepath.Join(stateDir, "cert.pem")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	cmd := exec.CommandContext(ctx, bin, "serve", "--addr", addr, "--private", private)
+	cmd := exec.CommandContext(ctx, bin, "serve",
+		"--addr", addr,
+		"--private", private,
+		"--state-dir", stateDir,
+	)
 	cmd.Env = append(os.Environ(), extraEnv...)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	require.NoError(t, cmd.Start())
 	t.Cleanup(func() { cancel(); _ = cmd.Wait() })
 
+	// Wait for the listener AND the credentials file to both be ready.
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if c, err := net.Dial("tcp", addr); err == nil {
 			_ = c.Close()
-			return addr
+			if raw, err := os.ReadFile(filepath.Join(stateDir, "credentials")); err == nil {
+				creds = strings.TrimRight(string(raw), "\n")
+				return addr, creds, certPath
+			}
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("proxy never started")
@@ -110,8 +122,9 @@ func startProxy(t *testing.T, bin, private string, extraEnv []string) string {
 // downloadThroughProxy runs `go mod download <modVersion>` with GOPROXY pointed
 // at the given proxy address and returns the isolated GOMODCACHE the client
 // wrote into. GOPRIVATE and GONOPROXY are cleared so the client cannot bypass
-// the proxy via a dev's `go env -w` settings.
-func downloadThroughProxy(t *testing.T, proxyAddr, modVersion string, extraEnv []string) string {
+// the proxy via a dev's `go env -w` settings. certPath is passed as
+// SSL_CERT_FILE so the subprocess trusts the proxy's self-signed cert.
+func downloadThroughProxy(t *testing.T, proxyAddr, creds, certPath, modVersion string, extraEnv []string) string {
 	t.Helper()
 	scratch := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(scratch, "go.mod"), []byte("module x\n\ngo 1.21\n"), 0o600))
@@ -119,7 +132,8 @@ func downloadThroughProxy(t *testing.T, proxyAddr, modVersion string, extraEnv [
 	cache := newGOMODCACHE(t)
 
 	env := append([]string{
-		fmt.Sprintf("GOPROXY=http://%s/", proxyAddr),
+		fmt.Sprintf("GOPROXY=https://%s@%s/", creds, proxyAddr),
+		"SSL_CERT_FILE=" + certPath,
 		"GOSUMDB=off",
 		"GOPRIVATE=",
 		"GONOPROXY=",

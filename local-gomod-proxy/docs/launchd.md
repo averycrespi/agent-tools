@@ -27,6 +27,12 @@ go env -w GOPRIVATE='github.com/your-org/*'
 
 If your org enforces SAML-SSO and blocks HTTPS PATs, or you need to reach a git host that only speaks SSH, see [SSH fallback](#ssh-fallback) below.
 
+## State directory
+
+The proxy creates `$XDG_STATE_HOME/local-gomod-proxy/` (containing `cert.pem`, `key.pem`, and `credentials`) on first launch, running as the same user as the launchd job — no extra plist wiring is needed to ensure the directory exists.
+
+`$XDG_STATE_HOME` is usually unset under launchd (launchd does not source your shell profile), so the fallback path `~/.local/state/local-gomod-proxy/` is what you'll actually see.
+
 ## Install
 
 ```bash
@@ -50,7 +56,8 @@ launchctl kickstart -k gui/$UID/dev.agent-tools.local-gomod-proxy
 launchctl print gui/$UID/dev.agent-tools.local-gomod-proxy | grep -E '^\s+state'
 
 # Exercise the public path end-to-end — should print HTTP/1.1 200 OK.
-curl -sI http://127.0.0.1:7070/github.com/stretchr/testify/@latest
+creds=$(cat ~/.local/state/local-gomod-proxy/credentials)
+curl -ksI -u "$creds" https://127.0.0.1:7070/github.com/stretchr/testify/@latest
 
 # Tail logs. slog writes to stderr by default, so .err.log carries
 # startup and request logs; .out.log stays empty unless something
