@@ -535,7 +535,7 @@ func TestPRToolAnnotations(t *testing.T) {
 		{"gh_review_pr", annAdditive},
 		{"gh_merge_pr", annDestructive},
 		{"gh_edit_pr", annIdempotent},
-		{"gh_check_pr", annRead},
+		{"gh_list_pr_checks", annRead},
 		{"gh_close_pr", annDestructive},
 		{"gh_list_pr_comments", annRead},
 		{"gh_list_pr_reviews", annRead},
@@ -557,7 +557,7 @@ func TestCheckPR_FormatsMarkdown(t *testing.T) {
 		},
 	})
 	req := gomcp.CallToolRequest{}
-	req.Params.Name = "gh_check_pr"
+	req.Params.Name = "gh_list_pr_checks"
 	req.Params.Arguments = map[string]any{
 		"owner":     "octocat",
 		"repo":      "hello-world",

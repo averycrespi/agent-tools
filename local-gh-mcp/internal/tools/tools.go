@@ -89,8 +89,8 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 		return h.handleMergePR(ctx, req)
 	case "gh_edit_pr":
 		return h.handleEditPR(ctx, req)
-	case "gh_check_pr":
-		return h.handleCheckPR(ctx, req)
+	case "gh_list_pr_checks":
+		return h.handleListPRChecks(ctx, req)
 	case "gh_close_pr":
 		return h.handleClosePR(ctx, req)
 	case "gh_view_issue":

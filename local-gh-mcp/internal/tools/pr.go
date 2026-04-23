@@ -69,7 +69,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_view_pr",
-			Description: "View PR metadata and description as structured markdown. For the diff, use gh_diff_pr; for CI status, use gh_check_pr; for conversation, use gh_list_pr_comments/reviews/review_comments.",
+			Description: "View PR metadata and description as structured markdown. For the diff, use gh_diff_pr; for CI status, use gh_list_pr_checks; for conversation, use gh_list_pr_comments/reviews/review_comments.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -328,7 +328,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 			},
 		},
 		{
-			Name:        "gh_check_pr",
+			Name:        "gh_list_pr_checks",
 			Description: "List CI status checks for a PR. Returns markdown bullets per check with state (success/failure/pending) and link.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
@@ -689,7 +689,7 @@ func (h *Handler) handleEditPR(ctx context.Context, req gomcp.CallToolRequest) (
 	return gomcp.NewToolResultText(out), nil
 }
 
-func (h *Handler) handleCheckPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+func (h *Handler) handleListPRChecks(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
 	args := req.GetArguments()
 	owner, repo, errResult := requireOwnerRepo(args)
 	if errResult != nil {
@@ -705,7 +705,7 @@ func (h *Handler) handleCheckPR(ctx context.Context, req gomcp.CallToolRequest) 
 	}
 	var checks []format.Check
 	if err := json.Unmarshal([]byte(out), &checks); err != nil {
-		return parseError("gh_check_pr", err, out), nil
+		return parseError("gh_list_pr_checks", err, out), nil
 	}
 	return gomcp.NewToolResultText(format.FormatCheckList(checks)), nil
 }
