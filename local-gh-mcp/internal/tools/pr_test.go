@@ -45,6 +45,7 @@ type mockGHClient struct {
 	readyPRFunc          func(ctx context.Context, owner, repo string, number int) (string, error)
 	draftPRFunc          func(ctx context.Context, owner, repo string, number int) (string, error)
 	reopenPRFunc         func(ctx context.Context, owner, repo string, number int) (string, error)
+	listPRFilesFunc      func(ctx context.Context, owner, repo string, number, limit int) (string, error)
 }
 
 func (m *mockGHClient) CreatePR(ctx context.Context, owner, repo string, opts gh.CreatePROpts) (string, error) {
@@ -271,6 +272,13 @@ func (m *mockGHClient) ReopenPR(ctx context.Context, owner, repo string, number 
 	return "", nil
 }
 
+func (m *mockGHClient) ListPRFiles(ctx context.Context, owner, repo string, number, limit int) (string, error) {
+	if m.listPRFilesFunc != nil {
+		return m.listPRFilesFunc(ctx, owner, repo, number, limit)
+	}
+	return "", nil
+}
+
 func TestGhReadyPR(t *testing.T) {
 	var capturedOwner, capturedRepo string
 	var capturedNumber int
@@ -392,6 +400,53 @@ func TestCreatePR_MissingOwner(t *testing.T) {
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
+}
+
+func TestGhListPRFiles(t *testing.T) {
+	mock := &mockGHClient{
+		listPRFilesFunc: func(_ context.Context, _, _ string, _ /*number*/ int, _ /*limit*/ int) (string, error) {
+			return `[
+				{"filename":"a.go","status":"modified","additions":12,"deletions":3},
+				{"filename":"b.go","status":"added","additions":5,"deletions":0}
+			]`, nil
+		},
+	}
+	h := NewHandler(mock)
+	res, err := h.Handle(context.Background(), gomcp.CallToolRequest{
+		Params: gomcp.CallToolParams{Name: "gh_list_pr_files", Arguments: map[string]any{
+			"owner": "x", "repo": "y", "pr_number": float64(42),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := textOf(res)
+	for _, want := range []string{"`a.go`", "+12/-3", "(modified)", "`b.go`", "+5/-0", "(added)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestGhListPRFilesTruncates(t *testing.T) {
+	// Build a 40-file payload; with limit=30 (default), trailer should say "showing 30 of 40".
+	parts := make([]string, 40)
+	for i := range parts {
+		parts[i] = fmt.Sprintf(`{"filename":"f%d.go","status":"modified","additions":1,"deletions":0}`, i)
+	}
+	payload := "[" + strings.Join(parts, ",") + "]"
+	mock := &mockGHClient{
+		listPRFilesFunc: func(_ context.Context, _, _ string, _, _ int) (string, error) { return payload, nil },
+	}
+	h := NewHandler(mock)
+	res, _ := h.Handle(context.Background(), gomcp.CallToolRequest{
+		Params: gomcp.CallToolParams{Name: "gh_list_pr_files", Arguments: map[string]any{
+			"owner": "x", "repo": "y", "pr_number": float64(1),
+		}},
+	})
+	if !strings.Contains(textOf(res), "showing 30 of 40") {
+		t.Errorf("expected truncation trailer, got: %s", textOf(res))
+	}
 }
 
 func TestCreatePR_InvalidOwner(t *testing.T) {

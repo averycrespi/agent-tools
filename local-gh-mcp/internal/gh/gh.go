@@ -576,6 +576,22 @@ func (c *Client) DeleteCache(_ context.Context, owner, repo string, cacheID stri
 	return strings.TrimSpace(string(out)), nil
 }
 
+// ListPRFiles lists files changed by a pull request.
+// Requests one extra item (up to 100) so callers can detect truncation.
+func (c *Client) ListPRFiles(_ context.Context, owner, repo string, number, limit int) (string, error) {
+	perPage := limit + 1
+	if perPage > 100 {
+		perPage = 100
+	}
+	out, err := c.runner.Run("gh", "api",
+		fmt.Sprintf("repos/%s/%s/pulls/%s/files?per_page=%s", owner, repo, strconv.Itoa(number), strconv.Itoa(perPage)),
+	)
+	if err != nil {
+		return "", fmt.Errorf("gh api pulls/%d/files failed: %s", number, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // SearchPRs searches for pull requests.
 func (c *Client) SearchPRs(_ context.Context, query string, opts SearchPRsOpts) (string, error) {
 	args := []string{"search", "prs", "--json", searchPRFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}

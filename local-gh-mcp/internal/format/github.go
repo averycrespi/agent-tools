@@ -495,6 +495,31 @@ func FormatSearchCodeItem(item SearchCodeItem) string {
 		item.Repository.Name(), item.Path, match)
 }
 
+// PRFile represents a single file entry from the GitHub REST pulls files API.
+type PRFile struct {
+	Filename  string `json:"filename"`
+	Status    string `json:"status"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+}
+
+// FormatPRFiles formats a list of PR files with +/- counts as markdown bullets.
+// Files beyond limit are truncated; a trailer is appended when truncation occurs.
+func FormatPRFiles(files []PRFile, limit int) string {
+	total := len(files)
+	if limit > 0 && total > limit {
+		files = files[:limit]
+	}
+	var b strings.Builder
+	for _, f := range files {
+		fmt.Fprintf(&b, "- `%s` — +%d/-%d (%s)\n", f.Filename, f.Additions, f.Deletions, f.Status)
+	}
+	if limit > 0 && total > limit {
+		fmt.Fprintf(&b, "\n[truncated — showing %d of %d files]\n", limit, total)
+	}
+	return b.String()
+}
+
 // FormatSearchCommitItem formats a search commit item as a markdown bullet.
 func FormatSearchCommitItem(item SearchCommitItem) string {
 	sha := item.SHA

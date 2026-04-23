@@ -50,6 +50,8 @@ type GHClient interface {
 	SearchRepos(ctx context.Context, query string, opts gh.SearchReposOpts) (string, error)
 	SearchCode(ctx context.Context, query string, opts gh.SearchCodeOpts) (string, error)
 	SearchCommits(ctx context.Context, query string, opts gh.SearchCommitsOpts) (string, error)
+	// PR files
+	ListPRFiles(ctx context.Context, owner, repo string, number, limit int) (string, error)
 	// Context operations
 	ViewUser(ctx context.Context) (string, error)
 }
@@ -143,6 +145,8 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 		return h.handleSearchCode(ctx, req)
 	case "gh_search_commits":
 		return h.handleSearchCommits(ctx, req)
+	case "gh_list_pr_files":
+		return h.handleListPRFiles(ctx, req)
 	default:
 		return gomcp.NewToolResultError(fmt.Sprintf("unknown tool: %s", req.Params.Name)), nil
 	}
@@ -199,9 +203,21 @@ func stringSliceFromArgs(args map[string]any, key string) []string {
 }
 
 const (
+	defaultLimit         = 30
+	maxLimit             = 100
 	defaultMaxBodyLength = 2000
 	maxMaxBodyLength     = 50000
 )
+
+func clampLimit(v int) int {
+	if v <= 0 {
+		return defaultLimit
+	}
+	if v > maxLimit {
+		return maxLimit
+	}
+	return v
+}
 
 func clampMaxBodyLength(v int) int {
 	if v <= 0 {

@@ -489,6 +489,21 @@ func (h *Handler) prTools() []gomcp.Tool {
 			},
 		},
 		{
+			Name:        "gh_list_pr_files",
+			Description: "List files touched by a pull request with +/- counts per file (no diff content). Use gh_diff_pr if you need diff hunks. Results truncated at `limit` (default 30, max 100).",
+			Annotations: annRead,
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"owner":     map[string]any{"type": "string", "description": "Repository owner."},
+					"repo":      map[string]any{"type": "string", "description": "Repository name."},
+					"pr_number": map[string]any{"type": "number", "description": "Pull request number."},
+					"limit":     map[string]any{"type": "number", "default": 30, "description": "Max files shown (default 30, max 100)."},
+				},
+				Required: []string{"owner", "repo", "pr_number"},
+			},
+		},
+		{
 			Name:        "gh_ready_pr",
 			Description: "Mark a draft pull request as ready for review (`gh pr ready`). See also gh_draft_pr to convert back, gh_close_pr / gh_reopen_pr for state transitions.",
 			Annotations: annIdempotent,
@@ -873,4 +888,26 @@ func (h *Handler) handleReopenPR(ctx context.Context, req gomcp.CallToolRequest)
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
 	return gomcp.NewToolResultText(fmt.Sprintf("PR #%d in %s/%s reopened", number, owner, repo)), nil
+}
+
+func (h *Handler) handleListPRFiles(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	number := intFromArgs(args, "pr_number")
+	if number == 0 {
+		return gomcp.NewToolResultError("gh_list_pr_files: required field missing: pr_number"), nil
+	}
+	limit := clampLimit(intFromArgs(args, "limit"))
+	raw, err := h.gh.ListPRFiles(ctx, owner, repo, number, limit)
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	var files []format.PRFile
+	if err := json.Unmarshal([]byte(raw), &files); err != nil {
+		return parseError("gh_list_pr_files", err, raw), nil
+	}
+	return gomcp.NewToolResultText(format.FormatPRFiles(files, limit)), nil
 }
