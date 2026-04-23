@@ -17,11 +17,11 @@ Breaking changes are acceptable. The only consumer is `mcp-broker`, which we own
 
 ## Scope Summary
 
-Included: 14 work items across annotations, naming, schema, descriptions, new tools, parameter polish, and error messages.
+Included: 12 work items across annotations, naming, schema, descriptions, new tools, parameter polish, and error messages. (14 originally; 2 dropped during Phase 3 review — see Skipped.)
 
 Explicitly skipped: server-wide `--read-only`, `structuredContent`/`outputSchema`, medium-value new tools, body sanitization. Reasons recorded in the "Skipped" section.
 
-Tool count delta: 28 → 38 (10 new tools, 2 renamed, 1 param renamed across 17 tools).
+Tool count delta: 28 → 37 (9 new tools, 2 renamed, 1 param renamed across 17 tools).
 
 ## Included Items
 
@@ -56,17 +56,15 @@ Agents juggling PR and issue tools in the same turn currently misfire on `gh_vie
 
 Declare `"enum": [...]` for parameters with fixed value sets. Today valid values live only in description strings and handler validation, so invalid values fail server-side rather than at schema validation.
 
-| Tool                                            | Param    | Enum                                              |
-| ----------------------------------------------- | -------- | ------------------------------------------------- |
-| `gh_list_prs`, `gh_search_prs`                  | `state`  | `open`, `closed`, `merged`, `all`                 |
-| `gh_list_issues`, `gh_search_issues`            | `state`  | `open`, `closed`, `all`                           |
-| `gh_review_pr`                                  | `event`  | `approve`, `request_changes`, `comment`           |
-| `gh_merge_pr`                                   | `method` | `merge`, `squash`, `rebase`                       |
-| `gh_list_runs`                                  | `status` | (set from `gh run list --status`)                 |
-| `gh_list_caches`                                | `sort`   | `created_at`, `last_accessed_at`, `size_in_bytes` |
-| `gh_list_caches`                                | `order`  | `asc`, `desc`                                     |
-| `gh_list_prs`, `gh_list_issues` (new — see 10d) | `sort`   | `created`, `updated`                              |
-| `gh_list_prs`, `gh_list_issues` (new — see 10d) | `order`  | `asc`, `desc`                                     |
+| Tool                                 | Param    | Enum                                              |
+| ------------------------------------ | -------- | ------------------------------------------------- |
+| `gh_list_prs`, `gh_search_prs`       | `state`  | `open`, `closed`, `merged`, `all`                 |
+| `gh_list_issues`, `gh_search_issues` | `state`  | `open`, `closed`, `all`                           |
+| `gh_review_pr`                       | `event`  | `approve`, `request_changes`, `comment`           |
+| `gh_merge_pr`                        | `method` | `merge`, `squash`, `rebase`                       |
+| `gh_list_runs`                       | `status` | (set from `gh run list --status`)                 |
+| `gh_list_caches`                     | `sort`   | `created_at`, `last_accessed_at`, `size_in_bytes` |
+| `gh_list_caches`                     | `order`  | `asc`, `desc`                                     |
 
 Normalizes the state-enum drift flagged in the review (TL;DR #4) as a side effect: PRs and their search tool share the same set; issues and their search tool share the same set; `all` is present wherever it applies.
 
@@ -122,13 +120,6 @@ Add `"default": N` to `limit` (30) and `max_body_length` (2000) schema entries. 
 
 Drop `search` from `gh_list_prs` and `gh_list_issues` — today both accept a `gh pr list --search <query>` passthrough that uses the same GitHub search DSL as `gh_search_prs` / `gh_search_issues`. Two overlapping entry points confuses agents. Redirect to the dedicated search tools in the list tools' descriptions (see #5).
 
-**10d. Add `sort` / `order` to `gh_list_prs` and `gh_list_issues`.**
-
-- `sort`: `created` (default), `updated`
-- `order`: `desc` (default), `asc`
-
-Unlocks queries like "oldest open PR without a review." Enums declared in schema (bundled into #3).
-
 **10e. Clarify 100-result cap in search descriptions.**
 
 Folded into #5. One sentence per `gh_search_*` tool: "Results truncated at 100; refine your query if you need more."
@@ -142,8 +133,6 @@ Add `actor` (who triggered the run) and `event` (push, pull_request, schedule, w
 Six high-value additions flagged in the review.
 
 **11a. `gh_list_pr_files`** — files a PR touches with `+`/`-` counts per file, no diff content. Maps to `gh pr view <num> --json files` or `gh api repos/O/R/pulls/N/files`. Answers "which files does this PR touch?" without the full-diff cost.
-
-**11b. `gh_view_file`** — file contents at a ref without cloning. Maps to `gh api repos/O/R/contents/PATH?ref=REF`. Requires base64 decoding of the API response. Handle binary files by rejecting with a clear error; handle files >1MB (GitHub's single-response cap) by surfacing the download URL from the API response rather than streaming content.
 
 **11c. `gh_list_branches`** — list branches in a repo. Maps to `gh api repos/O/R/branches`. Small utility; closes the gap for agents composing branch-based PRs.
 
@@ -191,15 +180,19 @@ Optional RFC-3339 timestamp param; passes through to `gh api` with `since=<ts>`.
 
 **#8 `structuredContent` + `outputSchema`.** No current consumer needs parseable JSON alongside the markdown. Every `outputSchema` becomes a versioned contract with maintenance cost; the markdown-for-LLM story works today. Revisit when an automation use case emerges — per-tool, on demand.
 
+**#10d `sort` / `order` on `gh_list_prs` and `gh_list_issues`.** Dropped during Phase 3 review. `gh` doesn't expose these flags natively; implementation would require constructing `--search` DSL fragments internally (conflicts with #10c's "no overlap" principle) or switching to `gh api` (new plumbing for a niche feature). `gh_search_prs` / `gh_search_issues` already serve sorted queries via the DSL (`sort:created-asc`).
+
 **#11 medium-value tools.** `gh_list_commits` / `gh_view_commit`, `gh_update_pr_branch`, `gh_list_workflows` / `gh_view_workflow`, `gh_list_notifications` / `gh_mark_notification_read`, `gh_list_code_scanning_alerts`. Each is useful in specific scenarios but none are universal. Keep the tool-count growth bounded (38 is already a jump from 28).
+
+**#11b `gh_view_file`.** Dropped during Phase 3 review. Sandboxed agents already have the repo checked out; file reads are `cat <path>` or `git show <ref>:<path>`. Hidden edge cases (binary detection, LFS pointers, encoding, symlinks) don't pay for themselves. Revisit if a concrete cross-repo use case emerges.
 
 **#13 Body sanitization.** The prompt-injection threat from hidden Unicode in GitHub content is real but secondary — mcp-broker's auto-approval gates destructive actions at a layer above this. Revisit if a concrete incident shows sanitization would have changed the outcome.
 
 ## Tool Inventory
 
-Before: 28 tools. After: 38 tools.
+Before: 28 tools. After: 37 tools.
 
-**New (10):** `gh_whoami`, `gh_ready_pr`, `gh_draft_pr`, `gh_reopen_pr`, `gh_list_pr_files`, `gh_view_file`, `gh_list_branches`, `gh_view_run_job_logs`, `gh_list_releases`, `gh_view_release`.
+**New (9):** `gh_whoami`, `gh_ready_pr`, `gh_draft_pr`, `gh_reopen_pr`, `gh_list_pr_files`, `gh_list_branches`, `gh_view_run_job_logs`, `gh_list_releases`, `gh_view_release`.
 
 **Renamed (2):** `gh_check_pr` → `gh_list_pr_checks`; `gh_rerun` → `gh_rerun_run`.
 
@@ -231,9 +224,9 @@ One coherent breaking release. Regenerate any memory/notes the agent ecosystem h
 
 7. `gh_whoami` + new `context` category (#6).
 8. State-transition tools: `gh_ready_pr`, `gh_draft_pr`, `gh_reopen_pr` (#9).
-9. New filters: `gh_list_runs` `actor`/`event`, `gh_list_prs`/`gh_list_issues` `sort`/`order` (#10d, #10f).
+9. New filters: `gh_list_runs` `actor`/`event` (#10f).
 10. Remove `search` from list tools (#10c) — technically breaking, bundle with these adds.
-11. `gh_list_pr_files`, `gh_view_file`, `gh_list_branches` (#11a, #11b, #11c).
+11. `gh_list_pr_files`, `gh_list_branches` (#11a, #11c).
 12. `gh_view_run_job_logs` (#11d).
 13. `gh_list_releases`, `gh_view_release` (#11e).
 
