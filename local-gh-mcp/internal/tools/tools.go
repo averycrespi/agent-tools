@@ -57,6 +57,9 @@ type GHClient interface {
 	ViewUser(ctx context.Context) (string, error)
 	// Branch operations
 	ListBranches(ctx context.Context, owner, repo string, limit int) (string, error)
+	// Release operations
+	ListReleases(ctx context.Context, owner, repo string, limit int) (string, error)
+	ViewRelease(ctx context.Context, owner, repo, tag string) (string, error)
 }
 
 // Handler manages MCP tool definitions and dispatches calls to the GH client.
@@ -79,6 +82,7 @@ func (h *Handler) Tools() []gomcp.Tool {
 	tools = append(tools, h.cacheTools()...)
 	tools = append(tools, h.searchTools()...)
 	tools = append(tools, h.branchTools()...)
+	tools = append(tools, h.releaseTools()...)
 	return tools
 }
 
@@ -155,6 +159,10 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 		return h.handleListPRFiles(ctx, req)
 	case "gh_list_branches":
 		return h.handleListBranches(ctx, req)
+	case "gh_list_releases":
+		return h.handleListReleases(ctx, req)
+	case "gh_view_release":
+		return h.handleViewRelease(ctx, req)
 	default:
 		return gomcp.NewToolResultError(fmt.Sprintf("unknown tool: %s", req.Params.Name)), nil
 	}

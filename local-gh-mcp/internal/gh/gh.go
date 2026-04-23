@@ -723,6 +723,32 @@ func (c *Client) SearchCode(_ context.Context, query string, opts SearchCodeOpts
 	return strings.TrimSpace(string(out)), nil
 }
 
+// ListReleases lists releases in a repository.
+// limit+1 entries are requested so the caller can detect truncation.
+func (c *Client) ListReleases(_ context.Context, owner, repo string, limit int) (string, error) {
+	args := []string{"release", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(limit + 1), "--json", "tagName,name,publishedAt,isDraft,isPrerelease"}
+	out, err := c.runner.Run("gh", args...)
+	if err != nil {
+		return "", fmt.Errorf("gh release list failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ViewRelease retrieves details for a single release. When tag is empty, gh
+// returns the latest release.
+func (c *Client) ViewRelease(_ context.Context, owner, repo, tag string) (string, error) {
+	args := []string{"release", "view"}
+	if tag != "" {
+		args = append(args, tag)
+	}
+	args = append(args, "-R", repoFlag(owner, repo), "--json", "tagName,name,author,publishedAt,body,isDraft,isPrerelease,assets")
+	out, err := c.runner.Run("gh", args...)
+	if err != nil {
+		return "", fmt.Errorf("gh release view failed: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // SearchCommits searches for commits.
 func (c *Client) SearchCommits(_ context.Context, query string, opts SearchCommitsOpts) (string, error) {
 	args := []string{"search", "commits", "--json", searchCommitFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}

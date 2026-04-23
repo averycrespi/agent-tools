@@ -550,6 +550,113 @@ func FormatBranches(branches []Branch, limit int) string {
 	return b.String()
 }
 
+// Release represents the JSON output of `gh release view --json` or a single
+// element from `gh release list --json`.
+type Release struct {
+	TagName string `json:"tagName"`
+	Name    string `json:"name"`
+	Author  struct {
+		Login string `json:"login"`
+	} `json:"author"`
+	PublishedAt  string         `json:"publishedAt"`
+	Body         string         `json:"body"`
+	IsDraft      bool           `json:"isDraft"`
+	IsPrerelease bool           `json:"isPrerelease"`
+	Assets       []ReleaseAsset `json:"assets"`
+}
+
+// ReleaseAsset represents a single asset attached to a GitHub release.
+type ReleaseAsset struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+}
+
+// FormatReleases formats a list of releases as a markdown bullet list.
+// releases should be pre-fetched with limit+1 entries; FormatReleases trims to
+// limit and appends a truncation trailer when total > limit.
+func FormatReleases(releases []Release, limit int) string {
+	total := len(releases)
+	if limit > 0 && total > limit {
+		releases = releases[:limit]
+	}
+	var b strings.Builder
+	for _, r := range releases {
+		line := fmt.Sprintf("- `%s`", r.TagName)
+		if r.Name != "" {
+			line += fmt.Sprintf(" — %q", r.Name)
+		}
+		if r.PublishedAt != "" {
+			date := r.PublishedAt
+			if len(date) >= 10 {
+				date = date[:10]
+			}
+			line += fmt.Sprintf(" (published %s)", date)
+		}
+		if r.IsDraft {
+			line += " [draft]"
+		}
+		if r.IsPrerelease {
+			line += " [prerelease]"
+		}
+		b.WriteString(line + "\n")
+	}
+	if limit > 0 && total > limit {
+		fmt.Fprintf(&b, "\n[truncated — showing %d of %d releases]\n", limit, total)
+	}
+	return b.String()
+}
+
+// FormatRelease formats a single release as markdown with optional assets section.
+func FormatRelease(r Release, maxBodyLength int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s", r.TagName)
+	if r.Name != "" {
+		fmt.Fprintf(&b, " — %s", r.Name)
+	}
+	b.WriteString("\n")
+	if r.Author.Login != "" {
+		fmt.Fprintf(&b, "by @%s", r.Author.Login)
+	}
+	if r.PublishedAt != "" {
+		date := r.PublishedAt
+		if len(date) >= 10 {
+			date = date[:10]
+		}
+		fmt.Fprintf(&b, " · published %s", date)
+	}
+	b.WriteString("\n\n")
+	body := TruncateBody(r.Body, maxBodyLength)
+	b.WriteString(body)
+	b.WriteString("\n")
+	if len(r.Assets) > 0 {
+		b.WriteString("\nAssets:\n")
+		for _, a := range r.Assets {
+			fmt.Fprintf(&b, "- %s (%s)\n", a.Name, humanBytes(a.Size))
+		}
+	}
+	return b.String()
+}
+
+// humanBytes renders a byte count in human-readable IEC units.
+// Examples: 512 → "512 B", 1536 → "1.5 KiB", 3355443 → "3.2 MiB".
+func humanBytes(n int64) string {
+	const (
+		kib = 1 << 10
+		mib = 1 << 20
+		gib = 1 << 30
+	)
+	switch {
+	case n < kib:
+		return fmt.Sprintf("%d B", n)
+	case n < mib:
+		return fmt.Sprintf("%.1f KiB", float64(n)/kib)
+	case n < gib:
+		return fmt.Sprintf("%.1f MiB", float64(n)/mib)
+	default:
+		return fmt.Sprintf("%.1f GiB", float64(n)/gib)
+	}
+}
+
 // FormatSearchCommitItem formats a search commit item as a markdown bullet.
 func FormatSearchCommitItem(item SearchCommitItem) string {
 	sha := item.SHA

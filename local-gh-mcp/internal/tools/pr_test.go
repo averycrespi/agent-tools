@@ -48,6 +48,8 @@ type mockGHClient struct {
 	listPRFilesFunc      func(ctx context.Context, owner, repo string, number, limit int) (string, error)
 	listBranchesFunc     func(ctx context.Context, owner, repo string, limit int) (string, error)
 	viewRunJobLogFunc    func(ctx context.Context, owner, repo string, jobID int64, tail int) (string, error)
+	listReleasesFunc     func(ctx context.Context, owner, repo string, limit int) (string, error)
+	viewReleaseFunc      func(ctx context.Context, owner, repo string, tag string) (string, error)
 }
 
 func (m *mockGHClient) CreatePR(ctx context.Context, owner, repo string, opts gh.CreatePROpts) (string, error) {
@@ -291,6 +293,20 @@ func (m *mockGHClient) ListBranches(ctx context.Context, owner, repo string, lim
 func (m *mockGHClient) ViewRunJobLog(ctx context.Context, owner, repo string, jobID int64, tail int) (string, error) {
 	if m.viewRunJobLogFunc != nil {
 		return m.viewRunJobLogFunc(ctx, owner, repo, jobID, tail)
+	}
+	return "", nil
+}
+
+func (m *mockGHClient) ListReleases(ctx context.Context, owner, repo string, limit int) (string, error) {
+	if m.listReleasesFunc != nil {
+		return m.listReleasesFunc(ctx, owner, repo, limit)
+	}
+	return "", nil
+}
+
+func (m *mockGHClient) ViewRelease(ctx context.Context, owner, repo, tag string) (string, error) {
+	if m.viewReleaseFunc != nil {
+		return m.viewReleaseFunc(ctx, owner, repo, tag)
 	}
 	return "", nil
 }
