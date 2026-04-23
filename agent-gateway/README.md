@@ -171,4 +171,9 @@ Run `make audit` before committing. Integration tests use `//go:build integratio
 
 `agent-gateway` is architecturally inspired by [onecli](https://github.com/onecli/onecli), an HTTP proxy that injects credentials into requests from sandboxed agents. The core match-and-swap concept and the `Proxy-Authorization` userinfo convention (`http://x:<token>@host:port`) both originate there.
 
-`agent-gateway` extends the model with HCL rules, content-type-aware body matching, a human-approval flow, a live SSE audit dashboard, and per-agent identity. It is a clean-room Go reimplementation; no code is shared. See [DESIGN.md §11](./DESIGN.md) for the full attribution.
+Two other projects operate in the same space and informed the design:
+
+- [Infisical agent-vault](https://github.com/Infisical/agent-vault) — a Go HTTPS MITM broker with a curated service catalog, DEK/KEK split for at-rest encryption, SSRF egress guard, and a Docker "non-cooperative sandbox" mode that pairs the proxy with iptables egress lockdown.
+- [exe.dev Integrations](https://blog.exe.dev/http-proxy-secrets) — a hosted commercial feature by Crawshaw & Zeyliger that uses client-side hostname rewriting instead of MITM, sidestepping the local-CA-trust surface and shipping a managed GitHub App to handle OAuth flows agents cannot complete on their own.
+
+`agent-gateway` extends the core model with HCL rules, content-type-aware body matching, a per-request human-approval broker, a live SSE audit dashboard, and per-agent identity with host-glob-scoped secrets. It is a clean-room Go reimplementation; no code is shared. See [DESIGN.md §11](./DESIGN.md) for the full attribution.

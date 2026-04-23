@@ -1146,6 +1146,61 @@ Both projects agree on the core shape of the problem and the primitives:
 
 ---
 
+# Part IV — Prior-art comparison: Infisical agent-vault
+
+The second prior-art comparison is against [Infisical/agent-vault](https://github.com/Infisical/agent-vault), a Go + TypeScript credential-broker daemon that, unlike onecli, is open source and architecturally very close to agent-gateway. This section is code-grounded rather than summary-grounded.
+
+_Verification._ Claims below come from files read directly: `internal/mitm/{connect,forward,proxy}.go`, `internal/ca/{soft,lru}.go`, `internal/crypto/{crypto,kdf}.go`, `internal/brokercore/{credential,proxyauth}.go`, `internal/broker/broker.go`, `internal/netguard/netguard.go`, `internal/ratelimit/ratelimit.go`, `internal/requestlog/sqlite_sink.go`, `internal/proposal/{proposal,validate,merge}.go`, `internal/catalog/catalog.go`, `internal/session/session.go`, plus `README.md` and `SECURITY.md`. The hosted security docs at `docs.agent-vault.dev/learn/security` returned 403 and are **not** verified. The `ee/` premium-features directory was not inspected.
+
+## Architecture at a glance
+
+Single Go binary, HTTP API + web UI on `:14321`, transparent proxy on `:14322`. State in SQLite. Sessions issued to agents are passed as `Proxy-Authorization: Bearer …` or `Basic base64(token[:vault])` (`internal/brokercore/proxyauth.go`). CONNECT is terminated by minting a leaf per-SNI via an on-disk CA (`internal/ca/soft.go`, LRU-cached in `internal/ca/lru.go`); the request is then rewritten by `brokercore.ApplyInjection` from a catalog-driven service template. Credentials are AES-256-GCM with a random per-record DEK; the DEK is wrapped by an Argon2id-derived KEK from an operator master password (m=64 MiB, t=3, p=4, `internal/crypto/kdf.go`), or by a random keyless key in passwordless mode.
+
+## Shared design choices
+
+- Dummy-at-agent / real-at-gateway injection — agent never sees the secret.
+- HTTPS CONNECT interception with an on-disk local CA; leaf certs minted per SNI and cached.
+- `Proxy-Authorization` as the agent-to-gateway channel.
+- AES-256-GCM at rest with random per-record nonces.
+- Single Go binary, SQLite for state, no external services.
+- Host-keyed credential scoping (agent-vault supports single-level `*.foo.com` wildcards in `broker/broker.go:MatchHost`; agent-gateway's `allowed_hosts` is the same primitive with stricter fail-closed semantics).
+- CA root key encrypted at rest with `0o600` (`ca/soft.go` writes `~/.agent-vault/ca/ca.key.enc`).
+
+## Where agent-vault is stronger
+
+- **DEK/KEK split** (`crypto/crypto.go`, `crypto/kdf.go`). Rotating the master password rewraps only the DEK — no re-encryption pass over every credential row. Agent-gateway currently derives secrets directly from the keyring master key, so master-key rotation forces a transactional re-encryption of every row. This is finding #1's twin: the fix should probably combine AAD-on-GCM with a DEK/KEK split rather than landing them separately.
+- **Curated service catalog** (`catalog/catalog.go`, ~20 providers including GitHub, Anthropic, Jira, Stripe). Zero-config onboarding for the common case. Agent-gateway's HCL DSL is more expressive but requires operator-authored rules per service — catalog + HCL-override would be the best of both.
+- **SSRF / IMDS egress guard** (`netguard/netguard.go`). Refuses to dial `169.254.169.254` (plus `fd00:ec2::254`) unconditionally, and RFC1918 / loopback / link-local in "public" `AGENT_VAULT_NETWORK_MODE`. Agent-gateway has no equivalent — a compromised agent that can influence a matched rule's upstream could coerce the proxy into fetching cloud metadata. This should be a new finding in its own right.
+- **Tiered rate limiting** (`ratelimit/ratelimit.go`). Sliding-window on auth, token-bucket on proxy + per-actor, semaphore for global in-flight. More structured than the single-knob model finding #22 recommends for agent-gateway.
+- **"Non-cooperative sandbox" Docker mode** (`agent-vault run --sandbox=container`). Pairs the proxy with iptables egress lockdown so the agent _cannot_ reach anything except the proxy — concrete answer to "what if the agent ignores `HTTPS_PROXY`?" Agent-gateway's threat model assumes a cooperative sandbox; this is a real gap for operators who can't trust that assumption.
+- **Cert-cache with explicit clock-skew buffer** (`ca/lru.go`, `ca/soft.go:MintLeaf`). Matches finding #9's LRU recommendation and adds skew handling agent-gateway does not currently have.
+- **TypeScript SDK with `buildProxyEnv`.** Drops setup cost for orchestrators embedding Daytona / E2B / Firecracker sandboxes.
+
+## Where agent-gateway is stronger
+
+- **HCL rule DSL with path/method/header/body matchers.** agent-vault is explicit: `brokercore/credential.go` matches host only, with no URL/path/body pattern matching. "Allow `GET /repos/*` but require approval on `POST /repos/*/merge`" is not expressible in agent-vault; it is the central motivating case for agent-gateway.
+- **Per-request human-in-the-loop approval.** agent-vault has a `proposal` workflow (`internal/proposal/{proposal,validate,merge}.go`) but it gates _configuration changes_ — adding a service, adding a credential — not individual runtime requests. Once applied, the agent has un-gated access until revocation. Agent-gateway's `require-approval` verdict gates each in-flight request.
+- **Live dashboard + SSE feed.** agent-vault's `requestlog/sqlite_sink.go` has an `OnCommit` hook noted "for future SSE broadcasting," so live-tailing appears to be roadmap, not shipped. Agent-gateway's SPA ships today.
+- **OS-keyring master key with file fallback.** agent-vault surfaces only a master password (Argon2id) or passwordless mode; no OS-keyring integration in the files I read. The password model forces operator discipline (shell history, paste buffers); keyring-backed is less error-prone.
+- **Documented threat model.** agent-vault's `SECURITY.md` is a vulnerability-disclosure policy only; the hosted `learn/security` page was not fetchable. Agent-gateway's `docs/security-model.md` names four attacker profiles and seven guarantees.
+
+## Where the comparison is inconclusive
+
+- **Upstream TLS verification.** `mitm/forward.go` delegates to `p.upstream.RoundTrip()`; I did not locate the transport construction to confirm `InsecureSkipVerify=false` and system-root trust. Worth verifying before citing.
+- **Server-side agent-token storage.** `proxyauth.go` parses the incoming token; I did not find whether the server record is hashed (bcrypt/argon2) or stored plaintext.
+- **DEK rotation / re-key procedure.** Password change is documented as not re-encrypting credentials, implying DEK stability; the operator-facing "rotate the DEK itself" story is not documented in the files I read.
+- **Supply-chain posture.** `.goreleaser.yml` exists; I did not inspect signing config, SBOM, or reproducible-build provisions.
+- **`ee/` directory.** Premium features may cover some of the gaps above (per-request approval, SSO); not inspected.
+
+## Recommendations informed by this comparison
+
+1. **Adopt the DEK/KEK split.** Wrap a random per-install DEK with an Argon2id-derived (or OS-keyring-derived) KEK. Pair this with finding #1's AAD-on-GCM change in the same migration — both touch the secrets table. The combined result: row-level integrity binding, and master-key rotation that does not force a re-encryption pass.
+2. **Ship an SSRF/IMDS guard on the upstream dialer.** New finding-in-spirit. Block `169.254.169.254` + `fd00:ec2::254` unconditionally; block RFC1918 / loopback / link-local by default with a config opt-out for operators intentionally proxying to a local service. `netguard/netguard.go` is a direct template.
+3. **Ship a starter HCL catalog** for ~15 providers (GitHub, Jira, Confluence, Anthropic, OpenAI, Stripe, Slack, Linear, Notion, Datadog, …). This turns agent-gateway's more expressive DSL into a better onboarding experience instead of a steeper one; operators can copy and edit rather than author from scratch.
+4. **Document (or build) the "non-cooperative sandbox" recipe.** The iptables-pinned egress pattern closes the "agent ignores `HTTPS_PROXY`" hole that in-agent proxy config alone leaves open. Even a documented recipe in `docs/sandbox-manager.md` — without shipping tooling — would meaningfully extend the threat model.
+
+---
+
 ## Updated remediation priorities
 
 Integrating Part II findings into the existing plan:
