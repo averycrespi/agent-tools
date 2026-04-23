@@ -73,8 +73,11 @@ local-gomod-proxy/
 │   └── local-gomod-proxy/
 │       ├── main.go              # Entry point
 │       ├── root.go              # Cobra root command, DI wiring
-│       └── serve.go             # `serve` subcommand
+│       └── serve.go             # `serve` subcommand — TLS listener + auth wiring
 ├── internal/
+│   ├── auth/
+│   │   ├── auth.go              # HTTP Basic auth middleware
+│   │   └── auth_test.go
 │   ├── exec/
 │   │   ├── exec.go              # Runner interface — extends the sibling pattern with a context for subprocess cancellation on shutdown
 │   │   └── exec_test.go
@@ -95,9 +98,19 @@ local-gomod-proxy/
 │   ├── public/
 │   │   ├── public.go            # PublicFetcher — httputil.ReverseProxy to proxy.golang.org
 │   │   └── public_test.go
-│   └── server/
-│       ├── server.go            # HTTP handler wiring router + fetchers
-│       └── server_test.go
+│   ├── server/
+│   │   ├── addr.go              # Loopback-addr validation for --addr
+│   │   ├── addr_test.go
+│   │   ├── server.go            # HTTP handler wiring router + fetchers
+│   │   ├── server_test.go
+│   │   └── tls_integration_test.go  # TLS + auth end-to-end (go:build integration)
+│   └── state/
+│       ├── dir.go               # XDG state dir resolver + EnsureDir (0700)
+│       ├── dir_test.go
+│       ├── cert.go              # TLS cert load-or-generate (ECDSA P-256, 1y, 30d renewal window)
+│       ├── cert_test.go
+│       ├── creds.go             # Basic-auth credentials load-or-generate ("x:<token>")
+│       └── creds_test.go
 ├── test/
 │   └── e2e/
 │       └── e2e_test.go          # E2E tests (go:build e2e)
