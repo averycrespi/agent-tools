@@ -29,11 +29,14 @@ internal/
   gh/                    GitHub operations via exec.Runner
   tools/
     tools.go             Tool registration and dispatch
+    context.go           Context tools (gh_whoami)
     pr.go                PR tool definitions and handlers
     issue.go             Issue tool definitions and handlers
     run.go               Workflow run tool definitions and handlers
     cache.go             Cache tool definitions and handlers
     search.go            Search tool definitions and handlers
+    branch.go            Branch tools (gh_list_branches)
+    release.go           Release tool definitions and handlers
   format/                Markdown formatting for tool output (authors, dates, truncation, diff summaries)
 ```
 

@@ -35,9 +35,15 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 
 ## Tools
 
-28 tools organized into 5 categories. All tools use verb-first naming with a `gh_` prefix for namespace safety.
+37 tools organized into 8 categories. All tools use verb-first naming with a `gh_` prefix for namespace safety.
 
-### PR Tools (13)
+### Context Tools (1)
+
+| Tool        | Description                        | gh command    |
+| ----------- | ---------------------------------- | ------------- |
+| `gh_whoami` | Show the authenticated GitHub user | `gh api user` |
+
+### PR Tools (17)
 
 | Tool                         | Description                                             | gh command                          |
 | ---------------------------- | ------------------------------------------------------- | ----------------------------------- |
@@ -54,6 +60,10 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 | `gh_list_pr_comments`        | List PR conversation (issue-style) comments as markdown | `gh pr view --json comments`        |
 | `gh_list_pr_reviews`         | List top-level review submissions with state and body   | `gh pr view --json reviews`         |
 | `gh_list_pr_review_comments` | List inline diff comments, grouped by file and threaded | `gh api repos/O/R/pulls/N/comments` |
+| `gh_list_pr_files`           | List files changed by a PR with status and patch        | `gh api repos/O/R/pulls/N/files`    |
+| `gh_ready_pr`                | Mark a draft PR as ready for review                     | `gh pr ready`                       |
+| `gh_draft_pr`                | Convert a PR back to draft                              | `gh pr ready --undo`                |
+| `gh_reopen_pr`               | Reopen a closed PR                                      | `gh pr reopen`                      |
 
 ### Issue Tools (4)
 
@@ -64,14 +74,15 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 | `gh_comment_issue`       | Add a comment to an issue                                  | `gh issue comment`              |
 | `gh_list_issue_comments` | List issue comments as markdown                            | `gh issue view --json comments` |
 
-### Workflow Run Tools (4)
+### Workflow Run Tools (5)
 
-| Tool            | Description                             | gh command      |
-| --------------- | --------------------------------------- | --------------- |
-| `gh_list_runs`  | List workflow runs with filters         | `gh run list`   |
-| `gh_view_run`   | View run details and logs               | `gh run view`   |
-| `gh_rerun_run`  | Rerun a failed or specific workflow run | `gh run rerun`  |
-| `gh_cancel_run` | Cancel an in-progress workflow run      | `gh run cancel` |
+| Tool                   | Description                                     | gh command          |
+| ---------------------- | ----------------------------------------------- | ------------------- |
+| `gh_list_runs`         | List workflow runs with filters                 | `gh run list`       |
+| `gh_view_run`          | View run details and logs                       | `gh run view`       |
+| `gh_view_run_job_logs` | Stream raw logs for a specific job within a run | `gh run view --job` |
+| `gh_rerun_run`         | Rerun a failed or specific workflow run         | `gh run rerun`      |
+| `gh_cancel_run`        | Cancel an in-progress workflow run              | `gh run cancel`     |
 
 ### Cache Tools (2)
 
@@ -90,9 +101,28 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 | `gh_search_code`    | Search code across GitHub          | `gh search code`    |
 | `gh_search_commits` | Search commits across GitHub       | `gh search commits` |
 
+### Branch Tools (1)
+
+| Tool               | Description                            | gh command                  |
+| ------------------ | -------------------------------------- | --------------------------- |
+| `gh_list_branches` | List repository branches, newest first | `gh api repos/O/R/branches` |
+
+### Release Tools (2)
+
+| Tool               | Description                                 | gh command        |
+| ------------------ | ------------------------------------------- | ----------------- |
+| `gh_list_releases` | List releases in a repository, newest first | `gh release list` |
+| `gh_view_release`  | Show a single release with notes and assets | `gh release view` |
+
 ## Tool Parameters
 
 **Required** parameters are in bold. All tools with list/search semantics accept an optional `limit` parameter (see "Limits" section below).
+
+### Context Tools
+
+| Tool        | Required | Optional |
+| ----------- | -------- | -------- |
+| `gh_whoami` | —        | —        |
 
 ### PR Tools
 
@@ -100,7 +130,7 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 | ---------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `gh_create_pr`               | **owner, repo, title, body**      | base, head, draft, labels, reviewers, assignees                                                                |
 | `gh_view_pr`                 | **owner, repo, pr_number**        | max_body_length                                                                                                |
-| `gh_list_prs`                | **owner, repo**                   | state, author, label, base, head, search, limit                                                                |
+| `gh_list_prs`                | **owner, repo**                   | state, author, label, base, head, limit                                                                        |
 | `gh_diff_pr`                 | **owner, repo, pr_number**        | —                                                                                                              |
 | `gh_comment_pr`              | **owner, repo, pr_number, body**  | —                                                                                                              |
 | `gh_review_pr`               | **owner, repo, pr_number, event** | body                                                                                                           |
@@ -111,24 +141,29 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 | `gh_list_pr_comments`        | **owner, repo, pr_number**        | max_body_length, limit                                                                                         |
 | `gh_list_pr_reviews`         | **owner, repo, pr_number**        | max_body_length, limit                                                                                         |
 | `gh_list_pr_review_comments` | **owner, repo, pr_number**        | max_body_length, limit                                                                                         |
+| `gh_list_pr_files`           | **owner, repo, pr_number**        | limit                                                                                                          |
+| `gh_ready_pr`                | **owner, repo, pr_number**        | —                                                                                                              |
+| `gh_draft_pr`                | **owner, repo, pr_number**        | —                                                                                                              |
+| `gh_reopen_pr`               | **owner, repo, pr_number**        | —                                                                                                              |
 
 ### Issue Tools
 
-| Tool                     | Required                            | Optional                                                 |
-| ------------------------ | ----------------------------------- | -------------------------------------------------------- |
-| `gh_view_issue`          | **owner, repo, issue_number**       | max_body_length                                          |
-| `gh_list_issues`         | **owner, repo**                     | state, author, assignee, label, milestone, search, limit |
-| `gh_comment_issue`       | **owner, repo, issue_number, body** | —                                                        |
-| `gh_list_issue_comments` | **owner, repo, issue_number**       | max_body_length, limit                                   |
+| Tool                     | Required                            | Optional                                         |
+| ------------------------ | ----------------------------------- | ------------------------------------------------ |
+| `gh_view_issue`          | **owner, repo, issue_number**       | max_body_length                                  |
+| `gh_list_issues`         | **owner, repo**                     | state, author, assignee, label, milestone, limit |
+| `gh_comment_issue`       | **owner, repo, issue_number, body** | —                                                |
+| `gh_list_issue_comments` | **owner, repo, issue_number**       | max_body_length, limit                           |
 
 ### Workflow Run Tools
 
-| Tool            | Required                | Optional                        |
-| --------------- | ----------------------- | ------------------------------- |
-| `gh_list_runs`  | **owner, repo**         | branch, status, workflow, limit |
-| `gh_view_run`   | **owner, repo, run_id** | log_failed                      |
-| `gh_rerun_run`  | **owner, repo, run_id** | failed_only                     |
-| `gh_cancel_run` | **owner, repo, run_id** | —                               |
+| Tool                   | Required                | Optional                                      |
+| ---------------------- | ----------------------- | --------------------------------------------- |
+| `gh_list_runs`         | **owner, repo**         | branch, status, workflow, actor, event, limit |
+| `gh_view_run`          | **owner, repo, run_id** | log_failed                                    |
+| `gh_view_run_job_logs` | **owner, repo, job_id** | tail_lines                                    |
+| `gh_rerun_run`         | **owner, repo, run_id** | failed_only                                   |
+| `gh_cancel_run`        | **owner, repo, run_id** | —                                             |
 
 ### Cache Tools
 
@@ -148,6 +183,19 @@ Search tools use `query` as the primary search string rather than `owner/repo`, 
 | `gh_search_repos`   | **query** | owner, language, topic, stars, limit              |
 | `gh_search_code`    | **query** | repo, owner, language, extension, filename, limit |
 | `gh_search_commits` | **query** | repo, owner, author, limit                        |
+
+### Branch Tools
+
+| Tool               | Required        | Optional |
+| ------------------ | --------------- | -------- |
+| `gh_list_branches` | **owner, repo** | limit    |
+
+### Release Tools
+
+| Tool               | Required        | Optional             |
+| ------------------ | --------------- | -------------------- |
+| `gh_list_releases` | **owner, repo** | limit                |
+| `gh_view_release`  | **owner, repo** | tag, max_body_length |
 
 ## Limits
 
@@ -207,11 +255,14 @@ local-gh-mcp/
 │   │   └── gh_test.go
 │   └── tools/
 │       ├── tools.go         # AllTools() registration + shared helpers
+│       ├── context.go       # Context tool definitions + handlers (gh_whoami)
 │       ├── pr.go            # PR tool definitions + handlers
 │       ├── issue.go         # Issue tool definitions + handlers
 │       ├── run.go           # Workflow run tool definitions + handlers
 │       ├── cache.go         # Cache tool definitions + handlers
 │       ├── search.go        # Search tool definitions + handlers
+│       ├── branch.go        # Branch tool definitions + handlers (gh_list_branches)
+│       ├── release.go       # Release tool definitions + handlers
 │       └── *_test.go        # Tests per file
 ├── Makefile
 ├── CLAUDE.md
@@ -221,7 +272,7 @@ local-gh-mcp/
 └── go.sum
 ```
 
-Tools are split into separate files by category (unlike local-git-mcp which has 5 tools in one file) since we have 28 tools.
+Tools are split into separate files by category (unlike local-git-mcp which has 5 tools in one file) since we have 37 tools.
 
 ## GH Client Layer
 
@@ -229,6 +280,9 @@ The `internal/gh` package provides a typed Go interface over the `gh` CLI:
 
 ```go
 type Client interface {
+    // Context operations
+    ViewUser(ctx context.Context) (string, error)
+
     // PR operations
     CreatePR(ctx context.Context, owner, repo string, opts CreatePROpts) (string, error)
     ViewPR(ctx context.Context, owner, repo string, number int) (string, error)
@@ -240,6 +294,10 @@ type Client interface {
     EditPR(ctx context.Context, owner, repo string, number int, opts EditPROpts) (string, error)
     CheckPR(ctx context.Context, owner, repo string, number int) (string, error)
     ClosePR(ctx context.Context, owner, repo string, number int, comment string) (string, error)
+    ListPRFiles(ctx context.Context, owner, repo string, number, limit int) (string, error)
+    ReadyPR(ctx context.Context, owner, repo string, number int) (string, error)
+    DraftPR(ctx context.Context, owner, repo string, number int) (string, error)
+    ReopenPR(ctx context.Context, owner, repo string, number int) (string, error)
 
     // Issue operations
     ViewIssue(ctx context.Context, owner, repo string, number int) (string, error)
@@ -253,6 +311,7 @@ type Client interface {
     // Workflow run operations
     ListRuns(ctx context.Context, owner, repo string, opts ListRunsOpts) (string, error)
     ViewRun(ctx context.Context, owner, repo string, runID string, logFailed bool) (string, error)
+    ViewRunJobLog(ctx context.Context, owner, repo string, jobID int64, tailLines int) (string, error)
     Rerun(ctx context.Context, owner, repo string, runID string, failedOnly bool) (string, error)
     CancelRun(ctx context.Context, owner, repo string, runID string) (string, error)
 
@@ -266,6 +325,13 @@ type Client interface {
     SearchRepos(ctx context.Context, query string, opts SearchReposOpts) (string, error)
     SearchCode(ctx context.Context, query string, opts SearchCodeOpts) (string, error)
     SearchCommits(ctx context.Context, query string, opts SearchCommitsOpts) (string, error)
+
+    // Branch operations
+    ListBranches(ctx context.Context, owner, repo string, limit int) (string, error)
+
+    // Release operations
+    ListReleases(ctx context.Context, owner, repo string, limit int) (string, error)
+    ViewRelease(ctx context.Context, owner, repo, tag string) (string, error)
 
     // Auth
     AuthStatus(ctx context.Context) error

@@ -28,7 +28,13 @@ The server validates `gh auth status` on startup and exits immediately if not au
 
 ## Tools
 
-### PR Tools (13)
+### Context Tools (1)
+
+| Tool        | Description                        |
+| ----------- | ---------------------------------- |
+| `gh_whoami` | Show the authenticated GitHub user |
+
+### PR Tools (17)
 
 | Tool                         | Description                                                                     |
 | ---------------------------- | ------------------------------------------------------------------------------- |
@@ -45,6 +51,10 @@ The server validates `gh auth status` on startup and exits immediately if not au
 | `gh_list_pr_comments`        | List PR conversation (issue-style) comments as markdown                         |
 | `gh_list_pr_reviews`         | List top-level review submissions (approve/request-changes/comment) as markdown |
 | `gh_list_pr_review_comments` | List inline diff comments, grouped by file and threaded by reply                |
+| `gh_list_pr_files`           | List files changed by a PR with +/- counts per file                             |
+| `gh_ready_pr`                | Mark a draft PR as ready for review                                             |
+| `gh_draft_pr`                | Convert a PR back to draft                                                      |
+| `gh_reopen_pr`               | Reopen a closed PR                                                              |
 
 ### Issue Tools (4)
 
@@ -55,14 +65,15 @@ The server validates `gh auth status` on startup and exits immediately if not au
 | `gh_comment_issue`       | Add a comment to an issue                                  |
 | `gh_list_issue_comments` | List issue comments as markdown                            |
 
-### Workflow Run Tools (4)
+### Workflow Run Tools (5)
 
-| Tool            | Description                                                           |
-| --------------- | --------------------------------------------------------------------- |
-| `gh_list_runs`  | List workflow runs as markdown bullets                                |
-| `gh_view_run`   | View run details as structured markdown (or raw logs with log_failed) |
-| `gh_rerun_run`  | Rerun a failed or specific workflow run                               |
-| `gh_cancel_run` | Cancel an in-progress workflow run                                    |
+| Tool                   | Description                                                              |
+| ---------------------- | ------------------------------------------------------------------------ |
+| `gh_list_runs`         | List workflow runs as markdown bullets                                   |
+| `gh_view_run`          | View run details as structured markdown (or raw logs with log_failed)    |
+| `gh_view_run_job_logs` | Fetch raw logs for a specific job within a run (tail_lines, default 500) |
+| `gh_rerun_run`         | Rerun a failed or specific workflow run                                  |
+| `gh_cancel_run`        | Cancel an in-progress workflow run                                       |
 
 ### Cache Tools (2)
 
@@ -80,6 +91,19 @@ The server validates `gh auth status` on startup and exits immediately if not au
 | `gh_search_repos`   | Search repositories, returns markdown bullets  |
 | `gh_search_code`    | Search code, returns markdown bullets          |
 | `gh_search_commits` | Search commits, returns markdown bullets       |
+
+### Branch Tools (1)
+
+| Tool               | Description                            |
+| ------------------ | -------------------------------------- |
+| `gh_list_branches` | List repository branches, newest first |
+
+### Release Tools (2)
+
+| Tool               | Description                                 |
+| ------------------ | ------------------------------------------- |
+| `gh_list_releases` | List releases in a repository, newest first |
+| `gh_view_release`  | Show a single release with notes and assets |
 
 All tools targeting a specific repository use `owner` and `repo` parameters (mapped to `gh -R owner/repo`). Search tools use a `query` parameter instead, since they operate across repositories. List/search tools accept an optional `limit` (default 30, max 100). View and comment tools accept an optional `max_body_length` (default 2000, max 50000) to control text truncation.
 
@@ -126,9 +150,12 @@ internal/
   gh/                    GitHub operations via exec.Runner
   tools/
     tools.go             Tool registration and dispatch
+    context.go           Context tools (gh_whoami)
     pr.go                PR tool definitions and handlers
     issue.go             Issue tool definitions and handlers
     run.go               Workflow run tool definitions and handlers
     cache.go             Cache tool definitions and handlers
     search.go            Search tool definitions and handlers
+    branch.go            Branch tools (gh_list_branches)
+    release.go           Release tool definitions and handlers
 ```
