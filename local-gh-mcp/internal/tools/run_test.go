@@ -260,6 +260,30 @@ func TestListRuns_StatusEnum(t *testing.T) {
 	t.Fatal("gh_list_runs not found")
 }
 
+func TestGhListRunsActorEventFilters(t *testing.T) {
+	var capturedActor, capturedEvent string
+	h := NewHandler(&mockGHClient{
+		listRunsFunc: func(_ context.Context, owner, repo string, opts gh.ListRunsOpts) (string, error) {
+			capturedActor = opts.Actor
+			capturedEvent = opts.Event
+			return `[]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_runs"
+	req.Params.Arguments = map[string]any{
+		"owner": "octocat",
+		"repo":  "hello-world",
+		"actor": "octocat",
+		"event": "push",
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	assert.Equal(t, "octocat", capturedActor)
+	assert.Equal(t, "push", capturedEvent)
+}
+
 func TestRunToolAnnotations(t *testing.T) {
 	h := NewHandler(&mockGHClient{})
 	tools := h.runTools()

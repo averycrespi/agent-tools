@@ -359,6 +359,7 @@ type ListIssuesOpts struct {
 // ListRunsOpts holds options for listing workflow runs.
 type ListRunsOpts struct {
 	Branch, Status, Workflow string
+	Actor, Event             string
 	Limit                    int
 }
 
@@ -504,6 +505,12 @@ func (c *Client) ListRuns(_ context.Context, owner, repo string, opts ListRunsOp
 	}
 	if opts.Workflow != "" {
 		args = append(args, "--workflow", opts.Workflow)
+	}
+	if opts.Actor != "" {
+		args = append(args, "--user", opts.Actor)
+	}
+	if opts.Event != "" {
+		args = append(args, "--event", opts.Event)
 	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {

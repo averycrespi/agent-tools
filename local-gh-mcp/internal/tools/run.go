@@ -40,6 +40,14 @@ func (h *Handler) runTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Filter by workflow name",
 					},
+					"actor": map[string]any{
+						"type":        "string",
+						"description": "Filter by actor login (GitHub username who triggered the run).",
+					},
+					"event": map[string]any{
+						"type":        "string",
+						"description": "Filter by triggering event (e.g. push, pull_request, schedule, workflow_dispatch).",
+					},
 					"limit": map[string]any{
 						"type":        "number",
 						"default":     30,
@@ -167,6 +175,8 @@ func (h *Handler) handleListRuns(ctx context.Context, req gomcp.CallToolRequest)
 		Branch:   stringFromArgs(args, "branch"),
 		Status:   stringFromArgs(args, "status"),
 		Workflow: stringFromArgs(args, "workflow"),
+		Actor:    stringFromArgs(args, "actor"),
+		Event:    stringFromArgs(args, "event"),
 		Limit:    intFromArgs(args, "limit"),
 	}
 	out, err := h.gh.ListRuns(ctx, owner, repo, opts)
