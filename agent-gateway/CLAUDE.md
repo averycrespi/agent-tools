@@ -77,7 +77,7 @@ Tunnel rows are audited with `interception='tunnel'`, bytes in/out, and duration
 
 ### CLI → daemon coordination
 
-State-mutating CLI commands write to SQLite (with `busy_timeout=5s`), then read the PID file and send `SIGHUP`. The daemon's `SIGHUP` handler performs a coarse reload: re-parse `config.hcl`, re-parse `rules.d/`, rebuild the agent token-hash map, invalidate the decrypted-secret LRU. In-flight requests finish on the pre-reload `atomic.Pointer` snapshot. If no daemon is running, the CLI write is a no-op beyond the DB change — the daemon picks up the new state on next start. Before signalling, the CLI verifies the PID's comm name to guard against PID reuse.
+State-mutating CLI commands write to SQLite (with `busy_timeout=5s`), then read the PID file and send `SIGHUP`. The daemon's `SIGHUP` handler performs a coarse reload: re-parse `rules.d/`, invalidate the decrypted-secret LRU, re-run secret-coverage warnings, reload the agent registry from SQLite, reload the admin token file, and reload the CA (clearing the leaf cache). `config.hcl` is **not** re-parsed — edits to `timeouts.*`, `proxy_behavior.*`, `approval.*`, `secrets.cache_ttl`, `audit.retention_days`, and listener addresses require a daemon restart. In-flight requests finish on the pre-reload `atomic.Pointer` snapshot. If no daemon is running, the CLI write is a no-op beyond the DB change — the daemon picks up the new state on next start. Before signalling, the CLI verifies the PID's comm name to guard against PID reuse.
 
 ## Conventions
 
