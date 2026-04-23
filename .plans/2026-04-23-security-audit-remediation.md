@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use Skill(executing-plans) to implement this plan task-by-task.
 
-**Goal:** Implement the 28-task security remediation captured in `agent-gateway/.designs/2026-04-23-security-audit-remediation.md`, hardening agent-gateway across filesystem perms, network boundary, crypto-at-rest, HTTP server limits, pipeline fail-closed posture, dashboard CSP, rules matching, and new SSRF/IMDS egress protection.
+**Goal:** Implement the 28-task security remediation captured in `.designs/2026-04-23-security-audit-remediation.md`, hardening agent-gateway across filesystem perms, network boundary, crypto-at-rest, HTTP server limits, pipeline fail-closed posture, dashboard CSP, rules matching, and new SSRF/IMDS egress protection.
 
 **Architecture:** Each task lands as a minimal tested change. Crypto work (T#1) uses a single one-shot migration guarded by schema version bump — row ciphertexts re-encrypted with AAD, new DEK/KEK hierarchy stored in `meta` table. Dashboard security (T#7) ships CSP middleware and DOM rewrite in the same commit so inline handlers don't break. Comment sweep (T#28) lands first to establish the WHY-comment baseline all new code matches. No backwards-compatibility shims — single-user tool, author is the only deployed user.
 
