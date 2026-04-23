@@ -40,8 +40,8 @@ type CreatePROpts struct {
 
 // ListPROpts holds options for listing pull requests.
 type ListPROpts struct {
-	State, Author, Label, Base, Head, Search string
-	Limit                                    int
+	State, Author, Label, Base, Head string
+	Limit                            int
 }
 
 // MergePROpts holds options for merging a pull request.
@@ -165,9 +165,6 @@ func (c *Client) ListPRs(_ context.Context, owner, repo string, opts ListPROpts)
 	}
 	if opts.Head != "" {
 		args = append(args, "--head", opts.Head)
-	}
-	if opts.Search != "" {
-		args = append(args, "--search", opts.Search)
 	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
@@ -352,8 +349,8 @@ const (
 
 // ListIssuesOpts holds options for listing issues.
 type ListIssuesOpts struct {
-	State, Author, Assignee, Label, Milestone, Search string
-	Limit                                             int
+	State, Author, Assignee, Label, Milestone string
+	Limit                                     int
 }
 
 // ListRunsOpts holds options for listing workflow runs.
@@ -425,9 +422,6 @@ func (c *Client) ListIssues(_ context.Context, owner, repo string, opts ListIssu
 	}
 	if opts.Milestone != "" {
 		args = append(args, "--milestone", opts.Milestone)
-	}
-	if opts.Search != "" {
-		args = append(args, "--search", opts.Search)
 	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {

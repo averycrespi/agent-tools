@@ -76,10 +76,6 @@ func (h *Handler) issueTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Filter by milestone",
 					},
-					"search": map[string]any{
-						"type":        "string",
-						"description": "Search query",
-					},
 					"limit": map[string]any{
 						"type":        "number",
 						"default":     30,
@@ -186,7 +182,6 @@ func (h *Handler) handleListIssues(ctx context.Context, req gomcp.CallToolReques
 		Assignee:  stringFromArgs(args, "assignee"),
 		Label:     stringFromArgs(args, "label"),
 		Milestone: stringFromArgs(args, "milestone"),
-		Search:    stringFromArgs(args, "search"),
 		Limit:     intFromArgs(args, "limit"),
 	}
 	out, err := h.gh.ListIssues(ctx, owner, repo, opts)

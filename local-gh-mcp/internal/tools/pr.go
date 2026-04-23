@@ -143,10 +143,6 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Filter by head branch",
 					},
-					"search": map[string]any{
-						"type":        "string",
-						"description": "Search query",
-					},
 					"limit": map[string]any{
 						"type":        "number",
 						"default":     30,
@@ -586,7 +582,6 @@ func (h *Handler) handleListPRs(ctx context.Context, req gomcp.CallToolRequest) 
 		Label:  stringFromArgs(args, "label"),
 		Base:   stringFromArgs(args, "base"),
 		Head:   stringFromArgs(args, "head"),
-		Search: stringFromArgs(args, "search"),
 		Limit:  intFromArgs(args, "limit"),
 	}
 	out, err := h.gh.ListPRs(ctx, owner, repo, opts)
