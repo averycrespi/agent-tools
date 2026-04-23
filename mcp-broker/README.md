@@ -181,6 +181,35 @@ On first run, mcp-broker generates a random auth token and saves it to `~/.confi
 mcp-broker token rotate    # Generate a new token (invalidates all existing sessions)
 ```
 
+## How the sandbox consumes it
+
+The sandbox needs one file from the host: the auth token (`~/.config/mcp-broker/auth-token`). The sandbox does **not** mount the host's `$HOME` — it must be copied in explicitly.
+
+### With sandbox-manager
+
+Add the token to `copy_paths` and the provisioning script to `scripts` in your `~/.config/sb/config.json`:
+
+```json
+{
+  "copy_paths": ["~/.config/mcp-broker/auth-token"],
+  "scripts": [
+    "/path/to/agent-tools/mcp-broker/examples/provision/mcp-broker.sh"
+  ]
+}
+```
+
+The token lands at `~/.config/mcp-broker/auth-token` inside the sandbox. The provisioning script then exports `MCP_BROKER_URL=http://host.lima.internal:8200/mcp` and `MCP_BROKER_TOKEN` (read from the file at shell startup) via a marker-fenced block in `~/.bashrc`. Wire those into your agent's MCP config — for example, `claude mcp add --transport http broker "$MCP_BROKER_URL" --header "Authorization: Bearer $MCP_BROKER_TOKEN"`.
+
+**Token rotation:** re-run `sb provision` after `mcp-broker token rotate` — `copy_paths` re-runs before `scripts`, so the new token flows through transparently. New shells pick up the updated value automatically.
+
+### Without sandbox-manager
+
+Copy the token file into the sandbox via whatever mechanism your setup uses, then run [`examples/provision/mcp-broker.sh`](examples/provision/mcp-broker.sh) — it writes the env-var block to `~/.bashrc`. The script targets bash; adapt the rc-file write for other shells.
+
+## Run as a launchd agent (macOS)
+
+To keep the broker running in the background whenever you're logged in, install it as a per-user LaunchAgent. See [docs/launchd.md](docs/launchd.md) for setup (including how to keep secrets out of the plist), install, verify, and manage steps.
+
 ## CLI
 
 ```
