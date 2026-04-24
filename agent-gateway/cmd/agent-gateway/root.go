@@ -33,6 +33,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newAgentCmd(configPath))
 	root.AddCommand(newCACmd())
 	root.AddCommand(newConfigCmd(configPath))
+	root.AddCommand(newReloadCmd())
 	root.AddCommand(newRulesCmd())
 	root.AddCommand(newSecretCmd())
 	root.AddCommand(newServeCmd(configPath))
