@@ -96,6 +96,18 @@ func newServeCmd(configPath func() string) *cobra.Command {
 // installs signal handlers, and blocks until ctx is cancelled or a shutdown
 // signal (SIGTERM/SIGINT) arrives. Returns nil on clean shutdown.
 func RunServe(ctx context.Context, d serveDeps) error {
+	// Tighten the process umask before any MkdirAll / Open / file creation
+	// below. The daemon handles agent tokens (argon2id hashes), AES-256-GCM
+	// secret ciphertexts, the admin token, the CA private key, and the audit
+	// log — none of which should ever land on disk group- or world-readable.
+	// Explicit os.Chmod and 0o600 WriteFile calls already cover the files we
+	// know about; this umask is defense-in-depth for future code paths (and
+	// library-created sidecar files like SQLite's -wal/-shm) that forget an
+	// explicit mode. syscall.Umask returns the previous value; we discard it
+	// since RunServe is the main daemon entry point and has no caller to
+	// restore to.
+	_ = syscall.Umask(0o077)
+
 	log := d.Logger
 	if log == nil {
 		log = slog.Default()

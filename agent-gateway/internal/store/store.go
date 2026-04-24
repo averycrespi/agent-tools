@@ -43,6 +43,33 @@ func Open(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
 
+	// Force WAL/SHM file creation with a trivial write so the subsequent chmod
+	// can tighten all three files. WAL mode alone does not create state.db-wal
+	// and state.db-shm on disk until a write actually triggers the write-ahead
+	// log; without this probe, the chmod below would silently skip non-existent
+	// sidecar files and they'd be created later with process-umask defaults.
+	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS _chmod_probe(x INTEGER)"); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("warm-up write: %w", err)
+	}
+
+	// Tighten file modes on the SQLite database and its WAL/SHM sidecars.
+	// SQLite creates these files honoring the process umask, which on a typical
+	// operator system is 0o022 — leaving state.db, state.db-wal, and
+	// state.db-shm world-readable. Those files contain the audit log (host,
+	// path, headers), argon2id agent token hashes, and AES-256-GCM ciphertexts
+	// of every injected secret. An explicit chmod here is defense-in-depth
+	// alongside the process-wide 0o077 umask set in runServe: the umask
+	// protects future file creation, this chmod protects files SQLite has
+	// already written with wider modes before the umask took effect (e.g. when
+	// Open is called from a CLI subcommand that did not tighten umask).
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Chmod(path+suffix, 0o600); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("chmod %s%s: %w", path, suffix, err)
+		}
+	}
+
 	return db, nil
 }
 

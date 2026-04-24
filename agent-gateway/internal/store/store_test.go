@@ -3,6 +3,7 @@ package store_test
 import (
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -13,6 +14,26 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestOpen_FilesAreChmoddedTo0600(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.db")
+	db, err := store.Open(path)
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	// Force WAL/SHM creation via a trivial write. store.Open is expected to
+	// have already forced creation and chmod'd these files; this Exec is a
+	// belt-and-suspenders guard for the test assertion.
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS _probe(x INTEGER)")
+	require.NoError(t, err)
+
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		info, err := os.Stat(path + suffix)
+		require.NoError(t, err, suffix)
+		require.Equal(t, os.FileMode(0o600), info.Mode().Perm(), suffix)
+	}
+}
 
 func TestOpen_CreatesWAL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
