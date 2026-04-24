@@ -139,3 +139,76 @@ func unwrapDEK(kek, ciphertext, nonce []byte) ([]byte, error) {
 	}
 	return dek, nil
 }
+
+// rowAAD builds the additional-authenticated-data blob that binds a row's
+// ciphertext to its (name, scope) identity. The \x00 delimiter prevents
+// canonical-form collisions: ("ax","") and ("a","x") concatenate to the same
+// string without a delimiter, which would let an attacker swap their
+// ciphertexts. SQLite enforces that neither name nor scope contains NUL in
+// practice (the column is TEXT and the app never writes NUL-containing
+// identifiers), so the delimiter is unambiguous.
+func rowAAD(name, scope string) []byte {
+	aad := make([]byte, 0, len(name)+1+len(scope))
+	aad = append(aad, name...)
+	aad = append(aad, 0x00)
+	aad = append(aad, scope...)
+	return aad
+}
+
+// encryptRow encrypts a secret-row plaintext under dek using AES-256-GCM with
+// a fresh random nonce and AAD = name || 0x00 || scope. Returns
+// (ciphertext, nonce, error). dek must be 32 bytes.
+//
+// Why AAD: binding ciphertext to row identity defends against a DB-write-
+// capable attacker who could otherwise copy the ciphertext from one row
+// (e.g. a throwaway test secret) into another (e.g. the production GitHub
+// token) to inject the wrong credential on request. GCM authentication
+// rejects any decrypt whose AAD doesn't match the one used at encrypt, so
+// the store surfaces a decrypt error instead of silently returning attacker-
+// chosen plaintext.
+func encryptRow(dek []byte, name, scope string, plaintext []byte) (ciphertext, nonce []byte, err error) {
+	if len(dek) != 32 {
+		return nil, nil, errors.New("encryptRow: dek must be 32 bytes")
+	}
+	block, err := aes.NewCipher(dek)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encryptRow: create cipher: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encryptRow: create GCM: %w", err)
+	}
+	nonce = make([]byte, nonceSize)
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, nil, fmt.Errorf("encryptRow: generate nonce: %w", err)
+	}
+	ciphertext = gcm.Seal(nil, nonce, plaintext, rowAAD(name, scope))
+	return ciphertext, nonce, nil
+}
+
+// decryptRow decrypts a ciphertext previously produced by encryptRow, using
+// the same (name, scope) as AAD. On any authentication failure — wrong dek,
+// wrong name, wrong scope, tampered ciphertext, tampered nonce — returns a
+// non-nil error and a nil plaintext; GCM never yields partial plaintext on
+// tag mismatch.
+func decryptRow(dek []byte, name, scope string, ciphertext, nonce []byte) ([]byte, error) {
+	if len(dek) != 32 {
+		return nil, errors.New("decryptRow: dek must be 32 bytes")
+	}
+	if len(nonce) != nonceSize {
+		return nil, errors.New("decryptRow: invalid nonce length")
+	}
+	block, err := aes.NewCipher(dek)
+	if err != nil {
+		return nil, fmt.Errorf("decryptRow: create cipher: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("decryptRow: create GCM: %w", err)
+	}
+	plain, err := gcm.Open(nil, nonce, ciphertext, rowAAD(name, scope))
+	if err != nil {
+		return nil, fmt.Errorf("decryptRow: decrypt: %w", err)
+	}
+	return plain, nil
+}
