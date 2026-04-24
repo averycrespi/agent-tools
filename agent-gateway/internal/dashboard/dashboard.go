@@ -128,7 +128,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /dashboard/api/secrets", s.handleSecrets)
 	mux.HandleFunc("GET /dashboard/api/stats/tunneled-hosts", s.handleTunneledHosts)
 
-	return authMiddleware(&s.tokenPtr, mux)
+	return secureHeaders(authMiddleware(&s.tokenPtr, mux))
 }
 
 // ReloadToken re-reads the admin token file and atomically swaps the in-memory
