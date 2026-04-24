@@ -488,12 +488,26 @@ func validateTemplates(s, location string) []string {
 }
 
 // compileRule compiles globs, regexps, and body matchers in-place.
+//
+// Path and method are case-normalised here so the match hot path can compare
+// against already-normalised forms. Paths are lowercased (see the WHY-comment
+// in matchRule); methods are uppercased to match the canonical HTTP form.
 func compileRule(r *Rule) error {
 	if r.Match.Host != "" {
 		r.hostGlob = compileGlob(r.Match.Host, ".")
 	}
 	if r.Match.Path != "" {
+		// Lowercase the pattern before compiling so the regex matches against
+		// a lowercased request path at evaluation time. filepath.Match-style
+		// globs have no case-insensitivity flag, so we normalise both sides.
+		r.Match.Path = strings.ToLower(r.Match.Path)
 		r.pathGlob = compileGlob(r.Match.Path, "/")
+	}
+	if r.Match.Method != "" {
+		// Uppercase the method so the match hot path can compare against an
+		// uppercased request method without per-request allocation of the
+		// rule side.
+		r.Match.Method = strings.ToUpper(r.Match.Method)
 	}
 	if len(r.Match.Headers) > 0 {
 		r.headerREs = make(map[string]*regexp.Regexp, len(r.Match.Headers))

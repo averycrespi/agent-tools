@@ -1,5 +1,7 @@
 package rules
 
+import "strings"
+
 // ruleset is the immutable compiled representation of a rule list.
 // It is stored inside an atomic.Pointer inside Engine and replaced wholesale
 // on each successful Reload. Keeping it unexported prevents callers from
@@ -150,15 +152,26 @@ func matchRule(r *Rule, req *Request) (matched bool, bypassError string) {
 	}
 
 	// Path glob.
+	//
+	// Path matching is case-insensitive. The rule pattern is lowercased at
+	// compile time (see compileRule in parse.go); the request path is
+	// lowercased here. Upstream services (e.g. many enterprise API gateways)
+	// commonly normalise path case before routing, so a deny rule on
+	// "/admin/*" that silently missed "/ADMIN/foo" would be a security trap,
+	// not a feature. strings.ToLower handles Unicode paths correctly.
 	if r.pathGlob.re != nil {
-		if !r.pathGlob.re.MatchString(req.Path) {
+		if !r.pathGlob.re.MatchString(strings.ToLower(req.Path)) {
 			return false, ""
 		}
 	}
 
-	// Method exact match (case-sensitive; callers are expected to uppercase).
+	// Method exact match. Both sides are normalised to uppercase — the rule
+	// method is uppercased at compile time (see compileRule in parse.go) and
+	// the request method is uppercased here. HTTP methods are canonically
+	// uppercase (RFC 9110), but clients occasionally send mixed case; a rule
+	// that silently misses "post" when the author wrote "POST" is a trap.
 	if r.Match.Method != "" {
-		if r.Match.Method != req.Method {
+		if r.Match.Method != strings.ToUpper(req.Method) {
 			return false, ""
 		}
 	}

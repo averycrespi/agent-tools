@@ -70,6 +70,26 @@ rule "github-issue-create" {
 
 > **Host canonicalisation.** `host` is normalised at load time: ASCII is lowercased, a trailing `.` is stripped, and Unicode labels are mapped to punycode via the IDNA `Lookup` profile. `Api.GitHub.com`, `api.github.com.`, and `api.github.com` all compile to the same pattern. If normalisation rewrites your input you'll see a warning on the next `rules check` or daemon start showing the stored form. The same canonicalisation runs on incoming CONNECT targets, so rules written in one form match requests in any form. Mixed wildcard+literal segments (e.g. `api-*.github.com`) are ASCII-lowercased only — Unicode in mixed segments is unsupported; write the literal portion in ASCII.
 
+#### Case handling
+
+| Field                    | Behaviour                                                                                                                 |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `host`                   | Case-insensitive. See "Host canonicalisation" above — rules and requests are both normalised to ASCII lower.              |
+| `path`                   | **Case-insensitive.** Rule pattern and request path are both lowercased before glob matching.                             |
+| `method`                 | **Case-insensitive.** Rule method and request method are both uppercased before comparison.                               |
+| `headers` keys           | Case-insensitive lookup via `http.Header.Get`, which canonicalises header names (`x-foo` ↔ `X-Foo`).                      |
+| `headers` values (regex) | **Case-sensitive by default.** Use the RE2 `(?i)` flag at the start of the pattern to opt into case-insensitive matching. |
+
+Path and method case-insensitivity is deliberate: upstream services (enterprise API gateways, content-distribution networks, proxies) commonly normalise path case before routing, and HTTP methods are canonically uppercase. A deny rule on `/admin/*` that silently missed `/ADMIN/foo`, or a `method = "POST"` rule that missed a `post` request, would be a security trap rather than a useful feature.
+
+Header **values** stay case-sensitive by default because values often carry meaningful case (tokens, base64, content types). Opt in with `(?i)`:
+
+```hcl
+headers = {
+  "X-Custom" = "(?i)^bar$"  # matches "bar", "BAR", "Bar", etc.
+}
+```
+
 At most **one** body matcher per rule. A body matcher only runs on requests that (a) carry a body and (b) have a matching `Content-Type`. Requests without a body — `GET`, `DELETE`, `HEAD`, and `POST`/`PUT` with `Content-Length: 0` — never match a body-matcher rule.
 
 #### `json_body` (Content-Type: application/json)

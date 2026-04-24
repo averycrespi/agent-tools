@@ -152,9 +152,137 @@ rule "post-only" {
 	m = engine.Evaluate(&rules.Request{Agent: "x", Host: "api.example.com", Method: "GET", Path: "/issues"})
 	assert.Nil(t, m)
 
-	// Method is case-sensitive; lowercase must not match.
+	// Method matching is case-insensitive: lowercase "post" matches rule "POST".
 	m = engine.Evaluate(&rules.Request{Agent: "x", Host: "api.example.com", Method: "post", Path: "/issues"})
-	assert.Nil(t, m)
+	require.NotNil(t, m)
+	assert.Equal(t, "post-only", m.Rule.Name)
+
+	// Mixed case on the request side also matches.
+	m = engine.Evaluate(&rules.Request{Agent: "x", Host: "api.example.com", Method: "Post", Path: "/issues"})
+	require.NotNil(t, m)
+	assert.Equal(t, "post-only", m.Rule.Name)
+}
+
+// TestEvaluate_MethodCaseInsensitive_RuleLowercase verifies that a rule
+// written with a lowercase method is normalised at compile time and matches
+// an uppercase request.
+func TestEvaluate_MethodCaseInsensitive_RuleLowercase(t *testing.T) {
+	rs := parseInline(t, `
+rule "lowercase-method" {
+  match {
+    host   = "api.example.com"
+    path   = "/x"
+    method = "post"
+  }
+  verdict = "allow"
+}
+`)
+	engine := rules.Compile(rs)
+
+	m := engine.Evaluate(&rules.Request{Agent: "x", Host: "api.example.com", Method: "POST", Path: "/x"})
+	require.NotNil(t, m)
+	assert.Equal(t, "lowercase-method", m.Rule.Name)
+}
+
+// TestEvaluate_PathCaseInsensitive verifies that path globs match regardless
+// of case on either side (rule pattern or request path). Upstream services
+// commonly normalise path case, so a deny rule on "/admin/*" that silently
+// misses "/ADMIN/foo" would be a security trap.
+func TestEvaluate_PathCaseInsensitive(t *testing.T) {
+	rs := parseInline(t, `
+rule "admin-deny" {
+  match {
+    host = "api.example.com"
+    path = "/admin/*"
+  }
+  verdict = "deny"
+}
+`)
+	engine := rules.Compile(rs)
+
+	// Uppercase request path matches lowercase rule.
+	m := engine.Evaluate(&rules.Request{Agent: "x", Host: "api.example.com", Method: "GET", Path: "/ADMIN/foo"})
+	require.NotNil(t, m, "uppercase request path /ADMIN/foo should match rule /admin/*")
+	assert.Equal(t, "admin-deny", m.Rule.Name)
+
+	// Mixed case request path matches.
+	m = engine.Evaluate(&rules.Request{Agent: "x", Host: "api.example.com", Method: "GET", Path: "/Admin/Foo"})
+	require.NotNil(t, m)
+	assert.Equal(t, "admin-deny", m.Rule.Name)
+
+	// Original lowercase still matches.
+	m = engine.Evaluate(&rules.Request{Agent: "x", Host: "api.example.com", Method: "GET", Path: "/admin/foo"})
+	require.NotNil(t, m)
+	assert.Equal(t, "admin-deny", m.Rule.Name)
+}
+
+// TestEvaluate_PathCaseInsensitive_RuleUppercase verifies that an uppercase
+// path pattern is lowercased at compile time and still matches a lowercase
+// request path.
+func TestEvaluate_PathCaseInsensitive_RuleUppercase(t *testing.T) {
+	rs := parseInline(t, `
+rule "uppercase-path" {
+  match {
+    host = "api.example.com"
+    path = "/ADMIN/*"
+  }
+  verdict = "deny"
+}
+`)
+	engine := rules.Compile(rs)
+
+	m := engine.Evaluate(&rules.Request{Agent: "x", Host: "api.example.com", Method: "GET", Path: "/admin/foo"})
+	require.NotNil(t, m, "lowercase request path should match uppercase rule pattern")
+	assert.Equal(t, "uppercase-path", m.Rule.Name)
+}
+
+// TestEvaluate_HeaderRegexCaseSensitive verifies that header value regexes
+// remain case-sensitive by default, and that users opt in to case-insensitive
+// matching with the RE2 (?i) flag.
+func TestEvaluate_HeaderRegexCaseSensitive(t *testing.T) {
+	rs := parseInline(t, `
+rule "case-sensitive" {
+  match {
+    host    = "api.example.com"
+    path    = "/**"
+    headers = {
+      "X-Custom" = "^bar$"
+    }
+  }
+  verdict = "allow"
+}
+rule "case-insensitive" {
+  match {
+    host    = "api2.example.com"
+    path    = "/**"
+    headers = {
+      "X-Custom" = "(?i)^bar$"
+    }
+  }
+  verdict = "allow"
+}
+`)
+	engine := rules.Compile(rs)
+
+	// Case-sensitive rule: exact value matches.
+	h := make(http.Header)
+	h.Set("X-Custom", "bar")
+	m := engine.Evaluate(&rules.Request{Agent: "x", Host: "api.example.com", Method: "GET", Path: "/x", Header: h})
+	require.NotNil(t, m)
+	assert.Equal(t, "case-sensitive", m.Rule.Name)
+
+	// Case-sensitive rule: different case does NOT match.
+	h2 := make(http.Header)
+	h2.Set("X-Custom", "BAR")
+	m = engine.Evaluate(&rules.Request{Agent: "x", Host: "api.example.com", Method: "GET", Path: "/x", Header: h2})
+	assert.Nil(t, m, "header regex without (?i) flag must be case-sensitive")
+
+	// Case-insensitive rule with (?i): different case DOES match.
+	h3 := make(http.Header)
+	h3.Set("X-Custom", "BAR")
+	m = engine.Evaluate(&rules.Request{Agent: "x", Host: "api2.example.com", Method: "GET", Path: "/x", Header: h3})
+	require.NotNil(t, m, "header regex with (?i) flag should be case-insensitive")
+	assert.Equal(t, "case-insensitive", m.Rule.Name)
 }
 
 // TestEvaluate_Headers covers header regex matching and case-insensitive lookup.
