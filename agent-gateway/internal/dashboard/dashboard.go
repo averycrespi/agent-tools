@@ -192,9 +192,7 @@ func (s *Server) handleUnauthorizedPOST(w http.ResponseWriter, r *http.Request) 
 			HttpOnly: true,
 			SameSite: http.SameSiteStrictMode,
 			MaxAge:   int(365 * 24 * time.Hour / time.Second),
-			// Secure is false for local dev (127.0.0.1 over HTTP).
-			// TODO(TLS): set Secure: true when the gateway is served over HTTPS.
-			Secure: false,
+			Secure:   cookieSecure(r),
 		})
 		http.Redirect(w, r, "/dashboard/", http.StatusFound)
 		return

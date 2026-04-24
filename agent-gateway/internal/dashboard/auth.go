@@ -18,6 +18,24 @@ import (
 
 const cookieName = "agent-gateway-auth"
 
+// cookieSecure returns true when the request arrived over TLS either directly
+// (r.TLS set by net/http) or via a TLS-terminating reverse proxy that set
+// X-Forwarded-Proto: https. The returned value is used as the Set-Cookie
+// Secure attribute on dashboard auth cookies.
+//
+// Trusting X-Forwarded-Proto is safe here only because agent-gateway's
+// listeners are bound to the loopback interface (enforced at serve start): the
+// only process that can reach the dashboard port is one running on this host,
+// so the only caller that can set X-Forwarded-Proto is a local reverse proxy
+// the operator deliberately stood up. On a public-facing service a remote
+// attacker could forge that header on a plain-HTTP request and the server
+// would stamp Secure on a cookie it is about to send over the clear —
+// silently downgrading the protection the attribute is supposed to confer —
+// so this helper must not be reused outside the loopback-only invariant.
+func cookieSecure(r *http.Request) bool {
+	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+}
+
 // EnsureAdminToken loads the admin token from path, or generates and writes a
 // new one if the file does not exist. Returns the 64-character hex token.
 func EnsureAdminToken(path string) (string, error) {
@@ -120,9 +138,7 @@ func authMiddleware(tokenPtr *atomic.Pointer[string], next http.Handler) http.Ha
 						HttpOnly: true,
 						SameSite: http.SameSiteStrictMode,
 						MaxAge:   int(365 * 24 * time.Hour / time.Second),
-						// Secure is false for local dev (127.0.0.1 over HTTP).
-						// TODO(TLS): set Secure: true when the gateway is served over HTTPS.
-						Secure: false,
+						Secure:   cookieSecure(r),
 					})
 					clean := *r.URL
 					q := clean.Query()
