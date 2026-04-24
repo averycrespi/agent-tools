@@ -170,3 +170,46 @@ func TestValidateConfig_ListenAddrWiring(t *testing.T) {
 		}
 	})
 }
+
+// TestValidate_Bounds locks in the upper-bound caps on the three numeric
+// config fields where a typo (e.g. "99999" instead of "999") silently
+// turns a sane setting into a self-inflicted footgun (6-figure retention
+// days, terabyte body buffers, six-figure pending approval queues).
+//
+// Each case starts from a valid default config and applies a single mutation;
+// cfg-wide wiring (loopback listeners etc.) comes from DefaultConfig so the
+// only validation this test can fail is the bounds check under test.
+func TestValidate_Bounds(t *testing.T) {
+	cases := []struct {
+		name    string
+		mut     func(*Config)
+		wantErr bool
+		errSub  string
+	}{
+		{"retention ok", func(c *Config) { c.Audit.RetentionDays = 90 }, false, ""},
+		{"retention too high", func(c *Config) { c.Audit.RetentionDays = 999999 }, true, "audit.retention_days"},
+		{"body buffer ok", func(c *Config) { c.ProxyBehavior.MaxBodyBuffer = 1 << 20 }, false, ""},
+		{"body buffer too high", func(c *Config) { c.ProxyBehavior.MaxBodyBuffer = 1 << 40 }, true, "proxy_behavior.max_body_buffer"},
+		{"max pending ok", func(c *Config) { c.Approval.MaxPending = 50 }, false, ""},
+		{"max pending too high", func(c *Config) { c.Approval.MaxPending = 100000 }, true, "approval.max_pending"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			tc.mut(&cfg)
+			_, err := validateConfig(&cfg)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if !strings.Contains(err.Error(), tc.errSub) {
+					t.Errorf("error should name %q, got: %v", tc.errSub, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("expected no error, got: %v", err)
+			}
+		})
+	}
+}
