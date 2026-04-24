@@ -411,13 +411,12 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 		upReq.Body = &countingReadCloser{ReadCloser: upReq.Body, n: &bytesOut}
 	}
 
-	// 6. Injection step: if the matched rule has an inject block and an
-	// injector is configured, apply header mutations to the upstream clone.
-	// On most failures the upstream clone is discarded and the original
-	// request (with its headers intact) is forwarded instead (fail-soft).
-	// Host-scope violations are a policy error and MUST NOT forward — we
-	// synthesise a 403 instead so the misconfig is loud.
-	if matchedRule != nil && matchedRule.Inject != nil && p.injector != nil {
+	// 6. Injection step: if the matched rule has an inject block, apply header
+	// mutations to the upstream clone. p.injector is always non-nil (the daemon
+	// refuses to start if the secrets store is unavailable). On most failures the
+	// upstream clone is discarded and a 403 is synthesised. Host-scope violations
+	// and secret-unresolved errors are policy errors and MUST NOT forward.
+	if matchedRule != nil && matchedRule.Inject != nil {
 		a.CredentialRef = firstSecretRef(matchedRule.Inject)
 
 		status, scope, injErr := p.injector.Apply(upReq, matchedRule, agentName, hostOnly)
@@ -465,15 +464,20 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 			return
 
 		case injErr != nil && errors.Is(injErr, inject.ErrSecretUnresolved):
-			// Fail-soft: log, record audit, forward original request unchanged.
-			p.log.Warn("proxy: injection failed (secret unresolved); forwarding original request",
+			// Fail-closed 403: the secrets store is guaranteed to be present (startup
+			// is fatal if unavailable), so an unresolved secret means the operator
+			// has not added the secret yet or it was deleted. Forwarding the original
+			// request with its dummy credential is indistinguishable in the audit log
+			// from "no rule matched" — a silent bypass the operator cannot detect.
+			// The 403 surfaces "secret_unresolved" in audit and response so the
+			// operator knows exactly which secret to add via 'agent-gateway secret add'.
+			p.log.Warn("proxy: secret unresolved; denying",
 				"request_id", reqID, "err", injErr)
 			a.Injection = "failed"
 			a.Error = "secret_unresolved"
-			// Reset upReq headers to the original (unmodified) clone so the
-			// agent's dummy credential passes through.
-			upReq.Header = r.Header.Clone()
-			stripHopByHop(upReq.Header)
+			w.Header().Set("X-Request-ID", reqID)
+			httpErrorWithReason(w, "Forbidden: secret unresolved", http.StatusForbidden, ReasonSecretUnresolved)
+			return
 
 		case injErr != nil:
 			// Fail-soft for other injection errors too.

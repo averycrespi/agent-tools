@@ -165,9 +165,10 @@ func TestPipeline_Audit_HappyPathAllow(t *testing.T) {
 	assert.Equal(t, "forwarded", e.Outcome)
 }
 
-// TestPipeline_Audit_FailSoftAllow covers §5 row 4: allow rule matched but
-// secret unresolved, injection='failed', error='secret_unresolved', forwarded.
-func TestPipeline_Audit_FailSoftAllow(t *testing.T) {
+// TestPipeline_Audit_SecretUnresolved covers the fail-closed secret-unresolved
+// path: allow rule matched but secret unresolved, injection='failed',
+// error='secret_unresolved', outcome='blocked'.
+func TestPipeline_Audit_SecretUnresolved(t *testing.T) {
 	auth := newTestAuthority(t)
 	cl := newCapturingLogger(t)
 
@@ -189,7 +190,7 @@ func TestPipeline_Audit_FailSoftAllow(t *testing.T) {
 	assert.Equal(t, "github-issues", *e.MatchedRule)
 	assert.Equal(t, "failed", *e.Injection)
 	assert.Equal(t, "secret_unresolved", *e.Error)
-	assert.Equal(t, "forwarded", e.Outcome)
+	assert.Equal(t, "blocked", e.Outcome)
 }
 
 // TestPipeline_Audit_Deny covers §5 row 8: deny rule, outcome='blocked'.

@@ -110,16 +110,16 @@ type ApprovalBroker interface {
 // a rule's inject block to an outgoing request. It is satisfied by
 // *inject.Injector but kept as an interface for testability.
 //
-// If nil, no header injection is performed even if a matched rule has an
-// inject block.
+// The daemon guarantees a non-nil Injector at startup (secrets store failure
+// is fatal). Nil is still accepted here for unit tests that exercise paths
+// where no inject block is present on any matched rule.
 type Injector interface {
 	// Apply expands the inject block of rule for agent and mutates req in place.
 	// host is the target hostname (no port), already normalised via
 	// hostnorm.Normalize, used to enforce a secret's allowed_hosts scope.
 	// It returns the injection status, the credential scope (may be empty), and
-	// any error. On inject.ErrSecretUnresolved the caller must forward the
-	// request unchanged (fail-soft). On inject.ErrSecretHostScopeViolation the
-	// caller MUST respond 403 and not forward the request.
+	// any error. On inject.ErrSecretUnresolved or inject.ErrSecretHostScopeViolation
+	// the caller MUST respond 403 and not forward the request.
 	Apply(req *http.Request, rule *rules.Rule, agent, host string) (inject.InjectionStatus, string, error)
 }
 

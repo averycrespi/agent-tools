@@ -480,16 +480,17 @@ func TestPipeline_InjectsOnAllow(t *testing.T) {
 	assert.Equal(t, "agent:test", a.CredentialScope)
 }
 
-// TestPipeline_FailSoftOnUnresolvedSecret verifies that when the injector
-// returns ErrSecretUnresolved the request is forwarded unchanged (dummy
-// credential intact) and the audit context records injection="failed",
+// TestPipeline_SecretUnresolved_DeniesWithReason verifies that when the injector
+// returns ErrSecretUnresolved the pipeline returns 403 with
+// X-Agent-Gateway-Reason: secret-unresolved (fail-closed). The upstream must
+// NOT be called and the audit context records injection="failed",
 // error="secret_unresolved".
-func TestPipeline_FailSoftOnUnresolvedSecret(t *testing.T) {
+func TestPipeline_SecretUnresolved_DeniesWithReason(t *testing.T) {
 	auth := newTestAuthority(t)
 
-	var upstreamAuthHeader string
+	var called bool
 	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-		upstreamAuthHeader = r.Header.Get("Authorization")
+		called = true
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     make(http.Header),
@@ -509,20 +510,20 @@ func TestPipeline_FailSoftOnUnresolvedSecret(t *testing.T) {
 		Injector:             inj,
 	})
 
-	// Send a request with a dummy credential that must be preserved.
 	r := httptest.NewRequest(http.MethodGet, "https://api.example.com:443/repos", nil)
 	r.Header.Set("Authorization", "Bearer dummy-cred")
 	w := httptest.NewRecorder()
 	p.HandleForTest(w, r, "api.example.com:443", "")
 
 	resp := w.Result()
-	// Fail-soft: request is forwarded (200 from upstream stub).
-	require.Equal(t, http.StatusOK, resp.StatusCode,
-		"fail-soft: request must still be forwarded upstream")
-
-	// Upstream receives the original dummy credential unchanged.
-	assert.Equal(t, "Bearer dummy-cred", upstreamAuthHeader,
-		"upstream must receive the original (unmodified) Authorization header on fail-soft")
+	// Fail-closed: 403 Forbidden, upstream must not be called.
+	require.Equal(t, http.StatusForbidden, resp.StatusCode,
+		"fail-closed: unresolved secret must return 403")
+	require.Equal(t, proxy.ReasonSecretUnresolved, resp.Header.Get("X-Agent-Gateway-Reason"),
+		"X-Agent-Gateway-Reason must be secret-unresolved")
+	require.NotEmpty(t, resp.Header.Get("X-Request-ID"),
+		"fail-closed response must carry X-Request-ID")
+	assert.False(t, called, "upstream must NOT be called when secret is unresolved")
 
 	// Audit context records the failure.
 	a := proxy.AuditFromContext(inj.LastReqContext())

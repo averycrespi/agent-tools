@@ -363,10 +363,8 @@ func RunServe(ctx context.Context, d serveDeps) error {
 			agentCount = len(list)
 		}
 		secretCount := 0
-		if secretsStore != nil {
-			if list, listErr := secretsStore.List(ctx); listErr == nil {
-				secretCount = len(list)
-			}
+		if list, listErr := secretsStore.List(ctx); listErr == nil {
+			secretCount = len(list)
 		}
 		ruleCount := len(engine.Rules())
 		mitmHosts := engine.AllRuleHosts()
@@ -437,16 +435,12 @@ func RunServe(ctx context.Context, d serveDeps) error {
 				} else {
 					log.Info("rules reloaded")
 				}
-				if inj != nil {
-					inj.InvalidateCache()
-					log.Info("injector cache invalidated")
-				}
+				inj.InvalidateCache()
+				log.Info("injector cache invalidated")
 				// Re-check secret coverage: either the ruleset or a secret's
 				// allowed_hosts may have changed since the last reload.
-				if secretsStore != nil {
-					for _, w := range warnSecretCoverage(ctx, engine, secretsStore) {
-						log.Warn(w)
-					}
+				for _, w := range warnSecretCoverage(ctx, engine, secretsStore) {
+					log.Warn(w)
 				}
 				if reloadErr := dashServer.ReloadToken(); reloadErr != nil {
 					log.Warn("admin token reload failed", "err", reloadErr)
