@@ -94,6 +94,23 @@ func expandInternal(ctx context.Context, tmpl, agentName, host string, store Sec
 				buildErr = fmt.Errorf("%w: %s: %w", ErrSecretUnresolved, secretName, err)
 				return token
 			}
+			// Validate the decrypted value before it can reach http.Header.Set.
+			// This is the last defensive layer before credentials hit the
+			// network: we do not trust net/http to reject CR/LF/control bytes
+			// in header values (HTTP/2 framing has historically let some
+			// CRLF-adjacent bytes through), so we scan bytes here ourselves.
+			// Rule: reject DEL (0x7f) and any C0 control byte (< 0x20) except
+			// TAB (0x09). Bytes >= 0x80 are allowed so UTF-8 secrets still
+			// work; only CR/LF/NUL/DEL-class bytes are fatal for header safety.
+			// The error names only the secret and bad byte offset — never the
+			// secret value itself — to avoid leaking credentials into logs.
+			if badIdx, ok := firstInvalidByte(value); !ok {
+				buildErr = fmt.Errorf(
+					"%w: secret %q contains disallowed byte 0x%02x at offset %d",
+					ErrSecretInvalid, secretName, value[badIdx], badIdx,
+				)
+				return token
+			}
 			if !secrets.HostScopeAllows(allowedHosts, host) {
 				buildErr = fmt.Errorf(
 					"%w: secret %q is not bound to host %q (allowed: %v)",
@@ -120,4 +137,22 @@ func expandInternal(ctx context.Context, tmpl, agentName, host string, store Sec
 		return "", "", buildErr
 	}
 	return result, firstScope, nil
+}
+
+// firstInvalidByte scans v byte-by-byte and returns the index of the first
+// byte that is not safe for an HTTP header value, together with ok=false.
+// Safe bytes are: TAB (0x09) and anything >= 0x20 except DEL (0x7f). This
+// accepts high-bit bytes (0x80–0xff) so UTF-8 secrets are not blocked. When
+// no invalid byte is found, ok=true and the returned index is 0.
+func firstInvalidByte(v string) (int, bool) {
+	for i := 0; i < len(v); i++ {
+		b := v[i]
+		if b == '\t' {
+			continue
+		}
+		if b < 0x20 || b == 0x7f {
+			return i, false
+		}
+	}
+	return 0, true
 }

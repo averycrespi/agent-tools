@@ -366,6 +366,24 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 			a.Injection = "applied"
 			a.CredentialScope = scope
 
+		case injErr != nil && errors.Is(injErr, inject.ErrSecretInvalid):
+			// Fail-closed 403: the secret decrypted but contains a byte that
+			// would be unsafe to place in an HTTP header (CR/LF/NUL/C0/DEL).
+			// Forwarding the original request is tempting — the agent still
+			// has its dummy credential — but silence hides the misconfigured
+			// secret from the operator. The 403 surfaces "secret_invalid"
+			// in audit and response so the operator knows to rotate the
+			// malformed secret rather than chase a generic upstream 401.
+			// This is also the last defensive layer before credentials hit
+			// the wire; downgrading to fail-soft would erase that guarantee.
+			p.log.Warn("proxy: secret value invalid; refusing to forward",
+				"request_id", reqID, "host", hostOnly, "err", injErr)
+			a.Injection = "failed"
+			a.Error = "secret_invalid"
+			w.Header().Set("X-Request-ID", reqID)
+			http.Error(w, "Forbidden: secret contains invalid characters", http.StatusForbidden)
+			return
+
 		case injErr != nil && errors.Is(injErr, inject.ErrSecretHostScopeViolation):
 			// Fail-closed 403 is load-bearing: the rule matched, but the
 			// secret it references is scoped to a different host. Scope is

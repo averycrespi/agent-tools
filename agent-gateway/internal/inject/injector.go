@@ -2,6 +2,7 @@ package inject
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -9,6 +10,16 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
 )
+
+// ErrSecretInvalid is returned when a resolved secret value contains a byte
+// that is unsafe to place in an HTTP header (CR, LF, DEL, or any C0 control
+// character other than TAB). This is the last defensive layer before a
+// credential hits the wire: http.Header.Set has historically allowed some
+// CRLF-adjacent bytes through, especially on the HTTP/2 path, so the proxy
+// validates bytes itself rather than trusting downstream stacks. A scope
+// mismatch surfaces as a 403 in the pipeline — fail-soft would silently drop
+// the credential and hand the upstream a partial request.
+var ErrSecretInvalid = errors.New("secret value invalid")
 
 // InjectionStatus describes the outcome of an Apply call.
 type InjectionStatus int

@@ -83,6 +83,61 @@ func TestTemplate_UnknownExpression_ReturnsError(t *testing.T) {
 	assert.ErrorIs(t, err, inject.ErrUnknownExpression)
 }
 
+func TestTemplate_InvalidSecretValue_RejectsControlChars(t *testing.T) {
+	// Each case must reject the secret value with ErrSecretInvalid because it
+	// contains a byte that cannot safely appear in an HTTP header value.
+	// This is the last defensive layer before credentials hit the network:
+	// http.Header.Set historically allowed CRLF-adjacent bytes through HTTP/2,
+	// so we MUST validate bytes ourselves rather than rely on net/http.
+	cases := []struct {
+		name  string
+		value string
+	}{
+		{"CR", "abc\rdef"},
+		{"LF", "abc\ndef"},
+		{"CRLF", "abc\r\ndef"},
+		{"SOH (0x01)", "abc\x01def"},
+		{"DEL (0x7f)", "abc\x7fdef"},
+		{"NUL (0x00)", "abc\x00def"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := stubSecrets{
+				"tok": {value: tc.value, scope: "global"},
+			}
+			ctx := context.Background()
+			_, _, err := inject.Expand(ctx, "Bearer ${secrets.tok}", "x", "example.com", store)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, inject.ErrSecretInvalid)
+			// The error message must not leak the offending secret value.
+			assert.NotContains(t, err.Error(), tc.value)
+		})
+	}
+}
+
+func TestTemplate_ValidSecretValue_AcceptsTabAndPrintable(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+	}{
+		{"tab", "abc\tdef"},
+		{"printable ASCII", "Bearer deadbeef1234"},
+		{"hex token", "deadbeef1234"},
+		{"symbols", "!@#$%^&*()_+-="},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := stubSecrets{
+				"tok": {value: tc.value, scope: "global"},
+			}
+			ctx := context.Background()
+			got, _, err := inject.Expand(ctx, "${secrets.tok}", "x", "example.com", store)
+			require.NoError(t, err)
+			assert.Equal(t, tc.value, got)
+		})
+	}
+}
+
 func TestTemplate_HostScopeViolation_ReturnsError(t *testing.T) {
 	store := stubSecrets{
 		"gh_bot": {
