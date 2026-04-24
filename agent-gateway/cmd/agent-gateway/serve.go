@@ -114,15 +114,25 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		log.Warn(w)
 	}
 
-	// 2. Ensure config, data, and rules directories exist.
-	if err := os.MkdirAll(paths.ConfigDir(), 0o750); err != nil {
+	// 2. Ensure config, data, and rules directories exist, and verify that
+	// each one is owned by the current user with mode no wider than 0o700.
+	// The self-check after MkdirAll exists because MkdirAll is a no-op on an
+	// existing directory — upgraded installs that were first created at
+	// 0o750 would otherwise silently stay wide open after the MkdirAll mode
+	// was tightened. See paths.CheckOwnerAndMode for the full rationale.
+	if err := os.MkdirAll(paths.ConfigDir(), 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	if err := os.MkdirAll(paths.DataDir(), 0o750); err != nil {
+	if err := os.MkdirAll(paths.DataDir(), 0o700); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
 	}
-	if err := os.MkdirAll(paths.RulesDir(), 0o750); err != nil {
+	if err := os.MkdirAll(paths.RulesDir(), 0o700); err != nil {
 		return fmt.Errorf("create rules dir: %w", err)
+	}
+	for _, d := range []string{paths.ConfigDir(), paths.DataDir(), paths.RulesDir()} {
+		if err := paths.CheckOwnerAndMode(d, 0o700); err != nil {
+			return fmt.Errorf("insecure xdg directory: %w", err)
+		}
 	}
 
 	// 2b. Initialise the rules engine (0 rules is valid).

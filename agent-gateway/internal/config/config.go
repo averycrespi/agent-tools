@@ -393,7 +393,7 @@ func DefaultConfig() Config {
 // Save
 // ---------------------------------------------------------------------------
 
-// Save writes cfg to path at 0600, creating parent directories at 0750. The
+// Save writes cfg to path at 0600, creating parent directories at 0700. The
 // config is validated before any disk I/O so an invalid config never reaches
 // disk via CLI paths. Normalization warnings raised during validation are
 // discarded; they would already have surfaced on the preceding Load.
@@ -401,7 +401,7 @@ func Save(cfg Config, path string) error {
 	if _, err := validateConfig(&cfg); err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("config: mkdir %s: %w", filepath.Dir(path), err)
 	}
 	content := renderHCL(cfg)

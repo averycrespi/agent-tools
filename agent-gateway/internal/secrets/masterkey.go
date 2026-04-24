@@ -209,7 +209,7 @@ func persistWithPath(key []byte, service, account, filePath string, logger *slog
 
 // writeKeyFile writes key as a hex string to path at mode 0o600, atomically.
 func writeKeyFile(key []byte, path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create dir: %w", err)
 	}
 	return atomicfile.Write(path, []byte(keyToHex(key)), 0o600)

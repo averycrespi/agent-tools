@@ -11,10 +11,10 @@ import (
 )
 
 // Open opens or creates the SQLite database at path, ensures the parent directory
-// exists with 0o750 permissions, enables WAL mode, sets busy_timeout and
+// exists with 0o700 permissions, enables WAL mode, sets busy_timeout and
 // foreign_keys, and runs any pending migrations.
 func Open(path string) (*sql.DB, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create db dir: %w", err)
 	}
 

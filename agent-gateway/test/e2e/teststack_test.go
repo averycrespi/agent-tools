@@ -218,11 +218,11 @@ func newTestStack(t *testing.T, handler http.Handler) *TestStack {
 
 	// 5. Write config.hcl pointing at ephemeral ports.
 	cfgDir := filepath.Join(cfgHome, "agent-gateway")
-	if err := os.MkdirAll(cfgDir, 0o750); err != nil {
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
 	rulesDir := filepath.Join(cfgDir, "rules.d")
-	if err := os.MkdirAll(rulesDir, 0o750); err != nil {
+	if err := os.MkdirAll(rulesDir, 0o700); err != nil {
 		t.Fatalf("mkdir rules dir: %v", err)
 	}
 	cfgPath := filepath.Join(cfgDir, "config.hcl")

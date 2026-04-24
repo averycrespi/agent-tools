@@ -35,7 +35,7 @@ func EnsureAdminToken(path string) (string, error) {
 	}
 	tok := hex.EncodeToString(b)
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", fmt.Errorf("creating token directory: %w", err)
 	}
 	if err := atomicfile.Write(path, []byte(tok), 0o600); err != nil {
@@ -53,7 +53,7 @@ func GenerateAdminToken(path string) (string, error) {
 	}
 	tok := hex.EncodeToString(b)
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", fmt.Errorf("creating token directory: %w", err)
 	}
 	if err := atomicfile.Write(path, []byte(tok), 0o600); err != nil {
