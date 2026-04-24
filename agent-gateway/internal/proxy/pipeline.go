@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -298,7 +299,11 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 			a.Verdict = m.Rule.Verdict
 			a.Error = m.Error
 			w.Header().Set("X-Request-ID", reqID)
-			http.Error(w, "Forbidden: rule body matcher bypassed", http.StatusForbidden)
+			msg := fmt.Sprintf(
+				"Forbidden: body exceeds max_body_buffer (%s); raise proxy_behavior.max_body_buffer in config.hcl",
+				humanSize(p.maxBodyBuffer),
+			)
+			httpErrorWithReason(w, msg, http.StatusForbidden, ReasonBodyMatcherBypassed)
 			return
 		}
 
@@ -548,4 +553,24 @@ func assertedHeaders(src http.Header, assertedNames map[string]string) http.Head
 		}
 	}
 	return out
+}
+
+// humanSize returns a human-readable representation of a byte count, e.g.
+// "1 MiB", "512 KiB", "10 B". Used in operator-facing error messages.
+func humanSize(n int64) string {
+	const (
+		KiB = 1024
+		MiB = 1024 * KiB
+		GiB = 1024 * MiB
+	)
+	switch {
+	case n >= GiB:
+		return fmt.Sprintf("%d GiB", n/GiB)
+	case n >= MiB:
+		return fmt.Sprintf("%d MiB", n/MiB)
+	case n >= KiB:
+		return fmt.Sprintf("%d KiB", n/KiB)
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }

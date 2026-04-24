@@ -726,6 +726,70 @@ func TestPipeline_BodyBufferIOError_FailsSoftWhenNoMatcher(t *testing.T) {
 		"fail-soft: when no matcher needs the body, a faulty reader must not cause a synthesised 403")
 }
 
+// truncateOnBodyEngine is a RulesEngine that returns a body-matcher-bypass
+// MatchResult whenever the evaluated request has BodyTruncated==true. Used to
+// drive the real bufferBody truncation path end-to-end.
+type truncateOnBodyEngine struct{}
+
+func (e *truncateOnBodyEngine) Evaluate(req *rules.Request) *rules.MatchResult {
+	if req.BodyTruncated {
+		return bypassMatchResult("deny")
+	}
+	return allowMatchResult()
+}
+
+func (e *truncateOnBodyEngine) HostsForAgent(_ string) map[string]struct{} { return nil }
+
+func (e *truncateOnBodyEngine) NeedsBodyBuffer(_, _ string) bool { return true }
+
+// TestPipeline_BodyMatcherBypassed_NamesCap verifies that when a request body
+// exceeds max_body_buffer and a body matcher bypass fires, the 403 response
+// names the cap size and the config knob to raise it (so operators know what
+// to do without reading source code).
+func TestPipeline_BodyMatcherBypassed_NamesCap(t *testing.T) {
+	auth := newTestAuthority(t)
+
+	var called bool
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
+	})
+
+	// MaxBodyBuffer of 10 bytes so that a 100-byte body triggers truncation.
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                &truncateOnBodyEngine{},
+		MaxBodyBuffer:        10,
+	})
+
+	// Send a body that exceeds the 10-byte cap so bufferBody sets BodyTruncated.
+	body := strings.Repeat("x", 100)
+	r := httptest.NewRequest(http.MethodPost, "https://api.example.com:443/data",
+		strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/octet-stream")
+	w := httptest.NewRecorder()
+	p.HandleForTest(w, r, "api.example.com:443", "")
+
+	resp := w.Result()
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	bodyStr := string(respBody)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode,
+		"oversized body with a body matcher must yield 403")
+	assert.Equal(t, proxy.ReasonBodyMatcherBypassed, resp.Header.Get("X-Agent-Gateway-Reason"),
+		"X-Agent-Gateway-Reason must be body-matcher-bypassed")
+	assert.Contains(t, bodyStr, "max_body_buffer",
+		"403 body must name the max_body_buffer cap")
+	assert.Contains(t, bodyStr, "proxy_behavior.max_body_buffer",
+		"403 body must name the config knob proxy_behavior.max_body_buffer")
+	assert.NotEmpty(t, resp.Header.Get("X-Request-ID"),
+		"bypass 403 must carry X-Request-ID")
+	assert.False(t, called,
+		"upstream must NOT be called when body matcher is bypassed")
+}
+
 // TestPipeline_RequireApproval_NilBroker verifies that when no approval broker
 // is configured a 504 is returned with a useful message.
 func TestPipeline_RequireApproval_NilBroker(t *testing.T) {
