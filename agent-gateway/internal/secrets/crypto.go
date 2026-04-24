@@ -32,6 +32,15 @@ const nonceSize = 12
 
 // encrypt encrypts plaintext using AES-256-GCM with a freshly-generated
 // 12-byte random nonce. Returns (nonce, ciphertext, error).
+//
+// Retained for pre-DEK ciphertext in two places: decrypt() below is called
+// by migrateToDEK to read old-format rows on first open, and the matching
+// encrypt() is used by integration tests that seed pre-migration rows to
+// exercise that migration path end-to-end. All production row writes go
+// through encryptRow (with AAD) instead; the linter sees encrypt as unused
+// when the integration build tag is absent.
+//
+//nolint:unused // used by integration test fixtures; see comment above
 func encrypt(key, plaintext []byte) (nonce, ciphertext []byte, err error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {

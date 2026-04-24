@@ -185,10 +185,12 @@ func TestStore_RotateThenReopen(t *testing.T) {
 	assert.Equal(t, "alpha-value", val)
 }
 
-// TestStore_RotateOrphanCleanupOnFailure verifies that if the re-encryption
-// transaction fails (here: a row whose ciphertext cannot be decrypted), the
-// new key persisted under the next id is removed from disk so it doesn't
-// accumulate as an orphan. The previous active key remains usable.
+// TestStore_RotateOrphanCleanupOnFailure verifies that if the rewrap
+// transaction fails after PersistID has written the new master key to disk,
+// the new key is cleaned up so the next rotation picks a fresh id without
+// accumulating an unusable orphan. We force the failure by closing the DB
+// before MasterRotate runs, which causes tx.Begin to fail after the new key
+// was persisted.
 func TestStore_RotateOrphanCleanupOnFailure(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
@@ -199,18 +201,12 @@ func TestStore_RotateOrphanCleanupOnFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, s.Set(ctx, "good", "", "good-value", "", []string{"**"}))
 
-	// Corrupt one row so MasterRotate's decrypt fails.
-	_, err = db.ExecContext(ctx,
-		`UPDATE secrets SET ciphertext = X'00' WHERE name = 'good'`)
-	require.NoError(t, err)
+	// Close the DB so the transaction inside MasterRotate fails AFTER
+	// PersistID has already written the new key to disk. This exercises
+	// the orphan-cleanup code path.
+	require.NoError(t, db.Close())
 
 	require.Error(t, s.MasterRotate(ctx))
-
-	// meta.active_key_id must still be 1 (rollback).
-	var idStr string
-	require.NoError(t, db.QueryRowContext(ctx,
-		`SELECT value FROM meta WHERE key='active_key_id'`).Scan(&idStr))
-	assert.Equal(t, "1", idStr)
 
 	// On filesystems where the new key fell back to a file (no keychain),
 	// the orphan must be removed. Where the keychain accepted it, the file

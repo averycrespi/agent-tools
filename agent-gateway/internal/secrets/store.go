@@ -4,10 +4,12 @@ package secrets
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
@@ -71,17 +73,34 @@ func agentToScope(agent string) string {
 }
 
 // sqlStore is the production implementation of Store.
+//
+// The store holds three pieces of key material in memory:
+//
+//   - key:     the master key resolved from the OS keychain or file fallback.
+//     Used only to derive the KEK (on open and on master rotate); never
+//     directly encrypts or decrypts a row.
+//   - kekSalt: the per-DB salt for HKDF over the master key. Stable for the
+//     lifetime of a DEK; rewritten only on master rotate.
+//   - dek:     the 32-byte data-encryption key that actually encrypts and
+//     decrypts every secrets row (AES-256-GCM with per-row AAD). Unwrapped
+//     from meta.dek_wrapped using the KEK derived from (key, kekSalt).
 type sqlStore struct {
-	db     *sql.DB
-	key    []byte
-	keyID  int
-	logger *slog.Logger
+	db      *sql.DB
+	key     []byte
+	kekSalt []byte
+	dek     []byte
+	keyID   int
+	logger  *slog.Logger
 }
 
 // NewStore creates a Store, reading the active master-key id from the meta
 // table and resolving the corresponding key via keychain / file fallback.
+// On first open after the schema-8 migration lands, NewStore also runs the
+// one-shot migrateToDEK pass that re-encrypts every row under the DEK+AAD
+// format.
 func NewStore(db *sql.DB, logger *slog.Logger) (Store, error) {
-	id, err := readActiveKeyID(context.Background(), db)
+	ctx := context.Background()
+	id, err := readActiveKeyID(ctx, db)
 	if err != nil {
 		return nil, fmt.Errorf("secrets: read active key id: %w", err)
 	}
@@ -89,7 +108,11 @@ func NewStore(db *sql.DB, logger *slog.Logger) (Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &sqlStore{db: db, key: key, keyID: id, logger: logger}, nil
+	s := &sqlStore{db: db, key: key, keyID: id, logger: logger}
+	if err := s.ensureDEK(ctx); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 // NewStoreWithKey creates a Store using the provided key (for testing). The
@@ -101,7 +124,145 @@ func NewStoreWithKey(db *sql.DB, logger *slog.Logger, key []byte) (Store, error)
 	}
 	cp := make([]byte, 32)
 	copy(cp, key)
-	return &sqlStore{db: db, key: cp, keyID: 1, logger: logger}, nil
+	s := &sqlStore{db: db, key: cp, keyID: 1, logger: logger}
+	if err := s.ensureDEK(context.Background()); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// ensureDEK loads the DEK into the store, migrating from the pre-DEK on-disk
+// format if necessary. On return, s.dek and s.kekSalt are populated.
+//
+// Sentinel: meta.dek_wrapped IS NULL means the DB has never had a DEK and
+// existing rows (if any) are encrypted directly under the master key (no
+// AAD). We run migrateToDEK to convert them in a single transaction.
+// meta.dek_wrapped IS NOT NULL means the DEK has already been established;
+// we unwrap it and return.
+func (s *sqlStore) ensureDEK(ctx context.Context) error {
+	var dekWrapped, dekNonce, kekSalt []byte
+	err := s.db.QueryRowContext(ctx,
+		`SELECT dek_wrapped, dek_nonce, kek_kdf_salt FROM meta WHERE key = 'active_key_id'`,
+	).Scan(&dekWrapped, &dekNonce, &kekSalt)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("secrets: read meta dek material: %w", err)
+	}
+
+	if len(dekWrapped) > 0 {
+		// Already established: unwrap the DEK into memory.
+		kek, err := deriveKEK(s.key, kekSalt)
+		if err != nil {
+			return fmt.Errorf("secrets: derive kek: %w", err)
+		}
+		dek, err := unwrapDEK(kek, dekWrapped, dekNonce)
+		if err != nil {
+			return fmt.Errorf("secrets: unwrap dek: %w", err)
+		}
+		s.kekSalt = kekSalt
+		s.dek = dek
+		return nil
+	}
+
+	// dek_wrapped IS NULL: first open under the new schema. Generate a DEK,
+	// re-encrypt every existing row under it with AAD, and write the new
+	// meta material — all in a single transaction so a crash mid-migration
+	// leaves the pre-migration state intact (dek_wrapped NULL → next start
+	// retries).
+	return s.migrateToDEK(ctx)
+}
+
+// migrateToDEK generates fresh DEK + KEK-salt, re-encrypts every secrets row
+// from the old (master-key-direct, no-AAD) format into the new (DEK, AAD =
+// name||0x00||scope) format, and persists the wrapped DEK + salt on the
+// active_key_id meta row. The whole sequence runs in one transaction.
+//
+// Invariant: on any error, the transaction rolls back and meta.dek_wrapped
+// stays NULL, so the next NewStore call retries from the old format — no
+// half-migrated state is ever observable. The single transaction is what
+// makes this safe; splitting it would leave a window where meta says "DEK
+// present" but some rows still hold old-format ciphertext.
+func (s *sqlStore) migrateToDEK(ctx context.Context) error {
+	dek, err := generateKey()
+	if err != nil {
+		return fmt.Errorf("secrets: migrate: generate dek: %w", err)
+	}
+	kekSalt := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, kekSalt); err != nil {
+		return fmt.Errorf("secrets: migrate: generate kek salt: %w", err)
+	}
+	kek, err := deriveKEK(s.key, kekSalt)
+	if err != nil {
+		return fmt.Errorf("secrets: migrate: derive kek: %w", err)
+	}
+	dekWrapped, dekNonce, err := wrapDEK(kek, dek)
+	if err != nil {
+		return fmt.Errorf("secrets: migrate: wrap dek: %w", err)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("secrets: migrate: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	rows, err := tx.QueryContext(ctx, `SELECT id, name, scope, ciphertext, nonce FROM secrets`)
+	if err != nil {
+		return fmt.Errorf("secrets: migrate: query secrets: %w", err)
+	}
+	type row struct {
+		id         int64
+		name       string
+		scope      string
+		ciphertext []byte
+		nonce      []byte
+	}
+	var all []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.name, &r.scope, &r.ciphertext, &r.nonce); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("secrets: migrate: scan row: %w", err)
+		}
+		all = append(all, r)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("secrets: migrate: close rows: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("secrets: migrate: rows err: %w", err)
+	}
+
+	for _, r := range all {
+		plaintext, err := decrypt(s.key, r.nonce, r.ciphertext)
+		if err != nil {
+			return fmt.Errorf("secrets: migrate: decrypt row %d (%s/%s): %w", r.id, r.name, r.scope, err)
+		}
+		newCT, newNonce, err := encryptRow(dek, r.name, r.scope, plaintext)
+		if err != nil {
+			return fmt.Errorf("secrets: migrate: encrypt row %d: %w", r.id, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE secrets SET ciphertext = ?, nonce = ? WHERE id = ?`,
+			newCT, newNonce, r.id,
+		); err != nil {
+			return fmt.Errorf("secrets: migrate: update row %d: %w", r.id, err)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE meta SET dek_wrapped = ?, dek_nonce = ?, kek_kdf_salt = ? WHERE key = 'active_key_id'`,
+		dekWrapped, dekNonce, kekSalt,
+	); err != nil {
+		return fmt.Errorf("secrets: migrate: update meta: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("secrets: migrate: commit: %w", err)
+	}
+
+	s.kekSalt = kekSalt
+	s.dek = dek
+	s.logger.Info("secrets: migrated to dek+aad format", "rows", len(all))
+	return nil
 }
 
 // readActiveKeyID reads meta.active_key_id. Returns 1 (the seed value) if the
@@ -146,7 +307,11 @@ LIMIT 1`
 		return "", "", nil, err
 	}
 
-	plaintext, err := decrypt(s.key, nonce, ciphertext)
+	// Decrypt under the DEK, binding AAD to this row's (name, scope). A
+	// tampered-or-swapped ciphertext (e.g. a DB-write-capable attacker copying
+	// bytes from another row) surfaces as a decrypt error here, not as wrong
+	// plaintext silently returned to the caller.
+	plaintext, err := decryptRow(s.dek, name, scope, ciphertext, nonce)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -179,7 +344,7 @@ func (s *sqlStore) Set(ctx context.Context, name, agent, value, description stri
 		return fmt.Errorf("secrets: check duplicate: %w", err)
 	}
 
-	nonce, ciphertext, err := encrypt(s.key, []byte(value))
+	ciphertext, nonce, err := encryptRow(s.dek, name, scope, []byte(value))
 	if err != nil {
 		return err
 	}
@@ -472,11 +637,11 @@ func HostScopeAllows(allowedHosts []string, host string) bool {
 // Rotate updates the encrypted value for an existing secret and bumps rotated_at.
 // agent is the agent name (empty → global scope).
 func (s *sqlStore) Rotate(ctx context.Context, name, agent, newValue string) error {
-	nonce, ciphertext, err := encrypt(s.key, []byte(newValue))
+	scope := agentToScope(agent)
+	ciphertext, nonce, err := encryptRow(s.dek, name, scope, []byte(newValue))
 	if err != nil {
 		return err
 	}
-	scope := agentToScope(agent)
 	now := time.Now().Unix()
 	const q = `UPDATE secrets SET ciphertext=?, nonce=?, rotated_at=? WHERE name=? AND scope=?`
 	res, err := s.db.ExecContext(ctx, q, ciphertext, nonce, now, name, scope)
@@ -505,15 +670,21 @@ func (s *sqlStore) Delete(ctx context.Context, name, agent string) error {
 	return nil
 }
 
-// MasterRotate generates a new master key, persists it under a fresh id,
-// re-encrypts every row inside a single transaction that also bumps
-// meta.active_key_id, then deletes the previous key from storage.
+// MasterRotate generates a new master key, persists it under a fresh id, and
+// rewraps the DEK under the new master key (via a freshly-salted KEK) inside
+// a single transaction that also bumps meta.active_key_id. Row ciphertexts
+// are NOT touched — the DEK is unchanged, so every encryptRow output from
+// before the rotation still decrypts afterwards. Rotation cost is O(1) in
+// the number of rows.
 //
-// Crash safety: the new key is persisted to storage BEFORE the re-encryption
-// transaction commits, so a crash at any point leaves a consistent state —
-// either meta.active_key_id still names a key that decrypts every row, or it
-// names the new key after a successful commit. If the transaction fails, the
-// orphaned new key is best-effort cleaned up before the function returns.
+// Crash safety: the new key is persisted to storage BEFORE the meta update
+// commits (see PersistID). A crash between persist and commit leaves an
+// orphan key on disk (harmless; best-effort cleaned up below), but
+// meta.active_key_id still names a key that can derive the KEK that unwraps
+// the DEK. A crash after commit has the new key persisted and meta pointing
+// at it — the old DEK wrap blob is gone, which is fine because the new one
+// is what decrypts the (unchanged) rows. At no point is the on-disk state
+// unrecoverable.
 func (s *sqlStore) MasterRotate(ctx context.Context) error {
 	oldID := s.keyID
 	newID := oldID + 1
@@ -533,58 +704,33 @@ func (s *sqlStore) MasterRotate(ctx context.Context) error {
 		}
 	}()
 
+	// Fresh KEK salt on every rotation: even if the operator rotated back to
+	// a previous master key value (implausible, but cheap to defend against),
+	// the derived KEK would differ from the previous rotation's.
+	newKEKSalt := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, newKEKSalt); err != nil {
+		return fmt.Errorf("secrets: master-rotate: generate kek salt: %w", err)
+	}
+	newKEK, err := deriveKEK(newKey, newKEKSalt)
+	if err != nil {
+		return fmt.Errorf("secrets: master-rotate: derive kek: %w", err)
+	}
+	newDEKWrapped, newDEKNonce, err := wrapDEK(newKEK, s.dek)
+	if err != nil {
+		return fmt.Errorf("secrets: master-rotate: wrap dek: %w", err)
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("secrets: master-rotate: begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	rows, err := tx.QueryContext(ctx, `SELECT id, ciphertext, nonce FROM secrets`)
-	if err != nil {
-		return fmt.Errorf("secrets: master-rotate: query secrets: %w", err)
-	}
-
-	type row struct {
-		id         int64
-		ciphertext []byte
-		nonce      []byte
-	}
-	var all []row
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.id, &r.ciphertext, &r.nonce); err != nil {
-			_ = rows.Close()
-			return fmt.Errorf("secrets: master-rotate: scan row: %w", err)
-		}
-		all = append(all, r)
-	}
-	if err := rows.Close(); err != nil {
-		return fmt.Errorf("secrets: master-rotate: close rows: %w", err)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("secrets: master-rotate: rows error: %w", err)
-	}
-
-	for _, r := range all {
-		plain, err := decrypt(s.key, r.nonce, r.ciphertext)
-		if err != nil {
-			return fmt.Errorf("secrets: master-rotate: decrypt: %w", err)
-		}
-		newNonce, newCipher, err := encrypt(newKey, plain)
-		if err != nil {
-			return fmt.Errorf("secrets: master-rotate: encrypt: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE secrets SET ciphertext=?, nonce=? WHERE id=?`,
-			newCipher, newNonce, r.id); err != nil {
-			return fmt.Errorf("secrets: master-rotate: update row: %w", err)
-		}
-	}
-
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE meta SET value = ? WHERE key = 'active_key_id'`,
-		fmt.Sprintf("%d", newID)); err != nil {
-		return fmt.Errorf("secrets: master-rotate: bump active_key_id: %w", err)
+		`UPDATE meta SET value = ?, dek_wrapped = ?, dek_nonce = ?, kek_kdf_salt = ? WHERE key = 'active_key_id'`,
+		fmt.Sprintf("%d", newID), newDEKWrapped, newDEKNonce, newKEKSalt,
+	); err != nil {
+		return fmt.Errorf("secrets: master-rotate: update meta: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -594,6 +740,8 @@ func (s *sqlStore) MasterRotate(ctx context.Context) error {
 
 	s.key = newKey
 	s.keyID = newID
+	s.kekSalt = newKEKSalt
+	// s.dek is unchanged — that is the whole point of rewrap-only rotation.
 
 	// Best-effort cleanup of the previous key. Failures are logged inside
 	// DeleteID and never propagated — an orphan is harmless and we never want
