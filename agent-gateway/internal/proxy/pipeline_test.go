@@ -851,3 +851,65 @@ func TestPipeline_UnknownVerdict_Denies(t *testing.T) {
 	assert.NotEmpty(t, resp.Header.Get("X-Request-ID"), "deny response must carry X-Request-ID")
 	assert.False(t, called, "upstream must NOT be called on unknown verdict")
 }
+
+func TestAssertedHeaders_RedactsSensitive(t *testing.T) {
+	src := http.Header{}
+	src.Set("Authorization", "Bearer secret-token-123")
+	src.Set("X-Api-Key", "apk_xxx")
+	src.Set("Cookie", "session=abc")
+	src.Set("X-Custom-Tenant", "acme")
+
+	assertedNames := map[string]string{
+		"Authorization":   "",
+		"X-API-Key":       "",
+		"Cookie":          "",
+		"X-Custom-Tenant": "",
+	}
+	got := proxy.AssertedHeadersForTest(src, assertedNames)
+
+	require.Equal(t, "<redacted>", got.Get("Authorization"), "Authorization must be redacted")
+	require.Equal(t, "<redacted>", got.Get("X-Api-Key"), "X-Api-Key must be redacted")
+	require.Equal(t, "<redacted>", got.Get("Cookie"), "Cookie must be redacted")
+	require.Equal(t, "acme", got.Get("X-Custom-Tenant"), "non-sensitive header must pass through unchanged")
+}
+
+func TestAssertedHeaders_RedactedHeaderNotInSrc_Omitted(t *testing.T) {
+	// Sensitive header that was NOT in src must not appear in output.
+	src := http.Header{}
+	src.Set("X-Custom-Tenant", "acme")
+
+	assertedNames := map[string]string{
+		"Authorization":   "",
+		"X-Custom-Tenant": "",
+	}
+	got := proxy.AssertedHeadersForTest(src, assertedNames)
+
+	require.Equal(t, "", got.Get("Authorization"), "absent sensitive header must not appear as redacted")
+	require.Equal(t, "acme", got.Get("X-Custom-Tenant"), "non-sensitive header passes through")
+}
+
+func TestAssertedHeaders_AllSensitiveHeadersRedacted(t *testing.T) {
+	sensitive := []string{
+		"Authorization",
+		"Proxy-Authorization",
+		"Cookie",
+		"Set-Cookie",
+		"X-Api-Key",
+		"X-Auth-Token",
+	}
+
+	src := http.Header{}
+	for _, name := range sensitive {
+		src.Set(name, "some-secret-value")
+	}
+
+	assertedNames := make(map[string]string, len(sensitive))
+	for _, name := range sensitive {
+		assertedNames[name] = ""
+	}
+
+	got := proxy.AssertedHeadersForTest(src, assertedNames)
+	for _, name := range sensitive {
+		require.Equal(t, "<redacted>", got.Get(name), "expected %s to be redacted", name)
+	}
+}

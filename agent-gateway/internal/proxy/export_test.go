@@ -96,6 +96,11 @@ func (p *Proxy) ServeTunnelForTest(conn net.Conn, br *bufio.Reader, connectTarge
 	p.serveTunnel(conn, br, connectTarget, agentName)
 }
 
+// AssertedHeadersForTest exposes assertedHeaders for white-box testing.
+func AssertedHeadersForTest(src http.Header, assertedNames map[string]string) http.Header {
+	return assertedHeaders(src, assertedNames)
+}
+
 // ServeConnForTest exposes serveConn for white-box testing so tests can drive
 // the CONNECT ingress path over a synthetic net.Conn (e.g. a net.Pipe end) and
 // assert precise timing — specifically the read deadline on the CONNECT
