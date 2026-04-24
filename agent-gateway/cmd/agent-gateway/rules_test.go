@@ -220,6 +220,32 @@ rule "test-rule" {
 	require.Error(t, err, "--strict should exit non-zero when coverage warnings exist")
 }
 
+// TestRulesCheck_NoConfig_DoesNotCreateIt verifies that "rules check" does NOT
+// auto-create config.hcl when the file is absent. The overlap check must be
+// skipped silently rather than writing defaults as a side effect.
+func TestRulesCheck_NoConfig_DoesNotCreateIt(t *testing.T) {
+	dir := setupRulesDir(t)
+	writeRuleHCL(t, dir, "rule.hcl", `
+rule "test-rule" {
+  match   { host = "api.github.com" }
+  verdict = "allow"
+}
+`)
+
+	cfgPath := paths.ConfigFile()
+
+	// Precondition: config.hcl must not exist before the command runs.
+	_, err := os.Stat(cfgPath)
+	require.True(t, os.IsNotExist(err), "config.hcl must not exist before rules check")
+
+	_, _, err = runRulesCheck(t)
+	require.NoError(t, err, "rules check should exit 0 when config is absent")
+
+	// Postcondition: config.hcl must still not exist after the command runs.
+	_, err = os.Stat(cfgPath)
+	assert.True(t, os.IsNotExist(err), "rules check must not create config.hcl when it was absent")
+}
+
 // TestRulesCheck_NoStateDB_SkipsCoverage verifies that when no state.db
 // exists, the command prints a note and exits 0 without panicking.
 func TestRulesCheck_NoStateDB_SkipsCoverage(t *testing.T) {

@@ -165,7 +165,7 @@ func decodeRuleBlock(block *hcl.Block, path string) (Rule, []string, error) {
 		return Rule{}, nil, fmt.Errorf("rules: rule %q in %q: %s", name, path, diags.Error())
 	}
 
-	r := Rule{Name: name}
+	r := Rule{Name: name, File: filepath.Base(path)}
 	var warnings []string
 
 	// Decode agents attribute (optional).

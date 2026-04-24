@@ -470,6 +470,41 @@ func Load(path string) (Config, []string, error) {
 	return defaults, warnings, nil
 }
 
+// LoadReadOnly reads the config from path without any side effects. If the
+// file does not exist it returns os.ErrNotExist (wrapped) instead of writing
+// defaults. Use this for read-only validation commands (e.g. "rules check")
+// that must not create config.hcl on first invocation.
+//
+// The returned []string carries soft warnings identical to Load.
+func LoadReadOnly(path string) (Config, []string, error) {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		// Preserve os.ErrNotExist so callers can distinguish "not found" from
+		// other I/O errors without a side-effectful auto-create.
+		if errors.Is(err, os.ErrNotExist) {
+			return Config{}, nil, fmt.Errorf("config: read %s: %w", path, os.ErrNotExist)
+		}
+		return Config{}, nil, fmt.Errorf("config: read %s: %w", path, err)
+	}
+
+	w, err := parseHCL(src, path)
+	if err != nil {
+		return Config{}, nil, fmt.Errorf("config: parse %s: %w", path, err)
+	}
+
+	defaults := DefaultConfig()
+	if err := mergeWire(&defaults, w); err != nil {
+		return Config{}, nil, fmt.Errorf("config: %w", err)
+	}
+
+	warnings, err := validateConfig(&defaults)
+	if err != nil {
+		return Config{}, nil, fmt.Errorf("config: %s: %w", path, err)
+	}
+
+	return defaults, warnings, nil
+}
+
 // ---------------------------------------------------------------------------
 // Refresh
 // ---------------------------------------------------------------------------

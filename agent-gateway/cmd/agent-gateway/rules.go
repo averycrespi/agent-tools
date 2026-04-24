@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/config"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/daemon"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
@@ -202,6 +203,30 @@ func execRulesCheck(cmd *cobra.Command, dir string, lister secretsLister, strict
 			return fmt.Errorf("rules check: build engine: %w", err)
 		}
 		for _, w := range warnSecretCoverage(ctx, engine, secretsStore) {
+			_, _ = fmt.Fprintln(out, "warning:", w)
+			totalWarnings++
+		}
+	}
+
+	// No-intercept overlap check: warn when rules target hosts that
+	// no_intercept_hosts would tunnel raw. Use LoadReadOnly so that a missing
+	// config.hcl is not auto-created (rules check is a read-only command).
+	cfgPath := paths.ConfigFile()
+	cfg, _, cfgErr := config.LoadReadOnly(cfgPath)
+	switch {
+	case errors.Is(cfgErr, os.ErrNotExist):
+		// No config file — no no_intercept_hosts to check.
+	case cfgErr != nil:
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not load config: %v\n", cfgErr)
+		totalWarnings++
+	default:
+		// Build a throwaway engine for the overlap check (may already exist
+		// from the coverage block above; if the DB was absent we still need one).
+		overlapEngine, engineErr := rules.NewEngine(dir)
+		if engineErr != nil {
+			return fmt.Errorf("rules check: build engine: %w", engineErr)
+		}
+		for _, w := range warnNoInterceptOverlap(overlapEngine, cfg.ProxyBehavior.NoInterceptHosts) {
 			_, _ = fmt.Fprintln(out, "warning:", w)
 			totalWarnings++
 		}

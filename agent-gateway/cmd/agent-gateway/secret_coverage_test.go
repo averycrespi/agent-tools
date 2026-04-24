@@ -137,3 +137,72 @@ rule "r" {
 	warns := warnSecretCoverage(ctx, engine, s)
 	assert.Empty(t, warns)
 }
+
+func TestWarnNoInterceptOverlap_GroupsByEntry(t *testing.T) {
+	// Two no_intercept_hosts entries, three rules, overlap as:
+	//   - "api.github.com" shadows rules A (exact) and B (*.github.com covers api.github.com)
+	//   - "*.example.com" shadows rule C (foo.example.com matches *.example.com)
+	// Expect exactly two warnings, each listing its shadowed rules.
+	dir := t.TempDir()
+	writeRule(t, dir, "10-gh.hcl", `
+rule "A" {
+  match   { host = "api.github.com" }
+  verdict = "allow"
+}
+rule "B" {
+  match   { host = "*.github.com" }
+  verdict = "allow"
+}
+`)
+	writeRule(t, dir, "20-ex.hcl", `
+rule "C" {
+  match   { host = "foo.example.com" }
+  verdict = "allow"
+}
+`)
+	engine, err := rules.NewEngine(dir)
+	require.NoError(t, err)
+
+	warns := warnNoInterceptOverlap(engine, []string{"api.github.com", "*.example.com"})
+	require.Len(t, warns, 2)
+	require.Contains(t, warns[0], "api.github.com")
+	require.Contains(t, warns[0], `"A"`)
+	require.Contains(t, warns[0], `"B"`)
+	require.Contains(t, warns[1], "*.example.com")
+	require.Contains(t, warns[1], `"C"`)
+}
+
+func TestWarnNoInterceptOverlap_NoOverlap(t *testing.T) {
+	dir := t.TempDir()
+	writeRule(t, dir, "r.hcl", `
+rule "gh" {
+  match   { host = "api.github.com" }
+  verdict = "allow"
+}
+`)
+	engine, err := rules.NewEngine(dir)
+	require.NoError(t, err)
+
+	warns := warnNoInterceptOverlap(engine, []string{"pinned.internal"})
+	assert.Empty(t, warns)
+}
+
+func TestWarnNoInterceptOverlap_NilEngine(t *testing.T) {
+	warns := warnNoInterceptOverlap(nil, []string{"api.github.com"})
+	assert.Nil(t, warns)
+}
+
+func TestWarnNoInterceptOverlap_EmptyPatterns(t *testing.T) {
+	dir := t.TempDir()
+	writeRule(t, dir, "r.hcl", `
+rule "gh" {
+  match   { host = "api.github.com" }
+  verdict = "allow"
+}
+`)
+	engine, err := rules.NewEngine(dir)
+	require.NoError(t, err)
+
+	warns := warnNoInterceptOverlap(engine, nil)
+	assert.Nil(t, warns)
+}

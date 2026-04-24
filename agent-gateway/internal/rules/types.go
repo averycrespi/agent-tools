@@ -47,6 +47,7 @@ type MatchResult struct {
 // Rule is the parsed, validated representation of a single rule block.
 type Rule struct {
 	Name    string
+	File    string   // base filename of the HCL file that defined this rule
 	Agents  []string // nil = all agents; empty slice = load-time error
 	Match   Match
 	Verdict string

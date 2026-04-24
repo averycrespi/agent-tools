@@ -3,6 +3,8 @@ package rules
 import (
 	"fmt"
 	"sync/atomic"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/hostnorm"
 )
 
 // Engine is the top-level, hot-reloadable rules engine. It wraps an
@@ -100,6 +102,51 @@ func (e *Engine) AllRuleHosts() []string {
 		out = append(out, h)
 	}
 	return out
+}
+
+// RulesOverlappingHost returns all rules whose match.host could plausibly
+// overlap with the given pattern. The check is conservative: false positives
+// are acceptable; false negatives (a shadow that is not reported) are the
+// footgun this function exists to catch.
+//
+// Overlap is detected when either:
+//   - the rule host exactly equals pattern, or
+//   - MatchHostGlob(pattern, ruleHost) — pattern would match the rule's host literal, or
+//   - MatchHostGlob(ruleHost, pattern) — rule's pattern would match the no-intercept host literal.
+//
+// Rules with no host constraint (empty match.host) are not included because
+// they already match every host and the warning is about operator confusion
+// when adding a no-intercept entry for a specific host.
+func (e *Engine) RulesOverlappingHost(pattern string) []*Rule {
+	var out []*Rule
+	for _, r := range e.Rules() {
+		rh := r.Match.Host
+		if rh == "" {
+			// Rule with no host constraint is intentionally catch-all; skip.
+			continue
+		}
+		if hostsOverlap(pattern, rh) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// hostsOverlap reports whether two host-glob patterns could match any common
+// host. The check is conservative (false positives OK).
+func hostsOverlap(a, b string) bool {
+	if a == b {
+		return true
+	}
+	// Does pattern a match b treated as a concrete host?
+	if hostnorm.MatchHostGlob(a, b) {
+		return true
+	}
+	// Does pattern b match a treated as a concrete host?
+	if hostnorm.MatchHostGlob(b, a) {
+		return true
+	}
+	return false
 }
 
 // load is the shared helper for NewEngine and Reload: parse + compile.

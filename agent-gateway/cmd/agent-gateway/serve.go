@@ -211,6 +211,15 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		log.Warn(w)
 	}
 
+	// 3b.2. Surface no-intercept overlap warnings: rules whose match.host
+	// overlaps a no_intercept_hosts entry, meaning the proxy tunnels those
+	// connections raw and the rule will never fire. Non-fatal; the operator
+	// may have intentionally added both entries, but silent dead code is the
+	// common footgun.
+	for _, w := range warnNoInterceptOverlap(engine, cfg.ProxyBehavior.NoInterceptHosts) {
+		log.Warn(w)
+	}
+
 	// 3c. Initialise the agents registry and approval broker.
 	// Registry failure is fatal: without it, the proxy cannot authenticate
 	// CONNECT requests and would silently accept any caller, ignore
@@ -464,6 +473,11 @@ func RunServe(ctx context.Context, d serveDeps) error {
 				// Re-check secret coverage: either the ruleset or a secret's
 				// allowed_hosts may have changed since the last reload.
 				for _, w := range warnSecretCoverage(ctx, engine, secretsStore) {
+					log.Warn(w)
+				}
+				// Re-check no-intercept overlap: rule changes may introduce
+				// or resolve shadows against the (config-static) no_intercept_hosts.
+				for _, w := range warnNoInterceptOverlap(engine, cfg.ProxyBehavior.NoInterceptHosts) {
 					log.Warn(w)
 				}
 				if reloadErr := dashServer.ReloadToken(); reloadErr != nil {

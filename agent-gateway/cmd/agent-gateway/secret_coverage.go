@@ -115,6 +115,36 @@ func collectSecretRefs(inj *rules.Inject) []string {
 	return names
 }
 
+// warnNoInterceptOverlap returns one warning string per no_intercept_hosts
+// pattern that has at least one rule whose match.host could plausibly overlap.
+// The check is conservative — false positives are acceptable; false negatives
+// (a shadowed rule that goes unreported) are the footgun this function exists
+// to catch.
+//
+// A rule is considered shadowed when the proxy would tunnel the connection
+// (skipping MITM) for a host that the rule was written to intercept. Because
+// tunneled connections are opaque, any rule targeting the same host will
+// silently never fire.
+func warnNoInterceptOverlap(engine *rules.Engine, patterns []string) []string {
+	if engine == nil || len(patterns) == 0 {
+		return nil
+	}
+	var warns []string
+	for i, p := range patterns {
+		shadowed := engine.RulesOverlappingHost(p)
+		if len(shadowed) == 0 {
+			continue
+		}
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "proxy_behavior.no_intercept_hosts[%d] %q shadows:\n", i, p)
+		for _, r := range shadowed {
+			fmt.Fprintf(&sb, "  - rule %q (%s) match.host %q\n", r.Name, r.File, r.Match.Host)
+		}
+		warns = append(warns, strings.TrimSuffix(sb.String(), "\n"))
+	}
+	return warns
+}
+
 // coverageOK reports whether a rule's host pattern is adequately covered by
 // a secret's allowed_hosts. See warnSecretCoverage doc for the approximation.
 func coverageOK(ruleHost string, ruleIsConcrete bool, allowedHosts []string) bool {
