@@ -8,6 +8,7 @@ package proxy
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -87,6 +88,11 @@ type ApprovalRequest struct {
 	Header http.Header
 }
 
+// ErrQueueFull is returned by ApprovalBroker.Request when the number of pending
+// approvals has reached the configured cap. The proxy translates this to 503
+// Service Unavailable with Retry-After: 30.
+var ErrQueueFull = errors.New("approval: queue full")
+
 // ApprovalBroker is the interface used by Proxy to gate require-approval
 // verdicts. The real implementation lives in the approval package; tests
 // inject a stub.
@@ -96,6 +102,7 @@ type ApprovalRequest struct {
 type ApprovalBroker interface {
 	// Request blocks until an approval decision is made for pending, or until
 	// ctx is cancelled. Cancellation must return DecisionTimeout, nil.
+	// If the queue is full, it returns ErrQueueFull.
 	Request(ctx context.Context, pending ApprovalRequest) (ApprovalDecision, error)
 }
 

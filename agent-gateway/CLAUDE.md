@@ -98,7 +98,7 @@ State-mutating CLI commands write to SQLite (with `busy_timeout=5s`), then read 
 - `no_intercept_hosts` in config accepts glob patterns (same `filepath.Match` syntax as rule host fields)
 - Dashboard SSE feed: drop-on-full ring buffer (mcp-broker pattern); paginated `/api/audit` covers "what happened while disconnected"
 - `internal/proxy.ConnectDecision` constants: `DecisionTunnel` (0), `DecisionMITM` (1), `DecisionReject` (2)
-- `internal/approval.ErrQueueFull` is returned synchronously (no block) when `MaxPending` is reached; `ErrUnknownID` is returned by `Decide` for already-resolved or never-created IDs
+- `internal/proxy.ErrQueueFull` is the canonical sentinel returned synchronously (no block) when `MaxPending` is reached; `internal/approval.ErrQueueFull` is an alias kept for backwards compatibility — use `errors.Is` and either works; `ErrUnknownID` is returned by `Decide` for already-resolved or never-created IDs
 - PID file at `$XDG_CONFIG_HOME/agent-gateway/agent-gateway.pid`; written on `serve` start, deleted on clean shutdown
 
 ## Documentation

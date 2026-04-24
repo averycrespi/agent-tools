@@ -16,8 +16,9 @@ import (
 )
 
 // ErrQueueFull is returned by Request when the number of pending approvals
-// has reached the configured MaxPending cap.
-var ErrQueueFull = errors.New("approval: queue full")
+// has reached the configured MaxPending cap. It aliases proxy.ErrQueueFull so
+// that callers can use errors.Is against either sentinel.
+var ErrQueueFull = proxy.ErrQueueFull
 
 // ErrUnknownID is returned by Decide when the given id does not correspond to
 // any pending request (already resolved, timed out, or never created).

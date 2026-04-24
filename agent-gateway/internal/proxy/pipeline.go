@@ -342,7 +342,12 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 				if apErr != nil {
 					p.log.Error("proxy: approval broker error", "request_id", reqID, "err", apErr)
 					w.Header().Set("X-Request-ID", reqID)
-					http.Error(w, "approval error", http.StatusBadGateway)
+					if errors.Is(apErr, ErrQueueFull) {
+						w.Header().Set("Retry-After", "30")
+						httpErrorWithReason(w, "approval queue full", http.StatusServiceUnavailable, ReasonQueueFull)
+						return
+					}
+					httpErrorWithReason(w, "approval error", http.StatusBadGateway, "approval-broker-error")
 					return
 				}
 				switch decision {

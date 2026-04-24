@@ -2,6 +2,7 @@ package proxy_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -912,4 +913,59 @@ func TestAssertedHeaders_AllSensitiveHeadersRedacted(t *testing.T) {
 	for _, name := range sensitive {
 		require.Equal(t, "<redacted>", got.Get(name), "expected %s to be redacted", name)
 	}
+}
+
+// errorBroker is an ApprovalBroker stub that returns a configurable error from
+// Request without blocking. Used to exercise the approval-error branch in the
+// pipeline.
+type errorBroker struct {
+	err error
+}
+
+func (b *errorBroker) Request(_ context.Context, _ proxy.ApprovalRequest) (proxy.ApprovalDecision, error) {
+	return proxy.DecisionDenied, b.err
+}
+
+// runPipelineWithApprovalError constructs a proxy wired to a require-approval
+// rule and an errorBroker that returns err, sends a request through it, and
+// returns the recorded response and its body.
+func runPipelineWithApprovalError(t *testing.T, err error) (*httptest.ResponseRecorder, string) {
+	t.Helper()
+	auth := newTestAuthority(t)
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("ok")),
+			Request:    r,
+		}, nil
+	})
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                stubEngineReturning(requireApprovalMatchResult()),
+		Approval:             &errorBroker{err: err},
+	})
+	r := httptest.NewRequest(http.MethodPost, "https://api.example.com:443/sensitive", nil)
+	w := httptest.NewRecorder()
+	p.HandleForTest(w, r, "api.example.com:443", "")
+	body, _ := io.ReadAll(w.Result().Body)
+	return w, string(body)
+}
+
+// TestPipeline_ApprovalQueueFull_Returns503 verifies that when the approval
+// broker returns ErrQueueFull the pipeline responds with 503, Retry-After: 30,
+// and X-Agent-Gateway-Reason: queue-full.
+func TestPipeline_ApprovalQueueFull_Returns503(t *testing.T) {
+	rec, _ := runPipelineWithApprovalError(t, proxy.ErrQueueFull)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	require.Equal(t, "30", rec.Header().Get("Retry-After"))
+	require.Equal(t, "queue-full", rec.Header().Get("X-Agent-Gateway-Reason"))
+}
+
+// TestPipeline_ApprovalBrokerError_Returns502 verifies that unexpected approval
+// broker errors (not ErrQueueFull) still return 502 Bad Gateway.
+func TestPipeline_ApprovalBrokerError_Returns502(t *testing.T) {
+	rec, _ := runPipelineWithApprovalError(t, errors.New("some other failure"))
+	require.Equal(t, http.StatusBadGateway, rec.Code)
 }
