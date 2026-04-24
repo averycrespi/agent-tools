@@ -126,6 +126,87 @@ sb shell -- bash -c '
 
 Then check the dashboard at `http://127.0.0.1:8221/dashboard/` on the host — the request should appear on the live feed with the sandbox's agent name attached.
 
+## Non-cooperative sandbox
+
+The sections above assume a cooperative sandbox: one configured to route its HTTP(S) traffic through the gateway voluntarily via `HTTPS_PROXY` / `HTTP_PROXY`. A sandbox that doesn't set those env vars (or whose agent process bypasses them) can still reach the internet directly.
+
+For stronger containment, pin the sandbox's egress at the kernel level using iptables. The rules below accept traffic to `host.lima.internal:8220` (the gateway's proxy port) and DNS (required for name resolution, including resolving `host.lima.internal` itself), and reject everything else.
+
+### How Lima exposes the host
+
+Lima runs its guest kernel with a user-mode network stack. `host.lima.internal` is a stable hostname that always resolves to the host's loopback-reachable interface — typically `192.168.5.2` on the default Lima network (`192.168.5.0/24`). Verify the address inside the sandbox with:
+
+```bash
+getent hosts host.lima.internal
+```
+
+Substitute that address for `HOST_ADDR` in the rules below.
+
+### iptables rules
+
+Run inside the Lima VM (for example via `sb shell --`) as root. Replace `192.168.5.2` with the actual address of `host.lima.internal` if it differs.
+
+```bash
+# Variables — adjust if your Lima network differs.
+HOST_ADDR=192.168.5.2   # host.lima.internal
+PROXY_PORT=8220
+
+# Flush existing OUTPUT rules (review first if other rules are present).
+iptables -F OUTPUT
+
+# Allow loopback so processes communicating via 127.0.0.1 are unaffected.
+iptables -A OUTPUT -o lo -j ACCEPT
+
+# Allow already-established and related traffic (stateful accept).
+iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# Allow DNS (UDP and TCP) — required for name resolution, including
+# resolving host.lima.internal itself before the gateway connection.
+iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+
+# Allow egress to the gateway proxy port only.
+iptables -A OUTPUT -p tcp -d "$HOST_ADDR" --dport "$PROXY_PORT" -j ACCEPT
+
+# Reject everything else (ICMP unreachable, so failures are fast).
+iptables -A OUTPUT -j REJECT --reject-with icmp-net-unreachable
+```
+
+DNS is allowed so that the sandbox can resolve hostnames before handing them off to the gateway. Without DNS, tools that resolve before connecting (including curl and most HTTP clients) fail before they can use the proxy. The gateway performs its own independent DNS resolution on the host side, so allowing sandbox DNS does not bypass host-side policy.
+
+After applying these rules, any process inside the sandbox that attempts a direct TCP connection to any destination other than `host.lima.internal:8220` receives an immediate ICMP unreachable. Traffic through the gateway is unaffected.
+
+### Persisting across reboots
+
+iptables rules are not persistent by default. To restore them on boot, install `iptables-persistent` and save:
+
+```bash
+apt-get install -y iptables-persistent
+netfilter-persistent save
+```
+
+Alternatively, add the `iptables` commands to the `sb` provisioning script (see [Automating with `sb` provisioning scripts](#automating-with-sb-provisioning-scripts)) so they run every time a sandbox is created or re-provisioned.
+
+### Verifying containment
+
+From inside the sandbox, direct egress should be rejected immediately:
+
+```bash
+# Direct TCP to a public host — should be rejected.
+curl --max-time 5 https://api.github.com/zen
+# Expected: curl: (7) Failed to connect ... Connection refused / Network unreachable
+
+# Traffic routed through the gateway — should succeed (if a valid token is set).
+HTTPS_PROXY=http://x:agw_YOUR_TOKEN@host.lima.internal:8220 \
+  curl --max-time 10 https://api.github.com/zen
+```
+
+---
+
+> **Prior art.** This iptables recipe follows the non-cooperative sandbox hardening pattern from agent-vault, which uses the same approach of accepting only gateway egress and rejecting all other outbound TCP at the kernel level.
+
+---
+
 ## Troubleshooting
 
 - **`curl: (60) SSL certificate problem`** — the CA was not installed, or `update-ca-certificates` was not re-run after install. Verify `/etc/ssl/certs/agent-gateway.pem` exists and is a symlink to your installed cert.
