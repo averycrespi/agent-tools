@@ -1,18 +1,51 @@
 package secrets
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 
 	keyring "github.com/zalando/go-keyring"
+	"golang.org/x/crypto/hkdf"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/atomicfile"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 )
+
+// kekInfo is the HKDF info parameter for KEK derivation. Binding a fixed info
+// string to the derivation domain-separates this KEK from any other key we
+// might ever derive from the same master — a future caller that HKDFs the
+// master for a different purpose (with a different info) provably cannot
+// produce the same KEK, even with the same salt.
+const kekInfo = "agent-gateway kek v1"
+
+// deriveKEK derives a 32-byte key-encryption key from the master key using
+// HKDF-SHA256 with the given salt (stored in meta.kek_kdf_salt).
+//
+// Invariant: the KEK is a deterministic function of (masterKey, salt, kekInfo)
+// and never touches disk. Consequence: rotating the keychain master key
+// rewraps only the ~60-byte DEK blob in `meta` — the DEK itself is unchanged,
+// and every encrypted row stays valid. Without this indirection, master-key
+// rotation would have to re-encrypt every secret row.
+func deriveKEK(masterKey, salt []byte) ([]byte, error) {
+	if len(masterKey) != 32 {
+		return nil, errors.New("deriveKEK: masterKey must be 32 bytes")
+	}
+	if len(salt) == 0 {
+		return nil, errors.New("deriveKEK: salt must not be empty")
+	}
+	r := hkdf.New(sha256.New, masterKey, salt, []byte(kekInfo))
+	kek := make([]byte, 32)
+	if _, err := io.ReadFull(r, kek); err != nil {
+		return nil, fmt.Errorf("deriveKEK: read hkdf: %w", err)
+	}
+	return kek, nil
+}
 
 const (
 	keychainService = "agent-gateway"
