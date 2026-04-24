@@ -75,8 +75,9 @@ type ApprovalConfig struct {
 
 // ProxyBehaviorConfig holds proxy behaviour tunables.
 type ProxyBehaviorConfig struct {
-	NoInterceptHosts []string `hcl:"no_intercept_hosts"`
-	MaxBodyBuffer    int64
+	NoInterceptHosts     []string `hcl:"no_intercept_hosts"`
+	MaxBodyBuffer        int64
+	AllowPrivateUpstream bool
 }
 
 // TimeoutsConfig holds all timeout durations.
@@ -144,8 +145,9 @@ type wireApproval struct {
 }
 
 type wireProxyBehavior struct {
-	NoInterceptHosts []string `hcl:"no_intercept_hosts"`
-	MaxBodyBuffer    string   `hcl:"max_body_buffer"`
+	NoInterceptHosts     []string `hcl:"no_intercept_hosts"`
+	MaxBodyBuffer        string   `hcl:"max_body_buffer"`
+	AllowPrivateUpstream *bool    `hcl:"allow_private_upstream"`
 }
 
 type wireTimeouts struct {
@@ -301,8 +303,9 @@ func fromWire(w wireConfig) (Config, error) {
 			MaxPendingPerAgent: derefInt(w.Approval.MaxPendingPerAgent),
 		},
 		ProxyBehavior: ProxyBehaviorConfig{
-			NoInterceptHosts: w.ProxyBehavior.NoInterceptHosts,
-			MaxBodyBuffer:    maxBodyBuf,
+			NoInterceptHosts:     w.ProxyBehavior.NoInterceptHosts,
+			MaxBodyBuffer:        maxBodyBuf,
+			AllowPrivateUpstream: w.ProxyBehavior.AllowPrivateUpstream != nil && *w.ProxyBehavior.AllowPrivateUpstream,
 		},
 		Timeouts: TimeoutsConfig{
 			ConnectReadHeader:      connectReadHeader,
@@ -542,6 +545,12 @@ func mergeWire(dst *Config, w wireConfig) error {
 		}
 		dst.ProxyBehavior.MaxBodyBuffer = n
 	}
+	// allow_private_upstream: *bool — nil means "not present in file"; only
+	// overwrite when explicitly set. Default (false) is already baked into
+	// default.hcl so new installs inherit the safe default.
+	if w.ProxyBehavior.AllowPrivateUpstream != nil {
+		dst.ProxyBehavior.AllowPrivateUpstream = *w.ProxyBehavior.AllowPrivateUpstream
+	}
 	if err := mergeTimeouts(&dst.Timeouts, w.Timeouts); err != nil {
 		return err
 	}
@@ -669,8 +678,9 @@ approval {
 }
 
 proxy_behavior {
-  no_intercept_hosts = %s
-  max_body_buffer    = %q
+  no_intercept_hosts      = %s
+  max_body_buffer         = %q
+  allow_private_upstream  = %s
 }
 
 timeouts {
@@ -703,6 +713,7 @@ log {
 		cfg.Approval.MaxPendingPerAgent,
 		fmtHosts(cfg.ProxyBehavior.NoInterceptHosts),
 		fmtSize(cfg.ProxyBehavior.MaxBodyBuffer),
+		fmtBool(cfg.ProxyBehavior.AllowPrivateUpstream),
 		fmtDur(cfg.Timeouts.ConnectReadHeader),
 		fmtDur(cfg.Timeouts.MITMHandshake),
 		fmtDur(cfg.Timeouts.IdleKeepalive),

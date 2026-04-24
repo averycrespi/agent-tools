@@ -25,6 +25,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/daemon"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/dashboard"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/inject"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/netguard"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/proxy"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
@@ -246,12 +247,15 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	authority.Start(ctx)
 
 	// 6b. Build upstream RoundTripper with config-driven timeouts.
+	// WHY: the DialContext is wrapped with netguard to block SSRF and IMDS
+	// access before any byte reaches the network. DNS resolution happens inside
+	// the guard (resolve → check → dial) so hostname-based SSRF (e.g.
+	// "metadata.google.internal") is caught the same way as a literal IP.
+	upstreamDialer := &net.Dialer{Timeout: cfg.Timeouts.UpstreamDial}
 	upstreamRT := &http.Transport{
-		ForceAttemptHTTP2: true,
-		TLSClientConfig:   &tls.Config{MinVersion: tls.VersionTLS12}, //nolint:gosec
-		DialContext: (&net.Dialer{
-			Timeout: cfg.Timeouts.UpstreamDial,
-		}).DialContext,
+		ForceAttemptHTTP2:   true,
+		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12}, //nolint:gosec
+		DialContext:         netguard.DialContext(upstreamDialer, cfg.ProxyBehavior.AllowPrivateUpstream),
 		TLSHandshakeTimeout: cfg.Timeouts.UpstreamTLS,
 		IdleConnTimeout:     cfg.Timeouts.UpstreamIdleKeepalive,
 	}

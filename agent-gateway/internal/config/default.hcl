@@ -29,6 +29,12 @@ approval {
 proxy_behavior {
   no_intercept_hosts = []
   max_body_buffer    = "1MiB"
+  # allow_private_upstream controls whether the upstream dialer may connect to
+  # RFC 1918 / loopback addresses. Cloud IMDS addresses (169.254.169.254,
+  # fd00:ec2::254) are ALWAYS blocked regardless of this setting — they are an
+  # unconditional SSRF exfil path and no legitimate upstream lives there.
+  # Set to true only when your upstream services are on a private network.
+  allow_private_upstream = false
 }
 
 timeouts {
