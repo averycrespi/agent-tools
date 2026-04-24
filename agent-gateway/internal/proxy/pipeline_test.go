@@ -630,6 +630,102 @@ func TestPipeline_BodyBuffer_BufferedWhenNeeded(t *testing.T) {
 		"Body must be buffered when NeedsBodyBuffer returns true")
 }
 
+// faultyBody is an io.ReadCloser whose Read always returns a hard error.
+// Used to simulate a broken agent body reader or a racy upstream cutting the
+// pipe mid-read.
+type faultyBody struct {
+	err error
+}
+
+func (f *faultyBody) Read(_ []byte) (int, error) { return 0, f.err }
+func (f *faultyBody) Close() error               { return nil }
+
+// TestPipeline_BodyBufferIOError_FailsClosed verifies that when a rule on the
+// target host requires body buffering (NeedsBodyBuffer=true) and the body
+// reader returns a hard I/O error, the pipeline synthesises a 403 with
+// X-Request-ID rather than silently forwarding past the configured matcher.
+//
+// This mirrors the body_matcher_bypassed:timeout fail-closed path: if a rule
+// author asked us to look at the body, and we cannot, we must not pretend we
+// did — a broken agent or racy upstream would otherwise bypass rules that a
+// human reviewer had explicitly configured.
+func TestPipeline_BodyBufferIOError_FailsClosed(t *testing.T) {
+	auth := newTestAuthority(t)
+
+	var called bool
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
+	})
+
+	engine := &captureRulesEngine{
+		needsBodyBuffer: true,
+		result:          allowMatchResult(),
+	}
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                engine,
+	})
+
+	r := httptest.NewRequest(http.MethodPost, "https://api.example.com:443/data", &faultyBody{err: io.ErrClosedPipe})
+	r.Header.Set("Content-Type", "application/json")
+	// Non-zero Content-Length so bufferBody does not short-circuit on the
+	// "explicit zero" path.
+	r.Header.Set("Content-Length", "42")
+	r.ContentLength = 42
+	w := httptest.NewRecorder()
+	p.HandleForTest(w, r, "api.example.com:443", "")
+
+	resp := w.Result()
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode,
+		"fail-closed: body buffer I/O error when a matcher needs the body must synthesise 403")
+	assert.NotEmpty(t, resp.Header.Get("X-Request-ID"),
+		"fail-closed response must carry X-Request-ID")
+	assert.False(t, called, "upstream must NOT be called when body buffer errors and matcher is required")
+}
+
+// TestPipeline_BodyBufferIOError_FailsSoftWhenNoMatcher verifies the converse:
+// when no rule on the target host requires body buffering, the pipeline must
+// not call bufferBody at all, so a faulty body reader has no effect on the
+// rule-evaluation outcome. The upstream RoundTripper sees the faulty reader
+// and will itself fail, but that is not the pipeline's concern — the point is
+// that the pipeline does not synthesise a 403 when no matcher is bypassed.
+func TestPipeline_BodyBufferIOError_FailsSoftWhenNoMatcher(t *testing.T) {
+	auth := newTestAuthority(t)
+
+	engine := &captureRulesEngine{
+		needsBodyBuffer: false, // no matcher cares about the body
+		result:          allowMatchResult(),
+	}
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("ok")),
+			Request:    r,
+		}, nil
+	})
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                engine,
+	})
+
+	r := httptest.NewRequest(http.MethodPost, "https://api.example.com:443/data", &faultyBody{err: io.ErrClosedPipe})
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Content-Length", "42")
+	r.ContentLength = 42
+	w := httptest.NewRecorder()
+	p.HandleForTest(w, r, "api.example.com:443", "")
+
+	resp := w.Result()
+	// No matcher needs the body, so the pipeline must not synthesise a 403 on
+	// a buffer I/O error. The upstream was called (our stub returns 200).
+	assert.Equal(t, http.StatusOK, resp.StatusCode,
+		"fail-soft: when no matcher needs the body, a faulty reader must not cause a synthesised 403")
+}
+
 // TestPipeline_RequireApproval_NilBroker verifies that when no approval broker
 // is configured a 504 is returned with a useful message.
 func TestPipeline_RequireApproval_NilBroker(t *testing.T) {

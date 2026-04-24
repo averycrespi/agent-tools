@@ -135,6 +135,41 @@ func TestBufferBody_TimeoutMarks(t *testing.T) {
 	_ = got // full content check omitted — slow reader may or may not have more
 }
 
+// errReader is an io.ReadCloser that always returns a hard I/O error on Read.
+// Used to simulate a broken agent body reader or a racy upstream.
+type errReader struct {
+	err error
+}
+
+func (e *errReader) Read(_ []byte) (int, error) { return 0, e.err }
+func (e *errReader) Close() error               { return nil }
+
+// TestBufferBody_HardIOError: body reader returns a non-EOF error on first read.
+// Expect: err is set (propagated from the reader), so the pipeline can fail
+// closed when a body matcher is configured for this request.
+func TestBufferBody_HardIOError(t *testing.T) {
+	rc := &errReader{err: io.ErrClosedPipe}
+
+	hdr := make(http.Header)
+	// Content-Length present and non-zero so contentLengthIsZero does not short
+	// circuit and the reader is actually invoked.
+	hdr.Set("Content-Length", "42")
+
+	_, truncated, timedOut, rewound, err := bufferBody(context.Background(), rc, hdr, 64, time.Second)
+	if err == nil {
+		t.Fatal("expected error from faulty reader, got nil")
+	}
+	if truncated {
+		t.Error("expected truncated=false on hard I/O error")
+	}
+	if timedOut {
+		t.Error("expected timedOut=false on hard I/O error")
+	}
+	if rewound == nil {
+		t.Error("expected non-nil rewound even on error (caller may need to close)")
+	}
+}
+
 // TestBufferBody_NoContentLengthNoBody: GET with Content-Length: 0.
 // Expect: body == nil, truncated=false, timedOut=false.
 func TestBufferBody_NoContentLengthNoBody(t *testing.T) {

@@ -227,7 +227,8 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 		// Buffer the request body only when at least one rule for this
 		// agent+host declares a body matcher. This avoids the buffering
 		// overhead for the common case where no body matching is needed.
-		if p.rules.NeedsBodyBuffer(agentName, hostOnly) && r.Body != nil {
+		needsBody := p.rules.NeedsBodyBuffer(agentName, hostOnly)
+		if needsBody && r.Body != nil {
 			body, truncated, timedOut, rewound, bufErr := bufferBody(
 				r.Context(), r.Body, r.Header,
 				p.maxBodyBuffer, p.bodyBufferTimeout,
@@ -240,8 +241,24 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 				// receives the full original body bytes.
 				r.Body = rewound
 			} else {
-				p.log.Warn("proxy: body buffer read error; body matchers will not fire",
-					"request_id", reqID, "err", bufErr)
+				// Fail-closed on hard I/O error when a matcher needs the body.
+				// This aligns with the body_matcher_bypassed:timeout path above
+				// (handled after Evaluate): if a rule author asked us to inspect
+				// the body and we cannot, forwarding would silently bypass the
+				// matcher the operator explicitly configured. A broken agent or
+				// racy upstream tearing the body mid-read would otherwise be
+				// indistinguishable from a request whose body simply did not
+				// trip the matcher — collapsing the two is unsafe because the
+				// operator cannot tell deny-should-have-fired from allow-did-fire.
+				// The 403 carries X-Request-ID so the operator can correlate
+				// the audit row (error=body_buffer_io_error) with the client's
+				// failure response.
+				p.log.Warn("proxy: body buffer I/O error with body matcher configured; refusing to forward",
+					"request_id", reqID, "host", hostOnly, "err", bufErr)
+				a.Error = "body_buffer_io_error"
+				w.Header().Set("X-Request-ID", reqID)
+				http.Error(w, "Forbidden: body buffer read error", http.StatusForbidden)
+				return
 			}
 		}
 
