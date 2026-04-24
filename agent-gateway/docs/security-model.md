@@ -38,7 +38,7 @@ The guarantees above assume you've done the following. None of these are optiona
 - **Read soft warnings.** `rules check` output and daemon startup logs include warnings for `host = "**"`, public-suffix `no_intercept_hosts`, and secret `allowed_hosts` that don't obviously cover their referencing rule's `match.host`. Treat these as "someone should look at this," not noise.
 - **Keep the dashboard on loopback.** The dashboard binds to `127.0.0.1:8221` by default. Don't move it off loopback without putting it behind an authenticated reverse proxy. The admin token gates write actions (approve/deny) but the live feed leaks host names and rule hits to anyone who can reach the port.
 - **Rotate on agent departure.** `agent rm <name>` invalidates a sandbox's token immediately. Don't leave stale agent tokens with rule scope they no longer need.
-- **Rotate the root CA if a sandbox is compromised.** A compromised sandbox has your CA cert in its trust store. That only matters if the sandbox is now used as a launching point for MITM against *other* systems in your environment, but if that's on the table, `ca rotate` and re-provision.
+- **Rotate the root CA if a sandbox is compromised.** A compromised sandbox has your CA cert in its trust store. That only matters if the sandbox is now used as a launching point for MITM against _other_ systems in your environment, but if that's on the table, `ca rotate` and re-provision.
 
 ## What's out of scope
 
@@ -50,6 +50,69 @@ agent-gateway does **not** protect against any of the following. Assume these ar
 - **Traffic analysis.** Destination hostnames and timing are visible to anyone on the network between the gateway and upstream. Gateway → upstream traffic is TLS but SNI is not hidden.
 - **Denial of service.** No rate limiting on agent-facing ports. A misbehaving or malicious sandbox can exhaust gateway resources; isolate sandboxes that might do this at the OS level.
 - **Post-injection detection.** Once a secret has been legitimately injected into a request that matched a rule, the gateway has no further visibility into how the upstream handles it. If the upstream logs the credential, forwards it, or is compromised, that's outside the gateway's scope.
+
+## CA trust-store scope
+
+The gateway's root CA (`ca.pem`, key at `ca.key`) exists for one purpose: allowing sandboxed agents to trust the gateway's MITM-issued leaf certificates. It is installed into the sandbox trust store — not the host's. Importing `ca.pem` into the host OS trust store, a browser profile, or any other non-sandbox trust context turns a `ca.key` leak into an arbitrary MITM capability against any TLS traffic on that host. If the key is compromised, an attacker with `ca.key` can mint certificates for any hostname and intercept any connection that trusts the CA — including connections made by the operator's browser, OS tooling, and other services running on the host. Keep `ca.key` at its default location (`$XDG_DATA_HOME/agent-gateway/ca.key`, mode `0o600`, owner-only directory) and never add `ca.pem` to any trust store outside the sandboxes the gateway is serving.
+
+## Tunnel-mode XFF
+
+When the gateway issues a `DecisionTunnel` verdict (host in `no_intercept_hosts`, IP literal, or no agent-scoped rule targeting that host), it relays raw TCP bytes without MITM. Because the gateway has no visibility into the tunneled TLS session, it cannot inspect, strip, or normalize any headers inside the tunnel. An agent can therefore prepend or forge `X-Forwarded-For`, `True-Client-IP`, `Forwarded`, or similar headers in tunnel-routed traffic. Upstream services that treat those headers as authoritative for access control, rate limiting, or logging must not consider tunnel-routed traffic trusted. The audit row for a tunnel connection records `interception='tunnel'` with bytes and duration only; method, path, and headers are not visible to the gateway.
+
+## Operational security
+
+### Audit log sensitivity
+
+The audit log (`$XDG_DATA_HOME/agent-gateway/state.db`, WAL mode) records destination hostnames, matched rules, rule verdicts, injection status, and HTTP methods and paths for every MITM'd request. It does not record request bodies, response bodies, or injected credential values, but hostnames alone may be sensitive in some environments. The file and its WAL (`state.db-wal`, `state.db-shm`) are mode `0o600`; the data directory is `0o700`. Do not share the database file with third parties or check it into version control. Prune retention with `audit.retention_days` in `config.hcl` (default 90 days; range 0–3650). If you need to share audit data for debugging, export specific rows via the dashboard rather than handing over the raw SQLite file.
+
+### Compromise-response playbook
+
+Each scenario below describes what's at risk, what to do immediately, and what cannot be recovered without a full secret rotation.
+
+**Admin token leaked** (`$XDG_CONFIG_HOME/agent-gateway/admin-token`, 64-char hex). The admin token gates write actions on the dashboard (approve/deny pending requests). Anyone holding it can approve any pending request while the token is live. Rotate immediately:
+
+```
+agent-gateway admin-token rotate
+```
+
+This generates a new token, writes it to the file, and sends SIGHUP so the running daemon reloads without restart. Existing dashboard sessions are invalidated. Verify the old token is no longer accepted by attempting to reach the dashboard API with it. Examine recent audit rows (`/api/audit` or the dashboard) for suspicious approvals made during the exposure window.
+
+**`ca.key` leaked** (`$XDG_DATA_HOME/agent-gateway/ca.key`). The CA key can mint certificates for any hostname. An attacker with it can MITM any connection from any sandbox that trusts the CA, and — if the CA was mistakenly imported into a host trust store — any host-level TLS traffic as well. Rotate the CA:
+
+```
+agent-gateway ca rotate --force
+```
+
+This regenerates `ca.key` and `ca.pem`, clears the leaf-cert cache in the running daemon (via SIGHUP), and prints the new cert path. Every sandbox must re-trust the new `ca.pem`; until they do, the gateway will fail to MITM their traffic (sandboxes will see TLS errors). Re-provision each sandbox using `sandbox-manager` or your provisioning script. The old `ca.key` is overwritten on disk; it cannot be "un-leaked" if a copy was exfiltrated.
+
+**Agent token leaked** (prefix `agw_`, 47 chars). A stolen agent token lets an attacker send requests through the gateway as that agent, triggering rule matches and credential injection on their behalf. Revoke the agent's current token by rotating it:
+
+```
+agent-gateway agent rotate <name> --force
+```
+
+If the agent should be decommissioned entirely (not just re-keyed):
+
+```
+agent-gateway agent rm <name> --force
+```
+
+`rm` cascade-deletes agent-scoped secrets and sends SIGHUP. After rotation or removal, verify via `agent-gateway agent list` that the old token prefix no longer appears (the prefix changes on rotate). Review audit rows for the agent name during the exposure window for unexpected rule matches.
+
+**Master key leaked**. The master key (OS keychain entry `agent-gateway / master-key-<id>`, or file `$XDG_CONFIG_HOME/agent-gateway/master-key-<id>` mode `0o600`) wraps the data-encryption key (DEK), which encrypts every secret row in the store. A leaked master key means an attacker can decrypt all stored credentials offline if they also have a copy of `state.db`. Rotate the master key:
+
+```
+agent-gateway master-key rotate --force
+```
+
+This derives a new master key, rewraps the DEK under it, and writes the new key to the keychain (or file fallback). The old key is deleted from the keychain and its fallback file best-effort after the new key is committed. Because the DEK and row ciphertexts are unchanged, the secrets themselves are not individually re-encrypted by this operation — but the path from master key to plaintext is broken. If you believe the attacker also has a copy of `state.db` (and therefore the wrapped DEK and all ciphertexts), the only remediation is to delete and re-add every secret with fresh values:
+
+```
+agent-gateway secret rm <name>
+printf '%s' "<value>" | agent-gateway secret add <name> --host <host>
+```
+
+After rotating, verify the old master-key file no longer exists at `$XDG_CONFIG_HOME/agent-gateway/master-key-<previous-id>`.
 
 ## Deployment assumptions
 
