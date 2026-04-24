@@ -15,6 +15,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	keyring "github.com/zalando/go-keyring"
 )
 
 // openTestDB opens a temporary SQLite database with migrations applied.
@@ -222,6 +223,11 @@ func TestStore_RotateOrphanCleanupOnFailure(t *testing.T) {
 // the pre-versioned scheme is migrated to master-key-1 on first NewStore call,
 // and that secrets encrypted with that legacy key continue to decrypt.
 func TestStore_LegacyKeyMigration(t *testing.T) {
+	// Reset the in-memory mock keyring so earlier tests' entries at
+	// "master-key-1" don't short-circuit ResolveID before it reaches the
+	// legacy-file migration path.
+	keyring.MockInit()
+
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 
