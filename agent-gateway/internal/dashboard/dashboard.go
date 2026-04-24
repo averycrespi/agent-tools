@@ -84,9 +84,9 @@ func New(deps Deps) *Server {
 }
 
 // Broadcast fans an event out to all current SSE subscribers. It is safe to
-// call from any goroutine. Callers supply a human-readable kind string (e.g.
-// "request", "approval") and any JSON-serialisable data payload.
-func (s *Server) Broadcast(kind string, data any) {
+// call from any goroutine. Callers must pass a declared EventKind constant;
+// the type prevents untrusted strings from reaching the SSE frame format.
+func (s *Server) Broadcast(kind EventKind, data any) {
 	s.sse.Broadcast(Event{
 		Kind: kind,
 		ID:   ulid.Make(),

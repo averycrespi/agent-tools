@@ -276,13 +276,14 @@ func TestSSE_SubscribeReceivesBroadcast(t *testing.T) {
 
 	ch := b.Subscribe(ctx)
 
-	ev := Event{Kind: "test", Data: map[string]string{"hello": "world"}}
+	// EventKind is a typed constant — passing a bare string literal here is a compile error.
+	ev := Event{Kind: EventRequest, Data: map[string]string{"hello": "world"}}
 	b.Broadcast(ev)
 
 	select {
 	case frame := <-ch:
 		s := string(frame)
-		require.Contains(t, s, "event: test\n")
+		require.Contains(t, s, "event: request\n")
 		require.Contains(t, s, "data: ")
 		require.Contains(t, s, "\n\n")
 	case <-time.After(time.Second):
@@ -296,7 +297,7 @@ func TestSSE_DropOnFull(t *testing.T) {
 	defer cancel()
 
 	ch := b.Subscribe(ctx)
-	ev := Event{Kind: "fill", Data: "x"}
+	ev := Event{Kind: EventRequest, Data: "x"}
 
 	// Fill the buffer (32) + 1 extra that should be dropped.
 	for i := 0; i < sseBufferSize+10; i++ {

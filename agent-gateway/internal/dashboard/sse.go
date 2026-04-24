@@ -16,9 +16,23 @@ const (
 	sseKeepalive  = 15 * time.Second
 )
 
+// EventKind is the SSE event type sent in the "event:" frame field.
+//
+// WHY: a named type prevents untrusted strings from reaching the SSE frame
+// format. The compiler enforces at every call site that only declared constants
+// are passed — no runtime validation required.
+type EventKind string
+
+const (
+	// EventApproval is fired when an approval request is added or resolved.
+	EventApproval EventKind = "approval"
+	// EventRequest is fired when a proxied request is audited.
+	EventRequest EventKind = "request"
+)
+
 // Event is a single SSE event broadcast to all subscribers.
 type Event struct {
-	Kind string
+	Kind EventKind
 	ID   ulid.ULID
 	Data any
 }

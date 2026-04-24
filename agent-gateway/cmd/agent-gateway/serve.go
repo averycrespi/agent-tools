@@ -201,7 +201,7 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	// dashBroadcast is set to dashServer.Broadcast after the dashboard server is
 	// constructed (below). The closures here capture the variable by reference so
 	// they resolve to the real function at call time, after it has been assigned.
-	var dashBroadcast func(kind string, data any)
+	var dashBroadcast func(kind dashboard.EventKind, data any)
 
 	approvalBroker := approval.New(approval.Opts{
 		MaxPending:         cfg.Approval.MaxPending,
@@ -209,7 +209,7 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		Timeout:            cfg.Approval.Timeout,
 		OnEvent: func(kind string, data any) {
 			if dashBroadcast != nil {
-				dashBroadcast(kind, data)
+				dashBroadcast(dashboard.EventKind(kind), data)
 			}
 		},
 	})
@@ -282,7 +282,7 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		Auditor:              auditor,
 		OnRequest: func(entry audit.Entry) {
 			if dashBroadcast != nil {
-				dashBroadcast("request", entry)
+				dashBroadcast(dashboard.EventRequest, entry)
 			}
 		},
 		Logger:            log,
