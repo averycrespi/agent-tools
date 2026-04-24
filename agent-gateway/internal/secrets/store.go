@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/hostmatch"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/hostnorm"
 )
 
@@ -543,6 +544,21 @@ func sanitizeAllowedHosts(hosts []string) ([]string, error) {
 		normalized, err := hostnorm.NormalizeGlob(trimmed)
 		if err != nil {
 			return nil, fmt.Errorf("allowed_hosts[%d]: %w", i, err)
+		}
+		// Reject patterns whose stripped form is an ICANN public suffix
+		// (e.g. "*.com", "*.co", "*.io"). allowed_hosts is the credential-
+		// scoping layer — unlike no_intercept_hosts where an over-broad
+		// pattern means "more MITM" (a warning is enough), a too-broad
+		// allowed_hosts would route real secrets to every host under a
+		// registry-controlled TLD. That's a security bug, not a config
+		// convenience, so we reject outright and name the offending
+		// pattern so the operator can fix it. Operators who genuinely
+		// want a secret usable everywhere can pass "**" explicitly.
+		if ok, suffix := hostmatch.MatchesPublicSuffix(normalized); ok {
+			return nil, fmt.Errorf(
+				"allowed_hosts[%d]: pattern %q strips to public suffix %q; refusing to bind secret to every host under %q (use \"**\" for explicit all-hosts binding, or narrow to a specific domain)",
+				i, h, suffix, suffix,
+			)
 		}
 		if _, dup := seen[normalized]; dup {
 			continue

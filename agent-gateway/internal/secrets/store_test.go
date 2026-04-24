@@ -342,6 +342,40 @@ func TestStore_Set_RejectsWildcardOnly(t *testing.T) {
 	assert.Contains(t, err.Error(), "matches every")
 }
 
+// TestStore_Set_RejectsPublicSuffix locks in that allowed_hosts refuses any
+// glob whose stripped form is an ICANN-managed public suffix (e.g. "*.com",
+// "*.co", "*.io"). Unlike no_intercept_hosts — where an over-broad pattern
+// means "too much MITM" — allowed_hosts is the credential-scoping layer: a
+// too-broad entry would route real credentials to every host under a
+// registry-controlled TLD, which is a security bug, not a config convenience.
+// So we reject outright instead of warning.
+func TestStore_Set_RejectsPublicSuffix(t *testing.T) {
+	for _, p := range []string{"*.co", "*.io", "*.com"} {
+		t.Run(p, func(t *testing.T) {
+			s := newTestStore(t)
+			err := s.Set(context.Background(), "tok", "", "v", "", []string{p})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "public suffix",
+				"error should mention public suffix, got: %v", err)
+			assert.Contains(t, err.Error(), p,
+				"error should name the rejected pattern, got: %v", err)
+		})
+	}
+}
+
+// TestStore_Bind_RejectsPublicSuffix locks in that the same rejection applies
+// at bind time — an operator can't widen a narrowly-scoped secret to a whole
+// public suffix via `secret bind`.
+func TestStore_Bind_RejectsPublicSuffix(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	require.NoError(t, s.Set(ctx, "tok", "", "v", "", []string{"api.github.com"}))
+
+	err := s.Bind(ctx, "tok", "", []string{"*.com"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "public suffix")
+}
+
 func TestStore_Set_NormalizesHosts(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

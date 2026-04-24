@@ -59,6 +59,8 @@ internal/store/         Single SQLite file, WAL mode, shared across audit /
                         agents / secrets; migrations via embedded SQL
 internal/daemon/        PID file write/read/delete for CLI→daemon SIGHUP signalling
 internal/paths/         XDG-conformant path helpers (config, data, runtime dirs)
+internal/hostmatch/     Host-glob analysis shared by config validator and
+                        secrets store (public-suffix detection)
 ```
 
 ### CONNECT decision filter

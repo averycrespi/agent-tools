@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"golang.org/x/net/publicsuffix"
-
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/hostmatch"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/hostnorm"
 )
 
@@ -156,35 +155,19 @@ func validateNoInterceptHosts(patterns []string) ([]string, error) {
 // Patterns whose stripped form is not a public suffix (e.g. "*.example.com"),
 // or whose suffix is on the private/non-ICANN portion of the PSL (e.g.
 // "*.internal", "*.k8s.local"), do not produce a warning.
+//
+// This is a soft warning (not an error) because the blast radius for
+// no_intercept_hosts is "too much MITM bypass" — an operator may genuinely
+// want to disable interception for a whole TLD during a controlled rollout.
+// Contrast with secrets allowed_hosts, where the same pattern reaches a
+// hard-reject because it would leak credentials to unintended hosts.
 func warnIfPublicSuffix(idx int, pattern string) string {
-	stripped := stripLeadingWildcardLabels(pattern)
-	if stripped == "" {
-		return ""
-	}
-	suffix, icann := publicsuffix.PublicSuffix(stripped)
-	if !icann || stripped != suffix {
+	ok, suffix := hostmatch.MatchesPublicSuffix(pattern)
+	if !ok {
 		return ""
 	}
 	return fmt.Sprintf(
 		"config: proxy_behavior.no_intercept_hosts[%d] %q strips to public suffix %q; tunneling would bypass MITM for every host under %q",
 		idx, pattern, suffix, suffix,
 	)
-}
-
-// stripLeadingWildcardLabels removes any sequence of leading "*." or "**."
-// label prefixes. Returns "" when the entire pattern is wildcards (callers
-// reject that case separately).
-func stripLeadingWildcardLabels(p string) string {
-	for {
-		switch {
-		case strings.HasPrefix(p, "**."):
-			p = p[3:]
-		case strings.HasPrefix(p, "*."):
-			p = p[2:]
-		case p == "*" || p == "**":
-			return ""
-		default:
-			return p
-		}
-	}
 }
