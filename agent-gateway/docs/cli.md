@@ -37,16 +37,36 @@ agent-gateway serve
 agent-gateway serve --headless
 ```
 
-| Flag         | Description                                                               |
-| ------------ | ------------------------------------------------------------------------- |
+| Flag         | Description                                                                |
+| ------------ | -------------------------------------------------------------------------- |
 | `--headless` | Suppress the browser launch on startup. Useful on CI and headless servers. |
 
 Binds `:8220` (proxy) and `:8221` (dashboard) per config. On every startup, prints the dashboard URL with its admin token to stdout and opens it in a browser when `dashboard.open_browser = true` (the default) and `--headless` is not set. The admin token is generated on first run and persisted at `$XDG_CONFIG_HOME/agent-gateway/admin-token`.
 
 Signals:
 
-- `SIGHUP` — reload rules, invalidate injector cache, reload agents registry, reload admin token, reload root CA (re-reads `ca.key`/`ca.pem` from disk and clears the leaf-cert cache).
+- `SIGHUP` — partial reload (see table below). In-flight requests finish on the pre-reload snapshot; no requests are dropped.
 - `SIGTERM` / `SIGINT` — graceful shutdown with 30s in-flight grace.
+
+### SIGHUP reload semantics
+
+The daemon reloads components in this order: agents → rules → injector cache → admin token → CA.
+
+| Setting / component                        | Reloaded on SIGHUP? | Notes                                                                                           |
+| ------------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------- |
+| Agent registry (`agents` table)            | Yes                 | Re-read from SQLite; new token hashes are live before rule reload.                              |
+| Rules files (`rules.d/*.hcl`)              | Yes                 | Previous ruleset stays live if the new files fail to parse.                                     |
+| Injector secret-value cache                | Yes (cleared)       | Secrets are re-fetched from SQLite on next use; `secrets.cache_ttl` stays at its startup value. |
+| Admin token file                           | Yes                 | Re-read from `$XDG_CONFIG_HOME/agent-gateway/admin-token`.                                      |
+| Root CA key/cert (`ca.key` / `ca.pem`)     | Yes                 | Re-read from disk; leaf-cert cache is cleared.                                                  |
+| `config.hcl` — any field                   | **No**              | Requires daemon restart.                                                                        |
+| `proxy.listen`, `dashboard.listen`         | No                  | Would require re-binding the listener socket.                                                   |
+| `timeouts.*`                               | No                  | Baked into server construction at startup.                                                      |
+| `proxy_behavior.no_intercept_hosts`        | No                  | Baked into proxy construction at startup.                                                       |
+| `proxy_behavior.max_body_buffer`           | No                  | Baked into proxy construction at startup.                                                       |
+| `approval.timeout`, `approval.max_pending` | No                  | Baked into approval broker at startup.                                                          |
+| `secrets.cache_ttl`                        | No                  | Active TTL is set at startup; only the cache contents are cleared.                              |
+| `audit.retention_days`                     | No                  | Pruner uses the startup value.                                                                  |
 
 ## `agent`
 
@@ -101,11 +121,11 @@ agent-gateway secret add gh_bot --host api.github.com --host "*.githubuserconten
 agent-gateway secret add unrestricted --host "**"    # explicit all-hosts opt-in
 ```
 
-| Flag             | Description                                                                                                                                                            |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Flag             | Description                                                                                                                                                                                                                               |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--host <glob>`  | Host glob the secret may be injected into. Repeatable; at least one is **required**. Same glob semantics as rule `match.host`. Use `"**"` for an explicit all-hosts opt-in. Wildcard-only patterns like `*`, `*.*`, or `..` are rejected. |
-| `--agent <name>` | Scope to a specific agent. Omit for global scope.                                                                                                                      |
-| `--desc <text>`  | Human-readable description.                                                                                                                                            |
+| `--agent <name>` | Scope to a specific agent. Omit for global scope.                                                                                                                                                                                         |
+| `--desc <text>`  | Human-readable description.                                                                                                                                                                                                               |
 
 A warning is printed if an agent-scoped add would shadow an existing global secret of the same name. Scope resolution is most-specific-wins: `agent:<name>` beats `global` for the same `<name>`.
 
@@ -118,10 +138,10 @@ agent-gateway secret bind gh_bot --host "*.github.com"
 agent-gateway secret bind gh_bot --host api.github.com --host "*.githubusercontent.com"
 ```
 
-| Flag             | Description                                                |
-| ---------------- | ---------------------------------------------------------- |
-| `--host <glob>`  | Host glob to add. Repeatable; at least one is required.    |
-| `--agent <name>` | Scope to the agent-scoped row for this secret name.        |
+| Flag             | Description                                             |
+| ---------------- | ------------------------------------------------------- |
+| `--host <glob>`  | Host glob to add. Repeatable; at least one is required. |
+| `--agent <name>` | Scope to the agent-scoped row for this secret name.     |
 
 ### `secret unbind <name>`
 
@@ -149,10 +169,10 @@ echo -n "new-value" | agent-gateway secret update gh_bot
 agent-gateway secret update gh_bot --agent claude-review
 ```
 
-| Flag             | Description                             |
-| ---------------- | --------------------------------------- |
+| Flag             | Description                           |
+| ---------------- | ------------------------------------- |
 | `--agent <name>` | Scope the update to a specific agent. |
-| `--force`        | Skip confirmation prompt.               |
+| `--force`        | Skip confirmation prompt.             |
 
 ### `secret rm <name>`
 
