@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -70,6 +71,24 @@ func Open(path string) (*sql.DB, error) {
 		}
 	}
 
+	return db, nil
+}
+
+// OpenReadOnly opens a SQLite file read-only. Returns os.ErrNotExist if path
+// is missing (caller can skip optional checks in that case).
+func OpenReadOnly(path string) (*sql.DB, error) {
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, os.ErrNotExist
+		}
+		return nil, fmt.Errorf("stat %s: %w", path, err)
+	}
+	// ncruces/go-sqlite3 honours SQLite URI parameters; ?mode=ro opens the
+	// database in read-only mode so any write attempt returns SQLITE_READONLY.
+	db, err := sql.Open("sqlite3", "file:"+path+"?mode=ro&_txlock=deferred")
+	if err != nil {
+		return nil, fmt.Errorf("open %s read-only: %w", path, err)
+	}
 	return db, nil
 }
 

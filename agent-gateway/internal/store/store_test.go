@@ -135,3 +135,23 @@ func TestMigration_AtomicRollback(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, version, "user_version must remain 0 after failed migration")
 }
+
+func TestOpenReadOnly_RejectsWrites(t *testing.T) {
+	dir := t.TempDir()
+	// First create a regular DB and close it.
+	db, err := store.Open(filepath.Join(dir, "state.db"))
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	ro, err := store.OpenReadOnly(filepath.Join(dir, "state.db"))
+	require.NoError(t, err)
+	defer func() { _ = ro.Close() }()
+
+	_, err = ro.Exec("CREATE TABLE x (y TEXT)")
+	require.Error(t, err)
+}
+
+func TestOpenReadOnly_AbsentFile_ErrNotExist(t *testing.T) {
+	_, err := store.OpenReadOnly(filepath.Join(t.TempDir(), "missing.db"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
