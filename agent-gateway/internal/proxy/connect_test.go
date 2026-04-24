@@ -136,6 +136,55 @@ func TestCONNECT_HandshakeTimeout(t *testing.T) {
 		"proxy should close connection well before our outer deadline")
 }
 
+// TestCONNECT_SlowlorisReadDeadline verifies that when a client opens a
+// connection to the proxy and never writes the CONNECT line, the serveConn
+// goroutine returns within the configured readHeaderTimeout. Without a
+// read deadline the http.ReadRequest call in serveConn has no stdlib
+// timeout on the outer CONNECT handshake and would pin the goroutine until
+// the slow client goes away (or the kernel tears down the socket), letting
+// a single attacker exhaust the process with idle goroutines.
+func TestCONNECT_SlowlorisReadDeadline(t *testing.T) {
+	auth := newTestAuthority(t)
+	const readHeaderTimeout = 100 * time.Millisecond
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: roundTripperFunc(testEchoHandler),
+		ReadHeaderTimeout:    readHeaderTimeout,
+	})
+
+	// net.Pipe gives us a deterministic, in-memory, bidirectional connection.
+	// We hand the server end to serveConn and keep the client end silent:
+	// no bytes are ever written, so http.ReadRequest must time out via the
+	// read deadline rather than block forever.
+	clientEnd, serverEnd := net.Pipe()
+	t.Cleanup(func() { _ = clientEnd.Close() })
+
+	done := make(chan struct{})
+	start := time.Now()
+	go func() {
+		defer close(done)
+		p.ServeConnForTest(serverEnd)
+	}()
+
+	// Allow generous slack over the configured timeout to absorb scheduler
+	// jitter on loaded CI runners; the point of the assertion is that the
+	// goroutine returns at all, in a time window dominated by the deadline
+	// rather than dictated by the client going away.
+	const slack = 2 * time.Second
+	select {
+	case <-done:
+		elapsed := time.Since(start)
+		assert.GreaterOrEqual(t, elapsed, readHeaderTimeout,
+			"serveConn returned before readHeaderTimeout elapsed — deadline may be too short")
+		assert.Less(t, elapsed, readHeaderTimeout+slack,
+			"serveConn took too long; read deadline may not be wired into http.ReadRequest")
+	case <-time.After(readHeaderTimeout + slack):
+		t.Fatalf("serveConn did not return within %v of the %v read-header timeout; "+
+			"a silent client can pin a proxy goroutine indefinitely",
+			slack, readHeaderTimeout)
+	}
+}
+
 // TestCONNECT_PreservesUpstreamPort is a regression test for the port-handling
 // bug: when the CONNECT target is host:port with port != 443, both
 // req.URL.Host and req.Host forwarded to the upstream must include the port.

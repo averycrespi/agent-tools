@@ -46,9 +46,35 @@ func (p *Proxy) serveConn(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 
 	br := bufio.NewReader(conn)
+
+	// WHY the read deadline on the outer CONNECT handshake: http.ReadRequest
+	// itself has no timeout, and the embedded *http.Server timeouts on the
+	// MITM'd inner paths (newH1Server / newH2Server) only apply AFTER the
+	// CONNECT line has been parsed and the TLS handshake has completed. A
+	// slow client that opens a TCP connection and never writes the CONNECT
+	// line (classic Slowloris against the proxy itself) would pin this
+	// goroutine until the kernel tore the socket down — letting a single
+	// attacker exhaust the process with idle goroutines. Bound the wait to
+	// readHeaderTimeout; clear the deadline on success so auth / MITM /
+	// tunnel paths can install their own.
+	if err := conn.SetReadDeadline(time.Now().Add(p.readHeaderTimeout)); err != nil {
+		p.log.Debug("proxy: SetReadDeadline on CONNECT failed", "err", err)
+		return
+	}
 	req, err := http.ReadRequest(br)
 	if err != nil {
-		// Unreadable request — close silently.
+		// Unreadable request — close silently. We are about to close conn
+		// so the stale deadline cannot leak to any caller.
+		return
+	}
+	// Clear the deadline before handing off: auth / MITM handshake / tunnel
+	// copy each install their own deadlines (or none, for long-lived tunnels)
+	// and must not inherit this short CONNECT-read bound. Clear both
+	// directions even though only the read deadline was set, so callers can
+	// rely on a cleanly reset net.Conn regardless of future deadline changes
+	// here.
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		p.log.Debug("proxy: clear CONNECT deadline failed", "err", err)
 		return
 	}
 

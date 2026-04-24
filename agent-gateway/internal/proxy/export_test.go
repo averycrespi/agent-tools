@@ -84,3 +84,11 @@ func AuditFromContext(ctx context.Context) *AuditRecord {
 func (p *Proxy) ServeTunnelForTest(conn net.Conn, br *bufio.Reader, connectTarget, agentName string) {
 	p.serveTunnel(conn, br, connectTarget, agentName)
 }
+
+// ServeConnForTest exposes serveConn for white-box testing so tests can drive
+// the CONNECT ingress path over a synthetic net.Conn (e.g. a net.Pipe end) and
+// assert precise timing — specifically the read deadline on the CONNECT
+// handshake read that guards against Slowloris.
+func (p *Proxy) ServeConnForTest(conn net.Conn) {
+	p.serveConn(conn)
+}
