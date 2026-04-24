@@ -7,7 +7,22 @@ import (
 	"net/http"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/agents"
+	"golang.org/x/net/http2"
 )
+
+// NewH2ServerForTest returns the *http2.Server that the Proxy uses for the
+// MITM'd HTTP/2 path. Tests use this to assert that hardening limits
+// (MaxConcurrentStreams etc.) are configured.
+func (p *Proxy) NewH2ServerForTest() *http2.Server {
+	return p.newH2Server()
+}
+
+// NewH1ServerForTest returns the *http.Server that the Proxy uses for the
+// MITM'd HTTP/1 path. Tests use this to assert that hardening limits
+// (MaxHeaderBytes, timeouts) are configured.
+func (p *Proxy) NewH1ServerForTest() *http.Server {
+	return p.newH1Server(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+}
 
 // HandleForTest exposes the internal handle method for white-box testing of
 // the pipeline verdict dispatch without requiring a full TLS connection.

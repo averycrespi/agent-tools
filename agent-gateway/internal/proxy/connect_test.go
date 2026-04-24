@@ -364,6 +364,51 @@ func TestConnect_TunnelAudits(t *testing.T) {
 	assert.NotEmpty(t, e.ID, "audit entry must have a request ID")
 }
 
+// TestServeH2_LimitsConfigured verifies that the MITM'd HTTP/2 server has the
+// hardening limits set by the proxy: these caps defend against Rapid Reset
+// (CVE-2023-44487) and CONTINUATION flood (CVE-2024-27316). The stdlib default
+// values target public-internet servers tuned for maximum concurrency; a
+// sandbox proxy handles one agent at a time, so tighter caps are safer.
+func TestServeH2_LimitsConfigured(t *testing.T) {
+	auth := newTestAuthority(t)
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: roundTripperFunc(testEchoHandler),
+	})
+
+	srv := p.NewH2ServerForTest()
+	require.NotNil(t, srv)
+	assert.Equal(t, uint32(100), srv.MaxConcurrentStreams,
+		"MaxConcurrentStreams must be capped to mitigate CVE-2023-44487 (Rapid Reset)")
+	assert.Equal(t, uint32(16<<10), srv.MaxReadFrameSize,
+		"MaxReadFrameSize must be capped for a sandbox proxy")
+	assert.Equal(t, uint32(4096), srv.MaxDecoderHeaderTableSize,
+		"MaxDecoderHeaderTableSize must be capped to mitigate CVE-2024-27316 (CONTINUATION flood)")
+	assert.Equal(t, uint32(4096), srv.MaxEncoderHeaderTableSize,
+		"MaxEncoderHeaderTableSize must be capped to mitigate CVE-2024-27316 (CONTINUATION flood)")
+}
+
+// TestServeH1_LimitsConfigured verifies that the MITM'd HTTP/1 server has the
+// hardening limits set by the proxy. MaxHeaderBytes defends against oversized
+// header floods; the stdlib default (1 MiB) is intended for a public-internet
+// server, not a sandbox proxy serving a single agent.
+func TestServeH1_LimitsConfigured(t *testing.T) {
+	auth := newTestAuthority(t)
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: roundTripperFunc(testEchoHandler),
+	})
+
+	srv := p.NewH1ServerForTest()
+	require.NotNil(t, srv)
+	assert.Equal(t, 64<<10, srv.MaxHeaderBytes,
+		"MaxHeaderBytes must be capped (64 KiB) to resist oversized-header floods")
+	assert.NotZero(t, srv.ReadHeaderTimeout,
+		"ReadHeaderTimeout must be configured to resist Slowloris")
+	assert.NotZero(t, srv.IdleTimeout,
+		"IdleTimeout must be configured so idle connections are reclaimed")
+}
+
 // TestConnect_TunnelAudits_DialFail verifies that when the tunnel dial fails,
 // a "blocked" audit entry is still recorded.
 func TestConnect_TunnelAudits_DialFail(t *testing.T) {

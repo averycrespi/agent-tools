@@ -306,13 +306,63 @@ func write407(conn net.Conn) error {
 	return err
 }
 
+// newH2Server constructs a fresh *http2.Server configured with hardening
+// limits appropriate for a sandbox proxy.
+//
+// WHY the explicit caps: the golang.org/x/net/http2 defaults are tuned for
+// public-internet servers that must tolerate many legitimate concurrent
+// clients and large HPACK tables. A sandbox gateway proxies exactly one
+// local agent, so tighter limits are both safe and actively useful as
+// defence-in-depth against two published HTTP/2 DoS classes:
+//
+//   - CVE-2023-44487 ("Rapid Reset"): a peer opens streams and immediately
+//     RST_STREAMs them, forcing the server to allocate/tear-down state at
+//     attacker-controlled rate. Capping MaxConcurrentStreams bounds the
+//     per-connection work an attacker can queue before the stdlib's
+//     server-side reset throttling kicks in.
+//   - CVE-2024-27316 ("CONTINUATION flood"): a peer sends HEADERS followed
+//     by an unbounded stream of CONTINUATION frames, inflating the HPACK
+//     decoder state. Capping the header-table sizes (and MaxReadFrameSize)
+//     bounds the memory any one connection can force the server to hold.
+//
+// The values (100 streams, 16 KiB frame, 4 KiB encoder+decoder tables) come
+// from OWASP / Google hardening guidance for non-public HTTP/2 endpoints.
+func (p *Proxy) newH2Server() *http2.Server {
+	return &http2.Server{
+		IdleTimeout:               p.idleTimeout,
+		MaxConcurrentStreams:      100,
+		MaxReadFrameSize:          16 << 10,
+		MaxDecoderHeaderTableSize: 4096,
+		MaxEncoderHeaderTableSize: 4096,
+	}
+}
+
+// newH1Server constructs a fresh *http.Server configured with hardening
+// limits appropriate for a sandbox proxy.
+//
+// WHY the explicit caps: the stdlib http.Server defaults (MaxHeaderBytes
+// = 1 MiB, no IdleTimeout unless set) assume a public-facing server tuned
+// for max throughput across many untrusted clients. A sandbox proxy serves
+// a single local agent, so a much smaller header budget and strict
+// timeouts are safe and reduce the blast radius of a misbehaving or
+// compromised agent (e.g. a Slowloris-style slow-header DoS, or an
+// oversized-header flood that forces large allocations per request).
+// 64 KiB is well above any legitimate HTTP/1 header set while being tight
+// enough to bound per-connection memory.
+func (p *Proxy) newH1Server(handler http.Handler) *http.Server {
+	return &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: p.readHeaderTimeout, //nolint:gosec
+		IdleTimeout:       p.idleTimeout,
+		MaxHeaderBytes:    64 << 10,
+	}
+}
+
 // serveH2 serves the MITM'd connection using HTTP/2.
 // agentName is the authenticated agent name (empty only in the test-only
 // no-registry path).
 func (p *Proxy) serveH2(conn *tls.Conn, host, agentName string) {
-	srv := &http2.Server{
-		IdleTimeout: p.idleTimeout,
-	}
+	srv := p.newH2Server()
 	srv.ServeConn(conn, &http2.ServeConnOpts{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p.handle(w, r, host, agentName)
@@ -327,12 +377,9 @@ func (p *Proxy) serveH1(conn *tls.Conn, host, agentName string) {
 	// Wrap in a single-connection net.Listener so http.Server can drive the
 	// loop (including keep-alive). This is simpler than hand-rolling the loop.
 	ln := newSingleConnListener(conn)
-	srv := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			p.handle(w, r, host, agentName)
-		}),
-		ReadHeaderTimeout: p.readHeaderTimeout, //nolint:gosec
-	}
+	srv := p.newH1Server(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p.handle(w, r, host, agentName)
+	}))
 	// Serve returns when the connection closes; ignore the error.
 	_ = srv.Serve(ln)
 }
