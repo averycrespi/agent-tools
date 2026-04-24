@@ -192,6 +192,14 @@ func TestValidate_Bounds(t *testing.T) {
 		{"body buffer too high", func(c *Config) { c.ProxyBehavior.MaxBodyBuffer = 1 << 40 }, true, "proxy_behavior.max_body_buffer"},
 		{"max pending ok", func(c *Config) { c.Approval.MaxPending = 50 }, false, ""},
 		{"max pending too high", func(c *Config) { c.Approval.MaxPending = 100000 }, true, "approval.max_pending"},
+		{"max pending per agent ok", func(c *Config) { c.Approval.MaxPendingPerAgent = 10 }, false, ""},
+		{"max pending per agent zero ok (unlimited)", func(c *Config) { c.Approval.MaxPendingPerAgent = 0 }, false, ""},
+		{"max pending per agent negative", func(c *Config) { c.Approval.MaxPendingPerAgent = -1 }, true, "approval.max_pending_per_agent"},
+		{"max pending per agent exceeds cap", func(c *Config) { c.Approval.MaxPendingPerAgent = 100000 }, true, "approval.max_pending_per_agent"},
+		{"max pending per agent exceeds global", func(c *Config) {
+			c.Approval.MaxPending = 20
+			c.Approval.MaxPendingPerAgent = 30
+		}, true, "exceeds approval.max_pending"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

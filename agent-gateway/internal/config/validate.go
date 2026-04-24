@@ -71,6 +71,27 @@ func validateBounds(cfg *Config) error {
 			cfg.Approval.MaxPending, maxPendingCap,
 		))
 	}
+	if cfg.Approval.MaxPendingPerAgent < 0 {
+		errs = append(errs, fmt.Errorf(
+			"approval.max_pending_per_agent: %d is negative",
+			cfg.Approval.MaxPendingPerAgent,
+		))
+	}
+	if cfg.Approval.MaxPendingPerAgent > maxPendingCap {
+		errs = append(errs, fmt.Errorf(
+			"approval.max_pending_per_agent: %d exceeds cap of %d",
+			cfg.Approval.MaxPendingPerAgent, maxPendingCap,
+		))
+	}
+	// A per-agent cap above the global cap is nonsensical — the global cap
+	// would trip first, making the per-agent cap dead code. Catch the typo
+	// here rather than let the operator wonder why it never fires.
+	if cfg.Approval.MaxPending > 0 && cfg.Approval.MaxPendingPerAgent > cfg.Approval.MaxPending {
+		errs = append(errs, fmt.Errorf(
+			"approval.max_pending_per_agent: %d exceeds approval.max_pending: %d",
+			cfg.Approval.MaxPendingPerAgent, cfg.Approval.MaxPending,
+		))
+	}
 	return errors.Join(errs...)
 }
 

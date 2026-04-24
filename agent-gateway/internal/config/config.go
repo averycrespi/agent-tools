@@ -68,8 +68,9 @@ type AuditConfig struct {
 
 // ApprovalConfig holds approval flow settings.
 type ApprovalConfig struct {
-	Timeout    time.Duration
-	MaxPending int `hcl:"max_pending"`
+	Timeout            time.Duration
+	MaxPending         int `hcl:"max_pending"`
+	MaxPendingPerAgent int `hcl:"max_pending_per_agent"`
 }
 
 // ProxyBehaviorConfig holds proxy behaviour tunables.
@@ -137,8 +138,9 @@ type wireAudit struct {
 }
 
 type wireApproval struct {
-	Timeout    string `hcl:"timeout"`
-	MaxPending int    `hcl:"max_pending"`
+	Timeout            string `hcl:"timeout"`
+	MaxPending         int    `hcl:"max_pending"`
+	MaxPendingPerAgent *int   `hcl:"max_pending_per_agent"`
 }
 
 type wireProxyBehavior struct {
@@ -194,6 +196,15 @@ func parseSize(s string) (int64, error) {
 		return 0, fmt.Errorf("invalid size %q: %w", s, err)
 	}
 	return n, nil
+}
+
+// derefInt returns *p or 0 if p is nil. Used for HCL wire fields where "not
+// present in file" must be distinguished from an explicit 0.
+func derefInt(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // parseDur parses a duration string, treating "0" and "0s" as zero.
@@ -285,8 +296,9 @@ func fromWire(w wireConfig) (Config, error) {
 			PruneAt:       w.Audit.PruneAt,
 		},
 		Approval: ApprovalConfig{
-			Timeout:    approvalTimeout,
-			MaxPending: w.Approval.MaxPending,
+			Timeout:            approvalTimeout,
+			MaxPending:         w.Approval.MaxPending,
+			MaxPendingPerAgent: derefInt(w.Approval.MaxPendingPerAgent),
 		},
 		ProxyBehavior: ProxyBehaviorConfig{
 			NoInterceptHosts: w.ProxyBehavior.NoInterceptHosts,
@@ -514,6 +526,12 @@ func mergeWire(dst *Config, w wireConfig) error {
 	if w.Approval.MaxPending != 0 {
 		dst.Approval.MaxPending = w.Approval.MaxPending
 	}
+	// max_pending_per_agent: *int — nil means "not present in file". An explicit
+	// 0 is accepted and means "no per-agent cap" (only the global MaxPending
+	// applies), matching the semantics of MaxPending itself.
+	if w.Approval.MaxPendingPerAgent != nil {
+		dst.Approval.MaxPendingPerAgent = *w.Approval.MaxPendingPerAgent
+	}
 	if len(w.ProxyBehavior.NoInterceptHosts) > 0 {
 		dst.ProxyBehavior.NoInterceptHosts = w.ProxyBehavior.NoInterceptHosts
 	}
@@ -645,8 +663,9 @@ audit {
 }
 
 approval {
-  timeout     = %q
-  max_pending = %d
+  timeout               = %q
+  max_pending           = %d
+  max_pending_per_agent = %d
 }
 
 proxy_behavior {
@@ -681,6 +700,7 @@ log {
 		cfg.Audit.PruneAt,
 		fmtDur(cfg.Approval.Timeout),
 		cfg.Approval.MaxPending,
+		cfg.Approval.MaxPendingPerAgent,
 		fmtHosts(cfg.ProxyBehavior.NoInterceptHosts),
 		fmtSize(cfg.ProxyBehavior.MaxBodyBuffer),
 		fmtDur(cfg.Timeouts.ConnectReadHeader),

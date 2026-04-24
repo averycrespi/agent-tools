@@ -467,7 +467,7 @@ id=1 location, or generates and persists a new key.
    transaction.
 2. In a single SQLite transaction: re-encrypt every secret row with the
    new key, then `UPDATE meta SET value = '<new id>' WHERE key =
-   'active_key_id'`, then commit.
+'active_key_id'`, then commit.
 3. Best-effort delete the previous id's key from keychain and disk.
 
 A crash before commit leaves `meta.active_key_id` pointing at the old id
@@ -990,17 +990,24 @@ rule and asserts neither surfaces on the SSE `approval` event or the
 
 ### Approval queue limits
 
-Pending approvals are bounded by a single global cap
-(`approval.max_pending`, default 50). When the cap is hit, new
-`require-approval` requests are rejected synchronously with `403 Forbidden`
+Pending approvals are bounded by two independent caps:
 
-- `Retry-After: 30`, body `{"error":"approval_queue_full"}`. The rejection
-  is audited (`outcome='blocked'`, `error='queue_full'`).
+- `approval.max_pending` (default 50) — global cap across all agents.
+- `approval.max_pending_per_agent` (default 10) — per-agent cap keyed by
+  the authenticated agent name. Zero means no per-agent cap (only the
+  global applies). The per-agent cap prevents one runaway agent (e.g. a
+  wedged retry loop) from filling the queue and starving parallel agents
+  that share the same gateway.
+
+When either cap is hit, new `require-approval` requests from the offending
+agent are rejected synchronously with `403 Forbidden`, `Retry-After: 30`,
+body `{"error":"approval_queue_full"}`. The rejection is audited
+(`outcome='blocked'`, `error='queue_full'`).
 
 Queue pressure is visible on the live feed as the pending-count pill in the
-dashboard header. A separate 90%-banner warning + per-agent caps +
-overflow-behaviour variants are deferred to v1.1 — single-user local-dev
-doesn't need the nuance.
+dashboard header. A separate 90%-banner warning and overflow-behaviour
+variants are deferred to v1.1 — single-user local-dev doesn't need the
+nuance.
 
 **Restart behaviour:** pending approvals are in-memory only. A daemon
 restart returns `504 Gateway Timeout` to every parked request. No
@@ -1113,8 +1120,9 @@ audit {
 }
 
 approval {
-  timeout     = "5m"
-  max_pending = 50      # global cap; 403 + Retry-After: 30 when hit
+  timeout               = "5m"
+  max_pending           = 50   # global cap; 403 + Retry-After: 30 when hit
+  max_pending_per_agent = 10   # per-agent cap; 0 = unlimited (only global applies)
 }
 
 proxy_behavior {
@@ -1240,18 +1248,18 @@ Each row names a concrete way injection could go wrong and the mechanism
 that prevents it. File:line anchors are the authoritative places to review
 the defense.
 
-| # | Attack class | Concrete worry | Defense | Location |
-|---|---|---|---|---|
-| 1 | Host-suffix tricks | `github.com.attacker.com` masquerades as `github.com` | Host globs compile to anchored regexes (`^…$`); no substring matching | `internal/rules/parse.go:545` (`compileGlob`); regressions in `internal/rules/match_test.go` |
-| 2 | Case / IDN / trailing-dot drift | `GitHub.Com.`, punycoded labels, or `github.com.` evade a literal rule `github.com` | Every host ingress point routes through `hostnorm.Normalize` / `NormalizeGlob` before comparison | Callers at `internal/proxy/connect.go:26`, `internal/proxy/decide.go:144`, `internal/rules/parse.go:278`, `internal/ca/leaf.go:83` |
-| 3 | In-tunnel `Host:` header mismatch | Agent `CONNECT`s to `api.github.com:443` then sends `Host: attacker.com` inside the TLS tunnel | CONNECT target wins — `upReq.Host` is rewritten before rule evaluation | `internal/proxy/pipeline.go:336` |
-| 4 | Redirect leakage | Upstream returns `302` to an attacker location, which would carry the injected credential forward | Proxy does a single `RoundTrip`; redirects are returned to the agent verbatim. A followed redirect triggers a fresh CONNECT, which re-enters decide → match → inject against the new host | `internal/proxy/pipeline.go:404` |
-| 5 | Over-broad rules | Operator writes `host = "**"` or `no_intercept_hosts = ["*.com"]`, silently disabling MITM or scoping | Hard rejection of unambiguous cases (wildcard-only `no_intercept_hosts`, missing `match.host`). Soft warnings for legal-but-suspicious cases (`host = "**"`, public-suffix `no_intercept_hosts`) surface at load and in `rules check` | `internal/config/validate.go` `validateNoInterceptHosts`; `internal/rules/parse.go` `decodeMatchBlock` |
-| 6 | Out-of-scope secret injection | A `*.example.com` rule matches and tries to inject a secret that was only intended for `api.github.com` | Per-secret `allowed_hosts` enforced hard at inject time. Scope mismatch → `ErrSecretHostScopeViolation` → `403 Forbidden`, audit `error='secret_host_scope_violation'`; request **never forwarded** | `internal/inject` (`Expand`); handler at `internal/proxy/pipeline.go:364-372` |
-| 7 | Body matcher bypassed | Request body exceeds `max_body_buffer` or buffering times out; a `deny` rule with a body matcher can no longer fire | Fail closed — request blocked with `403` regardless of the rule's intended verdict; audit `error='body_matcher_bypassed:size\|:timeout'` | `internal/proxy/pipeline.go:245-257` |
-| 8 | Missing secret at inject time | Rule references `${secrets.foo}` but `foo` is not in the store (typo, not-yet-created, deleted) | Fail soft — dummy credentials pass through untouched; audit `error='secret_unresolved'`. A real credential is never fabricated to fill the gap | `internal/proxy/pipeline.go` injection dispatch |
-| 9 | Rule-reload failure | Operator `SIGHUP`s with a broken HCL file | Previous ruleset stays live; `atomic.Pointer` swap only on successful parse + compile | `internal/rules/engine.go:32-39` (`Reload`) |
-| 10 | Agent impersonation | One agent tries to piggyback on another agent's rule scope or agent-scoped secret | Every CONNECT verifies `Proxy-Authorization` constant-time against the argon2id-hashed token store. The authenticated agent name — not the rule name — feeds agent-scoped secret lookup and the per-agent `HostsForAgent` index | `internal/agents/registry.go`; audit trail carries the authenticated name on every row |
+| #   | Attack class                      | Concrete worry                                                                                                      | Defense                                                                                                                                                                                                                               | Location                                                                                                                           |
+| --- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Host-suffix tricks                | `github.com.attacker.com` masquerades as `github.com`                                                               | Host globs compile to anchored regexes (`^…$`); no substring matching                                                                                                                                                                 | `internal/rules/parse.go:545` (`compileGlob`); regressions in `internal/rules/match_test.go`                                       |
+| 2   | Case / IDN / trailing-dot drift   | `GitHub.Com.`, punycoded labels, or `github.com.` evade a literal rule `github.com`                                 | Every host ingress point routes through `hostnorm.Normalize` / `NormalizeGlob` before comparison                                                                                                                                      | Callers at `internal/proxy/connect.go:26`, `internal/proxy/decide.go:144`, `internal/rules/parse.go:278`, `internal/ca/leaf.go:83` |
+| 3   | In-tunnel `Host:` header mismatch | Agent `CONNECT`s to `api.github.com:443` then sends `Host: attacker.com` inside the TLS tunnel                      | CONNECT target wins — `upReq.Host` is rewritten before rule evaluation                                                                                                                                                                | `internal/proxy/pipeline.go:336`                                                                                                   |
+| 4   | Redirect leakage                  | Upstream returns `302` to an attacker location, which would carry the injected credential forward                   | Proxy does a single `RoundTrip`; redirects are returned to the agent verbatim. A followed redirect triggers a fresh CONNECT, which re-enters decide → match → inject against the new host                                             | `internal/proxy/pipeline.go:404`                                                                                                   |
+| 5   | Over-broad rules                  | Operator writes `host = "**"` or `no_intercept_hosts = ["*.com"]`, silently disabling MITM or scoping               | Hard rejection of unambiguous cases (wildcard-only `no_intercept_hosts`, missing `match.host`). Soft warnings for legal-but-suspicious cases (`host = "**"`, public-suffix `no_intercept_hosts`) surface at load and in `rules check` | `internal/config/validate.go` `validateNoInterceptHosts`; `internal/rules/parse.go` `decodeMatchBlock`                             |
+| 6   | Out-of-scope secret injection     | A `*.example.com` rule matches and tries to inject a secret that was only intended for `api.github.com`             | Per-secret `allowed_hosts` enforced hard at inject time. Scope mismatch → `ErrSecretHostScopeViolation` → `403 Forbidden`, audit `error='secret_host_scope_violation'`; request **never forwarded**                                   | `internal/inject` (`Expand`); handler at `internal/proxy/pipeline.go:364-372`                                                      |
+| 7   | Body matcher bypassed             | Request body exceeds `max_body_buffer` or buffering times out; a `deny` rule with a body matcher can no longer fire | Fail closed — request blocked with `403` regardless of the rule's intended verdict; audit `error='body_matcher_bypassed:size\|:timeout'`                                                                                              | `internal/proxy/pipeline.go:245-257`                                                                                               |
+| 8   | Missing secret at inject time     | Rule references `${secrets.foo}` but `foo` is not in the store (typo, not-yet-created, deleted)                     | Fail soft — dummy credentials pass through untouched; audit `error='secret_unresolved'`. A real credential is never fabricated to fill the gap                                                                                        | `internal/proxy/pipeline.go` injection dispatch                                                                                    |
+| 9   | Rule-reload failure               | Operator `SIGHUP`s with a broken HCL file                                                                           | Previous ruleset stays live; `atomic.Pointer` swap only on successful parse + compile                                                                                                                                                 | `internal/rules/engine.go:32-39` (`Reload`)                                                                                        |
+| 10  | Agent impersonation               | One agent tries to piggyback on another agent's rule scope or agent-scoped secret                                   | Every CONNECT verifies `Proxy-Authorization` constant-time against the argon2id-hashed token store. The authenticated agent name — not the rule name — feeds agent-scoped secret lookup and the per-agent `HostsForAgent` index       | `internal/agents/registry.go`; audit trail carries the authenticated name on every row                                             |
 
 ### Non-goals
 

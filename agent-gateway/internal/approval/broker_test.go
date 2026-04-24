@@ -201,6 +201,177 @@ func TestBroker_Pending_ViewInvariant(t *testing.T) {
 	_ = b.Decide(req.RequestID, proxy.DecisionApproved)
 }
 
+// TestRequest_PerAgentCapPreventsStarvation verifies the §18 per-agent-cap
+// invariant: a runaway agent A cannot exhaust the broker's global capacity
+// while parallel agents B, C, ... are still under their own per-agent cap.
+//
+// Scenario: global MaxPending=50, per-agent cap=10.
+//   - Agent A fills its per-agent cap with 10 pending requests (global free).
+//   - Agent A's 11th request MUST fail fast with ErrQueueFull (per-agent cap).
+//   - Agent B's 1st request MUST succeed (global cap free, B's cap free).
+func TestRequest_PerAgentCapPreventsStarvation(t *testing.T) {
+	b := approval.New(approval.Opts{
+		MaxPending:         50,
+		MaxPendingPerAgent: 10,
+		Timeout:            time.Hour,
+	})
+
+	mkReq := func(agent, id string) proxy.ApprovalRequest {
+		return proxy.ApprovalRequest{
+			RequestID: id,
+			Agent:     agent,
+			Host:      "api.example.com:443",
+			Method:    "GET",
+			Path:      "/v1/resource",
+		}
+	}
+
+	// Agent A fills its per-agent cap with 10 pending requests.
+	aIDs := []string{
+		"01J0000000000000000000A001",
+		"01J0000000000000000000A002",
+		"01J0000000000000000000A003",
+		"01J0000000000000000000A004",
+		"01J0000000000000000000A005",
+		"01J0000000000000000000A006",
+		"01J0000000000000000000A007",
+		"01J0000000000000000000A008",
+		"01J0000000000000000000A009",
+		"01J0000000000000000000A010",
+	}
+	for _, id := range aIDs {
+		go func(id string) {
+			_, _ = b.Request(context.Background(), mkReq("agent-a", id))
+		}(id)
+	}
+	waitForPending(b, 10)
+	require.Len(t, b.Pending(), 10, "agent A should have 10 pending at its per-agent cap")
+
+	// Agent A's 11th request MUST fail synchronously with ErrQueueFull
+	// (per-agent cap breach — global still has 40 slots free).
+	_, err := b.Request(context.Background(), mkReq("agent-a", "01J0000000000000000000A011"))
+	assert.ErrorIs(t, err, approval.ErrQueueFull,
+		"11th request from agent A must be rejected by per-agent cap")
+
+	// Agent B's 1st request MUST succeed — global cap free (40 slots), B's
+	// per-agent cap free (0 of 10). We start it in a goroutine (it blocks
+	// waiting for a decision) then verify it reached the pending map.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = b.Request(context.Background(), mkReq("agent-b", "01J0000000000000000000B001"))
+	}()
+	waitForPending(b, 11)
+	require.Len(t, b.Pending(), 11, "agent B should have registered its first request")
+
+	// Clean up: decide all outstanding requests so goroutines exit.
+	for _, id := range aIDs {
+		_ = b.Decide(id, proxy.DecisionApproved)
+	}
+	_ = b.Decide("01J0000000000000000000B001", proxy.DecisionApproved)
+	<-done
+}
+
+// TestRequest_PerAgentCapDecrementsOnDecide verifies that after a pending
+// request is resolved via Decide, the per-agent counter is decremented so
+// the agent can make a new request.
+func TestRequest_PerAgentCapDecrementsOnDecide(t *testing.T) {
+	b := approval.New(approval.Opts{MaxPendingPerAgent: 1, Timeout: time.Hour})
+
+	req1 := proxy.ApprovalRequest{RequestID: "01J000000000000000000DEC1", Agent: "a"}
+	req2 := proxy.ApprovalRequest{RequestID: "01J000000000000000000DEC2", Agent: "a"}
+
+	go func() { _, _ = b.Request(context.Background(), req1) }()
+	waitForPending(b, 1)
+
+	// Second request from same agent must fail — per-agent cap hit.
+	_, err := b.Request(context.Background(), req2)
+	require.ErrorIs(t, err, approval.ErrQueueFull)
+
+	// Resolve req1. Decide removes req1 from pending and must also decrement
+	// the per-agent counter. Otherwise a new req3 would still fail.
+	require.NoError(t, b.Decide(req1.RequestID, proxy.DecisionApproved))
+
+	// Now a new request from agent "a" must succeed.
+	req3 := proxy.ApprovalRequest{RequestID: "01J000000000000000000DEC3", Agent: "a"}
+	go func() { _, _ = b.Request(context.Background(), req3) }()
+	waitForPending(b, 1)
+	require.Len(t, b.Pending(), 1, "req3 should be registered after req1 resolved")
+
+	_ = b.Decide(req3.RequestID, proxy.DecisionApproved)
+}
+
+// TestRequest_PerAgentCapDecrementsOnCancel verifies that when the caller's
+// context is cancelled, the per-agent counter is decremented via the
+// ApprovalGuard cleanup path.
+func TestRequest_PerAgentCapDecrementsOnCancel(t *testing.T) {
+	b := approval.New(approval.Opts{MaxPendingPerAgent: 1, Timeout: time.Hour})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req1 := proxy.ApprovalRequest{RequestID: "01J000000000000000000CAN1", Agent: "a"}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = b.Request(ctx, req1)
+	}()
+	waitForPending(b, 1)
+
+	// Cancel: ApprovalGuard must clean up pending entry AND per-agent count.
+	cancel()
+	<-done
+
+	// New request must succeed — per-agent counter was decremented on cancel.
+	req2 := proxy.ApprovalRequest{RequestID: "01J000000000000000000CAN2", Agent: "a"}
+	go func() { _, _ = b.Request(context.Background(), req2) }()
+	waitForPending(b, 1)
+
+	_ = b.Decide(req2.RequestID, proxy.DecisionApproved)
+}
+
+// TestRequest_PerAgentCapDecrementsOnTimeout verifies that when a pending
+// request times out, the per-agent counter is decremented so the same agent
+// can enqueue again.
+func TestRequest_PerAgentCapDecrementsOnTimeout(t *testing.T) {
+	b := approval.New(approval.Opts{MaxPendingPerAgent: 1, Timeout: 50 * time.Millisecond})
+
+	req1 := proxy.ApprovalRequest{RequestID: "01J000000000000000000TMO1", Agent: "a"}
+	decision, err := b.Request(context.Background(), req1)
+	require.NoError(t, err)
+	require.Equal(t, proxy.DecisionTimeout, decision)
+
+	// After timeout, a new request from "a" must succeed.
+	req2 := proxy.ApprovalRequest{RequestID: "01J000000000000000000TMO2", Agent: "a"}
+	go func() { _, _ = b.Request(context.Background(), req2) }()
+	waitForPending(b, 1)
+
+	_ = b.Decide(req2.RequestID, proxy.DecisionApproved)
+}
+
+// TestRequest_PerAgentCapUnlimitedWhenZero verifies that MaxPendingPerAgent=0
+// means "no per-agent cap" (only the global MaxPending applies), matching the
+// semantics of MaxPending=0.
+func TestRequest_PerAgentCapUnlimitedWhenZero(t *testing.T) {
+	b := approval.New(approval.Opts{MaxPendingPerAgent: 0, Timeout: time.Hour})
+
+	for i := 0; i < 20; i++ {
+		id := proxy.ApprovalRequest{
+			RequestID: "01J000000000000000000UNL" + string(rune('A'+i)),
+			Agent:     "a",
+		}
+		go func(r proxy.ApprovalRequest) {
+			_, _ = b.Request(context.Background(), r)
+		}(id)
+	}
+	waitForPending(b, 20)
+	require.Len(t, b.Pending(), 20, "MaxPendingPerAgent=0 must allow unlimited per-agent pending")
+
+	// Clean up.
+	for _, p := range b.Pending() {
+		_ = b.Decide(p.RequestID, proxy.DecisionApproved)
+	}
+}
+
 // TestDecide_UnknownIDReturnsError verifies that Decide returns ErrUnknownID
 // for an id that has never been registered (or has already been resolved).
 func TestDecide_UnknownIDReturnsError(t *testing.T) {

@@ -26,9 +26,21 @@ var ErrUnknownID = errors.New("approval: unknown request id")
 // Opts configures the Broker.
 type Opts struct {
 	// MaxPending is the maximum number of concurrently-pending approval
-	// requests. When the cap is hit, new Request calls return ErrQueueFull
-	// synchronously without blocking. Zero means no cap.
+	// requests across all agents. When the cap is hit, new Request calls
+	// return ErrQueueFull synchronously without blocking. Zero means no cap.
 	MaxPending int
+
+	// MaxPendingPerAgent is the maximum number of concurrently-pending
+	// approval requests attributed to a single agent (keyed by Agent name).
+	// When the cap is hit, new Request calls from that agent return
+	// ErrQueueFull synchronously without blocking; other agents are unaffected.
+	// Zero means no per-agent cap — only MaxPending applies.
+	//
+	// WHY: the per-agent cap prevents one runaway agent (e.g. a wedged retry
+	// loop) from filling the global pending queue and starving parallel
+	// agents that share the same gateway. Without it, MaxPending alone is a
+	// noisy-neighbour footgun — one buggy sandbox DoS's every other sandbox.
+	MaxPendingPerAgent int
 
 	// Timeout is how long Request will block waiting for a decision before
 	// returning proxy.DecisionTimeout. Zero means block forever.
@@ -54,6 +66,12 @@ type pendingEntry struct {
 	// ch receives the operator decision exactly once; buffered(1) so Decide
 	// never blocks.
 	ch chan proxy.ApprovalDecision
+
+	// agent is the Agent name captured at Request time, used to decrement the
+	// per-agent counter on removal. Stored separately from view because view
+	// is public-shape and agent is a bookkeeping key — we never want view.Agent
+	// drift to silently break the per-agent accounting.
+	agent string
 }
 
 // Broker is the in-memory approval broker.
@@ -62,16 +80,24 @@ type pendingEntry struct {
 type Broker struct {
 	mu      sync.Mutex
 	pending map[string]*pendingEntry
-	opts    Opts
-	onEvent func(kind string, data any) // alias to opts.OnEvent; nil-safe
+	// perAgent tracks the number of currently-pending requests keyed by Agent
+	// name. Incremented in Request after the cap check succeeds; decremented
+	// in removeLocked on ANY pending removal path (Decide success, timeout,
+	// ctx cancel). Keyed by the SAME string stored in pendingEntry.agent so
+	// increment/decrement always pair. A missed decrement is a slow-leak bug
+	// that eventually wedges the agent at its cap — audit every removal site.
+	perAgent map[string]int
+	opts     Opts
+	onEvent  func(kind string, data any) // alias to opts.OnEvent; nil-safe
 }
 
 // New constructs a Broker with the given options.
 func New(opts Opts) *Broker {
 	return &Broker{
-		pending: make(map[string]*pendingEntry),
-		opts:    opts,
-		onEvent: opts.OnEvent,
+		pending:  make(map[string]*pendingEntry),
+		perAgent: make(map[string]int),
+		opts:     opts,
+		onEvent:  opts.OnEvent,
 	}
 }
 
@@ -83,18 +109,29 @@ func New(opts Opts) *Broker {
 //   - Normal resolution (approved/denied/timeout): disarm=true, defer is a no-op.
 //   - Context cancellation: disarm=false, defer removes the entry.
 func (b *Broker) Request(ctx context.Context, p proxy.ApprovalRequest) (proxy.ApprovalDecision, error) {
-	// Check queue cap before registering.
+	// Check queue caps before registering. Both caps are checked under the
+	// same lock so a concurrent Request/Decide cannot race the counter.
 	b.mu.Lock()
 	if b.opts.MaxPending > 0 && len(b.pending) >= b.opts.MaxPending {
 		b.mu.Unlock()
 		return "", ErrQueueFull
 	}
+	// Per-agent cap: one runaway agent must not starve parallel agents that
+	// share the same gateway. Evaluated independently of the global cap —
+	// an agent that hits its per-agent cap is rejected even when the global
+	// queue has room.
+	if b.opts.MaxPendingPerAgent > 0 && b.perAgent[p.Agent] >= b.opts.MaxPendingPerAgent {
+		b.mu.Unlock()
+		return "", ErrQueueFull
+	}
 
 	entry := &pendingEntry{
-		view: p,
-		ch:   make(chan proxy.ApprovalDecision, 1),
+		view:  p,
+		ch:    make(chan proxy.ApprovalDecision, 1),
+		agent: p.Agent,
 	}
 	b.pending[p.RequestID] = entry
+	b.perAgent[p.Agent]++
 	b.mu.Unlock()
 
 	// Notify listeners (e.g. dashboard SSE) that a new pending item was added.
@@ -168,8 +205,11 @@ func (b *Broker) Decide(id string, decision proxy.ApprovalDecision) error {
 		return ErrUnknownID
 	}
 	// Remove the entry before sending so that a concurrent Pending() call does
-	// not include it after the decision has been dispatched.
-	delete(b.pending, id)
+	// not include it after the decision has been dispatched. removeEntryLocked
+	// also decrements the per-agent counter — Decide is one of the three paths
+	// that resolves a pending request (alongside timeout and ctx cancel), and
+	// skipping the decrement here would permanently leak a slot.
+	b.removeEntryLocked(id, entry)
 	b.mu.Unlock()
 
 	// The channel is buffered(1); this never blocks.
@@ -185,12 +225,33 @@ func (b *Broker) Decide(id string, decision proxy.ApprovalDecision) error {
 	return nil
 }
 
-// remove deletes the entry for id from the pending map. It is a no-op if id
-// is not present (idempotent).
+// remove deletes the entry for id from the pending map and decrements the
+// per-agent counter. It is a no-op if id is not present (idempotent).
+//
+// All pending-removal paths (Decide, timeout select arm, ApprovalGuard defer
+// on ctx cancel) MUST funnel through remove or removeEntryLocked — missing
+// a decrement leaks a per-agent slot permanently and eventually wedges that
+// agent at its cap.
 func (b *Broker) remove(id string) {
 	b.mu.Lock()
+	defer b.mu.Unlock()
+	entry, ok := b.pending[id]
+	if !ok {
+		return
+	}
+	b.removeEntryLocked(id, entry)
+}
+
+// removeEntryLocked deletes entry from pending and decrements the per-agent
+// counter. Caller must hold b.mu. The counter is deleted from the map when
+// it hits zero to keep the map bounded (idle agents do not accumulate keys).
+func (b *Broker) removeEntryLocked(id string, entry *pendingEntry) {
 	delete(b.pending, id)
-	b.mu.Unlock()
+	if n := b.perAgent[entry.agent] - 1; n <= 0 {
+		delete(b.perAgent, entry.agent)
+	} else {
+		b.perAgent[entry.agent] = n
+	}
 }
 
 // Ensure *Broker satisfies proxy.ApprovalBroker at compile time.

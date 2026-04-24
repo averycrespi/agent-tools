@@ -21,8 +21,9 @@ audit {
 }
 
 approval {
-  timeout     = "5m"
-  max_pending = 50
+  timeout               = "5m"
+  max_pending           = 50
+  max_pending_per_agent = 10
 }
 
 proxy_behavior {

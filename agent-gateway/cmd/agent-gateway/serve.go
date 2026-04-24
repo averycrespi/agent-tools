@@ -203,8 +203,9 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	var dashBroadcast func(kind string, data any)
 
 	approvalBroker := approval.New(approval.Opts{
-		MaxPending: cfg.Approval.MaxPending,
-		Timeout:    cfg.Approval.Timeout,
+		MaxPending:         cfg.Approval.MaxPending,
+		MaxPendingPerAgent: cfg.Approval.MaxPendingPerAgent,
+		Timeout:            cfg.Approval.Timeout,
 		OnEvent: func(kind string, data any) {
 			if dashBroadcast != nil {
 				dashBroadcast(kind, data)
