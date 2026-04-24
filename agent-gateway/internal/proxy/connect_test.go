@@ -236,6 +236,58 @@ func TestCONNECT_NonCONNECT_Returns400(t *testing.T) {
 	assert.Contains(t, status, "400")
 }
 
+// TestServeConn_MalformedHostRejected verifies that a CONNECT with a host that
+// cannot be normalised (invalid punycode) is rejected with 400 and no upstream
+// dial is attempted. Fail-open here would let an IDN homograph bypass rules
+// by falling through to tunnel mode with mangled audit data.
+func TestServeConn_MalformedHostRejected(t *testing.T) {
+	auth := newTestAuthority(t)
+	reg := newStubRegistry(testToken)
+
+	// Record any upstream round-trip attempts. The MITM path routes through
+	// UpstreamRoundTripper; the tunnel path would dial TCP directly. For this
+	// test the CONNECT must be rejected before either path is reached, so the
+	// counter must remain zero.
+	var rtCalls int
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		rtCalls++
+		return testEchoHandler(r)
+	})
+
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		Registry:             reg,
+		UpstreamRoundTripper: rt,
+	})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	go p.Serve(ln)
+	t.Cleanup(func() { _ = ln.Close() })
+
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	// xn--p-ecp.ru is an invalid-punycode label that hostnorm.Normalize
+	// rejects. The wire format is still parseable by http.ReadRequest.
+	authHdr := makeProxyAuthHeader(testToken)
+	_, err = io.WriteString(conn, "CONNECT xn--p-ecp.ru:443 HTTP/1.1\r\nHost: xn--p-ecp.ru:443\r\nProxy-Authorization: "+authHdr+"\r\n\r\n")
+	require.NoError(t, err)
+
+	buf := make([]byte, 512)
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, _ := conn.Read(buf)
+	assert.Contains(t, string(buf[:n]), "400",
+		"expected 400 Bad Request for un-normalizable CONNECT target")
+	assert.NotContains(t, string(buf[:n]), "200",
+		"must not return 200 Connection Established for malformed host")
+
+	// Give the proxy goroutine a moment to finish; then assert no upstream
+	// RoundTrip was attempted.
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, 0, rtCalls, "proxy must not dial upstream on malformed host")
+}
+
 // TestConnect_TunnelAudits verifies §5 row 1: the tunnel path writes an audit
 // entry with Interception="tunnel", nil Method, nil Path, and a non-zero
 // BytesIn + BytesOut when data flows through the tunnel.

@@ -15,22 +15,28 @@ import (
 	"golang.org/x/net/http2"
 )
 
-// normalizeHostSilently returns the canonical form of host. If normalization
-// fails (malformed hostname) it logs at debug and returns host unchanged so
-// the caller can still make an intercept decision — a host we cannot
-// normalize will not match any rule and will fall through to tunnel or
-// reject via the existing decision path.
-func normalizeHostSilently(host string, log interface {
+// normalizeHost returns the canonical form of host or an error when the host
+// fails IDNA / hostnorm validation.
+//
+// WHY fail closed: an un-normalizable host must not transit the gateway.
+// Falling back to the raw host would let an IDN homograph (e.g. an invalid
+// punycode label that bypasses Unicode lookup) slip past rule matching —
+// the raw form won't match any rule glob, so Decide would return
+// DecisionTunnel and the bytes would flow through with audit rows that
+// attribute traffic to a mangled/attacker-chosen hostname. Rejecting at
+// ingress keeps the invariant that every hostname observed by the pipeline
+// is byte-for-byte canonical.
+func normalizeHost(host string, log interface {
 	Debug(msg string, args ...any)
-}) string {
+}) (string, error) {
 	out, err := hostnorm.Normalize(host)
 	if err != nil {
 		if log != nil {
-			log.Debug("hostnorm failed; falling back to raw host", "host", host, "err", err)
+			log.Debug("hostnorm failed; rejecting CONNECT", "host", host, "err", err)
 		}
-		return host
+		return "", err
 	}
-	return out
+	return out, nil
 }
 
 // serveConn handles a single inbound TCP connection. It reads the initial
@@ -66,7 +72,14 @@ func (p *Proxy) serveConn(conn net.Conn) {
 	// Canonicalise via hostnorm so that downstream rule matching, cert
 	// caching, and audit rows all see the same byte-for-byte form regardless
 	// of how the agent spelled the target (case, trailing dot, IDN).
-	hostOnly = normalizeHostSilently(hostOnly, p.log)
+	// On normalization failure we fail closed with 400 — see normalizeHost
+	// for the IDN-homograph motivation.
+	normalized, normErr := normalizeHost(hostOnly, p.log)
+	if normErr != nil {
+		_ = writeResponse(conn, http.StatusBadRequest, "malformed host")
+		return
+	}
+	hostOnly = normalized
 	if port != "" {
 		connectTarget = net.JoinHostPort(hostOnly, port)
 	} else {
@@ -182,12 +195,17 @@ func (p *Proxy) serveTunnel(conn net.Conn, br *bufio.Reader, connectTarget, agen
 
 	// hostOnly is the bare hostname for the audit Host field. connectTarget
 	// has already been canonicalised at serveConn ingress, but re-normalise
-	// idempotently for defence in depth.
+	// idempotently for defence in depth. Normalize is idempotent so the
+	// second call cannot fail on input that succeeded at ingress; on the
+	// improbable error we keep the already-split host for the audit row
+	// rather than dropping the entry.
 	hostOnly, _, splitErr := net.SplitHostPort(connectTarget)
 	if splitErr != nil {
 		hostOnly = connectTarget
 	}
-	hostOnly = normalizeHostSilently(hostOnly, p.log)
+	if canon, err := normalizeHost(hostOnly, p.log); err == nil {
+		hostOnly = canon
+	}
 
 	// Dial upstream first; if it fails we record a "blocked" audit entry.
 	upstream, dialErr := net.Dial("tcp", connectTarget)

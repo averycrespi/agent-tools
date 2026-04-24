@@ -118,6 +118,7 @@ func matchHostGlob(pattern, host string) bool {
 // Decide returns the CONNECT-time decision for a pre-authenticated agent
 // connecting to the given host. It implements the §6 decision table:
 //
+//	hostnorm error           → DecisionReject
 //	no_intercept_hosts match → DecisionTunnel
 //	no rule for agent        → DecisionTunnel
 //	host is IP literal       → DecisionTunnel
@@ -137,13 +138,22 @@ func Decide(
 	// Strip port if present, then canonicalise via hostnorm. Normalization
 	// is idempotent so it's safe if callers already normalised; doing it
 	// here too keeps Decide self-contained.
+	//
+	// WHY fail closed on normalization error: a host we cannot canonicalise
+	// must not be allowed to tunnel or MITM. Falling through to tunnel mode
+	// with the raw host would let an IDN homograph (invalid punycode, etc.)
+	// bypass every rule glob — the raw form matches nothing, so the default
+	// tunnel path would pipe bytes to an attacker-controlled upstream with
+	// mangled audit attribution. Reject is the only safe default.
 	hostOnly := host
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		hostOnly = h
 	}
-	if canon, err := hostnorm.Normalize(hostOnly); err == nil {
-		hostOnly = canon
+	canon, err := hostnorm.Normalize(hostOnly)
+	if err != nil {
+		return DecisionReject
 	}
+	hostOnly = canon
 
 	// no_intercept_hosts: glob-matched list → tunnel.
 	for _, pat := range noIntercept {
