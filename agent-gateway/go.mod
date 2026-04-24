@@ -4,6 +4,7 @@ go 1.25.8
 
 require (
 	github.com/PaesslerAG/jsonpath v0.1.1
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/ncruces/go-sqlite3 v0.32.0
 	github.com/oklog/ulid/v2 v2.1.1

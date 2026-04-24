@@ -39,6 +39,7 @@ type Authority struct {
 	leafLifetime  time.Duration
 	sweepBuffer   time.Duration
 	sweepInterval time.Duration
+	skewBuffer    time.Duration
 }
 
 // RootPEM returns the PEM-encoded DER certificate for the root CA.
@@ -94,14 +95,7 @@ func (a *Authority) clearLeafCache() {
 	if a.cache == nil {
 		return
 	}
-	var keys []string
-	a.cache.rangeAll(func(host string, _ *cacheEntry) bool {
-		keys = append(keys, host)
-		return true
-	})
-	for _, k := range keys {
-		a.cache.delete(k)
-	}
+	a.cache.m.Purge()
 }
 
 // ---------------------------------------------------------------------------

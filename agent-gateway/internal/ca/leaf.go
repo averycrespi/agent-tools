@@ -9,22 +9,33 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"net"
-	"sync"
 	"time"
+
+	lru "github.com/hashicorp/golang-lru/v2"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/hostnorm"
 )
 
 // Leaf certs are issued with a 24h lifetime and evicted from the cache 1h
-// before NotAfter. The 1h buffer exists to absorb client clock skew: a client
-// whose clock is a few minutes fast would reject a cert issued against our
-// wall clock the instant NotAfter ticks past "now", producing opaque TLS
-// handshake failures at the sandbox. Evicting early forces re-issuance with a
-// fresh NotAfter window well before any realistic client sees it as expired.
+// before NotAfter by the background sweeper. An additional clock-skew buffer
+// (default 5 min) is applied on every cache hit: if the cached cert's NotAfter
+// is within skewBuffer, or its NotBefore is more than skewBuffer in the future,
+// the entry is dropped and a fresh cert is issued. This prevents handing a
+// near-expired cert to a client whose clock is a few minutes fast, which would
+// otherwise produce an opaque TLS handshake failure at the sandbox.
+//
+// The cache is bounded at lruCap entries. An unbounded sync.Map is a DoS vector:
+// an authenticated agent can CONNECT to unique hosts to grow the cache without
+// limit. Capping at 10 000 entries bounds worst-case memory to roughly
+// (10 000 × cert+key size) while still covering any realistic set of upstream
+// hosts seen in practice.
 const (
 	defaultLeafLifetime  = 24 * time.Hour
 	defaultSweepInterval = 5 * time.Minute
 	defaultSweepBuffer   = 1 * time.Hour
+	defaultSkewBuffer    = 5 * time.Minute
+
+	lruCap = 10_000
 )
 
 // cacheEntry holds an issued leaf certificate alongside the ready-to-use
@@ -34,34 +45,50 @@ type cacheEntry struct {
 	cfg  *tls.Config
 }
 
-// leafCache maps hostname → *cacheEntry using sync.Map for lock-free reads.
+// leafCache wraps an LRU cache mapping hostname → *cacheEntry. The LRU cap
+// bounds worst-case memory; eviction is automatic on Add when len > lruCap.
 type leafCache struct {
-	m sync.Map
+	m *lru.Cache[string, *cacheEntry]
+}
+
+func newLeafCache() *leafCache {
+	c, err := lru.New[string, *cacheEntry](lruCap)
+	if err != nil {
+		// lru.New only errors on non-positive size; lruCap is a compile-time
+		// positive constant, so this is unreachable.
+		panic(err)
+	}
+	return &leafCache{m: c}
 }
 
 func (c *leafCache) load(host string) (*cacheEntry, bool) {
-	v, ok := c.m.Load(host)
-	if !ok {
-		return nil, false
-	}
-	return v.(*cacheEntry), true
+	return c.m.Get(host)
 }
 
-// store stores the entry only if no entry is already present (LoadOrStore).
+// store stores the entry only if no entry is already present (add-if-absent).
 // It returns the canonical entry (existing or newly stored).
 func (c *leafCache) store(host string, e *cacheEntry) *cacheEntry {
-	actual, _ := c.m.LoadOrStore(host, e)
-	return actual.(*cacheEntry)
+	existing, loaded, _ := c.m.PeekOrAdd(host, e)
+	if loaded {
+		return existing
+	}
+	return e
 }
 
 func (c *leafCache) delete(host string) {
-	c.m.Delete(host)
+	c.m.Remove(host)
 }
 
 func (c *leafCache) rangeAll(fn func(host string, e *cacheEntry) bool) {
-	c.m.Range(func(k, v any) bool {
-		return fn(k.(string), v.(*cacheEntry))
-	})
+	for _, key := range c.m.Keys() {
+		v, ok := c.m.Peek(key)
+		if !ok {
+			continue
+		}
+		if !fn(key, v) {
+			return
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -71,10 +98,11 @@ func (c *leafCache) rangeAll(fn func(host string, e *cacheEntry) bool) {
 // initLeafFields sets the leaf-issuance defaults on a freshly created
 // Authority.  Called at the end of both load() and generate().
 func initLeafFields(a *Authority) {
-	a.cache = &leafCache{}
+	a.cache = newLeafCache()
 	a.leafLifetime = defaultLeafLifetime
 	a.sweepBuffer = defaultSweepBuffer
 	a.sweepInterval = defaultSweepInterval
+	a.skewBuffer = defaultSkewBuffer
 }
 
 // ServerConfig returns a *tls.Config whose Certificates slice contains a
@@ -85,23 +113,52 @@ func initLeafFields(a *Authority) {
 // "API.github.com" and "api.github.com" share a single cert. Inputs that
 // fail normalization are used as-is (the proxy layer has already made the
 // intercept decision; we should not fail handshake here).
+//
+// Cache hits are validated against a clock-skew window: if the cert expires
+// within skewBuffer, or its NotBefore is more than skewBuffer in the future,
+// the stale entry is evicted and a fresh cert is issued.
 func (a *Authority) ServerConfig(host string) (*tls.Config, error) {
 	if canon, err := hostnorm.Normalize(host); err == nil {
 		host = canon
 	}
-	if e, ok := a.cache.load(host); ok {
+	if e, ok := a.cache.load(host); ok && a.certValid(e) {
 		return e.cfg, nil
 	}
+
+	// Either no cached entry or the cached cert is within the skew window;
+	// evict any stale entry and issue a fresh one.
+	a.cache.delete(host)
 
 	e, err := a.issueLeaf(host)
 	if err != nil {
 		return nil, err
 	}
 
-	// Use LoadOrStore so a racing goroutine that just issued the same host
-	// doesn't end up with two different configs in flight.
+	// Use store (PeekOrAdd) so a racing goroutine that just issued the same
+	// host doesn't end up with two different configs in flight.
 	canonical := a.cache.store(host, e)
 	return canonical.cfg, nil
+}
+
+// certValid reports whether the cached entry is outside the clock-skew window
+// on both ends:
+//   - NotBefore: if the cert's NotBefore is more than skewBuffer in the future
+//     relative to now, clients whose clocks are up to skewBuffer behind ours
+//     would reject it as "not yet valid"; re-issue so NotBefore is closer to now.
+//   - NotAfter: if the cert expires within skewBuffer of now, clients whose
+//     clocks are up to skewBuffer ahead of ours would already see it as expired;
+//     re-issue to ensure remaining validity exceeds the skew window.
+func (a *Authority) certValid(e *cacheEntry) bool {
+	now := time.Now()
+	// NotBefore is more than skewBuffer in the future: slow-clock clients reject it.
+	if now.Add(a.skewBuffer).Before(e.leaf.NotBefore) {
+		return false
+	}
+	// NotAfter is within skewBuffer: fast-clock clients may already see it expired.
+	if now.After(e.leaf.NotAfter.Add(-a.skewBuffer)) {
+		return false
+	}
+	return true
 }
 
 // Start spawns a background goroutine that periodically sweeps expired entries
