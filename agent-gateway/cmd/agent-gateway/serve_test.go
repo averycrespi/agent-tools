@@ -497,6 +497,50 @@ func TestServe_StartupSummaryLogged(t *testing.T) {
 	assert.Contains(t, logs, "mitm_hosts=", "startup summary must include mitm_hosts field")
 }
 
+// TestExecServe_PrintsPaths verifies that RunServe prints the resolved
+// config, state_db, ca_cert, and pid_file paths to stdout on startup, and
+// that the CA private key path (ca_key) is NOT printed.
+func TestExecServe_PrintsPaths(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_DATA_HOME", dir)
+
+	cfg := config.DefaultConfig()
+	cfg.Proxy.Listen = "127.0.0.1:0"
+	cfg.Dashboard.Listen = "127.0.0.1:0"
+	cfg.Dashboard.OpenBrowser = false
+	require.NoError(t, config.Save(cfg, paths.ConfigFile()))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stdout bytes.Buffer
+	ready := make(chan struct{})
+	deps := newServeDeps()
+	deps.Stdout = &stdout
+	deps.Ready = ready
+	deps.Headless = true
+
+	done := make(chan error, 1)
+	go func() { done <- RunServe(ctx, deps) }()
+
+	select {
+	case <-ready:
+	case <-time.After(30 * time.Second):
+		t.Fatal("serve did not become ready within 30s")
+	}
+
+	cancel()
+	require.NoError(t, <-done)
+
+	out := stdout.String()
+	assert.Contains(t, out, "config:", "startup must print config path")
+	assert.Contains(t, out, "state_db:", "startup must print state_db path")
+	assert.Contains(t, out, "ca_cert:", "startup must print ca_cert path")
+	assert.Contains(t, out, "pid_file:", "startup must print pid_file path")
+	assert.NotContains(t, out, "ca_key:", "startup must NOT print ca_key path")
+}
+
 // TestExecServe_SecretsStoreError_ReturnsError verifies that RunServe fails
 // fatally (returns a non-nil error containing "secrets store") when the
 // secrets store cannot be initialised. Previously the failure was soft: the

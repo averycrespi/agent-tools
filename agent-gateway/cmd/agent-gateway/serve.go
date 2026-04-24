@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -68,6 +69,10 @@ type serveDeps struct {
 	// NewSecretsStoreFn constructs the secrets store. If nil, secrets.NewStore
 	// is used. Tests override this to inject failures.
 	NewSecretsStoreFn func(*sql.DB, *slog.Logger) (secrets.Store, error)
+
+	// Stdout is the writer for human-readable startup lines (paths, URLs).
+	// If nil, os.Stdout is used. Tests inject a buffer to capture output.
+	Stdout io.Writer
 }
 
 // newServeDeps returns production-ready defaults. Tests may override fields.
@@ -75,6 +80,7 @@ func newServeDeps() serveDeps {
 	return serveDeps{
 		Logger:            slog.Default(),
 		NewSecretsStoreFn: secrets.NewStore,
+		Stdout:            os.Stdout,
 		// Ready is nil by default; RunServe checks before sending.
 	}
 }
@@ -118,6 +124,11 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	log := d.Logger
 	if log == nil {
 		log = slog.Default()
+	}
+
+	stdout := d.Stdout
+	if stdout == nil {
+		stdout = os.Stdout
 	}
 
 	// 1. Load config.
@@ -351,6 +362,19 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	}
 
 	dashURL := fmt.Sprintf("http://%s/dashboard/?token=%s", dashLn.Addr(), dashServer.Token())
+
+	// Paths for operator debugging (systemd/launchd stdout picks these up).
+	fmt.Fprintf(stdout, "config:    %s\n", paths.ConfigFile())
+	fmt.Fprintf(stdout, "state_db:  %s\n", paths.StateDB())
+	fmt.Fprintf(stdout, "ca_cert:   %s\n", paths.CACert())
+	fmt.Fprintf(stdout, "pid_file:  %s\n", paths.PIDFile())
+	log.Info("paths",
+		"config", paths.ConfigFile(),
+		"state_db", paths.StateDB(),
+		"ca_cert", paths.CACert(),
+		"pid_file", paths.PIDFile(),
+	)
+
 	log.Info("agent-gateway started",
 		"proxy", proxyLn.Addr(),
 		"dashboard", dashLn.Addr(),
@@ -377,7 +401,7 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	}
 
 	// Print the authenticated dashboard URL on every serve start.
-	fmt.Printf("Dashboard: %s\n", dashURL)
+	fmt.Fprintf(stdout, "Dashboard: %s\n", dashURL)
 
 	// Open browser if configured and not headless.
 	if !d.Headless && cfg.Dashboard.OpenBrowser {
