@@ -160,35 +160,34 @@ func validateNoInterceptHosts(patterns []string) ([]string, error) {
 			))
 			patterns[i] = normalized
 		}
-		if w := warnIfPublicSuffix(i, patterns[i]); w != "" {
-			warnings = append(warnings, w)
+		if err := errorIfPublicSuffix(i, patterns[i]); err != nil {
+			return nil, err
 		}
 	}
 	return warnings, nil
 }
 
-// warnIfPublicSuffix returns a warning when a no_intercept_hosts pattern,
+// errorIfPublicSuffix returns an error when a no_intercept_hosts pattern,
 // after stripping its leading wildcard labels, reduces to an ICANN-managed
 // public suffix. Such an entry would tunnel every host under a registry-
-// controlled TLD past MITM — almost always a mistake (e.g. "*.com" tunnels
-// the entire internet; "*.co.uk" tunnels every UK commercial domain).
+// controlled TLD past MITM — almost always a misconfiguration (e.g. "*.com"
+// tunnels the entire internet; "*.co.uk" tunnels every UK commercial domain).
 //
 // Patterns whose stripped form is not a public suffix (e.g. "*.example.com"),
 // or whose suffix is on the private/non-ICANN portion of the PSL (e.g.
-// "*.internal", "*.k8s.local"), do not produce a warning.
+// "*.internal", "*.k8s.local"), do not produce an error.
 //
-// This is a soft warning (not an error) because the blast radius for
-// no_intercept_hosts is "too much MITM bypass" — an operator may genuinely
-// want to disable interception for a whole TLD during a controlled rollout.
-// Contrast with secrets allowed_hosts, where the same pattern reaches a
-// hard-reject because it would leak credentials to unintended hosts.
-func warnIfPublicSuffix(idx int, pattern string) string {
+// This is a hard error because a public-suffix pattern disables MITM for an
+// entire TLD — far too broad to be intentional. Contrast with the normalization
+// mismatch path, which is only a soft warning (the pattern still applies,
+// just in a slightly different canonical form).
+func errorIfPublicSuffix(idx int, pattern string) error {
 	ok, suffix := hostmatch.MatchesPublicSuffix(pattern)
 	if !ok {
-		return ""
+		return nil
 	}
-	return fmt.Sprintf(
-		"config: proxy_behavior.no_intercept_hosts[%d] %q strips to public suffix %q; tunneling would bypass MITM for every host under %q",
-		idx, pattern, suffix, suffix,
+	return fmt.Errorf(
+		"proxy_behavior.no_intercept_hosts[%d] %q strips to a public suffix %q; list specific domains instead (e.g. \"*.example.com\")",
+		idx, pattern, suffix,
 	)
 }

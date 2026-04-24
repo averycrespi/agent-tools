@@ -547,13 +547,11 @@ func sanitizeAllowedHosts(hosts []string) ([]string, error) {
 		}
 		// Reject patterns whose stripped form is an ICANN public suffix
 		// (e.g. "*.com", "*.co", "*.io"). allowed_hosts is the credential-
-		// scoping layer — unlike no_intercept_hosts where an over-broad
-		// pattern means "more MITM" (a warning is enough), a too-broad
-		// allowed_hosts would route real secrets to every host under a
-		// registry-controlled TLD. That's a security bug, not a config
-		// convenience, so we reject outright and name the offending
-		// pattern so the operator can fix it. Operators who genuinely
-		// want a secret usable everywhere can pass "**" explicitly.
+		// scoping layer — a too-broad pattern would route real secrets to
+		// every host under a registry-controlled TLD, which is a security
+		// bug, not a config convenience. Reject outright and name the
+		// offending pattern so the operator can fix it. Operators who
+		// genuinely want a secret usable everywhere can pass "**" explicitly.
 		if ok, suffix := hostmatch.MatchesPublicSuffix(normalized); ok {
 			return nil, fmt.Errorf(
 				"allowed_hosts[%d]: pattern %q strips to public suffix %q; refusing to bind secret to every host under %q (use \"**\" for explicit all-hosts binding, or narrow to a specific domain)",

@@ -78,7 +78,7 @@ func TestValidateNoInterceptHosts_PointsAtBadIndex(t *testing.T) {
 	}
 }
 
-func TestValidateNoInterceptHosts_WarnsPublicSuffix(t *testing.T) {
+func TestValidateNoInterceptHosts_RejectsPublicSuffix(t *testing.T) {
 	for _, p := range []string{
 		"*.com",
 		"**.com",
@@ -87,19 +87,25 @@ func TestValidateNoInterceptHosts_WarnsPublicSuffix(t *testing.T) {
 		"*.*.com",
 	} {
 		t.Run(p, func(t *testing.T) {
-			warnings, err := validateNoInterceptHosts([]string{p})
-			if err != nil {
-				t.Fatalf("unexpected error for %q: %v", p, err)
+			_, err := validateNoInterceptHosts([]string{p})
+			if err == nil {
+				t.Fatalf("expected error for public-suffix pattern %q, got nil", p)
 			}
-			var found bool
-			for _, w := range warnings {
-				if strings.Contains(w, "public suffix") {
-					found = true
-					break
-				}
+			msg := err.Error()
+			if !strings.Contains(msg, "proxy_behavior.no_intercept_hosts") {
+				t.Errorf("error should contain config path for %q, got: %v", p, err)
 			}
-			if !found {
-				t.Errorf("expected public-suffix warning for %q, got: %v", p, warnings)
+			if !strings.Contains(msg, p) {
+				t.Errorf("error should contain the offending pattern %q, got: %v", p, err)
+			}
+			if !strings.Contains(msg, "public suffix") {
+				t.Errorf("error should mention public suffix for %q, got: %v", p, err)
+			}
+			if !strings.Contains(msg, "list specific domains instead") {
+				t.Errorf("error should contain remediation hint for %q, got: %v", p, err)
+			}
+			if !strings.Contains(msg, "e.g.") {
+				t.Errorf("error should contain example hint for %q, got: %v", p, err)
 			}
 		})
 	}

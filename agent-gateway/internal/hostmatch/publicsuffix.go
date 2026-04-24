@@ -4,10 +4,10 @@
 // Both surfaces guard against the same footgun — a pattern like "*.com" that
 // after stripping its leading wildcard labels reduces to an ICANN-managed
 // public suffix, silently matching every host on the internet under that
-// registry-controlled TLD. The two call sites treat the finding differently
-// (config warns, secrets rejects — see each caller's WHY-comment), but the
-// detection logic is identical; hoisting it here keeps the single source of
-// truth for "what is a public-suffix pattern?" in one place.
+// registry-controlled TLD. Both call sites hard-reject the finding (see each
+// caller's WHY-comment), but the detection logic is identical; hoisting it
+// here keeps the single source of truth for "what is a public-suffix
+// pattern?" in one place.
 package hostmatch
 
 import (
