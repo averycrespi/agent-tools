@@ -33,14 +33,16 @@ type staticSecretsLister struct {
 
 func (s *staticSecretsLister) List() []string { return s.names }
 
-// loadKnownSecrets opens the state DB and reads the set of known secret
-// names without requiring the master key. Returns an empty lister and logs
-// a warning on stderr if the DB is unavailable — the check then proceeds
-// and every ${secrets.X} reference becomes a warning (fail-open).
+// loadKnownSecrets opens the state DB read-only and reads the set of known
+// secret names without requiring the master key or creating the DB.
+// Returns an empty lister if the DB is absent (fail-open: every
+// ${secrets.X} reference becomes a warning) or on any other open error.
 func loadKnownSecrets(errOut io.Writer) secretsLister {
-	db, err := store.Open(paths.StateDB())
+	db, err := store.OpenReadOnly(paths.StateDB())
 	if err != nil {
-		_, _ = fmt.Fprintf(errOut, "warning: could not open state db: %v\n", err)
+		if !errors.Is(err, os.ErrNotExist) {
+			_, _ = fmt.Fprintf(errOut, "warning: could not open state db: %v\n", err)
+		}
 		return &staticSecretsLister{}
 	}
 	defer func() { _ = db.Close() }()
@@ -108,20 +110,30 @@ func execRulesReload(
 }
 
 func newRulesCheckCmd() *cobra.Command {
-	return &cobra.Command{
+	var strict bool
+	cmd := &cobra.Command{
 		Use:   "check",
 		Short: "Validate rules files for syntax errors and undefined secrets",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			lister := loadKnownSecrets(cmd.ErrOrStderr())
-			return execRulesCheck(cmd, paths.RulesDir(), lister)
+			return execRulesCheck(cmd, paths.RulesDir(), lister, strict)
 		},
 	}
+	cmd.Flags().BoolVar(&strict, "strict", false, "Exit non-zero if any warnings are emitted")
+	return cmd
 }
 
-// execRulesCheck parses the rules directory, reports parse errors and missing
-// secret warnings, and returns a non-nil error only on parse failure.
-func execRulesCheck(cmd *cobra.Command, dir string, lister secretsLister) error {
+// execRulesCheck parses the rules directory, reports parse errors, missing
+// secret warnings, and coverage warnings. Returns a non-nil error on parse
+// failure, or (when strict=true) if any warnings were emitted.
+func execRulesCheck(cmd *cobra.Command, dir string, lister secretsLister, strict bool) error {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	out := cmd.OutOrStdout()
+
 	// Count files for the "ok" line.
 	hclFiles, err := filepath.Glob(filepath.Join(dir, "*.hcl"))
 	if err != nil {
@@ -130,15 +142,18 @@ func execRulesCheck(cmd *cobra.Command, dir string, lister secretsLister) error 
 	fileCount := len(hclFiles)
 
 	// Parse all rules.
-	parsed, warnings, err := rules.ParseDir(dir)
+	parsed, parseWarnings, err := rules.ParseDir(dir)
 	if err != nil {
 		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "error:", err)
 		return err
 	}
 
+	var totalWarnings int
+
 	// Print any parse-time warnings (unrecognised template syntax).
-	for _, w := range warnings {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "warning:", w)
+	for _, w := range parseWarnings {
+		_, _ = fmt.Fprintln(out, "warning:", w)
+		totalWarnings++
 	}
 
 	// Semantic check: cross-reference ${secrets.X} against the known secrets.
@@ -156,19 +171,49 @@ func execRulesCheck(cmd *cobra.Command, dir string, lister secretsLister) error 
 			for _, m := range matches {
 				secretName := m[1]
 				if _, ok := knownSecrets[secretName]; !ok {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(),
+					_, _ = fmt.Fprintf(out,
 						"warning: rule %q references undefined secret %q\n",
 						rule.Name, secretName,
 					)
+					totalWarnings++
 				}
 			}
 		}
 	}
 
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(),
+	// Coverage check: open state DB read-only and run warnSecretCoverage.
+	dbPath := paths.StateDB()
+	db, dbErr := store.OpenReadOnly(dbPath)
+	switch {
+	case errors.Is(dbErr, os.ErrNotExist):
+		_, _ = fmt.Fprintln(out, "note: state DB not found; skipping secret coverage check")
+	case dbErr != nil:
+		return fmt.Errorf("rules check: open state db: %w", dbErr)
+	default:
+		defer func() { _ = db.Close() }()
+		secretsStore, err := secrets.OpenForRead(db, nil)
+		if err != nil {
+			return fmt.Errorf("rules check: load secrets: %w", err)
+		}
+		// Build a throwaway engine from the same dir to drive warnSecretCoverage.
+		// ParseDir already succeeded above so this should not fail.
+		engine, err := rules.NewEngine(dir)
+		if err != nil {
+			return fmt.Errorf("rules check: build engine: %w", err)
+		}
+		for _, w := range warnSecretCoverage(ctx, engine, secretsStore) {
+			_, _ = fmt.Fprintln(out, "warning:", w)
+			totalWarnings++
+		}
+	}
+
+	_, _ = fmt.Fprintf(out,
 		"ok: %d rules parsed from %d files\n",
 		len(parsed), fileCount,
 	)
 
+	if strict && totalWarnings > 0 {
+		return fmt.Errorf("rules check: %d warning(s) (--strict)", totalWarnings)
+	}
 	return nil
 }

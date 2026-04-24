@@ -771,3 +771,84 @@ func (s *sqlStore) MasterRotate(ctx context.Context) error {
 // on SIGHUP; this method exists so sqlStore satisfies interfaces that pair
 // the store with that cache.
 func (s *sqlStore) InvalidateCache() {}
+
+// OpenForRead returns a Store that supports only List. It does not resolve the
+// master key, unwrap the DEK, or run migrations — all of which require write
+// access to the database. It is intended for read-only callers (e.g.
+// "rules check") that need secret metadata (name, scope, allowed_hosts) but
+// not plaintext values.
+//
+// Mutating methods (Get, Set, Rotate, Delete, Bind, Unbind, MasterRotate,
+// InvalidateCache) return ErrReadOnly.
+func OpenForRead(db *sql.DB, _ *slog.Logger) (Store, error) {
+	return &readOnlyStore{db: db}, nil
+}
+
+// ErrReadOnly is returned by mutating Store methods on a read-only store.
+var ErrReadOnly = errors.New("store opened read-only")
+
+// readOnlyStore is a Store that supports only List. It holds a *sql.DB opened
+// in read-only mode and fulfils the Store interface; all mutating methods
+// return ErrReadOnly.
+type readOnlyStore struct {
+	db *sql.DB
+}
+
+func (s *readOnlyStore) Get(_ context.Context, _, _ string) (string, string, []string, error) {
+	return "", "", nil, ErrReadOnly
+}
+func (s *readOnlyStore) Set(_ context.Context, _, _, _, _ string, _ []string) error {
+	return ErrReadOnly
+}
+func (s *readOnlyStore) Rotate(_ context.Context, _, _, _ string) error { return ErrReadOnly }
+func (s *readOnlyStore) Delete(_ context.Context, _, _ string) error    { return ErrReadOnly }
+func (s *readOnlyStore) Bind(_ context.Context, _, _ string, _ []string) error {
+	return ErrReadOnly
+}
+func (s *readOnlyStore) Unbind(_ context.Context, _, _ string, _ []string) error {
+	return ErrReadOnly
+}
+func (s *readOnlyStore) MasterRotate(_ context.Context) error { return ErrReadOnly }
+func (s *readOnlyStore) InvalidateCache()                     {}
+
+// List returns metadata for all secrets (no plaintext). This is the only
+// operation supported by readOnlyStore.
+func (s *readOnlyStore) List(ctx context.Context) ([]Metadata, error) {
+	const q = `
+SELECT id, name, scope, created_at, rotated_at, last_used_at, description, allowed_hosts
+FROM secrets ORDER BY name, scope`
+
+	rows, err := s.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []Metadata
+	for rows.Next() {
+		var m Metadata
+		var createdUnix, rotatedUnix int64
+		var lastUsedUnix *int64
+		var desc *string
+		var allowedHostsJSON string
+		if err := rows.Scan(&m.ID, &m.Name, &m.Scope, &createdUnix, &rotatedUnix, &lastUsedUnix, &desc, &allowedHostsJSON); err != nil {
+			return nil, err
+		}
+		m.CreatedAt = time.Unix(createdUnix, 0)
+		m.RotatedAt = time.Unix(rotatedUnix, 0)
+		if lastUsedUnix != nil {
+			t := time.Unix(*lastUsedUnix, 0)
+			m.LastUsedAt = &t
+		}
+		if desc != nil {
+			m.Description = *desc
+		}
+		hosts, err := decodeAllowedHosts(allowedHostsJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode allowed_hosts for %q: %w", m.Name, err)
+		}
+		m.AllowedHosts = hosts
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
