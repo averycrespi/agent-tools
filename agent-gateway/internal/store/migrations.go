@@ -147,6 +147,30 @@ ALTER TABLE secrets ADD COLUMN allowed_hosts TEXT NOT NULL DEFAULT '[]';
 `)
 		return err
 	},
+
+	// Migration 8: add crypto-material columns to the meta table as the
+	// foundation for the DEK/KEK hierarchy introduced in Task 3.4. The meta
+	// table holds crypto material that is rotated separately from row data:
+	// a single wrapped Data Encryption Key (DEK) protected by a Key
+	// Encryption Key (KEK) derived from the master key via argon2id over
+	// kek_kdf_salt. Each column is added in its own ALTER TABLE statement —
+	// SQLite only permits one ADD COLUMN per statement. All three are
+	// nullable because a freshly migrated DB does not yet have a DEK; the
+	// one-shot DEK migration in Task 3.4 populates them before any row
+	// encryption happens under the new format.
+	func(tx *sql.Tx) error {
+		stmts := []string{
+			`ALTER TABLE meta ADD COLUMN dek_wrapped BLOB`,
+			`ALTER TABLE meta ADD COLUMN dek_nonce BLOB`,
+			`ALTER TABLE meta ADD COLUMN kek_kdf_salt BLOB`,
+		}
+		for _, s := range stmts {
+			if _, err := tx.Exec(s); err != nil {
+				return err
+			}
+		}
+		return nil
+	},
 }
 
 // runMigrations reads the current user_version, then runs each pending migration

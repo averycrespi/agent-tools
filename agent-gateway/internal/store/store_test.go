@@ -70,6 +70,39 @@ func TestMigrations_AreIdempotent(t *testing.T) {
 	assert.Greater(t, v1, 0)
 }
 
+func TestMigration_MetaHasCryptoColumns(t *testing.T) {
+	// Task 3.1: the meta table holds crypto material (wrapped DEK, its GCM
+	// nonce, and the KEK KDF salt) that is rotated separately from row data.
+	// The three BLOB columns added in migration 8 are the foundation for the
+	// DEK/KEK hierarchy introduced in Task 3.4 — they are NULL until the
+	// one-shot DEK migration populates them.
+	path := filepath.Join(t.TempDir(), "state.db")
+	db, err := store.Open(path)
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	version, err := store.UserVersion(db)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, version, 8, "schema version must be at least 8 after Task 3.1")
+
+	// pragma_table_info returns one row per column; name is column 2.
+	rows, err := db.Query("SELECT name FROM pragma_table_info('meta')")
+	require.NoError(t, err)
+	defer func() { _ = rows.Close() }()
+
+	have := map[string]bool{}
+	for rows.Next() {
+		var name string
+		require.NoError(t, rows.Scan(&name))
+		have[name] = true
+	}
+	require.NoError(t, rows.Err())
+
+	for _, col := range []string{"dek_wrapped", "dek_nonce", "kek_kdf_salt"} {
+		assert.True(t, have[col], "meta table must have %q column", col)
+	}
+}
+
 func TestMigration_AtomicRollback(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 
