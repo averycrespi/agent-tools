@@ -248,10 +248,14 @@ func (a *Authority) issueLeaf(host string) (*cacheEntry, error) {
 		Leaf: leaf,
 	}
 
+	// WHY: VersionTLS13 drops TLS 1.0/1.1/1.2 cipher rollback attack paths.
+	// The MITM termination point only talks to our own sandbox clients (the
+	// agent's HTTP library), which we control; requiring TLS 1.3 eliminates
+	// downgrade negotiation entirely and removes legacy cipher suites.
 	cfg := &tls.Config{
 		Certificates: []tls.Certificate{tlsCert},
 		NextProtos:   []string{"h2", "http/1.1"},
-		MinVersion:   tls.VersionTLS12,
+		MinVersion:   tls.VersionTLS13,
 	}
 
 	return &cacheEntry{leaf: leaf, cfg: cfg}, nil

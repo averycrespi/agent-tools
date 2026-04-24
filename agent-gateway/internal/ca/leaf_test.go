@@ -77,11 +77,13 @@ func TestServerConfig_LeafVerifiesAgainstRoot(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestServerConfig_MinVersionTLS12(t *testing.T) {
+// TestServerConfig_MinVersionTLS13 verifies that issued leaf tls.Config structs
+// require TLS 1.3 as the minimum, dropping TLS 1.0/1.1/1.2 cipher rollback paths.
+func TestServerConfig_MinVersionTLS13(t *testing.T) {
 	a := newTestAuthority(t)
 	c, err := a.ServerConfig("example.com")
 	require.NoError(t, err)
-	assert.Equal(t, uint16(tls.VersionTLS12), c.MinVersion)
+	assert.Equal(t, uint16(tls.VersionTLS13), c.MinVersion)
 }
 
 func TestServerConfig_IPLiteralUsesIPAddresses(t *testing.T) {

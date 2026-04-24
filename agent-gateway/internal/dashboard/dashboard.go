@@ -300,12 +300,24 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		f.Rule = &v
 	}
 	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
+		// WHY: clamp to 10000 to prevent a single dashboard request from
+		// materialising millions of rows in memory. The UI only ever needs
+		// a page of ≤100 rows; 10000 is generous headroom for any future
+		// bulk export path without leaving the door open to unbounded loads.
+		// Negative values are treated as parse errors (SQLite treats a
+		// negative LIMIT as "no limit", which would defeat the DoS guard).
+		const maxLimit = 10_000
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			if n > maxLimit {
+				n = maxLimit
+			}
 			f.Limit = &n
 		}
 	}
 	if v := r.URL.Query().Get("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
+		// Negative offsets are treated as parse errors — SQLite errors on
+		// them, so bail out early for a cleaner failure mode.
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			f.Offset = &n
 		}
 	}

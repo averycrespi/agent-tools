@@ -430,6 +430,49 @@ func TestLogger_Prune(t *testing.T) {
 	assert.Equal(t, new_.ID, remaining[0].ID)
 }
 
+// TestQuery_LimitOffsetBoundParams verifies that LIMIT and OFFSET are passed as
+// bound parameters (not interpolated via fmt.Sprintf), keeping the query path
+// safe against any future non-literal values flowing into those positions.
+// The test exercises both LIMIT-only and LIMIT+OFFSET paths through Query.
+func TestQuery_LimitOffsetBoundParams(t *testing.T) {
+	db := openTestDB(t)
+	logger := audit.NewLogger(db)
+	ctx := context.Background()
+
+	base := time.Now().UTC().Truncate(time.Second)
+	for i := 0; i < 5; i++ {
+		e := audit.Entry{
+			ID:           fmt.Sprintf("01LIMIT0000000000000000%02d", i+1),
+			TS:           base.Add(time.Duration(-i) * time.Second),
+			Interception: "mitm", Host: "limit.example.com",
+			Method: strPtr("GET"), Path: strPtr("/limit"),
+			DurationMS: 1, BytesIn: 0, BytesOut: 0, Outcome: "forwarded",
+		}
+		require.NoError(t, logger.Record(ctx, e))
+	}
+
+	// LIMIT only: must return exactly n rows.
+	lim := 2
+	rows, err := logger.Query(ctx, audit.Filter{Limit: &lim})
+	require.NoError(t, err)
+	assert.Len(t, rows, 2, "Query with Limit must return exactly Limit rows")
+
+	// OFFSET without explicit LIMIT: SQLite requires LIMIT -1 as implicit limit.
+	// All 5 rows should be returned skipping the first 1.
+	off := 1
+	rows2, err := logger.Query(ctx, audit.Filter{Offset: &off})
+	require.NoError(t, err)
+	assert.Len(t, rows2, 4,
+		"Query with only Offset (no Limit) must return all rows minus the offset")
+
+	// LIMIT + OFFSET: the second page must differ from the first.
+	rows3, err := logger.Query(ctx, audit.Filter{Limit: &lim, Offset: &off})
+	require.NoError(t, err)
+	assert.Len(t, rows3, 2)
+	assert.NotEqual(t, rows[0].ID, rows3[0].ID,
+		"second page must return different rows than the first page")
+}
+
 // TestLogger_Prune_NotAtCutoff verifies a row AT the cutoff is NOT pruned (strict <).
 func TestLogger_Prune_NotAtCutoff(t *testing.T) {
 	db := openTestDB(t)

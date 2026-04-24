@@ -13,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/proxy"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -392,6 +394,81 @@ func TestIndexServesHTMLWithEmbeddedBundle(t *testing.T) {
 	body2, _ := io.ReadAll(resp2.Body)
 	require.NotEmpty(t, body2)
 }
+
+// TestHandleAudit_LimitClamped verifies that handleAudit clamps the parsed
+// ?limit query parameter to 10000, preventing a client from materialising
+// millions of rows in memory with a single request. It also verifies that
+// negative values are rejected (SQLite treats a negative LIMIT as "no limit",
+// which would defeat the DoS guard).
+func TestHandleAudit_LimitClamped(t *testing.T) {
+	t.Run("above_cap_is_clamped", func(t *testing.T) {
+		auditor := &captureAuditor{}
+		srv, token := newTestServer(t, Deps{Auditor: auditor})
+
+		resp := authedGet(t, srv, token, "/dashboard/api/audit?limit=99999")
+		defer resp.Body.Close() //nolint:errcheck
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		require.NotNil(t, auditor.lastFilter.Limit,
+			"Limit must be set in the filter forwarded to the auditor")
+		assert.LessOrEqual(t, *auditor.lastFilter.Limit, 10000,
+			"handleAudit must clamp Limit to 10000 to prevent unbounded memory use")
+	})
+
+	t.Run("negative_limit_is_ignored", func(t *testing.T) {
+		auditor := &captureAuditor{}
+		srv, token := newTestServer(t, Deps{Auditor: auditor})
+
+		resp := authedGet(t, srv, token, "/dashboard/api/audit?limit=-1")
+		defer resp.Body.Close() //nolint:errcheck
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		assert.Nil(t, auditor.lastFilter.Limit,
+			"negative ?limit must be ignored (Limit nil) — a negative SQLite LIMIT means no limit")
+	})
+
+	t.Run("zero_limit_is_accepted", func(t *testing.T) {
+		auditor := &captureAuditor{}
+		srv, token := newTestServer(t, Deps{Auditor: auditor})
+
+		resp := authedGet(t, srv, token, "/dashboard/api/audit?limit=0")
+		defer resp.Body.Close() //nolint:errcheck
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		require.NotNil(t, auditor.lastFilter.Limit,
+			"?limit=0 must propagate to the auditor (returns zero rows)")
+		assert.Equal(t, 0, *auditor.lastFilter.Limit)
+	})
+
+	t.Run("negative_offset_is_ignored", func(t *testing.T) {
+		auditor := &captureAuditor{}
+		srv, token := newTestServer(t, Deps{Auditor: auditor})
+
+		resp := authedGet(t, srv, token, "/dashboard/api/audit?offset=-1")
+		defer resp.Body.Close() //nolint:errcheck
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		assert.Nil(t, auditor.lastFilter.Offset,
+			"negative ?offset must be ignored (Offset nil) — SQLite errors on negative offsets")
+	})
+}
+
+// captureAuditor is a fake audit.Logger that records the last filter passed to
+// Query so TestHandleAudit_LimitClamped can inspect the clamped value.
+type captureAuditor struct {
+	lastFilter audit.Filter
+}
+
+func (c *captureAuditor) Record(_ context.Context, _ audit.Entry) error { return nil }
+
+func (c *captureAuditor) Query(_ context.Context, f audit.Filter) ([]audit.Entry, error) {
+	c.lastFilter = f
+	return nil, nil
+}
+
+func (c *captureAuditor) Count(_ context.Context, _ audit.Filter) (int, error) { return 0, nil }
+
+func (c *captureAuditor) Prune(_ context.Context, _ time.Time) (int, error) { return 0, nil }
 
 // ---------- fakes ----------
 

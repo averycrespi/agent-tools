@@ -144,3 +144,38 @@ func TestSignalDaemon_NoFile(t *testing.T) {
 	err := daemon.SignalDaemonWithVerifier(path, verifier, sender)
 	require.Error(t, err)
 }
+
+// TestAcquire_FileMode verifies that a freshly acquired PID file has mode 0600.
+// This guards the O_CREATE|O_EXCL|O_WRONLY, 0o600 creation path.
+func TestAcquire_FileMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pidfile")
+	h, err := daemon.Acquire(path)
+	require.NoError(t, err)
+	defer h.Release() //nolint:errcheck
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(),
+		"pidfile must be created with mode 0600 (EXCL creation path)")
+}
+
+// TestAcquire_StaleRetry verifies the O_EXCL stale-retry path: when a pidfile
+// exists with a dead PID, Acquire removes it and re-creates it atomically via
+// O_EXCL rather than blindly overwriting (which would have a TOCTOU window).
+func TestAcquire_StaleRetry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pidfile")
+
+	// Write a PID that is guaranteed dead (PID 1 exists on Linux but won't be
+	// named "agent-gateway"; use a clearly non-existent PID instead).
+	require.NoError(t, os.WriteFile(path, []byte("999999999"), 0o600))
+
+	h, err := daemon.Acquire(path)
+	require.NoError(t, err, "stale pidfile with dead PID must be recovered via retry")
+	defer h.Release() //nolint:errcheck
+
+	// The file must now contain our own PID.
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, strconv.Itoa(os.Getpid()), strings.TrimSpace(string(got)),
+		"after stale-retry pidfile must hold current process PID")
+}

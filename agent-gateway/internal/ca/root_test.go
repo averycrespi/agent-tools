@@ -59,6 +59,26 @@ func TestLoadOrGenerate_CertProperties(t *testing.T) {
 	assert.Equal(t, x509.ECDSAWithSHA256, cert.SignatureAlgorithm)
 }
 
+// TestRootCA_MaxPathLen verifies that the generated root CA has MaxPathLen=0 and
+// MaxPathLenZero=true, preventing issued leaves from acting as intermediate CAs.
+// This is belt-and-braces: BasicConstraintsValid alone does not constrain the path
+// length.
+func TestRootCA_MaxPathLen(t *testing.T) {
+	dir := t.TempDir()
+	a, err := ca.LoadOrGenerate(filepath.Join(dir, "ca.key"), filepath.Join(dir, "ca.pem"))
+	require.NoError(t, err)
+
+	block, _ := pem.Decode(a.RootPEM())
+	require.NotNil(t, block)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, cert.MaxPathLen,
+		"root CA must have MaxPathLen=0 to prevent leaf-as-intermediate attacks")
+	assert.True(t, cert.MaxPathLenZero,
+		"MaxPathLenZero must be true so MaxPathLen=0 is distinguished from unset")
+}
+
 func TestLoadOrGenerate_KeyPEMType(t *testing.T) {
 	dir := t.TempDir()
 	_, err := ca.LoadOrGenerate(filepath.Join(dir, "ca.key"), filepath.Join(dir, "ca.pem"))

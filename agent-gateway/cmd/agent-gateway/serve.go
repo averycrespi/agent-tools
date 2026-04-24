@@ -254,7 +254,7 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	upstreamDialer := &net.Dialer{Timeout: cfg.Timeouts.UpstreamDial}
 	upstreamRT := &http.Transport{
 		ForceAttemptHTTP2:   true,
-		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12}, //nolint:gosec
+		TLSClientConfig:     upstreamTLSConfig(),
 		DialContext:         netguard.DialContext(upstreamDialer, cfg.ProxyBehavior.AllowPrivateUpstream),
 		TLSHandshakeTimeout: cfg.Timeouts.UpstreamTLS,
 		IdleConnTimeout:     cfg.Timeouts.UpstreamIdleKeepalive,
@@ -396,7 +396,29 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		case sig := <-sigCh:
 			switch sig {
 			case syscall.SIGHUP:
+				// WHY reload order — agents → rules → injector → secrets → admin → CA:
+				// 1. Agents first: ensures the new token hash is live before any
+				//    subsequent step could authenticate a request under the new rules.
+				//    A partial-failure reload must not accept a new agent token while
+				//    still evaluating under the old rule set.
+				// 2. Rules after agents: the new ruleset is evaluated against the
+				//    already-refreshed agent identity.
+				// 3. Injector cache cleared after rules: stale decrypted secrets from
+				//    the previous rule epoch are flushed before the new rules run.
+				// 4. Secrets coverage warning after rules + injector: re-checks
+				//    coverage against the current (post-reload) ruleset.
+				// 5. Admin token after secrets: dashboard auth is updated last among
+				//    the data-plane components so the UI doesn't briefly lose access
+				//    while upstream configs are still refreshing.
+				// 6. CA last: leaf cache is cleared after all rule/agent/secret state
+				//    is consistent; in-flight TLS handshakes on old leaves complete
+				//    normally via the atomic.Pointer snapshot.
 				log.Info("received SIGHUP; reloading")
+				if reloadErr := agentsRegistry.ReloadFromDB(ctx); reloadErr != nil {
+					log.Warn("agents registry reload failed", "err", reloadErr)
+				} else {
+					log.Info("agents registry reloaded")
+				}
 				if reloadErr := engine.Reload(); reloadErr != nil {
 					log.Error("rules reload failed", "err", reloadErr)
 					// Previous ruleset stays live — keep serving.
@@ -413,11 +435,6 @@ func RunServe(ctx context.Context, d serveDeps) error {
 					for _, w := range warnSecretCoverage(ctx, engine, secretsStore) {
 						log.Warn(w)
 					}
-				}
-				if reloadErr := agentsRegistry.ReloadFromDB(ctx); reloadErr != nil {
-					log.Warn("agents registry reload failed", "err", reloadErr)
-				} else {
-					log.Info("agents registry reloaded")
 				}
 				if reloadErr := dashServer.ReloadToken(); reloadErr != nil {
 					log.Warn("admin token reload failed", "err", reloadErr)
@@ -452,6 +469,16 @@ func openBrowser(url string) error {
 	default:
 		return errors.New("open browser: unsupported platform")
 	}
+}
+
+// upstreamTLSConfig returns the *tls.Config applied to the upstream
+// RoundTripper. Extracted so tests can assert on the minimum TLS version
+// without spinning up a full server.
+func upstreamTLSConfig() *tls.Config {
+	// WHY: VersionTLS13 drops TLS 1.0/1.1/1.2 cipher rollback attack paths.
+	// The upstream transport talks to internet servers we do not control;
+	// pinning to TLS 1.3 eliminates downgrade negotiation entirely.
+	return &tls.Config{MinVersion: tls.VersionTLS13} //nolint:gosec
 }
 
 // injectAdapter adapts *inject.Injector to the proxy.Injector interface by

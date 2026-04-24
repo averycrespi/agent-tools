@@ -166,6 +166,13 @@ func generate(keyPath, certPath string) (*Authority, error) {
 		IsCA:                  true,
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
+		// WHY: MaxPathLen=0 + MaxPathLenZero=true prevent any certificate
+		// issued by this root from itself being used as an intermediate CA.
+		// BasicConstraintsValid alone encodes the CA flag but does not
+		// constrain the path length; an explicit pathLen=0 in the extension
+		// is belt-and-braces enforcement that leaves cannot sign further certs.
+		MaxPathLen:     0,
+		MaxPathLenZero: true,
 	}
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)

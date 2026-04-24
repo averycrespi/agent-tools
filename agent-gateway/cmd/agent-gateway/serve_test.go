@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,6 +23,15 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/config"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 )
+
+// TestUpstreamTLSConfig_MinVersionTLS13 verifies that the upstream RoundTripper
+// TLS config requires TLS 1.3 as the minimum, dropping TLS 1.0/1.1/1.2 cipher
+// rollback attack paths on connections to upstream servers.
+func TestUpstreamTLSConfig_MinVersionTLS13(t *testing.T) {
+	cfg := upstreamTLSConfig()
+	assert.Equal(t, uint16(tls.VersionTLS13), cfg.MinVersion,
+		"upstream transport must require TLS 1.3 minimum to prevent cipher rollback")
+}
 
 func TestServe_BindsAndShutsDown(t *testing.T) {
 	dir := t.TempDir()

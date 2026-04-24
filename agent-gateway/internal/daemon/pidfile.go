@@ -9,8 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/atomicfile"
 )
 
 // ErrAlreadyRunning is returned by Acquire when a live agent-gateway process
@@ -40,15 +38,39 @@ func (h *Handle) Release() error {
 
 // Acquire attempts to take ownership of the PID file at path.
 //
-// If the file exists:
-//   - If the stored PID is alive AND its comm matches "agent-gateway", return
-//     ErrAlreadyRunning.
-//   - Otherwise (dead process or wrong comm), treat the file as stale and
-//     overwrite it.
+// WHY O_EXCL: using O_CREATE|O_EXCL|O_WRONLY is TOCTOU-safe — the kernel
+// atomically creates the file or returns EEXIST, eliminating the window
+// between a "file does not exist" check and a subsequent create/write that
+// the previous approach (ReadFile + atomicfile.Write) had.
 //
-// If the file does not exist, create it with the current PID.
+// If the file does not exist, create it exclusively and write the current PID.
+//
+// If the file already exists (EEXIST):
+//   - Read and parse the stored PID.
+//   - If the PID is alive AND its comm matches "agent-gateway", return
+//     ErrAlreadyRunning.
+//   - Otherwise (dead process or wrong comm), the file is stale: remove it
+//     and retry the exclusive creation atomically so we don't race with
+//     another starter that may have just removed it too.
 func Acquire(path string) (*Handle, error) {
-	if data, err := os.ReadFile(path); err == nil {
+	for {
+		// Step 1: try atomic exclusive creation.
+		if err := createExclusive(path); err == nil {
+			return &Handle{path: path}, nil
+		} else if !errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("create pid file: %w", err)
+		}
+
+		// Step 2: file exists — read and evaluate.
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			// File disappeared between our EEXIST and ReadFile — retry.
+			if errors.Is(readErr, os.ErrNotExist) {
+				continue
+			}
+			return nil, fmt.Errorf("read pid file: %w", readErr)
+		}
+
 		pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
 		if parseErr == nil && isAlive(pid) {
 			ok, commErr := verifyComm(pid)
@@ -59,13 +81,25 @@ func Acquire(path string) (*Handle, error) {
 				return nil, ErrAlreadyRunning
 			}
 		}
-		// Stale: fall through to overwrite.
-	}
 
-	if err := writePID(path); err != nil {
-		return nil, err
+		// Step 3: stale file — remove it and retry the exclusive creation.
+		if rmErr := os.Remove(path); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+			return nil, fmt.Errorf("remove stale pid file: %w", rmErr)
+		}
+		// Loop: retry createExclusive now that the stale file is gone.
 	}
-	return &Handle{path: path}, nil
+}
+
+// createExclusive creates path with O_CREATE|O_EXCL|O_WRONLY and writes the
+// current PID. Returns os.ErrExist (wrapped) if the file already exists.
+func createExclusive(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	_, err = fmt.Fprintf(f, "%d", os.Getpid())
+	return err
 }
 
 // SignalDaemon reads the PID file at path, verifies the running process is
@@ -113,15 +147,6 @@ func isAlive(pid int) bool {
 	}
 	// Signal 0 checks existence without actually delivering a signal.
 	return p.Signal(syscall.Signal(0)) == nil
-}
-
-// writePID writes the current process's PID to path (mode 0o600), atomically.
-func writePID(path string) error {
-	data := []byte(strconv.Itoa(os.Getpid()))
-	if err := atomicfile.Write(path, data, 0o600); err != nil {
-		return fmt.Errorf("write pid file: %w", err)
-	}
-	return nil
 }
 
 // defaultSendSignal sends sig to the process with the given PID via os.FindProcess.

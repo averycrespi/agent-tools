@@ -237,15 +237,22 @@ func (l *sqlLogger) Query(ctx context.Context, f Filter) ([]Entry, error) {
 	}
 	q += " ORDER BY ts DESC"
 
+	// WHY: use ? bind placeholders rather than fmt.Sprintf interpolation for
+	// LIMIT and OFFSET. The values are typed *int today, but bind parameters
+	// keep any future non-literal path from becoming a SQL-injection vector and
+	// are consistent with the rest of the query's parameterisation style.
 	if f.Limit != nil {
-		q += fmt.Sprintf(" LIMIT %d", *f.Limit)
+		q += " LIMIT ?"
+		args = append(args, *f.Limit)
 	}
 	if f.Offset != nil {
 		if f.Limit == nil {
-			// OFFSET requires LIMIT in SQLite; use -1 for "all rows".
-			q += " LIMIT -1"
+			// SQLite requires LIMIT before OFFSET; use -1 for "all rows".
+			q += " LIMIT ?"
+			args = append(args, -1)
 		}
-		q += fmt.Sprintf(" OFFSET %d", *f.Offset)
+		q += " OFFSET ?"
+		args = append(args, *f.Offset)
 	}
 
 	rows, err := l.db.QueryContext(ctx, q, args...)

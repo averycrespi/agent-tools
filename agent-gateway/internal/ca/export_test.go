@@ -83,7 +83,7 @@ func InjectCacheEntryForTest(a *Authority, host string, notBefore time.Time) {
 	cfg := &tls.Config{
 		Certificates: []tls.Certificate{tlsCert},
 		NextProtos:   []string{"h2", "http/1.1"},
-		MinVersion:   tls.VersionTLS12,
+		MinVersion:   tls.VersionTLS13,
 	}
 	a.cache.store(host, &cacheEntry{leaf: leaf, cfg: cfg})
 }
