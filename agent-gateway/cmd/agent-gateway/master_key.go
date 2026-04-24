@@ -26,7 +26,7 @@ func newMasterKeyRotateCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "rotate",
-		Short: "Re-encrypt all secrets under a new master key",
+		Short: "Rewrap the data-encryption key under a new master key",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			s, cleanup, err := openSecretStore()
@@ -36,7 +36,7 @@ func newMasterKeyRotateCmd() *cobra.Command {
 			defer cleanup()
 			confirmFn := func() (bool, error) {
 				return confirm(cmd.InOrStdin(), cmd.OutOrStdout(), stdinIsTTY(), force,
-					"Rotate the master key? Every secret will be re-encrypted.")
+					"Rotate the master key? The data-encryption key will be rewrapped under a fresh master.")
 			}
 			return execMasterKeyRotate(
 				cmd.Context(),
