@@ -20,22 +20,14 @@
     </div>
 
     <div class="tab-bar">
-      <button class="tab active" id="tab-live" onclick="switchTab('live')">
+      <button class="tab active" id="tab-live" data-tab="live">
         Live Feed
         <span class="tab-badge hidden" id="pending-badge">0</span>
       </button>
-      <button class="tab" id="tab-audit" onclick="switchTab('audit')">
-        Audit Log
-      </button>
-      <button class="tab" id="tab-rules" onclick="switchTab('rules')">
-        Rules
-      </button>
-      <button class="tab" id="tab-agents" onclick="switchTab('agents')">
-        Agents
-      </button>
-      <button class="tab" id="tab-secrets" onclick="switchTab('secrets')">
-        Secrets
-      </button>
+      <button class="tab" id="tab-audit" data-tab="audit">Audit Log</button>
+      <button class="tab" id="tab-rules" data-tab="rules">Rules</button>
+      <button class="tab" id="tab-agents" data-tab="agents">Agents</button>
+      <button class="tab" id="tab-secrets" data-tab="secrets">Secrets</button>
     </div>
 
     <div class="content">
@@ -57,12 +49,7 @@
         <div class="filters">
           <div class="filter-group">
             <label for="audit-agent">Agent</label>
-            <input
-              type="text"
-              id="audit-agent"
-              placeholder="agent id"
-              oninput="debounceAudit()"
-            />
+            <input type="text" id="audit-agent" placeholder="agent id" />
           </div>
         </div>
         <div id="audit-table-wrap" class="table-wrap">
@@ -86,8 +73,8 @@
         <div class="pagination" id="audit-pagination" style="display: none">
           <span id="audit-page-info"></span>
           <div class="pagination-btns">
-            <button id="audit-prev" onclick="auditPrev()" disabled>Prev</button>
-            <button id="audit-next" onclick="auditNext()" disabled>Next</button>
+            <button id="audit-prev" disabled>Prev</button>
+            <button id="audit-next" disabled>Next</button>
           </div>
         </div>
       </div>

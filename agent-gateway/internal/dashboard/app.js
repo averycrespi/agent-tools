@@ -1,13 +1,12 @@
 // agent-gateway dashboard SPA
 // No framework, no build step. fetch + EventSource only.
+//
+// All DOM construction uses document.createElement + textContent +
+// addEventListener. No innerHTML with interpolation, no inline on* handlers.
+// This keeps user-derived values out of HTML/attribute parsing and is a
+// prerequisite for a strict script-src 'self' Content-Security-Policy.
 
 // ---------- Utility ----------
-
-function esc(s) {
-  var d = document.createElement("div");
-  d.textContent = s == null ? "" : String(s);
-  return d.innerHTML;
-}
 
 function fmtTime(iso) {
   if (!iso) return "-";
@@ -34,17 +33,28 @@ function verdictClass(v) {
   return "";
 }
 
-function verdictBadge(v) {
-  var cls = verdictClass(v);
-  return '<span class="' + cls + '">' + esc(v || "-") + "</span>";
-}
-
 function rowClass(entry) {
   var v = entry.verdict || "";
   if (v === "allow") return "row-allow";
   if (v === "deny") return "row-deny";
   if (v === "require-approval") return "row-approve";
   return "";
+}
+
+// Helpers for DOM construction.
+function el(tag, className, text) {
+  var e = document.createElement(tag);
+  if (className) e.className = className;
+  if (text != null) e.textContent = String(text);
+  return e;
+}
+
+function td(text, className) {
+  return el("td", className || "", text == null ? "-" : text);
+}
+
+function clear(node) {
+  while (node && node.firstChild) node.removeChild(node.firstChild);
 }
 
 // ---------- Tab switching ----------
@@ -159,31 +169,20 @@ function appendFeedRow(rec, prepend) {
   var empty = document.getElementById("live-empty");
   if (empty) empty.style.display = "none";
   feedContainer.style.display = "";
-  var div = document.createElement("div");
+
   var isTunnel = rec.type === "tunnel" || rec.tunnel === true;
-  div.className = "feed-row" + (isTunnel ? " tunnel tunnel-header" : "");
+  var div = el("div", "feed-row" + (isTunnel ? " tunnel tunnel-header" : ""));
 
   var ts = fmtShortTime(rec.timestamp || rec.created_at);
-  var agent = esc(rec.agent_id || rec.agent || "");
-  var tool = esc(rec.tool || rec.method || "-");
+  var agent = rec.agent_id || rec.agent || "";
+  var tool = rec.tool || rec.method || "-";
   var vclass = verdictClass(rec.verdict);
-  var vtext = esc(rec.verdict || "-");
+  var vtext = rec.verdict || "-";
 
-  div.innerHTML =
-    '<span class="feed-ts">' +
-    ts +
-    "</span>" +
-    '<span class="feed-agent">' +
-    agent +
-    "</span>" +
-    '<span class="feed-tool">' +
-    tool +
-    "</span>" +
-    '<span class="feed-verdict ' +
-    vclass +
-    '">' +
-    vtext +
-    "</span>";
+  div.appendChild(el("span", "feed-ts", ts));
+  div.appendChild(el("span", "feed-agent", agent));
+  div.appendChild(el("span", "feed-tool", tool));
+  div.appendChild(el("span", "feed-verdict " + vclass, vtext));
 
   if (isTunnel) {
     div.addEventListener("click", function () {
@@ -192,10 +191,9 @@ function appendFeedRow(rec, prepend) {
         body.classList.toggle("open");
       }
     });
-    var tunnelBody = document.createElement("div");
-    tunnelBody.className = "tunnel-body";
-    tunnelBody.innerHTML =
-      "<pre>" + esc(JSON.stringify(rec, null, 2)) + "</pre>";
+    var tunnelBody = el("div", "tunnel-body");
+    var pre = el("pre", "", JSON.stringify(rec, null, 2));
+    tunnelBody.appendChild(pre);
     if (prepend) {
       feedContainer.insertBefore(tunnelBody, feedContainer.firstChild);
       feedContainer.insertBefore(div, tunnelBody);
@@ -237,32 +235,30 @@ function upsertPendingCard(pr) {
   var container = document.getElementById("pending-cards");
   if (!container) return;
 
-  var div = document.createElement("div");
-  div.className = "card pending";
+  var div = el("div", "card pending");
   div.dataset.id = id;
 
   var ts = fmtShortTime(pr.timestamp || pr.created_at);
-  var tool = esc(pr.tool || pr.method || "-");
-  var agent = esc(pr.agent_id || pr.agent || "");
+  var tool = pr.tool || pr.method || "-";
+  var agent = pr.agent_id || pr.agent || "";
 
   // Pending rows: server enforces no body / unasserted headers.
   // We render only the fields the API returns (tool, agent, timestamp).
-  div.innerHTML =
-    '<div class="method">' +
-    tool +
-    "</div>" +
-    '<div class="meta">' +
-    ts +
-    (agent ? " \u00b7 " + agent : "") +
-    "</div>" +
-    '<div class="actions">' +
-    '<button class="btn-approve" onclick="decide(\'' +
-    esc(id) +
-    "','approve')\">Approve</button>" +
-    '<button class="btn-deny" onclick="decide(\'' +
-    esc(id) +
-    "','deny')\">Deny</button>" +
-    "</div>";
+  div.appendChild(el("div", "method", tool));
+  div.appendChild(el("div", "meta", ts + (agent ? " · " + agent : "")));
+
+  var actions = el("div", "actions");
+  var approveBtn = el("button", "btn-approve", "Approve");
+  approveBtn.addEventListener("click", function () {
+    decide(id, "approve");
+  });
+  var denyBtn = el("button", "btn-deny", "Deny");
+  denyBtn.addEventListener("click", function () {
+    decide(id, "deny");
+  });
+  actions.appendChild(approveBtn);
+  actions.appendChild(denyBtn);
+  div.appendChild(actions);
 
   container.appendChild(div);
   pendingCards.set(id, div);
@@ -270,9 +266,9 @@ function upsertPendingCard(pr) {
 
 function removePendingCard(id) {
   if (!id) return;
-  var el = pendingCards.get(id);
-  if (el) {
-    el.remove();
+  var card = pendingCards.get(id);
+  if (card) {
+    card.remove();
     pendingCards.delete(id);
   }
 }
@@ -321,7 +317,7 @@ function renderAuditTable(records, total) {
   var pag = document.getElementById("audit-pagination");
 
   if (!records.length) {
-    if (body) body.innerHTML = "";
+    if (body) clear(body);
     if (wrap) wrap.style.display = "none";
     if (empty) empty.style.display = "block";
     if (pag) pag.style.display = "none";
@@ -331,40 +327,24 @@ function renderAuditTable(records, total) {
   if (wrap) wrap.style.display = "";
   if (empty) empty.style.display = "none";
 
-  var html = "";
-  records.forEach(function (rec) {
-    var rc = rowClass(rec);
-    var ts = fmtTime(rec.timestamp || rec.created_at);
-    var tool = esc(rec.tool || rec.method || "-");
-    var agent = esc(rec.agent_id || rec.agent || "-");
-    var host = esc(rec.host || "-");
-    var rule = esc(rec.rule || "-");
-    var verdict = verdictBadge(rec.verdict);
-    html +=
-      '<tr class="' +
-      rc +
-      '">' +
-      "<td>" +
-      ts +
-      "</td>" +
-      "<td>" +
-      agent +
-      "</td>" +
-      "<td>" +
-      tool +
-      "</td>" +
-      "<td>" +
-      host +
-      "</td>" +
-      "<td>" +
-      rule +
-      "</td>" +
-      "<td>" +
-      verdict +
-      "</td>" +
-      "</tr>";
-  });
-  if (body) body.innerHTML = html;
+  if (body) {
+    clear(body);
+    records.forEach(function (rec) {
+      var tr = el("tr", rowClass(rec));
+      tr.appendChild(td(fmtTime(rec.timestamp || rec.created_at)));
+      tr.appendChild(td(rec.agent_id || rec.agent || "-"));
+      tr.appendChild(td(rec.tool || rec.method || "-"));
+      tr.appendChild(td(rec.host || "-"));
+      tr.appendChild(td(rec.rule || "-"));
+
+      var verdictCell = el("td");
+      var span = el("span", verdictClass(rec.verdict), rec.verdict || "-");
+      verdictCell.appendChild(span);
+      tr.appendChild(verdictCell);
+
+      body.appendChild(tr);
+    });
+  }
 
   // Pagination
   if (pag) {
@@ -419,7 +399,7 @@ function renderRules(rules) {
   var container = document.getElementById("rules-container");
   var empty = document.getElementById("rules-empty");
   if (!rules.length) {
-    if (container) container.innerHTML = "";
+    if (container) clear(container);
     if (empty) empty.style.display = "block";
     return;
   }
@@ -438,45 +418,58 @@ function renderRules(rules) {
     groups[file].push(rule);
   });
 
-  var html = "";
-  groupOrder.forEach(function (file) {
-    html += '<div class="rule-group">';
-    html += '<div class="rule-group-header">' + esc(file) + "</div>";
-    groups[file].forEach(function (rule) {
-      var vc = verdictClass(rule.verdict);
-      var missingBadge = rule.missing_secret
-        ? ' <span class="badge badge-missing">missing secret</span>'
-        : "";
-      var lastMatch = rule.last_matched_at
-        ? '<span class="badge badge-amber">' +
-          esc(fmtShortTime(rule.last_matched_at)) +
-          "</span>"
-        : "";
-      var count24 =
-        rule.match_count_24h != null
-          ? ' <span style="color:var(--text-secondary);font-size:0.75rem">' +
-            esc(String(rule.match_count_24h)) +
-            " in 24h</span>"
-          : "";
-      html +=
-        '<div class="rule-row">' +
-        '<span class="rule-name">' +
-        esc(rule.name || "-") +
-        missingBadge +
-        "</span>" +
-        lastMatch +
-        count24 +
-        '<span class="rule-verdict ' +
-        vc +
-        '">' +
-        esc(rule.verdict || "-") +
-        "</span>" +
-        "</div>";
-    });
-    html += "</div>";
-  });
+  if (!container) return;
+  clear(container);
 
-  if (container) container.innerHTML = html;
+  groupOrder.forEach(function (file) {
+    var groupEl = el("div", "rule-group");
+    groupEl.appendChild(el("div", "rule-group-header", file));
+
+    groups[file].forEach(function (rule) {
+      var row = el("div", "rule-row");
+
+      var nameSpan = el("span", "rule-name", rule.name || "-");
+      if (rule.missing_secret) {
+        nameSpan.appendChild(document.createTextNode(" "));
+        nameSpan.appendChild(
+          el("span", "badge badge-missing", "missing secret"),
+        );
+      }
+      row.appendChild(nameSpan);
+
+      if (rule.last_matched_at) {
+        row.appendChild(
+          el("span", "badge badge-amber", fmtShortTime(rule.last_matched_at)),
+        );
+      }
+
+      if (rule.match_count_24h != null) {
+        // Inline style kept from original; color/size are not user data.
+        var countSpan = el(
+          "span",
+          "",
+          String(rule.match_count_24h) + " in 24h",
+        );
+        countSpan.style.color = "var(--text-secondary)";
+        countSpan.style.fontSize = "0.75rem";
+        // Preceding space for readability.
+        row.appendChild(document.createTextNode(" "));
+        row.appendChild(countSpan);
+      }
+
+      row.appendChild(
+        el(
+          "span",
+          "rule-verdict " + verdictClass(rule.verdict),
+          rule.verdict || "-",
+        ),
+      );
+
+      groupEl.appendChild(row);
+    });
+
+    container.appendChild(groupEl);
+  });
 }
 
 // ---------- Agents tab ----------
@@ -500,7 +493,7 @@ function renderAgents(agents) {
   var wrap = document.getElementById("agents-table-wrap");
 
   if (!agents.length) {
-    if (body) body.innerHTML = "";
+    if (body) clear(body);
     if (wrap) wrap.style.display = "none";
     if (empty) empty.style.display = "block";
     return;
@@ -509,36 +502,25 @@ function renderAgents(agents) {
   if (wrap) wrap.style.display = "";
   if (empty) empty.style.display = "none";
 
-  var html = "";
+  if (!body) return;
+  clear(body);
+
   agents.forEach(function (a) {
     var lastSeen = fmtTime(a.last_seen_at || a.last_seen);
     var allow24 = a.allow_count_24h != null ? String(a.allow_count_24h) : "-";
     var deny24 = a.deny_count_24h != null ? String(a.deny_count_24h) : "-";
     var approve24 =
       a.approve_count_24h != null ? String(a.approve_count_24h) : "-";
-    html +=
-      "<tr>" +
-      "<td>" +
-      esc(a.id || a.agent_id || "-") +
-      "</td>" +
-      "<td>" +
-      esc(a.name || "-") +
-      "</td>" +
-      "<td>" +
-      esc(lastSeen) +
-      "</td>" +
-      '<td class="v-allow">' +
-      esc(allow24) +
-      "</td>" +
-      '<td class="v-deny">' +
-      esc(deny24) +
-      "</td>" +
-      '<td class="v-approve">' +
-      esc(approve24) +
-      "</td>" +
-      "</tr>";
+
+    var tr = el("tr");
+    tr.appendChild(td(a.id || a.agent_id || "-"));
+    tr.appendChild(td(a.name || "-"));
+    tr.appendChild(td(lastSeen));
+    tr.appendChild(td(allow24, "v-allow"));
+    tr.appendChild(td(deny24, "v-deny"));
+    tr.appendChild(td(approve24, "v-approve"));
+    body.appendChild(tr);
   });
-  if (body) body.innerHTML = html;
 }
 
 // ---------- Secrets tab ----------
@@ -562,7 +544,7 @@ function renderSecrets(secrets) {
   var wrap = document.getElementById("secrets-table-wrap");
 
   if (!secrets.length) {
-    if (body) body.innerHTML = "";
+    if (body) clear(body);
     if (wrap) wrap.style.display = "none";
     if (empty) empty.style.display = "block";
     return;
@@ -571,32 +553,20 @@ function renderSecrets(secrets) {
   if (wrap) wrap.style.display = "";
   if (empty) empty.style.display = "none";
 
-  var html = "";
+  if (!body) return;
+  clear(body);
+
   secrets.forEach(function (s) {
     // Never render plaintext values — server only returns metadata.
-    html +=
-      "<tr>" +
-      "<td>" +
-      esc(s.name || "-") +
-      "</td>" +
-      "<td>" +
-      esc(s.scope || "-") +
-      "</td>" +
-      "<td>" +
-      esc(fmtTime(s.created_at || s.created)) +
-      "</td>" +
-      "<td>" +
-      esc(fmtTime(s.rotated_at || s.rotated)) +
-      "</td>" +
-      "<td>" +
-      esc(fmtTime(s.last_used_at || s.last_used)) +
-      "</td>" +
-      "<td>" +
-      esc(s.ref_count != null ? String(s.ref_count) : "-") +
-      "</td>" +
-      "</tr>";
+    var tr = el("tr");
+    tr.appendChild(td(s.name || "-"));
+    tr.appendChild(td(s.scope || "-"));
+    tr.appendChild(td(fmtTime(s.created_at || s.created)));
+    tr.appendChild(td(fmtTime(s.rotated_at || s.rotated)));
+    tr.appendChild(td(fmtTime(s.last_used_at || s.last_used)));
+    tr.appendChild(td(s.ref_count != null ? String(s.ref_count) : "-"));
+    body.appendChild(tr);
   });
-  if (body) body.innerHTML = html;
 }
 
 // ---------- Tunneled-hosts banner ----------
@@ -624,27 +594,31 @@ function renderTunneledBanner(hosts) {
   var existing = document.getElementById("tunneled-banner");
   if (existing) existing.remove();
 
-  var banner = document.createElement("div");
+  var banner = el("div", "tunneled-banner");
   banner.id = "tunneled-banner";
-  banner.className = "tunneled-banner";
 
-  var hostItems = hosts
-    .map(function (h) {
-      return (
-        '<span class="tunneled-host">' +
-        esc(h.host) +
-        " (" +
-        esc(String(h.count)) +
-        ")</span>"
-      );
-    })
-    .join(", ");
+  var strong = el("strong", "", "Tunneled hosts without rules (last 24h):");
+  banner.appendChild(strong);
+  banner.appendChild(document.createTextNode(" "));
 
-  banner.innerHTML =
-    "<strong>Tunneled hosts without rules (last 24h):</strong> " +
-    hostItems +
-    " &mdash; consider adding rules for these hosts." +
-    '<button class="tunneled-dismiss" onclick="dismissTunneledBanner()">Dismiss</button>';
+  hosts.forEach(function (h, i) {
+    if (i > 0) banner.appendChild(document.createTextNode(", "));
+    banner.appendChild(
+      el(
+        "span",
+        "tunneled-host",
+        (h.host || "") + " (" + String(h.count) + ")",
+      ),
+    );
+  });
+
+  banner.appendChild(
+    document.createTextNode(" — consider adding rules for these hosts."),
+  );
+
+  var dismissBtn = el("button", "tunneled-dismiss", "Dismiss");
+  dismissBtn.addEventListener("click", dismissTunneledBanner);
+  banner.appendChild(dismissBtn);
 
   var body = document.body;
   if (body) body.insertBefore(banner, body.firstChild);
@@ -659,6 +633,21 @@ function dismissTunneledBanner() {
 // ---------- Init ----------
 
 document.addEventListener("DOMContentLoaded", function () {
+  // Wire up tab bar buttons (previously inline onclick).
+  document.querySelectorAll(".tab[data-tab]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      switchTab(btn.dataset.tab);
+    });
+  });
+
+  // Wire up audit pagination + filter (previously inline onclick/oninput).
+  var prev = document.getElementById("audit-prev");
+  if (prev) prev.addEventListener("click", auditPrev);
+  var next = document.getElementById("audit-next");
+  if (next) next.addEventListener("click", auditNext);
+  var agentInput = document.getElementById("audit-agent");
+  if (agentInput) agentInput.addEventListener("input", debounceAudit);
+
   initLiveFeed();
   initTunneledHostsBanner();
   switchTab("live");
