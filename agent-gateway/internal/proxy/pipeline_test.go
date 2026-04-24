@@ -817,3 +817,37 @@ func TestPipeline_RequireApproval_NilBroker(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(body), "no approval broker", "body should explain the 504 reason")
 }
+
+// unknownVerdictMatchResult returns a MatchResult whose verdict is a
+// hypothetical future value that the current pipeline switch does not handle.
+func unknownVerdictMatchResult() *rules.MatchResult {
+	return &rules.MatchResult{
+		Rule: &rules.Rule{Name: "future-rule", Verdict: "future-verdict"},
+	}
+}
+
+// TestPipeline_UnknownVerdict_Denies verifies that an unrecognised rule verdict
+// fails closed: the pipeline must return 403 with X-Agent-Gateway-Reason:
+// unknown-verdict and must NOT forward the request to the upstream.
+func TestPipeline_UnknownVerdict_Denies(t *testing.T) {
+	auth := newTestAuthority(t)
+
+	var called bool
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
+	})
+
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                stubEngineReturning(unknownVerdictMatchResult()),
+	})
+
+	resp := sendRequestThroughProxy(t, p, http.MethodGet, "example.com:443", "/hello")
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Equal(t, proxy.ReasonUnknownVerdict, resp.Header.Get("X-Agent-Gateway-Reason"),
+		"X-Agent-Gateway-Reason must be unknown-verdict")
+	assert.NotEmpty(t, resp.Header.Get("X-Request-ID"), "deny response must carry X-Request-ID")
+	assert.False(t, called, "upstream must NOT be called on unknown verdict")
+}

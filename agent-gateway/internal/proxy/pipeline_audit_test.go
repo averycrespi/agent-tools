@@ -297,6 +297,28 @@ func TestPipeline_Audit_ApprovalTimeout(t *testing.T) {
 	assert.Equal(t, "blocked", e.Outcome)
 }
 
+// TestPipeline_Audit_UnknownVerdict covers the unknown-verdict fail-closed path:
+// the audit row must record error='unknown_verdict' and outcome='blocked'.
+func TestPipeline_Audit_UnknownVerdict(t *testing.T) {
+	auth := newTestAuthority(t)
+	cl := newCapturingLogger(t)
+
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: okRoundTripper(),
+		Rules:                stubEngineReturning(unknownVerdictMatchResult()),
+		Auditor:              cl,
+	})
+
+	e := sendAuditRequest(t, p, cl, http.MethodGet, "example.com:443", "/hello")
+	require.NotNil(t, e)
+	assert.Equal(t, "mitm", e.Interception)
+	assert.Equal(t, "future-rule", *e.MatchedRule)
+	require.NotNil(t, e.Error)
+	assert.Equal(t, "unknown_verdict", *e.Error)
+	assert.Equal(t, "blocked", e.Outcome)
+}
+
 // TestPipeline_Audit_NilAuditor verifies that a nil Auditor does not panic.
 func TestPipeline_Audit_NilAuditor(t *testing.T) {
 	auth := newTestAuthority(t)

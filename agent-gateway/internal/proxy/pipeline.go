@@ -224,6 +224,11 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 				entry.Error = &a.Error
 			}
 		}
+		// Propagate non-injection errors (e.g. unknown_verdict, body_buffer_io_error)
+		// that are set on a.Error without a corresponding a.Injection value.
+		if entry.Error == nil && a.Error != "" {
+			entry.Error = &a.Error
+		}
 		if p.auditor != nil {
 			if err := p.auditor.Record(r.Context(), entry); err != nil {
 				p.log.Warn("proxy: audit record failed", "request_id", reqID, "err", err)
@@ -360,9 +365,15 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 				// Explicit allow — fall through to injection step.
 
 			default:
-				// Unknown verdict: treat as allow to be forward-compatible.
-				p.log.Warn("proxy: unknown rule verdict; treating as allow",
+				// Unknown verdict: fail closed. Any new verdict must be added at parse
+				// time (internal/rules/parse.go). Reaching this branch means version
+				// skew or in-memory corruption; treat as deny to avoid bypass.
+				a.Error = "unknown_verdict"
+				p.log.Error("proxy: unknown rule verdict; denying",
 					"verdict", m.Rule.Verdict, "request_id", reqID)
+				w.Header().Set("X-Request-ID", reqID)
+				httpErrorWithReason(w, "Forbidden", http.StatusForbidden, ReasonUnknownVerdict)
+				return
 			}
 		}
 		// nil match or allow → fall through to injection step. The bypass-
