@@ -234,6 +234,15 @@ dashboard {
   listen       = "127.0.0.1:%d"
   open_browser = false
 }
+proxy_behavior {
+  no_intercept_hosts = []
+  max_body_buffer    = "1MiB"
+  # Mock upstream servers run on loopback (127.0.0.1) in e2e tests.
+  # allow_private_upstream=true is required so the daemon can reach them.
+  # IMDS addresses (169.254.169.254, fd00:ec2::254) remain unconditionally
+  # blocked even with this flag set — that invariant is tested separately.
+  allow_private_upstream = true
+}
 `, proxyPort, dashPort)
 	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0o600); err != nil {
 		t.Fatalf("write config.hcl: %v", err)

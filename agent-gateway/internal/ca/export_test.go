@@ -11,12 +11,25 @@ import (
 	"crypto/x509/pkix"
 	"net"
 	"time"
+
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 // SetLeafLifetimeForTest overrides the leaf certificate validity period on a so
 // that tests can issue very short-lived certificates to exercise the sweeper.
 func SetLeafLifetimeForTest(a *Authority, d time.Duration) {
 	a.leafLifetime = d
+}
+
+// SetLRUCapForTest replaces the leaf cache with a new one bounded at cap
+// entries. Use a small cap to exercise LRU eviction without allocating 10 000
+// entries in a unit test.
+func SetLRUCapForTest(a *Authority, cap int) {
+	c, err := lru.New[string, *cacheEntry](cap)
+	if err != nil {
+		panic(err)
+	}
+	a.cache = &leafCache{m: c}
 }
 
 // SetSkewBufferForTest overrides the clock-skew buffer on a so that tests can

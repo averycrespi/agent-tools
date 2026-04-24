@@ -4,7 +4,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"math/rand"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -159,6 +161,44 @@ func TestSkewBuffer_NotAfter(t *testing.T) {
 	require.NoError(t, err)
 	assert.WithinDuration(t, time.Now(), leaf.NotBefore, 5*time.Second,
 		"re-issued cert must have a fresh NotBefore")
+}
+
+// TestLRU_ConcurrentEvictionRaceFree exercises ServerConfig under high
+// concurrency to detect data races and panics. 100 goroutines each call
+// ServerConfig 50 times with a random host drawn from a small pool that is
+// intentionally larger than the LRU cap, forcing frequent evictions while
+// goroutines are simultaneously issuing new certs.
+//
+// The test is primarily a -race detector harness: it asserts no panic and no
+// data race. The final cache size must not exceed the small cap set via
+// SetLRUCapForTest.
+func TestLRU_ConcurrentEvictionRaceFree(t *testing.T) {
+	const (
+		goroutines   = 100
+		callsEach    = 50
+		smallCap     = 10
+		distinctHost = 25 // > smallCap so evictions are frequent
+	)
+
+	a := newTestAuthority(t)
+	ca.SetLRUCapForTest(a, smallCap)
+
+	var wg sync.WaitGroup
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < callsEach; j++ {
+				host := fmt.Sprintf("host-%d.concurrent.test", rand.Intn(distinctHost)) //nolint:gosec — not cryptographic
+				_, err := a.ServerConfig(host)
+				if err != nil {
+					t.Errorf("ServerConfig(%q): unexpected error: %v", host, err)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // TestSkewBuffer_NotBefore verifies that a cached cert whose NotBefore is
