@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -23,13 +24,28 @@ var ErrInvalidToken = errors.New("invalid token")
 // already exists.
 var ErrDuplicateName = errors.New("agent name already exists")
 
-// argon2id parameters (time=1, memory=64 KiB, threads=4, keyLen=32).
+// argon2id parameters — OWASP 2023 floor (m=19 MiB, t=2, p=1, keyLen=32).
+// Dropping below these re-introduces a GPU-feasible offline attack on an
+// exfiltrated DB: the earlier m=64 KiB / t=1 / p=4 settings were ~300× less
+// memory-hard and, per OWASP's 2023 password-storage cheatsheet, below the
+// threshold at which consumer GPUs can crack 8+ char random-looking tokens
+// in minutes. Raise these only upward.
 const (
-	argon2Time    = 1
-	argon2Memory  = 64 * 1024
-	argon2Threads = 4
+	argon2Time    = 2
+	argon2Memory  = 19 * 1024
+	argon2Threads = 1
 	argon2KeyLen  = 32
 	saltLen       = 16
+)
+
+// Legacy argon2id parameters used before the OWASP-floor upgrade. Kept so
+// that Authenticate can recognize hashes stored by earlier builds and
+// transparently rehash them with the current params on successful auth.
+// Remove only after a forced rotation migration has been executed.
+const (
+	legacyArgon2Time    = 1
+	legacyArgon2Memory  = 64 * 1024
+	legacyArgon2Threads = 4
 )
 
 // Agent holds the public fields of a registered agent (no token bytes).
@@ -142,8 +158,38 @@ func (r *sqlRegistry) Authenticate(ctx context.Context, token string) (*Agent, e
 	// stored hash. An attacker who can submit auth attempts could use that
 	// timing oracle to reconstruct the stored hash byte-by-byte — not the
 	// token itself, but close enough to narrow offline brute-force.
+	needsRehash := false
 	if subtle.ConstantTimeCompare(candidate, entry.hash) != 1 {
-		return nil, ErrInvalidToken
+		// Fall back to legacy params: pre-upgrade installs stored hashes
+		// with m=64 KiB/t=1/p=4. If the token matches under those params,
+		// auth succeeds and we transparently rehash with the current
+		// OWASP params below. Any other mismatch is a true failure.
+		legacy := deriveHashLegacy(token, entry.salt)
+		if subtle.ConstantTimeCompare(legacy, entry.hash) != 1 {
+			return nil, ErrInvalidToken
+		}
+		needsRehash = true
+	}
+
+	if needsRehash {
+		// Persist the upgraded hash in the DB and update the in-memory
+		// prefix map so subsequent auths take the fast path. Write failure
+		// must not fail the auth: the caller is legitimate; we can upgrade
+		// on the next request. Logged at warn so it surfaces in operator
+		// telemetry without being alarmist.
+		newHash := candidate
+		const upd = `UPDATE agents SET token_hash = ? WHERE name = ?`
+		if _, err := r.db.ExecContext(ctx, upd, newHash, entry.name); err != nil {
+			slog.Default().Warn("agents: rehash persist failed",
+				"agent", entry.name, "err", err)
+		} else {
+			r.mu.Lock()
+			if e, ok := r.prefixMap[prefix]; ok && e.name == entry.name {
+				e.hash = newHash
+				r.prefixMap[prefix] = e
+			}
+			r.mu.Unlock()
+		}
 	}
 
 	now := time.Now().Unix()
@@ -317,7 +363,14 @@ func (r *sqlRegistry) ReloadFromDB(ctx context.Context) error {
 	return nil
 }
 
-// deriveHash runs argon2id over the token + salt with the standard parameters.
+// deriveHash runs argon2id over the token + salt with the current parameters.
 func deriveHash(token string, salt []byte) []byte {
 	return argon2.IDKey([]byte(token), salt, argon2Time, argon2Memory, argon2Threads, argon2KeyLen)
+}
+
+// deriveHashLegacy runs argon2id with the pre-upgrade parameters. Used only
+// on the Authenticate fallback path so legacy hashes can be recognized and
+// rehashed with current params.
+func deriveHashLegacy(token string, salt []byte) []byte {
+	return argon2.IDKey([]byte(token), salt, legacyArgon2Time, legacyArgon2Memory, legacyArgon2Threads, argon2KeyLen)
 }

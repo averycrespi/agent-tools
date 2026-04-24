@@ -1,6 +1,7 @@
 package agents_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/argon2"
 )
 
 // newDB opens a temporary SQLite database with all migrations applied.
@@ -254,4 +256,93 @@ func TestRegistry_AddDuplicateName(t *testing.T) {
 
 	_, err = r.Add(ctx, "dupe", "")
 	assert.ErrorIs(t, err, agents.ErrDuplicateName)
+}
+
+// Current OWASP floor (matches registry.go constants).
+const (
+	owaspArgon2Time    = 2
+	owaspArgon2Memory  = 19 * 1024
+	owaspArgon2Threads = 1
+	owaspArgon2KeyLen  = 32
+)
+
+// Legacy params seeded into the DB to simulate a pre-remediation install.
+const (
+	legacyArgon2Time    = 1
+	legacyArgon2Memory  = 64 * 1024
+	legacyArgon2Threads = 4
+)
+
+// TestRegister_UsesOWASPParams asserts Add stores a hash computed with the
+// OWASP 2023 floor for argon2id. Because the DB stores the raw 32-byte hash
+// (no encoded params), we reproduce the hash with the OWASP params against
+// the stored salt and compare — equality proves the registration used the
+// current params.
+func TestRegister_UsesOWASPParams(t *testing.T) {
+	db := newDB(t)
+	ctx := context.Background()
+	r, err := agents.NewRegistry(ctx, db)
+	require.NoError(t, err)
+
+	tok, err := r.Add(ctx, "owasp-agent", "")
+	require.NoError(t, err)
+
+	var hash, salt []byte
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT token_hash, argon2_salt FROM agents WHERE name = ?`, "owasp-agent",
+	).Scan(&hash, &salt))
+
+	expected := argon2.IDKey([]byte(tok), salt,
+		owaspArgon2Time, owaspArgon2Memory, owaspArgon2Threads, owaspArgon2KeyLen)
+	assert.True(t, bytes.Equal(hash, expected),
+		"stored hash must be derived with OWASP params m=19*1024, t=2, p=1")
+}
+
+// TestAuthenticate_RehashesLegacyHash seeds a hash computed with the legacy
+// argon2id params (m=64, t=1, p=4), then authenticates and asserts the
+// stored hash has been rewritten with the current OWASP params.
+func TestAuthenticate_RehashesLegacyHash(t *testing.T) {
+	db := newDB(t)
+	ctx := context.Background()
+
+	// Register normally so name/prefix/salt are valid, then overwrite the
+	// hash with one computed using legacy params so the registry has to
+	// detect and rehash it.
+	r, err := agents.NewRegistry(ctx, db)
+	require.NoError(t, err)
+
+	tok, err := r.Add(ctx, "legacy", "")
+	require.NoError(t, err)
+
+	var salt []byte
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT argon2_salt FROM agents WHERE name = ?`, "legacy",
+	).Scan(&salt))
+
+	legacyHash := argon2.IDKey([]byte(tok), salt,
+		legacyArgon2Time, legacyArgon2Memory, legacyArgon2Threads, owaspArgon2KeyLen)
+	_, err = db.ExecContext(ctx,
+		`UPDATE agents SET token_hash = ? WHERE name = ?`, legacyHash, "legacy")
+	require.NoError(t, err)
+
+	// Re-open the registry so the prefix map reflects the legacy hash.
+	r2, err := agents.NewRegistry(ctx, db)
+	require.NoError(t, err)
+
+	a, err := r2.Authenticate(ctx, tok)
+	require.NoError(t, err)
+	assert.Equal(t, "legacy", a.Name)
+
+	// The stored hash must now match the OWASP params, not the legacy ones.
+	var afterHash []byte
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT token_hash FROM agents WHERE name = ?`, "legacy",
+	).Scan(&afterHash))
+
+	expectedOWASP := argon2.IDKey([]byte(tok), salt,
+		owaspArgon2Time, owaspArgon2Memory, owaspArgon2Threads, owaspArgon2KeyLen)
+	assert.True(t, bytes.Equal(afterHash, expectedOWASP),
+		"stored hash must be rehashed with OWASP params after auth")
+	assert.False(t, bytes.Equal(afterHash, legacyHash),
+		"stored hash must no longer equal the legacy hash")
 }
