@@ -15,6 +15,28 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
 )
 
+// Reason codes for X-Agent-Gateway-Reason. Stable strings documented in
+// docs/security-model.md.
+const (
+	ReasonBodyMatcherBypassed = "body-matcher-bypassed"
+	ReasonRuleDeny            = "rule-deny"
+	ReasonUnknownVerdict      = "unknown-verdict"
+	ReasonApprovalDenied      = "approval-denied"
+	ReasonApprovalTimeout     = "approval-timeout"
+	ReasonQueueFull           = "queue-full"
+	ReasonNoApprovalBroker    = "no-approval-broker"
+	ReasonSecretUnresolved    = "secret-unresolved"
+	ReasonForbiddenHost       = "forbidden-host"
+	ReasonBodyReadError       = "body-read-error"
+)
+
+// httpErrorWithReason writes an HTTP error with an X-Agent-Gateway-Reason
+// header. Header must be set before http.Error writes headers.
+func httpErrorWithReason(w http.ResponseWriter, body string, code int, reason string) {
+	w.Header().Set("X-Agent-Gateway-Reason", reason)
+	http.Error(w, body, code)
+}
+
 // auditCtxKey is the unexported context key for the per-request audit struct.
 type auditCtxKey struct{}
 

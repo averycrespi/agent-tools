@@ -5,10 +5,21 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"testing"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/agents"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
 )
+
+func TestHTTPErrorWithReason_SetsHeaderAndBody(t *testing.T) {
+	rec := httptest.NewRecorder()
+	httpErrorWithReason(rec, "boom", http.StatusForbidden, ReasonRuleDeny)
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Equal(t, "rule-deny", rec.Header().Get("X-Agent-Gateway-Reason"))
+	require.Contains(t, rec.Body.String(), "boom")
+}
 
 // NewH2ServerForTest returns the *http2.Server that the Proxy uses for the
 // MITM'd HTTP/2 path. Tests use this to assert that hardening limits
