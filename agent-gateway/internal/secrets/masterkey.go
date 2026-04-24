@@ -49,6 +49,15 @@ func ResolveID(id int, logger *slog.Logger) ([]byte, bool, error) {
 
 // PersistID writes key under the given id to the OS keychain, falling back to
 // a file at paths.MasterKeyFileForID(id) when the keychain is unavailable.
+//
+// Rotation ordering invariant: callers MUST call PersistID for the new id
+// BEFORE committing the re-encryption transaction that rewrites rows with the
+// new key and bumps meta.active_key_id. If the order were reversed — commit
+// first, then persist the key — a crash in between would leave the database
+// pointing at an id whose key material was never written anywhere. The rows
+// would be undecryptable and the secrets unrecoverable. Persisting the new
+// key first only risks an orphaned key on a rollback (harmless, cleaned up
+// best-effort).
 func PersistID(key []byte, id int, logger *slog.Logger) error {
 	if id < 1 {
 		return fmt.Errorf("master-key: invalid id %d", id)

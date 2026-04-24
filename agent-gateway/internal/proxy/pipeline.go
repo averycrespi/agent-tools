@@ -362,10 +362,17 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 			a.CredentialScope = scope
 
 		case injErr != nil && errors.Is(injErr, inject.ErrSecretHostScopeViolation):
-			// Hard 403: the rule matched, but a secret in its inject block
-			// is not bound to this host. Do NOT forward — forwarding with
-			// the agent's dummy credential would quietly succeed as a 401
-			// from upstream and the misconfig would go unnoticed.
+			// Fail-closed 403 is load-bearing: the rule matched, but the
+			// secret it references is scoped to a different host. Scope is
+			// THE boundary enforcing "secrets only leave the gateway to
+			// their named hosts" — downgrading a violation to a soft-fail
+			// would make that boundary advisory rather than enforced.
+			// Silently forwarding would also let a misauthored rule (wrong
+			// host glob, typo in secret scope) quietly route traffic under
+			// an unintended credential pairing; the operator would see only
+			// a generic upstream 401 with no indication of the mismatch.
+			// The 403 names the specific problem (secret_host_scope_violation)
+			// in audit and response so the operator can diagnose and fix.
 			p.log.Warn("proxy: secret host scope violation; refusing to forward",
 				"request_id", reqID, "host", hostOnly, "err", injErr)
 			a.Injection = "failed"

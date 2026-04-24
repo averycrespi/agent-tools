@@ -143,6 +143,18 @@ func authMiddleware(tokenPtr *atomic.Pointer[string], next http.Handler) http.Ha
 	})
 }
 
+// checkBearer and checkCookie both compare against the admin token using
+// crypto/subtle.ConstantTimeCompare. A naive == on []byte / string would
+// short-circuit at the first mismatched byte: the request-handling cost is
+// tiny compared to round-trip latency, but an attacker running from the same
+// host (or close to it on localhost) can measure those nanoseconds across
+// many requests and recover the admin token byte-by-byte. The admin token
+// grants full dashboard access (agents, secrets, audit), so a timing oracle
+// here is a full-compromise primitive. subtle.ConstantTimeCompare walks
+// both operands in constant time when they have equal length (and
+// short-circuits to 0 on length mismatch); an attacker probing a token of
+// known length — which ours is, at 64 hex chars — sees constant-time
+// behaviour, which is what closes the byte-by-byte oracle.
 func checkBearer(r *http.Request, token []byte) bool {
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "Bearer ") {

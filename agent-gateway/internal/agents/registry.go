@@ -136,6 +136,12 @@ func (r *sqlRegistry) Authenticate(ctx context.Context, token string) (*Agent, e
 	}
 
 	candidate := deriveHash(token, entry.salt)
+	// Constant-time compare: a naive bytes.Equal / == on the hashes would
+	// return early at the first mismatching byte, leaking (via response
+	// latency) how many leading bytes of the candidate hash matched the
+	// stored hash. An attacker who can submit auth attempts could use that
+	// timing oracle to reconstruct the stored hash byte-by-byte — not the
+	// token itself, but close enough to narrow offline brute-force.
 	if subtle.ConstantTimeCompare(candidate, entry.hash) != 1 {
 		return nil, ErrInvalidToken
 	}

@@ -152,7 +152,13 @@ func Decide(
 		}
 	}
 
-	// No rules engine or no rule for this agent → tunnel.
+	// Tunnel-on-no-rule-match invariant: if the agent is authenticated but no
+	// rule for this agent targets this host, pass the bytes through as a raw
+	// TCP tunnel instead of performing MITM. MITM is a consent-bearing act —
+	// intercepting TLS for hosts the operator never authored a rule for would
+	// silently decrypt personal/unintended traffic flowing through the proxy.
+	// The safe default is: MITM only where a rule says so; tunnel everywhere
+	// else.
 	if engine == nil {
 		return DecisionTunnel
 	}

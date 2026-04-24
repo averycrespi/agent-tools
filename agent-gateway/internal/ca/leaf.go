@@ -15,6 +15,12 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/hostnorm"
 )
 
+// Leaf certs are issued with a 24h lifetime and evicted from the cache 1h
+// before NotAfter. The 1h buffer exists to absorb client clock skew: a client
+// whose clock is a few minutes fast would reject a cert issued against our
+// wall clock the instant NotAfter ticks past "now", producing opaque TLS
+// handshake failures at the sandbox. Evicting early forces re-issuance with a
+// fresh NotAfter window well before any realistic client sees it as expired.
 const (
 	defaultLeafLifetime  = 24 * time.Hour
 	defaultSweepInterval = 5 * time.Minute
