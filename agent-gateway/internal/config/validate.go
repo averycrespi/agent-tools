@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -26,7 +27,28 @@ func validateConfig(cfg *Config) ([]string, error) {
 		return nil, err
 	}
 	warnings = append(warnings, w...)
+	if err := validateListenAddrs(cfg); err != nil {
+		return nil, err
+	}
 	return warnings, nil
+}
+
+// validateListenAddrs refuses any listener binding that is not a loopback
+// interface. Both the proxy and dashboard carry agent tokens / admin tokens
+// over plain HTTP; the loopback-only bind is the load-bearing boundary that
+// keeps those tokens off the network. A misconfigured `listen = "0.0.0.0:…"`
+// would expose the gateway — and every cached secret it guards — to the LAN.
+// Errors from both listeners are aggregated so a single Load surfaces all
+// offending stanzas at once instead of forcing a fix-retry-fix cycle.
+func validateListenAddrs(cfg *Config) error {
+	var errs []error
+	if err := ValidateLoopbackAddr(cfg.Proxy.Listen); err != nil {
+		errs = append(errs, fmt.Errorf("proxy.listen: %w", err))
+	}
+	if err := ValidateLoopbackAddr(cfg.Dashboard.Listen); err != nil {
+		errs = append(errs, fmt.Errorf("dashboard.listen: %w", err))
+	}
+	return errors.Join(errs...)
 }
 
 // validateNoInterceptHosts rejects entries that match every (or nearly every)

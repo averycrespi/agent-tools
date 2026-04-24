@@ -127,3 +127,46 @@ func TestValidateNoInterceptHosts_NoPublicSuffixWarningForSafeEntries(t *testing
 		})
 	}
 }
+
+// TestValidateConfig_ListenAddrWiring locks in that validateConfig actually
+// calls validateListenAddrs. If a future refactor accidentally drops that
+// call, these cases fail — a non-loopback listen must be rejected by the
+// outer entry point, not just by the inner helper.
+func TestValidateConfig_ListenAddrWiring(t *testing.T) {
+	newCfg := func(proxy, dashboard string) *Config {
+		return &Config{
+			Proxy:     ProxyConfig{Listen: proxy},
+			Dashboard: DashboardConfig{Listen: dashboard},
+		}
+	}
+
+	t.Run("proxy listen non-loopback", func(t *testing.T) {
+		_, err := validateConfig(newCfg("0.0.0.0:8220", "127.0.0.1:8221"))
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "proxy.listen:") {
+			t.Errorf("error should name proxy.listen, got: %v", err)
+		}
+	})
+
+	t.Run("both listeners non-loopback aggregate", func(t *testing.T) {
+		_, err := validateConfig(newCfg("0.0.0.0:8220", "0.0.0.0:8221"))
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "proxy.listen:") {
+			t.Errorf("error should name proxy.listen, got: %v", err)
+		}
+		if !strings.Contains(msg, "dashboard.listen:") {
+			t.Errorf("error should name dashboard.listen (errors.Join aggregation), got: %v", err)
+		}
+	})
+
+	t.Run("both loopback passes", func(t *testing.T) {
+		if _, err := validateConfig(newCfg("127.0.0.1:8220", "[::1]:8221")); err != nil {
+			t.Errorf("expected valid loopback config to pass, got: %v", err)
+		}
+	})
+}
