@@ -285,7 +285,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 					"request_id", reqID, "host", hostOnly, "err", bufErr)
 				a.Error = "body_buffer_io_error"
 				w.Header().Set("X-Request-ID", reqID)
-				http.Error(w, "Forbidden: body buffer read error", http.StatusForbidden)
+				httpErrorWithReason(w, "Forbidden: body buffer read error", http.StatusForbidden, ReasonBodyReadError)
 				return
 			}
 		}
@@ -320,7 +320,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 			switch m.Rule.Verdict {
 			case "deny":
 				w.Header().Set("X-Request-ID", reqID)
-				http.Error(w, "Forbidden", http.StatusForbidden)
+				httpErrorWithReason(w, "Forbidden", http.StatusForbidden, ReasonRuleDeny)
 				return
 
 			case "require-approval":
@@ -328,7 +328,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 					p.log.Error("proxy: require-approval verdict but no ApprovalBroker configured",
 						"request_id", reqID, "host", host)
 					w.Header().Set("X-Request-ID", reqID)
-					http.Error(w, "no approval broker configured", http.StatusGatewayTimeout)
+					httpErrorWithReason(w, "no approval broker configured", http.StatusGatewayTimeout, ReasonNoApprovalBroker)
 					return
 				}
 				decision, apErr := p.approval.Request(r.Context(), ApprovalRequest{
@@ -354,12 +354,12 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 				case DecisionDenied:
 					a.Approval = "denied"
 					w.Header().Set("X-Request-ID", reqID)
-					http.Error(w, "Forbidden", http.StatusForbidden)
+					httpErrorWithReason(w, "Forbidden", http.StatusForbidden, ReasonApprovalDenied)
 					return
 				case DecisionTimeout:
 					a.Approval = "timed-out"
 					w.Header().Set("X-Request-ID", reqID)
-					http.Error(w, "approval timed out", http.StatusGatewayTimeout)
+					httpErrorWithReason(w, "approval timed out", http.StatusGatewayTimeout, ReasonApprovalTimeout)
 					return
 				case DecisionApproved:
 					a.Approval = "approved"
@@ -390,7 +390,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 	// so cancellation propagates and the audit record is accessible from both.
 	upReq, err := http.NewRequestWithContext(r.Context(), r.Method, "", r.Body)
 	if err != nil {
-		http.Error(w, "proxy: build upstream request: "+err.Error(), http.StatusInternalServerError)
+		httpErrorWithReason(w, "proxy: build upstream request: "+err.Error(), http.StatusInternalServerError, "build-request-error")
 		return
 	}
 
@@ -441,7 +441,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 			a.Injection = "failed"
 			a.Error = "secret_invalid"
 			w.Header().Set("X-Request-ID", reqID)
-			http.Error(w, "Forbidden: secret contains invalid characters", http.StatusForbidden)
+			httpErrorWithReason(w, "Forbidden: secret contains invalid characters", http.StatusForbidden, "secret-invalid")
 			return
 
 		case injErr != nil && errors.Is(injErr, inject.ErrSecretHostScopeViolation):
@@ -461,7 +461,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 			a.Injection = "failed"
 			a.Error = "secret_host_scope_violation"
 			w.Header().Set("X-Request-ID", reqID)
-			http.Error(w, "Forbidden: secret not bound to this host", http.StatusForbidden)
+			httpErrorWithReason(w, "Forbidden: secret not bound to this host", http.StatusForbidden, ReasonForbiddenHost)
 			return
 
 		case injErr != nil && errors.Is(injErr, inject.ErrSecretUnresolved):
@@ -494,7 +494,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 	resp, err := p.rt.RoundTrip(upReq)
 	if err != nil {
 		p.log.Error("proxy: upstream RoundTrip failed", "host", host, "err", err)
-		http.Error(w, "proxy: upstream error: "+err.Error(), http.StatusBadGateway)
+		httpErrorWithReason(w, "proxy: upstream error: "+err.Error(), http.StatusBadGateway, "upstream-error")
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()

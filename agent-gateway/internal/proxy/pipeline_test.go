@@ -969,3 +969,229 @@ func TestPipeline_ApprovalBrokerError_Returns502(t *testing.T) {
 	rec, _ := runPipelineWithApprovalError(t, errors.New("some other failure"))
 	require.Equal(t, http.StatusBadGateway, rec.Code)
 }
+
+// ---------- Task 1.6: reason-header sweep tests ----------
+
+// TestPipeline_RuleDeny_SetsReason verifies that the rule-deny 403 carries
+// X-Agent-Gateway-Reason: rule-deny.
+func TestPipeline_RuleDeny_SetsReason(t *testing.T) {
+	auth := newTestAuthority(t)
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
+	})
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                stubEngineReturning(denyMatchResult()),
+	})
+	resp := sendRequestThroughProxy(t, p, http.MethodGet, "example.com:443", "/secret")
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+	require.Equal(t, "rule-deny", resp.Header.Get("X-Agent-Gateway-Reason"),
+		"X-Agent-Gateway-Reason must be rule-deny on rule deny verdict")
+}
+
+// decisionBrokerReturning returns an ApprovalBroker stub that returns the
+// given decision without error.
+type decisionBroker struct {
+	decision proxy.ApprovalDecision
+}
+
+func (b *decisionBroker) Request(_ context.Context, _ proxy.ApprovalRequest) (proxy.ApprovalDecision, error) {
+	return b.decision, nil
+}
+
+// TestPipeline_ApprovalDenied_SetsReason verifies that an approval-denied 403
+// carries X-Agent-Gateway-Reason: approval-denied.
+func TestPipeline_ApprovalDenied_SetsReason(t *testing.T) {
+	auth := newTestAuthority(t)
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
+	})
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                stubEngineReturning(requireApprovalMatchResult()),
+		Approval:             &decisionBroker{decision: proxy.DecisionDenied},
+	})
+	resp := sendRequestThroughProxy(t, p, http.MethodPost, "api.example.com:443", "/sensitive")
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+	require.Equal(t, "approval-denied", resp.Header.Get("X-Agent-Gateway-Reason"),
+		"X-Agent-Gateway-Reason must be approval-denied when approval is denied")
+}
+
+// TestPipeline_ApprovalTimeout_SetsReason verifies that an approval-timeout 504
+// carries X-Agent-Gateway-Reason: approval-timeout.
+func TestPipeline_ApprovalTimeout_SetsReason(t *testing.T) {
+	auth := newTestAuthority(t)
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
+	})
+	// Broker that blocks until context is cancelled, then returns DecisionTimeout.
+	broker := &stubApprovalBroker{
+		decision: proxy.DecisionTimeout,
+		delay:    10 * time.Second,
+	}
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                stubEngineReturning(requireApprovalMatchResult()),
+		Approval:             broker,
+	})
+	r := httptest.NewRequest(http.MethodPost, "https://api.example.com:443/sensitive", nil)
+	ctx, cancel := context.WithTimeout(r.Context(), 50*time.Millisecond)
+	defer cancel()
+	r = r.WithContext(ctx)
+	w := httptest.NewRecorder()
+	p.HandleForTest(w, r, "api.example.com:443", "")
+	resp := w.Result()
+	require.Equal(t, http.StatusGatewayTimeout, resp.StatusCode)
+	require.Equal(t, "approval-timeout", resp.Header.Get("X-Agent-Gateway-Reason"),
+		"X-Agent-Gateway-Reason must be approval-timeout when approval times out")
+}
+
+// TestPipeline_NoApprovalBroker_SetsReason verifies that a require-approval
+// rule with no broker configured returns 504 with X-Agent-Gateway-Reason: no-approval-broker.
+func TestPipeline_NoApprovalBroker_SetsReason(t *testing.T) {
+	auth := newTestAuthority(t)
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
+	})
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                stubEngineReturning(requireApprovalMatchResult()),
+		// Approval intentionally nil
+	})
+	resp := sendRequestThroughProxy(t, p, http.MethodPost, "api.example.com:443", "/sensitive")
+	require.Equal(t, http.StatusGatewayTimeout, resp.StatusCode)
+	require.Equal(t, "no-approval-broker", resp.Header.Get("X-Agent-Gateway-Reason"),
+		"X-Agent-Gateway-Reason must be no-approval-broker when no broker is configured")
+}
+
+// TestPipeline_BodyReadError_SetsReason verifies that a body-buffer I/O error
+// when a matcher is configured returns 403 with X-Agent-Gateway-Reason: body-read-error.
+func TestPipeline_BodyReadError_SetsReason(t *testing.T) {
+	auth := newTestAuthority(t)
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
+	})
+	engine := &captureRulesEngine{
+		needsBodyBuffer: true,
+		result:          allowMatchResult(),
+	}
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                engine,
+	})
+	r := httptest.NewRequest(http.MethodPost, "https://api.example.com:443/data", &faultyBody{err: io.ErrClosedPipe})
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Content-Length", "42")
+	r.ContentLength = 42
+	w := httptest.NewRecorder()
+	p.HandleForTest(w, r, "api.example.com:443", "")
+	resp := w.Result()
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+	require.Equal(t, "body-read-error", resp.Header.Get("X-Agent-Gateway-Reason"),
+		"X-Agent-Gateway-Reason must be body-read-error on body buffer I/O error")
+}
+
+// TestPipeline_BuildRequestError_SetsReason verifies that when the upstream
+// request cannot be constructed (invalid HTTP method) the pipeline returns 500
+// with X-Agent-Gateway-Reason: build-request-error.
+//
+// httptest.NewRequest panics on invalid methods, so the test constructs a valid
+// GET request and then overwrites the Method field with a string that contains
+// a space — which is accepted by httptest but rejected by
+// http.NewRequestWithContext inside the pipeline.
+func TestPipeline_BuildRequestError_SetsReason(t *testing.T) {
+	auth := newTestAuthority(t)
+	var called bool
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
+	})
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                stubEngineReturning(nil), // nil match → allow
+	})
+
+	// Build a syntactically valid request, then corrupt the method so that the
+	// pipeline's http.NewRequestWithContext call fails.
+	r := httptest.NewRequest(http.MethodGet, "https://example.com:443/foo", nil)
+	r.Method = "GET INVALID" // space makes it invalid per net/http
+	w := httptest.NewRecorder()
+	p.HandleForTest(w, r, "example.com:443", "")
+
+	resp := w.Result()
+	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	require.Equal(t, "build-request-error", resp.Header.Get("X-Agent-Gateway-Reason"),
+		"X-Agent-Gateway-Reason must be build-request-error when upstream request construction fails")
+	assert.False(t, called, "upstream must NOT be called when request construction fails")
+}
+
+// TestPipeline_SecretInvalid_SetsReason verifies that when the injector returns
+// ErrSecretInvalid the pipeline returns 403 with
+// X-Agent-Gateway-Reason: secret-invalid.
+func TestPipeline_SecretInvalid_SetsReason(t *testing.T) {
+	auth := newTestAuthority(t)
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
+	})
+	inj := &stubInjector{
+		err: fmt.Errorf("inject: %w", inject.ErrSecretInvalid),
+	}
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                stubEngineReturning(allowMatchResultWithInject()),
+		Injector:             inj,
+	})
+	resp := sendRequestThroughProxy(t, p, http.MethodGet, "api.example.com:443", "/repos")
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+	require.Equal(t, "secret-invalid", resp.Header.Get("X-Agent-Gateway-Reason"),
+		"X-Agent-Gateway-Reason must be secret-invalid when secret contains invalid characters")
+}
+
+// TestPipeline_UpstreamError_SetsReason verifies that when the upstream
+// RoundTrip fails the pipeline returns 502 with
+// X-Agent-Gateway-Reason: upstream-error.
+func TestPipeline_UpstreamError_SetsReason(t *testing.T) {
+	auth := newTestAuthority(t)
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return nil, errors.New("dial tcp: connection refused")
+	})
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                stubEngineReturning(nil), // nil match → allow
+	})
+	resp := sendRequestThroughProxy(t, p, http.MethodGet, "example.com:443", "/foo")
+	require.Equal(t, http.StatusBadGateway, resp.StatusCode)
+	require.Equal(t, "upstream-error", resp.Header.Get("X-Agent-Gateway-Reason"),
+		"X-Agent-Gateway-Reason must be upstream-error when upstream RoundTrip fails")
+}
+
+// TestPipeline_ForbiddenHost_SetsReason verifies that when the injector returns
+// ErrSecretHostScopeViolation the pipeline returns 403 with
+// X-Agent-Gateway-Reason: forbidden-host.
+func TestPipeline_ForbiddenHost_SetsReason(t *testing.T) {
+	auth := newTestAuthority(t)
+	rt := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
+	})
+	inj := &stubInjector{
+		err: fmt.Errorf("inject: %w", inject.ErrSecretHostScopeViolation),
+	}
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: rt,
+		Rules:                stubEngineReturning(allowMatchResultWithInject()),
+		Injector:             inj,
+	})
+	resp := sendRequestThroughProxy(t, p, http.MethodGet, "api.example.com:443", "/repos")
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+	require.Equal(t, "forbidden-host", resp.Header.Get("X-Agent-Gateway-Reason"),
+		"X-Agent-Gateway-Reason must be forbidden-host on secret host scope violation")
+}
