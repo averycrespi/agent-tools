@@ -17,6 +17,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/agents"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/daemon"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/rules"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/secrets"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/store"
 )
@@ -64,6 +65,19 @@ func readStdinValue(in io.Reader, isTTY bool) (string, error) {
 		return "", fmt.Errorf("read stdin: %w", err)
 	}
 	return strings.TrimRight(string(data), "\n"), nil
+}
+
+// printCoverageAfterMutation loads the rules engine from rulesDir and prints
+// any coverage warnings to out. Non-fatal — failures to build the engine are
+// silently ignored so the mutation command always succeeds.
+func printCoverageAfterMutation(ctx context.Context, out io.Writer, store secrets.Store, rulesDir string) {
+	engine, err := rules.NewEngine(rulesDir)
+	if err != nil {
+		return
+	}
+	for _, w := range warnSecretCoverage(ctx, engine, store) {
+		_, _ = fmt.Fprintln(out, "warning:", w)
+	}
 }
 
 // newSecretCmd builds the "secret" command tree.
@@ -132,6 +146,7 @@ func newSecretAddCmd() *cobra.Command {
 				cmd.OutOrStdout(),
 				stdinIsTTY(),
 				func(pidPath string) error { return sendHUP(pidPath) },
+				paths.RulesDir(),
 			)
 		},
 	}
@@ -165,6 +180,7 @@ func execSecretAdd(
 	out io.Writer,
 	isTTY bool,
 	signalFn func(string) error,
+	rulesDir string,
 ) error {
 	// Fail early if the target agent doesn't exist — a dangling agent-scoped
 	// secret can never resolve at runtime, so it's always a typo or a missed
@@ -212,6 +228,7 @@ func execSecretAdd(
 		}
 	}
 
+	printCoverageAfterMutation(ctx, out, s, rulesDir)
 	_ = signalFn(paths.PIDFile())
 	return nil
 }
@@ -235,17 +252,31 @@ func newSecretBindCmd() *cobra.Command {
 				return err
 			}
 			defer cleanup()
-			if err := s.Bind(cmd.Context(), args[0], agent, hosts); err != nil {
-				return fmt.Errorf("secret bind: %w", err)
-			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "bound: %s\n", args[0])
-			_ = sendHUP(paths.PIDFile())
-			return nil
+			return execSecretBind(cmd.Context(), s, args[0], agent, hosts, cmd.OutOrStdout(), sendHUP, paths.RulesDir())
 		},
 	}
 	cmd.Flags().StringVar(&agent, "agent", "", "agent name (omit for global scope)")
 	cmd.Flags().StringSliceVar(&hosts, "host", nil, "host glob to add (repeatable)")
 	return cmd
+}
+
+// execSecretBind implements "secret bind". Separated for testability.
+func execSecretBind(
+	ctx context.Context,
+	s secrets.Store,
+	name, agent string,
+	hosts []string,
+	out io.Writer,
+	signalFn func(string) error,
+	rulesDir string,
+) error {
+	if err := s.Bind(ctx, name, agent, hosts); err != nil {
+		return fmt.Errorf("secret bind: %w", err)
+	}
+	_, _ = fmt.Fprintf(out, "bound: %s\n", name)
+	printCoverageAfterMutation(ctx, out, s, rulesDir)
+	_ = signalFn(paths.PIDFile())
+	return nil
 }
 
 // newSecretUnbindCmd returns the "secret unbind <name>" command.
@@ -270,17 +301,31 @@ func newSecretUnbindCmd() *cobra.Command {
 				return err
 			}
 			defer cleanup()
-			if err := s.Unbind(cmd.Context(), args[0], agent, hosts); err != nil {
-				return fmt.Errorf("secret unbind: %w", err)
-			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "unbound: %s\n", args[0])
-			_ = sendHUP(paths.PIDFile())
-			return nil
+			return execSecretUnbind(cmd.Context(), s, args[0], agent, hosts, cmd.OutOrStdout(), sendHUP, paths.RulesDir())
 		},
 	}
 	cmd.Flags().StringVar(&agent, "agent", "", "agent name (omit for global scope)")
 	cmd.Flags().StringSliceVar(&hosts, "host", nil, "host glob to remove (repeatable)")
 	return cmd
+}
+
+// execSecretUnbind implements "secret unbind". Separated for testability.
+func execSecretUnbind(
+	ctx context.Context,
+	s secrets.Store,
+	name, agent string,
+	hosts []string,
+	out io.Writer,
+	signalFn func(string) error,
+	rulesDir string,
+) error {
+	if err := s.Unbind(ctx, name, agent, hosts); err != nil {
+		return fmt.Errorf("secret unbind: %w", err)
+	}
+	_, _ = fmt.Fprintf(out, "unbound: %s\n", name)
+	printCoverageAfterMutation(ctx, out, s, rulesDir)
+	_ = signalFn(paths.PIDFile())
+	return nil
 }
 
 // newSecretListCmd returns the "secret list" command.
@@ -361,6 +406,7 @@ func newSecretUpdateCmd() *cobra.Command {
 				stdinIsTTY(),
 				confirmFn,
 				func(pidPath string) error { return sendHUP(pidPath) },
+				paths.RulesDir(),
 			)
 		},
 	}
@@ -379,6 +425,7 @@ func execSecretUpdate(
 	isTTY bool,
 	confirmFn func() (bool, error),
 	signalFn func(string) error,
+	rulesDir string,
 ) error {
 	newValue, err := readStdinValue(in, isTTY)
 	if err != nil {
@@ -398,6 +445,7 @@ func execSecretUpdate(
 	}
 
 	_, _ = fmt.Fprintf(out, "updated: %s\n", name)
+	printCoverageAfterMutation(ctx, out, s, rulesDir)
 	_ = signalFn(paths.PIDFile())
 	return nil
 }
@@ -430,6 +478,7 @@ func newSecretRMCmd() *cobra.Command {
 				cmd.OutOrStdout(),
 				confirmFn,
 				func(pidPath string) error { return sendHUP(pidPath) },
+				paths.RulesDir(),
 			)
 		},
 	}
@@ -446,6 +495,7 @@ func execSecretRM(
 	out io.Writer,
 	confirmFn func() (bool, error),
 	signalFn func(string) error,
+	rulesDir string,
 ) error {
 	// Fail early if the (name, scope) pair doesn't exist — confirming the
 	// removal of something that isn't there would just be a confusing ritual.
@@ -479,6 +529,7 @@ func execSecretRM(
 		return fmt.Errorf("secret rm: %w", err)
 	}
 	_, _ = fmt.Fprintf(out, "deleted: %s\n", name)
+	printCoverageAfterMutation(ctx, out, s, rulesDir)
 	_ = signalFn(paths.PIDFile())
 	return nil
 }
