@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -38,17 +37,19 @@ func TestRulesReloadSendsSIGHUP(t *testing.T) {
 		return nil
 	}
 
-	var outBuf bytes.Buffer
-	err := execRulesReload(newRootCmd(), paths.PIDFile(), fakeVerifier, fakeSender, &outBuf)
+	var outBuf, errBuf bytes.Buffer
+	err := execRulesReload(newRootCmd(), paths.PIDFile(), fakeVerifier, fakeSender, &outBuf, &errBuf)
 	require.NoError(t, err)
 
 	assert.Equal(t, ownPID, sentPID)
 	assert.Equal(t, syscall.SIGHUP, sentSig)
 	assert.Contains(t, outBuf.String(), "reloaded")
+	assert.Contains(t, errBuf.String(), "deprecated")
 }
 
-// TestRulesReloadNoDaemon verifies that "rules reload" exits 0 (no error) and
-// prints "no daemon running" when no PID file exists.
+// TestRulesReloadNoDaemon verifies that "rules reload" now exits non-zero and
+// reports "no daemon running" (delegating to execReload behavior) when no PID
+// file exists.
 func TestRulesReloadNoDaemon(t *testing.T) {
 	cfgDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgDir)
@@ -60,28 +61,31 @@ func TestRulesReloadNoDaemon(t *testing.T) {
 	fakeVerifier := func(_ int) (bool, error) { return true, nil }
 	fakeSender := func(_ int, _ os.Signal) error { return nil }
 
-	var outBuf bytes.Buffer
-	err := execRulesReload(newRootCmd(), pidPath, fakeVerifier, fakeSender, &outBuf)
-	require.NoError(t, err)
-	assert.Contains(t, outBuf.String(), "no daemon running")
+	var outBuf, errBuf bytes.Buffer
+	err := execRulesReload(newRootCmd(), pidPath, fakeVerifier, fakeSender, &outBuf, &errBuf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no daemon running")
+	assert.Contains(t, errBuf.String(), "deprecated")
 }
 
 // TestRulesReloadCLI verifies the "rules reload" subcommand is wired into the
-// command tree and reachable via the cobra CLI.
+// command tree and reachable via the cobra CLI, and that it now exits non-zero
+// when no daemon is running (matching execReload behavior).
 func TestRulesReloadCLI(t *testing.T) {
 	cfgDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgDir)
 	require.NoError(t, os.MkdirAll(paths.ConfigDir(), 0o750))
 
-	// No PID file present — should succeed silently (no daemon running path).
-	var outBuf bytes.Buffer
+	// No PID file present — should exit non-zero (no daemon running path).
+	var outBuf, errBuf bytes.Buffer
 	cmd := newRootCmd()
 	cmd.SetOut(&outBuf)
-	cmd.SetErr(&outBuf)
+	cmd.SetErr(&errBuf)
 	cmd.SetArgs([]string{"rules", "reload"})
 	err := cmd.Execute()
-	require.NoError(t, err)
-	assert.Contains(t, outBuf.String(), "no daemon running")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no daemon running")
+	assert.Contains(t, errBuf.String(), "deprecated")
 }
 
 // TestRulesReloadWrongComm verifies that reload returns an error when the PID
@@ -97,8 +101,18 @@ func TestRulesReloadWrongComm(t *testing.T) {
 	fakeVerifier := func(_ int) (bool, error) { return false, nil }
 	fakeSender := func(_ int, _ os.Signal) error { return nil }
 
-	var outBuf bytes.Buffer
-	err := execRulesReload(newRootCmd(), paths.PIDFile(), fakeVerifier, fakeSender, &outBuf)
+	var outBuf, errBuf bytes.Buffer
+	err := execRulesReload(newRootCmd(), paths.PIDFile(), fakeVerifier, fakeSender, &outBuf, &errBuf)
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, err), "error should be non-nil")
+}
+
+// TestRulesReload_EmitsDeprecationNotice verifies that execRulesReload always
+// writes a deprecation notice to stderr pointing to the new command.
+func TestRulesReload_EmitsDeprecationNotice(t *testing.T) {
+	var outBuf, errBuf bytes.Buffer
+	noopSend := func(_ int, _ os.Signal) error { return nil }
+	err := execRulesReload(nil, validPIDFile(t), alwaysVerify, noopSend, &outBuf, &errBuf)
+	require.NoError(t, err)
+	assert.Contains(t, errBuf.String(), "deprecated")
+	assert.Contains(t, errBuf.String(), "agent-gateway reload")
 }

@@ -70,12 +70,14 @@ func newRulesCmd() *cobra.Command {
 	return rulesCmd
 }
 
-// newRulesReloadCmd returns a cobra.Command for "rules reload".
+// newRulesReloadCmd returns a hidden, deprecated cobra.Command for "rules reload".
+// Callers should use "agent-gateway reload" instead.
 func newRulesReloadCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "reload",
-		Short: "Signal the running daemon to reload rules",
-		Args:  cobra.NoArgs,
+		Use:    "reload",
+		Short:  "(deprecated) Use 'agent-gateway reload' instead",
+		Hidden: true,
+		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return execRulesReload(
 				cmd,
@@ -83,31 +85,26 @@ func newRulesReloadCmd() *cobra.Command {
 				daemon.DefaultVerifyComm,
 				daemon.DefaultSendSignal,
 				cmd.OutOrStdout(),
+				cmd.ErrOrStderr(),
 			)
 		},
 	}
 }
 
-// execRulesReload sends SIGHUP to the daemon identified by the PID file at
-// pidPath. verify and send are injectable for tests. Output is written to out.
-// If no PID file exists the function prints "no daemon running" and returns nil.
+// execRulesReload is a deprecated thin wrapper around execReload. It prints a
+// deprecation notice to stderr and delegates to execReload. verify and send are
+// injectable for tests. Output is written to out; the deprecation notice is
+// written to errOut.
 func execRulesReload(
 	_ interface{},
 	pidPath string,
 	verify func(pid int) (bool, error),
 	send func(pid int, sig os.Signal) error,
 	out io.Writer,
+	errOut io.Writer,
 ) error {
-	err := daemon.SignalDaemonWithVerifier(pidPath, verify, send)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			_, _ = fmt.Fprintln(out, "no daemon running")
-			return nil
-		}
-		return fmt.Errorf("rules reload: %w", err)
-	}
-	_, _ = fmt.Fprintln(out, "reloaded")
-	return nil
+	_, _ = fmt.Fprintln(errOut, "'agent-gateway rules reload' is deprecated; use 'agent-gateway reload' instead")
+	return execReload(nil, pidPath, verify, send, out)
 }
 
 func newRulesCheckCmd() *cobra.Command {
