@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -63,12 +64,17 @@ type serveDeps struct {
 	// when Headless is false and cfg.Dashboard.OpenBrowser is true. If nil,
 	// the default platform-specific opener is used.
 	OpenBrowserFn func(url string) error
+
+	// NewSecretsStoreFn constructs the secrets store. If nil, secrets.NewStore
+	// is used. Tests override this to inject failures.
+	NewSecretsStoreFn func(*sql.DB, *slog.Logger) (secrets.Store, error)
 }
 
 // newServeDeps returns production-ready defaults. Tests may override fields.
 func newServeDeps() serveDeps {
 	return serveDeps{
-		Logger: slog.Default(),
+		Logger:            slog.Default(),
+		NewSecretsStoreFn: secrets.NewStore,
 		// Ready is nil by default; RunServe checks before sending.
 	}
 }
@@ -165,27 +171,33 @@ func RunServe(ctx context.Context, d serveDeps) error {
 		}
 	}()
 
-	// 3b. Initialise the secrets store and header injector.
-	// Failure to open the secrets store is non-fatal: the injector is omitted and
-	// rules with inject blocks will be forwarded with fail-soft behaviour.
-	var proxyInjector proxy.Injector
-	var inj *inject.Injector // kept for SIGHUP cache invalidation
-	secretsStore, secretsErr := secrets.NewStore(db, log)
-	if secretsErr != nil {
-		log.Warn("secrets store unavailable; header injection disabled", "err", secretsErr)
-	} else {
-		inj = inject.NewInjector(secretsStore, cfg.Secrets.CacheTTL)
-		proxyInjector = &injectAdapter{inj: inj}
+	// 3b. Initialise the secrets store and header injector. Failure is fatal:
+	// running with no injector silently leaks sandbox dummy tokens through rules
+	// that were meant to swap in real credentials, indistinguishable from "no
+	// rule matched" in the audit log.
+	newSecretsStoreFn := d.NewSecretsStoreFn
+	if newSecretsStoreFn == nil {
+		newSecretsStoreFn = secrets.NewStore
 	}
+	secretsStore, err := newSecretsStoreFn(db, log)
+	if err != nil {
+		fmt.Fprintf(os.Stderr,
+			"agent-gateway: secrets store unavailable: %v\n"+
+				"  The daemon requires a working secrets store to inject credentials.\n"+
+				"  If the keychain is unavailable, ensure the file fallback path is readable.\n",
+			err,
+		)
+		return fmt.Errorf("secrets store unavailable: %w", err)
+	}
+	inj := inject.NewInjector(secretsStore, cfg.Secrets.CacheTTL)
+	proxyInjector := &injectAdapter{inj: inj}
 
 	// 3b.1. Surface coverage warnings: rules that reference ${secrets.X} but
 	// whose match.host pattern may not be covered by the secret's
 	// allowed_hosts. Non-fatal; the runtime will still enforce scope on each
 	// request via ErrSecretHostScopeViolation.
-	if secretsStore != nil {
-		for _, w := range warnSecretCoverage(ctx, engine, secretsStore) {
-			log.Warn(w)
-		}
+	for _, w := range warnSecretCoverage(ctx, engine, secretsStore) {
+		log.Warn(w)
 	}
 
 	// 3c. Initialise the agents registry and approval broker.

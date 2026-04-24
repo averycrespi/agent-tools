@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,6 +24,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/config"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/secrets"
 )
 
 // TestUpstreamTLSConfig_MinVersionTLS13 verifies that the upstream RoundTripper
@@ -492,4 +495,31 @@ func TestServe_StartupSummaryLogged(t *testing.T) {
 	assert.Contains(t, logs, "secrets=", "startup summary must include secrets count")
 	assert.Contains(t, logs, "rules=", "startup summary must include rules count")
 	assert.Contains(t, logs, "mitm_hosts=", "startup summary must include mitm_hosts field")
+}
+
+// TestExecServe_SecretsStoreError_ReturnsError verifies that RunServe fails
+// fatally (returns a non-nil error containing "secrets store") when the
+// secrets store cannot be initialised. Previously the failure was soft: the
+// daemon would boot with no injector, silently forwarding sandbox dummy
+// tokens through rules that were meant to swap in real credentials.
+func TestExecServe_SecretsStoreError_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_DATA_HOME", dir)
+
+	cfg := config.DefaultConfig()
+	cfg.Proxy.Listen = "127.0.0.1:0"
+	cfg.Dashboard.Listen = "127.0.0.1:0"
+	cfg.Dashboard.OpenBrowser = false
+	require.NoError(t, config.Save(cfg, paths.ConfigFile()))
+
+	ctx := context.Background()
+	deps := newServeDeps()
+	deps.NewSecretsStoreFn = func(_ *sql.DB, _ *slog.Logger) (secrets.Store, error) {
+		return nil, errors.New("boom")
+	}
+
+	err := RunServe(ctx, deps)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "secrets store")
 }
