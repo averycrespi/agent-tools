@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"path/filepath"
@@ -212,7 +213,7 @@ func TestSecretList(t *testing.T) {
 	require.NoError(t, s.Set(ctx, "beta", "mybot", "v2", "desc beta", []string{"**"}))
 
 	var out bytes.Buffer
-	err := execSecretList(ctx, s, &out)
+	err := execSecretList(ctx, s, "text", &out)
 	require.NoError(t, err)
 
 	output := out.String()
@@ -225,6 +226,102 @@ func TestSecretList(t *testing.T) {
 	// Values must NOT appear.
 	assert.NotContains(t, output, "v1")
 	assert.NotContains(t, output, "v2")
+}
+
+// TestSecretList_JSONOutput verifies the JSON output contains exactly the 6
+// expected fields and no sensitive fields.
+func TestSecretList_JSONOutput(t *testing.T) {
+	db := secretTestDB(t)
+	s := newTestSecretStore(t, db)
+	ctx := context.Background()
+
+	require.NoError(t, s.Set(ctx, "alpha", "", "cipher-val", "desc alpha", []string{"api.example.com"}))
+	require.NoError(t, s.Set(ctx, "beta", "mybot", "nonce-val", "desc beta", []string{"*.example.com"}))
+
+	var out bytes.Buffer
+	err := execSecretList(ctx, s, "json", &out)
+	require.NoError(t, err)
+
+	raw := out.String()
+
+	// Must NOT contain sensitive or excluded fields.
+	assert.NotContains(t, raw, "cipher-val", "plaintext value must not appear in JSON output")
+	assert.NotContains(t, raw, "nonce-val", "plaintext value must not appear in JSON output")
+	assert.NotContains(t, raw, "ciphertext", "ciphertext field must not appear in JSON output")
+	assert.NotContains(t, raw, "nonce", "nonce field must not appear in JSON output")
+	assert.NotContains(t, raw, "description", "description field must not appear in JSON output")
+	assert.NotContains(t, raw, "hash", "hash field must not appear in JSON output")
+	assert.NotContains(t, raw, `"value"`, "value field must not appear in JSON output")
+
+	// Decode and verify structure.
+	var payload struct {
+		Secrets []struct {
+			Name         string   `json:"name"`
+			Scope        string   `json:"scope"`
+			AllowedHosts []string `json:"allowed_hosts"`
+			CreatedAt    string   `json:"created_at"`
+			RotatedAt    string   `json:"rotated_at"`
+			LastUsedAt   *string  `json:"last_used_at"`
+		} `json:"secrets"`
+	}
+	require.NoError(t, json.NewDecoder(&out).Decode(&payload), "JSON must be valid")
+	require.Len(t, payload.Secrets, 2)
+
+	names := []string{payload.Secrets[0].Name, payload.Secrets[1].Name}
+	assert.Contains(t, names, "alpha")
+	assert.Contains(t, names, "beta")
+
+	for _, sec := range payload.Secrets {
+		assert.NotEmpty(t, sec.Scope, "scope must be set")
+		assert.NotEmpty(t, sec.AllowedHosts, "allowed_hosts must be set")
+		assert.NotEmpty(t, sec.CreatedAt, "created_at must be set")
+		assert.NotEmpty(t, sec.RotatedAt, "rotated_at must be set")
+		// No secret has been used, so last_used_at must be null.
+		assert.Nil(t, sec.LastUsedAt, "last_used_at must be null for unused secret")
+	}
+
+	// Verify scopes.
+	for _, sec := range payload.Secrets {
+		switch sec.Name {
+		case "alpha":
+			assert.Equal(t, "global", sec.Scope)
+			assert.Equal(t, []string{"api.example.com"}, sec.AllowedHosts)
+		case "beta":
+			assert.Equal(t, "agent:mybot", sec.Scope)
+			assert.Equal(t, []string{"*.example.com"}, sec.AllowedHosts)
+		}
+	}
+}
+
+// TestSecretList_TextOutput_Default verifies that output="" and output="text"
+// both produce the tab-separated text table (unchanged behaviour).
+func TestSecretList_TextOutput_Default(t *testing.T) {
+	db := secretTestDB(t)
+	s := newTestSecretStore(t, db)
+	ctx := context.Background()
+
+	require.NoError(t, s.Set(ctx, "gamma", "", "val", "", []string{"**"}))
+
+	for _, output := range []string{"", "text"} {
+		var out bytes.Buffer
+		require.NoError(t, execSecretList(ctx, s, output, &out))
+		assert.Contains(t, out.String(), "NAME", "output=%q should produce text table", output)
+		assert.Contains(t, out.String(), "gamma", "output=%q should list secret name", output)
+	}
+}
+
+// TestSecretList_InvalidOutput_Errors verifies that an unsupported output
+// format returns a non-nil error with a clear message.
+func TestSecretList_InvalidOutput_Errors(t *testing.T) {
+	db := secretTestDB(t)
+	s := newTestSecretStore(t, db)
+	ctx := context.Background()
+
+	var out bytes.Buffer
+	err := execSecretList(ctx, s, "yaml", &out)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "yaml")
+	assert.Contains(t, err.Error(), "--output")
 }
 
 // TestSecretUpdate verifies that "secret update <name>" updates the value.

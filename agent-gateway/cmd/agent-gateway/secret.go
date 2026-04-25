@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -330,7 +331,8 @@ func execSecretUnbind(
 
 // newSecretListCmd returns the "secret list" command.
 func newSecretListCmd() *cobra.Command {
-	return &cobra.Command{
+	var output string
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List secrets (metadata only, no values)",
 		Args:  cobra.NoArgs,
@@ -340,18 +342,31 @@ func newSecretListCmd() *cobra.Command {
 				return err
 			}
 			defer cleanup()
-			return execSecretList(cmd.Context(), s, cmd.OutOrStdout())
+			return execSecretList(cmd.Context(), s, output, cmd.OutOrStdout())
 		},
 	}
+	cmd.Flags().StringVarP(&output, "output", "o", "text", "Output format: text or json")
+	return cmd
 }
 
 // execSecretList implements "secret list". Separated for testability.
-func execSecretList(ctx context.Context, s secrets.Store, out io.Writer) error {
+func execSecretList(ctx context.Context, s secrets.Store, output string, out io.Writer) error {
 	metas, err := s.List(ctx)
 	if err != nil {
 		return fmt.Errorf("secret list: %w", err)
 	}
+	switch output {
+	case "", "text":
+		return writeSecretListText(out, metas)
+	case "json":
+		return writeSecretListJSON(out, metas)
+	default:
+		return fmt.Errorf("secret list: --output must be 'text' or 'json', got %q", output)
+	}
+}
 
+// writeSecretListText writes the tab-separated text table of secrets.
+func writeSecretListText(out io.Writer, metas []secrets.Metadata) error {
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "NAME\tSCOPE\tHOSTS\tCREATED\tROTATED\tLAST-USED\tDESCRIPTION")
 	for _, m := range metas {
@@ -374,6 +389,45 @@ func execSecretList(ctx context.Context, s secrets.Store, out io.Writer) error {
 		)
 	}
 	return w.Flush()
+}
+
+// secretJSON is the JSON representation of a secret for "secret list --output json".
+// Only the 6 public metadata fields are included; sensitive fields (ciphertext,
+// nonce, description) and internal fields (id) are intentionally omitted.
+// bound_rules is also omitted — it is not in Metadata and computing it would
+// be scope creep.
+type secretJSON struct {
+	Name         string   `json:"name"`
+	Scope        string   `json:"scope"`
+	AllowedHosts []string `json:"allowed_hosts"`
+	CreatedAt    string   `json:"created_at"`
+	RotatedAt    string   `json:"rotated_at"`
+	LastUsedAt   *string  `json:"last_used_at"`
+}
+
+// writeSecretListJSON encodes the secret list as {"secrets": [...]}.
+func writeSecretListJSON(out io.Writer, metas []secrets.Metadata) error {
+	items := make([]secretJSON, 0, len(metas))
+	for _, m := range metas {
+		item := secretJSON{
+			Name:         m.Name,
+			Scope:        m.Scope,
+			AllowedHosts: m.AllowedHosts,
+			CreatedAt:    m.CreatedAt.UTC().Format(time.RFC3339),
+			RotatedAt:    m.RotatedAt.UTC().Format(time.RFC3339),
+		}
+		if m.LastUsedAt != nil {
+			s := m.LastUsedAt.UTC().Format(time.RFC3339)
+			item.LastUsedAt = &s
+		}
+		items = append(items, item)
+	}
+	payload := struct {
+		Secrets []secretJSON `json:"secrets"`
+	}{Secrets: items}
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	return enc.Encode(payload)
 }
 
 // newSecretUpdateCmd returns the "secret update <name>" command.
