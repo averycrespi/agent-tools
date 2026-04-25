@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -126,7 +127,8 @@ func execAgentAdd(
 
 // newAgentListCmd returns the "agent list" command.
 func newAgentListCmd() *cobra.Command {
-	return &cobra.Command{
+	var output string
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List registered agents (metadata only, no token)",
 		Args:  cobra.NoArgs,
@@ -136,18 +138,31 @@ func newAgentListCmd() *cobra.Command {
 				return err
 			}
 			defer cleanup()
-			return execAgentList(cmd.Context(), r, cmd.OutOrStdout())
+			return execAgentList(cmd.Context(), r, output, cmd.OutOrStdout())
 		},
 	}
+	cmd.Flags().StringVarP(&output, "output", "o", "text", "Output format: text or json")
+	return cmd
 }
 
 // execAgentList implements "agent list". Separated for testability.
-func execAgentList(ctx context.Context, r agents.Registry, out io.Writer) error {
+func execAgentList(ctx context.Context, r agents.Registry, output string, out io.Writer) error {
 	metas, err := r.List(ctx)
 	if err != nil {
 		return fmt.Errorf("agent list: %w", err)
 	}
+	switch output {
+	case "", "text":
+		return writeAgentListText(out, metas)
+	case "json":
+		return writeAgentListJSON(out, metas)
+	default:
+		return fmt.Errorf("agent list: --output must be 'text' or 'json', got %q", output)
+	}
+}
 
+// writeAgentListText writes the tab-separated text table of agents.
+func writeAgentListText(out io.Writer, metas []agents.AgentMetadata) error {
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "NAME\tPREFIX\tCREATED\tLAST_SEEN\tDESCRIPTION")
 	for _, m := range metas {
@@ -164,6 +179,39 @@ func execAgentList(ctx context.Context, r agents.Registry, out io.Writer) error 
 		)
 	}
 	return w.Flush()
+}
+
+// agentJSON is the JSON representation of an agent for "agent list --output json".
+// Only the 4 public fields are included; sensitive fields (hash, salt, description)
+// are intentionally omitted.
+type agentJSON struct {
+	Name       string  `json:"name"`
+	Prefix     string  `json:"prefix"`
+	CreatedAt  string  `json:"created_at"`
+	LastSeenAt *string `json:"last_seen_at"`
+}
+
+// writeAgentListJSON encodes the agent list as {"agents": [...]}.
+func writeAgentListJSON(out io.Writer, metas []agents.AgentMetadata) error {
+	items := make([]agentJSON, 0, len(metas))
+	for _, m := range metas {
+		item := agentJSON{
+			Name:      m.Name,
+			Prefix:    m.TokenPrefix,
+			CreatedAt: m.CreatedAt.UTC().Format(time.RFC3339),
+		}
+		if m.LastSeenAt != nil {
+			s := m.LastSeenAt.UTC().Format(time.RFC3339)
+			item.LastSeenAt = &s
+		}
+		items = append(items, item)
+	}
+	payload := struct {
+		Agents []agentJSON `json:"agents"`
+	}{Agents: items}
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	return enc.Encode(payload)
 }
 
 // newAgentRotateCmd returns the "agent rotate <name>" command.

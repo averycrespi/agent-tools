@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -137,7 +138,7 @@ func TestAgentList_NeverShowsFullToken(t *testing.T) {
 	require.NoError(t, err)
 
 	var out bytes.Buffer
-	err = execAgentList(ctx, r, &out)
+	err = execAgentList(ctx, r, "text", &out)
 	require.NoError(t, err)
 
 	output := out.String()
@@ -161,7 +162,7 @@ func TestAgentList_TabularColumns(t *testing.T) {
 	require.NoError(t, err)
 
 	var out bytes.Buffer
-	err = execAgentList(ctx, r, &out)
+	err = execAgentList(ctx, r, "text", &out)
 	require.NoError(t, err)
 
 	output := out.String()
@@ -172,6 +173,84 @@ func TestAgentList_TabularColumns(t *testing.T) {
 	assert.Contains(t, output, "beta")
 	assert.Contains(t, output, "first")
 	assert.Contains(t, output, "second")
+}
+
+// TestAgentList_JSONOutput verifies the JSON output format contains exactly
+// the 4 expected fields and no sensitive fields.
+func TestAgentList_JSONOutput(t *testing.T) {
+	r := newTestRegistry(t)
+	ctx := context.Background()
+
+	tok1, err := r.Add(ctx, "alice", "first agent")
+	require.NoError(t, err)
+	tok2, err := r.Add(ctx, "bob", "second agent")
+	require.NoError(t, err)
+
+	var out bytes.Buffer
+	err = execAgentList(ctx, r, "json", &out)
+	require.NoError(t, err)
+
+	raw := out.String()
+
+	// Must NOT contain full tokens, description, hash, or salt.
+	assert.NotContains(t, raw, tok1, "full token must not appear in JSON output")
+	assert.NotContains(t, raw, tok2, "full token must not appear in JSON output")
+	assert.NotContains(t, raw, "description", "description field must not appear in JSON output")
+	assert.NotContains(t, raw, "hash", "hash field must not appear in JSON output")
+	assert.NotContains(t, raw, "salt", "salt field must not appear in JSON output")
+	assert.NotContains(t, raw, "token", "full token field must not appear in JSON output")
+
+	// Decode and verify structure.
+	var payload struct {
+		Agents []struct {
+			Name       string  `json:"name"`
+			Prefix     string  `json:"prefix"`
+			CreatedAt  string  `json:"created_at"`
+			LastSeenAt *string `json:"last_seen_at"`
+		} `json:"agents"`
+	}
+	require.NoError(t, json.NewDecoder(&out).Decode(&payload), "JSON must be valid")
+	require.Len(t, payload.Agents, 2)
+
+	names := []string{payload.Agents[0].Name, payload.Agents[1].Name}
+	assert.Contains(t, names, "alice")
+	assert.Contains(t, names, "bob")
+	for _, a := range payload.Agents {
+		assert.NotEmpty(t, a.Prefix, "prefix must be set")
+		assert.NotEmpty(t, a.CreatedAt, "created_at must be set")
+		// Neither agent has been seen, so last_seen_at must be null.
+		assert.Nil(t, a.LastSeenAt, "last_seen_at must be null for unseen agent")
+	}
+}
+
+// TestAgentList_TextOutput_Default verifies that output="" and output="text"
+// both produce the tab-separated text table.
+func TestAgentList_TextOutput_Default(t *testing.T) {
+	r := newTestRegistry(t)
+	ctx := context.Background()
+
+	_, err := r.Add(ctx, "gamma", "")
+	require.NoError(t, err)
+
+	for _, output := range []string{"", "text"} {
+		var out bytes.Buffer
+		require.NoError(t, execAgentList(ctx, r, output, &out))
+		assert.Contains(t, out.String(), "NAME", "output=%q should produce text table", output)
+		assert.Contains(t, out.String(), "gamma", "output=%q should list agent name", output)
+	}
+}
+
+// TestAgentList_InvalidOutput_Errors verifies that an unsupported output
+// format returns a non-nil error with a clear message.
+func TestAgentList_InvalidOutput_Errors(t *testing.T) {
+	r := newTestRegistry(t)
+	ctx := context.Background()
+
+	var out bytes.Buffer
+	err := execAgentList(ctx, r, "yaml", &out)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "yaml")
+	assert.Contains(t, err.Error(), "--output")
 }
 
 // TestAgentRotate_InvalidatesPrevious verifies that after "agent rotate <name>"
@@ -243,7 +322,7 @@ func TestAgentRm_RemovesAgent(t *testing.T) {
 
 	// Agent must no longer appear in list.
 	var listOut bytes.Buffer
-	require.NoError(t, execAgentList(ctx, r, &listOut))
+	require.NoError(t, execAgentList(ctx, r, "text", &listOut))
 	assert.NotContains(t, listOut.String(), "doomed")
 }
 
