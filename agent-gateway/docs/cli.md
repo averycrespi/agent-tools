@@ -52,21 +52,21 @@ Signals:
 
 The daemon reloads components in this order: agents → rules → injector cache → admin token → CA.
 
-| Setting / component                        | Reloaded on SIGHUP? | Notes                                                                                           |
-| ------------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------- |
-| Agent registry (`agents` table)            | Yes                 | Re-read from SQLite; new token hashes are live before rule reload.                              |
-| Rules files (`rules.d/*.hcl`)              | Yes                 | Previous ruleset stays live if the new files fail to parse.                                     |
-| Injector secret-value cache                | Yes (cleared)       | Secrets are re-fetched from SQLite on next use; `secrets.cache_ttl` stays at its startup value. |
-| Admin token file                           | Yes                 | Re-read from `$XDG_CONFIG_HOME/agent-gateway/admin-token`.                                      |
-| Root CA key/cert (`ca.key` / `ca.pem`)     | Yes                 | Re-read from disk; leaf-cert cache is cleared.                                                  |
-| `config.hcl` — any field                   | **No**              | Requires daemon restart.                                                                        |
-| `proxy.listen`, `dashboard.listen`         | No                  | Would require re-binding the listener socket.                                                   |
-| `timeouts.*`                               | No                  | Baked into server construction at startup.                                                      |
-| `proxy_behavior.no_intercept_hosts`        | No                  | Baked into proxy construction at startup.                                                       |
-| `proxy_behavior.max_body_buffer`           | No                  | Baked into proxy construction at startup.                                                       |
-| `approval.timeout`, `approval.max_pending` | No                  | Baked into approval broker at startup.                                                          |
-| `secrets.cache_ttl`                        | No                  | Active TTL is set at startup; only the cache contents are cleared.                              |
-| `audit.retention_days`                     | No                  | Pruner uses the startup value.                                                                  |
+| Setting / component                        | Reloaded on SIGHUP? | Notes                                                                                                                                                                  |
+| ------------------------------------------ | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent registry (`agents` table)            | Yes                 | Re-read from SQLite; new token hashes are live before rule reload.                                                                                                     |
+| Rules files (`rules.d/*.hcl`)              | Yes                 | Previous ruleset stays live if the new files fail to parse.                                                                                                            |
+| Injector secret-value cache                | Yes (cleared)       | Forces re-fetch from SQLite so `secret update <name>` propagates immediately. The active TTL (`secrets.cache_ttl`) is unchanged — only the cache contents are dropped. |
+| Admin token file                           | Yes                 | Re-read from `$XDG_CONFIG_HOME/agent-gateway/admin-token`.                                                                                                             |
+| Root CA key/cert (`ca.key` / `ca.pem`)     | Yes                 | Re-read from disk; leaf-cert cache is cleared.                                                                                                                         |
+| `config.hcl` — any field                   | **No**              | Requires daemon restart.                                                                                                                                               |
+| `proxy.listen`, `dashboard.listen`         | No                  | Would require re-binding the listener socket.                                                                                                                          |
+| `timeouts.*`                               | No                  | Baked into server construction at startup.                                                                                                                             |
+| `proxy_behavior.no_intercept_hosts`        | No                  | Baked into proxy construction at startup.                                                                                                                              |
+| `proxy_behavior.max_body_buffer`           | No                  | Baked into proxy construction at startup.                                                                                                                              |
+| `approval.timeout`, `approval.max_pending` | No                  | Baked into approval broker at startup.                                                                                                                                 |
+| `secrets.cache_ttl`                        | No                  | Active TTL is set at startup; only the cache contents are cleared.                                                                                                     |
+| `audit.retention_days`                     | No                  | Pruner uses the startup value.                                                                                                                                         |
 
 ## `agent`
 
@@ -90,6 +90,29 @@ Prints the raw token once, followed by a ready-to-paste `HTTPS_PROXY` / `HTTP_PR
 ### `agent list`
 
 List all agents with metadata (no tokens, only prefixes).
+
+| Flag                   | Description                                       |
+| ---------------------- | ------------------------------------------------- |
+| `-o`, `--output <fmt>` | `text` (default) or `json`. See JSON shape below. |
+
+#### `agent list -o json` shape
+
+Token hashes, salts, and descriptions are deliberately omitted.
+
+```json
+{
+  "agents": [
+    {
+      "name": "claude-review",
+      "prefix": "agw_a1b2c3d4",
+      "created_at": "2026-04-24T10:00:00Z",
+      "last_seen_at": "2026-04-24T11:23:45Z"
+    }
+  ]
+}
+```
+
+`last_seen_at` is `null` for agents that have never made a request.
 
 ### `agent rotate <name>`
 
@@ -160,6 +183,31 @@ agent-gateway secret unbind gh_bot --host "*.github.com"
 
 List secrets (metadata only — no values, ever). The `HOSTS` column shows the comma-separated `allowed_hosts` list for each row.
 
+| Flag                   | Description                                       |
+| ---------------------- | ------------------------------------------------- |
+| `-o`, `--output <fmt>` | `text` (default) or `json`. See JSON shape below. |
+
+#### `secret list -o json` shape
+
+Encrypted values, nonces, and descriptions are deliberately omitted.
+
+```json
+{
+  "secrets": [
+    {
+      "name": "gh_bot",
+      "scope": "global",
+      "allowed_hosts": ["api.github.com", "*.githubusercontent.com"],
+      "created_at": "2026-04-24T10:00:00Z",
+      "rotated_at": "2026-04-24T10:00:00Z",
+      "last_used_at": "2026-04-24T11:23:45Z"
+    }
+  ]
+}
+```
+
+`scope` is `"global"` or `"agent:<name>"`. `last_used_at` is `null` until the first injection.
+
 ### `secret update <name>`
 
 Update the value of an existing secret. Reads the new value from stdin. On update, the decrypted-secret LRU is invalidated so the next request uses the new value.
@@ -205,11 +253,19 @@ agent-gateway rules check
 
 Reads rules from `$XDG_CONFIG_HOME/agent-gateway/rules.d/` and cross-references `${secrets.X}` template references against the live state DB. Exits non-zero on parse errors. Unknown secret references are reported as warnings on stdout but do not affect the exit code. If the state DB is unavailable (e.g. on a fresh install), a single "could not open state db" warning is written to stderr and every `${secrets.X}` reference becomes a warning — fail-open, so `rules check` never blocks on missing infrastructure.
 
-### `rules reload`
+### `rules reload` (deprecated)
 
-Signal the running daemon to re-parse `rules.d/`. Prints `reloaded` on success, `no daemon running` if the PID file is absent.
+Hidden alias for `agent-gateway reload`. Prints a deprecation notice on stderr but still performs the reload. Use the top-level `reload` command instead.
 
-Invalid rule files leave the previous rule-set live — see [rules.md](./rules.md#reload) for the fail-safe behaviour.
+## `reload`
+
+Signal the running daemon to reload all SIGHUP-mutable state: rules, agents, secrets cache, admin token, CA. Prints `reloaded` on success, errors with `no daemon running` if the PID file is absent.
+
+```bash
+agent-gateway reload
+```
+
+Invalid rule files leave the previous rule-set live — see [rules.md](./rules.md#reload). `config.hcl` is **not** re-parsed; if its sha256 differs from the value the daemon recorded at startup, `reload` prints a warning so you know a restart is needed. See [config.md](./config.md).
 
 ## `admin-token rotate`
 
@@ -262,6 +318,29 @@ Open the config file in `$EDITOR` (falling back to `vi`). If the file does not e
 ### `config refresh`
 
 Rewrite the config file, preserving existing overrides and back-filling any new default keys. Use after a version upgrade that adds new config options.
+
+## `X-Agent-Gateway-Reason` codes
+
+Every 4xx / 5xx the proxy synthesises carries an `X-Agent-Gateway-Reason` response header naming the specific check that failed. The string is stable — script against it.
+
+| Code                    | HTTP status | Cause                                                                                                                     |
+| ----------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `body-matcher-bypassed` | 403         | Request body exceeded `proxy_behavior.max_body_buffer` while a rule had a body matcher; failed closed.                    |
+| `body-read-error`       | 403         | I/O error while buffering the request body for a body-matcher rule.                                                       |
+| `rule-deny`             | 403         | A rule matched and its verdict is `deny`.                                                                                 |
+| `unknown-verdict`       | 403         | A rule matched with a verdict the proxy does not recognise (version skew). Fail-closed by design.                         |
+| `secret-invalid`        | 403         | Secret value contains characters that cannot be safely injected into a header.                                            |
+| `secret-unresolved`     | 403         | A `${secrets.X}` reference could not be resolved (secret missing, or scope mismatch). Add the secret with `secret add`.   |
+| `forbidden-host`        | 403         | The injected secret is not bound to the request's host. Bind with `secret bind`.                                          |
+| `approval-denied`       | 403         | A `require-approval` rule matched and the dashboard operator clicked deny.                                                |
+| `queue-full`            | 503         | Approval-broker queue is at `approval.max_pending` (or `max_pending_per_agent`). Response also carries `Retry-After: 30`. |
+| `no-approval-broker`    | 504         | A `require-approval` rule matched but no approval broker is configured.                                                   |
+| `approval-timeout`      | 504         | A `require-approval` rule matched and `approval.timeout` elapsed without a decision.                                      |
+| `approval-broker-error` | 502         | Approval broker returned an unexpected error.                                                                             |
+| `build-request-error`   | 500         | Internal error constructing the upstream request after rule evaluation. Indicates a bug — check the daemon log.           |
+| `upstream-error`        | 502         | Upstream dial / TLS handshake / connection error.                                                                         |
+
+The header pairs with the audit row's `Error` column, where applicable, for after-the-fact correlation.
 
 ## Exit codes
 
