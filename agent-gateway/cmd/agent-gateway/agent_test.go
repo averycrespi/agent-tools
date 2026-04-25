@@ -326,7 +326,7 @@ func TestAgentRm_RemovesAgent(t *testing.T) {
 	assert.NotContains(t, listOut.String(), "doomed")
 }
 
-func TestAgentRmCmd_HasLongHelp(t *testing.T) {
+func TestAgentRm_HasLongHelp(t *testing.T) {
 	cmd := newAgentRmCmd()
 	require.NotEmpty(t, cmd.Long)
 	require.Contains(t, cmd.Long, "Immediate consequences")

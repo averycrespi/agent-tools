@@ -4,7 +4,7 @@
 # Only GETs under /api/v1/ and /api/v2/ are allowed. Writes (POST/PUT/PATCH/
 # DELETE) and any other path fall through: the sandbox's dummy credentials
 # reach Datadog and the request fails 4xx upstream. Drop this file in
-# ~/.config/agent-gateway/rules.d/ and run `agent-gateway rules reload`.
+# ~/.config/agent-gateway/rules.d/ and run `agent-gateway reload`.
 #
 # ---- One-time setup on the host --------------------------------------------
 #
@@ -27,7 +27,7 @@
 #
 #   agent-gateway secret bind   dd_api_key --host api.datadoghq.eu
 #   agent-gateway secret unbind dd_api_key --host api.datadoghq.com
-#   # (repeat for dd_app_key, then `agent-gateway rules reload`)
+#   # (repeat for dd_app_key, then `agent-gateway reload`)
 #
 # Known DD_SITE values: datadoghq.com (US1, default), us3.datadoghq.com,
 # us5.datadoghq.com, datadoghq.eu (EU1), ap1.datadoghq.com, ap2.datadoghq.com,

@@ -4,8 +4,9 @@
 # Uses the `github_token` secret and the same setup as 10-github-pulls.hcl --
 # see that file for fine-grained token creation and `secret add` steps.
 #
-# Without that secret bound, requests matched here fail with HTTP 403 and
-# header `X-Agent-Gateway-Reason: secret-unresolved`.
+# Without this, requests matched by these rules will fail with HTTP 403 and
+# header `X-Agent-Gateway-Reason: secret-unresolved` — the rule matched but
+# the gateway had no `${secrets.github_token}` to inject.
 #
 # ---- Why this file exists -------------------------------------------------
 #

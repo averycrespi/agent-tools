@@ -10,7 +10,7 @@
 # Authorization and fail 401 at Jira.
 #
 # Drop this file in ~/.config/agent-gateway/rules.d/ and run
-# `agent-gateway rules reload`. Edit `yoursite` on every `host` line
+# `agent-gateway reload`. Edit `yoursite` on every `host` line
 # below to match your Atlassian site (the subdomain of `.atlassian.net`).
 #
 # ---- Create an API token --------------------------------------------------

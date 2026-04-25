@@ -15,7 +15,7 @@
 # sandbox's dummy Authorization and fail 401 at Confluence.
 #
 # Drop this file in ~/.config/agent-gateway/rules.d/ and run
-# `agent-gateway rules reload`. Edit `yoursite` on every `host` line
+# `agent-gateway reload`. Edit `yoursite` on every `host` line
 # below to match your Atlassian site.
 #
 # ---- Create an API token --------------------------------------------------

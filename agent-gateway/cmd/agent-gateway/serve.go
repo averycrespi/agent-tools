@@ -204,7 +204,7 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	}
 	secretsStore, err := newSecretsStoreFn(db, log)
 	if err != nil {
-		fmt.Fprintf(os.Stderr,
+		_, _ = fmt.Fprintf(os.Stderr,
 			"agent-gateway: secrets store unavailable: %v\n"+
 				"  The daemon requires a working secrets store to inject credentials.\n"+
 				"  If the keychain is unavailable, ensure the file fallback path is readable.\n",
