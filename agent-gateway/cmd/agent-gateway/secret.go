@@ -459,7 +459,18 @@ func newSecretRMCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rm <name>",
 		Short: "Delete a secret",
-		Args:  exactArgs(1),
+		Long: `Removes the secret from the encrypted store.
+
+Immediate consequences:
+  - Rules referencing ${secrets.<name>} will fail with 403 Forbidden and
+    X-Agent-Gateway-Reason: secret-unresolved on the next request that matches
+    them.
+
+Recovery:
+  The encrypted value is deleted; if you have not saved the plaintext
+  elsewhere, recovery is not possible — re-add the secret with
+  'agent-gateway secret add <name>' using a fresh credential value.`,
+		Args: exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, cleanup, err := openSecretStore()
 			if err != nil {

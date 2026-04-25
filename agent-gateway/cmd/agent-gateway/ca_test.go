@@ -14,6 +14,14 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 )
 
+func TestCARotateCmd_HasLongHelp(t *testing.T) {
+	cmd := newCARotateCmd()
+	require.NotEmpty(t, cmd.Long)
+	require.Contains(t, cmd.Long, "Immediate consequences")
+	require.Contains(t, cmd.Long, "Recovery")
+	require.Contains(t, cmd.Long, "re-trust")
+}
+
 func TestCmdCAExport(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataDir)

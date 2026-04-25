@@ -247,6 +247,14 @@ func TestAgentRm_RemovesAgent(t *testing.T) {
 	assert.NotContains(t, listOut.String(), "doomed")
 }
 
+func TestAgentRmCmd_HasLongHelp(t *testing.T) {
+	cmd := newAgentRmCmd()
+	require.NotEmpty(t, cmd.Long)
+	require.Contains(t, cmd.Long, "Immediate consequences")
+	require.Contains(t, cmd.Long, "Recovery")
+	require.Contains(t, cmd.Long, "407")
+}
+
 // TestAgentRm_NotFound verifies that rm on a non-existent agent returns
 // ErrNotFound without invoking the confirmation prompt — it's pointless to
 // ask "are you sure?" about something that isn't there.

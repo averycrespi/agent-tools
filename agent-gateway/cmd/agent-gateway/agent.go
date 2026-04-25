@@ -234,7 +234,20 @@ func newAgentRmCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rm <name>",
 		Short: "Remove an agent and cascade-delete its scoped secrets",
-		Args:  exactArgs(1),
+		Long: `Removes the agent from the registry and cascade-deletes its scoped secrets.
+
+Immediate consequences:
+  - Any sandbox using this agent's token sees 407 Proxy Authentication Required
+    on its next request through the gateway.
+  - Agent-scoped secrets are deleted along with the agent.
+  - Audit rows are retained; the agent column will still resolve historically
+    by name.
+
+Recovery:
+  Re-add the agent with 'agent-gateway agent add <name>' to issue a fresh
+  token; existing sandboxes must be re-provisioned with the new token (the
+  old token is gone).`,
+		Args: exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r, cleanup, err := openAgentRegistry()
 			if err != nil {

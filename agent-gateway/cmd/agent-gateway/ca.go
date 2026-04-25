@@ -46,7 +46,19 @@ func newCARotateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rotate",
 		Short: "Rotate the root CA (regenerate and replace on disk)",
-		Args:  cobra.NoArgs,
+		Long: `Generates a new root CA and overwrites the existing CA cert/key on disk.
+
+Immediate consequences:
+  - The leaf-cert cache is invalidated and all leaf certs are re-issued under
+    the new root CA on the next intercepted connection.
+  - Every sandbox must re-trust the new CA — run 'agent-gateway ca export'
+    and re-provision each sandbox.
+
+Recovery:
+  The previous CA is overwritten in place; if you have not exported it,
+  sandboxes that were trusting the old root will reject all MITM connections
+  until they re-trust the new CA.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ok, err := confirm(cmd.InOrStdin(), cmd.OutOrStdout(), stdinIsTTY(), force,
 				"Rotate the root CA? Every sandbox must re-trust the new certificate.")

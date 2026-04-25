@@ -532,6 +532,14 @@ func TestSecretBind_NoCoverageWarning(t *testing.T) {
 	assert.NotContains(t, output, "warning:")
 }
 
+func TestSecretRmCmd_HasLongHelp(t *testing.T) {
+	cmd := newSecretRMCmd()
+	require.NotEmpty(t, cmd.Long)
+	require.Contains(t, cmd.Long, "Immediate consequences")
+	require.Contains(t, cmd.Long, "Recovery")
+	require.Contains(t, cmd.Long, "403")
+}
+
 // TestPrintCoverageAfterMutation_SilentOnBadRulesDir verifies that a bad
 // rules dir does not cause the mutation command to fail.
 func TestPrintCoverageAfterMutation_SilentOnBadRulesDir(t *testing.T) {

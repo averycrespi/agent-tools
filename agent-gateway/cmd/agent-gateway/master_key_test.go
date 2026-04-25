@@ -117,6 +117,14 @@ type rawSecretRow struct {
 	nonce      []byte
 }
 
+func TestMasterKeyRotateCmd_HasLongHelp(t *testing.T) {
+	cmd := newMasterKeyRotateCmd()
+	require.NotEmpty(t, cmd.Long)
+	require.Contains(t, cmd.Long, "Immediate consequences")
+	require.Contains(t, cmd.Long, "Recovery")
+	require.Contains(t, cmd.Long, "re-wrapped")
+}
+
 // snapshotSecretRows reads (id, ciphertext, nonce) for every secrets row into
 // a map keyed by id. Used to assert rotation leaves row bytes untouched.
 func snapshotSecretRows(t *testing.T, db *sql.DB) map[int64]rawSecretRow {

@@ -27,7 +27,18 @@ func newAdminTokenRotateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rotate",
 		Short: "Rotate the admin dashboard token and reload the running daemon",
-		Args:  cobra.NoArgs,
+		Long: `Generates a new admin token and replaces the file at $XDG_CONFIG_HOME/agent-gateway/admin-token.
+
+Immediate consequences:
+  - Existing dashboard sessions are invalidated immediately.
+  - The next dashboard load must re-authenticate with the new token.
+  - The running daemon is signalled to reload the token file in memory.
+
+Recovery:
+  The previous token is overwritten in place; if you have not saved it
+  elsewhere, recovery is not possible — issue a fresh token and update
+  the dashboard URL.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			confirmFn := func() (bool, error) {
 				return confirm(cmd.InOrStdin(), cmd.OutOrStdout(), stdinIsTTY(), force,
