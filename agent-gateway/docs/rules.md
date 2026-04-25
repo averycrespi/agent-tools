@@ -68,6 +68,21 @@ rule "github-issue-create" {
 
 > **Why `host` is required.** The CONNECT-time decision filter consults each agent's set of rule hosts to decide whether to MITM or tunnel. A rule with no `host` would not appear in that index, so its verdict (especially a `deny`) would silently never fire. Spell `host = "**"` if you genuinely want to match every host — the loader accepts it and emits a soft warning naming the rule so unscoped matches remain visible in logs and `rules check`.
 
+> **What `host` is matched against.** `match.host` is matched against the **CONNECT target** — the hostname the sandbox asked the gateway to tunnel to (also the Server Name Indication on the inner TLS handshake) — not the inner `Host:` header of the HTTP request. A misbehaving client that sets a different inner `Host:` cannot bypass a rule by lying about it. See `docs/security-model.md` for the full TLS interception flow.
+
+#### Glob semantics
+
+`match.host` and `match.path` use glob patterns. Single `*` matches within one segment (one DNS label for `host`, one path segment for `path` — does not cross `.` or `/`); `**` crosses segment boundaries.
+
+| Pattern           | Matches                                             | Does not match                            |
+| ----------------- | --------------------------------------------------- | ----------------------------------------- |
+| `api.example.com` | `api.example.com`                                   | `foo.example.com`, `api.example.com.foo`  |
+| `*.example.com`   | `foo.example.com`                                   | `example.com`, `a.b.example.com`          |
+| `**.example.com`  | `example.com`, `foo.example.com`, `a.b.example.com` | (matches the apex and any depth of label) |
+| `**`              | every host                                          | (the wildcard escape hatch)               |
+
+The same single-vs-double semantics apply to `match.path`: `*` matches within one path segment (no `/`), `**` crosses segments.
+
 > **Host canonicalisation.** `host` is normalised at load time: ASCII is lowercased, a trailing `.` is stripped, and Unicode labels are mapped to punycode via the IDNA `Lookup` profile. `Api.GitHub.com`, `api.github.com.`, and `api.github.com` all compile to the same pattern. If normalisation rewrites your input you'll see a warning on the next `rules check` or daemon start showing the stored form. The same canonicalisation runs on incoming CONNECT targets, so rules written in one form match requests in any form. Mixed wildcard+literal segments (e.g. `api-*.github.com`) are ASCII-lowercased only — Unicode in mixed segments is unsupported; write the literal portion in ASCII.
 
 #### Case handling
