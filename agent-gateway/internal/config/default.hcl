@@ -46,8 +46,9 @@ timeouts {
   upstream_response_header = "30s"
   upstream_idle_keepalive  = "90s"
   body_buffer_read         = "30s"
-  request_body_read        = "0s"
-  response_body_read       = "0s"
+  # 0s means no deadline. Set e.g. "5m" to bound extremely long streaming requests.
+  request_body_read  = "0s"
+  response_body_read = "0s"
 }
 
 log {
