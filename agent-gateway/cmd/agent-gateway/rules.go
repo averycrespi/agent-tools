@@ -104,7 +104,7 @@ func execRulesReload(
 	errOut io.Writer,
 ) error {
 	_, _ = fmt.Fprintln(errOut, "'agent-gateway rules reload' is deprecated; use 'agent-gateway reload' instead")
-	return execReload(nil, pidPath, verify, send, out)
+	return execReload(nil, pidPath, paths.StateDB(), paths.ConfigFile(), verify, send, out)
 }
 
 func newRulesCheckCmd() *cobra.Command {
