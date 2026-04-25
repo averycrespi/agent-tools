@@ -320,6 +320,53 @@ func TestPipeline_Audit_UnknownVerdict(t *testing.T) {
 	assert.Equal(t, "blocked", e.Outcome)
 }
 
+// runPipelineWithRawQuery builds a proxy with a memory auditor and an
+// allow-all rules engine (nil match), fires a GET request to
+// https://api.example.com:443/query with the given RawQuery, and returns the
+// response recorder and the captured audit entries.
+func runPipelineWithRawQuery(t *testing.T, raw string) (*httptest.ResponseRecorder, []audit.Entry) {
+	t.Helper()
+	auth := newTestAuthority(t)
+	cl := newCapturingLogger(t)
+
+	p := proxy.New(proxy.Deps{
+		CA:                   auth,
+		UpstreamRoundTripper: okRoundTripper(),
+		Rules:                stubEngineReturning(nil), // nil match → allow
+		Auditor:              cl,
+	})
+
+	r := httptest.NewRequest(http.MethodGet, "https://api.example.com:443/query", nil)
+	r.URL.RawQuery = raw
+	w := httptest.NewRecorder()
+	p.HandleForTest(w, r, "api.example.com:443", "")
+
+	var entries []audit.Entry
+	if cl.last != nil {
+		entries = append(entries, *cl.last)
+	}
+	return w, entries
+}
+
+// TestPipeline_StoresQueryStringWithTruncation verifies that a query string
+// longer than 2048 bytes is truncated and suffixed with "…".
+func TestPipeline_StoresQueryStringWithTruncation(t *testing.T) {
+	long := strings.Repeat("a=1&", 1024) // 4096 bytes
+	rec, entries := runPipelineWithRawQuery(t, long)
+	_ = rec
+	require.NotNil(t, entries[0].Query)
+	require.True(t, strings.HasSuffix(*entries[0].Query, "…"))
+	require.LessOrEqual(t, len(*entries[0].Query), 2048+len("…"))
+}
+
+// TestPipeline_StoresShortQueryVerbatim verifies that a short query string is
+// stored unchanged.
+func TestPipeline_StoresShortQueryVerbatim(t *testing.T) {
+	_, entries := runPipelineWithRawQuery(t, "sort=updated&page=2")
+	require.NotNil(t, entries[0].Query)
+	require.Equal(t, "sort=updated&page=2", *entries[0].Query)
+}
+
 // TestPipeline_Audit_NilAuditor verifies that a nil Auditor does not panic.
 func TestPipeline_Audit_NilAuditor(t *testing.T) {
 	auth := newTestAuthority(t)

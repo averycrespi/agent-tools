@@ -199,6 +199,10 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request, host, agentName s
 			BytesOut:     bytesOut,
 			Outcome:      outcome,
 		}
+		if r.URL.RawQuery != "" {
+			q := truncateString(r.URL.RawQuery, 2048)
+			entry.Query = &q
+		}
 		if a.MatchedRule != "" {
 			entry.MatchedRule = &a.MatchedRule
 		}
@@ -595,6 +599,15 @@ func assertedHeaders(src http.Header, assertedNames map[string]string) http.Head
 		}
 	}
 	return out
+}
+
+// truncateString returns s unchanged if len(s) <= max, otherwise s[:max] + "…".
+// len is byte-counted, matching the audit column's byte limit semantics.
+func truncateString(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
 }
 
 // humanSize returns a human-readable representation of a byte count, e.g.
