@@ -385,10 +385,10 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	dashURL := fmt.Sprintf("http://%s/dashboard/?token=%s", dashLn.Addr(), dashServer.Token())
 
 	// Paths for operator debugging (systemd/launchd stdout picks these up).
-	fmt.Fprintf(stdout, "config:    %s\n", paths.ConfigFile())
-	fmt.Fprintf(stdout, "state_db:  %s\n", paths.StateDB())
-	fmt.Fprintf(stdout, "ca_cert:   %s\n", paths.CACert())
-	fmt.Fprintf(stdout, "pid_file:  %s\n", paths.PIDFile())
+	_, _ = fmt.Fprintf(stdout, "config:    %s\n", paths.ConfigFile())
+	_, _ = fmt.Fprintf(stdout, "state_db:  %s\n", paths.StateDB())
+	_, _ = fmt.Fprintf(stdout, "ca_cert:   %s\n", paths.CACert())
+	_, _ = fmt.Fprintf(stdout, "pid_file:  %s\n", paths.PIDFile())
 	log.Info("paths",
 		"config", paths.ConfigFile(),
 		"state_db", paths.StateDB(),
@@ -422,7 +422,7 @@ func RunServe(ctx context.Context, d serveDeps) error {
 	}
 
 	// Print the authenticated dashboard URL on every serve start.
-	fmt.Fprintf(stdout, "Dashboard: %s\n", dashURL)
+	_, _ = fmt.Fprintf(stdout, "Dashboard: %s\n", dashURL)
 
 	// Open browser if configured and not headless.
 	if !d.Headless && cfg.Dashboard.OpenBrowser {
