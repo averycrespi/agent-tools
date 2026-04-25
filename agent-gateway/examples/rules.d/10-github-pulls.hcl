@@ -30,6 +30,10 @@
 #   printf '%s' "<your-PAT>" \
 #     | agent-gateway secret add github_token --host api.github.com
 #
+# Without this, requests matched by these rules will fail with HTTP 403 and
+# header `X-Agent-Gateway-Reason: secret-unresolved` — the rule matched but
+# the gateway had no `${secrets.github_token}` to inject.
+#
 # ---- Smoke test inside the sandbox ----------------------------------------
 #
 #   export GH_TOKEN=dummy

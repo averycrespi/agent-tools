@@ -5,6 +5,9 @@
 # see that file for fine-grained token creation and `secret add` steps.
 # Fine-grained permission required: `Actions: Read and write`.
 #
+# Without that secret bound, requests matched here fail with HTTP 403 and
+# header `X-Agent-Gateway-Reason: secret-unresolved`.
+#
 # ---- Logs & artifacts redirect to Azure Blob ------------------------------
 #
 # `GET /repos/O/R/actions/runs/ID/logs`, `/actions/jobs/ID/logs`, and

@@ -37,6 +37,10 @@
 #     | base64 | tr -d '\n' \
 #     | agent-gateway secret add confluence_basic_auth --host yoursite.atlassian.net
 #
+# Without this, requests matched by these rules will fail with HTTP 403 and
+# header `X-Agent-Gateway-Reason: secret-unresolved` — the rule matched but
+# the gateway had no `${secrets.confluence_basic_auth}` to inject.
+#
 # ---- Smoke test inside the sandbox ----------------------------------------
 #
 #   curl -H "Authorization: Basic dummy" \

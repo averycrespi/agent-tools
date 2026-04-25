@@ -6,6 +6,9 @@
 # Fine-grained permission required: `Issues: Read and write` (plus the
 # base Metadata/Contents reads).
 #
+# Without that secret bound, requests matched here fail with HTTP 403 and
+# header `X-Agent-Gateway-Reason: secret-unresolved`.
+#
 # ---- PR comments share this path ------------------------------------------
 #
 # `POST /repos/O/R/issues/N/comments` creates a comment on an issue OR a

@@ -11,6 +11,10 @@
 #   echo -n "<real-api-key>" | agent-gateway secret add dd_api_key --host api.datadoghq.com
 #   echo -n "<real-app-key>" | agent-gateway secret add dd_app_key --host api.datadoghq.com
 #
+# Without these, requests matched by these rules will fail with HTTP 403 and
+# header `X-Agent-Gateway-Reason: secret-unresolved` — the rule matched but
+# the gateway had no `${secrets.dd_api_key}` / `${secrets.dd_app_key}` to inject.
+#
 # ---- Inside the sandbox ----------------------------------------------------
 #
 #   export DD_API_KEY=dummy DD_APP_KEY=dummy DD_SITE=datadoghq.com
