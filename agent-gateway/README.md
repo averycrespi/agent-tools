@@ -124,6 +124,60 @@ curl -s -H "Authorization: Bearer dummy" https://api.github.com/user
 
 The request appears on the dashboard live feed with the rule match, injection status, and outcome.
 
+## Stopping
+
+The daemon shuts down cleanly on SIGTERM. In-flight requests finish on
+the pre-shutdown rule snapshot before the process exits.
+
+```bash
+kill $(cat $XDG_CONFIG_HOME/agent-gateway/agent-gateway.pid)
+```
+
+The PID file is at `$XDG_CONFIG_HOME/agent-gateway/agent-gateway.pid`
+(`~/.config/agent-gateway/agent-gateway.pid` on Linux). It is written on
+`serve` start and deleted on clean shutdown — a leftover PID file after
+a crash is harmless; the next `serve` invocation overwrites it.
+
+## Upgrading
+
+Schema migrations run automatically on `agent-gateway serve` startup;
+the daemon exits with a non-zero status if a migration fails.
+**Downgrades are not supported** — the SQLite schema is forward-only.
+Back up `$XDG_DATA_HOME/agent-gateway/state.db` before upgrading across
+major versions:
+
+```bash
+cp $XDG_DATA_HOME/agent-gateway/state.db state.db.backup
+```
+
+The state DB holds encrypted secrets, the agent registry, the audit log,
+and the master-key id pointer (`meta.active_key_id`). Restoring the
+backup also requires the matching master key — see `docs/security-model.md`
+for the master-key persistence story.
+
+## Single instance per user
+
+Only one `agent-gateway serve` may run per user at a time. Concurrent
+starts fail at PID-file acquisition or with a listener bind error on
+`127.0.0.1:8220` / `127.0.0.1:8221`. To run multiple instances (for
+testing, or multi-tenant hosting), give each instance its own XDG base
+directories:
+
+```bash
+XDG_CONFIG_HOME=/tmp/gw-a/config XDG_DATA_HOME=/tmp/gw-a/data \
+    agent-gateway serve
+
+# In another terminal — edit /tmp/gw-b/config/agent-gateway/config.hcl
+# first to set proxy.listen = "127.0.0.1:8222" and
+# dashboard.listen = "127.0.0.1:8223" (the defaults clash):
+XDG_CONFIG_HOME=/tmp/gw-b/config XDG_DATA_HOME=/tmp/gw-b/data \
+    agent-gateway serve
+```
+
+Each instance has its own state DB, master key, rules, agents, secrets,
+and PID file. Config-file edits are restart-only — see
+[docs/config.md](./docs/config.md).
+
 ## Concepts
 
 **Agents** are sandbox identities. Each agent has a name and a token (`agw_…`). The token travels in the proxy URL's userinfo (`http://x:<token>@host:8220`) and is sent as `Proxy-Authorization: Basic` on every CONNECT request. Rules and secrets can be scoped to specific agents.
