@@ -88,18 +88,16 @@ Knobs that change how the proxy treats specific traffic.
 
 Per-phase deadlines. Use durations like `"30s"`, `"5m"`. `0s` means **no deadline**.
 
-| Field                      | Type     | Default | Description                                                                                                                 |
-| -------------------------- | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `connect_read_header`      | duration | `10s`   | Deadline for reading the CONNECT request line + headers from the sandbox.                                                   |
-| `mitm_handshake`           | duration | `10s`   | Deadline for the inner TLS handshake with the sandbox after CONNECT is accepted.                                            |
-| `idle_keepalive`           | duration | `120s`  | Idle timeout on the sandbox-facing keep-alive connection.                                                                   |
-| `upstream_dial`            | duration | `10s`   | Deadline for opening the TCP connection to upstream.                                                                        |
-| `upstream_tls`             | duration | `10s`   | Deadline for completing the upstream TLS handshake.                                                                         |
-| `upstream_response_header` | duration | `30s`   | Deadline from request-write to first response byte from upstream.                                                           |
-| `upstream_idle_keepalive`  | duration | `90s`   | Idle timeout on the upstream keep-alive connection.                                                                         |
-| `body_buffer_read`         | duration | `30s`   | Per-request deadline for buffering a request body for a body-matcher rule. Independent of overall request lifetime.         |
-| `request_body_read`        | duration | `0s`    | Deadline for reading the full request body. `0s` disables — set e.g. `"5m"` to bound long streaming uploads.                |
-| `response_body_read`       | duration | `0s`    | Deadline for streaming the response body to the sandbox. `0s` disables — set e.g. `"5m"` to bound long streaming downloads. |
+| Field                      | Type     | Default | Description                                                                                                         |
+| -------------------------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
+| `connect_read_header`      | duration | `10s`   | Deadline for reading the CONNECT request line + headers from the sandbox.                                           |
+| `mitm_handshake`           | duration | `10s`   | Deadline for the inner TLS handshake with the sandbox after CONNECT is accepted.                                    |
+| `idle_keepalive`           | duration | `120s`  | Idle timeout on the sandbox-facing keep-alive connection.                                                           |
+| `upstream_dial`            | duration | `10s`   | Deadline for opening the TCP connection to upstream.                                                                |
+| `upstream_tls`             | duration | `10s`   | Deadline for completing the upstream TLS handshake.                                                                 |
+| `upstream_response_header` | duration | `30s`   | Deadline from request-write to first response byte from upstream.                                                   |
+| `upstream_idle_keepalive`  | duration | `90s`   | Idle timeout on the upstream keep-alive connection.                                                                 |
+| `body_buffer_read`         | duration | `30s`   | Per-request deadline for buffering a request body for a body-matcher rule. Independent of overall request lifetime. |
 
 ## `log` block
 

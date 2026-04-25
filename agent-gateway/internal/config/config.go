@@ -90,8 +90,6 @@ type TimeoutsConfig struct {
 	UpstreamResponseHeader time.Duration
 	UpstreamIdleKeepalive  time.Duration
 	BodyBufferRead         time.Duration
-	RequestBodyRead        time.Duration
-	ResponseBodyRead       time.Duration
 }
 
 // LogConfig holds logging settings.
@@ -159,8 +157,6 @@ type wireTimeouts struct {
 	UpstreamResponseHeader string `hcl:"upstream_response_header"`
 	UpstreamIdleKeepalive  string `hcl:"upstream_idle_keepalive"`
 	BodyBufferRead         string `hcl:"body_buffer_read"`
-	RequestBodyRead        string `hcl:"request_body_read"`
-	ResponseBodyRead       string `hcl:"response_body_read"`
 }
 
 type wireLog struct {
@@ -270,14 +266,6 @@ func fromWire(w wireConfig) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("timeouts.body_buffer_read: %w", err)
 	}
-	reqBodyRead, err := parseDur(w.Timeouts.RequestBodyRead)
-	if err != nil {
-		return Config{}, fmt.Errorf("timeouts.request_body_read: %w", err)
-	}
-	respBodyRead, err := parseDur(w.Timeouts.ResponseBodyRead)
-	if err != nil {
-		return Config{}, fmt.Errorf("timeouts.response_body_read: %w", err)
-	}
 
 	return Config{
 		Proxy: ProxyConfig{
@@ -316,8 +304,6 @@ func fromWire(w wireConfig) (Config, error) {
 			UpstreamResponseHeader: upstreamRespHdr,
 			UpstreamIdleKeepalive:  upstreamIdleKA,
 			BodyBufferRead:         bodyBufRead,
-			RequestBodyRead:        reqBodyRead,
-			ResponseBodyRead:       respBodyRead,
 		},
 		Log: LogConfig{
 			Level:  w.Log.Level,
@@ -634,12 +620,6 @@ func mergeTimeouts(dst *TimeoutsConfig, w wireTimeouts) error {
 	if err := applyDur(&dst.BodyBufferRead, w.BodyBufferRead, "body_buffer_read"); err != nil {
 		return err
 	}
-	if err := applyDur(&dst.RequestBodyRead, w.RequestBodyRead, "request_body_read"); err != nil {
-		return err
-	}
-	if err := applyDur(&dst.ResponseBodyRead, w.ResponseBodyRead, "response_body_read"); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -727,8 +707,6 @@ timeouts {
   upstream_response_header = %q
   upstream_idle_keepalive  = %q
   body_buffer_read         = %q
-  request_body_read        = %q
-  response_body_read       = %q
 }
 
 log {
@@ -757,8 +735,6 @@ log {
 		fmtDur(cfg.Timeouts.UpstreamResponseHeader),
 		fmtDur(cfg.Timeouts.UpstreamIdleKeepalive),
 		fmtDur(cfg.Timeouts.BodyBufferRead),
-		fmtDur(cfg.Timeouts.RequestBodyRead),
-		fmtDur(cfg.Timeouts.ResponseBodyRead),
 		cfg.Log.Level,
 		cfg.Log.Format,
 	)

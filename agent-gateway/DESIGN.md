@@ -1144,10 +1144,6 @@ timeouts {
 
   # body-buffering for matchers (bounded to defeat slowloris)
   body_buffer_read         = "30s"
-
-  # deliberately unbounded (streaming correctness)
-  request_body_read        = "0"
-  response_body_read       = "0"
 }
 
 log {
@@ -1372,6 +1368,17 @@ Concrete places agent-gateway diverges and does more:
   legitimate uploads, long-lived Anthropic streaming sessions, and
   gRPC-over-h2 edges need real-world observation. v1.1 should revisit every
   number after ~1 month of production use, with metrics backing the choice.
+- **Request/response body-read deadlines (vNext).** Earlier drafts of this
+  doc included `timeouts.request_body_read` and `timeouts.response_body_read`
+  as escape hatches for bounding extremely long streaming uploads / downloads.
+  Both fields shipped briefly as parsed-but-unwired config (no proxy plumbing
+  ever existed) and were removed to avoid the foot-gun of a config knob that
+  silently does nothing. v1.1 should design the deadline plumbing before
+  reintroducing the fields: where to apply the deadline relative to the
+  body-buffering layer used by matchers, how it interacts with `Content-Length`
+  vs chunked transfer, and the audit-row error code for a tripped deadline.
+  Reintroduce as `timeouts.request_body_read` / `timeouts.response_body_read`
+  to preserve the spelling, and keep `0s` as the no-deadline sentinel.
 - **Body buffering cap correctness.** `max_body_buffer = 1MiB` covers almost
   every API call but will block large uploads against any rule with a body
   matcher (fail-closed; see §4). The audit row's `error` column surfaces

@@ -165,8 +165,6 @@ func diffConfig(pre, post *config.Config) []string {
 	addDur("timeouts.upstream_response_header", pre.Timeouts.UpstreamResponseHeader, post.Timeouts.UpstreamResponseHeader)
 	addDur("timeouts.upstream_idle_keepalive", pre.Timeouts.UpstreamIdleKeepalive, post.Timeouts.UpstreamIdleKeepalive)
 	addDur("timeouts.body_buffer_read", pre.Timeouts.BodyBufferRead, post.Timeouts.BodyBufferRead)
-	addDur("timeouts.request_body_read", pre.Timeouts.RequestBodyRead, post.Timeouts.RequestBodyRead)
-	addDur("timeouts.response_body_read", pre.Timeouts.ResponseBodyRead, post.Timeouts.ResponseBodyRead)
 
 	// Proxy behaviour — applied at serve startup.
 	addHosts("proxy_behavior.no_intercept_hosts", pre.ProxyBehavior.NoInterceptHosts, post.ProxyBehavior.NoInterceptHosts)
