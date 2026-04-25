@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -181,6 +183,16 @@ func RunServe(ctx context.Context, d serveDeps) error {
 			log.Warn("failed to close state.db", "err", err)
 		}
 	}()
+
+	// 3a. Record a sha256 of config.hcl in the meta table so that the reload
+	// command (Task 4.4) can detect config drift between daemon start and now.
+	cfgHash, err := sha256File(cfgPath)
+	if err != nil {
+		return fmt.Errorf("hash config file: %w", err)
+	}
+	if err := store.PutMeta(db, "config_hash", cfgHash); err != nil {
+		return fmt.Errorf("record config hash: %w", err)
+	}
 
 	// 3b. Initialise the secrets store and header injector. Failure is fatal:
 	// running with no injector silently leaks sandbox dummy tokens through rules
@@ -546,6 +558,16 @@ func forceExitOnSecondSignal(sigCh <-chan os.Signal, log *slog.Logger) {
 			os.Exit(1)
 		}
 	}
+}
+
+// sha256File returns the hex-encoded sha256 of the file's contents.
+func sha256File(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", path, err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // shutdown gracefully shuts down both HTTP servers with a 30-second timeout.

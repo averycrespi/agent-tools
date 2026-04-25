@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -25,6 +27,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/config"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/secrets"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/store"
 )
 
 // TestUpstreamTLSConfig_MinVersionTLS13 verifies that the upstream RoundTripper
@@ -539,6 +542,58 @@ func TestExecServe_PrintsPaths(t *testing.T) {
 	assert.Contains(t, out, "ca_cert:", "startup must print ca_cert path")
 	assert.Contains(t, out, "pid_file:", "startup must print pid_file path")
 	assert.NotContains(t, out, "ca_key:", "startup must NOT print ca_key path")
+}
+
+// TestExecServe_WritesConfigHashToMeta verifies that RunServe records a
+// sha256 hex-digest of the config.hcl file in the meta table under the key
+// "config_hash" before signalling ready.
+func TestExecServe_WritesConfigHashToMeta(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_DATA_HOME", dir)
+
+	cfg := config.DefaultConfig()
+	cfg.Proxy.Listen = "127.0.0.1:0"
+	cfg.Dashboard.Listen = "127.0.0.1:0"
+	cfg.Dashboard.OpenBrowser = false
+	cfgPath := paths.ConfigFile()
+	require.NoError(t, config.Save(cfg, cfgPath))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ready := make(chan struct{})
+	deps := newServeDeps()
+	deps.Ready = ready
+	deps.Headless = true
+
+	done := make(chan error, 1)
+	go func() { done <- RunServe(ctx, deps) }()
+
+	select {
+	case <-ready:
+	case <-time.After(30 * time.Second):
+		t.Fatal("serve did not become ready within 30s")
+	}
+
+	cancel()
+	require.NoError(t, <-done)
+
+	// Compute expected hash from the written config file.
+	data, err := os.ReadFile(cfgPath)
+	require.NoError(t, err)
+	sum := sha256.Sum256(data)
+	want := hex.EncodeToString(sum[:])
+
+	// Open the state DB and verify meta.config_hash.
+	db, err := store.Open(paths.StateDB())
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	got, err := store.GetMeta(db, "config_hash")
+	require.NoError(t, err)
+	require.NotEmpty(t, got, "config_hash must be recorded in meta table")
+	assert.Equal(t, want, got, "config_hash must match sha256 of config.hcl")
 }
 
 // TestExecServe_SecretsStoreError_ReturnsError verifies that RunServe fails

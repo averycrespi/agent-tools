@@ -92,6 +92,33 @@ func OpenReadOnly(path string) (*sql.DB, error) {
 	return db, nil
 }
 
+// PutMeta upserts a key/value into the meta table. On conflict only the
+// `value` column is updated; the BLOB columns (dek_wrapped, dek_nonce,
+// kek_kdf_salt) on the active_key_id row are preserved. Do NOT change
+// this to INSERT OR REPLACE — that deletes the existing row and would
+// wipe the wrapped DEK.
+func PutMeta(db *sql.DB, key, value string) error {
+	_, err := db.Exec(`INSERT INTO meta(key, value) VALUES(?, ?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
+	if err != nil {
+		return fmt.Errorf("put meta %q: %w", key, err)
+	}
+	return nil
+}
+
+// GetMeta retrieves a value from the meta table. Returns ("", nil) if key absent.
+func GetMeta(db *sql.DB, key string) (string, error) {
+	var v string
+	err := db.QueryRow("SELECT value FROM meta WHERE key=?", key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get meta %q: %w", key, err)
+	}
+	return v, nil
+}
+
 // UserVersion returns the current PRAGMA user_version value.
 func UserVersion(db *sql.DB) (int, error) {
 	var v int
