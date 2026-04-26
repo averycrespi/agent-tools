@@ -70,7 +70,7 @@ func New(rs []config.RuleConfig) (*Engine, error) {
 			}
 			m, err := decodeMatcher(ap.Match)
 			if err != nil {
-				return nil, fmt.Errorf("rule %d: args[%d]: %w", i, j, err)
+				return nil, fmt.Errorf("rule %d: args[%d]: match: %w", i, j, err)
 			}
 			cr.args = append(cr.args, compiledPattern{segments: segs, matcher: m})
 		}
