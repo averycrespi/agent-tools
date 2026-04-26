@@ -102,6 +102,8 @@ Manages connections to backend MCP servers. At startup:
 3. Calls `tools/list` to discover available tools
 4. Builds a registry of `<server>.<tool>` → backend mapping
 
+Tool descriptors are passed through to clients with full fidelity: in addition to name and input schema, the broker preserves each tool's `outputSchema`, `annotations` (including `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), and `_meta` from the upstream backend. The only field the broker rewrites is the tool name, which is prefixed with `<server>.` for routing.
+
 The `Backend` interface abstracts transport:
 
 - `stdioBackend` — spawns a subprocess, communicates via stdin/stdout

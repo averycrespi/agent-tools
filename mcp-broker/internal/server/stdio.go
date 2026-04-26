@@ -55,19 +55,7 @@ func (b *stdioBackend) ListTools(ctx context.Context) ([]Tool, error) {
 
 	tools := make([]Tool, len(resp.Tools))
 	for i, t := range resp.Tools {
-		schema := make(map[string]any)
-		if t.InputSchema.Properties != nil {
-			schema["type"] = t.InputSchema.Type
-			schema["properties"] = t.InputSchema.Properties
-		}
-		if t.InputSchema.Required != nil {
-			schema["required"] = t.InputSchema.Required
-		}
-		tools[i] = Tool{
-			Name:        t.Name,
-			Description: t.Description,
-			InputSchema: schema,
-		}
+		tools[i] = toBrokerTool(t)
 	}
 	return tools, nil
 }

@@ -6,14 +6,52 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/mark3labs/mcp-go/mcp"
+
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 )
 
-// Tool represents a discovered MCP tool with its schema.
+// Tool represents a discovered MCP tool with its schema and metadata.
+// OutputSchema, Annotations, and Meta are passed through verbatim from the
+// upstream backend so clients see the tool exactly as the backend declared it.
 type Tool struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"inputSchema,omitempty"`
+	Name         string                `json:"name"`
+	Description  string                `json:"description"`
+	InputSchema  map[string]any        `json:"inputSchema,omitempty"`
+	OutputSchema *mcp.ToolOutputSchema `json:"outputSchema,omitempty"`
+	Annotations  *mcp.ToolAnnotation   `json:"annotations,omitempty"`
+	Meta         *mcp.Meta             `json:"_meta,omitempty"`
+}
+
+// toBrokerTool converts an upstream mcp.Tool into the broker's Tool form,
+// preserving annotations, output schema, and _meta verbatim.
+func toBrokerTool(t mcp.Tool) Tool {
+	schema := make(map[string]any)
+	if t.InputSchema.Properties != nil {
+		schema["type"] = t.InputSchema.Type
+		schema["properties"] = t.InputSchema.Properties
+	}
+	if t.InputSchema.Required != nil {
+		schema["required"] = t.InputSchema.Required
+	}
+
+	out := Tool{
+		Name:        t.Name,
+		Description: t.Description,
+		InputSchema: schema,
+		Meta:        t.Meta,
+	}
+	if t.OutputSchema.Type != "" {
+		os := t.OutputSchema
+		out.OutputSchema = &os
+	}
+	// Upstream mcp.Tool always carries an annotations value (zero or
+	// otherwise); only emit the pointer when at least one field is set so
+	// we don't add `"annotations": {}` for tools that declared none.
+	if a := t.Annotations; a.Title != "" || a.ReadOnlyHint != nil || a.DestructiveHint != nil || a.IdempotentHint != nil || a.OpenWorldHint != nil {
+		out.Annotations = &a
+	}
+	return out
 }
 
 // ToolResult holds the result of a tool call.
@@ -97,9 +135,12 @@ func (m *Manager) discover(ctx context.Context) error {
 				backend:      backend,
 				originalName: tool.Name,
 				tool: Tool{
-					Name:        prefixed,
-					Description: tool.Description,
-					InputSchema: tool.InputSchema,
+					Name:         prefixed,
+					Description:  tool.Description,
+					InputSchema:  tool.InputSchema,
+					OutputSchema: tool.OutputSchema,
+					Annotations:  tool.Annotations,
+					Meta:         tool.Meta,
 				},
 			}
 		}
