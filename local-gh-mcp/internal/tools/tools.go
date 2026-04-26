@@ -233,6 +233,10 @@ const (
 	maxLimit             = 100
 	defaultMaxBodyLength = 2000
 	maxMaxBodyLength     = 50000
+	defaultDiffMaxBytes  = 50000
+	maxDiffMaxBytes      = 500000
+	defaultLogTailLines  = 500
+	maxLogTailLines      = 5000
 )
 
 func clampLimit(v int) int {
@@ -253,6 +257,40 @@ func clampMaxBodyLength(v int) int {
 		return maxMaxBodyLength
 	}
 	return v
+}
+
+func clampDiffMaxBytes(v int) int {
+	if v <= 0 {
+		return defaultDiffMaxBytes
+	}
+	if v > maxDiffMaxBytes {
+		return maxDiffMaxBytes
+	}
+	return v
+}
+
+func clampLogTailLines(v int) int {
+	if v <= 0 {
+		return defaultLogTailLines
+	}
+	if v > maxLogTailLines {
+		return maxLogTailLines
+	}
+	return v
+}
+
+// tailLines returns the last n lines of s, joined with "\n". Trailing newlines on s are
+// trimmed before splitting so the count is by content lines, not blank trailing entries.
+// Returns s unchanged if n <= 0 or the input has fewer than n lines.
+func tailLines(s string, n int) string {
+	if n <= 0 {
+		return s
+	}
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[len(lines)-n:], "\n")
 }
 
 // requireStringFields returns an error result if any of the given string

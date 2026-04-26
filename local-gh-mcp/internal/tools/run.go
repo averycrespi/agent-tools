@@ -59,7 +59,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_view_run",
-			Description: "View workflow run details. With log_failed=false (default), returns structured markdown: run header + per-job status list. With log_failed=true, returns raw concatenated logs for failed jobs — useful for debugging failures.",
+			Description: "View workflow run details. With log_failed=false (default), returns structured markdown: run header + per-job status list. With log_failed=true, returns the last `tail_lines` lines of the concatenated failed-job logs (default 500, max 5000). For a single job's full logs, use gh_view_run_job_logs.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -79,6 +79,11 @@ func (h *Handler) runTools() []gomcp.Tool {
 					"log_failed": map[string]any{
 						"type":        "boolean",
 						"description": "Show failed log output instead of JSON",
+					},
+					"tail_lines": map[string]any{
+						"type":        "number",
+						"default":     500,
+						"description": "When log_failed=true, return the last N lines (default 500, max 5000). Ignored when log_failed=false.",
 					},
 				},
 				Required: []string{"owner", "repo", "run_id"},
@@ -213,7 +218,8 @@ func (h *Handler) handleViewRun(ctx context.Context, req gomcp.CallToolRequest) 
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
 	if logFailed {
-		return gomcp.NewToolResultText(out), nil
+		tail := clampLogTailLines(intFromArgs(args, "tail_lines"))
+		return gomcp.NewToolResultText(tailLines(out, tail)), nil
 	}
 	var run format.RunView
 	if err := json.Unmarshal([]byte(out), &run); err != nil {
@@ -269,10 +275,7 @@ func (h *Handler) handleViewRunJobLogs(ctx context.Context, req gomcp.CallToolRe
 			return gomcp.NewToolResultError("job_id is required"), nil
 		}
 	}
-	tail := intFromArgsOr(args, "tail_lines", 500)
-	if tail > 5000 {
-		tail = 5000
-	}
+	tail := clampLogTailLines(intFromArgs(args, "tail_lines"))
 	out, err := h.gh.ViewRunJobLog(ctx, owner, repo, int64(jobIDInt), tail)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil

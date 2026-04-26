@@ -27,7 +27,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_create_pr",
-			Description: "Create a new pull request. Fails if a PR already exists for the head branch. Returns the PR URL.",
+			Description: "Create a new pull request. Fails if a PR already exists for the head branch. Returns the PR URL. Pass an empty body to let GitHub apply the repo's PR template.",
 			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -76,7 +76,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Assignees to add",
 					},
 				},
-				Required: []string{"owner", "repo", "title", "body"},
+				Required: []string{"owner", "repo", "title"},
 			},
 		},
 		{
@@ -154,7 +154,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_diff_pr",
-			Description: "View a PR's diff. Returns a file summary table followed by the full unified diff. Large PRs can be long; if you only need which files changed, consider the file summary alone.",
+			Description: "View a PR's diff. Returns a file summary table followed by the unified diff, capped at `max_bytes` (default 50000, max 500000). The summary table always lists every file even when the diff body is truncated. If you only need the file list, use gh_list_pr_files.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -170,6 +170,11 @@ func (h *Handler) prTools() []gomcp.Tool {
 					"pr_number": map[string]any{
 						"type":        "number",
 						"description": "Pull request number",
+					},
+					"max_bytes": map[string]any{
+						"type":        "number",
+						"default":     50000,
+						"description": "Max diff body bytes (default 50000, max 500000). Truncated on a line boundary with a trailer.",
 					},
 				},
 				Required: []string{"owner", "repo", "pr_number"},
@@ -526,7 +531,7 @@ func (h *Handler) handleCreatePR(ctx context.Context, req gomcp.CallToolRequest)
 	if errResult != nil {
 		return errResult, nil
 	}
-	if errResult := requireStringFields("gh_create_pr", args, "title", "body"); errResult != nil {
+	if errResult := requireStringFields("gh_create_pr", args, "title"); errResult != nil {
 		return errResult, nil
 	}
 	title := stringFromArgs(args, "title")
@@ -616,7 +621,8 @@ func (h *Handler) handleDiffPR(ctx context.Context, req gomcp.CallToolRequest) (
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(format.FormatDiff(out)), nil
+	maxBytes := clampDiffMaxBytes(intFromArgs(args, "max_bytes"))
+	return gomcp.NewToolResultText(format.FormatDiff(out, maxBytes)), nil
 }
 
 func (h *Handler) handleCommentPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {

@@ -114,12 +114,29 @@ func ParseDiffSummary(diff string) string {
 }
 
 // FormatDiff prepends a file summary table to a raw unified diff.
-func FormatDiff(diff string) string {
+// If maxBytes > 0, the diff body is truncated on a line boundary at maxBytes;
+// the summary table is always built from the full diff so the file list stays complete.
+func FormatDiff(diff string, maxBytes int) string {
 	summary := ParseDiffSummary(diff)
+	body := truncateDiffBytes(diff, maxBytes)
 	if summary == "" {
+		return body
+	}
+	return summary + "\n## Diff\n\n" + body
+}
+
+// truncateDiffBytes truncates diff to maxBytes on the last newline boundary at or before
+// the cap, appending "[truncated -- N/M bytes shown]". Returns diff unchanged if maxBytes <= 0
+// or len(diff) <= maxBytes.
+func truncateDiffBytes(diff string, maxBytes int) string {
+	if maxBytes <= 0 || len(diff) <= maxBytes {
 		return diff
 	}
-	return summary + "\n## Diff\n\n" + diff
+	cut := maxBytes
+	if idx := strings.LastIndexByte(diff[:maxBytes], '\n'); idx > 0 {
+		cut = idx
+	}
+	return fmt.Sprintf("%s\n[truncated — %d/%d bytes shown]", diff[:cut], cut, len(diff))
 }
 
 // FormatLabels formats labels as "a, b, c" or "(none)".

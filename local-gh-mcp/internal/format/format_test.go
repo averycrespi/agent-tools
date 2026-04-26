@@ -113,8 +113,25 @@ func TestFormatDiff(t *testing.T) {
  package main
 +func init() {}
 `
-	got := FormatDiff(diff)
+	got := FormatDiff(diff, 0)
 	assert.Contains(t, got, "## Files changed")
 	assert.Contains(t, got, "## Diff")
 	assert.Contains(t, got, diff)
+}
+
+func TestFormatDiff_TruncatesOnLineBoundary(t *testing.T) {
+	diff := "diff --git a/foo b/foo\n--- a/foo\n+++ b/foo\n@@ -1,1 +1,2 @@\n line1\n+addedAAAAAAAAAAAAAAAAAAAA\n+addedBBBBBBBBBBBBBBBBBBBB\n"
+	got := FormatDiff(diff, 80)
+	// Summary table built from the full diff regardless of cap.
+	assert.Contains(t, got, "## Files changed (1)")
+	assert.Contains(t, got, "foo")
+	// Trailer reports both shown bytes and total.
+	assert.Contains(t, got, "[truncated")
+	assert.Contains(t, got, "/")
+}
+
+func TestFormatDiff_NoCapWhenUnderLimit(t *testing.T) {
+	diff := "diff --git a/foo b/foo\n@@ -1 +1 @@\n-old\n+new\n"
+	got := FormatDiff(diff, 10000)
+	assert.NotContains(t, got, "[truncated")
 }

@@ -701,6 +701,32 @@ func TestDiffPR_FormatsWithSummary(t *testing.T) {
 	assert.Contains(t, text, "+added")
 }
 
+func TestDiffPR_RespectsMaxBytes(t *testing.T) {
+	// Two files in the diff; small max_bytes should truncate the body but keep both files in summary.
+	diffText := "diff --git a/foo.go b/foo.go\n--- a/foo.go\n+++ b/foo.go\n@@ -1,1 +1,2 @@\n line1\n+addedAAAAAAAAAAAAAAAAAAAA\ndiff --git a/bar.go b/bar.go\n--- a/bar.go\n+++ b/bar.go\n@@ -1,1 +1,2 @@\n line1\n+addedBBBBBBBBBBBBBBBBBBBB\n"
+	h := NewHandler(&mockGHClient{
+		diffPRFunc: func(_ context.Context, _, _ string, _ int) (string, error) {
+			return diffText, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_diff_pr"
+	req.Params.Arguments = map[string]any{
+		"owner":     "octocat",
+		"repo":      "hello-world",
+		"pr_number": float64(1),
+		"max_bytes": float64(100),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "## Files changed (2)")
+	assert.Contains(t, text, "foo.go")
+	assert.Contains(t, text, "bar.go")
+	assert.Contains(t, text, "[truncated")
+}
+
 func TestListPRs_FormatsMarkdown(t *testing.T) {
 	h := NewHandler(&mockGHClient{
 		listPRsFunc: func(_ context.Context, owner, repo string, opts gh.ListPROpts) (string, error) {
@@ -836,14 +862,14 @@ func TestViewPR_ParseError_TerseMessage(t *testing.T) {
 	assert.Equal(t, "internal error: unable to parse gh output; check server logs", textContent.Text)
 }
 
-func TestCreatePR_BatchMissingFields(t *testing.T) {
+func TestCreatePR_RequiresTitle(t *testing.T) {
 	h := NewHandler(&mockGHClient{})
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_create_pr"
 	req.Params.Arguments = map[string]any{
 		"owner": "octocat",
 		"repo":  "hello-world",
-		// title and body intentionally missing
+		// title intentionally missing; body is allowed empty (template fallback)
 	}
 
 	result, err := h.Handle(context.Background(), req)
@@ -853,9 +879,30 @@ func TestCreatePR_BatchMissingFields(t *testing.T) {
 	require.Len(t, result.Content, 1)
 	textContent, ok := result.Content[0].(gomcp.TextContent)
 	require.True(t, ok)
-	// Must mention BOTH missing fields.
 	assert.Contains(t, textContent.Text, "title")
-	assert.Contains(t, textContent.Text, "body")
+}
+
+func TestCreatePR_AcceptsEmptyBody(t *testing.T) {
+	var capturedBody string
+	h := NewHandler(&mockGHClient{
+		createPRFunc: func(_ context.Context, _, _ string, opts gh.CreatePROpts) (string, error) {
+			capturedBody = opts.Body
+			return "https://github.com/octocat/hello-world/pull/1", nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_create_pr"
+	req.Params.Arguments = map[string]any{
+		"owner": "octocat",
+		"repo":  "hello-world",
+		"title": "Add feature",
+		// body intentionally omitted
+	}
+
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	assert.Equal(t, "", capturedBody)
 }
 
 func TestListPRs_StateEnum(t *testing.T) {
