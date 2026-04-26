@@ -17,7 +17,7 @@ Breaking changes are acceptable. The only consumer is `mcp-broker`, which we own
 
 ## Scope Summary
 
-Included: 12 work items across annotations, naming, schema, descriptions, new tools, parameter polish, and error messages. (14 originally; 2 dropped during Phase 3 review — see Skipped.)
+Included: 11 work items across annotations, naming, schema, descriptions, new tools, parameter polish, and error messages. (14 originally; 3 dropped — 2 during Phase 3 review, 1 during Phase 4 review — see Skipped.)
 
 Explicitly skipped: server-wide `--read-only`, `structuredContent`/`outputSchema`, medium-value new tools, body sanitization. Reasons recorded in the "Skipped" section.
 
@@ -170,10 +170,6 @@ During implementation, check whether the MCP library's required-field validation
 
 Today the handler rejects empty bodies. Some repos rely on PR templates to auto-fill — the agent should be allowed to pass an empty body and let GitHub apply the template. Drop the empty-body rejection in the handler; let GitHub decide.
 
-**14b. `gh_list_issue_comments` — add `since` filter.**
-
-Optional RFC-3339 timestamp param; passes through to `gh api` with `since=<ts>`. Useful for incremental triage (only fetch comments added after last check).
-
 ## Skipped
 
 **#7 Server-wide `--read-only` flag.** `mcp-broker` already enforces read-only posture at the proxy layer. One enforcement point is better than two, and the annotations from #1 give mcp-broker the signal it needs for per-tool filtering.
@@ -185,6 +181,8 @@ Optional RFC-3339 timestamp param; passes through to `gh api` with `since=<ts>`.
 **#11 medium-value tools.** `gh_list_commits` / `gh_view_commit`, `gh_update_pr_branch`, `gh_list_workflows` / `gh_view_workflow`, `gh_list_notifications` / `gh_mark_notification_read`, `gh_list_code_scanning_alerts`. Each is useful in specific scenarios but none are universal. Keep the tool-count growth bounded (38 is already a jump from 28).
 
 **#11b `gh_view_file`.** Dropped during Phase 3 review. Sandboxed agents already have the repo checked out; file reads are `cat <path>` or `git show <ref>:<path>`. Hidden edge cases (binary detection, LFS pointers, encoding, symlinks) don't pay for themselves. Revisit if a concrete cross-repo use case emerges.
+
+**#14b `gh_list_issue_comments` `since` filter.** Dropped during Phase 4 review. The stated motivation ("incremental triage — only fetch comments added after last check") assumes the caller persists "last check" between calls, but an MCP server has no such state and agents don't reliably track timestamps across turns. The existing `limit` already gives callers a knob to bound responses. Revisit if a concrete agent workflow emerges that tracks per-call cursors.
 
 **#13 Body sanitization.** The prompt-injection threat from hidden Unicode in GitHub content is real but secondary — mcp-broker's auto-approval gates destructive actions at a layer above this. Revisit if a concrete incident shows sanitization would have changed the outcome.
 
@@ -234,9 +232,7 @@ One coherent breaking release. Regenerate any memory/notes the agent ecosystem h
 
 14. Caps on `gh_diff_pr` / `gh_view_run` (#10a).
 15. `gh_create_pr` accept empty body (#14a).
-16. `gh_list_issue_comments` `since` filter (#14b).
-
-Phase 4 is small and could ride with Phase 3 if convenient.
+16. ~~`gh_list_issue_comments` `since` filter (#14b)~~ — dropped, see Skipped.
 
 ## Non-Goals
 

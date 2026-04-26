@@ -128,10 +128,10 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 
 | Tool                         | Required                          | Optional                                                                                                       |
 | ---------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `gh_create_pr`               | **owner, repo, title, body**      | base, head, draft, labels, reviewers, assignees                                                                |
+| `gh_create_pr`               | **owner, repo, title**            | body, base, head, draft, labels, reviewers, assignees                                                          |
 | `gh_view_pr`                 | **owner, repo, pr_number**        | max_body_length                                                                                                |
 | `gh_list_prs`                | **owner, repo**                   | state, author, label, base, head, limit                                                                        |
-| `gh_diff_pr`                 | **owner, repo, pr_number**        | —                                                                                                              |
+| `gh_diff_pr`                 | **owner, repo, pr_number**        | max_bytes                                                                                                      |
 | `gh_comment_pr`              | **owner, repo, pr_number, body**  | —                                                                                                              |
 | `gh_review_pr`               | **owner, repo, pr_number, event** | body                                                                                                           |
 | `gh_merge_pr`                | **owner, repo, pr_number**        | method (merge/squash/rebase), delete_branch, auto                                                              |
@@ -160,7 +160,7 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 | Tool                   | Required                | Optional                                      |
 | ---------------------- | ----------------------- | --------------------------------------------- |
 | `gh_list_runs`         | **owner, repo**         | branch, status, workflow, actor, event, limit |
-| `gh_view_run`          | **owner, repo, run_id** | log_failed                                    |
+| `gh_view_run`          | **owner, repo, run_id** | log_failed, tail_lines                        |
 | `gh_view_run_job_logs` | **owner, repo, job_id** | tail_lines                                    |
 | `gh_rerun_run`         | **owner, repo, run_id** | failed_only                                   |
 | `gh_cancel_run`        | **owner, repo, run_id** | —                                             |
@@ -227,12 +227,12 @@ All read tools return **structured markdown** instead of raw JSON. The `gh` CLI'
 - **Body truncation**: tools returning text bodies accept a `max_body_length` param (default 2000, max 50000). Bodies exceeding the limit are cut on a whitespace boundary with `[truncated — N/M chars shown]`
 - **View tools** (`gh_view_pr`, `gh_view_issue`): markdown header with labeled metadata fields, followed by truncated description
 - **List/search tools**: markdown bullet per item with key fields inline
-- **Diff tool** (`gh_diff_pr`): file summary table (file names, +/- counts) prepended before the raw unified diff
+- **Diff tool** (`gh_diff_pr`): file summary table (file names, +/- counts) prepended before the unified diff. Diff body is capped by `max_bytes` (default 50000, max 500000) and truncated on a line boundary with `[truncated — N/M bytes shown]`; the file summary always reflects the full diff so the file list stays complete
 - **Check tool** (`gh_list_pr_checks`): flat markdown bullet list; FAILURE/ERROR include link
 - **Comment tools** (`gh_list_pr_comments`, `gh_list_issue_comments`): headed blocks per comment; minimized/spam comments show `[minimized: REASON]`; images replaced with `[image]`
 - **Review list** (`gh_list_pr_reviews`): headed blocks per review showing state (APPROVED/CHANGES_REQUESTED/COMMENTED/DISMISSED), author, date; empty bodies rendered as `(no body)`
 - **Review comment list** (`gh_list_pr_review_comments`): grouped by file path; threaded by `in_reply_to_id` with indented replies; falls back to `original_line` when `line` is null (outdated comments)
-- **Run view** (`gh_view_run`): structured header + job list; `log_failed=true` returns raw logs unchanged
+- **Run view** (`gh_view_run`): structured header + job list; `log_failed=true` returns the last `tail_lines` lines of the concatenated failed-job logs (default 500, max 5000)
 
 ## Project Structure
 
