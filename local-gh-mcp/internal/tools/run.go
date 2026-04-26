@@ -59,7 +59,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_view_run",
-			Description: "View workflow run details. With log_failed=false (default), returns structured markdown: run header + per-job status list. With log_failed=true, returns the last `tail_lines` lines of the concatenated failed-job logs (default 500, max 5000). For a single job's full logs, use gh_view_run_job_logs.",
+			Description: "View workflow run details. With log_failed=false (default), returns structured markdown: run header + per-job status list. With log_failed=true, returns the last `tail_lines` lines of the concatenated failed-job logs (default 200, max 5000), then byte-capped at `max_bytes` (default 50000, max 500000). For a single job's full logs, use gh_view_run_job_logs.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -82,8 +82,13 @@ func (h *Handler) runTools() []gomcp.Tool {
 					},
 					"tail_lines": map[string]any{
 						"type":        "number",
-						"default":     500,
-						"description": "When log_failed=true, return the last N lines (default 500, max 5000). Ignored when log_failed=false.",
+						"default":     200,
+						"description": "When log_failed=true, return the last N lines (default 200, max 5000). Ignored when log_failed=false.",
+					},
+					"max_bytes": map[string]any{
+						"type":        "number",
+						"default":     50000,
+						"description": "When log_failed=true, hard byte cap applied after tail_lines (default 50000, max 500000). Truncates on line boundary with `[truncated — N/M bytes shown]`. Ignored when log_failed=false.",
 					},
 				},
 				Required: []string{"owner", "repo", "run_id"},
@@ -141,7 +146,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_view_run_job_logs",
-			Description: "Fetch logs for a single workflow job by ID. Returns the last `tail_lines` lines (default 500, max 5000). Complementary to gh_view_run's log_failed=true, which concatenates all failed-job logs. Use gh_view_run first to discover job IDs.",
+			Description: "Fetch logs for a single workflow job by ID. Returns the last `tail_lines` lines (default 200, max 5000), then byte-capped at `max_bytes` (default 50000, max 500000). Complementary to gh_view_run's log_failed=true, which concatenates all failed-job logs. Use gh_view_run first to discover job IDs.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -160,8 +165,13 @@ func (h *Handler) runTools() []gomcp.Tool {
 					},
 					"tail_lines": map[string]any{
 						"type":        "number",
-						"default":     500,
-						"description": "Return the last N lines (default 500, max 5000).",
+						"default":     200,
+						"description": "Return the last N lines (default 200, max 5000).",
+					},
+					"max_bytes": map[string]any{
+						"type":        "number",
+						"default":     50000,
+						"description": "Hard byte cap applied after tail_lines (default 50000, max 500000). Truncates on line boundary with `[truncated — N/M bytes shown]`.",
 					},
 				},
 				Required: []string{"owner", "repo", "job_id"},
@@ -219,7 +229,8 @@ func (h *Handler) handleViewRun(ctx context.Context, req gomcp.CallToolRequest) 
 	}
 	if logFailed {
 		tail := clampLogTailLines(intFromArgs(args, "tail_lines"))
-		return gomcp.NewToolResultText(tailLines(out, tail)), nil
+		maxBytes := clampLogMaxBytes(intFromArgs(args, "max_bytes"))
+		return gomcp.NewToolResultText(format.TruncateBytes(tailLines(out, tail), maxBytes)), nil
 	}
 	var run format.RunView
 	if err := json.Unmarshal([]byte(out), &run); err != nil {
@@ -276,9 +287,10 @@ func (h *Handler) handleViewRunJobLogs(ctx context.Context, req gomcp.CallToolRe
 		}
 	}
 	tail := clampLogTailLines(intFromArgs(args, "tail_lines"))
+	maxBytes := clampLogMaxBytes(intFromArgs(args, "max_bytes"))
 	out, err := h.gh.ViewRunJobLog(ctx, owner, repo, int64(jobIDInt), tail)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(out), nil
+	return gomcp.NewToolResultText(format.TruncateBytes(out, maxBytes)), nil
 }

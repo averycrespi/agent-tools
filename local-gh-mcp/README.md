@@ -67,13 +67,13 @@ The server validates `gh auth status` on startup and exits immediately if not au
 
 ### Workflow Run Tools (5)
 
-| Tool                   | Description                                                                                                                           |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `gh_list_runs`         | List workflow runs as markdown bullets                                                                                                |
-| `gh_view_run`          | View run details as structured markdown; with `log_failed=true`, returns the last `tail_lines` lines (default 500) of failed-job logs |
-| `gh_view_run_job_logs` | Fetch raw logs for a specific job within a run (tail_lines, default 500)                                                              |
-| `gh_rerun_run`         | Rerun a failed or specific workflow run                                                                                               |
-| `gh_cancel_run`        | Cancel an in-progress workflow run                                                                                                    |
+| Tool                   | Description                                                                                                                                                                       |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gh_list_runs`         | List workflow runs as markdown bullets                                                                                                                                            |
+| `gh_view_run`          | View run details as structured markdown; with `log_failed=true`, returns the last `tail_lines` lines (default 200) of failed-job logs, byte-capped by `max_bytes` (default 50000) |
+| `gh_view_run_job_logs` | Fetch raw logs for a specific job within a run (tail_lines default 200, max_bytes default 50000)                                                                                  |
+| `gh_rerun_run`         | Rerun a failed or specific workflow run                                                                                                                                           |
+| `gh_cancel_run`        | Cancel an in-progress workflow run                                                                                                                                                |
 
 ### Cache Tools (2)
 
@@ -96,9 +96,9 @@ Search tools accept the [GitHub search DSL](https://docs.github.com/en/search-gi
 
 ### Branch Tools (1)
 
-| Tool               | Description                            |
-| ------------------ | -------------------------------------- |
-| `gh_list_branches` | List repository branches, newest first |
+| Tool               | Description                             |
+| ------------------ | --------------------------------------- |
+| `gh_list_branches` | List repository branches alphabetically |
 
 ### Release Tools (2)
 
@@ -107,7 +107,7 @@ Search tools accept the [GitHub search DSL](https://docs.github.com/en/search-gi
 | `gh_list_releases` | List releases in a repository, newest first |
 | `gh_view_release`  | Show a single release with notes and assets |
 
-All tools targeting a specific repository use `owner` and `repo` parameters (mapped to `gh -R owner/repo`). Search tools use a `query` parameter instead, since they operate across repositories. List/search tools accept an optional `limit` (default 30, max 100). View and comment tools accept an optional `max_body_length` (default 2000, max 50000) to truncate text bodies. `gh_diff_pr` accepts `max_bytes` (default 50000, max 500000) to cap the diff body, and `gh_view_run` (with `log_failed=true`) and `gh_view_run_job_logs` accept `tail_lines` (default 500, max 5000) to cap log output.
+All tools targeting a specific repository use `owner` and `repo` parameters (mapped to `gh -R owner/repo`). Search tools use a `query` parameter instead, since they operate across repositories. List/search tools accept an optional `limit` (default 30, max 100). View and comment tools accept an optional `max_body_length` (default 2000, max 50000) to truncate text bodies. `gh_diff_pr` accepts `max_bytes` (default 50000, max 500000) to cap the diff body, and `gh_view_run` (with `log_failed=true`) and `gh_view_run_job_logs` accept `tail_lines` (default 200, max 5000) plus `max_bytes` (default 50000, max 500000) to cap log output.
 
 All read tools return **structured markdown** (not raw JSON) — author objects are flattened to `@login`, long bodies are truncated, and output is formatted with headers and labeled fields for easy LLM consumption. Write tools return plain text confirmations.
 

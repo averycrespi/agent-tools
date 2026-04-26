@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/exec"
+	"github.com/google/shlex"
 )
 
 const (
@@ -91,6 +92,19 @@ func NewClient(runner exec.Runner) *Client {
 // repoFlag returns the -R flag value for targeting a specific repo.
 func repoFlag(owner, repo string) string {
 	return owner + "/" + repo
+}
+
+// splitSearchQuery tokenizes a GitHub search DSL query into positional argv
+// tokens. Passing the whole query as a single positional makes `gh search`
+// quote it as one phrase (see search-test findings 2026-04-25); splitting
+// it lets `gh` see each DSL clause as its own positional and join them
+// itself. shlex preserves quoted phrases like `"hello world" in:title`.
+func splitSearchQuery(query string) ([]string, error) {
+	tokens, err := shlex.Split(query)
+	if err != nil {
+		return nil, fmt.Errorf("invalid search query: %w", err)
+	}
+	return tokens, nil
 }
 
 // AuthStatus checks whether the gh CLI is authenticated.
@@ -347,6 +361,9 @@ const (
 	searchCommitFields = "sha,commit,author,repository,url,committer"
 )
 
+// cacheListFields is the JSON field set requested from `gh cache list`.
+const cacheListFields = "id,key,ref,sizeInBytes,createdAt,lastAccessedAt"
+
 // ListIssuesOpts holds options for listing issues.
 type ListIssuesOpts struct {
 	State, Author, Assignee, Label, Milestone string
@@ -568,7 +585,7 @@ func (c *Client) CancelRun(_ context.Context, owner, repo string, runID string) 
 
 // ListCaches lists caches for a repository.
 func (c *Client) ListCaches(_ context.Context, owner, repo string, opts ListCachesOpts) (string, error) {
-	args := []string{"cache", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	args := []string{"cache", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(clampLimit(opts.Limit)), "--json", cacheListFields}
 	if opts.Sort != "" {
 		args = append(args, "--sort", opts.Sort)
 	}
@@ -641,7 +658,12 @@ func (c *Client) SearchPRs(_ context.Context, query string, opts SearchPRsOpts) 
 	if opts.Label != "" {
 		args = append(args, "--label", opts.Label)
 	}
-	args = append(args, "--", query)
+	tokens, err := splitSearchQuery(query)
+	if err != nil {
+		return "", err
+	}
+	args = append(args, "--")
+	args = append(args, tokens...)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh search prs failed: %s", strings.TrimSpace(string(out)))
@@ -667,7 +689,12 @@ func (c *Client) SearchIssues(_ context.Context, query string, opts SearchIssues
 	if opts.Label != "" {
 		args = append(args, "--label", opts.Label)
 	}
-	args = append(args, "--", query)
+	tokens, err := splitSearchQuery(query)
+	if err != nil {
+		return "", err
+	}
+	args = append(args, "--")
+	args = append(args, tokens...)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh search issues failed: %s", strings.TrimSpace(string(out)))
@@ -690,7 +717,12 @@ func (c *Client) SearchRepos(_ context.Context, query string, opts SearchReposOp
 	if opts.Stars != "" {
 		args = append(args, "--stars", opts.Stars)
 	}
-	args = append(args, "--", query)
+	tokens, err := splitSearchQuery(query)
+	if err != nil {
+		return "", err
+	}
+	args = append(args, "--")
+	args = append(args, tokens...)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh search repos failed: %s", strings.TrimSpace(string(out)))
@@ -716,7 +748,12 @@ func (c *Client) SearchCode(_ context.Context, query string, opts SearchCodeOpts
 	if opts.Filename != "" {
 		args = append(args, "--filename", opts.Filename)
 	}
-	args = append(args, "--", query)
+	tokens, err := splitSearchQuery(query)
+	if err != nil {
+		return "", err
+	}
+	args = append(args, "--")
+	args = append(args, tokens...)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh search code failed: %s", strings.TrimSpace(string(out)))
@@ -761,7 +798,12 @@ func (c *Client) SearchCommits(_ context.Context, query string, opts SearchCommi
 	if opts.Author != "" {
 		args = append(args, "--author", opts.Author)
 	}
-	args = append(args, "--", query)
+	tokens, err := splitSearchQuery(query)
+	if err != nil {
+		return "", err
+	}
+	args = append(args, "--")
+	args = append(args, tokens...)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh search commits failed: %s", strings.TrimSpace(string(out)))

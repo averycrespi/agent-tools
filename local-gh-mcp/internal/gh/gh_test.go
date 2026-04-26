@@ -314,7 +314,7 @@ func TestDeleteCache_Args(t *testing.T) {
 func TestSearchPRs_Args(t *testing.T) {
 	var args []string
 	c := NewClient(capturedArgs(t, &args))
-	_, err := c.SearchPRs(context.Background(), "fix bug", SearchPRsOpts{
+	_, err := c.SearchPRs(context.Background(), "fixme", SearchPRsOpts{
 		Repo:  "octocat/hello",
 		State: "open",
 	})
@@ -324,7 +324,134 @@ func TestSearchPRs_Args(t *testing.T) {
 	assert.Contains(t, args, "--state")
 	assert.Contains(t, args, "open")
 	assert.Contains(t, args, "--")
-	assert.Equal(t, "fix bug", args[len(args)-1], "query must be last arg after --")
+	assert.Equal(t, "fixme", args[len(args)-1], "query token must come after --")
+}
+
+// TestSearchPRs_DSLTokenization is the regression test for the search query
+// mangling bug: a multi-token DSL query must be split into separate argv
+// positionals so `gh search` doesn't quote it as a single phrase.
+func TestSearchPRs_DSLTokenization(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchPRs(context.Background(), "is:open repo:foo/bar label:bug", SearchPRsOpts{})
+	require.NoError(t, err)
+	dashIdx := -1
+	for i, a := range args {
+		if a == "--" {
+			dashIdx = i
+			break
+		}
+	}
+	require.NotEqual(t, -1, dashIdx, "expected -- separator")
+	assert.Equal(t, []string{"is:open", "repo:foo/bar", "label:bug"}, args[dashIdx+1:])
+}
+
+// TestSearchPRs_QuotedPhrase verifies shlex preserves quoted phrases as a
+// single token (e.g. for `"hello world" in:title` queries).
+func TestSearchPRs_QuotedPhrase(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchPRs(context.Background(), `"hello world" in:title`, SearchPRsOpts{})
+	require.NoError(t, err)
+	dashIdx := -1
+	for i, a := range args {
+		if a == "--" {
+			dashIdx = i
+			break
+		}
+	}
+	require.NotEqual(t, -1, dashIdx, "expected -- separator")
+	assert.Equal(t, []string{"hello world", "in:title"}, args[dashIdx+1:])
+}
+
+// TestSearchPRs_InvalidQuery verifies an unbalanced-quote query surfaces a
+// clean error rather than panicking or invoking gh.
+func TestSearchPRs_InvalidQuery(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(_ string, _ ...string) ([]byte, error) {
+			t.Fatal("runner must not be invoked on invalid query")
+			return nil, nil
+		},
+	})
+	_, err := c.SearchPRs(context.Background(), `is:open "unterminated`, SearchPRsOpts{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid search query")
+}
+
+// TestSearchPRs_ShellMetacharsAreInert is a defense-in-depth guard: shell
+// metacharacters in the query must arrive at the runner as literal argv
+// tokens, never as a single shell-interpreted string. Runner.Run uses
+// os/exec.Command (no shell), so this is a regression guard against future
+// changes that might introduce shell invocation.
+func TestSearchPRs_ShellMetacharsAreInert(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchPRs(context.Background(), "; rm -rf / && cat /etc/passwd", SearchPRsOpts{})
+	require.NoError(t, err)
+	dashIdx := -1
+	for i, a := range args {
+		if a == "--" {
+			dashIdx = i
+			break
+		}
+	}
+	require.NotEqual(t, -1, dashIdx, "expected -- separator")
+	// All metacharacter-bearing tokens must arrive as separate, unmodified argv
+	// elements — never collapsed into a shell-interpretable string.
+	assert.Equal(t, []string{";", "rm", "-rf", "/", "&&", "cat", "/etc/passwd"}, args[dashIdx+1:])
+}
+
+// TestSearchPRs_FlagInjectionAfterSeparator is a regression guard for the
+// `--` separator: even if a query token looks like a gh flag (e.g.
+// `--repo=evil/repo`), it must land after the `--` so gh treats it as a
+// positional, not a flag override.
+func TestSearchPRs_FlagInjectionAfterSeparator(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchPRs(context.Background(), "--repo=attacker/repo --token=stolen", SearchPRsOpts{
+		Repo: "legit/repo",
+	})
+	require.NoError(t, err)
+	// Find the -- separator index; everything after it is positional query tokens.
+	dashIdx := -1
+	for i, a := range args {
+		if a == "--" {
+			dashIdx = i
+			break
+		}
+	}
+	require.NotEqual(t, -1, dashIdx, "expected -- separator")
+	// The legit Repo flag must appear *before* the separator.
+	preDash := args[:dashIdx]
+	assert.Contains(t, preDash, "--repo")
+	assert.Contains(t, preDash, "legit/repo")
+	// The flag-shaped query tokens must appear *after* the separator, where
+	// gh treats them as positional query text rather than CLI flags.
+	postDash := args[dashIdx+1:]
+	assert.Equal(t, []string{"--repo=attacker/repo", "--token=stolen"}, postDash)
+}
+
+// TestSearchPRs_SubshellSyntaxIsLiteral verifies that subshell-style patterns
+// like $(...) and backticks survive as literal argv content. shlex without
+// POSIX mode does not perform command substitution; this test freezes that
+// guarantee.
+func TestSearchPRs_SubshellSyntaxIsLiteral(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchPRs(context.Background(), "$(echo pwned) `whoami`", SearchPRsOpts{})
+	require.NoError(t, err)
+	dashIdx := -1
+	for i, a := range args {
+		if a == "--" {
+			dashIdx = i
+			break
+		}
+	}
+	require.NotEqual(t, -1, dashIdx, "expected -- separator")
+	postDash := args[dashIdx+1:]
+	// shlex.Split tokenizes on whitespace; the literal characters $, (, ), `
+	// must survive verbatim. No subprocess of any kind has run on this string.
+	assert.Equal(t, []string{"$(echo", "pwned)", "`whoami`"}, postDash)
 }
 
 func TestSearchCode_Args(t *testing.T) {
@@ -340,7 +467,7 @@ func TestSearchCode_Args(t *testing.T) {
 	assert.Contains(t, args, "--extension")
 	assert.Contains(t, args, "go")
 	assert.Contains(t, args, "--")
-	assert.Equal(t, "fmt.Errorf", args[len(args)-1], "query must be last arg after --")
+	assert.Equal(t, "fmt.Errorf", args[len(args)-1], "query token must come after --")
 }
 
 func TestViewRun_SeparatorBeforeRunID(t *testing.T) {

@@ -12,7 +12,7 @@ func (h *Handler) branchTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_list_branches",
-			Description: "List branches in a GitHub repository, newest first. Each entry shows the branch name and its HEAD commit SHA. Results truncated at `limit` (default 30, max 100).",
+			Description: "List branches in a GitHub repository, alphabetical by branch name (the underlying GitHub REST endpoint does not expose recency sorting). Each entry shows the branch name and its HEAD commit SHA. Results truncated at `limit` (default 30, max 100); raise `limit` if you need branches outside the first page.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",

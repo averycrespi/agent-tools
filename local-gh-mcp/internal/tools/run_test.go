@@ -176,6 +176,61 @@ func TestViewRun_LogFailed_TailLines(t *testing.T) {
 	assert.Equal(t, "line97\nline98\nline99", text)
 }
 
+// TestViewRun_LogFailed_MaxBytes verifies the byte cap kicks in after the
+// line tail, truncating verbose lines that the line cap can't catch.
+func TestViewRun_LogFailed_MaxBytes(t *testing.T) {
+	// 50 lines × ~200 bytes each = ~10k bytes. Cap at 1000 bytes.
+	lines := make([]string, 50)
+	for i := range lines {
+		lines[i] = strings.Repeat("x", 200)
+	}
+	logs := strings.Join(lines, "\n")
+	h := NewHandler(&mockGHClient{
+		viewRunFunc: func(_ context.Context, _, _ string, _ string, _ bool) (string, error) {
+			return logs, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_view_run"
+	req.Params.Arguments = map[string]any{
+		"owner":      "octocat",
+		"repo":       "hello-world",
+		"run_id":     "100",
+		"log_failed": true,
+		"max_bytes":  float64(1000),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.LessOrEqual(t, len(text), 1100, "byte cap should hold within a small overhead for the truncation marker")
+	assert.Contains(t, text, "[truncated")
+	assert.Contains(t, text, "bytes shown]")
+}
+
+// TestGhViewRunJobLogs_MaxBytes verifies max_bytes truncation on the
+// per-job log handler.
+func TestGhViewRunJobLogs_MaxBytes(t *testing.T) {
+	logs := strings.Repeat("x", 5000)
+	h := NewHandler(&mockGHClient{
+		viewRunJobLogFunc: func(_ context.Context, _, _ string, _ int64, _ int) (string, error) {
+			return logs, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_view_run_job_logs"
+	req.Params.Arguments = map[string]any{
+		"owner": "x", "repo": "y", "job_id": float64(1),
+		"max_bytes": float64(500),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "[truncated")
+	assert.LessOrEqual(t, len(text), 600)
+}
+
 func TestRerun_Success(t *testing.T) {
 	h := NewHandler(&mockGHClient{
 		rerunFunc: func(_ context.Context, owner, repo string, runID string, failedOnly bool) (string, error) {
@@ -241,8 +296,8 @@ func TestGhViewRunJobLogs(t *testing.T) {
 	if capturedJobID != 12345 {
 		t.Errorf("job_id not threaded: %d", capturedJobID)
 	}
-	if capturedTail != 500 {
-		t.Errorf("default tail_lines should be 500, got %d", capturedTail)
+	if capturedTail != 200 {
+		t.Errorf("default tail_lines should be 200, got %d", capturedTail)
 	}
 	if !strings.Contains(textOf(res), "line 1") {
 		t.Errorf("log body missing, got: %s", textOf(res))

@@ -536,3 +536,47 @@ func TestFormatSearchCommitItem(t *testing.T) {
 		t.Error("SHA should not be wrapped in backticks")
 	}
 }
+
+func TestFormatCaches(t *testing.T) {
+	caches := []Cache{
+		{
+			ID:             1234567,
+			Key:            "npm-cache-abc123",
+			Ref:            "refs/heads/main",
+			SizeInBytes:    4_400_000,
+			CreatedAt:      "2026-04-01T10:00:00Z",
+			LastAccessedAt: "2026-04-15T12:30:00Z",
+		},
+		{
+			ID:             7654321,
+			Key:            "go-mod-cache-def456",
+			Ref:            "refs/pull/42/merge",
+			SizeInBytes:    512,
+			CreatedAt:      "2026-04-10T08:00:00Z",
+			LastAccessedAt: "2026-04-10T08:05:00Z",
+		},
+	}
+	got := FormatCaches(caches)
+	for _, want := range []string{
+		"**1234567**",
+		"`npm-cache-abc123`",
+		"refs/heads/main",
+		"4.2 MiB",
+		"2026-04-01",
+		"2026-04-15",
+		"**7654321**",
+		"`go-mod-cache-def456`",
+		"refs/pull/42/merge",
+		"512 B",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestFormatCaches_Empty(t *testing.T) {
+	if got := FormatCaches(nil); got != "No caches." {
+		t.Errorf("expected %q, got %q", "No caches.", got)
+	}
+}

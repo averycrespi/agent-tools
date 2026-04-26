@@ -3,6 +3,7 @@ module github.com/averycrespi/agent-tools/local-gh-mcp
 go 1.25.9
 
 require (
+	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/mark3labs/mcp-go v0.45.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1

@@ -521,6 +521,32 @@ func FormatPRFiles(files []PRFile, limit int) string {
 	return b.String()
 }
 
+// Cache represents a single GitHub Actions cache entry from `gh cache list --json`.
+type Cache struct {
+	ID             int64  `json:"id"`
+	Key            string `json:"key"`
+	Ref            string `json:"ref"`
+	SizeInBytes    int64  `json:"sizeInBytes"`
+	CreatedAt      string `json:"createdAt"`
+	LastAccessedAt string `json:"lastAccessedAt"`
+}
+
+// FormatCaches formats a list of GitHub Actions caches as markdown bullets.
+// Each entry shows id, key, size, ref, and access dates so agents can triage
+// stale or oversized caches before deletion.
+func FormatCaches(caches []Cache) string {
+	if len(caches) == 0 {
+		return "No caches."
+	}
+	var b strings.Builder
+	for _, c := range caches {
+		fmt.Fprintf(&b, "- **%d** `%s` — %s, ref `%s`, created %s, accessed %s\n",
+			c.ID, c.Key, humanBytes(c.SizeInBytes), c.Ref,
+			FormatDate(c.CreatedAt), FormatDate(c.LastAccessedAt))
+	}
+	return b.String()
+}
+
 // Branch represents a single branch from the GitHub REST branches API.
 type Branch struct {
 	Name   string `json:"name"`

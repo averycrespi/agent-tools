@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 
+	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
 	gomcp "github.com/mark3labs/mcp-go/mcp"
 )
@@ -11,7 +13,7 @@ func (h *Handler) cacheTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_list_caches",
-			Description: "List GitHub Actions caches for a repository. Sort by created_at, last_accessed_at, or size_in_bytes. Useful for finding stale or oversized caches before deletion.",
+			Description: "List GitHub Actions caches for a repository as markdown bullets (id, key, size, ref, created/accessed dates). Sort by created_at, last_accessed_at, or size_in_bytes. Useful for finding stale or oversized caches before deletion.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -84,7 +86,11 @@ func (h *Handler) handleListCaches(ctx context.Context, req gomcp.CallToolReques
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(out), nil
+	var caches []format.Cache
+	if err := json.Unmarshal([]byte(out), &caches); err != nil {
+		return parseError("gh_list_caches", err, out), nil
+	}
+	return gomcp.NewToolResultText(format.FormatCaches(caches)), nil
 }
 
 func (h *Handler) handleDeleteCache(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {

@@ -103,9 +103,9 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 
 ### Branch Tools (1)
 
-| Tool               | Description                            | gh command                  |
-| ------------------ | -------------------------------------- | --------------------------- |
-| `gh_list_branches` | List repository branches, newest first | `gh api repos/O/R/branches` |
+| Tool               | Description                                                                             | gh command                  |
+| ------------------ | --------------------------------------------------------------------------------------- | --------------------------- |
+| `gh_list_branches` | List repository branches alphabetically (REST endpoint does not expose recency sorting) | `gh api repos/O/R/branches` |
 
 ### Release Tools (2)
 
@@ -160,8 +160,8 @@ Both `owner` and `repo` are validated to contain only `[a-zA-Z0-9._-]` character
 | Tool                   | Required                | Optional                                      |
 | ---------------------- | ----------------------- | --------------------------------------------- |
 | `gh_list_runs`         | **owner, repo**         | branch, status, workflow, actor, event, limit |
-| `gh_view_run`          | **owner, repo, run_id** | log_failed, tail_lines                        |
-| `gh_view_run_job_logs` | **owner, repo, job_id** | tail_lines                                    |
+| `gh_view_run`          | **owner, repo, run_id** | log_failed, tail_lines, max_bytes             |
+| `gh_view_run_job_logs` | **owner, repo, job_id** | tail_lines, max_bytes                         |
 | `gh_rerun_run`         | **owner, repo, run_id** | failed_only                                   |
 | `gh_cancel_run`        | **owner, repo, run_id** | —                                             |
 
@@ -232,7 +232,7 @@ All read tools return **structured markdown** instead of raw JSON. The `gh` CLI'
 - **Comment tools** (`gh_list_pr_comments`, `gh_list_issue_comments`): headed blocks per comment; minimized/spam comments show `[minimized: REASON]`; images replaced with `[image]`
 - **Review list** (`gh_list_pr_reviews`): headed blocks per review showing state (APPROVED/CHANGES_REQUESTED/COMMENTED/DISMISSED), author, date; empty bodies rendered as `(no body)`
 - **Review comment list** (`gh_list_pr_review_comments`): grouped by file path; threaded by `in_reply_to_id` with indented replies; falls back to `original_line` when `line` is null (outdated comments)
-- **Run view** (`gh_view_run`): structured header + job list; `log_failed=true` returns the last `tail_lines` lines of the concatenated failed-job logs (default 500, max 5000)
+- **Run view** (`gh_view_run`): structured header + job list; `log_failed=true` returns the last `tail_lines` lines of the concatenated failed-job logs (default 200, max 5000), then a hard byte cap from `max_bytes` (default 50000, max 500000) is applied on a line boundary with `[truncated — N/M bytes shown]`. `gh_view_run_job_logs` applies the same `tail_lines` + `max_bytes` cap.
 
 ## Project Structure
 

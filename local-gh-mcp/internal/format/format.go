@@ -118,25 +118,25 @@ func ParseDiffSummary(diff string) string {
 // the summary table is always built from the full diff so the file list stays complete.
 func FormatDiff(diff string, maxBytes int) string {
 	summary := ParseDiffSummary(diff)
-	body := truncateDiffBytes(diff, maxBytes)
+	body := TruncateBytes(diff, maxBytes)
 	if summary == "" {
 		return body
 	}
 	return summary + "\n## Diff\n\n" + body
 }
 
-// truncateDiffBytes truncates diff to maxBytes on the last newline boundary at or before
-// the cap, appending "[truncated -- N/M bytes shown]". Returns diff unchanged if maxBytes <= 0
-// or len(diff) <= maxBytes.
-func truncateDiffBytes(diff string, maxBytes int) string {
-	if maxBytes <= 0 || len(diff) <= maxBytes {
-		return diff
+// TruncateBytes truncates s to maxBytes on the last newline boundary at or before
+// the cap, appending "[truncated — N/M bytes shown]". Returns s unchanged if maxBytes <= 0
+// or len(s) <= maxBytes. Used for diff bodies and log tails.
+func TruncateBytes(s string, maxBytes int) string {
+	if maxBytes <= 0 || len(s) <= maxBytes {
+		return s
 	}
 	cut := maxBytes
-	if idx := strings.LastIndexByte(diff[:maxBytes], '\n'); idx > 0 {
+	if idx := strings.LastIndexByte(s[:maxBytes], '\n'); idx > 0 {
 		cut = idx
 	}
-	return fmt.Sprintf("%s\n[truncated — %d/%d bytes shown]", diff[:cut], cut, len(diff))
+	return fmt.Sprintf("%s\n[truncated — %d/%d bytes shown]", s[:cut], cut, len(s))
 }
 
 // FormatLabels formats labels as "a, b, c" or "(none)".

@@ -235,8 +235,10 @@ const (
 	maxMaxBodyLength     = 50000
 	defaultDiffMaxBytes  = 50000
 	maxDiffMaxBytes      = 500000
-	defaultLogTailLines  = 500
+	defaultLogTailLines  = 200
 	maxLogTailLines      = 5000
+	defaultLogMaxBytes   = 50000
+	maxLogMaxBytes       = 500000
 )
 
 func clampLimit(v int) int {
@@ -275,6 +277,16 @@ func clampLogTailLines(v int) int {
 	}
 	if v > maxLogTailLines {
 		return maxLogTailLines
+	}
+	return v
+}
+
+func clampLogMaxBytes(v int) int {
+	if v <= 0 {
+		return defaultLogMaxBytes
+	}
+	if v > maxLogMaxBytes {
+		return maxLogMaxBytes
 	}
 	return v
 }
