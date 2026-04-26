@@ -501,6 +501,83 @@
         flex-direction: column;
         gap: 0.125rem;
         min-width: 0;
+        flex: 1;
+      }
+
+      .tool-title {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+      }
+
+      .tool-hints {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        margin-left: auto;
+        flex-shrink: 0;
+      }
+
+      .tool-hint {
+        font-family: var(--font-sans);
+        font-size: 0.625rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0.125rem 0.4375rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--text-secondary);
+        background: var(--bg-base);
+        white-space: nowrap;
+        cursor: help;
+      }
+
+      .tool-hint.hint-readonly {
+        color: var(--green);
+        border-color: rgba(34, 197, 94, 0.4);
+      }
+
+      .tool-hint.hint-destructive {
+        color: var(--red);
+        border-color: rgba(239, 68, 68, 0.4);
+      }
+
+      .tool-hint.hint-openworld {
+        color: var(--amber);
+        border-color: rgba(245, 158, 11, 0.4);
+      }
+
+      /* Detail subsections — Outputs / Annotations / Metadata reuse the
+         schema-table look. Spacing between sections. */
+      .tool-detail-section + .tool-detail-section {
+        margin-top: 0.875rem;
+      }
+
+      .tool-annotations {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 0.25rem 0.875rem;
+        font-size: 0.8125rem;
+      }
+
+      .tool-annotations dt {
+        font-family: var(--font-sans);
+        color: var(--text-secondary);
+        font-weight: 500;
+      }
+
+      .tool-annotations dd {
+        font-family: var(--font-mono);
+        color: var(--text-primary);
+        margin: 0;
+      }
+
+      .tool-annotations dd.bool-true {
+        color: var(--green);
+      }
+
+      .tool-annotations dd.bool-false {
+        color: var(--text-secondary);
       }
 
       /* Detail panel */
@@ -1461,9 +1538,10 @@
         return "any";
       }
 
-      // renderInputSchema builds the HTML for the detail panel body.
-      // Returns a string to be inserted into a .tool-detail div.
-      function renderInputSchema(schema) {
+      // renderSchemaTable returns the HTML for a JSON-Schema-shaped object,
+      // shared by the Inputs and Outputs sections. emptyMsg is shown when the
+      // schema has no properties.
+      function renderSchemaTable(schema, emptyMsg) {
         var hasProps =
           schema &&
           typeof schema === "object" &&
@@ -1472,10 +1550,7 @@
           Object.keys(schema.properties).length > 0;
 
         if (!hasProps) {
-          return (
-            '<div class="tool-detail-label">Inputs</div>' +
-            '<div class="tool-schema-empty">This tool takes no arguments.</div>'
-          );
+          return '<div class="tool-schema-empty">' + esc(emptyMsg) + "</div>";
         }
 
         var required = {};
@@ -1522,8 +1597,7 @@
             "</tr>";
         });
 
-        var html =
-          '<div class="tool-detail-label">Inputs</div>' +
+        return (
           '<table class="tool-schema-table">' +
           "<thead><tr>" +
           "<th>name</th><th>type</th><th>required</th><th>description</th>" +
@@ -1537,7 +1611,126 @@
           "<pre>" +
           esc(JSON.stringify(schema, null, 2)) +
           "</pre>" +
-          "</details>";
+          "</details>"
+        );
+      }
+
+      // Hint metadata: label + tooltip. Order matches the desired badge order.
+      // All hints are advisory \u2014 set by the backend, not enforced by the broker.
+      var HINT_DEFS = [
+        {
+          key: "readOnlyHint",
+          label: "read-only",
+          cls: "hint-readonly",
+          help: "Backend hints this tool does not modify its environment. Advisory only \u2014 not enforced by the broker.",
+        },
+        {
+          key: "destructiveHint",
+          label: "destructive",
+          cls: "hint-destructive",
+          help: "Backend hints this tool may perform destructive updates. Advisory only \u2014 not enforced by the broker.",
+        },
+        {
+          key: "idempotentHint",
+          label: "idempotent",
+          cls: "hint-idempotent",
+          help: "Backend hints repeated calls with the same arguments have no additional effect. Advisory only.",
+        },
+        {
+          key: "openWorldHint",
+          label: "open-world",
+          cls: "hint-openworld",
+          help: "Backend hints this tool interacts with external entities. Advisory only.",
+        },
+      ];
+
+      // renderToolHints builds the badge row shown next to the tool name.
+      // Only emits badges for hints that are explicitly true.
+      function renderToolHints(ann) {
+        if (!ann) return "";
+        var badges = "";
+        HINT_DEFS.forEach(function (def) {
+          if (ann[def.key] === true) {
+            badges +=
+              '<span class="tool-hint ' +
+              def.cls +
+              '" title="' +
+              escAttr(def.help) +
+              '">' +
+              def.label +
+              "</span>";
+          }
+        });
+        return badges ? '<div class="tool-hints">' + badges + "</div>" : "";
+      }
+
+      // renderAnnotations builds the Annotations section. Shows title plus any
+      // hint set to a boolean (true OR false \u2014 the spec distinguishes "false"
+      // from "absent"). Returns "" when nothing to show.
+      function renderAnnotations(ann) {
+        if (!ann) return "";
+        var rows = "";
+        if (ann.title) {
+          rows += "<dt>Title</dt><dd>" + esc(String(ann.title)) + "</dd>";
+        }
+        HINT_DEFS.forEach(function (def) {
+          if (typeof ann[def.key] === "boolean") {
+            var v = ann[def.key];
+            rows +=
+              "<dt>" +
+              esc(def.label) +
+              '</dt><dd class="bool-' +
+              v +
+              '">' +
+              (v ? "true" : "false") +
+              "</dd>";
+          }
+        });
+        if (!rows) return "";
+        return (
+          '<div class="tool-detail-section">' +
+          '<div class="tool-detail-label">Annotations</div>' +
+          '<dl class="tool-annotations">' +
+          rows +
+          "</dl>" +
+          "</div>"
+        );
+      }
+
+      // renderToolDetail composes the full expanded panel: Inputs, then any of
+      // Outputs / Annotations / Metadata that the tool declared.
+      function renderToolDetail(tool) {
+        var html =
+          '<div class="tool-detail-section">' +
+          '<div class="tool-detail-label">Inputs</div>' +
+          renderSchemaTable(tool.inputSchema, "This tool takes no arguments.") +
+          "</div>";
+
+        if (tool.outputSchema) {
+          html +=
+            '<div class="tool-detail-section">' +
+            '<div class="tool-detail-label">Outputs</div>' +
+            renderSchemaTable(
+              tool.outputSchema,
+              "Output schema declared but has no properties.",
+            ) +
+            "</div>";
+        }
+
+        html += renderAnnotations(tool.annotations);
+
+        if (tool._meta) {
+          html +=
+            '<div class="tool-detail-section">' +
+            '<div class="tool-detail-label">Metadata</div>' +
+            '<details class="tool-schema-raw">' +
+            "<summary>view raw _meta</summary>" +
+            "<pre>" +
+            esc(JSON.stringify(tool._meta, null, 2)) +
+            "</pre>" +
+            "</details>" +
+            "</div>";
+        }
 
         return html;
       }
@@ -1590,28 +1783,31 @@
               html += "</button>";
               html += '<div class="provider-capabilities hidden">';
               items.forEach(function (tool) {
-                var schemaAttr = escAttr(
-                  JSON.stringify(tool.inputSchema || {}),
-                );
+                var toolAttr = escAttr(JSON.stringify(tool));
                 html +=
                   '<button type="button" class="tool-item" aria-expanded="false"' +
                   ' data-tool-name="' +
                   escAttr(tool.name) +
                   '"' +
-                  ' data-schema="' +
-                  schemaAttr +
+                  ' data-tool="' +
+                  toolAttr +
                   '"' +
                   ' onclick="toggleTool(this)">';
                 html += '<div class="tool-item-row">';
                 html += '<span class="chevron">&#9660;</span>';
                 html += '<div class="tool-item-text">';
                 html += '<div class="tool-name">' + esc(tool.name) + "</div>";
+                var ann = tool.annotations || {};
+                if (ann.title)
+                  html +=
+                    '<div class="tool-title">' + esc(ann.title) + "</div>";
                 if (tool.description)
                   html +=
                     '<div class="tool-desc">' +
                     esc(tool.description) +
                     "</div>";
                 html += "</div>";
+                html += renderToolHints(ann);
                 html += "</div>";
                 html += "</button>";
               });
@@ -1650,16 +1846,16 @@
         }
 
         // Expand the clicked tool.
-        var schema;
+        var tool;
         try {
-          schema = JSON.parse(btn.getAttribute("data-schema"));
+          tool = JSON.parse(btn.getAttribute("data-tool"));
         } catch (e) {
-          schema = null;
+          tool = {};
         }
 
         var detail = document.createElement("div");
         detail.className = "tool-detail";
-        detail.innerHTML = renderInputSchema(schema);
+        detail.innerHTML = renderToolDetail(tool);
 
         btn.classList.add("expanded");
         btn.setAttribute("aria-expanded", "true");

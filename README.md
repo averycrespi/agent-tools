@@ -76,7 +76,7 @@ AI agents need to call external APIs (GitHub, Jira, Slack), but giving a sandbox
 - Every tool call is audit-logged in SQLite for maximum observability.
 - A web dashboard handles approval requests in real time and surfaces the configured rules, discovered tools, and searchable audit log.
 
-See the [mcp-broker README](mcp-broker/README.md) for more information, or the [architecture diagram](mcp-broker/ARCHITECTURE.md) for a visual overview of the request flow.
+See the [mcp-broker README](mcp-broker/README.md) for more information.
 
 ### Broker CLI
 

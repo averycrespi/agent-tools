@@ -7,9 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 )
 
 // mockBackend implements the Backend interface for testing.
@@ -57,6 +59,72 @@ func TestManager_DiscoverTools_PrefixesNames(t *testing.T) {
 	}
 	require.True(t, names["github.search"])
 	require.True(t, names["github.get_pr"])
+}
+
+func TestManager_DiscoverTools_PreservesAnnotationsOutputSchemaAndMeta(t *testing.T) {
+	readOnly := true
+	destructive := false
+	annotations := &mcp.ToolAnnotation{
+		Title:           "Search",
+		ReadOnlyHint:    &readOnly,
+		DestructiveHint: &destructive,
+	}
+	outputSchema := &mcp.ToolOutputSchema{
+		Type:       "object",
+		Properties: map[string]any{"hits": map[string]any{"type": "integer"}},
+	}
+	meta := &mcp.Meta{AdditionalFields: map[string]any{"trace_id": "abc"}}
+
+	mb := new(mockBackend)
+	mb.On("ListTools", mock.Anything).Return([]Tool{
+		{
+			Name:         "search",
+			Description:  "Search things",
+			Annotations:  annotations,
+			OutputSchema: outputSchema,
+			Meta:         meta,
+		},
+		{Name: "plain", Description: "No extras"},
+	}, nil)
+
+	m := &Manager{
+		backends: map[string]Backend{"github": mb},
+		tools:    make(map[string]toolEntry),
+	}
+	require.NoError(t, m.discover(context.Background()))
+
+	got := make(map[string]Tool, 2)
+	for _, tool := range m.Tools() {
+		got[tool.Name] = tool
+	}
+
+	rich := got["github.search"]
+	require.Equal(t, annotations, rich.Annotations)
+	require.Equal(t, outputSchema, rich.OutputSchema)
+	require.Equal(t, meta, rich.Meta)
+
+	plain := got["github.plain"]
+	require.Nil(t, plain.Annotations)
+	require.Nil(t, plain.OutputSchema)
+	require.Nil(t, plain.Meta)
+}
+
+func TestToBrokerTool_DropsEmptyAnnotationsAndOutputSchema(t *testing.T) {
+	bare := toBrokerTool(mcp.Tool{Name: "bare", Description: "no extras"})
+	require.Nil(t, bare.Annotations)
+	require.Nil(t, bare.OutputSchema)
+	require.Nil(t, bare.Meta)
+
+	readOnly := true
+	rich := toBrokerTool(mcp.Tool{
+		Name:         "rich",
+		Annotations:  mcp.ToolAnnotation{ReadOnlyHint: &readOnly},
+		OutputSchema: mcp.ToolOutputSchema{Type: "object"},
+	})
+	require.NotNil(t, rich.Annotations)
+	require.True(t, *rich.Annotations.ReadOnlyHint)
+	require.NotNil(t, rich.OutputSchema)
+	require.Equal(t, "object", rich.OutputSchema.Type)
 }
 
 func TestManager_Call_ProxiesToCorrectBackend(t *testing.T) {

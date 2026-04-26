@@ -10,10 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/stretchr/testify/require"
+
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/rules"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
-	"github.com/stretchr/testify/require"
 )
 
 type fakeToolLister struct{ tools []server.Tool }
@@ -167,6 +169,56 @@ func TestDashboard_UnauthorizedPage(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	require.Contains(t, string(body), "Unauthorized")
+}
+
+func TestHandleTools_SerializesAnnotationsOutputSchemaAndMeta(t *testing.T) {
+	readOnly := true
+	tools := &fakeToolLister{tools: []server.Tool{
+		{
+			Name:        "github.search",
+			Description: "Search",
+			Annotations: &mcp.ToolAnnotation{Title: "Search", ReadOnlyHint: &readOnly},
+			OutputSchema: &mcp.ToolOutputSchema{
+				Type:       "object",
+				Properties: map[string]any{"hits": map[string]any{"type": "integer"}},
+			},
+			Meta: &mcp.Meta{AdditionalFields: map[string]any{"trace_id": "abc"}},
+		},
+		{Name: "fs.write"},
+	}}
+	d := New(tools, nil, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/tools")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Tools []struct {
+			Name         string         `json:"name"`
+			Description  string         `json:"description"`
+			Annotations  map[string]any `json:"annotations"`
+			OutputSchema map[string]any `json:"outputSchema"`
+			Meta         map[string]any `json:"_meta"`
+		} `json:"tools"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Len(t, body.Tools, 2)
+
+	rich := body.Tools[1] // sorted: fs.write < github.search
+	require.Equal(t, "github.search", rich.Name)
+	require.Equal(t, "Search", rich.Annotations["title"])
+	require.Equal(t, true, rich.Annotations["readOnlyHint"])
+	require.Equal(t, "object", rich.OutputSchema["type"])
+	require.Equal(t, "abc", rich.Meta["trace_id"])
+
+	plain := body.Tools[0]
+	require.Equal(t, "fs.write", plain.Name)
+	require.Nil(t, plain.Annotations)
+	require.Nil(t, plain.OutputSchema)
+	require.Nil(t, plain.Meta)
 }
 
 func TestHandleRules_GroupsToolsByMatchingRule(t *testing.T) {

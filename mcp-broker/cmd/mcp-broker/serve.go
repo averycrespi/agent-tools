@@ -229,7 +229,7 @@ func toolToMCPTool(t server.Tool) gomcp.Tool {
 		}
 	}
 
-	return gomcp.Tool{
+	out := gomcp.Tool{
 		Name:        t.Name,
 		Description: t.Description,
 		InputSchema: gomcp.ToolInputSchema{
@@ -237,7 +237,15 @@ func toolToMCPTool(t server.Tool) gomcp.Tool {
 			Properties: props,
 			Required:   required,
 		},
+		Meta: t.Meta,
 	}
+	if t.OutputSchema != nil {
+		out.OutputSchema = *t.OutputSchema
+	}
+	if t.Annotations != nil {
+		out.Annotations = *t.Annotations
+	}
+	return out
 }
 
 func makeMCPHandler(b *broker.Broker) func(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
