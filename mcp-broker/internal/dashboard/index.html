@@ -622,33 +622,46 @@
         overflow: hidden;
       }
 
-      .rule-header {
+      .rule-headline {
         display: flex;
-        align-items: center;
-        gap: 0.75rem;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 0.375rem;
         padding: 0.75rem 1rem;
         border-bottom: 1px solid var(--border);
+        font-family: var(--font-mono);
+        font-size: 0.875rem;
       }
 
       .rule-index {
-        font-family: var(--font-mono);
         font-size: 0.75rem;
         font-weight: 600;
         color: var(--text-secondary);
         min-width: 2rem;
       }
 
-      .rule-tool {
-        font-family: var(--font-mono);
-        font-size: 0.875rem;
-        color: var(--text-primary);
-        flex: 1;
+      .rule-verdict {
+        font-weight: 600;
       }
 
-      .rule-verdict {
+      .rule-tool {
+        color: var(--text-primary);
+      }
+
+      .rule-with {
+        color: var(--text-secondary);
+      }
+
+      .rule-patterns {
+        padding: 0.25rem 0 0.625rem 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .rule-pattern {
+        padding: 0.2rem 1rem 0.2rem 3rem;
         font-family: var(--font-mono);
-        font-size: 0.75rem;
-        font-weight: 600;
+        font-size: 0.8125rem;
+        color: var(--text-primary);
       }
 
       .rule-matches {
@@ -669,10 +682,48 @@
         font-style: italic;
       }
 
-      .rules-unmatched-desc {
+      .fallthrough-row {
+        display: flex;
+        gap: 1rem;
+        margin-top: 1.5rem;
+        flex-wrap: wrap;
+      }
+
+      .fallthrough-box {
+        flex: 1;
+        min-width: 240px;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .fallthrough-box-title {
+        padding: 0.625rem 1rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-base);
+      }
+
+      .fallthrough-box-caption {
+        padding: 0.5rem 1rem;
         font-size: 0.8125rem;
         color: var(--text-secondary);
-        margin-bottom: 0.5rem;
+      }
+
+      .fallthrough-box-items {
+        padding-bottom: 0.5rem;
+      }
+
+      .fallthrough-empty {
+        padding: 0.375rem 1rem 0.375rem 2rem;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        font-style: italic;
       }
 
       /* Audit tab */
@@ -972,15 +1023,31 @@
       <div class="tab-content" id="content-rules">
         <div class="section-title">Rules (evaluated first-match-wins)</div>
         <div id="rules-list"></div>
-        <div id="rules-unmatched-section" style="display: none">
-          <div class="section-title" style="margin-top: 1.5rem">
-            Unmatched tools
-          </div>
-          <div id="rules-unmatched-desc" class="rules-unmatched-desc"></div>
-          <div id="rules-unmatched-list"></div>
-        </div>
         <div id="rules-empty" class="empty-state" style="display: none">
           No rules configured
+        </div>
+        <div class="fallthrough-row">
+          <div class="fallthrough-box" id="fallthrough-always-box">
+            <div class="fallthrough-box-title">Always fall through</div>
+            <div class="fallthrough-box-caption">
+              These tools fall through to the default verdict:
+              <code>require-approval</code>.
+            </div>
+            <div
+              class="fallthrough-box-items"
+              id="fallthrough-always-list"
+            ></div>
+          </div>
+          <div class="fallthrough-box" id="fallthrough-may-box">
+            <div class="fallthrough-box-title">
+              May fall through (depending on arguments)
+            </div>
+            <div class="fallthrough-box-caption">
+              These tools may fall through to the default verdict:
+              <code>require-approval</code>, depending on call arguments.
+            </div>
+            <div class="fallthrough-box-items" id="fallthrough-may-list"></div>
+          </div>
         </div>
       </div>
 
@@ -1604,11 +1671,8 @@
       function loadRules() {
         var listEl = document.getElementById("rules-list");
         var emptyEl = document.getElementById("rules-empty");
-        var unmatchedSection = document.getElementById(
-          "rules-unmatched-section",
-        );
-        var unmatchedDesc = document.getElementById("rules-unmatched-desc");
-        var unmatchedList = document.getElementById("rules-unmatched-list");
+        var alwaysList = document.getElementById("fallthrough-always-list");
+        var mayList = document.getElementById("fallthrough-may-list");
 
         fetch("api/rules")
           .then(function (r) {
@@ -1616,8 +1680,8 @@
           })
           .then(function (data) {
             var rules = data.rules || [];
-            var unmatched = data.unmatched || [];
-            var defaultVerdict = data.default_verdict || "require-approval";
+            var alwaysFallThrough = data.always_fall_through || [];
+            var mayFallThrough = data.may_fall_through || [];
 
             if (rules.length === 0) {
               listEl.innerHTML = "";
@@ -1632,8 +1696,12 @@
                 else if (rule.verdict === "deny") verdictClass = "verdict-deny";
                 else if (rule.verdict === "require-approval")
                   verdictClass = "verdict-require-approval";
+
+                var args = rule.args || [];
+                var hasArgs = args.length > 0;
+
                 html += '<div class="rule-card">';
-                html += '<div class="rule-header">';
+                html += '<div class="rule-headline">';
                 html +=
                   '<span class="rule-index">#' + (rule.index + 1) + "</span>";
                 html +=
@@ -1643,7 +1711,35 @@
                   esc(rule.verdict) +
                   "</span>";
                 html += '<span class="rule-tool">' + esc(rule.tool) + "</span>";
+                if (hasArgs) {
+                  html += '<span class="rule-with">with</span>';
+                }
                 html += "</div>";
+
+                if (hasArgs) {
+                  html += '<div class="rule-patterns">';
+                  args.forEach(function (arg) {
+                    var sym = "=";
+                    var val = "";
+                    if (typeof arg.match === "string") {
+                      sym = "=";
+                      val = arg.match;
+                    } else if (arg.match && arg.match.regex) {
+                      sym = "~";
+                      val = arg.match.regex;
+                    }
+                    html +=
+                      '<div class="rule-pattern">' +
+                      esc(arg.path) +
+                      " " +
+                      sym +
+                      " &quot;" +
+                      esc(val) +
+                      "&quot;</div>";
+                  });
+                  html += "</div>";
+                }
+
                 html += '<div class="rule-matches">';
                 if (rule.matches.length === 0) {
                   html +=
@@ -1659,18 +1755,27 @@
               listEl.innerHTML = html;
             }
 
-            if (unmatched.length === 0) {
-              unmatchedSection.style.display = "none";
+            // Always fall through box
+            if (alwaysFallThrough.length === 0) {
+              alwaysList.innerHTML =
+                '<div class="fallthrough-empty">none</div>';
             } else {
-              unmatchedSection.style.display = "block";
-              unmatchedDesc.textContent =
-                "These tools fall through to the default verdict: " +
-                defaultVerdict;
-              var uhtml = "";
-              unmatched.forEach(function (name) {
-                uhtml += '<div class="rule-match-item">' + esc(name) + "</div>";
+              var ahtml = "";
+              alwaysFallThrough.forEach(function (name) {
+                ahtml += '<div class="rule-match-item">' + esc(name) + "</div>";
               });
-              unmatchedList.innerHTML = uhtml;
+              alwaysList.innerHTML = ahtml;
+            }
+
+            // May fall through box
+            if (mayFallThrough.length === 0) {
+              mayList.innerHTML = '<div class="fallthrough-empty">none</div>';
+            } else {
+              var mhtml = "";
+              mayFallThrough.forEach(function (name) {
+                mhtml += '<div class="rule-match-item">' + esc(name) + "</div>";
+              });
+              mayList.innerHTML = mhtml;
             }
           });
       }
