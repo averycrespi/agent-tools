@@ -3,6 +3,7 @@
 package e2e_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -155,6 +156,39 @@ func TestE2E_DashboardToolsListing(t *testing.T) {
 			require.Equal(t, "Greets the user", tool.Description)
 		}
 	}
+}
+
+func TestE2E_ArgMatchingGate(t *testing.T) {
+	s := newTestStack(t, stackOpts{
+		Tools: defaultTools,
+		Rules: []testRuleConfig{
+			{
+				Tool:    "echo.say_hello",
+				Verdict: "allow",
+				Args: []testArgPattern{
+					{Path: "name", Match: json.RawMessage(`"alice"`)},
+				},
+			},
+			{Tool: "*", Verdict: "deny"},
+		},
+	})
+
+	// Matching args → allow rule fires, backend returns the response.
+	result, err := s.callTool("echo.say_hello", map[string]any{"name": "alice"})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+
+	// Non-matching args → falls through to deny rule.
+	result, err = s.callTool("echo.say_hello", map[string]any{"name": "bob"})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+
+	// Audit log captures both verdicts.
+	audit := s.getAudit("", 10, 0)
+	require.Equal(t, 2, audit.Total)
+	verdicts := []string{audit.Records[0].Verdict, audit.Records[1].Verdict}
+	require.Contains(t, verdicts, "allow")
+	require.Contains(t, verdicts, "deny")
 }
 
 func TestE2E_AuditLogPagination(t *testing.T) {
