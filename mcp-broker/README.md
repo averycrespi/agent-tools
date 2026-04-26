@@ -153,6 +153,32 @@ Rules are evaluated top-to-bottom, first match wins. Patterns use Go's `filepath
 
 Default (no matching rule): `require-approval`.
 
+#### Argument matching
+
+Rules can optionally constrain on argument values using the `args` field. All patterns must match (AND semantics) for a rule to fire.
+
+```json
+{
+  "rules": [
+    {
+      "tool": "git_push",
+      "verdict": "allow",
+      "args": [{ "path": "remote", "match": "origin" }]
+    },
+    {
+      "tool": "git_push",
+      "verdict": "deny",
+      "args": [{ "path": "commit.message", "match": { "regex": "^chore:" } }]
+    },
+    { "tool": "git_push", "verdict": "require-approval" }
+  ]
+}
+```
+
+`path` is a dot-separated field path (e.g. `remote`, `commit.message`, `command.0`). `match` is either a bare string for exact matching or `{"regex": "<RE2 pattern>"}` for regex matching. If a path cannot be resolved (missing key, wrong type, out-of-range index), the rule does not match and evaluation continues.
+
+Note: regexes are not auto-anchored — use `^...$` for full-match semantics.
+
 ## Authentication
 
 On first run, mcp-broker generates a random auth token and saves it to `~/.config/mcp-broker/auth-token`. All endpoints require this token.
