@@ -73,6 +73,7 @@ Single JSON file at `~/.config/mcp-broker/config.json`. On first run, a default 
 
 Config is loaded once at startup. Defaults:
 
+- Host: `127.0.0.1` (must resolve to a loopback interface — validated at startup)
 - Port: 8200
 - Rules: `[{"tool": "*", "verdict": "require-approval"}]`
 - Audit path: `~/.local/share/mcp-broker/audit.db`
@@ -100,6 +101,8 @@ Manages connections to backend MCP servers. At startup:
 2. Sends MCP `initialize` handshake
 3. Calls `tools/list` to discover available tools
 4. Builds a registry of `<server>.<tool>` → backend mapping
+
+Tool descriptors are passed through to clients with full fidelity: in addition to name and input schema, the broker preserves each tool's `outputSchema`, `annotations` (including `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), and `_meta` from the upstream backend. The only field the broker rewrites is the tool name, which is prefixed with `<server>.` for routing.
 
 The `Backend` interface abstracts transport:
 
@@ -175,3 +178,5 @@ Cobra-based CLI with commands:
 **Failed backends don't block startup.** If one of several backend servers is unavailable, the broker starts with the remaining servers rather than failing entirely. The failed backend is logged.
 
 **Default verdict is require-approval.** Fail-closed by default — any tool not explicitly allowed requires human approval.
+
+**Loopback-only listener, enforced at startup.** `server.ValidateLoopbackAddr` rejects any bind host that isn't a loopback IP or `localhost`. The bearer token protects against unauthorized local processes; the network boundary protects against everything else. Making network-reachability a hard error instead of a doc-only intent removes the "oops, I configured `0.0.0.0`" failure mode. Sandboxed agents reach the broker via Lima's user-mode networking, which forwards `host.lima.internal:8200` from the guest to the host's loopback — no non-loopback bind required.

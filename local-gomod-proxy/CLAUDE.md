@@ -33,6 +33,8 @@ internal/
   private/               PrivateFetcher — shells out to `go mod download`, streams files
   public/                PublicFetcher — reverse-proxy to proxy.golang.org
   server/                HTTP handler wiring router + fetchers
+  state/                 State dir, cert load-or-generate, credentials load-or-generate
+  auth/                  HTTP Basic auth middleware
 test/e2e/               End-to-end tests
 ```
 
@@ -57,4 +59,4 @@ When you change a flag, endpoint, env-var contract, or file layout, audit every 
 - gosec `nolint` directives on `os/exec` calls are acceptable inside the `exec` package only; also acceptable inside `private.streamFile` on `os.Open`
 - `--private` flag overrides `go env GOPRIVATE`; if neither is set, startup fails with an actionable error
 - `GOPRIVATE` and `GOMODCACHE` are read via `go env -json`, not `os.Getenv` — users commonly set these via `go env -w`
-- No application-level auth — the proxy relies on binding to a local-only interface. See DESIGN.md for rationale (Go ≥ 1.22 HTTPS gate on every supported auth mechanism)
+- Auth: HTTPS + HTTP basic auth enforced on every request. Cert, key, and credentials live under `$XDG_STATE_HOME/local-gomod-proxy/` (fallback `~/.local/state/local-gomod-proxy/`). Loopback binding is still enforced — TLS + auth layer on top, they do not replace the network boundary.
