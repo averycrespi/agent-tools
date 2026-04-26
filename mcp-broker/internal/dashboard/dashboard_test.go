@@ -197,8 +197,9 @@ func TestHandleRules_GroupsToolsByMatchingRule(t *testing.T) {
 			Verdict string   `json:"verdict"`
 			Matches []string `json:"matches"`
 		} `json:"rules"`
-		Unmatched      []string `json:"unmatched"`
-		DefaultVerdict string   `json:"default_verdict"`
+		AlwaysFallThrough []string `json:"always_fall_through"`
+		MayFallThrough    []string `json:"may_fall_through"`
+		DefaultVerdict    string   `json:"default_verdict"`
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 
@@ -219,7 +220,8 @@ func TestHandleRules_GroupsToolsByMatchingRule(t *testing.T) {
 	require.Equal(t, "require-approval", body.Rules[2].Verdict)
 	require.Equal(t, []string{"fs.write"}, body.Rules[2].Matches)
 
-	require.Empty(t, body.Unmatched)
+	require.Empty(t, body.AlwaysFallThrough)
+	require.Empty(t, body.MayFallThrough)
 	require.Equal(t, "require-approval", body.DefaultVerdict)
 }
 
@@ -235,13 +237,15 @@ func TestHandleRules_EmptyRules(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 
 	var body struct {
-		Rules          []any    `json:"rules"`
-		Unmatched      []string `json:"unmatched"`
-		DefaultVerdict string   `json:"default_verdict"`
+		Rules             []any    `json:"rules"`
+		AlwaysFallThrough []string `json:"always_fall_through"`
+		MayFallThrough    []string `json:"may_fall_through"`
+		DefaultVerdict    string   `json:"default_verdict"`
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	require.Empty(t, body.Rules)
-	require.Equal(t, []string{"fs.write"}, body.Unmatched)
+	require.Equal(t, []string{"fs.write"}, body.AlwaysFallThrough)
+	require.Empty(t, body.MayFallThrough)
 	require.Equal(t, "require-approval", body.DefaultVerdict)
 }
 
@@ -281,13 +285,15 @@ func TestHandleRules_NilLister(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var body struct {
-		Rules          []any    `json:"rules"`
-		Unmatched      []string `json:"unmatched"`
-		DefaultVerdict string   `json:"default_verdict"`
+		Rules             []any    `json:"rules"`
+		AlwaysFallThrough []string `json:"always_fall_through"`
+		MayFallThrough    []string `json:"may_fall_through"`
+		DefaultVerdict    string   `json:"default_verdict"`
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	require.Empty(t, body.Rules)
-	require.Empty(t, body.Unmatched)
+	require.Empty(t, body.AlwaysFallThrough)
+	require.Empty(t, body.MayFallThrough)
 	require.Equal(t, "require-approval", body.DefaultVerdict)
 }
 
@@ -315,7 +321,8 @@ func TestHandleRules_MalformedGlobPattern(t *testing.T) {
 			Tool    string   `json:"tool"`
 			Matches []string `json:"matches"`
 		} `json:"rules"`
-		Unmatched []string `json:"unmatched"`
+		AlwaysFallThrough []string `json:"always_fall_through"`
+		MayFallThrough    []string `json:"may_fall_through"`
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 
@@ -325,7 +332,8 @@ func TestHandleRules_MalformedGlobPattern(t *testing.T) {
 	require.Empty(t, body.Rules[0].Matches)
 	// The catchall rule still catches both tools
 	require.ElementsMatch(t, []string{"fs.write", "github.list_prs"}, body.Rules[1].Matches)
-	require.Empty(t, body.Unmatched)
+	require.Empty(t, body.AlwaysFallThrough)
+	require.Empty(t, body.MayFallThrough)
 }
 
 func TestHandleRules_AgreesWithEngineEvaluateWithRule(t *testing.T) {
@@ -359,7 +367,8 @@ func TestHandleRules_AgreesWithEngineEvaluateWithRule(t *testing.T) {
 			Index   int      `json:"index"`
 			Matches []string `json:"matches"`
 		} `json:"rules"`
-		Unmatched []string `json:"unmatched"`
+		AlwaysFallThrough []string `json:"always_fall_through"`
+		MayFallThrough    []string `json:"may_fall_through"`
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 
@@ -368,13 +377,13 @@ func TestHandleRules_AgreesWithEngineEvaluateWithRule(t *testing.T) {
 	for i := range ruleConfigs {
 		expectedMatches[i] = []string{}
 	}
-	var expectedUnmatched []string
+	var expectedAlways []string
 	for _, tool := range toolList {
 		_, idx := engine.EvaluateWithRule(tool.Name, nil)
 		if idx >= 0 {
 			expectedMatches[idx] = append(expectedMatches[idx], tool.Name)
 		} else {
-			expectedUnmatched = append(expectedUnmatched, tool.Name)
+			expectedAlways = append(expectedAlways, tool.Name)
 		}
 	}
 
@@ -383,8 +392,136 @@ func TestHandleRules_AgreesWithEngineEvaluateWithRule(t *testing.T) {
 	for i, rv := range body.Rules {
 		require.ElementsMatch(t, expectedMatches[i], rv.Matches, "rule %d (%s) mismatch", i, ruleConfigs[i].Tool)
 	}
-	if expectedUnmatched == nil {
-		expectedUnmatched = []string{}
+	if expectedAlways == nil {
+		expectedAlways = []string{}
 	}
-	require.ElementsMatch(t, expectedUnmatched, body.Unmatched)
+	require.ElementsMatch(t, expectedAlways, body.AlwaysFallThrough)
+	require.Empty(t, body.MayFallThrough)
+}
+
+func TestHandleRules_PassesThroughArgs(t *testing.T) {
+	argPattern := config.ArgPattern{
+		Path:  "remote",
+		Match: json.RawMessage(`"origin"`),
+	}
+	tools := &fakeToolLister{tools: []server.Tool{{Name: "git_push"}}}
+	rulesLister := &fakeRulesLister{rules: []config.RuleConfig{
+		{Tool: "git_push", Args: []config.ArgPattern{argPattern}, Verdict: "allow"},
+	}}
+	d := New(tools, rulesLister, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/rules")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Rules []struct {
+			Args []struct {
+				Path  string          `json:"path"`
+				Match json.RawMessage `json:"match"`
+			} `json:"args"`
+		} `json:"rules"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Len(t, body.Rules, 1)
+	require.Len(t, body.Rules[0].Args, 1)
+	require.Equal(t, "remote", body.Rules[0].Args[0].Path)
+	require.JSONEq(t, `"origin"`, string(body.Rules[0].Args[0].Match))
+}
+
+func TestHandleRules_MayFallThrough(t *testing.T) {
+	tools := &fakeToolLister{tools: []server.Tool{
+		{Name: "git_push"},
+		{Name: "github.list_prs"},
+	}}
+	rulesLister := &fakeRulesLister{rules: []config.RuleConfig{
+		{Tool: "git_push", Args: []config.ArgPattern{{Path: "remote", Match: json.RawMessage(`"origin"`)}}, Verdict: "allow"},
+		{Tool: "github.*", Verdict: "allow"},
+	}}
+	d := New(tools, rulesLister, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/rules")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Rules []struct {
+			Index   int      `json:"index"`
+			Matches []string `json:"matches"`
+		} `json:"rules"`
+		AlwaysFallThrough []string `json:"always_fall_through"`
+		MayFallThrough    []string `json:"may_fall_through"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+
+	// git_push: its only name-matching rule is constrained → may_fall_through
+	require.Equal(t, []string{"git_push"}, body.MayFallThrough)
+	// github.list_prs: rule index 1 is unconstrained → Matches[1]
+	require.Equal(t, 1, body.Rules[1].Index)
+	require.Equal(t, []string{"github.list_prs"}, body.Rules[1].Matches)
+	require.Empty(t, body.AlwaysFallThrough)
+}
+
+func TestHandleRules_AlwaysFallThrough(t *testing.T) {
+	tools := &fakeToolLister{tools: []server.Tool{{Name: "linear.search"}}}
+	rulesLister := &fakeRulesLister{rules: []config.RuleConfig{
+		{Tool: "github.*", Verdict: "allow"},
+	}}
+	d := New(tools, rulesLister, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/rules")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		AlwaysFallThrough []string `json:"always_fall_through"`
+		MayFallThrough    []string `json:"may_fall_through"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+
+	require.Equal(t, []string{"linear.search"}, body.AlwaysFallThrough)
+	require.Empty(t, body.MayFallThrough)
+}
+
+func TestHandleRules_ConstrainedThenUnconstrained(t *testing.T) {
+	tools := &fakeToolLister{tools: []server.Tool{{Name: "git_push"}}}
+	rulesLister := &fakeRulesLister{rules: []config.RuleConfig{
+		{Tool: "git_push", Args: []config.ArgPattern{{Path: "remote", Match: json.RawMessage(`"origin"`)}}, Verdict: "allow"},
+		{Tool: "git_*", Verdict: "deny"},
+	}}
+	d := New(tools, rulesLister, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/rules")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Rules []struct {
+			Index   int      `json:"index"`
+			Matches []string `json:"matches"`
+		} `json:"rules"`
+		AlwaysFallThrough []string `json:"always_fall_through"`
+		MayFallThrough    []string `json:"may_fall_through"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+
+	// git_push matches rule 0 (constrained) and rule 1 (unconstrained).
+	// First unconstrained name-match is rule 1 → goes in Matches[1], NOT may_fall_through.
+	require.Len(t, body.Rules, 2)
+	require.Empty(t, body.Rules[0].Matches)
+	require.Equal(t, []string{"git_push"}, body.Rules[1].Matches)
+	require.Empty(t, body.MayFallThrough)
+	require.Empty(t, body.AlwaysFallThrough)
 }
