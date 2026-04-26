@@ -33,7 +33,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 					},
 					"status": map[string]any{
 						"type":        "string",
-						"enum":        []string{"queued", "in_progress", "completed", "waiting", "requested", "pending", "cancelled", "failure", "skipped", "stale", "startup_failure", "success", "timed_out", "action_required", "neutral"},
+						"enum":        []string{"queued", "completed", "in_progress", "requested", "waiting", "action_required", "cancelled", "failure", "neutral", "skipped", "stale", "startup_failure", "success", "timed_out"},
 						"description": "Filter by workflow run status.",
 					},
 					"workflow": map[string]any{
@@ -186,9 +186,17 @@ func (h *Handler) handleListRuns(ctx context.Context, req gomcp.CallToolRequest)
 	if errResult != nil {
 		return errResult, nil
 	}
+	status := stringFromArgs(args, "status")
+	if errResult := validateEnum("status", status, []string{
+		"queued", "completed", "in_progress", "requested", "waiting",
+		"action_required", "cancelled", "failure", "neutral", "skipped",
+		"stale", "startup_failure", "success", "timed_out",
+	}); errResult != nil {
+		return errResult, nil
+	}
 	opts := gh.ListRunsOpts{
 		Branch:   stringFromArgs(args, "branch"),
-		Status:   stringFromArgs(args, "status"),
+		Status:   status,
 		Workflow: stringFromArgs(args, "workflow"),
 		Actor:    stringFromArgs(args, "actor"),
 		Event:    stringFromArgs(args, "event"),

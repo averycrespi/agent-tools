@@ -12,7 +12,7 @@ func (h *Handler) branchTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_list_branches",
-			Description: "List branches in a GitHub repository, alphabetical by branch name (the underlying GitHub REST endpoint does not expose recency sorting). Each entry shows the branch name and its HEAD commit SHA. Results truncated at `limit` (default 30, max 100); raise `limit` if you need branches outside the first page.",
+			Description: "List branches in a GitHub repository, alphabetical by branch name (the underlying GitHub REST endpoint does not expose recency sorting). Each entry shows the branch name and its HEAD commit SHA. Results truncated at `limit` (default 30, max 100); use `page` to retrieve later pages.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -20,6 +20,7 @@ func (h *Handler) branchTools() []gomcp.Tool {
 					"owner": map[string]any{"type": "string", "description": "Repository owner."},
 					"repo":  map[string]any{"type": "string", "description": "Repository name."},
 					"limit": map[string]any{"type": "number", "default": 30, "description": "Max branches shown (default 30, max 100)."},
+					"page":  map[string]any{"type": "number", "default": 1, "minimum": 1, "description": "1-indexed page number (default 1)."},
 				},
 				Required: []string{"owner", "repo"},
 			},
@@ -34,7 +35,11 @@ func (h *Handler) handleListBranches(ctx context.Context, req gomcp.CallToolRequ
 		return errResult, nil
 	}
 	limit := clampLimit(intFromArgs(args, "limit"))
-	raw, err := h.gh.ListBranches(ctx, owner, repo, limit)
+	page := intFromArgsOr(args, "page", 1)
+	if page < 1 {
+		page = 1
+	}
+	raw, err := h.gh.ListBranches(ctx, owner, repo, limit, page)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}

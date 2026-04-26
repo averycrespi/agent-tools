@@ -611,3 +611,91 @@ func TestDeleteCache_SeparatorBeforeCacheID(t *testing.T) {
 	assert.Contains(t, args, "--")
 	assert.Equal(t, "cache-abc-123", args[len(args)-1], "cacheID must be last arg after --")
 }
+
+func TestListBranches_PassesPageAndPerPage(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ListBranches(context.Background(), "octocat", "hello", 30, 2)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(args), 2)
+	assert.Equal(t, "api", args[0])
+	assert.Contains(t, args[1], "per_page=31")
+	assert.Contains(t, args[1], "page=2")
+}
+
+func TestListBranches_PageDefaultsAtLeastOne(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ListBranches(context.Background(), "octocat", "hello", 30, 0)
+	require.NoError(t, err)
+	assert.Contains(t, args[1], "page=1")
+}
+
+func TestListBranches_ClampsLimit(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ListBranches(context.Background(), "octocat", "hello", 999, 1)
+	require.NoError(t, err)
+	// limit clamped to 100, perPage = limit+1 then capped at 100
+	assert.Contains(t, args[1], "per_page=100")
+}
+
+func TestListReleases_ClampsLimit(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ListReleases(context.Background(), "octocat", "hello", 999)
+	require.NoError(t, err)
+	// 999 clamps to 100, then +1 for truncation peek
+	assert.Contains(t, args, "101")
+}
+
+func TestListPRFiles_ClampsLimit(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ListPRFiles(context.Background(), "octocat", "hello", 1, 999)
+	require.NoError(t, err)
+	// 999 clamps to 100, perPage = 101 capped at 100
+	assert.Contains(t, args[1], "per_page=100")
+}
+
+func TestCleanAPIError_PrefersGhStatusLine(t *testing.T) {
+	out := []byte(`{"message":"Not Found","documentation_url":"https://docs.github.com/..."}` + "\n" + `gh: Not Found (HTTP 404)`)
+	got := cleanAPIError(out)
+	assert.Equal(t, "gh: Not Found (HTTP 404)", got)
+}
+
+func TestCleanAPIError_FallsBackWhenNoGhLine(t *testing.T) {
+	out := []byte("something unexpected")
+	got := cleanAPIError(out)
+	assert.Equal(t, "something unexpected", got)
+}
+
+func TestViewRunJobLog_StripsUnknownStepAndBOM(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(_ string, _ ...string) ([]byte, error) {
+			// First line carries a UTF-8 BOM and the UNKNOWN STEP placeholder.
+			body := "\uFEFFbuild\tUNKNOWN STEP\t2025-04-26T00:00:00Z hello\n" +
+				"build\tcompile\t2025-04-26T00:00:01Z world\n"
+			return []byte(body), nil
+		},
+	})
+	out, err := c.ViewRunJobLog(context.Background(), "o", "r", 42, 0)
+	require.NoError(t, err)
+	assert.NotContains(t, out, "UNKNOWN STEP")
+	assert.NotContains(t, out, "\uFEFF")
+	assert.Contains(t, out, "hello")
+	assert.Contains(t, out, "world")
+}
+
+func TestListBranches_ErrorIsClean(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(_ string, _ ...string) ([]byte, error) {
+			body := `{"message":"Not Found","documentation_url":"https://x"}`
+			return []byte(body + "\ngh: Not Found (HTTP 404)"), assert.AnError
+		},
+	})
+	_, err := c.ListBranches(context.Background(), "o", "r", 30, 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gh: Not Found (HTTP 404)")
+	assert.NotContains(t, err.Error(), "documentation_url")
+}

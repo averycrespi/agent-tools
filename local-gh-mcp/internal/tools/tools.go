@@ -56,7 +56,7 @@ type GHClient interface {
 	// Context operations
 	ViewUser(ctx context.Context) (string, error)
 	// Branch operations
-	ListBranches(ctx context.Context, owner, repo string, limit int) (string, error)
+	ListBranches(ctx context.Context, owner, repo string, limit, page int) (string, error)
 	// Release operations
 	ListReleases(ctx context.Context, owner, repo string, limit int) (string, error)
 	ViewRelease(ctx context.Context, owner, repo, tag string) (string, error)
@@ -199,6 +199,33 @@ func intFromArgsOr(args map[string]any, key string, defaultVal int) int {
 		return v
 	}
 	return defaultVal
+}
+
+// requirePositiveInt reads a required positive integer argument. Returns a
+// terminal tool-error result if the value is missing, zero, or negative —
+// callers can `return result, nil` immediately when the second value is non-nil.
+func requirePositiveInt(args map[string]any, key string) (int, *gomcp.CallToolResult) {
+	n := intFromArgs(args, key)
+	if n <= 0 {
+		return 0, gomcp.NewToolResultError(fmt.Sprintf("%s must be a positive integer", key))
+	}
+	return n, nil
+}
+
+// validateEnum is defense-in-depth handler-side validation for params that
+// declare an `enum` in their schema. Empty values pass through so optional
+// filters can fall back to gh defaults; callers reject empty separately when
+// the param is required. Returns a terminal tool-error result on mismatch.
+func validateEnum(key, value string, allowed []string) *gomcp.CallToolResult {
+	if value == "" {
+		return nil
+	}
+	for _, a := range allowed {
+		if value == a {
+			return nil
+		}
+	}
+	return gomcp.NewToolResultError(fmt.Sprintf("invalid %s %q: must be one of %s", key, value, strings.Join(allowed, ", ")))
 }
 
 func stringFromArgs(args map[string]any, key string) string {

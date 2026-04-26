@@ -40,6 +40,20 @@ func TestFormatPRView(t *testing.T) {
 	}
 }
 
+func TestFormatPRView_HidesMergeableUnknown(t *testing.T) {
+	pr := PRView{
+		Number:    1,
+		Title:     "T",
+		State:     "OPEN",
+		Author:    Author{Login: "a"},
+		Mergeable: "UNKNOWN",
+	}
+	got := FormatPRView(pr, 1000)
+	if strings.Contains(got, "Mergeable") {
+		t.Errorf("expected Mergeable line to be hidden when value is UNKNOWN, got:\n%s", got)
+	}
+}
+
 func TestFormatPRView_TruncatesBody(t *testing.T) {
 	pr := PRView{
 		Number: 1,
@@ -459,6 +473,29 @@ func TestFormatSearchPRItem(t *testing.T) {
 		"@octocat",
 		"OPEN",
 		"2025-01-01",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestFormatSearchIssueItem(t *testing.T) {
+	item := SearchIssueItem{
+		Number:     7,
+		Title:      "Bad behavior",
+		State:      "CLOSED",
+		Author:     Author{Login: "octocat"},
+		Repository: Repository{NameWithOwner: "cli/cli"},
+		UpdatedAt:  "2025-02-03T00:00:00Z",
+	}
+	got := FormatSearchIssueItem(item)
+	for _, want := range []string{
+		"cli/cli#7",
+		"Bad behavior",
+		"@octocat",
+		"CLOSED",
+		"2025-02-03",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)

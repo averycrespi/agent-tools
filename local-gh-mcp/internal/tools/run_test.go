@@ -332,11 +332,12 @@ func TestListRuns_StatusEnum(t *testing.T) {
 		prop := tool.InputSchema.Properties["status"].(map[string]any)
 		enum, ok := prop["enum"].([]string)
 		require.True(t, ok, "status must declare an enum")
-		// Full set from gh run list --status.
+		// Full accepted set from `gh run list --status` flag validator.
+		// `pending` is not accepted by gh and is intentionally omitted.
 		expected := []string{
-			"queued", "in_progress", "completed", "waiting", "requested", "pending",
-			"cancelled", "failure", "skipped", "stale", "startup_failure", "success",
-			"timed_out", "action_required", "neutral",
+			"queued", "completed", "in_progress", "requested", "waiting",
+			"action_required", "cancelled", "failure", "neutral", "skipped",
+			"stale", "startup_failure", "success", "timed_out",
 		}
 		assert.ElementsMatch(t, expected, enum)
 		return

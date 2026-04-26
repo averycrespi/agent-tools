@@ -107,6 +107,22 @@ func splitSearchQuery(query string) ([]string, error) {
 	return tokens, nil
 }
 
+// cleanAPIError extracts the most useful single-line error from `gh api`
+// combined output. On failure gh emits the JSON body to stdout and a
+// `gh: <message> (HTTP <code>)` line to stderr; CombinedOutput concatenates
+// them. Prefer the `gh:` line when present; otherwise fall back to the
+// trimmed blob.
+func cleanAPIError(out []byte) string {
+	s := strings.TrimSpace(string(out))
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "gh: ") {
+			return line
+		}
+	}
+	return s
+}
+
 // AuthStatus checks whether the gh CLI is authenticated.
 func (c *Client) AuthStatus(_ context.Context) error {
 	out, err := c.runner.Run("gh", "auth", "status")
@@ -120,7 +136,7 @@ func (c *Client) AuthStatus(_ context.Context) error {
 func (c *Client) ViewUser(_ context.Context) (string, error) {
 	out, err := c.runner.Run("gh", "api", "/user")
 	if err != nil {
-		return "", fmt.Errorf("gh api /user failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh api /user failed: %s", cleanAPIError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -548,12 +564,19 @@ func (c *Client) ViewRun(_ context.Context, owner, repo string, runID string, lo
 
 // ViewRunJobLog fetches the log output for a single workflow job by ID.
 // If tailLines > 0, only the last tailLines lines are returned.
+//
+// gh upstream prepends a TSV prefix `<job>\t<step>\t<timestamp>` to every line;
+// when step metadata is missing the step column reads "UNKNOWN STEP", which
+// burns the byte cap with noise. We collapse those occurrences. We also strip
+// a leading UTF-8 BOM that gh sometimes emits on the first line.
 func (c *Client) ViewRunJobLog(_ context.Context, owner, repo string, jobID int64, tailLines int) (string, error) {
 	out, err := c.runner.Run("gh", "run", "view", "--job", strconv.FormatInt(jobID, 10), "--log", "-R", repoFlag(owner, repo))
 	if err != nil {
 		return "", fmt.Errorf("gh run view --job failed: %s", strings.TrimSpace(string(out)))
 	}
-	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	body := strings.TrimPrefix(string(out), "\uFEFF")
+	body = strings.ReplaceAll(body, "\tUNKNOWN STEP\t", "\t")
+	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
 	if tailLines > 0 && len(lines) > tailLines {
 		lines = lines[len(lines)-tailLines:]
 	}
@@ -611,6 +634,7 @@ func (c *Client) DeleteCache(_ context.Context, owner, repo string, cacheID stri
 // ListPRFiles lists files changed by a pull request.
 // Requests one extra item (up to 100) so callers can detect truncation.
 func (c *Client) ListPRFiles(_ context.Context, owner, repo string, number, limit int) (string, error) {
+	limit = clampLimit(limit)
 	perPage := limit + 1
 	if perPage > 100 {
 		perPage = 100
@@ -619,23 +643,28 @@ func (c *Client) ListPRFiles(_ context.Context, owner, repo string, number, limi
 		fmt.Sprintf("repos/%s/%s/pulls/%s/files?per_page=%s", owner, repo, strconv.Itoa(number), strconv.Itoa(perPage)),
 	)
 	if err != nil {
-		return "", fmt.Errorf("gh api pulls/%d/files failed: %s", number, strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh api pulls/%d/files failed: %s", number, cleanAPIError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
 // ListBranches lists branches in a repository.
 // Requests one extra item (up to 100) so callers can detect truncation.
-func (c *Client) ListBranches(_ context.Context, owner, repo string, limit int) (string, error) {
+// page is 1-indexed; values < 1 are treated as 1.
+func (c *Client) ListBranches(_ context.Context, owner, repo string, limit, page int) (string, error) {
+	limit = clampLimit(limit)
 	perPage := limit + 1
 	if perPage > 100 {
 		perPage = 100
 	}
+	if page < 1 {
+		page = 1
+	}
 	out, err := c.runner.Run("gh", "api",
-		fmt.Sprintf("repos/%s/%s/branches?per_page=%s", owner, repo, strconv.Itoa(perPage)),
+		fmt.Sprintf("repos/%s/%s/branches?per_page=%s&page=%s", owner, repo, strconv.Itoa(perPage), strconv.Itoa(page)),
 	)
 	if err != nil {
-		return "", fmt.Errorf("gh api branches failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh api branches failed: %s", cleanAPIError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -764,6 +793,7 @@ func (c *Client) SearchCode(_ context.Context, query string, opts SearchCodeOpts
 // ListReleases lists releases in a repository.
 // limit+1 entries are requested so the caller can detect truncation.
 func (c *Client) ListReleases(_ context.Context, owner, repo string, limit int) (string, error) {
+	limit = clampLimit(limit)
 	args := []string{"release", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(limit + 1), "--json", "tagName,name,publishedAt,isDraft,isPrerelease"}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {

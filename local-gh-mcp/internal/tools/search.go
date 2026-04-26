@@ -14,7 +14,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_search_prs",
-			Description: "Search pull requests across GitHub using the GitHub search DSL. Example: 'is:open author:@me review-requested:@me'. Use gh_list_prs instead if you have a specific owner/repo. Results truncated at 100; refine your query if you need more.",
+			Description: "Search pull requests across GitHub using the GitHub search DSL. Example: 'is:open author:@me review-requested:@me'. Use gh_list_prs instead if you have a specific owner/repo. Default 30, max 100; pass `limit` to widen. Filter flags (state, repo, owner) and same-meaning qualifiers in `query` (is:, repo:, org:) are both forwarded to GitHub; behavior on conflict varies by search type, so pick one place to set each filter.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -55,7 +55,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_issues",
-			Description: "Search issues across GitHub using the GitHub search DSL. Example: 'is:open label:bug author:@me'. Use gh_list_issues instead if you have a specific owner/repo. Results truncated at 100; refine your query if you need more.",
+			Description: "Search issues across GitHub using the GitHub search DSL. Example: 'is:open label:bug author:@me'. Use gh_list_issues instead if you have a specific owner/repo. Default 30, max 100; pass `limit` to widen. Filter flags (state, repo, owner) and same-meaning qualifiers in `query` (is:, repo:, org:) are both forwarded to GitHub; behavior on conflict varies by search type, so pick one place to set each filter.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -96,7 +96,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_repos",
-			Description: "Search repositories across GitHub using the GitHub search DSL. Example: 'language:go stars:>100 topic:cli'. Results truncated at 100; refine your query if you need more.",
+			Description: "Search repositories across GitHub using the GitHub search DSL. Example: 'language:go stars:>100 topic:cli'. Default 30, max 100; pass `limit` to widen. Filter flags (owner, language, topic, stars) and same-meaning qualifiers in `query` are both forwarded to GitHub; behavior on conflict varies by search type, so pick one place to set each filter.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -132,7 +132,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_code",
-			Description: "Search code across GitHub using the GitHub search DSL. Example: 'addEventListener language:javascript repo:facebook/react'. Results truncated at 100; refine your query if you need more.",
+			Description: "Search code across GitHub using the GitHub search DSL. Example: 'addEventListener language:javascript repo:facebook/react'. Default 30, max 100; pass `limit` to widen. Filter flags (repo, owner, language, extension, filename) and same-meaning qualifiers in `query` are both forwarded to GitHub; behavior on conflict varies by search type, so pick one place to set each filter.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -172,7 +172,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_commits",
-			Description: "Search commits across GitHub using the GitHub search DSL. Example: 'author:octocat repo:github/docs merge:false'. Results truncated at 100; refine your query if you need more.",
+			Description: "Search commits across GitHub using the GitHub search DSL. Example: 'author:octocat repo:github/docs merge:false'. Default 30, max 100; pass `limit` to widen. Filter flags (repo, owner, author) and same-meaning qualifiers in `query` are both forwarded to GitHub; behavior on conflict varies by search type, so pick one place to set each filter.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -211,10 +211,14 @@ func (h *Handler) handleSearchPRs(ctx context.Context, req gomcp.CallToolRequest
 	if query == "" {
 		return gomcp.NewToolResultError("query is required"), nil
 	}
+	state := stringFromArgs(args, "state")
+	if errResult := validateEnum("state", state, []string{"open", "closed", "merged", "all"}); errResult != nil {
+		return errResult, nil
+	}
 	opts := gh.SearchPRsOpts{
 		Repo:   stringFromArgs(args, "repo"),
 		Owner:  stringFromArgs(args, "owner"),
-		State:  stringFromArgs(args, "state"),
+		State:  state,
 		Author: stringFromArgs(args, "author"),
 		Label:  stringFromArgs(args, "label"),
 		Limit:  intFromArgs(args, "limit"),
@@ -243,10 +247,14 @@ func (h *Handler) handleSearchIssues(ctx context.Context, req gomcp.CallToolRequ
 	if query == "" {
 		return gomcp.NewToolResultError("query is required"), nil
 	}
+	state := stringFromArgs(args, "state")
+	if errResult := validateEnum("state", state, []string{"open", "closed", "all"}); errResult != nil {
+		return errResult, nil
+	}
 	opts := gh.SearchIssuesOpts{
 		Repo:   stringFromArgs(args, "repo"),
 		Owner:  stringFromArgs(args, "owner"),
-		State:  stringFromArgs(args, "state"),
+		State:  state,
 		Author: stringFromArgs(args, "author"),
 		Label:  stringFromArgs(args, "label"),
 		Limit:  intFromArgs(args, "limit"),
@@ -255,13 +263,13 @@ func (h *Handler) handleSearchIssues(ctx context.Context, req gomcp.CallToolRequ
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	var items []format.SearchPRItem
+	var items []format.SearchIssueItem
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
 		return parseError("gh_search_issues", err, out), nil
 	}
 	var lines []string
 	for _, item := range items {
-		lines = append(lines, format.FormatSearchPRItem(item))
+		lines = append(lines, format.FormatSearchIssueItem(item))
 	}
 	if len(lines) == 0 {
 		return gomcp.NewToolResultText("No issues found."), nil

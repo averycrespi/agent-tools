@@ -175,8 +175,16 @@ type SearchPRItem struct {
 	UpdatedAt  string     `json:"updatedAt"`
 }
 
-// SearchIssueItem is an alias for SearchPRItem as they share the same shape.
-type SearchIssueItem = SearchPRItem
+// SearchIssueItem represents an issue in search results. Distinct from
+// SearchPRItem so issue-only fields can be added without affecting PR rendering.
+type SearchIssueItem struct {
+	Number     int        `json:"number"`
+	Title      string     `json:"title"`
+	State      string     `json:"state"`
+	Author     Author     `json:"author"`
+	Repository Repository `json:"repository"`
+	UpdatedAt  string     `json:"updatedAt"`
+}
 
 // SearchRepoItem represents a repository in search results.
 type SearchRepoItem struct {
@@ -233,7 +241,11 @@ func FormatPRView(pr PRView, maxBodyLen int) string {
 	if pr.IsDraft {
 		draft = "yes"
 	}
-	fmt.Fprintf(&sb, "**Draft:** %s | **Mergeable:** %s | **Review:** %s\n", draft, pr.Mergeable, pr.ReviewDecision)
+	if pr.Mergeable != "" && pr.Mergeable != "UNKNOWN" {
+		fmt.Fprintf(&sb, "**Draft:** %s | **Mergeable:** %s | **Review:** %s\n", draft, pr.Mergeable, pr.ReviewDecision)
+	} else {
+		fmt.Fprintf(&sb, "**Draft:** %s | **Review:** %s\n", draft, pr.ReviewDecision)
+	}
 	fmt.Fprintf(&sb, "**Labels:** %s\n", FormatLabels(pr.Labels))
 
 	body := TruncateBody(StripImages(pr.Body), maxBodyLen)
@@ -469,8 +481,15 @@ func FormatRunView(run RunView) string {
 	return sb.String()
 }
 
-// FormatSearchPRItem formats a search PR/issue item as a markdown bullet.
+// FormatSearchPRItem formats a search PR item as a markdown bullet.
 func FormatSearchPRItem(item SearchPRItem) string {
+	return fmt.Sprintf("- **%s#%d** %s — %s, %s, updated %s",
+		item.Repository.Name(), item.Number, item.Title,
+		FormatAuthor(item.Author), item.State, FormatDate(item.UpdatedAt))
+}
+
+// FormatSearchIssueItem formats a search issue item as a markdown bullet.
+func FormatSearchIssueItem(item SearchIssueItem) string {
 	return fmt.Sprintf("- **%s#%d** %s — %s, %s, updated %s",
 		item.Repository.Name(), item.Number, item.Title,
 		FormatAuthor(item.Author), item.State, FormatDate(item.UpdatedAt))

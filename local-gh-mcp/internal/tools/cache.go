@@ -77,10 +77,21 @@ func (h *Handler) handleListCaches(ctx context.Context, req gomcp.CallToolReques
 	if errResult != nil {
 		return errResult, nil
 	}
+	sort := stringFromArgs(args, "sort")
+	if errResult := validateEnum("sort", sort, []string{"created_at", "last_accessed_at", "size_in_bytes"}); errResult != nil {
+		return errResult, nil
+	}
+	order := stringFromArgs(args, "order")
+	if errResult := validateEnum("order", order, []string{"asc", "desc"}); errResult != nil {
+		return errResult, nil
+	}
+	if order != "" && sort == "" {
+		return gomcp.NewToolResultError("order has no effect without sort; pass sort to choose a field"), nil
+	}
 	opts := gh.ListCachesOpts{
 		Limit: intFromArgs(args, "limit"),
-		Sort:  stringFromArgs(args, "sort"),
-		Order: stringFromArgs(args, "order"),
+		Sort:  sort,
+		Order: order,
 	}
 	out, err := h.gh.ListCaches(ctx, owner, repo, opts)
 	if err != nil {

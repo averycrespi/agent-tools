@@ -46,7 +46,7 @@ type mockGHClient struct {
 	draftPRFunc          func(ctx context.Context, owner, repo string, number int) (string, error)
 	reopenPRFunc         func(ctx context.Context, owner, repo string, number int) (string, error)
 	listPRFilesFunc      func(ctx context.Context, owner, repo string, number, limit int) (string, error)
-	listBranchesFunc     func(ctx context.Context, owner, repo string, limit int) (string, error)
+	listBranchesFunc     func(ctx context.Context, owner, repo string, limit, page int) (string, error)
 	viewRunJobLogFunc    func(ctx context.Context, owner, repo string, jobID int64, tail int) (string, error)
 	listReleasesFunc     func(ctx context.Context, owner, repo string, limit int) (string, error)
 	viewReleaseFunc      func(ctx context.Context, owner, repo string, tag string) (string, error)
@@ -283,9 +283,9 @@ func (m *mockGHClient) ListPRFiles(ctx context.Context, owner, repo string, numb
 	return "", nil
 }
 
-func (m *mockGHClient) ListBranches(ctx context.Context, owner, repo string, limit int) (string, error) {
+func (m *mockGHClient) ListBranches(ctx context.Context, owner, repo string, limit, page int) (string, error) {
 	if m.listBranchesFunc != nil {
-		return m.listBranchesFunc(ctx, owner, repo, limit)
+		return m.listBranchesFunc(ctx, owner, repo, limit, page)
 	}
 	return "", nil
 }

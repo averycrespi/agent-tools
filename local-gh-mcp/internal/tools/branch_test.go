@@ -11,7 +11,7 @@ import (
 
 func TestGhListBranches(t *testing.T) {
 	mock := &mockGHClient{
-		listBranchesFunc: func(_ context.Context, _, _ string, _ int) (string, error) {
+		listBranchesFunc: func(_ context.Context, _, _ string, _, _ int) (string, error) {
 			return `[
 				{"name":"main","commit":{"sha":"abc1234xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}},
 				{"name":"feat/foo","commit":{"sha":"def5678xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}}
@@ -42,7 +42,7 @@ func TestGhListBranchesTruncates(t *testing.T) {
 	}
 	payload := "[" + strings.Join(parts, ",") + "]"
 	mock := &mockGHClient{
-		listBranchesFunc: func(_ context.Context, _, _ string, _ int) (string, error) { return payload, nil },
+		listBranchesFunc: func(_ context.Context, _, _ string, _, _ int) (string, error) { return payload, nil },
 	}
 	h := NewHandler(mock)
 	res, _ := h.Handle(context.Background(), gomcp.CallToolRequest{
@@ -52,5 +52,43 @@ func TestGhListBranchesTruncates(t *testing.T) {
 	})
 	if !strings.Contains(textOf(res), "showing 30 of 40") {
 		t.Errorf("expected truncation trailer")
+	}
+}
+
+func TestGhListBranchesPagePassed(t *testing.T) {
+	var gotPage int
+	mock := &mockGHClient{
+		listBranchesFunc: func(_ context.Context, _, _ string, _, page int) (string, error) {
+			gotPage = page
+			return `[]`, nil
+		},
+	}
+	h := NewHandler(mock)
+	_, _ = h.Handle(context.Background(), gomcp.CallToolRequest{
+		Params: gomcp.CallToolParams{Name: "gh_list_branches", Arguments: map[string]any{
+			"owner": "x", "repo": "y", "page": float64(3),
+		}},
+	})
+	if gotPage != 3 {
+		t.Errorf("expected page=3 to be passed through, got %d", gotPage)
+	}
+}
+
+func TestGhListBranchesPageDefaultsToOne(t *testing.T) {
+	var gotPage int
+	mock := &mockGHClient{
+		listBranchesFunc: func(_ context.Context, _, _ string, _, page int) (string, error) {
+			gotPage = page
+			return `[]`, nil
+		},
+	}
+	h := NewHandler(mock)
+	_, _ = h.Handle(context.Background(), gomcp.CallToolRequest{
+		Params: gomcp.CallToolParams{Name: "gh_list_branches", Arguments: map[string]any{
+			"owner": "x", "repo": "y",
+		}},
+	})
+	if gotPage != 1 {
+		t.Errorf("expected page to default to 1, got %d", gotPage)
 	}
 }

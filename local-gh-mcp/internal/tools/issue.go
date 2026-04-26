@@ -29,6 +29,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 					},
 					"issue_number": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"description": "Issue number",
 					},
 					"max_body_length": map[string]any{
@@ -58,7 +59,8 @@ func (h *Handler) issueTools() []gomcp.Tool {
 					"state": map[string]any{
 						"type":        "string",
 						"enum":        []string{"open", "closed", "all"},
-						"description": "Filter by state.",
+						"default":     "open",
+						"description": "Filter by state (default open).",
 					},
 					"author": map[string]any{
 						"type":        "string",
@@ -102,6 +104,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 					},
 					"issue_number": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"description": "Issue number",
 					},
 					"body": map[string]any{
@@ -129,6 +132,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 					},
 					"issue_number": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"description": "Issue number",
 					},
 					"max_body_length": map[string]any{
@@ -154,9 +158,9 @@ func (h *Handler) handleViewIssue(ctx context.Context, req gomcp.CallToolRequest
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "issue_number")
-	if number == 0 {
-		return gomcp.NewToolResultError("issue_number is required"), nil
+	number, errResult := requirePositiveInt(args, "issue_number")
+	if errResult != nil {
+		return errResult, nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
 	out, err := h.gh.ViewIssue(ctx, owner, repo, number)
@@ -176,8 +180,12 @@ func (h *Handler) handleListIssues(ctx context.Context, req gomcp.CallToolReques
 	if errResult != nil {
 		return errResult, nil
 	}
+	state := stringFromArgs(args, "state")
+	if errResult := validateEnum("state", state, []string{"open", "closed", "all"}); errResult != nil {
+		return errResult, nil
+	}
 	opts := gh.ListIssuesOpts{
-		State:     stringFromArgs(args, "state"),
+		State:     state,
 		Author:    stringFromArgs(args, "author"),
 		Assignee:  stringFromArgs(args, "assignee"),
 		Label:     stringFromArgs(args, "label"),
@@ -208,9 +216,9 @@ func (h *Handler) handleCommentIssue(ctx context.Context, req gomcp.CallToolRequ
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "issue_number")
-	if number == 0 {
-		return gomcp.NewToolResultError("issue_number is required"), nil
+	number, errResult := requirePositiveInt(args, "issue_number")
+	if errResult != nil {
+		return errResult, nil
 	}
 	if errResult := requireStringFields("gh_comment_issue", args, "body"); errResult != nil {
 		return errResult, nil
@@ -229,9 +237,9 @@ func (h *Handler) handleListIssueComments(ctx context.Context, req gomcp.CallToo
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "issue_number")
-	if number == 0 {
-		return gomcp.NewToolResultError("issue_number is required"), nil
+	number, errResult := requirePositiveInt(args, "issue_number")
+	if errResult != nil {
+		return errResult, nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
 	limit := intFromArgs(args, "limit")
