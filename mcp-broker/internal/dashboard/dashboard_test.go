@@ -335,7 +335,8 @@ func TestHandleRules_AgreesWithEngineEvaluateWithRule(t *testing.T) {
 		{Tool: "fs.*", Verdict: "require-approval"},
 		{Tool: "*", Verdict: "allow"},
 	}
-	engine := rules.New(ruleConfigs)
+	engine, err := rules.New(ruleConfigs)
+	require.NoError(t, err)
 
 	toolList := []server.Tool{
 		{Name: "github.list_prs"},
@@ -369,7 +370,7 @@ func TestHandleRules_AgreesWithEngineEvaluateWithRule(t *testing.T) {
 	}
 	var expectedUnmatched []string
 	for _, tool := range toolList {
-		_, idx := engine.EvaluateWithRule(tool.Name)
+		_, idx := engine.EvaluateWithRule(tool.Name, nil)
 		if idx >= 0 {
 			expectedMatches[idx] = append(expectedMatches[idx], tool.Name)
 		} else {

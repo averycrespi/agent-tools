@@ -103,7 +103,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	logger.Info("tools discovered", "count", len(tools))
 
 	// Create rules engine
-	engine := rules.New(cfg.Rules)
+	engine, err := rules.New(cfg.Rules)
+	if err != nil {
+		return fmt.Errorf("compiling rules: %w", err)
+	}
 
 	// Create dashboard
 	dash := dashboard.New(mgr, engine, auditor, logger.With("component", "dashboard"))
