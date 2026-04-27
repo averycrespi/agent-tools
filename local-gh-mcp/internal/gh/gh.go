@@ -704,7 +704,16 @@ func (c *Client) SearchPRs(_ context.Context, query string, opts SearchPRsOpts) 
 	if opts.Owner != "" {
 		args = append(args, "--owner", opts.Owner)
 	}
-	if opts.State != "" {
+	// gh search prs only accepts --state open|closed; translate merged and all
+	// at the wrapper boundary so agents can use the full schema enum set.
+	switch opts.State {
+	case "merged":
+		// Drop --state; inject is:merged into the query token list instead.
+	case "all":
+		// Drop --state entirely; gh search prs returns all states by default.
+	case "":
+		// No state filter requested.
+	default:
 		args = append(args, "--state", opts.State)
 	}
 	if opts.Author != "" {
@@ -716,6 +725,9 @@ func (c *Client) SearchPRs(_ context.Context, query string, opts SearchPRsOpts) 
 	tokens, err := splitSearchQuery(query)
 	if err != nil {
 		return "", err
+	}
+	if opts.State == "merged" {
+		tokens = append(tokens, "is:merged")
 	}
 	args = append(args, "--")
 	args = append(args, tokens...)
@@ -735,7 +747,14 @@ func (c *Client) SearchIssues(_ context.Context, query string, opts SearchIssues
 	if opts.Owner != "" {
 		args = append(args, "--owner", opts.Owner)
 	}
-	if opts.State != "" {
+	// gh search issues only accepts --state open|closed; translate all at the
+	// wrapper boundary so agents can use the full schema enum set.
+	switch opts.State {
+	case "all":
+		// Drop --state entirely; gh search issues returns all states by default.
+	case "":
+		// No state filter requested.
+	default:
 		args = append(args, "--state", opts.State)
 	}
 	if opts.Author != "" {

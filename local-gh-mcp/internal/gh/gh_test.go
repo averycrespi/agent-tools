@@ -454,6 +454,113 @@ func TestSearchPRs_SubshellSyntaxIsLiteral(t *testing.T) {
 	assert.Equal(t, []string{"$(echo", "pwned)", "`whoami`"}, postDash)
 }
 
+// TestSearchPRs_StateOpen verifies that state=open forwards --state open.
+func TestSearchPRs_StateOpen(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchPRs(context.Background(), "fixme", SearchPRsOpts{State: "open"})
+	require.NoError(t, err)
+	assert.Contains(t, args, "--state")
+	assert.Contains(t, args, "open")
+	// is:merged must not be injected
+	for _, a := range args {
+		assert.NotEqual(t, "is:merged", a)
+	}
+}
+
+// TestSearchPRs_StateClosed verifies that state=closed forwards --state closed.
+func TestSearchPRs_StateClosed(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchPRs(context.Background(), "fixme", SearchPRsOpts{State: "closed"})
+	require.NoError(t, err)
+	assert.Contains(t, args, "--state")
+	assert.Contains(t, args, "closed")
+	// is:merged must not be injected
+	for _, a := range args {
+		assert.NotEqual(t, "is:merged", a)
+	}
+}
+
+// TestSearchPRs_StateMerged verifies that state=merged drops --state and
+// injects is:merged as a positional query token after the -- separator.
+func TestSearchPRs_StateMerged(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchPRs(context.Background(), "fixme", SearchPRsOpts{State: "merged"})
+	require.NoError(t, err)
+	// --state must not appear
+	for i, a := range args {
+		if a == "--state" {
+			t.Fatalf("--state must not appear in argv for state=merged; found at index %d", i)
+		}
+	}
+	// is:merged must appear after --
+	dashIdx := -1
+	for i, a := range args {
+		if a == "--" {
+			dashIdx = i
+			break
+		}
+	}
+	require.NotEqual(t, -1, dashIdx, "expected -- separator")
+	postDash := args[dashIdx+1:]
+	assert.Contains(t, postDash, "is:merged")
+}
+
+// TestSearchPRs_StateAll verifies that state=all drops --state and does not
+// inject any extra query token.
+func TestSearchPRs_StateAll(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchPRs(context.Background(), "fixme", SearchPRsOpts{State: "all"})
+	require.NoError(t, err)
+	// --state must not appear
+	for i, a := range args {
+		if a == "--state" {
+			t.Fatalf("--state must not appear in argv for state=all; found at index %d", i)
+		}
+	}
+	// is:merged must not be injected
+	for _, a := range args {
+		assert.NotEqual(t, "is:merged", a)
+	}
+}
+
+// TestSearchIssues_StateOpen verifies that state=open forwards --state open.
+func TestSearchIssues_StateOpen(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchIssues(context.Background(), "memory leak", SearchIssuesOpts{State: "open"})
+	require.NoError(t, err)
+	assert.Contains(t, args, "--state")
+	assert.Contains(t, args, "open")
+}
+
+// TestSearchIssues_StateClosed verifies that state=closed forwards --state closed.
+func TestSearchIssues_StateClosed(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchIssues(context.Background(), "memory leak", SearchIssuesOpts{State: "closed"})
+	require.NoError(t, err)
+	assert.Contains(t, args, "--state")
+	assert.Contains(t, args, "closed")
+}
+
+// TestSearchIssues_StateAll verifies that state=all drops --state entirely.
+func TestSearchIssues_StateAll(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchIssues(context.Background(), "memory leak", SearchIssuesOpts{State: "all"})
+	require.NoError(t, err)
+	// --state must not appear
+	for i, a := range args {
+		if a == "--state" {
+			t.Fatalf("--state must not appear in argv for state=all; found at index %d", i)
+		}
+	}
+}
+
 func TestSearchCode_Args(t *testing.T) {
 	var args []string
 	c := NewClient(capturedArgs(t, &args))
