@@ -3,18 +3,57 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
+	"github.com/google/shlex"
 	gomcp "github.com/mark3labs/mcp-go/mcp"
 )
+
+// containsQualifier reports whether any token has one of the given qualifier
+// prefixes (e.g. "is:", "repo:"). Tokens come pre-split via shlex so a single
+// quoted phrase like `"hello world"` is a single token and won't false-match.
+func containsQualifier(tokens []string, qualifiers ...string) bool {
+	for _, t := range tokens {
+		for _, q := range qualifiers {
+			if strings.HasPrefix(t, q+":") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// queryTokens shlex-splits a search query for conflict detection. On split
+// failure the wrapper layer surfaces the same error with more context, so we
+// return nil here and let the wrapper produce the final error.
+func queryTokens(query string) []string {
+	tokens, err := shlex.Split(query)
+	if err != nil {
+		return nil
+	}
+	return tokens
+}
+
+// rejectConflict returns a tool-error result when the named flag is set
+// non-empty and the query already contains one of the matching qualifiers.
+func rejectConflict(flag, flagValue string, tokens []string, qualifiers ...string) *gomcp.CallToolResult {
+	if flagValue == "" {
+		return nil
+	}
+	if containsQualifier(tokens, qualifiers...) {
+		return gomcp.NewToolResultError(fmt.Sprintf("%s set both via flag and query; pick one", flag))
+	}
+	return nil
+}
 
 func (h *Handler) searchTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_search_prs",
-			Description: "Search pull requests across GitHub using the GitHub search DSL. Example: 'is:open author:@me review-requested:@me'. Use gh_list_prs instead if you have a specific owner/repo. Default 30, max 100; pass `limit` to widen. Filter flags (state, repo, owner) and same-meaning qualifiers in `query` (is:, repo:, org:) are both forwarded to GitHub; behavior on conflict varies by search type, so pick one place to set each filter.",
+			Description: "Search pull requests across GitHub using the GitHub search DSL. Example: 'is:open author:@me review-requested:@me'. Use gh_list_prs instead if you have a specific owner/repo. Default 30, max 100; pass `limit` to widen. Filter flags (state, repo, owner) and same-meaning qualifiers in `query` (is:, repo:, org:) are both forwarded to GitHub; setting the same filter via both flag and query is rejected.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -60,7 +99,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_issues",
-			Description: "Search issues across GitHub using the GitHub search DSL. Example: 'is:open label:bug author:@me'. Use gh_list_issues instead if you have a specific owner/repo. Default 30, max 100; pass `limit` to widen. Filter flags (state, repo, owner) and same-meaning qualifiers in `query` (is:, repo:, org:) are both forwarded to GitHub; behavior on conflict varies by search type, so pick one place to set each filter.",
+			Description: "Search issues across GitHub using the GitHub search DSL. Example: 'is:open label:bug author:@me'. Use gh_list_issues instead if you have a specific owner/repo. Default 30, max 100; pass `limit` to widen. Filter flags (state, repo, owner) and same-meaning qualifiers in `query` (is:, repo:, org:) are both forwarded to GitHub; setting the same filter via both flag and query is rejected.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -106,7 +145,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_repos",
-			Description: "Search repositories across GitHub using the GitHub search DSL. Example: 'language:go stars:>100 topic:cli'. Default 30, max 100; pass `limit` to widen. Filter flags (owner, language, topic, stars) and same-meaning qualifiers in `query` are both forwarded to GitHub; behavior on conflict varies by search type, so pick one place to set each filter.",
+			Description: "Search repositories across GitHub using the GitHub search DSL. Example: 'language:go stars:>100 topic:cli'. Default 30, max 100; pass `limit` to widen. Filter flags (owner, language, topic, stars) and same-meaning qualifiers in `query` are both forwarded to GitHub; setting the same filter via both flag and query is rejected.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -142,7 +181,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_code",
-			Description: "Search code across GitHub using the GitHub search DSL. Example: 'addEventListener language:javascript repo:facebook/react'. Default 30, max 100; pass `limit` to widen. Filter flags (repo, owner, language, extension, filename) and same-meaning qualifiers in `query` are both forwarded to GitHub; behavior on conflict varies by search type, so pick one place to set each filter.",
+			Description: "Search code across GitHub using the GitHub search DSL. Example: 'addEventListener language:javascript repo:facebook/react'. Default 30, max 100; pass `limit` to widen. Filter flags (repo, owner, language, extension, filename) and same-meaning qualifiers in `query` are both forwarded to GitHub; setting the same filter via both flag and query is rejected.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -182,7 +221,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_search_commits",
-			Description: "Search commits across GitHub using the GitHub search DSL. Example: 'author:octocat repo:github/docs merge:false'. Default 30, max 100; pass `limit` to widen. Filter flags (repo, owner, author) and same-meaning qualifiers in `query` are both forwarded to GitHub; behavior on conflict varies by search type, so pick one place to set each filter.",
+			Description: "Search commits across GitHub using the GitHub search DSL. Example: 'author:octocat repo:github/docs merge:false'. Default 30, max 100; pass `limit` to widen. Filter flags (repo, owner, author) and same-meaning qualifiers in `query` are both forwarded to GitHub; setting the same filter via both flag and query is rejected.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -225,12 +264,32 @@ func (h *Handler) handleSearchPRs(ctx context.Context, req gomcp.CallToolRequest
 	if errResult := validateEnum("state", state, []string{"open", "closed", "merged", "all"}); errResult != nil {
 		return errResult, nil
 	}
+	repo := stringFromArgs(args, "repo")
+	owner := stringFromArgs(args, "owner")
+	author := stringFromArgs(args, "author")
+	label := stringFromArgs(args, "label")
+	tokens := queryTokens(query)
+	if errResult := rejectConflict("state", state, tokens, "state", "is"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("repo", repo, tokens, "repo"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("owner", owner, tokens, "owner", "org"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("author", author, tokens, "author"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("label", label, tokens, "label"); errResult != nil {
+		return errResult, nil
+	}
 	opts := gh.SearchPRsOpts{
-		Repo:   stringFromArgs(args, "repo"),
-		Owner:  stringFromArgs(args, "owner"),
+		Repo:   repo,
+		Owner:  owner,
 		State:  state,
-		Author: stringFromArgs(args, "author"),
-		Label:  stringFromArgs(args, "label"),
+		Author: author,
+		Label:  label,
 		Limit:  intFromArgs(args, "limit"),
 	}
 	out, err := h.gh.SearchPRs(ctx, query, opts)
@@ -262,12 +321,32 @@ func (h *Handler) handleSearchIssues(ctx context.Context, req gomcp.CallToolRequ
 	if errResult := validateEnum("state", state, []string{"open", "closed", "all"}); errResult != nil {
 		return errResult, nil
 	}
+	repo := stringFromArgs(args, "repo")
+	owner := stringFromArgs(args, "owner")
+	author := stringFromArgs(args, "author")
+	label := stringFromArgs(args, "label")
+	tokens := queryTokens(query)
+	if errResult := rejectConflict("state", state, tokens, "state", "is"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("repo", repo, tokens, "repo"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("owner", owner, tokens, "owner", "org"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("author", author, tokens, "author"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("label", label, tokens, "label"); errResult != nil {
+		return errResult, nil
+	}
 	opts := gh.SearchIssuesOpts{
-		Repo:   stringFromArgs(args, "repo"),
-		Owner:  stringFromArgs(args, "owner"),
+		Repo:   repo,
+		Owner:  owner,
 		State:  state,
-		Author: stringFromArgs(args, "author"),
-		Label:  stringFromArgs(args, "label"),
+		Author: author,
+		Label:  label,
 		Limit:  intFromArgs(args, "limit"),
 	}
 	out, err := h.gh.SearchIssues(ctx, query, opts)
@@ -295,11 +374,28 @@ func (h *Handler) handleSearchRepos(ctx context.Context, req gomcp.CallToolReque
 	if query == "" {
 		return gomcp.NewToolResultError("query is required"), nil
 	}
+	owner := stringFromArgs(args, "owner")
+	language := stringFromArgs(args, "language")
+	topic := stringFromArgs(args, "topic")
+	stars := stringFromArgs(args, "stars")
+	tokens := queryTokens(query)
+	if errResult := rejectConflict("owner", owner, tokens, "owner", "org", "user"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("language", language, tokens, "language"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("topic", topic, tokens, "topic"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("stars", stars, tokens, "stars"); errResult != nil {
+		return errResult, nil
+	}
 	opts := gh.SearchReposOpts{
-		Owner:    stringFromArgs(args, "owner"),
-		Language: stringFromArgs(args, "language"),
-		Topic:    stringFromArgs(args, "topic"),
-		Stars:    stringFromArgs(args, "stars"),
+		Owner:    owner,
+		Language: language,
+		Topic:    topic,
+		Stars:    stars,
 		Limit:    intFromArgs(args, "limit"),
 	}
 	out, err := h.gh.SearchRepos(ctx, query, opts)
@@ -326,12 +422,33 @@ func (h *Handler) handleSearchCode(ctx context.Context, req gomcp.CallToolReques
 	if query == "" {
 		return gomcp.NewToolResultError("query is required"), nil
 	}
+	repo := stringFromArgs(args, "repo")
+	owner := stringFromArgs(args, "owner")
+	language := stringFromArgs(args, "language")
+	extension := stringFromArgs(args, "extension")
+	filename := stringFromArgs(args, "filename")
+	tokens := queryTokens(query)
+	if errResult := rejectConflict("repo", repo, tokens, "repo"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("owner", owner, tokens, "owner", "org"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("language", language, tokens, "language"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("extension", extension, tokens, "extension"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("filename", filename, tokens, "filename"); errResult != nil {
+		return errResult, nil
+	}
 	opts := gh.SearchCodeOpts{
-		Repo:      stringFromArgs(args, "repo"),
-		Owner:     stringFromArgs(args, "owner"),
-		Language:  stringFromArgs(args, "language"),
-		Extension: stringFromArgs(args, "extension"),
-		Filename:  stringFromArgs(args, "filename"),
+		Repo:      repo,
+		Owner:     owner,
+		Language:  language,
+		Extension: extension,
+		Filename:  filename,
 		Limit:     intFromArgs(args, "limit"),
 	}
 	out, err := h.gh.SearchCode(ctx, query, opts)
@@ -358,10 +475,23 @@ func (h *Handler) handleSearchCommits(ctx context.Context, req gomcp.CallToolReq
 	if query == "" {
 		return gomcp.NewToolResultError("query is required"), nil
 	}
+	repo := stringFromArgs(args, "repo")
+	owner := stringFromArgs(args, "owner")
+	author := stringFromArgs(args, "author")
+	tokens := queryTokens(query)
+	if errResult := rejectConflict("repo", repo, tokens, "repo"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("owner", owner, tokens, "owner", "org"); errResult != nil {
+		return errResult, nil
+	}
+	if errResult := rejectConflict("author", author, tokens, "author"); errResult != nil {
+		return errResult, nil
+	}
 	opts := gh.SearchCommitsOpts{
-		Repo:   stringFromArgs(args, "repo"),
-		Owner:  stringFromArgs(args, "owner"),
-		Author: stringFromArgs(args, "author"),
+		Repo:   repo,
+		Owner:  owner,
+		Author: author,
 		Limit:  intFromArgs(args, "limit"),
 	}
 	out, err := h.gh.SearchCommits(ctx, query, opts)
