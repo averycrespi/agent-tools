@@ -37,7 +37,7 @@ Each doc has a distinct audience and scope — don't duplicate content between t
 
 - **`README.md`** — user-facing. What the tool does, how to install it, how to use it (Quick Start, Commands, security notes). Audience: anyone consuming the tool.
 - **`DESIGN.md`** — source of truth for what the system should be and do. Motivation, intended behavior, architecture, key design decisions. When code and `DESIGN.md` disagree, the code is the bug. Update `DESIGN.md` deliberately when the intended design changes. Audience: anyone deciding what the tool should do.
-- **`CLAUDE.md`** — conventions for Claude sessions inside the tool. Development commands, package layout, dependency flow, tool-specific gotchas (intentional `//nolint` directives, error-wrapping patterns, invariants that aren't obvious from the code). Audience: Claude and humans editing the tool.
+- **`CLAUDE.md`** — conventions for Claude sessions inside the tool. Development commands, package layout, dependency flow, tool-specific gotchas (intentional `//nolint` directives, error-wrapping patterns, invariants that aren't obvious from the code). Audience: Claude and humans editing the tool. Each `CLAUDE.md` has a sibling `AGENTS.md` symlink pointing to it, so non-Claude agents that look for `AGENTS.md` get the same content.
 - **`docs/*.md`** — standalone topic guides (e.g., `docs/launchd.md`). Use when a topic is too detailed for the README but isn't design-level context.
 - **`examples/`** — copy-pasteable artifacts referenced from `docs/` or the README.
 
@@ -46,6 +46,6 @@ Each doc has a distinct audience and scope — don't duplicate content between t
 1. Create `<name>/` with `go.mod` (`module github.com/averycrespi/agent-tools/<name>`)
 2. Copy `Makefile` from an existing tool and update the binary name
 3. Scaffold `cmd/<binary>/main.go` + `root.go` and `internal/` packages
-4. Write `README.md`, `DESIGN.md`, `CLAUDE.md` (see purposes above)
+4. Write `README.md`, `DESIGN.md`, `CLAUDE.md` (see purposes above), and add an `AGENTS.md` symlink to `CLAUDE.md` (`ln -s CLAUDE.md AGENTS.md`)
 5. Add `<name>` to the `TOOLS` list in the root `Makefile`
 6. Run `go mod tidy`
