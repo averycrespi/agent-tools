@@ -598,11 +598,9 @@ func FormatBranches(branches []Branch, limit int) string {
 // Release represents the JSON output of `gh release view --json` or a single
 // element from `gh release list --json`.
 type Release struct {
-	TagName string `json:"tagName"`
-	Name    string `json:"name"`
-	Author  struct {
-		Login string `json:"login"`
-	} `json:"author"`
+	TagName      string         `json:"tagName"`
+	Name         string         `json:"name"`
+	Author       Author         `json:"author"`
 	PublishedAt  string         `json:"publishedAt"`
 	Body         string         `json:"body"`
 	IsDraft      bool           `json:"isDraft"`
@@ -660,7 +658,7 @@ func FormatRelease(r Release, maxBodyLength int) string {
 	}
 	b.WriteString("\n")
 	if r.Author.Login != "" {
-		fmt.Fprintf(&b, "by @%s", r.Author.Login)
+		fmt.Fprintf(&b, "by %s", FormatAuthor(r.Author))
 	}
 	if r.PublishedAt != "" {
 		date := r.PublishedAt

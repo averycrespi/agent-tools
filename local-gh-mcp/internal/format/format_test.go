@@ -21,6 +21,24 @@ func TestFormatAuthor_Empty(t *testing.T) {
 	assert.Equal(t, "@unknown", got)
 }
 
+func TestFormatAuthor_BotSuffix_IsBot_False(t *testing.T) {
+	// Defensive path: login carries "[bot]" suffix even when IsBot is false.
+	got := FormatAuthor(Author{Login: "github-actions[bot]", IsBot: false})
+	assert.Equal(t, "@github-actions [bot]", got)
+}
+
+func TestFormatAuthor_BotSuffix_IsBot_True(t *testing.T) {
+	// Both flags agree — should not double the suffix.
+	got := FormatAuthor(Author{Login: "github-actions[bot]", IsBot: true})
+	assert.Equal(t, "@github-actions [bot]", got)
+}
+
+func TestFormatAuthor_BotSuffixOnly(t *testing.T) {
+	// Edge: login is exactly "[bot]" — stripped to empty, falls back to "unknown".
+	got := FormatAuthor(Author{Login: "[bot]", IsBot: false})
+	assert.Equal(t, "@unknown [bot]", got)
+}
+
 func TestFormatDate_Full(t *testing.T) {
 	got := FormatDate("2025-02-09T10:26:21Z")
 	assert.Equal(t, "2025-02-09", got)

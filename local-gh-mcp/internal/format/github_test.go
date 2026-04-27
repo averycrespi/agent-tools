@@ -617,3 +617,33 @@ func TestFormatCaches_Empty(t *testing.T) {
 		t.Errorf("expected %q, got %q", "No caches.", got)
 	}
 }
+
+func TestFormatRelease_BotAuthor(t *testing.T) {
+	r := Release{
+		TagName:     "v1.2.3",
+		Name:        "Release 1.2.3",
+		PublishedAt: "2026-04-01T12:00:00Z",
+		Author:      Author{Login: "github-actions[bot]", IsBot: false},
+		Body:        "Automated release.",
+	}
+	got := FormatRelease(r, 2000)
+	if !strings.Contains(got, "by @github-actions [bot]") {
+		t.Errorf("expected bot author line 'by @github-actions [bot]' in:\n%s", got)
+	}
+}
+
+func TestFormatRelease_RegularAuthor(t *testing.T) {
+	r := Release{
+		TagName:     "v2.0.0",
+		PublishedAt: "2026-04-10T00:00:00Z",
+		Author:      Author{Login: "octocat", IsBot: false},
+		Body:        "Manual release.",
+	}
+	got := FormatRelease(r, 2000)
+	if !strings.Contains(got, "by @octocat") {
+		t.Errorf("expected 'by @octocat' in:\n%s", got)
+	}
+	if strings.Contains(got, "[bot]") {
+		t.Errorf("unexpected '[bot]' for regular author in:\n%s", got)
+	}
+}

@@ -20,12 +20,21 @@ type Label struct {
 }
 
 // FormatAuthor returns "@login" or "@login [bot]".
+// If login ends with the literal suffix "[bot]", the suffix is stripped and
+// the author is treated as a bot regardless of the IsBot field. This handles
+// endpoints (e.g. releases) where is_bot is not populated but the login
+// already encodes the bot marker.
 func FormatAuthor(a Author) string {
 	login := a.Login
+	isBot := a.IsBot
+	if strings.HasSuffix(login, "[bot]") {
+		login = strings.TrimSuffix(login, "[bot]")
+		isBot = true
+	}
 	if login == "" {
 		login = "unknown"
 	}
-	if a.IsBot {
+	if isBot {
 		return fmt.Sprintf("@%s [bot]", login)
 	}
 	return "@" + login
