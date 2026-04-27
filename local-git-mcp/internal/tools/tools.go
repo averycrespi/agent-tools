@@ -10,6 +10,36 @@ import (
 	"github.com/averycrespi/agent-tools/local-git-mcp/internal/git"
 )
 
+// Annotation presets used across all tool definitions.
+var (
+	// Read tools that touch a remote.
+	annRead = gomcp.ToolAnnotation{
+		ReadOnlyHint:  gomcp.ToBoolPtr(true),
+		OpenWorldHint: gomcp.ToBoolPtr(true),
+	}
+	// Read tools that only touch local repo state.
+	annReadLocal = gomcp.ToolAnnotation{
+		ReadOnlyHint:  gomcp.ToBoolPtr(true),
+		OpenWorldHint: gomcp.ToBoolPtr(false),
+	}
+	// Idempotent writes: repeated calls with same args converge to the same local state.
+	annIdempotent = gomcp.ToolAnnotation{
+		IdempotentHint:  gomcp.ToBoolPtr(true),
+		DestructiveHint: gomcp.ToBoolPtr(false),
+		OpenWorldHint:   gomcp.ToBoolPtr(true),
+	}
+	// Additive writes: mutate state, not destructive.
+	annAdditive = gomcp.ToolAnnotation{
+		DestructiveHint: gomcp.ToBoolPtr(false),
+		OpenWorldHint:   gomcp.ToBoolPtr(true),
+	}
+	// Destructive: rewrites or removes state in non-trivially-reversible ways.
+	annDestructive = gomcp.ToolAnnotation{
+		DestructiveHint: gomcp.ToBoolPtr(true),
+		OpenWorldHint:   gomcp.ToBoolPtr(true),
+	}
+)
+
 // GitClient defines the git operations needed by MCP tool handlers.
 type GitClient interface {
 	ValidateRepo(repoPath string) error
@@ -36,6 +66,7 @@ func (h *Handler) Tools() []gomcp.Tool {
 		{
 			Name:        "git_push",
 			Description: "Push commits to a remote repository",
+			Annotations: annDestructive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -62,6 +93,7 @@ func (h *Handler) Tools() []gomcp.Tool {
 		{
 			Name:        "git_pull",
 			Description: "Pull from a remote repository",
+			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -88,6 +120,7 @@ func (h *Handler) Tools() []gomcp.Tool {
 		{
 			Name:        "git_fetch",
 			Description: "Fetch from a remote without merging",
+			Annotations: annIdempotent,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -110,6 +143,7 @@ func (h *Handler) Tools() []gomcp.Tool {
 		{
 			Name:        "git_list_remote_refs",
 			Description: "List refs (branches, tags) on a remote",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -128,6 +162,7 @@ func (h *Handler) Tools() []gomcp.Tool {
 		{
 			Name:        "git_list_remotes",
 			Description: "List configured remotes and their URLs",
+			Annotations: annReadLocal,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
