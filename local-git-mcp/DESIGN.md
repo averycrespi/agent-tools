@@ -16,13 +16,25 @@ local-git-mcp is a stdio MCP server. No network listener, no config file, no sta
 
 Five tools, all requiring a `repo_path` parameter that is validated to be an existing git repository:
 
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `git_push` | Push commits to remote | `repo_path`, `remote` (default: origin), `refspec` (optional), `force` (bool, uses `--force-with-lease`) |
-| `git_pull` | Pull from remote | `repo_path`, `remote` (default: origin), `branch` (optional), `rebase` (bool, default: false) |
-| `git_fetch` | Fetch from remote without merging | `repo_path`, `remote` (default: origin), `refspec` (optional) |
-| `git_list_remote_refs` | List refs (branches/tags) on a remote | `repo_path`, `remote` (default: origin) |
-| `git_list_remotes` | Show configured remotes and URLs | `repo_path` |
+| Tool                   | Description                           | Parameters                                                                                               | Annotation   |
+| ---------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------ |
+| `git_push`             | Push commits to remote                | `repo_path`, `remote` (default: origin), `refspec` (optional), `force` (bool, uses `--force-with-lease`) | destructive  |
+| `git_pull`             | Pull from remote                      | `repo_path`, `remote` (default: origin), `branch` (optional), `rebase` (bool, default: false)            | additive     |
+| `git_fetch`            | Fetch from remote without merging     | `repo_path`, `remote` (default: origin), `refspec` (optional)                                            | idempotent   |
+| `git_list_remote_refs` | List refs (branches/tags) on a remote | `repo_path`, `remote` (default: origin)                                                                  | read         |
+| `git_list_remotes`     | Show configured remotes and URLs      | `repo_path`                                                                                              | read (local) |
+
+### Annotations
+
+Each tool declares MCP `ToolAnnotation` hints so callers can reason about safety without parsing descriptions. Five presets are defined in `internal/tools/tools.go`:
+
+- **`annRead`** — `ReadOnlyHint=true`, `OpenWorldHint=true`. Read tools that talk to a remote.
+- **`annReadLocal`** — `ReadOnlyHint=true`, `OpenWorldHint=false`. Read tools that only touch local repo state.
+- **`annIdempotent`** — `IdempotentHint=true`, `DestructiveHint=false`, `OpenWorldHint=true`. Repeat calls with the same args converge to the same local state.
+- **`annAdditive`** — `DestructiveHint=false`, `OpenWorldHint=true`. Mutates state, not destructive.
+- **`annDestructive`** — `DestructiveHint=true`, `OpenWorldHint=true`. Rewrites or removes state non-trivially.
+
+`git_push` is annotated conservatively as destructive even without `force=true`, because the underlying capability can rewrite remote history.
 
 ### Parameter details
 
@@ -76,12 +88,12 @@ local-git-mcp has no access control of its own. It trusts its caller to handle a
 
 ## Tech stack
 
-| Component | Library |
-|-----------|---------|
-| MCP protocol | [mcp-go](https://github.com/mark3labs/mcp-go) |
-| CLI | [cobra](https://github.com/spf13/cobra) |
-| Logging | `log/slog` (stdlib) |
-| Testing | [testify](https://github.com/stretchr/testify) |
+| Component    | Library                                        |
+| ------------ | ---------------------------------------------- |
+| MCP protocol | [mcp-go](https://github.com/mark3labs/mcp-go)  |
+| CLI          | [cobra](https://github.com/spf13/cobra)        |
+| Logging      | `log/slog` (stdlib)                            |
+| Testing      | [testify](https://github.com/stretchr/testify) |
 
 ## Design decisions
 
