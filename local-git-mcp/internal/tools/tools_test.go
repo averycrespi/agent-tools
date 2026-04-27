@@ -176,6 +176,66 @@ func TestListRemoteRefsHandler_Success(t *testing.T) {
 	assert.Equal(t, "refs/heads/main", refs[0].Ref)
 }
 
+func TestAnnotationPresets_Read(t *testing.T) {
+	require.NotNil(t, annRead.ReadOnlyHint)
+	assert.True(t, *annRead.ReadOnlyHint)
+	require.NotNil(t, annRead.OpenWorldHint)
+	assert.True(t, *annRead.OpenWorldHint)
+	assert.Nil(t, annRead.DestructiveHint)
+	assert.Nil(t, annRead.IdempotentHint)
+}
+
+func TestAnnotationPresets_ReadLocal(t *testing.T) {
+	require.NotNil(t, annReadLocal.ReadOnlyHint)
+	assert.True(t, *annReadLocal.ReadOnlyHint)
+	require.NotNil(t, annReadLocal.OpenWorldHint)
+	assert.False(t, *annReadLocal.OpenWorldHint)
+}
+
+func TestAnnotationPresets_Idempotent(t *testing.T) {
+	require.NotNil(t, annIdempotent.IdempotentHint)
+	assert.True(t, *annIdempotent.IdempotentHint)
+	require.NotNil(t, annIdempotent.DestructiveHint)
+	assert.False(t, *annIdempotent.DestructiveHint)
+	require.NotNil(t, annIdempotent.OpenWorldHint)
+	assert.True(t, *annIdempotent.OpenWorldHint)
+	assert.Nil(t, annIdempotent.ReadOnlyHint)
+}
+
+func TestAnnotationPresets_Additive(t *testing.T) {
+	require.NotNil(t, annAdditive.DestructiveHint)
+	assert.False(t, *annAdditive.DestructiveHint)
+	require.NotNil(t, annAdditive.OpenWorldHint)
+	assert.True(t, *annAdditive.OpenWorldHint)
+	assert.Nil(t, annAdditive.ReadOnlyHint)
+	assert.Nil(t, annAdditive.IdempotentHint)
+}
+
+func TestAnnotationPresets_Destructive(t *testing.T) {
+	require.NotNil(t, annDestructive.DestructiveHint)
+	assert.True(t, *annDestructive.DestructiveHint)
+	require.NotNil(t, annDestructive.OpenWorldHint)
+	assert.True(t, *annDestructive.OpenWorldHint)
+	assert.Nil(t, annDestructive.ReadOnlyHint)
+}
+
+func TestEveryToolHasAnnotations(t *testing.T) {
+	h := NewHandler(&mockGitClient{})
+	tools := h.Tools()
+	require.NotEmpty(t, tools)
+	for _, tool := range tools {
+		t.Run(tool.Name, func(t *testing.T) {
+			a := tool.Annotations
+			hasHint := a.Title != "" ||
+				a.ReadOnlyHint != nil ||
+				a.DestructiveHint != nil ||
+				a.IdempotentHint != nil ||
+				a.OpenWorldHint != nil
+			assert.Truef(t, hasHint, "tool %s must set at least one annotation hint", tool.Name)
+		})
+	}
+}
+
 func TestUnknownTool(t *testing.T) {
 	h := NewHandler(&mockGitClient{})
 	req := gomcp.CallToolRequest{}

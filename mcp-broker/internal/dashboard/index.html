@@ -699,33 +699,46 @@
         overflow: hidden;
       }
 
-      .rule-header {
+      .rule-headline {
         display: flex;
-        align-items: center;
-        gap: 0.75rem;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 0.375rem;
         padding: 0.75rem 1rem;
         border-bottom: 1px solid var(--border);
+        font-family: var(--font-mono);
+        font-size: 0.875rem;
       }
 
       .rule-index {
-        font-family: var(--font-mono);
         font-size: 0.75rem;
         font-weight: 600;
         color: var(--text-secondary);
         min-width: 2rem;
       }
 
-      .rule-tool {
-        font-family: var(--font-mono);
-        font-size: 0.875rem;
-        color: var(--text-primary);
-        flex: 1;
+      .rule-verdict {
+        font-weight: 600;
       }
 
-      .rule-verdict {
+      .rule-tool {
+        color: var(--text-primary);
+      }
+
+      .rule-with {
+        color: var(--text-secondary);
+      }
+
+      .rule-patterns {
+        padding: 0.25rem 0 0.625rem 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .rule-pattern {
+        padding: 0.2rem 1rem 0.2rem 3rem;
         font-family: var(--font-mono);
-        font-size: 0.75rem;
-        font-weight: 600;
+        font-size: 0.8125rem;
+        color: var(--text-primary);
       }
 
       .rule-matches {
@@ -746,10 +759,48 @@
         font-style: italic;
       }
 
-      .rules-unmatched-desc {
+      .fallthrough-row {
+        display: flex;
+        gap: 1rem;
+        margin-top: 1.5rem;
+        flex-wrap: wrap;
+      }
+
+      .fallthrough-box {
+        flex: 1;
+        min-width: 240px;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .fallthrough-box-title {
+        padding: 0.625rem 1rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-base);
+      }
+
+      .fallthrough-box-caption {
+        padding: 0.5rem 1rem;
         font-size: 0.8125rem;
         color: var(--text-secondary);
-        margin-bottom: 0.5rem;
+      }
+
+      .fallthrough-box-items {
+        padding-bottom: 0.5rem;
+      }
+
+      .fallthrough-empty {
+        padding: 0.375rem 1rem 0.375rem 2rem;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        font-style: italic;
       }
 
       /* Audit tab */
@@ -971,6 +1022,74 @@
         opacity: 0.4;
         cursor: default;
       }
+
+      /* Audit live-feed strip */
+      .audit-strip {
+        min-height: 32px;
+        display: flex;
+        align-items: center;
+        margin-bottom: 0.75rem;
+        font-size: 0.8125rem;
+        font-family: var(--font-mono);
+        color: var(--text-secondary);
+      }
+
+      .audit-strip-inner {
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        width: 100%;
+      }
+
+      .audit-strip-dot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--green);
+        flex-shrink: 0;
+      }
+
+      .audit-strip-btn {
+        padding: 0.2rem 0.625rem;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 500;
+      }
+
+      .audit-strip-btn:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+      }
+
+      .audit-strip-banner {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.25rem 0.75rem;
+        background: rgba(245, 158, 11, 0.08);
+        border: 1px solid rgba(245, 158, 11, 0.25);
+        border-radius: 6px;
+        color: var(--amber);
+        cursor: pointer;
+        font-size: 0.8125rem;
+        font-family: var(--font-mono);
+      }
+
+      .audit-strip-banner:hover {
+        background: rgba(245, 158, 11, 0.14);
+      }
+
+      /* New-row highlight: quiet green tint that fades to transparent over 1s */
+      .audit-row-new td {
+        background-color: rgba(80, 180, 120, 0.1);
+        transition: background-color 1s ease-out;
+      }
     </style>
   </head>
   <body>
@@ -1049,15 +1168,31 @@
       <div class="tab-content" id="content-rules">
         <div class="section-title">Rules (evaluated first-match-wins)</div>
         <div id="rules-list"></div>
-        <div id="rules-unmatched-section" style="display: none">
-          <div class="section-title" style="margin-top: 1.5rem">
-            Unmatched tools
-          </div>
-          <div id="rules-unmatched-desc" class="rules-unmatched-desc"></div>
-          <div id="rules-unmatched-list"></div>
-        </div>
         <div id="rules-empty" class="empty-state" style="display: none">
           No rules configured
+        </div>
+        <div class="fallthrough-row">
+          <div class="fallthrough-box" id="fallthrough-always-box">
+            <div class="fallthrough-box-title">Always fall through</div>
+            <div class="fallthrough-box-caption">
+              These tools fall through to the default verdict:
+              <code>require-approval</code>.
+            </div>
+            <div
+              class="fallthrough-box-items"
+              id="fallthrough-always-list"
+            ></div>
+          </div>
+          <div class="fallthrough-box" id="fallthrough-may-box">
+            <div class="fallthrough-box-title">
+              May fall through (depending on arguments)
+            </div>
+            <div class="fallthrough-box-caption">
+              These tools may fall through to the default verdict:
+              <code>require-approval</code>, depending on call arguments.
+            </div>
+            <div class="fallthrough-box-items" id="fallthrough-may-list"></div>
+          </div>
         </div>
       </div>
 
@@ -1074,6 +1209,7 @@
             />
           </div>
         </div>
+        <div class="audit-strip" id="audit-strip"></div>
         <div class="audit-table-wrap">
           <table class="audit-table">
             <thead>
@@ -1111,6 +1247,9 @@
 
     <script>
       // --- Tab switching ---
+      var TAB_NAMES = ["approvals", "tools", "rules", "audit"];
+      var activeTab = "approvals";
+
       function switchTab(name) {
         document.querySelectorAll(".tab").forEach(function (t) {
           t.classList.remove("active");
@@ -1120,6 +1259,11 @@
         });
         document.getElementById("tab-" + name).classList.add("active");
         document.getElementById("content-" + name).classList.add("active");
+        activeTab = name;
+
+        if (location.hash !== "#" + name) {
+          history.replaceState(null, "", "#" + name);
+        }
 
         if (name === "tools") loadTools();
         if (name === "rules") loadRules();
@@ -1127,7 +1271,20 @@
           auditOffset = 0;
           loadAudit();
         }
+        updateAuditStrip();
       }
+
+      (function restoreTabFromHash() {
+        var name = location.hash.replace(/^#/, "");
+        if (TAB_NAMES.indexOf(name) !== -1 && name !== "approvals") {
+          switchTab(name);
+        }
+      })();
+
+      window.addEventListener("hashchange", function () {
+        var name = location.hash.replace(/^#/, "");
+        if (TAB_NAMES.indexOf(name) !== -1) switchTab(name);
+      });
 
       // --- Utility ---
       function esc(s) {
@@ -1433,6 +1590,7 @@
           removeCard(msg.data.id);
           addDecision(msg.data);
         }
+        if (msg.type === "audit") handleAuditEvent(msg.data);
       };
       es.onopen = function () {
         statusDot.classList.add("connected");
@@ -1800,11 +1958,8 @@
       function loadRules() {
         var listEl = document.getElementById("rules-list");
         var emptyEl = document.getElementById("rules-empty");
-        var unmatchedSection = document.getElementById(
-          "rules-unmatched-section",
-        );
-        var unmatchedDesc = document.getElementById("rules-unmatched-desc");
-        var unmatchedList = document.getElementById("rules-unmatched-list");
+        var alwaysList = document.getElementById("fallthrough-always-list");
+        var mayList = document.getElementById("fallthrough-may-list");
 
         fetch("api/rules")
           .then(function (r) {
@@ -1812,8 +1967,8 @@
           })
           .then(function (data) {
             var rules = data.rules || [];
-            var unmatched = data.unmatched || [];
-            var defaultVerdict = data.default_verdict || "require-approval";
+            var alwaysFallThrough = data.always_fall_through || [];
+            var mayFallThrough = data.may_fall_through || [];
 
             if (rules.length === 0) {
               listEl.innerHTML = "";
@@ -1828,8 +1983,12 @@
                 else if (rule.verdict === "deny") verdictClass = "verdict-deny";
                 else if (rule.verdict === "require-approval")
                   verdictClass = "verdict-require-approval";
+
+                var args = rule.args || [];
+                var hasArgs = args.length > 0;
+
                 html += '<div class="rule-card">';
-                html += '<div class="rule-header">';
+                html += '<div class="rule-headline">';
                 html +=
                   '<span class="rule-index">#' + (rule.index + 1) + "</span>";
                 html +=
@@ -1839,7 +1998,35 @@
                   esc(rule.verdict) +
                   "</span>";
                 html += '<span class="rule-tool">' + esc(rule.tool) + "</span>";
+                if (hasArgs) {
+                  html += '<span class="rule-with">with</span>';
+                }
                 html += "</div>";
+
+                if (hasArgs) {
+                  html += '<div class="rule-patterns">';
+                  args.forEach(function (arg) {
+                    var sym = "=";
+                    var val = "";
+                    if (typeof arg.match === "string") {
+                      sym = "=";
+                      val = arg.match;
+                    } else if (arg.match && arg.match.regex) {
+                      sym = "~";
+                      val = arg.match.regex;
+                    }
+                    html +=
+                      '<div class="rule-pattern">' +
+                      esc(arg.path) +
+                      " " +
+                      sym +
+                      " &quot;" +
+                      esc(val) +
+                      "&quot;</div>";
+                  });
+                  html += "</div>";
+                }
+
                 html += '<div class="rule-matches">';
                 if (rule.matches.length === 0) {
                   html +=
@@ -1855,18 +2042,27 @@
               listEl.innerHTML = html;
             }
 
-            if (unmatched.length === 0) {
-              unmatchedSection.style.display = "none";
+            // Always fall through box
+            if (alwaysFallThrough.length === 0) {
+              alwaysList.innerHTML =
+                '<div class="fallthrough-empty">none</div>';
             } else {
-              unmatchedSection.style.display = "block";
-              unmatchedDesc.textContent =
-                "These tools fall through to the default verdict: " +
-                defaultVerdict;
-              var uhtml = "";
-              unmatched.forEach(function (name) {
-                uhtml += '<div class="rule-match-item">' + esc(name) + "</div>";
+              var ahtml = "";
+              alwaysFallThrough.forEach(function (name) {
+                ahtml += '<div class="rule-match-item">' + esc(name) + "</div>";
               });
-              unmatchedList.innerHTML = uhtml;
+              alwaysList.innerHTML = ahtml;
+            }
+
+            // May fall through box
+            if (mayFallThrough.length === 0) {
+              mayList.innerHTML = '<div class="fallthrough-empty">none</div>';
+            } else {
+              var mhtml = "";
+              mayFallThrough.forEach(function (name) {
+                mhtml += '<div class="rule-match-item">' + esc(name) + "</div>";
+              });
+              mayList.innerHTML = mhtml;
             }
           });
       }
@@ -1878,6 +2074,8 @@
       var auditTimer = null;
       var auditRecords = [];
       var expandedAuditIdx = -1;
+      var auditPaused = false;
+      var auditNewCount = 0;
 
       function toggleAuditDetail(idx) {
         var body = document.getElementById("audit-body");
@@ -1945,6 +2143,56 @@
         }, 300);
       }
 
+      function renderAuditRow(rec, idx) {
+        var ts = rec.timestamp ? new Date(rec.timestamp).toLocaleString() : "-";
+        var verdictClass = "";
+        var verdictText = rec.verdict || "-";
+        if (verdictText === "allow") verdictClass = "verdict-allow";
+        else if (verdictText === "deny") verdictClass = "verdict-deny";
+        else if (verdictText === "require-approval")
+          verdictClass = "verdict-require-approval";
+
+        var result = "success";
+        if (rec.error) {
+          result = "error";
+        }
+
+        // Approval column
+        var approval = "-";
+        if (rec.approved === true) approval = "approved";
+        else if (rec.approved === false) approval = "denied";
+
+        // Row color based on final outcome (error > denied > approved)
+        var rowClass = "";
+        if (rec.error) {
+          rowClass = "row-error";
+        } else if (
+          verdictText === "deny" ||
+          (verdictText === "require-approval" && rec.approved === false)
+        ) {
+          rowClass = "row-denied";
+        } else {
+          rowClass = "row-approved";
+        }
+
+        var html =
+          '<tr class="' +
+          rowClass +
+          '" data-audit-idx="' +
+          idx +
+          '" onclick="toggleAuditDetail(' +
+          idx +
+          ')">';
+        html += "<td>" + esc(ts) + "</td>";
+        html += "<td>" + esc(rec.tool || "-") + "</td>";
+        html +=
+          '<td class="' + verdictClass + '">' + esc(verdictText) + "</td>";
+        html += "<td>" + esc(approval) + "</td>";
+        html += "<td>" + esc(result) + "</td>";
+        html += "</tr>";
+        return html;
+      }
+
       function loadAudit() {
         var tool = document.getElementById("audit-tool").value.trim();
         var params = new URLSearchParams();
@@ -1957,6 +2205,10 @@
         var pagination = document.getElementById("audit-pagination");
         var tableWrap = document.querySelector(".audit-table-wrap");
 
+        // Any refetch clears the "new" counter and resets expansion.
+        auditNewCount = 0;
+        expandedAuditIdx = -1;
+
         fetch("api/audit?" + params.toString())
           .then(function (r) {
             return r.json();
@@ -1964,13 +2216,13 @@
           .then(function (data) {
             var records = data.records || [];
             auditTotal = data.total || 0;
-            expandedAuditIdx = -1;
 
             if (records.length === 0) {
               body.innerHTML = "";
               tableWrap.style.display = "none";
               emptyEl.style.display = "block";
               pagination.style.display = "none";
+              updateAuditStrip();
               return;
             }
 
@@ -1980,58 +2232,7 @@
             var html = "";
             auditRecords = records;
             records.forEach(function (rec, idx) {
-              var ts = rec.timestamp
-                ? new Date(rec.timestamp).toLocaleString()
-                : "-";
-              var verdictClass = "";
-              var verdictText = rec.verdict || "-";
-              if (verdictText === "allow") verdictClass = "verdict-allow";
-              else if (verdictText === "deny") verdictClass = "verdict-deny";
-              else if (verdictText === "require-approval")
-                verdictClass = "verdict-require-approval";
-
-              var result = "success";
-              if (rec.error) {
-                result = "error";
-              }
-
-              // Approval column
-              var approval = "-";
-              if (rec.approved === true) approval = "approved";
-              else if (rec.approved === false) approval = "denied";
-
-              // Row color based on final outcome (error > denied > approved)
-              var rowClass = "";
-              if (rec.error) {
-                rowClass = "row-error";
-              } else if (
-                verdictText === "deny" ||
-                (verdictText === "require-approval" && rec.approved === false)
-              ) {
-                rowClass = "row-denied";
-              } else {
-                rowClass = "row-approved";
-              }
-
-              html +=
-                '<tr class="' +
-                rowClass +
-                '" data-audit-idx="' +
-                idx +
-                '" onclick="toggleAuditDetail(' +
-                idx +
-                ')">';
-              html += "<td>" + esc(ts) + "</td>";
-              html += "<td>" + esc(rec.tool || "-") + "</td>";
-              html +=
-                '<td class="' +
-                verdictClass +
-                '">' +
-                esc(verdictText) +
-                "</td>";
-              html += "<td>" + esc(approval) + "</td>";
-              html += "<td>" + esc(result) + "</td>";
-              html += "</tr>";
+              html += renderAuditRow(rec, idx);
             });
             body.innerHTML = html;
 
@@ -2044,6 +2245,7 @@
             document.getElementById("btn-next").disabled =
               auditOffset + auditLimit >= auditTotal;
             pagination.style.display = "flex";
+            updateAuditStrip();
           });
       }
 
@@ -2055,6 +2257,154 @@
       function auditNext() {
         auditOffset += auditLimit;
         loadAudit();
+      }
+
+      // updateAuditStrip computes the current strip state from live vars and
+      // rewrites the strip's innerHTML. Three states:
+      //   Live    — audit tab active, page 1, no filter, not paused.
+      //   Paused  — auditPaused is true.
+      //   Banner  — filtered or paginated (out-of-live-view).
+      // When the audit tab is inactive the strip is cleared (empty footprint).
+      function updateAuditStrip() {
+        var strip = document.getElementById("audit-strip");
+        if (!strip) return;
+
+        if (activeTab !== "audit") {
+          strip.innerHTML = "";
+          return;
+        }
+
+        var filterValue = document.getElementById("audit-tool").value.trim();
+        var isOutOfView = auditOffset > 0 || filterValue !== "";
+
+        if (auditPaused) {
+          // Paused state
+          strip.innerHTML =
+            '<div class="audit-strip-inner">' +
+            "<span>⏸ Paused" +
+            (auditNewCount > 0 ? " — " + auditNewCount + " new" : "") +
+            "</span>" +
+            '<button class="audit-strip-btn" onclick="auditTogglePause()">&#9654; Resume</button>' +
+            "</div>";
+        } else if (isOutOfView) {
+          // Out-of-live-view banner
+          strip.innerHTML =
+            '<div class="audit-strip-banner" onclick="auditResetToLive()">' +
+            (auditNewCount > 0 ? auditNewCount + " new records — " : "") +
+            "return to live view" +
+            "</div>";
+        } else {
+          // Live state
+          strip.innerHTML =
+            '<div class="audit-strip-inner">' +
+            '<span class="audit-strip-dot"></span>' +
+            "<span>Live</span>" +
+            '<button class="audit-strip-btn" onclick="auditTogglePause()">&#9646;&#9646; Pause</button>' +
+            "</div>";
+        }
+      }
+
+      // auditTogglePause flips the paused state. Resuming triggers a clean refetch.
+      function auditTogglePause() {
+        if (auditPaused) {
+          auditPaused = false;
+          loadAudit(); // resets auditNewCount and calls updateAuditStrip
+        } else {
+          auditPaused = true;
+          updateAuditStrip();
+        }
+      }
+
+      // auditResetToLive clears the filter and pagination, then refetches.
+      function auditResetToLive() {
+        document.getElementById("audit-tool").value = "";
+        auditOffset = 0;
+        auditPaused = false;
+        loadAudit(); // resets auditNewCount and calls updateAuditStrip
+      }
+
+      // handleAuditEvent processes an incoming audit SSE record per the state table:
+      //   Audit tab inactive           → ignore entirely.
+      //   Active, live-prepend state   → prepend row, drop bottom row, highlight.
+      //   All other active states      → increment auditNewCount, update strip.
+      function handleAuditEvent(rec) {
+        if (activeTab !== "audit") return;
+
+        auditTotal++;
+
+        var filterValue = document.getElementById("audit-tool").value.trim();
+        var filterMatches =
+          filterValue === "" ||
+          (rec.tool || "").toLowerCase().includes(filterValue.toLowerCase());
+        var livePrepend = auditOffset === 0 && filterMatches && !auditPaused;
+
+        if (livePrepend) {
+          // Collapse any open detail row to avoid mis-pointing after index shift.
+          if (expandedAuditIdx >= 0) {
+            var prevDetail = document.getElementById(
+              "audit-detail-" + expandedAuditIdx,
+            );
+            if (prevDetail) prevDetail.remove();
+            expandedAuditIdx = -1;
+          }
+
+          // Transition from empty state to populated state if needed.
+          if (auditRecords.length === 0) {
+            document.querySelector(".audit-table-wrap").style.display = "block";
+            document.getElementById("audit-empty").style.display = "none";
+            document.getElementById("audit-pagination").style.display = "flex";
+          }
+
+          // Shift existing data-audit-idx values by +1 so they still point into
+          // auditRecords after the unshift below.
+          var tbody = document.getElementById("audit-body");
+          var existingRows = tbody.querySelectorAll("tr[data-audit-idx]");
+          existingRows.forEach(function (row) {
+            var oldIdx = parseInt(row.getAttribute("data-audit-idx"), 10);
+            var newIdx = oldIdx + 1;
+            row.setAttribute("data-audit-idx", newIdx);
+            row.setAttribute("onclick", "toggleAuditDetail(" + newIdx + ")");
+          });
+
+          // Prepend new row at index 0.
+          auditRecords.unshift(rec);
+          if (auditRecords.length > auditLimit) auditRecords.pop();
+
+          // renderAuditRow returns a full <tr>...</tr> string; parse it into a
+          // real element via a temporary tbody.
+          var tmp = document.createElement("tbody");
+          tmp.innerHTML = renderAuditRow(rec, 0);
+          var newRow = tmp.firstChild;
+
+          tbody.insertBefore(newRow, tbody.firstChild);
+
+          // Drop the last row if we're over the limit.
+          while (tbody.children.length > auditLimit) {
+            tbody.removeChild(tbody.lastChild);
+          }
+
+          // Apply the new-row highlight and fade it out on the next frame.
+          newRow.classList.add("audit-row-new");
+          requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+              newRow.classList.remove("audit-row-new");
+            });
+          });
+
+          // Update page-info text and button states to reflect the new total.
+          var start = auditOffset + 1;
+          var end = Math.min(auditOffset + auditRecords.length, auditTotal);
+          document.getElementById("page-info").textContent =
+            "Showing " + start + "-" + end + " of " + auditTotal;
+          document.getElementById("btn-prev").disabled = auditOffset === 0;
+          document.getElementById("btn-next").disabled =
+            auditOffset + auditLimit >= auditTotal;
+
+          updateAuditStrip();
+        } else {
+          auditNewCount++;
+          updateAuditStrip();
+        }
       }
     </script>
   </body>

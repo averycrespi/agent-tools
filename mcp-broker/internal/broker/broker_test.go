@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
@@ -54,7 +55,8 @@ func TestBroker_Handle_AllowedTool(t *testing.T) {
 		return r.Tool == "github.search" && r.Verdict == "allow"
 	})).Return(nil)
 
-	engine := rules.New([]config.RuleConfig{{Tool: "github.*", Verdict: "allow"}})
+	engine, err := rules.New([]config.RuleConfig{{Tool: "github.*", Verdict: "allow"}})
+	require.NoError(t, err)
 
 	b := &Broker{
 		servers:  sm,
@@ -77,7 +79,8 @@ func TestBroker_Handle_DeniedTool(t *testing.T) {
 		return r.Verdict == "deny" && r.Error != ""
 	})).Return(nil)
 
-	engine := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "deny"}})
+	engine, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "deny"}})
+	require.NoError(t, err)
 
 	b := &Broker{
 		servers:  new(mockServerManager),
@@ -86,7 +89,7 @@ func TestBroker_Handle_DeniedTool(t *testing.T) {
 		approver: nil,
 	}
 
-	_, err := b.Handle(context.Background(), "anything", nil)
+	_, err = b.Handle(context.Background(), "anything", nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "denied")
 }
@@ -102,7 +105,8 @@ func TestBroker_Handle_ApprovalRequired_Approved(t *testing.T) {
 	ap := new(mockApprover)
 	ap.On("Review", mock.Anything, "fs.write", map[string]any{"path": "/tmp"}).Return(true, "", nil)
 
-	engine := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
+	engine, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
+	require.NoError(t, err)
 
 	b := &Broker{
 		servers:  sm,
@@ -123,7 +127,8 @@ func TestBroker_Handle_ApprovalRequired_Denied(t *testing.T) {
 	ap := new(mockApprover)
 	ap.On("Review", mock.Anything, "fs.write", mock.Anything).Return(false, "", nil)
 
-	engine := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
+	engine, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
+	require.NoError(t, err)
 
 	b := &Broker{
 		servers:  new(mockServerManager),
@@ -132,7 +137,7 @@ func TestBroker_Handle_ApprovalRequired_Denied(t *testing.T) {
 		approver: ap,
 	}
 
-	_, err := b.Handle(context.Background(), "fs.write", nil)
+	_, err = b.Handle(context.Background(), "fs.write", nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "denied")
 }
@@ -146,7 +151,8 @@ func TestBroker_Handle_ApprovalRequired_DenialReasonPropagated(t *testing.T) {
 	ap := new(mockApprover)
 	ap.On("Review", mock.Anything, "fs.write", mock.Anything).Return(false, "timeout", nil)
 
-	engine := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
+	engine, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
+	require.NoError(t, err)
 
 	b := &Broker{
 		servers:  new(mockServerManager),
@@ -155,8 +161,89 @@ func TestBroker_Handle_ApprovalRequired_DenialReasonPropagated(t *testing.T) {
 		approver: ap,
 	}
 
-	_, err := b.Handle(context.Background(), "fs.write", nil)
+	_, err = b.Handle(context.Background(), "fs.write", nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "denied")
+	al.AssertExpectations(t)
+}
+
+// Arg-constrained allow rule triggers: call args satisfy the constraint →
+// backend Call invoked, verdict=allow recorded.
+func TestBroker_Handle_ArgConstrainedAllowRule_Triggers(t *testing.T) {
+	callArgs := map[string]any{"branch": "main", "force": false}
+
+	sm := new(mockServerManager)
+	sm.On("Call", mock.Anything, "git.push", callArgs).
+		Return(&server.ToolResult{Content: "pushed"}, nil)
+
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
+		return r.Tool == "git.push" && r.Verdict == "allow"
+	})).Return(nil)
+
+	engine, err := rules.New([]config.RuleConfig{
+		{
+			Tool:    "git.push",
+			Verdict: "allow",
+			Args: []config.ArgPattern{
+				{Path: "branch", Match: json.RawMessage(`"main"`)},
+			},
+		},
+		{Tool: "*", Verdict: "deny"},
+	})
+	require.NoError(t, err)
+
+	b := &Broker{
+		servers:  sm,
+		rules:    engine,
+		auditor:  al,
+		approver: nil,
+	}
+
+	result, err := b.Handle(context.Background(), "git.push", callArgs)
+	require.NoError(t, err)
+	require.Equal(t, "pushed", result)
+
+	sm.AssertExpectations(t)
+	al.AssertExpectations(t)
+}
+
+// Arg-constrained deny rule blocks: call args satisfy a deny constraint →
+// ErrDenied returned, no backend Call.
+func TestBroker_Handle_ArgConstrainedDenyRule_Blocks(t *testing.T) {
+	callArgs := map[string]any{"branch": "main", "force": true}
+
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
+		return r.Tool == "git.push" && r.Verdict == "deny" && r.Error != ""
+	})).Return(nil)
+
+	engine, err := rules.New([]config.RuleConfig{
+		{
+			Tool:    "git.push",
+			Verdict: "deny",
+			Args: []config.ArgPattern{
+				{Path: "force", Match: json.RawMessage(`"true"`)},
+			},
+		},
+		{Tool: "git.*", Verdict: "allow"},
+	})
+	require.NoError(t, err)
+
+	sm := new(mockServerManager)
+	// Call must NOT be invoked
+
+	b := &Broker{
+		servers:  sm,
+		rules:    engine,
+		auditor:  al,
+		approver: nil,
+	}
+
+	_, err = b.Handle(context.Background(), "git.push", callArgs)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrDenied)
+
+	sm.AssertNotCalled(t, "Call", mock.Anything, mock.Anything, mock.Anything)
 	al.AssertExpectations(t)
 }

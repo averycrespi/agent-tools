@@ -152,8 +152,14 @@ type testServerConfig struct {
 }
 
 type testRuleConfig struct {
-	Tool    string `json:"tool"`
-	Verdict string `json:"verdict"`
+	Tool    string           `json:"tool"`
+	Verdict string           `json:"verdict"`
+	Args    []testArgPattern `json:"args,omitempty"`
+}
+
+type testArgPattern struct {
+	Path  string          `json:"path"`
+	Match json.RawMessage `json:"match"`
 }
 
 type testAuditConfig struct {

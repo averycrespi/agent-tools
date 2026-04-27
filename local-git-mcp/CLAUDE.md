@@ -41,3 +41,4 @@ internal/
 - Always use `--` end-of-options separator before user-controlled positional args in git commands to prevent argument injection
 - Stdio MCP server setup: `mcpserver.NewMCPServer()` + `srv.AddTool(tool, handler.Handle)` + `mcpserver.ServeStdio(srv)` — handler signature is `func(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error)`
 - `mcp-go` v0.45.0: use `req.GetArguments()` helper instead of `req.Params.Arguments` (typed as `any`, not `map[string]any`)
+- Tool annotations: every tool sets one of the presets in `internal/tools/tools.go` (`annRead`, `annReadLocal`, `annIdempotent`, `annAdditive`, `annDestructive`). `TestEveryToolHasAnnotations` enforces this. `git_push` is `annDestructive` even without `force=true` — annotate by worst-case capability, not default behavior.

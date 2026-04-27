@@ -213,10 +213,11 @@ func (d *Dashboard) handleTools(w http.ResponseWriter, _ *http.Request) {
 
 func (d *Dashboard) handleRules(w http.ResponseWriter, _ *http.Request) {
 	type ruleView struct {
-		Index   int      `json:"index"`
-		Tool    string   `json:"tool"`
-		Verdict string   `json:"verdict"`
-		Matches []string `json:"matches"`
+		Index   int                 `json:"index"`
+		Tool    string              `json:"tool"`
+		Verdict string              `json:"verdict"`
+		Matches []string            `json:"matches"`
+		Args    []config.ArgPattern `json:"args,omitempty"`
 	}
 
 	var rules []config.RuleConfig
@@ -236,39 +237,48 @@ func (d *Dashboard) handleRules(w http.ResponseWriter, _ *http.Request) {
 			Tool:    r.Tool,
 			Verdict: r.Verdict,
 			Matches: []string{},
+			Args:    r.Args,
 		}
 	}
 
-	unmatched := []string{}
+	always := []string{}
+	may := []string{}
 	for _, tool := range tools {
-		idx := -1
+		sawNameMatch := false
+		sawUnconstrained := false
 		for i, r := range rules {
 			matched, err := filepath.Match(r.Tool, tool.Name)
-			if err != nil {
+			if err != nil || !matched {
 				continue
 			}
-			if matched {
-				idx = i
+			sawNameMatch = true
+			views[i].Matches = append(views[i].Matches, tool.Name)
+			if len(r.Args) == 0 {
+				sawUnconstrained = true
 				break
 			}
 		}
-		if idx >= 0 {
-			views[idx].Matches = append(views[idx].Matches, tool.Name)
-		} else {
-			unmatched = append(unmatched, tool.Name)
+		switch {
+		case sawUnconstrained:
+		case sawNameMatch:
+			may = append(may, tool.Name)
+		default:
+			always = append(always, tool.Name)
 		}
 	}
 
-	sort.Strings(unmatched)
+	sort.Strings(always)
+	sort.Strings(may)
 	for i := range views {
 		sort.Strings(views[i].Matches)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"rules":           views,
-		"unmatched":       unmatched,
-		"default_verdict": "require-approval",
+		"rules":               views,
+		"always_fall_through": always,
+		"may_fall_through":    may,
+		"default_verdict":     "require-approval",
 	})
 }
 
@@ -410,6 +420,17 @@ func removedEvent(id string) []byte {
 func decidedEvent(dr decidedRequest) []byte {
 	b, _ := json.Marshal(sseEvent{Type: "decided", Data: dr})
 	return b
+}
+
+func auditEvent(rec audit.Record) []byte {
+	b, _ := json.Marshal(sseEvent{Type: "audit", Data: rec})
+	return b
+}
+
+// OnAuditRecord broadcasts an audit record to all connected SSE clients.
+// It is safe to call from any goroutine.
+func (d *Dashboard) OnAuditRecord(rec audit.Record) {
+	d.broadcast(auditEvent(rec))
 }
 
 func generateID() string {
