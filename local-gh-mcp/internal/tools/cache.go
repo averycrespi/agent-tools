@@ -114,9 +114,9 @@ func (h *Handler) handleDeleteCache(ctx context.Context, req gomcp.CallToolReque
 	if errResult != nil {
 		return errResult, nil
 	}
-	cacheID := stringFromArgs(args, "cache_id")
-	if cacheID == "" {
-		return gomcp.NewToolResultError("cache_id is required"), nil
+	cacheID, errResult := requirePositiveIntString(args, "cache_id")
+	if errResult != nil {
+		return errResult, nil
 	}
 	out, err := h.gh.DeleteCache(ctx, owner, repo, cacheID)
 	if err != nil {

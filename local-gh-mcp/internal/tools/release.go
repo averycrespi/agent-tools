@@ -70,7 +70,7 @@ func (h *Handler) handleViewRelease(ctx context.Context, req gomcp.CallToolReque
 		return errResult, nil
 	}
 	tag := stringFromArgs(args, "tag")
-	maxBody := clampMaxBodyLength(intFromArgsOr(args, "max_body_length", defaultMaxBodyLength))
+	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
 	raw, err := h.gh.ViewRelease(ctx, owner, repo, tag)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil

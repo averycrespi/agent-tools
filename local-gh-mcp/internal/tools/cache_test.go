@@ -76,7 +76,7 @@ func TestDeleteCache_Success(t *testing.T) {
 		deleteCacheFunc: func(_ context.Context, owner, repo string, cacheID string) (string, error) {
 			assert.Equal(t, "octocat", owner)
 			assert.Equal(t, "hello-world", repo)
-			assert.Equal(t, "abc123", cacheID)
+			assert.Equal(t, "12345", cacheID)
 			return "cache deleted", nil
 		},
 	})
@@ -85,7 +85,7 @@ func TestDeleteCache_Success(t *testing.T) {
 	req.Params.Arguments = map[string]any{
 		"owner":    "octocat",
 		"repo":     "hello-world",
-		"cache_id": "abc123",
+		"cache_id": "12345",
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)

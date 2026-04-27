@@ -222,3 +222,34 @@ func TestRequirePositiveInt(t *testing.T) {
 		})
 	}
 }
+
+func TestRequirePositiveIntString(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    map[string]any
+		want    string
+		wantErr bool
+	}{
+		{"missing", map[string]any{}, "", true},
+		{"empty", map[string]any{"run_id": ""}, "", true},
+		{"whitespace", map[string]any{"run_id": "   "}, "", true},
+		{"non_numeric", map[string]any{"run_id": "abc"}, "", true},
+		{"zero", map[string]any{"run_id": "0"}, "", true},
+		{"negative", map[string]any{"run_id": "-5"}, "", true},
+		{"positive", map[string]any{"run_id": "12345"}, "12345", false},
+		{"trimmed", map[string]any{"run_id": "  42  "}, "42", false},
+		{"large_int64", map[string]any{"run_id": "9223372036854775807"}, "9223372036854775807", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, errResult := requirePositiveIntString(tt.args, "run_id")
+			if tt.wantErr {
+				require.NotNil(t, errResult, "expected error result")
+				assert.Equal(t, "", s)
+			} else {
+				assert.Nil(t, errResult)
+				assert.Equal(t, tt.want, s)
+			}
+		})
+	}
+}

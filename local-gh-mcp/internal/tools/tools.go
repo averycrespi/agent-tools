@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
@@ -191,16 +192,6 @@ func intFromArgs(args map[string]any, key string) int {
 	return 0
 }
 
-func intFromArgsOr(args map[string]any, key string, defaultVal int) int {
-	switch v := args[key].(type) {
-	case float64:
-		return int(v)
-	case int:
-		return v
-	}
-	return defaultVal
-}
-
 // requirePositiveInt reads a required positive integer argument. Returns a
 // terminal tool-error result if the value is missing, zero, or negative —
 // callers can `return result, nil` immediately when the second value is non-nil.
@@ -210,6 +201,22 @@ func requirePositiveInt(args map[string]any, key string) (int, *gomcp.CallToolRe
 		return 0, gomcp.NewToolResultError(fmt.Sprintf("%s must be a positive integer", key))
 	}
 	return n, nil
+}
+
+// requirePositiveIntString reads a required string argument expected to encode
+// a positive integer (precision-safe for int64 IDs that exceed JSON number
+// precision). Returns the trimmed string on success; rejects missing, empty,
+// whitespace, non-numeric, zero, and negative values.
+func requirePositiveIntString(args map[string]any, key string) (string, *gomcp.CallToolResult) {
+	s := strings.TrimSpace(stringFromArgs(args, key))
+	if s == "" {
+		return "", gomcp.NewToolResultError(fmt.Sprintf("%s must be a positive integer", key))
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n <= 0 {
+		return "", gomcp.NewToolResultError(fmt.Sprintf("%s must be a positive integer", key))
+	}
+	return s, nil
 }
 
 // validateEnum is defense-in-depth handler-side validation for params that

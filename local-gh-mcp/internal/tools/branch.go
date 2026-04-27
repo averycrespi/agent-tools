@@ -35,7 +35,7 @@ func (h *Handler) handleListBranches(ctx context.Context, req gomcp.CallToolRequ
 		return errResult, nil
 	}
 	limit := clampLimit(intFromArgs(args, "limit"))
-	page := intFromArgsOr(args, "page", 1)
+	page := intFromArgs(args, "page")
 	if page < 1 {
 		page = 1
 	}

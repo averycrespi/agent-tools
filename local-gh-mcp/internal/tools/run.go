@@ -222,9 +222,9 @@ func (h *Handler) handleViewRun(ctx context.Context, req gomcp.CallToolRequest) 
 	if errResult != nil {
 		return errResult, nil
 	}
-	runID := stringFromArgs(args, "run_id")
-	if runID == "" {
-		return gomcp.NewToolResultError("run_id is required"), nil
+	runID, errResult := requirePositiveIntString(args, "run_id")
+	if errResult != nil {
+		return errResult, nil
 	}
 	logFailed := boolFromArgs(args, "log_failed")
 	out, err := h.gh.ViewRun(ctx, owner, repo, runID, logFailed)
@@ -249,9 +249,9 @@ func (h *Handler) handleRerunRun(ctx context.Context, req gomcp.CallToolRequest)
 	if errResult != nil {
 		return errResult, nil
 	}
-	runID := stringFromArgs(args, "run_id")
-	if runID == "" {
-		return gomcp.NewToolResultError("run_id is required"), nil
+	runID, errResult := requirePositiveIntString(args, "run_id")
+	if errResult != nil {
+		return errResult, nil
 	}
 	failedOnly := boolFromArgs(args, "failed_only")
 	out, err := h.gh.Rerun(ctx, owner, repo, runID, failedOnly)
@@ -267,9 +267,9 @@ func (h *Handler) handleCancelRun(ctx context.Context, req gomcp.CallToolRequest
 	if errResult != nil {
 		return errResult, nil
 	}
-	runID := stringFromArgs(args, "run_id")
-	if runID == "" {
-		return gomcp.NewToolResultError("run_id is required"), nil
+	runID, errResult := requirePositiveIntString(args, "run_id")
+	if errResult != nil {
+		return errResult, nil
 	}
 	out, err := h.gh.CancelRun(ctx, owner, repo, runID)
 	if err != nil {
@@ -284,11 +284,9 @@ func (h *Handler) handleViewRunJobLogs(ctx context.Context, req gomcp.CallToolRe
 	if errResult != nil {
 		return errResult, nil
 	}
-	jobIDInt := intFromArgs(args, "job_id")
-	if jobIDInt == 0 {
-		if _, present := args["job_id"]; !present {
-			return gomcp.NewToolResultError("job_id is required"), nil
-		}
+	jobIDInt, errResult := requirePositiveInt(args, "job_id")
+	if errResult != nil {
+		return errResult, nil
 	}
 	tail := clampLogTailLines(intFromArgs(args, "tail_lines"))
 	maxBytes := clampLogMaxBytes(intFromArgs(args, "max_bytes"))
