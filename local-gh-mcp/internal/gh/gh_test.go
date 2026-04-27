@@ -321,10 +321,9 @@ func TestSearchPRs_Args(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, args, "--repo")
 	assert.Contains(t, args, "octocat/hello")
-	assert.Contains(t, args, "--state")
-	assert.Contains(t, args, "open")
 	assert.Contains(t, args, "--")
-	assert.Equal(t, "fixme", args[len(args)-1], "query token must come after --")
+	postDash := postDashTokens(t, args)
+	assert.Equal(t, []string{"fixme", "is:open"}, postDash, "query and is:<state> token must follow --")
 }
 
 // TestSearchPRs_JSONFields verifies that the projection requests body and
@@ -467,110 +466,82 @@ func TestSearchPRs_SubshellSyntaxIsLiteral(t *testing.T) {
 	assert.Equal(t, []string{"$(echo", "pwned)", "`whoami`"}, postDash)
 }
 
-// TestSearchPRs_StateOpen verifies that state=open forwards --state open.
-func TestSearchPRs_StateOpen(t *testing.T) {
-	var args []string
-	c := NewClient(capturedArgs(t, &args))
-	_, err := c.SearchPRs(context.Background(), "fixme", SearchPRsOpts{State: "open"})
-	require.NoError(t, err)
-	assert.Contains(t, args, "--state")
-	assert.Contains(t, args, "open")
-	// is:merged must not be injected
-	for _, a := range args {
-		assert.NotEqual(t, "is:merged", a)
-	}
-}
-
-// TestSearchPRs_StateClosed verifies that state=closed forwards --state closed.
-func TestSearchPRs_StateClosed(t *testing.T) {
-	var args []string
-	c := NewClient(capturedArgs(t, &args))
-	_, err := c.SearchPRs(context.Background(), "fixme", SearchPRsOpts{State: "closed"})
-	require.NoError(t, err)
-	assert.Contains(t, args, "--state")
-	assert.Contains(t, args, "closed")
-	// is:merged must not be injected
-	for _, a := range args {
-		assert.NotEqual(t, "is:merged", a)
-	}
-}
-
-// TestSearchPRs_StateMerged verifies that state=merged drops --state and
-// injects is:merged as a positional query token after the -- separator.
-func TestSearchPRs_StateMerged(t *testing.T) {
-	var args []string
-	c := NewClient(capturedArgs(t, &args))
-	_, err := c.SearchPRs(context.Background(), "fixme", SearchPRsOpts{State: "merged"})
-	require.NoError(t, err)
-	// --state must not appear
-	for i, a := range args {
-		if a == "--state" {
-			t.Fatalf("--state must not appear in argv for state=merged; found at index %d", i)
-		}
-	}
-	// is:merged must appear after --
-	dashIdx := -1
+// postDashTokens returns the argv slice after the `--` separator. Used by the
+// search-state tests to verify which qualifiers landed in the query payload
+// versus which became gh CLI flags.
+func postDashTokens(t *testing.T, args []string) []string {
+	t.Helper()
 	for i, a := range args {
 		if a == "--" {
-			dashIdx = i
-			break
+			return args[i+1:]
 		}
 	}
-	require.NotEqual(t, -1, dashIdx, "expected -- separator")
-	postDash := args[dashIdx+1:]
-	assert.Contains(t, postDash, "is:merged")
+	t.Fatal("expected -- separator in argv")
+	return nil
 }
 
-// TestSearchPRs_StateAll verifies that state=all drops --state and does not
-// inject any extra query token.
-func TestSearchPRs_StateAll(t *testing.T) {
-	var args []string
-	c := NewClient(capturedArgs(t, &args))
-	_, err := c.SearchPRs(context.Background(), "fixme", SearchPRsOpts{State: "all"})
-	require.NoError(t, err)
-	// --state must not appear
-	for i, a := range args {
-		if a == "--state" {
-			t.Fatalf("--state must not appear in argv for state=all; found at index %d", i)
-		}
+// All four state cases for SearchPRs follow the same shape: the wrapper must
+// NOT pass `--state` (gh search prs --state is unreliable when combined with
+// --repo) and must inject the equivalent `is:<state>` token into the query.
+func TestSearchPRs_StateAsQueryQualifier(t *testing.T) {
+	cases := []struct {
+		state    string
+		wantPost string // expected token in post-`--` argv ("" means none)
+	}{
+		{"open", "is:open"},
+		{"closed", "is:closed"},
+		{"merged", "is:merged"},
+		{"all", ""},
+		{"", ""},
 	}
-	// is:merged must not be injected
-	for _, a := range args {
-		assert.NotEqual(t, "is:merged", a)
+	for _, tc := range cases {
+		t.Run(tc.state, func(t *testing.T) {
+			var args []string
+			c := NewClient(capturedArgs(t, &args))
+			_, err := c.SearchPRs(context.Background(), "fixme", SearchPRsOpts{State: tc.state})
+			require.NoError(t, err)
+			assert.NotContains(t, args, "--state", "--state must never appear; inject is:<state> as a query token instead")
+			postDash := postDashTokens(t, args)
+			if tc.wantPost != "" {
+				assert.Contains(t, postDash, tc.wantPost)
+			} else {
+				for _, q := range []string{"is:open", "is:closed", "is:merged"} {
+					assert.NotContains(t, postDash, q)
+				}
+			}
+		})
 	}
 }
 
-// TestSearchIssues_StateOpen verifies that state=open forwards --state open.
-func TestSearchIssues_StateOpen(t *testing.T) {
-	var args []string
-	c := NewClient(capturedArgs(t, &args))
-	_, err := c.SearchIssues(context.Background(), "memory leak", SearchIssuesOpts{State: "open"})
-	require.NoError(t, err)
-	assert.Contains(t, args, "--state")
-	assert.Contains(t, args, "open")
-}
-
-// TestSearchIssues_StateClosed verifies that state=closed forwards --state closed.
-func TestSearchIssues_StateClosed(t *testing.T) {
-	var args []string
-	c := NewClient(capturedArgs(t, &args))
-	_, err := c.SearchIssues(context.Background(), "memory leak", SearchIssuesOpts{State: "closed"})
-	require.NoError(t, err)
-	assert.Contains(t, args, "--state")
-	assert.Contains(t, args, "closed")
-}
-
-// TestSearchIssues_StateAll verifies that state=all drops --state entirely.
-func TestSearchIssues_StateAll(t *testing.T) {
-	var args []string
-	c := NewClient(capturedArgs(t, &args))
-	_, err := c.SearchIssues(context.Background(), "memory leak", SearchIssuesOpts{State: "all"})
-	require.NoError(t, err)
-	// --state must not appear
-	for i, a := range args {
-		if a == "--state" {
-			t.Fatalf("--state must not appear in argv for state=all; found at index %d", i)
-		}
+// SearchIssues mirrors SearchPRs: state must be injected as `is:<state>`
+// rather than passed via --state, since `gh search issues --state` interacts
+// badly with --repo (mirrors the prs-search bug).
+func TestSearchIssues_StateAsQueryQualifier(t *testing.T) {
+	cases := []struct {
+		state    string
+		wantPost string
+	}{
+		{"open", "is:open"},
+		{"closed", "is:closed"},
+		{"all", ""},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.state, func(t *testing.T) {
+			var args []string
+			c := NewClient(capturedArgs(t, &args))
+			_, err := c.SearchIssues(context.Background(), "memory leak", SearchIssuesOpts{State: tc.state})
+			require.NoError(t, err)
+			assert.NotContains(t, args, "--state")
+			postDash := postDashTokens(t, args)
+			if tc.wantPost != "" {
+				assert.Contains(t, postDash, tc.wantPost)
+			} else {
+				for _, q := range []string{"is:open", "is:closed"} {
+					assert.NotContains(t, postDash, q)
+				}
+			}
+		})
 	}
 }
 
@@ -785,7 +756,7 @@ func TestListReleases_ClampsLimit(t *testing.T) {
 	assert.Contains(t, args, "100")
 }
 
-func TestListReleases_RequestsAuthorField(t *testing.T) {
+func TestListReleases_OmitsAuthorField(t *testing.T) {
 	var args []string
 	c := NewClient(capturedArgs(t, &args))
 	_, err := c.ListReleases(context.Background(), "octocat", "hello", 30)
@@ -797,7 +768,7 @@ func TestListReleases_RequestsAuthorField(t *testing.T) {
 			break
 		}
 	}
-	assert.Contains(t, jsonFields, "author", "release list --json fields must include author for `by @user` rendering")
+	assert.NotContains(t, jsonFields, "author", "`gh release list --json` rejects the author field; only `gh release view --json` supports it")
 }
 
 func TestListPRFiles_ClampsLimit(t *testing.T) {

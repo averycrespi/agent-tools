@@ -26,6 +26,21 @@ func containsQualifier(tokens []string, qualifiers ...string) bool {
 	return false
 }
 
+// containsStateQualifier reports whether any token is a GitHub search DSL
+// state qualifier (`is:open`, `is:closed`, `is:merged`, or the equivalent
+// `state:` forms). Other `is:*` qualifiers (`is:pr`, `is:draft`, `is:public`,
+// ...) are NOT state filters and must not trigger the duplicate-filter check.
+func containsStateQualifier(tokens []string) bool {
+	for _, t := range tokens {
+		switch t {
+		case "is:open", "is:closed", "is:merged",
+			"state:open", "state:closed", "state:merged":
+			return true
+		}
+	}
+	return false
+}
+
 // queryTokens shlex-splits a search query for conflict detection. On split
 // failure the wrapper layer surfaces the same error with more context, so we
 // return nil here and let the wrapper produce the final error.
@@ -73,7 +88,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 					"state": map[string]any{
 						"type":        "string",
 						"enum":        []string{"open", "closed", "merged", "all"},
-						"description": "Filter by state. Note: 'closed' excludes merged PRs; use 'merged' explicitly to include them.",
+						"description": "Filter by state. 'closed' returns all closed PRs (including merged); use 'merged' to narrow to only merged. To exclude merged from closed, omit `state` and add `is:closed -is:merged` to `query`.",
 					},
 					"author": map[string]any{
 						"type":        "string",
@@ -269,8 +284,8 @@ func (h *Handler) handleSearchPRs(ctx context.Context, req gomcp.CallToolRequest
 	author := stringFromArgs(args, "author")
 	label := stringFromArgs(args, "label")
 	tokens := queryTokens(query)
-	if errResult := rejectConflict("state", state, tokens, "state", "is"); errResult != nil {
-		return errResult, nil
+	if state != "" && containsStateQualifier(tokens) {
+		return gomcp.NewToolResultError("state set both via flag and query; pick one"), nil
 	}
 	if errResult := rejectConflict("repo", repo, tokens, "repo"); errResult != nil {
 		return errResult, nil
@@ -326,8 +341,8 @@ func (h *Handler) handleSearchIssues(ctx context.Context, req gomcp.CallToolRequ
 	author := stringFromArgs(args, "author")
 	label := stringFromArgs(args, "label")
 	tokens := queryTokens(query)
-	if errResult := rejectConflict("state", state, tokens, "state", "is"); errResult != nil {
-		return errResult, nil
+	if state != "" && containsStateQualifier(tokens) {
+		return gomcp.NewToolResultError("state set both via flag and query; pick one"), nil
 	}
 	if errResult := rejectConflict("repo", repo, tokens, "repo"); errResult != nil {
 		return errResult, nil

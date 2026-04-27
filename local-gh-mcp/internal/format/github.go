@@ -5,6 +5,15 @@ import (
 	"strings"
 )
 
+// writeListTruncationFooter writes the standard truncation footer for list
+// tools that use the limit+1 lookahead trick to detect overflow. The lookahead
+// only proves "at least one more item exists" — it doesn't yield a real total,
+// so the footer reports just the page size and signals more results are
+// available rather than fabricating an exact "of M" count.
+func writeListTruncationFooter(b *strings.Builder, limit int, noun string) {
+	fmt.Fprintf(b, "\n[showing first %d %s — more results available; increase limit or paginate]\n", limit, noun)
+}
+
 // PRView represents the JSON output of `gh pr view --json`.
 type PRView struct {
 	Number         int     `json:"number"`
@@ -312,7 +321,7 @@ func FormatComments(comments []Comment, maxBodyLen int, limit int) string {
 		}
 	}
 	if limit > 0 && total > limit {
-		fmt.Fprintf(&sb, "\n[truncated — showing %d of %d comments]\n", limit, total)
+		writeListTruncationFooter(&sb, limit, "comments")
 	}
 	return sb.String()
 }
@@ -350,7 +359,7 @@ func FormatReviews(reviews []Review, maxBodyLen int, limit int) string {
 		}
 	}
 	if limit > 0 && total > limit {
-		fmt.Fprintf(&sb, "\n[truncated — showing %d of %d reviews]\n", limit, total)
+		writeListTruncationFooter(&sb, limit, "reviews")
 	}
 	return sb.String()
 }
@@ -411,7 +420,7 @@ func FormatReviewComments(comments []ReviewComment, maxBodyLen int, limit int) s
 		}
 	}
 	if limit > 0 && total > limit {
-		fmt.Fprintf(&sb, "\n[truncated — showing %d of %d review comments]\n", limit, total)
+		writeListTruncationFooter(&sb, limit, "review comments")
 	}
 	return sb.String()
 }
@@ -489,7 +498,7 @@ func FormatPRList(prs []PRListItem, limit int) string {
 		b.WriteString("\n")
 	}
 	if limit > 0 && total > limit {
-		fmt.Fprintf(&b, "\n[truncated — showing %d of %d pull requests]\n", limit, total)
+		writeListTruncationFooter(&b, limit, "pull requests")
 	}
 	return b.String()
 }
@@ -515,7 +524,7 @@ func FormatIssueList(issues []IssueListItem, limit int) string {
 		b.WriteString("\n")
 	}
 	if limit > 0 && total > limit {
-		fmt.Fprintf(&b, "\n[truncated — showing %d of %d issues]\n", limit, total)
+		writeListTruncationFooter(&b, limit, "issues")
 	}
 	return b.String()
 }
@@ -541,7 +550,7 @@ func FormatRunList(runs []RunListItem, limit int) string {
 		b.WriteString("\n")
 	}
 	if limit > 0 && total > limit {
-		fmt.Fprintf(&b, "\n[truncated — showing %d of %d runs]\n", limit, total)
+		writeListTruncationFooter(&b, limit, "runs")
 	}
 	return b.String()
 }
@@ -659,7 +668,7 @@ func FormatPRFiles(files []PRFile, limit int) string {
 		fmt.Fprintf(&b, "- `%s` — +%d/-%d (%s)\n", f.Filename, f.Additions, f.Deletions, f.Status)
 	}
 	if limit > 0 && total > limit {
-		fmt.Fprintf(&b, "\n[truncated — showing %d of %d files]\n", limit, total)
+		writeListTruncationFooter(&b, limit, "files")
 	}
 	return b.String()
 }
@@ -691,7 +700,7 @@ func FormatCaches(caches []Cache, limit int) string {
 			FormatDate(c.CreatedAt), FormatDate(c.LastAccessedAt))
 	}
 	if limit > 0 && total > limit {
-		fmt.Fprintf(&b, "\n[truncated — showing %d of %d caches]\n", limit, total)
+		writeListTruncationFooter(&b, limit, "caches")
 	}
 	return b.String()
 }
@@ -720,7 +729,7 @@ func FormatBranches(branches []Branch, limit int) string {
 		fmt.Fprintf(&b, "- `%s` (%s)\n", br.Name, shortSHA)
 	}
 	if limit > 0 && total > limit {
-		fmt.Fprintf(&b, "\n[truncated — showing %d of %d branches]\n", limit, total)
+		writeListTruncationFooter(&b, limit, "branches")
 	}
 	return b.String()
 }
@@ -777,7 +786,7 @@ func FormatReleases(releases []Release, limit int) string {
 		b.WriteString(line + "\n")
 	}
 	if limit > 0 && total > limit {
-		fmt.Fprintf(&b, "\n[truncated — showing %d of %d releases]\n", limit, total)
+		writeListTruncationFooter(&b, limit, "releases")
 	}
 	return b.String()
 }

@@ -461,7 +461,7 @@ func TestGhListPRFiles(t *testing.T) {
 }
 
 func TestGhListPRFilesTruncates(t *testing.T) {
-	// Build a 40-file payload; with limit=30 (default), trailer should say "showing 30 of 40".
+	// Build a 40-file payload; with limit=30 (default), trailer should signal more available.
 	parts := make([]string, 40)
 	for i := range parts {
 		parts[i] = fmt.Sprintf(`{"filename":"f%d.go","status":"modified","additions":1,"deletions":0}`, i)
@@ -476,7 +476,7 @@ func TestGhListPRFilesTruncates(t *testing.T) {
 			"owner": "x", "repo": "y", "pr_number": float64(1),
 		}},
 	})
-	if !strings.Contains(textOf(res), "showing 30 of 40") {
+	if !strings.Contains(textOf(res), "showing first 30 files") {
 		t.Errorf("expected truncation trailer, got: %s", textOf(res))
 	}
 }

@@ -405,6 +405,33 @@ func TestSearchPRs_NoConflictBaseline(t *testing.T) {
 	assert.False(t, result.IsError)
 }
 
+// TestSearchPRs_NonStateIsQualifierAllowed guards a regression: the prior
+// duplicate-filter check treated any `is:*` token as a state qualifier, so
+// `is:pr`/`is:draft`/etc. paired with `state=open` was wrongly rejected as a
+// duplicate. Only `is:open|is:closed|is:merged` (and the `state:` equivalents)
+// should conflict with the state flag.
+func TestSearchPRs_NonStateIsQualifierAllowed(t *testing.T) {
+	cases := []string{"is:pr", "is:draft", "is:public", "is:locked"}
+	for _, qualifier := range cases {
+		t.Run(qualifier, func(t *testing.T) {
+			h := NewHandler(&mockGHClient{
+				searchPRsFunc: func(_ context.Context, _ string, _ gh.SearchPRsOpts) (string, error) {
+					return `[]`, nil
+				},
+			})
+			req := gomcp.CallToolRequest{}
+			req.Params.Name = "gh_search_prs"
+			req.Params.Arguments = map[string]any{
+				"query": qualifier + " hooks",
+				"state": "open",
+			}
+			result, err := h.Handle(context.Background(), req)
+			require.NoError(t, err)
+			assert.False(t, result.IsError, "%s + state=open must not be flagged as a duplicate state filter", qualifier)
+		})
+	}
+}
+
 func TestSearchIssues_ConflictDetection(t *testing.T) {
 	cases := []struct {
 		name string

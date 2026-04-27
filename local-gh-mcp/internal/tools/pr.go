@@ -126,7 +126,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"enum":        []string{"open", "closed", "merged", "all"},
 						"default":     "open",
-						"description": "Filter by state (default open). Note: 'closed' excludes merged PRs; use 'merged' explicitly to include them.",
+						"description": "Filter by state (default open). 'closed' returns all closed PRs (including merged, matching GitHub API semantics); use 'merged' to narrow to only merged PRs. To exclude merged from closed, use gh_search_prs with 'is:closed -is:merged'.",
 					},
 					"author": map[string]any{
 						"type":        "string",

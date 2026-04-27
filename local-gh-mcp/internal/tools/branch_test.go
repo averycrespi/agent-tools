@@ -50,7 +50,7 @@ func TestGhListBranchesTruncates(t *testing.T) {
 			"owner": "x", "repo": "y",
 		}},
 	})
-	if !strings.Contains(textOf(res), "showing 30 of 40") {
+	if !strings.Contains(textOf(res), "showing first 30 branches") {
 		t.Errorf("expected truncation trailer")
 	}
 }

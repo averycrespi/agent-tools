@@ -891,14 +891,14 @@ func TestFormatPRList_OverflowAndEmpty(t *testing.T) {
 		{"empty", nil, 5, ""},
 		{"no overflow", makePRListItems(3), 5, ""},
 		{"exact limit", makePRListItems(5), 5, ""},
-		{"overflow by one", makePRListItems(6), 5, "[truncated — showing 5 of 6 pull requests]"},
-		{"large overflow", makePRListItems(20), 5, "[truncated — showing 5 of 20 pull requests]"},
+		{"overflow by one", makePRListItems(6), 5, "[showing first 5 pull requests — more results available"},
+		{"large overflow", makePRListItems(20), 5, "[showing first 5 pull requests — more results available"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := FormatPRList(tc.items, tc.limit)
 			if tc.wantTrailer == "" {
-				if strings.Contains(got, "[truncated") {
+				if strings.Contains(got, "more results available") {
 					t.Errorf("did not expect truncation trailer in:\n%s", got)
 				}
 			} else if !strings.Contains(got, tc.wantTrailer) {
@@ -919,11 +919,11 @@ func TestFormatIssueList_OverflowAndEmpty(t *testing.T) {
 	if got := FormatIssueList(nil, 5); got != "" {
 		t.Errorf("expected empty for empty list, got %q", got)
 	}
-	if got := FormatIssueList(make(3), 5); strings.Contains(got, "[truncated") {
+	if got := FormatIssueList(make(3), 5); strings.Contains(got, "more results available") {
 		t.Errorf("did not expect trailer for no-overflow, got:\n%s", got)
 	}
 	got := FormatIssueList(make(6), 5)
-	if !strings.Contains(got, "[truncated — showing 5 of 6 issues]") {
+	if !strings.Contains(got, "[showing first 5 issues — more results available") {
 		t.Errorf("missing overflow-by-one trailer in:\n%s", got)
 	}
 }
@@ -940,7 +940,7 @@ func TestFormatRunList_OverflowAndEmpty(t *testing.T) {
 		t.Errorf("expected empty for empty list, got %q", got)
 	}
 	got := FormatRunList(make(11), 10)
-	if !strings.Contains(got, "[truncated — showing 10 of 11 runs]") {
+	if !strings.Contains(got, "[showing first 10 runs — more results available") {
 		t.Errorf("missing trailer in:\n%s", got)
 	}
 }
@@ -955,10 +955,10 @@ func TestFormatBranches_Overflow(t *testing.T) {
 		return out
 	}
 	got := FormatBranches(make(7), 5)
-	if !strings.Contains(got, "[truncated — showing 5 of 7 branches]") {
+	if !strings.Contains(got, "[showing first 5 branches — more results available") {
 		t.Errorf("missing trailer in:\n%s", got)
 	}
-	if got := FormatBranches(make(3), 5); strings.Contains(got, "[truncated") {
+	if got := FormatBranches(make(3), 5); strings.Contains(got, "more results available") {
 		t.Errorf("did not expect trailer for no-overflow, got:\n%s", got)
 	}
 }
@@ -1007,7 +1007,7 @@ func TestFormatReleases_Overflow(t *testing.T) {
 		return out
 	}
 	got := FormatReleases(make(6), 5)
-	if !strings.Contains(got, "[truncated — showing 5 of 6 releases]") {
+	if !strings.Contains(got, "[showing first 5 releases — more results available") {
 		t.Errorf("missing trailer in:\n%s", got)
 	}
 }
@@ -1021,7 +1021,7 @@ func TestFormatPRFiles_Overflow(t *testing.T) {
 		return out
 	}
 	got := FormatPRFiles(make(11), 10)
-	if !strings.Contains(got, "[truncated — showing 10 of 11 files]") {
+	if !strings.Contains(got, "[showing first 10 files — more results available") {
 		t.Errorf("missing trailer in:\n%s", got)
 	}
 }
@@ -1035,7 +1035,7 @@ func TestFormatCaches_Overflow(t *testing.T) {
 		return out
 	}
 	got := FormatCaches(make(6), 5)
-	if !strings.Contains(got, "[truncated — showing 5 of 6 caches]") {
+	if !strings.Contains(got, "[showing first 5 caches — more results available") {
 		t.Errorf("missing trailer in:\n%s", got)
 	}
 }
@@ -1049,7 +1049,7 @@ func TestFormatComments_Overflow(t *testing.T) {
 		return out
 	}
 	got := FormatComments(make(6), 100, 5)
-	if !strings.Contains(got, "[truncated — showing 5 of 6 comments]") {
+	if !strings.Contains(got, "[showing first 5 comments — more results available") {
 		t.Errorf("missing trailer in:\n%s", got)
 	}
 }
@@ -1063,7 +1063,7 @@ func TestFormatReviews_Overflow(t *testing.T) {
 		return out
 	}
 	got := FormatReviews(make(6), 100, 5)
-	if !strings.Contains(got, "[truncated — showing 5 of 6 reviews]") {
+	if !strings.Contains(got, "[showing first 5 reviews — more results available") {
 		t.Errorf("missing trailer in:\n%s", got)
 	}
 }
@@ -1077,7 +1077,7 @@ func TestFormatReviewComments_Overflow(t *testing.T) {
 		return out
 	}
 	got := FormatReviewComments(make(6), 100, 5)
-	if !strings.Contains(got, "[truncated — showing 5 of 6 review comments]") {
+	if !strings.Contains(got, "[showing first 5 review comments — more results available") {
 		t.Errorf("missing trailer in:\n%s", got)
 	}
 }

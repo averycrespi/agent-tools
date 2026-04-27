@@ -725,18 +725,6 @@ func (c *Client) SearchPRs(_ context.Context, query string, opts SearchPRsOpts) 
 	if opts.Owner != "" {
 		args = append(args, "--owner", opts.Owner)
 	}
-	// gh search prs only accepts --state open|closed; translate merged and all
-	// at the wrapper boundary so agents can use the full schema enum set.
-	switch opts.State {
-	case "merged":
-		// Drop --state; inject is:merged into the query token list instead.
-	case "all":
-		// Drop --state entirely; gh search prs returns all states by default.
-	case "":
-		// No state filter requested.
-	default:
-		args = append(args, "--state", opts.State)
-	}
 	if opts.Author != "" {
 		args = append(args, "--author", opts.Author)
 	}
@@ -747,8 +735,15 @@ func (c *Client) SearchPRs(_ context.Context, query string, opts SearchPRsOpts) 
 	if err != nil {
 		return "", err
 	}
-	if opts.State == "merged" {
-		tokens = append(tokens, "is:merged")
+	// `gh search prs --state` is unreliable when combined with --repo (returns
+	// zero results regardless of repo activity). Inject the equivalent `is:`
+	// qualifier into the query tokens instead — this matches the GitHub search
+	// API directly and avoids the gh CLI quirk.
+	switch opts.State {
+	case "open", "closed", "merged":
+		tokens = append(tokens, "is:"+opts.State)
+	case "all", "":
+		// no state filter
 	}
 	args = append(args, "--")
 	args = append(args, tokens...)
@@ -768,16 +763,6 @@ func (c *Client) SearchIssues(_ context.Context, query string, opts SearchIssues
 	if opts.Owner != "" {
 		args = append(args, "--owner", opts.Owner)
 	}
-	// gh search issues only accepts --state open|closed; translate all at the
-	// wrapper boundary so agents can use the full schema enum set.
-	switch opts.State {
-	case "all":
-		// Drop --state entirely; gh search issues returns all states by default.
-	case "":
-		// No state filter requested.
-	default:
-		args = append(args, "--state", opts.State)
-	}
 	if opts.Author != "" {
 		args = append(args, "--author", opts.Author)
 	}
@@ -787,6 +772,14 @@ func (c *Client) SearchIssues(_ context.Context, query string, opts SearchIssues
 	tokens, err := splitSearchQuery(query)
 	if err != nil {
 		return "", err
+	}
+	// Mirror SearchPRs: inject `is:<state>` rather than relying on `gh search
+	// issues --state`, which is unreliable when combined with --repo.
+	switch opts.State {
+	case "open", "closed":
+		tokens = append(tokens, "is:"+opts.State)
+	case "all", "":
+		// no state filter
 	}
 	args = append(args, "--")
 	args = append(args, tokens...)
@@ -858,8 +851,12 @@ func (c *Client) SearchCode(_ context.Context, query string, opts SearchCodeOpts
 
 // ListReleases lists releases in a repository.
 // limit+1 entries are requested so the caller can detect truncation.
+//
+// `gh release list --json` does not support an `author` field (only `gh release
+// view --json` does); requesting it makes gh exit non-zero with
+// `Unknown JSON field: "author"`. Per-release author is only available via view.
 func (c *Client) ListReleases(_ context.Context, owner, repo string, limit int) (string, error) {
-	args := []string{"release", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(fetchLimit(limit)), "--json", "tagName,name,author,publishedAt,isDraft,isPrerelease"}
+	args := []string{"release", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(fetchLimit(limit)), "--json", "tagName,name,publishedAt,isDraft,isPrerelease"}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh release list failed: %s", strings.TrimSpace(string(out)))

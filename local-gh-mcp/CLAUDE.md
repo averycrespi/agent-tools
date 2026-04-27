@@ -51,7 +51,7 @@ internal/
 - Repo targeting: `-R owner/repo` flag (not repo_path)
 - Markdown output: all read tools (view, list, search, diff, check) return structured markdown instead of raw JSON. Write tools (create, comment, merge, edit, close, rerun, cancel, delete) return plain text confirmations.
 - Body truncation: tools returning text bodies accept `max_body_length` param (default 2000, max 50000). Bodies exceeding the limit are cut on a whitespace boundary with `[truncated — showing N of M bytes]`.
-- List truncation: list tools fetch limit+1 items so the formatter can detect overflow. When detected, the formatter slices to limit and appends `[truncated — showing N of M <things>]`.
+- List truncation: list tools fetch limit+1 items so the formatter can detect overflow. When detected, the formatter slices to limit and appends `[showing first N <things> — more results available; increase limit or paginate]`. The lookahead only proves "at least one more exists", so the trailer must NOT report a fake total like "N of N+1" — use `writeListTruncationFooter` in `format/github.go` to keep wording consistent.
 - Author flattening: all author objects rendered as `@login` or `@login [bot]` — never raw JSON.
 - Author rendering: `FormatAuthor` strips a literal `[bot]` suffix from the login as a defensive fallback for endpoints that don't populate `is_bot`.
 - Limits: default 30, max 100, clamped silently (derived from gh CLI defaults and GitHub API page size)
