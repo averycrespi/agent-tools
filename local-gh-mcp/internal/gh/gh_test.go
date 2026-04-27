@@ -327,6 +327,19 @@ func TestSearchPRs_Args(t *testing.T) {
 	assert.Equal(t, "fixme", args[len(args)-1], "query token must come after --")
 }
 
+// TestSearchPRs_JSONFields verifies that the projection requests body and
+// updatedAt and drops url/createdAt — search excerpts depend on body, and
+// url/createdAt are not rendered.
+func TestSearchPRs_JSONFields(t *testing.T) {
+	assert.Equal(t, "number,title,state,author,repository,body,updatedAt", searchPRFields)
+}
+
+// TestSearchIssues_JSONFields verifies the issue-search projection mirrors
+// SearchPRs: body in, url/createdAt out.
+func TestSearchIssues_JSONFields(t *testing.T) {
+	assert.Equal(t, "number,title,state,author,repository,body,updatedAt", searchIssueFields)
+}
+
 // TestSearchPRs_DSLTokenization is the regression test for the search query
 // mangling bug: a multi-token DSL query must be split into separate argv
 // positionals so `gh search` doesn't quote it as a single phrase.

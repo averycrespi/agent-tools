@@ -1,6 +1,7 @@
 package format
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -545,7 +546,7 @@ func TestFormatSearchPRItem(t *testing.T) {
 		Repository: Repository{NameWithOwner: "cli/cli"},
 		UpdatedAt:  "2025-01-01T00:00:00Z",
 	}
-	got := FormatSearchPRItem(item)
+	got := FormatSearchPRItem(item, 200)
 	for _, want := range []string{
 		"cli/cli#42",
 		"Fix bug",
@@ -556,6 +557,70 @@ func TestFormatSearchPRItem(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "\n  > ") {
+		t.Errorf("expected no body line for empty body, got:\n%s", got)
+	}
+}
+
+func TestFormatSearchPRItem_EmptyBody(t *testing.T) {
+	item := SearchPRItem{
+		Number:     1,
+		Title:      "T",
+		State:      "OPEN",
+		Author:     Author{Login: "alice"},
+		Repository: Repository{NameWithOwner: "o/r"},
+		Body:       "",
+		UpdatedAt:  "2025-01-01T00:00:00Z",
+	}
+	got := FormatSearchPRItem(item, 200)
+	if strings.Count(got, "\n") != 0 {
+		t.Errorf("expected single line for empty body, got:\n%s", got)
+	}
+	if strings.Contains(got, "  > ") {
+		t.Errorf("expected no quote line for empty body, got:\n%s", got)
+	}
+}
+
+func TestFormatSearchPRItem_ShortBody(t *testing.T) {
+	item := SearchPRItem{
+		Number:     1,
+		Title:      "T",
+		State:      "OPEN",
+		Author:     Author{Login: "alice"},
+		Repository: Repository{NameWithOwner: "o/r"},
+		Body:       "First line.\n\nSecond\tline.",
+		UpdatedAt:  "2025-01-01T00:00:00Z",
+	}
+	got := FormatSearchPRItem(item, 200)
+	if !strings.Contains(got, "\n  > First line. Second line.") {
+		t.Errorf("expected whitespace-collapsed body line, got:\n%s", got)
+	}
+	if strings.Contains(got, "[truncated") {
+		t.Errorf("short body should not be truncated, got:\n%s", got)
+	}
+}
+
+func TestFormatSearchPRItem_LongBody(t *testing.T) {
+	body := strings.Repeat("abcdefghij ", 30) // 330 bytes
+	item := SearchPRItem{
+		Number:     1,
+		Title:      "T",
+		State:      "OPEN",
+		Author:     Author{Login: "alice"},
+		Repository: Repository{NameWithOwner: "o/r"},
+		Body:       body,
+		UpdatedAt:  "2025-01-01T00:00:00Z",
+	}
+	got := FormatSearchPRItem(item, 50)
+	if !strings.Contains(got, "\n  > ") {
+		t.Errorf("expected body excerpt line, got:\n%s", got)
+	}
+	if !strings.Contains(got, "[truncated — showing ") {
+		t.Errorf("expected unified truncation marker, got:\n%s", got)
+	}
+	if !strings.Contains(got, " of "+strconv.Itoa(len(strings.Join(strings.Fields(body), " ")))+" bytes]") {
+		t.Errorf("expected truncation footer to reference original length, got:\n%s", got)
 	}
 }
 
@@ -568,7 +633,7 @@ func TestFormatSearchIssueItem(t *testing.T) {
 		Repository: Repository{NameWithOwner: "cli/cli"},
 		UpdatedAt:  "2025-02-03T00:00:00Z",
 	}
-	got := FormatSearchIssueItem(item)
+	got := FormatSearchIssueItem(item, 200)
 	for _, want := range []string{
 		"cli/cli#7",
 		"Bad behavior",
@@ -579,6 +644,64 @@ func TestFormatSearchIssueItem(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "\n  > ") {
+		t.Errorf("expected no body line for empty body, got:\n%s", got)
+	}
+}
+
+func TestFormatSearchIssueItem_EmptyBody(t *testing.T) {
+	item := SearchIssueItem{
+		Number:     1,
+		Title:      "T",
+		State:      "OPEN",
+		Author:     Author{Login: "alice"},
+		Repository: Repository{NameWithOwner: "o/r"},
+		Body:       "",
+		UpdatedAt:  "2025-01-01T00:00:00Z",
+	}
+	got := FormatSearchIssueItem(item, 200)
+	if strings.Count(got, "\n") != 0 {
+		t.Errorf("expected single line for empty body, got:\n%s", got)
+	}
+}
+
+func TestFormatSearchIssueItem_ShortBody(t *testing.T) {
+	item := SearchIssueItem{
+		Number:     1,
+		Title:      "T",
+		State:      "OPEN",
+		Author:     Author{Login: "alice"},
+		Repository: Repository{NameWithOwner: "o/r"},
+		Body:       "Steps to reproduce:\n\n  1. Run\ttest",
+		UpdatedAt:  "2025-01-01T00:00:00Z",
+	}
+	got := FormatSearchIssueItem(item, 200)
+	if !strings.Contains(got, "\n  > Steps to reproduce: 1. Run test") {
+		t.Errorf("expected whitespace-collapsed body line, got:\n%s", got)
+	}
+	if strings.Contains(got, "[truncated") {
+		t.Errorf("short body should not be truncated, got:\n%s", got)
+	}
+}
+
+func TestFormatSearchIssueItem_LongBody(t *testing.T) {
+	body := strings.Repeat("abcdefghij ", 30) // 330 bytes
+	item := SearchIssueItem{
+		Number:     1,
+		Title:      "T",
+		State:      "OPEN",
+		Author:     Author{Login: "alice"},
+		Repository: Repository{NameWithOwner: "o/r"},
+		Body:       body,
+		UpdatedAt:  "2025-01-01T00:00:00Z",
+	}
+	got := FormatSearchIssueItem(item, 50)
+	if !strings.Contains(got, "\n  > ") {
+		t.Errorf("expected body excerpt line, got:\n%s", got)
+	}
+	if !strings.Contains(got, "[truncated — showing ") {
+		t.Errorf("expected unified truncation marker, got:\n%s", got)
 	}
 }
 

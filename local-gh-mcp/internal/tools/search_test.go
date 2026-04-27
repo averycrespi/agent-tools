@@ -139,6 +139,95 @@ func TestSearchPRs_FormatsMarkdown(t *testing.T) {
 	assert.Contains(t, text, "OPEN")
 }
 
+func TestSearchPRs_RendersBodyExcerpt(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		searchPRsFunc: func(_ context.Context, query string, opts gh.SearchPRsOpts) (string, error) {
+			return `[{"number":1,"title":"Fix bug","state":"OPEN","author":{"login":"alice"},"repository":{"nameWithOwner":"octocat/hello-world"},"body":"First line.\n\nSecond line.","updatedAt":"2025-01-02T00:00:00Z"}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_search_prs"
+	req.Params.Arguments = map[string]any{
+		"query": "fix bug",
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "\n  > First line. Second line.")
+}
+
+func TestSearchPRs_BodyExcerptClampedToMax(t *testing.T) {
+	body := ""
+	for i := 0; i < 1000; i++ {
+		body += "a"
+	}
+	h := NewHandler(&mockGHClient{
+		searchPRsFunc: func(_ context.Context, query string, opts gh.SearchPRsOpts) (string, error) {
+			return `[{"number":1,"title":"T","state":"OPEN","author":{"login":"a"},"repository":{"nameWithOwner":"o/r"},"body":"` + body + `","updatedAt":"2025-01-02T00:00:00Z"}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_search_prs"
+	req.Params.Arguments = map[string]any{
+		"query":           "x",
+		"max_body_length": 5000, // clamped down to 500
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "[truncated — showing 500 of 1000 bytes]")
+}
+
+func TestSearchPRs_MaxBodyLengthSchema(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	for _, tool := range h.searchTools() {
+		if tool.Name != "gh_search_prs" {
+			continue
+		}
+		prop, ok := tool.InputSchema.Properties["max_body_length"].(map[string]any)
+		require.True(t, ok, "max_body_length property missing or wrong shape")
+		assert.Equal(t, "number", prop["type"])
+		assert.Equal(t, 200, prop["default"])
+		return
+	}
+	t.Fatal("gh_search_prs not found")
+}
+
+func TestSearchIssues_RendersBodyExcerpt(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		searchIssuesFunc: func(_ context.Context, query string, opts gh.SearchIssuesOpts) (string, error) {
+			return `[{"number":1,"title":"Bug","state":"OPEN","author":{"login":"alice"},"repository":{"nameWithOwner":"octocat/hello-world"},"body":"Steps:\n\n  1. Run","updatedAt":"2025-01-02T00:00:00Z"}]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_search_issues"
+	req.Params.Arguments = map[string]any{
+		"query": "bug",
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "\n  > Steps: 1. Run")
+}
+
+func TestSearchIssues_MaxBodyLengthSchema(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	for _, tool := range h.searchTools() {
+		if tool.Name != "gh_search_issues" {
+			continue
+		}
+		prop, ok := tool.InputSchema.Properties["max_body_length"].(map[string]any)
+		require.True(t, ok, "max_body_length property missing or wrong shape")
+		assert.Equal(t, "number", prop["type"])
+		assert.Equal(t, 200, prop["default"])
+		return
+	}
+	t.Fatal("gh_search_issues not found")
+}
+
 func TestSearchRepos_FormatsMarkdown(t *testing.T) {
 	h := NewHandler(&mockGHClient{
 		searchReposFunc: func(_ context.Context, query string, opts gh.SearchReposOpts) (string, error) {

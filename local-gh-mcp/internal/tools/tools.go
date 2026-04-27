@@ -263,16 +263,18 @@ func stringSliceFromArgs(args map[string]any, key string) []string {
 }
 
 const (
-	defaultLimit         = 30
-	maxLimit             = 100
-	defaultMaxBodyLength = 2000
-	maxMaxBodyLength     = 50000
-	defaultDiffMaxBytes  = 50000
-	maxDiffMaxBytes      = 500000
-	defaultLogTailLines  = 200
-	maxLogTailLines      = 5000
-	defaultLogMaxBytes   = 50000
-	maxLogMaxBytes       = 500000
+	defaultLimit               = 30
+	maxLimit                   = 100
+	defaultMaxBodyLength       = 2000
+	maxMaxBodyLength           = 50000
+	defaultSearchMaxBodyLength = 200
+	maxSearchMaxBodyLength     = 500
+	defaultDiffMaxBytes        = 50000
+	maxDiffMaxBytes            = 500000
+	defaultLogTailLines        = 200
+	maxLogTailLines            = 5000
+	defaultLogMaxBytes         = 50000
+	maxLogMaxBytes             = 500000
 )
 
 func clampLimit(v int) int {
@@ -291,6 +293,19 @@ func clampMaxBodyLength(v int) int {
 	}
 	if v > maxMaxBodyLength {
 		return maxMaxBodyLength
+	}
+	return v
+}
+
+// clampSearchBodyLength clamps the search body excerpt length. The cap is
+// smaller than clampMaxBodyLength because search returns up to 100 items, so
+// 500 bytes per excerpt yields a 50KB ceiling per call.
+func clampSearchBodyLength(v int) int {
+	if v <= 0 {
+		return defaultSearchMaxBodyLength
+	}
+	if v > maxSearchMaxBodyLength {
+		return maxSearchMaxBodyLength
 	}
 	return v
 }

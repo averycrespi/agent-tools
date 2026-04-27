@@ -49,6 +49,11 @@ func (h *Handler) searchTools() []gomcp.Tool {
 						"default":     30,
 						"description": "Max results (default 30, max 100).",
 					},
+					"max_body_length": map[string]any{
+						"type":        "number",
+						"default":     200,
+						"description": "Max body excerpt length in bytes (default 200, max 500).",
+					},
 				},
 				Required: []string{"query"},
 			},
@@ -89,6 +94,11 @@ func (h *Handler) searchTools() []gomcp.Tool {
 						"type":        "number",
 						"default":     30,
 						"description": "Max results (default 30, max 100).",
+					},
+					"max_body_length": map[string]any{
+						"type":        "number",
+						"default":     200,
+						"description": "Max body excerpt length in bytes (default 200, max 500).",
 					},
 				},
 				Required: []string{"query"},
@@ -231,9 +241,10 @@ func (h *Handler) handleSearchPRs(ctx context.Context, req gomcp.CallToolRequest
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
 		return parseError("gh_search_prs", err, out), nil
 	}
+	maxBody := clampSearchBodyLength(intFromArgs(args, "max_body_length"))
 	var lines []string
 	for _, item := range items {
-		lines = append(lines, format.FormatSearchPRItem(item))
+		lines = append(lines, format.FormatSearchPRItem(item, maxBody))
 	}
 	if len(lines) == 0 {
 		return gomcp.NewToolResultText("No pull requests found."), nil
@@ -267,9 +278,10 @@ func (h *Handler) handleSearchIssues(ctx context.Context, req gomcp.CallToolRequ
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
 		return parseError("gh_search_issues", err, out), nil
 	}
+	maxBody := clampSearchBodyLength(intFromArgs(args, "max_body_length"))
 	var lines []string
 	for _, item := range items {
-		lines = append(lines, format.FormatSearchIssueItem(item))
+		lines = append(lines, format.FormatSearchIssueItem(item, maxBody))
 	}
 	if len(lines) == 0 {
 		return gomcp.NewToolResultText("No issues found."), nil

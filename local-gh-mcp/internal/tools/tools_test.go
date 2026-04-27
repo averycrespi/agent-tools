@@ -84,20 +84,31 @@ func TestEveryLimitParamDeclaresDefault(t *testing.T) {
 }
 
 func TestEveryMaxBodyLengthParamDeclaresDefault(t *testing.T) {
+	// Search tools render short body excerpts (default 200, max 500) rather than
+	// the full body (default 2000, max 50000) used by view/list tools because
+	// search returns up to 100 items per call.
+	searchTools := map[string]bool{
+		"gh_search_prs":    true,
+		"gh_search_issues": true,
+	}
 	h := NewHandler(&mockGHClient{})
 	for _, tool := range h.Tools() {
 		prop, ok := tool.InputSchema.Properties["max_body_length"].(map[string]any)
 		if !ok {
 			continue
 		}
+		want := 2000
+		if searchTools[tool.Name] {
+			want = 200
+		}
 		t.Run(tool.Name+"/max_body_length", func(t *testing.T) {
 			def, ok := prop["default"]
 			require.True(t, ok, "tool %s: max_body_length must declare a default", tool.Name)
 			switch v := def.(type) {
 			case int:
-				assert.Equal(t, 2000, v)
+				assert.Equal(t, want, v)
 			case float64:
-				assert.Equal(t, float64(2000), v)
+				assert.Equal(t, float64(want), v)
 			default:
 				t.Fatalf("tool %s: max_body_length default wrong type %T", tool.Name, def)
 			}

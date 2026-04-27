@@ -407,8 +407,8 @@ const (
 
 // Search field constants.
 const (
-	searchPRFields     = "number,title,state,author,repository,url,createdAt,updatedAt"
-	searchIssueFields  = "number,title,state,author,repository,url,createdAt,updatedAt"
+	searchPRFields     = "number,title,state,author,repository,body,updatedAt"
+	searchIssueFields  = "number,title,state,author,repository,body,updatedAt"
 	searchRepoFields   = "fullName,description,url,stargazersCount,language,updatedAt"
 	searchCodeFields   = "path,repository,sha,textMatches,url"
 	searchCommitFields = "sha,commit,author,repository,url,committer"

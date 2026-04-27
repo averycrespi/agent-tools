@@ -173,6 +173,7 @@ type SearchPRItem struct {
 	State      string     `json:"state"`
 	Author     Author     `json:"author"`
 	Repository Repository `json:"repository"`
+	Body       string     `json:"body"`
 	UpdatedAt  string     `json:"updatedAt"`
 }
 
@@ -184,6 +185,7 @@ type SearchIssueItem struct {
 	State      string     `json:"state"`
 	Author     Author     `json:"author"`
 	Repository Repository `json:"repository"`
+	Body       string     `json:"body"`
 	UpdatedAt  string     `json:"updatedAt"`
 }
 
@@ -573,18 +575,42 @@ func FormatRunView(run RunView) string {
 	return sb.String()
 }
 
-// FormatSearchPRItem formats a search PR item as a markdown bullet.
-func FormatSearchPRItem(item SearchPRItem) string {
-	return fmt.Sprintf("- **%s#%d** %s — %s, %s, updated %s",
+// FormatSearchPRItem formats a search PR item as a markdown bullet. When the
+// body is non-empty, a second indented quote line carries a whitespace-collapsed
+// excerpt truncated to maxBody bytes.
+func FormatSearchPRItem(item SearchPRItem, maxBody int) string {
+	line := fmt.Sprintf("- **%s#%d** %s — %s, %s, updated %s",
 		item.Repository.Name(), item.Number, item.Title,
 		FormatAuthor(item.Author), item.State, FormatDate(item.UpdatedAt))
+	if excerpt := searchBodyExcerpt(item.Body, maxBody); excerpt != "" {
+		line += "\n  > " + excerpt
+	}
+	return line
 }
 
-// FormatSearchIssueItem formats a search issue item as a markdown bullet.
-func FormatSearchIssueItem(item SearchIssueItem) string {
-	return fmt.Sprintf("- **%s#%d** %s — %s, %s, updated %s",
+// FormatSearchIssueItem formats a search issue item as a markdown bullet. When
+// the body is non-empty, a second indented quote line carries a whitespace-
+// collapsed excerpt truncated to maxBody bytes.
+func FormatSearchIssueItem(item SearchIssueItem, maxBody int) string {
+	line := fmt.Sprintf("- **%s#%d** %s — %s, %s, updated %s",
 		item.Repository.Name(), item.Number, item.Title,
 		FormatAuthor(item.Author), item.State, FormatDate(item.UpdatedAt))
+	if excerpt := searchBodyExcerpt(item.Body, maxBody); excerpt != "" {
+		line += "\n  > " + excerpt
+	}
+	return line
+}
+
+// searchBodyExcerpt collapses whitespace runs in body to single spaces and
+// truncates the result to maxBody bytes via TruncateBody so the unified
+// truncation marker is reused. Returns "" when the resulting excerpt would
+// be empty.
+func searchBodyExcerpt(body string, maxBody int) string {
+	collapsed := strings.Join(strings.Fields(body), " ")
+	if collapsed == "" {
+		return ""
+	}
+	return TruncateBody(collapsed, maxBody)
 }
 
 // FormatSearchRepoItem formats a search repo item as a markdown bullet.
