@@ -92,3 +92,28 @@ func TestGhListBranchesPageDefaultsToOne(t *testing.T) {
 		t.Errorf("expected page to default to 1, got %d", gotPage)
 	}
 }
+
+func TestListBranches_Empty(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		listBranchesFunc: func(_ context.Context, _, _ string, _, _ int) (string, error) {
+			return `[]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_branches"
+	req.Params.Arguments = map[string]any{"owner": "octocat", "repo": "hello-world"}
+	result, err := h.Handle(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatal("expected non-error result")
+	}
+	text, ok := result.Content[0].(gomcp.TextContent)
+	if !ok {
+		t.Fatal("expected TextContent")
+	}
+	if text.Text != "No branches found." {
+		t.Errorf("got %q, want %q", text.Text, "No branches found.")
+	}
+}

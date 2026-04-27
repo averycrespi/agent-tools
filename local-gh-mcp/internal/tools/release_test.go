@@ -80,3 +80,28 @@ func TestGhViewReleaseWithTag(t *testing.T) {
 		t.Errorf("tag not threaded: %q", capturedTag)
 	}
 }
+
+func TestListReleases_Empty(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		listReleasesFunc: func(_ context.Context, _, _ string, _ int) (string, error) {
+			return `[]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_releases"
+	req.Params.Arguments = map[string]any{"owner": "octocat", "repo": "hello-world"}
+	result, err := h.Handle(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatal("expected non-error result")
+	}
+	text, ok := result.Content[0].(gomcp.TextContent)
+	if !ok {
+		t.Fatal("expected TextContent")
+	}
+	if text.Text != "No releases found." {
+		t.Errorf("got %q, want %q", text.Text, "No releases found.")
+	}
+}

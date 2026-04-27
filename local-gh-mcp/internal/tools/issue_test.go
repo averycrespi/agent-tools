@@ -223,3 +223,31 @@ func TestListIssues_StateEnum(t *testing.T) {
 	}
 	t.Fatal("gh_list_issues not found")
 }
+
+func TestListIssues_Empty(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		listIssuesFunc: func(_ context.Context, _, _ string, _ gh.ListIssuesOpts) (string, error) {
+			return `[]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_issues"
+	req.Params.Arguments = map[string]any{"owner": "octocat", "repo": "hello-world"}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, "No issues found.", emptyResultText(t, result))
+}
+
+func TestListIssueComments_Empty(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		issueCommentsFunc: func(_ context.Context, _, _ string, _, _ int) (string, error) {
+			return `[]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_issue_comments"
+	req.Params.Arguments = map[string]any{"owner": "octocat", "repo": "hello-world", "issue_number": float64(7)}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, "No comments found.", emptyResultText(t, result))
+}

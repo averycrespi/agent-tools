@@ -440,3 +440,17 @@ func TestRunToolAnnotations(t *testing.T) {
 		})
 	}
 }
+
+func TestListRuns_Empty(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		listRunsFunc: func(_ context.Context, _, _ string, _ gh.ListRunsOpts) (string, error) {
+			return `[]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_runs"
+	req.Params.Arguments = map[string]any{"owner": "octocat", "repo": "hello-world"}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, "No workflow runs found.", emptyResultText(t, result))
+}

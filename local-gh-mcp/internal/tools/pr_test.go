@@ -920,3 +920,82 @@ func TestListPRs_StateEnum(t *testing.T) {
 	}
 	t.Fatal("gh_list_prs not found")
 }
+
+func emptyResultText(t *testing.T, result *gomcp.CallToolResult) string {
+	t.Helper()
+	require.False(t, result.IsError)
+	require.Len(t, result.Content, 1)
+	text, ok := result.Content[0].(gomcp.TextContent)
+	require.True(t, ok)
+	return text.Text
+}
+
+func TestListPRs_Empty(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		listPRsFunc: func(_ context.Context, _, _ string, _ gh.ListPROpts) (string, error) {
+			return `[]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_prs"
+	req.Params.Arguments = map[string]any{"owner": "octocat", "repo": "hello-world"}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, "No pull requests found.", emptyResultText(t, result))
+}
+
+func TestListPRFiles_Empty(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		listPRFilesFunc: func(_ context.Context, _, _ string, _, _ int) (string, error) {
+			return `[]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_pr_files"
+	req.Params.Arguments = map[string]any{"owner": "octocat", "repo": "hello-world", "pr_number": float64(42)}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, "No files found.", emptyResultText(t, result))
+}
+
+func TestListPRComments_Empty(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		prCommentsFunc: func(_ context.Context, _, _ string, _, _ int) (string, error) {
+			return `[]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_pr_comments"
+	req.Params.Arguments = map[string]any{"owner": "octocat", "repo": "hello-world", "pr_number": float64(42)}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, "No comments found.", emptyResultText(t, result))
+}
+
+func TestListPRReviews_Empty(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		prReviewsFunc: func(_ context.Context, _, _ string, _, _ int) (string, error) {
+			return `[]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_pr_reviews"
+	req.Params.Arguments = map[string]any{"owner": "octocat", "repo": "hello-world", "pr_number": float64(42)}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, "No reviews found.", emptyResultText(t, result))
+}
+
+func TestListPRReviewComments_Empty(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		prReviewCommentsFunc: func(_ context.Context, _, _ string, _, _ int) (string, error) {
+			return `[]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_pr_review_comments"
+	req.Params.Arguments = map[string]any{"owner": "octocat", "repo": "hello-world", "pr_number": float64(42)}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, "No review comments found.", emptyResultText(t, result))
+}
