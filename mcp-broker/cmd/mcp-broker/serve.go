@@ -111,6 +111,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Create dashboard
 	dash := dashboard.New(mgr, engine, auditor, logger.With("component", "dashboard"))
 
+	// Wire audit subscriber so live records are broadcast over SSE.
+	unsubscribeAudit := auditor.Subscribe(dash.OnAuditRecord)
+	defer unsubscribeAudit()
+
 	// Create multi-approver
 	timeout := time.Duration(cfg.ApprovalTimeoutSeconds) * time.Second
 	if timeout == 0 {
