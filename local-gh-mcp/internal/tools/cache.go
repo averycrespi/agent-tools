@@ -88,8 +88,9 @@ func (h *Handler) handleListCaches(ctx context.Context, req gomcp.CallToolReques
 	if order != "" && sort == "" {
 		return gomcp.NewToolResultError("order has no effect without sort; pass sort to choose a field"), nil
 	}
+	limit := clampLimit(intFromArgs(args, "limit"))
 	opts := gh.ListCachesOpts{
-		Limit: intFromArgs(args, "limit"),
+		Limit: limit,
 		Sort:  sort,
 		Order: order,
 	}
@@ -101,7 +102,10 @@ func (h *Handler) handleListCaches(ctx context.Context, req gomcp.CallToolReques
 	if err := json.Unmarshal([]byte(out), &caches); err != nil {
 		return parseError("gh_list_caches", err, out), nil
 	}
-	return gomcp.NewToolResultText(format.FormatCaches(caches)), nil
+	if len(caches) == 0 {
+		return gomcp.NewToolResultText("No caches found."), nil
+	}
+	return gomcp.NewToolResultText(format.FormatCaches(caches, limit)), nil
 }
 
 func (h *Handler) handleDeleteCache(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {

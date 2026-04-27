@@ -114,7 +114,7 @@ func TestListPRs_DefaultLimit(t *testing.T) {
 	_, err := c.ListPRs(context.Background(), "octocat", "hello", ListPROpts{})
 	require.NoError(t, err)
 	assert.Contains(t, args, "--limit")
-	assert.Contains(t, args, "30")
+	assert.Contains(t, args, "31")
 }
 
 func TestListPRs_ClampedLimit(t *testing.T) {
@@ -225,7 +225,7 @@ func TestListIssues_WithFilters(t *testing.T) {
 	assert.Contains(t, args, "--label")
 	assert.Contains(t, args, "bug")
 	assert.Contains(t, args, "--limit")
-	assert.Contains(t, args, "10")
+	assert.Contains(t, args, "11")
 }
 
 func TestCommentIssue_Args(t *testing.T) {
@@ -298,7 +298,7 @@ func TestListCaches_Args(t *testing.T) {
 	_, err := c.ListCaches(context.Background(), "octocat", "hello", ListCachesOpts{Limit: 20})
 	require.NoError(t, err)
 	assert.Contains(t, args, "--limit")
-	assert.Contains(t, args, "20")
+	assert.Contains(t, args, "21")
 }
 
 func TestDeleteCache_Args(t *testing.T) {
@@ -688,7 +688,7 @@ func TestPRReviewComments_Args(t *testing.T) {
 	assert.Contains(t, args, "--jq")
 	assert.Contains(t, args, "--")
 	endpoint := args[len(args)-1]
-	assert.Equal(t, "repos/octocat/hello/pulls/42/comments?per_page=10", endpoint)
+	assert.Equal(t, "repos/octocat/hello/pulls/42/comments?per_page=11", endpoint)
 }
 
 func TestPRReviewComments_ClampsLimit(t *testing.T) {
@@ -752,8 +752,8 @@ func TestListReleases_ClampsLimit(t *testing.T) {
 	c := NewClient(capturedArgs(t, &args))
 	_, err := c.ListReleases(context.Background(), "octocat", "hello", 999)
 	require.NoError(t, err)
-	// 999 clamps to 100, then +1 for truncation peek
-	assert.Contains(t, args, "101")
+	// 999 clamps to 100, +1 for truncation peek capped back at 100
+	assert.Contains(t, args, "100")
 }
 
 func TestListPRFiles_ClampsLimit(t *testing.T) {

@@ -114,7 +114,7 @@ func TestFormatComments(t *testing.T) {
 			MinimizedReason:   "SPAM",
 		},
 	}
-	got := FormatComments(comments, 10000)
+	got := FormatComments(comments, 10000, 0)
 	for _, want := range []string{
 		"## Comments (2)",
 		"### @alice [MEMBER]",
@@ -142,7 +142,7 @@ func TestFormatComments_NONEAssociation(t *testing.T) {
 			CreatedAt:         "2025-01-01T00:00:00Z",
 		},
 	}
-	got := FormatComments(comments, 10000)
+	got := FormatComments(comments, 10000, 0)
 	if strings.Contains(got, "[NONE]") {
 		t.Error("NONE author association should not be displayed")
 	}
@@ -152,7 +152,7 @@ func TestFormatComments_NONEAssociation(t *testing.T) {
 }
 
 func TestFormatComments_Empty(t *testing.T) {
-	got := FormatComments(nil, 10000)
+	got := FormatComments(nil, 10000, 0)
 	if got != "No comments." {
 		t.Errorf("got %q, want %q", got, "No comments.")
 	}
@@ -166,7 +166,7 @@ func TestFormatComments_StripImages(t *testing.T) {
 			CreatedAt: "2025-01-01T00:00:00Z",
 		},
 	}
-	got := FormatComments(comments, 10000)
+	got := FormatComments(comments, 10000, 0)
 	if strings.Contains(got, "![screenshot]") {
 		t.Error("image markdown should be stripped")
 	}
@@ -192,7 +192,7 @@ func TestFormatReviews(t *testing.T) {
 			SubmittedAt:       "2026-04-11T00:00:00Z",
 		},
 	}
-	got := FormatReviews(reviews, 10000)
+	got := FormatReviews(reviews, 10000, 0)
 	for _, want := range []string{
 		"## Reviews (2)",
 		"### @alice [MEMBER] — APPROVED (2026-04-10)",
@@ -210,7 +210,7 @@ func TestFormatReviews(t *testing.T) {
 }
 
 func TestFormatReviews_Empty(t *testing.T) {
-	got := FormatReviews(nil, 10000)
+	got := FormatReviews(nil, 10000, 0)
 	if got != "No reviews." {
 		t.Errorf("got %q, want %q", got, "No reviews.")
 	}
@@ -244,7 +244,7 @@ func TestFormatReviewComments(t *testing.T) {
 			CreatedAt: "2026-04-12T00:00:00Z",
 		},
 	}
-	got := FormatReviewComments(comments, 10000)
+	got := FormatReviewComments(comments, 10000, 0)
 	for _, want := range []string{
 		"## Review Comments (3)",
 		"### src/foo.go",
@@ -262,7 +262,7 @@ func TestFormatReviewComments(t *testing.T) {
 }
 
 func TestFormatReviewComments_Empty(t *testing.T) {
-	got := FormatReviewComments(nil, 10000)
+	got := FormatReviewComments(nil, 10000, 0)
 	if got != "No review comments." {
 		t.Errorf("got %q, want %q", got, "No review comments.")
 	}
@@ -281,7 +281,7 @@ func TestFormatReviewComments_OrphanReply(t *testing.T) {
 			CreatedAt:   "2026-04-15T00:00:00Z",
 		},
 	}
-	got := FormatReviewComments(comments, 10000)
+	got := FormatReviewComments(comments, 10000, 0)
 	if !strings.Contains(got, "**Line 1** — @late") {
 		t.Errorf("orphan reply should render as root, got:\n%s", got)
 	}
@@ -299,7 +299,7 @@ func TestFormatReviewComments_FallsBackToOriginalLine(t *testing.T) {
 			CreatedAt:    "2026-04-10T00:00:00Z",
 		},
 	}
-	got := FormatReviewComments(comments, 10000)
+	got := FormatReviewComments(comments, 10000, 0)
 	if !strings.Contains(got, "**Line 17**") {
 		t.Errorf("expected original_line fallback to Line 17, got:\n%s", got)
 	}
@@ -593,7 +593,7 @@ func TestFormatCaches(t *testing.T) {
 			LastAccessedAt: "2026-04-10T08:05:00Z",
 		},
 	}
-	got := FormatCaches(caches)
+	got := FormatCaches(caches, 0)
 	for _, want := range []string{
 		"**1234567**",
 		"`npm-cache-abc123`",
@@ -613,8 +613,8 @@ func TestFormatCaches(t *testing.T) {
 }
 
 func TestFormatCaches_Empty(t *testing.T) {
-	if got := FormatCaches(nil); got != "No caches." {
-		t.Errorf("expected %q, got %q", "No caches.", got)
+	if got := FormatCaches(nil, 0); got != "" {
+		t.Errorf("expected empty string, got %q", got)
 	}
 }
 
@@ -645,5 +645,190 @@ func TestFormatRelease_RegularAuthor(t *testing.T) {
 	}
 	if strings.Contains(got, "[bot]") {
 		t.Errorf("unexpected '[bot]' for regular author in:\n%s", got)
+	}
+}
+
+func makePRListItems(n int) []PRListItem {
+	items := make([]PRListItem, n)
+	for i := range items {
+		items[i] = PRListItem{Number: i + 1, Title: "t", State: "OPEN", UpdatedAt: "2026-04-01T00:00:00Z"}
+	}
+	return items
+}
+
+func TestFormatPRList_OverflowAndEmpty(t *testing.T) {
+	cases := []struct {
+		name        string
+		items       []PRListItem
+		limit       int
+		wantTrailer string
+	}{
+		{"empty", nil, 5, ""},
+		{"no overflow", makePRListItems(3), 5, ""},
+		{"exact limit", makePRListItems(5), 5, ""},
+		{"overflow by one", makePRListItems(6), 5, "[truncated — showing 5 of 6 pull requests]"},
+		{"large overflow", makePRListItems(20), 5, "[truncated — showing 5 of 20 pull requests]"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FormatPRList(tc.items, tc.limit)
+			if tc.wantTrailer == "" {
+				if strings.Contains(got, "[truncated") {
+					t.Errorf("did not expect truncation trailer in:\n%s", got)
+				}
+			} else if !strings.Contains(got, tc.wantTrailer) {
+				t.Errorf("missing %q in:\n%s", tc.wantTrailer, got)
+			}
+		})
+	}
+}
+
+func TestFormatIssueList_OverflowAndEmpty(t *testing.T) {
+	make := func(n int) []IssueListItem {
+		out := make([]IssueListItem, n)
+		for i := range out {
+			out[i] = IssueListItem{Number: i + 1, Title: "t", State: "OPEN", UpdatedAt: "2026-04-01T00:00:00Z"}
+		}
+		return out
+	}
+	if got := FormatIssueList(nil, 5); got != "" {
+		t.Errorf("expected empty for empty list, got %q", got)
+	}
+	if got := FormatIssueList(make(3), 5); strings.Contains(got, "[truncated") {
+		t.Errorf("did not expect trailer for no-overflow, got:\n%s", got)
+	}
+	got := FormatIssueList(make(6), 5)
+	if !strings.Contains(got, "[truncated — showing 5 of 6 issues]") {
+		t.Errorf("missing overflow-by-one trailer in:\n%s", got)
+	}
+}
+
+func TestFormatRunList_OverflowAndEmpty(t *testing.T) {
+	make := func(n int) []RunListItem {
+		out := make([]RunListItem, n)
+		for i := range out {
+			out[i] = RunListItem{DatabaseID: int64(i + 1), Name: "Build", DisplayTitle: "Build", UpdatedAt: "2026-04-01T00:00:00Z"}
+		}
+		return out
+	}
+	if got := FormatRunList(nil, 5); got != "" {
+		t.Errorf("expected empty for empty list, got %q", got)
+	}
+	got := FormatRunList(make(11), 10)
+	if !strings.Contains(got, "[truncated — showing 10 of 11 runs]") {
+		t.Errorf("missing trailer in:\n%s", got)
+	}
+}
+
+func TestFormatBranches_Overflow(t *testing.T) {
+	make := func(n int) []Branch {
+		out := make([]Branch, n)
+		for i := range out {
+			out[i] = Branch{Name: "b"}
+			out[i].Commit.SHA = "deadbeef"
+		}
+		return out
+	}
+	got := FormatBranches(make(7), 5)
+	if !strings.Contains(got, "[truncated — showing 5 of 7 branches]") {
+		t.Errorf("missing trailer in:\n%s", got)
+	}
+	if got := FormatBranches(make(3), 5); strings.Contains(got, "[truncated") {
+		t.Errorf("did not expect trailer for no-overflow, got:\n%s", got)
+	}
+}
+
+func TestFormatReleases_Overflow(t *testing.T) {
+	make := func(n int) []Release {
+		out := make([]Release, n)
+		for i := range out {
+			out[i] = Release{TagName: "v"}
+		}
+		return out
+	}
+	got := FormatReleases(make(6), 5)
+	if !strings.Contains(got, "[truncated — showing 5 of 6 releases]") {
+		t.Errorf("missing trailer in:\n%s", got)
+	}
+}
+
+func TestFormatPRFiles_Overflow(t *testing.T) {
+	make := func(n int) []PRFile {
+		out := make([]PRFile, n)
+		for i := range out {
+			out[i] = PRFile{Filename: "f", Status: "modified"}
+		}
+		return out
+	}
+	got := FormatPRFiles(make(11), 10)
+	if !strings.Contains(got, "[truncated — showing 10 of 11 files]") {
+		t.Errorf("missing trailer in:\n%s", got)
+	}
+}
+
+func TestFormatCaches_Overflow(t *testing.T) {
+	make := func(n int) []Cache {
+		out := make([]Cache, n)
+		for i := range out {
+			out[i] = Cache{ID: int64(i + 1), Key: "k"}
+		}
+		return out
+	}
+	got := FormatCaches(make(6), 5)
+	if !strings.Contains(got, "[truncated — showing 5 of 6 caches]") {
+		t.Errorf("missing trailer in:\n%s", got)
+	}
+}
+
+func TestFormatComments_Overflow(t *testing.T) {
+	make := func(n int) []Comment {
+		out := make([]Comment, n)
+		for i := range out {
+			out[i] = Comment{Author: Author{Login: "u"}, Body: "b", CreatedAt: "2026-04-01T00:00:00Z"}
+		}
+		return out
+	}
+	got := FormatComments(make(6), 100, 5)
+	if !strings.Contains(got, "[truncated — showing 5 of 6 comments]") {
+		t.Errorf("missing trailer in:\n%s", got)
+	}
+}
+
+func TestFormatReviews_Overflow(t *testing.T) {
+	make := func(n int) []Review {
+		out := make([]Review, n)
+		for i := range out {
+			out[i] = Review{Author: Author{Login: "u"}, State: "APPROVED", SubmittedAt: "2026-04-01T00:00:00Z"}
+		}
+		return out
+	}
+	got := FormatReviews(make(6), 100, 5)
+	if !strings.Contains(got, "[truncated — showing 5 of 6 reviews]") {
+		t.Errorf("missing trailer in:\n%s", got)
+	}
+}
+
+func TestFormatReviewComments_Overflow(t *testing.T) {
+	make := func(n int) []ReviewComment {
+		out := make([]ReviewComment, n)
+		for i := range out {
+			out[i] = ReviewComment{ID: int64(i + 1), User: RESTUser{Login: "u"}, Body: "b", Path: "p", Line: 1, CreatedAt: "2026-04-01T00:00:00Z"}
+		}
+		return out
+	}
+	got := FormatReviewComments(make(6), 100, 5)
+	if !strings.Contains(got, "[truncated — showing 5 of 6 review comments]") {
+		t.Errorf("missing trailer in:\n%s", got)
+	}
+}
+
+func TestTruncateBytes_Marker(t *testing.T) {
+	s := strings.Repeat("a", 200)
+	got := TruncateBytes(s, 50)
+	if !strings.Contains(got, "[truncated — showing ") {
+		t.Errorf("missing unified marker in:\n%s", got)
+	}
+	if !strings.Contains(got, " of 200 bytes]") {
+		t.Errorf("missing unit and total in:\n%s", got)
 	}
 }

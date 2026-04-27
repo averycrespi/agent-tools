@@ -205,7 +205,7 @@ func TestViewRun_LogFailed_MaxBytes(t *testing.T) {
 	text := result.Content[0].(gomcp.TextContent).Text
 	assert.LessOrEqual(t, len(text), 1100, "byte cap should hold within a small overhead for the truncation marker")
 	assert.Contains(t, text, "[truncated")
-	assert.Contains(t, text, "bytes shown]")
+	assert.Contains(t, text, "bytes]")
 }
 
 // TestGhViewRunJobLogs_MaxBytes verifies max_bytes truncation on the

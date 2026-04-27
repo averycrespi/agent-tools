@@ -56,7 +56,7 @@ func TestListCaches_Empty(t *testing.T) {
 	require.Len(t, result.Content, 1)
 	text, ok := result.Content[0].(gomcp.TextContent)
 	require.True(t, ok)
-	assert.Equal(t, "No caches.", text.Text)
+	assert.Equal(t, "No caches found.", text.Text)
 }
 
 func TestListCaches_MissingOwner(t *testing.T) {

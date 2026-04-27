@@ -26,6 +26,16 @@ func clampLimit(limit int) int {
 	return limit
 }
 
+// fetchLimit returns the page size to request from gh / the GitHub REST API
+// so callers can detect truncation: clampLimit(limit)+1, capped at maxLimit.
+func fetchLimit(limit int) int {
+	n := clampLimit(limit) + 1
+	if n > maxLimit {
+		return maxLimit
+	}
+	return n
+}
+
 const (
 	prViewFields  = "number,title,body,state,author,baseRefName,headRefName,url,isDraft,mergeable,reviewDecision,labels,assignees,createdAt,updatedAt"
 	prListFields  = "number,title,state,author,headRefName,url,isDraft,createdAt,updatedAt"
@@ -205,8 +215,9 @@ func (c *Client) ViewPR(_ context.Context, owner, repo string, number int) (stri
 }
 
 // ListPRs lists pull requests for a repository.
+// Requests limit+1 items so the caller can detect truncation.
 func (c *Client) ListPRs(_ context.Context, owner, repo string, opts ListPROpts) (string, error) {
-	args := []string{"pr", "list", "-R", repoFlag(owner, repo), "--json", prListFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	args := []string{"pr", "list", "-R", repoFlag(owner, repo), "--json", prListFields, "--limit", strconv.Itoa(fetchLimit(opts.Limit))}
 	if opts.State != "" {
 		args = append(args, "--state", opts.State)
 	}
@@ -465,8 +476,9 @@ func (c *Client) ViewIssue(_ context.Context, owner, repo string, number int) (s
 }
 
 // ListIssues lists issues for a repository.
+// Requests limit+1 items so the caller can detect truncation.
 func (c *Client) ListIssues(_ context.Context, owner, repo string, opts ListIssuesOpts) (string, error) {
-	args := []string{"issue", "list", "-R", repoFlag(owner, repo), "--json", issueListFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	args := []string{"issue", "list", "-R", repoFlag(owner, repo), "--json", issueListFields, "--limit", strconv.Itoa(fetchLimit(opts.Limit))}
 	if opts.State != "" {
 		args = append(args, "--state", opts.State)
 	}
@@ -499,10 +511,11 @@ func (c *Client) CommentIssue(_ context.Context, owner, repo string, number int,
 }
 
 // PRComments retrieves comments on a pull request.
+// Requests limit+1 items via jq slice so the caller can detect truncation.
 func (c *Client) PRComments(_ context.Context, owner, repo string, number int, limit int) (string, error) {
 	out, err := c.runner.Run("gh", "pr", "view", "-R", repoFlag(owner, repo),
 		"--json", "comments", "--jq",
-		fmt.Sprintf(".comments[:%d] | map({author,authorAssociation,body,createdAt,isMinimized,minimizedReason})", clampLimit(limit)),
+		fmt.Sprintf(".comments[:%d] | map({author,authorAssociation,body,createdAt,isMinimized,minimizedReason})", fetchLimit(limit)),
 		strconv.Itoa(number))
 	if err != nil {
 		return "", fmt.Errorf("gh pr comments failed: %s", strings.TrimSpace(string(out)))
@@ -511,10 +524,11 @@ func (c *Client) PRComments(_ context.Context, owner, repo string, number int, l
 }
 
 // PRReviews retrieves top-level review submissions on a pull request.
+// Requests limit+1 items via jq slice so the caller can detect truncation.
 func (c *Client) PRReviews(_ context.Context, owner, repo string, number int, limit int) (string, error) {
 	out, err := c.runner.Run("gh", "pr", "view", "-R", repoFlag(owner, repo),
 		"--json", "reviews", "--jq",
-		fmt.Sprintf(".reviews[:%d] | map({author,authorAssociation,body,state,submittedAt})", clampLimit(limit)),
+		fmt.Sprintf(".reviews[:%d] | map({author,authorAssociation,body,state,submittedAt})", fetchLimit(limit)),
 		strconv.Itoa(number))
 	if err != nil {
 		return "", fmt.Errorf("gh pr reviews failed: %s", strings.TrimSpace(string(out)))
@@ -524,9 +538,9 @@ func (c *Client) PRReviews(_ context.Context, owner, repo string, number int, li
 
 // PRReviewComments retrieves inline review comments on a pull request.
 // Uses the REST API via `gh api` because `gh pr view --json` does not expose inline comments.
-// Clamped limit maps to the per_page query param (max 100 per GitHub REST API).
+// Requests limit+1 items (capped at 100) so the caller can detect truncation.
 func (c *Client) PRReviewComments(_ context.Context, owner, repo string, number int, limit int) (string, error) {
-	endpoint := fmt.Sprintf("repos/%s/pulls/%d/comments?per_page=%d", repoFlag(owner, repo), number, clampLimit(limit))
+	endpoint := fmt.Sprintf("repos/%s/pulls/%d/comments?per_page=%d", repoFlag(owner, repo), number, fetchLimit(limit))
 	jq := "map({id, in_reply_to_id, pull_request_review_id, user: {login: .user.login, type: .user.type}, body, path, line, original_line, side, diff_hunk, created_at})"
 	out, err := c.runner.Run("gh", "api", "--jq", jq, "--", endpoint)
 	if err != nil {
@@ -536,10 +550,11 @@ func (c *Client) PRReviewComments(_ context.Context, owner, repo string, number 
 }
 
 // IssueComments retrieves comments on an issue.
+// Requests limit+1 items via jq slice so the caller can detect truncation.
 func (c *Client) IssueComments(_ context.Context, owner, repo string, number int, limit int) (string, error) {
 	out, err := c.runner.Run("gh", "issue", "view", "-R", repoFlag(owner, repo),
 		"--json", "comments", "--jq",
-		fmt.Sprintf(".comments[:%d] | map({author,authorAssociation,body,createdAt,isMinimized,minimizedReason})", clampLimit(limit)),
+		fmt.Sprintf(".comments[:%d] | map({author,authorAssociation,body,createdAt,isMinimized,minimizedReason})", fetchLimit(limit)),
 		strconv.Itoa(number))
 	if err != nil {
 		return "", fmt.Errorf("gh issue comments failed: %s", strings.TrimSpace(string(out)))
@@ -548,8 +563,9 @@ func (c *Client) IssueComments(_ context.Context, owner, repo string, number int
 }
 
 // ListRuns lists workflow runs for a repository.
+// Requests limit+1 items so the caller can detect truncation.
 func (c *Client) ListRuns(_ context.Context, owner, repo string, opts ListRunsOpts) (string, error) {
-	args := []string{"run", "list", "-R", repoFlag(owner, repo), "--json", runListFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	args := []string{"run", "list", "-R", repoFlag(owner, repo), "--json", runListFields, "--limit", strconv.Itoa(fetchLimit(opts.Limit))}
 	if opts.Branch != "" {
 		args = append(args, "--branch", opts.Branch)
 	}
@@ -647,8 +663,9 @@ func (c *Client) CancelRun(_ context.Context, owner, repo string, runID string) 
 }
 
 // ListCaches lists caches for a repository.
+// Requests limit+1 items so the caller can detect truncation.
 func (c *Client) ListCaches(_ context.Context, owner, repo string, opts ListCachesOpts) (string, error) {
-	args := []string{"cache", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(clampLimit(opts.Limit)), "--json", cacheListFields}
+	args := []string{"cache", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(fetchLimit(opts.Limit)), "--json", cacheListFields}
 	if opts.Sort != "" {
 		args = append(args, "--sort", opts.Sort)
 	}
@@ -674,13 +691,8 @@ func (c *Client) DeleteCache(_ context.Context, owner, repo string, cacheID stri
 // ListPRFiles lists files changed by a pull request.
 // Requests one extra item (up to 100) so callers can detect truncation.
 func (c *Client) ListPRFiles(_ context.Context, owner, repo string, number, limit int) (string, error) {
-	limit = clampLimit(limit)
-	perPage := limit + 1
-	if perPage > 100 {
-		perPage = 100
-	}
 	out, err := c.runner.Run("gh", "api",
-		fmt.Sprintf("repos/%s/%s/pulls/%s/files?per_page=%s", owner, repo, strconv.Itoa(number), strconv.Itoa(perPage)),
+		fmt.Sprintf("repos/%s/%s/pulls/%s/files?per_page=%s", owner, repo, strconv.Itoa(number), strconv.Itoa(fetchLimit(limit))),
 	)
 	if err != nil {
 		return "", fmt.Errorf("gh api pulls/%d/files failed: %s", number, cleanAPIError(out))
@@ -692,16 +704,11 @@ func (c *Client) ListPRFiles(_ context.Context, owner, repo string, number, limi
 // Requests one extra item (up to 100) so callers can detect truncation.
 // page is 1-indexed; values < 1 are treated as 1.
 func (c *Client) ListBranches(_ context.Context, owner, repo string, limit, page int) (string, error) {
-	limit = clampLimit(limit)
-	perPage := limit + 1
-	if perPage > 100 {
-		perPage = 100
-	}
 	if page < 1 {
 		page = 1
 	}
 	out, err := c.runner.Run("gh", "api",
-		fmt.Sprintf("repos/%s/%s/branches?per_page=%s&page=%s", owner, repo, strconv.Itoa(perPage), strconv.Itoa(page)),
+		fmt.Sprintf("repos/%s/%s/branches?per_page=%s&page=%s", owner, repo, strconv.Itoa(fetchLimit(limit)), strconv.Itoa(page)),
 	)
 	if err != nil {
 		return "", fmt.Errorf("gh api branches failed: %s", cleanAPIError(out))
@@ -852,8 +859,7 @@ func (c *Client) SearchCode(_ context.Context, query string, opts SearchCodeOpts
 // ListReleases lists releases in a repository.
 // limit+1 entries are requested so the caller can detect truncation.
 func (c *Client) ListReleases(_ context.Context, owner, repo string, limit int) (string, error) {
-	limit = clampLimit(limit)
-	args := []string{"release", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(limit + 1), "--json", "tagName,name,publishedAt,isDraft,isPrerelease"}
+	args := []string{"release", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(fetchLimit(limit)), "--json", "tagName,name,publishedAt,isDraft,isPrerelease"}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh release list failed: %s", strings.TrimSpace(string(out)))

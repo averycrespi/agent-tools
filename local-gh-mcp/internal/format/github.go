@@ -277,9 +277,15 @@ func FormatIssueView(issue IssueView, maxBodyLen int) string {
 }
 
 // FormatComments formats a list of comments as markdown.
-func FormatComments(comments []Comment, maxBodyLen int) string {
+// When limit > 0 and len(comments) > limit, the list is sliced to limit and
+// a truncation trailer is appended. The caller should fetch limit+1 items.
+func FormatComments(comments []Comment, maxBodyLen int, limit int) string {
 	if len(comments) == 0 {
 		return "No comments."
+	}
+	total := len(comments)
+	if limit > 0 && total > limit {
+		comments = comments[:limit]
 	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "## Comments (%d)\n", len(comments))
@@ -298,13 +304,22 @@ func FormatComments(comments []Comment, maxBodyLen int) string {
 			sb.WriteString("\n")
 		}
 	}
+	if limit > 0 && total > limit {
+		fmt.Fprintf(&sb, "\n[truncated — showing %d of %d comments]\n", limit, total)
+	}
 	return sb.String()
 }
 
 // FormatReviews formats top-level PR reviews as markdown.
-func FormatReviews(reviews []Review, maxBodyLen int) string {
+// When limit > 0 and len(reviews) > limit, the list is sliced to limit and
+// a truncation trailer is appended. The caller should fetch limit+1 items.
+func FormatReviews(reviews []Review, maxBodyLen int, limit int) string {
 	if len(reviews) == 0 {
 		return "No reviews."
+	}
+	total := len(reviews)
+	if limit > 0 && total > limit {
+		reviews = reviews[:limit]
 	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "## Reviews (%d)\n", len(reviews))
@@ -327,14 +342,23 @@ func FormatReviews(reviews []Review, maxBodyLen int) string {
 			sb.WriteString("\n")
 		}
 	}
+	if limit > 0 && total > limit {
+		fmt.Fprintf(&sb, "\n[truncated — showing %d of %d reviews]\n", limit, total)
+	}
 	return sb.String()
 }
 
 // FormatReviewComments formats inline PR review comments as markdown,
 // grouped by file path and threaded by in_reply_to_id.
-func FormatReviewComments(comments []ReviewComment, maxBodyLen int) string {
+// When limit > 0 and len(comments) > limit, the list is sliced to limit and
+// a truncation trailer is appended. The caller should fetch limit+1 items.
+func FormatReviewComments(comments []ReviewComment, maxBodyLen int, limit int) string {
 	if len(comments) == 0 {
 		return "No review comments."
+	}
+	total := len(comments)
+	if limit > 0 && total > limit {
+		comments = comments[:limit]
 	}
 
 	// Group comments by file, preserving first-seen order.
@@ -378,6 +402,9 @@ func FormatReviewComments(comments []ReviewComment, maxBodyLen int) string {
 		for _, i := range roots {
 			writeReviewCommentThread(&sb, fileComments, replies, i, 0, maxBodyLen)
 		}
+	}
+	if limit > 0 && total > limit {
+		fmt.Fprintf(&sb, "\n[truncated — showing %d of %d review comments]\n", limit, total)
 	}
 	return sb.String()
 }
@@ -438,6 +465,25 @@ func FormatPRListItem(pr PRListItem) string {
 		pr.Number, pr.Title, FormatAuthor(pr.Author), state, FormatDate(pr.UpdatedAt))
 }
 
+// FormatPRList formats a list of PRs as markdown bullets.
+// When limit > 0 and len(prs) > limit, the list is sliced to limit and
+// a truncation trailer is appended. The caller should fetch limit+1 items.
+func FormatPRList(prs []PRListItem, limit int) string {
+	total := len(prs)
+	if limit > 0 && total > limit {
+		prs = prs[:limit]
+	}
+	var b strings.Builder
+	for _, pr := range prs {
+		b.WriteString(FormatPRListItem(pr))
+		b.WriteString("\n")
+	}
+	if limit > 0 && total > limit {
+		fmt.Fprintf(&b, "\n[truncated — showing %d of %d pull requests]\n", limit, total)
+	}
+	return b.String()
+}
+
 // FormatIssueListItem formats a single issue list item as a markdown bullet.
 func FormatIssueListItem(item IssueListItem) string {
 	return fmt.Sprintf("- **#%d** %s — %s, %s, labels: %s, updated %s",
@@ -445,11 +491,49 @@ func FormatIssueListItem(item IssueListItem) string {
 		FormatLabels(item.Labels), FormatDate(item.UpdatedAt))
 }
 
+// FormatIssueList formats a list of issues as markdown bullets.
+// When limit > 0 and len(issues) > limit, the list is sliced to limit and
+// a truncation trailer is appended. The caller should fetch limit+1 items.
+func FormatIssueList(issues []IssueListItem, limit int) string {
+	total := len(issues)
+	if limit > 0 && total > limit {
+		issues = issues[:limit]
+	}
+	var b strings.Builder
+	for _, issue := range issues {
+		b.WriteString(FormatIssueListItem(issue))
+		b.WriteString("\n")
+	}
+	if limit > 0 && total > limit {
+		fmt.Fprintf(&b, "\n[truncated — showing %d of %d issues]\n", limit, total)
+	}
+	return b.String()
+}
+
 // FormatRunListItem formats a single workflow run list item as a markdown bullet.
 func FormatRunListItem(item RunListItem) string {
 	return fmt.Sprintf("- **#%d** %s — %s/%s, %s, %s, %s",
 		item.DatabaseID, item.DisplayTitle, item.Status, item.Conclusion,
 		item.Event, item.HeadBranch, FormatDate(item.UpdatedAt))
+}
+
+// FormatRunList formats a list of workflow runs as markdown bullets.
+// When limit > 0 and len(runs) > limit, the list is sliced to limit and
+// a truncation trailer is appended. The caller should fetch limit+1 items.
+func FormatRunList(runs []RunListItem, limit int) string {
+	total := len(runs)
+	if limit > 0 && total > limit {
+		runs = runs[:limit]
+	}
+	var b strings.Builder
+	for _, run := range runs {
+		b.WriteString(FormatRunListItem(run))
+		b.WriteString("\n")
+	}
+	if limit > 0 && total > limit {
+		fmt.Fprintf(&b, "\n[truncated — showing %d of %d runs]\n", limit, total)
+	}
+	return b.String()
 }
 
 // FormatRunView formats a workflow run view as markdown.
@@ -525,6 +609,7 @@ type PRFile struct {
 
 // FormatPRFiles formats a list of PR files with +/- counts as markdown bullets.
 // Files beyond limit are truncated; a trailer is appended when truncation occurs.
+// The caller should fetch limit+1 items so overflow is detectable.
 func FormatPRFiles(files []PRFile, limit int) string {
 	total := len(files)
 	if limit > 0 && total > limit {
@@ -553,15 +638,21 @@ type Cache struct {
 // FormatCaches formats a list of GitHub Actions caches as markdown bullets.
 // Each entry shows id, key, size, ref, and access dates so agents can triage
 // stale or oversized caches before deletion.
-func FormatCaches(caches []Cache) string {
-	if len(caches) == 0 {
-		return "No caches."
+// The caller should fetch limit+1 items so overflow is detectable; when
+// len(caches) > limit the list is sliced to limit and a trailer is appended.
+func FormatCaches(caches []Cache, limit int) string {
+	total := len(caches)
+	if limit > 0 && total > limit {
+		caches = caches[:limit]
 	}
 	var b strings.Builder
 	for _, c := range caches {
 		fmt.Fprintf(&b, "- **%d** `%s` — %s, ref `%s`, created %s, accessed %s\n",
 			c.ID, c.Key, humanBytes(c.SizeInBytes), c.Ref,
 			FormatDate(c.CreatedAt), FormatDate(c.LastAccessedAt))
+	}
+	if limit > 0 && total > limit {
+		fmt.Fprintf(&b, "\n[truncated — showing %d of %d caches]\n", limit, total)
 	}
 	return b.String()
 }

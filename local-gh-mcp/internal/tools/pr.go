@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
@@ -597,13 +596,14 @@ func (h *Handler) handleListPRs(ctx context.Context, req gomcp.CallToolRequest) 
 	if errResult := validateEnum("state", state, []string{"open", "closed", "merged", "all"}); errResult != nil {
 		return errResult, nil
 	}
+	limit := clampLimit(intFromArgs(args, "limit"))
 	opts := gh.ListPROpts{
 		State:  state,
 		Author: stringFromArgs(args, "author"),
 		Label:  stringFromArgs(args, "label"),
 		Base:   stringFromArgs(args, "base"),
 		Head:   stringFromArgs(args, "head"),
-		Limit:  intFromArgs(args, "limit"),
+		Limit:  limit,
 	}
 	out, err := h.gh.ListPRs(ctx, owner, repo, opts)
 	if err != nil {
@@ -613,14 +613,10 @@ func (h *Handler) handleListPRs(ctx context.Context, req gomcp.CallToolRequest) 
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
 		return parseError("gh_list_prs", err, out), nil
 	}
-	var lines []string
-	for _, item := range items {
-		lines = append(lines, format.FormatPRListItem(item))
-	}
-	if len(lines) == 0 {
+	if len(items) == 0 {
 		return gomcp.NewToolResultText("No pull requests found."), nil
 	}
-	return gomcp.NewToolResultText(strings.Join(lines, "\n")), nil
+	return gomcp.NewToolResultText(format.FormatPRList(items, limit)), nil
 }
 
 func (h *Handler) handleDiffPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -801,7 +797,7 @@ func (h *Handler) handleListPRComments(ctx context.Context, req gomcp.CallToolRe
 		return errResult, nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
-	limit := intFromArgs(args, "limit")
+	limit := clampLimit(intFromArgs(args, "limit"))
 	out, err := h.gh.PRComments(ctx, owner, repo, number, limit)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
@@ -810,7 +806,10 @@ func (h *Handler) handleListPRComments(ctx context.Context, req gomcp.CallToolRe
 	if err := json.Unmarshal([]byte(out), &comments); err != nil {
 		return parseError("gh_list_pr_comments", err, out), nil
 	}
-	return gomcp.NewToolResultText(format.FormatComments(comments, maxBody)), nil
+	if len(comments) == 0 {
+		return gomcp.NewToolResultText("No comments found."), nil
+	}
+	return gomcp.NewToolResultText(format.FormatComments(comments, maxBody, limit)), nil
 }
 
 func (h *Handler) handleListPRReviews(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -824,7 +823,7 @@ func (h *Handler) handleListPRReviews(ctx context.Context, req gomcp.CallToolReq
 		return errResult, nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
-	limit := intFromArgs(args, "limit")
+	limit := clampLimit(intFromArgs(args, "limit"))
 	out, err := h.gh.PRReviews(ctx, owner, repo, number, limit)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
@@ -833,7 +832,10 @@ func (h *Handler) handleListPRReviews(ctx context.Context, req gomcp.CallToolReq
 	if err := json.Unmarshal([]byte(out), &reviews); err != nil {
 		return parseError("gh_list_pr_reviews", err, out), nil
 	}
-	return gomcp.NewToolResultText(format.FormatReviews(reviews, maxBody)), nil
+	if len(reviews) == 0 {
+		return gomcp.NewToolResultText("No reviews found."), nil
+	}
+	return gomcp.NewToolResultText(format.FormatReviews(reviews, maxBody, limit)), nil
 }
 
 func (h *Handler) handleListPRReviewComments(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -847,7 +849,7 @@ func (h *Handler) handleListPRReviewComments(ctx context.Context, req gomcp.Call
 		return errResult, nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
-	limit := intFromArgs(args, "limit")
+	limit := clampLimit(intFromArgs(args, "limit"))
 	out, err := h.gh.PRReviewComments(ctx, owner, repo, number, limit)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
@@ -856,7 +858,10 @@ func (h *Handler) handleListPRReviewComments(ctx context.Context, req gomcp.Call
 	if err := json.Unmarshal([]byte(out), &comments); err != nil {
 		return parseError("gh_list_pr_review_comments", err, out), nil
 	}
-	return gomcp.NewToolResultText(format.FormatReviewComments(comments, maxBody)), nil
+	if len(comments) == 0 {
+		return gomcp.NewToolResultText("No review comments found."), nil
+	}
+	return gomcp.NewToolResultText(format.FormatReviewComments(comments, maxBody, limit)), nil
 }
 
 func (h *Handler) handleReadyPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -925,6 +930,9 @@ func (h *Handler) handleListPRFiles(ctx context.Context, req gomcp.CallToolReque
 	var files []format.PRFile
 	if err := json.Unmarshal([]byte(raw), &files); err != nil {
 		return parseError("gh_list_pr_files", err, raw), nil
+	}
+	if len(files) == 0 {
+		return gomcp.NewToolResultText("No files found."), nil
 	}
 	return gomcp.NewToolResultText(format.FormatPRFiles(files, limit)), nil
 }

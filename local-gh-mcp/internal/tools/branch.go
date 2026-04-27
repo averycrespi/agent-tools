@@ -47,5 +47,8 @@ func (h *Handler) handleListBranches(ctx context.Context, req gomcp.CallToolRequ
 	if err := json.Unmarshal([]byte(raw), &branches); err != nil {
 		return parseError("gh_list_branches", err, raw), nil
 	}
+	if len(branches) == 0 {
+		return gomcp.NewToolResultText("No branches found."), nil
+	}
 	return gomcp.NewToolResultText(format.FormatBranches(branches, limit)), nil
 }

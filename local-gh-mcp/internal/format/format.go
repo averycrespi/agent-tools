@@ -56,8 +56,8 @@ func StripImages(text string) string {
 	return imageRe.ReplaceAllString(text, "[image]")
 }
 
-// TruncateBody truncates text to maxLen chars on a whitespace boundary.
-// If maxLen is 0, returns "". Appends "[truncated -- N/M chars shown]" if cut.
+// TruncateBody truncates text to maxLen bytes on a whitespace boundary.
+// If maxLen is 0, returns "". Appends "[truncated \u2014 showing X of Y bytes]" if cut.
 func TruncateBody(text string, maxLen int) string {
 	if maxLen == 0 {
 		return ""
@@ -71,7 +71,7 @@ func TruncateBody(text string, maxLen int) string {
 		cut = idx
 	}
 	truncated := text[:cut]
-	return fmt.Sprintf("%s\n[truncated \u2014 %d/%d chars shown]", truncated, len(truncated), len(text))
+	return fmt.Sprintf("%s\n[truncated \u2014 showing %d of %d bytes]", truncated, len(truncated), len(text))
 }
 
 // DiffFile represents one file's change summary from a unified diff.
@@ -135,7 +135,7 @@ func FormatDiff(diff string, maxBytes int) string {
 }
 
 // TruncateBytes truncates s to maxBytes on the last newline boundary at or before
-// the cap, appending "[truncated — N/M bytes shown]". Returns s unchanged if maxBytes <= 0
+// the cap, appending "[truncated — showing X of Y bytes]". Returns s unchanged if maxBytes <= 0
 // or len(s) <= maxBytes. Used for diff bodies and log tails.
 func TruncateBytes(s string, maxBytes int) string {
 	if maxBytes <= 0 || len(s) <= maxBytes {
@@ -145,7 +145,7 @@ func TruncateBytes(s string, maxBytes int) string {
 	if idx := strings.LastIndexByte(s[:maxBytes], '\n'); idx > 0 {
 		cut = idx
 	}
-	return fmt.Sprintf("%s\n[truncated — %d/%d bytes shown]", s[:cut], cut, len(s))
+	return fmt.Sprintf("%s\n[truncated — showing %d of %d bytes]", s[:cut], cut, len(s))
 }
 
 // FormatLabels formats labels as "a, b, c" or "(none)".

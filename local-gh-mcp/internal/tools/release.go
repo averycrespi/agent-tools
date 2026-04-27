@@ -57,6 +57,9 @@ func (h *Handler) handleListReleases(ctx context.Context, req gomcp.CallToolRequ
 	if err := json.Unmarshal([]byte(raw), &releases); err != nil {
 		return parseError("gh_list_releases", err, raw), nil
 	}
+	if len(releases) == 0 {
+		return gomcp.NewToolResultText("No releases found."), nil
+	}
 	return gomcp.NewToolResultText(format.FormatReleases(releases, limit)), nil
 }
 

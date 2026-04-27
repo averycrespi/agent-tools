@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
@@ -184,13 +183,14 @@ func (h *Handler) handleListIssues(ctx context.Context, req gomcp.CallToolReques
 	if errResult := validateEnum("state", state, []string{"open", "closed", "all"}); errResult != nil {
 		return errResult, nil
 	}
+	limit := clampLimit(intFromArgs(args, "limit"))
 	opts := gh.ListIssuesOpts{
 		State:     state,
 		Author:    stringFromArgs(args, "author"),
 		Assignee:  stringFromArgs(args, "assignee"),
 		Label:     stringFromArgs(args, "label"),
 		Milestone: stringFromArgs(args, "milestone"),
-		Limit:     intFromArgs(args, "limit"),
+		Limit:     limit,
 	}
 	out, err := h.gh.ListIssues(ctx, owner, repo, opts)
 	if err != nil {
@@ -200,14 +200,10 @@ func (h *Handler) handleListIssues(ctx context.Context, req gomcp.CallToolReques
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
 		return parseError("gh_list_issues", err, out), nil
 	}
-	var lines []string
-	for _, item := range items {
-		lines = append(lines, format.FormatIssueListItem(item))
-	}
-	if len(lines) == 0 {
+	if len(items) == 0 {
 		return gomcp.NewToolResultText("No issues found."), nil
 	}
-	return gomcp.NewToolResultText(strings.Join(lines, "\n")), nil
+	return gomcp.NewToolResultText(format.FormatIssueList(items, limit)), nil
 }
 
 func (h *Handler) handleCommentIssue(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -242,7 +238,7 @@ func (h *Handler) handleListIssueComments(ctx context.Context, req gomcp.CallToo
 		return errResult, nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
-	limit := intFromArgs(args, "limit")
+	limit := clampLimit(intFromArgs(args, "limit"))
 	out, err := h.gh.IssueComments(ctx, owner, repo, number, limit)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
@@ -251,5 +247,8 @@ func (h *Handler) handleListIssueComments(ctx context.Context, req gomcp.CallToo
 	if err := json.Unmarshal([]byte(out), &comments); err != nil {
 		return parseError("gh_list_issue_comments", err, out), nil
 	}
-	return gomcp.NewToolResultText(format.FormatComments(comments, maxBody)), nil
+	if len(comments) == 0 {
+		return gomcp.NewToolResultText("No comments found."), nil
+	}
+	return gomcp.NewToolResultText(format.FormatComments(comments, maxBody, limit)), nil
 }

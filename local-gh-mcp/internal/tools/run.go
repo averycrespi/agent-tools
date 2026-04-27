@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
@@ -88,7 +87,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 					"max_bytes": map[string]any{
 						"type":        "number",
 						"default":     50000,
-						"description": "When log_failed=true, hard byte cap applied after tail_lines (default 50000, max 500000). Truncates on line boundary with `[truncated — N/M bytes shown]`. Ignored when log_failed=false.",
+						"description": "When log_failed=true, hard byte cap applied after tail_lines (default 50000, max 500000). Truncates on line boundary with `[truncated — showing N of M bytes]`. Ignored when log_failed=false.",
 					},
 				},
 				Required: []string{"owner", "repo", "run_id"},
@@ -171,7 +170,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 					"max_bytes": map[string]any{
 						"type":        "number",
 						"default":     50000,
-						"description": "Hard byte cap applied after tail_lines (default 50000, max 500000). Truncates on line boundary with `[truncated — N/M bytes shown]`.",
+						"description": "Hard byte cap applied after tail_lines (default 50000, max 500000). Truncates on line boundary with `[truncated — showing N of M bytes]`.",
 					},
 				},
 				Required: []string{"owner", "repo", "job_id"},
@@ -194,13 +193,14 @@ func (h *Handler) handleListRuns(ctx context.Context, req gomcp.CallToolRequest)
 	}); errResult != nil {
 		return errResult, nil
 	}
+	limit := clampLimit(intFromArgs(args, "limit"))
 	opts := gh.ListRunsOpts{
 		Branch:   stringFromArgs(args, "branch"),
 		Status:   status,
 		Workflow: stringFromArgs(args, "workflow"),
 		Actor:    stringFromArgs(args, "actor"),
 		Event:    stringFromArgs(args, "event"),
-		Limit:    intFromArgs(args, "limit"),
+		Limit:    limit,
 	}
 	out, err := h.gh.ListRuns(ctx, owner, repo, opts)
 	if err != nil {
@@ -210,14 +210,10 @@ func (h *Handler) handleListRuns(ctx context.Context, req gomcp.CallToolRequest)
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
 		return parseError("gh_list_runs", err, out), nil
 	}
-	var lines []string
-	for _, item := range items {
-		lines = append(lines, format.FormatRunListItem(item))
-	}
-	if len(lines) == 0 {
+	if len(items) == 0 {
 		return gomcp.NewToolResultText("No workflow runs found."), nil
 	}
-	return gomcp.NewToolResultText(strings.Join(lines, "\n")), nil
+	return gomcp.NewToolResultText(format.FormatRunList(items, limit)), nil
 }
 
 func (h *Handler) handleViewRun(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
