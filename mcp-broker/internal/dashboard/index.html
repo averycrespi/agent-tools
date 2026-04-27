@@ -2068,6 +2068,56 @@
         }, 300);
       }
 
+      function renderAuditRow(rec, idx) {
+        var ts = rec.timestamp ? new Date(rec.timestamp).toLocaleString() : "-";
+        var verdictClass = "";
+        var verdictText = rec.verdict || "-";
+        if (verdictText === "allow") verdictClass = "verdict-allow";
+        else if (verdictText === "deny") verdictClass = "verdict-deny";
+        else if (verdictText === "require-approval")
+          verdictClass = "verdict-require-approval";
+
+        var result = "success";
+        if (rec.error) {
+          result = "error";
+        }
+
+        // Approval column
+        var approval = "-";
+        if (rec.approved === true) approval = "approved";
+        else if (rec.approved === false) approval = "denied";
+
+        // Row color based on final outcome (error > denied > approved)
+        var rowClass = "";
+        if (rec.error) {
+          rowClass = "row-error";
+        } else if (
+          verdictText === "deny" ||
+          (verdictText === "require-approval" && rec.approved === false)
+        ) {
+          rowClass = "row-denied";
+        } else {
+          rowClass = "row-approved";
+        }
+
+        var html =
+          '<tr class="' +
+          rowClass +
+          '" data-audit-idx="' +
+          idx +
+          '" onclick="toggleAuditDetail(' +
+          idx +
+          ')">';
+        html += "<td>" + esc(ts) + "</td>";
+        html += "<td>" + esc(rec.tool || "-") + "</td>";
+        html +=
+          '<td class="' + verdictClass + '">' + esc(verdictText) + "</td>";
+        html += "<td>" + esc(approval) + "</td>";
+        html += "<td>" + esc(result) + "</td>";
+        html += "</tr>";
+        return html;
+      }
+
       function loadAudit() {
         var tool = document.getElementById("audit-tool").value.trim();
         var params = new URLSearchParams();
@@ -2103,58 +2153,7 @@
             var html = "";
             auditRecords = records;
             records.forEach(function (rec, idx) {
-              var ts = rec.timestamp
-                ? new Date(rec.timestamp).toLocaleString()
-                : "-";
-              var verdictClass = "";
-              var verdictText = rec.verdict || "-";
-              if (verdictText === "allow") verdictClass = "verdict-allow";
-              else if (verdictText === "deny") verdictClass = "verdict-deny";
-              else if (verdictText === "require-approval")
-                verdictClass = "verdict-require-approval";
-
-              var result = "success";
-              if (rec.error) {
-                result = "error";
-              }
-
-              // Approval column
-              var approval = "-";
-              if (rec.approved === true) approval = "approved";
-              else if (rec.approved === false) approval = "denied";
-
-              // Row color based on final outcome (error > denied > approved)
-              var rowClass = "";
-              if (rec.error) {
-                rowClass = "row-error";
-              } else if (
-                verdictText === "deny" ||
-                (verdictText === "require-approval" && rec.approved === false)
-              ) {
-                rowClass = "row-denied";
-              } else {
-                rowClass = "row-approved";
-              }
-
-              html +=
-                '<tr class="' +
-                rowClass +
-                '" data-audit-idx="' +
-                idx +
-                '" onclick="toggleAuditDetail(' +
-                idx +
-                ')">';
-              html += "<td>" + esc(ts) + "</td>";
-              html += "<td>" + esc(rec.tool || "-") + "</td>";
-              html +=
-                '<td class="' +
-                verdictClass +
-                '">' +
-                esc(verdictText) +
-                "</td>";
-              html += "<td>" + esc(approval) + "</td>";
-              html += "<td>" + esc(result) + "</td>";
-              html += "</tr>";
+              html += renderAuditRow(rec, idx);
             });
             body.innerHTML = html;
 
