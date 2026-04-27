@@ -34,7 +34,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 					"state": map[string]any{
 						"type":        "string",
 						"enum":        []string{"open", "closed", "merged", "all"},
-						"description": "Filter by state.",
+						"description": "Filter by state. Note: 'closed' excludes merged PRs; use 'merged' explicitly to include them.",
 					},
 					"author": map[string]any{
 						"type":        "string",

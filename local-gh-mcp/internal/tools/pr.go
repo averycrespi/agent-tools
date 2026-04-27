@@ -101,7 +101,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 					"max_body_length": map[string]any{
 						"type":        "number",
 						"default":     2000,
-						"description": "Max body length in chars (default 2000, max 50000).",
+						"description": "Max body length in bytes (default 2000, max 50000).",
 					},
 				},
 				Required: []string{"owner", "repo", "pr_number"},
@@ -109,7 +109,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_list_prs",
-			Description: "List PRs in a single repository. Use this when you know owner/repo. For cross-repo queries or GitHub search DSL filters (is:open, author:@me, etc.), use gh_search_prs instead.",
+			Description: "List PRs in a single repository. Use this when you know owner/repo. For cross-repo queries or GitHub search DSL filters (is:open, author:@me, etc.), use gh_search_prs instead. To filter by draft status, use gh_search_prs with 'is:draft' (or '-is:draft').",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
@@ -126,7 +126,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"enum":        []string{"open", "closed", "merged", "all"},
 						"default":     "open",
-						"description": "Filter by state (default open).",
+						"description": "Filter by state (default open). Note: 'closed' excludes merged PRs; use 'merged' explicitly to include them.",
 					},
 					"author": map[string]any{
 						"type":        "string",
@@ -421,7 +421,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 					"max_body_length": map[string]any{
 						"type":        "number",
 						"default":     2000,
-						"description": "Max body length per comment in chars (default 2000, max 50000).",
+						"description": "Max body length per comment in bytes (default 2000, max 50000).",
 					},
 					"limit": map[string]any{
 						"type":        "number",
@@ -455,7 +455,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 					"max_body_length": map[string]any{
 						"type":        "number",
 						"default":     2000,
-						"description": "Max body length per review in chars (default 2000, max 50000).",
+						"description": "Max body length per review in bytes (default 2000, max 50000).",
 					},
 					"limit": map[string]any{
 						"type":        "number",
@@ -489,7 +489,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 					"max_body_length": map[string]any{
 						"type":        "number",
 						"default":     2000,
-						"description": "Max body length per comment in chars (default 2000, max 50000).",
+						"description": "Max body length per comment in bytes (default 2000, max 50000).",
 					},
 					"limit": map[string]any{
 						"type":        "number",

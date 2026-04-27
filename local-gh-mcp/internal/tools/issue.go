@@ -34,7 +34,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 					"max_body_length": map[string]any{
 						"type":        "number",
 						"default":     2000,
-						"description": "Max body length in chars (default 2000, max 50000).",
+						"description": "Max body length in bytes (default 2000, max 50000).",
 					},
 				},
 				Required: []string{"owner", "repo", "issue_number"},
@@ -137,7 +137,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 					"max_body_length": map[string]any{
 						"type":        "number",
 						"default":     2000,
-						"description": "Max body length per comment in chars (default 2000, max 50000).",
+						"description": "Max body length per comment in bytes (default 2000, max 50000).",
 					},
 					"limit": map[string]any{
 						"type":        "number",

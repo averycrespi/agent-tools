@@ -173,7 +173,7 @@ func TestViewRun_LogFailed_TailLines(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 	text := result.Content[0].(gomcp.TextContent).Text
-	assert.Equal(t, "line97\nline98\nline99", text)
+	assert.Equal(t, "# Run 100 failed-job logs (last 3 lines per job)\n\nline97\nline98\nline99", text)
 }
 
 // TestViewRun_LogFailed_MaxBytes verifies the byte cap kicks in after the
@@ -229,6 +229,51 @@ func TestGhViewRunJobLogs_MaxBytes(t *testing.T) {
 	text := result.Content[0].(gomcp.TextContent).Text
 	assert.Contains(t, text, "[truncated")
 	assert.LessOrEqual(t, len(text), 600)
+}
+
+func TestViewRun_LogFailed_HeaderShape(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		viewRunFunc: func(_ context.Context, _, _ string, _ string, _ bool) (string, error) {
+			return "build  2025-01-01 FAIL step 3\nerror: exit code 1", nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_view_run"
+	req.Params.Arguments = map[string]any{
+		"owner":      "octocat",
+		"repo":       "hello-world",
+		"run_id":     "12345",
+		"log_failed": true,
+		"tail_lines": float64(50),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.True(t, strings.HasPrefix(text, "# Run 12345 failed-job logs (last 50 lines per job)\n\n"),
+		"output must begin with the run-log header anchor; got: %q", text)
+}
+
+func TestGhViewRunJobLogs_HeaderShape(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		viewRunJobLogFunc: func(_ context.Context, _, _ string, _ int64, _ int) (string, error) {
+			return "line 1\nline 2\nline 3\n", nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_view_run_job_logs"
+	req.Params.Arguments = map[string]any{
+		"owner":      "x",
+		"repo":       "y",
+		"job_id":     float64(99),
+		"tail_lines": float64(25),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.True(t, strings.HasPrefix(text, "# Job 99 logs (last 25 lines)\n\n"),
+		"output must begin with the job-log header anchor; got: %q", text)
 }
 
 func TestRerun_Success(t *testing.T) {

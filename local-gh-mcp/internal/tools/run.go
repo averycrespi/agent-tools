@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
@@ -33,7 +34,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 					"status": map[string]any{
 						"type":        "string",
 						"enum":        []string{"queued", "completed", "in_progress", "requested", "waiting", "action_required", "cancelled", "failure", "neutral", "skipped", "stale", "startup_failure", "success", "timed_out"},
-						"description": "Filter by workflow run status.",
+						"description": "Filter by workflow run status (lifecycle: queued, in_progress, completed, requested, waiting) or conclusion (success, failure, cancelled, skipped, neutral, action_required, stale, startup_failure, timed_out).",
 					},
 					"workflow": map[string]any{
 						"type":        "string",
@@ -234,7 +235,8 @@ func (h *Handler) handleViewRun(ctx context.Context, req gomcp.CallToolRequest) 
 	if logFailed {
 		tail := clampLogTailLines(intFromArgs(args, "tail_lines"))
 		maxBytes := clampLogMaxBytes(intFromArgs(args, "max_bytes"))
-		return gomcp.NewToolResultText(format.TruncateBytes(tailLines(out, tail), maxBytes)), nil
+		header := fmt.Sprintf("# Run %s failed-job logs (last %d lines per job)\n\n", runID, tail)
+		return gomcp.NewToolResultText(format.TruncateBytes(header+tailLines(out, tail), maxBytes)), nil
 	}
 	var run format.RunView
 	if err := json.Unmarshal([]byte(out), &run); err != nil {
@@ -294,5 +296,6 @@ func (h *Handler) handleViewRunJobLogs(ctx context.Context, req gomcp.CallToolRe
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(format.TruncateBytes(out, maxBytes)), nil
+	header := fmt.Sprintf("# Job %d logs (last %d lines)\n\n", jobIDInt, tail)
+	return gomcp.NewToolResultText(format.TruncateBytes(header+out, maxBytes)), nil
 }

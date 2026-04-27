@@ -34,7 +34,7 @@ func (h *Handler) releaseTools() []gomcp.Tool {
 					"owner":           map[string]any{"type": "string", "description": "Repository owner."},
 					"repo":            map[string]any{"type": "string", "description": "Repository name."},
 					"tag":             map[string]any{"type": "string", "description": "Release tag (optional; omit for the latest release)."},
-					"max_body_length": map[string]any{"type": "number", "default": 2000, "description": "Max release-notes body characters (default 2000)."},
+					"max_body_length": map[string]any{"type": "number", "default": 2000, "description": "Max release-notes body length in bytes (default 2000, max 50000)."},
 				},
 				Required: []string{"owner", "repo"},
 			},
