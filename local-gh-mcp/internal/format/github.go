@@ -76,6 +76,7 @@ type ReviewComment struct {
 	InReplyToID         int64    `json:"in_reply_to_id"`
 	PullRequestReviewID int64    `json:"pull_request_review_id"`
 	User                RESTUser `json:"user"`
+	AuthorAssociation   string   `json:"author_association"`
 	Body                string   `json:"body"`
 	Path                string   `json:"path"`
 	Line                int      `json:"line"`
@@ -241,10 +242,14 @@ func FormatPRView(pr PRView, maxBodyLen int) string {
 	if pr.IsDraft {
 		draft = "yes"
 	}
+	review := pr.ReviewDecision
+	if review == "" {
+		review = "(none)"
+	}
 	if pr.Mergeable != "" && pr.Mergeable != "UNKNOWN" {
-		fmt.Fprintf(&sb, "**Draft:** %s | **Mergeable:** %s | **Review:** %s\n", draft, pr.Mergeable, pr.ReviewDecision)
+		fmt.Fprintf(&sb, "**Draft:** %s | **Mergeable:** %s | **Review:** %s\n", draft, pr.Mergeable, review)
 	} else {
-		fmt.Fprintf(&sb, "**Draft:** %s | **Review:** %s\n", draft, pr.ReviewDecision)
+		fmt.Fprintf(&sb, "**Draft:** %s | **Review:** %s\n", draft, review)
 	}
 	fmt.Fprintf(&sb, "**Labels:** %s\n", FormatLabels(pr.Labels))
 
@@ -414,6 +419,9 @@ func writeReviewCommentThread(sb *strings.Builder, comments []ReviewComment, rep
 	c := comments[idx]
 	indent := strings.Repeat("  ", depth)
 	header := FormatAuthor(c.User.Author())
+	if c.AuthorAssociation != "" && c.AuthorAssociation != "NONE" {
+		header += fmt.Sprintf(" [%s]", c.AuthorAssociation)
+	}
 	line := c.Line
 	if line == 0 {
 		line = c.OriginalLine
@@ -586,10 +594,15 @@ func FormatSearchRepoItem(item SearchRepoItem) string {
 }
 
 // FormatSearchCodeItem formats a search code item as a markdown bullet.
+// Fragment whitespace runs (including embedded newlines and tabs) are collapsed
+// to single spaces so the bullet stays on one line.
 func FormatSearchCodeItem(item SearchCodeItem) string {
 	var fragments []string
 	for _, tm := range item.TextMatches {
-		fragments = append(fragments, tm.Fragment)
+		f := strings.Join(strings.Fields(tm.Fragment), " ")
+		if f != "" {
+			fragments = append(fragments, f)
+		}
 	}
 	match := ""
 	if len(fragments) > 0 {
@@ -647,7 +660,7 @@ func FormatCaches(caches []Cache, limit int) string {
 	}
 	var b strings.Builder
 	for _, c := range caches {
-		fmt.Fprintf(&b, "- **%d** `%s` — %s, ref `%s`, created %s, accessed %s\n",
+		fmt.Fprintf(&b, "- `%d` `%s` — %s, ref `%s`, created %s, accessed %s\n",
 			c.ID, c.Key, humanBytes(c.SizeInBytes), c.Ref,
 			FormatDate(c.CreatedAt), FormatDate(c.LastAccessedAt))
 	}
@@ -718,6 +731,9 @@ func FormatReleases(releases []Release, limit int) string {
 		line := fmt.Sprintf("- `%s`", r.TagName)
 		if r.Name != "" {
 			line += fmt.Sprintf(" — %q", r.Name)
+		}
+		if r.Author.Login != "" {
+			line += fmt.Sprintf(" by %s", FormatAuthor(r.Author))
 		}
 		if r.PublishedAt != "" {
 			date := r.PublishedAt

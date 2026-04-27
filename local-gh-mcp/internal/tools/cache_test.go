@@ -32,7 +32,7 @@ func TestListCaches_Success(t *testing.T) {
 	require.Len(t, result.Content, 1)
 	text, ok := result.Content[0].(gomcp.TextContent)
 	require.True(t, ok)
-	for _, want := range []string{"**42**", "`npm-cache`", "refs/heads/main", "1.0 MiB", "2026-04-01", "2026-04-15"} {
+	for _, want := range []string{"`42`", "`npm-cache`", "refs/heads/main", "1.0 MiB", "2026-04-01", "2026-04-15"} {
 		assert.Contains(t, text.Text, want)
 	}
 	assert.NotContains(t, text.Text, "\t", "output must be markdown, not TSV")

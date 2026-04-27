@@ -41,7 +41,7 @@ func (h *Handler) handleWhoami(ctx context.Context, _ gomcp.CallToolRequest) (*g
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "Logged in as `%s`", u.Login)
+	fmt.Fprintf(&b, "Logged in as @%s", u.Login)
 	if u.Type == "Bot" {
 		b.WriteString(" [bot]")
 	}

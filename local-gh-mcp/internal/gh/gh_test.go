@@ -691,6 +691,22 @@ func TestPRReviewComments_Args(t *testing.T) {
 	assert.Equal(t, "repos/octocat/hello/pulls/42/comments?per_page=11", endpoint)
 }
 
+func TestPRReviewComments_JqIncludesAuthorAssociation(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.PRReviewComments(context.Background(), "octocat", "hello", 42, 10)
+	require.NoError(t, err)
+	// Find the --jq value (one arg after `--jq`).
+	var jq string
+	for i, a := range args {
+		if a == "--jq" && i+1 < len(args) {
+			jq = args[i+1]
+			break
+		}
+	}
+	assert.Contains(t, jq, "author_association", "jq projection should request author_association")
+}
+
 func TestPRReviewComments_ClampsLimit(t *testing.T) {
 	var args []string
 	c := NewClient(capturedArgs(t, &args))
@@ -754,6 +770,21 @@ func TestListReleases_ClampsLimit(t *testing.T) {
 	require.NoError(t, err)
 	// 999 clamps to 100, +1 for truncation peek capped back at 100
 	assert.Contains(t, args, "100")
+}
+
+func TestListReleases_RequestsAuthorField(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ListReleases(context.Background(), "octocat", "hello", 30)
+	require.NoError(t, err)
+	var jsonFields string
+	for i, a := range args {
+		if a == "--json" && i+1 < len(args) {
+			jsonFields = args[i+1]
+			break
+		}
+	}
+	assert.Contains(t, jsonFields, "author", "release list --json fields must include author for `by @user` rendering")
 }
 
 func TestListPRFiles_ClampsLimit(t *testing.T) {

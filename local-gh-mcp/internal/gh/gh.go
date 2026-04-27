@@ -541,7 +541,7 @@ func (c *Client) PRReviews(_ context.Context, owner, repo string, number int, li
 // Requests limit+1 items (capped at 100) so the caller can detect truncation.
 func (c *Client) PRReviewComments(_ context.Context, owner, repo string, number int, limit int) (string, error) {
 	endpoint := fmt.Sprintf("repos/%s/pulls/%d/comments?per_page=%d", repoFlag(owner, repo), number, fetchLimit(limit))
-	jq := "map({id, in_reply_to_id, pull_request_review_id, user: {login: .user.login, type: .user.type}, body, path, line, original_line, side, diff_hunk, created_at})"
+	jq := "map({id, in_reply_to_id, pull_request_review_id, user: {login: .user.login, type: .user.type}, author_association, body, path, line, original_line, side, diff_hunk, created_at})"
 	out, err := c.runner.Run("gh", "api", "--jq", jq, "--", endpoint)
 	if err != nil {
 		return "", fmt.Errorf("gh pr review comments failed: %s", cleanAPIError(out))
@@ -859,7 +859,7 @@ func (c *Client) SearchCode(_ context.Context, query string, opts SearchCodeOpts
 // ListReleases lists releases in a repository.
 // limit+1 entries are requested so the caller can detect truncation.
 func (c *Client) ListReleases(_ context.Context, owner, repo string, limit int) (string, error) {
-	args := []string{"release", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(fetchLimit(limit)), "--json", "tagName,name,publishedAt,isDraft,isPrerelease"}
+	args := []string{"release", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(fetchLimit(limit)), "--json", "tagName,name,author,publishedAt,isDraft,isPrerelease"}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh release list failed: %s", strings.TrimSpace(string(out)))

@@ -54,6 +54,39 @@ func TestFormatPRView_HidesMergeableUnknown(t *testing.T) {
 	}
 }
 
+func TestFormatPRView_EmptyReviewDecision(t *testing.T) {
+	pr := PRView{
+		Number:         1,
+		Title:          "T",
+		State:          "OPEN",
+		Author:         Author{Login: "a"},
+		Mergeable:      "MERGEABLE",
+		ReviewDecision: "",
+	}
+	got := FormatPRView(pr, 1000)
+	if !strings.Contains(got, "**Review:** (none)") {
+		t.Errorf("expected `(none)` review fallback, got:\n%s", got)
+	}
+	if strings.Contains(got, "**Review:** \n") || strings.Contains(got, "**Review:** \r\n") {
+		t.Errorf("review value should not be empty/blank, got:\n%s", got)
+	}
+}
+
+func TestFormatPRView_EmptyReviewDecision_NoMergeable(t *testing.T) {
+	pr := PRView{
+		Number:         2,
+		Title:          "T",
+		State:          "OPEN",
+		Author:         Author{Login: "a"},
+		Mergeable:      "UNKNOWN",
+		ReviewDecision: "",
+	}
+	got := FormatPRView(pr, 1000)
+	if !strings.Contains(got, "**Review:** (none)") {
+		t.Errorf("expected `(none)` review fallback, got:\n%s", got)
+	}
+}
+
 func TestFormatPRView_TruncatesBody(t *testing.T) {
 	pr := PRView{
 		Number: 1,
@@ -284,6 +317,52 @@ func TestFormatReviewComments_OrphanReply(t *testing.T) {
 	got := FormatReviewComments(comments, 10000, 0)
 	if !strings.Contains(got, "**Line 1** — @late") {
 		t.Errorf("orphan reply should render as root, got:\n%s", got)
+	}
+}
+
+func TestFormatReviewComments_AuthorAssociation(t *testing.T) {
+	comments := []ReviewComment{
+		{
+			ID:                1,
+			User:              RESTUser{Login: "alice", Type: "User"},
+			AuthorAssociation: "MEMBER",
+			Body:              "consider this",
+			Path:              "x.go",
+			Line:              1,
+			CreatedAt:         "2026-04-10T00:00:00Z",
+		},
+		{
+			ID:                2,
+			InReplyToID:       1,
+			User:              RESTUser{Login: "bob", Type: "User"},
+			AuthorAssociation: "CONTRIBUTOR",
+			Body:              "ack",
+			Path:              "x.go",
+			Line:              1,
+			CreatedAt:         "2026-04-11T00:00:00Z",
+		},
+		{
+			ID:                3,
+			User:              RESTUser{Login: "drive-by", Type: "User"},
+			AuthorAssociation: "NONE",
+			Body:              "drive-by",
+			Path:              "y.go",
+			Line:              5,
+			CreatedAt:         "2026-04-12T00:00:00Z",
+		},
+	}
+	got := FormatReviewComments(comments, 10000, 0)
+	for _, want := range []string{
+		"@alice [MEMBER]",
+		"@bob [CONTRIBUTOR]",
+		"@drive-by (",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "[NONE]") {
+		t.Errorf("NONE association should be suppressed in:\n%s", got)
 	}
 }
 
@@ -548,6 +627,29 @@ func TestFormatSearchCodeItem(t *testing.T) {
 	}
 }
 
+func TestFormatSearchCodeItem_CollapsesFragmentWhitespace(t *testing.T) {
+	item := SearchCodeItem{
+		Path:       "main.go",
+		Repository: Repository{NameWithOwner: "cli/cli"},
+		TextMatches: []TextMatch{
+			{Fragment: "func\tmain()\n{\n  return\n}"},
+			{Fragment: "  multiple   spaces\tand\ttabs  "},
+		},
+	}
+	got := FormatSearchCodeItem(item)
+	if strings.ContainsAny(got, "\t\n") {
+		t.Errorf("fragment whitespace should be collapsed, got: %q", got)
+	}
+	for _, want := range []string{
+		"func main() { return }",
+		"multiple spaces and tabs",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in: %q", want, got)
+		}
+	}
+}
+
 func TestFormatSearchCommitItem(t *testing.T) {
 	item := SearchCommitItem{
 		SHA:        "abc1234567890",
@@ -595,13 +697,13 @@ func TestFormatCaches(t *testing.T) {
 	}
 	got := FormatCaches(caches, 0)
 	for _, want := range []string{
-		"**1234567**",
+		"`1234567`",
 		"`npm-cache-abc123`",
 		"refs/heads/main",
 		"4.2 MiB",
 		"2026-04-01",
 		"2026-04-15",
-		"**7654321**",
+		"`7654321`",
 		"`go-mod-cache-def456`",
 		"refs/pull/42/merge",
 		"512 B",
@@ -735,6 +837,41 @@ func TestFormatBranches_Overflow(t *testing.T) {
 	}
 	if got := FormatBranches(make(3), 5); strings.Contains(got, "[truncated") {
 		t.Errorf("did not expect trailer for no-overflow, got:\n%s", got)
+	}
+}
+
+func TestFormatReleases_Author(t *testing.T) {
+	releases := []Release{
+		{
+			TagName:     "v1.0.0",
+			Name:        "First",
+			Author:      Author{Login: "octocat"},
+			PublishedAt: "2026-04-10T00:00:00Z",
+		},
+		{
+			TagName:     "v1.1.0",
+			Name:        "Bot release",
+			Author:      Author{Login: "github-actions[bot]"},
+			PublishedAt: "2026-04-11T00:00:00Z",
+		},
+		{
+			TagName:     "v1.2.0",
+			Name:        "Anonymous",
+			PublishedAt: "2026-04-12T00:00:00Z",
+		},
+	}
+	got := FormatReleases(releases, 0)
+	for _, want := range []string{
+		"by @octocat",
+		"by @github-actions [bot]",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	// Anonymous author (empty login) should not produce an empty `by @` line.
+	if strings.Contains(got, "by @ ") || strings.Contains(got, "by @\n") {
+		t.Errorf("anonymous author should be omitted, got:\n%s", got)
 	}
 }
 

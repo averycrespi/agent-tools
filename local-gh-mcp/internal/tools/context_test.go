@@ -30,7 +30,7 @@ func TestGhWhoami(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := textOf(res)
-	if !strings.Contains(out, "Logged in as `octocat`") {
+	if !strings.Contains(out, "Logged in as @octocat") {
 		t.Errorf("missing login line, got: %s", out)
 	}
 	if !strings.Contains(out, "(The Octocat)") {
@@ -55,7 +55,7 @@ func TestGhWhoamiBot(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := textOf(res)
-	if !strings.Contains(out, "`dependabot` [bot]") {
+	if !strings.Contains(out, "Logged in as @dependabot [bot]") {
 		t.Errorf("missing [bot] suffix, got: %s", out)
 	}
 	if strings.Contains(out, "()") {

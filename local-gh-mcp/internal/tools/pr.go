@@ -348,7 +348,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_list_pr_checks",
-			Description: "List CI status checks for a PR. Returns markdown bullets per check with state (success/failure/pending) and link.",
+			Description: "List CI status checks for a PR. Returns markdown bullets per check with state (e.g. SUCCESS, FAILURE, PENDING) and link.",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
