@@ -422,6 +422,17 @@ func decidedEvent(dr decidedRequest) []byte {
 	return b
 }
 
+func auditEvent(rec audit.Record) []byte {
+	b, _ := json.Marshal(sseEvent{Type: "audit", Data: rec})
+	return b
+}
+
+// OnAuditRecord broadcasts an audit record to all connected SSE clients.
+// It is safe to call from any goroutine.
+func (d *Dashboard) OnAuditRecord(rec audit.Record) {
+	d.broadcast(auditEvent(rec))
+}
+
 func generateID() string {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)

@@ -13,6 +13,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/require"
 
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/rules"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
@@ -542,6 +543,48 @@ func TestHandleRules_AlwaysFallThrough(t *testing.T) {
 
 	require.Equal(t, []string{"linear.search"}, body.AlwaysFallThrough)
 	require.Empty(t, body.MayFallThrough)
+}
+
+func TestDashboard_OnAuditRecord_BroadcastsSSEFrame(t *testing.T) {
+	d := New(nil, nil, nil, nil)
+
+	// Register a fake SSE client by injecting a channel directly.
+	ch := make(chan []byte, 4)
+	d.mu.Lock()
+	d.clients = append(d.clients, ch)
+	d.mu.Unlock()
+
+	approved := true
+	rec := audit.Record{
+		Timestamp: time.Now().UTC().Truncate(time.Second),
+		Tool:      "git_push",
+		Args:      map[string]any{"remote": "origin"},
+		Verdict:   "allow",
+		Approved:  &approved,
+	}
+
+	d.OnAuditRecord(rec)
+
+	// Expect exactly one message on the channel.
+	select {
+	case frame := <-ch:
+		var env struct {
+			Type string          `json:"type"`
+			Data json.RawMessage `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(frame, &env))
+		require.Equal(t, "audit", env.Type)
+
+		var data struct {
+			Tool    string `json:"tool"`
+			Verdict string `json:"verdict"`
+		}
+		require.NoError(t, json.Unmarshal(env.Data, &data))
+		require.Equal(t, rec.Tool, data.Tool)
+		require.Equal(t, rec.Verdict, data.Verdict)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("no SSE frame received after OnAuditRecord")
+	}
 }
 
 func TestHandleRules_ConstrainedThenUnconstrained(t *testing.T) {
