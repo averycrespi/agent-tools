@@ -117,11 +117,30 @@ func splitSearchQuery(query string) ([]string, error) {
 	return tokens, nil
 }
 
+// urlInParensRe matches a parenthesized URL such as
+// ` (https://api.github.com/repos/.../pulls/X?per_page=31)` that gh CLI
+// sometimes appends to error messages. The URL adds no diagnostic value (the
+// caller knows the tool/args) but creates verbose noise that often includes
+// internal query parameters. Stripping it leaves the human-readable message.
+var urlInParensRe = regexp.MustCompile(` ?\(https?://[^)]+\)`)
+
+// stripURLInParens removes parenthesized URLs from gh CLI error output.
+func stripURLInParens(s string) string {
+	return urlInParensRe.ReplaceAllString(s, "")
+}
+
+// cleanGhStderr trims gh CLI stderr/stdout and strips parenthesized API URLs.
+// Use everywhere a gh subcommand failure is wrapped into a Go error so the
+// surfaced message stays human-readable.
+func cleanGhStderr(out []byte) string {
+	return stripURLInParens(strings.TrimSpace(string(out)))
+}
+
 // cleanAPIError extracts the most useful single-line error from `gh api`
 // combined output. On failure gh emits the JSON body to stdout and a
-// `gh: <message> (HTTP <code>)` line to stderr; CombinedOutput concatenates
-// them. Prefer the `gh:` line when present; otherwise fall back to the
-// trimmed blob.
+// `gh: <message> (HTTP <code>) (URL)` line to stderr; CombinedOutput
+// concatenates them. Prefer the `gh:` line when present; otherwise fall back
+// to the trimmed blob. The parenthesized URL is scrubbed via stripURLInParens.
 //
 // Uses LastIndex so the marker is found even when gh concatenates a JSON body
 // (with no trailing newline) directly before the `gh: ` line.
@@ -132,9 +151,9 @@ func cleanAPIError(out []byte) string {
 		if j := strings.IndexByte(line, '\n'); j >= 0 {
 			line = line[:j]
 		}
-		return strings.TrimSpace(line)
+		return stripURLInParens(strings.TrimSpace(line))
 	}
-	return s
+	return stripURLInParens(s)
 }
 
 // cleanGhError extracts the most useful single-line error from `gh search`
@@ -142,28 +161,29 @@ func cleanAPIError(out []byte) string {
 // `Error: <message>` line followed by usage text (~50 lines). We return just
 // that first Error line. If no Error line is found, we return the first
 // non-empty line. If the output is blank, we return the trimmed input.
+// Parenthesized API URLs are scrubbed via stripURLInParens.
 func cleanGhError(out []byte) string {
 	s := strings.TrimSpace(string(out))
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "Error: ") {
-			return line
+			return stripURLInParens(line)
 		}
 	}
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" {
-			return line
+			return stripURLInParens(line)
 		}
 	}
-	return s
+	return stripURLInParens(s)
 }
 
 // AuthStatus checks whether the gh CLI is authenticated.
 func (c *Client) AuthStatus(_ context.Context) error {
 	out, err := c.runner.Run("gh", "auth", "status")
 	if err != nil {
-		return fmt.Errorf("gh auth status failed: %s", strings.TrimSpace(string(out)))
+		return fmt.Errorf("gh auth status failed: %s", cleanGhStderr(out))
 	}
 	return nil
 }
@@ -200,7 +220,7 @@ func (c *Client) CreatePR(_ context.Context, owner, repo string, opts CreatePROp
 	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh pr create failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr create failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -209,7 +229,7 @@ func (c *Client) CreatePR(_ context.Context, owner, repo string, opts CreatePROp
 func (c *Client) ViewPR(_ context.Context, owner, repo string, number int) (string, error) {
 	out, err := c.runner.Run("gh", "pr", "view", "-R", repoFlag(owner, repo), "--json", prViewFields, strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh pr view failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr view failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -235,7 +255,7 @@ func (c *Client) ListPRs(_ context.Context, owner, repo string, opts ListPROpts)
 	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh pr list failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr list failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -244,7 +264,7 @@ func (c *Client) ListPRs(_ context.Context, owner, repo string, opts ListPROpts)
 func (c *Client) DiffPR(_ context.Context, owner, repo string, number int) (string, error) {
 	out, err := c.runner.Run("gh", "pr", "diff", "-R", repoFlag(owner, repo), strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh pr diff failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr diff failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -253,7 +273,7 @@ func (c *Client) DiffPR(_ context.Context, owner, repo string, number int) (stri
 func (c *Client) CommentPR(_ context.Context, owner, repo string, number int, body string) (string, error) {
 	out, err := c.runner.Run("gh", "pr", "comment", "-R", repoFlag(owner, repo), "--body", body, strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh pr comment failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr comment failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -275,7 +295,7 @@ func (c *Client) ReviewPR(_ context.Context, owner, repo string, number int, eve
 	args = append(args, strconv.Itoa(number))
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh pr review failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr review failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -300,7 +320,7 @@ func (c *Client) MergePR(_ context.Context, owner, repo string, number int, opts
 	args = append(args, strconv.Itoa(number))
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh pr merge failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr merge failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -338,7 +358,7 @@ func (c *Client) EditPR(_ context.Context, owner, repo string, number int, opts 
 	args = append(args, strconv.Itoa(number))
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh pr edit failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr edit failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -347,7 +367,7 @@ func (c *Client) EditPR(_ context.Context, owner, repo string, number int, opts 
 func (c *Client) CheckPR(_ context.Context, owner, repo string, number int) (string, error) {
 	out, err := c.runner.Run("gh", "pr", "checks", "-R", repoFlag(owner, repo), "--json", prCheckFields, strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh pr checks failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr checks failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -361,7 +381,7 @@ func (c *Client) ClosePR(_ context.Context, owner, repo string, number int, comm
 	args = append(args, strconv.Itoa(number))
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh pr close failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr close failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -370,7 +390,7 @@ func (c *Client) ClosePR(_ context.Context, owner, repo string, number int, comm
 func (c *Client) ReadyPR(_ context.Context, owner, repo string, number int) (string, error) {
 	out, err := c.runner.Run("gh", "pr", "ready", strconv.Itoa(number), "-R", repoFlag(owner, repo))
 	if err != nil {
-		return "", fmt.Errorf("gh pr ready failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr ready failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -379,7 +399,7 @@ func (c *Client) ReadyPR(_ context.Context, owner, repo string, number int) (str
 func (c *Client) DraftPR(_ context.Context, owner, repo string, number int) (string, error) {
 	out, err := c.runner.Run("gh", "pr", "ready", strconv.Itoa(number), "--undo", "-R", repoFlag(owner, repo))
 	if err != nil {
-		return "", fmt.Errorf("gh pr ready --undo failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr ready --undo failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -388,7 +408,7 @@ func (c *Client) DraftPR(_ context.Context, owner, repo string, number int) (str
 func (c *Client) ReopenPR(_ context.Context, owner, repo string, number int) (string, error) {
 	out, err := c.runner.Run("gh", "pr", "reopen", strconv.Itoa(number), "-R", repoFlag(owner, repo))
 	if err != nil {
-		return "", fmt.Errorf("gh pr reopen failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr reopen failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -470,7 +490,7 @@ type SearchCommitsOpts struct {
 func (c *Client) ViewIssue(_ context.Context, owner, repo string, number int) (string, error) {
 	out, err := c.runner.Run("gh", "issue", "view", "-R", repoFlag(owner, repo), "--json", issueViewFields, strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh issue view failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh issue view failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -496,7 +516,7 @@ func (c *Client) ListIssues(_ context.Context, owner, repo string, opts ListIssu
 	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh issue list failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh issue list failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -505,7 +525,7 @@ func (c *Client) ListIssues(_ context.Context, owner, repo string, opts ListIssu
 func (c *Client) CommentIssue(_ context.Context, owner, repo string, number int, body string) (string, error) {
 	out, err := c.runner.Run("gh", "issue", "comment", "-R", repoFlag(owner, repo), "--body", body, strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh issue comment failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh issue comment failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -518,7 +538,7 @@ func (c *Client) PRComments(_ context.Context, owner, repo string, number int, l
 		fmt.Sprintf(".comments[:%d] | map({author,authorAssociation,body,createdAt,isMinimized,minimizedReason})", fetchLimit(limit)),
 		strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh pr comments failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr comments failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -531,7 +551,7 @@ func (c *Client) PRReviews(_ context.Context, owner, repo string, number int, li
 		fmt.Sprintf(".reviews[:%d] | map({author,authorAssociation,body,state,submittedAt})", fetchLimit(limit)),
 		strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh pr reviews failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr reviews failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -557,7 +577,7 @@ func (c *Client) IssueComments(_ context.Context, owner, repo string, number int
 		fmt.Sprintf(".comments[:%d] | map({author,authorAssociation,body,createdAt,isMinimized,minimizedReason})", fetchLimit(limit)),
 		strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh issue comments failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh issue comments failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -583,18 +603,21 @@ func (c *Client) ListRuns(_ context.Context, owner, repo string, opts ListRunsOp
 	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh run list failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh run list failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
-// normalizeRunLog strips a leading UTF-8 BOM and collapses "\tUNKNOWN STEP\t"
-// to "\t" in gh run-log output. The BOM is emitted by gh on the first byte of
-// some log streams. "UNKNOWN STEP" appears when step metadata is missing and
-// pads every line with noise that inflates byte caps. TrimSpace is also applied
-// so callers receive clean output regardless of trailing newlines.
+// normalizeRunLog strips UTF-8 BOMs and collapses "\tUNKNOWN STEP\t" to "\t"
+// in gh run-log output. gh emits a BOM at the start of some log streams; for
+// `--log-failed` (which concatenates multiple jobs) BOMs also appear
+// internally between job sections, so ReplaceAll is required — TrimPrefix
+// would only catch the leading one. "UNKNOWN STEP" appears when step metadata
+// is missing and pads every line with noise that inflates byte caps.
+// TrimSpace is also applied so callers receive clean output regardless of
+// trailing newlines.
 func normalizeRunLog(out string) string {
-	s := strings.TrimPrefix(out, "\uFEFF")
+	s := strings.ReplaceAll(out, "\uFEFF", "")
 	s = strings.ReplaceAll(s, "\tUNKNOWN STEP\t", "\t")
 	return strings.TrimSpace(s)
 }
@@ -610,7 +633,7 @@ func (c *Client) ViewRun(_ context.Context, owner, repo string, runID string, lo
 	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh run view failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh run view failed: %s", cleanGhStderr(out))
 	}
 	if logFailed {
 		return normalizeRunLog(string(out)), nil
@@ -629,7 +652,7 @@ func (c *Client) ViewRun(_ context.Context, owner, repo string, runID string, lo
 func (c *Client) ViewRunJobLog(_ context.Context, owner, repo string, jobID int64, tailLines int) (string, error) {
 	out, err := c.runner.Run("gh", "run", "view", "--job", strconv.FormatInt(jobID, 10), "--log", "-R", repoFlag(owner, repo))
 	if err != nil {
-		return "", fmt.Errorf("gh run view --job failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh run view --job failed: %s", cleanGhStderr(out))
 	}
 	body := normalizeRunLog(string(out))
 	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
@@ -648,7 +671,7 @@ func (c *Client) Rerun(_ context.Context, owner, repo string, runID string, fail
 	args = append(args, "--", runID)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh run rerun failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh run rerun failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -657,7 +680,7 @@ func (c *Client) Rerun(_ context.Context, owner, repo string, runID string, fail
 func (c *Client) CancelRun(_ context.Context, owner, repo string, runID string) (string, error) {
 	out, err := c.runner.Run("gh", "run", "cancel", "-R", repoFlag(owner, repo), "--", runID)
 	if err != nil {
-		return "", fmt.Errorf("gh run cancel failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh run cancel failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -674,7 +697,7 @@ func (c *Client) ListCaches(_ context.Context, owner, repo string, opts ListCach
 	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh cache list failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh cache list failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -683,7 +706,7 @@ func (c *Client) ListCaches(_ context.Context, owner, repo string, opts ListCach
 func (c *Client) DeleteCache(_ context.Context, owner, repo string, cacheID string) (string, error) {
 	out, err := c.runner.Run("gh", "cache", "delete", "-R", repoFlag(owner, repo), "--", cacheID)
 	if err != nil {
-		return "", fmt.Errorf("gh cache delete failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh cache delete failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -859,7 +882,7 @@ func (c *Client) ListReleases(_ context.Context, owner, repo string, limit int) 
 	args := []string{"release", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(fetchLimit(limit)), "--json", "tagName,name,publishedAt,isDraft,isPrerelease"}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh release list failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh release list failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -873,7 +896,7 @@ func (c *Client) ViewRelease(_ context.Context, owner, repo, tag string) (string
 	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh release view failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh release view failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }

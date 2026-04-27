@@ -500,7 +500,7 @@ func (h *Handler) handleSearchCode(ctx context.Context, req gomcp.CallToolReques
 		lines = append(lines, format.FormatSearchCodeItem(item))
 	}
 	if len(lines) == 0 {
-		return gomcp.NewToolResultText("No code results found."), nil
+		return gomcp.NewToolResultText("No code found."), nil
 	}
 	return gomcp.NewToolResultText(strings.Join(lines, "\n")), nil
 }

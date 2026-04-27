@@ -457,7 +457,10 @@ func writeReviewCommentThread(sb *strings.Builder, comments []ReviewComment, rep
 	}
 }
 
-// FormatCheckList formats status checks as a markdown bullet list.
+// FormatCheckList formats status checks as a markdown bullet list. Each
+// check renders as `- name: STATE (link)` when a details URL is available;
+// the link is shown for every state (passing, pending, failing) so the
+// docstring promise of "state and link" holds without per-status branching.
 func FormatCheckList(checks []Check) string {
 	if len(checks) == 0 {
 		return "No status checks."
@@ -465,7 +468,7 @@ func FormatCheckList(checks []Check) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "## Status Checks (%d)\n\n", len(checks))
 	for _, c := range checks {
-		if (c.State == "FAILURE" || c.State == "ERROR") && c.Link != "" {
+		if c.Link != "" {
 			fmt.Fprintf(&sb, "- %s: %s (%s)\n", c.Name, c.State, c.Link)
 		} else {
 			fmt.Fprintf(&sb, "- %s: %s\n", c.Name, c.State)
@@ -574,7 +577,10 @@ func FormatRunView(run RunView) string {
 	if len(run.Jobs) > 0 {
 		fmt.Fprintf(&sb, "\n## Jobs (%d)\n\n", len(run.Jobs))
 		for _, j := range run.Jobs {
-			if j.Conclusion == "failure" && j.URL != "" {
+			// Render the URL for every job (not just failures) so output shape
+			// stays consistent — passing/skipped jobs are just as click-worthy
+			// when an agent wants to inspect step output or timing.
+			if j.URL != "" {
 				fmt.Fprintf(&sb, "- `%s` (job_id: %d) — %s (%s)\n", j.Name, j.DatabaseID, j.Conclusion, j.URL)
 			} else {
 				fmt.Fprintf(&sb, "- `%s` (job_id: %d) — %s\n", j.Name, j.DatabaseID, j.Conclusion)

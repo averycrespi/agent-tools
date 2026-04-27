@@ -387,14 +387,14 @@ func TestFormatReviewComments_FallsBackToOriginalLine(t *testing.T) {
 
 func TestFormatCheckList(t *testing.T) {
 	checks := []Check{
-		{Name: "build", State: "SUCCESS"},
+		{Name: "build", State: "SUCCESS", Link: "https://example.com/run/0"},
 		{Name: "test", State: "FAILURE", Link: "https://example.com/run/1"},
-		{Name: "lint", State: "SKIPPED"},
+		{Name: "lint", State: "SKIPPED"}, // no link — fall back to bare line
 	}
 	got := FormatCheckList(checks)
 	for _, want := range []string{
 		"## Status Checks (3)",
-		"- build: SUCCESS",
+		"- build: SUCCESS (https://example.com/run/0)",
 		"- test: FAILURE (https://example.com/run/1)",
 		"- lint: SKIPPED",
 	} {
@@ -524,7 +524,7 @@ func TestFormatRunView(t *testing.T) {
 		"feature",
 		"(job_id: 111)",
 		"(job_id: 222)",
-		"— success",
+		"— success (https://example.com/job/1)",
 		"— failure (https://example.com/job/2)",
 	} {
 		if !strings.Contains(got, want) {

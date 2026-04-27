@@ -853,6 +853,40 @@ func TestCleanGhError_FallsBackToTrimmedInput(t *testing.T) {
 	assert.Equal(t, "", got)
 }
 
+// TestStripURLInParens covers the URL scrubber used by cleanAPIError /
+// cleanGhError / cleanGhStderr to drop noisy parenthesized API endpoints
+// from gh CLI errors.
+func TestStripURLInParens(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"gh: Not Found (HTTP 404) (https://api.github.com/repos/x/y/pulls/1)", "gh: Not Found (HTTP 404)"},
+		{"failed: HTTP 404: Not Found (https://api.github.com/x?per_page=31&exclude_pull_requests=true)", "failed: HTTP 404: Not Found"},
+		{"no urls here", "no urls here"},
+		{"http URL too: (http://example.com/x)", "http URL too:"},
+		{"keep parens (some note) but strip (https://x)", "keep parens (some note) but strip"},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, stripURLInParens(tc.in))
+	}
+}
+
+// TestCleanAPIError_StripsURL guards the integration: a real gh api error
+// payload with a leaked URL should come back URL-free.
+func TestCleanAPIError_StripsURL(t *testing.T) {
+	out := []byte(`gh: Not Found (HTTP 404) (https://api.github.com/repos/foo/bar/pulls/1)`)
+	got := cleanAPIError(out)
+	assert.Equal(t, "gh: Not Found (HTTP 404)", got)
+}
+
+// TestCleanGhStderr_StripsURL guards the bare-error path used by most gh
+// subcommand wrappers.
+func TestCleanGhStderr_StripsURL(t *testing.T) {
+	out := []byte("  failed to do thing (https://api.github.com/repos/x/y/runs/9)\n")
+	got := cleanGhStderr(out)
+	assert.Equal(t, "failed to do thing", got)
+}
+
 // TestNormalizeRunLog covers the four combinations of BOM and UNKNOWN STEP.
 func TestNormalizeRunLog_BOMOnly(t *testing.T) {
 	in := "\uFEFFbuild\tcompile\t2025-01-01T00:00:00Z message\n"
@@ -882,12 +916,17 @@ func TestNormalizeRunLog_NeitherBOMNorUnknownStep(t *testing.T) {
 	assert.Equal(t, "build\tcompile\t2025-01-01T00:00:00Z message", got)
 }
 
-// TestNormalizeRunLog_BOMOnlyLeading verifies that a BOM appearing mid-string
-// is NOT stripped — only a leading BOM is removed.
-func TestNormalizeRunLog_BOMOnlyLeading(t *testing.T) {
-	in := "line1\n\uFEFFline2\n"
+// TestNormalizeRunLog_StripsInternalBOMs guards the multi-job concatenated
+// log case: gh run view --log-failed glues several jobs together, each of
+// which can carry its own BOM. TrimPrefix would only catch the leading one,
+// so we use ReplaceAll.
+func TestNormalizeRunLog_StripsInternalBOMs(t *testing.T) {
+	in := "line1\n\uFEFFline2\n\uFEFFline3\n"
 	got := normalizeRunLog(in)
-	assert.Contains(t, got, "\uFEFF", "mid-string BOM must be preserved")
+	assert.NotContains(t, got, "\uFEFF", "all BOMs (including internal) must be stripped")
+	assert.Contains(t, got, "line1")
+	assert.Contains(t, got, "line2")
+	assert.Contains(t, got, "line3")
 }
 
 // TestViewRun_LogFailed_NormalizesOutput verifies that the logFailed=true path
