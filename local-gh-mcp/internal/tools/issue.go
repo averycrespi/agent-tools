@@ -79,6 +79,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"default":     30,
 						"description": "Max results (default 30, max 100).",
 					},
@@ -141,6 +142,7 @@ func (h *Handler) issueTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"default":     30,
 						"description": "Max comments to return (default 30, max 100).",
 					},
@@ -183,7 +185,11 @@ func (h *Handler) handleListIssues(ctx context.Context, req gomcp.CallToolReques
 	if errResult := validateEnum("state", state, []string{"open", "closed", "all"}); errResult != nil {
 		return errResult, nil
 	}
-	limit := clampLimit(intFromArgs(args, "limit"))
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	opts := gh.ListIssuesOpts{
 		State:     state,
 		Author:    stringFromArgs(args, "author"),
@@ -238,7 +244,11 @@ func (h *Handler) handleListIssueComments(ctx context.Context, req gomcp.CallToo
 		return errResult, nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
-	limit := clampLimit(intFromArgs(args, "limit"))
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	out, err := h.gh.IssueComments(ctx, owner, repo, number, limit)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil

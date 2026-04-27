@@ -19,7 +19,7 @@ func (h *Handler) releaseTools() []gomcp.Tool {
 				Properties: map[string]any{
 					"owner": map[string]any{"type": "string", "description": "Repository owner."},
 					"repo":  map[string]any{"type": "string", "description": "Repository name."},
-					"limit": map[string]any{"type": "number", "default": 30, "description": "Max releases shown (default 30, max 100)."},
+					"limit": map[string]any{"type": "number", "minimum": 1, "default": 30, "description": "Max releases shown (default 30, max 100; values <= 0 are rejected)."},
 				},
 				Required: []string{"owner", "repo"},
 			},
@@ -48,7 +48,11 @@ func (h *Handler) handleListReleases(ctx context.Context, req gomcp.CallToolRequ
 	if errResult != nil {
 		return errResult, nil
 	}
-	limit := clampLimit(intFromArgs(args, "limit"))
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	raw, err := h.gh.ListReleases(ctx, owner, repo, limit)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil

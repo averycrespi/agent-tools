@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -176,6 +177,32 @@ func TestViewRun_LogFailed_TailLines(t *testing.T) {
 	assert.Equal(t, "# Run 100 failed-job logs (last 3 lines per job)\n\nline97\nline98\nline99", text)
 }
 
+// TestViewRun_LogFailed_NoFailedJobs guards the empty-state hint: when
+// log_failed=true and gh returns nothing (run had no failures), the wrapper
+// must emit a friendly message rather than returning an empty body that
+// looks like a broken tool.
+func TestViewRun_LogFailed_NoFailedJobs(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		viewRunFunc: func(_ context.Context, _, _ string, _ string, _ bool) (string, error) {
+			return "", nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_view_run"
+	req.Params.Arguments = map[string]any{
+		"owner":      "octocat",
+		"repo":       "hello-world",
+		"run_id":     "12345",
+		"log_failed": true,
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "No failed jobs in run 12345")
+	assert.Contains(t, text, "log_failed=false", "should hint at the alternative invocation")
+}
+
 // TestViewRun_LogFailed_MaxBytes verifies the byte cap kicks in after the
 // line tail, truncating verbose lines that the line cap can't catch.
 func TestViewRun_LogFailed_MaxBytes(t *testing.T) {
@@ -228,7 +255,42 @@ func TestGhViewRunJobLogs_MaxBytes(t *testing.T) {
 	require.False(t, result.IsError)
 	text := result.Content[0].(gomcp.TextContent).Text
 	assert.Contains(t, text, "[truncated")
-	assert.LessOrEqual(t, len(text), 600)
+	assert.LessOrEqual(t, len(text), 700, "header + truncation marker + 500-byte body")
+}
+
+// TestViewRun_LogFailed_KeepsRecentLines is the regression guard for max_bytes
+// trim direction. Failure context typically lives at the END of a log; if the
+// byte cap drops the tail (old buggy behaviour) triage breaks.
+func TestViewRun_LogFailed_KeepsRecentLines(t *testing.T) {
+	// 200 lines × ~30 bytes each = ~6000 bytes. Cap at 500 — only the last
+	// few lines should survive, including the LAST one with the error.
+	lines := make([]string, 200)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line-%03d-padding-padding-padding", i)
+	}
+	lines[199] = "FATAL ERROR HERE"
+	logs := strings.Join(lines, "\n")
+	h := NewHandler(&mockGHClient{
+		viewRunFunc: func(_ context.Context, _, _ string, _ string, _ bool) (string, error) {
+			return logs, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_view_run"
+	req.Params.Arguments = map[string]any{
+		"owner":      "octocat",
+		"repo":       "hello-world",
+		"run_id":     "100",
+		"log_failed": true,
+		"max_bytes":  float64(500),
+	}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	text := result.Content[0].(gomcp.TextContent).Text
+	assert.Contains(t, text, "FATAL ERROR HERE", "max_bytes must preserve the END of the tail (most-recent line)")
+	assert.NotContains(t, text, "line-000-", "first lines should be dropped, not the last")
+	assert.Contains(t, text, "[truncated — showing last")
 }
 
 func TestViewRun_LogFailed_HeaderShape(t *testing.T) {

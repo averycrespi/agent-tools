@@ -267,6 +267,7 @@ const (
 	maxLimit                   = 100
 	defaultMaxBodyLength       = 2000
 	maxMaxBodyLength           = 50000
+	defaultReviewBodyLength    = 4000 // PR reviews (esp. Copilot) routinely exceed 2000 bytes
 	defaultSearchMaxBodyLength = 200
 	maxSearchMaxBodyLength     = 500
 	defaultDiffMaxBytes        = 50000
@@ -287,9 +288,49 @@ func clampLimit(v int) int {
 	return v
 }
 
+// validateLimit reads an optional `limit` argument and rejects bad inputs
+// before they reach clampLimit. Absent → returns 0 (callers feed it through
+// clampLimit, which substitutes the default). Present-but-non-numeric or
+// `<= 0` → terminal error. Values above maxLimit pass through and clampLimit
+// handles them silently — the schema's `default` documents that behaviour and
+// agents asking "give me a lot" don't need an interruption.
+func validateLimit(args map[string]any) (int, *gomcp.CallToolResult) {
+	raw, ok := args["limit"]
+	if !ok {
+		return 0, nil
+	}
+	var n int
+	switch v := raw.(type) {
+	case float64:
+		n = int(v)
+	case int:
+		n = v
+	default:
+		return 0, gomcp.NewToolResultError("limit must be a positive integer")
+	}
+	if n <= 0 {
+		return 0, gomcp.NewToolResultError("limit must be a positive integer")
+	}
+	return n, nil
+}
+
 func clampMaxBodyLength(v int) int {
 	if v <= 0 {
 		return defaultMaxBodyLength
+	}
+	if v > maxMaxBodyLength {
+		return maxMaxBodyLength
+	}
+	return v
+}
+
+// clampReviewBodyLength uses a higher default than clampMaxBodyLength because
+// PR reviews — particularly automated ones from Copilot — routinely run 2–5 KB
+// and were getting truncated mid-content under the 2000-byte default. The
+// upper cap (maxMaxBodyLength) is unchanged.
+func clampReviewBodyLength(v int) int {
+	if v <= 0 {
+		return defaultReviewBodyLength
 	}
 	if v > maxMaxBodyLength {
 		return maxMaxBodyLength

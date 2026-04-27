@@ -28,8 +28,9 @@ func (h *Handler) cacheTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"default":     30,
-						"description": "Max results (default 30, max 100).",
+						"description": "Max results (default 30, max 100; values <= 0 are rejected).",
 					},
 					"sort": map[string]any{
 						"type":        "string",
@@ -88,7 +89,11 @@ func (h *Handler) handleListCaches(ctx context.Context, req gomcp.CallToolReques
 	if order != "" && sort == "" {
 		return gomcp.NewToolResultError("order has no effect without sort; pass sort to choose a field"), nil
 	}
-	limit := clampLimit(intFromArgs(args, "limit"))
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	opts := gh.ListCachesOpts{
 		Limit: limit,
 		Sort:  sort,

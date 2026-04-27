@@ -146,6 +146,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"default":     30,
 						"description": "Max results (default 30, max 100).",
 					},
@@ -425,6 +426,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"default":     30,
 						"description": "Max comments to return (default 30, max 100).",
 					},
@@ -454,11 +456,12 @@ func (h *Handler) prTools() []gomcp.Tool {
 					},
 					"max_body_length": map[string]any{
 						"type":        "number",
-						"default":     2000,
-						"description": "Max body length per review in bytes (default 2000, max 50000).",
+						"default":     4000,
+						"description": "Max body length per review in bytes (default 4000, max 50000). Default is higher than other tools because PR reviews (especially Copilot) routinely exceed 2KB.",
 					},
 					"limit": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"default":     30,
 						"description": "Max reviews to return (default 30, max 100).",
 					},
@@ -493,6 +496,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"default":     30,
 						"description": "Max comments to return (default 30, max 100).",
 					},
@@ -510,7 +514,7 @@ func (h *Handler) prTools() []gomcp.Tool {
 					"owner":     map[string]any{"type": "string", "description": "Repository owner."},
 					"repo":      map[string]any{"type": "string", "description": "Repository name."},
 					"pr_number": map[string]any{"type": "number", "minimum": 1, "description": "Pull request number."},
-					"limit":     map[string]any{"type": "number", "default": 30, "description": "Max files shown (default 30, max 100)."},
+					"limit":     map[string]any{"type": "number", "minimum": 1, "default": 30, "description": "Max files shown (default 30, max 100; values <= 0 are rejected)."},
 				},
 				Required: []string{"owner", "repo", "pr_number"},
 			},
@@ -596,7 +600,11 @@ func (h *Handler) handleListPRs(ctx context.Context, req gomcp.CallToolRequest) 
 	if errResult := validateEnum("state", state, []string{"open", "closed", "merged", "all"}); errResult != nil {
 		return errResult, nil
 	}
-	limit := clampLimit(intFromArgs(args, "limit"))
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	opts := gh.ListPROpts{
 		State:  state,
 		Author: stringFromArgs(args, "author"),
@@ -797,7 +805,11 @@ func (h *Handler) handleListPRComments(ctx context.Context, req gomcp.CallToolRe
 		return errResult, nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
-	limit := clampLimit(intFromArgs(args, "limit"))
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	out, err := h.gh.PRComments(ctx, owner, repo, number, limit)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
@@ -822,8 +834,12 @@ func (h *Handler) handleListPRReviews(ctx context.Context, req gomcp.CallToolReq
 	if errResult != nil {
 		return errResult, nil
 	}
-	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
-	limit := clampLimit(intFromArgs(args, "limit"))
+	maxBody := clampReviewBodyLength(intFromArgs(args, "max_body_length"))
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	out, err := h.gh.PRReviews(ctx, owner, repo, number, limit)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
@@ -849,7 +865,11 @@ func (h *Handler) handleListPRReviewComments(ctx context.Context, req gomcp.Call
 		return errResult, nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
-	limit := clampLimit(intFromArgs(args, "limit"))
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	out, err := h.gh.PRReviewComments(ctx, owner, repo, number, limit)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
@@ -922,7 +942,11 @@ func (h *Handler) handleListPRFiles(ctx context.Context, req gomcp.CallToolReque
 	if errResult != nil {
 		return errResult, nil
 	}
-	limit := clampLimit(intFromArgs(args, "limit"))
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	raw, err := h.gh.ListPRFiles(ctx, owner, repo, number, limit)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil

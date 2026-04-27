@@ -350,7 +350,7 @@ func FormatReviews(reviews []Review, maxBodyLen int, limit int) string {
 			state = "(no state)"
 		}
 		fmt.Fprintf(&sb, "### %s — %s (%s)\n\n", header, state, FormatDate(r.SubmittedAt))
-		body := TruncateBody(StripImages(r.Body), maxBodyLen)
+		body := TruncateBody(StripReviewHTML(StripImages(r.Body)), maxBodyLen)
 		if body == "" {
 			sb.WriteString("(no body)\n")
 		} else {
@@ -610,11 +610,12 @@ func FormatSearchIssueItem(item SearchIssueItem, maxBody int) string {
 	return line
 }
 
-// searchBodyExcerpt collapses whitespace runs in body to single spaces and
-// truncates the result to maxBody bytes via TruncateBody so the unified
-// truncation marker is reused. Returns "" when the resulting excerpt would
-// be empty.
+// searchBodyExcerpt strips HTML comments (PR/issue template instructions
+// leak otherwise), collapses whitespace runs to single spaces, and truncates
+// to maxBody bytes via TruncateBody so the unified truncation marker is
+// reused. Returns "" when the resulting excerpt would be empty.
 func searchBodyExcerpt(body string, maxBody int) string {
+	body = StripHTMLComments(body)
 	collapsed := strings.Join(strings.Fields(body), " ")
 	if collapsed == "" {
 		return ""

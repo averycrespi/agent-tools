@@ -50,6 +50,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"default":     30,
 						"description": "Max results (default 30, max 100).",
 					},
@@ -88,7 +89,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 					"max_bytes": map[string]any{
 						"type":        "number",
 						"default":     50000,
-						"description": "When log_failed=true, hard byte cap applied after tail_lines (default 50000, max 500000). Truncates on line boundary with `[truncated — showing N of M bytes]`. Ignored when log_failed=false.",
+						"description": "When log_failed=true, hard byte cap on the log body applied after tail_lines (default 50000, max 500000). Trim is from the FRONT of the tailed window, so the most-recent lines — typically the actual failure — are preserved. Truncates on a line boundary and prepends `[truncated — showing last N of M bytes]`. Ignored when log_failed=false.",
 					},
 				},
 				Required: []string{"owner", "repo", "run_id"},
@@ -171,7 +172,7 @@ func (h *Handler) runTools() []gomcp.Tool {
 					"max_bytes": map[string]any{
 						"type":        "number",
 						"default":     50000,
-						"description": "Hard byte cap applied after tail_lines (default 50000, max 500000). Truncates on line boundary with `[truncated — showing N of M bytes]`.",
+						"description": "Hard byte cap on the log body applied after tail_lines (default 50000, max 500000). Trim is from the FRONT of the tailed window, so the most-recent lines are preserved. Truncates on a line boundary and prepends `[truncated — showing last N of M bytes]`.",
 					},
 				},
 				Required: []string{"owner", "repo", "job_id"},
@@ -194,7 +195,11 @@ func (h *Handler) handleListRuns(ctx context.Context, req gomcp.CallToolRequest)
 	}); errResult != nil {
 		return errResult, nil
 	}
-	limit := clampLimit(intFromArgs(args, "limit"))
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	opts := gh.ListRunsOpts{
 		Branch:   stringFromArgs(args, "branch"),
 		Status:   status,
@@ -233,10 +238,16 @@ func (h *Handler) handleViewRun(ctx context.Context, req gomcp.CallToolRequest) 
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
 	if logFailed {
+		if out == "" {
+			return gomcp.NewToolResultText(fmt.Sprintf("No failed jobs in run %s. Re-run with log_failed=false to see run metadata and per-job status.", runID)), nil
+		}
 		tail := clampLogTailLines(intFromArgs(args, "tail_lines"))
 		maxBytes := clampLogMaxBytes(intFromArgs(args, "max_bytes"))
 		header := fmt.Sprintf("# Run %s failed-job logs (last %d lines per job)\n\n", runID, tail)
-		return gomcp.NewToolResultText(format.TruncateBytes(header+tailLines(out, tail), maxBytes)), nil
+		// max_bytes caps the log body (not the header) and trims from the FRONT
+		// so the most-recent log lines — typically where the failing step's error
+		// lives — are always preserved.
+		return gomcp.NewToolResultText(header + format.TruncateLogTail(tailLines(out, tail), maxBytes)), nil
 	}
 	var run format.RunView
 	if err := json.Unmarshal([]byte(out), &run); err != nil {
@@ -297,5 +308,7 @@ func (h *Handler) handleViewRunJobLogs(ctx context.Context, req gomcp.CallToolRe
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
 	header := fmt.Sprintf("# Job %d logs (last %d lines)\n\n", jobIDInt, tail)
-	return gomcp.NewToolResultText(format.TruncateBytes(header+out, maxBytes)), nil
+	// See handleViewRun: trim from the front so the most-recent log lines
+	// survive the byte cap.
+	return gomcp.NewToolResultText(header + format.TruncateLogTail(out, maxBytes)), nil
 }

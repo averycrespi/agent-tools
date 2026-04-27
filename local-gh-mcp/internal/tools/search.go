@@ -100,6 +100,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"default":     30,
 						"description": "Max results (default 30, max 100).",
 					},
@@ -146,6 +147,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"default":     30,
 						"description": "Max results (default 30, max 100).",
 					},
@@ -187,6 +189,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"default":     30,
 						"description": "Max results (default 30, max 100).",
 					},
@@ -227,6 +230,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"default":     30,
 						"description": "Max results (default 30, max 100).",
 					},
@@ -259,6 +263,7 @@ func (h *Handler) searchTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"default":     30,
 						"description": "Max results (default 30, max 100).",
 					},
@@ -299,13 +304,17 @@ func (h *Handler) handleSearchPRs(ctx context.Context, req gomcp.CallToolRequest
 	if errResult := rejectConflict("label", label, tokens, "label"); errResult != nil {
 		return errResult, nil
 	}
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
 	opts := gh.SearchPRsOpts{
 		Repo:   repo,
 		Owner:  owner,
 		State:  state,
 		Author: author,
 		Label:  label,
-		Limit:  intFromArgs(args, "limit"),
+		Limit:  limit,
 	}
 	out, err := h.gh.SearchPRs(ctx, query, opts)
 	if err != nil {
@@ -356,13 +365,17 @@ func (h *Handler) handleSearchIssues(ctx context.Context, req gomcp.CallToolRequ
 	if errResult := rejectConflict("label", label, tokens, "label"); errResult != nil {
 		return errResult, nil
 	}
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
 	opts := gh.SearchIssuesOpts{
 		Repo:   repo,
 		Owner:  owner,
 		State:  state,
 		Author: author,
 		Label:  label,
-		Limit:  intFromArgs(args, "limit"),
+		Limit:  limit,
 	}
 	out, err := h.gh.SearchIssues(ctx, query, opts)
 	if err != nil {
@@ -406,12 +419,16 @@ func (h *Handler) handleSearchRepos(ctx context.Context, req gomcp.CallToolReque
 	if errResult := rejectConflict("stars", stars, tokens, "stars"); errResult != nil {
 		return errResult, nil
 	}
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
 	opts := gh.SearchReposOpts{
 		Owner:    owner,
 		Language: language,
 		Topic:    topic,
 		Stars:    stars,
-		Limit:    intFromArgs(args, "limit"),
+		Limit:    limit,
 	}
 	out, err := h.gh.SearchRepos(ctx, query, opts)
 	if err != nil {
@@ -458,13 +475,17 @@ func (h *Handler) handleSearchCode(ctx context.Context, req gomcp.CallToolReques
 	if errResult := rejectConflict("filename", filename, tokens, "filename"); errResult != nil {
 		return errResult, nil
 	}
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
 	opts := gh.SearchCodeOpts{
 		Repo:      repo,
 		Owner:     owner,
 		Language:  language,
 		Extension: extension,
 		Filename:  filename,
-		Limit:     intFromArgs(args, "limit"),
+		Limit:     limit,
 	}
 	out, err := h.gh.SearchCode(ctx, query, opts)
 	if err != nil {
@@ -503,11 +524,15 @@ func (h *Handler) handleSearchCommits(ctx context.Context, req gomcp.CallToolReq
 	if errResult := rejectConflict("author", author, tokens, "author"); errResult != nil {
 		return errResult, nil
 	}
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
 	opts := gh.SearchCommitsOpts{
 		Repo:   repo,
 		Owner:  owner,
 		Author: author,
-		Limit:  intFromArgs(args, "limit"),
+		Limit:  limit,
 	}
 	out, err := h.gh.SearchCommits(ctx, query, opts)
 	if err != nil {

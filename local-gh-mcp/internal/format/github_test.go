@@ -601,6 +601,29 @@ func TestFormatSearchPRItem_ShortBody(t *testing.T) {
 	}
 }
 
+// TestFormatSearchPRItem_StripsHTMLComments guards the search excerpt against
+// PR template noise. Bodies opened with `<!-- ... -->` blocks (templates,
+// instructions) shouldn't appear in the one-line excerpt.
+func TestFormatSearchPRItem_StripsHTMLComments(t *testing.T) {
+	body := "<!-- Provide a short description of your PR -->\n## Summary\nFixed the bug."
+	item := SearchPRItem{
+		Number:     7,
+		Title:      "Fix",
+		State:      "OPEN",
+		Author:     Author{Login: "a"},
+		Repository: Repository{NameWithOwner: "o/r"},
+		Body:       body,
+		UpdatedAt:  "2026-04-27T00:00:00Z",
+	}
+	got := FormatSearchPRItem(item, 200)
+	if strings.Contains(got, "Provide a short description") {
+		t.Errorf("HTML comment leaked into excerpt:\n%s", got)
+	}
+	if !strings.Contains(got, "Fixed the bug") {
+		t.Errorf("expected real body content in excerpt, got:\n%s", got)
+	}
+}
+
 func TestFormatSearchPRItem_LongBody(t *testing.T) {
 	body := strings.Repeat("abcdefghij ", 30) // 330 bytes
 	item := SearchPRItem{

@@ -82,6 +82,39 @@ func TestStripImages(t *testing.T) {
 	assert.Equal(t, "no images here", StripImages("no images here"))
 }
 
+func TestStripHTMLComments(t *testing.T) {
+	assert.Equal(t, "real content", StripHTMLComments("<!-- template note -->real content"))
+	assert.Equal(t, "before  after", StripHTMLComments("before <!-- skip --> after"))
+	assert.Equal(t, "no comments", StripHTMLComments("no comments"))
+	// Multi-line comment (PR templates often span lines)
+	assert.Equal(t, "summary", StripHTMLComments("<!--\nProvide a short\ndescription\n-->summary"))
+	// Multiple comments in one body
+	assert.Equal(t, "ab", StripHTMLComments("a<!-- one -->b<!-- two -->"))
+}
+
+func TestStripReviewHTML(t *testing.T) {
+	// `<details>` / `<summary>` collapse blocks: tags removed, content kept
+	assert.Equal(t, "\nSummary\n\nHidden content\n",
+		StripReviewHTML("<details>\n<summary>Summary</summary>\n\nHidden content\n</details>"))
+
+	// `<a>` link wrapper (Copilot-style)
+	assert.Equal(t,
+		"See foo for details.",
+		StripReviewHTML(`See <a class="Link--inTextBlock" href="x">foo</a> for details.`))
+
+	// Bare `<a>` and `</a>`
+	assert.Equal(t, "linktext", StripReviewHTML("<a>link</a>text"))
+
+	// `<code>` and other tags pass through unchanged
+	assert.Equal(t, "use <code>foo</code> here", StripReviewHTML("use <code>foo</code> here"))
+
+	// `<address>` must NOT match (regex narrowness check)
+	assert.Equal(t, "<address>123 Main</address>", StripReviewHTML("<address>123 Main</address>"))
+
+	// Nothing to strip
+	assert.Equal(t, "plain text", StripReviewHTML("plain text"))
+}
+
 func TestFormatLabels(t *testing.T) {
 	got := FormatLabels([]Label{{Name: "bug"}, {Name: "enhancement"}})
 	assert.Equal(t, "bug, enhancement", got)

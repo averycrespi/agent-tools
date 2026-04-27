@@ -19,7 +19,7 @@ func (h *Handler) branchTools() []gomcp.Tool {
 				Properties: map[string]any{
 					"owner": map[string]any{"type": "string", "description": "Repository owner."},
 					"repo":  map[string]any{"type": "string", "description": "Repository name."},
-					"limit": map[string]any{"type": "number", "default": 30, "description": "Max branches shown (default 30, max 100)."},
+					"limit": map[string]any{"type": "number", "minimum": 1, "default": 30, "description": "Max branches shown (default 30, max 100; values <= 0 are rejected)."},
 					"page":  map[string]any{"type": "number", "default": 1, "minimum": 1, "description": "1-indexed page number (default 1)."},
 				},
 				Required: []string{"owner", "repo"},
@@ -34,7 +34,11 @@ func (h *Handler) handleListBranches(ctx context.Context, req gomcp.CallToolRequ
 	if errResult != nil {
 		return errResult, nil
 	}
-	limit := clampLimit(intFromArgs(args, "limit"))
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	page := intFromArgs(args, "page")
 	if page < 1 {
 		page = 1

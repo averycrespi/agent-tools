@@ -56,6 +56,32 @@ func StripImages(text string) string {
 	return imageRe.ReplaceAllString(text, "[image]")
 }
 
+// htmlCommentRe matches HTML comments including multi-line content. The `(?s)`
+// flag makes `.` match newlines so comments spanning multiple lines collapse.
+var htmlCommentRe = regexp.MustCompile(`(?s)<!--.*?-->`)
+
+// StripHTMLComments removes `<!-- ... -->` blocks from text. Useful for body
+// excerpts where PR/issue templates leak template instructions ("<!-- Provide
+// a short description of your PR -->") that have no value in a one-line view.
+func StripHTMLComments(text string) string {
+	return htmlCommentRe.ReplaceAllString(text, "")
+}
+
+// reviewHTMLRe matches the small set of HTML tags GitHub's renderer injects
+// into PR review bodies — most commonly `<details>` / `<summary>` blocks and
+// `<a class="Link--inTextBlock">…</a>` link wrappers. Other tags pass through
+// because they may be intentional (e.g. `<code>`, `<sub>`, nested formatting).
+// `(?:\s[^>]*)?` keeps the regex from matching `<address>` etc.
+var reviewHTMLRe = regexp.MustCompile(`</?(?:details|summary|a)(?:\s[^>]*)?>`)
+
+// StripReviewHTML removes `<details>` / `<summary>` / `<a>` open and close
+// tags from text but preserves the inner content. This is targeted at the
+// HTML noise that appears in automated PR reviews (Copilot in particular);
+// human-written markdown rarely uses these tags directly.
+func StripReviewHTML(text string) string {
+	return reviewHTMLRe.ReplaceAllString(text, "")
+}
+
 // TruncateBody truncates text to maxLen bytes on a whitespace boundary.
 // If maxLen is 0, returns "". Appends "[truncated \u2014 showing X of Y bytes]" if cut.
 func TruncateBody(text string, maxLen int) string {
@@ -136,7 +162,7 @@ func FormatDiff(diff string, maxBytes int) string {
 
 // TruncateBytes truncates s to maxBytes on the last newline boundary at or before
 // the cap, appending "[truncated — showing X of Y bytes]". Returns s unchanged if maxBytes <= 0
-// or len(s) <= maxBytes. Used for diff bodies and log tails.
+// or len(s) <= maxBytes. Used for diff bodies where the START of the content matters most.
 func TruncateBytes(s string, maxBytes int) string {
 	if maxBytes <= 0 || len(s) <= maxBytes {
 		return s
@@ -146,6 +172,25 @@ func TruncateBytes(s string, maxBytes int) string {
 		cut = idx
 	}
 	return fmt.Sprintf("%s\n[truncated — showing %d of %d bytes]", s[:cut], cut, len(s))
+}
+
+// TruncateLogTail truncates s to keep the LAST maxBytes bytes on a line
+// boundary, prepending "[truncated — showing last X of Y bytes]". Returns s
+// unchanged if maxBytes <= 0 or len(s) <= maxBytes. The trim direction is
+// inverted relative to TruncateBytes because for log triage the most-recent
+// lines (typically containing the actual error) are what matters; trimming
+// from the end would drop them.
+func TruncateLogTail(s string, maxBytes int) string {
+	if maxBytes <= 0 || len(s) <= maxBytes {
+		return s
+	}
+	cut := len(s) - maxBytes
+	// Advance to the next newline so we don't break a partial line at the start.
+	if idx := strings.IndexByte(s[cut:], '\n'); idx >= 0 {
+		cut += idx + 1
+	}
+	kept := len(s) - cut
+	return fmt.Sprintf("[truncated — showing last %d of %d bytes]\n%s", kept, len(s), s[cut:])
 }
 
 // FormatLabels formats labels as "a, b, c" or "(none)".

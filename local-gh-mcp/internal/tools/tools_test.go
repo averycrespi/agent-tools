@@ -84,12 +84,15 @@ func TestEveryLimitParamDeclaresDefault(t *testing.T) {
 }
 
 func TestEveryMaxBodyLengthParamDeclaresDefault(t *testing.T) {
-	// Search tools render short body excerpts (default 200, max 500) rather than
-	// the full body (default 2000, max 50000) used by view/list tools because
-	// search returns up to 100 items per call.
-	searchTools := map[string]bool{
-		"gh_search_prs":    true,
-		"gh_search_issues": true,
+	// Per-tool default overrides:
+	// - search tools render short body excerpts (200) rather than full bodies
+	//   because search returns up to 100 items per call.
+	// - gh_list_pr_reviews uses 4000 because PR reviews (esp. Copilot)
+	//   routinely exceed the standard 2000-byte default.
+	perToolDefault := map[string]int{
+		"gh_search_prs":      200,
+		"gh_search_issues":   200,
+		"gh_list_pr_reviews": 4000,
 	}
 	h := NewHandler(&mockGHClient{})
 	for _, tool := range h.Tools() {
@@ -98,8 +101,8 @@ func TestEveryMaxBodyLengthParamDeclaresDefault(t *testing.T) {
 			continue
 		}
 		want := 2000
-		if searchTools[tool.Name] {
-			want = 200
+		if v, ok := perToolDefault[tool.Name]; ok {
+			want = v
 		}
 		t.Run(tool.Name+"/max_body_length", func(t *testing.T) {
 			def, ok := prop["default"]
@@ -131,7 +134,7 @@ func TestNoBareIDParameters(t *testing.T) {
 
 func TestEveryNumberParamDeclaresMinimum(t *testing.T) {
 	h := NewHandler(&mockGHClient{})
-	keys := []string{"pr_number", "issue_number"}
+	keys := []string{"pr_number", "issue_number", "limit"}
 	for _, tool := range h.Tools() {
 		for _, key := range keys {
 			prop, ok := tool.InputSchema.Properties[key].(map[string]any)
@@ -151,6 +154,61 @@ func TestEveryNumberParamDeclaresMinimum(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestValidateLimit(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    map[string]any
+		wantN   int
+		wantErr bool
+	}{
+		{"absent → 0, no error (caller substitutes default)", map[string]any{}, 0, false},
+		{"positive float", map[string]any{"limit": float64(50)}, 50, false},
+		{"positive int", map[string]any{"limit": 50}, 50, false},
+		{"zero rejected", map[string]any{"limit": float64(0)}, 0, true},
+		{"negative rejected", map[string]any{"limit": float64(-5)}, 0, true},
+		{"string rejected", map[string]any{"limit": "30"}, 0, true},
+		{"above maxLimit passes through (handler clamps)", map[string]any{"limit": float64(500)}, 500, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			n, errResult := validateLimit(tt.args)
+			if tt.wantErr {
+				require.NotNil(t, errResult)
+				return
+			}
+			require.Nil(t, errResult)
+			assert.Equal(t, tt.wantN, n)
+		})
+	}
+}
+
+func TestHandlerRejectsBadLimit(t *testing.T) {
+	tests := []struct {
+		name string
+		tool string
+		args map[string]any
+	}{
+		{"list_prs_zero", "gh_list_prs", map[string]any{"owner": "o", "repo": "r", "limit": float64(0)}},
+		{"list_prs_negative", "gh_list_prs", map[string]any{"owner": "o", "repo": "r", "limit": float64(-1)}},
+		{"search_prs_zero", "gh_search_prs", map[string]any{"query": "x", "limit": float64(0)}},
+		{"search_issues_negative", "gh_search_issues", map[string]any{"query": "x", "limit": float64(-5)}},
+		{"list_branches_zero", "gh_list_branches", map[string]any{"owner": "o", "repo": "r", "limit": float64(0)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewHandler(&mockGHClient{})
+			req := gomcp.CallToolRequest{}
+			req.Params.Name = tt.tool
+			req.Params.Arguments = tt.args
+			result, err := h.Handle(context.Background(), req)
+			require.NoError(t, err)
+			require.True(t, result.IsError, "expected error result for %s", tt.name)
+			text := result.Content[0].(gomcp.TextContent).Text
+			assert.Contains(t, text, "limit must be a positive integer")
+		})
 	}
 }
 
