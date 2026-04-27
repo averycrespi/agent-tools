@@ -52,11 +52,20 @@ const migrateSQL = `ALTER TABLE audit_records ADD COLUMN denial_reason TEXT NOT 
 const insertSQL = `INSERT INTO audit_records (timestamp, tool, args, verdict, approved, denial_reason, error)
 VALUES (?, ?, ?, ?, ?, ?, ?)`
 
+// Subscriber is called once per successful audit record insert.
+// It must return quickly; hand off via channel for any real work.
+type Subscriber func(rec Record)
+
+type subscriberEntry struct {
+	fn Subscriber
+}
+
 // Logger records and queries audit entries in a SQLite database.
 type Logger struct {
-	mu   sync.Mutex
-	db   *sql.DB
-	stmt *sql.Stmt
+	mu          sync.Mutex
+	db          *sql.DB
+	stmt        *sql.Stmt
+	subscribers []*subscriberEntry
 }
 
 // NewLogger creates a Logger that writes to the given database path.
@@ -92,7 +101,7 @@ func NewLogger(path string) (*Logger, error) {
 	return &Logger{db: db, stmt: stmt}, nil
 }
 
-// Record inserts an audit record.
+// Record inserts an audit record and notifies subscribers on success.
 func (l *Logger) Record(_ context.Context, rec Record) error {
 	argsJSON, err := marshalNullable(rec.Args)
 	if err != nil {
@@ -109,7 +118,6 @@ func (l *Logger) Record(_ context.Context, rec Record) error {
 	}
 
 	l.mu.Lock()
-	defer l.mu.Unlock()
 
 	_, err = l.stmt.Exec(
 		rec.Timestamp.Format(time.RFC3339),
@@ -121,9 +129,46 @@ func (l *Logger) Record(_ context.Context, rec Record) error {
 		rec.Error,
 	)
 	if err != nil {
+		l.mu.Unlock()
 		return fmt.Errorf("insert audit record: %w", err)
 	}
+
+	// Snapshot subscribers while holding the lock so that concurrent
+	// unsubscribe calls cannot mutate the slice during iteration.
+	snapshot := make([]*subscriberEntry, len(l.subscribers))
+	copy(snapshot, l.subscribers)
+	l.mu.Unlock()
+
+	for _, entry := range snapshot {
+		entry.fn(rec)
+	}
 	return nil
+}
+
+// Subscribe registers fn to be called after each successful Record insert.
+// The returned unsubscribe function removes fn and is safe to call
+// concurrently with Record and other Subscribe/unsubscribe calls.
+// Calling unsubscribe more than once is a no-op.
+func (l *Logger) Subscribe(fn Subscriber) (unsubscribe func()) {
+	entry := &subscriberEntry{fn: fn}
+
+	l.mu.Lock()
+	l.subscribers = append(l.subscribers, entry)
+	l.mu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			for i, e := range l.subscribers {
+				if e == entry {
+					l.subscribers = append(l.subscribers[:i], l.subscribers[i+1:]...)
+					return
+				}
+			}
+		})
+	}
 }
 
 // Query returns audit records matching the given filters.
