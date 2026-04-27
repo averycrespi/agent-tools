@@ -174,9 +174,9 @@ Embedded single-page web application serving:
 - **Approvals tab** — pending requests with approve/deny buttons, decided history
 - **Tools tab** — discovered tools grouped by server; click a tool to see its input schema
 - **Rules tab** — configured rules with the discovered tools matching each (read-only; for debugging verdicts)
-- **Audit tab** — paginated audit log with tool filter
+- **Audit tab** — paginated audit log with tool filter, plus a live feed of incoming records. New records are prepended in real time when the view is on page 1 with no active filter and not paused; otherwise an "N new" counter appears with a "return to live view" banner. A pause toggle freezes the live feed without affecting filter or pagination state.
 
-Real-time updates via Server-Sent Events (SSE). The dashboard also implements the `Approver` interface — the `Review` method blocks until a human makes a decision via the `/api/decide` endpoint.
+Real-time updates via Server-Sent Events (SSE) on a single `/events` channel. Event types are `new` (pending approval request), `removed` (request resolved), `decided` (decision applied), and `audit` (audit record written). The dashboard also implements the `Approver` interface — the `Review` method blocks until a human makes a decision via the `/api/decide` endpoint.
 
 ### Broker (`internal/broker`)
 
