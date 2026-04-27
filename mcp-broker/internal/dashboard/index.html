@@ -1111,6 +1111,8 @@
 
     <script>
       // --- Tab switching ---
+      var TAB_NAMES = ["approvals", "tools", "rules", "audit"];
+
       function switchTab(name) {
         document.querySelectorAll(".tab").forEach(function (t) {
           t.classList.remove("active");
@@ -1121,6 +1123,10 @@
         document.getElementById("tab-" + name).classList.add("active");
         document.getElementById("content-" + name).classList.add("active");
 
+        if (location.hash !== "#" + name) {
+          history.replaceState(null, "", "#" + name);
+        }
+
         if (name === "tools") loadTools();
         if (name === "rules") loadRules();
         if (name === "audit") {
@@ -1128,6 +1134,18 @@
           loadAudit();
         }
       }
+
+      (function restoreTabFromHash() {
+        var name = location.hash.replace(/^#/, "");
+        if (TAB_NAMES.indexOf(name) !== -1 && name !== "approvals") {
+          switchTab(name);
+        }
+      })();
+
+      window.addEventListener("hashchange", function () {
+        var name = location.hash.replace(/^#/, "");
+        if (TAB_NAMES.indexOf(name) !== -1) switchTab(name);
+      });
 
       // --- Utility ---
       function esc(s) {
