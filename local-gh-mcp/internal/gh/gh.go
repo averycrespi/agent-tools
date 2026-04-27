@@ -572,6 +572,17 @@ func (c *Client) ListRuns(_ context.Context, owner, repo string, opts ListRunsOp
 	return strings.TrimSpace(string(out)), nil
 }
 
+// normalizeRunLog strips a leading UTF-8 BOM and collapses "\tUNKNOWN STEP\t"
+// to "\t" in gh run-log output. The BOM is emitted by gh on the first byte of
+// some log streams. "UNKNOWN STEP" appears when step metadata is missing and
+// pads every line with noise that inflates byte caps. TrimSpace is also applied
+// so callers receive clean output regardless of trailing newlines.
+func normalizeRunLog(out string) string {
+	s := strings.TrimPrefix(out, "\uFEFF")
+	s = strings.ReplaceAll(s, "\tUNKNOWN STEP\t", "\t")
+	return strings.TrimSpace(s)
+}
+
 // ViewRun retrieves details for a workflow run. If logFailed is true, returns
 // the failed log output instead of JSON.
 func (c *Client) ViewRun(_ context.Context, owner, repo string, runID string, logFailed bool) (string, error) {
@@ -585,6 +596,9 @@ func (c *Client) ViewRun(_ context.Context, owner, repo string, runID string, lo
 	if err != nil {
 		return "", fmt.Errorf("gh run view failed: %s", strings.TrimSpace(string(out)))
 	}
+	if logFailed {
+		return normalizeRunLog(string(out)), nil
+	}
 	return strings.TrimSpace(string(out)), nil
 }
 
@@ -593,15 +607,15 @@ func (c *Client) ViewRun(_ context.Context, owner, repo string, runID string, lo
 //
 // gh upstream prepends a TSV prefix `<job>\t<step>\t<timestamp>` to every line;
 // when step metadata is missing the step column reads "UNKNOWN STEP", which
-// burns the byte cap with noise. We collapse those occurrences. We also strip
-// a leading UTF-8 BOM that gh sometimes emits on the first line.
+// burns the byte cap with noise. We collapse those occurrences via
+// normalizeRunLog. We also strip a leading UTF-8 BOM that gh sometimes emits
+// on the first line.
 func (c *Client) ViewRunJobLog(_ context.Context, owner, repo string, jobID int64, tailLines int) (string, error) {
 	out, err := c.runner.Run("gh", "run", "view", "--job", strconv.FormatInt(jobID, 10), "--log", "-R", repoFlag(owner, repo))
 	if err != nil {
 		return "", fmt.Errorf("gh run view --job failed: %s", strings.TrimSpace(string(out)))
 	}
-	body := strings.TrimPrefix(string(out), "\uFEFF")
-	body = strings.ReplaceAll(body, "\tUNKNOWN STEP\t", "\t")
+	body := normalizeRunLog(string(out))
 	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
 	if tailLines > 0 && len(lines) > tailLines {
 		lines = lines[len(lines)-tailLines:]

@@ -837,3 +837,76 @@ func TestCleanGhError_FallsBackToTrimmedInput(t *testing.T) {
 	got := cleanGhError(out)
 	assert.Equal(t, "", got)
 }
+
+// TestNormalizeRunLog covers the four combinations of BOM and UNKNOWN STEP.
+func TestNormalizeRunLog_BOMOnly(t *testing.T) {
+	in := "\uFEFFbuild\tcompile\t2025-01-01T00:00:00Z message\n"
+	got := normalizeRunLog(in)
+	assert.NotContains(t, got, "\uFEFF")
+	assert.Contains(t, got, "build\tcompile")
+}
+
+func TestNormalizeRunLog_UnknownStepOnly(t *testing.T) {
+	in := "build\tUNKNOWN STEP\t2025-01-01T00:00:00Z message\n"
+	got := normalizeRunLog(in)
+	assert.NotContains(t, got, "UNKNOWN STEP")
+	assert.Contains(t, got, "build\t2025-01-01")
+}
+
+func TestNormalizeRunLog_BOMAndUnknownStep(t *testing.T) {
+	in := "\uFEFFbuild\tUNKNOWN STEP\t2025-01-01T00:00:00Z message\n"
+	got := normalizeRunLog(in)
+	assert.NotContains(t, got, "\uFEFF")
+	assert.NotContains(t, got, "UNKNOWN STEP")
+	assert.Contains(t, got, "build\t2025-01-01")
+}
+
+func TestNormalizeRunLog_NeitherBOMNorUnknownStep(t *testing.T) {
+	in := "build\tcompile\t2025-01-01T00:00:00Z message\n"
+	got := normalizeRunLog(in)
+	assert.Equal(t, "build\tcompile\t2025-01-01T00:00:00Z message", got)
+}
+
+// TestNormalizeRunLog_BOMOnlyLeading verifies that a BOM appearing mid-string
+// is NOT stripped — only a leading BOM is removed.
+func TestNormalizeRunLog_BOMOnlyLeading(t *testing.T) {
+	in := "line1\n\uFEFFline2\n"
+	got := normalizeRunLog(in)
+	assert.Contains(t, got, "\uFEFF", "mid-string BOM must be preserved")
+}
+
+// TestViewRun_LogFailed_NormalizesOutput verifies that the logFailed=true path
+// strips the BOM and UNKNOWN STEP noise before returning.
+func TestViewRun_LogFailed_NormalizesOutput(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(_ string, _ ...string) ([]byte, error) {
+			body := "\uFEFFbuild\tUNKNOWN STEP\t2025-01-01T00:00:00Z failed here\n" +
+				"build\tsetup\t2025-01-01T00:00:01Z all good\n"
+			return []byte(body), nil
+		},
+	})
+	out, err := c.ViewRun(context.Background(), "o", "r", "99", true)
+	require.NoError(t, err)
+	assert.NotContains(t, out, "\uFEFF")
+	assert.NotContains(t, out, "UNKNOWN STEP")
+	assert.Contains(t, out, "failed here")
+	assert.Contains(t, out, "all good")
+}
+
+// TestViewRunJobLog_NormalizesOutput is the parallel test for ViewRunJobLog,
+// confirming it still strips BOM and UNKNOWN STEP after the refactor.
+func TestViewRunJobLog_NormalizesOutput(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(_ string, _ ...string) ([]byte, error) {
+			body := "\uFEFFbuild\tUNKNOWN STEP\t2025-01-01T00:00:00Z step one\n" +
+				"build\trun\t2025-01-01T00:00:01Z step two\n"
+			return []byte(body), nil
+		},
+	})
+	out, err := c.ViewRunJobLog(context.Background(), "o", "r", 7, 0)
+	require.NoError(t, err)
+	assert.NotContains(t, out, "\uFEFF")
+	assert.NotContains(t, out, "UNKNOWN STEP")
+	assert.Contains(t, out, "step one")
+	assert.Contains(t, out, "step two")
+}
