@@ -244,22 +244,22 @@ func (d *Dashboard) handleRules(w http.ResponseWriter, _ *http.Request) {
 	always := []string{}
 	may := []string{}
 	for _, tool := range tools {
-		firstUnconstrainedIdx := -1
 		sawNameMatch := false
+		sawUnconstrained := false
 		for i, r := range rules {
 			matched, err := filepath.Match(r.Tool, tool.Name)
 			if err != nil || !matched {
 				continue
 			}
 			sawNameMatch = true
+			views[i].Matches = append(views[i].Matches, tool.Name)
 			if len(r.Args) == 0 {
-				firstUnconstrainedIdx = i
+				sawUnconstrained = true
 				break
 			}
 		}
 		switch {
-		case firstUnconstrainedIdx >= 0:
-			views[firstUnconstrainedIdx].Matches = append(views[firstUnconstrainedIdx].Matches, tool.Name)
+		case sawUnconstrained:
 		case sawNameMatch:
 			may = append(may, tool.Name)
 		default:

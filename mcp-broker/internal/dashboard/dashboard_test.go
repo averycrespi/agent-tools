@@ -512,7 +512,10 @@ func TestHandleRules_MayFallThrough(t *testing.T) {
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 
-	// git_push: its only name-matching rule is constrained → may_fall_through
+	// git_push: its only name-matching rule is constrained → listed under that
+	// rule (so users can see the rule targets it) AND in may_fall_through
+	// (because args may not match, in which case it falls through to default).
+	require.Equal(t, []string{"git_push"}, body.Rules[0].Matches)
 	require.Equal(t, []string{"git_push"}, body.MayFallThrough)
 	// github.list_prs: rule index 1 is unconstrained → Matches[1]
 	require.Equal(t, 1, body.Rules[1].Index)
@@ -570,9 +573,11 @@ func TestHandleRules_ConstrainedThenUnconstrained(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 
 	// git_push matches rule 0 (constrained) and rule 1 (unconstrained).
-	// First unconstrained name-match is rule 1 → goes in Matches[1], NOT may_fall_through.
+	// Both rules list git_push so users see every rule that may apply. The
+	// unconstrained rule 1 guarantees a match, so git_push is NOT in
+	// may_fall_through.
 	require.Len(t, body.Rules, 2)
-	require.Empty(t, body.Rules[0].Matches)
+	require.Equal(t, []string{"git_push"}, body.Rules[0].Matches)
 	require.Equal(t, []string{"git_push"}, body.Rules[1].Matches)
 	require.Empty(t, body.MayFallThrough)
 	require.Empty(t, body.AlwaysFallThrough)
