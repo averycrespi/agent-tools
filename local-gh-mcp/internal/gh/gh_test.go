@@ -699,3 +699,34 @@ func TestListBranches_ErrorIsClean(t *testing.T) {
 	assert.Contains(t, err.Error(), "gh: Not Found (HTTP 404)")
 	assert.NotContains(t, err.Error(), "documentation_url")
 }
+
+// TestCleanAPIError_ConcatenatedJSONAndGhLine covers the case where gh
+// appends the error line directly after the JSON body without a newline.
+func TestCleanAPIError_ConcatenatedJSONAndGhLine(t *testing.T) {
+	out := []byte(`{"message":"Not Found","documentation_url":"https://docs.github.com/..."}gh: Not Found (HTTP 404)`)
+	got := cleanAPIError(out)
+	assert.Equal(t, "gh: Not Found (HTTP 404)", got)
+}
+
+// TestCleanGhError_PrefersErrorLine covers the normal search failure path
+// where gh prints an Error: line followed by usage/banner text.
+func TestCleanGhError_PrefersErrorLine(t *testing.T) {
+	out := []byte("Error: invalid value \"bogus\" for flag --state\n\nUsage:\n  gh search prs [<query>] [flags]\n\nFlags:\n  -h, --help   help for prs\n")
+	got := cleanGhError(out)
+	assert.Equal(t, `Error: invalid value "bogus" for flag --state`, got)
+}
+
+// TestCleanGhError_FallsBackToFirstNonEmptyLine covers output with no Error:
+// line — the first non-empty line is returned.
+func TestCleanGhError_FallsBackToFirstNonEmptyLine(t *testing.T) {
+	out := []byte("\n\nsome other message\nmore text\n")
+	got := cleanGhError(out)
+	assert.Equal(t, "some other message", got)
+}
+
+// TestCleanGhError_FallsBackToTrimmedInput covers blank output.
+func TestCleanGhError_FallsBackToTrimmedInput(t *testing.T) {
+	out := []byte("  \n  ")
+	got := cleanGhError(out)
+	assert.Equal(t, "", got)
+}

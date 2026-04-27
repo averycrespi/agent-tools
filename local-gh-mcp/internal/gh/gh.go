@@ -112,11 +112,37 @@ func splitSearchQuery(query string) ([]string, error) {
 // `gh: <message> (HTTP <code>)` line to stderr; CombinedOutput concatenates
 // them. Prefer the `gh:` line when present; otherwise fall back to the
 // trimmed blob.
+//
+// Uses LastIndex so the marker is found even when gh concatenates a JSON body
+// (with no trailing newline) directly before the `gh: ` line.
 func cleanAPIError(out []byte) string {
+	s := strings.TrimSpace(string(out))
+	if i := strings.LastIndex(s, "gh: "); i >= 0 {
+		line := s[i:]
+		if j := strings.IndexByte(line, '\n'); j >= 0 {
+			line = line[:j]
+		}
+		return strings.TrimSpace(line)
+	}
+	return s
+}
+
+// cleanGhError extracts the most useful single-line error from `gh search`
+// (and similar subcommand) output. When gh rejects a flag value it prints an
+// `Error: <message>` line followed by usage text (~50 lines). We return just
+// that first Error line. If no Error line is found, we return the first
+// non-empty line. If the output is blank, we return the trimmed input.
+func cleanGhError(out []byte) string {
 	s := strings.TrimSpace(string(out))
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "gh: ") {
+		if strings.HasPrefix(line, "Error: ") {
+			return line
+		}
+	}
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
 			return line
 		}
 	}
@@ -504,7 +530,7 @@ func (c *Client) PRReviewComments(_ context.Context, owner, repo string, number 
 	jq := "map({id, in_reply_to_id, pull_request_review_id, user: {login: .user.login, type: .user.type}, body, path, line, original_line, side, diff_hunk, created_at})"
 	out, err := c.runner.Run("gh", "api", "--jq", jq, "--", endpoint)
 	if err != nil {
-		return "", fmt.Errorf("gh pr review comments failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr review comments failed: %s", cleanAPIError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -695,7 +721,7 @@ func (c *Client) SearchPRs(_ context.Context, query string, opts SearchPRsOpts) 
 	args = append(args, tokens...)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh search prs failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh search prs failed: %s", cleanGhError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -726,7 +752,7 @@ func (c *Client) SearchIssues(_ context.Context, query string, opts SearchIssues
 	args = append(args, tokens...)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh search issues failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh search issues failed: %s", cleanGhError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -754,7 +780,7 @@ func (c *Client) SearchRepos(_ context.Context, query string, opts SearchReposOp
 	args = append(args, tokens...)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh search repos failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh search repos failed: %s", cleanGhError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -785,7 +811,7 @@ func (c *Client) SearchCode(_ context.Context, query string, opts SearchCodeOpts
 	args = append(args, tokens...)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh search code failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh search code failed: %s", cleanGhError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -836,7 +862,7 @@ func (c *Client) SearchCommits(_ context.Context, query string, opts SearchCommi
 	args = append(args, tokens...)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh search commits failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh search commits failed: %s", cleanGhError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
