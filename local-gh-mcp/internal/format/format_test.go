@@ -21,6 +21,24 @@ func TestFormatAuthor_Empty(t *testing.T) {
 	assert.Equal(t, "@unknown", got)
 }
 
+func TestFormatAuthor_BotSuffix_IsBot_False(t *testing.T) {
+	// Defensive path: login carries "[bot]" suffix even when IsBot is false.
+	got := FormatAuthor(Author{Login: "github-actions[bot]", IsBot: false})
+	assert.Equal(t, "@github-actions [bot]", got)
+}
+
+func TestFormatAuthor_BotSuffix_IsBot_True(t *testing.T) {
+	// Both flags agree — should not double the suffix.
+	got := FormatAuthor(Author{Login: "github-actions[bot]", IsBot: true})
+	assert.Equal(t, "@github-actions [bot]", got)
+}
+
+func TestFormatAuthor_BotSuffixOnly(t *testing.T) {
+	// Edge: login is exactly "[bot]" — stripped to empty, falls back to "unknown".
+	got := FormatAuthor(Author{Login: "[bot]", IsBot: false})
+	assert.Equal(t, "@unknown [bot]", got)
+}
+
 func TestFormatDate_Full(t *testing.T) {
 	got := FormatDate("2025-02-09T10:26:21Z")
 	assert.Equal(t, "2025-02-09", got)
@@ -62,6 +80,39 @@ func TestStripImages(t *testing.T) {
 	assert.Equal(t, "[image]", StripImages("![alt text](http://example.com/img.png)"))
 	assert.Equal(t, "before [image] after", StripImages("before ![alt](url) after"))
 	assert.Equal(t, "no images here", StripImages("no images here"))
+}
+
+func TestStripHTMLComments(t *testing.T) {
+	assert.Equal(t, "real content", StripHTMLComments("<!-- template note -->real content"))
+	assert.Equal(t, "before  after", StripHTMLComments("before <!-- skip --> after"))
+	assert.Equal(t, "no comments", StripHTMLComments("no comments"))
+	// Multi-line comment (PR templates often span lines)
+	assert.Equal(t, "summary", StripHTMLComments("<!--\nProvide a short\ndescription\n-->summary"))
+	// Multiple comments in one body
+	assert.Equal(t, "ab", StripHTMLComments("a<!-- one -->b<!-- two -->"))
+}
+
+func TestStripReviewHTML(t *testing.T) {
+	// `<details>` / `<summary>` collapse blocks: tags removed, content kept
+	assert.Equal(t, "\nSummary\n\nHidden content\n",
+		StripReviewHTML("<details>\n<summary>Summary</summary>\n\nHidden content\n</details>"))
+
+	// `<a>` link wrapper (Copilot-style)
+	assert.Equal(t,
+		"See foo for details.",
+		StripReviewHTML(`See <a class="Link--inTextBlock" href="x">foo</a> for details.`))
+
+	// Bare `<a>` and `</a>`
+	assert.Equal(t, "linktext", StripReviewHTML("<a>link</a>text"))
+
+	// `<code>` and other tags pass through unchanged
+	assert.Equal(t, "use <code>foo</code> here", StripReviewHTML("use <code>foo</code> here"))
+
+	// `<address>` must NOT match (regex narrowness check)
+	assert.Equal(t, "<address>123 Main</address>", StripReviewHTML("<address>123 Main</address>"))
+
+	// Nothing to strip
+	assert.Equal(t, "plain text", StripReviewHTML("plain text"))
 }
 
 func TestFormatLabels(t *testing.T) {
@@ -113,8 +164,25 @@ func TestFormatDiff(t *testing.T) {
  package main
 +func init() {}
 `
-	got := FormatDiff(diff)
+	got := FormatDiff(diff, 0)
 	assert.Contains(t, got, "## Files changed")
 	assert.Contains(t, got, "## Diff")
 	assert.Contains(t, got, diff)
+}
+
+func TestFormatDiff_TruncatesOnLineBoundary(t *testing.T) {
+	diff := "diff --git a/foo b/foo\n--- a/foo\n+++ b/foo\n@@ -1,1 +1,2 @@\n line1\n+addedAAAAAAAAAAAAAAAAAAAA\n+addedBBBBBBBBBBBBBBBBBBBB\n"
+	got := FormatDiff(diff, 80)
+	// Summary table built from the full diff regardless of cap.
+	assert.Contains(t, got, "## Files changed (1)")
+	assert.Contains(t, got, "foo")
+	// Trailer reports both shown bytes and total.
+	assert.Contains(t, got, "[truncated")
+	assert.Contains(t, got, "/")
+}
+
+func TestFormatDiff_NoCapWhenUnderLimit(t *testing.T) {
+	diff := "diff --git a/foo b/foo\n@@ -1 +1 @@\n-old\n+new\n"
+	got := FormatDiff(diff, 10000)
+	assert.NotContains(t, got, "[truncated")
 }

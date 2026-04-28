@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Optional LaunchAgent that runs a user-level ssh-agent with a fixed socket
+  path at ~/.ssh/agent.sock. Pair with local-gomod-proxy.plist's commented
+  SSH_AUTH_SOCK block when the proxy needs to clone SSH-only private repos
+  (HTTPS + `gh auth setup-git` is the preferred path; see README).
+
+  Why not reuse macOS's built-in com.openssh.ssh-agent: its socket path is
+  randomized per boot and scoped to the Aqua session type, so it can't be
+  referenced reliably from a LaunchAgent's EnvironmentVariables.
+
+  See README.md ("SSH fallback") for the one-time key load command and the
+  install steps. Before installing, replace USERNAME in the log paths below
+  with your macOS short username (the README snippet does this with sed).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>dev.agent-tools.ssh-agent</string>
+
+    <!-- The shell wrapper removes any stale socket left behind by a prior
+         run before exec'ing ssh-agent; $HOME is populated by launchd for
+         LaunchAgents, so no USERNAME substitution is needed here. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>rm -f "$HOME/.ssh/agent.sock" &amp;&amp; exec /usr/bin/ssh-agent -D -a "$HOME/.ssh/agent.sock"</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/USERNAME/Library/Logs/dev.agent-tools.ssh-agent.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/USERNAME/Library/Logs/dev.agent-tools.ssh-agent.err.log</string>
+</dict>
+</plist>

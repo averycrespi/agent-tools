@@ -184,3 +184,137 @@ func TestAuditSchemaIsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, l2.Close(context.Background()))
 }
+
+func TestLogger_Subscribe_SingleSubscriberReceivesRecord(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	l, err := NewLogger(path)
+	require.NoError(t, err)
+	defer func() { _ = l.Close(context.Background()) }()
+
+	var received []Record
+	_ = l.Subscribe(func(rec Record) {
+		received = append(received, rec)
+	})
+
+	rec := Record{
+		Timestamp: time.Now(),
+		Tool:      "test.tool",
+		Verdict:   "allow",
+	}
+	require.NoError(t, l.Record(context.Background(), rec))
+	require.Len(t, received, 1)
+	require.Equal(t, "test.tool", received[0].Tool)
+	require.Equal(t, "allow", received[0].Verdict)
+}
+
+func TestLogger_Subscribe_MultipleSubscribersEachReceive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	l, err := NewLogger(path)
+	require.NoError(t, err)
+	defer func() { _ = l.Close(context.Background()) }()
+
+	var receivedA, receivedB []Record
+	_ = l.Subscribe(func(rec Record) { receivedA = append(receivedA, rec) })
+	_ = l.Subscribe(func(rec Record) { receivedB = append(receivedB, rec) })
+
+	rec := Record{
+		Timestamp: time.Now(),
+		Tool:      "test.tool",
+		Verdict:   "allow",
+	}
+	require.NoError(t, l.Record(context.Background(), rec))
+	require.Len(t, receivedA, 1)
+	require.Len(t, receivedB, 1)
+	require.Equal(t, "test.tool", receivedA[0].Tool)
+	require.Equal(t, "test.tool", receivedB[0].Tool)
+}
+
+func TestLogger_Subscribe_UnsubscribedDoesNotReceive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	l, err := NewLogger(path)
+	require.NoError(t, err)
+	defer func() { _ = l.Close(context.Background()) }()
+
+	var received []Record
+	unsub := l.Subscribe(func(rec Record) {
+		received = append(received, rec)
+	})
+
+	// First record — subscriber is still active.
+	require.NoError(t, l.Record(context.Background(), Record{
+		Timestamp: time.Now(),
+		Tool:      "before.unsub",
+		Verdict:   "allow",
+	}))
+	require.Len(t, received, 1)
+
+	// Unsubscribe, then insert another record.
+	unsub()
+	require.NoError(t, l.Record(context.Background(), Record{
+		Timestamp: time.Now(),
+		Tool:      "after.unsub",
+		Verdict:   "allow",
+	}))
+	// Must still be 1 — no notification for the second record.
+	require.Len(t, received, 1)
+}
+
+func TestLogger_Subscribe_NoNotificationOnInsertError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	l, err := NewLogger(path)
+	require.NoError(t, err)
+
+	var received []Record
+	_ = l.Subscribe(func(rec Record) {
+		received = append(received, rec)
+	})
+
+	// Close the DB to force insert errors.
+	_ = l.Close(context.Background())
+
+	insertErr := l.Record(context.Background(), Record{
+		Timestamp: time.Now(),
+		Tool:      "test.tool",
+		Verdict:   "allow",
+	})
+	require.Error(t, insertErr)
+	require.Empty(t, received)
+}
+
+func TestLogger_Subscribe_EmptyListDoesNotPanic(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	l, err := NewLogger(path)
+	require.NoError(t, err)
+	defer func() { _ = l.Close(context.Background()) }()
+
+	// No subscribers registered — Record must not panic.
+	require.NotPanics(t, func() {
+		_ = l.Record(context.Background(), Record{
+			Timestamp: time.Now(),
+			Tool:      "test.tool",
+			Verdict:   "allow",
+		})
+	})
+}
+
+func TestLogger_Subscribe_UnsubscribeTwiceIsNoOp(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	l, err := NewLogger(path)
+	require.NoError(t, err)
+	defer func() { _ = l.Close(context.Background()) }()
+
+	unsub := l.Subscribe(func(_ Record) {})
+
+	// Calling unsubscribe twice must not panic or corrupt state.
+	require.NotPanics(t, func() {
+		unsub()
+		unsub()
+	})
+
+	// Logger should still work correctly after double-unsubscribe.
+	require.NoError(t, l.Record(context.Background(), Record{
+		Timestamp: time.Now(),
+		Tool:      "test.tool",
+		Verdict:   "allow",
+	}))
+}

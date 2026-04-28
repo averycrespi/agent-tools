@@ -24,10 +24,11 @@ func TestBroker_Integration_FullPipeline(t *testing.T) {
 	defer func() { _ = auditor.Close(context.Background()) }()
 
 	// Real rules engine
-	engine := rules.New([]config.RuleConfig{
+	engine, err := rules.New([]config.RuleConfig{
 		{Tool: "echo.*", Verdict: "allow"},
 		{Tool: "*", Verdict: "deny"},
 	})
+	require.NoError(t, err)
 
 	// Mock server manager
 	sm := new(mockServerManager)

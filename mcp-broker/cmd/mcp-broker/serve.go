@@ -108,7 +108,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	logger.Info("tools discovered", "count", len(tools))
 
 	// Create rules engine
-	engine := rules.New(cfg.Rules)
+	engine, err := rules.New(cfg.Rules)
+	if err != nil {
+		return fmt.Errorf("compiling rules: %w", err)
+	}
 
 	// Open a separate SQLite connection for the grants store (Option B: fresh
 	// connection to the same file; both packages use CREATE TABLE IF NOT EXISTS
@@ -127,6 +130,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	// Create dashboard
 	dash := dashboard.New(mgr, engine, auditor, grantStore, logger.With("component", "dashboard"))
+
+	// Wire audit subscriber so live records are broadcast over SSE.
+	unsubscribeAudit := auditor.Subscribe(dash.OnAuditRecord)
+	defer unsubscribeAudit()
 
 	// Create multi-approver
 	timeout := time.Duration(cfg.ApprovalTimeoutSeconds) * time.Second
@@ -187,7 +194,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	mux.Handle("GET /api/grants", grantsAPI)
 	mux.Handle("DELETE /api/grants/", grantsAPI)
 
-	addr := fmt.Sprintf(":%d", cfg.Port)
+	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	if err := server.ValidateLoopbackAddr(addr); err != nil {
+		return err
+	}
 	srv := &http.Server{Addr: addr, Handler: auth.Middleware(token, auth.GrantTokenMiddleware(mux)), ReadHeaderTimeout: 10 * time.Second}
 
 	// Handle shutdown
@@ -260,7 +270,7 @@ func toolToMCPTool(t server.Tool) gomcp.Tool {
 		}
 	}
 
-	return gomcp.Tool{
+	out := gomcp.Tool{
 		Name:        t.Name,
 		Description: t.Description,
 		InputSchema: gomcp.ToolInputSchema{
@@ -268,7 +278,15 @@ func toolToMCPTool(t server.Tool) gomcp.Tool {
 			Properties: props,
 			Required:   required,
 		},
+		Meta: t.Meta,
 	}
+	if t.OutputSchema != nil {
+		out.OutputSchema = *t.OutputSchema
+	}
+	if t.Annotations != nil {
+		out.Annotations = *t.Annotations
+	}
+	return out
 }
 
 func makeMCPHandler(b *broker.Broker) func(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {

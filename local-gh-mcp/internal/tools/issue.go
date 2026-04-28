@@ -3,8 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
@@ -15,7 +13,8 @@ func (h *Handler) issueTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_view_issue",
-			Description: "View issue details. Returns structured markdown with metadata and description.",
+			Description: "View issue metadata and description as structured markdown. For comments, use gh_list_issue_comments.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -27,21 +26,24 @@ func (h *Handler) issueTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"issue_number": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"description": "Issue number",
 					},
 					"max_body_length": map[string]any{
 						"type":        "number",
-						"description": "Max body length in chars (default 2000, max 50000)",
+						"default":     2000,
+						"description": "Max body length in bytes (default 2000, max 50000).",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "issue_number"},
 			},
 		},
 		{
 			Name:        "gh_list_issues",
-			Description: "List issues. Returns markdown bullet list.",
+			Description: "List issues in a single repository. Use this when you know owner/repo. For cross-repo queries or GitHub search DSL filters, use gh_search_issues instead.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -55,7 +57,9 @@ func (h *Handler) issueTools() []gomcp.Tool {
 					},
 					"state": map[string]any{
 						"type":        "string",
-						"description": "Filter by state: open, closed, all",
+						"enum":        []string{"open", "closed", "all"},
+						"default":     "open",
+						"description": "Filter by state (default open).",
 					},
 					"author": map[string]any{
 						"type":        "string",
@@ -73,13 +77,11 @@ func (h *Handler) issueTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Filter by milestone",
 					},
-					"search": map[string]any{
-						"type":        "string",
-						"description": "Search query",
-					},
 					"limit": map[string]any{
 						"type":        "number",
-						"description": "Max results (default 30, max 100)",
+						"minimum":     1,
+						"default":     30,
+						"description": "Max results (default 30, max 100).",
 					},
 				},
 				Required: []string{"owner", "repo"},
@@ -87,7 +89,8 @@ func (h *Handler) issueTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_comment_issue",
-			Description: "Add a comment to an issue",
+			Description: "Post a comment on an issue. Returns the comment URL on success.",
+			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -99,8 +102,9 @@ func (h *Handler) issueTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"issue_number": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"description": "Issue number",
 					},
 					"body": map[string]any{
@@ -108,12 +112,13 @@ func (h *Handler) issueTools() []gomcp.Tool {
 						"description": "Comment body",
 					},
 				},
-				Required: []string{"owner", "repo", "number", "body"},
+				Required: []string{"owner", "repo", "issue_number", "body"},
 			},
 		},
 		{
 			Name:        "gh_list_issue_comments",
-			Description: "List comments on an issue. Returns markdown-formatted comment list.",
+			Description: "For the issue body itself, use gh_view_issue. List comments on an issue. Returns markdown-formatted comment list.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -125,20 +130,24 @@ func (h *Handler) issueTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"issue_number": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"description": "Issue number",
 					},
 					"max_body_length": map[string]any{
 						"type":        "number",
-						"description": "Max body length per comment in chars (default 2000, max 50000)",
+						"default":     2000,
+						"description": "Max body length per comment in bytes (default 2000, max 50000).",
 					},
 					"limit": map[string]any{
 						"type":        "number",
-						"description": "Max comments to return (default 30, max 100)",
+						"minimum":     1,
+						"default":     30,
+						"description": "Max comments to return (default 30, max 100).",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "issue_number"},
 			},
 		},
 	}
@@ -150,9 +159,9 @@ func (h *Handler) handleViewIssue(ctx context.Context, req gomcp.CallToolRequest
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
-	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+	number, errResult := requirePositiveInt(args, "issue_number")
+	if errResult != nil {
+		return errResult, nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
 	out, err := h.gh.ViewIssue(ctx, owner, repo, number)
@@ -161,7 +170,7 @@ func (h *Handler) handleViewIssue(ctx context.Context, req gomcp.CallToolRequest
 	}
 	var issue format.IssueView
 	if err := json.Unmarshal([]byte(out), &issue); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse issue JSON: %v", err)), nil
+		return parseError("gh_view_issue", err, out), nil
 	}
 	return gomcp.NewToolResultText(format.FormatIssueView(issue, maxBody)), nil
 }
@@ -172,14 +181,22 @@ func (h *Handler) handleListIssues(ctx context.Context, req gomcp.CallToolReques
 	if errResult != nil {
 		return errResult, nil
 	}
+	state := stringFromArgs(args, "state")
+	if errResult := validateEnum("state", state, []string{"open", "closed", "all"}); errResult != nil {
+		return errResult, nil
+	}
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	opts := gh.ListIssuesOpts{
-		State:     stringFromArgs(args, "state"),
+		State:     state,
 		Author:    stringFromArgs(args, "author"),
 		Assignee:  stringFromArgs(args, "assignee"),
 		Label:     stringFromArgs(args, "label"),
 		Milestone: stringFromArgs(args, "milestone"),
-		Search:    stringFromArgs(args, "search"),
-		Limit:     intFromArgs(args, "limit"),
+		Limit:     limit,
 	}
 	out, err := h.gh.ListIssues(ctx, owner, repo, opts)
 	if err != nil {
@@ -187,16 +204,12 @@ func (h *Handler) handleListIssues(ctx context.Context, req gomcp.CallToolReques
 	}
 	var items []format.IssueListItem
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse issue list JSON: %v", err)), nil
+		return parseError("gh_list_issues", err, out), nil
 	}
-	var lines []string
-	for _, item := range items {
-		lines = append(lines, format.FormatIssueListItem(item))
-	}
-	if len(lines) == 0 {
+	if len(items) == 0 {
 		return gomcp.NewToolResultText("No issues found."), nil
 	}
-	return gomcp.NewToolResultText(strings.Join(lines, "\n")), nil
+	return gomcp.NewToolResultText(format.FormatIssueList(items, limit)), nil
 }
 
 func (h *Handler) handleCommentIssue(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -205,14 +218,14 @@ func (h *Handler) handleCommentIssue(ctx context.Context, req gomcp.CallToolRequ
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
-	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+	number, errResult := requirePositiveInt(args, "issue_number")
+	if errResult != nil {
+		return errResult, nil
+	}
+	if errResult := requireStringFields("gh_comment_issue", args, "body"); errResult != nil {
+		return errResult, nil
 	}
 	body := stringFromArgs(args, "body")
-	if body == "" {
-		return gomcp.NewToolResultError("body is required"), nil
-	}
 	out, err := h.gh.CommentIssue(ctx, owner, repo, number, body)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
@@ -226,19 +239,26 @@ func (h *Handler) handleListIssueComments(ctx context.Context, req gomcp.CallToo
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
-	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+	number, errResult := requirePositiveInt(args, "issue_number")
+	if errResult != nil {
+		return errResult, nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
-	limit := intFromArgs(args, "limit")
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	out, err := h.gh.IssueComments(ctx, owner, repo, number, limit)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
 	var comments []format.Comment
 	if err := json.Unmarshal([]byte(out), &comments); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse comments JSON: %v", err)), nil
+		return parseError("gh_list_issue_comments", err, out), nil
 	}
-	return gomcp.NewToolResultText(format.FormatComments(comments, maxBody)), nil
+	if len(comments) == 0 {
+		return gomcp.NewToolResultText("No comments found."), nil
+	}
+	return gomcp.NewToolResultText(format.FormatComments(comments, maxBody, limit)), nil
 }

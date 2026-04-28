@@ -10,6 +10,7 @@ A collection of tools that reduce the friction of working with AI coding agents.
 - **[Broker CLI](#broker-cli)** — CLI frontend for the MCP broker
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local GH MCP](#local-gh-mcp)** — Stdio MCP server for GitHub operations via the gh CLI
+- **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
 
 ## Getting Started
 
@@ -34,6 +35,7 @@ cd mcp-broker && make install
 cd broker-cli && make install
 cd local-git-mcp && make install
 cd local-gh-mcp && make install
+cd local-gomod-proxy && make install
 ```
 
 ## Tools
@@ -74,7 +76,7 @@ AI agents need to call external APIs (GitHub, Jira, Slack), but giving a sandbox
 - Every tool call is audit-logged in SQLite for maximum observability.
 - A web dashboard handles approval requests in real time and surfaces the configured rules, discovered tools, and searchable audit log.
 
-See the [mcp-broker README](mcp-broker/README.md) for more information, or the [architecture diagram](mcp-broker/ARCHITECTURE.md) for a visual overview of the request flow.
+See the [mcp-broker README](mcp-broker/README.md) for more information.
 
 ### Broker CLI
 
@@ -114,6 +116,18 @@ Sandboxed agents need to interact with GitHub — opening PRs, reading issues, c
 - Designed to sit behind `mcp-broker`, so the broker's rules and audit log apply to every GitHub call.
 
 See the [local-gh-mcp README](local-gh-mcp/README.md) for more information.
+
+### Local Gomod Proxy
+
+Sandboxed agents often work in Go projects that depend on private modules hosted in private GitHub repositories. On the host, those dependencies resolve transparently via the user's git credentials. Inside the sandbox, those credentials are intentionally absent — so `go mod download` fails for any private dependency.
+
+`local-gomod-proxy` is a minimal HTTP Go module proxy that runs on the host and bridges the gap:
+
+- Public modules are reverse-proxied to `proxy.golang.org` with zero host CPU overhead.
+- Private modules (matched by `GOPRIVATE`) are fetched via `go mod download` on the host, inheriting its git credentials, and streamed back to the sandbox.
+- Git credentials stay on the host; the sandbox reaches the proxy over Lima's host-local bridge and carries none.
+
+See the [local-gomod-proxy README](local-gomod-proxy/README.md) for more information.
 
 ## Related
 

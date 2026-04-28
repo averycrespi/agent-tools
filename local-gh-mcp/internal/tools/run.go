@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
@@ -15,7 +14,8 @@ func (h *Handler) runTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_list_runs",
-			Description: "List workflow runs. Returns markdown bullet list.",
+			Description: "List workflow runs for a repository. Filter by branch, status, or workflow to narrow results.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -33,15 +33,26 @@ func (h *Handler) runTools() []gomcp.Tool {
 					},
 					"status": map[string]any{
 						"type":        "string",
-						"description": "Filter by status",
+						"enum":        []string{"queued", "completed", "in_progress", "requested", "waiting", "action_required", "cancelled", "failure", "neutral", "skipped", "stale", "startup_failure", "success", "timed_out"},
+						"description": "Filter by workflow run status (lifecycle: queued, in_progress, completed, requested, waiting) or conclusion (success, failure, cancelled, skipped, neutral, action_required, stale, startup_failure, timed_out).",
 					},
 					"workflow": map[string]any{
 						"type":        "string",
 						"description": "Filter by workflow name",
 					},
+					"actor": map[string]any{
+						"type":        "string",
+						"description": "Filter by actor login (GitHub username who triggered the run).",
+					},
+					"event": map[string]any{
+						"type":        "string",
+						"description": "Filter by triggering event (e.g. push, pull_request, schedule, workflow_dispatch).",
+					},
 					"limit": map[string]any{
 						"type":        "number",
-						"description": "Max results (default 30, max 100)",
+						"minimum":     1,
+						"default":     30,
+						"description": "Max results (default 30, max 100).",
 					},
 				},
 				Required: []string{"owner", "repo"},
@@ -49,7 +60,8 @@ func (h *Handler) runTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_view_run",
-			Description: "View workflow run details. Returns structured markdown with job list. Use log_failed=true for raw failure logs.",
+			Description: "View workflow run details. With log_failed=false (default), returns structured markdown: run header + per-job status list. With log_failed=true, returns the last `tail_lines` lines of the concatenated failed-job logs (default 200, max 5000), then byte-capped at `max_bytes` (default 50000, max 500000). For a single job's full logs, use gh_view_run_job_logs.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -69,13 +81,24 @@ func (h *Handler) runTools() []gomcp.Tool {
 						"type":        "boolean",
 						"description": "Show failed log output instead of JSON",
 					},
+					"tail_lines": map[string]any{
+						"type":        "number",
+						"default":     200,
+						"description": "When log_failed=true, return the last N lines (default 200, max 5000). Ignored when log_failed=false.",
+					},
+					"max_bytes": map[string]any{
+						"type":        "number",
+						"default":     50000,
+						"description": "When log_failed=true, hard byte cap on the log body applied after tail_lines (default 50000, max 500000). Trim is from the FRONT of the tailed window, so the most-recent lines — typically the actual failure — are preserved. Truncates on a line boundary and prepends `[truncated — showing last N of M bytes]`. Ignored when log_failed=false.",
+					},
 				},
 				Required: []string{"owner", "repo", "run_id"},
 			},
 		},
 		{
-			Name:        "gh_rerun",
-			Description: "Re-run a workflow run",
+			Name:        "gh_rerun_run",
+			Description: "Rerun a workflow run. Creates a new run attempt from the original commit. Use failed_only=true to rerun only the failed jobs rather than the full workflow.",
+			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -101,7 +124,8 @@ func (h *Handler) runTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_cancel_run",
-			Description: "Cancel a workflow run",
+			Description: "Cancel an in-progress workflow run. No effect on completed runs.",
+			Annotations: annDestructive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -121,6 +145,39 @@ func (h *Handler) runTools() []gomcp.Tool {
 				Required: []string{"owner", "repo", "run_id"},
 			},
 		},
+		{
+			Name:        "gh_view_run_job_logs",
+			Description: "Fetch logs for a single workflow job by ID. Returns the last `tail_lines` lines (default 200, max 5000), then byte-capped at `max_bytes` (default 50000, max 500000). Complementary to gh_view_run's log_failed=true, which concatenates all failed-job logs. Use gh_view_run first to discover job IDs.",
+			Annotations: annRead,
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"owner": map[string]any{
+						"type":        "string",
+						"description": "Repository owner.",
+					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Repository name.",
+					},
+					"job_id": map[string]any{
+						"type":        "number",
+						"description": "GitHub job ID (obtained from gh_view_run output).",
+					},
+					"tail_lines": map[string]any{
+						"type":        "number",
+						"default":     200,
+						"description": "Return the last N lines (default 200, max 5000).",
+					},
+					"max_bytes": map[string]any{
+						"type":        "number",
+						"default":     50000,
+						"description": "Hard byte cap on the log body applied after tail_lines (default 50000, max 500000). Trim is from the FRONT of the tailed window, so the most-recent lines are preserved. Truncates on a line boundary and prepends `[truncated — showing last N of M bytes]`.",
+					},
+				},
+				Required: []string{"owner", "repo", "job_id"},
+			},
+		},
 	}
 }
 
@@ -130,11 +187,26 @@ func (h *Handler) handleListRuns(ctx context.Context, req gomcp.CallToolRequest)
 	if errResult != nil {
 		return errResult, nil
 	}
+	status := stringFromArgs(args, "status")
+	if errResult := validateEnum("status", status, []string{
+		"queued", "completed", "in_progress", "requested", "waiting",
+		"action_required", "cancelled", "failure", "neutral", "skipped",
+		"stale", "startup_failure", "success", "timed_out",
+	}); errResult != nil {
+		return errResult, nil
+	}
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	opts := gh.ListRunsOpts{
 		Branch:   stringFromArgs(args, "branch"),
-		Status:   stringFromArgs(args, "status"),
+		Status:   status,
 		Workflow: stringFromArgs(args, "workflow"),
-		Limit:    intFromArgs(args, "limit"),
+		Actor:    stringFromArgs(args, "actor"),
+		Event:    stringFromArgs(args, "event"),
+		Limit:    limit,
 	}
 	out, err := h.gh.ListRuns(ctx, owner, repo, opts)
 	if err != nil {
@@ -142,16 +214,12 @@ func (h *Handler) handleListRuns(ctx context.Context, req gomcp.CallToolRequest)
 	}
 	var items []format.RunListItem
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse run list JSON: %v", err)), nil
+		return parseError("gh_list_runs", err, out), nil
 	}
-	var lines []string
-	for _, item := range items {
-		lines = append(lines, format.FormatRunListItem(item))
-	}
-	if len(lines) == 0 {
+	if len(items) == 0 {
 		return gomcp.NewToolResultText("No workflow runs found."), nil
 	}
-	return gomcp.NewToolResultText(strings.Join(lines, "\n")), nil
+	return gomcp.NewToolResultText(format.FormatRunList(items, limit)), nil
 }
 
 func (h *Handler) handleViewRun(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -160,9 +228,9 @@ func (h *Handler) handleViewRun(ctx context.Context, req gomcp.CallToolRequest) 
 	if errResult != nil {
 		return errResult, nil
 	}
-	runID := stringFromArgs(args, "run_id")
-	if runID == "" {
-		return gomcp.NewToolResultError("run_id is required"), nil
+	runID, errResult := requirePositiveIntString(args, "run_id")
+	if errResult != nil {
+		return errResult, nil
 	}
 	logFailed := boolFromArgs(args, "log_failed")
 	out, err := h.gh.ViewRun(ctx, owner, repo, runID, logFailed)
@@ -170,24 +238,33 @@ func (h *Handler) handleViewRun(ctx context.Context, req gomcp.CallToolRequest) 
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
 	if logFailed {
-		return gomcp.NewToolResultText(out), nil
+		if out == "" {
+			return gomcp.NewToolResultText(fmt.Sprintf("No failed jobs in run %s. Re-run with log_failed=false to see run metadata and per-job status.", runID)), nil
+		}
+		tail := clampLogTailLines(intFromArgs(args, "tail_lines"))
+		maxBytes := clampLogMaxBytes(intFromArgs(args, "max_bytes"))
+		header := fmt.Sprintf("# Run %s failed-job logs (last %d lines per job)\n\n", runID, tail)
+		// max_bytes caps the log body (not the header) and trims from the FRONT
+		// so the most-recent log lines — typically where the failing step's error
+		// lives — are always preserved.
+		return gomcp.NewToolResultText(header + format.TruncateLogTail(tailLines(out, tail), maxBytes)), nil
 	}
 	var run format.RunView
 	if err := json.Unmarshal([]byte(out), &run); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse run JSON: %v", err)), nil
+		return parseError("gh_view_run", err, out), nil
 	}
 	return gomcp.NewToolResultText(format.FormatRunView(run)), nil
 }
 
-func (h *Handler) handleRerun(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+func (h *Handler) handleRerunRun(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
 	args := req.GetArguments()
 	owner, repo, errResult := requireOwnerRepo(args)
 	if errResult != nil {
 		return errResult, nil
 	}
-	runID := stringFromArgs(args, "run_id")
-	if runID == "" {
-		return gomcp.NewToolResultError("run_id is required"), nil
+	runID, errResult := requirePositiveIntString(args, "run_id")
+	if errResult != nil {
+		return errResult, nil
 	}
 	failedOnly := boolFromArgs(args, "failed_only")
 	out, err := h.gh.Rerun(ctx, owner, repo, runID, failedOnly)
@@ -203,13 +280,35 @@ func (h *Handler) handleCancelRun(ctx context.Context, req gomcp.CallToolRequest
 	if errResult != nil {
 		return errResult, nil
 	}
-	runID := stringFromArgs(args, "run_id")
-	if runID == "" {
-		return gomcp.NewToolResultError("run_id is required"), nil
+	runID, errResult := requirePositiveIntString(args, "run_id")
+	if errResult != nil {
+		return errResult, nil
 	}
 	out, err := h.gh.CancelRun(ctx, owner, repo, runID)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
 	return gomcp.NewToolResultText(out), nil
+}
+
+func (h *Handler) handleViewRunJobLogs(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	jobIDInt, errResult := requirePositiveInt(args, "job_id")
+	if errResult != nil {
+		return errResult, nil
+	}
+	tail := clampLogTailLines(intFromArgs(args, "tail_lines"))
+	maxBytes := clampLogMaxBytes(intFromArgs(args, "max_bytes"))
+	out, err := h.gh.ViewRunJobLog(ctx, owner, repo, int64(jobIDInt), tail)
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	header := fmt.Sprintf("# Job %d logs (last %d lines)\n\n", jobIDInt, tail)
+	// See handleViewRun: trim from the front so the most-recent log lines
+	// survive the byte cap.
+	return gomcp.NewToolResultText(header + format.TruncateLogTail(out, maxBytes)), nil
 }

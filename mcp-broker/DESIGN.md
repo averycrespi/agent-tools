@@ -73,6 +73,7 @@ Single JSON file at `~/.config/mcp-broker/config.json`. On first run, a default 
 
 Config is loaded once at startup. Defaults:
 
+- Host: `127.0.0.1` (must resolve to a loopback interface — validated at startup)
 - Port: 8200
 - Rules: `[{"tool": "*", "verdict": "require-approval"}]`
 - Audit path: `~/.local/share/mcp-broker/audit.db`
@@ -80,7 +81,49 @@ Config is loaded once at startup. Defaults:
 
 ### Rules engine (`internal/rules`)
 
-Stateless evaluator. Takes a list of `RuleConfig` (tool glob + verdict string) at construction time. `Evaluate(tool)` walks rules in order, returns the first matching verdict. Uses `filepath.Match` for glob matching, which supports `*` (single segment) and `?` wildcards.
+Stateless evaluator. Takes a list of `RuleConfig` at construction time. `Evaluate(tool, args)` walks rules in order and returns the first matching verdict. Uses `filepath.Match` for glob matching, which supports `*` (single segment) and `?` wildcards.
+
+**Default verdict, fail-closed, first-match-wins.** Any tool not fully matched by a rule falls through to `RequireApproval`. This is unchanged by argument matching.
+
+#### Argument matching
+
+Each `RuleConfig` has an optional `args` field — a list of argument patterns. When `args` is absent or empty, the rule matches on tool name alone (fully backward compatible). When `args` is non-empty, all patterns must match (AND semantics): a rule fires only if the tool name matches AND every pattern resolves and matches.
+
+```json
+{
+  "tool": "git_push",
+  "verdict": "allow",
+  "args": [
+    { "path": "remote", "match": "origin" },
+    { "path": "commit.message", "match": { "regex": "^feat:" } }
+  ]
+}
+```
+
+This rule allows `git_push` only when `remote` is exactly `"origin"` and `commit.message` starts with `"feat:"`. Any other `git_push` call fails to match this rule and falls through to the next.
+
+**Path syntax.** `path` is a dot-separated sequence of segments. Each segment is either a string key (object navigation) or a decimal integer (array index). Examples: `remote`, `commit.message`, `command.0`. No wildcards in v1. Empty segments (`a..b`) and the empty path (`""`) are rejected at engine construction.
+
+**Resolution.** Each segment is applied in turn to the current node:
+
+| Current node     | Segment kind | Behavior                     |
+| ---------------- | ------------ | ---------------------------- |
+| `map[string]any` | key          | descend; missing key → fail  |
+| `[]any`          | index        | descend; out-of-range → fail |
+| any other type   | any          | fail (type mismatch)         |
+
+If resolution fails for any reason, the pattern fails, the rule fails to match, and evaluation continues to the next rule. This is fail-closed: an argument the rule can't inspect is treated as a non-match, not a pass.
+
+**Value stringification.** The resolved value is converted to a string before matching using `encoding/json.Marshal`. Plain strings are unquoted; other types marshal to their JSON representation: `42` → `"42"`, `true` → `"true"`, `null` → `"null"`. To match into a container (object or array), use a deeper path to reach a scalar; matching against a marshaled object literal is allowed but rarely useful.
+
+**Matchers.** Two kinds:
+
+- **Exact:** bare JSON string in `match`. The resolved value must equal that string exactly.
+- **Regex:** `{ "regex": "<RE2 pattern>" }` in `match`. The resolved value is tested against a compiled RE2 regex.
+
+Regex semantics use Go's `regexp` package (RE2). **Regexes are not auto-anchored.** A pattern `{"regex": "origin"}` matches `"my-origin-fork"` — this is the documented footgun. Authors should use `^...$` for full-match semantics. Auto-wrapping was considered and rejected: it deviates from standard regex conventions and surprises authors who know regex.
+
+**Validation timing.** Paths and regexes are compiled at engine construction (`rules.New`). Invalid paths (empty segments) and invalid regex syntax surface as errors there, not at evaluation time. This keeps startup-time failure messages predictable and avoids surprising log noise during traffic.
 
 ### Audit (`internal/audit`)
 
@@ -100,6 +143,8 @@ Manages connections to backend MCP servers. At startup:
 2. Sends MCP `initialize` handshake
 3. Calls `tools/list` to discover available tools
 4. Builds a registry of `<server>.<tool>` → backend mapping
+
+Tool descriptors are passed through to clients with full fidelity: in addition to name and input schema, the broker preserves each tool's `outputSchema`, `annotations` (including `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), and `_meta` from the upstream backend. The only field the broker rewrites is the tool name, which is prefixed with `<server>.` for routing.
 
 The `Backend` interface abstracts transport:
 
@@ -129,9 +174,9 @@ Embedded single-page web application serving:
 - **Approvals tab** — pending requests with approve/deny buttons, decided history
 - **Tools tab** — discovered tools grouped by server; click a tool to see its input schema
 - **Rules tab** — configured rules with the discovered tools matching each (read-only; for debugging verdicts)
-- **Audit tab** — paginated audit log with tool filter
+- **Audit tab** — paginated audit log with tool filter, plus a live feed of incoming records. New records are prepended in real time when the view is on page 1 with no active filter and not paused; otherwise an "N new" counter appears with a "return to live view" banner. A pause toggle freezes the live feed without affecting filter or pagination state.
 
-Real-time updates via Server-Sent Events (SSE). The dashboard also implements the `Approver` interface — the `Review` method blocks until a human makes a decision via the `/api/decide` endpoint.
+Real-time updates via Server-Sent Events (SSE) on a single `/events` channel. Event types are `new` (pending approval request), `removed` (request resolved), `decided` (decision applied), and `audit` (audit record written). The dashboard also implements the `Approver` interface — the `Review` method blocks until a human makes a decision via the `/api/decide` endpoint.
 
 ### Broker (`internal/broker`)
 
@@ -175,3 +220,5 @@ Cobra-based CLI with commands:
 **Failed backends don't block startup.** If one of several backend servers is unavailable, the broker starts with the remaining servers rather than failing entirely. The failed backend is logged.
 
 **Default verdict is require-approval.** Fail-closed by default — any tool not explicitly allowed requires human approval.
+
+**Loopback-only listener, enforced at startup.** `server.ValidateLoopbackAddr` rejects any bind host that isn't a loopback IP or `localhost`. The bearer token protects against unauthorized local processes; the network boundary protects against everything else. Making network-reachability a hard error instead of a doc-only intent removes the "oops, I configured `0.0.0.0`" failure mode. Sandboxed agents reach the broker via Lima's user-mode networking, which forwards `host.lima.internal:8200` from the guest to the host's loopback — no non-loopback bind required.

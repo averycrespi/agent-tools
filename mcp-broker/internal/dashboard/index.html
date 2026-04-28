@@ -501,6 +501,83 @@
         flex-direction: column;
         gap: 0.125rem;
         min-width: 0;
+        flex: 1;
+      }
+
+      .tool-title {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+      }
+
+      .tool-hints {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        margin-left: auto;
+        flex-shrink: 0;
+      }
+
+      .tool-hint {
+        font-family: var(--font-sans);
+        font-size: 0.625rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0.125rem 0.4375rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--text-secondary);
+        background: var(--bg-base);
+        white-space: nowrap;
+        cursor: help;
+      }
+
+      .tool-hint.hint-readonly {
+        color: var(--green);
+        border-color: rgba(34, 197, 94, 0.4);
+      }
+
+      .tool-hint.hint-destructive {
+        color: var(--red);
+        border-color: rgba(239, 68, 68, 0.4);
+      }
+
+      .tool-hint.hint-openworld {
+        color: var(--amber);
+        border-color: rgba(245, 158, 11, 0.4);
+      }
+
+      /* Detail subsections — Outputs / Annotations / Metadata reuse the
+         schema-table look. Spacing between sections. */
+      .tool-detail-section + .tool-detail-section {
+        margin-top: 0.875rem;
+      }
+
+      .tool-annotations {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 0.25rem 0.875rem;
+        font-size: 0.8125rem;
+      }
+
+      .tool-annotations dt {
+        font-family: var(--font-sans);
+        color: var(--text-secondary);
+        font-weight: 500;
+      }
+
+      .tool-annotations dd {
+        font-family: var(--font-mono);
+        color: var(--text-primary);
+        margin: 0;
+      }
+
+      .tool-annotations dd.bool-true {
+        color: var(--green);
+      }
+
+      .tool-annotations dd.bool-false {
+        color: var(--text-secondary);
       }
 
       /* Detail panel */
@@ -622,33 +699,46 @@
         overflow: hidden;
       }
 
-      .rule-header {
+      .rule-headline {
         display: flex;
-        align-items: center;
-        gap: 0.75rem;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 0.375rem;
         padding: 0.75rem 1rem;
         border-bottom: 1px solid var(--border);
+        font-family: var(--font-mono);
+        font-size: 0.875rem;
       }
 
       .rule-index {
-        font-family: var(--font-mono);
         font-size: 0.75rem;
         font-weight: 600;
         color: var(--text-secondary);
         min-width: 2rem;
       }
 
-      .rule-tool {
-        font-family: var(--font-mono);
-        font-size: 0.875rem;
-        color: var(--text-primary);
-        flex: 1;
+      .rule-verdict {
+        font-weight: 600;
       }
 
-      .rule-verdict {
+      .rule-tool {
+        color: var(--text-primary);
+      }
+
+      .rule-with {
+        color: var(--text-secondary);
+      }
+
+      .rule-patterns {
+        padding: 0.25rem 0 0.625rem 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .rule-pattern {
+        padding: 0.2rem 1rem 0.2rem 3rem;
         font-family: var(--font-mono);
-        font-size: 0.75rem;
-        font-weight: 600;
+        font-size: 0.8125rem;
+        color: var(--text-primary);
       }
 
       .rule-matches {
@@ -669,10 +759,48 @@
         font-style: italic;
       }
 
-      .rules-unmatched-desc {
+      .fallthrough-row {
+        display: flex;
+        gap: 1rem;
+        margin-top: 1.5rem;
+        flex-wrap: wrap;
+      }
+
+      .fallthrough-box {
+        flex: 1;
+        min-width: 240px;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .fallthrough-box-title {
+        padding: 0.625rem 1rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-base);
+      }
+
+      .fallthrough-box-caption {
+        padding: 0.5rem 1rem;
         font-size: 0.8125rem;
         color: var(--text-secondary);
-        margin-bottom: 0.5rem;
+      }
+
+      .fallthrough-box-items {
+        padding-bottom: 0.5rem;
+      }
+
+      .fallthrough-empty {
+        padding: 0.375rem 1rem 0.375rem 2rem;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        font-style: italic;
       }
 
       /* Audit tab */
@@ -1017,6 +1145,74 @@
         background: rgba(239, 68, 68, 0.15);
         color: var(--red);
       }
+
+      /* Audit live-feed strip */
+      .audit-strip {
+        min-height: 32px;
+        display: flex;
+        align-items: center;
+        margin-bottom: 0.75rem;
+        font-size: 0.8125rem;
+        font-family: var(--font-mono);
+        color: var(--text-secondary);
+      }
+
+      .audit-strip-inner {
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        width: 100%;
+      }
+
+      .audit-strip-dot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--green);
+        flex-shrink: 0;
+      }
+
+      .audit-strip-btn {
+        padding: 0.2rem 0.625rem;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 500;
+      }
+
+      .audit-strip-btn:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+      }
+
+      .audit-strip-banner {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.25rem 0.75rem;
+        background: rgba(245, 158, 11, 0.08);
+        border: 1px solid rgba(245, 158, 11, 0.25);
+        border-radius: 6px;
+        color: var(--amber);
+        cursor: pointer;
+        font-size: 0.8125rem;
+        font-family: var(--font-mono);
+      }
+
+      .audit-strip-banner:hover {
+        background: rgba(245, 158, 11, 0.14);
+      }
+
+      /* New-row highlight: quiet green tint that fades to transparent over 1s */
+      .audit-row-new td {
+        background-color: rgba(80, 180, 120, 0.1);
+        transition: background-color 1s ease-out;
+      }
     </style>
   </head>
   <body>
@@ -1098,15 +1294,31 @@
       <div class="tab-content" id="content-rules">
         <div class="section-title">Rules (evaluated first-match-wins)</div>
         <div id="rules-list"></div>
-        <div id="rules-unmatched-section" style="display: none">
-          <div class="section-title" style="margin-top: 1.5rem">
-            Unmatched tools
-          </div>
-          <div id="rules-unmatched-desc" class="rules-unmatched-desc"></div>
-          <div id="rules-unmatched-list"></div>
-        </div>
         <div id="rules-empty" class="empty-state" style="display: none">
           No rules configured
+        </div>
+        <div class="fallthrough-row">
+          <div class="fallthrough-box" id="fallthrough-always-box">
+            <div class="fallthrough-box-title">Always fall through</div>
+            <div class="fallthrough-box-caption">
+              These tools fall through to the default verdict:
+              <code>require-approval</code>.
+            </div>
+            <div
+              class="fallthrough-box-items"
+              id="fallthrough-always-list"
+            ></div>
+          </div>
+          <div class="fallthrough-box" id="fallthrough-may-box">
+            <div class="fallthrough-box-title">
+              May fall through (depending on arguments)
+            </div>
+            <div class="fallthrough-box-caption">
+              These tools may fall through to the default verdict:
+              <code>require-approval</code>, depending on call arguments.
+            </div>
+            <div class="fallthrough-box-items" id="fallthrough-may-list"></div>
+          </div>
         </div>
       </div>
 
@@ -1153,6 +1365,7 @@
             </label>
           </div>
         </div>
+        <div class="audit-strip" id="audit-strip"></div>
         <div class="audit-table-wrap">
           <table class="audit-table">
             <thead>
@@ -1224,765 +1437,906 @@
     </div>
 
     <script>
-      // --- Tab switching ---
-      function switchTab(name) {
-        document.querySelectorAll(".tab").forEach(function (t) {
-          t.classList.remove("active");
-        });
-        document.querySelectorAll(".tab-content").forEach(function (c) {
-          c.classList.remove("active");
-        });
-        document.getElementById("tab-" + name).classList.add("active");
-        document.getElementById("content-" + name).classList.add("active");
+            // --- Tab switching ---
+            var TAB_NAMES = ["approvals", "tools", "rules", "audit"];
+            var activeTab = "approvals";
 
-        if (name === "tools") loadTools();
-        if (name === "rules") loadRules();
-        if (name === "audit") {
-          auditOffset = 0;
-          loadAudit();
-        }
-        if (name === "grants") loadGrants();
-      }
-
-      // --- Utility ---
-      function esc(s) {
-        var d = document.createElement("div");
-        d.textContent = s || "";
-        return d.innerHTML;
-      }
-
-      function escAttr(s) {
-        return esc(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-      }
-
-      function formatCountdown(deadlineISO) {
-        if (!deadlineISO) return "";
-        var ms = new Date(deadlineISO) - Date.now();
-        if (ms <= 0) return "0:00";
-        var totalSecs = Math.ceil(ms / 1000);
-        var mins = Math.floor(totalSecs / 60);
-        var secs = totalSecs % 60;
-        return mins + ":" + secs.toString().padStart(2, "0");
-      }
-
-      function decisionBadge(req) {
-        if (req.decision === "approved") {
-          return '<span class="badge badge-green">&#x2705; Approved</span>';
-        }
-        if (req.denial_reason === "timeout") {
-          return '<span class="badge badge-timeout">&#x23F1;&#xFE0F; Timed out</span>';
-        }
-        return '<span class="badge badge-red">&#x274C; Denied</span>';
-      }
-
-      // --- Notifications ---
-      var audioCtx = null;
-
-      function initAudio() {
-        if (!audioCtx) {
-          try {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          } catch (e) {
-            /* Web Audio not supported */
-          }
-        }
-      }
-
-      // Unlock AudioContext on first user gesture
-      document.addEventListener("click", initAudio, { once: true });
-
-      function playChime() {
-        if (!audioCtx) return;
-        if (audioCtx.state === "suspended") audioCtx.resume();
-
-        var now = audioCtx.currentTime;
-
-        // First tone: C5 (523 Hz)
-        var osc1 = audioCtx.createOscillator();
-        var gain1 = audioCtx.createGain();
-        osc1.type = "sine";
-        osc1.frequency.value = 523;
-        gain1.gain.setValueAtTime(0.3, now);
-        gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-        osc1.connect(gain1);
-        gain1.connect(audioCtx.destination);
-        osc1.start(now);
-        osc1.stop(now + 0.15);
-
-        // Second tone: E5 (659 Hz)
-        var osc2 = audioCtx.createOscillator();
-        var gain2 = audioCtx.createGain();
-        osc2.type = "sine";
-        osc2.frequency.value = 659;
-        gain2.gain.setValueAtTime(0.3, now + 0.15);
-        gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
-        osc2.connect(gain2);
-        gain2.connect(audioCtx.destination);
-        osc2.start(now + 0.15);
-        osc2.stop(now + 0.3);
-      }
-
-      var notifyEnabled = localStorage.getItem("mcp-broker-notify") === "true";
-
-      function updateToggleUI() {
-        var sw = document.getElementById("notify-switch");
-        if (!("Notification" in window)) {
-          sw.classList.add("denied");
-          sw.title = "Notifications not supported in this browser";
-          return;
-        }
-        if (Notification.permission === "denied") {
-          sw.classList.remove("active");
-          sw.classList.add("denied");
-          sw.title = "Notifications blocked — re-enable in browser settings";
-          notifyEnabled = false;
-          localStorage.setItem("mcp-broker-notify", "false");
-          return;
-        }
-        sw.classList.remove("denied");
-        if (notifyEnabled && Notification.permission === "granted") {
-          sw.classList.add("active");
-          sw.title = "Desktop notifications enabled";
-        } else {
-          sw.classList.remove("active");
-          sw.title = "Enable desktop notifications";
-          if (notifyEnabled && Notification.permission !== "granted") {
-            notifyEnabled = false;
-            localStorage.setItem("mcp-broker-notify", "false");
-          }
-        }
-      }
-
-      function toggleNotifications() {
-        if (!("Notification" in window) || Notification.permission === "denied")
-          return;
-        if (notifyEnabled) {
-          notifyEnabled = false;
-          localStorage.setItem("mcp-broker-notify", "false");
-          updateToggleUI();
-          return;
-        }
-        if (Notification.permission === "granted") {
-          notifyEnabled = true;
-          localStorage.setItem("mcp-broker-notify", "true");
-          updateToggleUI();
-          return;
-        }
-        Notification.requestPermission().then(function (result) {
-          if (result === "granted") {
-            notifyEnabled = true;
-            localStorage.setItem("mcp-broker-notify", "true");
-          }
-          updateToggleUI();
-        });
-      }
-
-      function showNotification(tool) {
-        if (!notifyEnabled || Notification.permission !== "granted") return;
-        if (document.visibilityState === "visible") return;
-        var n = new Notification("mcp-broker \u2014 Approval Required", {
-          body: tool,
-          tag: "mcp-broker-new",
-        });
-        n.onclick = function () {
-          window.focus();
-          n.close();
-        };
-      }
-
-      updateToggleUI();
-
-      // --- Approvals ---
-      var queue = document.getElementById("queue");
-      var empty = document.getElementById("empty");
-      var statusDot = document.getElementById("status");
-      var statusLabel = document.getElementById("status-label");
-      var historyDiv = document.getElementById("history");
-      var decisionsSection = document.getElementById("decisions-section");
-      var cards = new Map();
-      var pendingData = new Map();
-      var toolDescriptions = {};
-      var countdownInterval = null;
-
-      // Load tool descriptions for use in approval cards
-      fetch("api/tools")
-        .then(function (r) {
-          return r.json();
-        })
-        .then(function (data) {
-          var tools = data.tools || [];
-          tools.forEach(function (tool) {
-            if (tool.description)
-              toolDescriptions[tool.name] = tool.description;
-          });
-        });
-
-      function updateBadge() {
-        var badge = document.getElementById("pending-badge");
-        var count = cards.size;
-        badge.textContent = count;
-        if (count === 0) {
-          badge.classList.add("hidden");
-        } else {
-          badge.classList.remove("hidden");
-        }
-      }
-
-      function renderQueue() {
-        empty.style.display = cards.size === 0 ? "block" : "none";
-        updateBadge();
-      }
-
-      function renderPending() {
-        pendingData.forEach(function (pr, id) {
-          var div = cards.get(id);
-          if (!div || !pr.deadline) return;
-          var countdownEl = div.querySelector(".countdown");
-          if (!countdownEl) return;
-          var remaining = formatCountdown(pr.deadline);
-          var ms = new Date(pr.deadline) - Date.now();
-          countdownEl.textContent = remaining
-            ? "Expires in " + remaining
-            : "Expired";
-          if (ms <= 60000) {
-            countdownEl.classList.add("urgent");
-          } else {
-            countdownEl.classList.remove("urgent");
-          }
-        });
-      }
-
-      function addCard(pr) {
-        var div = document.createElement("div");
-        div.className = "card pending";
-        div.dataset.id = pr.id;
-        var ts = new Date(pr.timestamp).toLocaleTimeString();
-        var desc = toolDescriptions[pr.tool];
-        var countdownHtml = pr.deadline ? '<div class="countdown"></div>' : "";
-        div.innerHTML =
-          '<div class="method">' +
-          esc(pr.tool) +
-          "</div>" +
-          (desc ? '<div class="description">' + esc(desc) + "</div>" : "") +
-          '<div class="meta">' +
-          ts +
-          "</div>" +
-          countdownHtml +
-          "<pre>" +
-          esc(JSON.stringify(pr.args, null, 2)) +
-          "</pre>" +
-          '<div class="actions">' +
-          '<button class="btn-approve" onclick="decide(\'' +
-          pr.id +
-          "','approve')\">Approve</button>" +
-          '<button class="btn-deny" onclick="decide(\'' +
-          pr.id +
-          "','deny')\">Deny</button>" +
-          "</div>";
-        queue.appendChild(div);
-        cards.set(pr.id, div);
-        pendingData.set(pr.id, pr);
-        renderQueue();
-        renderPending();
-      }
-
-      function removeCard(id) {
-        var div = cards.get(id);
-        if (div) {
-          div.remove();
-          cards.delete(id);
-        }
-        pendingData.delete(id);
-        renderQueue();
-      }
-
-      function decide(id, decision) {
-        fetch("api/decide", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: id, decision: decision }),
-        });
-      }
-
-      function addDecision(dr) {
-        var div = document.createElement("div");
-        div.className = "card decided";
-        div.dataset.id = dr.id;
-        var ts = new Date(dr.timestamp).toLocaleTimeString();
-        div.innerHTML =
-          '<div class="method">' +
-          esc(dr.tool) +
-          " " +
-          decisionBadge(dr) +
-          "</div>" +
-          '<div class="meta">' +
-          ts +
-          "</div>";
-        historyDiv.prepend(div);
-        decisionsSection.style.display = "block";
-      }
-
-      // Load pending requests
-      fetch("api/pending")
-        .then(function (r) {
-          return r.json();
-        })
-        .then(function (items) {
-          items.sort(function (a, b) {
-            return new Date(a.timestamp) - new Date(b.timestamp);
-          });
-          items.forEach(addCard);
-        });
-
-      // SSE for real-time updates
-      var es = new EventSource("events");
-      es.onmessage = function (e) {
-        var msg = JSON.parse(e.data);
-        if (msg.type === "new") {
-          addCard(msg.data);
-          playChime();
-          showNotification(msg.data.tool);
-        }
-        if (msg.type === "removed") removeCard(msg.data.id);
-        if (msg.type === "decided") {
-          removeCard(msg.data.id);
-          addDecision(msg.data);
-        }
-      };
-      es.onopen = function () {
-        statusDot.classList.add("connected");
-        statusLabel.textContent = "Connected";
-      };
-      es.onerror = function () {
-        statusDot.classList.remove("connected");
-        statusLabel.textContent = "Disconnected";
-      };
-
-      // Live countdown update — initialized once
-      if (!countdownInterval) {
-        countdownInterval = setInterval(renderPending, 1000);
-      }
-
-      // --- Tool schema rendering ---
-
-      // schemaTypeLabel returns a human-readable type for a JSON Schema property.
-      // Handles scalars, typed arrays, and falls back to 'object' or 'any' for
-      // unparseable shapes (oneOf, anyOf, nested objects, $ref, etc.).
-      function schemaTypeLabel(prop) {
-        if (!prop || typeof prop !== "object") return "any";
-        if (typeof prop.type === "string") {
-          if (
-            prop.type === "array" &&
-            prop.items &&
-            typeof prop.items.type === "string"
-          ) {
-            return "array<" + prop.items.type + ">";
-          }
-          return prop.type;
-        }
-        if (Array.isArray(prop.type)) return prop.type.join("|");
-        if (prop.oneOf || prop.anyOf || prop.allOf || prop.$ref)
-          return "object";
-        return "any";
-      }
-
-      // renderInputSchema builds the HTML for the detail panel body.
-      // Returns a string to be inserted into a .tool-detail div.
-      function renderInputSchema(schema) {
-        var hasProps =
-          schema &&
-          typeof schema === "object" &&
-          schema.properties &&
-          typeof schema.properties === "object" &&
-          Object.keys(schema.properties).length > 0;
-
-        if (!hasProps) {
-          return (
-            '<div class="tool-detail-label">Inputs</div>' +
-            '<div class="tool-schema-empty">This tool takes no arguments.</div>'
-          );
-        }
-
-        var required = {};
-        if (Array.isArray(schema.required)) {
-          schema.required.forEach(function (k) {
-            required[k] = true;
-          });
-        }
-
-        // Sort: required first, then alphabetical.
-        var keys = Object.keys(schema.properties).sort(function (a, b) {
-          if (required[a] !== required[b]) return required[a] ? -1 : 1;
-          return a < b ? -1 : a > b ? 1 : 0;
-        });
-
-        var rows = "";
-        keys.forEach(function (key) {
-          var prop = schema.properties[key] || {};
-          var desc = prop.description ? String(prop.description) : "";
-          if (Array.isArray(prop.enum)) {
-            var enumStr = prop.enum
-              .map(function (v) {
-                return JSON.stringify(v);
-              })
-              .join(", ");
-            desc = desc
-              ? desc + " (one of: " + enumStr + ")"
-              : "one of: " + enumStr;
-          }
-          rows +=
-            "<tr>" +
-            '<td class="col-name">' +
-            esc(key) +
-            "</td>" +
-            '<td class="col-type">' +
-            esc(schemaTypeLabel(prop)) +
-            "</td>" +
-            '<td class="col-req">' +
-            (required[key] ? "\u2713" : "") +
-            "</td>" +
-            '<td class="col-desc">' +
-            (desc ? esc(desc) : "\u2014") +
-            "</td>" +
-            "</tr>";
-        });
-
-        var html =
-          '<div class="tool-detail-label">Inputs</div>' +
-          '<table class="tool-schema-table">' +
-          "<thead><tr>" +
-          "<th>name</th><th>type</th><th>required</th><th>description</th>" +
-          "</tr></thead>" +
-          "<tbody>" +
-          rows +
-          "</tbody>" +
-          "</table>" +
-          '<details class="tool-schema-raw">' +
-          "<summary>view raw schema</summary>" +
-          "<pre>" +
-          esc(JSON.stringify(schema, null, 2)) +
-          "</pre>" +
-          "</details>";
-
-        return html;
-      }
-
-      // --- Tools ---
-      var expandedToolName = null;
-
-      function loadTools() {
-        var list = document.getElementById("tools-list");
-        var emptyEl = document.getElementById("tools-empty");
-
-        // Reset expansion state on tab (re-)entry so we start clean.
-        expandedToolName = null;
-
-        fetch("api/tools")
-          .then(function (r) {
-            return r.json();
-          })
-          .then(function (data) {
-            var tools = data.tools || [];
-            if (tools.length === 0) {
-              list.innerHTML = "";
-              emptyEl.style.display = "block";
-              return;
-            }
-            emptyEl.style.display = "none";
-
-            // Group by provider prefix
-            var groups = {};
-            tools.forEach(function (tool) {
-              var parts = tool.name.split(".");
-              var provider = parts.length > 1 ? parts[0] : "other";
-              if (!groups[provider]) groups[provider] = [];
-              groups[provider].push(tool);
-            });
-
-            var html = "";
-            var providers = Object.keys(groups).sort();
-            providers.forEach(function (provider) {
-              var items = groups[provider];
-              html += '<div class="provider-group">';
-              html +=
-                '<button class="provider-header collapsed" onclick="toggleProvider(this)">';
-              html +=
-                '<div class="provider-header-left"><span class="chevron">&#9660;</span> ' +
-                esc(provider) +
-                "</div>";
-              html +=
-                '<span class="provider-count">' + items.length + "</span>";
-              html += "</button>";
-              html += '<div class="provider-capabilities hidden">';
-              items.forEach(function (tool) {
-                var schemaAttr = escAttr(
-                  JSON.stringify(tool.inputSchema || {}),
-                );
-                html +=
-                  '<button type="button" class="tool-item" aria-expanded="false"' +
-                  ' data-tool-name="' +
-                  escAttr(tool.name) +
-                  '"' +
-                  ' data-schema="' +
-                  schemaAttr +
-                  '"' +
-                  ' onclick="toggleTool(this)">';
-                html += '<div class="tool-item-row">';
-                html += '<span class="chevron">&#9660;</span>';
-                html += '<div class="tool-item-text">';
-                html += '<div class="tool-name">' + esc(tool.name) + "</div>";
-                if (tool.description)
-                  html +=
-                    '<div class="tool-desc">' +
-                    esc(tool.description) +
-                    "</div>";
-                html += "</div>";
-                html += "</div>";
-                html += "</button>";
+            function switchTab(name) {
+              document.querySelectorAll(".tab").forEach(function (t) {
+                t.classList.remove("active");
               });
-              html += "</div></div>";
-            });
-            list.innerHTML = html;
-          });
-      }
+              document.querySelectorAll(".tab-content").forEach(function (c) {
+                c.classList.remove("active");
+              });
+              document.getElementById("tab-" + name).classList.add("active");
+              document.getElementById("content-" + name).classList.add("active");
+              activeTab = name;
 
-      function toggleProvider(btn) {
-        btn.classList.toggle("collapsed");
-        var caps = btn.nextElementSibling;
-        caps.classList.toggle("hidden");
-      }
+              if (location.hash !== "#" + name) {
+                history.replaceState(null, "", "#" + name);
+              }
 
-      function toggleTool(btn) {
-        var name = btn.getAttribute("data-tool-name");
-
-        // Collapse any currently-expanded tool.
-        if (expandedToolName) {
-          var prev = document.querySelector(".tool-item.expanded");
-          if (prev) {
-            prev.classList.remove("expanded");
-            prev.setAttribute("aria-expanded", "false");
-            var prevDetail = prev.nextElementSibling;
-            if (prevDetail && prevDetail.classList.contains("tool-detail")) {
-              prevDetail.remove();
+              if (name === "tools") loadTools();
+              if (name === "rules") loadRules();
+              if (name === "audit") {
+                auditOffset = 0;
+                loadAudit();
+              }
+              if (name === "grants") loadGrants();
+              updateAuditStrip();
             }
-          }
-        }
 
-        // Second click on the same tool: just collapse.
-        if (expandedToolName === name) {
-          expandedToolName = null;
-          return;
-        }
+            (function restoreTabFromHash() {
+              var name = location.hash.replace(/^#/, "");
+              if (TAB_NAMES.indexOf(name) !== -1 && name !== "approvals") {
+                switchTab(name);
+              }
+            })();
 
-        // Expand the clicked tool.
-        var schema;
-        try {
-          schema = JSON.parse(btn.getAttribute("data-schema"));
-        } catch (e) {
-          schema = null;
-        }
+            window.addEventListener("hashchange", function () {
+              var name = location.hash.replace(/^#/, "");
+              if (TAB_NAMES.indexOf(name) !== -1) switchTab(name);
+            });
 
-        var detail = document.createElement("div");
-        detail.className = "tool-detail";
-        detail.innerHTML = renderInputSchema(schema);
+            // --- Utility ---
+            function esc(s) {
+              var d = document.createElement("div");
+              d.textContent = s || "";
+              return d.innerHTML;
+            }
 
-        btn.classList.add("expanded");
-        btn.setAttribute("aria-expanded", "true");
-        btn.parentNode.insertBefore(detail, btn.nextSibling);
-        expandedToolName = name;
-      }
+            function escAttr(s) {
+              return esc(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+            }
 
-      // --- Rules ---
-      function loadRules() {
-        var listEl = document.getElementById("rules-list");
-        var emptyEl = document.getElementById("rules-empty");
-        var unmatchedSection = document.getElementById(
-          "rules-unmatched-section",
-        );
-        var unmatchedDesc = document.getElementById("rules-unmatched-desc");
-        var unmatchedList = document.getElementById("rules-unmatched-list");
+            function formatCountdown(deadlineISO) {
+              if (!deadlineISO) return "";
+              var ms = new Date(deadlineISO) - Date.now();
+              if (ms <= 0) return "0:00";
+              var totalSecs = Math.ceil(ms / 1000);
+              var mins = Math.floor(totalSecs / 60);
+              var secs = totalSecs % 60;
+              return mins + ":" + secs.toString().padStart(2, "0");
+            }
 
-        fetch("api/rules")
-          .then(function (r) {
-            return r.json();
-          })
-          .then(function (data) {
-            var rules = data.rules || [];
-            var unmatched = data.unmatched || [];
-            var defaultVerdict = data.default_verdict || "require-approval";
+            function decisionBadge(req) {
+              if (req.decision === "approved") {
+                return '<span class="badge badge-green">&#x2705; Approved</span>';
+              }
+              if (req.denial_reason === "timeout") {
+                return '<span class="badge badge-timeout">&#x23F1;&#xFE0F; Timed out</span>';
+              }
+              return '<span class="badge badge-red">&#x274C; Denied</span>';
+            }
 
-            if (rules.length === 0) {
-              listEl.innerHTML = "";
-              emptyEl.style.display = "block";
-            } else {
-              emptyEl.style.display = "none";
+            // --- Notifications ---
+            var audioCtx = null;
 
-              var html = "";
-              rules.forEach(function (rule) {
-                var verdictClass = "";
-                if (rule.verdict === "allow") verdictClass = "verdict-allow";
-                else if (rule.verdict === "deny") verdictClass = "verdict-deny";
-                else if (rule.verdict === "require-approval")
-                  verdictClass = "verdict-require-approval";
-                html += '<div class="rule-card">';
-                html += '<div class="rule-header">';
-                html +=
-                  '<span class="rule-index">#' + (rule.index + 1) + "</span>";
-                html +=
-                  '<span class="rule-verdict ' +
-                  verdictClass +
-                  '">' +
-                  esc(rule.verdict) +
-                  "</span>";
-                html += '<span class="rule-tool">' + esc(rule.tool) + "</span>";
-                html += "</div>";
-                html += '<div class="rule-matches">';
-                if (rule.matches.length === 0) {
-                  html +=
-                    '<div class="rule-matches-empty">no matching tools</div>';
-                } else {
-                  rule.matches.forEach(function (m) {
-                    html += '<div class="rule-match-item">' + esc(m) + "</div>";
-                  });
+            function initAudio() {
+              if (!audioCtx) {
+                try {
+                  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                } catch (e) {
+                  /* Web Audio not supported */
                 }
-                html += "</div>";
-                html += "</div>";
+              }
+            }
+
+            // Unlock AudioContext on first user gesture
+            document.addEventListener("click", initAudio, { once: true });
+
+            function playChime() {
+              if (!audioCtx) return;
+              if (audioCtx.state === "suspended") audioCtx.resume();
+
+              var now = audioCtx.currentTime;
+
+              // First tone: C5 (523 Hz)
+              var osc1 = audioCtx.createOscillator();
+              var gain1 = audioCtx.createGain();
+              osc1.type = "sine";
+              osc1.frequency.value = 523;
+              gain1.gain.setValueAtTime(0.3, now);
+              gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+              osc1.connect(gain1);
+              gain1.connect(audioCtx.destination);
+              osc1.start(now);
+              osc1.stop(now + 0.15);
+
+              // Second tone: E5 (659 Hz)
+              var osc2 = audioCtx.createOscillator();
+              var gain2 = audioCtx.createGain();
+              osc2.type = "sine";
+              osc2.frequency.value = 659;
+              gain2.gain.setValueAtTime(0.3, now + 0.15);
+              gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+              osc2.connect(gain2);
+              gain2.connect(audioCtx.destination);
+              osc2.start(now + 0.15);
+              osc2.stop(now + 0.3);
+            }
+
+            var notifyEnabled = localStorage.getItem("mcp-broker-notify") === "true";
+
+            function updateToggleUI() {
+              var sw = document.getElementById("notify-switch");
+              if (!("Notification" in window)) {
+                sw.classList.add("denied");
+                sw.title = "Notifications not supported in this browser";
+                return;
+              }
+              if (Notification.permission === "denied") {
+                sw.classList.remove("active");
+                sw.classList.add("denied");
+                sw.title = "Notifications blocked — re-enable in browser settings";
+                notifyEnabled = false;
+                localStorage.setItem("mcp-broker-notify", "false");
+                return;
+              }
+              sw.classList.remove("denied");
+              if (notifyEnabled && Notification.permission === "granted") {
+                sw.classList.add("active");
+                sw.title = "Desktop notifications enabled";
+              } else {
+                sw.classList.remove("active");
+                sw.title = "Enable desktop notifications";
+                if (notifyEnabled && Notification.permission !== "granted") {
+                  notifyEnabled = false;
+                  localStorage.setItem("mcp-broker-notify", "false");
+                }
+              }
+            }
+
+            function toggleNotifications() {
+              if (!("Notification" in window) || Notification.permission === "denied")
+                return;
+              if (notifyEnabled) {
+                notifyEnabled = false;
+                localStorage.setItem("mcp-broker-notify", "false");
+                updateToggleUI();
+                return;
+              }
+              if (Notification.permission === "granted") {
+                notifyEnabled = true;
+                localStorage.setItem("mcp-broker-notify", "true");
+                updateToggleUI();
+                return;
+              }
+              Notification.requestPermission().then(function (result) {
+                if (result === "granted") {
+                  notifyEnabled = true;
+                  localStorage.setItem("mcp-broker-notify", "true");
+                }
+                updateToggleUI();
               });
-              listEl.innerHTML = html;
             }
 
-            if (unmatched.length === 0) {
-              unmatchedSection.style.display = "none";
-            } else {
-              unmatchedSection.style.display = "block";
-              unmatchedDesc.textContent =
-                "These tools fall through to the default verdict: " +
-                defaultVerdict;
-              var uhtml = "";
-              unmatched.forEach(function (name) {
-                uhtml += '<div class="rule-match-item">' + esc(name) + "</div>";
+            function showNotification(tool) {
+              if (!notifyEnabled || Notification.permission !== "granted") return;
+              if (document.visibilityState === "visible") return;
+              var n = new Notification("mcp-broker \u2014 Approval Required", {
+                body: tool,
+                tag: "mcp-broker-new",
               });
-              unmatchedList.innerHTML = uhtml;
-            }
-          });
-      }
-
-      // --- Audit Log ---
-      var auditLimit = 20;
-      var auditOffset = 0;
-      var auditTotal = 0;
-      var auditTimer = null;
-      var auditRecords = [];
-      var expandedAuditIdx = -1;
-
-      function toggleAuditDetail(idx) {
-        var body = document.getElementById("audit-body");
-        var existing = document.getElementById("audit-detail-" + idx);
-
-        // Collapse previously expanded row
-        if (expandedAuditIdx >= 0) {
-          var prev = document.getElementById(
-            "audit-detail-" + expandedAuditIdx,
-          );
-          if (prev) prev.remove();
-        }
-
-        // If clicking the same row, just collapse
-        if (expandedAuditIdx === idx) {
-          expandedAuditIdx = -1;
-          return;
-        }
-
-        expandedAuditIdx = idx;
-        var rec = auditRecords[idx];
-        var sourceRow = body.querySelector('tr[data-audit-idx="' + idx + '"]');
-        if (!sourceRow) return;
-
-        var rowClass = sourceRow.className;
-        var detailRow = document.createElement("tr");
-        detailRow.id = "audit-detail-" + idx;
-        detailRow.className = rowClass + " audit-detail-row";
-
-        var td = document.createElement("td");
-        td.colSpan = 5;
-
-        var content = '<div class="audit-detail-content">';
-
-        // Args
-        var argsText = rec.args ? JSON.stringify(rec.args, null, 2) : "-";
-        content += '<div class="audit-detail-field">';
-        content += '<div class="audit-detail-label">Args</div>';
-        content +=
-          '<div class="audit-detail-value"><pre>' +
-          esc(argsText) +
-          "</pre></div>";
-        content += "</div>";
-
-        // Error (only shown when there's an error)
-        if (rec.error) {
-          content += '<div class="audit-detail-field">';
-          content += '<div class="audit-detail-label">Error</div>';
-          content +=
-            '<div class="audit-detail-value">' + esc(rec.error) + "</div>";
-          content += "</div>";
-        }
-
-        content += "</div>";
-        td.innerHTML = content;
-        detailRow.appendChild(td);
-        sourceRow.after(detailRow);
-      }
-
-      function debounceAudit() {
-        clearTimeout(auditTimer);
-        auditTimer = setTimeout(function () {
-          auditOffset = 0;
-          loadAudit();
-        }, 300);
-      }
-
-      function loadAudit() {
-        var tool = document.getElementById("audit-tool").value.trim();
-        var grantId = document.getElementById("audit-grant-id").value.trim();
-        var hasGrant = document.getElementById("audit-has-grant").checked;
-        var params = new URLSearchParams();
-        if (tool) params.set("tool", tool);
-        if (grantId) params.set("grant_id", grantId);
-        if (hasGrant) params.set("has_grant", "1");
-        params.set("limit", auditLimit);
-        params.set("offset", auditOffset);
-
-        var body = document.getElementById("audit-body");
-        var emptyEl = document.getElementById("audit-empty");
-        var pagination = document.getElementById("audit-pagination");
-        var tableWrap = document.querySelector(".audit-table-wrap");
-
-        fetch("api/audit?" + params.toString())
-          .then(function (r) {
-            return r.json();
-          })
-          .then(function (data) {
-            var records = data.records || [];
-            auditTotal = data.total || 0;
-            expandedAuditIdx = -1;
-
-            if (records.length === 0) {
-              body.innerHTML = "";
-              tableWrap.style.display = "none";
-              emptyEl.style.display = "block";
-              pagination.style.display = "none";
-              return;
+              n.onclick = function () {
+                window.focus();
+                n.close();
+              };
             }
 
-            tableWrap.style.display = "block";
-            emptyEl.style.display = "none";
+            updateToggleUI();
 
-            var html = "";
-            auditRecords = records;
-            records.forEach(function (rec, idx) {
-              var ts = rec.timestamp
-                ? new Date(rec.timestamp).toLocaleString()
-                : "-";
+            // --- Approvals ---
+            var queue = document.getElementById("queue");
+            var empty = document.getElementById("empty");
+            var statusDot = document.getElementById("status");
+            var statusLabel = document.getElementById("status-label");
+            var historyDiv = document.getElementById("history");
+            var decisionsSection = document.getElementById("decisions-section");
+            var cards = new Map();
+            var pendingData = new Map();
+            var toolDescriptions = {};
+            var countdownInterval = null;
+
+            // Load tool descriptions for use in approval cards
+            fetch("api/tools")
+              .then(function (r) {
+                return r.json();
+              })
+              .then(function (data) {
+                var tools = data.tools || [];
+                tools.forEach(function (tool) {
+                  if (tool.description)
+                    toolDescriptions[tool.name] = tool.description;
+                });
+              });
+
+            function updateBadge() {
+              var badge = document.getElementById("pending-badge");
+              var count = cards.size;
+              badge.textContent = count;
+              if (count === 0) {
+                badge.classList.add("hidden");
+              } else {
+                badge.classList.remove("hidden");
+              }
+            }
+
+            function renderQueue() {
+              empty.style.display = cards.size === 0 ? "block" : "none";
+              updateBadge();
+            }
+
+            function renderPending() {
+              pendingData.forEach(function (pr, id) {
+                var div = cards.get(id);
+                if (!div || !pr.deadline) return;
+                var countdownEl = div.querySelector(".countdown");
+                if (!countdownEl) return;
+                var remaining = formatCountdown(pr.deadline);
+                var ms = new Date(pr.deadline) - Date.now();
+                countdownEl.textContent = remaining
+                  ? "Expires in " + remaining
+                  : "Expired";
+                if (ms <= 60000) {
+                  countdownEl.classList.add("urgent");
+                } else {
+                  countdownEl.classList.remove("urgent");
+                }
+              });
+            }
+
+            function addCard(pr) {
+              var div = document.createElement("div");
+              div.className = "card pending";
+              div.dataset.id = pr.id;
+              var ts = new Date(pr.timestamp).toLocaleTimeString();
+              var desc = toolDescriptions[pr.tool];
+              var countdownHtml = pr.deadline ? '<div class="countdown"></div>' : "";
+              div.innerHTML =
+                '<div class="method">' +
+                esc(pr.tool) +
+                "</div>" +
+                (desc ? '<div class="description">' + esc(desc) + "</div>" : "") +
+                '<div class="meta">' +
+                ts +
+                "</div>" +
+                countdownHtml +
+                "<pre>" +
+                esc(JSON.stringify(pr.args, null, 2)) +
+                "</pre>" +
+                '<div class="actions">' +
+                '<button class="btn-approve" onclick="decide(\'' +
+                pr.id +
+                "','approve')\">Approve</button>" +
+                '<button class="btn-deny" onclick="decide(\'' +
+                pr.id +
+                "','deny')\">Deny</button>" +
+                "</div>";
+              queue.appendChild(div);
+              cards.set(pr.id, div);
+              pendingData.set(pr.id, pr);
+              renderQueue();
+              renderPending();
+            }
+
+            function removeCard(id) {
+              var div = cards.get(id);
+              if (div) {
+                div.remove();
+                cards.delete(id);
+              }
+              pendingData.delete(id);
+              renderQueue();
+            }
+
+            function decide(id, decision) {
+              fetch("api/decide", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: id, decision: decision }),
+              });
+            }
+
+            function addDecision(dr) {
+              var div = document.createElement("div");
+              div.className = "card decided";
+              div.dataset.id = dr.id;
+              var ts = new Date(dr.timestamp).toLocaleTimeString();
+              div.innerHTML =
+                '<div class="method">' +
+                esc(dr.tool) +
+                " " +
+                decisionBadge(dr) +
+                "</div>" +
+                '<div class="meta">' +
+                ts +
+                "</div>";
+              historyDiv.prepend(div);
+              decisionsSection.style.display = "block";
+            }
+
+            // Load pending requests
+            fetch("api/pending")
+              .then(function (r) {
+                return r.json();
+              })
+              .then(function (items) {
+                items.sort(function (a, b) {
+                  return new Date(a.timestamp) - new Date(b.timestamp);
+                });
+                items.forEach(addCard);
+              });
+
+            // SSE for real-time updates
+            var es = new EventSource("events");
+            es.onmessage = function (e) {
+              var msg = JSON.parse(e.data);
+              if (msg.type === "new") {
+                addCard(msg.data);
+                playChime();
+                showNotification(msg.data.tool);
+              }
+              if (msg.type === "removed") removeCard(msg.data.id);
+              if (msg.type === "decided") {
+                removeCard(msg.data.id);
+                addDecision(msg.data);
+              }
+              if (msg.type === "audit") handleAuditEvent(msg.data);
+            };
+            es.onopen = function () {
+              statusDot.classList.add("connected");
+              statusLabel.textContent = "Connected";
+            };
+            es.onerror = function () {
+              statusDot.classList.remove("connected");
+              statusLabel.textContent = "Disconnected";
+            };
+
+            // Live countdown update — initialized once
+            if (!countdownInterval) {
+              countdownInterval = setInterval(renderPending, 1000);
+            }
+
+            // --- Tool schema rendering ---
+
+            // schemaTypeLabel returns a human-readable type for a JSON Schema property.
+            // Handles scalars, typed arrays, and falls back to 'object' or 'any' for
+            // unparseable shapes (oneOf, anyOf, nested objects, $ref, etc.).
+            function schemaTypeLabel(prop) {
+              if (!prop || typeof prop !== "object") return "any";
+              if (typeof prop.type === "string") {
+                if (
+                  prop.type === "array" &&
+                  prop.items &&
+                  typeof prop.items.type === "string"
+                ) {
+                  return "array<" + prop.items.type + ">";
+                }
+                return prop.type;
+              }
+              if (Array.isArray(prop.type)) return prop.type.join("|");
+              if (prop.oneOf || prop.anyOf || prop.allOf || prop.$ref)
+                return "object";
+              return "any";
+            }
+
+            // renderSchemaTable returns the HTML for a JSON-Schema-shaped object,
+            // shared by the Inputs and Outputs sections. emptyMsg is shown when the
+            // schema has no properties.
+            function renderSchemaTable(schema, emptyMsg) {
+              var hasProps =
+                schema &&
+                typeof schema === "object" &&
+                schema.properties &&
+                typeof schema.properties === "object" &&
+                Object.keys(schema.properties).length > 0;
+
+              if (!hasProps) {
+                return '<div class="tool-schema-empty">' + esc(emptyMsg) + "</div>";
+              }
+
+              var required = {};
+              if (Array.isArray(schema.required)) {
+                schema.required.forEach(function (k) {
+                  required[k] = true;
+                });
+              }
+
+              // Sort: required first, then alphabetical.
+              var keys = Object.keys(schema.properties).sort(function (a, b) {
+                if (required[a] !== required[b]) return required[a] ? -1 : 1;
+                return a < b ? -1 : a > b ? 1 : 0;
+              });
+
+              var rows = "";
+              keys.forEach(function (key) {
+                var prop = schema.properties[key] || {};
+                var desc = prop.description ? String(prop.description) : "";
+                if (Array.isArray(prop.enum)) {
+                  var enumStr = prop.enum
+                    .map(function (v) {
+                      return JSON.stringify(v);
+                    })
+                    .join(", ");
+                  desc = desc
+                    ? desc + " (one of: " + enumStr + ")"
+                    : "one of: " + enumStr;
+                }
+                rows +=
+                  "<tr>" +
+                  '<td class="col-name">' +
+                  esc(key) +
+                  "</td>" +
+                  '<td class="col-type">' +
+                  esc(schemaTypeLabel(prop)) +
+                  "</td>" +
+                  '<td class="col-req">' +
+                  (required[key] ? "\u2713" : "") +
+                  "</td>" +
+                  '<td class="col-desc">' +
+                  (desc ? esc(desc) : "\u2014") +
+                  "</td>" +
+                  "</tr>";
+              });
+
+              return (
+                '<table class="tool-schema-table">' +
+                "<thead><tr>" +
+                "<th>name</th><th>type</th><th>required</th><th>description</th>" +
+                "</tr></thead>" +
+                "<tbody>" +
+                rows +
+                "</tbody>" +
+                "</table>" +
+                '<details class="tool-schema-raw">' +
+                "<summary>view raw schema</summary>" +
+                "<pre>" +
+                esc(JSON.stringify(schema, null, 2)) +
+                "</pre>" +
+                "</details>"
+              );
+            }
+
+            // Hint metadata: label + tooltip. Order matches the desired badge order.
+            // All hints are advisory \u2014 set by the backend, not enforced by the broker.
+            var HINT_DEFS = [
+              {
+                key: "readOnlyHint",
+                label: "read-only",
+                cls: "hint-readonly",
+                help: "Backend hints this tool does not modify its environment. Advisory only \u2014 not enforced by the broker.",
+              },
+              {
+                key: "destructiveHint",
+                label: "destructive",
+                cls: "hint-destructive",
+                help: "Backend hints this tool may perform destructive updates. Advisory only \u2014 not enforced by the broker.",
+              },
+              {
+                key: "idempotentHint",
+                label: "idempotent",
+                cls: "hint-idempotent",
+                help: "Backend hints repeated calls with the same arguments have no additional effect. Advisory only.",
+              },
+              {
+                key: "openWorldHint",
+                label: "open-world",
+                cls: "hint-openworld",
+                help: "Backend hints this tool interacts with external entities. Advisory only.",
+              },
+            ];
+
+            // renderToolHints builds the badge row shown next to the tool name.
+            // Only emits badges for hints that are explicitly true.
+            function renderToolHints(ann) {
+              if (!ann) return "";
+              var badges = "";
+              HINT_DEFS.forEach(function (def) {
+                if (ann[def.key] === true) {
+                  badges +=
+                    '<span class="tool-hint ' +
+                    def.cls +
+                    '" title="' +
+                    escAttr(def.help) +
+                    '">' +
+                    def.label +
+                    "</span>";
+                }
+              });
+              return badges ? '<div class="tool-hints">' + badges + "</div>" : "";
+            }
+
+            // renderAnnotations builds the Annotations section. Shows title plus any
+            // hint set to a boolean (true OR false \u2014 the spec distinguishes "false"
+            // from "absent"). Returns "" when nothing to show.
+            function renderAnnotations(ann) {
+              if (!ann) return "";
+              var rows = "";
+              if (ann.title) {
+                rows += "<dt>Title</dt><dd>" + esc(String(ann.title)) + "</dd>";
+              }
+              HINT_DEFS.forEach(function (def) {
+                if (typeof ann[def.key] === "boolean") {
+                  var v = ann[def.key];
+                  rows +=
+                    "<dt>" +
+                    esc(def.label) +
+                    '</dt><dd class="bool-' +
+                    v +
+                    '">' +
+                    (v ? "true" : "false") +
+                    "</dd>";
+                }
+              });
+              if (!rows) return "";
+              return (
+                '<div class="tool-detail-section">' +
+                '<div class="tool-detail-label">Annotations</div>' +
+                '<dl class="tool-annotations">' +
+                rows +
+                "</dl>" +
+                "</div>"
+              );
+            }
+
+            // renderToolDetail composes the full expanded panel: Inputs, then any of
+            // Outputs / Annotations / Metadata that the tool declared.
+            function renderToolDetail(tool) {
+              var html =
+                '<div class="tool-detail-section">' +
+                '<div class="tool-detail-label">Inputs</div>' +
+                renderSchemaTable(tool.inputSchema, "This tool takes no arguments.") +
+                "</div>";
+
+              if (tool.outputSchema) {
+                html +=
+                  '<div class="tool-detail-section">' +
+                  '<div class="tool-detail-label">Outputs</div>' +
+                  renderSchemaTable(
+                    tool.outputSchema,
+                    "Output schema declared but has no properties.",
+                  ) +
+                  "</div>";
+              }
+
+              html += renderAnnotations(tool.annotations);
+
+              if (tool._meta) {
+                html +=
+                  '<div class="tool-detail-section">' +
+                  '<div class="tool-detail-label">Metadata</div>' +
+                  '<details class="tool-schema-raw">' +
+                  "<summary>view raw _meta</summary>" +
+                  "<pre>" +
+                  esc(JSON.stringify(tool._meta, null, 2)) +
+                  "</pre>" +
+                  "</details>" +
+                  "</div>";
+              }
+
+              return html;
+            }
+
+            // --- Tools ---
+            var expandedToolName = null;
+
+            function loadTools() {
+              var list = document.getElementById("tools-list");
+              var emptyEl = document.getElementById("tools-empty");
+
+              // Reset expansion state on tab (re-)entry so we start clean.
+              expandedToolName = null;
+
+              fetch("api/tools")
+                .then(function (r) {
+                  return r.json();
+                })
+                .then(function (data) {
+                  var tools = data.tools || [];
+                  if (tools.length === 0) {
+                    list.innerHTML = "";
+                    emptyEl.style.display = "block";
+                    return;
+                  }
+                  emptyEl.style.display = "none";
+
+                  // Group by provider prefix
+                  var groups = {};
+                  tools.forEach(function (tool) {
+                    var parts = tool.name.split(".");
+                    var provider = parts.length > 1 ? parts[0] : "other";
+                    if (!groups[provider]) groups[provider] = [];
+                    groups[provider].push(tool);
+                  });
+
+                  var html = "";
+                  var providers = Object.keys(groups).sort();
+                  providers.forEach(function (provider) {
+                    var items = groups[provider];
+                    html += '<div class="provider-group">';
+                    html +=
+                      '<button class="provider-header collapsed" onclick="toggleProvider(this)">';
+                    html +=
+                      '<div class="provider-header-left"><span class="chevron">&#9660;</span> ' +
+                      esc(provider) +
+                      "</div>";
+                    html +=
+                      '<span class="provider-count">' + items.length + "</span>";
+                    html += "</button>";
+                    html += '<div class="provider-capabilities hidden">';
+                    items.forEach(function (tool) {
+                      var toolAttr = escAttr(JSON.stringify(tool));
+                      html +=
+                        '<button type="button" class="tool-item" aria-expanded="false"' +
+                        ' data-tool-name="' +
+                        escAttr(tool.name) +
+                        '"' +
+                        ' data-tool="' +
+                        toolAttr +
+                        '"' +
+                        ' onclick="toggleTool(this)">';
+                      html += '<div class="tool-item-row">';
+                      html += '<span class="chevron">&#9660;</span>';
+                      html += '<div class="tool-item-text">';
+                      html += '<div class="tool-name">' + esc(tool.name) + "</div>";
+                      var ann = tool.annotations || {};
+                      if (ann.title)
+                        html +=
+                          '<div class="tool-title">' + esc(ann.title) + "</div>";
+                      if (tool.description)
+                        html +=
+                          '<div class="tool-desc">' +
+                          esc(tool.description) +
+                          "</div>";
+                      html += "</div>";
+                      html += renderToolHints(ann);
+                      html += "</div>";
+                      html += "</button>";
+                    });
+                    html += "</div></div>";
+                  });
+                  list.innerHTML = html;
+                });
+            }
+
+            function toggleProvider(btn) {
+              btn.classList.toggle("collapsed");
+              var caps = btn.nextElementSibling;
+              caps.classList.toggle("hidden");
+            }
+
+            function toggleTool(btn) {
+              var name = btn.getAttribute("data-tool-name");
+
+              // Collapse any currently-expanded tool.
+              if (expandedToolName) {
+                var prev = document.querySelector(".tool-item.expanded");
+                if (prev) {
+                  prev.classList.remove("expanded");
+                  prev.setAttribute("aria-expanded", "false");
+                  var prevDetail = prev.nextElementSibling;
+                  if (prevDetail && prevDetail.classList.contains("tool-detail")) {
+                    prevDetail.remove();
+                  }
+                }
+              }
+
+              // Second click on the same tool: just collapse.
+              if (expandedToolName === name) {
+                expandedToolName = null;
+                return;
+              }
+
+              // Expand the clicked tool.
+              var tool;
+              try {
+                tool = JSON.parse(btn.getAttribute("data-tool"));
+              } catch (e) {
+                tool = {};
+              }
+
+              var detail = document.createElement("div");
+              detail.className = "tool-detail";
+              detail.innerHTML = renderToolDetail(tool);
+
+              btn.classList.add("expanded");
+              btn.setAttribute("aria-expanded", "true");
+              btn.parentNode.insertBefore(detail, btn.nextSibling);
+              expandedToolName = name;
+            }
+
+            // --- Rules ---
+            function loadRules() {
+              var listEl = document.getElementById("rules-list");
+              var emptyEl = document.getElementById("rules-empty");
+              var alwaysList = document.getElementById("fallthrough-always-list");
+              var mayList = document.getElementById("fallthrough-may-list");
+
+              fetch("api/rules")
+                .then(function (r) {
+                  return r.json();
+                })
+                .then(function (data) {
+                  var rules = data.rules || [];
+                  var alwaysFallThrough = data.always_fall_through || [];
+                  var mayFallThrough = data.may_fall_through || [];
+
+                  if (rules.length === 0) {
+                    listEl.innerHTML = "";
+                    emptyEl.style.display = "block";
+                  } else {
+                    emptyEl.style.display = "none";
+
+                    var html = "";
+                    rules.forEach(function (rule) {
+                      var verdictClass = "";
+                      if (rule.verdict === "allow") verdictClass = "verdict-allow";
+                      else if (rule.verdict === "deny") verdictClass = "verdict-deny";
+                      else if (rule.verdict === "require-approval")
+                        verdictClass = "verdict-require-approval";
+
+                      var args = rule.args || [];
+                      var hasArgs = args.length > 0;
+
+                      html += '<div class="rule-card">';
+                      html += '<div class="rule-headline">';
+                      html +=
+                        '<span class="rule-index">#' + (rule.index + 1) + "</span>";
+                      html +=
+                        '<span class="rule-verdict ' +
+                        verdictClass +
+                        '">' +
+                        esc(rule.verdict) +
+                        "</span>";
+                      html += '<span class="rule-tool">' + esc(rule.tool) + "</span>";
+                      if (hasArgs) {
+                        html += '<span class="rule-with">with</span>';
+                      }
+                      html += "</div>";
+
+                      if (hasArgs) {
+                        html += '<div class="rule-patterns">';
+                        args.forEach(function (arg) {
+                          var sym = "=";
+                          var val = "";
+                          if (typeof arg.match === "string") {
+                            sym = "=";
+                            val = arg.match;
+                          } else if (arg.match && arg.match.regex) {
+                            sym = "~";
+                            val = arg.match.regex;
+                          }
+                          html +=
+                            '<div class="rule-pattern">' +
+                            esc(arg.path) +
+                            " " +
+                            sym +
+                            " &quot;" +
+                            esc(val) +
+                            "&quot;</div>";
+                        });
+                        html += "</div>";
+                      }
+
+                      html += '<div class="rule-matches">';
+                      if (rule.matches.length === 0) {
+                        html +=
+                          '<div class="rule-matches-empty">no matching tools</div>';
+                      } else {
+                        rule.matches.forEach(function (m) {
+                          html += '<div class="rule-match-item">' + esc(m) + "</div>";
+                        });
+                      }
+                      html += "</div>";
+                      html += "</div>";
+                    });
+                    listEl.innerHTML = html;
+                  }
+
+                  // Always fall through box
+                  if (alwaysFallThrough.length === 0) {
+                    alwaysList.innerHTML =
+                      '<div class="fallthrough-empty">none</div>';
+                  } else {
+                    var ahtml = "";
+                    alwaysFallThrough.forEach(function (name) {
+                      ahtml += '<div class="rule-match-item">' + esc(name) + "</div>";
+                    });
+                    alwaysList.innerHTML = ahtml;
+                  }
+
+                  // May fall through box
+                  if (mayFallThrough.length === 0) {
+                    mayList.innerHTML = '<div class="fallthrough-empty">none</div>';
+                  } else {
+                    var mhtml = "";
+                    mayFallThrough.forEach(function (name) {
+                      mhtml += '<div class="rule-match-item">' + esc(name) + "</div>";
+                    });
+                    mayList.innerHTML = mhtml;
+                  }
+                });
+            }
+
+            // --- Audit Log ---
+            var auditLimit = 20;
+            var auditOffset = 0;
+            var auditTotal = 0;
+            var auditTimer = null;
+            var auditRecords = [];
+            var expandedAuditIdx = -1;
+            var auditPaused = false;
+            var auditNewCount = 0;
+
+            function toggleAuditDetail(idx) {
+              var body = document.getElementById("audit-body");
+              var existing = document.getElementById("audit-detail-" + idx);
+
+              // Collapse previously expanded row
+              if (expandedAuditIdx >= 0) {
+                var prev = document.getElementById(
+                  "audit-detail-" + expandedAuditIdx,
+                );
+                if (prev) prev.remove();
+              }
+
+              // If clicking the same row, just collapse
+              if (expandedAuditIdx === idx) {
+                expandedAuditIdx = -1;
+                return;
+              }
+
+              expandedAuditIdx = idx;
+              var rec = auditRecords[idx];
+              var sourceRow = body.querySelector('tr[data-audit-idx="' + idx + '"]');
+              if (!sourceRow) return;
+
+              var rowClass = sourceRow.className;
+              var detailRow = document.createElement("tr");
+              detailRow.id = "audit-detail-" + idx;
+              detailRow.className = rowClass + " audit-detail-row";
+
+              var td = document.createElement("td");
+              td.colSpan = 5;
+
+              var content = '<div class="audit-detail-content">';
+
+              // Args
+              var argsText = rec.args ? JSON.stringify(rec.args, null, 2) : "-";
+              content += '<div class="audit-detail-field">';
+              content += '<div class="audit-detail-label">Args</div>';
+              content +=
+                '<div class="audit-detail-value"><pre>' +
+                esc(argsText) +
+                "</pre></div>";
+              content += "</div>";
+
+              // Error (only shown when there's an error)
+              if (rec.error) {
+                content += '<div class="audit-detail-field">';
+                content += '<div class="audit-detail-label">Error</div>';
+                content +=
+                  '<div class="audit-detail-value">' + esc(rec.error) + "</div>";
+                content += "</div>";
+              }
+
+              content += "</div>";
+              td.innerHTML = content;
+              detailRow.appendChild(td);
+              sourceRow.after(detailRow);
+            }
+
+            function debounceAudit() {
+              clearTimeout(auditTimer);
+              auditTimer = setTimeout(function () {
+                auditOffset = 0;
+                loadAudit();
+              }, 300);
+            }
+
+            function renderAuditRow(rec, idx) {
+              var ts = rec.timestamp ? new Date(rec.timestamp).toLocaleString() : "-";
               var verdictClass = "";
               var verdictText = rec.verdict || "-";
               if (verdictText === "allow") verdictClass = "verdict-allow";
@@ -2013,7 +2367,7 @@
                 rowClass = "row-approved";
               }
 
-              html +=
+              var html =
                 '<tr class="' +
                 rowClass +
                 '" data-audit-idx="' +
@@ -2028,14 +2382,14 @@
               if (rec.grant_id) {
                 var shortId =
                   rec.grant_id.length > 12
-                    ? rec.grant_id.slice(0, 12) + "\u2026"
+                    ? rec.grant_id.slice(0, 12) + "…"
                     : rec.grant_id;
                 var outcome = rec.grant_outcome || "unknown";
                 var pillClass = "grant-pill grant-" + outcome;
                 toolCell +=
                   ' <span class="' +
                   escAttr(pillClass) +
-                  '">\uD83C\uDFAB ' +
+                  '">🎫 ' +
                   esc(shortId) +
                   " (" +
                   esc(outcome) +
@@ -2044,106 +2398,297 @@
               html += "<td>" + toolCell + "</td>";
 
               html +=
-                '<td class="' +
-                verdictClass +
-                '">' +
-                esc(verdictText) +
-                "</td>";
+                '<td class="' + verdictClass + '">' + esc(verdictText) + "</td>";
               html += "<td>" + esc(approval) + "</td>";
               html += "<td>" + esc(result) + "</td>";
               html += "</tr>";
-            });
-            body.innerHTML = html;
-
-            // Pagination
-            var start = auditOffset + 1;
-            var end = Math.min(auditOffset + records.length, auditTotal);
-            document.getElementById("page-info").textContent =
-              "Showing " + start + "-" + end + " of " + auditTotal;
-            document.getElementById("btn-prev").disabled = auditOffset === 0;
-            document.getElementById("btn-next").disabled =
-              auditOffset + auditLimit >= auditTotal;
-            pagination.style.display = "flex";
-          });
-      }
-
-      function auditPrev() {
-        auditOffset = Math.max(0, auditOffset - auditLimit);
-        loadAudit();
-      }
-
-      function auditNext() {
-        auditOffset += auditLimit;
-        loadAudit();
-      }
-
-      // --- Grants ---
-      function loadGrants() {
-        var showAll = document.getElementById("grants-show-all").checked;
-        var params = new URLSearchParams();
-        if (showAll) params.set("status", "all");
-
-        var body = document.getElementById("grants-body");
-        var emptyEl = document.getElementById("grants-empty");
-        var tableWrap = document.getElementById("grants-table-wrap");
-
-        fetch("api/grants?" + params.toString())
-          .then(function (r) {
-            return r.json();
-          })
-          .then(function (list) {
-            if (!list || list.length === 0) {
-              body.innerHTML = "";
-              tableWrap.style.display = "none";
-              emptyEl.style.display = "block";
-              return;
+              return html;
             }
 
-            tableWrap.style.display = "block";
-            emptyEl.style.display = "none";
+            function loadAudit() {
+              var tool = document.getElementById("audit-tool").value.trim();
+              var grantId = document.getElementById("audit-grant-id").value.trim();
+              var hasGrant = document.getElementById("audit-has-grant").checked;
+              var params = new URLSearchParams();
+              if (tool) params.set("tool", tool);
+              if (grantId) params.set("grant_id", grantId);
+              if (hasGrant) params.set("has_grant", "1");
+              params.set("limit", auditLimit);
+              params.set("offset", auditOffset);
 
-            var now = Date.now();
-            var html = "";
-            list.forEach(function (g) {
-              var tools = (g.entries || [])
-                .map(function (e) {
-                  return e.tool;
+              var body = document.getElementById("audit-body");
+              var emptyEl = document.getElementById("audit-empty");
+              var pagination = document.getElementById("audit-pagination");
+              var tableWrap = document.querySelector(".audit-table-wrap");
+
+              // Any refetch clears the "new" counter and resets expansion.
+              auditNewCount = 0;
+              expandedAuditIdx = -1;
+
+              fetch("api/audit?" + params.toString())
+                .then(function (r) {
+                  return r.json();
                 })
-                .join(", ");
+                .then(function (data) {
+                  var records = data.records || [];
+                  auditTotal = data.total || 0;
 
-              var expires = g.expires_at
-                ? new Date(g.expires_at).toLocaleString()
-                : "-";
+                  if (records.length === 0) {
+                    body.innerHTML = "";
+                    tableWrap.style.display = "none";
+                    emptyEl.style.display = "block";
+                    pagination.style.display = "none";
+                    updateAuditStrip();
+                    return;
+                  }
 
-              var status;
-              var statusClass;
-              if (g.revoked_at) {
-                status = "revoked";
-                statusClass = "grants-status-revoked";
-              } else if (g.expires_at && new Date(g.expires_at) <= now) {
-                status = "expired";
-                statusClass = "grants-status-expired";
-              } else {
-                status = "active";
-                statusClass = "grants-status-active";
+                  tableWrap.style.display = "block";
+                  emptyEl.style.display = "none";
+
+                  var html = "";
+                  auditRecords = records;
+                  records.forEach(function (rec, idx) {
+                    html += renderAuditRow(rec, idx);
+                  });
+                  body.innerHTML = html;
+
+                  // Pagination
+                  var start = auditOffset + 1;
+                  var end = Math.min(auditOffset + records.length, auditTotal);
+                  document.getElementById("page-info").textContent =
+                    "Showing " + start + "-" + end + " of " + auditTotal;
+                  document.getElementById("btn-prev").disabled = auditOffset === 0;
+                  document.getElementById("btn-next").disabled =
+                    auditOffset + auditLimit >= auditTotal;
+                  pagination.style.display = "flex";
+                  updateAuditStrip();
+                });
+            }
+
+            function auditPrev() {
+              auditOffset = Math.max(0, auditOffset - auditLimit);
+              loadAudit();
+            }
+
+            function auditNext() {
+              auditOffset += auditLimit;
+              loadAudit();
+            }
+
+            // --- Grants ---
+            function loadGrants() {
+              var showAll = document.getElementById("grants-show-all").checked;
+              var params = new URLSearchParams();
+              if (showAll) params.set("status", "all");
+
+              var body = document.getElementById("grants-body");
+              var emptyEl = document.getElementById("grants-empty");
+              var tableWrap = document.getElementById("grants-table-wrap");
+
+              fetch("api/grants?" + params.toString())
+                .then(function (r) {
+                  return r.json();
+                })
+                .then(function (list) {
+                  if (!list || list.length === 0) {
+                    body.innerHTML = "";
+                    tableWrap.style.display = "none";
+                    emptyEl.style.display = "block";
+                    return;
+                  }
+
+                  tableWrap.style.display = "block";
+                  emptyEl.style.display = "none";
+
+                  var now = Date.now();
+                  var html = "";
+                  list.forEach(function (g) {
+                    var tools = (g.entries || [])
+                      .map(function (e) {
+                        return e.tool;
+                      })
+                      .join(", ");
+
+                    var expires = g.expires_at
+                      ? new Date(g.expires_at).toLocaleString()
+                      : "-";
+
+                    var status;
+                    var statusClass;
+                    if (g.revoked_at) {
+                      status = "revoked";
+                      statusClass = "grants-status-revoked";
+                    } else if (g.expires_at && new Date(g.expires_at) <= now) {
+                      status = "expired";
+                      statusClass = "grants-status-expired";
+                    } else {
+                      status = "active";
+                      statusClass = "grants-status-active";
+                    }
+
+                    html += "<tr>";
+                    html += "<td>" + esc(g.id || "-") + "</td>";
+                    html += "<td>" + esc(g.description || "-") + "</td>";
+                    html += "<td>" + esc(tools || "-") + "</td>";
+                    html += "<td>" + esc(expires) + "</td>";
+                    html +=
+                      '<td><span class="' +
+                      statusClass +
+                      '">' +
+                      status +
+                      "</span></td>";
+                    html += "</tr>";
+                  });
+                  body.innerHTML = html;
+                });
+
+            // updateAuditStrip computes the current strip state from live vars and
+            // rewrites the strip's innerHTML. Three states:
+            //   Live    — audit tab active, page 1, no filter, not paused.
+            //   Paused  — auditPaused is true.
+            //   Banner  — filtered or paginated (out-of-live-view).
+            // When the audit tab is inactive the strip is cleared (empty footprint).
+            function updateAuditStrip() {
+              var strip = document.getElementById("audit-strip");
+              if (!strip) return;
+
+              if (activeTab !== "audit") {
+                strip.innerHTML = "";
+                return;
               }
 
-              html += "<tr>";
-              html += "<td>" + esc(g.id || "-") + "</td>";
-              html += "<td>" + esc(g.description || "-") + "</td>";
-              html += "<td>" + esc(tools || "-") + "</td>";
-              html += "<td>" + esc(expires) + "</td>";
-              html +=
-                '<td><span class="' +
-                statusClass +
-                '">' +
-                status +
-                "</span></td>";
-              html += "</tr>";
-            });
-            body.innerHTML = html;
-          });
-      }
+              var filterValue = document.getElementById("audit-tool").value.trim();
+              var isOutOfView = auditOffset > 0 || filterValue !== "";
+
+              if (auditPaused) {
+                // Paused state
+                strip.innerHTML =
+                  '<div class="audit-strip-inner">' +
+                  "<span>⏸ Paused" +
+                  (auditNewCount > 0 ? " — " + auditNewCount + " new" : "") +
+                  "</span>" +
+                  '<button class="audit-strip-btn" onclick="auditTogglePause()">&#9654; Resume</button>' +
+                  "</div>";
+              } else if (isOutOfView) {
+                // Out-of-live-view banner
+                strip.innerHTML =
+                  '<div class="audit-strip-banner" onclick="auditResetToLive()">' +
+                  (auditNewCount > 0 ? auditNewCount + " new records — " : "") +
+                  "return to live view" +
+                  "</div>";
+              } else {
+                // Live state
+                strip.innerHTML =
+                  '<div class="audit-strip-inner">' +
+                  '<span class="audit-strip-dot"></span>' +
+                  "<span>Live</span>" +
+                  '<button class="audit-strip-btn" onclick="auditTogglePause()">&#9646;&#9646; Pause</button>' +
+                  "</div>";
+              }
+            }
+
+            // auditTogglePause flips the paused state. Resuming triggers a clean refetch.
+            function auditTogglePause() {
+              if (auditPaused) {
+                auditPaused = false;
+                loadAudit(); // resets auditNewCount and calls updateAuditStrip
+              } else {
+                auditPaused = true;
+                updateAuditStrip();
+              }
+            }
+
+            // auditResetToLive clears the filter and pagination, then refetches.
+            function auditResetToLive() {
+              document.getElementById("audit-tool").value = "";
+              auditOffset = 0;
+              auditPaused = false;
+              loadAudit(); // resets auditNewCount and calls updateAuditStrip
+            }
+
+            // handleAuditEvent processes an incoming audit SSE record per the state table:
+            //   Audit tab inactive           → ignore entirely.
+            //   Active, live-prepend state   → prepend row, drop bottom row, highlight.
+            //   All other active states      → increment auditNewCount, update strip.
+            function handleAuditEvent(rec) {
+              if (activeTab !== "audit") return;
+
+              auditTotal++;
+
+              var filterValue = document.getElementById("audit-tool").value.trim();
+              var filterMatches =
+                filterValue === "" ||
+                (rec.tool || "").toLowerCase().includes(filterValue.toLowerCase());
+              var livePrepend = auditOffset === 0 && filterMatches && !auditPaused;
+
+              if (livePrepend) {
+                // Collapse any open detail row to avoid mis-pointing after index shift.
+                if (expandedAuditIdx >= 0) {
+                  var prevDetail = document.getElementById(
+                    "audit-detail-" + expandedAuditIdx,
+                  );
+                  if (prevDetail) prevDetail.remove();
+                  expandedAuditIdx = -1;
+                }
+
+                // Transition from empty state to populated state if needed.
+                if (auditRecords.length === 0) {
+                  document.querySelector(".audit-table-wrap").style.display = "block";
+                  document.getElementById("audit-empty").style.display = "none";
+                  document.getElementById("audit-pagination").style.display = "flex";
+                }
+
+                // Shift existing data-audit-idx values by +1 so they still point into
+                // auditRecords after the unshift below.
+                var tbody = document.getElementById("audit-body");
+                var existingRows = tbody.querySelectorAll("tr[data-audit-idx]");
+                existingRows.forEach(function (row) {
+                  var oldIdx = parseInt(row.getAttribute("data-audit-idx"), 10);
+                  var newIdx = oldIdx + 1;
+                  row.setAttribute("data-audit-idx", newIdx);
+                  row.setAttribute("onclick", "toggleAuditDetail(" + newIdx + ")");
+                });
+
+                // Prepend new row at index 0.
+                auditRecords.unshift(rec);
+                if (auditRecords.length > auditLimit) auditRecords.pop();
+
+                // renderAuditRow returns a full <tr>...</tr> string; parse it into a
+                // real element via a temporary tbody.
+                var tmp = document.createElement("tbody");
+                tmp.innerHTML = renderAuditRow(rec, 0);
+                var newRow = tmp.firstChild;
+
+                tbody.insertBefore(newRow, tbody.firstChild);
+
+                // Drop the last row if we're over the limit.
+                while (tbody.children.length > auditLimit) {
+                  tbody.removeChild(tbody.lastChild);
+                }
+
+                // Apply the new-row highlight and fade it out on the next frame.
+                newRow.classList.add("audit-row-new");
+                requestAnimationFrame(function () {
+                  requestAnimationFrame(function () {
+                    newRow.classList.remove("audit-row-new");
+                  });
+                });
+
+                // Update page-info text and button states to reflect the new total.
+                var start = auditOffset + 1;
+                var end = Math.min(auditOffset + auditRecords.length, auditTotal);
+                document.getElementById("page-info").textContent =
+                  "Showing " + start + "-" + end + " of " + auditTotal;
+                document.getElementById("btn-prev").disabled = auditOffset === 0;
+                document.getElementById("btn-next").disabled =
+                  auditOffset + auditLimit >= auditTotal;
+
+                updateAuditStrip();
+              } else {
+                auditNewCount++;
+                updateAuditStrip();
+              }
+            }
     </script>
   </body>
 </html>

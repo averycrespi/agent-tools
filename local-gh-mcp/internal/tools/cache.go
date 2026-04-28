@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 
+	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
 	gomcp "github.com/mark3labs/mcp-go/mcp"
 )
@@ -11,7 +13,8 @@ func (h *Handler) cacheTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_list_caches",
-			Description: "List caches for a repository",
+			Description: "List GitHub Actions caches for a repository as markdown bullets (id, key, size, ref, created/accessed dates). Sort by created_at, last_accessed_at, or size_in_bytes. Useful for finding stale or oversized caches before deletion.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -25,15 +28,19 @@ func (h *Handler) cacheTools() []gomcp.Tool {
 					},
 					"limit": map[string]any{
 						"type":        "number",
-						"description": "Max results (default 30, max 100)",
+						"minimum":     1,
+						"default":     30,
+						"description": "Max results (default 30, max 100; values <= 0 are rejected).",
 					},
 					"sort": map[string]any{
 						"type":        "string",
-						"description": "Sort field",
+						"enum":        []string{"created_at", "last_accessed_at", "size_in_bytes"},
+						"description": "Sort key.",
 					},
 					"order": map[string]any{
 						"type":        "string",
-						"description": "Sort order: asc, desc",
+						"enum":        []string{"asc", "desc"},
+						"description": "Sort order.",
 					},
 				},
 				Required: []string{"owner", "repo"},
@@ -41,7 +48,8 @@ func (h *Handler) cacheTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_delete_cache",
-			Description: "Delete a cache from a repository",
+			Description: "Delete a GitHub Actions cache by its numeric ID (obtained from gh_list_caches). Irreversible — the cache must be rebuilt from the next run.",
+			Annotations: annDestructive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -70,16 +78,39 @@ func (h *Handler) handleListCaches(ctx context.Context, req gomcp.CallToolReques
 	if errResult != nil {
 		return errResult, nil
 	}
+	sort := stringFromArgs(args, "sort")
+	if errResult := validateEnum("sort", sort, []string{"created_at", "last_accessed_at", "size_in_bytes"}); errResult != nil {
+		return errResult, nil
+	}
+	order := stringFromArgs(args, "order")
+	if errResult := validateEnum("order", order, []string{"asc", "desc"}); errResult != nil {
+		return errResult, nil
+	}
+	if order != "" && sort == "" {
+		return gomcp.NewToolResultError("order has no effect without sort; pass sort to choose a field"), nil
+	}
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	opts := gh.ListCachesOpts{
-		Limit: intFromArgs(args, "limit"),
-		Sort:  stringFromArgs(args, "sort"),
-		Order: stringFromArgs(args, "order"),
+		Limit: limit,
+		Sort:  sort,
+		Order: order,
 	}
 	out, err := h.gh.ListCaches(ctx, owner, repo, opts)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(out), nil
+	var caches []format.Cache
+	if err := json.Unmarshal([]byte(out), &caches); err != nil {
+		return parseError("gh_list_caches", err, out), nil
+	}
+	if len(caches) == 0 {
+		return gomcp.NewToolResultText("No caches found."), nil
+	}
+	return gomcp.NewToolResultText(format.FormatCaches(caches, limit)), nil
 }
 
 func (h *Handler) handleDeleteCache(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -88,9 +119,9 @@ func (h *Handler) handleDeleteCache(ctx context.Context, req gomcp.CallToolReque
 	if errResult != nil {
 		return errResult, nil
 	}
-	cacheID := stringFromArgs(args, "cache_id")
-	if cacheID == "" {
-		return gomcp.NewToolResultError("cache_id is required"), nil
+	cacheID, errResult := requirePositiveIntString(args, "cache_id")
+	if errResult != nil {
+		return errResult, nil
 	}
 	out, err := h.gh.DeleteCache(ctx, owner, repo, cacheID)
 	if err != nil {

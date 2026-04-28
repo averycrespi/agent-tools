@@ -114,7 +114,7 @@ func TestListPRs_DefaultLimit(t *testing.T) {
 	_, err := c.ListPRs(context.Background(), "octocat", "hello", ListPROpts{})
 	require.NoError(t, err)
 	assert.Contains(t, args, "--limit")
-	assert.Contains(t, args, "30")
+	assert.Contains(t, args, "31")
 }
 
 func TestListPRs_ClampedLimit(t *testing.T) {
@@ -225,7 +225,7 @@ func TestListIssues_WithFilters(t *testing.T) {
 	assert.Contains(t, args, "--label")
 	assert.Contains(t, args, "bug")
 	assert.Contains(t, args, "--limit")
-	assert.Contains(t, args, "10")
+	assert.Contains(t, args, "11")
 }
 
 func TestCommentIssue_Args(t *testing.T) {
@@ -298,7 +298,7 @@ func TestListCaches_Args(t *testing.T) {
 	_, err := c.ListCaches(context.Background(), "octocat", "hello", ListCachesOpts{Limit: 20})
 	require.NoError(t, err)
 	assert.Contains(t, args, "--limit")
-	assert.Contains(t, args, "20")
+	assert.Contains(t, args, "21")
 }
 
 func TestDeleteCache_Args(t *testing.T) {
@@ -314,17 +314,235 @@ func TestDeleteCache_Args(t *testing.T) {
 func TestSearchPRs_Args(t *testing.T) {
 	var args []string
 	c := NewClient(capturedArgs(t, &args))
-	_, err := c.SearchPRs(context.Background(), "fix bug", SearchPRsOpts{
+	_, err := c.SearchPRs(context.Background(), "fixme", SearchPRsOpts{
 		Repo:  "octocat/hello",
 		State: "open",
 	})
 	require.NoError(t, err)
 	assert.Contains(t, args, "--repo")
 	assert.Contains(t, args, "octocat/hello")
-	assert.Contains(t, args, "--state")
-	assert.Contains(t, args, "open")
 	assert.Contains(t, args, "--")
-	assert.Equal(t, "fix bug", args[len(args)-1], "query must be last arg after --")
+	postDash := postDashTokens(t, args)
+	assert.Equal(t, []string{"fixme", "is:open"}, postDash, "query and is:<state> token must follow --")
+}
+
+// TestSearchPRs_JSONFields verifies that the projection requests body and
+// updatedAt and drops url/createdAt — search excerpts depend on body, and
+// url/createdAt are not rendered.
+func TestSearchPRs_JSONFields(t *testing.T) {
+	assert.Equal(t, "number,title,state,author,repository,body,updatedAt", searchPRFields)
+}
+
+// TestSearchIssues_JSONFields verifies the issue-search projection mirrors
+// SearchPRs: body in, url/createdAt out.
+func TestSearchIssues_JSONFields(t *testing.T) {
+	assert.Equal(t, "number,title,state,author,repository,body,updatedAt", searchIssueFields)
+}
+
+// TestSearchPRs_DSLTokenization is the regression test for the search query
+// mangling bug: a multi-token DSL query must be split into separate argv
+// positionals so `gh search` doesn't quote it as a single phrase.
+func TestSearchPRs_DSLTokenization(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchPRs(context.Background(), "is:open repo:foo/bar label:bug", SearchPRsOpts{})
+	require.NoError(t, err)
+	dashIdx := -1
+	for i, a := range args {
+		if a == "--" {
+			dashIdx = i
+			break
+		}
+	}
+	require.NotEqual(t, -1, dashIdx, "expected -- separator")
+	assert.Equal(t, []string{"is:open", "repo:foo/bar", "label:bug"}, args[dashIdx+1:])
+}
+
+// TestSearchPRs_QuotedPhrase verifies shlex preserves quoted phrases as a
+// single token (e.g. for `"hello world" in:title` queries).
+func TestSearchPRs_QuotedPhrase(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchPRs(context.Background(), `"hello world" in:title`, SearchPRsOpts{})
+	require.NoError(t, err)
+	dashIdx := -1
+	for i, a := range args {
+		if a == "--" {
+			dashIdx = i
+			break
+		}
+	}
+	require.NotEqual(t, -1, dashIdx, "expected -- separator")
+	assert.Equal(t, []string{"hello world", "in:title"}, args[dashIdx+1:])
+}
+
+// TestSearchPRs_InvalidQuery verifies an unbalanced-quote query surfaces a
+// clean error rather than panicking or invoking gh.
+func TestSearchPRs_InvalidQuery(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(_ string, _ ...string) ([]byte, error) {
+			t.Fatal("runner must not be invoked on invalid query")
+			return nil, nil
+		},
+	})
+	_, err := c.SearchPRs(context.Background(), `is:open "unterminated`, SearchPRsOpts{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid search query")
+}
+
+// TestSearchPRs_ShellMetacharsAreInert is a defense-in-depth guard: shell
+// metacharacters in the query must arrive at the runner as literal argv
+// tokens, never as a single shell-interpreted string. Runner.Run uses
+// os/exec.Command (no shell), so this is a regression guard against future
+// changes that might introduce shell invocation.
+func TestSearchPRs_ShellMetacharsAreInert(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchPRs(context.Background(), "; rm -rf / && cat /etc/passwd", SearchPRsOpts{})
+	require.NoError(t, err)
+	dashIdx := -1
+	for i, a := range args {
+		if a == "--" {
+			dashIdx = i
+			break
+		}
+	}
+	require.NotEqual(t, -1, dashIdx, "expected -- separator")
+	// All metacharacter-bearing tokens must arrive as separate, unmodified argv
+	// elements — never collapsed into a shell-interpretable string.
+	assert.Equal(t, []string{";", "rm", "-rf", "/", "&&", "cat", "/etc/passwd"}, args[dashIdx+1:])
+}
+
+// TestSearchPRs_FlagInjectionAfterSeparator is a regression guard for the
+// `--` separator: even if a query token looks like a gh flag (e.g.
+// `--repo=evil/repo`), it must land after the `--` so gh treats it as a
+// positional, not a flag override.
+func TestSearchPRs_FlagInjectionAfterSeparator(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchPRs(context.Background(), "--repo=attacker/repo --token=stolen", SearchPRsOpts{
+		Repo: "legit/repo",
+	})
+	require.NoError(t, err)
+	// Find the -- separator index; everything after it is positional query tokens.
+	dashIdx := -1
+	for i, a := range args {
+		if a == "--" {
+			dashIdx = i
+			break
+		}
+	}
+	require.NotEqual(t, -1, dashIdx, "expected -- separator")
+	// The legit Repo flag must appear *before* the separator.
+	preDash := args[:dashIdx]
+	assert.Contains(t, preDash, "--repo")
+	assert.Contains(t, preDash, "legit/repo")
+	// The flag-shaped query tokens must appear *after* the separator, where
+	// gh treats them as positional query text rather than CLI flags.
+	postDash := args[dashIdx+1:]
+	assert.Equal(t, []string{"--repo=attacker/repo", "--token=stolen"}, postDash)
+}
+
+// TestSearchPRs_SubshellSyntaxIsLiteral verifies that subshell-style patterns
+// like $(...) and backticks survive as literal argv content. shlex without
+// POSIX mode does not perform command substitution; this test freezes that
+// guarantee.
+func TestSearchPRs_SubshellSyntaxIsLiteral(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.SearchPRs(context.Background(), "$(echo pwned) `whoami`", SearchPRsOpts{})
+	require.NoError(t, err)
+	dashIdx := -1
+	for i, a := range args {
+		if a == "--" {
+			dashIdx = i
+			break
+		}
+	}
+	require.NotEqual(t, -1, dashIdx, "expected -- separator")
+	postDash := args[dashIdx+1:]
+	// shlex.Split tokenizes on whitespace; the literal characters $, (, ), `
+	// must survive verbatim. No subprocess of any kind has run on this string.
+	assert.Equal(t, []string{"$(echo", "pwned)", "`whoami`"}, postDash)
+}
+
+// postDashTokens returns the argv slice after the `--` separator. Used by the
+// search-state tests to verify which qualifiers landed in the query payload
+// versus which became gh CLI flags.
+func postDashTokens(t *testing.T, args []string) []string {
+	t.Helper()
+	for i, a := range args {
+		if a == "--" {
+			return args[i+1:]
+		}
+	}
+	t.Fatal("expected -- separator in argv")
+	return nil
+}
+
+// All four state cases for SearchPRs follow the same shape: the wrapper must
+// NOT pass `--state` (gh search prs --state is unreliable when combined with
+// --repo) and must inject the equivalent `is:<state>` token into the query.
+func TestSearchPRs_StateAsQueryQualifier(t *testing.T) {
+	cases := []struct {
+		state    string
+		wantPost string // expected token in post-`--` argv ("" means none)
+	}{
+		{"open", "is:open"},
+		{"closed", "is:closed"},
+		{"merged", "is:merged"},
+		{"all", ""},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.state, func(t *testing.T) {
+			var args []string
+			c := NewClient(capturedArgs(t, &args))
+			_, err := c.SearchPRs(context.Background(), "fixme", SearchPRsOpts{State: tc.state})
+			require.NoError(t, err)
+			assert.NotContains(t, args, "--state", "--state must never appear; inject is:<state> as a query token instead")
+			postDash := postDashTokens(t, args)
+			if tc.wantPost != "" {
+				assert.Contains(t, postDash, tc.wantPost)
+			} else {
+				for _, q := range []string{"is:open", "is:closed", "is:merged"} {
+					assert.NotContains(t, postDash, q)
+				}
+			}
+		})
+	}
+}
+
+// SearchIssues mirrors SearchPRs: state must be injected as `is:<state>`
+// rather than passed via --state, since `gh search issues --state` interacts
+// badly with --repo (mirrors the prs-search bug).
+func TestSearchIssues_StateAsQueryQualifier(t *testing.T) {
+	cases := []struct {
+		state    string
+		wantPost string
+	}{
+		{"open", "is:open"},
+		{"closed", "is:closed"},
+		{"all", ""},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.state, func(t *testing.T) {
+			var args []string
+			c := NewClient(capturedArgs(t, &args))
+			_, err := c.SearchIssues(context.Background(), "memory leak", SearchIssuesOpts{State: tc.state})
+			require.NoError(t, err)
+			assert.NotContains(t, args, "--state")
+			postDash := postDashTokens(t, args)
+			if tc.wantPost != "" {
+				assert.Contains(t, postDash, tc.wantPost)
+			} else {
+				for _, q := range []string{"is:open", "is:closed"} {
+					assert.NotContains(t, postDash, q)
+				}
+			}
+		})
+	}
 }
 
 func TestSearchCode_Args(t *testing.T) {
@@ -340,7 +558,7 @@ func TestSearchCode_Args(t *testing.T) {
 	assert.Contains(t, args, "--extension")
 	assert.Contains(t, args, "go")
 	assert.Contains(t, args, "--")
-	assert.Equal(t, "fmt.Errorf", args[len(args)-1], "query must be last arg after --")
+	assert.Equal(t, "fmt.Errorf", args[len(args)-1], "query token must come after --")
 }
 
 func TestViewRun_SeparatorBeforeRunID(t *testing.T) {
@@ -420,6 +638,78 @@ func TestIssueComments_Error(t *testing.T) {
 	assert.ErrorContains(t, err, "gh issue comments failed")
 }
 
+func TestPRReviews_Args(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.PRReviews(context.Background(), "octocat", "hello", 42, 10)
+	require.NoError(t, err)
+	assert.Contains(t, args, "pr")
+	assert.Contains(t, args, "view")
+	assert.Contains(t, args, "-R")
+	assert.Contains(t, args, "octocat/hello")
+	assert.Contains(t, args, "--json")
+	assert.Contains(t, args, "reviews")
+	assert.Contains(t, args, "--jq")
+	assert.Contains(t, args, "42")
+}
+
+func TestPRReviews_Error(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(name string, args ...string) ([]byte, error) {
+			return []byte("not found"), fmt.Errorf("exit 1")
+		},
+	})
+	_, err := c.PRReviews(context.Background(), "o", "r", 1, 10)
+	assert.ErrorContains(t, err, "gh pr reviews failed")
+}
+
+func TestPRReviewComments_Args(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.PRReviewComments(context.Background(), "octocat", "hello", 42, 10)
+	require.NoError(t, err)
+	assert.Contains(t, args, "api")
+	assert.Contains(t, args, "--jq")
+	assert.Contains(t, args, "--")
+	endpoint := args[len(args)-1]
+	assert.Equal(t, "repos/octocat/hello/pulls/42/comments?per_page=11", endpoint)
+}
+
+func TestPRReviewComments_JqIncludesAuthorAssociation(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.PRReviewComments(context.Background(), "octocat", "hello", 42, 10)
+	require.NoError(t, err)
+	// Find the --jq value (one arg after `--jq`).
+	var jq string
+	for i, a := range args {
+		if a == "--jq" && i+1 < len(args) {
+			jq = args[i+1]
+			break
+		}
+	}
+	assert.Contains(t, jq, "author_association", "jq projection should request author_association")
+}
+
+func TestPRReviewComments_ClampsLimit(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.PRReviewComments(context.Background(), "octocat", "hello", 42, 500)
+	require.NoError(t, err)
+	endpoint := args[len(args)-1]
+	assert.Contains(t, endpoint, "per_page=100", "limit above maxLimit should clamp to 100")
+}
+
+func TestPRReviewComments_Error(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(name string, args ...string) ([]byte, error) {
+			return []byte("not found"), fmt.Errorf("exit 1")
+		},
+	})
+	_, err := c.PRReviewComments(context.Background(), "o", "r", 1, 10)
+	assert.ErrorContains(t, err, "gh pr review comments failed")
+}
+
 func TestDeleteCache_SeparatorBeforeCacheID(t *testing.T) {
 	var args []string
 	c := NewClient(capturedArgs(t, &args))
@@ -427,4 +717,250 @@ func TestDeleteCache_SeparatorBeforeCacheID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, args, "--")
 	assert.Equal(t, "cache-abc-123", args[len(args)-1], "cacheID must be last arg after --")
+}
+
+func TestListBranches_PassesPageAndPerPage(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ListBranches(context.Background(), "octocat", "hello", 30, 2)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(args), 2)
+	assert.Equal(t, "api", args[0])
+	assert.Contains(t, args[1], "per_page=31")
+	assert.Contains(t, args[1], "page=2")
+}
+
+func TestListBranches_PageDefaultsAtLeastOne(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ListBranches(context.Background(), "octocat", "hello", 30, 0)
+	require.NoError(t, err)
+	assert.Contains(t, args[1], "page=1")
+}
+
+func TestListBranches_ClampsLimit(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ListBranches(context.Background(), "octocat", "hello", 999, 1)
+	require.NoError(t, err)
+	// limit clamped to 100, perPage = limit+1 then capped at 100
+	assert.Contains(t, args[1], "per_page=100")
+}
+
+func TestListReleases_ClampsLimit(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ListReleases(context.Background(), "octocat", "hello", 999)
+	require.NoError(t, err)
+	// 999 clamps to 100, +1 for truncation peek capped back at 100
+	assert.Contains(t, args, "100")
+}
+
+func TestListReleases_OmitsAuthorField(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ListReleases(context.Background(), "octocat", "hello", 30)
+	require.NoError(t, err)
+	var jsonFields string
+	for i, a := range args {
+		if a == "--json" && i+1 < len(args) {
+			jsonFields = args[i+1]
+			break
+		}
+	}
+	assert.NotContains(t, jsonFields, "author", "`gh release list --json` rejects the author field; only `gh release view --json` supports it")
+}
+
+func TestListPRFiles_ClampsLimit(t *testing.T) {
+	var args []string
+	c := NewClient(capturedArgs(t, &args))
+	_, err := c.ListPRFiles(context.Background(), "octocat", "hello", 1, 999)
+	require.NoError(t, err)
+	// 999 clamps to 100, perPage = 101 capped at 100
+	assert.Contains(t, args[1], "per_page=100")
+}
+
+func TestCleanAPIError_PrefersGhStatusLine(t *testing.T) {
+	out := []byte(`{"message":"Not Found","documentation_url":"https://docs.github.com/..."}` + "\n" + `gh: Not Found (HTTP 404)`)
+	got := cleanAPIError(out)
+	assert.Equal(t, "gh: Not Found (HTTP 404)", got)
+}
+
+func TestCleanAPIError_FallsBackWhenNoGhLine(t *testing.T) {
+	out := []byte("something unexpected")
+	got := cleanAPIError(out)
+	assert.Equal(t, "something unexpected", got)
+}
+
+func TestViewRunJobLog_StripsUnknownStepAndBOM(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(_ string, _ ...string) ([]byte, error) {
+			// First line carries a UTF-8 BOM and the UNKNOWN STEP placeholder.
+			body := "\uFEFFbuild\tUNKNOWN STEP\t2025-04-26T00:00:00Z hello\n" +
+				"build\tcompile\t2025-04-26T00:00:01Z world\n"
+			return []byte(body), nil
+		},
+	})
+	out, err := c.ViewRunJobLog(context.Background(), "o", "r", 42, 0)
+	require.NoError(t, err)
+	assert.NotContains(t, out, "UNKNOWN STEP")
+	assert.NotContains(t, out, "\uFEFF")
+	assert.Contains(t, out, "hello")
+	assert.Contains(t, out, "world")
+}
+
+func TestListBranches_ErrorIsClean(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(_ string, _ ...string) ([]byte, error) {
+			body := `{"message":"Not Found","documentation_url":"https://x"}`
+			return []byte(body + "\ngh: Not Found (HTTP 404)"), assert.AnError
+		},
+	})
+	_, err := c.ListBranches(context.Background(), "o", "r", 30, 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gh: Not Found (HTTP 404)")
+	assert.NotContains(t, err.Error(), "documentation_url")
+}
+
+// TestCleanAPIError_ConcatenatedJSONAndGhLine covers the case where gh
+// appends the error line directly after the JSON body without a newline.
+func TestCleanAPIError_ConcatenatedJSONAndGhLine(t *testing.T) {
+	out := []byte(`{"message":"Not Found","documentation_url":"https://docs.github.com/..."}gh: Not Found (HTTP 404)`)
+	got := cleanAPIError(out)
+	assert.Equal(t, "gh: Not Found (HTTP 404)", got)
+}
+
+// TestCleanGhError_PrefersErrorLine covers the normal search failure path
+// where gh prints an Error: line followed by usage/banner text.
+func TestCleanGhError_PrefersErrorLine(t *testing.T) {
+	out := []byte("Error: invalid value \"bogus\" for flag --state\n\nUsage:\n  gh search prs [<query>] [flags]\n\nFlags:\n  -h, --help   help for prs\n")
+	got := cleanGhError(out)
+	assert.Equal(t, `Error: invalid value "bogus" for flag --state`, got)
+}
+
+// TestCleanGhError_FallsBackToFirstNonEmptyLine covers output with no Error:
+// line — the first non-empty line is returned.
+func TestCleanGhError_FallsBackToFirstNonEmptyLine(t *testing.T) {
+	out := []byte("\n\nsome other message\nmore text\n")
+	got := cleanGhError(out)
+	assert.Equal(t, "some other message", got)
+}
+
+// TestCleanGhError_FallsBackToTrimmedInput covers blank output.
+func TestCleanGhError_FallsBackToTrimmedInput(t *testing.T) {
+	out := []byte("  \n  ")
+	got := cleanGhError(out)
+	assert.Equal(t, "", got)
+}
+
+// TestStripURLInParens covers the URL scrubber used by cleanAPIError /
+// cleanGhError / cleanGhStderr to drop noisy parenthesized API endpoints
+// from gh CLI errors.
+func TestStripURLInParens(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"gh: Not Found (HTTP 404) (https://api.github.com/repos/x/y/pulls/1)", "gh: Not Found (HTTP 404)"},
+		{"failed: HTTP 404: Not Found (https://api.github.com/x?per_page=31&exclude_pull_requests=true)", "failed: HTTP 404: Not Found"},
+		{"no urls here", "no urls here"},
+		{"http URL too: (http://example.com/x)", "http URL too:"},
+		{"keep parens (some note) but strip (https://x)", "keep parens (some note) but strip"},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, stripURLInParens(tc.in))
+	}
+}
+
+// TestCleanAPIError_StripsURL guards the integration: a real gh api error
+// payload with a leaked URL should come back URL-free.
+func TestCleanAPIError_StripsURL(t *testing.T) {
+	out := []byte(`gh: Not Found (HTTP 404) (https://api.github.com/repos/foo/bar/pulls/1)`)
+	got := cleanAPIError(out)
+	assert.Equal(t, "gh: Not Found (HTTP 404)", got)
+}
+
+// TestCleanGhStderr_StripsURL guards the bare-error path used by most gh
+// subcommand wrappers.
+func TestCleanGhStderr_StripsURL(t *testing.T) {
+	out := []byte("  failed to do thing (https://api.github.com/repos/x/y/runs/9)\n")
+	got := cleanGhStderr(out)
+	assert.Equal(t, "failed to do thing", got)
+}
+
+// TestNormalizeRunLog covers the four combinations of BOM and UNKNOWN STEP.
+func TestNormalizeRunLog_BOMOnly(t *testing.T) {
+	in := "\uFEFFbuild\tcompile\t2025-01-01T00:00:00Z message\n"
+	got := normalizeRunLog(in)
+	assert.NotContains(t, got, "\uFEFF")
+	assert.Contains(t, got, "build\tcompile")
+}
+
+func TestNormalizeRunLog_UnknownStepOnly(t *testing.T) {
+	in := "build\tUNKNOWN STEP\t2025-01-01T00:00:00Z message\n"
+	got := normalizeRunLog(in)
+	assert.NotContains(t, got, "UNKNOWN STEP")
+	assert.Contains(t, got, "build\t2025-01-01")
+}
+
+func TestNormalizeRunLog_BOMAndUnknownStep(t *testing.T) {
+	in := "\uFEFFbuild\tUNKNOWN STEP\t2025-01-01T00:00:00Z message\n"
+	got := normalizeRunLog(in)
+	assert.NotContains(t, got, "\uFEFF")
+	assert.NotContains(t, got, "UNKNOWN STEP")
+	assert.Contains(t, got, "build\t2025-01-01")
+}
+
+func TestNormalizeRunLog_NeitherBOMNorUnknownStep(t *testing.T) {
+	in := "build\tcompile\t2025-01-01T00:00:00Z message\n"
+	got := normalizeRunLog(in)
+	assert.Equal(t, "build\tcompile\t2025-01-01T00:00:00Z message", got)
+}
+
+// TestNormalizeRunLog_StripsInternalBOMs guards the multi-job concatenated
+// log case: gh run view --log-failed glues several jobs together, each of
+// which can carry its own BOM. TrimPrefix would only catch the leading one,
+// so we use ReplaceAll.
+func TestNormalizeRunLog_StripsInternalBOMs(t *testing.T) {
+	in := "line1\n\uFEFFline2\n\uFEFFline3\n"
+	got := normalizeRunLog(in)
+	assert.NotContains(t, got, "\uFEFF", "all BOMs (including internal) must be stripped")
+	assert.Contains(t, got, "line1")
+	assert.Contains(t, got, "line2")
+	assert.Contains(t, got, "line3")
+}
+
+// TestViewRun_LogFailed_NormalizesOutput verifies that the logFailed=true path
+// strips the BOM and UNKNOWN STEP noise before returning.
+func TestViewRun_LogFailed_NormalizesOutput(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(_ string, _ ...string) ([]byte, error) {
+			body := "\uFEFFbuild\tUNKNOWN STEP\t2025-01-01T00:00:00Z failed here\n" +
+				"build\tsetup\t2025-01-01T00:00:01Z all good\n"
+			return []byte(body), nil
+		},
+	})
+	out, err := c.ViewRun(context.Background(), "o", "r", "99", true)
+	require.NoError(t, err)
+	assert.NotContains(t, out, "\uFEFF")
+	assert.NotContains(t, out, "UNKNOWN STEP")
+	assert.Contains(t, out, "failed here")
+	assert.Contains(t, out, "all good")
+}
+
+// TestViewRunJobLog_NormalizesOutput is the parallel test for ViewRunJobLog,
+// confirming it still strips BOM and UNKNOWN STEP after the refactor.
+func TestViewRunJobLog_NormalizesOutput(t *testing.T) {
+	c := NewClient(&mockRunner{
+		runFunc: func(_ string, _ ...string) ([]byte, error) {
+			body := "\uFEFFbuild\tUNKNOWN STEP\t2025-01-01T00:00:00Z step one\n" +
+				"build\trun\t2025-01-01T00:00:01Z step two\n"
+			return []byte(body), nil
+		},
+	})
+	out, err := c.ViewRunJobLog(context.Background(), "o", "r", 7, 0)
+	require.NoError(t, err)
+	assert.NotContains(t, out, "\uFEFF")
+	assert.NotContains(t, out, "UNKNOWN STEP")
+	assert.Contains(t, out, "step one")
+	assert.Contains(t, out, "step two")
 }

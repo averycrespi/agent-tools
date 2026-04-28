@@ -76,8 +76,8 @@ Opens an interactive shell in the sandbox, or runs a command if arguments are pr
 
 ### `sb config`
 
-| Subcommand        | Description                                            |
-| ----------------- | ------------------------------------------------------ |
+| Subcommand          | Description                                            |
+| ------------------- | ------------------------------------------------------ |
 | `sb config edit`    | Open config in `$EDITOR` (creates defaults if missing) |
 | `sb config path`    | Print config file path                                 |
 | `sb config refresh` | Create or update config with latest defaults           |
@@ -93,35 +93,52 @@ Config file: `~/.config/sb/config.json` (follows XDG)
   "memory": "4GiB",
   "disk": "100GiB",
   "mounts": [],
-  "copy_paths": ["scripts/provision.sh"],
-  "scripts": ["scripts/provision.sh"]
+  "copy_paths": ["~/.gitconfig"],
+  "scripts": ["~/.config/sb/scripts/provision.sh"]
 }
 ```
 
-| Field        | Type     | Default          | Description                                                           |
-| ------------ | -------- | ---------------- | --------------------------------------------------------------------- |
-| `image`      | string   | `"ubuntu-24.04"` | Ubuntu cloud image version                                            |
-| `cpus`       | int      | `4`              | Number of CPUs allocated to the VM                                    |
-| `memory`     | string   | `"4GiB"`         | Memory allocated to the VM                                            |
-| `disk`       | string   | `"100GiB"`       | Disk size for the VM                                                  |
-| `mounts`     | string[] | `[]`             | Host directories to mount (writable) in the VM                        |
+| Field        | Type     | Default          | Description                                                                            |
+| ------------ | -------- | ---------------- | -------------------------------------------------------------------------------------- |
+| `image`      | string   | `"ubuntu-24.04"` | Ubuntu cloud image version                                                             |
+| `cpus`       | int      | `4`              | Number of CPUs allocated to the VM                                                     |
+| `memory`     | string   | `"4GiB"`         | Memory allocated to the VM                                                             |
+| `disk`       | string   | `"100GiB"`       | Disk size for the VM                                                                   |
+| `mounts`     | string[] | `[]`             | Host directories to mount (writable) in the VM                                         |
 | `copy_paths` | string[] | `[]`             | Files/directories to copy into the VM (format: `"src"` or `"src:dst"`, `~/` supported) |
-| `scripts`    | string[] | `[]`             | Provisioning scripts to run in the VM (paths relative to host)        |
+| `scripts`    | string[] | `[]`             | Provisioning scripts to run in the VM (paths on host, `~/` supported)                  |
 
 ### Copy paths
 
 Copy paths support two formats:
+
 - `"path/to/file"` — copies to the same path in the VM
 - `"local/path:guest/path"` — copies to a different path in the VM
 
 Paths starting with `~/` are expanded to the user's home directory. Directories are detected automatically and copied recursively.
 
+## Example provisioning scripts
+
+The repo ships drop-in provisioning scripts under [`examples/provision/`](examples/provision/). Most are self-contained (work on a bare sandbox) and idempotent; the `asdf-*` scripts require `asdf.sh` to have run first and fail fast with a clear error otherwise. Reference them by absolute path in the `scripts` field of your config, individually or in combination:
+
+| Script            | What it does                                                | Requires         |
+| ----------------- | ----------------------------------------------------------- | ---------------- |
+| `apt-packages.sh` | Template for installing a user-defined list of apt packages | —                |
+| `docker.sh`       | Install Docker Engine and enable the daemon                 | —                |
+| `asdf.sh`         | Install asdf as a prebuilt binary and wire up `$PATH`       | —                |
+| `asdf-nodejs.sh`  | Install the latest Node.js via asdf                         | `asdf.sh`        |
+| `asdf-golang.sh`  | Install the latest Go via asdf                              | `asdf.sh`        |
+| `claude-code.sh`  | Install Claude Code (native binary)                         | —                |
+| `pi-agent.sh`     | Install the Pi coding agent via npm                         | `asdf-nodejs.sh` |
+
+See [`examples/provision/README.md`](examples/provision/README.md) for the full catalog and the convention for adding new examples.
+
 ## Paths
 
-| Resource | Location                       |
-| -------- | ------------------------------ |
-| Config   | `~/.config/sb/config.json`     |
-| VM name  | `sb` (in Lima)                 |
+| Resource | Location                   |
+| -------- | -------------------------- |
+| Config   | `~/.config/sb/config.json` |
+| VM name  | `sb` (in Lima)             |
 
 ## Development
 

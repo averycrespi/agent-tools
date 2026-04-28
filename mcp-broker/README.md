@@ -23,20 +23,24 @@ An agent connects to mcp-broker as a single MCP server. mcp-broker connects to o
 
 ## Security
 
-mcp-broker is designed for **local use only** — it listens on localhost and must never be exposed to the public internet. The authentication layer is a lightweight guard against unauthorized local processes (rogue scripts, browser tabs, compromised extensions) accessing your tools and credentials. It is not a substitute for network-level security.
+mcp-broker is designed for **local use only**. Startup refuses to bind anything but a loopback interface (`127.0.0.1`, `::1`, or `localhost`) — binding to `0.0.0.0` or a LAN IP is a hard error, not a warning. This is the load-bearing security boundary; the bearer token is defense-in-depth on top of it.
 
 **Threat model:** Prevent other processes on your machine from calling the broker's HTTP endpoints without authorization. This covers casual/accidental access and opportunistic localhost attacks, not a determined attacker with root access to your machine.
 
 **What auth provides:**
+
 - A random bearer token required on every request (MCP and dashboard)
 - Cookie-based session for the browser dashboard
 - Constant-time token comparison to prevent timing attacks
 
 **What auth does NOT provide:**
+
 - Protection against an attacker who can read your filesystem (they can read the token file)
 - TLS/encryption (traffic is plain HTTP on localhost)
 - User accounts or role-based access — there is one token for everything
 - Automatic token rotation (use `mcp-broker token rotate` to rotate manually)
+
+**Sandboxed agents** reach the broker via Lima's user-mode networking, which forwards guest connections to `host.lima.internal:8200` to the host's loopback. Set `MCP_BROKER_ENDPOINT=http://host.lima.internal:8200` inside the sandbox.
 
 ## Quick start
 
@@ -61,12 +65,12 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
     "github": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": {"GITHUB_TOKEN": "$GITHUB_TOKEN"}
+      "env": { "GITHUB_TOKEN": "$GITHUB_TOKEN" }
     },
     "github-remote": {
       "type": "sse",
       "url": "https://api.githubcopilot.com/mcp/",
-      "headers": {"Authorization": "Bearer $GITHUB_TOKEN"}
+      "headers": { "Authorization": "Bearer $GITHUB_TOKEN" }
     },
     "internal": {
       "type": "streamable-http",
@@ -74,10 +78,11 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
     }
   },
   "rules": [
-    {"tool": "github.search_*", "verdict": "allow"},
-    {"tool": "github.push*", "verdict": "require-approval"},
-    {"tool": "*", "verdict": "require-approval"}
+    { "tool": "github.search_*", "verdict": "allow" },
+    { "tool": "github.push*", "verdict": "require-approval" },
+    { "tool": "*", "verdict": "require-approval" }
   ],
+  "host": "127.0.0.1",
   "port": 8200,
   "approval_timeout_seconds": 600,
   "telegram": {
@@ -98,14 +103,14 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
 
 Servers is a map keyed by server name. Each name is used as a tool prefix (e.g. `github.search`).
 
-| Field | Description |
-|-------|-------------|
-| `command` | Command to spawn (stdio transport, default) |
-| `args` | Command arguments |
-| `env` | Environment variables; `$VAR` and `${VAR}` references are expanded from the process environment |
-| `type` | Transport type: omit for stdio, `"streamable-http"` for Streamable HTTP, `"sse"` for SSE |
-| `url` | URL for HTTP/SSE transport |
-| `headers` | HTTP headers; `$VAR` and `${VAR}` references are expanded from the process environment |
+| Field     | Description                                                                                     |
+| --------- | ----------------------------------------------------------------------------------------------- |
+| `command` | Command to spawn (stdio transport, default)                                                     |
+| `args`    | Command arguments                                                                               |
+| `env`     | Environment variables; `$VAR` and `${VAR}` references are expanded from the process environment |
+| `type`    | Transport type: omit for stdio, `"streamable-http"` for Streamable HTTP, `"sse"` for SSE        |
+| `url`     | URL for HTTP/SSE transport                                                                      |
+| `headers` | HTTP headers; `$VAR` and `${VAR}` references are expanded from the process environment          |
 
 ### OAuth
 
@@ -129,6 +134,7 @@ To receive approval requests on your phone and approve/deny them from anywhere, 
 `token` and `chat_id` support `$VAR` / `${VAR}` environment variable expansion.
 
 **Setup:**
+
 1. Create a bot via [@BotFather](https://t.me/BotFather) on Telegram — it gives you a bot token.
 2. Start a chat with your bot, then get your chat ID by calling `https://api.telegram.org/bot<TOKEN>/getUpdates` after sending any message to it.
 3. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in your environment and set `enabled: true` in config.
@@ -139,13 +145,39 @@ When enabled, approval requests are sent to both the web dashboard and Telegram 
 
 Rules are evaluated top-to-bottom, first match wins. Patterns use Go's `filepath.Match` glob syntax.
 
-| Verdict | Behavior |
-|---------|----------|
-| `allow` | Tool call proceeds immediately |
-| `deny` | Tool call is rejected |
+| Verdict            | Behavior                                      |
+| ------------------ | --------------------------------------------- |
+| `allow`            | Tool call proceeds immediately                |
+| `deny`             | Tool call is rejected                         |
 | `require-approval` | Tool call blocks until approved via dashboard |
 
 Default (no matching rule): `require-approval`.
+
+#### Argument matching
+
+Rules can optionally constrain on argument values using the `args` field. All patterns must match (AND semantics) for a rule to fire.
+
+```json
+{
+  "rules": [
+    {
+      "tool": "git_push",
+      "verdict": "allow",
+      "args": [{ "path": "remote", "match": "origin" }]
+    },
+    {
+      "tool": "git_push",
+      "verdict": "deny",
+      "args": [{ "path": "commit.message", "match": { "regex": "^chore:" } }]
+    },
+    { "tool": "git_push", "verdict": "require-approval" }
+  ]
+}
+```
+
+`path` is a dot-separated field path (e.g. `remote`, `commit.message`, `command.0`). `match` is either a bare string for exact matching or `{"regex": "<RE2 pattern>"}` for regex matching. If a path cannot be resolved (missing key, wrong type, out-of-range index), the rule does not match and evaluation continues.
+
+Note: regexes are not auto-anchored — use `^...$` for full-match semantics.
 
 ## Authentication
 
@@ -175,6 +207,35 @@ On first run, mcp-broker generates a random auth token and saves it to `~/.confi
 mcp-broker token rotate    # Generate a new token (invalidates all existing sessions)
 ```
 
+## How the sandbox consumes it
+
+The sandbox needs one file from the host: the auth token (`~/.config/mcp-broker/auth-token`). The sandbox does **not** mount the host's `$HOME` — it must be copied in explicitly.
+
+### With sandbox-manager
+
+Add the token to `copy_paths` and the provisioning script to `scripts` in your `~/.config/sb/config.json`:
+
+```json
+{
+  "copy_paths": ["~/.config/mcp-broker/auth-token"],
+  "scripts": [
+    "/path/to/agent-tools/mcp-broker/examples/provision/mcp-broker.sh"
+  ]
+}
+```
+
+The token lands at `~/.config/mcp-broker/auth-token` inside the sandbox. The provisioning script then exports `MCP_BROKER_URL=http://host.lima.internal:8200/mcp` and `MCP_BROKER_TOKEN` (read from the file at shell startup) via a marker-fenced block in `~/.bashrc`. Wire those into your agent's MCP config — for example, `claude mcp add --transport http broker "$MCP_BROKER_URL" --header "Authorization: Bearer $MCP_BROKER_TOKEN"`.
+
+**Token rotation:** re-run `sb provision` after `mcp-broker token rotate` — `copy_paths` re-runs before `scripts`, so the new token flows through transparently. New shells pick up the updated value automatically.
+
+### Without sandbox-manager
+
+Copy the token file into the sandbox via whatever mechanism your setup uses, then run [`examples/provision/mcp-broker.sh`](examples/provision/mcp-broker.sh) — it writes the env-var block to `~/.bashrc`. The script targets bash; adapt the rc-file write for other shells.
+
+## Run as a launchd agent (macOS)
+
+To keep the broker running in the background whenever you're logged in, install it as a per-user LaunchAgent. See [docs/launchd.md](docs/launchd.md) for setup (including how to keep secrets out of the plist), install, verify, and manage steps.
+
 ## CLI
 
 ```
@@ -203,7 +264,47 @@ Requires Go 1.25+. Tool dependencies (golangci-lint, goimports, govulncheck) are
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for a visual overview of the request flow, and [DESIGN.md](DESIGN.md) for the full design document.
+See [DESIGN.md](DESIGN.md) for the full design document.
+
+### Request flow
+
+```mermaid
+flowchart TD
+    Agent["MCP Client"] -->|"HTTP + Bearer token"| MCP["MCP Server"]
+    CLI["Broker CLI"] -->|"HTTP + Bearer token"| MCP
+
+    MCP --> Rules["Rules Engine"]
+
+    Rules -->|allow| Proxy["Proxy"]
+    Rules -->|deny| Error["Return Error"]
+    Rules -->|require-approval| Approver["Approver"]
+
+    Approver -->|approved| Proxy
+    Approver -->|denied| Error
+
+    Proxy -->|stdio| Git["Local MCP Server"]
+    Proxy -->|HTTP / SSE| Remote["Remote MCP Server"]
+
+    Git --> Response["Return Response"]
+    Remote --> Response
+
+    Error --> Audit["Auditor"]
+    Response --> Audit
+
+    style MCP fill:#4a90d9,color:#fff
+    style Rules fill:#4a90d9,color:#fff
+    style Approver fill:#4a90d9,color:#fff
+    style Proxy fill:#4a90d9,color:#fff
+    style Agent fill:#95a5a6,color:#fff
+    style CLI fill:#95a5a6,color:#fff
+    style Git fill:#9b59b6,color:#fff
+    style Remote fill:#9b59b6,color:#fff
+    style Audit fill:#4a90d9,color:#fff
+    style Response fill:#7ed321,color:#fff
+    style Error fill:#d0021b,color:#fff
+```
+
+### Package layout
 
 ```
 cmd/mcp-broker/         CLI entry point (Cobra)

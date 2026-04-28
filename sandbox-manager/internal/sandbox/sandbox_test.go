@@ -217,37 +217,79 @@ func TestService_Create_Stopped(t *testing.T) {
 }
 
 func TestService_Provision_Scripts(t *testing.T) {
+	scriptPath := filepath.Join(t.TempDir(), "setup.sh")
+	require.NoError(t, os.WriteFile(scriptPath, []byte(""), 0o644))
+
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
-	ml.On("Copy", "/home/user/setup.sh", "/tmp/sb-provision-script", false).Return(nil)
+	ml.On("Copy", scriptPath, "/tmp/sb-provision-script", false).Return(nil)
 	ml.On("Exec", []string{"chmod", "+x", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
 	ml.On("Exec", []string{"/tmp/sb-provision-script"}).Return([]byte(""), nil)
 	ml.On("Exec", []string{"rm", "-f", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
 
 	cfg := config.Default()
-	cfg.Scripts = []string{"/home/user/setup.sh"}
+	cfg.Scripts = []string{scriptPath}
 
 	svc := sandbox.NewService(ml, cfg, nopLogger)
 	require.NoError(t, svc.Provision())
-	ml.AssertCalled(t, "Copy", "/home/user/setup.sh", "/tmp/sb-provision-script", false)
+	ml.AssertCalled(t, "Copy", scriptPath, "/tmp/sb-provision-script", false)
 	ml.AssertCalled(t, "Exec", []string{"chmod", "+x", "/tmp/sb-provision-script"})
 	ml.AssertCalled(t, "Exec", []string{"/tmp/sb-provision-script"})
 	ml.AssertCalled(t, "Exec", []string{"rm", "-f", "/tmp/sb-provision-script"})
 }
 
-func TestService_Provision_ScriptExecError(t *testing.T) {
+func TestService_Provision_Scripts_TildeExpansion(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	expanded := filepath.Join(home, "setup.sh")
+	require.NoError(t, os.WriteFile(expanded, []byte(""), 0o644))
+
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
-	ml.On("Copy", "/home/user/setup.sh", "/tmp/sb-provision-script", false).Return(nil)
+	ml.On("Copy", expanded, "/tmp/sb-provision-script", false).Return(nil)
+	ml.On("Exec", []string{"chmod", "+x", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
+	ml.On("Exec", []string{"/tmp/sb-provision-script"}).Return([]byte(""), nil)
+	ml.On("Exec", []string{"rm", "-f", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
+
+	cfg := config.Default()
+	cfg.Scripts = []string{"~/setup.sh"}
+
+	svc := sandbox.NewService(ml, cfg, nopLogger)
+	require.NoError(t, svc.Provision())
+	ml.AssertCalled(t, "Copy", expanded, "/tmp/sb-provision-script", false)
+}
+
+func TestService_Provision_ScriptExecError(t *testing.T) {
+	scriptPath := filepath.Join(t.TempDir(), "setup.sh")
+	require.NoError(t, os.WriteFile(scriptPath, []byte(""), 0o644))
+
+	ml := new(mockLima)
+	ml.On("Status").Return(lima.StatusRunning, nil)
+	ml.On("Copy", scriptPath, "/tmp/sb-provision-script", false).Return(nil)
 	ml.On("Exec", []string{"chmod", "+x", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
 	ml.On("Exec", []string{"/tmp/sb-provision-script"}).Return([]byte(""), fmt.Errorf("exit code 1"))
 
 	cfg := config.Default()
-	cfg.Scripts = []string{"/home/user/setup.sh"}
+	cfg.Scripts = []string{scriptPath}
 
 	svc := sandbox.NewService(ml, cfg, nopLogger)
 	err := svc.Provision()
 	assert.ErrorContains(t, err, "failed to run script")
+}
+
+func TestService_Provision_ScriptMissing(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "does-not-exist.sh")
+
+	ml := new(mockLima)
+	ml.On("Status").Return(lima.StatusRunning, nil)
+
+	cfg := config.Default()
+	cfg.Scripts = []string{missing}
+
+	svc := sandbox.NewService(ml, cfg, nopLogger)
+	err := svc.Provision()
+	assert.ErrorContains(t, err, "does not exist")
+	ml.AssertNotCalled(t, "Copy", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestService_Provision_CopyError(t *testing.T) {

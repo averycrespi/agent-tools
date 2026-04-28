@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/exec"
+	"github.com/google/shlex"
 )
 
 const (
@@ -25,6 +26,16 @@ func clampLimit(limit int) int {
 	return limit
 }
 
+// fetchLimit returns the page size to request from gh / the GitHub REST API
+// so callers can detect truncation: clampLimit(limit)+1, capped at maxLimit.
+func fetchLimit(limit int) int {
+	n := clampLimit(limit) + 1
+	if n > maxLimit {
+		return maxLimit
+	}
+	return n
+}
+
 const (
 	prViewFields  = "number,title,body,state,author,baseRefName,headRefName,url,isDraft,mergeable,reviewDecision,labels,assignees,createdAt,updatedAt"
 	prListFields  = "number,title,state,author,headRefName,url,isDraft,createdAt,updatedAt"
@@ -40,8 +51,8 @@ type CreatePROpts struct {
 
 // ListPROpts holds options for listing pull requests.
 type ListPROpts struct {
-	State, Author, Label, Base, Head, Search string
-	Limit                                    int
+	State, Author, Label, Base, Head string
+	Limit                            int
 }
 
 // MergePROpts holds options for merging a pull request.
@@ -93,13 +104,97 @@ func repoFlag(owner, repo string) string {
 	return owner + "/" + repo
 }
 
+// splitSearchQuery tokenizes a GitHub search DSL query into positional argv
+// tokens. Passing the whole query as a single positional makes `gh search`
+// quote it as one phrase (see search-test findings 2026-04-25); splitting
+// it lets `gh` see each DSL clause as its own positional and join them
+// itself. shlex preserves quoted phrases like `"hello world" in:title`.
+func splitSearchQuery(query string) ([]string, error) {
+	tokens, err := shlex.Split(query)
+	if err != nil {
+		return nil, fmt.Errorf("invalid search query: %w", err)
+	}
+	return tokens, nil
+}
+
+// urlInParensRe matches a parenthesized URL such as
+// ` (https://api.github.com/repos/.../pulls/X?per_page=31)` that gh CLI
+// sometimes appends to error messages. The URL adds no diagnostic value (the
+// caller knows the tool/args) but creates verbose noise that often includes
+// internal query parameters. Stripping it leaves the human-readable message.
+var urlInParensRe = regexp.MustCompile(` ?\(https?://[^)]+\)`)
+
+// stripURLInParens removes parenthesized URLs from gh CLI error output.
+func stripURLInParens(s string) string {
+	return urlInParensRe.ReplaceAllString(s, "")
+}
+
+// cleanGhStderr trims gh CLI stderr/stdout and strips parenthesized API URLs.
+// Use everywhere a gh subcommand failure is wrapped into a Go error so the
+// surfaced message stays human-readable.
+func cleanGhStderr(out []byte) string {
+	return stripURLInParens(strings.TrimSpace(string(out)))
+}
+
+// cleanAPIError extracts the most useful single-line error from `gh api`
+// combined output. On failure gh emits the JSON body to stdout and a
+// `gh: <message> (HTTP <code>) (URL)` line to stderr; CombinedOutput
+// concatenates them. Prefer the `gh:` line when present; otherwise fall back
+// to the trimmed blob. The parenthesized URL is scrubbed via stripURLInParens.
+//
+// Uses LastIndex so the marker is found even when gh concatenates a JSON body
+// (with no trailing newline) directly before the `gh: ` line.
+func cleanAPIError(out []byte) string {
+	s := strings.TrimSpace(string(out))
+	if i := strings.LastIndex(s, "gh: "); i >= 0 {
+		line := s[i:]
+		if j := strings.IndexByte(line, '\n'); j >= 0 {
+			line = line[:j]
+		}
+		return stripURLInParens(strings.TrimSpace(line))
+	}
+	return stripURLInParens(s)
+}
+
+// cleanGhError extracts the most useful single-line error from `gh search`
+// (and similar subcommand) output. When gh rejects a flag value it prints an
+// `Error: <message>` line followed by usage text (~50 lines). We return just
+// that first Error line. If no Error line is found, we return the first
+// non-empty line. If the output is blank, we return the trimmed input.
+// Parenthesized API URLs are scrubbed via stripURLInParens.
+func cleanGhError(out []byte) string {
+	s := strings.TrimSpace(string(out))
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Error: ") {
+			return stripURLInParens(line)
+		}
+	}
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return stripURLInParens(line)
+		}
+	}
+	return stripURLInParens(s)
+}
+
 // AuthStatus checks whether the gh CLI is authenticated.
 func (c *Client) AuthStatus(_ context.Context) error {
 	out, err := c.runner.Run("gh", "auth", "status")
 	if err != nil {
-		return fmt.Errorf("gh auth status failed: %s", strings.TrimSpace(string(out)))
+		return fmt.Errorf("gh auth status failed: %s", cleanGhStderr(out))
 	}
 	return nil
+}
+
+// ViewUser returns the authenticated user as JSON from `gh api /user`.
+func (c *Client) ViewUser(_ context.Context) (string, error) {
+	out, err := c.runner.Run("gh", "api", "/user")
+	if err != nil {
+		return "", fmt.Errorf("gh api /user failed: %s", cleanAPIError(out))
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // CreatePR creates a new pull request.
@@ -125,7 +220,7 @@ func (c *Client) CreatePR(_ context.Context, owner, repo string, opts CreatePROp
 	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh pr create failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr create failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -134,14 +229,15 @@ func (c *Client) CreatePR(_ context.Context, owner, repo string, opts CreatePROp
 func (c *Client) ViewPR(_ context.Context, owner, repo string, number int) (string, error) {
 	out, err := c.runner.Run("gh", "pr", "view", "-R", repoFlag(owner, repo), "--json", prViewFields, strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh pr view failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr view failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
 // ListPRs lists pull requests for a repository.
+// Requests limit+1 items so the caller can detect truncation.
 func (c *Client) ListPRs(_ context.Context, owner, repo string, opts ListPROpts) (string, error) {
-	args := []string{"pr", "list", "-R", repoFlag(owner, repo), "--json", prListFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	args := []string{"pr", "list", "-R", repoFlag(owner, repo), "--json", prListFields, "--limit", strconv.Itoa(fetchLimit(opts.Limit))}
 	if opts.State != "" {
 		args = append(args, "--state", opts.State)
 	}
@@ -157,12 +253,9 @@ func (c *Client) ListPRs(_ context.Context, owner, repo string, opts ListPROpts)
 	if opts.Head != "" {
 		args = append(args, "--head", opts.Head)
 	}
-	if opts.Search != "" {
-		args = append(args, "--search", opts.Search)
-	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh pr list failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr list failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -171,7 +264,7 @@ func (c *Client) ListPRs(_ context.Context, owner, repo string, opts ListPROpts)
 func (c *Client) DiffPR(_ context.Context, owner, repo string, number int) (string, error) {
 	out, err := c.runner.Run("gh", "pr", "diff", "-R", repoFlag(owner, repo), strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh pr diff failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr diff failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -180,7 +273,7 @@ func (c *Client) DiffPR(_ context.Context, owner, repo string, number int) (stri
 func (c *Client) CommentPR(_ context.Context, owner, repo string, number int, body string) (string, error) {
 	out, err := c.runner.Run("gh", "pr", "comment", "-R", repoFlag(owner, repo), "--body", body, strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh pr comment failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr comment failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -202,7 +295,7 @@ func (c *Client) ReviewPR(_ context.Context, owner, repo string, number int, eve
 	args = append(args, strconv.Itoa(number))
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh pr review failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr review failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -227,7 +320,7 @@ func (c *Client) MergePR(_ context.Context, owner, repo string, number int, opts
 	args = append(args, strconv.Itoa(number))
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh pr merge failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr merge failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -265,7 +358,7 @@ func (c *Client) EditPR(_ context.Context, owner, repo string, number int, opts 
 	args = append(args, strconv.Itoa(number))
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh pr edit failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr edit failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -274,7 +367,7 @@ func (c *Client) EditPR(_ context.Context, owner, repo string, number int, opts 
 func (c *Client) CheckPR(_ context.Context, owner, repo string, number int) (string, error) {
 	out, err := c.runner.Run("gh", "pr", "checks", "-R", repoFlag(owner, repo), "--json", prCheckFields, strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh pr checks failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr checks failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -288,7 +381,34 @@ func (c *Client) ClosePR(_ context.Context, owner, repo string, number int, comm
 	args = append(args, strconv.Itoa(number))
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh pr close failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr close failed: %s", cleanGhStderr(out))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ReadyPR marks a draft pull request as ready for review.
+func (c *Client) ReadyPR(_ context.Context, owner, repo string, number int) (string, error) {
+	out, err := c.runner.Run("gh", "pr", "ready", strconv.Itoa(number), "-R", repoFlag(owner, repo))
+	if err != nil {
+		return "", fmt.Errorf("gh pr ready failed: %s", cleanGhStderr(out))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// DraftPR converts a pull request back to draft.
+func (c *Client) DraftPR(_ context.Context, owner, repo string, number int) (string, error) {
+	out, err := c.runner.Run("gh", "pr", "ready", strconv.Itoa(number), "--undo", "-R", repoFlag(owner, repo))
+	if err != nil {
+		return "", fmt.Errorf("gh pr ready --undo failed: %s", cleanGhStderr(out))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ReopenPR reopens a closed pull request.
+func (c *Client) ReopenPR(_ context.Context, owner, repo string, number int) (string, error) {
+	out, err := c.runner.Run("gh", "pr", "reopen", strconv.Itoa(number), "-R", repoFlag(owner, repo))
+	if err != nil {
+		return "", fmt.Errorf("gh pr reopen failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -307,22 +427,26 @@ const (
 
 // Search field constants.
 const (
-	searchPRFields     = "number,title,state,author,repository,url,createdAt,updatedAt"
-	searchIssueFields  = "number,title,state,author,repository,url,createdAt,updatedAt"
+	searchPRFields     = "number,title,state,author,repository,body,updatedAt"
+	searchIssueFields  = "number,title,state,author,repository,body,updatedAt"
 	searchRepoFields   = "fullName,description,url,stargazersCount,language,updatedAt"
 	searchCodeFields   = "path,repository,sha,textMatches,url"
 	searchCommitFields = "sha,commit,author,repository,url,committer"
 )
 
+// cacheListFields is the JSON field set requested from `gh cache list`.
+const cacheListFields = "id,key,ref,sizeInBytes,createdAt,lastAccessedAt"
+
 // ListIssuesOpts holds options for listing issues.
 type ListIssuesOpts struct {
-	State, Author, Assignee, Label, Milestone, Search string
-	Limit                                             int
+	State, Author, Assignee, Label, Milestone string
+	Limit                                     int
 }
 
 // ListRunsOpts holds options for listing workflow runs.
 type ListRunsOpts struct {
 	Branch, Status, Workflow string
+	Actor, Event             string
 	Limit                    int
 }
 
@@ -366,14 +490,15 @@ type SearchCommitsOpts struct {
 func (c *Client) ViewIssue(_ context.Context, owner, repo string, number int) (string, error) {
 	out, err := c.runner.Run("gh", "issue", "view", "-R", repoFlag(owner, repo), "--json", issueViewFields, strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh issue view failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh issue view failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
 // ListIssues lists issues for a repository.
+// Requests limit+1 items so the caller can detect truncation.
 func (c *Client) ListIssues(_ context.Context, owner, repo string, opts ListIssuesOpts) (string, error) {
-	args := []string{"issue", "list", "-R", repoFlag(owner, repo), "--json", issueListFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	args := []string{"issue", "list", "-R", repoFlag(owner, repo), "--json", issueListFields, "--limit", strconv.Itoa(fetchLimit(opts.Limit))}
 	if opts.State != "" {
 		args = append(args, "--state", opts.State)
 	}
@@ -389,12 +514,9 @@ func (c *Client) ListIssues(_ context.Context, owner, repo string, opts ListIssu
 	if opts.Milestone != "" {
 		args = append(args, "--milestone", opts.Milestone)
 	}
-	if opts.Search != "" {
-		args = append(args, "--search", opts.Search)
-	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh issue list failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh issue list failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -403,38 +525,67 @@ func (c *Client) ListIssues(_ context.Context, owner, repo string, opts ListIssu
 func (c *Client) CommentIssue(_ context.Context, owner, repo string, number int, body string) (string, error) {
 	out, err := c.runner.Run("gh", "issue", "comment", "-R", repoFlag(owner, repo), "--body", body, strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh issue comment failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh issue comment failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
 // PRComments retrieves comments on a pull request.
+// Requests limit+1 items via jq slice so the caller can detect truncation.
 func (c *Client) PRComments(_ context.Context, owner, repo string, number int, limit int) (string, error) {
 	out, err := c.runner.Run("gh", "pr", "view", "-R", repoFlag(owner, repo),
 		"--json", "comments", "--jq",
-		fmt.Sprintf(".comments[:%d] | map({author,authorAssociation,body,createdAt,isMinimized,minimizedReason})", clampLimit(limit)),
+		fmt.Sprintf(".comments[:%d] | map({author,authorAssociation,body,createdAt,isMinimized,minimizedReason})", fetchLimit(limit)),
 		strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh pr comments failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh pr comments failed: %s", cleanGhStderr(out))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// PRReviews retrieves top-level review submissions on a pull request.
+// Requests limit+1 items via jq slice so the caller can detect truncation.
+func (c *Client) PRReviews(_ context.Context, owner, repo string, number int, limit int) (string, error) {
+	out, err := c.runner.Run("gh", "pr", "view", "-R", repoFlag(owner, repo),
+		"--json", "reviews", "--jq",
+		fmt.Sprintf(".reviews[:%d] | map({author,authorAssociation,body,state,submittedAt})", fetchLimit(limit)),
+		strconv.Itoa(number))
+	if err != nil {
+		return "", fmt.Errorf("gh pr reviews failed: %s", cleanGhStderr(out))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// PRReviewComments retrieves inline review comments on a pull request.
+// Uses the REST API via `gh api` because `gh pr view --json` does not expose inline comments.
+// Requests limit+1 items (capped at 100) so the caller can detect truncation.
+func (c *Client) PRReviewComments(_ context.Context, owner, repo string, number int, limit int) (string, error) {
+	endpoint := fmt.Sprintf("repos/%s/pulls/%d/comments?per_page=%d", repoFlag(owner, repo), number, fetchLimit(limit))
+	jq := "map({id, in_reply_to_id, pull_request_review_id, user: {login: .user.login, type: .user.type}, author_association, body, path, line, original_line, side, diff_hunk, created_at})"
+	out, err := c.runner.Run("gh", "api", "--jq", jq, "--", endpoint)
+	if err != nil {
+		return "", fmt.Errorf("gh pr review comments failed: %s", cleanAPIError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
 // IssueComments retrieves comments on an issue.
+// Requests limit+1 items via jq slice so the caller can detect truncation.
 func (c *Client) IssueComments(_ context.Context, owner, repo string, number int, limit int) (string, error) {
 	out, err := c.runner.Run("gh", "issue", "view", "-R", repoFlag(owner, repo),
 		"--json", "comments", "--jq",
-		fmt.Sprintf(".comments[:%d] | map({author,authorAssociation,body,createdAt,isMinimized,minimizedReason})", clampLimit(limit)),
+		fmt.Sprintf(".comments[:%d] | map({author,authorAssociation,body,createdAt,isMinimized,minimizedReason})", fetchLimit(limit)),
 		strconv.Itoa(number))
 	if err != nil {
-		return "", fmt.Errorf("gh issue comments failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh issue comments failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
 // ListRuns lists workflow runs for a repository.
+// Requests limit+1 items so the caller can detect truncation.
 func (c *Client) ListRuns(_ context.Context, owner, repo string, opts ListRunsOpts) (string, error) {
-	args := []string{"run", "list", "-R", repoFlag(owner, repo), "--json", runListFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	args := []string{"run", "list", "-R", repoFlag(owner, repo), "--json", runListFields, "--limit", strconv.Itoa(fetchLimit(opts.Limit))}
 	if opts.Branch != "" {
 		args = append(args, "--branch", opts.Branch)
 	}
@@ -444,11 +595,31 @@ func (c *Client) ListRuns(_ context.Context, owner, repo string, opts ListRunsOp
 	if opts.Workflow != "" {
 		args = append(args, "--workflow", opts.Workflow)
 	}
+	if opts.Actor != "" {
+		args = append(args, "--user", opts.Actor)
+	}
+	if opts.Event != "" {
+		args = append(args, "--event", opts.Event)
+	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh run list failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh run list failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// normalizeRunLog strips UTF-8 BOMs and collapses "\tUNKNOWN STEP\t" to "\t"
+// in gh run-log output. gh emits a BOM at the start of some log streams; for
+// `--log-failed` (which concatenates multiple jobs) BOMs also appear
+// internally between job sections, so ReplaceAll is required — TrimPrefix
+// would only catch the leading one. "UNKNOWN STEP" appears when step metadata
+// is missing and pads every line with noise that inflates byte caps.
+// TrimSpace is also applied so callers receive clean output regardless of
+// trailing newlines.
+func normalizeRunLog(out string) string {
+	s := strings.ReplaceAll(out, "\uFEFF", "")
+	s = strings.ReplaceAll(s, "\tUNKNOWN STEP\t", "\t")
+	return strings.TrimSpace(s)
 }
 
 // ViewRun retrieves details for a workflow run. If logFailed is true, returns
@@ -462,9 +633,33 @@ func (c *Client) ViewRun(_ context.Context, owner, repo string, runID string, lo
 	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh run view failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh run view failed: %s", cleanGhStderr(out))
+	}
+	if logFailed {
+		return normalizeRunLog(string(out)), nil
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// ViewRunJobLog fetches the log output for a single workflow job by ID.
+// If tailLines > 0, only the last tailLines lines are returned.
+//
+// gh upstream prepends a TSV prefix `<job>\t<step>\t<timestamp>` to every line;
+// when step metadata is missing the step column reads "UNKNOWN STEP", which
+// burns the byte cap with noise. We collapse those occurrences via
+// normalizeRunLog. We also strip a leading UTF-8 BOM that gh sometimes emits
+// on the first line.
+func (c *Client) ViewRunJobLog(_ context.Context, owner, repo string, jobID int64, tailLines int) (string, error) {
+	out, err := c.runner.Run("gh", "run", "view", "--job", strconv.FormatInt(jobID, 10), "--log", "-R", repoFlag(owner, repo))
+	if err != nil {
+		return "", fmt.Errorf("gh run view --job failed: %s", cleanGhStderr(out))
+	}
+	body := normalizeRunLog(string(out))
+	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	if tailLines > 0 && len(lines) > tailLines {
+		lines = lines[len(lines)-tailLines:]
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 // Rerun re-runs a workflow run.
@@ -476,7 +671,7 @@ func (c *Client) Rerun(_ context.Context, owner, repo string, runID string, fail
 	args = append(args, "--", runID)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh run rerun failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh run rerun failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -485,14 +680,15 @@ func (c *Client) Rerun(_ context.Context, owner, repo string, runID string, fail
 func (c *Client) CancelRun(_ context.Context, owner, repo string, runID string) (string, error) {
 	out, err := c.runner.Run("gh", "run", "cancel", "-R", repoFlag(owner, repo), "--", runID)
 	if err != nil {
-		return "", fmt.Errorf("gh run cancel failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh run cancel failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
 // ListCaches lists caches for a repository.
+// Requests limit+1 items so the caller can detect truncation.
 func (c *Client) ListCaches(_ context.Context, owner, repo string, opts ListCachesOpts) (string, error) {
-	args := []string{"cache", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(clampLimit(opts.Limit))}
+	args := []string{"cache", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(fetchLimit(opts.Limit)), "--json", cacheListFields}
 	if opts.Sort != "" {
 		args = append(args, "--sort", opts.Sort)
 	}
@@ -501,7 +697,7 @@ func (c *Client) ListCaches(_ context.Context, owner, repo string, opts ListCach
 	}
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh cache list failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh cache list failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -510,7 +706,35 @@ func (c *Client) ListCaches(_ context.Context, owner, repo string, opts ListCach
 func (c *Client) DeleteCache(_ context.Context, owner, repo string, cacheID string) (string, error) {
 	out, err := c.runner.Run("gh", "cache", "delete", "-R", repoFlag(owner, repo), "--", cacheID)
 	if err != nil {
-		return "", fmt.Errorf("gh cache delete failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh cache delete failed: %s", cleanGhStderr(out))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ListPRFiles lists files changed by a pull request.
+// Requests one extra item (up to 100) so callers can detect truncation.
+func (c *Client) ListPRFiles(_ context.Context, owner, repo string, number, limit int) (string, error) {
+	out, err := c.runner.Run("gh", "api",
+		fmt.Sprintf("repos/%s/%s/pulls/%s/files?per_page=%s", owner, repo, strconv.Itoa(number), strconv.Itoa(fetchLimit(limit))),
+	)
+	if err != nil {
+		return "", fmt.Errorf("gh api pulls/%d/files failed: %s", number, cleanAPIError(out))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ListBranches lists branches in a repository.
+// Requests one extra item (up to 100) so callers can detect truncation.
+// page is 1-indexed; values < 1 are treated as 1.
+func (c *Client) ListBranches(_ context.Context, owner, repo string, limit, page int) (string, error) {
+	if page < 1 {
+		page = 1
+	}
+	out, err := c.runner.Run("gh", "api",
+		fmt.Sprintf("repos/%s/%s/branches?per_page=%s&page=%s", owner, repo, strconv.Itoa(fetchLimit(limit)), strconv.Itoa(page)),
+	)
+	if err != nil {
+		return "", fmt.Errorf("gh api branches failed: %s", cleanAPIError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -524,19 +748,31 @@ func (c *Client) SearchPRs(_ context.Context, query string, opts SearchPRsOpts) 
 	if opts.Owner != "" {
 		args = append(args, "--owner", opts.Owner)
 	}
-	if opts.State != "" {
-		args = append(args, "--state", opts.State)
-	}
 	if opts.Author != "" {
 		args = append(args, "--author", opts.Author)
 	}
 	if opts.Label != "" {
 		args = append(args, "--label", opts.Label)
 	}
-	args = append(args, "--", query)
+	tokens, err := splitSearchQuery(query)
+	if err != nil {
+		return "", err
+	}
+	// `gh search prs --state` is unreliable when combined with --repo (returns
+	// zero results regardless of repo activity). Inject the equivalent `is:`
+	// qualifier into the query tokens instead — this matches the GitHub search
+	// API directly and avoids the gh CLI quirk.
+	switch opts.State {
+	case "open", "closed", "merged":
+		tokens = append(tokens, "is:"+opts.State)
+	case "all", "":
+		// no state filter
+	}
+	args = append(args, "--")
+	args = append(args, tokens...)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh search prs failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh search prs failed: %s", cleanGhError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -550,19 +786,29 @@ func (c *Client) SearchIssues(_ context.Context, query string, opts SearchIssues
 	if opts.Owner != "" {
 		args = append(args, "--owner", opts.Owner)
 	}
-	if opts.State != "" {
-		args = append(args, "--state", opts.State)
-	}
 	if opts.Author != "" {
 		args = append(args, "--author", opts.Author)
 	}
 	if opts.Label != "" {
 		args = append(args, "--label", opts.Label)
 	}
-	args = append(args, "--", query)
+	tokens, err := splitSearchQuery(query)
+	if err != nil {
+		return "", err
+	}
+	// Mirror SearchPRs: inject `is:<state>` rather than relying on `gh search
+	// issues --state`, which is unreliable when combined with --repo.
+	switch opts.State {
+	case "open", "closed":
+		tokens = append(tokens, "is:"+opts.State)
+	case "all", "":
+		// no state filter
+	}
+	args = append(args, "--")
+	args = append(args, tokens...)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh search issues failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh search issues failed: %s", cleanGhError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -582,10 +828,15 @@ func (c *Client) SearchRepos(_ context.Context, query string, opts SearchReposOp
 	if opts.Stars != "" {
 		args = append(args, "--stars", opts.Stars)
 	}
-	args = append(args, "--", query)
+	tokens, err := splitSearchQuery(query)
+	if err != nil {
+		return "", err
+	}
+	args = append(args, "--")
+	args = append(args, tokens...)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh search repos failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh search repos failed: %s", cleanGhError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -608,10 +859,44 @@ func (c *Client) SearchCode(_ context.Context, query string, opts SearchCodeOpts
 	if opts.Filename != "" {
 		args = append(args, "--filename", opts.Filename)
 	}
-	args = append(args, "--", query)
+	tokens, err := splitSearchQuery(query)
+	if err != nil {
+		return "", err
+	}
+	args = append(args, "--")
+	args = append(args, tokens...)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh search code failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh search code failed: %s", cleanGhError(out))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ListReleases lists releases in a repository.
+// limit+1 entries are requested so the caller can detect truncation.
+//
+// `gh release list --json` does not support an `author` field (only `gh release
+// view --json` does); requesting it makes gh exit non-zero with
+// `Unknown JSON field: "author"`. Per-release author is only available via view.
+func (c *Client) ListReleases(_ context.Context, owner, repo string, limit int) (string, error) {
+	args := []string{"release", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(fetchLimit(limit)), "--json", "tagName,name,publishedAt,isDraft,isPrerelease"}
+	out, err := c.runner.Run("gh", args...)
+	if err != nil {
+		return "", fmt.Errorf("gh release list failed: %s", cleanGhStderr(out))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ViewRelease retrieves details for a single release. When tag is empty, gh
+// returns the latest release.
+func (c *Client) ViewRelease(_ context.Context, owner, repo, tag string) (string, error) {
+	args := []string{"release", "view", "-R", repoFlag(owner, repo), "--json", "tagName,name,author,publishedAt,body,isDraft,isPrerelease,assets"}
+	if tag != "" {
+		args = append(args, "--", tag)
+	}
+	out, err := c.runner.Run("gh", args...)
+	if err != nil {
+		return "", fmt.Errorf("gh release view failed: %s", cleanGhStderr(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -628,10 +913,15 @@ func (c *Client) SearchCommits(_ context.Context, query string, opts SearchCommi
 	if opts.Author != "" {
 		args = append(args, "--author", opts.Author)
 	}
-	args = append(args, "--", query)
+	tokens, err := splitSearchQuery(query)
+	if err != nil {
+		return "", err
+	}
+	args = append(args, "--")
+	args = append(args, tokens...)
 	out, err := c.runner.Run("gh", args...)
 	if err != nil {
-		return "", fmt.Errorf("gh search commits failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh search commits failed: %s", cleanGhError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
 }

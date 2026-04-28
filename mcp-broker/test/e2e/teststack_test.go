@@ -80,9 +80,12 @@ func freePort(t *testing.T) int {
 // --- Mock MCP backend ---
 
 type toolDef struct {
-	Name        string
-	Description string
-	Response    string // JSON text returned by CallTool
+	Name         string
+	Description  string
+	Response     string // JSON text returned by CallTool
+	Annotations  *gomcp.ToolAnnotation
+	OutputSchema *gomcp.ToolOutputSchema
+	Meta         *gomcp.Meta
 }
 
 // startMockBackend starts an in-process mcp-go HTTP server with the given tools
@@ -94,12 +97,20 @@ func startMockBackend(t *testing.T, tools []toolDef) string {
 	srv := mcpserver.NewMCPServer("mock-backend", "0.1.0")
 	for _, td := range tools {
 		td := td
+		tool := gomcp.Tool{
+			Name:        td.Name,
+			Description: td.Description,
+			InputSchema: gomcp.ToolInputSchema{Type: "object"},
+			Meta:        td.Meta,
+		}
+		if td.Annotations != nil {
+			tool.Annotations = *td.Annotations
+		}
+		if td.OutputSchema != nil {
+			tool.OutputSchema = *td.OutputSchema
+		}
 		srv.AddTool(
-			gomcp.Tool{
-				Name:        td.Name,
-				Description: td.Description,
-				InputSchema: gomcp.ToolInputSchema{Type: "object"},
-			},
+			tool,
 			func(_ context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
 				return gomcp.NewToolResultText(td.Response), nil
 			},
@@ -141,8 +152,14 @@ type testServerConfig struct {
 }
 
 type testRuleConfig struct {
-	Tool    string `json:"tool"`
-	Verdict string `json:"verdict"`
+	Tool    string           `json:"tool"`
+	Verdict string           `json:"verdict"`
+	Args    []testArgPattern `json:"args,omitempty"`
+}
+
+type testArgPattern struct {
+	Path  string          `json:"path"`
+	Match json.RawMessage `json:"match"`
 }
 
 type testAuditConfig struct {

@@ -4,18 +4,30 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/format"
 	"github.com/averycrespi/agent-tools/local-gh-mcp/internal/gh"
 	gomcp "github.com/mark3labs/mcp-go/mcp"
 )
 
+func prNumberOnlySchema(prDesc string) gomcp.ToolInputSchema {
+	return gomcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]any{
+			"owner":     map[string]any{"type": "string", "description": "Repository owner."},
+			"repo":      map[string]any{"type": "string", "description": "Repository name."},
+			"pr_number": map[string]any{"type": "number", "minimum": 1, "description": prDesc},
+		},
+		Required: []string{"owner", "repo", "pr_number"},
+	}
+}
+
 func (h *Handler) prTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "gh_create_pr",
-			Description: "Create a new pull request",
+			Description: "Create a new pull request. Fails if a PR already exists for the head branch. Returns the PR URL. Pass an empty body to let GitHub apply the repo's PR template.",
+			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -63,12 +75,13 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Assignees to add",
 					},
 				},
-				Required: []string{"owner", "repo", "title", "body"},
+				Required: []string{"owner", "repo", "title"},
 			},
 		},
 		{
 			Name:        "gh_view_pr",
-			Description: "View pull request details. Returns structured markdown with metadata and description.",
+			Description: "View PR metadata and description as structured markdown. For the diff, use gh_diff_pr; for CI status, use gh_list_pr_checks; for conversation, use gh_list_pr_comments/reviews/review_comments.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -80,21 +93,24 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"description": "Pull request number",
 					},
 					"max_body_length": map[string]any{
 						"type":        "number",
-						"description": "Max body length in chars (default 2000, max 50000)",
+						"default":     2000,
+						"description": "Max body length in bytes (default 2000, max 50000).",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
 		{
 			Name:        "gh_list_prs",
-			Description: "List pull requests. Returns markdown bullet list.",
+			Description: "List PRs in a single repository. Use this when you know owner/repo. For cross-repo queries or GitHub search DSL filters (is:open, author:@me, etc.), use gh_search_prs instead. To filter by draft status, use gh_search_prs with 'is:draft' (or '-is:draft').",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -108,7 +124,9 @@ func (h *Handler) prTools() []gomcp.Tool {
 					},
 					"state": map[string]any{
 						"type":        "string",
-						"description": "Filter by state: open, closed, merged, all",
+						"enum":        []string{"open", "closed", "merged", "all"},
+						"default":     "open",
+						"description": "Filter by state (default open). 'closed' returns all closed PRs (including merged, matching GitHub API semantics); use 'merged' to narrow to only merged PRs. To exclude merged from closed, use gh_search_prs with 'is:closed -is:merged'.",
 					},
 					"author": map[string]any{
 						"type":        "string",
@@ -126,13 +144,11 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Filter by head branch",
 					},
-					"search": map[string]any{
-						"type":        "string",
-						"description": "Search query",
-					},
 					"limit": map[string]any{
 						"type":        "number",
-						"description": "Max results (default 30, max 100)",
+						"minimum":     1,
+						"default":     30,
+						"description": "Max results (default 30, max 100).",
 					},
 				},
 				Required: []string{"owner", "repo"},
@@ -140,7 +156,8 @@ func (h *Handler) prTools() []gomcp.Tool {
 		},
 		{
 			Name:        "gh_diff_pr",
-			Description: "Get pull request diff. Returns file summary table followed by unified diff.",
+			Description: "View a PR's diff. Returns a file summary table followed by the unified diff, capped at `max_bytes` (default 50000, max 500000). The summary table always lists every file even when the diff body is truncated. If you only need the file list, use gh_list_pr_files.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -152,17 +169,24 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"description": "Pull request number",
 					},
+					"max_bytes": map[string]any{
+						"type":        "number",
+						"default":     50000,
+						"description": "Max diff body bytes (default 50000, max 500000). Truncated on a line boundary with a trailer.",
+					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
 		{
 			Name:        "gh_comment_pr",
-			Description: "Add a comment to a pull request",
+			Description: "Post a conversation comment on a PR (issue-style, not tied to a line of the diff). For inline review comments, use gh_review_pr instead.",
+			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -174,8 +198,9 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"description": "Pull request number",
 					},
 					"body": map[string]any{
@@ -183,12 +208,13 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Comment body",
 					},
 				},
-				Required: []string{"owner", "repo", "number", "body"},
+				Required: []string{"owner", "repo", "pr_number", "body"},
 			},
 		},
 		{
 			Name:        "gh_review_pr",
-			Description: "Submit a review on a pull request",
+			Description: "Submit a review: approve, request_changes, or comment. Requires owner, repo, PR number, and event. A body is optional for approve and comment; request_changes requires a body.",
+			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -200,25 +226,28 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"description": "Pull request number",
 					},
 					"event": map[string]any{
 						"type":        "string",
-						"description": "Review event: approve, request_changes, comment",
+						"enum":        []string{"approve", "request_changes", "comment"},
+						"description": "Review event type.",
 					},
 					"body": map[string]any{
 						"type":        "string",
 						"description": "Review body",
 					},
 				},
-				Required: []string{"owner", "repo", "number", "event"},
+				Required: []string{"owner", "repo", "pr_number", "event"},
 			},
 		},
 		{
 			Name:        "gh_merge_pr",
-			Description: "Merge a pull request",
+			Description: "Merge a pull request. Method defaults to the repo's default; specify merge/squash/rebase explicitly to override. Set auto=true to enable auto-merge when checks pass.",
+			Annotations: annDestructive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -230,13 +259,15 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"description": "Pull request number",
 					},
 					"method": map[string]any{
 						"type":        "string",
-						"description": "Merge method: merge, squash, rebase",
+						"enum":        []string{"merge", "squash", "rebase"},
+						"description": "Merge method.",
 					},
 					"delete_branch": map[string]any{
 						"type":        "boolean",
@@ -247,12 +278,13 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Enable auto-merge",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
 		{
 			Name:        "gh_edit_pr",
-			Description: "Edit a pull request",
+			Description: "Edit PR metadata (title, body, base, labels, reviewers, assignees). Cannot change state or draft status — use gh_close_pr/gh_ready_pr/gh_draft_pr/gh_reopen_pr for those.",
+			Annotations: annIdempotent,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -264,8 +296,9 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"description": "Pull request number",
 					},
 					"title": map[string]any{
@@ -311,12 +344,13 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Assignees to remove",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
 		{
-			Name:        "gh_check_pr",
-			Description: "View status checks for a pull request. Returns markdown bullet list.",
+			Name:        "gh_list_pr_checks",
+			Description: "List CI status checks for a PR. Returns markdown bullets per check with state (e.g. SUCCESS, FAILURE, PENDING) and link.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -328,17 +362,19 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"description": "Pull request number",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
 		{
 			Name:        "gh_close_pr",
-			Description: "Close a pull request",
+			Description: "Close a PR without merging. Optionally attach a closing comment. To reopen later, use gh_reopen_pr.",
+			Annotations: annDestructive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -350,8 +386,9 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"description": "Pull request number",
 					},
 					"comment": map[string]any{
@@ -359,12 +396,13 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"description": "Comment to add when closing",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
 		},
 		{
 			Name:        "gh_list_pr_comments",
-			Description: "List comments on a pull request. Returns markdown-formatted comment list.",
+			Description: "List conversation (issue-style) comments on a pull request. Does NOT include review summaries or inline diff comments — for those, use gh_list_pr_reviews and gh_list_pr_review_comments. Returns markdown-formatted comment list.",
+			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -376,21 +414,128 @@ func (h *Handler) prTools() []gomcp.Tool {
 						"type":        "string",
 						"description": "Repository name",
 					},
-					"number": map[string]any{
+					"pr_number": map[string]any{
 						"type":        "number",
+						"minimum":     1,
 						"description": "Pull request number",
 					},
 					"max_body_length": map[string]any{
 						"type":        "number",
-						"description": "Max body length per comment in chars (default 2000, max 50000)",
+						"default":     2000,
+						"description": "Max body length per comment in bytes (default 2000, max 50000).",
 					},
 					"limit": map[string]any{
 						"type":        "number",
-						"description": "Max comments to return (default 30, max 100)",
+						"minimum":     1,
+						"default":     30,
+						"description": "Max comments to return (default 30, max 100).",
 					},
 				},
-				Required: []string{"owner", "repo", "number"},
+				Required: []string{"owner", "repo", "pr_number"},
 			},
+		},
+		{
+			Name:        "gh_list_pr_reviews",
+			Description: "List top-level review submissions on a pull request (approve, request-changes, comment) with their state, body, author, and submission date. For inline diff comments use gh_list_pr_review_comments. Returns markdown.",
+			Annotations: annRead,
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"owner": map[string]any{
+						"type":        "string",
+						"description": "Repository owner",
+					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Repository name",
+					},
+					"pr_number": map[string]any{
+						"type":        "number",
+						"minimum":     1,
+						"description": "Pull request number",
+					},
+					"max_body_length": map[string]any{
+						"type":        "number",
+						"default":     4000,
+						"description": "Max body length per review in bytes (default 4000, max 50000). Default is higher than other tools because PR reviews (especially Copilot) routinely exceed 2KB.",
+					},
+					"limit": map[string]any{
+						"type":        "number",
+						"minimum":     1,
+						"default":     30,
+						"description": "Max reviews to return (default 30, max 100).",
+					},
+				},
+				Required: []string{"owner", "repo", "pr_number"},
+			},
+		},
+		{
+			Name:        "gh_list_pr_review_comments",
+			Description: "List inline review comments on a pull request's diff (comments attached to specific file and line). Grouped by file and threaded by reply. For top-level review summaries use gh_list_pr_reviews; for issue-style comments use gh_list_pr_comments. Returns markdown.",
+			Annotations: annRead,
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"owner": map[string]any{
+						"type":        "string",
+						"description": "Repository owner",
+					},
+					"repo": map[string]any{
+						"type":        "string",
+						"description": "Repository name",
+					},
+					"pr_number": map[string]any{
+						"type":        "number",
+						"minimum":     1,
+						"description": "Pull request number",
+					},
+					"max_body_length": map[string]any{
+						"type":        "number",
+						"default":     2000,
+						"description": "Max body length per comment in bytes (default 2000, max 50000).",
+					},
+					"limit": map[string]any{
+						"type":        "number",
+						"minimum":     1,
+						"default":     30,
+						"description": "Max comments to return (default 30, max 100).",
+					},
+				},
+				Required: []string{"owner", "repo", "pr_number"},
+			},
+		},
+		{
+			Name:        "gh_list_pr_files",
+			Description: "List files touched by a pull request with +/- counts per file (no diff content). Use gh_diff_pr if you need diff hunks. Results truncated at `limit` (default 30, max 100). Note: at the documented max (`limit=100`), the truncation trailer may not fire and any files past the first 100 are unreachable through this tool — use the GitHub web UI for PRs with very large file counts.",
+			Annotations: annRead,
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"owner":     map[string]any{"type": "string", "description": "Repository owner."},
+					"repo":      map[string]any{"type": "string", "description": "Repository name."},
+					"pr_number": map[string]any{"type": "number", "minimum": 1, "description": "Pull request number."},
+					"limit":     map[string]any{"type": "number", "minimum": 1, "default": 30, "description": "Max files shown (default 30, max 100; values <= 0 are rejected)."},
+				},
+				Required: []string{"owner", "repo", "pr_number"},
+			},
+		},
+		{
+			Name:        "gh_ready_pr",
+			Description: "Mark a draft pull request as ready for review (`gh pr ready`). See also gh_draft_pr to convert back, gh_close_pr / gh_reopen_pr for state transitions.",
+			Annotations: annIdempotent,
+			InputSchema: prNumberOnlySchema("Pull request number to mark ready."),
+		},
+		{
+			Name:        "gh_draft_pr",
+			Description: "Convert a pull request back to draft (`gh pr ready --undo`). See also gh_ready_pr.",
+			Annotations: annIdempotent,
+			InputSchema: prNumberOnlySchema("Pull request number to convert to draft."),
+		},
+		{
+			Name:        "gh_reopen_pr",
+			Description: "Reopen a closed pull request (`gh pr reopen`). See also gh_close_pr.",
+			Annotations: annIdempotent,
+			InputSchema: prNumberOnlySchema("Pull request number to reopen."),
 		},
 	}
 }
@@ -401,14 +546,11 @@ func (h *Handler) handleCreatePR(ctx context.Context, req gomcp.CallToolRequest)
 	if errResult != nil {
 		return errResult, nil
 	}
+	if errResult := requireStringFields("gh_create_pr", args, "title"); errResult != nil {
+		return errResult, nil
+	}
 	title := stringFromArgs(args, "title")
-	if title == "" {
-		return gomcp.NewToolResultError("title is required"), nil
-	}
 	body := stringFromArgs(args, "body")
-	if body == "" {
-		return gomcp.NewToolResultError("body is required"), nil
-	}
 	opts := gh.CreatePROpts{
 		Title:     title,
 		Body:      body,
@@ -432,9 +574,9 @@ func (h *Handler) handleViewPR(ctx context.Context, req gomcp.CallToolRequest) (
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
-	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+	number, errResult := requirePositiveInt(args, "pr_number")
+	if errResult != nil {
+		return errResult, nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
 	out, err := h.gh.ViewPR(ctx, owner, repo, number)
@@ -443,7 +585,7 @@ func (h *Handler) handleViewPR(ctx context.Context, req gomcp.CallToolRequest) (
 	}
 	var pr format.PRView
 	if err := json.Unmarshal([]byte(out), &pr); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse PR JSON: %v", err)), nil
+		return parseError("gh_view_pr", err, out), nil
 	}
 	return gomcp.NewToolResultText(format.FormatPRView(pr, maxBody)), nil
 }
@@ -454,14 +596,22 @@ func (h *Handler) handleListPRs(ctx context.Context, req gomcp.CallToolRequest) 
 	if errResult != nil {
 		return errResult, nil
 	}
+	state := stringFromArgs(args, "state")
+	if errResult := validateEnum("state", state, []string{"open", "closed", "merged", "all"}); errResult != nil {
+		return errResult, nil
+	}
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	opts := gh.ListPROpts{
-		State:  stringFromArgs(args, "state"),
+		State:  state,
 		Author: stringFromArgs(args, "author"),
 		Label:  stringFromArgs(args, "label"),
 		Base:   stringFromArgs(args, "base"),
 		Head:   stringFromArgs(args, "head"),
-		Search: stringFromArgs(args, "search"),
-		Limit:  intFromArgs(args, "limit"),
+		Limit:  limit,
 	}
 	out, err := h.gh.ListPRs(ctx, owner, repo, opts)
 	if err != nil {
@@ -469,16 +619,12 @@ func (h *Handler) handleListPRs(ctx context.Context, req gomcp.CallToolRequest) 
 	}
 	var items []format.PRListItem
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse PR list JSON: %v", err)), nil
+		return parseError("gh_list_prs", err, out), nil
 	}
-	var lines []string
-	for _, item := range items {
-		lines = append(lines, format.FormatPRListItem(item))
-	}
-	if len(lines) == 0 {
+	if len(items) == 0 {
 		return gomcp.NewToolResultText("No pull requests found."), nil
 	}
-	return gomcp.NewToolResultText(strings.Join(lines, "\n")), nil
+	return gomcp.NewToolResultText(format.FormatPRList(items, limit)), nil
 }
 
 func (h *Handler) handleDiffPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -487,15 +633,16 @@ func (h *Handler) handleDiffPR(ctx context.Context, req gomcp.CallToolRequest) (
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
-	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+	number, errResult := requirePositiveInt(args, "pr_number")
+	if errResult != nil {
+		return errResult, nil
 	}
 	out, err := h.gh.DiffPR(ctx, owner, repo, number)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultText(format.FormatDiff(out)), nil
+	maxBytes := clampDiffMaxBytes(intFromArgs(args, "max_bytes"))
+	return gomcp.NewToolResultText(format.FormatDiff(out, maxBytes)), nil
 }
 
 func (h *Handler) handleCommentPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -504,14 +651,14 @@ func (h *Handler) handleCommentPR(ctx context.Context, req gomcp.CallToolRequest
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
-	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+	number, errResult := requirePositiveInt(args, "pr_number")
+	if errResult != nil {
+		return errResult, nil
+	}
+	if errResult := requireStringFields("gh_comment_pr", args, "body"); errResult != nil {
+		return errResult, nil
 	}
 	body := stringFromArgs(args, "body")
-	if body == "" {
-		return gomcp.NewToolResultError("body is required"), nil
-	}
 	out, err := h.gh.CommentPR(ctx, owner, repo, number, body)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
@@ -525,9 +672,12 @@ func (h *Handler) handleReviewPR(ctx context.Context, req gomcp.CallToolRequest)
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
-	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+	number, errResult := requirePositiveInt(args, "pr_number")
+	if errResult != nil {
+		return errResult, nil
+	}
+	if errResult := requireStringFields("gh_review_pr", args, "event"); errResult != nil {
+		return errResult, nil
 	}
 	event := stringFromArgs(args, "event")
 	switch event {
@@ -554,9 +704,9 @@ func (h *Handler) handleMergePR(ctx context.Context, req gomcp.CallToolRequest) 
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
-	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+	number, errResult := requirePositiveInt(args, "pr_number")
+	if errResult != nil {
+		return errResult, nil
 	}
 	method := stringFromArgs(args, "method")
 	switch method {
@@ -583,9 +733,9 @@ func (h *Handler) handleEditPR(ctx context.Context, req gomcp.CallToolRequest) (
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
-	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+	number, errResult := requirePositiveInt(args, "pr_number")
+	if errResult != nil {
+		return errResult, nil
 	}
 	opts := gh.EditPROpts{
 		Title:           stringFromArgs(args, "title"),
@@ -605,15 +755,15 @@ func (h *Handler) handleEditPR(ctx context.Context, req gomcp.CallToolRequest) (
 	return gomcp.NewToolResultText(out), nil
 }
 
-func (h *Handler) handleCheckPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+func (h *Handler) handleListPRChecks(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
 	args := req.GetArguments()
 	owner, repo, errResult := requireOwnerRepo(args)
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
-	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+	number, errResult := requirePositiveInt(args, "pr_number")
+	if errResult != nil {
+		return errResult, nil
 	}
 	out, err := h.gh.CheckPR(ctx, owner, repo, number)
 	if err != nil {
@@ -621,7 +771,7 @@ func (h *Handler) handleCheckPR(ctx context.Context, req gomcp.CallToolRequest) 
 	}
 	var checks []format.Check
 	if err := json.Unmarshal([]byte(out), &checks); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse checks JSON: %v", err)), nil
+		return parseError("gh_list_pr_checks", err, out), nil
 	}
 	return gomcp.NewToolResultText(format.FormatCheckList(checks)), nil
 }
@@ -632,9 +782,9 @@ func (h *Handler) handleClosePR(ctx context.Context, req gomcp.CallToolRequest) 
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
-	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+	number, errResult := requirePositiveInt(args, "pr_number")
+	if errResult != nil {
+		return errResult, nil
 	}
 	comment := stringFromArgs(args, "comment")
 	out, err := h.gh.ClosePR(ctx, owner, repo, number, comment)
@@ -650,19 +800,163 @@ func (h *Handler) handleListPRComments(ctx context.Context, req gomcp.CallToolRe
 	if errResult != nil {
 		return errResult, nil
 	}
-	number := intFromArgs(args, "number")
-	if number == 0 {
-		return gomcp.NewToolResultError("number is required"), nil
+	number, errResult := requirePositiveInt(args, "pr_number")
+	if errResult != nil {
+		return errResult, nil
 	}
 	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
-	limit := intFromArgs(args, "limit")
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
 	out, err := h.gh.PRComments(ctx, owner, repo, number, limit)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
 	var comments []format.Comment
 	if err := json.Unmarshal([]byte(out), &comments); err != nil {
-		return gomcp.NewToolResultError(fmt.Sprintf("failed to parse comments JSON: %v", err)), nil
+		return parseError("gh_list_pr_comments", err, out), nil
 	}
-	return gomcp.NewToolResultText(format.FormatComments(comments, maxBody)), nil
+	if len(comments) == 0 {
+		return gomcp.NewToolResultText("No comments found."), nil
+	}
+	return gomcp.NewToolResultText(format.FormatComments(comments, maxBody, limit)), nil
+}
+
+func (h *Handler) handleListPRReviews(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	number, errResult := requirePositiveInt(args, "pr_number")
+	if errResult != nil {
+		return errResult, nil
+	}
+	maxBody := clampReviewBodyLength(intFromArgs(args, "max_body_length"))
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
+	out, err := h.gh.PRReviews(ctx, owner, repo, number, limit)
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	var reviews []format.Review
+	if err := json.Unmarshal([]byte(out), &reviews); err != nil {
+		return parseError("gh_list_pr_reviews", err, out), nil
+	}
+	if len(reviews) == 0 {
+		return gomcp.NewToolResultText("No reviews found."), nil
+	}
+	return gomcp.NewToolResultText(format.FormatReviews(reviews, maxBody, limit)), nil
+}
+
+func (h *Handler) handleListPRReviewComments(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	number, errResult := requirePositiveInt(args, "pr_number")
+	if errResult != nil {
+		return errResult, nil
+	}
+	maxBody := clampMaxBodyLength(intFromArgs(args, "max_body_length"))
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
+	out, err := h.gh.PRReviewComments(ctx, owner, repo, number, limit)
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	var comments []format.ReviewComment
+	if err := json.Unmarshal([]byte(out), &comments); err != nil {
+		return parseError("gh_list_pr_review_comments", err, out), nil
+	}
+	if len(comments) == 0 {
+		return gomcp.NewToolResultText("No review comments found."), nil
+	}
+	return gomcp.NewToolResultText(format.FormatReviewComments(comments, maxBody, limit)), nil
+}
+
+func (h *Handler) handleReadyPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	number, errResult := requirePositiveInt(args, "pr_number")
+	if errResult != nil {
+		return errResult, nil
+	}
+	if _, err := h.gh.ReadyPR(ctx, owner, repo, number); err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	return gomcp.NewToolResultText(fmt.Sprintf("PR #%d in %s/%s marked ready for review", number, owner, repo)), nil
+}
+
+func (h *Handler) handleDraftPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	number, errResult := requirePositiveInt(args, "pr_number")
+	if errResult != nil {
+		return errResult, nil
+	}
+	if _, err := h.gh.DraftPR(ctx, owner, repo, number); err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	return gomcp.NewToolResultText(fmt.Sprintf("PR #%d in %s/%s converted to draft", number, owner, repo)), nil
+}
+
+func (h *Handler) handleReopenPR(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	number, errResult := requirePositiveInt(args, "pr_number")
+	if errResult != nil {
+		return errResult, nil
+	}
+	if _, err := h.gh.ReopenPR(ctx, owner, repo, number); err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	return gomcp.NewToolResultText(fmt.Sprintf("PR #%d in %s/%s reopened", number, owner, repo)), nil
+}
+
+func (h *Handler) handleListPRFiles(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+	args := req.GetArguments()
+	owner, repo, errResult := requireOwnerRepo(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	number, errResult := requirePositiveInt(args, "pr_number")
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit, errResult := validateLimit(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+	limit = clampLimit(limit)
+	raw, err := h.gh.ListPRFiles(ctx, owner, repo, number, limit)
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	var files []format.PRFile
+	if err := json.Unmarshal([]byte(raw), &files); err != nil {
+		return parseError("gh_list_pr_files", err, raw), nil
+	}
+	if len(files) == 0 {
+		return gomcp.NewToolResultText("No files found."), nil
+	}
+	return gomcp.NewToolResultText(format.FormatPRFiles(files, limit)), nil
 }

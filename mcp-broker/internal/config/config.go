@@ -7,9 +7,14 @@ import (
 )
 
 // Config is the top-level configuration for mcp-broker.
+//
+// Host must resolve to a loopback interface — startup rejects anything else.
+// The broker is protected only by a bearer token over plain HTTP; its
+// security posture relies on not being network-reachable.
 type Config struct {
 	Servers                map[string]ServerConfig `json:"servers"`
 	Rules                  []RuleConfig            `json:"rules"`
+	Host                   string                  `json:"host"`
 	Port                   int                     `json:"port"`
 	OpenBrowser            bool                    `json:"open_browser"`
 	Audit                  AuditConfig             `json:"audit"`
@@ -29,9 +34,21 @@ type ServerConfig struct {
 }
 
 // RuleConfig defines a policy rule mapping a tool glob to a verdict.
+// Args, when non-empty, additionally constrains the rule to tool calls whose
+// arguments satisfy every pattern.
 type RuleConfig struct {
-	Tool    string `json:"tool"`
-	Verdict string `json:"verdict"`
+	Tool    string       `json:"tool"`
+	Verdict string       `json:"verdict"`
+	Args    []ArgPattern `json:"args,omitempty"`
+}
+
+// ArgPattern constrains a rule to tool calls where the value at Path matches.
+// Match is either a JSON string (exact match) or {"regex": "<RE2>"}.
+// It stays as RawMessage so the config package does not depend on the rules
+// package; structural and regex validation happen in rules.New.
+type ArgPattern struct {
+	Path  string          `json:"path"`
+	Match json.RawMessage `json:"match"`
 }
 
 // AuditConfig controls the SQLite audit log.
@@ -80,6 +97,7 @@ func DefaultConfig() Config {
 		Rules: []RuleConfig{
 			{Tool: "*", Verdict: "require-approval"},
 		},
+		Host:                   "127.0.0.1",
 		Port:                   8200,
 		OpenBrowser:            true,
 		ApprovalTimeoutSeconds: 600,

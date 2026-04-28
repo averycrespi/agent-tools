@@ -22,9 +22,9 @@ func TestViewIssue_Success(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_view_issue"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(7),
+		"owner":        "octocat",
+		"repo":         "hello-world",
+		"issue_number": float64(7),
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -90,10 +90,10 @@ func TestCommentIssue_Success(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_comment_issue"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(3),
-		"body":   "Nice find!",
+		"owner":        "octocat",
+		"repo":         "hello-world",
+		"issue_number": float64(3),
+		"body":         "Nice find!",
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -105,9 +105,9 @@ func TestCommentIssue_MissingBody(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_comment_issue"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(3),
+		"owner":        "octocat",
+		"repo":         "hello-world",
+		"issue_number": float64(3),
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -123,9 +123,9 @@ func TestViewIssue_FormatsMarkdown(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_view_issue"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(100),
+		"owner":        "octocat",
+		"repo":         "hello-world",
+		"issue_number": float64(100),
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -160,6 +160,32 @@ func TestListIssues_FormatsMarkdown(t *testing.T) {
 	assert.Contains(t, text, "CLOSED")
 }
 
+func TestIssueToolAnnotations(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	tools := h.issueTools()
+	byName := make(map[string]gomcp.Tool, len(tools))
+	for _, tool := range tools {
+		byName[tool.Name] = tool
+	}
+
+	cases := []struct {
+		name     string
+		expected gomcp.ToolAnnotation
+	}{
+		{"gh_view_issue", annRead},
+		{"gh_list_issues", annRead},
+		{"gh_comment_issue", annAdditive},
+		{"gh_list_issue_comments", annRead},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tool, ok := byName[tc.name]
+			require.True(t, ok, "tool %s not registered", tc.name)
+			assert.Equal(t, tc.expected, tool.Annotations)
+		})
+	}
+}
+
 func TestListIssueComments_Success(t *testing.T) {
 	h := NewHandler(&mockGHClient{
 		issueCommentsFunc: func(_ context.Context, owner, repo string, number int, limit int) (string, error) {
@@ -169,9 +195,9 @@ func TestListIssueComments_Success(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "gh_list_issue_comments"
 	req.Params.Arguments = map[string]any{
-		"owner":  "octocat",
-		"repo":   "hello-world",
-		"number": float64(100),
+		"owner":        "octocat",
+		"repo":         "hello-world",
+		"issue_number": float64(100),
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -180,4 +206,48 @@ func TestListIssueComments_Success(t *testing.T) {
 	assert.Contains(t, text, "## Comments (1)")
 	assert.Contains(t, text, "@alice")
 	assert.Contains(t, text, "Thanks!")
+}
+
+func TestListIssues_StateEnum(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	for _, tool := range h.issueTools() {
+		if tool.Name != "gh_list_issues" {
+			continue
+		}
+		prop, ok := tool.InputSchema.Properties["state"].(map[string]any)
+		require.True(t, ok, "state property missing or wrong shape")
+		enum, ok := prop["enum"].([]string)
+		require.True(t, ok, "state must declare an enum")
+		assert.ElementsMatch(t, []string{"open", "closed", "all"}, enum)
+		return
+	}
+	t.Fatal("gh_list_issues not found")
+}
+
+func TestListIssues_Empty(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		listIssuesFunc: func(_ context.Context, _, _ string, _ gh.ListIssuesOpts) (string, error) {
+			return `[]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_issues"
+	req.Params.Arguments = map[string]any{"owner": "octocat", "repo": "hello-world"}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, "No issues found.", emptyResultText(t, result))
+}
+
+func TestListIssueComments_Empty(t *testing.T) {
+	h := NewHandler(&mockGHClient{
+		issueCommentsFunc: func(_ context.Context, _, _ string, _, _ int) (string, error) {
+			return `[]`, nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "gh_list_issue_comments"
+	req.Params.Arguments = map[string]any{"owner": "octocat", "repo": "hello-world", "issue_number": float64(7)}
+	result, err := h.Handle(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, "No comments found.", emptyResultText(t, result))
 }

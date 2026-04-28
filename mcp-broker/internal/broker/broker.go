@@ -97,7 +97,7 @@ func (b *Broker) Handle(ctx context.Context, tool string, args map[string]any) (
 	}
 
 	// 1. Rules check
-	verdict := b.rules.Evaluate(tool)
+	verdict := b.rules.Evaluate(tool, args)
 	rec.Verdict = verdict.String()
 
 	if b.logger != nil {

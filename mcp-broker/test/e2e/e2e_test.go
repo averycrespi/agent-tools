@@ -3,6 +3,8 @@
 package e2e_test
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -126,6 +128,56 @@ func TestE2E_DeniedByRules(t *testing.T) {
 	require.Equal(t, "deny", audit.Records[0].Verdict)
 }
 
+func TestE2E_AnnotationsRoundTripThroughBroker(t *testing.T) {
+	readOnly := true
+	destructive := false
+	s := newTestStack(t, stackOpts{
+		Tools: []toolDef{
+			{
+				Name:        "search",
+				Description: "Search the index",
+				Response:    `{"hits":0}`,
+				Annotations: &gomcp.ToolAnnotation{
+					Title:           "Search",
+					ReadOnlyHint:    &readOnly,
+					DestructiveHint: &destructive,
+				},
+				OutputSchema: &gomcp.ToolOutputSchema{
+					Type:       "object",
+					Properties: map[string]any{"hits": map[string]any{"type": "integer"}},
+				},
+			},
+			{Name: "plain", Description: "No extras", Response: `"ok"`},
+		},
+		Rules: []testRuleConfig{{Tool: "*", Verdict: "allow"}},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.Client.ListTools(ctx, gomcp.ListToolsRequest{})
+	require.NoError(t, err)
+
+	byName := make(map[string]gomcp.Tool, len(resp.Tools))
+	for _, tool := range resp.Tools {
+		byName[tool.Name] = tool
+	}
+
+	rich := byName["echo.search"]
+	require.Equal(t, "Search", rich.Annotations.Title)
+	require.NotNil(t, rich.Annotations.ReadOnlyHint)
+	require.True(t, *rich.Annotations.ReadOnlyHint)
+	require.NotNil(t, rich.Annotations.DestructiveHint)
+	require.False(t, *rich.Annotations.DestructiveHint)
+	require.Equal(t, "object", rich.OutputSchema.Type)
+	require.Contains(t, rich.OutputSchema.Properties, "hits")
+
+	plain := byName["echo.plain"]
+	require.Empty(t, plain.Annotations.Title)
+	require.Nil(t, plain.Annotations.ReadOnlyHint)
+	require.Empty(t, plain.OutputSchema.Type)
+}
+
 func TestE2E_DashboardToolsListing(t *testing.T) {
 	tools := []toolDef{
 		{Name: "greet", Description: "Greets the user", Response: `"hi"`},
@@ -155,6 +207,39 @@ func TestE2E_DashboardToolsListing(t *testing.T) {
 			require.Equal(t, "Greets the user", tool.Description)
 		}
 	}
+}
+
+func TestE2E_ArgMatchingGate(t *testing.T) {
+	s := newTestStack(t, stackOpts{
+		Tools: defaultTools,
+		Rules: []testRuleConfig{
+			{
+				Tool:    "echo.say_hello",
+				Verdict: "allow",
+				Args: []testArgPattern{
+					{Path: "name", Match: json.RawMessage(`"alice"`)},
+				},
+			},
+			{Tool: "*", Verdict: "deny"},
+		},
+	})
+
+	// Matching args → allow rule fires, backend returns the response.
+	result, err := s.callTool("echo.say_hello", map[string]any{"name": "alice"})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+
+	// Non-matching args → falls through to deny rule.
+	result, err = s.callTool("echo.say_hello", map[string]any{"name": "bob"})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+
+	// Audit log captures both verdicts.
+	audit := s.getAudit("", 10, 0)
+	require.Equal(t, 2, audit.Total)
+	verdicts := []string{audit.Records[0].Verdict, audit.Records[1].Verdict}
+	require.Contains(t, verdicts, "allow")
+	require.Contains(t, verdicts, "deny")
 }
 
 func TestE2E_AuditLogPagination(t *testing.T) {
