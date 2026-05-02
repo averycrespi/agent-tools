@@ -50,7 +50,7 @@ curl -fsS http://localhost:8888/health
 
 ## Backups
 
-The `backup` service writes compressed `pg_dump` files to `HINDSIGHT_BACKUP_DIR` on `BACKUP_INTERVAL_SECONDS` and deletes files older than `BACKUP_RETENTION_DAYS`.
+The `backup` service writes compressed `pg_dump` files to `HINDSIGHT_BACKUP_DIR` on `BACKUP_INTERVAL_SECONDS` and deletes files older than `BACKUP_RETENTION_DAYS`. Dumps include `--clean --if-exists` so they can replace objects in the target database during restore.
 
 List backups:
 
@@ -63,7 +63,7 @@ ls -lh "$HINDSIGHT_BACKUP_DIR"/*.sql.gz
 
 ## Restore
 
-Stop Hindsight before restoring into the active database:
+Stop Hindsight before restoring into the active database. Restore will drop and recreate dumped database objects.
 
 ```bash
 docker compose stop hindsight backup

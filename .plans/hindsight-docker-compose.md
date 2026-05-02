@@ -28,7 +28,7 @@ Add a local Docker Compose setup for Hindsight in this repo that:
 - Hindsight requires PostgreSQL 14+ with a vector extension; `pgvector` is the default supported extension.
 - Upstream example Compose uses `pgvector/pgvector` and sets `HINDSIGHT_API_DATABASE_URL=postgresql://...@db:5432/...`.
 - The upstream Postgres 18 Dockerfile sets `PGDATA=/var/lib/postgresql/18/docker` and `VOLUME /var/lib/postgresql`; Hindsight's upstream Compose example mounts `pg_data:/var/lib/postgresql/${HINDSIGHT_DB_VERSION:-18}/docker`, matching that PGDATA path.
-- Logical backups can be automated by a sidecar container running `pg_dump`, gzip compression, and retention cleanup against the Compose Postgres service.
+- Logical backups can be automated by a sidecar container running `pg_dump`, gzip compression, and retention cleanup against the Compose Postgres service. Dumps include `--clean --if-exists` so restore can replace existing dumped objects.
 
 ## Constraints
 
@@ -78,7 +78,7 @@ Use a three-service Docker Compose stack:
 3. `backup`
    - Use a Postgres-compatible image with `pg_dump` available, ideally matching the DB major version.
    - Runs a small shell loop:
-     - `pg_dump -h db -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > /backups/hindsight-$(date +%Y%m%d-%H%M%S).sql.gz`
+     - `pg_dump --clean --if-exists -h db -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > /backups/hindsight-$(date +%Y%m%d-%H%M%S).sql.gz`
      - `find /backups -name 'hindsight-*.sql.gz' -mtime +$BACKUP_RETENTION_DAYS -delete`
      - sleep for `$BACKUP_INTERVAL_SECONDS`.
    - Mounts `${HINDSIGHT_BACKUP_DIR}:/backups`, defaulting in `hindsight/.env.example` to `${HOME}/.local/state/hindsight/backups`.

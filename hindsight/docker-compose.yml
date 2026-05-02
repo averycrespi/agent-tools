@@ -75,7 +75,7 @@ services:
         while true; do
           backup_file="/backups/hindsight-$$(date +%Y%m%d-%H%M%S).sql.gz"
           echo "Creating backup: $$backup_file"
-          pg_dump --no-owner --no-privileges | gzip > "$$backup_file"
+          pg_dump --clean --if-exists --no-owner --no-privileges | gzip > "$$backup_file"
           find /backups -type f -name 'hindsight-*.sql.gz' -mtime +"$$BACKUP_RETENTION_DAYS" -delete
           sleep "$$BACKUP_INTERVAL_SECONDS"
         done
