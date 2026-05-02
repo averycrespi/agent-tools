@@ -24,13 +24,16 @@ services:
     container_name: hindsight-app
     restart: unless-stopped
     ports:
-      - "8888:8888"
-      - "9999:9999"
+      - "127.0.0.1:8888:8888"
+      - "127.0.0.1:9999:9999"
     environment:
       HINDSIGHT_API_LLM_PROVIDER: ${HINDSIGHT_API_LLM_PROVIDER:-openai-codex}
       HINDSIGHT_API_LLM_MODEL: ${HINDSIGHT_API_LLM_MODEL:-gpt-5.4-mini}
       HINDSIGHT_API_DATABASE_URL: postgresql://${HINDSIGHT_DB_USER:-hindsight_user}:${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in .env}@db:5432/${HINDSIGHT_DB_NAME:-hindsight_db}
       HINDSIGHT_API_VECTOR_EXTENSION: pgvector
+      HINDSIGHT_API_TENANT_EXTENSION: hindsight_api.extensions.builtin.tenant:ApiKeyTenantExtension
+      HINDSIGHT_API_TENANT_API_KEY: ${HINDSIGHT_API_KEY:?Set HINDSIGHT_API_KEY in .env}
+      HINDSIGHT_CP_DATAPLANE_API_KEY: ${HINDSIGHT_API_KEY:?Set HINDSIGHT_API_KEY in .env}
     volumes:
       - type: bind
         source: ${HOME}/.codex/auth.json

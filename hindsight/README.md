@@ -18,7 +18,7 @@ test -f "$HOME/.codex/auth.json"
 cp .env.example .env
 ```
 
-Edit `.env` and change `HINDSIGHT_DB_PASSWORD`.
+Edit `.env` and change `HINDSIGHT_DB_PASSWORD` and `HINDSIGHT_API_KEY`.
 
 Backups default to:
 
@@ -36,16 +36,33 @@ From this directory:
 docker compose up -d
 ```
 
-Endpoints:
+Endpoints are bound to localhost only:
 
 - API: http://localhost:8888
 - Control Plane: http://localhost:9999
 
+The API requires bearer authentication using `HINDSIGHT_API_KEY`. The Control Plane is configured to use that key when it calls the API, but it is not a browser login; keep the localhost-only binding unless you add a browser-facing auth layer.
+
 Check status:
 
 ```bash
+set -a
+. ./.env
+set +a
 docker compose ps
-curl -fsS http://localhost:8888/health
+curl -fsS -H "Authorization: Bearer $HINDSIGHT_API_KEY" http://localhost:8888/health
+```
+
+## Clients
+
+Configure local Hindsight clients with the same API URL and key:
+
+```bash
+set -a
+. ./.env
+set +a
+export HINDSIGHT_API_URL=http://localhost:8888
+export HINDSIGHT_API_KEY
 ```
 
 ## Backups
