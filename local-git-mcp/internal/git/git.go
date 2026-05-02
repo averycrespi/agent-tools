@@ -153,19 +153,19 @@ func (c *Client) ListRemotes(repoPath string) ([]Remote, error) {
 }
 
 // ValidateRepo checks that the given path is allowed, absolute, and is a git repository.
-func (c *Client) ValidateRepo(repoPath string) error {
+func (c *Client) ValidateRepo(repoPath string) (string, error) {
 	if !filepath.IsAbs(repoPath) {
-		return fmt.Errorf("repo_path must be an absolute path: %s", repoPath)
+		return "", fmt.Errorf("repo_path must be an absolute path: %s", repoPath)
 	}
 	cleanRepoPath := filepath.Clean(repoPath)
 	if !c.isAllowedPath(cleanRepoPath) {
-		return fmt.Errorf("repo_path %s is outside allowed paths; allowed prefixes: %s", cleanRepoPath, strings.Join(c.allowedPaths, ", "))
+		return "", fmt.Errorf("repo_path %s is outside allowed paths; allowed prefixes: %s", cleanRepoPath, strings.Join(c.allowedPaths, ", "))
 	}
 	out, err := c.runner.RunDir(cleanRepoPath, "git", "rev-parse", "--git-dir")
 	if err != nil {
-		return fmt.Errorf("not a git repository: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("not a git repository: %s", strings.TrimSpace(string(out)))
 	}
-	return nil
+	return cleanRepoPath, nil
 }
 
 func normalizeAllowedPaths(allowedPaths []string, allowAllPaths bool) ([]string, error) {

@@ -196,7 +196,7 @@ func TestListRemotes_Error(t *testing.T) {
 
 func TestValidateRepo_RelativePath(t *testing.T) {
 	c := mustNewClient(t, &mockRunner{})
-	err := c.ValidateRepo("relative/path")
+	_, err := c.ValidateRepo("relative/path")
 	assert.ErrorContains(t, err, "must be an absolute path")
 }
 
@@ -206,7 +206,7 @@ func TestValidateRepo_NotAGitRepo(t *testing.T) {
 			return []byte("fatal: not a git repository"), fmt.Errorf("exit status 128")
 		},
 	})
-	err := c.ValidateRepo("/some/path")
+	_, err := c.ValidateRepo("/some/path")
 	assert.ErrorContains(t, err, "not a git repository")
 }
 
@@ -219,8 +219,24 @@ func TestValidateRepo_AllowedExactPath(t *testing.T) {
 		},
 	}, []string{"/some/repo"}, false)
 	require.NoError(t, err)
-	err = c.ValidateRepo("/some/repo")
+	validatedPath, err := c.ValidateRepo("/some/repo")
 	require.NoError(t, err)
+	assert.Equal(t, "/some/repo", validatedPath)
+	assert.Equal(t, "/some/repo", capturedDir)
+}
+
+func TestValidateRepo_ReturnsCleanedPath(t *testing.T) {
+	var capturedDir string
+	c, err := NewClient(&mockRunner{
+		runDirFunc: func(dir, name string, args ...string) ([]byte, error) {
+			capturedDir = dir
+			return []byte(".git\n"), nil
+		},
+	}, []string{"/some/repo"}, false)
+	require.NoError(t, err)
+	validatedPath, err := c.ValidateRepo("/some/repo/../repo")
+	require.NoError(t, err)
+	assert.Equal(t, "/some/repo", validatedPath)
 	assert.Equal(t, "/some/repo", capturedDir)
 }
 
@@ -231,7 +247,7 @@ func TestValidateRepo_AllowedDescendantPath(t *testing.T) {
 		},
 	}, []string{"/some"}, false)
 	require.NoError(t, err)
-	err = c.ValidateRepo("/some/repo")
+	_, err = c.ValidateRepo("/some/repo")
 	require.NoError(t, err)
 }
 
@@ -244,7 +260,7 @@ func TestValidateRepo_RejectsSiblingPrefix(t *testing.T) {
 		},
 	}, []string{"/repo"}, false)
 	require.NoError(t, err)
-	err = c.ValidateRepo("/repo2")
+	_, err = c.ValidateRepo("/repo2")
 	assert.ErrorContains(t, err, "outside allowed paths")
 	assert.ErrorContains(t, err, "/repo")
 	assert.False(t, calledGit)
@@ -256,7 +272,7 @@ func TestValidateRepo_Valid(t *testing.T) {
 			return []byte(".git\n"), nil
 		},
 	})
-	err := c.ValidateRepo("/some/repo")
+	_, err := c.ValidateRepo("/some/repo")
 	require.NoError(t, err)
 }
 
@@ -282,6 +298,6 @@ func TestNewClient_AllowAllPaths(t *testing.T) {
 		},
 	}, nil, true)
 	require.NoError(t, err)
-	err = c.ValidateRepo("/any/repo")
+	_, err = c.ValidateRepo("/any/repo")
 	require.NoError(t, err)
 }
