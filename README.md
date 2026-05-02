@@ -11,6 +11,7 @@ A collection of tools that reduce the friction of working with AI coding agents.
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local GH MCP](#local-gh-mcp)** — Stdio MCP server for GitHub operations via the gh CLI
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
+- **[Hindsight](#hindsight)** — Local memory server stack for AI agents
 
 ## Getting Started
 
@@ -128,6 +129,19 @@ Sandboxed agents often work in Go projects that depend on private modules hosted
 - Git credentials stay on the host; the sandbox reaches the proxy over Lima's host-local bridge and carries none.
 
 See the [local-gomod-proxy README](local-gomod-proxy/README.md) for more information.
+
+### Hindsight
+
+The `hindsight/` directory contains a local Docker Compose stack for [Hindsight](https://github.com/vectorize-io/hindsight), used as persistent memory for AI agents.
+
+It includes:
+
+- Hindsight API and Control Plane with OpenAI Codex OAuth auth
+- PostgreSQL with `pgvector` for persistent memory storage
+- Local compressed database backups under XDG state by default
+- Bearer API-key auth for the Hindsight API and localhost-only port bindings
+
+See the [Hindsight README](hindsight/README.md) for setup and usage.
 
 ## Related
 
