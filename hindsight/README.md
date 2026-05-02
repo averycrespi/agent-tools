@@ -61,6 +61,16 @@ set +a
 ls -lh "$HINDSIGHT_BACKUP_DIR"/*.sql.gz
 ```
 
+## Troubleshooting
+
+### `schemas_with_pending_work() does not exist`
+
+New databases install this helper from `initdb/02-worker-poller.sql`. If the database volume already existed before that file was added, apply it manually:
+
+```bash
+docker compose exec -T db psql -U "$HINDSIGHT_DB_USER" -d "$HINDSIGHT_DB_NAME" < initdb/02-worker-poller.sql
+```
+
 ## Restore
 
 Stop Hindsight before restoring into the active database. Restore will drop and recreate dumped database objects.

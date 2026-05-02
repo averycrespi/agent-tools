@@ -29,6 +29,7 @@ Add a local Docker Compose setup for Hindsight in this repo that:
 - Upstream example Compose uses `pgvector/pgvector` and sets `HINDSIGHT_API_DATABASE_URL=postgresql://...@db:5432/...`.
 - The upstream Postgres 18 Dockerfile sets `PGDATA=/var/lib/postgresql/18/docker` and `VOLUME /var/lib/postgresql`; Hindsight's upstream Compose example mounts `pg_data:/var/lib/postgresql/${HINDSIGHT_DB_VERSION:-18}/docker`, matching that PGDATA path.
 - Logical backups can be automated by a sidecar container running `pg_dump`, gzip compression, and retention cleanup against the Compose Postgres service. Dumps include `--clean --if-exists` so restore can replace existing dumped objects.
+- Hindsight's worker poller probes `schemas_with_pending_work()` on PostgreSQL and falls back if it is missing, but that fallback causes noisy Postgres error logs. Install the helper in `initdb` for new databases.
 
 ## Constraints
 
@@ -108,7 +109,7 @@ Add supporting local config:
 
 ## Ordered Tasks
 
-1. Add `hindsight/docker-compose.yml` with `db`, `hindsight`, and `backup` services.
+1. Add `hindsight/docker-compose.yml` with `db`, `hindsight`, and `backup` services plus init scripts for `vector` and `schemas_with_pending_work()`.
 2. Add `hindsight/.env.example` with non-secret defaults and placeholders.
 3. Update `.gitignore` for `.env` and `hindsight/.env`.
 4. Validate Compose syntax with a temporary `.env` or exported variables.
