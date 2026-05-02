@@ -26,6 +26,10 @@ go.work.sum
 
 # env file
 .env
+.env.hindsight
+
+# Hindsight local runtime state and backups
+.hindsight/
 
 # Editor/IDE
 # .idea/

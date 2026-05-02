@@ -1,0 +1,93 @@
+services:
+  db:
+    image: pgvector/pgvector:pg${HINDSIGHT_DB_VERSION:-18}
+    container_name: hindsight-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${HINDSIGHT_DB_USER:-hindsight_user}
+      POSTGRES_PASSWORD: ${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in .env.hindsight}
+      POSTGRES_DB: ${HINDSIGHT_DB_NAME:-hindsight_db}
+    volumes:
+      - hindsight_pg_data:/var/lib/postgresql/${HINDSIGHT_DB_VERSION:-18}/docker
+      - ./docker/hindsight/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - hindsight
+
+  hindsight:
+    image: ghcr.io/vectorize-io/hindsight:${HINDSIGHT_VERSION:-latest}
+    container_name: hindsight-app
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+      - "9999:9999"
+    environment:
+      HINDSIGHT_API_LLM_PROVIDER: ${HINDSIGHT_API_LLM_PROVIDER:-openai-codex}
+      HINDSIGHT_API_LLM_MODEL: ${HINDSIGHT_API_LLM_MODEL:-gpt-5.4-mini}
+      HINDSIGHT_API_DATABASE_URL: postgresql://${HINDSIGHT_DB_USER:-hindsight_user}:${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in .env.hindsight}@db:5432/${HINDSIGHT_DB_NAME:-hindsight_db}
+      HINDSIGHT_API_VECTOR_EXTENSION: pgvector
+    volumes:
+      - type: bind
+        source: ${HOME}/.codex/auth.json
+        target: /home/hindsight/.codex/auth.json
+        read_only: true
+        bind:
+          create_host_path: false
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        if [ ! -f /home/hindsight/.codex/auth.json ]; then
+          echo "Codex auth file not found. Run 'codex auth login' on the host, then restart this stack." >&2
+          exit 1
+        fi
+        exec /app/start-all.sh
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - hindsight
+
+  backup:
+    image: postgres:${HINDSIGHT_DB_VERSION:-18}-bookworm
+    container_name: hindsight-backup
+    restart: unless-stopped
+    environment:
+      PGHOST: db
+      PGUSER: ${HINDSIGHT_DB_USER:-hindsight_user}
+      PGPASSWORD: ${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in .env.hindsight}
+      PGDATABASE: ${HINDSIGHT_DB_NAME:-hindsight_db}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+    volumes:
+      - ./.hindsight/backups:/backups
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        set -euo pipefail
+        mkdir -p /backups
+        while true; do
+          backup_file="/backups/hindsight-$$(date +%Y%m%d-%H%M%S).sql.gz"
+          echo "Creating backup: $$backup_file"
+          pg_dump --no-owner --no-privileges | gzip > "$$backup_file"
+          find /backups -type f -name 'hindsight-*.sql.gz' -mtime +"$$BACKUP_RETENTION_DAYS" -delete
+          sleep "$$BACKUP_INTERVAL_SECONDS"
+        done
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - hindsight
+
+networks:
+  hindsight:
+    name: hindsight
+
+volumes:
+  hindsight_pg_data:
