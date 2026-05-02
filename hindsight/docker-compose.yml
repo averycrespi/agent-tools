@@ -40,7 +40,7 @@ services:
           create_host_path: false
     command:
       - /bin/bash
-      - -lc
+      - -c
       - |
         if [ ! -f /home/hindsight/.codex/auth.json ]; then
           echo "Codex auth file not found. Run 'codex auth login' on the host, then restart this stack." >&2
@@ -68,7 +68,7 @@ services:
       - ${HINDSIGHT_BACKUP_DIR:?Set HINDSIGHT_BACKUP_DIR in .env}:/backups
     command:
       - /bin/bash
-      - -lc
+      - -c
       - |
         set -euo pipefail
         mkdir -p /backups
