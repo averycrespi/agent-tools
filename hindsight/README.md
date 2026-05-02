@@ -65,6 +65,13 @@ export HINDSIGHT_API_URL=http://localhost:8888
 export HINDSIGHT_API_KEY
 ```
 
+## Scope Conventions
+
+Use scope tags to control how broadly memories should apply:
+
+- `scope:global` — generally useful memories that should apply across repos and projects.
+- `scope:repo` — repo-scoped memories that should apply only to the current repository.
+
 ## Backups
 
 The `backup` service writes compressed `pg_dump` files to `HINDSIGHT_BACKUP_DIR` on `BACKUP_INTERVAL_SECONDS` and deletes files older than `BACKUP_RETENTION_DAYS`. Dumps include `--clean --if-exists` so they can replace objects in the target database during restore.
