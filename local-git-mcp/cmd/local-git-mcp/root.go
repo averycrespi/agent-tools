@@ -10,12 +10,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var allowAllPaths bool
+
 var rootCmd = &cobra.Command{
-	Use:   "local-git-mcp",
+	Use:   "local-git-mcp [--allow-all-paths] ALLOWED_PATH...",
 	Short: "Stdio MCP server for authenticated git remote operations",
-	RunE: func(_ *cobra.Command, _ []string) error {
+	Args:  cobra.ArbitraryArgs,
+	RunE: func(_ *cobra.Command, args []string) error {
 		runner := exec.NewOSRunner()
-		gitClient := git.NewClient(runner)
+		gitClient, err := git.NewClient(runner, args, allowAllPaths)
+		if err != nil {
+			return err
+		}
 		handler := tools.NewHandler(gitClient)
 
 		srv := mcpserver.NewMCPServer("local-git-mcp", "0.1.0")
@@ -27,4 +33,8 @@ var rootCmd = &cobra.Command{
 		return mcpserver.ServeStdio(srv)
 	},
 	SilenceUsage: true,
+}
+
+func init() {
+	rootCmd.Flags().BoolVar(&allowAllPaths, "allow-all-paths", false, "allow access to any absolute git repository path")
 }

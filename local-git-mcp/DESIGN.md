@@ -12,6 +12,8 @@ local-git-mcp solves this by running a minimal stdio MCP server on the host that
 
 local-git-mcp is a stdio MCP server. No network listener, no config file, no state. A caller spawns it as a subprocess and communicates over stdin/stdout using the MCP protocol.
 
+The caller must provide one or more allowed host path prefixes at startup, for example `local-git-mcp /shared/worktrees /other/repo/root`. Tool calls can access only repositories at those prefixes or their descendants. For the old unrestricted behavior, the caller must explicitly pass `--allow-all-paths`.
+
 ## Tools
 
 Five tools, all requiring a `repo_path` parameter that is validated to be an existing git repository:
@@ -38,7 +40,7 @@ Each tool declares MCP `ToolAnnotation` hints so callers can reason about safety
 
 ### Parameter details
 
-- **`repo_path`** (required, all tools) — absolute path to a git repository on the host. Must be absolute (relative paths are rejected). Validated before every operation: must exist and contain a git repo (`git rev-parse --git-dir`).
+- **`repo_path`** (required, all tools) — absolute path to a git repository on the host. Must be absolute (relative paths are rejected) and must be equal to or inside one of the allowed path prefixes supplied at startup. Validated before every operation: must be allowed, must exist, and must contain a git repo (`git rev-parse --git-dir`).
 - **`remote`** (optional, default: "origin") — the remote name to operate on.
 - **`refspec`** (optional) — git refspec for push/fetch (e.g., `refs/heads/main`).
 - **`branch`** (optional) — branch name for pull.
@@ -72,11 +74,18 @@ local-git-mcp/
 
 ## Validation and error handling
 
+Startup validates access policy before serving MCP:
+
+1. At least one allowed path prefix is required unless `--allow-all-paths` is provided.
+2. Allowed path prefixes must be absolute paths.
+3. `--allow-all-paths` cannot be combined with explicit allowed path prefixes.
+
 Every tool call validates `repo_path` before executing:
 
 1. **Absolute path** — `repo_path` must be an absolute path. Relative paths are rejected.
-2. **Path exists** — directory must be present on the host.
-3. **Is a git repo** — `git -C <path> rev-parse --git-dir` must succeed.
+2. **Allowed path** — `repo_path` must equal or descend from an allowed prefix. Sibling prefixes are not accepted: `/repo2` is outside allowed prefix `/repo`.
+3. **Path exists** — directory must be present on the host.
+4. **Is a git repo** — `git -C <path> rev-parse --git-dir` must succeed.
 
 Errors are returned as MCP tool error responses. Git's stderr is included in the error message so agents get actionable feedback (e.g., "remote not found", "permission denied").
 
@@ -84,7 +93,9 @@ No retries or special error recovery — git's exit code and output are passed t
 
 ## Security
 
-local-git-mcp has no access control of its own. It trusts its caller to handle authorization.
+local-git-mcp restricts repository operations to explicit host path prefixes supplied at startup. This prevents sandboxed callers from asking the host-side server to operate on unrelated repositories that are not shared with the sandbox or should not be exposed.
+
+Callers that intentionally want unrestricted host-path access must pass `--allow-all-paths`.
 
 ## Tech stack
 
@@ -99,9 +110,9 @@ local-git-mcp has no access control of its own. It trusts its caller to handle a
 
 **Stdio transport, not HTTP.** Stdio is simpler — no port allocation, no TLS, no auth. The caller manages the process lifecycle.
 
-**No config file.** There's nothing to configure. The server executes git commands in whatever directory the caller specifies. Credentials come from the host's existing git setup.
+**No config file.** Access policy is supplied as startup arguments rather than a config file. Credentials come from the host's existing git setup.
 
-**No access control.** Authorization is the caller's responsibility. Adding access control here would duplicate policy logic that belongs elsewhere.
+**Explicit path allowlist.** The server rejects `repo_path` values outside configured allowed prefixes before running git. This matches sandbox/host shared-path setups and avoids exposing every host repository by default.
 
 **`--force-with-lease`, never `--force`.** Force pushing is useful for agents (rebased branches), but bare `--force` risks destroying others' work. `--force-with-lease` provides the same functionality with a safety check.
 

@@ -23,12 +23,18 @@ type Ref struct {
 
 // Client wraps git remote operations with an injectable command runner.
 type Client struct {
-	runner exec.Runner
+	runner        exec.Runner
+	allowedPaths  []string
+	allowAllPaths bool
 }
 
 // NewClient returns a git Client using the given command runner.
-func NewClient(runner exec.Runner) *Client {
-	return &Client{runner: runner}
+func NewClient(runner exec.Runner, allowedPaths []string, allowAllPaths bool) (*Client, error) {
+	normalizedPaths, err := normalizeAllowedPaths(allowedPaths, allowAllPaths)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{runner: runner, allowedPaths: normalizedPaths, allowAllPaths: allowAllPaths}, nil
 }
 
 // Push pushes commits to a remote.
@@ -146,14 +152,59 @@ func (c *Client) ListRemotes(repoPath string) ([]Remote, error) {
 	return remotes, nil
 }
 
-// ValidateRepo checks that the given path is absolute and is a git repository.
+// ValidateRepo checks that the given path is allowed, absolute, and is a git repository.
 func (c *Client) ValidateRepo(repoPath string) error {
 	if !filepath.IsAbs(repoPath) {
 		return fmt.Errorf("repo_path must be an absolute path: %s", repoPath)
 	}
-	out, err := c.runner.RunDir(repoPath, "git", "rev-parse", "--git-dir")
+	cleanRepoPath := filepath.Clean(repoPath)
+	if !c.isAllowedPath(cleanRepoPath) {
+		return fmt.Errorf("repo_path %s is outside allowed paths; allowed prefixes: %s", cleanRepoPath, strings.Join(c.allowedPaths, ", "))
+	}
+	out, err := c.runner.RunDir(cleanRepoPath, "git", "rev-parse", "--git-dir")
 	if err != nil {
 		return fmt.Errorf("not a git repository: %s", strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func normalizeAllowedPaths(allowedPaths []string, allowAllPaths bool) ([]string, error) {
+	if allowAllPaths {
+		if len(allowedPaths) > 0 {
+			return nil, fmt.Errorf("--allow-all-paths cannot be combined with explicit allowed paths")
+		}
+		return []string{"<all paths>"}, nil
+	}
+	if len(allowedPaths) == 0 {
+		return nil, fmt.Errorf("at least one allowed path is required, or pass --allow-all-paths to allow all paths")
+	}
+	seen := make(map[string]bool)
+	normalizedPaths := make([]string, 0, len(allowedPaths))
+	for _, allowedPath := range allowedPaths {
+		if !filepath.IsAbs(allowedPath) {
+			return nil, fmt.Errorf("allowed path must be absolute: %s", allowedPath)
+		}
+		cleanPath := filepath.Clean(allowedPath)
+		if !seen[cleanPath] {
+			seen[cleanPath] = true
+			normalizedPaths = append(normalizedPaths, cleanPath)
+		}
+	}
+	return normalizedPaths, nil
+}
+
+func (c *Client) isAllowedPath(repoPath string) bool {
+	if c.allowAllPaths {
+		return true
+	}
+	for _, allowedPath := range c.allowedPaths {
+		if repoPath == allowedPath {
+			return true
+		}
+		rel, err := filepath.Rel(allowedPath, repoPath)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+			return true
+		}
+	}
+	return false
 }
