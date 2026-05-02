@@ -24,12 +24,9 @@ profile.cov
 go.work
 go.work.sum
 
-# env file
+# env files
 .env
-.env.hindsight
-
-# Hindsight local runtime state and backups
-.hindsight/
+hindsight/.env
 
 # Editor/IDE
 # .idea/

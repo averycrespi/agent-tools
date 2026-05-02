@@ -40,7 +40,7 @@ Add a local Docker Compose setup for Hindsight in this repo that:
 
 ## Acceptance Criteria
 
-1. `docker compose -f docker-compose.yml config` succeeds when required env vars are provided.
+1. `docker compose --env-file hindsight/.env.example -f hindsight/docker-compose.yml config` succeeds.
 2. The Hindsight service is configured with `HINDSIGHT_API_LLM_PROVIDER=openai-codex` and no required LLM API key.
 3. The Hindsight container mounts `${HOME}/.codex/auth.json` read-only at `/home/hindsight/.codex/auth.json`.
 4. PostgreSQL uses a named Docker volume and Hindsight points to it through `HINDSIGHT_API_DATABASE_URL`.
@@ -81,12 +81,12 @@ Use a three-service Docker Compose stack:
      - `pg_dump -h db -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > /backups/hindsight-$(date +%Y%m%d-%H%M%S).sql.gz`
      - `find /backups -name 'hindsight-*.sql.gz' -mtime +$BACKUP_RETENTION_DAYS -delete`
      - sleep for `$BACKUP_INTERVAL_SECONDS`.
-   - Mounts `${HINDSIGHT_BACKUP_DIR}:/backups`, defaulting in `.env.example` to `${HOME}/.local/state/hindsight/backups`.
+   - Mounts `${HINDSIGHT_BACKUP_DIR}:/backups`, defaulting in `hindsight/.env.example` to `${HOME}/.local/state/hindsight/backups`.
    - Uses `PGPASSWORD` from the same env source as the DB.
 
 Add supporting local config:
 
-- `.env.example` with safe placeholders/defaults:
+- `hindsight/.env.example` with safe placeholders/defaults:
   - `HINDSIGHT_DB_USER=hindsight_user`
   - `HINDSIGHT_DB_PASSWORD=change-me`
   - `HINDSIGHT_DB_NAME=hindsight_db`
@@ -98,7 +98,7 @@ Add supporting local config:
   - `BACKUP_RETENTION_DAYS=30`
 - Update `.gitignore` to exclude:
   - `.env`
-  - `.hindsight/`
+  - `hindsight/.env`
 
 ## Assumptions / Open Questions
 
@@ -108,9 +108,9 @@ Add supporting local config:
 
 ## Ordered Tasks
 
-1. Add `docker-compose.yml` with `db`, `hindsight`, and `backup` services.
-2. Add `.env.example` with non-secret defaults and placeholders.
-3. Update `.gitignore` for `.env` and `.hindsight/`.
+1. Add `hindsight/docker-compose.yml` with `db`, `hindsight`, and `backup` services.
+2. Add `hindsight/.env.example` with non-secret defaults and placeholders.
+3. Update `.gitignore` for `.env` and `hindsight/.env`.
 4. Validate Compose syntax with a temporary `.env` or exported variables.
 5. Use the verified Postgres 18 data path `/var/lib/postgresql/18/docker` for the DB volume when using `pgvector/pgvector:pg18`; if selecting a non-18 tag later, re-check that tag's `PGDATA`.
 6. Start the stack with a local Codex auth file present.
@@ -123,18 +123,18 @@ Add supporting local config:
 
 ## Verification Checklist
 
-- `docker compose --env-file .env.example -f docker-compose.yml config`
+- `docker compose --env-file hindsight/.env.example -f hindsight/docker-compose.yml config`
 - `test -f "$HOME/.codex/auth.json"`
-- `docker compose --env-file .env -f docker-compose.yml up -d`
+- `cd hindsight && docker compose up -d`
 - `curl -fsS http://localhost:8888/health`
 - `curl -fsS http://localhost:9999 >/dev/null`
 - `ls -lh "$HINDSIGHT_BACKUP_DIR"/*.sql.gz`
 - Restore command shape:
-  - `gunzip -c "$HINDSIGHT_BACKUP_DIR"/<backup>.sql.gz | docker compose --env-file .env -f docker-compose.yml exec -T db psql -U "$HINDSIGHT_DB_USER" -d "$HINDSIGHT_DB_NAME"`
+  - `gunzip -c "$HINDSIGHT_BACKUP_DIR"/<backup>.sql.gz | (cd hindsight && docker compose exec -T db psql -U "$HINDSIGHT_DB_USER" -d "$HINDSIGHT_DB_NAME")`
 
 ## Known Issues / Follow-ups
 
 - If `${HOME}/.codex/auth.json` does not exist, run Codex CLI login on the host before starting Hindsight.
-- Compose automatically reads `.env` when present. Use `.env.example` only for syntax validation or as the template for creating local `.env`.
+- Compose automatically reads `hindsight/.env` when run from the `hindsight/` directory. Use `hindsight/.env.example` only for syntax validation or as the template for creating local `hindsight/.env`.
 - Local backup sidecar is not a substitute for off-machine backup. Remote sync is intentionally out of scope for this setup.
 - For unattended recovery confidence, add a periodic restore smoke test into a disposable Postgres service later.

@@ -5,11 +5,11 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${HINDSIGHT_DB_USER:-hindsight_user}
-      POSTGRES_PASSWORD: ${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in .env.hindsight}
+      POSTGRES_PASSWORD: ${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in .env}
       POSTGRES_DB: ${HINDSIGHT_DB_NAME:-hindsight_db}
     volumes:
       - hindsight_pg_data:/var/lib/postgresql/${HINDSIGHT_DB_VERSION:-18}/docker
-      - ./docker/hindsight/initdb:/docker-entrypoint-initdb.d:ro
+      - ./initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -29,7 +29,7 @@ services:
     environment:
       HINDSIGHT_API_LLM_PROVIDER: ${HINDSIGHT_API_LLM_PROVIDER:-openai-codex}
       HINDSIGHT_API_LLM_MODEL: ${HINDSIGHT_API_LLM_MODEL:-gpt-5.4-mini}
-      HINDSIGHT_API_DATABASE_URL: postgresql://${HINDSIGHT_DB_USER:-hindsight_user}:${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in .env.hindsight}@db:5432/${HINDSIGHT_DB_NAME:-hindsight_db}
+      HINDSIGHT_API_DATABASE_URL: postgresql://${HINDSIGHT_DB_USER:-hindsight_user}:${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in .env}@db:5432/${HINDSIGHT_DB_NAME:-hindsight_db}
       HINDSIGHT_API_VECTOR_EXTENSION: pgvector
     volumes:
       - type: bind
@@ -60,7 +60,7 @@ services:
     environment:
       PGHOST: db
       PGUSER: ${HINDSIGHT_DB_USER:-hindsight_user}
-      PGPASSWORD: ${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in .env.hindsight}
+      PGPASSWORD: ${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in .env}
       PGDATABASE: ${HINDSIGHT_DB_NAME:-hindsight_db}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
