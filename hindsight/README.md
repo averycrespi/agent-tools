@@ -68,6 +68,9 @@ ls -lh "$HINDSIGHT_BACKUP_DIR"/*.sql.gz
 New databases install this helper from `initdb/02-worker-poller.sql`. If the database volume already existed before that file was added, apply it manually:
 
 ```bash
+set -a
+. ./.env
+set +a
 docker compose exec -T db psql -U "$HINDSIGHT_DB_USER" -d "$HINDSIGHT_DB_NAME" < initdb/02-worker-poller.sql
 ```
 
