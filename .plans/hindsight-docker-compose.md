@@ -40,7 +40,7 @@ Add a local Docker Compose setup for Hindsight in this repo that:
 
 ## Acceptance Criteria
 
-1. `docker compose -f docker-compose.hindsight.yml config` succeeds when required env vars are provided.
+1. `docker compose -f docker-compose.yml config` succeeds when required env vars are provided.
 2. The Hindsight service is configured with `HINDSIGHT_API_LLM_PROVIDER=openai-codex` and no required LLM API key.
 3. The Hindsight container mounts `${HOME}/.codex/auth.json` read-only at `/home/hindsight/.codex/auth.json`.
 4. PostgreSQL uses a named Docker volume and Hindsight points to it through `HINDSIGHT_API_DATABASE_URL`.
@@ -86,7 +86,7 @@ Use a three-service Docker Compose stack:
 
 Add supporting local config:
 
-- `.env.hindsight.example` with safe placeholders/defaults:
+- `.env.example` with safe placeholders/defaults:
   - `HINDSIGHT_DB_USER=hindsight_user`
   - `HINDSIGHT_DB_PASSWORD=change-me`
   - `HINDSIGHT_DB_NAME=hindsight_db`
@@ -96,7 +96,7 @@ Add supporting local config:
   - `BACKUP_INTERVAL_SECONDS=86400`
   - `BACKUP_RETENTION_DAYS=30`
 - Update `.gitignore` to exclude:
-  - `.env.hindsight`
+  - `.env`
   - `.hindsight/`
 
 ## Assumptions / Open Questions
@@ -107,10 +107,10 @@ Add supporting local config:
 
 ## Ordered Tasks
 
-1. Add `docker-compose.hindsight.yml` with `db`, `hindsight`, and `backup` services.
-2. Add `.env.hindsight.example` with non-secret defaults and placeholders.
-3. Update `.gitignore` for `.env.hindsight` and `.hindsight/`.
-4. Validate Compose syntax with a temporary `.env.hindsight` or exported variables.
+1. Add `docker-compose.yml` with `db`, `hindsight`, and `backup` services.
+2. Add `.env.example` with non-secret defaults and placeholders.
+3. Update `.gitignore` for `.env` and `.hindsight/`.
+4. Validate Compose syntax with a temporary `.env` or exported variables.
 5. Use the verified Postgres 18 data path `/var/lib/postgresql/18/docker` for the DB volume when using `pgvector/pgvector:pg18`; if selecting a non-18 tag later, re-check that tag's `PGDATA`.
 6. Start the stack with a local Codex auth file present.
 7. Verify:
@@ -122,18 +122,18 @@ Add supporting local config:
 
 ## Verification Checklist
 
-- `docker compose --env-file .env.hindsight -f docker-compose.hindsight.yml config`
+- `docker compose --env-file .env.example -f docker-compose.yml config`
 - `test -f "$HOME/.codex/auth.json"`
-- `docker compose --env-file .env.hindsight -f docker-compose.hindsight.yml up -d`
+- `docker compose --env-file .env -f docker-compose.yml up -d`
 - `curl -fsS http://localhost:8888/health`
 - `curl -fsS http://localhost:9999 >/dev/null`
 - `ls -lh .hindsight/backups/*.sql.gz`
 - Restore command shape:
-  - `gunzip -c .hindsight/backups/<backup>.sql.gz | docker compose --env-file .env.hindsight -f docker-compose.hindsight.yml exec -T db psql -U "$HINDSIGHT_DB_USER" -d "$HINDSIGHT_DB_NAME"`
+  - `gunzip -c .hindsight/backups/<backup>.sql.gz | docker compose --env-file .env -f docker-compose.yml exec -T db psql -U "$HINDSIGHT_DB_USER" -d "$HINDSIGHT_DB_NAME"`
 
 ## Known Issues / Follow-ups
 
 - If `${HOME}/.codex/auth.json` does not exist, run Codex CLI login on the host before starting Hindsight.
-- Compose file interpolation from `.env.hindsight` requires using `--env-file .env.hindsight` unless the file is named `.env`; keep it explicitly named to avoid collisions with repo/tool env files.
+- Compose automatically reads `.env` when present. Use `.env.example` only for syntax validation or as the template for creating local `.env`.
 - Local backup sidecar is not a substitute for off-machine backup. Remote sync is intentionally out of scope for this setup.
 - For unattended recovery confidence, add a periodic restore smoke test into a disposable Postgres service later.
