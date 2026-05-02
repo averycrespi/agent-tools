@@ -35,7 +35,7 @@ Add a local Docker Compose setup for Hindsight in this repo that:
 - Do not commit `~/.codex/auth.json`, database files, backup files, or real secrets.
 - The setup should fail clearly if Codex auth has not been created yet.
 - Memory must survive `docker compose down` as long as named volumes are not removed.
-- Backups must survive container recreation by writing to a host bind mount or named volume that is not removed with the database container.
+- Backups must survive container recreation by writing to a host bind mount under the user's XDG state directory.
 - Prefer simple local development ergonomics over production orchestration.
 
 ## Acceptance Criteria
@@ -44,7 +44,7 @@ Add a local Docker Compose setup for Hindsight in this repo that:
 2. The Hindsight service is configured with `HINDSIGHT_API_LLM_PROVIDER=openai-codex` and no required LLM API key.
 3. The Hindsight container mounts `${HOME}/.codex/auth.json` read-only at `/home/hindsight/.codex/auth.json`.
 4. PostgreSQL uses a named Docker volume and Hindsight points to it through `HINDSIGHT_API_DATABASE_URL`.
-5. A backup service creates timestamped compressed dumps under a gitignored local backup directory and deletes old dumps after the configured retention period.
+5. A backup service creates timestamped compressed dumps under the configured XDG state backup directory and deletes old dumps after the configured retention period.
 6. The API health endpoint at `http://localhost:8888/health` becomes reachable after `docker compose up -d` when Codex auth exists.
 7. A documented restore command can load a `.sql.gz` backup into the Compose Postgres database.
 
@@ -81,7 +81,7 @@ Use a three-service Docker Compose stack:
      - `pg_dump -h db -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > /backups/hindsight-$(date +%Y%m%d-%H%M%S).sql.gz`
      - `find /backups -name 'hindsight-*.sql.gz' -mtime +$BACKUP_RETENTION_DAYS -delete`
      - sleep for `$BACKUP_INTERVAL_SECONDS`.
-   - Mounts `./.hindsight/backups:/backups`.
+   - Mounts `${HINDSIGHT_BACKUP_DIR}:/backups`, defaulting in `.env.example` to `${HOME}/.local/state/hindsight/backups`.
    - Uses `PGPASSWORD` from the same env source as the DB.
 
 Add supporting local config:
@@ -93,6 +93,7 @@ Add supporting local config:
   - `HINDSIGHT_VERSION=latest`
   - `HINDSIGHT_API_LLM_PROVIDER=openai-codex`
   - optional `HINDSIGHT_API_LLM_MODEL=`
+  - `HINDSIGHT_BACKUP_DIR=${HOME}/.local/state/hindsight/backups`
   - `BACKUP_INTERVAL_SECONDS=86400`
   - `BACKUP_RETENTION_DAYS=30`
 - Update `.gitignore` to exclude:
@@ -101,7 +102,7 @@ Add supporting local config:
 
 ## Assumptions / Open Questions
 
-- Decision: local backups under `./.hindsight/backups` are sufficient for this setup. They protect against DB volume corruption, bad migrations, and accidental local DB changes, but not full disk loss.
+- Decision: local backups under `${HOME}/.local/state/hindsight/backups` are sufficient for this setup. They protect against DB volume corruption, bad migrations, and accidental local DB changes, but not full disk loss.
 - Assumption: using `latest` is acceptable initially; for stronger reproducibility, pin to a Hindsight release tag after first successful smoke test.
 - Assumption: full Hindsight image is acceptable despite its larger size because it includes local embeddings/reranker and avoids extra providers.
 
@@ -127,9 +128,9 @@ Add supporting local config:
 - `docker compose --env-file .env -f docker-compose.yml up -d`
 - `curl -fsS http://localhost:8888/health`
 - `curl -fsS http://localhost:9999 >/dev/null`
-- `ls -lh .hindsight/backups/*.sql.gz`
+- `ls -lh "$HINDSIGHT_BACKUP_DIR"/*.sql.gz`
 - Restore command shape:
-  - `gunzip -c .hindsight/backups/<backup>.sql.gz | docker compose --env-file .env -f docker-compose.yml exec -T db psql -U "$HINDSIGHT_DB_USER" -d "$HINDSIGHT_DB_NAME"`
+  - `gunzip -c "$HINDSIGHT_BACKUP_DIR"/<backup>.sql.gz | docker compose --env-file .env -f docker-compose.yml exec -T db psql -U "$HINDSIGHT_DB_USER" -d "$HINDSIGHT_DB_NAME"`
 
 ## Known Issues / Follow-ups
 
