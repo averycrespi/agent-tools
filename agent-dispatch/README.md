@@ -1,6 +1,6 @@
 # Agent Dispatch (ad)
 
-Launch and manage autonomous background Pi coding-agent runs in isolated git worktrees inside the shared `sb` sandbox.
+Launch and manage autonomous background Pi coding-agent runs in isolated git worktrees inside the shared Lima sandbox.
 
 Agent Dispatch is daemonless in v1: `ad run` creates durable task state, starts a detached supervisor, and returns a task ID for later inspection.
 
@@ -32,7 +32,7 @@ ad template list
 
 ## Safety model
 
-V1 always uses a `wt` worktree and the shared `sb` sandbox. `ad run` requires the main repository root, not an existing worktree. The sandbox must be configured so the `wt` worktree base directory is mounted into the VM.
+V1 always uses worktree-manager semantics and the shared sandbox-manager Lima VM. `ad` calls those managers as Go packages, so the `wt` and `sb` binaries do not need to be installed for `ad` itself. `ad run` requires the main repository root, not an existing worktree. The sandbox must be configured so the worktree base directory is mounted into the VM.
 
 If the generated worktree path is not visible inside `sb`, `ad run` fails before starting the supervisor. Add the worktree base directory, usually `~/.local/share/wt/worktrees`, as a writable `sb` mount and recreate the Lima VM so the mount is applied.
 

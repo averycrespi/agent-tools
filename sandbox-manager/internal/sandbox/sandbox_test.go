@@ -50,8 +50,8 @@ func (m *mockLima) Copy(localPath, guestPath string, recursive bool) error {
 	return m.Called(localPath, guestPath, recursive).Error(0)
 }
 
-func (m *mockLima) Exec(args ...string) ([]byte, error) {
-	called := m.Called(args)
+func (m *mockLima) Exec(workdir string, args ...string) ([]byte, error) {
+	called := m.Called(workdir, args)
 	return called.Get(0).([]byte), called.Error(1)
 }
 
@@ -193,7 +193,7 @@ func TestService_Provision_CopyPaths(t *testing.T) {
 
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
-	ml.On("Exec", []string{"mkdir", "-p", filepath.Dir(tmpFile)}).Return([]byte(""), nil)
+	ml.On("Exec", "/", []string{"mkdir", "-p", filepath.Dir(tmpFile)}).Return([]byte(""), nil)
 	ml.On("Copy", resolvedFile, tmpFile, false).Return(nil)
 
 	cfg := config.Default()
@@ -212,7 +212,7 @@ func TestService_Provision_CopyPaths_Directory(t *testing.T) {
 
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
-	ml.On("Exec", []string{"mkdir", "-p", tmpDir}).Return([]byte(""), nil)
+	ml.On("Exec", "/", []string{"mkdir", "-p", tmpDir}).Return([]byte(""), nil)
 	ml.On("Copy", resolvedDir, tmpDir, true).Return(nil)
 
 	cfg := config.Default()
@@ -240,7 +240,7 @@ func TestService_Create_AlreadyRunning(t *testing.T) {
 
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
-	ml.On("Exec", []string{"mkdir", "-p", filepath.Dir(tmpFile)}).Return([]byte(""), nil)
+	ml.On("Exec", "/", []string{"mkdir", "-p", filepath.Dir(tmpFile)}).Return([]byte(""), nil)
 	ml.On("Copy", resolvedFile, tmpFile, false).Return(nil)
 
 	cfg := config.Default()
@@ -271,9 +271,9 @@ func TestService_Provision_Scripts(t *testing.T) {
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
 	ml.On("Copy", scriptPath, "/tmp/sb-provision-script", false).Return(nil)
-	ml.On("Exec", []string{"chmod", "+x", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
-	ml.On("Exec", []string{"/tmp/sb-provision-script"}).Return([]byte(""), nil)
-	ml.On("Exec", []string{"rm", "-f", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
+	ml.On("Exec", "/", []string{"chmod", "+x", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
+	ml.On("Exec", "/", []string{"/tmp/sb-provision-script"}).Return([]byte(""), nil)
+	ml.On("Exec", "/", []string{"rm", "-f", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
 
 	cfg := config.Default()
 	cfg.Scripts = []string{scriptPath}
@@ -281,9 +281,9 @@ func TestService_Provision_Scripts(t *testing.T) {
 	svc := sandbox.NewService(ml, cfg, nopLogger)
 	require.NoError(t, svc.Provision())
 	ml.AssertCalled(t, "Copy", scriptPath, "/tmp/sb-provision-script", false)
-	ml.AssertCalled(t, "Exec", []string{"chmod", "+x", "/tmp/sb-provision-script"})
-	ml.AssertCalled(t, "Exec", []string{"/tmp/sb-provision-script"})
-	ml.AssertCalled(t, "Exec", []string{"rm", "-f", "/tmp/sb-provision-script"})
+	ml.AssertCalled(t, "Exec", "/", []string{"chmod", "+x", "/tmp/sb-provision-script"})
+	ml.AssertCalled(t, "Exec", "/", []string{"/tmp/sb-provision-script"})
+	ml.AssertCalled(t, "Exec", "/", []string{"rm", "-f", "/tmp/sb-provision-script"})
 }
 
 func TestService_Provision_Scripts_TildeExpansion(t *testing.T) {
@@ -295,9 +295,9 @@ func TestService_Provision_Scripts_TildeExpansion(t *testing.T) {
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
 	ml.On("Copy", expanded, "/tmp/sb-provision-script", false).Return(nil)
-	ml.On("Exec", []string{"chmod", "+x", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
-	ml.On("Exec", []string{"/tmp/sb-provision-script"}).Return([]byte(""), nil)
-	ml.On("Exec", []string{"rm", "-f", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
+	ml.On("Exec", "/", []string{"chmod", "+x", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
+	ml.On("Exec", "/", []string{"/tmp/sb-provision-script"}).Return([]byte(""), nil)
+	ml.On("Exec", "/", []string{"rm", "-f", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
 
 	cfg := config.Default()
 	cfg.Scripts = []string{"~/setup.sh"}
@@ -314,8 +314,8 @@ func TestService_Provision_ScriptExecError(t *testing.T) {
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
 	ml.On("Copy", scriptPath, "/tmp/sb-provision-script", false).Return(nil)
-	ml.On("Exec", []string{"chmod", "+x", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
-	ml.On("Exec", []string{"/tmp/sb-provision-script"}).Return([]byte(""), fmt.Errorf("exit code 1"))
+	ml.On("Exec", "/", []string{"chmod", "+x", "/tmp/sb-provision-script"}).Return([]byte(""), nil)
+	ml.On("Exec", "/", []string{"/tmp/sb-provision-script"}).Return([]byte(""), fmt.Errorf("exit code 1"))
 
 	cfg := config.Default()
 	cfg.Scripts = []string{scriptPath}
@@ -348,7 +348,7 @@ func TestService_Provision_CopyError(t *testing.T) {
 
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
-	ml.On("Exec", []string{"mkdir", "-p", filepath.Dir(tmpFile)}).Return([]byte(""), nil)
+	ml.On("Exec", "/", []string{"mkdir", "-p", filepath.Dir(tmpFile)}).Return([]byte(""), nil)
 	ml.On("Copy", resolvedFile, tmpFile, false).Return(fmt.Errorf("copy failed"))
 
 	cfg := config.Default()

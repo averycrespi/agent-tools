@@ -20,7 +20,7 @@ type LimaClient interface {
 	Stop() error
 	Delete() error
 	Copy(localPath, guestPath string, recursive bool) error
-	Exec(args ...string) ([]byte, error)
+	Exec(workdir string, args ...string) ([]byte, error)
 	ExecPiped(workdir string, args ...string) (sbexec.Process, error)
 	Shell(args ...string) error
 }
@@ -180,12 +180,12 @@ func (s *Service) Provision() error {
 
 		// Create parent directory (or the directory itself for dir copies) in the VM.
 		if isDir {
-			if _, err := s.lima.Exec("mkdir", "-p", dst); err != nil {
+			if _, err := s.lima.Exec("/", "mkdir", "-p", dst); err != nil {
 				return fmt.Errorf("failed to create directory %q in VM: %w", dst, err)
 			}
 		} else {
 			parentDir := filepath.Dir(dst)
-			if _, err := s.lima.Exec("mkdir", "-p", parentDir); err != nil {
+			if _, err := s.lima.Exec("/", "mkdir", "-p", parentDir); err != nil {
 				return fmt.Errorf("failed to create directory %q in VM: %w", parentDir, err)
 			}
 		}
@@ -219,20 +219,32 @@ func (s *Service) Provision() error {
 			return fmt.Errorf("failed to copy script %q to VM: %w", expanded, err)
 		}
 
-		if _, err := s.lima.Exec("chmod", "+x", tmpDst); err != nil {
+		if _, err := s.lima.Exec("/", "chmod", "+x", tmpDst); err != nil {
 			return fmt.Errorf("failed to chmod script: %w", err)
 		}
 
-		if out, err := s.lima.Exec(tmpDst); err != nil {
+		if out, err := s.lima.Exec("/", tmpDst); err != nil {
 			return fmt.Errorf("failed to run script %q: %s\n%w", script, strings.TrimSpace(string(out)), err)
 		}
 
-		if _, err := s.lima.Exec("rm", "-f", tmpDst); err != nil {
+		if _, err := s.lima.Exec("/", "rm", "-f", tmpDst); err != nil {
 			s.logger.Warn("failed to clean up temp script", "error", err)
 		}
 	}
 
 	return nil
+}
+
+// Exec runs a non-interactive command in the VM and returns its output.
+func (s *Service) Exec(workdir string, args ...string) ([]byte, error) {
+	status, err := s.lima.Status()
+	if err != nil {
+		return nil, err
+	}
+	if status != lima.StatusRunning {
+		return nil, fmt.Errorf("VM not running: run \"sb start\" or \"sb create\" first")
+	}
+	return s.lima.Exec(workdir, args...)
 }
 
 // ExecPiped starts a non-interactive command in the VM with streaming stdio pipes.

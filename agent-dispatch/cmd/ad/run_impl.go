@@ -14,9 +14,9 @@ import (
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/gitmeta"
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/output"
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/process"
-	adsandbox "github.com/averycrespi/agent-tools/agent-dispatch/internal/sandbox"
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/store"
-	adworktree "github.com/averycrespi/agent-tools/agent-dispatch/internal/worktree"
+	sbsandbox "github.com/averycrespi/agent-tools/sandbox-manager/pkg/sandbox"
+	wtworktree "github.com/averycrespi/agent-tools/worktree-manager/pkg/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -32,6 +32,20 @@ type runResult struct {
 	TaskID string `json:"task_id"`
 	Status string `json:"status"`
 }
+
+type worktreeClient interface {
+	AddHeadless(repoRoot, branch string) (string, error)
+}
+
+type sandboxClient interface {
+	Create() error
+	Exec(workdir string, args ...string) ([]byte, error)
+}
+
+var (
+	newWorktreeClient = func() (worktreeClient, error) { return wtworktree.New() }
+	newSandboxClient  = func() (sandboxClient, error) { return sbsandbox.New() }
+)
 
 func init() {
 	runCmd.Flags().StringVar(&runPromptFile, "prompt-file", "", "read prompt from file")
@@ -83,19 +97,22 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if branch == "" {
 		branch = "ad/" + slug(prompt, tmplName) + "-" + shortID()
 	}
-	wt := adworktree.NewClient(runner)
-	if err := wt.AddHeadless(repo.Root, branch); err != nil {
-		return err
-	}
-	worktreePath, err := wt.Path(repo.Root, branch)
+	wt, err := newWorktreeClient()
 	if err != nil {
 		return err
 	}
-	sb := adsandbox.NewClient(runner)
+	worktreePath, err := wt.AddHeadless(repo.Root, branch)
+	if err != nil {
+		return err
+	}
+	sb, err := newSandboxClient()
+	if err != nil {
+		return err
+	}
 	if err := sb.Create(); err != nil {
 		return err
 	}
-	if err := sb.CheckWorktreeVisible(worktreePath); err != nil {
+	if err := checkWorktreeVisible(sb, worktreePath); err != nil {
 		return err
 	}
 
@@ -149,6 +166,15 @@ func resolveRunRepoInfo(runner adexec.Runner, repoArg string) (gitmeta.Info, err
 		return gitmeta.Info{}, err
 	}
 	return gitmeta.NewClient(runner).Info(repo)
+}
+
+func checkWorktreeVisible(sb interface {
+	Exec(workdir string, args ...string) ([]byte, error)
+}, worktreePath string) error {
+	if _, err := sb.Exec("/", "test", "-d", worktreePath); err != nil {
+		return fmt.Errorf("worktree is not visible inside the sandbox: %s\n\nAdd the worktree base directory as a writable sb mount, then recreate the Lima VM so mount changes apply", worktreePath)
+	}
+	return nil
 }
 
 func applyRunOverrides(agent adconfig.AgentTemplate) adconfig.AgentTemplate {

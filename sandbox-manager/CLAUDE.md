@@ -22,6 +22,8 @@ Run `make audit` before committing.
 cmd/
   sb/          CLI entry point (main.go)
   *.go         Cobra commands (thin wrappers, no logic)
+pkg/
+  sandbox/     Minimal public facade for sandbox consumers
 internal/
   exec/        Runner interface abstracting os/exec
   config/      Config struct + XDG path functions

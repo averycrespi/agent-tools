@@ -142,7 +142,7 @@ func TestClient_Exec(t *testing.T) {
 	r := new(mockRunner)
 	r.On("Run", "limactl", "shell", "--workdir", "/", "sb", "--", "mkdir", "-p", "/tmp/test").Return([]byte(""), nil)
 	c := lima.NewClient(r)
-	_, err := c.Exec("mkdir", "-p", "/tmp/test")
+	_, err := c.Exec("/", "mkdir", "-p", "/tmp/test")
 	require.NoError(t, err)
 	r.AssertExpectations(t)
 }

@@ -23,8 +23,6 @@ cmd/ad/        Cobra entry point and thin command wrappers
 internal/config XDG paths and JSON config
 internal/store  SQLite task/run/event state
 internal/exec   External command runner abstraction
-internal/worktree wt CLI wrapper
-internal/sandbox sb CLI wrapper
 internal/pi     Pi RPC JSONL framing
 internal/control Unix socket protocol
 ```

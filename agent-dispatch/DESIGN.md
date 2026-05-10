@@ -4,7 +4,7 @@ Agent Dispatch (`ad`) is a local job runner for autonomous Pi coding-agent runs.
 
 ## V1 architecture
 
-- `ad run` creates a headless `wt` worktree, ensures `sb` is available, verifies the worktree path is mounted in the sandbox, creates task/run records in SQLite, and starts a detached `ad supervisor` process.
+- `ad run` creates a headless worktree through the worktree-manager package, ensures the sandbox-manager Lima VM is available, verifies the worktree path is mounted in the sandbox, creates task/run records in SQLite, and starts a detached `ad supervisor` process.
 - The supervisor owns the sandboxed `pi --mode rpc` process and a per-task Unix socket for steering, follow-up, and stop requests.
 - The supervisor treats `agent_end` with empty queues as terminal for a one-shot run, requests Pi state, records the session file when reported, then closes the Pi RPC process and records terminal run metadata.
 - Stop requests mark the task as stopping, send Pi RPC `abort`, and finalize as stopped. `ad stop --force` additionally schedules process termination after a bounded grace period.
@@ -20,4 +20,4 @@ Artifacts such as summaries, diffs, PR URLs, test reports, screenshots, exported
 
 ## Boundaries
 
-`wt` owns worktree creation and setup scripts. `sb` owns sandbox lifecycle and non-interactive command execution. `ad` owns dispatch, supervision, durable state, and inspection.
+The worktree-manager package owns worktree creation and setup scripts. The sandbox-manager package owns sandbox lifecycle and non-interactive command execution. `ad` owns dispatch, supervision, durable state, and inspection.

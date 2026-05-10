@@ -12,17 +12,21 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/control"
-	adexec "github.com/averycrespi/agent-tools/agent-dispatch/internal/exec"
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/pi"
-	adsandbox "github.com/averycrespi/agent-tools/agent-dispatch/internal/sandbox"
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/store"
+	sbsandbox "github.com/averycrespi/agent-tools/sandbox-manager/pkg/sandbox"
 	"github.com/spf13/cobra"
 )
 
 var (
-	supervisorTaskID string
-	supervisorPiArgv string
+	supervisorTaskID     string
+	supervisorPiArgv     string
+	newSupervisorSandbox = func() (pipedSandboxClient, error) { return sbsandbox.New() }
 )
+
+type pipedSandboxClient interface {
+	StartPiped(workdir string, args ...string) (sbsandbox.Process, error)
+}
 
 func init() {
 	supervisorCmd.Flags().StringVar(&supervisorTaskID, "task-id", "", "task ID")
@@ -59,7 +63,13 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 	if len(argv) == 0 {
 		argv = []string{"pi", "--mode", "rpc"}
 	}
-	proc, err := adsandbox.NewClient(adexec.NewOSRunner()).StartPiped(task.WorktreePath, argv...)
+	sb, err := newSupervisorSandbox()
+	if err != nil {
+		addEvent(db, run, "supervisor.failed", err.Error())
+		_ = db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusFailed)
+		return err
+	}
+	proc, err := sb.StartPiped(task.WorktreePath, argv...)
 	if err != nil {
 		addEvent(db, run, "supervisor.failed", err.Error())
 		_ = db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusFailed)

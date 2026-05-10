@@ -113,8 +113,11 @@ func (c *Client) Copy(localPath, guestPath string, recursive bool) error {
 }
 
 // Exec runs a command in the VM and returns its output.
-func (c *Client) Exec(args ...string) ([]byte, error) {
-	cmdArgs := shellArgs("/", args...)
+func (c *Client) Exec(workdir string, args ...string) ([]byte, error) {
+	if workdir == "" {
+		workdir = "/"
+	}
+	cmdArgs := shellArgs(workdir, args...)
 	out, err := c.runner.Run("limactl", cmdArgs...)
 	if err != nil {
 		return out, fmt.Errorf("failed to exec in VM: %w", err)

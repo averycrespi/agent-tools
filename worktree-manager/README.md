@@ -109,6 +109,10 @@ Config file: `~/.config/wt/config.json` (follows XDG)
 
 Branch names are sanitized: non-alphanumeric characters (except hyphens) become hyphens. `feat/my-thing` becomes `feat-my-thing`.
 
+## Package API
+
+`pkg/worktree` exposes the minimal headless worktree API used by in-repo consumers such as `ad`. The CLI remains the primary user interface.
+
 ## Development
 
 ```bash

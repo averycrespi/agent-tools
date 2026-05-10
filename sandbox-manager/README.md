@@ -167,6 +167,8 @@ See [DESIGN.md](DESIGN.md) for the full design document.
 cmd/
   sb/             CLI entry point
   *.go            Cobra commands (thin wrappers)
+pkg/
+  sandbox/        Minimal public facade for package consumers
 internal/
   exec/           Runner interface abstracting os/exec
   config/         Config loading + XDG path functions
