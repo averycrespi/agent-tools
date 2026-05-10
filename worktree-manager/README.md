@@ -19,6 +19,12 @@ wt add feat/my-feature
 # Create and immediately attach
 wt add -a feat/my-feature
 
+# Create/configure a worktree without a tmux window
+wt add --no-window feat/my-feature
+
+# Print the expected worktree path without creating it
+wt path feat/my-feature
+
 # Attach to the tmux session
 wt attach
 
@@ -34,7 +40,7 @@ wt rm -d feat/my-feature
 
 ## Commands
 
-### `wt add <branch> [-a]`
+### `wt add <branch> [-a] [--no-window]`
 
 Creates a worktree for the given branch:
 
@@ -44,7 +50,11 @@ Creates a worktree for the given branch:
 4. Creates a tmux window in the `wt-<repo>` session
 5. Sends the configured launch command (e.g. `claude`)
 
-Skips any steps already completed. Pass `-a` to attach after creation.
+Skips any steps already completed. Pass `-a` to attach after creation. Pass `--no-window` to create/configure only the worktree, copied files, and setup scripts without creating a tmux window or launching the configured command. `-a` and `--no-window` cannot be combined.
+
+### `wt path <branch>`
+
+Prints the expected absolute worktree path for a branch without creating it. Must be run from the main repository, not a worktree.
 
 ### `wt rm <branch> [-d | -D]`
 

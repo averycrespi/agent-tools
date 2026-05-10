@@ -182,6 +182,49 @@ func TestService_Add_CreatesWorktreeAndWindow(t *testing.T) {
 	tm.AssertCalled(t, "SendKeys", "wt-myrepo", "feat", "claude")
 }
 
+func TestService_AddHeadless_CreatesWorktreeWithoutTmux(t *testing.T) {
+	g := new(mockGitClient)
+	g.On("RepoInfo", "/repo").Return(git.Info{Name: "myrepo", Root: "/repo"}, nil)
+	g.On("AddWorktree", "/repo", mock.Anything, "feat").Return(nil)
+
+	tm := new(mockTmuxClient)
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmpDir)
+
+	svc := NewService(g, tm, config.Default(), nopLogger, nil)
+	path, err := svc.AddHeadless("/repo", "feat")
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(tmpDir, "wt", "worktrees", "myrepo", "myrepo-feat"), path)
+	tm.AssertNotCalled(t, "SessionExists", mock.Anything)
+	tm.AssertNotCalled(t, "CreateWindow", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestService_Path_ReturnsExpectedPath(t *testing.T) {
+	g := new(mockGitClient)
+	g.On("RepoInfo", "/repo").Return(git.Info{Name: "myrepo", Root: "/repo"}, nil)
+
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmpDir)
+
+	svc := NewService(g, new(mockTmuxClient), config.Default(), nopLogger, nil)
+	path, err := svc.Path("/repo", "feature/a")
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(tmpDir, "wt", "worktrees", "myrepo", "myrepo-feature-a"), path)
+}
+
+func TestService_Path_RejectsWorktree(t *testing.T) {
+	g := new(mockGitClient)
+	g.On("RepoInfo", "/wt").Return(git.Info{Name: "wt", Root: "/wt", IsWorktree: true}, nil)
+
+	svc := NewService(g, new(mockTmuxClient), config.Default(), nopLogger, nil)
+	_, err := svc.Path("/wt", "feat")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "main git repository")
+}
+
 func TestService_Add_NoLaunchCommand(t *testing.T) {
 	g := new(mockGitClient)
 	g.On("RepoInfo", "/repo").Return(git.Info{Name: "myrepo", Root: "/repo"}, nil)

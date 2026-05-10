@@ -20,10 +20,18 @@ Must be run from the main repository, not a worktree.`,
 		if err != nil {
 			return fmt.Errorf("could not get working directory: %w", err)
 		}
+		attach, _ := cmd.Flags().GetBool("attach")
+		noWindow, _ := cmd.Flags().GetBool("no-window")
+		if attach && noWindow {
+			return fmt.Errorf("--attach cannot be used with --no-window")
+		}
+		if noWindow {
+			_, err := svc.AddHeadless(cwd, args[0])
+			return err
+		}
 		if err := svc.Add(cwd, args[0]); err != nil {
 			return err
 		}
-		attach, _ := cmd.Flags().GetBool("attach")
 		if attach {
 			return svc.Attach(cwd, args[0])
 		}
@@ -33,6 +41,7 @@ Must be run from the main repository, not a worktree.`,
 
 func init() {
 	addCmd.Flags().BoolP("attach", "a", false, "attach to the worktree after creation")
+	addCmd.Flags().Bool("no-window", false, "create/configure the worktree without creating a tmux window")
 	addCmd.ValidArgsFunction = completeBranches
 	rootCmd.AddCommand(addCmd)
 }

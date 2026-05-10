@@ -69,41 +69,21 @@ func (s *Service) Init(repoRoot string) error {
 
 // Add creates a new workspace: worktree, tmux window, config-driven setup, and optional launch command.
 func (s *Service) Add(repoRoot, branch string) error {
-	info, err := s.git.RepoInfo(repoRoot)
+	worktreeDir, err := s.AddHeadless(repoRoot, branch)
 	if err != nil {
 		return err
 	}
-	if info.IsWorktree {
-		return fmt.Errorf("this command must be run from the main git repository, not a worktree")
-	}
 
-	if err := s.Init(repoRoot); err != nil {
+	info, err := s.git.RepoInfo(repoRoot)
+	if err != nil {
 		return err
 	}
 
 	tmuxSession := config.TmuxSessionName(info.Name)
 	windowName := config.TmuxWindowName(branch)
-	worktreeDir := config.WorktreeDir(info.Name, branch)
 
-	// Create worktree if it doesn't exist
-	if _, err := os.Stat(worktreeDir); os.IsNotExist(err) {
-		s.logger.Info("creating worktree", "path", worktreeDir)
-		if err := os.MkdirAll(filepath.Dir(worktreeDir), 0o755); err != nil { //nolint:gosec // 0755 is appropriate for worktree directories
-			return fmt.Errorf("could not create worktree directory: %w", err)
-		}
-		if err := s.git.AddWorktree(info.Root, worktreeDir, branch); err != nil {
-			return err
-		}
-
-		// Copy configured files from main repo to worktree
-		for _, relPath := range s.config.CopyFiles {
-			s.copyFile(info.Root, worktreeDir, relPath)
-		}
-
-		// Run configured setup scripts in the worktree
-		s.runSetupScripts(worktreeDir)
-	} else {
-		s.logger.Debug("worktree already exists", "path", worktreeDir)
+	if err := s.Init(repoRoot); err != nil {
+		return err
 	}
 
 	// Create tmux window if it doesn't exist
@@ -123,6 +103,50 @@ func (s *Service) Add(repoRoot, branch string) error {
 	}
 
 	return nil
+}
+
+// AddHeadless creates/configures a worktree without creating a tmux window.
+func (s *Service) AddHeadless(repoRoot, branch string) (string, error) {
+	info, err := s.git.RepoInfo(repoRoot)
+	if err != nil {
+		return "", err
+	}
+	if info.IsWorktree {
+		return "", fmt.Errorf("this command must be run from the main git repository, not a worktree")
+	}
+
+	worktreeDir := config.WorktreeDir(info.Name, branch)
+	if _, err := os.Stat(worktreeDir); os.IsNotExist(err) {
+		s.logger.Info("creating worktree", "path", worktreeDir)
+		if err := os.MkdirAll(filepath.Dir(worktreeDir), 0o755); err != nil { //nolint:gosec // 0755 is appropriate for worktree directories
+			return "", fmt.Errorf("could not create worktree directory: %w", err)
+		}
+		if err := s.git.AddWorktree(info.Root, worktreeDir, branch); err != nil {
+			return "", err
+		}
+
+		for _, relPath := range s.config.CopyFiles {
+			s.copyFile(info.Root, worktreeDir, relPath)
+		}
+
+		s.runSetupScripts(worktreeDir)
+	} else {
+		s.logger.Debug("worktree already exists", "path", worktreeDir)
+	}
+
+	return worktreeDir, nil
+}
+
+// Path returns the expected absolute worktree path for branch without creating it.
+func (s *Service) Path(repoRoot, branch string) (string, error) {
+	info, err := s.git.RepoInfo(repoRoot)
+	if err != nil {
+		return "", err
+	}
+	if info.IsWorktree {
+		return "", fmt.Errorf("this command must be run from the main git repository, not a worktree")
+	}
+	return config.WorktreeDir(info.Name, branch), nil
 }
 
 // Remove removes a workspace: worktree, tmux window, and optionally the branch.
