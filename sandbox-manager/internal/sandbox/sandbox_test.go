@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/averycrespi/agent-tools/sandbox-manager/internal/config"
+	sbexec "github.com/averycrespi/agent-tools/sandbox-manager/internal/exec"
 	"github.com/averycrespi/agent-tools/sandbox-manager/internal/lima"
 	"github.com/averycrespi/agent-tools/sandbox-manager/internal/sandbox"
 	"github.com/stretchr/testify/assert"
@@ -54,6 +55,12 @@ func (m *mockLima) Exec(args ...string) ([]byte, error) {
 	return called.Get(0).([]byte), called.Error(1)
 }
 
+func (m *mockLima) ExecPiped(workdir string, args ...string) (sbexec.Process, error) {
+	called := m.Called(workdir, args)
+	proc, _ := called.Get(0).(sbexec.Process)
+	return proc, called.Error(1)
+}
+
 func (m *mockLima) Shell(args ...string) error {
 	return m.Called(args).Error(0)
 }
@@ -66,6 +73,47 @@ func TestService_Status_Running(t *testing.T) {
 	status, err := svc.Status()
 	require.NoError(t, err)
 	assert.Equal(t, lima.StatusRunning, status)
+}
+
+type fakeProcess struct{}
+
+func (fakeProcess) Stdin() io.WriteCloser { return nopWriteCloser{} }
+func (fakeProcess) Stdout() io.ReadCloser { return io.NopCloser(&emptyReader{}) }
+func (fakeProcess) Stderr() io.ReadCloser { return io.NopCloser(&emptyReader{}) }
+func (fakeProcess) Wait() error           { return nil }
+func (fakeProcess) Kill() error           { return nil }
+
+type nopWriteCloser struct{}
+
+func (nopWriteCloser) Write(p []byte) (int, error) { return len(p), nil }
+func (nopWriteCloser) Close() error                { return nil }
+
+type emptyReader struct{}
+
+func (*emptyReader) Read(_ []byte) (int, error) { return 0, io.EOF }
+
+func TestService_ExecPiped_Running(t *testing.T) {
+	ml := new(mockLima)
+	proc := fakeProcess{}
+	ml.On("Status").Return(lima.StatusRunning, nil)
+	ml.On("ExecPiped", "/work", []string{"cat"}).Return(proc, nil)
+
+	svc := sandbox.NewService(ml, config.Default(), nopLogger)
+	got, err := svc.ExecPiped("/work", "cat")
+
+	require.NoError(t, err)
+	assert.Equal(t, proc, got)
+}
+
+func TestService_ExecPiped_NotRunning(t *testing.T) {
+	ml := new(mockLima)
+	ml.On("Status").Return(lima.StatusStopped, nil)
+
+	svc := sandbox.NewService(ml, config.Default(), nopLogger)
+	_, err := svc.ExecPiped("/work", "cat")
+
+	assert.ErrorContains(t, err, "VM not running")
+	ml.AssertNotCalled(t, "ExecPiped", mock.Anything, mock.Anything)
 }
 
 func TestService_Start_Stopped(t *testing.T) {

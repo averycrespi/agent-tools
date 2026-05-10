@@ -1,8 +1,10 @@
 package lima_test
 
 import (
+	"io"
 	"testing"
 
+	sbexec "github.com/averycrespi/agent-tools/sandbox-manager/internal/exec"
 	"github.com/averycrespi/agent-tools/sandbox-manager/internal/lima"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -22,6 +24,29 @@ func (m *mockRunner) RunInteractive(name string, args ...string) error {
 	called := m.Called(append([]interface{}{name}, toInterfaceSlice(args)...)...)
 	return called.Error(0)
 }
+
+func (m *mockRunner) StartPiped(name string, args ...string) (sbexec.Process, error) {
+	called := m.Called(append([]interface{}{name}, toInterfaceSlice(args)...)...)
+	proc, _ := called.Get(0).(sbexec.Process)
+	return proc, called.Error(1)
+}
+
+type fakeProcess struct{}
+
+func (fakeProcess) Stdin() io.WriteCloser { return nopWriteCloser{} }
+func (fakeProcess) Stdout() io.ReadCloser { return io.NopCloser(&emptyReader{}) }
+func (fakeProcess) Stderr() io.ReadCloser { return io.NopCloser(&emptyReader{}) }
+func (fakeProcess) Wait() error           { return nil }
+func (fakeProcess) Kill() error           { return nil }
+
+type nopWriteCloser struct{}
+
+func (nopWriteCloser) Write(p []byte) (int, error) { return len(p), nil }
+func (nopWriteCloser) Close() error                { return nil }
+
+type emptyReader struct{}
+
+func (*emptyReader) Read(_ []byte) (int, error) { return 0, io.EOF }
 
 func toInterfaceSlice(s []string) []interface{} {
 	out := make([]interface{}, len(s))
@@ -99,6 +124,17 @@ func TestClient_Copy_Recursive(t *testing.T) {
 	r.On("Run", "limactl", "cp", "-r", "/host/dir", "sb:/guest/dir").Return([]byte(""), nil)
 	c := lima.NewClient(r)
 	require.NoError(t, c.Copy("/host/dir", "/guest/dir", true))
+	r.AssertExpectations(t)
+}
+
+func TestClient_ExecPiped(t *testing.T) {
+	r := new(mockRunner)
+	proc := fakeProcess{}
+	r.On("StartPiped", "limactl", "shell", "--workdir", "/work", "sb", "--", "cat").Return(proc, nil)
+	c := lima.NewClient(r)
+	got, err := c.ExecPiped("/work", "cat")
+	require.NoError(t, err)
+	assert.Equal(t, proc, got)
 	r.AssertExpectations(t)
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/averycrespi/agent-tools/sandbox-manager/internal/config"
+	sbexec "github.com/averycrespi/agent-tools/sandbox-manager/internal/exec"
 	"github.com/averycrespi/agent-tools/sandbox-manager/internal/lima"
 )
 
@@ -20,6 +21,7 @@ type LimaClient interface {
 	Delete() error
 	Copy(localPath, guestPath string, recursive bool) error
 	Exec(args ...string) ([]byte, error)
+	ExecPiped(workdir string, args ...string) (sbexec.Process, error)
 	Shell(args ...string) error
 }
 
@@ -231,6 +233,18 @@ func (s *Service) Provision() error {
 	}
 
 	return nil
+}
+
+// ExecPiped starts a non-interactive command in the VM with streaming stdio pipes.
+func (s *Service) ExecPiped(workdir string, args ...string) (sbexec.Process, error) {
+	status, err := s.lima.Status()
+	if err != nil {
+		return nil, err
+	}
+	if status != lima.StatusRunning {
+		return nil, fmt.Errorf("VM not running: run \"sb start\" or \"sb create\" first")
+	}
+	return s.lima.ExecPiped(workdir, args...)
 }
 
 // Shell opens a shell in the VM.

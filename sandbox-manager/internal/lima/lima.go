@@ -114,13 +114,31 @@ func (c *Client) Copy(localPath, guestPath string, recursive bool) error {
 
 // Exec runs a command in the VM and returns its output.
 func (c *Client) Exec(args ...string) ([]byte, error) {
-	cmdArgs := []string{"shell", "--workdir", "/", vmName, "--"}
-	cmdArgs = append(cmdArgs, args...)
+	cmdArgs := shellArgs("/", args...)
 	out, err := c.runner.Run("limactl", cmdArgs...)
 	if err != nil {
 		return out, fmt.Errorf("failed to exec in VM: %w", err)
 	}
 	return out, nil
+}
+
+// ExecPiped starts a command in the VM with streaming stdio pipes.
+func (c *Client) ExecPiped(workdir string, args ...string) (exec.Process, error) {
+	if workdir == "" {
+		workdir = "/"
+	}
+	cmdArgs := shellArgs(workdir, args...)
+	proc, err := c.runner.StartPiped("limactl", cmdArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to exec in VM: %w", err)
+	}
+	return proc, nil
+}
+
+func shellArgs(workdir string, args ...string) []string {
+	cmdArgs := []string{"shell", "--workdir", workdir, vmName, "--"}
+	cmdArgs = append(cmdArgs, args...)
+	return cmdArgs
 }
 
 // Shell opens an interactive shell in the VM, or runs a command if args are provided.

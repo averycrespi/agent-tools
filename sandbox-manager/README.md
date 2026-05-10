@@ -22,8 +22,11 @@ sb status
 # Open a shell
 sb shell
 
-# Run a command in the sandbox
+# Run an interactive command in the sandbox
 sb shell -- uname -a
+
+# Run a non-interactive command with piped stdio
+sb exec --workdir /tmp -- sh -c 'cat; echo err >&2'
 
 # Stop the sandbox
 sb stop
@@ -73,6 +76,10 @@ Prints the sandbox status: `running`, `stopped`, or `not created`.
 ### `sb shell [-- command]`
 
 Opens an interactive shell in the sandbox, or runs a command if arguments are provided after `--`.
+
+### `sb exec [--workdir <path>] -- <command...>`
+
+Runs a non-interactive command in the sandbox with stdin, stdout, and stderr preserved as separate streams. This is intended for machine protocols such as Pi RPC. The sandbox VM must already be running.
 
 ### `sb config`
 
