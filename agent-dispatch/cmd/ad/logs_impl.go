@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-dispatch/internal/control"
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -14,10 +15,10 @@ func init() {
 	logsCmd.RunE = showLogs
 	attachCmd.RunE = attachTask
 	rmCmd.RunE = removeTask
-	steerCmd.RunE = controlNotReady("steer")
-	followupCmd.RunE = controlNotReady("followup")
-	followUpCmd.RunE = controlNotReady("follow-up")
-	stopCmd.RunE = controlNotReady("stop")
+	steerCmd.RunE = sendSteer
+	followupCmd.RunE = sendFollowUp
+	followUpCmd.RunE = sendFollowUp
+	stopCmd.RunE = sendStop
 }
 
 func showLogs(cmd *cobra.Command, args []string) error {
@@ -62,17 +63,29 @@ func removeTask(cmd *cobra.Command, args []string) error {
 	return fmt.Errorf("rm storage deletion is not implemented yet")
 }
 
-func controlNotReady(name string) func(*cobra.Command, []string) error {
-	return func(cmd *cobra.Command, args []string) error {
-		task, _, err := taskAndRun(cmd, args[0])
-		if err != nil {
-			return err
-		}
-		if task.Status != store.StatusRunning {
-			return fmt.Errorf("cannot %s task %s: task is %s, not running", name, task.ID, task.Status)
-		}
-		return fmt.Errorf("%s control channel is not implemented yet", name)
+func sendSteer(cmd *cobra.Command, args []string) error {
+	return sendControl(cmd, args[0], control.Request{Operation: control.OpSteer, Message: args[1]})
+}
+
+func sendFollowUp(cmd *cobra.Command, args []string) error {
+	return sendControl(cmd, args[0], control.Request{Operation: control.OpFollowUp, Message: args[1]})
+}
+
+func sendStop(cmd *cobra.Command, args []string) error {
+	force, _ := cmd.Flags().GetBool("force")
+	return sendControl(cmd, args[0], control.Request{Operation: control.OpStop, Force: force})
+}
+
+func sendControl(cmd *cobra.Command, taskID string, req control.Request) error {
+	task, run, err := taskAndRun(cmd, taskID)
+	if err != nil {
+		return err
 	}
+	if task.Status != store.StatusRunning {
+		return fmt.Errorf("cannot %s task %s: task is %s, not running", req.Operation, task.ID, task.Status)
+	}
+	_, err = control.Send(run.ControlSocketPath, req)
+	return err
 }
 
 func latestRun(cmd *cobra.Command, taskID string) (store.Run, error) {
