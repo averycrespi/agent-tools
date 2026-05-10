@@ -4,6 +4,7 @@ import osexec "os/exec"
 
 type Runner interface {
 	Run(name string, args ...string) ([]byte, error)
+	RunDir(dir, name string, args ...string) ([]byte, error)
 	Start(name string, args ...string) error
 }
 
@@ -13,6 +14,12 @@ func NewOSRunner() *OSRunner { return &OSRunner{} }
 
 func (r *OSRunner) Run(name string, args ...string) ([]byte, error) {
 	return osexec.Command(name, args...).CombinedOutput() //nolint:gosec
+}
+
+func (r *OSRunner) RunDir(dir, name string, args ...string) ([]byte, error) {
+	cmd := osexec.Command(name, args...) //nolint:gosec
+	cmd.Dir = dir
+	return cmd.CombinedOutput()
 }
 
 func (r *OSRunner) Start(name string, args ...string) error {

@@ -14,7 +14,7 @@ type Client struct {
 func NewClient(runner adexec.Runner) *Client { return &Client{runner: runner} }
 
 func (c *Client) AddHeadless(repoPath, branch string) error {
-	out, err := c.runner.Run("wt", "add", "--no-window", branch)
+	out, err := c.runner.RunDir(repoPath, "wt", "add", "--no-window", branch)
 	if err != nil {
 		return fmt.Errorf("wt add --no-window failed in %s: %s: %w", repoPath, strings.TrimSpace(string(out)), err)
 	}
@@ -22,7 +22,7 @@ func (c *Client) AddHeadless(repoPath, branch string) error {
 }
 
 func (c *Client) Path(repoPath, branch string) (string, error) {
-	out, err := c.runner.Run("wt", "path", branch)
+	out, err := c.runner.RunDir(repoPath, "wt", "path", branch)
 	if err != nil {
 		return "", fmt.Errorf("wt path failed in %s: %s: %w", repoPath, strings.TrimSpace(string(out)), err)
 	}

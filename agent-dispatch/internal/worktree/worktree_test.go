@@ -21,6 +21,12 @@ func (m *mockRunner) Run(name string, args ...string) ([]byte, error) {
 	return m.out, m.err
 }
 
+func (m *mockRunner) RunDir(dir, name string, args ...string) ([]byte, error) {
+	m.name = name
+	m.args = args
+	return m.out, m.err
+}
+
 func (m *mockRunner) Start(name string, args ...string) error { return nil }
 
 func TestClientAddHeadlessArgv(t *testing.T) {
