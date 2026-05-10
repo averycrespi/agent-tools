@@ -2,8 +2,8 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,7 +75,7 @@ func DiscoverTemplates(dirs []string) ([]Template, error) {
 func LoadTemplate(path string) (Template, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // user-selected template path.
 	if err != nil {
-		if os.IsNotExist(err) || errorsIsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return Template{}, fmt.Errorf("template not found %q: %w", path, err)
 		}
 		return Template{}, fmt.Errorf("read template %q: %w", path, err)
@@ -153,8 +153,4 @@ func RenderPiArgv(agent AgentTemplate) []string {
 	addValue("--system-prompt", agent.SystemPrompt)
 	addValue("--append-system-prompt", agent.AppendSystemPrompt)
 	return argv
-}
-
-func errorsIsNotExist(err error) bool {
-	return err == fs.ErrNotExist
 }

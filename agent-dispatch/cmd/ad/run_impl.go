@@ -112,8 +112,8 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if jsonOut {
 		return output.JSON(os.Stdout, runResult{TaskID: taskID, Status: string(store.StatusQueued)})
 	}
-	fmt.Fprintf(os.Stdout, "Started task %s\nStatus:  ad status %s\nLogs:    ad logs -f %s\nAttach:  ad attach %s\n", taskID, taskID, taskID, taskID)
-	return nil
+	_, err = fmt.Fprintf(os.Stdout, "Started task %s\nStatus:  ad status %s\nLogs:    ad logs -f %s\nAttach:  ad attach %s\n", taskID, taskID, taskID, taskID)
+	return err
 }
 
 func resolvePrompt(args []string) (string, string, error) {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -105,7 +106,7 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 		if len(raw) > 0 {
 			_, _ = piEvents.Write(append(raw, '\n'))
 		}
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

@@ -55,7 +55,9 @@ func listTasks(cmd *cobra.Command, _ []string) error {
 		return output.JSON(os.Stdout, views)
 	}
 	for _, task := range views {
-		fmt.Fprintf(os.Stdout, "%s\t%s\t%s\t%s\n", task.ID, task.Status, task.RepoName, task.Branch)
+		if _, err := fmt.Fprintf(os.Stdout, "%s\t%s\t%s\t%s\n", task.ID, task.Status, task.RepoName, task.Branch); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -82,9 +84,13 @@ func showStatus(cmd *cobra.Command, args []string) error {
 	if jsonOut {
 		return output.JSON(os.Stdout, view)
 	}
-	fmt.Fprintf(os.Stdout, "Task:    %s\nStatus:  %s\nRepo:    %s\nBranch:  %s\nWorktree:%s\n", view.Task.ID, view.Task.Status, view.Task.RepoName, view.Task.Branch, view.Task.WorktreePath)
+	if _, err := fmt.Fprintf(os.Stdout, "Task:    %s\nStatus:  %s\nRepo:    %s\nBranch:  %s\nWorktree:%s\n", view.Task.ID, view.Task.Status, view.Task.RepoName, view.Task.Branch, view.Task.WorktreePath); err != nil {
+		return err
+	}
 	if view.Run != nil {
-		fmt.Fprintf(os.Stdout, "Logs:    %s\nEvents:  %s\n", view.Run.StdoutLogPath, view.Run.PiEventsPath)
+		if _, err := fmt.Fprintf(os.Stdout, "Logs:    %s\nEvents:  %s\n", view.Run.StdoutLogPath, view.Run.PiEventsPath); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -103,7 +109,9 @@ func showEvents(cmd *cobra.Command, args []string) error {
 		return output.JSON(os.Stdout, events)
 	}
 	for _, event := range events {
-		fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", event.Timestamp.Format(time.RFC3339), event.Type, event.Message)
+		if _, err := fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", event.Timestamp.Format(time.RFC3339), event.Type, event.Message); err != nil {
+			return err
+		}
 	}
 	return nil
 }
