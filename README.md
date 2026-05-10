@@ -1,6 +1,8 @@
 # Agent Tools
 
-A collection of tools that reduce the friction of working with AI coding agents.
+My tools for working with AI coding agents. Pairs well with my [agent-config](https://github.com/averycrespi/agent-config).
+
+This repo is opinionated. It provides structured worktree management, sandboxed execution, broker-backed external access, and task orchestration that make coding agents safer and easier to run day to day. Use it as-is, fork it, or cherry-pick the tools that fit your setup.
 
 ## Overview
 
