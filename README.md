@@ -19,6 +19,7 @@ A collection of tools that reduce the friction of working with AI coding agents.
 Requirements:
 
 - Go 1.25+
+- Node.js and npm for development hooks and document formatting
 - GNU Make
 - macOS for `sandbox-manager` (requires Lima)
 
@@ -26,6 +27,9 @@ Requirements:
 # Install dependencies on macOS
 # For Linux: install `tmux` from your preferred package manager
 brew bundle
+
+# Install development hooks and formatter dependencies
+npm install
 
 # Install all tools
 make install

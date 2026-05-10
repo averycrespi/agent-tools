@@ -1,0 +1,23 @@
+{
+  "name": "agent-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare": "husky",
+    "format": "npm run format:go && npm run format:prettier",
+    "format:go": "gofmt -w $(git ls-files '*.go')",
+    "format:prettier": "prettier --write \"**/*.{md,json,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{md,json,yml,yaml}\"",
+    "lint": "make lint",
+    "precommit": "lint-staged && make lint"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.4",
+    "prettier": "^3.8.1"
+  },
+  "lint-staged": {
+    "*.go": "gofmt -w",
+    "*.{md,json,yml,yaml}": "prettier --write"
+  }
+}

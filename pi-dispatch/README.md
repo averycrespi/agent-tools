@@ -74,4 +74,3 @@ Example template:
 - Database: `$XDG_STATE_HOME/pd/pd.db` or `~/.local/state/pd/pd.db`
 - Task logs: `$XDG_STATE_HOME/pd/tasks/<task-id>/`
 - Runtime sockets: `$XDG_RUNTIME_DIR/pd/tasks/<task-id>.sock`, falling back to state runtime paths
-

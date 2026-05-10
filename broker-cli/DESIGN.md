@@ -71,11 +71,11 @@ broker-cli/
 
 The `internal/flags` package maps a JSON Schema `properties` object to cobra flags:
 
-| Schema type | Cobra flag type |
-|-------------|----------------|
-| `string` | `String` |
-| `boolean` | `Bool` |
-| `integer`, `number` | `Int64` |
+| Schema type              | Cobra flag type                   |
+| ------------------------ | --------------------------------- |
+| `string`                 | `String`                          |
+| `boolean`                | `Bool`                            |
+| `integer`, `number`      | `Int64`                           |
 | `array`, `object`, other | not registered; use `--raw-field` |
 
 Flag names are normalized from snake_case to kebab-case (`repo_path` → `--repo-path`). The args map passed to the broker uses the original schema key (`repo_path`) since that's what the backend MCP server expects.
@@ -97,11 +97,11 @@ Errors are a JSON object on stderr. Cobra's built-in error printing is silenced 
 
 ## Tech Stack
 
-| Component | Library |
-|-----------|---------|
+| Component    | Library                                               |
+| ------------ | ----------------------------------------------------- |
 | MCP protocol | [mcp-go](https://github.com/mark3labs/mcp-go) v0.45.0 |
-| CLI | [cobra](https://github.com/spf13/cobra) |
-| Testing | [testify](https://github.com/stretchr/testify) |
+| CLI          | [cobra](https://github.com/spf13/cobra)               |
+| Testing      | [testify](https://github.com/stretchr/testify)        |
 
 ## Design Decisions
 
