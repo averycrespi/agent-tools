@@ -33,6 +33,12 @@ Targets are forwarded to each tool's Makefile. Run from any subdirectory for a s
 
 Each tool is a separate Go module under `go.work` and follows the same baseline so structure is predictable. When adding a new tool or looking for the expected shape, mirror an existing tool (e.g. `worktree-manager/`) as a template — file layout, Makefile targets, and package organization should match.
 
+## CLI Conventions
+
+For Cobra commands, avoid exposing generic argument validation errors such as `accepts 2 arg(s), received 0`.
+Prefer command-specific `Args` functions that name missing arguments and include the command usage or a short example when quoting/order matters.
+Let Cobra print execution errors once; don't wrap `Execute()` with a second stderr print unless `SilenceErrors` is enabled.
+
 ## Doc Purposes
 
 Each doc has a distinct audience and scope — don't duplicate content between them.

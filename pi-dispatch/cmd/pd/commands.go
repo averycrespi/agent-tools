@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -9,6 +11,32 @@ import (
 func notImplemented(name string) func(*cobra.Command, []string) error {
 	return func(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("%s is not implemented yet", name)
+	}
+}
+
+func exactArgs(names ...string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) == len(names) {
+			return nil
+		}
+
+		var message string
+		if len(args) < len(names) {
+			missing := names[len(args):]
+			if len(missing) == 1 {
+				message = fmt.Sprintf("%s is required", missing[0])
+			} else {
+				message = fmt.Sprintf("missing required arguments: %s are required", strings.Join(missing, " and "))
+			}
+		} else {
+			message = fmt.Sprintf("too many arguments: expected %d, received %d", len(names), len(args))
+		}
+
+		message += fmt.Sprintf("\nUsage: %s", cmd.UseLine())
+		if cmd.Example != "" {
+			message += fmt.Sprintf("\nExample: %s", strings.TrimSpace(cmd.Example))
+		}
+		return errors.New(message)
 	}
 }
 
@@ -30,57 +58,59 @@ var listCmd = &cobra.Command{
 var statusCmd = &cobra.Command{
 	Use:   "status <task-id>",
 	Short: "Show task status",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactArgs("task-id"),
 	RunE:  notImplemented("status"),
 }
 
 var logsCmd = &cobra.Command{
 	Use:   "logs <task-id>",
 	Short: "Show task logs",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactArgs("task-id"),
 	RunE:  notImplemented("logs"),
 }
 
 var eventsCmd = &cobra.Command{
 	Use:   "events <task-id>",
 	Short: "Show task events",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactArgs("task-id"),
 	RunE:  notImplemented("events"),
 }
 
 var attachCmd = &cobra.Command{
 	Use:   "attach <task-id>",
 	Short: "Attach to a read-only task monitor",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactArgs("task-id"),
 	RunE:  notImplemented("attach"),
 }
 
 var steerCmd = &cobra.Command{
-	Use:   "steer <task-id> <message>",
-	Short: "Send steering to a running task",
-	Args:  cobra.ExactArgs(2),
-	RunE:  notImplemented("steer"),
+	Use:     "steer <task-id> <message>",
+	Short:   "Send steering to a running task",
+	Example: `pd steer task-123 "focus on the failing package"`,
+	Args:    exactArgs("task-id", "message"),
+	RunE:    notImplemented("steer"),
 }
 
 var followupCmd = &cobra.Command{
 	Use:     "followup <task-id> <message>",
 	Aliases: []string{"follow-up"},
 	Short:   "Queue a follow-up for a running task",
-	Args:    cobra.ExactArgs(2),
+	Example: `pd followup task-123 "run the full test suite now"`,
+	Args:    exactArgs("task-id", "message"),
 	RunE:    notImplemented("followup"),
 }
 
 var stopCmd = &cobra.Command{
 	Use:   "stop <task-id>",
 	Short: "Stop a running task",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactArgs("task-id"),
 	RunE:  notImplemented("stop"),
 }
 
 var rmCmd = &cobra.Command{
 	Use:   "rm <task-id>",
 	Short: "Remove task metadata and logs",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactArgs("task-id"),
 	RunE:  notImplemented("rm"),
 }
 
@@ -106,14 +136,14 @@ var templateValidateCmd = &cobra.Command{
 var templateShowCmd = &cobra.Command{
 	Use:   "show <template>",
 	Short: "Show a template",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactArgs("template"),
 	RunE:  notImplemented("template show"),
 }
 
 var templateRenderCmd = &cobra.Command{
 	Use:   "render <template>",
 	Short: "Render a template to Pi argv",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactArgs("template"),
 	RunE:  notImplemented("template render"),
 }
 
