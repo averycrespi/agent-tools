@@ -82,7 +82,7 @@ func showStatus(cmd *cobra.Command, args []string) error {
 	defer db.Close() //nolint:errcheck
 	task, err := db.GetTask(cmd.Context(), args[0])
 	if err != nil {
-		return err
+		return taskLookupError(args[0], err)
 	}
 	run, err := db.LatestRun(cmd.Context(), args[0])
 	var rv *runView
@@ -136,6 +136,9 @@ func showEvents(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer db.Close() //nolint:errcheck
+	if _, err := db.GetTask(cmd.Context(), args[0]); err != nil {
+		return taskLookupError(args[0], err)
+	}
 	events, err := db.ListEvents(cmd.Context(), args[0])
 	if err != nil {
 		return err

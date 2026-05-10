@@ -45,11 +45,11 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 	defer db.Close() //nolint:errcheck
 	task, err := db.GetTask(cmd.Context(), supervisorTaskID)
 	if err != nil {
-		return err
+		return taskLookupError(supervisorTaskID, err)
 	}
 	run, err := db.LatestRun(cmd.Context(), supervisorTaskID)
 	if err != nil {
-		return err
+		return runLookupError(supervisorTaskID, err)
 	}
 	argv, err := decodePiArgv(supervisorPiArgv)
 	if err != nil {

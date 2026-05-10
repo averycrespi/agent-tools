@@ -161,7 +161,18 @@ func latestRun(cmd *cobra.Command, taskID string) (store.Run, error) {
 		return store.Run{}, err
 	}
 	defer db.Close() //nolint:errcheck
-	return db.LatestRun(cmd.Context(), taskID)
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, err := db.GetTask(ctx, taskID); err != nil {
+		return store.Run{}, taskLookupError(taskID, err)
+	}
+	run, err := db.LatestRun(ctx, taskID)
+	if err != nil {
+		return store.Run{}, runLookupError(taskID, err)
+	}
+	return run, nil
 }
 
 func taskAndRunReconciled(cmd *cobra.Command, taskID string, pidExists func(int) bool) (store.Task, store.Run, error) {
@@ -176,11 +187,11 @@ func taskAndRunReconciled(cmd *cobra.Command, taskID string, pidExists func(int)
 	defer db.Close() //nolint:errcheck
 	task, err := db.GetTask(ctx, taskID)
 	if err != nil {
-		return store.Task{}, store.Run{}, err
+		return store.Task{}, store.Run{}, taskLookupError(taskID, err)
 	}
 	run, err := db.LatestRun(ctx, taskID)
 	if err != nil {
-		return store.Task{}, store.Run{}, err
+		return store.Task{}, store.Run{}, runLookupError(taskID, err)
 	}
 	task, err = reconcileTask(ctx, db, task, run, pidExists)
 	if err != nil {
