@@ -174,15 +174,17 @@ type killProcess interface {
 }
 
 func applyStopRequest(state *supervisorRunState, client abortClient, proc killProcess, req control.Request, grace time.Duration) control.Response {
+	if err := client.Abort(); err != nil {
+		return response(err)
+	}
 	state.mu.Lock()
 	state.stopRequested = true
 	state.forceRequested = req.Force
 	state.mu.Unlock()
-	err := client.Abort()
 	if req.Force {
 		scheduleForceKill(proc, grace)
 	}
-	return response(err)
+	return response(nil)
 }
 
 func scheduleForceKill(proc killProcess, grace time.Duration) {

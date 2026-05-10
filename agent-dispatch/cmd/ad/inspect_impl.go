@@ -133,11 +133,6 @@ func reconcileTask(ctx context.Context, db *store.Store, task store.Task, run st
 	if run.SupervisorPID > 0 && pidExists(run.SupervisorPID) {
 		return task, nil
 	}
-	if _, err := os.Stat(run.ControlSocketPath); err == nil {
-		return task, nil
-	} else if !os.IsNotExist(err) {
-		return task, err
-	}
 	if err := db.MarkUnknown(ctx, task.ID); err != nil {
 		return task, err
 	}

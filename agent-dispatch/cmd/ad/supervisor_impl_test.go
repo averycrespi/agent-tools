@@ -37,6 +37,21 @@ func TestApplyStopRequestAbortsAndSchedulesForcedKill(t *testing.T) {
 	require.True(t, proc.wasKilled())
 }
 
+func TestApplyStopRequestDoesNotMarkStoppedWhenAbortFails(t *testing.T) {
+	state := &supervisorRunState{}
+	client := &fakeAbortClient{err: errors.New("abort failed")}
+	proc := &fakeKillProcess{wait: make(chan struct{})}
+
+	resp := applyStopRequest(state, client, proc, control.Request{Operation: control.OpStop, Force: true}, 0)
+
+	require.False(t, resp.OK)
+	require.False(t, state.stopRequested)
+	require.False(t, state.forceRequested)
+	require.True(t, client.aborted)
+	require.False(t, proc.wasKilled())
+	require.Equal(t, store.StatusSucceeded, state.finalStatus(nil))
+}
+
 func TestScheduleForceKillWaitsForGracePeriod(t *testing.T) {
 	proc := &fakeKillProcess{wait: make(chan struct{})}
 	scheduleForceKill(proc, 30*time.Millisecond)
@@ -44,11 +59,14 @@ func TestScheduleForceKillWaitsForGracePeriod(t *testing.T) {
 	require.Eventually(t, proc.wasKilled, time.Second, 10*time.Millisecond)
 }
 
-type fakeAbortClient struct{ aborted bool }
+type fakeAbortClient struct {
+	aborted bool
+	err     error
+}
 
 func (c *fakeAbortClient) Abort() error {
 	c.aborted = true
-	return nil
+	return c.err
 }
 
 type fakeKillProcess struct {
