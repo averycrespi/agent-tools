@@ -75,6 +75,7 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 	go io.Copy(stderrLog, proc.Stderr())                                                       //nolint:errcheck
 
 	client := pi.NewClient(proc.Stdin(), io.TeeReader(proc.Stdout(), stdoutLog))
+	state := &supervisorRunState{queuesEmpty: true}
 	server, err := control.Listen(run.ControlSocketPath)
 	if err != nil {
 		addEvent(db, run, "control.failed", err.Error())
@@ -88,7 +89,7 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 				return response(client.FollowUp(req.Message))
 			case control.OpStop:
 				_ = db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusStopping)
-				return response(client.Abort())
+				return applyStopRequest(state, client, proc, req, forceStopGrace)
 			default:
 				return control.Response{OK: false, Error: "unknown operation"}
 			}
@@ -97,10 +98,8 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 
 	if err := client.Prompt(task.Prompt); err != nil {
 		addEvent(db, run, "supervisor.failed", err.Error())
-		_ = db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusFailed)
-		return err
+		return db.CompleteRun(cmd.Context(), supervisorTaskID, store.StatusFailed, 1, err.Error(), "")
 	}
-	queuesEmpty := true
 	for {
 		event, raw, err := client.Next()
 		if len(raw) > 0 {
@@ -111,8 +110,7 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 		}
 		if err != nil {
 			addEvent(db, run, "pi.error", err.Error())
-			_ = db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusFailed)
-			return err
+			return finishSupervisor(cmd.Context(), db, run, proc, state, err, err.Error())
 		}
 		if event.IsExtensionUIRequest() && event.IsBlockingExtensionUI() {
 			_ = client.ExtensionUIResponse(event.ID, true, nil)
@@ -121,22 +119,102 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 		}
 		addPiEvent(db, run, event)
 		if event.Type == "queue_update" {
-			queuesEmpty = queueUpdateEmpty(raw)
+			state.queuesEmpty = queueUpdateEmpty(raw)
 		}
-		if event.Type == "agent_end" && queuesEmpty {
-			_ = client.GetState()
-			_ = proc.Stdin().Close()
-			_ = proc.Wait()
-			addEvent(db, run, "supervisor.succeeded", "agent run completed")
-			return db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusSucceeded)
+		if event.Type == "response" && event.Command == "get_state" {
+			state.piSessionFile = event.SessionFile()
+			if state.awaitingState {
+				return finishSupervisor(cmd.Context(), db, run, proc, state, nil, "agent run completed")
+			}
+		}
+		if event.Type == "agent_end" && state.queuesEmpty {
+			state.awaitingState = true
+			if err := client.GetState(); err != nil {
+				return finishSupervisor(cmd.Context(), db, run, proc, state, err, err.Error())
+			}
 		}
 	}
-	if err := proc.Wait(); err != nil {
-		addEvent(db, run, "supervisor.failed", err.Error())
-		return db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusFailed)
+	return finishSupervisor(cmd.Context(), db, run, proc, state, nil, "Pi process exited")
+}
+
+const forceStopGrace = 5 * time.Second
+
+type supervisorRunState struct {
+	stopRequested  bool
+	forceRequested bool
+	queuesEmpty    bool
+	awaitingState  bool
+	piSessionFile  string
+}
+
+func (s *supervisorRunState) finalStatus(err error) store.TaskStatus {
+	if s.stopRequested {
+		return store.StatusStopped
 	}
-	addEvent(db, run, "supervisor.succeeded", "Pi process exited")
-	return db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusSucceeded)
+	if err != nil {
+		return store.StatusFailed
+	}
+	return store.StatusSucceeded
+}
+
+type abortClient interface {
+	Abort() error
+}
+
+type killProcess interface {
+	Kill() error
+}
+
+func applyStopRequest(state *supervisorRunState, client abortClient, proc killProcess, req control.Request, grace time.Duration) control.Response {
+	state.stopRequested = true
+	state.forceRequested = req.Force
+	err := client.Abort()
+	if req.Force {
+		scheduleForceKill(proc, grace)
+	}
+	return response(err)
+}
+
+func scheduleForceKill(proc killProcess, grace time.Duration) {
+	if grace <= 0 {
+		_ = proc.Kill()
+		return
+	}
+	time.AfterFunc(grace, func() { _ = proc.Kill() })
+}
+
+func finishSupervisor(ctx context.Context, db *store.Store, run store.Run, proc interface {
+	Stdin() io.WriteCloser
+	Wait() error
+}, state *supervisorRunState, err error, message string) error {
+	_ = proc.Stdin().Close()
+	waitErr := proc.Wait()
+	if err == nil {
+		err = waitErr
+		if err != nil && message == "Pi process exited" {
+			message = err.Error()
+		}
+	}
+	status := state.finalStatus(err)
+	if message == "" && err != nil {
+		message = err.Error()
+	}
+	if message == "" {
+		message = "agent run completed"
+	}
+	eventType := "supervisor.succeeded"
+	exitCode := 0
+	errorMessage := ""
+	switch status {
+	case store.StatusStopped:
+		eventType = "supervisor.stopped"
+	case store.StatusFailed:
+		eventType = "supervisor.failed"
+		exitCode = 1
+		errorMessage = message
+	}
+	addEvent(db, run, eventType, message)
+	return db.CompleteRun(ctx, run.TaskID, status, exitCode, errorMessage, state.piSessionFile)
 }
 
 func response(err error) control.Response {

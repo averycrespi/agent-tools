@@ -59,6 +59,47 @@ var execCmd = &cobra.Command{
 	},
 }
 
+func runExecProcess(proc interface {
+	Stdin() io.WriteCloser
+	Stdout() io.ReadCloser
+	Stderr() io.ReadCloser
+	Wait() error
+}, stdin io.Reader, stdout, stderr io.Writer) error {
+	stdinDone := make(chan error, 1)
+	go func() {
+		_, err := io.Copy(proc.Stdin(), stdin)
+		if closeErr := proc.Stdin().Close(); err == nil {
+			err = closeErr
+		}
+		stdinDone <- err
+	}()
+
+	outputDone := make(chan error, 2)
+	go func() {
+		_, err := io.Copy(stdout, proc.Stdout())
+		outputDone <- err
+	}()
+	go func() {
+		_, err := io.Copy(stderr, proc.Stderr())
+		outputDone <- err
+	}()
+
+	waitErr := proc.Wait()
+	for range 2 {
+		if copyErr := <-outputDone; copyErr != nil && waitErr == nil {
+			waitErr = copyErr
+		}
+	}
+	select {
+	case copyErr := <-stdinDone:
+		if copyErr != nil && waitErr == nil {
+			waitErr = copyErr
+		}
+	default:
+	}
+	return waitErr
+}
+
 func init() {
 	execCmd.Flags().StringVar(&execWorkdir, "workdir", "/", "working directory inside the sandbox")
 	rootCmd.AddCommand(execCmd)

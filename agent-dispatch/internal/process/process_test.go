@@ -1,0 +1,32 @@
+package process
+
+import (
+	"testing"
+
+	adexec "github.com/averycrespi/agent-tools/agent-dispatch/internal/exec"
+	"github.com/stretchr/testify/require"
+)
+
+func TestStartSupervisorReturnsDetachedPID(t *testing.T) {
+	runner := &fakeRunner{pid: 4242}
+	pid, err := NewLauncher(runner).StartSupervisor("--task-id", "ad-test")
+	require.NoError(t, err)
+	require.Equal(t, 4242, pid)
+	require.Equal(t, "ad", runner.name)
+	require.Equal(t, []string{"supervisor", "--task-id", "ad-test"}, runner.args)
+}
+
+type fakeRunner struct {
+	pid  int
+	name string
+	args []string
+}
+
+func (r *fakeRunner) Run(name string, args ...string) ([]byte, error)         { return nil, nil }
+func (r *fakeRunner) RunDir(dir, name string, args ...string) ([]byte, error) { return nil, nil }
+func (r *fakeRunner) Start(name string, args ...string) (int, error) {
+	r.name = name
+	r.args = append([]string(nil), args...)
+	return r.pid, nil
+}
+func (r *fakeRunner) StartPiped(name string, args ...string) (adexec.Process, error) { return nil, nil }

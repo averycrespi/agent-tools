@@ -20,7 +20,7 @@ func TestClientCommands(t *testing.T) {
 	require.NoError(t, client.Steer("focus"))
 	require.NoError(t, client.FollowUp("next"))
 	require.NoError(t, client.Abort())
-	assert.Contains(t, stdin.String(), `{"type":"prompt","prompt":"hello"}`)
+	assert.Contains(t, stdin.String(), `{"type":"prompt","message":"hello"}`)
 	assert.Contains(t, stdin.String(), `{"type":"steer","message":"focus"}`)
 	assert.Contains(t, stdin.String(), `{"type":"follow_up","message":"next"}`)
 	assert.Contains(t, stdin.String(), `{"type":"abort"}`)
@@ -34,6 +34,15 @@ func TestClientNext(t *testing.T) {
 	assert.Equal(t, `{"type":"agent_end"}`, string(raw))
 	_, _, err = client.Next()
 	assert.ErrorIs(t, err, io.EOF)
+}
+
+func TestEventSessionFile(t *testing.T) {
+	client := NewClient(&writeCloser{}, bytes.NewBufferString(`{"type":"response","command":"get_state","success":true,"data":{"sessionFile":"/tmp/session.json"}}`+"\n"))
+	event, _, err := client.Next()
+	require.NoError(t, err)
+	assert.Equal(t, "response", event.Type)
+	assert.Equal(t, "get_state", event.Command)
+	assert.Equal(t, "/tmp/session.json", event.SessionFile())
 }
 
 func TestExtensionUIClassification(t *testing.T) {

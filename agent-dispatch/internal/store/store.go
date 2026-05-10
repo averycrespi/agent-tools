@@ -190,6 +190,31 @@ func (s *Store) UpdateStatuses(ctx context.Context, taskID string, status TaskSt
 	return tx.Commit()
 }
 
+func (s *Store) UpdateRunSupervisorPID(ctx context.Context, taskID string, pid int) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE runs SET supervisor_pid = ? WHERE task_id = ?`, pid, taskID)
+	return err
+}
+
+func (s *Store) MarkUnknown(ctx context.Context, taskID string) error {
+	return s.UpdateStatuses(ctx, taskID, StatusUnknown)
+}
+
+func (s *Store) CompleteRun(ctx context.Context, taskID string, status TaskStatus, exitCode int, errorMessage, piSessionFile string) error {
+	now := formatTime(time.Now())
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`, status, now, taskID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE runs SET status = ?, ended_at = ?, exit_code = ?, error_message = ?, pi_session_file = ? WHERE task_id = ?`, status, now, exitCode, errorMessage, piSessionFile, taskID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) AddEvent(ctx context.Context, event Event) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO events (task_id, run_id, timestamp, type, message, payload_json) VALUES (?, ?, ?, ?, ?, ?)`, event.TaskID, event.RunID, formatTime(event.Timestamp), event.Type, event.Message, event.PayloadJSON)
 	return err
@@ -248,11 +273,17 @@ func scanTask(row taskScanner) (Task, error) {
 func scanRun(row taskScanner) (Run, error) {
 	var run Run
 	var started string
+	var ended sql.NullString
 	var status string
-	if err := row.Scan(&run.ID, &run.TaskID, &run.Attempt, &run.SupervisorPID, &run.PiSessionFile, &status, &started, &run.EndedAt, &run.ExitCode, &run.ErrorMessage, &run.ControlSocketPath, &run.StdoutLogPath, &run.StderrLogPath, &run.SupervisorLogPath, &run.PiEventsPath); err != nil {
+	if err := row.Scan(&run.ID, &run.TaskID, &run.Attempt, &run.SupervisorPID, &run.PiSessionFile, &status, &started, &ended, &run.ExitCode, &run.ErrorMessage, &run.ControlSocketPath, &run.StdoutLogPath, &run.StderrLogPath, &run.SupervisorLogPath, &run.PiEventsPath); err != nil {
 		return Run{}, err
 	}
 	run.Status = TaskStatus(status)
 	run.StartedAt, _ = time.Parse(time.RFC3339Nano, started)
+	if ended.Valid {
+		if endedAt, err := time.Parse(time.RFC3339Nano, ended.String); err == nil {
+			run.EndedAt = sql.NullTime{Time: endedAt, Valid: true}
+		}
+	}
 	return run, nil
 }

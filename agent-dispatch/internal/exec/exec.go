@@ -8,7 +8,7 @@ import (
 type Runner interface {
 	Run(name string, args ...string) ([]byte, error)
 	RunDir(dir, name string, args ...string) ([]byte, error)
-	Start(name string, args ...string) error
+	Start(name string, args ...string) (int, error)
 	StartPiped(name string, args ...string) (Process, error)
 }
 
@@ -47,8 +47,12 @@ func (r *OSRunner) RunDir(dir, name string, args ...string) ([]byte, error) {
 	return cmd.CombinedOutput()
 }
 
-func (r *OSRunner) Start(name string, args ...string) error {
-	return oexec.Command(name, args...).Start() //nolint:gosec
+func (r *OSRunner) Start(name string, args ...string) (int, error) {
+	cmd := oexec.Command(name, args...) //nolint:gosec
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	return cmd.Process.Pid, nil
 }
 
 func (r *OSRunner) StartPiped(name string, args ...string) (Process, error) {

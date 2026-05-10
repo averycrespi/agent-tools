@@ -18,7 +18,7 @@ func NewClient(stdin io.WriteCloser, stdout io.Reader) *Client {
 	return &Client{in: stdin, out: scanner}
 }
 
-func (c *Client) Prompt(text string) error { return c.send(command{Type: "prompt", Prompt: text}) }
+func (c *Client) Prompt(text string) error { return c.send(command{Type: "prompt", Message: text}) }
 func (c *Client) Steer(text string) error  { return c.send(command{Type: "steer", Message: text}) }
 func (c *Client) FollowUp(text string) error {
 	return c.send(command{Type: "follow_up", Message: text})
@@ -57,15 +57,18 @@ func (c *Client) send(v any) error {
 
 type command struct {
 	Type    string `json:"type"`
-	Prompt  string `json:"prompt,omitempty"`
 	Message string `json:"message,omitempty"`
 }
 
 type Event struct {
 	Type     string          `json:"type"`
 	ID       string          `json:"id,omitempty"`
+	Command  string          `json:"command,omitempty"`
+	Success  bool            `json:"success,omitempty"`
+	Error    string          `json:"error,omitempty"`
 	Method   string          `json:"method,omitempty"`
 	Messages json.RawMessage `json:"messages,omitempty"`
+	Data     json.RawMessage `json:"data,omitempty"`
 	Raw      json.RawMessage `json:"-"`
 }
 
@@ -89,4 +92,17 @@ func (e Event) IsBlockingExtensionUI() bool {
 
 func (e Event) IsFireAndForgetExtensionUI() bool {
 	return e.IsExtensionUIRequest() && !e.IsBlockingExtensionUI()
+}
+
+func (e Event) SessionFile() string {
+	if e.Type != "response" || e.Command != "get_state" || len(e.Data) == 0 {
+		return ""
+	}
+	var payload struct {
+		SessionFile string `json:"sessionFile"`
+	}
+	if err := json.Unmarshal(e.Data, &payload); err != nil {
+		return ""
+	}
+	return payload.SessionFile
 }

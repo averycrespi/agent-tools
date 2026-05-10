@@ -29,7 +29,7 @@ func (m *mockRunner) RunDir(dir, name string, args ...string) ([]byte, error) {
 	return m.out, m.err
 }
 
-func (m *mockRunner) Start(name string, args ...string) error { return nil }
+func (m *mockRunner) Start(name string, args ...string) (int, error) { return 0, nil }
 func (m *mockRunner) StartPiped(name string, args ...string) (adexec.Process, error) {
 	m.name = name
 	m.args = args

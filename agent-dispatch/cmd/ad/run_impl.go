@@ -20,10 +20,11 @@ import (
 )
 
 var (
-	runPromptFile string
-	runBranch     string
-	runRepo       string
-	runTemplate   string
+	runPromptFile     string
+	runBranch         string
+	runRepo           string
+	runTemplate       string
+	runAgentOverrides adconfig.AgentTemplate
 )
 
 type runResult struct {
@@ -36,6 +37,22 @@ func init() {
 	runCmd.Flags().StringVar(&runBranch, "branch", "", "branch name to create/use")
 	runCmd.Flags().StringVar(&runRepo, "repo", "", "main repository root")
 	runCmd.Flags().StringVarP(&runTemplate, "template", "t", "", "template name")
+	runCmd.Flags().StringVar(&runAgentOverrides.Provider, "provider", "", "Pi provider override")
+	runCmd.Flags().StringVar(&runAgentOverrides.Model, "model", "", "Pi model override")
+	runCmd.Flags().StringVar(&runAgentOverrides.Thinking, "thinking", "", "Pi thinking level override")
+	runCmd.Flags().StringArrayVar(&runAgentOverrides.Tools, "tools", nil, "Pi tool allowlist entry")
+	runCmd.Flags().BoolVar(&runAgentOverrides.DisableBuiltinTools, "no-builtin-tools", false, "disable built-in Pi tools")
+	runCmd.Flags().BoolVar(&runAgentOverrides.DisableAllTools, "no-tools", false, "disable all Pi tools")
+	runCmd.Flags().StringArrayVarP(&runAgentOverrides.Extensions, "extension", "e", nil, "Pi extension path or name")
+	runCmd.Flags().BoolVar(&runAgentOverrides.DisableExtensionDiscovery, "no-extensions", false, "disable Pi extension discovery")
+	runCmd.Flags().StringArrayVar(&runAgentOverrides.Skills, "skill", nil, "Pi skill name")
+	runCmd.Flags().BoolVar(&runAgentOverrides.DisableSkillDiscovery, "no-skills", false, "disable Pi skill discovery")
+	runCmd.Flags().StringArrayVar(&runAgentOverrides.PromptTemplates, "prompt-template", nil, "Pi prompt template name")
+	runCmd.Flags().BoolVar(&runAgentOverrides.DisablePromptTemplateDiscovery, "no-prompt-templates", false, "disable Pi prompt template discovery")
+	runCmd.Flags().BoolVar(&runAgentOverrides.DisableContextFiles, "no-context-files", false, "disable Pi context files")
+	runCmd.Flags().StringVar(&runAgentOverrides.SystemPrompt, "system-prompt", "", "Pi system prompt override")
+	runCmd.Flags().StringVar(&runAgentOverrides.AppendSystemPrompt, "append-system-prompt", "", "text to append to Pi system prompt")
+	runCmd.Flags().StringVar(&runAgentOverrides.SessionDir, "session-dir", "", "Pi session directory")
 	runCmd.RunE = runTask
 	listCmd.RunE = listTasks
 	statusCmd.RunE = showStatus
@@ -105,8 +122,12 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err := db.CreateTaskWithRun(cmdCtx, task, run); err != nil {
 		return err
 	}
-	argv := adconfig.RenderPiArgv(tmpl.Agent)
-	if err := process.NewLauncher(runner).StartSupervisor("--task-id", taskID, "--pi-argv", strings.Join(argv, "\x00")); err != nil {
+	argv := adconfig.RenderPiArgv(applyRunOverrides(tmpl.Agent))
+	pid, err := process.NewLauncher(runner).StartSupervisor("--task-id", taskID, "--pi-argv", strings.Join(argv, "\x00"))
+	if err != nil {
+		return err
+	}
+	if err := db.UpdateRunSupervisorPID(cmdCtx, taskID, pid); err != nil {
 		return err
 	}
 	if jsonOut {
@@ -114,6 +135,10 @@ func runTask(cmd *cobra.Command, args []string) error {
 	}
 	_, err = fmt.Fprintf(os.Stdout, "Started task %s\nStatus:  ad status %s\nLogs:    ad logs -f %s\nAttach:  ad attach %s\n", taskID, taskID, taskID, taskID)
 	return err
+}
+
+func applyRunOverrides(agent adconfig.AgentTemplate) adconfig.AgentTemplate {
+	return adconfig.ApplyAgentOverrides(agent, runAgentOverrides)
 }
 
 func resolvePrompt(args []string) (string, string, error) {

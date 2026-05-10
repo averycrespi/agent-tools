@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/output"
+	adprocess "github.com/averycrespi/agent-tools/agent-dispatch/internal/process"
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -49,6 +51,11 @@ func listTasks(cmd *cobra.Command, _ []string) error {
 	}
 	views := make([]taskView, 0, len(tasks))
 	for _, task := range tasks {
+		if run, err := db.LatestRun(cmd.Context(), task.ID); err == nil {
+			if reconciled, err := reconcileTask(cmd.Context(), db, task, run, adprocess.Exists); err == nil {
+				task = reconciled
+			}
+		}
 		views = append(views, viewTask(task))
 	}
 	if jsonOut {
@@ -75,6 +82,9 @@ func showStatus(cmd *cobra.Command, args []string) error {
 	run, err := db.LatestRun(cmd.Context(), args[0])
 	var rv *runView
 	if err == nil {
+		if reconciled, err := reconcileTask(cmd.Context(), db, task, run, adprocess.Exists); err == nil {
+			task = reconciled
+		}
 		view := viewRun(run)
 		rv = &view
 	} else if !errors.Is(err, sql.ErrNoRows) {
@@ -114,6 +124,25 @@ func showEvents(cmd *cobra.Command, args []string) error {
 		}
 	}
 	return nil
+}
+
+func reconcileTask(ctx context.Context, db *store.Store, task store.Task, run store.Run, pidExists func(int) bool) (store.Task, error) {
+	if task.Status != store.StatusRunning && task.Status != store.StatusStarting && task.Status != store.StatusStopping {
+		return task, nil
+	}
+	if run.SupervisorPID > 0 && pidExists(run.SupervisorPID) {
+		return task, nil
+	}
+	if _, err := os.Stat(run.ControlSocketPath); err == nil {
+		return task, nil
+	} else if !os.IsNotExist(err) {
+		return task, err
+	}
+	if err := db.MarkUnknown(ctx, task.ID); err != nil {
+		return task, err
+	}
+	task.Status = store.StatusUnknown
+	return task, nil
 }
 
 func viewTask(task store.Task) taskView {

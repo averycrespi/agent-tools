@@ -83,11 +83,21 @@ func sendControl(cmd *cobra.Command, taskID string, req control.Request) error {
 	if err != nil {
 		return err
 	}
-	if task.Status != store.StatusRunning {
-		return fmt.Errorf("cannot %s task %s: task is %s, not running", req.Operation, task.ID, task.Status)
+	if err := controlAllowed(task.Status, req); err != nil {
+		return fmt.Errorf("cannot %s task %s: %w", req.Operation, task.ID, err)
 	}
 	_, err = control.Send(run.ControlSocketPath, req)
 	return err
+}
+
+func controlAllowed(status store.TaskStatus, req control.Request) error {
+	if status == store.StatusRunning {
+		return nil
+	}
+	if req.Operation == control.OpStop && req.Force && status == store.StatusStopping {
+		return nil
+	}
+	return fmt.Errorf("task is %s, not running", status)
 }
 
 func latestRun(cmd *cobra.Command, taskID string) (store.Run, error) {
