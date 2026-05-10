@@ -103,6 +103,27 @@ var templateListCmd = &cobra.Command{
 	RunE:  notImplemented("template list"),
 }
 
+var templateValidateCmd = &cobra.Command{
+	Use:   "validate [template]",
+	Short: "Validate one or all templates",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  notImplemented("template validate"),
+}
+
+var templateShowCmd = &cobra.Command{
+	Use:   "show <template>",
+	Short: "Show a template",
+	Args:  cobra.ExactArgs(1),
+	RunE:  notImplemented("template show"),
+}
+
+var templateRenderCmd = &cobra.Command{
+	Use:   "render <template>",
+	Short: "Render a template to Pi argv",
+	Args:  cobra.ExactArgs(1),
+	RunE:  notImplemented("template render"),
+}
+
 var supervisorCmd = &cobra.Command{
 	Use:    "supervisor",
 	Hidden: true,
@@ -113,5 +134,5 @@ func init() {
 	logsCmd.Flags().BoolP("follow", "f", false, "follow log output")
 	stopCmd.Flags().Bool("force", false, "force termination after graceful abort")
 	rmCmd.Flags().Bool("worktree", false, "also remove the associated worktree")
-	templateCmd.AddCommand(templateListCmd)
+	templateCmd.AddCommand(templateListCmd, templateValidateCmd, templateShowCmd, templateRenderCmd)
 }

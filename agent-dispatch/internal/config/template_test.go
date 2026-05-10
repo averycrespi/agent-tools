@@ -16,12 +16,11 @@ func TestDiscoverTemplates(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, templates, 1)
 	assert.Equal(t, "go", templates[0].Name)
-	assert.Equal(t, "pi", templates[0].Agent.Command)
 }
 
 func TestDiscoverTemplatesUsesFilenameName(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "filename.json"), []byte(`{"name":"ignored","agent":{"model":"gpt-5"}}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "filename.json"), []byte(`{"agent":{"model":"gpt-5"}}`), 0o600))
 	templates, err := DiscoverTemplates([]string{dir})
 	require.NoError(t, err)
 	require.Len(t, templates, 1)
@@ -30,19 +29,34 @@ func TestDiscoverTemplatesUsesFilenameName(t *testing.T) {
 
 func TestFindTemplateUsesFilenameName(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "filename.json"), []byte(`{"name":"ignored","agent":{"model":"gpt-5"}}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "filename.json"), []byte(`{"agent":{"model":"gpt-5"}}`), 0o600))
 	tmpl, err := FindTemplate([]string{dir}, "filename")
 	require.NoError(t, err)
 	assert.Equal(t, "filename", tmpl.Name)
 }
 
-func TestRenderPiArgvAlwaysUsesRPCMode(t *testing.T) {
+func TestLoadTemplateRejectsUnknownTopLevelFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "custom.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"name":"stale","agent":{"model":"gpt-5"}}`), 0o600))
+	_, err := LoadTemplate(path)
+	assert.ErrorContains(t, err, `unknown field "name"`)
+}
+
+func TestLoadTemplateRejectsUnknownAgentFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "custom.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"agent":{"command":"pi"}}`), 0o600))
+	_, err := LoadTemplate(path)
+	assert.ErrorContains(t, err, `unknown field "command"`)
+}
+
+func TestLoadTemplateRejectsMode(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "custom.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{"agent":{"mode":"tui"}}`), 0o600))
-	tmpl, err := LoadTemplate(path)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"pi", "--mode", "rpc"}, RenderPiArgv(tmpl.Agent))
+	_, err := LoadTemplate(path)
+	assert.ErrorContains(t, err, `unknown field "mode"`)
 }
 
 func TestDiscoverTemplates_DuplicateNamesFail(t *testing.T) {
@@ -57,12 +71,24 @@ func TestDiscoverTemplates_DuplicateNamesFail(t *testing.T) {
 func TestFindTemplate_Default(t *testing.T) {
 	tmpl, err := FindTemplate(nil, "")
 	require.NoError(t, err)
-	assert.Equal(t, "pi", tmpl.Agent.Command)
+	assert.Equal(t, Template{}, tmpl)
 }
 
 func TestRenderPiArgv(t *testing.T) {
-	argv := RenderPiArgv(AgentTemplate{Command: "pi", Provider: "anthropic", Model: "claude", Thinking: "medium", Tools: []string{"bash"}, Extensions: []string{"x.ts"}, DisableContextFiles: true})
+	argv := RenderPiArgv(AgentTemplate{Provider: "anthropic", Model: "claude", Thinking: "medium", Tools: []string{"bash"}, Extensions: []string{"x.ts"}, DisableContextFiles: true})
 	assert.Equal(t, []string{"pi", "--mode", "rpc", "--provider", "anthropic", "--model", "claude", "--thinking", "medium", "--tools", "bash", "--extension", "x.ts", "--no-context-files"}, argv)
+}
+
+func TestValidateTemplateRejectsDisableAllToolsWithTools(t *testing.T) {
+	tmpl := Template{Name: "bad", Agent: AgentTemplate{Tools: []string{"bash"}, DisableAllTools: true}}
+	err := ValidateTemplate(tmpl)
+	assert.ErrorContains(t, err, "disable_all_tools")
+	assert.ErrorContains(t, err, "tools")
+}
+
+func TestValidateTemplateAllowsDiscoveryDisabledWithExplicitEntries(t *testing.T) {
+	tmpl := Template{Name: "explicit", Agent: AgentTemplate{Extensions: []string{"x"}, DisableExtensionDiscovery: true, Skills: []string{"s"}, DisableSkillDiscovery: true, PromptTemplates: []string{"p"}, DisablePromptTemplateDiscovery: true}}
+	assert.NoError(t, ValidateTemplate(tmpl))
 }
 
 func TestApplyAgentOverrides(t *testing.T) {

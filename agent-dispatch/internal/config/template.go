@@ -1,9 +1,11 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +19,6 @@ type Template struct {
 }
 
 type AgentTemplate struct {
-	Command                        string   `json:"command"`
 	Provider                       string   `json:"provider"`
 	Model                          string   `json:"model"`
 	Thinking                       string   `json:"thinking"`
@@ -34,6 +35,11 @@ type AgentTemplate struct {
 	SystemPrompt                   string   `json:"system_prompt"`
 	AppendSystemPrompt             string   `json:"append_system_prompt"`
 	SessionDir                     string   `json:"session_dir"`
+}
+
+type templateFile struct {
+	Description string        `json:"description"`
+	Agent       AgentTemplate `json:"agent"`
 }
 
 func DiscoverTemplates(dirs []string) ([]Template, error) {
@@ -57,6 +63,9 @@ func DiscoverTemplates(dirs []string) ([]Template, error) {
 			if err != nil {
 				return nil, err
 			}
+			if err := ValidateTemplate(tmpl); err != nil {
+				return nil, err
+			}
 			name := tmpl.Name
 			if prev, ok := seen[name]; ok {
 				return nil, fmt.Errorf("duplicate template %q in %s and %s", name, prev, path)
@@ -76,21 +85,22 @@ func LoadTemplate(path string) (Template, error) {
 		}
 		return Template{}, fmt.Errorf("read template %q: %w", path, err)
 	}
-	var tmpl Template
-	if err := json.Unmarshal(data, &tmpl); err != nil {
+	var file templateFile
+	if err := decodeStrict(data, &file); err != nil {
 		return Template{}, fmt.Errorf("parse template %q: %w", path, err)
 	}
-	tmpl.Path = path
-	tmpl.Name = strings.TrimSuffix(filepath.Base(path), ".json")
-	if tmpl.Agent.Command == "" {
-		tmpl.Agent.Command = "pi"
+	tmpl := Template{
+		Name:        strings.TrimSuffix(filepath.Base(path), ".json"),
+		Description: file.Description,
+		Agent:       file.Agent,
+		Path:        path,
 	}
 	return tmpl, nil
 }
 
 func FindTemplate(dirs []string, name string) (Template, error) {
 	if name == "" {
-		return Template{Agent: AgentTemplate{Command: "pi"}}, nil
+		return Template{}, nil
 	}
 	templates, err := DiscoverTemplates(dirs)
 	if err != nil {
@@ -104,12 +114,40 @@ func FindTemplate(dirs []string, name string) (Template, error) {
 	return Template{}, fmt.Errorf("template %q not found", name)
 }
 
-func RenderPiArgv(agent AgentTemplate) []string {
-	command := agent.Command
-	if command == "" {
-		command = "pi"
+func ValidateTemplate(tmpl Template) error {
+	if tmpl.Agent.DisableAllTools && countNonEmpty(tmpl.Agent.Tools) > 0 {
+		return fmt.Errorf("template %q: disable_all_tools cannot be combined with tools", tmpl.Name)
 	}
-	argv := []string{command, "--mode", "rpc"}
+	return nil
+}
+
+func decodeStrict(data []byte, v any) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return fmt.Errorf("multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
+func countNonEmpty(values []string) int {
+	count := 0
+	for _, value := range values {
+		if value != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func RenderPiArgv(agent AgentTemplate) []string {
+	argv := []string{"pi", "--mode", "rpc"}
 	addValue := func(flag, value string) {
 		if value != "" {
 			argv = append(argv, flag, value)
@@ -147,9 +185,6 @@ func RenderPiArgv(agent AgentTemplate) []string {
 }
 
 func ApplyAgentOverrides(base, overrides AgentTemplate) AgentTemplate {
-	if overrides.Command != "" {
-		base.Command = overrides.Command
-	}
 	if overrides.Provider != "" {
 		base.Provider = overrides.Provider
 	}

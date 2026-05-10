@@ -26,6 +26,9 @@ ad followup <task-id> "run the full test suite now"
 ad stop <task-id>
 ad stop --force <task-id>
 ad template list
+ad template validate
+ad template show <template>
+ad template render <template>
 ```
 
 `ad run --json`, `ad ps --json`, `ad status --json <task-id>`, and `ad events --json <task-id>` emit machine-readable JSON.
@@ -47,7 +50,7 @@ Config file: `~/.config/ad/config.json`.
 }
 ```
 
-Templates are standalone JSON files in configured template directories and define Pi launch options. The template name is the JSON filename without the `.json` extension. List configured templates with `ad template list`.
+Templates are standalone JSON files in configured template directories and define Pi launch options. The template name is the JSON filename without the `.json` extension. Templates are decoded strictly: unknown fields such as `name`, `command`, or `mode` are errors. List configured templates with `ad template list`, validate them with `ad template validate [template]`, inspect one with `ad template show <template>`, and preview the Pi argv with `ad template render <template>`.
 
 `ad run` supports launch overrides for Pi options including `--provider`, `--model`, `--thinking`, `--tools`, `--no-builtin-tools`, `--no-tools`, `--extension`, `--no-extensions`, `--skill`, `--no-skills`, `--prompt-template`, `--no-prompt-templates`, `--no-context-files`, `--system-prompt`, `--append-system-prompt`, and `--session-dir`. CLI flags override template values.
 
@@ -57,7 +60,6 @@ Example template:
 {
   "description": "Default sandboxed Pi coding agent",
   "agent": {
-    "command": "pi",
     "thinking": "medium",
     "tools": [],
     "extensions": [],

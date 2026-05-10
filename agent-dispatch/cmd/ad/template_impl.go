@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"os"
+	"strings"
 
 	adconfig "github.com/averycrespi/agent-tools/agent-dispatch/internal/config"
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/output"
@@ -11,6 +11,9 @@ import (
 
 func init() {
 	templateListCmd.RunE = listTemplates
+	templateValidateCmd.RunE = validateTemplates
+	templateShowCmd.RunE = showTemplate
+	templateRenderCmd.RunE = renderTemplate
 }
 
 func listTemplates(cmd *cobra.Command, _ []string) error {
@@ -19,7 +22,7 @@ func listTemplates(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	if jsonOut {
-		return output.JSON(os.Stdout, templates)
+		return output.JSON(cmd.OutOrStdout(), templates)
 	}
 	for _, tmpl := range templates {
 		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", tmpl.Name, tmpl.Description, tmpl.Path); err != nil {
@@ -27,4 +30,76 @@ func listTemplates(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	return nil
+}
+
+func validateTemplates(cmd *cobra.Command, args []string) error {
+	var templates []adconfig.Template
+	if len(args) == 1 {
+		tmpl, err := adconfig.FindTemplate(cfg.TemplateDirs, args[0])
+		if err != nil {
+			return err
+		}
+		templates = []adconfig.Template{tmpl}
+	} else {
+		var err error
+		templates, err = adconfig.DiscoverTemplates(cfg.TemplateDirs)
+		if err != nil {
+			return err
+		}
+	}
+	if jsonOut {
+		return output.JSON(cmd.OutOrStdout(), templates)
+	}
+	for _, tmpl := range templates {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\tok\n", tmpl.Name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func showTemplate(cmd *cobra.Command, args []string) error {
+	tmpl, err := adconfig.FindTemplate(cfg.TemplateDirs, args[0])
+	if err != nil {
+		return err
+	}
+	return output.JSON(cmd.OutOrStdout(), tmpl)
+}
+
+func renderTemplate(cmd *cobra.Command, args []string) error {
+	tmpl, err := adconfig.FindTemplate(cfg.TemplateDirs, args[0])
+	if err != nil {
+		return err
+	}
+	argv := adconfig.RenderPiArgv(tmpl.Agent)
+	if jsonOut {
+		return output.JSON(cmd.OutOrStdout(), argv)
+	}
+	_, err = fmt.Fprintln(cmd.OutOrStdout(), shellJoin(argv))
+	return err
+}
+
+func shellJoin(argv []string) string {
+	parts := make([]string, 0, len(argv))
+	for _, arg := range argv {
+		parts = append(parts, shellQuote(arg))
+	}
+	return strings.Join(parts, " ")
+}
+
+func shellQuote(arg string) string {
+	if arg == "" {
+		return "''"
+	}
+	if strings.IndexFunc(arg, func(r rune) bool { return !isShellSafeChar(r) }) == -1 {
+		return arg
+	}
+	return "'" + strings.ReplaceAll(arg, "'", "'\\''") + "'"
+}
+
+func isShellSafeChar(r rune) bool {
+	return (r >= 'a' && r <= 'z') ||
+		(r >= 'A' && r <= 'Z') ||
+		(r >= '0' && r <= '9') ||
+		strings.ContainsRune("_+-./:=,@%", r)
 }
