@@ -70,13 +70,6 @@ var followupCmd = &cobra.Command{
 	RunE:    notImplemented("followup"),
 }
 
-var followUpCmd = &cobra.Command{
-	Use:    "follow-up <task-id> <message>",
-	Hidden: true,
-	Args:   cobra.ExactArgs(2),
-	RunE:   notImplemented("follow-up"),
-}
-
 var stopCmd = &cobra.Command{
 	Use:   "stop <task-id>",
 	Short: "Stop a running task",

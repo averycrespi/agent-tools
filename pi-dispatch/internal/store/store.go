@@ -54,7 +54,6 @@ type Run struct {
 	ControlSocketPath string
 	StdoutLogPath     string
 	StderrLogPath     string
-	SupervisorLogPath string
 	PiEventsPath      string
 }
 
@@ -104,7 +103,6 @@ CREATE TABLE IF NOT EXISTS runs (
     control_socket_path TEXT NOT NULL,
     stdout_log_path     TEXT NOT NULL,
     stderr_log_path     TEXT NOT NULL,
-    supervisor_log_path TEXT NOT NULL,
     pi_events_path      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_runs_task_id ON runs(task_id);
@@ -170,7 +168,7 @@ func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 }
 
 func (s *Store) LatestRun(ctx context.Context, taskID string) (Run, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, task_id, attempt, supervisor_pid, pi_session_file, status, started_at, ended_at, exit_code, error_message, control_socket_path, stdout_log_path, stderr_log_path, supervisor_log_path, pi_events_path FROM runs WHERE task_id = ? ORDER BY attempt DESC LIMIT 1`, taskID)
+	row := s.db.QueryRowContext(ctx, `SELECT id, task_id, attempt, supervisor_pid, pi_session_file, status, started_at, ended_at, exit_code, error_message, control_socket_path, stdout_log_path, stderr_log_path, pi_events_path FROM runs WHERE task_id = ? ORDER BY attempt DESC LIMIT 1`, taskID)
 	return scanRun(row)
 }
 
@@ -220,6 +218,32 @@ func (s *Store) AddEvent(ctx context.Context, event Event) error {
 	return err
 }
 
+func (s *Store) DeleteTask(ctx context.Context, taskID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE task_id = ?`, taskID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM runs WHERE task_id = ?`, taskID); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE id = ?`, taskID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return tx.Commit()
+}
+
 func (s *Store) CreateTaskWithRun(ctx context.Context, task Task, run Run) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -230,8 +254,8 @@ func (s *Store) CreateTaskWithRun(ctx context.Context, task Task, run Run) error
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, task.ID, task.RepoPath, task.RepoName, task.Branch, task.WorktreePath, task.TemplateName, task.PromptSource, task.Prompt, task.PromptPreview, task.Status, formatTime(task.CreatedAt), formatTime(task.UpdatedAt)); err != nil {
 		return fmt.Errorf("insert task: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO runs (id, task_id, attempt, supervisor_pid, pi_session_file, status, started_at, ended_at, exit_code, error_message, control_socket_path, stdout_log_path, stderr_log_path, supervisor_log_path, pi_events_path)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ID, run.TaskID, run.Attempt, run.SupervisorPID, run.PiSessionFile, run.Status, formatTime(run.StartedAt), nullableTime(run.EndedAt), nullableInt(run.ExitCode), run.ErrorMessage, run.ControlSocketPath, run.StdoutLogPath, run.StderrLogPath, run.SupervisorLogPath, run.PiEventsPath); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO runs (id, task_id, attempt, supervisor_pid, pi_session_file, status, started_at, ended_at, exit_code, error_message, control_socket_path, stdout_log_path, stderr_log_path, pi_events_path)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ID, run.TaskID, run.Attempt, run.SupervisorPID, run.PiSessionFile, run.Status, formatTime(run.StartedAt), nullableTime(run.EndedAt), nullableInt(run.ExitCode), run.ErrorMessage, run.ControlSocketPath, run.StdoutLogPath, run.StderrLogPath, run.PiEventsPath); err != nil {
 		return fmt.Errorf("insert run: %w", err)
 	}
 	return tx.Commit()
@@ -275,7 +299,7 @@ func scanRun(row taskScanner) (Run, error) {
 	var started string
 	var ended sql.NullString
 	var status string
-	if err := row.Scan(&run.ID, &run.TaskID, &run.Attempt, &run.SupervisorPID, &run.PiSessionFile, &status, &started, &ended, &run.ExitCode, &run.ErrorMessage, &run.ControlSocketPath, &run.StdoutLogPath, &run.StderrLogPath, &run.SupervisorLogPath, &run.PiEventsPath); err != nil {
+	if err := row.Scan(&run.ID, &run.TaskID, &run.Attempt, &run.SupervisorPID, &run.PiSessionFile, &status, &started, &ended, &run.ExitCode, &run.ErrorMessage, &run.ControlSocketPath, &run.StdoutLogPath, &run.StderrLogPath, &run.PiEventsPath); err != nil {
 		return Run{}, err
 	}
 	run.Status = TaskStatus(status)

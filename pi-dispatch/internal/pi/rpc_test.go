@@ -36,6 +36,24 @@ func TestClientNext(t *testing.T) {
 	assert.ErrorIs(t, err, io.EOF)
 }
 
+func TestClientNextAcceptsCRLF(t *testing.T) {
+	client := NewClient(&writeCloser{}, bytes.NewBufferString(`{"type":"agent_end"}`+"\r\n"))
+	event, raw, err := client.Next()
+	require.NoError(t, err)
+	assert.Equal(t, "agent_end", event.Type)
+	assert.Equal(t, `{"type":"agent_end"}`, string(raw))
+}
+
+func TestClientNextReadsLargeJSONLRecord(t *testing.T) {
+	large := bytes.Repeat([]byte("x"), 11*1024*1024)
+	input := append([]byte(`{"type":"message_update","data":{"text":"`), large...)
+	input = append(input, []byte(`"}}`+"\n")...)
+	client := NewClient(&writeCloser{}, bytes.NewReader(input))
+	event, _, err := client.Next()
+	require.NoError(t, err)
+	assert.Equal(t, "message_update", event.Type)
+}
+
 func TestEventSessionFile(t *testing.T) {
 	client := NewClient(&writeCloser{}, bytes.NewBufferString(`{"type":"response","command":"get_state","success":true,"data":{"sessionFile":"/tmp/session.json"}}`+"\n"))
 	event, _, err := client.Next()

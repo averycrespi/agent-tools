@@ -33,3 +33,7 @@ func (c *Client) AddHeadless(repoRoot, branch string) (string, error) {
 func (c *Client) Path(repoRoot, branch string) (string, error) {
 	return c.service.Path(repoRoot, branch)
 }
+
+func (c *Client) Remove(repoRoot, branch string) error {
+	return c.service.Remove(repoRoot, branch, false, false)
+}

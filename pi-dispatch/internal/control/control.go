@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type Operation string
@@ -15,6 +16,7 @@ const (
 	OpSteer    Operation = "steer"
 	OpFollowUp Operation = "follow_up"
 	OpStop     Operation = "stop"
+	OpPing     Operation = "ping"
 )
 
 type Request struct {
@@ -63,12 +65,22 @@ func (s *Server) Close() error {
 	return err
 }
 
+const DefaultTimeout = 2 * time.Second
+
 func Send(path string, req Request) (Response, error) {
-	conn, err := net.Dial("unix", path)
+	return SendTimeout(path, req, DefaultTimeout)
+}
+
+func SendTimeout(path string, req Request, timeout time.Duration) (Response, error) {
+	dialer := net.Dialer{Timeout: timeout}
+	conn, err := dialer.Dial("unix", path)
 	if err != nil {
 		return Response{}, fmt.Errorf("connect control socket: %w", err)
 	}
 	defer conn.Close() //nolint:errcheck
+	if timeout > 0 {
+		_ = conn.SetDeadline(time.Now().Add(timeout))
+	}
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return Response{}, err
 	}

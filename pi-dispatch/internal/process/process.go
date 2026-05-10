@@ -2,6 +2,7 @@ package process
 
 import (
 	"errors"
+	"os"
 	"syscall"
 
 	pdexec "github.com/averycrespi/agent-tools/pi-dispatch/internal/exec"
@@ -12,7 +13,11 @@ type Launcher struct{ runner pdexec.Runner }
 func NewLauncher(runner pdexec.Runner) *Launcher { return &Launcher{runner: runner} }
 
 func (l *Launcher) StartSupervisor(args ...string) (int, error) {
-	return l.runner.Start("pd", append([]string{"supervisor"}, args...)...)
+	exe, err := os.Executable()
+	if err != nil {
+		return 0, err
+	}
+	return l.runner.Start(exe, append([]string{"supervisor"}, args...)...)
 }
 
 func Exists(pid int) bool {

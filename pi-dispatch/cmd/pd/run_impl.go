@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -35,6 +36,7 @@ type runResult struct {
 
 type worktreeClient interface {
 	AddHeadless(repoRoot, branch string) (string, error)
+	Remove(repoRoot, branch string) error
 }
 
 type sandboxClient interface {
@@ -125,27 +127,34 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err := os.MkdirAll(taskDir, 0o750); err != nil {
 		return err
 	}
-	task := store.Task{ID: taskID, RepoPath: repo.Root, RepoName: repo.Name, Branch: branch, WorktreePath: worktreePath, TemplateName: tmpl.Name, PromptSource: source, Prompt: prompt, PromptPreview: preview(prompt), Status: store.StatusQueued, CreatedAt: now, UpdatedAt: now}
-	run := store.Run{ID: runID, TaskID: taskID, Attempt: 1, Status: store.StatusQueued, StartedAt: now, ControlSocketPath: filepath.Join(pdconfig.RuntimeDir(), "tasks", taskID+".sock"), StdoutLogPath: filepath.Join(taskDir, "stdout.log"), StderrLogPath: filepath.Join(taskDir, "stderr.log"), SupervisorLogPath: filepath.Join(taskDir, "supervisor.log"), PiEventsPath: filepath.Join(taskDir, "pi-events.jsonl")}
+	task := store.Task{ID: taskID, RepoPath: repo.Root, RepoName: repo.Name, Branch: branch, WorktreePath: worktreePath, TemplateName: tmpl.Name, PromptSource: source, Prompt: prompt, PromptPreview: preview(prompt), Status: store.StatusStarting, CreatedAt: now, UpdatedAt: now}
+	run := store.Run{ID: runID, TaskID: taskID, Attempt: 1, Status: store.StatusStarting, StartedAt: now, ControlSocketPath: filepath.Join(pdconfig.RuntimeDir(), "tasks", taskID+".sock"), StdoutLogPath: filepath.Join(taskDir, "stdout.log"), StderrLogPath: filepath.Join(taskDir, "stderr.log"), PiEventsPath: filepath.Join(taskDir, "pi-events.jsonl")}
 	if err := db.CreateTaskWithRun(cmdCtx, task, run); err != nil {
 		return err
 	}
 	argv := pdconfig.RenderPiArgv(applyRunOverrides(tmpl.Agent))
 	encodedArgv, err := encodePiArgv(argv)
 	if err != nil {
-		return err
+		return failRunLaunch(cmdCtx, db, taskID, err)
 	}
 	pid, err := process.NewLauncher(runner).StartSupervisor("--task-id", taskID, "--pi-argv", encodedArgv)
 	if err != nil {
-		return err
+		return failRunLaunch(cmdCtx, db, taskID, err)
 	}
 	if err := db.UpdateRunSupervisorPID(cmdCtx, taskID, pid); err != nil {
-		return err
+		return failRunLaunch(cmdCtx, db, taskID, err)
 	}
 	if jsonOut {
-		return output.JSON(os.Stdout, runResult{TaskID: taskID, Status: string(store.StatusQueued)})
+		return output.JSON(os.Stdout, runResult{TaskID: taskID, Status: string(store.StatusStarting)})
 	}
 	_, err = fmt.Fprintf(os.Stdout, "Started task %s\nStatus:  pd status %s\nLogs:    pd logs -f %s\nAttach:  pd attach %s\n", taskID, taskID, taskID, taskID)
+	return err
+}
+
+func failRunLaunch(ctx context.Context, db *store.Store, taskID string, err error) error {
+	if completeErr := db.CompleteRun(ctx, taskID, store.StatusFailed, 1, err.Error(), ""); completeErr != nil {
+		return completeErr
+	}
 	return err
 }
 

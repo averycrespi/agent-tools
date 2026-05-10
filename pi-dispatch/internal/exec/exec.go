@@ -49,10 +49,15 @@ func (r *OSRunner) RunDir(dir, name string, args ...string) ([]byte, error) {
 
 func (r *OSRunner) Start(name string, args ...string) (int, error) {
 	cmd := oexec.Command(name, args...) //nolint:gosec
+	detachCommand(cmd)
 	if err := cmd.Start(); err != nil {
 		return 0, err
 	}
-	return cmd.Process.Pid, nil
+	pid := cmd.Process.Pid
+	if err := cmd.Process.Release(); err != nil {
+		return 0, err
+	}
+	return pid, nil
 }
 
 func (r *OSRunner) StartPiped(name string, args ...string) (Process, error) {

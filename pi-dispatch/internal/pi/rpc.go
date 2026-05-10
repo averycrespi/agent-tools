@@ -9,13 +9,11 @@ import (
 
 type Client struct {
 	in  io.WriteCloser
-	out *bufio.Scanner
+	out *bufio.Reader
 }
 
 func NewClient(stdin io.WriteCloser, stdout io.Reader) *Client {
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
-	return &Client{in: stdin, out: scanner}
+	return &Client{in: stdin, out: bufio.NewReader(stdout)}
 }
 
 func (c *Client) Prompt(text string) error { return c.send(command{Type: "prompt", Message: text}) }
@@ -31,13 +29,22 @@ func (c *Client) ExtensionUIResponse(id string, cancelled bool, value any) error
 }
 
 func (c *Client) Next() (Event, []byte, error) {
-	if !c.out.Scan() {
-		if err := c.out.Err(); err != nil {
+	raw, err := c.out.ReadBytes('\n')
+	if err != nil {
+		if len(raw) == 0 {
 			return Event{}, nil, err
 		}
-		return Event{}, nil, io.EOF
+		if err != io.EOF {
+			return Event{}, nil, err
+		}
 	}
-	raw := append([]byte(nil), c.out.Bytes()...)
+	raw = append([]byte(nil), raw...)
+	if len(raw) > 0 && raw[len(raw)-1] == '\n' {
+		raw = raw[:len(raw)-1]
+	}
+	if len(raw) > 0 && raw[len(raw)-1] == '\r' {
+		raw = raw[:len(raw)-1]
+	}
 	var event Event
 	if err := json.Unmarshal(raw, &event); err != nil {
 		return Event{}, raw, fmt.Errorf("parse Pi RPC event: %w", err)

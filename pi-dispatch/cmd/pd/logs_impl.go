@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"os"
+	"sync"
 	"time"
 
+	pdconfig "github.com/averycrespi/agent-tools/pi-dispatch/internal/config"
 	"github.com/averycrespi/agent-tools/pi-dispatch/internal/control"
+	"github.com/averycrespi/agent-tools/pi-dispatch/internal/output"
 	pdprocess "github.com/averycrespi/agent-tools/pi-dispatch/internal/process"
 	"github.com/averycrespi/agent-tools/pi-dispatch/internal/store"
 	"github.com/spf13/cobra"
@@ -19,7 +23,6 @@ func init() {
 	rmCmd.RunE = removeTask
 	steerCmd.RunE = sendSteer
 	followupCmd.RunE = sendFollowUp
-	followUpCmd.RunE = sendFollowUp
 	stopCmd.RunE = sendStop
 }
 
@@ -36,7 +39,7 @@ func showLogs(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if follow {
-		return followFile(run.StdoutLogPath)
+		return followFiles(logFollowTarget{label: "stdout", path: run.StdoutLogPath}, logFollowTarget{label: "stderr", path: run.StderrLogPath})
 	}
 	return nil
 }
@@ -50,21 +53,57 @@ func attachTask(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if task.Status == store.StatusRunning || task.Status == store.StatusStarting {
-		return followFile(run.StdoutLogPath)
+		return followFiles(logFollowTarget{label: "stdout", path: run.StdoutLogPath}, logFollowTarget{label: "stderr", path: run.StderrLogPath})
 	}
 	_, err = fmt.Fprintf(os.Stdout, "Task is not running. Use `pd logs %s` or `pd events %s` for persisted output.\n", task.ID, task.ID)
 	return err
 }
 
+type removeResult struct {
+	TaskID          string `json:"task_id"`
+	Removed         bool   `json:"removed"`
+	WorktreeRemoved bool   `json:"worktree_removed"`
+}
+
 func removeTask(cmd *cobra.Command, args []string) error {
-	task, _, err := taskAndRun(cmd, args[0])
+	removeWorktree, _ := cmd.Flags().GetBool("worktree")
+	task, run, err := taskAndRunReconciled(cmd, args[0], pdprocess.Exists)
 	if err != nil {
 		return err
 	}
 	if task.Status == store.StatusRunning || task.Status == store.StatusStopping || task.Status == store.StatusStarting {
 		return fmt.Errorf("refusing to remove %s task; stop it first", task.Status)
 	}
-	return fmt.Errorf("rm storage deletion is not implemented yet")
+	if removeWorktree {
+		wt, err := newWorktreeClient()
+		if err != nil {
+			return err
+		}
+		if err := wt.Remove(task.RepoPath, task.Branch); err != nil {
+			return err
+		}
+	}
+	if err := os.RemoveAll(pdconfig.TaskDir(task.ID)); err != nil {
+		return err
+	}
+	if run.ControlSocketPath != "" {
+		if err := os.Remove(run.ControlSocketPath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	db, err := store.Open(cfg.DBPath())
+	if err != nil {
+		return err
+	}
+	defer db.Close() //nolint:errcheck
+	if err := db.DeleteTask(cmd.Context(), task.ID); err != nil {
+		return err
+	}
+	if jsonOut {
+		return output.JSON(os.Stdout, removeResult{TaskID: task.ID, Removed: true, WorktreeRemoved: removeWorktree})
+	}
+	_, err = fmt.Fprintf(os.Stdout, "Removed task %s\n", task.ID)
+	return err
 }
 
 func sendSteer(cmd *cobra.Command, args []string) error {
@@ -80,6 +119,12 @@ func sendStop(cmd *cobra.Command, args []string) error {
 	return sendControl(cmd, args[0], control.Request{Operation: control.OpStop, Force: force})
 }
 
+type controlResult struct {
+	TaskID    string `json:"task_id"`
+	Operation string `json:"operation"`
+	OK        bool   `json:"ok"`
+}
+
 func sendControl(cmd *cobra.Command, taskID string, req control.Request) error {
 	task, run, err := taskAndRunReconciled(cmd, taskID, pdprocess.Exists)
 	if err != nil {
@@ -89,7 +134,13 @@ func sendControl(cmd *cobra.Command, taskID string, req control.Request) error {
 		return fmt.Errorf("cannot %s task %s: %w", req.Operation, task.ID, err)
 	}
 	_, err = control.Send(run.ControlSocketPath, req)
-	return err
+	if err != nil {
+		return err
+	}
+	if jsonOut {
+		return output.JSON(os.Stdout, controlResult{TaskID: task.ID, Operation: string(req.Operation), OK: true})
+	}
+	return nil
 }
 
 func controlAllowed(status store.TaskStatus, req control.Request) error {
@@ -136,27 +187,6 @@ func taskAndRunReconciled(cmd *cobra.Command, taskID string, pidExists func(int)
 	return task, run, nil
 }
 
-func taskAndRun(cmd *cobra.Command, taskID string) (store.Task, store.Run, error) {
-	ctx := cmd.Context()
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	db, err := store.Open(cfg.DBPath())
-	if err != nil {
-		return store.Task{}, store.Run{}, err
-	}
-	defer db.Close() //nolint:errcheck
-	task, err := db.GetTask(ctx, taskID)
-	if err != nil {
-		return store.Task{}, store.Run{}, err
-	}
-	run, err := db.LatestRun(ctx, taskID)
-	if err != nil {
-		return store.Task{}, store.Run{}, err
-	}
-	return task, run, nil
-}
-
 func printFile(path string) error {
 	f, err := os.Open(path) //nolint:gosec
 	if err != nil {
@@ -167,17 +197,46 @@ func printFile(path string) error {
 	return err
 }
 
-func followFile(path string) error {
+type logFollowTarget struct {
+	label string
+	path  string
+}
+
+func followFiles(targets ...logFollowTarget) error {
+	errs := make(chan error, len(targets))
+	var writerMu sync.Mutex
+	for _, target := range targets {
+		go func() {
+			errs <- followFilePrefixed(target, &writerMu)
+		}()
+	}
+	return <-errs
+}
+
+func followFilePrefixed(target logFollowTarget, writerMu *sync.Mutex) error {
 	var offset int64
 	for {
-		f, err := os.Open(path) //nolint:gosec
+		f, err := os.Open(target.path) //nolint:gosec
 		if err == nil {
 			if _, err := f.Seek(offset, io.SeekStart); err == nil {
-				n, copyErr := io.Copy(os.Stdout, f)
-				offset += n
-				if copyErr != nil {
+				scanner := bufio.NewScanner(f)
+				for scanner.Scan() {
+					line := scanner.Text()
+					writerMu.Lock()
+					_, writeErr := fmt.Fprintf(os.Stdout, "%s: %s\n", target.label, line)
+					writerMu.Unlock()
+					if writeErr != nil {
+						_ = f.Close()
+						return writeErr
+					}
+				}
+				if err := scanner.Err(); err != nil {
 					_ = f.Close()
-					return copyErr
+					return err
+				}
+				pos, err := f.Seek(0, io.SeekCurrent)
+				if err == nil {
+					offset = pos
 				}
 			}
 			_ = f.Close()

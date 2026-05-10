@@ -1,6 +1,7 @@
 package process
 
 import (
+	"os"
 	"testing"
 
 	pdexec "github.com/averycrespi/agent-tools/pi-dispatch/internal/exec"
@@ -12,7 +13,9 @@ func TestStartSupervisorReturnsDetachedPID(t *testing.T) {
 	pid, err := NewLauncher(runner).StartSupervisor("--task-id", "pd-test")
 	require.NoError(t, err)
 	require.Equal(t, 4242, pid)
-	require.Equal(t, "pd", runner.name)
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	require.Equal(t, exe, runner.name)
 	require.Equal(t, []string{"supervisor", "--task-id", "pd-test"}, runner.args)
 }
 

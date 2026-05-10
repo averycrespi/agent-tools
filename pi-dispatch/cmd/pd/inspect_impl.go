@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/averycrespi/agent-tools/pi-dispatch/internal/control"
 	"github.com/averycrespi/agent-tools/pi-dispatch/internal/output"
 	pdprocess "github.com/averycrespi/agent-tools/pi-dispatch/internal/process"
 	"github.com/averycrespi/agent-tools/pi-dispatch/internal/store"
@@ -30,13 +31,17 @@ type statusView struct {
 }
 
 type runView struct {
-	ID                string `json:"id"`
-	Status            string `json:"status"`
-	Attempt           int    `json:"attempt"`
-	ControlSocketPath string `json:"control_socket_path"`
-	StdoutLogPath     string `json:"stdout_log_path"`
-	StderrLogPath     string `json:"stderr_log_path"`
-	PiEventsPath      string `json:"pi_events_path"`
+	ID                string     `json:"id"`
+	Status            string     `json:"status"`
+	Attempt           int        `json:"attempt"`
+	EndedAt           *time.Time `json:"ended_at,omitempty"`
+	ExitCode          *int       `json:"exit_code,omitempty"`
+	ErrorMessage      string     `json:"error_message,omitempty"`
+	PiSessionFile     string     `json:"pi_session_file,omitempty"`
+	ControlSocketPath string     `json:"control_socket_path"`
+	StdoutLogPath     string     `json:"stdout_log_path"`
+	StderrLogPath     string     `json:"stderr_log_path"`
+	PiEventsPath      string     `json:"pi_events_path"`
 }
 
 func listTasks(cmd *cobra.Command, _ []string) error {
@@ -101,6 +106,26 @@ func showStatus(cmd *cobra.Command, args []string) error {
 		if _, err := fmt.Fprintf(os.Stdout, "Logs:    %s\nEvents:  %s\n", view.Run.StdoutLogPath, view.Run.PiEventsPath); err != nil {
 			return err
 		}
+		if view.Run.EndedAt != nil {
+			if _, err := fmt.Fprintf(os.Stdout, "Ended:   %s\n", view.Run.EndedAt.Format(time.RFC3339)); err != nil {
+				return err
+			}
+		}
+		if view.Run.ExitCode != nil {
+			if _, err := fmt.Fprintf(os.Stdout, "Exit:    %d\n", *view.Run.ExitCode); err != nil {
+				return err
+			}
+		}
+		if view.Run.ErrorMessage != "" {
+			if _, err := fmt.Fprintf(os.Stdout, "Error:   %s\n", view.Run.ErrorMessage); err != nil {
+				return err
+			}
+		}
+		if view.Run.PiSessionFile != "" {
+			if _, err := fmt.Fprintf(os.Stdout, "Session: %s\n", view.Run.PiSessionFile); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -126,12 +151,19 @@ func showEvents(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+const startingPingGrace = 3 * time.Second
+
 func reconcileTask(ctx context.Context, db *store.Store, task store.Task, run store.Run, pidExists func(int) bool) (store.Task, error) {
 	if task.Status != store.StatusRunning && task.Status != store.StatusStarting && task.Status != store.StatusStopping {
 		return task, nil
 	}
 	if run.SupervisorPID > 0 && pidExists(run.SupervisorPID) {
-		return task, nil
+		if task.Status == store.StatusStarting && time.Since(run.StartedAt) < startingPingGrace {
+			return task, nil
+		}
+		if _, err := control.Send(run.ControlSocketPath, control.Request{Operation: control.OpPing}); err == nil {
+			return task, nil
+		}
 	}
 	if err := db.MarkUnknown(ctx, task.ID); err != nil {
 		return task, err
@@ -145,5 +177,14 @@ func viewTask(task store.Task) taskView {
 }
 
 func viewRun(run store.Run) runView {
-	return runView{ID: run.ID, Status: string(run.Status), Attempt: run.Attempt, ControlSocketPath: run.ControlSocketPath, StdoutLogPath: run.StdoutLogPath, StderrLogPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath}
+	view := runView{ID: run.ID, Status: string(run.Status), Attempt: run.Attempt, ErrorMessage: run.ErrorMessage, PiSessionFile: run.PiSessionFile, ControlSocketPath: run.ControlSocketPath, StdoutLogPath: run.StdoutLogPath, StderrLogPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath}
+	if run.EndedAt.Valid {
+		endedAt := run.EndedAt.Time
+		view.EndedAt = &endedAt
+	}
+	if run.ExitCode.Valid {
+		exitCode := int(run.ExitCode.Int64)
+		view.ExitCode = &exitCode
+	}
+	return view
 }

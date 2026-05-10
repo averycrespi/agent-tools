@@ -3,6 +3,7 @@ package control
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,6 +29,11 @@ func TestSendServe(t *testing.T) {
 	assert.True(t, resp.OK)
 	require.NoError(t, server.Close())
 	<-done
+}
+
+func TestSendTimeout(t *testing.T) {
+	_, err := SendTimeout(filepath.Join(t.TempDir(), "missing.sock"), Request{Operation: OpPing}, time.Millisecond)
+	assert.ErrorContains(t, err, "connect control socket")
 }
 
 func TestSendErrorResponse(t *testing.T) {

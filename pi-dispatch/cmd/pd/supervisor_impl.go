@@ -30,7 +30,7 @@ type pipedSandboxClient interface {
 
 func init() {
 	supervisorCmd.Flags().StringVar(&supervisorTaskID, "task-id", "", "task ID")
-	supervisorCmd.Flags().StringVar(&supervisorPiArgv, "pi-argv", "", "NUL-separated Pi argv")
+	supervisorCmd.Flags().StringVar(&supervisorPiArgv, "pi-argv", "", "JSON-encoded Pi argv")
 	supervisorCmd.RunE = runSupervisor
 }
 
@@ -51,42 +51,34 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if err := db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusRunning); err != nil {
-		return err
-	}
-	addEvent(db, run, "supervisor.started", "supervisor started")
-
 	argv, err := decodePiArgv(supervisorPiArgv)
 	if err != nil {
-		return err
+		return failSupervisorStartup(cmd.Context(), db, run, err)
 	}
 	if len(argv) == 0 {
 		argv = []string{"pi", "--mode", "rpc"}
 	}
+	stdoutLog, stderrLog, piEvents, err := openRunLogs(run)
+	if err != nil {
+		return failSupervisorStartup(cmd.Context(), db, run, err)
+	}
+	defer stdoutLog.Close() //nolint:errcheck
+	defer stderrLog.Close() //nolint:errcheck
+	defer piEvents.Close()  //nolint:errcheck
 	sb, err := newSupervisorSandbox()
 	if err != nil {
-		addEvent(db, run, "supervisor.failed", err.Error())
-		_ = db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusFailed)
-		return err
+		return failSupervisorStartup(cmd.Context(), db, run, err)
 	}
 	proc, err := sb.StartPiped(task.WorktreePath, argv...)
 	if err != nil {
-		addEvent(db, run, "supervisor.failed", err.Error())
-		_ = db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusFailed)
-		return err
+		return failSupervisorStartup(cmd.Context(), db, run, err)
 	}
 	defer proc.Kill() //nolint:errcheck
-
-	if err := os.MkdirAll(filepathDir(run.StdoutLogPath), 0o750); err != nil {
-		return err
+	if err := db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusRunning); err != nil {
+		return finishSupervisor(cmd.Context(), db, run, proc, &supervisorRunState{}, err, err.Error())
 	}
-	stdoutLog, _ := os.OpenFile(run.StdoutLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec,errcheck
-	defer stdoutLog.Close()                                                                    //nolint:errcheck
-	stderrLog, _ := os.OpenFile(run.StderrLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec,errcheck
-	defer stderrLog.Close()                                                                    //nolint:errcheck
-	piEvents, _ := os.OpenFile(run.PiEventsPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)   //nolint:gosec,errcheck
-	defer piEvents.Close()                                                                     //nolint:errcheck
-	go io.Copy(stderrLog, proc.Stderr())                                                       //nolint:errcheck
+	addEvent(db, run, "supervisor.started", "supervisor started")
+	go io.Copy(stderrLog, proc.Stderr()) //nolint:errcheck
 
 	client := pi.NewClient(proc.Stdin(), io.TeeReader(proc.Stdout(), stdoutLog))
 	state := &supervisorRunState{queuesEmpty: true}
@@ -104,6 +96,8 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 			case control.OpStop:
 				_ = db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusStopping)
 				return applyStopRequest(state, client, proc, req, forceStopGrace)
+			case control.OpPing:
+				return control.Response{OK: true}
 			default:
 				return control.Response{OK: false, Error: "unknown operation"}
 			}
@@ -154,12 +148,11 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 const forceStopGrace = 5 * time.Second
 
 type supervisorRunState struct {
-	mu             sync.Mutex
-	stopRequested  bool
-	forceRequested bool
-	queuesEmpty    bool
-	awaitingState  bool
-	piSessionFile  string
+	mu            sync.Mutex
+	stopRequested bool
+	queuesEmpty   bool
+	awaitingState bool
+	piSessionFile string
 }
 
 func (s *supervisorRunState) finalStatus(err error) store.TaskStatus {
@@ -184,17 +177,13 @@ type killProcess interface {
 }
 
 func applyStopRequest(state *supervisorRunState, client abortClient, proc killProcess, req control.Request, grace time.Duration) control.Response {
-	if err := client.Abort(); err != nil {
-		return response(err)
-	}
 	state.mu.Lock()
 	state.stopRequested = true
-	state.forceRequested = req.Force
 	state.mu.Unlock()
 	if req.Force {
 		scheduleForceKill(proc, grace)
 	}
-	return response(nil)
+	return response(client.Abort())
 }
 
 func scheduleForceKill(proc killProcess, grace time.Duration) {
@@ -237,6 +226,36 @@ func finishSupervisor(ctx context.Context, db *store.Store, run store.Run, proc 
 	}
 	addEvent(db, run, eventType, message)
 	return db.CompleteRun(ctx, run.TaskID, status, exitCode, errorMessage, state.piSessionFile)
+}
+
+func failSupervisorStartup(ctx context.Context, db *store.Store, run store.Run, err error) error {
+	addEvent(db, run, "supervisor.failed", err.Error())
+	if completeErr := db.CompleteRun(ctx, run.TaskID, store.StatusFailed, 1, err.Error(), ""); completeErr != nil {
+		return completeErr
+	}
+	return err
+}
+
+func openRunLogs(run store.Run) (*os.File, *os.File, *os.File, error) {
+	if err := os.MkdirAll(filepathDir(run.StdoutLogPath), 0o750); err != nil {
+		return nil, nil, nil, err
+	}
+	stdoutLog, err := os.OpenFile(run.StdoutLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	stderrLog, err := os.OpenFile(run.StderrLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec
+	if err != nil {
+		_ = stdoutLog.Close()
+		return nil, nil, nil, err
+	}
+	piEvents, err := os.OpenFile(run.PiEventsPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec
+	if err != nil {
+		_ = stdoutLog.Close()
+		_ = stderrLog.Close()
+		return nil, nil, nil, err
+	}
+	return stdoutLog, stderrLog, piEvents, nil
 }
 
 func response(err error) control.Response {

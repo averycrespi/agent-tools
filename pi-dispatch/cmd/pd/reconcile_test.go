@@ -43,6 +43,6 @@ func staleRunningTask(t *testing.T, socketPath string) (store.Task, store.Run) {
 	t.Helper()
 	now := time.Now()
 	task := store.Task{ID: "pd-test", RepoPath: "/repo", RepoName: "repo", Branch: "pd/test", WorktreePath: "/wt", PromptSource: "arg", Prompt: "hello", PromptPreview: "hello", Status: store.StatusRunning, CreatedAt: now, UpdatedAt: now}
-	run := store.Run{ID: "run-test", TaskID: task.ID, Attempt: 1, SupervisorPID: 4242, Status: store.StatusRunning, StartedAt: now, ControlSocketPath: socketPath, StdoutLogPath: "/stdout", StderrLogPath: "/stderr", SupervisorLogPath: "/supervisor", PiEventsPath: "/events"}
+	run := store.Run{ID: "run-test", TaskID: task.ID, Attempt: 1, SupervisorPID: 4242, Status: store.StatusRunning, StartedAt: now, ControlSocketPath: socketPath, StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: "/events"}
 	return task, run
 }

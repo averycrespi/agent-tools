@@ -25,19 +25,27 @@ pd steer <task-id> "focus on the failing package"
 pd followup <task-id> "run the full test suite now"
 pd stop <task-id>
 pd stop --force <task-id>
+pd rm <task-id>
+pd rm --worktree <task-id>
 pd template list
 pd template validate
 pd template show <template>
 pd template render <template>
 ```
 
-`pd run --json`, `pd ps --json`, `pd status --json <task-id>`, and `pd events --json <task-id>` emit machine-readable JSON.
+`pd run --json`, `pd ps --json`, `pd status --json <task-id>`, and `pd events --json <task-id>` emit machine-readable JSON. Mutation commands `pd steer --json`, `pd followup --json`, `pd stop --json`, and `pd rm --json` emit JSON success responses.
+
+`pd status` shows terminal run metadata when available, including ended time, exit code, error message, and Pi session file. `pd ps` stays compact for scanning task IDs.
+
+`pd logs -f` and `pd attach` follow stdout and stderr with `stdout:` / `stderr:` prefixes. Use `pd events` for the persisted structured Pi event stream.
 
 ## Safety model
 
 V1 always uses worktree-manager semantics and the shared sandbox-manager Lima VM. `pd` calls those managers as Go packages, so the `wt` and `sb` binaries do not need to be installed for `pd` itself. `pd run` requires the main repository root, not an existing worktree. The sandbox must be configured so the worktree base directory is mounted into the VM.
 
-If the generated worktree path is not visible inside `sb`, `pd run` fails before starting the supervisor. Add the worktree base directory, usually `~/.local/share/wt/worktrees`, as a writable `sb` mount and recreate the Lima VM so the mount is applied.
+If the generated worktree path is not visible inside `sb`, `pd run` fails before starting the supervisor. Add the worktree base directory, usually `~/.local/share/wt/worktrees`, as a writable `sb` mount and recreate the Lima VM so the mount is applied. `pd` does not automatically remove worktrees after failed launches; use `pd rm --worktree <task-id>` when you want to clean up the associated worktree.
+
+`pd rm <task-id>` removes inactive task metadata, logs, and stale control sockets. It refuses `starting`, `running`, and `stopping` tasks; stop them first. `pd rm --worktree <task-id>` also removes the associated worktree through worktree-manager semantics and does not delete the branch.
 
 ## Configuration
 
