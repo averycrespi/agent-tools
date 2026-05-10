@@ -15,6 +15,7 @@ cmd/
   wt/             CLI entry point (main.go)
   root.go         Service construction, flags, completion
   add.go          wt add
+  path.go         wt path
   rm.go           wt rm
   attach.go       wt attach
   config.go       wt config {path,edit,refresh}
@@ -62,6 +63,26 @@ git worktree add ~/.local/share/wt/worktrees/myrepo/myrepo-feat-thing -b feat/th
 tmux new-window -t wt-myrepo -n feat-thing -c <worktree-path>
   → send-keys "claude" (from config)
 ```
+
+**Headless add (`wt add --no-window feat/thing`):**
+
+```
+git worktree add ~/.local/share/wt/worktrees/myrepo/myrepo-feat-thing -b feat/thing
+  → copy configured files
+  → run configured setup scripts
+  → do not create a tmux session/window
+  → do not send the launch command
+```
+
+This is used by machine orchestrators such as Agent Dispatch, which need `wt`'s worktree naming/setup behavior without taking over a tmux window.
+
+**Path (`wt path feat/thing`):**
+
+```
+print ~/.local/share/wt/worktrees/myrepo/myrepo-feat-thing
+```
+
+The path command reports the deterministic worktree path without creating it.
 
 **Remove (`wt rm feat/thing`):**
 

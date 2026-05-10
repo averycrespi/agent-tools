@@ -21,6 +21,7 @@ cmd/
   provision.go    sb provision
   status.go       sb status
   shell.go        sb shell
+  exec.go         sb exec
   config.go       sb config {path,edit,refresh}
 
 internal/
@@ -38,7 +39,7 @@ cmd → sandbox.Service → lima.Client → exec.Runner
                       → template (embedded lima.yaml)
 ```
 
-All external commands flow through `exec.Runner`, an interface with `Run` and `RunInteractive` methods. Tests inject mock runners to verify command arguments without executing real processes.
+All external commands flow through `exec.Runner`, an interface with `Run`, `RunInteractive`, and `StartPiped` methods. Tests inject mock runners to verify command arguments without executing real processes.
 
 ### Key Design Decisions
 
@@ -99,6 +100,14 @@ limactl delete --force sb
 ```
 limactl shell --workdir / sb [-- command]
 ```
+
+**Exec (`sb exec [--workdir <path>] -- <command...>`):**
+
+```
+limactl shell --workdir <path> sb -- <command...>
+```
+
+`sb exec` is the machine-oriented command path. It preserves stdin, stdout, and stderr as separate streams and returns the guest command's exit status. This is intended for structured protocols such as Pi RPC, where the caller must write JSONL to stdin while reading stdout and stderr independently.
 
 ### State Machine
 

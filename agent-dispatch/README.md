@@ -13,18 +13,26 @@ cd agent-dispatch && make install
 ## Quick Start
 
 ```bash
+# From the main repository root, not an existing worktree
 ad run "fix the failing tests"
+
 ad ps
 ad status <task-id>
 ad logs -f <task-id>
 ad events <task-id>
 ad attach <task-id>
+ad steer <task-id> "focus on the failing package"
+ad followup <task-id> "run the full test suite now"
 ad stop <task-id>
 ```
+
+`ad run --json`, `ad ps --json`, `ad status --json <task-id>`, and `ad events --json <task-id>` emit machine-readable JSON.
 
 ## Safety model
 
 V1 always uses a `wt` worktree and the shared `sb` sandbox. `ad run` requires the main repository root, not an existing worktree. The sandbox must be configured so the `wt` worktree base directory is mounted into the VM.
+
+If the generated worktree path is not visible inside `sb`, `ad run` fails before starting the supervisor. Add the worktree base directory, usually `~/.local/share/wt/worktrees`, as a writable `sb` mount and recreate the Lima VM so the mount is applied.
 
 ## Configuration
 
@@ -39,3 +47,27 @@ Config file: `~/.config/ad/config.json`.
 ```
 
 Templates are standalone JSON files in configured template directories and define Pi launch options.
+
+Example template:
+
+```json
+{
+  "name": "pi-default",
+  "description": "Default sandboxed Pi coding agent",
+  "agent": {
+    "command": "pi",
+    "mode": "rpc",
+    "thinking": "medium",
+    "tools": [],
+    "extensions": [],
+    "skills": []
+  }
+}
+```
+
+## Paths
+
+- Database: `$XDG_STATE_HOME/ad/ad.db` or `~/.local/state/ad/ad.db`
+- Task logs: `$XDG_STATE_HOME/ad/tasks/<task-id>/`
+- Runtime sockets: `$XDG_RUNTIME_DIR/ad/tasks/<task-id>.sock`, falling back to state runtime paths
+
