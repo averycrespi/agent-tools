@@ -22,13 +22,26 @@ func (c *Client) Create() error {
 }
 
 func (c *Client) Exec(workdir string, args ...string) ([]byte, error) {
-	cmdArgs := []string{"exec", "--workdir", workdir, "--"}
-	cmdArgs = append(cmdArgs, args...)
+	cmdArgs := execArgs(workdir, args...)
 	out, err := c.runner.Run("sb", cmdArgs...)
 	if err != nil {
 		return out, fmt.Errorf("sb exec failed: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 	return out, nil
+}
+
+func (c *Client) StartPiped(workdir string, args ...string) (adexec.Process, error) {
+	proc, err := c.runner.StartPiped("sb", execArgs(workdir, args...)...)
+	if err != nil {
+		return nil, fmt.Errorf("sb exec failed: %w", err)
+	}
+	return proc, nil
+}
+
+func execArgs(workdir string, args ...string) []string {
+	cmdArgs := []string{"exec", "--workdir", workdir, "--"}
+	cmdArgs = append(cmdArgs, args...)
+	return cmdArgs
 }
 
 func (c *Client) CheckWorktreeVisible(worktreePath string) error {
