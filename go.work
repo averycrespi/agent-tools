@@ -1,12 +1,12 @@
 go 1.25.9
 
 use (
-	./agent-dispatch
 	./broker-cli
 	./local-gh-mcp
 	./local-git-mcp
 	./local-gomod-proxy
 	./mcp-broker
+	./pi-dispatch
 	./sandbox-manager
 	./worktree-manager
 )

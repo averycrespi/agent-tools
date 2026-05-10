@@ -6,7 +6,7 @@ A collection of tools that reduce the friction of working with AI coding agents.
 
 - **[Worktree Manager](#worktree-manager-wt)** — Manage git worktrees with tmux integration
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
-- **[Agent Dispatch](#agent-dispatch-ad)** — Launch and inspect background Pi runs in worktrees and the sandbox
+- **[Pi Dispatch](#pi-dispatch-pd)** — Launch and inspect background Pi runs in worktrees and the sandbox
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
 - **[Broker CLI](#broker-cli)** — CLI frontend for the MCP broker
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
@@ -33,7 +33,7 @@ make install
 # Or, to install individual tools
 cd worktree-manager && make install
 cd sandbox-manager && make install
-cd agent-dispatch && make install
+cd pi-dispatch && make install
 cd mcp-broker && make install
 cd broker-cli && make install
 cd local-git-mcp && make install
@@ -67,15 +67,15 @@ Running AI agents with full host access is risky — one bad command can trash y
 
 See the [sandbox-manager README](sandbox-manager/README.md) for more information.
 
-### Agent Dispatch (ad)
+### Pi Dispatch (pd)
 
-Autonomous coding-agent runs need more than a terminal: a clean worktree, sandboxed execution, durable status, logs, and a way to steer or stop the task later. `ad` composes `wt`, `sb`, and Pi RPC into a daemonless local task runner.
+Autonomous coding-agent runs need more than a terminal: a clean worktree, sandboxed execution, durable status, logs, and a way to steer or stop the task later. `pd` composes `wt`, `sb`, and Pi RPC into a daemonless local task runner.
 
-- `ad run "prompt"` creates a headless `wt` worktree, verifies it is visible inside `sb`, starts a detached supervisor, and returns a task ID.
-- `ad ps`, `ad status`, `ad logs`, `ad events`, and `ad attach` inspect running or completed tasks from persisted state.
-- `ad steer`, `ad followup`, and `ad stop` communicate with the supervisor over a per-task Unix socket when the task is running.
+- `pd run "prompt"` creates a headless `wt` worktree, verifies it is visible inside `sb`, starts a detached supervisor, and returns a task ID.
+- `pd ps`, `pd status`, `pd logs`, `pd events`, and `pd attach` inspect running or completed tasks from persisted state.
+- `pd steer`, `pd followup`, and `pd stop` communicate with the supervisor over a per-task Unix socket when the task is running.
 
-See the [agent-dispatch README](agent-dispatch/README.md) for more information.
+See the [pi-dispatch README](pi-dispatch/README.md) for more information.
 
 ### MCP Broker
 

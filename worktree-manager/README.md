@@ -111,7 +111,7 @@ Branch names are sanitized: non-alphanumeric characters (except hyphens) become 
 
 ## Package API
 
-`pkg/worktree` exposes the minimal headless worktree API used by in-repo consumers such as `ad`. The CLI remains the primary user interface.
+`pkg/worktree` exposes the minimal headless worktree API used by in-repo consumers such as `pd`. The CLI remains the primary user interface.
 
 ## Development
 

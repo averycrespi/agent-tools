@@ -74,7 +74,7 @@ git worktree add ~/.local/share/wt/worktrees/myrepo/myrepo-feat-thing -b feat/th
   → do not send the launch command
 ```
 
-This is used by machine orchestrators such as Agent Dispatch, which need `wt`'s worktree naming/setup behavior without taking over a tmux window.
+This is used by machine orchestrators such as Pi Dispatch, which need `wt`'s worktree naming/setup behavior without taking over a tmux window.
 
 **Path (`wt path feat/thing`):**
 

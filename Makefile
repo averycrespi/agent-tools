@@ -1,4 +1,4 @@
-TOOLS := worktree-manager mcp-broker sandbox-manager local-git-mcp local-gh-mcp broker-cli local-gomod-proxy agent-dispatch
+TOOLS := worktree-manager mcp-broker sandbox-manager local-git-mcp local-gh-mcp broker-cli local-gomod-proxy pi-dispatch
 
 .PHONY: install build test lint fmt tidy audit $(TOOLS)
 
