@@ -11,6 +11,7 @@ import (
 
 	adconfig "github.com/averycrespi/agent-tools/agent-dispatch/internal/config"
 	adexec "github.com/averycrespi/agent-tools/agent-dispatch/internal/exec"
+	"github.com/averycrespi/agent-tools/agent-dispatch/internal/gitmeta"
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/output"
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/process"
 	adsandbox "github.com/averycrespi/agent-tools/agent-dispatch/internal/sandbox"
@@ -65,14 +66,8 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	repo := runRepo
-	if repo == "" {
-		repo, err = os.Getwd()
-		if err != nil {
-			return err
-		}
-	}
-	repo, err = filepath.Abs(repo)
+	runner := adexec.NewOSRunner()
+	repo, err := resolveRunRepoInfo(runner, runRepo)
 	if err != nil {
 		return err
 	}
@@ -88,12 +83,11 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if branch == "" {
 		branch = "ad/" + slug(prompt, tmplName) + "-" + shortID()
 	}
-	runner := adexec.NewOSRunner()
 	wt := adworktree.NewClient(runner)
-	if err := wt.AddHeadless(repo, branch); err != nil {
+	if err := wt.AddHeadless(repo.Root, branch); err != nil {
 		return err
 	}
-	worktreePath, err := wt.Path(repo, branch)
+	worktreePath, err := wt.Path(repo.Root, branch)
 	if err != nil {
 		return err
 	}
@@ -117,7 +111,7 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err := os.MkdirAll(taskDir, 0o750); err != nil {
 		return err
 	}
-	task := store.Task{ID: taskID, RepoPath: repo, RepoName: filepath.Base(repo), Branch: branch, WorktreePath: worktreePath, TemplateName: tmpl.Name, PromptSource: source, Prompt: prompt, PromptPreview: preview(prompt), Status: store.StatusQueued, CreatedAt: now, UpdatedAt: now}
+	task := store.Task{ID: taskID, RepoPath: repo.Root, RepoName: repo.Name, Branch: branch, WorktreePath: worktreePath, TemplateName: tmpl.Name, PromptSource: source, Prompt: prompt, PromptPreview: preview(prompt), Status: store.StatusQueued, CreatedAt: now, UpdatedAt: now}
 	run := store.Run{ID: runID, TaskID: taskID, Attempt: 1, Status: store.StatusQueued, StartedAt: now, ControlSocketPath: filepath.Join(adconfig.RuntimeDir(), "tasks", taskID+".sock"), StdoutLogPath: filepath.Join(taskDir, "stdout.log"), StderrLogPath: filepath.Join(taskDir, "stderr.log"), SupervisorLogPath: filepath.Join(taskDir, "supervisor.log"), PiEventsPath: filepath.Join(taskDir, "pi-events.jsonl")}
 	if err := db.CreateTaskWithRun(cmdCtx, task, run); err != nil {
 		return err
@@ -139,6 +133,22 @@ func runTask(cmd *cobra.Command, args []string) error {
 	}
 	_, err = fmt.Fprintf(os.Stdout, "Started task %s\nStatus:  ad status %s\nLogs:    ad logs -f %s\nAttach:  ad attach %s\n", taskID, taskID, taskID, taskID)
 	return err
+}
+
+func resolveRunRepoInfo(runner adexec.Runner, repoArg string) (gitmeta.Info, error) {
+	repo := repoArg
+	if repo == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return gitmeta.Info{}, err
+		}
+		repo = cwd
+	}
+	repo, err := filepath.Abs(repo)
+	if err != nil {
+		return gitmeta.Info{}, err
+	}
+	return gitmeta.NewClient(runner).Info(repo)
 }
 
 func applyRunOverrides(agent adconfig.AgentTemplate) adconfig.AgentTemplate {

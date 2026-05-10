@@ -10,7 +10,7 @@ Agent Dispatch (`ad`) is a local job runner for autonomous Pi coding-agent runs.
 - Stop requests mark the task as stopping, send Pi RPC `abort`, and finalize as stopped. `ad stop --force` additionally schedules process termination after a bounded grace period.
 - Blocking Pi extension UI requests are auto-cancelled in headless mode; fire-and-forget UI requests are logged.
 - SQLite stores compact task, run, and event metadata, including supervisor PID, end time, exit code, error message, and Pi session file. Raw stdout/stderr and Pi RPC JSONL records are stored as files under the task state directory.
-- Inspection commands reconcile stale starting/running/stopping tasks to `unknown` when the supervisor PID is gone and the control socket is absent.
+- Inspection commands reconcile stale starting/running/stopping tasks to `unknown` when the supervisor PID is gone; stale control socket files are ignored.
 
 ## State model
 
