@@ -12,16 +12,14 @@ import (
 )
 
 type Config struct {
-	DefaultTemplate string   `json:"default_template"`
-	DatabasePath    string   `json:"database_path"`
-	TemplateDirs    []string `json:"template_dirs"`
+	DatabasePath string   `json:"database_path"`
+	TemplateDirs []string `json:"template_dirs"`
 }
 
 func Default() Config {
 	return Config{
-		DefaultTemplate: "",
-		DatabasePath:    "",
-		TemplateDirs:    []string{filepath.Join(ConfigDir(), "templates")},
+		DatabasePath: "",
+		TemplateDirs: []string{filepath.Join(ConfigDir(), "templates")},
 	}
 }
 

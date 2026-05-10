@@ -86,9 +86,6 @@ func runTask(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	tmplName := runTemplate
-	if tmplName == "" {
-		tmplName = cfg.DefaultTemplate
-	}
 	tmpl, err := adconfig.FindTemplate(cfg.TemplateDirs, tmplName)
 	if err != nil {
 		return err

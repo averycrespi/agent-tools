@@ -13,7 +13,7 @@ import (
 
 func TestListTemplatesPrintsDiscoveredTemplates(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.json"), []byte(`{"name":"go","description":"Go agent"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.json"), []byte(`{"description":"Go agent"}`), 0o600))
 	oldCfg := cfg
 	oldJSON := jsonOut
 	cfg = adconfig.Config{TemplateDirs: []string{dir}}

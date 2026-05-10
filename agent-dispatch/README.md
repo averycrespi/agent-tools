@@ -42,13 +42,12 @@ Config file: `~/.config/ad/config.json`.
 
 ```json
 {
-  "default_template": "",
   "database_path": "",
   "template_dirs": ["~/.config/ad/templates"]
 }
 ```
 
-Templates are standalone JSON files in configured template directories and define Pi launch options. List configured templates with `ad template list`.
+Templates are standalone JSON files in configured template directories and define Pi launch options. The template name is the JSON filename without the `.json` extension. List configured templates with `ad template list`.
 
 `ad run` supports launch overrides for Pi options including `--provider`, `--model`, `--thinking`, `--tools`, `--no-builtin-tools`, `--no-tools`, `--extension`, `--no-extensions`, `--skill`, `--no-skills`, `--prompt-template`, `--no-prompt-templates`, `--no-context-files`, `--system-prompt`, `--append-system-prompt`, and `--session-dir`. CLI flags override template values.
 
@@ -56,11 +55,9 @@ Example template:
 
 ```json
 {
-  "name": "pi-default",
   "description": "Default sandboxed Pi coding agent",
   "agent": {
     "command": "pi",
-    "mode": "rpc",
     "thinking": "medium",
     "tools": [],
     "extensions": [],

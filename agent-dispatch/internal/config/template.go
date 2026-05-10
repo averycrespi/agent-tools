@@ -18,7 +18,6 @@ type Template struct {
 
 type AgentTemplate struct {
 	Command                        string   `json:"command"`
-	Mode                           string   `json:"mode"`
 	Provider                       string   `json:"provider"`
 	Model                          string   `json:"model"`
 	Thinking                       string   `json:"thinking"`
@@ -59,10 +58,6 @@ func DiscoverTemplates(dirs []string) ([]Template, error) {
 				return nil, err
 			}
 			name := tmpl.Name
-			if name == "" {
-				name = strings.TrimSuffix(entry.Name(), ".json")
-				tmpl.Name = name
-			}
 			if prev, ok := seen[name]; ok {
 				return nil, fmt.Errorf("duplicate template %q in %s and %s", name, prev, path)
 			}
@@ -86,18 +81,16 @@ func LoadTemplate(path string) (Template, error) {
 		return Template{}, fmt.Errorf("parse template %q: %w", path, err)
 	}
 	tmpl.Path = path
+	tmpl.Name = strings.TrimSuffix(filepath.Base(path), ".json")
 	if tmpl.Agent.Command == "" {
 		tmpl.Agent.Command = "pi"
-	}
-	if tmpl.Agent.Mode == "" {
-		tmpl.Agent.Mode = "rpc"
 	}
 	return tmpl, nil
 }
 
 func FindTemplate(dirs []string, name string) (Template, error) {
 	if name == "" {
-		return Template{Agent: AgentTemplate{Command: "pi", Mode: "rpc"}}, nil
+		return Template{Agent: AgentTemplate{Command: "pi"}}, nil
 	}
 	templates, err := DiscoverTemplates(dirs)
 	if err != nil {
@@ -116,11 +109,7 @@ func RenderPiArgv(agent AgentTemplate) []string {
 	if command == "" {
 		command = "pi"
 	}
-	mode := agent.Mode
-	if mode == "" {
-		mode = "rpc"
-	}
-	argv := []string{command, "--mode", mode}
+	argv := []string{command, "--mode", "rpc"}
 	addValue := func(flag, value string) {
 		if value != "" {
 			argv = append(argv, flag, value)
@@ -160,9 +149,6 @@ func RenderPiArgv(agent AgentTemplate) []string {
 func ApplyAgentOverrides(base, overrides AgentTemplate) AgentTemplate {
 	if overrides.Command != "" {
 		base.Command = overrides.Command
-	}
-	if overrides.Mode != "" {
-		base.Mode = overrides.Mode
 	}
 	if overrides.Provider != "" {
 		base.Provider = overrides.Provider

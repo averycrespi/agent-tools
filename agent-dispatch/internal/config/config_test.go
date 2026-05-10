@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -13,6 +14,12 @@ func TestLoad_DefaultWhenMissing(t *testing.T) {
 	cfg, err := Load()
 	require.NoError(t, err)
 	assert.Equal(t, []string{filepath.Join(ConfigDir(), "templates")}, cfg.TemplateDirs)
+}
+
+func TestDefaultConfigDoesNotMarshalDefaultTemplate(t *testing.T) {
+	data, err := json.Marshal(Default())
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "default_template")
 }
 
 func TestConfig_DBPath_DefaultsToStateDir(t *testing.T) {
