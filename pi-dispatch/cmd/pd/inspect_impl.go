@@ -161,7 +161,7 @@ func reconcileTask(ctx context.Context, db *store.Store, task store.Task, run st
 		if task.Status == store.StatusStarting && time.Since(run.StartedAt) < startingPingGrace {
 			return task, nil
 		}
-		if _, err := control.Send(run.ControlSocketPath, control.Request{Operation: control.OpPing}); err == nil {
+		if _, err := sendControlRequest(run.ControlSocketPath, control.Request{Operation: control.OpPing}); err == nil {
 			return task, nil
 		}
 	}

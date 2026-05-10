@@ -125,6 +125,8 @@ type controlResult struct {
 	OK        bool   `json:"ok"`
 }
 
+var sendControlRequest = control.Send
+
 func sendControl(cmd *cobra.Command, taskID string, req control.Request) error {
 	task, run, err := taskAndRunReconciled(cmd, taskID, pdprocess.Exists)
 	if err != nil {
@@ -133,7 +135,7 @@ func sendControl(cmd *cobra.Command, taskID string, req control.Request) error {
 	if err := controlAllowed(task.Status, req); err != nil {
 		return fmt.Errorf("cannot %s task %s: %w", req.Operation, task.ID, err)
 	}
-	_, err = control.Send(run.ControlSocketPath, req)
+	_, err = sendControlRequest(run.ControlSocketPath, req)
 	if err != nil {
 		return err
 	}

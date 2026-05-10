@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/pi-dispatch/internal/control"
 	"github.com/averycrespi/agent-tools/pi-dispatch/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -37,6 +39,69 @@ func TestReconcileStaleRunningTaskMarksUnknownWhenOnlySocketFileRemains(t *testi
 	got, err := reconcileTask(context.Background(), db, task, run, func(int) bool { return false })
 	require.NoError(t, err)
 	require.Equal(t, store.StatusUnknown, got.Status)
+}
+
+func TestReconcileKeepsRunningTaskWhenPIDExistsAndPingSucceeds(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "pd.db"))
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	task, run := staleRunningTask(t, filepath.Join(t.TempDir(), "task.sock"))
+	require.NoError(t, db.CreateTaskWithRun(context.Background(), task, run))
+	withControlSender(t, func(path string, req control.Request) (control.Response, error) {
+		require.Equal(t, run.ControlSocketPath, path)
+		require.Equal(t, control.OpPing, req.Operation)
+		return control.Response{OK: true}, nil
+	})
+
+	got, err := reconcileTask(context.Background(), db, task, run, func(int) bool { return true })
+	require.NoError(t, err)
+	require.Equal(t, store.StatusRunning, got.Status)
+}
+
+func TestReconcileMarksRunningTaskUnknownWhenPingFails(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "pd.db"))
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	task, run := staleRunningTask(t, filepath.Join(t.TempDir(), "task.sock"))
+	require.NoError(t, db.CreateTaskWithRun(context.Background(), task, run))
+	withControlSender(t, func(string, control.Request) (control.Response, error) {
+		return control.Response{}, errors.New("ping failed")
+	})
+
+	got, err := reconcileTask(context.Background(), db, task, run, func(int) bool { return true })
+	require.NoError(t, err)
+	require.Equal(t, store.StatusUnknown, got.Status)
+}
+
+func TestReconcileStartingTaskWithinGraceSkipsPing(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "pd.db"))
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	task, run := staleRunningTask(t, filepath.Join(t.TempDir(), "task.sock"))
+	task.Status = store.StatusStarting
+	run.Status = store.StatusStarting
+	run.StartedAt = time.Now()
+	require.NoError(t, db.CreateTaskWithRun(context.Background(), task, run))
+	pinged := false
+	withControlSender(t, func(string, control.Request) (control.Response, error) {
+		pinged = true
+		return control.Response{}, errors.New("unexpected ping")
+	})
+
+	got, err := reconcileTask(context.Background(), db, task, run, func(int) bool { return true })
+	require.NoError(t, err)
+	require.Equal(t, store.StatusStarting, got.Status)
+	require.False(t, pinged)
+}
+
+func withControlSender(t *testing.T, fn func(string, control.Request) (control.Response, error)) {
+	t.Helper()
+	oldSendControlRequest := sendControlRequest
+	sendControlRequest = fn
+	t.Cleanup(func() { sendControlRequest = oldSendControlRequest })
 }
 
 func staleRunningTask(t *testing.T, socketPath string) (store.Task, store.Run) {

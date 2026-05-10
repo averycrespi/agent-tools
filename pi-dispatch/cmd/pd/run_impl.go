@@ -104,17 +104,6 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	sb, err := newSandboxClient()
-	if err != nil {
-		return err
-	}
-	if err := sb.Create(); err != nil {
-		return err
-	}
-	if err := checkWorktreeVisible(sb, worktreePath); err != nil {
-		return err
-	}
-
 	db, err := store.Open(cfg.DBPath())
 	if err != nil {
 		return err
@@ -131,6 +120,16 @@ func runTask(cmd *cobra.Command, args []string) error {
 	run := store.Run{ID: runID, TaskID: taskID, Attempt: 1, Status: store.StatusStarting, StartedAt: now, ControlSocketPath: filepath.Join(pdconfig.RuntimeDir(), "tasks", taskID+".sock"), StdoutLogPath: filepath.Join(taskDir, "stdout.log"), StderrLogPath: filepath.Join(taskDir, "stderr.log"), PiEventsPath: filepath.Join(taskDir, "pi-events.jsonl")}
 	if err := db.CreateTaskWithRun(cmdCtx, task, run); err != nil {
 		return err
+	}
+	sb, err := newSandboxClient()
+	if err != nil {
+		return failRunLaunch(cmdCtx, db, taskID, err)
+	}
+	if err := sb.Create(); err != nil {
+		return failRunLaunch(cmdCtx, db, taskID, err)
+	}
+	if err := checkWorktreeVisible(sb, worktreePath); err != nil {
+		return failRunLaunch(cmdCtx, db, taskID, err)
 	}
 	argv := pdconfig.RenderPiArgv(applyRunOverrides(tmpl.Agent))
 	encodedArgv, err := encodePiArgv(argv)
