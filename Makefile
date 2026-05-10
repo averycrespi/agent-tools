@@ -1,9 +1,22 @@
 TOOLS := worktree-manager mcp-broker sandbox-manager local-git-mcp local-gh-mcp broker-cli local-gomod-proxy pi-dispatch
+UNAME_S := $(shell uname -s)
 
-.PHONY: install build test lint fmt tidy audit $(TOOLS)
+.PHONY: install install-dev setup build test lint fmt tidy check audit $(TOOLS)
 
 install:
 	@for dir in $(TOOLS); do $(MAKE) -C $$dir install; done
+
+install-dev:
+	npm install
+
+setup:
+ifeq ($(UNAME_S),Darwin)
+	brew bundle
+else
+	@echo "Skipping brew bundle on $(UNAME_S); install system dependencies manually."
+endif
+	$(MAKE) install-dev
+	$(MAKE) install
 
 build:
 	@for dir in $(TOOLS); do $(MAKE) -C $$dir build; done
@@ -19,6 +32,11 @@ fmt:
 
 tidy:
 	@for dir in $(TOOLS); do $(MAKE) -C $$dir tidy; done
+
+check:
+	npm run format:check
+	$(MAKE) lint
+	$(MAKE) test
 
 audit:
 	@for dir in $(TOOLS); do $(MAKE) -C $$dir audit; done

@@ -26,15 +26,17 @@ Requirements:
 - macOS for `sandbox-manager` (requires Lima)
 
 ```bash
-# Install dependencies on macOS
-# For Linux: install `tmux` from your preferred package manager
-brew bundle
+# First-time setup on macOS: install Homebrew deps, dev deps/hooks, and all tools
+# For Linux: install `tmux` from your preferred package manager first
+make setup
 
-# Install development hooks and formatter dependencies
-npm install
+# Or run the steps separately
+brew bundle       # macOS system dependencies
+make install-dev  # npm install for formatter deps and Git hooks
+make install      # install all tools
 
-# Install all tools
-make install
+# Verify formatting, linting, and tests
+make check
 
 # Or, to install individual tools
 cd worktree-manager && make install
