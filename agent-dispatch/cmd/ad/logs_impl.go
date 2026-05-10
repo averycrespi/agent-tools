@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/control"
+	adprocess "github.com/averycrespi/agent-tools/agent-dispatch/internal/process"
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -40,7 +42,7 @@ func showLogs(cmd *cobra.Command, args []string) error {
 }
 
 func attachTask(cmd *cobra.Command, args []string) error {
-	task, run, err := taskAndRun(cmd, args[0])
+	task, run, err := taskAndRunReconciled(cmd, args[0], adprocess.Exists)
 	if err != nil {
 		return err
 	}
@@ -79,7 +81,7 @@ func sendStop(cmd *cobra.Command, args []string) error {
 }
 
 func sendControl(cmd *cobra.Command, taskID string, req control.Request) error {
-	task, run, err := taskAndRun(cmd, taskID)
+	task, run, err := taskAndRunReconciled(cmd, taskID, adprocess.Exists)
 	if err != nil {
 		return err
 	}
@@ -109,17 +111,46 @@ func latestRun(cmd *cobra.Command, taskID string) (store.Run, error) {
 	return db.LatestRun(cmd.Context(), taskID)
 }
 
-func taskAndRun(cmd *cobra.Command, taskID string) (store.Task, store.Run, error) {
+func taskAndRunReconciled(cmd *cobra.Command, taskID string, pidExists func(int) bool) (store.Task, store.Run, error) {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	db, err := store.Open(cfg.DBPath())
 	if err != nil {
 		return store.Task{}, store.Run{}, err
 	}
 	defer db.Close() //nolint:errcheck
-	task, err := db.GetTask(cmd.Context(), taskID)
+	task, err := db.GetTask(ctx, taskID)
 	if err != nil {
 		return store.Task{}, store.Run{}, err
 	}
-	run, err := db.LatestRun(cmd.Context(), taskID)
+	run, err := db.LatestRun(ctx, taskID)
+	if err != nil {
+		return store.Task{}, store.Run{}, err
+	}
+	task, err = reconcileTask(ctx, db, task, run, pidExists)
+	if err != nil {
+		return store.Task{}, store.Run{}, err
+	}
+	return task, run, nil
+}
+
+func taskAndRun(cmd *cobra.Command, taskID string) (store.Task, store.Run, error) {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	db, err := store.Open(cfg.DBPath())
+	if err != nil {
+		return store.Task{}, store.Run{}, err
+	}
+	defer db.Close() //nolint:errcheck
+	task, err := db.GetTask(ctx, taskID)
+	if err != nil {
+		return store.Task{}, store.Run{}, err
+	}
+	run, err := db.LatestRun(ctx, taskID)
 	if err != nil {
 		return store.Task{}, store.Run{}, err
 	}

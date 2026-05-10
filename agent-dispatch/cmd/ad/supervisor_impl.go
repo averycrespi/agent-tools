@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-dispatch/internal/control"
@@ -51,7 +52,10 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 	}
 	addEvent(db, run, "supervisor.started", "supervisor started")
 
-	argv := splitNUL(supervisorPiArgv)
+	argv, err := decodePiArgv(supervisorPiArgv)
+	if err != nil {
+		return err
+	}
 	if len(argv) == 0 {
 		argv = []string{"pi", "--mode", "rpc"}
 	}
@@ -140,6 +144,7 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 const forceStopGrace = 5 * time.Second
 
 type supervisorRunState struct {
+	mu             sync.Mutex
 	stopRequested  bool
 	forceRequested bool
 	queuesEmpty    bool
@@ -148,7 +153,10 @@ type supervisorRunState struct {
 }
 
 func (s *supervisorRunState) finalStatus(err error) store.TaskStatus {
-	if s.stopRequested {
+	s.mu.Lock()
+	stopRequested := s.stopRequested
+	s.mu.Unlock()
+	if stopRequested {
 		return store.StatusStopped
 	}
 	if err != nil {
@@ -166,8 +174,10 @@ type killProcess interface {
 }
 
 func applyStopRequest(state *supervisorRunState, client abortClient, proc killProcess, req control.Request, grace time.Duration) control.Response {
+	state.mu.Lock()
 	state.stopRequested = true
 	state.forceRequested = req.Force
+	state.mu.Unlock()
 	err := client.Abort()
 	if req.Force {
 		scheduleForceKill(proc, grace)
@@ -245,11 +255,28 @@ func queueUpdateEmpty(raw []byte) bool {
 	return len(payload.Steering) == 0 && len(payload.FollowUp) == 0
 }
 
-func splitNUL(s string) []string {
-	if s == "" {
-		return nil
+func encodePiArgv(argv []string) (string, error) {
+	for _, arg := range argv {
+		if strings.ContainsRune(arg, '\x00') {
+			return "", fmt.Errorf("pi argv contains NUL byte")
+		}
 	}
-	return strings.Split(s, "\x00")
+	data, err := json.Marshal(argv)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func decodePiArgv(encoded string) ([]string, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	var argv []string
+	if err := json.Unmarshal([]byte(encoded), &argv); err != nil {
+		return nil, fmt.Errorf("parse Pi argv: %w", err)
+	}
+	return argv, nil
 }
 
 func filepathDir(path string) string {

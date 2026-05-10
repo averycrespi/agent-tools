@@ -62,3 +62,20 @@ func (p *fakeKillProcess) Kill() error {
 }
 
 func (p *fakeKillProcess) wasKilled() bool { return p.killed.Load() }
+
+func TestSupervisorRunStateConcurrentStopAndFinalStatus(t *testing.T) {
+	state := &supervisorRunState{}
+	client := &fakeAbortClient{}
+	proc := &fakeKillProcess{wait: make(chan struct{})}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 1000 {
+			_ = state.finalStatus(nil)
+		}
+	}()
+	for range 1000 {
+		_ = applyStopRequest(state, client, proc, control.Request{Operation: control.OpStop}, time.Hour)
+	}
+	<-done
+}

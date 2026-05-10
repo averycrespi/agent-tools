@@ -123,7 +123,11 @@ func runTask(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	argv := adconfig.RenderPiArgv(applyRunOverrides(tmpl.Agent))
-	pid, err := process.NewLauncher(runner).StartSupervisor("--task-id", taskID, "--pi-argv", strings.Join(argv, "\x00"))
+	encodedArgv, err := encodePiArgv(argv)
+	if err != nil {
+		return err
+	}
+	pid, err := process.NewLauncher(runner).StartSupervisor("--task-id", taskID, "--pi-argv", encodedArgv)
 	if err != nil {
 		return err
 	}

@@ -121,3 +121,29 @@ func (w *recordingWriteCloser) Close() error {
 	close(w.closedCh)
 	return nil
 }
+
+type fakeExecService struct{ proc *fakeExecProcess }
+
+func (s fakeExecService) ExecPiped(workdir string, args ...string) (sbexec.Process, error) {
+	return s.proc, nil
+}
+
+func TestRunExecCommandUsesNonHangingProcessHelper(t *testing.T) {
+	proc := newFakeExecProcess("out\n", "")
+	stdin := newBlockingReader()
+	defer func() { require.NoError(t, stdin.Close()) }()
+	var stdout bytes.Buffer
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runExecCommand(fakeExecService{proc: proc}, "/work", []string{"pwd"}, stdin, &stdout, io.Discard)
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("runExecCommand waited for stdin after the process exited")
+	}
+	require.Equal(t, "out\n", stdout.String())
+}

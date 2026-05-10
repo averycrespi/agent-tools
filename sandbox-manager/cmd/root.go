@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"log/slog"
 	"os"
 
@@ -67,4 +68,19 @@ var completionCmd = &cobra.Command{
 
 func Execute() error {
 	return rootCmd.Execute()
+}
+
+type exitCoder interface {
+	ExitCode() int
+}
+
+func ExitCodeForError(err error) int {
+	var coder exitCoder
+	if errors.As(err, &coder) {
+		code := coder.ExitCode()
+		if code >= 0 {
+			return code
+		}
+	}
+	return 1
 }

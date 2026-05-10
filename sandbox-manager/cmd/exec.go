@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	sbexec "github.com/averycrespi/agent-tools/sandbox-manager/internal/exec"
 	"github.com/spf13/cobra"
 )
 
@@ -27,44 +28,30 @@ var execCmd = &cobra.Command{
 		if len(args) > 0 && args[0] == "--" {
 			args = args[1:]
 		}
-		proc, err := svc.ExecPiped(execWorkdir, args...)
-		if err != nil {
-			return err
-		}
-
-		done := make(chan error, 3)
-		go func() {
-			_, err := io.Copy(proc.Stdin(), os.Stdin)
-			if closeErr := proc.Stdin().Close(); err == nil {
-				err = closeErr
-			}
-			done <- err
-		}()
-		go func() {
-			_, err := io.Copy(os.Stdout, proc.Stdout())
-			done <- err
-		}()
-		go func() {
-			_, err := io.Copy(os.Stderr, proc.Stderr())
-			done <- err
-		}()
-
-		waitErr := proc.Wait()
-		for range 3 {
-			if copyErr := <-done; copyErr != nil && waitErr == nil {
-				waitErr = copyErr
-			}
-		}
-		return waitErr
+		return runExecCommand(svc, execWorkdir, args, os.Stdin, os.Stdout, os.Stderr)
 	},
 }
 
-func runExecProcess(proc interface {
+type execProcess interface {
 	Stdin() io.WriteCloser
 	Stdout() io.ReadCloser
 	Stderr() io.ReadCloser
 	Wait() error
-}, stdin io.Reader, stdout, stderr io.Writer) error {
+}
+
+type execService interface {
+	ExecPiped(workdir string, args ...string) (sbexec.Process, error)
+}
+
+func runExecCommand(service execService, workdir string, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	proc, err := service.ExecPiped(workdir, args...)
+	if err != nil {
+		return err
+	}
+	return runExecProcess(proc, stdin, stdout, stderr)
+}
+
+func runExecProcess(proc execProcess, stdin io.Reader, stdout, stderr io.Writer) error {
 	stdinDone := make(chan error, 1)
 	go func() {
 		_, err := io.Copy(proc.Stdin(), stdin)
