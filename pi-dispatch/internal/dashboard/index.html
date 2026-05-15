@@ -48,7 +48,7 @@ async function selectTask(id){state.selected=id;renderTasks();const d=await api(
 async function loadEvents(){const data=await api('/api/tasks/'+encodeURIComponent(state.selected)+'/events?limit=100');$('events').innerHTML=(data.events||[]).map(e=>`<div class="event"><div class="mono">#${e.id} ${e.type}</div><div>${e.message||''}</div><div class="muted">${fmt(e.timestamp)}</div>${e.payload_json?`<pre>${e.payload_json}</pre>`:''}</div>`).join('')||'<div class="empty">No events.</div>';}
 async function loadLog(){if(!state.selected)return;const data=await api('/api/tasks/'+encodeURIComponent(state.selected)+`/logs?stream=${state.stream}&limit=65536`);$('log').textContent=data.content||'';$('logstate').textContent=`${state.stream} ${data.next_offset}/${data.size}`;}
 $('search').oninput=renderTasks;$('status').onchange=renderTasks;$('stdout').onclick=()=>{state.stream='stdout';loadLog()};$('stderr').onclick=()=>{state.stream='stderr';loadLog()};$('refresh').onclick=()=>state.selected&&selectTask(state.selected);
-const es=new EventSource('/events');es.onopen=()=>{$('connection').textContent='live'};es.onerror=()=>{$('connection').textContent='reconnecting'};es.addEventListener('snapshot',()=>loadTasks().catch(console.error));
+const es=new EventSource('/events');es.onopen=()=>{$('connection').textContent='live'};es.onerror=()=>{$('connection').textContent='reconnecting'};es.addEventListener('snapshot',async()=>{await loadTasks();if(state.selected)await selectTask(state.selected)});
 loadTasks().catch(e=>{$('tasks').innerHTML='<div class="empty">'+e.message+'</div>'});
 </script>
 </body>

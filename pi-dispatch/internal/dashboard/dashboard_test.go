@@ -29,6 +29,7 @@ func TestIndexIncludesExplorerUI(t *testing.T) {
 	require.Contains(t, body, "Event Timeline")
 	require.Contains(t, body, "stdout")
 	require.Contains(t, body, "persisted state")
+	require.Contains(t, body, "if(state.selected)await selectTask(state.selected)")
 }
 
 func TestAPITasksReturnsSummaries(t *testing.T) {
