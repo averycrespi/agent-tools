@@ -100,9 +100,35 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(stop)
 
+	return waitForDashboardShutdown(
+		signalEvents(stop),
+		errCh,
+		srv.Shutdown,
+		logf,
+		func() { os.Exit(1) },
+	)
+}
+
+func signalEvents(signals <-chan os.Signal) <-chan struct{} {
+	events := make(chan struct{})
+	go func() {
+		for range signals {
+			events <- struct{}{}
+		}
+	}()
+	return events
+}
+
+func waitForDashboardShutdown(signals <-chan struct{}, errCh <-chan error, shutdown func(context.Context) error, logf func(string, ...any), forceExit func()) error {
 	select {
-	case <-stop:
-		return srv.Shutdown(context.Background())
+	case <-signals:
+		logf("shutting down, send Ctrl-C again to force exit")
+		go func() {
+			<-signals
+			logf("forced shutdown")
+			forceExit()
+		}()
+		return shutdown(context.Background())
 	case err := <-errCh:
 		if !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("server error: %w", err)

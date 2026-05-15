@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -67,4 +68,37 @@ func TestDashboardRequestLoggerPreservesFlusher(t *testing.T) {
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/dashboard/events", nil))
 
 	require.Contains(t, out.String(), "path=/dashboard/events status=200")
+}
+
+func TestDashboardShutdownFirstSignalGracefulSecondSignalForced(t *testing.T) {
+	signals := make(chan struct{}, 2)
+	shutdownStarted := make(chan struct{})
+	allowShutdownReturn := make(chan struct{})
+	forced := make(chan struct{})
+	var logged []string
+
+	done := make(chan error, 1)
+	go func() {
+		done <- waitForDashboardShutdown(
+			signals,
+			make(chan error),
+			func(_ context.Context) error {
+				close(shutdownStarted)
+				<-allowShutdownReturn
+				return context.Canceled
+			},
+			func(format string, args ...any) { logged = append(logged, format) },
+			func() { close(forced) },
+		)
+	}()
+
+	signals <- struct{}{}
+	<-shutdownStarted
+	signals <- struct{}{}
+	<-forced
+	close(allowShutdownReturn)
+
+	require.ErrorIs(t, <-done, context.Canceled)
+	require.Contains(t, logged, "shutting down, send Ctrl-C again to force exit")
+	require.Contains(t, logged, "forced shutdown")
 }
