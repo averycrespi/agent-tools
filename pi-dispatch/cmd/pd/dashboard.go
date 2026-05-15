@@ -1,0 +1,113 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"runtime"
+	"syscall"
+	"time"
+
+	"github.com/averycrespi/agent-tools/pi-dispatch/internal/auth"
+	"github.com/averycrespi/agent-tools/pi-dispatch/internal/dashboard"
+	pdexec "github.com/averycrespi/agent-tools/pi-dispatch/internal/exec"
+	"github.com/spf13/cobra"
+)
+
+var dashboardCmd = &cobra.Command{
+	Use:   "dashboard",
+	Short: "Open Dispatch Board",
+	Args:  cobra.NoArgs,
+	RunE:  runDashboard,
+}
+
+func init() {
+	dashboardCmd.Flags().String("host", "127.0.0.1", "host to bind; must be loopback")
+	dashboardCmd.Flags().Int("port", 8300, "port to bind")
+	dashboardCmd.Flags().Bool("no-open", false, "do not open Dispatch Board in a browser")
+}
+
+func runDashboard(cmd *cobra.Command, _ []string) error {
+	host, _ := cmd.Flags().GetString("host")
+	port, _ := cmd.Flags().GetInt("port")
+	noOpen, _ := cmd.Flags().GetBool("no-open")
+	if err := validateDashboardHost(host); err != nil {
+		return err
+	}
+
+	token, err := auth.EnsureToken(auth.TokenPath())
+	if err != nil {
+		return fmt.Errorf("loading auth token: %w", err)
+	}
+
+	dash := dashboard.New()
+	mux := http.NewServeMux()
+	mux.Handle("/dashboard/", http.StripPrefix("/dashboard", dash.Handler()))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/dashboard/", http.StatusFound)
+	})
+
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+	srv := &http.Server{Addr: addr, Handler: auth.Middleware(token, mux), ReadHeaderTimeout: 10 * time.Second}
+	url := dashboardURL(host, port, token)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Dispatch Board: %s\n", url)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.ListenAndServe()
+	}()
+
+	if !noOpen {
+		if err := openDashboardBrowser(pdexec.NewOSRunner(), url); err != nil && logger != nil {
+			logger.Warn("failed to open browser", "error", err)
+		}
+	}
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(stop)
+
+	select {
+	case <-stop:
+		return srv.Shutdown(context.Background())
+	case err := <-errCh:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("server error: %w", err)
+		}
+		return nil
+	}
+}
+
+func validateDashboardHost(host string) error {
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return fmt.Errorf("resolving host: %w", err)
+	}
+	for _, ip := range ips {
+		if ip.IsLoopback() {
+			return nil
+		}
+	}
+	return fmt.Errorf("dashboard host must be loopback: %s", host)
+}
+
+func dashboardURL(host string, port int, token string) string {
+	urlHost := host
+	if host == "127.0.0.1" {
+		urlHost = "localhost"
+	}
+	return fmt.Sprintf("http://%s/dashboard/?token=%s", net.JoinHostPort(urlHost, fmt.Sprintf("%d", port)), token)
+}
+
+func openDashboardBrowser(runner pdexec.Runner, url string) error {
+	cmd := "xdg-open"
+	if runtime.GOOS == "darwin" {
+		cmd = "open"
+	}
+	_, err := runner.Start(cmd, url)
+	return err
+}
