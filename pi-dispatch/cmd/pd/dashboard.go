@@ -15,6 +15,7 @@ import (
 	"github.com/averycrespi/agent-tools/pi-dispatch/internal/auth"
 	"github.com/averycrespi/agent-tools/pi-dispatch/internal/dashboard"
 	pdexec "github.com/averycrespi/agent-tools/pi-dispatch/internal/exec"
+	"github.com/averycrespi/agent-tools/pi-dispatch/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -44,7 +45,13 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("loading auth token: %w", err)
 	}
 
-	dash := dashboard.New()
+	st, err := store.Open(cfg.DBPath())
+	if err != nil {
+		return fmt.Errorf("opening store: %w", err)
+	}
+	defer st.Close() //nolint:errcheck
+
+	dash := dashboard.New(st)
 	mux := http.NewServeMux()
 	mux.Handle("/dashboard/", http.StripPrefix("/dashboard", dash.Handler()))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
