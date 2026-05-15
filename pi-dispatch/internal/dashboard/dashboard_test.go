@@ -24,15 +24,19 @@ func TestIndexIncludesExplorerUI(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
-	require.Contains(t, body, "Dispatch Board")
+	require.Contains(t, body, "Pi Dispatch Dashboard")
+	require.Contains(t, body, "favicon.svg")
 	require.Contains(t, body, "Search tasks")
 	require.Contains(t, body, "Event Timeline")
 	require.Contains(t, body, "Raw Logs")
 	require.Contains(t, body, "stdout")
-	require.Contains(t, body, "persisted state")
+	require.Contains(t, body, "status-dot")
+	require.Contains(t, body, "Disconnected")
+	require.Contains(t, body, "Connected")
 	require.Contains(t, body, `data-tab="overview"`)
 	require.Contains(t, body, `data-tab="events"`)
 	require.Contains(t, body, `data-tab="logs"`)
+	require.Contains(t, body, "location.hash")
 	require.Contains(t, body, "setTab(state.tab)")
 	require.Contains(t, body, "promptText(d.task)")
 	require.Contains(t, body, "api('api/tasks')")
@@ -40,6 +44,21 @@ func TestIndexIncludesExplorerUI(t *testing.T) {
 	require.Contains(t, body, "if(state.selected)await selectTask(state.selected)")
 	require.NotContains(t, body, "api('/api/tasks')")
 	require.NotContains(t, body, "new EventSource('/events')")
+	require.NotContains(t, body, "Dispatch Board")
+	require.NotContains(t, body, "Read-only Explorer for pd tasks, runs, events, and logs.")
+	require.NotContains(t, body, "Shows persisted state only")
+}
+
+func TestFaviconServesDashboardIcon(t *testing.T) {
+	st, _ := testStore(t)
+	dash := New(st)
+
+	rec := httptest.NewRecorder()
+	dash.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/favicon.svg", nil))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "image/svg+xml", rec.Header().Get("Content-Type"))
+	require.Contains(t, rec.Body.String(), "Pi Dispatch Dashboard")
 }
 
 func TestAPITasksReturnsSummaries(t *testing.T) {

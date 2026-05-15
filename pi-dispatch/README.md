@@ -40,7 +40,7 @@ pd template render <template>
 
 `pd logs -f` and `pd attach` follow stdout and stderr with `stdout:` / `stderr:` prefixes. Use `pd events` for the persisted structured Pi event stream.
 
-`pd dashboard` starts Dispatch Board, a local read-only web UI for exploring tasks, latest run metadata, events, and stdout/stderr logs. By default it binds `127.0.0.1:8300`, prints an authenticated URL under `/dashboard/`, emits startup/auth/request diagnostics to stderr, and opens the browser. Use `pd dashboard --no-open` to print the URL without opening a browser, or `--host` / `--port` to choose another loopback bind address. APIs and SSE live under `/dashboard/api/*` and `/dashboard/events`.
+`pd dashboard` starts Pi Dispatch Dashboard, a local read-only web UI for exploring tasks, latest run metadata, events, and stdout/stderr logs. By default it binds `127.0.0.1:8300`, prints an authenticated URL under `/dashboard/`, emits startup diagnostics and failed request logs to stderr, and opens the browser. Use `pd dashboard --no-open` to print the URL without opening a browser, or `--host` / `--port` to choose another loopback bind address. APIs and SSE live under `/dashboard/api/*` and `/dashboard/events`; `pd --verbose dashboard` logs all request/auth flow details.
 
 ## Safety model
 
@@ -50,9 +50,9 @@ If the generated worktree path is not visible inside `sb`, `pd run` fails before
 
 `pd rm <task-id>` removes inactive task metadata, logs, and stale control sockets. It refuses `starting`, `running`, and `stopping` tasks; stop them first. `pd rm --worktree <task-id>` also removes the associated worktree through worktree-manager semantics and does not delete the branch.
 
-Dispatch Board is read-only in v1. It does not expose steer, follow-up, stop, remove, worktree mutation, control-socket, or stale-status reconciliation actions. It shows persisted SQLite state as-is; run `pd ps` or `pd status` when you want CLI inspection to reconcile stale supervisors to `unknown`.
+Pi Dispatch Dashboard is read-only in v1. It does not expose steer, follow-up, stop, remove, worktree mutation, control-socket, or stale-status reconciliation actions. It shows persisted SQLite state as-is; run `pd ps` or `pd status` when you want CLI inspection to reconcile stale supervisors to `unknown`.
 
-Dispatch Board requires local auth because prompts, repo paths, logs, and session file paths can be sensitive. The pd auth token is stored at `$XDG_CONFIG_HOME/pd/auth-token` or `~/.config/pd/auth-token` with restrictive permissions. Visiting the printed token URL sets an HttpOnly dashboard cookie. Rotate the token with `pd token rotate`; restart any running dashboard servers afterward.
+Pi Dispatch Dashboard requires local auth because prompts, repo paths, logs, and session file paths can be sensitive. The pd auth token is stored at `$XDG_CONFIG_HOME/pd/auth-token` or `~/.config/pd/auth-token` with restrictive permissions. Visiting the printed token URL sets an HttpOnly dashboard cookie. Rotate the token with `pd token rotate`; restart any running dashboard servers afterward.
 
 ## Configuration
 

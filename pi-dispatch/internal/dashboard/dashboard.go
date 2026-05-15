@@ -21,6 +21,9 @@ const defaultLogLimit = 64 * 1024
 //go:embed index.html
 var indexHTML []byte
 
+//go:embed favicon.svg
+var faviconSVG []byte
+
 type Dashboard struct {
 	store        *store.Store
 	pollInterval time.Duration
@@ -94,6 +97,7 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tasks/{id}/logs", d.handleTaskLogs)
 	mux.HandleFunc("GET /events", d.handleEvents)
 	mux.HandleFunc("GET /unauthorized", d.handleUnauthorized)
+	mux.HandleFunc("GET /favicon.svg", d.handleFavicon)
 	mux.HandleFunc("GET /", d.handleIndex)
 	return mux
 }
@@ -238,7 +242,12 @@ func (d *Dashboard) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 func (d *Dashboard) handleUnauthorized(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusUnauthorized)
-	_, _ = w.Write([]byte("Use the authenticated Dispatch Board URL printed by pd dashboard."))
+	_, _ = w.Write([]byte("Use the authenticated Pi Dispatch Dashboard URL printed by pd dashboard."))
+}
+
+func (d *Dashboard) handleFavicon(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	_, _ = w.Write(faviconSVG)
 }
 
 func (d *Dashboard) handleIndex(w http.ResponseWriter, _ *http.Request) {

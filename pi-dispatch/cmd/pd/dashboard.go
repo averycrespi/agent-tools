@@ -22,7 +22,7 @@ import (
 
 var dashboardCmd = &cobra.Command{
 	Use:   "dashboard",
-	Short: "Open Dispatch Board",
+	Short: "Open Pi Dispatch Dashboard",
 	Args:  cobra.NoArgs,
 	RunE:  runDashboard,
 }
@@ -30,7 +30,7 @@ var dashboardCmd = &cobra.Command{
 func init() {
 	dashboardCmd.Flags().String("host", "127.0.0.1", "host to bind; must be loopback")
 	dashboardCmd.Flags().Int("port", 8300, "port to bind")
-	dashboardCmd.Flags().Bool("no-open", false, "do not open Dispatch Board in a browser")
+	dashboardCmd.Flags().Bool("no-open", false, "do not open Pi Dispatch Dashboard in a browser")
 }
 
 func runDashboard(cmd *cobra.Command, _ []string) error {
@@ -82,7 +82,7 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 	}
 	url := dashboardURL(host, port, token)
 	logf("listening addr=%s", addr)
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Dispatch Board: %s\n", url)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Pi Dispatch Dashboard: %s\n", url)
 
 	errCh := make(chan error, 1)
 	go func() {
