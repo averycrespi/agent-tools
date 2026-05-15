@@ -15,6 +15,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestIndexIncludesExplorerUI(t *testing.T) {
+	st, _ := testStore(t)
+	dash := New(st)
+
+	rec := httptest.NewRecorder()
+	dash.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	require.Contains(t, body, "Dispatch Board")
+	require.Contains(t, body, "Search tasks")
+	require.Contains(t, body, "Event Timeline")
+	require.Contains(t, body, "stdout")
+	require.Contains(t, body, "persisted state")
+}
+
 func TestAPITasksReturnsSummaries(t *testing.T) {
 	st, task := testStore(t)
 	dash := New(st)

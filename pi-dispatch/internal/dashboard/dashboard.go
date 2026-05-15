@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,9 @@ import (
 )
 
 const defaultLogLimit = 64 * 1024
+
+//go:embed index.html
+var indexHTML []byte
 
 type Dashboard struct {
 	store        *store.Store
@@ -238,7 +242,7 @@ func (d *Dashboard) handleUnauthorized(w http.ResponseWriter, _ *http.Request) {
 
 func (d *Dashboard) handleIndex(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte("<!doctype html><title>Dispatch Board</title><h1>Dispatch Board</h1>"))
+	_, _ = w.Write(indexHTML)
 }
 
 func taskSummaryView(summary store.TaskSummary) TaskSummary {
