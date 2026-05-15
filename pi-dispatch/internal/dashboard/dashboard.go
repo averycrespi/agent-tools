@@ -18,7 +18,8 @@ import (
 const defaultLogLimit = 64 * 1024
 
 type Dashboard struct {
-	store *store.Store
+	store        *store.Store
+	pollInterval time.Duration
 }
 
 type TaskSummary struct {
@@ -77,7 +78,7 @@ type LogWindow struct {
 }
 
 func New(st *store.Store) *Dashboard {
-	return &Dashboard{store: st}
+	return &Dashboard{store: st, pollInterval: 2 * time.Second}
 }
 
 func (d *Dashboard) Handler() http.Handler {
@@ -86,6 +87,7 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tasks/{id}", d.handleTaskDetail)
 	mux.HandleFunc("GET /api/tasks/{id}/events", d.handleTaskEvents)
 	mux.HandleFunc("GET /api/tasks/{id}/logs", d.handleTaskLogs)
+	mux.HandleFunc("GET /events", d.handleEvents)
 	mux.HandleFunc("GET /unauthorized", d.handleUnauthorized)
 	mux.HandleFunc("GET /", d.handleIndex)
 	return mux
@@ -192,6 +194,43 @@ func (d *Dashboard) handleTaskLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, window)
 }
 
+func (d *Dashboard) handleEvents(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+	sendSnapshot := func() bool {
+		summaries, err := d.store.ListTaskSummaries(r.Context())
+		if err != nil {
+			_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", jsonString(map[string]string{"error": err.Error()}))
+			flusher.Flush()
+			return false
+		}
+		_, _ = fmt.Fprintf(w, "event: snapshot\ndata: %s\n\n", jsonString(map[string]int{"task_count": len(summaries)}))
+		flusher.Flush()
+		return true
+	}
+	if !sendSnapshot() {
+		return
+	}
+	ticker := time.NewTicker(d.pollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			if !sendSnapshot() {
+				return
+			}
+		}
+	}
+}
+
 func (d *Dashboard) handleUnauthorized(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusUnauthorized)
 	_, _ = w.Write([]byte("Use the authenticated Dispatch Board URL printed by pd dashboard."))
@@ -272,6 +311,14 @@ func parseInt64Query(r *http.Request, name string, def int64) (int64, error) {
 		return 0, fmt.Errorf("%s must be an integer", name)
 	}
 	return parsed, nil
+}
+
+func jsonString(payload any) string {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return `{"error":"encode failed"}`
+	}
+	return string(data)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

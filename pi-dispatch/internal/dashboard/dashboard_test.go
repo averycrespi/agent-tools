@@ -91,6 +91,28 @@ func TestAPITaskLogsRejectsBadStream(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+func TestEventsSSESendsSnapshot(t *testing.T) {
+	st, _ := testStore(t)
+	dash := New(st)
+	dash.pollInterval = time.Millisecond
+	server := httptest.NewServer(dash.Handler())
+	t.Cleanup(server.Close)
+
+	resp, err := server.Client().Get(server.URL + "/events")
+	require.NoError(t, err)
+	defer resp.Body.Close() //nolint:errcheck
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
+
+	buf := make([]byte, 256)
+	n, err := resp.Body.Read(buf)
+	require.NoError(t, err)
+	body := string(buf[:n])
+	require.Contains(t, body, "event: snapshot")
+	require.Contains(t, body, `"task_count":1`)
+	server.CloseClientConnections()
+}
+
 func testStore(t *testing.T) (*store.Store, store.Task) {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "pd.db"))
