@@ -27,8 +27,14 @@ func TestIndexIncludesExplorerUI(t *testing.T) {
 	require.Contains(t, body, "Dispatch Board")
 	require.Contains(t, body, "Search tasks")
 	require.Contains(t, body, "Event Timeline")
+	require.Contains(t, body, "Raw Logs")
 	require.Contains(t, body, "stdout")
 	require.Contains(t, body, "persisted state")
+	require.Contains(t, body, `data-tab="overview"`)
+	require.Contains(t, body, `data-tab="events"`)
+	require.Contains(t, body, `data-tab="logs"`)
+	require.Contains(t, body, "setTab(state.tab)")
+	require.Contains(t, body, "promptText(d.task)")
 	require.Contains(t, body, "api('api/tasks')")
 	require.Contains(t, body, "new EventSource('events')")
 	require.Contains(t, body, "if(state.selected)await selectTask(state.selected)")
@@ -66,8 +72,29 @@ func TestAPITaskDetailReturnsTaskRunAndEvents(t *testing.T) {
 	var payload TaskDetail
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
 	require.Equal(t, task.ID, payload.Task.ID)
+	require.False(t, payload.Task.PromptTruncated)
 	require.NotNil(t, payload.LatestRun)
 	require.Equal(t, "run-test", payload.LatestRun.ID)
+}
+
+func TestAPITaskDetailReportsTruncatedPrompt(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "pd.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, st.Close()) })
+
+	now := time.Now()
+	task := store.Task{ID: "pd-long", RepoPath: "/repo", RepoName: "repo", Branch: "pd/long", WorktreePath: "/wt", PromptSource: "arg", Prompt: "this prompt is much longer than the preview stored for the task", PromptPreview: "this prompt is much", Status: store.StatusRunning, CreatedAt: now, UpdatedAt: now}
+	run := store.Run{ID: "run-long", TaskID: task.ID, Attempt: 1, Status: store.StatusRunning, StartedAt: now, ControlSocketPath: "/sock", StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: "/events"}
+	require.NoError(t, st.CreateTaskWithRun(context.Background(), task, run))
+	dash := New(st)
+
+	rec := httptest.NewRecorder()
+	dash.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID, nil))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var payload TaskDetail
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.True(t, payload.Task.PromptTruncated)
 }
 
 func TestAPITaskEventsSupportsAfterAndLimit(t *testing.T) {
