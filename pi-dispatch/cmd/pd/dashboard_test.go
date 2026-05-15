@@ -43,23 +43,45 @@ func TestDashboardCommandDefaults(t *testing.T) {
 	require.False(t, noOpen)
 }
 
-func TestDashboardRequestLoggerReportsStatusWithoutQuery(t *testing.T) {
+func TestDashboardRequestLoggerSkipsSuccessfulRequestsByDefault(t *testing.T) {
 	var out bytes.Buffer
-	handler := dashboardRequestLogger(&out, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := dashboardRequestLogger(&out, false, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/dashboard/?token=secret", nil))
 
+	require.Empty(t, out.String())
+}
+
+func TestDashboardRequestLoggerReportsFailedRequestsByDefault(t *testing.T) {
+	var out bytes.Buffer
+	handler := dashboardRequestLogger(&out, false, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/dashboard/?token=secret", nil))
+
 	log := out.String()
-	require.Contains(t, log, "request method=GET path=/dashboard/ status=202")
+	require.Contains(t, log, "request method=GET path=/dashboard/ status=500")
 	require.NotContains(t, log, "secret")
 	require.NotContains(t, log, "token=")
 }
 
+func TestDashboardRequestLoggerReportsSuccessfulRequestsWhenVerbose(t *testing.T) {
+	var out bytes.Buffer
+	handler := dashboardRequestLogger(&out, true, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/dashboard/?token=secret", nil))
+
+	require.Contains(t, out.String(), "request method=GET path=/dashboard/ status=202")
+}
+
 func TestDashboardRequestLoggerPreservesFlusher(t *testing.T) {
 	var out bytes.Buffer
-	handler := dashboardRequestLogger(&out, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := dashboardRequestLogger(&out, false, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, ok := w.(http.Flusher)
 		require.True(t, ok)
 		w.WriteHeader(http.StatusOK)
@@ -67,7 +89,7 @@ func TestDashboardRequestLoggerPreservesFlusher(t *testing.T) {
 
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/dashboard/events", nil))
 
-	require.Contains(t, out.String(), "path=/dashboard/events status=200")
+	require.Empty(t, out.String())
 }
 
 func TestDashboardShutdownFirstSignalGracefulSecondSignalForced(t *testing.T) {

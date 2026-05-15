@@ -40,6 +40,11 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 	logf := func(format string, args ...any) {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "pd dashboard: "+format+"\n", args...)
 	}
+	verboseLogf := func(format string, args ...any) {
+		if verbose {
+			logf(format, args...)
+		}
+	}
 
 	logf("validating loopback host=%s", host)
 	if err := validateDashboardHost(host); err != nil {
@@ -72,7 +77,7 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 	logf("mounting routes ui=/dashboard/ api=/dashboard/api/ events=/dashboard/events")
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           dashboardRequestLogger(cmd.ErrOrStderr(), auth.MiddlewareWithLog(token, mux, logf)),
+		Handler:           dashboardRequestLogger(cmd.ErrOrStderr(), verbose, auth.MiddlewareWithLog(token, mux, verboseLogf)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	url := dashboardURL(host, port, token)
@@ -153,12 +158,14 @@ func (r *statusRecorder) Flush() {
 	}
 }
 
-func dashboardRequestLogger(out io.Writer, next http.Handler) http.Handler {
+func dashboardRequestLogger(out io.Writer, verbose bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(recorder, r)
-		_, _ = fmt.Fprintf(out, "pd dashboard: request method=%s path=%s status=%d duration=%s\n", r.Method, r.URL.Path, recorder.status, time.Since(start).Round(time.Millisecond))
+		if verbose || recorder.status >= http.StatusBadRequest {
+			_, _ = fmt.Fprintf(out, "pd dashboard: request method=%s path=%s status=%d duration=%s\n", r.Method, r.URL.Path, recorder.status, time.Since(start).Round(time.Millisecond))
+		}
 	})
 }
 
