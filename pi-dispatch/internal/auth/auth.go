@@ -2,13 +2,19 @@ package auth
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/averycrespi/agent-tools/pi-dispatch/internal/config"
 )
+
+const CookieName = "pd-auth"
 
 func TokenPath() string {
 	return filepath.Join(config.ConfigDir(), "auth-token")
@@ -38,6 +44,57 @@ func RotateToken(path string) (string, error) {
 		return "", fmt.Errorf("removing token file: %w", err)
 	}
 	return writeNewToken(path)
+}
+
+func Middleware(token string, next http.Handler) http.Handler {
+	tokenBytes := []byte(token)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/dashboard/unauthorized" || hasBearer(r, tokenBytes) || hasCookie(r, tokenBytes) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if strings.HasPrefix(r.URL.Path, "/dashboard/") || r.URL.Path == "/dashboard" {
+			if qToken := r.URL.Query().Get("token"); qToken != "" && subtle.ConstantTimeCompare([]byte(qToken), tokenBytes) == 1 {
+				http.SetCookie(w, &http.Cookie{
+					Name:     CookieName,
+					Value:    token,
+					Path:     "/dashboard/",
+					HttpOnly: true,
+					SameSite: http.SameSiteStrictMode,
+					MaxAge:   int((365 * 24 * time.Hour) / time.Second),
+				})
+				clean := *r.URL
+				q := clean.Query()
+				q.Del("token")
+				clean.RawQuery = q.Encode()
+				http.Redirect(w, r, clean.RequestURI(), http.StatusFound)
+				return
+			}
+			http.Redirect(w, r, "/dashboard/unauthorized", http.StatusFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+	})
+}
+
+func hasBearer(r *http.Request, token []byte) bool {
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(auth, "Bearer ")), token) == 1
+}
+
+func hasCookie(r *http.Request, token []byte) bool {
+	cookie, err := r.Cookie(CookieName)
+	if err != nil {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(cookie.Value), token) == 1
 }
 
 func writeNewToken(path string) (string, error) {
