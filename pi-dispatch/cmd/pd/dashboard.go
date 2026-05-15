@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -36,16 +37,25 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 	host, _ := cmd.Flags().GetString("host")
 	port, _ := cmd.Flags().GetInt("port")
 	noOpen, _ := cmd.Flags().GetBool("no-open")
+	logf := func(format string, args ...any) {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "pd dashboard: "+format+"\n", args...)
+	}
+
+	logf("validating loopback host=%s", host)
 	if err := validateDashboardHost(host); err != nil {
 		return err
 	}
 
-	token, err := auth.EnsureToken(auth.TokenPath())
+	tokenPath := auth.TokenPath()
+	logf("using auth token path=%s", tokenPath)
+	token, err := auth.EnsureToken(tokenPath)
 	if err != nil {
 		return fmt.Errorf("loading auth token: %w", err)
 	}
 
-	st, err := store.Open(cfg.DBPath())
+	dbPath := cfg.DBPath()
+	logf("opening database path=%s", dbPath)
+	st, err := store.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("opening store: %w", err)
 	}
@@ -59,8 +69,14 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 	})
 
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	srv := &http.Server{Addr: addr, Handler: auth.Middleware(token, mux), ReadHeaderTimeout: 10 * time.Second}
+	logf("mounting routes ui=/dashboard/ api=/dashboard/api/ events=/dashboard/events")
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           dashboardRequestLogger(cmd.ErrOrStderr(), auth.MiddlewareWithLog(token, mux, logf)),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	url := dashboardURL(host, port, token)
+	logf("listening addr=%s", addr)
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Dispatch Board: %s\n", url)
 
 	errCh := make(chan error, 1)
@@ -68,9 +84,15 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 		errCh <- srv.ListenAndServe()
 	}()
 
-	if !noOpen {
-		if err := openDashboardBrowser(pdexec.NewOSRunner(), url); err != nil && logger != nil {
-			logger.Warn("failed to open browser", "error", err)
+	if noOpen {
+		logf("browser auto-open disabled")
+	} else {
+		logf("opening browser")
+		if err := openDashboardBrowser(pdexec.NewOSRunner(), url); err != nil {
+			logf("browser open failed error=%v", err)
+			if logger != nil {
+				logger.Warn("failed to open browser", "error", err)
+			}
 		}
 	}
 
@@ -87,6 +109,31 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 		}
 		return nil
 	}
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
+}
+
+func (r *statusRecorder) Flush() {
+	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func dashboardRequestLogger(out io.Writer, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(recorder, r)
+		_, _ = fmt.Fprintf(out, "pd dashboard: request method=%s path=%s status=%d duration=%s\n", r.Method, r.URL.Path, recorder.status, time.Since(start).Round(time.Millisecond))
+	})
 }
 
 func validateDashboardHost(host string) error {

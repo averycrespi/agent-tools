@@ -46,10 +46,27 @@ func RotateToken(path string) (string, error) {
 	return writeNewToken(path)
 }
 
+type LogFunc func(format string, args ...any)
+
 func Middleware(token string, next http.Handler) http.Handler {
+	return MiddlewareWithLog(token, next, nil)
+}
+
+func MiddlewareWithLog(token string, next http.Handler, logf LogFunc) http.Handler {
 	tokenBytes := []byte(token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/dashboard/unauthorized" || hasBearer(r, tokenBytes) || hasCookie(r, tokenBytes) {
+		if r.URL.Path == "/dashboard/unauthorized" {
+			logAuth(logf, "auth granted path=%s reason=unauthorized-page", r.URL.Path)
+			next.ServeHTTP(w, r)
+			return
+		}
+		if hasBearer(r, tokenBytes) {
+			logAuth(logf, "auth granted path=%s reason=bearer", r.URL.Path)
+			next.ServeHTTP(w, r)
+			return
+		}
+		if hasCookie(r, tokenBytes) {
+			logAuth(logf, "auth granted path=%s reason=cookie", r.URL.Path)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -68,17 +85,26 @@ func Middleware(token string, next http.Handler) http.Handler {
 				q := clean.Query()
 				q.Del("token")
 				clean.RawQuery = q.Encode()
+				logAuth(logf, "auth granted path=%s reason=token-url redirect=%s", r.URL.Path, clean.RequestURI())
 				http.Redirect(w, r, clean.RequestURI(), http.StatusFound)
 				return
 			}
+			logAuth(logf, "auth rejected path=%s reason=missing-or-invalid-token status=%d", r.URL.Path, http.StatusFound)
 			http.Redirect(w, r, "/dashboard/unauthorized", http.StatusFound)
 			return
 		}
 
+		logAuth(logf, "auth rejected path=%s reason=outside-dashboard status=%d", r.URL.Path, http.StatusUnauthorized)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 	})
+}
+
+func logAuth(logf LogFunc, format string, args ...any) {
+	if logf != nil {
+		logf(format, args...)
+	}
 }
 
 func hasBearer(r *http.Request, token []byte) bool {

@@ -40,7 +40,7 @@ pd template render <template>
 
 `pd logs -f` and `pd attach` follow stdout and stderr with `stdout:` / `stderr:` prefixes. Use `pd events` for the persisted structured Pi event stream.
 
-`pd dashboard` starts Dispatch Board, a local read-only web UI for exploring tasks, latest run metadata, events, and stdout/stderr logs. By default it binds `127.0.0.1:8300`, prints an authenticated URL under `/dashboard/`, and opens the browser. Use `pd dashboard --no-open` to print the URL without opening a browser, or `--host` / `--port` to choose another loopback bind address. APIs and SSE live under `/dashboard/api/*` and `/dashboard/events`.
+`pd dashboard` starts Dispatch Board, a local read-only web UI for exploring tasks, latest run metadata, events, and stdout/stderr logs. By default it binds `127.0.0.1:8300`, prints an authenticated URL under `/dashboard/`, emits startup/auth/request diagnostics to stderr, and opens the browser. Use `pd dashboard --no-open` to print the URL without opening a browser, or `--host` / `--port` to choose another loopback bind address. APIs and SSE live under `/dashboard/api/*` and `/dashboard/events`.
 
 ## Safety model
 

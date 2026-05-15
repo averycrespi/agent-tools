@@ -1,10 +1,12 @@
 package auth
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -94,6 +96,28 @@ func TestMiddlewareRejectsNonDashboardRequestsWithUnauthorized(t *testing.T) {
 
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 	require.JSONEq(t, `{"error":"unauthorized"}`, rec.Body.String())
+}
+
+func TestMiddlewareWithLogReportsAuthDecisionsWithoutLeakingToken(t *testing.T) {
+	var logs []string
+	handler := MiddlewareWithLog("secret", okHandler(), func(format string, args ...any) {
+		logs = append(logs, fmt.Sprintf(format, args...))
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dashboard/?token=secret", nil))
+	require.Equal(t, http.StatusFound, rec.Code)
+
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dashboard/api/tasks", nil))
+	require.Equal(t, http.StatusFound, rec.Code)
+
+	joined := strings.Join(logs, "\n")
+	require.Contains(t, joined, "auth granted")
+	require.Contains(t, joined, "reason=token-url")
+	require.Contains(t, joined, "auth rejected")
+	require.Contains(t, joined, "path=/dashboard/api/tasks")
+	require.NotContains(t, joined, "secret")
 }
 
 func okHandler() http.Handler {
