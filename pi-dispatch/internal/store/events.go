@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -11,6 +12,10 @@ func (s *Store) ListEvents(ctx context.Context, taskID string) ([]Event, error) 
 		return nil, err
 	}
 	defer rows.Close() //nolint:errcheck
+	return scanEvents(rows)
+}
+
+func scanEvents(rows *sql.Rows) ([]Event, error) {
 	var events []Event
 	for rows.Next() {
 		var event Event

@@ -302,6 +302,11 @@ func scanRun(row taskScanner) (Run, error) {
 	if err := row.Scan(&run.ID, &run.TaskID, &run.Attempt, &run.SupervisorPID, &run.PiSessionFile, &status, &started, &ended, &run.ExitCode, &run.ErrorMessage, &run.ControlSocketPath, &run.StdoutLogPath, &run.StderrLogPath, &run.PiEventsPath); err != nil {
 		return Run{}, err
 	}
+	populateRunTimes(&run, status, started, ended)
+	return run, nil
+}
+
+func populateRunTimes(run *Run, status, started string, ended sql.NullString) {
 	run.Status = TaskStatus(status)
 	run.StartedAt, _ = time.Parse(time.RFC3339Nano, started)
 	if ended.Valid {
@@ -309,5 +314,4 @@ func scanRun(row taskScanner) (Run, error) {
 			run.EndedAt = sql.NullTime{Time: endedAt, Valid: true}
 		}
 	}
-	return run, nil
 }
