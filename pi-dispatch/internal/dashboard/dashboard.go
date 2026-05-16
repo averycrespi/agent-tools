@@ -16,7 +16,11 @@ import (
 	"github.com/averycrespi/agent-tools/pi-dispatch/internal/store"
 )
 
-const defaultLogLimit = 64 * 1024
+const (
+	defaultLogLimit       = 64 * 1024
+	maxPiEventsScanBytes  = 512 * 1024
+	maxResponsePreviewLen = 4000
+)
 
 //go:embed index.html
 var indexHTML []byte
@@ -46,8 +50,10 @@ type TaskSummary struct {
 }
 
 type TaskDetail struct {
-	Task      TaskSummary `json:"task"`
-	LatestRun *RunSummary `json:"latest_run,omitempty"`
+	Task              TaskSummary `json:"task"`
+	LatestRun         *RunSummary `json:"latest_run,omitempty"`
+	ResponsePreview   string      `json:"response_preview,omitempty"`
+	ResponseTruncated bool        `json:"response_truncated"`
 }
 
 type RunSummary struct {
@@ -133,11 +139,14 @@ func (d *Dashboard) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	view := TaskSummary{ID: task.ID, RepoPath: task.RepoPath, RepoName: task.RepoName, Branch: task.Branch, WorktreePath: task.WorktreePath, TemplateName: task.TemplateName, PromptSource: task.PromptSource, PromptPreview: task.PromptPreview, PromptTruncated: promptTruncated(task.Prompt, task.PromptPreview), Status: string(task.Status), CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt}
 	var latest *RunSummary
+	var responsePreview string
+	var responseTruncated bool
 	if err == nil {
 		latest = runSummaryView(run)
 		view.LatestRun = latest
+		responsePreview, responseTruncated = responsePreviewFromPiEvents(run.PiEventsPath)
 	}
-	writeJSON(w, http.StatusOK, TaskDetail{Task: view, LatestRun: latest})
+	writeJSON(w, http.StatusOK, TaskDetail{Task: view, LatestRun: latest, ResponsePreview: responsePreview, ResponseTruncated: responseTruncated})
 }
 
 func (d *Dashboard) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
@@ -268,6 +277,85 @@ func promptTruncated(prompt, preview string) bool {
 	return len(normalized) > len(preview)
 }
 
+func responsePreviewFromPiEvents(piEventsPath string) (string, bool) {
+	piEvents, err := readTail(piEventsPath, maxPiEventsScanBytes)
+	if err != nil {
+		return "", false
+	}
+	response, ok := lastAssistantResponseFromPiEvents(piEvents)
+	if !ok {
+		return "", false
+	}
+	if len(response) <= maxResponsePreviewLen {
+		return response, false
+	}
+	return response[:maxResponsePreviewLen], true
+}
+
+func lastAssistantResponseFromPiEvents(data []byte) (string, bool) {
+	lines := strings.Split(strings.TrimRight(string(data), "\r\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		text, ok := assistantResponseFromPiEvent([]byte(lines[i]))
+		if ok {
+			return text, true
+		}
+	}
+	return "", false
+}
+
+func assistantResponseFromPiEvent(data []byte) (string, bool) {
+	var event struct {
+		Message  messagePayload   `json:"message"`
+		Messages []messagePayload `json:"messages"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return "", false
+	}
+	if text, ok := assistantResponseFromMessage(event.Message); ok {
+		return text, true
+	}
+	for i := len(event.Messages) - 1; i >= 0; i-- {
+		if text, ok := assistantResponseFromMessage(event.Messages[i]); ok {
+			return text, true
+		}
+	}
+	return "", false
+}
+
+func assistantResponseFromMessage(message messagePayload) (string, bool) {
+	if message.Role != "assistant" {
+		return "", false
+	}
+	text := strings.TrimSpace(messageText(message.Content))
+	return text, text != ""
+}
+
+type messagePayload struct {
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"`
+}
+
+func messageText(content json.RawMessage) string {
+	var text string
+	if err := json.Unmarshal(content, &text); err == nil {
+		return text
+	}
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(content, &parts); err != nil {
+		return ""
+	}
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part.Type == "text" && part.Text != "" {
+			out = append(out, part.Text)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 func runSummaryView(run store.Run) *RunSummary {
 	view := &RunSummary{ID: run.ID, TaskID: run.TaskID, Attempt: run.Attempt, SupervisorPID: run.SupervisorPID, PiSessionFile: run.PiSessionFile, Status: string(run.Status), StartedAt: run.StartedAt, ErrorMessage: run.ErrorMessage, ControlSocketPath: run.ControlSocketPath, StdoutLogPath: run.StdoutLogPath, StderrLogPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath}
 	if run.EndedAt.Valid {
@@ -283,6 +371,30 @@ func runSummaryView(run store.Run) *RunSummary {
 
 func eventView(event store.Event) Event {
 	return Event{ID: event.ID, TaskID: event.TaskID, RunID: event.RunID, Timestamp: event.Timestamp, Type: event.Type, Message: event.Message, PayloadJSON: event.PayloadJSON}
+}
+
+func readTail(path string, limit int64) ([]byte, error) {
+	file, err := os.Open(path) //nolint:gosec // path comes from pd-owned task state.
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close() //nolint:errcheck
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := info.Size()
+	offset := int64(0)
+	if size > limit {
+		offset = size - limit
+		size = limit
+	}
+	buf := make([]byte, size)
+	n, err := file.ReadAt(buf, offset)
+	if err != nil && !strings.Contains(err.Error(), "EOF") {
+		return nil, err
+	}
+	return buf[:n], nil
 }
 
 func readLogWindow(path string, stream string, offset int64, limit int) (LogWindow, error) {

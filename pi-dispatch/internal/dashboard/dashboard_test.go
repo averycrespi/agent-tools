@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,6 +40,7 @@ func TestIndexIncludesExplorerUI(t *testing.T) {
 	require.Contains(t, body, "location.hash")
 	require.Contains(t, body, "setTab(state.tab)")
 	require.Contains(t, body, "promptText(d.task)")
+	require.Contains(t, body, "responseText(d)")
 	require.Contains(t, body, "api('api/tasks')")
 	require.Contains(t, body, "new EventSource('events')")
 	require.Contains(t, body, "if(state.selected)await selectTask(state.selected)")
@@ -94,6 +96,60 @@ func TestAPITaskDetailReturnsTaskRunAndEvents(t *testing.T) {
 	require.False(t, payload.Task.PromptTruncated)
 	require.NotNil(t, payload.LatestRun)
 	require.Equal(t, "run-test", payload.LatestRun.ID)
+}
+
+func TestAPITaskDetailIncludesLastAssistantResponseFromPiEvents(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "pd.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, st.Close()) })
+
+	dir := t.TempDir()
+	piEventsPath := filepath.Join(dir, "pi-events.jsonl")
+	require.NoError(t, os.WriteFile(piEventsPath, []byte(strings.Join([]string{
+		`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Earlier response."}]}}`,
+		`{"type":"agent_end","messages":[{"role":"user","content":[{"type":"text","text":"say hi"}]},{"role":"assistant","content":[{"type":"text","text":"Hi!"}]}]}`,
+		`{"type":"response","command":"get_state","success":true,"data":{"sessionFile":"/sandbox/session.jsonl"}}`,
+	}, "\n")+"\n"), 0o600))
+
+	now := time.Now()
+	task := store.Task{ID: "pd-response", RepoPath: "/repo", RepoName: "repo", Branch: "pd/response", WorktreePath: "/wt", PromptSource: "arg", Prompt: "say hi", PromptPreview: "say hi", Status: store.StatusSucceeded, CreatedAt: now, UpdatedAt: now}
+	run := store.Run{ID: "run-response", TaskID: task.ID, Attempt: 1, Status: store.StatusSucceeded, StartedAt: now, ControlSocketPath: "/sock", StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: piEventsPath}
+	require.NoError(t, st.CreateTaskWithRun(context.Background(), task, run))
+	dash := New(st)
+
+	rec := httptest.NewRecorder()
+	dash.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID, nil))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var payload TaskDetail
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Equal(t, "Hi!", payload.ResponsePreview)
+	require.False(t, payload.ResponseTruncated)
+}
+
+func TestAPITaskDetailDoesNotReadSessionFileForResponse(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "pd.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, st.Close()) })
+
+	dir := t.TempDir()
+	piEventsPath := filepath.Join(dir, "pi-events.jsonl")
+	require.NoError(t, os.WriteFile(piEventsPath, []byte(`{"type":"response","command":"get_state","success":true,"data":{"sessionFile":"/sandbox/session.jsonl"}}`+"\n"), 0o600))
+
+	now := time.Now()
+	task := store.Task{ID: "pd-response-session", RepoPath: "/repo", RepoName: "repo", Branch: "pd/response", WorktreePath: "/wt", PromptSource: "arg", Prompt: "say hi", PromptPreview: "say hi", Status: store.StatusSucceeded, CreatedAt: now, UpdatedAt: now}
+	run := store.Run{ID: "run-response-session", TaskID: task.ID, Attempt: 1, Status: store.StatusSucceeded, StartedAt: now, ControlSocketPath: "/sock", StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: piEventsPath}
+	require.NoError(t, st.CreateTaskWithRun(context.Background(), task, run))
+	dash := New(st)
+
+	rec := httptest.NewRecorder()
+	dash.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID, nil))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var payload TaskDetail
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Empty(t, payload.ResponsePreview)
+	require.False(t, payload.ResponseTruncated)
 }
 
 func TestAPITaskDetailReportsTruncatedPrompt(t *testing.T) {

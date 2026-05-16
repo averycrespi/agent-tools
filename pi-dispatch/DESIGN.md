@@ -21,7 +21,7 @@ Artifacts such as summaries, diffs, PR URLs, test reports, screenshots, exported
 
 ## Pi Dispatch Dashboard
 
-Pi Dispatch Dashboard lives inside pi-dispatch under `internal/dashboard` and is served by `pd dashboard`. The command binds a loopback-only HTTP server on `127.0.0.1:8300` by default, redirects `/` to `/dashboard/`, mounts the embedded UI and APIs under `/dashboard/`, prints an authenticated token URL, and opens the browser unless `--no-open` is passed.
+Pi Dispatch Dashboard lives inside pi-dispatch under `internal/dashboard` and is served by `pd dashboard`. The command binds a loopback-only HTTP server on `127.0.0.1:8300` by default, redirects `/` to `/dashboard/`, mounts the embedded UI and APIs under `/dashboard/`, prints an authenticated token URL, and opens the browser unless `--no-open` is passed. The Overview tab can show the latest assistant response by reading the run's host-persisted Pi event stream and extracting the last assistant message from those events.
 
 The public dashboard surface is:
 
