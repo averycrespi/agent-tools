@@ -25,11 +25,15 @@ func TestIndexIncludesExplorerUI(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
-	require.Contains(t, body, "Pi Dispatch Dashboard")
+	require.Contains(t, body, "Pi Dispatch")
 	require.Contains(t, body, "favicon.svg")
 	require.Contains(t, body, "Search tasks")
-	require.Contains(t, body, "Event Timeline")
-	require.Contains(t, body, "Raw Logs")
+	require.Contains(t, body, "eventClass")
+	require.Contains(t, body, "event-type")
+	require.Contains(t, body, "evt-good")
+	require.Contains(t, body, "grid-template-columns:minmax(100px,140px) minmax(0,1fr)")
+	require.Contains(t, body, "box-shadow:inset 4px 0 0 var(--accent)")
+	require.Contains(t, body, ".logbar #logstate")
 	require.Contains(t, body, "stdout")
 	require.Contains(t, body, "status-dot")
 	require.Contains(t, body, "Disconnected")
@@ -49,6 +53,9 @@ func TestIndexIncludesExplorerUI(t *testing.T) {
 	require.NotContains(t, body, "Dispatch Board")
 	require.NotContains(t, body, "Read-only Explorer for pd tasks, runs, events, and logs.")
 	require.NotContains(t, body, "Shows persisted state only")
+	require.NotContains(t, body, "Pi Dispatch Dashboard")
+	require.NotContains(t, body, "Raw Logs")
+	require.NotContains(t, body, "Event Timeline")
 }
 
 func TestFaviconServesDashboardIcon(t *testing.T) {
@@ -60,7 +67,8 @@ func TestFaviconServesDashboardIcon(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "image/svg+xml", rec.Header().Get("Content-Type"))
-	require.Contains(t, rec.Body.String(), "Pi Dispatch Dashboard")
+	require.Contains(t, rec.Body.String(), "Pi Dispatch")
+	require.NotContains(t, rec.Body.String(), "Pi Dispatch Dashboard")
 }
 
 func TestAPITasksReturnsSummaries(t *testing.T) {
