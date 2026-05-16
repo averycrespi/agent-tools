@@ -31,6 +31,10 @@ func TestIndexIncludesExplorerUI(t *testing.T) {
 	require.Contains(t, body, "eventClass")
 	require.Contains(t, body, "event-type")
 	require.Contains(t, body, "evt-good")
+	require.Contains(t, body, "loadMoreEvents")
+	require.Contains(t, body, "eventsHasMore")
+	require.Contains(t, body, "Load more events")
+	require.NotContains(t, body, "events-panel').addEventListener('scroll'")
 	require.Contains(t, body, "grid-template-columns:minmax(100px,140px) minmax(0,1fr)")
 	require.Contains(t, body, "box-shadow:inset 4px 0 0 var(--accent)")
 	require.Contains(t, body, ".logbar #logstate")
@@ -47,7 +51,8 @@ func TestIndexIncludesExplorerUI(t *testing.T) {
 	require.Contains(t, body, "responseText(d)")
 	require.Contains(t, body, "api('api/tasks')")
 	require.Contains(t, body, "new EventSource('events')")
-	require.Contains(t, body, "if(state.selected)await selectTask(state.selected)")
+	require.Contains(t, body, "if(state.selected)await refreshSelectedTask()")
+	require.NotContains(t, body, "if(state.selected)await selectTask(state.selected)")
 	require.NotContains(t, body, "api('/api/tasks')")
 	require.NotContains(t, body, "new EventSource('/events')")
 	require.NotContains(t, body, "Dispatch Board")
@@ -180,8 +185,9 @@ func TestAPITaskDetailReportsTruncatedPrompt(t *testing.T) {
 	require.True(t, payload.Task.PromptTruncated)
 }
 
-func TestAPITaskEventsSupportsAfterAndLimit(t *testing.T) {
+func TestAPITaskEventsSupportsAfterLimitAndHasMore(t *testing.T) {
 	st, task := testStore(t)
+	require.NoError(t, st.AddEvent(context.Background(), store.Event{TaskID: task.ID, RunID: "run-test", Timestamp: time.Now(), Type: "three"}))
 	dash := New(st)
 
 	rec := httptest.NewRecorder()
@@ -189,11 +195,13 @@ func TestAPITaskEventsSupportsAfterAndLimit(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var payload struct {
-		Events []Event `json:"events"`
+		Events  []Event `json:"events"`
+		HasMore bool    `json:"has_more"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
 	require.Len(t, payload.Events, 1)
 	require.Equal(t, int64(2), payload.Events[0].ID)
+	require.True(t, payload.HasMore)
 }
 
 func TestAPITaskLogsReadsBoundedWindow(t *testing.T) {

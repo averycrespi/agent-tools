@@ -160,16 +160,20 @@ func (d *Dashboard) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	events, err := d.store.ListEventsAfter(r.Context(), r.PathValue("id"), afterID, limit)
+	events, err := d.store.ListEventsAfter(r.Context(), r.PathValue("id"), afterID, limit+1)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	hasMore := len(events) > limit
+	if hasMore {
+		events = events[:limit]
 	}
 	out := make([]Event, 0, len(events))
 	for _, event := range events {
 		out = append(out, eventView(event))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": out})
+	writeJSON(w, http.StatusOK, map[string]any{"events": out, "has_more": hasMore})
 }
 
 func (d *Dashboard) handleTaskLogs(w http.ResponseWriter, r *http.Request) {
