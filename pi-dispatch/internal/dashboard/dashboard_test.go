@@ -62,6 +62,7 @@ func TestIndexIncludesExplorerUI(t *testing.T) {
 	require.Contains(t, body, "agent_model:agent.model||''")
 	require.Contains(t, body, "agent_thinking:agent.thinking||''")
 	require.Contains(t, body, "agent_tools:formatList(agent.tools)")
+	require.Contains(t, body, "env:formatList(r.env_var_names)")
 	require.Contains(t, body, "Object.entries(meta).filter(([,v])=>v!==''&&v!==undefined&&v!==null)")
 	require.NotContains(t, body, "pi_argv")
 	require.NotContains(t, body, "system_prompt")
@@ -130,6 +131,7 @@ func TestAPITaskDetailReturnsTaskRunAndEvents(t *testing.T) {
 	require.NotNil(t, payload.LatestRun)
 	require.Equal(t, "run-test", payload.LatestRun.ID)
 	require.Equal(t, "gpt-5", payload.LatestRun.AgentOptions.Model)
+	require.Equal(t, []string{"OPENAI_API_KEY", "EMPTY"}, payload.LatestRun.EnvVarNames)
 	body := rec.Body.String()
 	require.NotContains(t, body, "pi_argv")
 	require.NotContains(t, body, "secret system prompt")
@@ -283,7 +285,7 @@ func testStore(t *testing.T) (*store.Store, store.Task) {
 
 	now := time.Now()
 	task := store.Task{ID: "pd-test", RepoPath: "/repo", RepoName: "repo", Branch: "pd/test", WorktreePath: "/wt", PromptSource: "arg", Prompt: "hello", PromptPreview: "hello", Status: store.StatusRunning, CreatedAt: now, UpdatedAt: now}
-	run := store.Run{ID: "run-test", TaskID: task.ID, Attempt: 1, SupervisorPID: 123, Status: store.StatusRunning, StartedAt: now, EndedAt: sql.NullTime{}, AgentOptionsJSON: `{"model":"gpt-5","system_prompt":"secret system prompt"}`, PiArgvJSON: `["pi","--mode","rpc","--model","gpt-5","--system-prompt","secret system prompt"]`, ControlSocketPath: "/sock", StdoutLogPath: stdout, StderrLogPath: stderr, PiEventsPath: "/events"}
+	run := store.Run{ID: "run-test", TaskID: task.ID, Attempt: 1, SupervisorPID: 123, Status: store.StatusRunning, StartedAt: now, EndedAt: sql.NullTime{}, AgentOptionsJSON: `{"model":"gpt-5","system_prompt":"secret system prompt"}`, PiArgvJSON: `["pi","--mode","rpc","--model","gpt-5","--system-prompt","secret system prompt"]`, EnvVarNamesJSON: `["OPENAI_API_KEY","EMPTY"]`, ControlSocketPath: "/sock", StdoutLogPath: stdout, StderrLogPath: stderr, PiEventsPath: "/events"}
 	require.NoError(t, st.CreateTaskWithRun(context.Background(), task, run))
 	return st, task
 }

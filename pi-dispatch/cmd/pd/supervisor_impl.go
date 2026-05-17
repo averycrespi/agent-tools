@@ -21,6 +21,7 @@ import (
 var (
 	supervisorTaskID     string
 	supervisorPiArgv     string
+	supervisorEnvNames   string
 	newSupervisorSandbox = func() (pipedSandboxClient, error) { return sbsandbox.New() }
 )
 
@@ -31,6 +32,7 @@ type pipedSandboxClient interface {
 func init() {
 	supervisorCmd.Flags().StringVar(&supervisorTaskID, "task-id", "", "task ID")
 	supervisorCmd.Flags().StringVar(&supervisorPiArgv, "pi-argv", "", "JSON-encoded Pi argv")
+	supervisorCmd.Flags().StringVar(&supervisorEnvNames, "env-names", "", "JSON-encoded environment variable names")
 	supervisorCmd.RunE = runSupervisor
 }
 
@@ -57,6 +59,14 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 	}
 	if len(argv) == 0 {
 		argv = []string{"pi", "--mode", "rpc"}
+	}
+	envNames, err := decodeEnvNames(supervisorEnvNames)
+	if err != nil {
+		return failSupervisorStartup(cmd.Context(), db, run, err)
+	}
+	argv, err = piCommandWithEnv(argv, envNames)
+	if err != nil {
+		return failSupervisorStartup(cmd.Context(), db, run, err)
 	}
 	stdoutLog, stderrLog, piEvents, err := openRunLogs(run)
 	if err != nil {
@@ -262,28 +272,60 @@ func queueUpdateEmpty(raw []byte) bool {
 	return len(payload.Steering) == 0 && len(payload.FollowUp) == 0
 }
 
+func piCommandWithEnv(argv []string, names []string) ([]string, error) {
+	if len(names) == 0 {
+		return argv, nil
+	}
+	out := []string{"env"}
+	for _, name := range names {
+		value, ok := os.LookupEnv(name)
+		if !ok {
+			return nil, fmt.Errorf("env var %s was not provided", name)
+		}
+		out = append(out, name+"="+value)
+	}
+	out = append(out, argv...)
+	return out, nil
+}
+
+func encodeEnvNames(names []string) (string, error) {
+	return encodeStringList(names, "env names")
+}
+
+func decodeEnvNames(encoded string) ([]string, error) {
+	return decodeStringList(encoded, "env names")
+}
+
 func encodePiArgv(argv []string) (string, error) {
-	for _, arg := range argv {
-		if strings.ContainsRune(arg, '\x00') {
-			return "", fmt.Errorf("pi argv contains NUL byte")
+	return encodeStringList(argv, "pi argv")
+}
+
+func decodePiArgv(encoded string) ([]string, error) {
+	return decodeStringList(encoded, "Pi argv")
+}
+
+func encodeStringList(values []string, label string) (string, error) {
+	for _, value := range values {
+		if strings.ContainsRune(value, '\x00') {
+			return "", fmt.Errorf("%s contains NUL byte", label)
 		}
 	}
-	data, err := json.Marshal(argv)
+	data, err := json.Marshal(values)
 	if err != nil {
 		return "", err
 	}
 	return string(data), nil
 }
 
-func decodePiArgv(encoded string) ([]string, error) {
+func decodeStringList(encoded string, label string) ([]string, error) {
 	if encoded == "" {
 		return nil, nil
 	}
-	var argv []string
-	if err := json.Unmarshal([]byte(encoded), &argv); err != nil {
-		return nil, fmt.Errorf("parse Pi argv: %w", err)
+	var values []string
+	if err := json.Unmarshal([]byte(encoded), &values); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", label, err)
 	}
-	return argv, nil
+	return values, nil
 }
 
 func filepathDir(path string) string {

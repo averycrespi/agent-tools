@@ -17,7 +17,7 @@ func TestOpenCreatesSchemaAndInsertTaskRun(t *testing.T) {
 
 	now := time.Now()
 	task := Task{ID: "pd-test", RepoPath: "/repo", RepoName: "repo", Branch: "pd/test", WorktreePath: "/wt", PromptSource: "arg", Prompt: "hello", PromptPreview: "hello", Status: StatusQueued, CreatedAt: now, UpdatedAt: now}
-	run := Run{ID: "run-test", TaskID: task.ID, Attempt: 1, Status: StatusQueued, StartedAt: now, AgentOptionsJSON: `{"model":"gpt-5"}`, PiArgvJSON: `["pi","--mode","rpc","--model","gpt-5"]`, ControlSocketPath: "/sock", StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: "/events"}
+	run := Run{ID: "run-test", TaskID: task.ID, Attempt: 1, Status: StatusQueued, StartedAt: now, AgentOptionsJSON: `{"model":"gpt-5"}`, PiArgvJSON: `["pi","--mode","rpc","--model","gpt-5"]`, EnvVarNamesJSON: `["OPENAI_API_KEY","EMPTY"]`, ControlSocketPath: "/sock", StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: "/events"}
 
 	require.NoError(t, st.CreateTaskWithRun(context.Background(), task, run))
 
@@ -25,6 +25,7 @@ func TestOpenCreatesSchemaAndInsertTaskRun(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"model":"gpt-5"}`, got.AgentOptionsJSON)
 	require.JSONEq(t, `["pi","--mode","rpc","--model","gpt-5"]`, got.PiArgvJSON)
+	require.JSONEq(t, `["OPENAI_API_KEY","EMPTY"]`, got.EnvVarNamesJSON)
 }
 
 func TestOpenMigratesRunMetadataColumns(t *testing.T) {
@@ -73,6 +74,7 @@ CREATE TABLE runs (
 	require.NoError(t, err)
 	require.True(t, columns["agent_options_json"])
 	require.True(t, columns["pi_argv_json"])
+	require.True(t, columns["env_var_names_json"])
 }
 
 func TestOpenDoesNotCreateEventsTable(t *testing.T) {

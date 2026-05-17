@@ -2,6 +2,7 @@ package process
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"syscall"
 
@@ -18,6 +19,20 @@ func (l *Launcher) StartSupervisor(args ...string) (int, error) {
 		return 0, err
 	}
 	return l.runner.Start(exe, append([]string{"supervisor"}, args...)...)
+}
+
+func (l *Launcher) StartSupervisorWithEnv(env []string, args ...string) (int, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return 0, err
+	}
+	runner, ok := l.runner.(interface {
+		StartEnv(env []string, name string, args ...string) (int, error)
+	})
+	if !ok {
+		return 0, fmt.Errorf("runner does not support environment overrides")
+	}
+	return runner.StartEnv(env, exe, append([]string{"supervisor"}, args...)...)
 }
 
 func Exists(pid int) bool {

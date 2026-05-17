@@ -11,6 +11,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPiCommandWithEnvWrapsArgvWithEnvAssignments(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "secret")
+	t.Setenv("EMPTY", "")
+
+	argv, err := piCommandWithEnv([]string{"pi", "--mode", "rpc"}, []string{"OPENAI_API_KEY", "EMPTY"})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"env", "OPENAI_API_KEY=secret", "EMPTY=", "pi", "--mode", "rpc"}, argv)
+}
+
+func TestPiCommandWithEnvReportsMissingEnvWithoutValue(t *testing.T) {
+	_, err := piCommandWithEnv([]string{"pi"}, []string{"OPENAI_API_KEY"})
+
+	require.ErrorContains(t, err, "OPENAI_API_KEY")
+	require.NotContains(t, err.Error(), "=")
+}
+
 func TestSupervisorFinalStatusUsesStoppedAfterStopRequest(t *testing.T) {
 	state := &supervisorRunState{stopRequested: true}
 	require.Equal(t, store.StatusStopped, state.finalStatus(nil))

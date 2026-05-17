@@ -68,6 +68,7 @@ type RunSummary struct {
 	ExitCode          *int64              `json:"exit_code,omitempty"`
 	ErrorMessage      string              `json:"error_message"`
 	AgentOptions      AgentOptionsSummary `json:"agent_options"`
+	EnvVarNames       []string            `json:"env_var_names,omitempty"`
 	ControlSocketPath string              `json:"control_socket_path"`
 	StdoutLogPath     string              `json:"stdout_log_path"`
 	StderrLogPath     string              `json:"stderr_log_path"`
@@ -339,7 +340,7 @@ func messageText(content json.RawMessage) string {
 }
 
 func runSummaryView(run store.Run) *RunSummary {
-	view := &RunSummary{ID: run.ID, TaskID: run.TaskID, Attempt: run.Attempt, SupervisorPID: run.SupervisorPID, PiSessionFile: run.PiSessionFile, Status: string(run.Status), StartedAt: run.StartedAt, ErrorMessage: run.ErrorMessage, AgentOptions: decodeAgentOptions(run.AgentOptionsJSON), ControlSocketPath: run.ControlSocketPath, StdoutLogPath: run.StdoutLogPath, StderrLogPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath}
+	view := &RunSummary{ID: run.ID, TaskID: run.TaskID, Attempt: run.Attempt, SupervisorPID: run.SupervisorPID, PiSessionFile: run.PiSessionFile, Status: string(run.Status), StartedAt: run.StartedAt, ErrorMessage: run.ErrorMessage, AgentOptions: decodeAgentOptions(run.AgentOptionsJSON), EnvVarNames: decodeEnvVarNames(run.EnvVarNamesJSON), ControlSocketPath: run.ControlSocketPath, StdoutLogPath: run.StdoutLogPath, StderrLogPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath}
 	if run.EndedAt.Valid {
 		ended := run.EndedAt.Time
 		view.EndedAt = &ended
@@ -349,6 +350,17 @@ func runSummaryView(run store.Run) *RunSummary {
 		view.ExitCode = &exitCode
 	}
 	return view
+}
+
+func decodeEnvVarNames(data string) []string {
+	if data == "" {
+		return nil
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(data), &names); err != nil {
+		return nil
+	}
+	return names
 }
 
 func decodeAgentOptions(data string) AgentOptionsSummary {

@@ -52,6 +52,7 @@ type Run struct {
 	ErrorMessage      string
 	AgentOptionsJSON  string
 	PiArgvJSON        string
+	EnvVarNamesJSON   string
 	ControlSocketPath string
 	StdoutLogPath     string
 	StderrLogPath     string
@@ -92,6 +93,7 @@ CREATE TABLE IF NOT EXISTS runs (
     error_message       TEXT NOT NULL DEFAULT '',
     agent_options_json  TEXT NOT NULL DEFAULT '',
     pi_argv_json        TEXT NOT NULL DEFAULT '',
+    env_var_names_json  TEXT NOT NULL DEFAULT '',
     control_socket_path TEXT NOT NULL,
     stdout_log_path     TEXT NOT NULL,
     stderr_log_path     TEXT NOT NULL,
@@ -143,6 +145,11 @@ func ensureRunMetadataColumns(db *sql.DB) error {
 			return fmt.Errorf("add run pi argv column: %w", err)
 		}
 	}
+	if !columns["env_var_names_json"] {
+		if _, err := db.Exec(`ALTER TABLE runs ADD COLUMN env_var_names_json TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("add run env var names column: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -192,7 +199,7 @@ func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 }
 
 func (s *Store) LatestRun(ctx context.Context, taskID string) (Run, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, task_id, attempt, supervisor_pid, pi_session_file, status, started_at, ended_at, exit_code, error_message, agent_options_json, pi_argv_json, control_socket_path, stdout_log_path, stderr_log_path, pi_events_path FROM runs WHERE task_id = ? ORDER BY attempt DESC LIMIT 1`, taskID)
+	row := s.db.QueryRowContext(ctx, `SELECT id, task_id, attempt, supervisor_pid, pi_session_file, status, started_at, ended_at, exit_code, error_message, agent_options_json, pi_argv_json, env_var_names_json, control_socket_path, stdout_log_path, stderr_log_path, pi_events_path FROM runs WHERE task_id = ? ORDER BY attempt DESC LIMIT 1`, taskID)
 	return scanRun(row)
 }
 
@@ -270,8 +277,8 @@ func (s *Store) CreateTaskWithRun(ctx context.Context, task Task, run Run) error
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, task.ID, task.RepoPath, task.RepoName, task.Branch, task.WorktreePath, task.PromptSource, task.Prompt, task.PromptPreview, task.Status, formatTime(task.CreatedAt), formatTime(task.UpdatedAt)); err != nil {
 		return fmt.Errorf("insert task: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO runs (id, task_id, attempt, supervisor_pid, pi_session_file, status, started_at, ended_at, exit_code, error_message, agent_options_json, pi_argv_json, control_socket_path, stdout_log_path, stderr_log_path, pi_events_path)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ID, run.TaskID, run.Attempt, run.SupervisorPID, run.PiSessionFile, run.Status, formatTime(run.StartedAt), nullableTime(run.EndedAt), nullableInt(run.ExitCode), run.ErrorMessage, run.AgentOptionsJSON, run.PiArgvJSON, run.ControlSocketPath, run.StdoutLogPath, run.StderrLogPath, run.PiEventsPath); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO runs (id, task_id, attempt, supervisor_pid, pi_session_file, status, started_at, ended_at, exit_code, error_message, agent_options_json, pi_argv_json, env_var_names_json, control_socket_path, stdout_log_path, stderr_log_path, pi_events_path)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ID, run.TaskID, run.Attempt, run.SupervisorPID, run.PiSessionFile, run.Status, formatTime(run.StartedAt), nullableTime(run.EndedAt), nullableInt(run.ExitCode), run.ErrorMessage, run.AgentOptionsJSON, run.PiArgvJSON, run.EnvVarNamesJSON, run.ControlSocketPath, run.StdoutLogPath, run.StderrLogPath, run.PiEventsPath); err != nil {
 		return fmt.Errorf("insert run: %w", err)
 	}
 	return tx.Commit()
@@ -315,7 +322,7 @@ func scanRun(row taskScanner) (Run, error) {
 	var started string
 	var ended sql.NullString
 	var status string
-	if err := row.Scan(&run.ID, &run.TaskID, &run.Attempt, &run.SupervisorPID, &run.PiSessionFile, &status, &started, &ended, &run.ExitCode, &run.ErrorMessage, &run.AgentOptionsJSON, &run.PiArgvJSON, &run.ControlSocketPath, &run.StdoutLogPath, &run.StderrLogPath, &run.PiEventsPath); err != nil {
+	if err := row.Scan(&run.ID, &run.TaskID, &run.Attempt, &run.SupervisorPID, &run.PiSessionFile, &status, &started, &ended, &run.ExitCode, &run.ErrorMessage, &run.AgentOptionsJSON, &run.PiArgvJSON, &run.EnvVarNamesJSON, &run.ControlSocketPath, &run.StdoutLogPath, &run.StderrLogPath, &run.PiEventsPath); err != nil {
 		return Run{}, err
 	}
 	populateRunTimes(&run, status, started, ended)

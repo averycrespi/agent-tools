@@ -2,6 +2,7 @@ package exec
 
 import (
 	"io"
+	"os"
 	oexec "os/exec"
 )
 
@@ -48,7 +49,18 @@ func (r *OSRunner) RunDir(dir, name string, args ...string) ([]byte, error) {
 }
 
 func (r *OSRunner) Start(name string, args ...string) (int, error) {
+	return r.start(nil, name, args...)
+}
+
+func (r *OSRunner) StartEnv(env []string, name string, args ...string) (int, error) {
+	return r.start(env, name, args...)
+}
+
+func (r *OSRunner) start(env []string, name string, args ...string) (int, error) {
 	cmd := oexec.Command(name, args...) //nolint:gosec
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	detachCommand(cmd)
 	if err := cmd.Start(); err != nil {
 		return 0, err

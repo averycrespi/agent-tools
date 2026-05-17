@@ -26,6 +26,7 @@ var (
 	runPromptFile     string
 	runBranch         string
 	runRepo           string
+	runEnvAssignments []string
 	runAgentOverrides pdconfig.AgentOptions
 )
 
@@ -53,6 +54,7 @@ func init() {
 	runCmd.Flags().StringVar(&runPromptFile, "prompt-file", "", "read prompt from file")
 	runCmd.Flags().StringVar(&runBranch, "branch", "", "branch name to create/use")
 	runCmd.Flags().StringVar(&runRepo, "repo", "", "main repository root")
+	runCmd.Flags().StringArrayVar(&runEnvAssignments, "env", nil, "environment variable for Pi process as KEY=VALUE")
 	runCmd.Flags().StringVar(&runAgentOverrides.Provider, "provider", "", "Pi provider override")
 	runCmd.Flags().StringVar(&runAgentOverrides.Model, "model", "", "Pi model override")
 	runCmd.Flags().StringVar(&runAgentOverrides.Thinking, "thinking", "", "Pi thinking level override")
@@ -75,6 +77,10 @@ func init() {
 func runTask(cmd *cobra.Command, args []string) error {
 	cmdCtx := cmd.Context()
 	prompt, source, err := resolvePrompt(args)
+	if err != nil {
+		return err
+	}
+	envVars, err := parseRunEnv(runEnvAssignments)
 	if err != nil {
 		return err
 	}
@@ -112,8 +118,12 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	envVarNamesJSON, err := runEnvNamesMetadata(envVars)
+	if err != nil {
+		return err
+	}
 	task := store.Task{ID: taskID, RepoPath: repo.Root, RepoName: repo.Name, Branch: branch, WorktreePath: worktreePath, PromptSource: source, Prompt: prompt, PromptPreview: preview(prompt), Status: store.StatusStarting, CreatedAt: now, UpdatedAt: now}
-	run := store.Run{ID: runID, TaskID: taskID, Attempt: 1, Status: store.StatusStarting, StartedAt: now, AgentOptionsJSON: agentOptionsJSON, PiArgvJSON: piArgvJSON, ControlSocketPath: filepath.Join(pdconfig.RuntimeDir(), "tasks", taskID+".sock"), StdoutLogPath: filepath.Join(taskDir, "stdout.log"), StderrLogPath: filepath.Join(taskDir, "stderr.log"), PiEventsPath: filepath.Join(taskDir, "pi-events.jsonl")}
+	run := store.Run{ID: runID, TaskID: taskID, Attempt: 1, Status: store.StatusStarting, StartedAt: now, AgentOptionsJSON: agentOptionsJSON, PiArgvJSON: piArgvJSON, EnvVarNamesJSON: envVarNamesJSON, ControlSocketPath: filepath.Join(pdconfig.RuntimeDir(), "tasks", taskID+".sock"), StdoutLogPath: filepath.Join(taskDir, "stdout.log"), StderrLogPath: filepath.Join(taskDir, "stderr.log"), PiEventsPath: filepath.Join(taskDir, "pi-events.jsonl")}
 	if err := db.CreateTaskWithRun(cmdCtx, task, run); err != nil {
 		return err
 	}
@@ -132,7 +142,11 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return failRunLaunch(cmdCtx, db, taskID, err)
 	}
-	pid, err := process.NewLauncher(runner).StartSupervisor("--task-id", taskID, "--pi-argv", encodedArgv)
+	encodedEnvNames, err := encodeEnvNames(runEnvNames(envVars))
+	if err != nil {
+		return failRunLaunch(cmdCtx, db, taskID, err)
+	}
+	pid, err := process.NewLauncher(runner).StartSupervisorWithEnv(runEnvEnviron(envVars), "--task-id", taskID, "--pi-argv", encodedArgv, "--env-names", encodedEnvNames)
 	if err != nil {
 		return failRunLaunch(cmdCtx, db, taskID, err)
 	}
@@ -184,6 +198,72 @@ func checkWorktreeVisible(sb interface {
 
 func applyRunOverrides(agent pdconfig.AgentOptions) pdconfig.AgentOptions {
 	return pdconfig.ApplyAgentOverrides(agent, runAgentOverrides)
+}
+
+type runEnvVar struct {
+	Name  string
+	Value string
+}
+
+func parseRunEnv(assignments []string) ([]runEnvVar, error) {
+	var env []runEnvVar
+	indexes := map[string]int{}
+	for _, assignment := range assignments {
+		name, value, ok := strings.Cut(assignment, "=")
+		if !ok {
+			return nil, fmt.Errorf("env assignment must be KEY=VALUE: %s", assignment)
+		}
+		if !validEnvName(name) {
+			return nil, fmt.Errorf("invalid env var name: %s", name)
+		}
+		if strings.ContainsRune(value, '\x00') {
+			return nil, fmt.Errorf("env var %s contains NUL byte", name)
+		}
+		if index, exists := indexes[name]; exists {
+			env[index].Value = value
+			continue
+		}
+		indexes[name] = len(env)
+		env = append(env, runEnvVar{Name: name, Value: value})
+	}
+	return env, nil
+}
+
+func validEnvName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		valid := r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || i > 0 && r >= '0' && r <= '9'
+		if !valid {
+			return false
+		}
+	}
+	return true
+}
+
+func runEnvNames(env []runEnvVar) []string {
+	names := make([]string, 0, len(env))
+	for _, item := range env {
+		names = append(names, item.Name)
+	}
+	return names
+}
+
+func runEnvEnviron(env []runEnvVar) []string {
+	out := make([]string, 0, len(env))
+	for _, item := range env {
+		out = append(out, item.Name+"="+item.Value)
+	}
+	return out
+}
+
+func runEnvNamesMetadata(env []runEnvVar) (string, error) {
+	data, err := json.Marshal(runEnvNames(env))
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 func runLaunchMetadata(agent pdconfig.AgentOptions) (string, string, error) {

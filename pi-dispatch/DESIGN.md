@@ -9,20 +9,20 @@ Pi Dispatch (`pd`) is a local job runner for autonomous Pi coding-agent runs.
 - The supervisor treats `agent_end` with empty queues as terminal for a one-shot run, requests Pi state, records the session file when reported, then closes the Pi RPC process and records terminal run metadata.
 - Stop requests mark the task as stopping, send Pi RPC `abort`, and finalize as stopped. `pd stop --force` additionally schedules process termination after a bounded grace period.
 - Blocking Pi extension UI requests are auto-cancelled in headless mode.
-- SQLite stores compact task and run metadata, including supervisor PID, launch options, exact Pi argv, end time, exit code, error message, and Pi session file. Raw stdout/stderr and Pi RPC JSONL records are stored as files under the task state directory.
+- SQLite stores compact task and run metadata, including supervisor PID, launch options, exact Pi argv, environment variable names, end time, exit code, error message, and Pi session file. Environment variable values are passed to the run but are not persisted. Raw stdout/stderr and Pi RPC JSONL records are stored as files under the task state directory.
 - Inspection commands reconcile stale starting/running/stopping tasks to `unknown` when the supervisor PID is gone; stale control socket files are ignored.
 - `pd wait` polls persisted task state, applies the same stale-supervisor reconciliation as inspection commands, returns immediately for terminal tasks, and can bound the wait with `--timeout`.
 - `pd dashboard` starts Pi Dispatch Dashboard, an on-demand loopback HTTP server for read-only task exploration. It is not a daemon and runs only while the command is active.
 
 ## State model
 
-V1 uses two tables: `tasks` and `runs`. Launch-time agent options and exact Pi argv are recorded on the run row with `agent_options_json` and `pi_argv_json`. Terminal state is recorded on the run row with `ended_at`, `exit_code`, `error_message`, and `pi_session_file`; the task row carries the latest summary status. Dashboard APIs use read-only store queries over these same tables and read stdout/stderr log files from the run paths. The raw Pi RPC event stream remains a file artifact referenced by the latest run.
+V1 uses two tables: `tasks` and `runs`. Launch-time agent options, exact Pi argv, and environment variable names are recorded on the run row with `agent_options_json`, `pi_argv_json`, and `env_var_names_json`. Environment variable values are not persisted. Terminal state is recorded on the run row with `ended_at`, `exit_code`, `error_message`, and `pi_session_file`; the task row carries the latest summary status. Dashboard APIs use read-only store queries over these same tables and read stdout/stderr log files from the run paths. The raw Pi RPC event stream remains a file artifact referenced by the latest run.
 
 Artifacts such as summaries, diffs, PR URLs, test reports, screenshots, exported sessions, and dashboard result cards are a vNext concept and should be added later as an `artifacts` table if needed.
 
 ## Pi Dispatch Dashboard
 
-Pi Dispatch Dashboard lives inside pi-dispatch under `internal/dashboard` and is served by `pd dashboard`. The command binds a loopback-only HTTP server on `127.0.0.1:8300` by default, redirects `/` to `/dashboard/`, mounts the embedded UI and APIs under `/dashboard/`, prints an authenticated token URL, and opens the browser unless `--no-open` is passed. The Overview tab shows non-empty, non-prompt launch options and can show the latest assistant response by reading the run's host-persisted Pi event stream and extracting the last assistant message from those events.
+Pi Dispatch Dashboard lives inside pi-dispatch under `internal/dashboard` and is served by `pd dashboard`. The command binds a loopback-only HTTP server on `127.0.0.1:8300` by default, redirects `/` to `/dashboard/`, mounts the embedded UI and APIs under `/dashboard/`, prints an authenticated token URL, and opens the browser unless `--no-open` is passed. The Overview tab shows non-empty, non-prompt launch options and environment variable names, and can show the latest assistant response by reading the run's host-persisted Pi event stream and extracting the last assistant message from those events.
 
 The public dashboard surface is:
 

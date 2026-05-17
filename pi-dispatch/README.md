@@ -59,7 +59,7 @@ Config file: `~/.config/pd/config.json`.
 }
 ```
 
-`pd run` supports direct Pi launch options including `--provider`, `--model`, `--thinking`, `--tools`, `--no-builtin-tools`, `--no-tools`, `--extension`, `--no-extensions`, `--skill`, `--no-skills`, `--no-context-files`, `--system-prompt`, `--append-system-prompt`, and `--session-dir`. Each run stores the effective launch options and exact Pi argv in SQLite for debugging; `pd status` and Dashboard Overview show non-prompt launch fields.
+`pd run` supports direct Pi launch options including `--provider`, `--model`, `--thinking`, `--tools`, `--no-builtin-tools`, `--no-tools`, `--extension`, `--no-extensions`, `--skill`, `--no-skills`, `--no-context-files`, `--system-prompt`, `--append-system-prompt`, `--session-dir`, and repeatable `--env KEY=VALUE`. Each run stores the effective launch options, exact Pi argv, and environment variable names in SQLite for debugging; environment values are passed to the run but are not persisted. `pd status` and Dashboard Overview show non-prompt launch fields and environment variable names.
 
 ## Paths
 

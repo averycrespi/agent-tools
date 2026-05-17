@@ -7,6 +7,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRunEnvMetadataPersistsKeysOnly(t *testing.T) {
+	env, err := parseRunEnv([]string{"OPENAI_API_KEY=secret", "EMPTY=", "OPENAI_API_KEY=new secret"})
+	require.NoError(t, err)
+
+	namesJSON, err := runEnvNamesMetadata(env)
+
+	require.NoError(t, err)
+	require.JSONEq(t, `["OPENAI_API_KEY","EMPTY"]`, namesJSON)
+	require.NotContains(t, namesJSON, "secret")
+}
+
+func TestParseRunEnvRejectsInvalidNames(t *testing.T) {
+	_, err := parseRunEnv([]string{"BAD-NAME=value"})
+	require.ErrorContains(t, err, "invalid env var name")
+}
+
 func TestRunLaunchMetadataRendersEffectiveOptions(t *testing.T) {
 	agent := pdconfig.AgentOptions{Provider: "openai", Model: "gpt-5", Thinking: "high", Tools: []string{"bash"}, SystemPrompt: "secret system prompt"}
 

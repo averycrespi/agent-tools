@@ -42,6 +42,7 @@ type runView struct {
 	ErrorMessage      string            `json:"error_message,omitempty"`
 	PiSessionFile     string            `json:"pi_session_file,omitempty"`
 	AgentOptions      *agentOptionsView `json:"agent_options,omitempty"`
+	EnvVarNames       []string          `json:"env_var_names,omitempty"`
 	ControlSocketPath string            `json:"control_socket_path"`
 	StdoutLogPath     string            `json:"stdout_log_path"`
 	StderrLogPath     string            `json:"stderr_log_path"`
@@ -130,6 +131,11 @@ func showStatus(cmd *cobra.Command, args []string) error {
 				return err
 			}
 		}
+		if len(view.Run.EnvVarNames) > 0 {
+			if _, err := fmt.Fprintf(os.Stdout, "Env:      %s\n", strings.Join(view.Run.EnvVarNames, ", ")); err != nil {
+				return err
+			}
+		}
 		if view.Run.EndedAt != nil {
 			if _, err := fmt.Fprintf(os.Stdout, "Ended:   %s\n", view.Run.EndedAt.Format(time.RFC3339)); err != nil {
 				return err
@@ -180,7 +186,7 @@ func viewTask(task store.Task) taskView {
 }
 
 func viewRun(run store.Run) runView {
-	view := runView{ID: run.ID, Status: string(run.Status), Attempt: run.Attempt, ErrorMessage: run.ErrorMessage, PiSessionFile: run.PiSessionFile, AgentOptions: decodeAgentOptionsView(run.AgentOptionsJSON), ControlSocketPath: run.ControlSocketPath, StdoutLogPath: run.StdoutLogPath, StderrLogPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath}
+	view := runView{ID: run.ID, Status: string(run.Status), Attempt: run.Attempt, ErrorMessage: run.ErrorMessage, PiSessionFile: run.PiSessionFile, AgentOptions: decodeAgentOptionsView(run.AgentOptionsJSON), EnvVarNames: decodeEnvVarNames(run.EnvVarNamesJSON), ControlSocketPath: run.ControlSocketPath, StdoutLogPath: run.StdoutLogPath, StderrLogPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath}
 	if run.EndedAt.Valid {
 		endedAt := run.EndedAt.Time
 		view.EndedAt = &endedAt
@@ -190,6 +196,17 @@ func viewRun(run store.Run) runView {
 		view.ExitCode = &exitCode
 	}
 	return view
+}
+
+func decodeEnvVarNames(data string) []string {
+	if data == "" {
+		return nil
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(data), &names); err != nil {
+		return nil
+	}
+	return names
 }
 
 func decodeAgentOptionsView(data string) *agentOptionsView {

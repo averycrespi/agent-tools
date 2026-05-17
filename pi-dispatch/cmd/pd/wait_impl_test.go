@@ -74,7 +74,7 @@ func TestWaitJSONPrintsStatusView(t *testing.T) {
 		require.NoError(t, waitForTask(waitTestCommand(t, 0), []string{task.ID}))
 	})
 
-	require.JSONEq(t, `{"task":{"id":"pd-test","status":"succeeded","repo_name":"repo","branch":"pd/test","worktree_path":"/wt","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"},"run":{"id":"run-test","status":"succeeded","attempt":1,"agent_options":{"model":"gpt-5"},"control_socket_path":"/sock","stdout_log_path":"/stdout","stderr_log_path":"/stderr","pi_events_path":"/events"}}`, out)
+	require.JSONEq(t, `{"task":{"id":"pd-test","status":"succeeded","repo_name":"repo","branch":"pd/test","worktree_path":"/wt","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"},"run":{"id":"run-test","status":"succeeded","attempt":1,"agent_options":{"model":"gpt-5"},"env_var_names":["OPENAI_API_KEY"],"control_socket_path":"/sock","stdout_log_path":"/stdout","stderr_log_path":"/stderr","pi_events_path":"/events"}}`, out)
 }
 
 func setupWaitTask(t *testing.T, status store.TaskStatus) (*store.Store, store.Task, store.Run) {
@@ -88,7 +88,7 @@ func setupWaitTask(t *testing.T, status store.TaskStatus) (*store.Store, store.T
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	now := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	task := store.Task{ID: "pd-test", RepoPath: "/repo", RepoName: "repo", Branch: "pd/test", WorktreePath: "/wt", PromptSource: "arg", Prompt: "hello", PromptPreview: "hello", Status: status, CreatedAt: now, UpdatedAt: now}
-	run := store.Run{ID: "run-test", TaskID: task.ID, Attempt: 1, SupervisorPID: 0, Status: status, StartedAt: now, AgentOptionsJSON: `{"model":"gpt-5"}`, PiArgvJSON: `["pi","--mode","rpc","--model","gpt-5"]`, ControlSocketPath: "/sock", StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: "/events"}
+	run := store.Run{ID: "run-test", TaskID: task.ID, Attempt: 1, SupervisorPID: 0, Status: status, StartedAt: now, AgentOptionsJSON: `{"model":"gpt-5"}`, PiArgvJSON: `["pi","--mode","rpc","--model","gpt-5"]`, EnvVarNamesJSON: `["OPENAI_API_KEY"]`, ControlSocketPath: "/sock", StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: "/events"}
 	require.NoError(t, db.CreateTaskWithRun(context.Background(), task, run))
 	return db, task, run
 }
