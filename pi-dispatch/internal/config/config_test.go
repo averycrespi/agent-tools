@@ -13,13 +13,13 @@ func TestLoad_DefaultWhenMissing(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	cfg, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, []string{filepath.Join(ConfigDir(), "templates")}, cfg.TemplateDirs)
+	assert.Empty(t, cfg.DatabasePath)
 }
 
-func TestDefaultConfigDoesNotMarshalDefaultTemplate(t *testing.T) {
+func TestDefaultConfigDoesNotMarshalTemplateDirs(t *testing.T) {
 	data, err := json.Marshal(Default())
 	require.NoError(t, err)
-	assert.NotContains(t, string(data), "default_template")
+	assert.NotContains(t, string(data), "template_dirs")
 }
 
 func TestConfig_DBPath_DefaultsToStateDir(t *testing.T) {

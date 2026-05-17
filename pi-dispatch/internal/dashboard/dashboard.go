@@ -39,7 +39,6 @@ type TaskSummary struct {
 	RepoName        string      `json:"repo_name"`
 	Branch          string      `json:"branch"`
 	WorktreePath    string      `json:"worktree_path"`
-	TemplateName    string      `json:"template_name"`
 	PromptSource    string      `json:"prompt_source"`
 	PromptPreview   string      `json:"prompt_preview"`
 	PromptTruncated bool        `json:"prompt_truncated"`
@@ -137,7 +136,7 @@ func (d *Dashboard) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	view := TaskSummary{ID: task.ID, RepoPath: task.RepoPath, RepoName: task.RepoName, Branch: task.Branch, WorktreePath: task.WorktreePath, TemplateName: task.TemplateName, PromptSource: task.PromptSource, PromptPreview: task.PromptPreview, PromptTruncated: promptTruncated(task.Prompt, task.PromptPreview), Status: string(task.Status), CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt}
+	view := TaskSummary{ID: task.ID, RepoPath: task.RepoPath, RepoName: task.RepoName, Branch: task.Branch, WorktreePath: task.WorktreePath, PromptSource: task.PromptSource, PromptPreview: task.PromptPreview, PromptTruncated: promptTruncated(task.Prompt, task.PromptPreview), Status: string(task.Status), CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt}
 	var latest *RunSummary
 	var responsePreview string
 	var responseTruncated bool
@@ -269,7 +268,7 @@ func (d *Dashboard) handleIndex(w http.ResponseWriter, _ *http.Request) {
 }
 
 func taskSummaryView(summary store.TaskSummary) TaskSummary {
-	view := TaskSummary{ID: summary.Task.ID, RepoPath: summary.Task.RepoPath, RepoName: summary.Task.RepoName, Branch: summary.Task.Branch, WorktreePath: summary.Task.WorktreePath, TemplateName: summary.Task.TemplateName, PromptSource: summary.Task.PromptSource, PromptPreview: summary.Task.PromptPreview, PromptTruncated: promptTruncated(summary.Task.Prompt, summary.Task.PromptPreview), Status: string(summary.Task.Status), CreatedAt: summary.Task.CreatedAt, UpdatedAt: summary.Task.UpdatedAt}
+	view := TaskSummary{ID: summary.Task.ID, RepoPath: summary.Task.RepoPath, RepoName: summary.Task.RepoName, Branch: summary.Task.Branch, WorktreePath: summary.Task.WorktreePath, PromptSource: summary.Task.PromptSource, PromptPreview: summary.Task.PromptPreview, PromptTruncated: promptTruncated(summary.Task.Prompt, summary.Task.PromptPreview), Status: string(summary.Task.Status), CreatedAt: summary.Task.CreatedAt, UpdatedAt: summary.Task.UpdatedAt}
 	if summary.LatestRun.Valid {
 		view.LatestRun = runSummaryView(summary.LatestRun.Run)
 	}

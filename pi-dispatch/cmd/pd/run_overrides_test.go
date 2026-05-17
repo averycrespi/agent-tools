@@ -9,10 +9,10 @@ import (
 
 func TestApplyRunOverrides(t *testing.T) {
 	old := runAgentOverrides
-	runAgentOverrides = pdconfig.AgentTemplate{Model: "gpt-5", Thinking: "high", Tools: []string{"bash"}, Extensions: []string{"x.ts"}, DisableAllTools: true, SessionDir: "/tmp/pi"}
+	runAgentOverrides = pdconfig.AgentOptions{Model: "gpt-5", Thinking: "high", Tools: []string{"bash"}, Extensions: []string{"x.ts"}, DisableAllTools: true, SessionDir: "/tmp/pi"}
 	defer func() { runAgentOverrides = old }()
 
-	got := applyRunOverrides(pdconfig.AgentTemplate{Provider: "anthropic", Model: "claude", Thinking: "medium"})
+	got := applyRunOverrides(pdconfig.AgentOptions{Provider: "anthropic", Model: "claude", Thinking: "medium"})
 
 	require.Equal(t, "anthropic", got.Provider)
 	require.Equal(t, "gpt-5", got.Model)

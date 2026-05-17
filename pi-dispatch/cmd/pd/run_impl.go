@@ -25,8 +25,7 @@ var (
 	runPromptFile     string
 	runBranch         string
 	runRepo           string
-	runTemplate       string
-	runAgentOverrides pdconfig.AgentTemplate
+	runAgentOverrides pdconfig.AgentOptions
 )
 
 type runResult struct {
@@ -53,7 +52,6 @@ func init() {
 	runCmd.Flags().StringVar(&runPromptFile, "prompt-file", "", "read prompt from file")
 	runCmd.Flags().StringVar(&runBranch, "branch", "", "branch name to create/use")
 	runCmd.Flags().StringVar(&runRepo, "repo", "", "main repository root")
-	runCmd.Flags().StringVarP(&runTemplate, "template", "t", "", "template name")
 	runCmd.Flags().StringVar(&runAgentOverrides.Provider, "provider", "", "Pi provider override")
 	runCmd.Flags().StringVar(&runAgentOverrides.Model, "model", "", "Pi model override")
 	runCmd.Flags().StringVar(&runAgentOverrides.Thinking, "thinking", "", "Pi thinking level override")
@@ -64,8 +62,6 @@ func init() {
 	runCmd.Flags().BoolVar(&runAgentOverrides.DisableExtensionDiscovery, "no-extensions", false, "disable Pi extension discovery")
 	runCmd.Flags().StringArrayVar(&runAgentOverrides.Skills, "skill", nil, "Pi skill name")
 	runCmd.Flags().BoolVar(&runAgentOverrides.DisableSkillDiscovery, "no-skills", false, "disable Pi skill discovery")
-	runCmd.Flags().StringArrayVar(&runAgentOverrides.PromptTemplates, "prompt-template", nil, "Pi prompt template name")
-	runCmd.Flags().BoolVar(&runAgentOverrides.DisablePromptTemplateDiscovery, "no-prompt-templates", false, "disable Pi prompt template discovery")
 	runCmd.Flags().BoolVar(&runAgentOverrides.DisableContextFiles, "no-context-files", false, "disable Pi context files")
 	runCmd.Flags().StringVar(&runAgentOverrides.SystemPrompt, "system-prompt", "", "Pi system prompt override")
 	runCmd.Flags().StringVar(&runAgentOverrides.AppendSystemPrompt, "append-system-prompt", "", "text to append to Pi system prompt")
@@ -87,14 +83,9 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	tmplName := runTemplate
-	tmpl, err := pdconfig.FindTemplate(cfg.TemplateDirs, tmplName)
-	if err != nil {
-		return err
-	}
 	branch := runBranch
 	if branch == "" {
-		branch = "pd/" + slug(prompt, tmplName) + "-" + shortID()
+		branch = "pd/" + slug(prompt) + "-" + shortID()
 	}
 	wt, err := newWorktreeClient()
 	if err != nil {
@@ -116,7 +107,7 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err := os.MkdirAll(taskDir, 0o750); err != nil {
 		return err
 	}
-	task := store.Task{ID: taskID, RepoPath: repo.Root, RepoName: repo.Name, Branch: branch, WorktreePath: worktreePath, TemplateName: tmpl.Name, PromptSource: source, Prompt: prompt, PromptPreview: preview(prompt), Status: store.StatusStarting, CreatedAt: now, UpdatedAt: now}
+	task := store.Task{ID: taskID, RepoPath: repo.Root, RepoName: repo.Name, Branch: branch, WorktreePath: worktreePath, PromptSource: source, Prompt: prompt, PromptPreview: preview(prompt), Status: store.StatusStarting, CreatedAt: now, UpdatedAt: now}
 	run := store.Run{ID: runID, TaskID: taskID, Attempt: 1, Status: store.StatusStarting, StartedAt: now, ControlSocketPath: filepath.Join(pdconfig.RuntimeDir(), "tasks", taskID+".sock"), StdoutLogPath: filepath.Join(taskDir, "stdout.log"), StderrLogPath: filepath.Join(taskDir, "stderr.log"), PiEventsPath: filepath.Join(taskDir, "pi-events.jsonl")}
 	if err := db.CreateTaskWithRun(cmdCtx, task, run); err != nil {
 		return err
@@ -131,7 +122,7 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err := checkWorktreeVisible(sb, worktreePath); err != nil {
 		return failRunLaunch(cmdCtx, db, taskID, err)
 	}
-	argv := pdconfig.RenderPiArgv(applyRunOverrides(tmpl.Agent))
+	argv := pdconfig.RenderPiArgv(applyRunOverrides(pdconfig.AgentOptions{}))
 	encodedArgv, err := encodePiArgv(argv)
 	if err != nil {
 		return failRunLaunch(cmdCtx, db, taskID, err)
@@ -182,7 +173,7 @@ func checkWorktreeVisible(sb interface {
 	return nil
 }
 
-func applyRunOverrides(agent pdconfig.AgentTemplate) pdconfig.AgentTemplate {
+func applyRunOverrides(agent pdconfig.AgentOptions) pdconfig.AgentOptions {
 	return pdconfig.ApplyAgentOverrides(agent, runAgentOverrides)
 }
 
@@ -220,11 +211,8 @@ func shortID() string {
 	return hex.EncodeToString(b[:])
 }
 
-func slug(prompt, tmpl string) string {
+func slug(prompt string) string {
 	base := preview(prompt)
-	if base == "" {
-		base = tmpl
-	}
 	if base == "" {
 		base = "task"
 	}

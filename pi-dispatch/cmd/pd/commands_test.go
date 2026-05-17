@@ -9,6 +9,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRootDoesNotExposeTemplateCommand(t *testing.T) {
+	cmd, _, err := rootCmd.Find([]string{"template"})
+
+	require.Error(t, err)
+	require.Same(t, rootCmd, cmd)
+	require.Contains(t, err.Error(), "unknown command")
+}
+
+func TestRunDoesNotExposeTemplateFlags(t *testing.T) {
+	require.Nil(t, runCmd.Flags().Lookup("template"))
+	require.Nil(t, runCmd.Flags().ShorthandLookup("t"))
+	require.Nil(t, runCmd.Flags().Lookup("prompt-template"))
+	require.Nil(t, runCmd.Flags().Lookup("no-prompt-templates"))
+}
+
 func TestSteerArgValidationShowsUsage(t *testing.T) {
 	err := steerCmd.Args(steerCmd, nil)
 

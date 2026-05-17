@@ -31,7 +31,6 @@ type Task struct {
 	RepoName      string
 	Branch        string
 	WorktreePath  string
-	TemplateName  string
 	PromptSource  string
 	Prompt        string
 	PromptPreview string
@@ -78,7 +77,6 @@ CREATE TABLE IF NOT EXISTS tasks (
     repo_name      TEXT NOT NULL,
     branch         TEXT NOT NULL,
     worktree_path  TEXT NOT NULL,
-    template_name  TEXT NOT NULL DEFAULT '',
     prompt_source  TEXT NOT NULL,
     prompt         TEXT NOT NULL,
     prompt_preview TEXT NOT NULL,
@@ -146,7 +144,7 @@ func Open(path string) (*Store, error) {
 func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) ListTasks(ctx context.Context) ([]Task, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, repo_path, repo_name, branch, worktree_path, template_name, prompt_source, prompt, prompt_preview, status, created_at, updated_at FROM tasks ORDER BY created_at DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, repo_path, repo_name, branch, worktree_path, prompt_source, prompt, prompt_preview, status, created_at, updated_at FROM tasks ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +161,7 @@ func (s *Store) ListTasks(ctx context.Context) ([]Task, error) {
 }
 
 func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, repo_path, repo_name, branch, worktree_path, template_name, prompt_source, prompt, prompt_preview, status, created_at, updated_at FROM tasks WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, repo_path, repo_name, branch, worktree_path, prompt_source, prompt, prompt_preview, status, created_at, updated_at FROM tasks WHERE id = ?`, id)
 	return scanTask(row)
 }
 
@@ -250,8 +248,8 @@ func (s *Store) CreateTaskWithRun(ctx context.Context, task Task, run Run) error
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
-	if _, err := tx.ExecContext(ctx, `INSERT INTO tasks (id, repo_path, repo_name, branch, worktree_path, template_name, prompt_source, prompt, prompt_preview, status, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, task.ID, task.RepoPath, task.RepoName, task.Branch, task.WorktreePath, task.TemplateName, task.PromptSource, task.Prompt, task.PromptPreview, task.Status, formatTime(task.CreatedAt), formatTime(task.UpdatedAt)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tasks (id, repo_path, repo_name, branch, worktree_path, prompt_source, prompt, prompt_preview, status, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, task.ID, task.RepoPath, task.RepoName, task.Branch, task.WorktreePath, task.PromptSource, task.Prompt, task.PromptPreview, task.Status, formatTime(task.CreatedAt), formatTime(task.UpdatedAt)); err != nil {
 		return fmt.Errorf("insert task: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO runs (id, task_id, attempt, supervisor_pid, pi_session_file, status, started_at, ended_at, exit_code, error_message, control_socket_path, stdout_log_path, stderr_log_path, pi_events_path)
@@ -285,7 +283,7 @@ func scanTask(row taskScanner) (Task, error) {
 	var task Task
 	var created, updated string
 	var status string
-	if err := row.Scan(&task.ID, &task.RepoPath, &task.RepoName, &task.Branch, &task.WorktreePath, &task.TemplateName, &task.PromptSource, &task.Prompt, &task.PromptPreview, &status, &created, &updated); err != nil {
+	if err := row.Scan(&task.ID, &task.RepoPath, &task.RepoName, &task.Branch, &task.WorktreePath, &task.PromptSource, &task.Prompt, &task.PromptPreview, &status, &created, &updated); err != nil {
 		return Task{}, err
 	}
 	task.Status = TaskStatus(status)

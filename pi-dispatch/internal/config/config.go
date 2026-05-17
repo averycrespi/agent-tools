@@ -12,14 +12,12 @@ import (
 )
 
 type Config struct {
-	DatabasePath string   `json:"database_path"`
-	TemplateDirs []string `json:"template_dirs"`
+	DatabasePath string `json:"database_path"`
 }
 
 func Default() Config {
 	return Config{
 		DatabasePath: "",
-		TemplateDirs: []string{filepath.Join(ConfigDir(), "templates")},
 	}
 }
 
@@ -34,10 +32,6 @@ func Load() (Config, error) {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("failed to parse config: %w", err)
-	}
-	def := Default()
-	if cfg.TemplateDirs == nil {
-		cfg.TemplateDirs = def.TemplateDirs
 	}
 	return cfg, nil
 }

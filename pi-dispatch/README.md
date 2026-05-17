@@ -28,10 +28,6 @@ pd stop <task-id>
 pd stop --force <task-id>
 pd rm <task-id>
 pd rm --worktree <task-id>
-pd template list
-pd template validate
-pd template show <template>
-pd template render <template>
 ```
 
 `pd run --json`, `pd ps --json`, `pd status --json <task-id>`, and `pd events --json <task-id>` emit machine-readable JSON. Mutation commands `pd steer --json`, `pd followup --json`, `pd stop --json`, and `pd rm --json` emit JSON success responses.
@@ -60,29 +56,11 @@ Config file: `~/.config/pd/config.json`.
 
 ```json
 {
-  "database_path": "",
-  "template_dirs": ["~/.config/pd/templates"]
+  "database_path": ""
 }
 ```
 
-Templates are standalone JSON files in configured template directories and define Pi launch options. The template name is the JSON filename without the `.json` extension. Templates are decoded strictly: unknown fields such as `name`, `command`, or `mode` are errors. List configured templates with `pd template list`, validate them with `pd template validate [template]`, inspect one with `pd template show <template>`, and preview the Pi argv with `pd template render <template>`.
-
-`pd run` supports launch overrides for Pi options including `--provider`, `--model`, `--thinking`, `--tools`, `--no-builtin-tools`, `--no-tools`, `--extension`, `--no-extensions`, `--skill`, `--no-skills`, `--prompt-template`, `--no-prompt-templates`, `--no-context-files`, `--system-prompt`, `--append-system-prompt`, and `--session-dir`. CLI flags override template values.
-
-Example template:
-
-```json
-{
-  "description": "Default sandboxed Pi coding agent",
-  "agent": {
-    "thinking": "medium",
-    "tools": [],
-    "extensions": [],
-    "skills": [],
-    "session_dir": ""
-  }
-}
-```
+`pd run` supports direct Pi launch options including `--provider`, `--model`, `--thinking`, `--tools`, `--no-builtin-tools`, `--no-tools`, `--extension`, `--no-extensions`, `--skill`, `--no-skills`, `--no-context-files`, `--system-prompt`, `--append-system-prompt`, and `--session-dir`.
 
 ## Paths
 

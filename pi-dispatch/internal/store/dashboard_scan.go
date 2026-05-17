@@ -25,7 +25,7 @@ func scanTaskSummary(row taskScanner) (TaskSummary, error) {
 	var piEventsPath sql.NullString
 
 	if err := row.Scan(
-		&summary.Task.ID, &summary.Task.RepoPath, &summary.Task.RepoName, &summary.Task.Branch, &summary.Task.WorktreePath, &summary.Task.TemplateName, &summary.Task.PromptSource, &summary.Task.Prompt, &summary.Task.PromptPreview, &taskStatus, &created, &updated,
+		&summary.Task.ID, &summary.Task.RepoPath, &summary.Task.RepoName, &summary.Task.Branch, &summary.Task.WorktreePath, &summary.Task.PromptSource, &summary.Task.Prompt, &summary.Task.PromptPreview, &taskStatus, &created, &updated,
 		&runID, &runTaskID, &runAttempt, &supervisorPID, &piSessionFile, &runStatus, &started, &ended, &exitCode, &errorMessage, &controlSocketPath, &stdoutLogPath, &stderrLogPath, &piEventsPath,
 	); err != nil {
 		return TaskSummary{}, err
