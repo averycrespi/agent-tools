@@ -127,7 +127,7 @@ func TestToBrokerTool_DropsEmptyAnnotationsAndOutputSchema(t *testing.T) {
 	require.Equal(t, "object", rich.OutputSchema.Type)
 }
 
-func TestManager_DiscoverTools_AppliesDisablePatch(t *testing.T) {
+func TestManager_DiscoverTools_AppliesDisabledPatch(t *testing.T) {
 	mb := new(mockBackend)
 	mb.On("ListTools", mock.Anything).Return([]Tool{
 		{Name: "search", Description: "Search"},
@@ -138,7 +138,7 @@ func TestManager_DiscoverTools_AppliesDisablePatch(t *testing.T) {
 		backends: map[string]Backend{"github": mb},
 		tools:    make(map[string]toolEntry),
 		toolPatches: []config.ToolPatchConfig{
-			{Tool: "github.delete", Disable: true},
+			{Tool: "github.delete", Disabled: true},
 		},
 	}
 

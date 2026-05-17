@@ -165,7 +165,7 @@ type testArgPattern struct {
 
 type testToolPatchConfig struct {
 	Tool        string                    `json:"tool"`
-	Disable     bool                      `json:"disable,omitempty"`
+	Disabled    bool                      `json:"disabled,omitempty"`
 	Annotations *testToolAnnotationsPatch `json:"annotations,omitempty"`
 }
 

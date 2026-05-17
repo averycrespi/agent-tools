@@ -158,7 +158,7 @@ func (m *Manager) applyToolPatch(tool Tool) (Tool, bool) {
 		if err != nil || !matched {
 			continue
 		}
-		if patch.Disable {
+		if patch.Disabled {
 			return tool, true
 		}
 		if patch.Annotations != nil {

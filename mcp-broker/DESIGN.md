@@ -71,7 +71,7 @@ Each backend server has a name (from config). When tools are discovered, they ar
 
 Single JSON file at `~/.config/mcp-broker/config.json`. On first run, a default config is written. The `Refresh` function loads, overlays defaults for new fields, and writes back — useful for upgrading config after new features are added.
 
-Config is loaded once at startup. In addition to backend server and rule policy, config may include `tool_patches`: ordered load-time transforms for discovered tools. Tool patch patterns match broker-prefixed tool names with `filepath.Match`; the first matching patch applies. `disable: true` removes the tool from the broker registry, and `annotations` merges field-by-field into MCP tool annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). `_meta` is passed through unchanged and is not patched.
+Config is loaded once at startup. In addition to backend server and rule policy, config may include `tool_patches`: ordered load-time transforms for discovered tools. Tool patch patterns match broker-prefixed tool names with `filepath.Match`; the first matching patch applies. `disabled: true` removes the tool from the broker registry, and `annotations` merges field-by-field into MCP tool annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). `_meta` is passed through unchanged and is not patched.
 
 Defaults:
 

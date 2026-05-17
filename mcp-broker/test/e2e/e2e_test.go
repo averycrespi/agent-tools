@@ -178,7 +178,7 @@ func TestE2E_AnnotationsRoundTripThroughBroker(t *testing.T) {
 	require.Empty(t, plain.OutputSchema.Type)
 }
 
-func TestE2E_ToolPatchesDisableTool(t *testing.T) {
+func TestE2E_ToolPatchesDisabledTool(t *testing.T) {
 	s := newTestStack(t, stackOpts{
 		Tools: []toolDef{
 			{Name: "search", Description: "Search", Response: `{"hits":0}`},
@@ -186,7 +186,7 @@ func TestE2E_ToolPatchesDisableTool(t *testing.T) {
 		},
 		Rules: []testRuleConfig{{Tool: "*", Verdict: "allow"}},
 		ToolPatches: []testToolPatchConfig{
-			{Tool: "echo.delete", Disable: true},
+			{Tool: "echo.delete", Disabled: true},
 		},
 	})
 

@@ -132,7 +132,7 @@ func TestConfig_ToolPatchesRoundTrip(t *testing.T) {
 					"openWorldHint": true
 				}
 			},
-			{"tool": "github.delete_*", "disable": true}
+			{"tool": "github.delete_*", "disabled": true}
 		]
 	}`
 	err := os.WriteFile(path, []byte(data), 0o600)
@@ -150,7 +150,7 @@ func TestConfig_ToolPatchesRoundTrip(t *testing.T) {
 	require.False(t, *patch.Annotations.DestructiveHint)
 	require.True(t, *patch.Annotations.IdempotentHint)
 	require.True(t, *patch.Annotations.OpenWorldHint)
-	require.True(t, cfg.ToolPatches[1].Disable)
+	require.True(t, cfg.ToolPatches[1].Disabled)
 
 	_, err = Save(cfg, path)
 	require.NoError(t, err)
@@ -162,6 +162,16 @@ func TestConfig_ToolPatchesRoundTrip(t *testing.T) {
 	require.NotContains(t, string(raw), "ReadOnlyHint")
 	require.NotContains(t, string(raw), "DestructiveHint")
 
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+	patches, ok := decoded["tool_patches"].([]any)
+	require.True(t, ok)
+	disabledPatch, ok := patches[1].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, true, disabledPatch["disabled"])
+	_, hasLegacyDisable := disabledPatch["disable"]
+	require.False(t, hasLegacyDisable)
+
 	cfg2, err := Load(path)
 	require.NoError(t, err)
 	require.Len(t, cfg2.ToolPatches, 2)
@@ -172,7 +182,7 @@ func TestConfig_ToolPatchOmittedAnnotations(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 
-	err := os.WriteFile(path, []byte(`{"tool_patches": [{"tool": "github.delete_*", "disable": true}]}`), 0o600)
+	err := os.WriteFile(path, []byte(`{"tool_patches": [{"tool": "github.delete_*", "disabled": true}]}`), 0o600)
 	require.NoError(t, err)
 
 	cfg, err := Load(path)
@@ -193,6 +203,34 @@ func TestConfig_ToolPatchOmittedAnnotations(t *testing.T) {
 	require.True(t, ok)
 	_, hasAnnotations := patch["annotations"]
 	require.False(t, hasAnnotations)
+}
+
+func TestConfig_ToolPatchLegacyDisableLoadsAsDisabled(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	err := os.WriteFile(path, []byte(`{"tool_patches": [{"tool": "github.delete_*", "disable": true}]}`), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Len(t, cfg.ToolPatches, 1)
+	require.True(t, cfg.ToolPatches[0].Disabled)
+
+	_, err = Save(cfg, path)
+	require.NoError(t, err)
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+	patches, ok := decoded["tool_patches"].([]any)
+	require.True(t, ok)
+	patch, ok := patches[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, true, patch["disabled"])
+	_, hasLegacyDisable := patch["disable"]
+	require.False(t, hasLegacyDisable)
 }
 
 func TestConfigPath_ReturnsXDGPath(t *testing.T) {

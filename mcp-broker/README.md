@@ -92,7 +92,7 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
         "openWorldHint": true
       }
     },
-    { "tool": "github.delete_*", "disable": true }
+    { "tool": "github.delete_*", "disabled": true }
   ],
   "host": "127.0.0.1",
   "port": 8200,
@@ -206,14 +206,14 @@ Tool patches are optional load-time transforms for discovered tools. They match 
         "destructiveHint": false
       }
     },
-    { "tool": "github.delete_*", "disable": true }
+    { "tool": "github.delete_*", "disabled": true }
   ]
 }
 ```
 
 `annotations` merges field-by-field with upstream MCP tool annotations: fields present in the patch override upstream values, omitted fields are preserved, and missing upstream annotations are created. Supported fields are `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`.
 
-`disable: true` removes matching tools from the broker registry. Disabled tools do not appear in MCP `tools/list` or the dashboard and cannot be called through the broker.
+`disabled: true` removes matching tools from the broker registry. Disabled tools do not appear in MCP `tools/list` or the dashboard and cannot be called through the broker.
 
 ## Authentication
 

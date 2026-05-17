@@ -46,8 +46,31 @@ type RuleConfig struct {
 // ToolPatchConfig defines a load-time transform for a discovered tool.
 type ToolPatchConfig struct {
 	Tool        string                `json:"tool"`
-	Disable     bool                  `json:"disable,omitempty"`
+	Disabled    bool                  `json:"disabled,omitempty"`
 	Annotations *ToolAnnotationsPatch `json:"annotations,omitempty"`
+}
+
+func (p *ToolPatchConfig) UnmarshalJSON(data []byte) error {
+	var decoded struct {
+		Tool          string                `json:"tool"`
+		Disabled      *bool                 `json:"disabled"`
+		LegacyDisable *bool                 `json:"disable"`
+		Annotations   *ToolAnnotationsPatch `json:"annotations"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	p.Tool = decoded.Tool
+	p.Annotations = decoded.Annotations
+	if decoded.Disabled != nil {
+		p.Disabled = *decoded.Disabled
+	} else if decoded.LegacyDisable != nil {
+		p.Disabled = *decoded.LegacyDisable
+	} else {
+		p.Disabled = false
+	}
+	return nil
 }
 
 // ToolAnnotationsPatch defines field-level overrides for MCP tool annotations.
