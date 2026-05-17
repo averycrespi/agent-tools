@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	pdconfig "github.com/averycrespi/agent-tools/pi-dispatch/internal/config"
 	"github.com/averycrespi/agent-tools/pi-dispatch/internal/store"
 )
 
@@ -56,20 +57,36 @@ type TaskDetail struct {
 }
 
 type RunSummary struct {
-	ID                string     `json:"id"`
-	TaskID            string     `json:"task_id"`
-	Attempt           int        `json:"attempt"`
-	SupervisorPID     int        `json:"supervisor_pid"`
-	PiSessionFile     string     `json:"pi_session_file"`
-	Status            string     `json:"status"`
-	StartedAt         time.Time  `json:"started_at"`
-	EndedAt           *time.Time `json:"ended_at,omitempty"`
-	ExitCode          *int64     `json:"exit_code,omitempty"`
-	ErrorMessage      string     `json:"error_message"`
-	ControlSocketPath string     `json:"control_socket_path"`
-	StdoutLogPath     string     `json:"stdout_log_path"`
-	StderrLogPath     string     `json:"stderr_log_path"`
-	PiEventsPath      string     `json:"pi_events_path"`
+	ID                string              `json:"id"`
+	TaskID            string              `json:"task_id"`
+	Attempt           int                 `json:"attempt"`
+	SupervisorPID     int                 `json:"supervisor_pid"`
+	PiSessionFile     string              `json:"pi_session_file"`
+	Status            string              `json:"status"`
+	StartedAt         time.Time           `json:"started_at"`
+	EndedAt           *time.Time          `json:"ended_at,omitempty"`
+	ExitCode          *int64              `json:"exit_code,omitempty"`
+	ErrorMessage      string              `json:"error_message"`
+	AgentOptions      AgentOptionsSummary `json:"agent_options"`
+	ControlSocketPath string              `json:"control_socket_path"`
+	StdoutLogPath     string              `json:"stdout_log_path"`
+	StderrLogPath     string              `json:"stderr_log_path"`
+	PiEventsPath      string              `json:"pi_events_path"`
+}
+
+type AgentOptionsSummary struct {
+	Provider                  string   `json:"provider,omitempty"`
+	Model                     string   `json:"model,omitempty"`
+	Thinking                  string   `json:"thinking,omitempty"`
+	Tools                     []string `json:"tools,omitempty"`
+	DisableBuiltinTools       bool     `json:"disable_builtin_tools,omitempty"`
+	DisableAllTools           bool     `json:"disable_all_tools,omitempty"`
+	Extensions                []string `json:"extensions,omitempty"`
+	DisableExtensionDiscovery bool     `json:"disable_extension_discovery,omitempty"`
+	Skills                    []string `json:"skills,omitempty"`
+	DisableSkillDiscovery     bool     `json:"disable_skill_discovery,omitempty"`
+	DisableContextFiles       bool     `json:"disable_context_files,omitempty"`
+	SessionDir                string   `json:"session_dir,omitempty"`
 }
 
 type LogWindow struct {
@@ -322,7 +339,7 @@ func messageText(content json.RawMessage) string {
 }
 
 func runSummaryView(run store.Run) *RunSummary {
-	view := &RunSummary{ID: run.ID, TaskID: run.TaskID, Attempt: run.Attempt, SupervisorPID: run.SupervisorPID, PiSessionFile: run.PiSessionFile, Status: string(run.Status), StartedAt: run.StartedAt, ErrorMessage: run.ErrorMessage, ControlSocketPath: run.ControlSocketPath, StdoutLogPath: run.StdoutLogPath, StderrLogPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath}
+	view := &RunSummary{ID: run.ID, TaskID: run.TaskID, Attempt: run.Attempt, SupervisorPID: run.SupervisorPID, PiSessionFile: run.PiSessionFile, Status: string(run.Status), StartedAt: run.StartedAt, ErrorMessage: run.ErrorMessage, AgentOptions: decodeAgentOptions(run.AgentOptionsJSON), ControlSocketPath: run.ControlSocketPath, StdoutLogPath: run.StdoutLogPath, StderrLogPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath}
 	if run.EndedAt.Valid {
 		ended := run.EndedAt.Time
 		view.EndedAt = &ended
@@ -332,6 +349,17 @@ func runSummaryView(run store.Run) *RunSummary {
 		view.ExitCode = &exitCode
 	}
 	return view
+}
+
+func decodeAgentOptions(data string) AgentOptionsSummary {
+	if data == "" {
+		return AgentOptionsSummary{}
+	}
+	var agent pdconfig.AgentOptions
+	if err := json.Unmarshal([]byte(data), &agent); err != nil {
+		return AgentOptionsSummary{}
+	}
+	return AgentOptionsSummary{Provider: agent.Provider, Model: agent.Model, Thinking: agent.Thinking, Tools: agent.Tools, DisableBuiltinTools: agent.DisableBuiltinTools, DisableAllTools: agent.DisableAllTools, Extensions: agent.Extensions, DisableExtensionDiscovery: agent.DisableExtensionDiscovery, Skills: agent.Skills, DisableSkillDiscovery: agent.DisableSkillDiscovery, DisableContextFiles: agent.DisableContextFiles, SessionDir: agent.SessionDir}
 }
 
 func readTail(path string, limit int64) ([]byte, error) {

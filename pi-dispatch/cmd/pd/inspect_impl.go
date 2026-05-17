@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
+	pdconfig "github.com/averycrespi/agent-tools/pi-dispatch/internal/config"
 	"github.com/averycrespi/agent-tools/pi-dispatch/internal/control"
 	"github.com/averycrespi/agent-tools/pi-dispatch/internal/output"
 	pdprocess "github.com/averycrespi/agent-tools/pi-dispatch/internal/process"
@@ -31,17 +34,33 @@ type statusView struct {
 }
 
 type runView struct {
-	ID                string     `json:"id"`
-	Status            string     `json:"status"`
-	Attempt           int        `json:"attempt"`
-	EndedAt           *time.Time `json:"ended_at,omitempty"`
-	ExitCode          *int       `json:"exit_code,omitempty"`
-	ErrorMessage      string     `json:"error_message,omitempty"`
-	PiSessionFile     string     `json:"pi_session_file,omitempty"`
-	ControlSocketPath string     `json:"control_socket_path"`
-	StdoutLogPath     string     `json:"stdout_log_path"`
-	StderrLogPath     string     `json:"stderr_log_path"`
-	PiEventsPath      string     `json:"pi_events_path"`
+	ID                string            `json:"id"`
+	Status            string            `json:"status"`
+	Attempt           int               `json:"attempt"`
+	EndedAt           *time.Time        `json:"ended_at,omitempty"`
+	ExitCode          *int              `json:"exit_code,omitempty"`
+	ErrorMessage      string            `json:"error_message,omitempty"`
+	PiSessionFile     string            `json:"pi_session_file,omitempty"`
+	AgentOptions      *agentOptionsView `json:"agent_options,omitempty"`
+	ControlSocketPath string            `json:"control_socket_path"`
+	StdoutLogPath     string            `json:"stdout_log_path"`
+	StderrLogPath     string            `json:"stderr_log_path"`
+	PiEventsPath      string            `json:"pi_events_path"`
+}
+
+type agentOptionsView struct {
+	Provider                  string   `json:"provider,omitempty"`
+	Model                     string   `json:"model,omitempty"`
+	Thinking                  string   `json:"thinking,omitempty"`
+	Tools                     []string `json:"tools,omitempty"`
+	DisableBuiltinTools       bool     `json:"disable_builtin_tools,omitempty"`
+	DisableAllTools           bool     `json:"disable_all_tools,omitempty"`
+	Extensions                []string `json:"extensions,omitempty"`
+	DisableExtensionDiscovery bool     `json:"disable_extension_discovery,omitempty"`
+	Skills                    []string `json:"skills,omitempty"`
+	DisableSkillDiscovery     bool     `json:"disable_skill_discovery,omitempty"`
+	DisableContextFiles       bool     `json:"disable_context_files,omitempty"`
+	SessionDir                string   `json:"session_dir,omitempty"`
 }
 
 func listTasks(cmd *cobra.Command, _ []string) error {
@@ -106,6 +125,11 @@ func showStatus(cmd *cobra.Command, args []string) error {
 		if _, err := fmt.Fprintf(os.Stdout, "Logs:          %s\nRaw Pi events: %s\n", view.Run.StdoutLogPath, view.Run.PiEventsPath); err != nil {
 			return err
 		}
+		if view.Run.AgentOptions != nil {
+			if err := printAgentOptions(view.Run.AgentOptions); err != nil {
+				return err
+			}
+		}
 		if view.Run.EndedAt != nil {
 			if _, err := fmt.Fprintf(os.Stdout, "Ended:   %s\n", view.Run.EndedAt.Format(time.RFC3339)); err != nil {
 				return err
@@ -156,7 +180,7 @@ func viewTask(task store.Task) taskView {
 }
 
 func viewRun(run store.Run) runView {
-	view := runView{ID: run.ID, Status: string(run.Status), Attempt: run.Attempt, ErrorMessage: run.ErrorMessage, PiSessionFile: run.PiSessionFile, ControlSocketPath: run.ControlSocketPath, StdoutLogPath: run.StdoutLogPath, StderrLogPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath}
+	view := runView{ID: run.ID, Status: string(run.Status), Attempt: run.Attempt, ErrorMessage: run.ErrorMessage, PiSessionFile: run.PiSessionFile, AgentOptions: decodeAgentOptionsView(run.AgentOptionsJSON), ControlSocketPath: run.ControlSocketPath, StdoutLogPath: run.StdoutLogPath, StderrLogPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath}
 	if run.EndedAt.Valid {
 		endedAt := run.EndedAt.Time
 		view.EndedAt = &endedAt
@@ -166,4 +190,74 @@ func viewRun(run store.Run) runView {
 		view.ExitCode = &exitCode
 	}
 	return view
+}
+
+func decodeAgentOptionsView(data string) *agentOptionsView {
+	if data == "" {
+		return nil
+	}
+	var agent pdconfig.AgentOptions
+	if err := json.Unmarshal([]byte(data), &agent); err != nil {
+		return nil
+	}
+	view := agentOptionsView{Provider: agent.Provider, Model: agent.Model, Thinking: agent.Thinking, Tools: agent.Tools, DisableBuiltinTools: agent.DisableBuiltinTools, DisableAllTools: agent.DisableAllTools, Extensions: agent.Extensions, DisableExtensionDiscovery: agent.DisableExtensionDiscovery, Skills: agent.Skills, DisableSkillDiscovery: agent.DisableSkillDiscovery, DisableContextFiles: agent.DisableContextFiles, SessionDir: agent.SessionDir}
+	if !view.hasValues() {
+		return nil
+	}
+	return &view
+}
+
+func (a agentOptionsView) hasValues() bool {
+	return a.Provider != "" || a.Model != "" || a.Thinking != "" || len(a.Tools) > 0 || a.DisableBuiltinTools || a.DisableAllTools || len(a.Extensions) > 0 || a.DisableExtensionDiscovery || len(a.Skills) > 0 || a.DisableSkillDiscovery || a.DisableContextFiles || a.SessionDir != ""
+}
+
+func printAgentOptions(agent *agentOptionsView) error {
+	printValue := func(label, value string) error {
+		if value == "" {
+			return nil
+		}
+		_, err := fmt.Fprintf(os.Stdout, "%s %s\n", label, value)
+		return err
+	}
+	printBool := func(label string, value bool) error {
+		if !value {
+			return nil
+		}
+		_, err := fmt.Fprintf(os.Stdout, "%s true\n", label)
+		return err
+	}
+	if err := printValue("Provider:", agent.Provider); err != nil {
+		return err
+	}
+	if err := printValue("Model:   ", agent.Model); err != nil {
+		return err
+	}
+	if err := printValue("Thinking:", agent.Thinking); err != nil {
+		return err
+	}
+	if err := printValue("Tools:   ", strings.Join(agent.Tools, ", ")); err != nil {
+		return err
+	}
+	if err := printBool("No builtin tools:", agent.DisableBuiltinTools); err != nil {
+		return err
+	}
+	if err := printBool("No tools:", agent.DisableAllTools); err != nil {
+		return err
+	}
+	if err := printValue("Extensions:", strings.Join(agent.Extensions, ", ")); err != nil {
+		return err
+	}
+	if err := printBool("No extensions:", agent.DisableExtensionDiscovery); err != nil {
+		return err
+	}
+	if err := printValue("Skills:  ", strings.Join(agent.Skills, ", ")); err != nil {
+		return err
+	}
+	if err := printBool("No skills:", agent.DisableSkillDiscovery); err != nil {
+		return err
+	}
+	if err := printBool("No context files:", agent.DisableContextFiles); err != nil {
+		return err
+	}
+	return printValue("Session dir:", agent.SessionDir)
 }

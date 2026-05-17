@@ -31,11 +31,11 @@ pd rm --worktree <task-id>
 
 `pd run --json`, `pd ps --json`, `pd status --json <task-id>`, and `pd wait --json <task-id>` emit machine-readable JSON. Mutation commands `pd steer --json`, `pd followup --json`, `pd stop --json`, and `pd rm --json` emit JSON success responses.
 
-`pd status` shows terminal run metadata when available, including ended time, exit code, error message, and Pi session file. `pd ps` stays compact for scanning task IDs. `pd wait <task-id>` blocks until a task reaches a terminal state, prints the final status, and returns immediately if the task is already done. It exits 0 only for `succeeded`; `failed`, `stopped`, `unknown`, and timeout return exit code 1. Use `pd wait --timeout 10m <task-id>` to bound the wait.
+`pd status` shows launch options and terminal run metadata when available, including ended time, exit code, error message, and Pi session file. `pd ps` stays compact for scanning task IDs. `pd wait <task-id>` blocks until a task reaches a terminal state, prints the final status, and returns immediately if the task is already done. It exits 0 only for `succeeded`; `failed`, `stopped`, `unknown`, and timeout return exit code 1. Use `pd wait --timeout 10m <task-id>` to bound the wait.
 
 `pd logs -f` follows stdout and stderr with `stdout:` / `stderr:` prefixes and prints task status, log path, and raw Pi event stream path before following. `pd status` shows the raw Pi event stream path for advanced debugging.
 
-`pd dashboard` starts Pi Dispatch Dashboard, a local read-only web UI for exploring tasks, latest run metadata, the latest assistant response, raw Pi event stream paths, and stdout/stderr logs. By default it binds `127.0.0.1:8300`, prints an authenticated URL under `/dashboard/`, emits startup diagnostics and failed request logs to stderr, and opens the browser. Use `pd dashboard --no-open` to print the URL without opening a browser, or `--host` / `--port` to choose another loopback bind address. APIs and SSE live under `/dashboard/api/*` and `/dashboard/events`; `pd --verbose dashboard` logs all request/auth flow details.
+`pd dashboard` starts Pi Dispatch Dashboard, a local read-only web UI for exploring tasks, latest run metadata, launch options, the latest assistant response, raw Pi event stream paths, and stdout/stderr logs. By default it binds `127.0.0.1:8300`, prints an authenticated URL under `/dashboard/`, emits startup diagnostics and failed request logs to stderr, and opens the browser. Use `pd dashboard --no-open` to print the URL without opening a browser, or `--host` / `--port` to choose another loopback bind address. APIs and SSE live under `/dashboard/api/*` and `/dashboard/events`; `pd --verbose dashboard` logs all request/auth flow details.
 
 ## Safety model
 
@@ -59,7 +59,7 @@ Config file: `~/.config/pd/config.json`.
 }
 ```
 
-`pd run` supports direct Pi launch options including `--provider`, `--model`, `--thinking`, `--tools`, `--no-builtin-tools`, `--no-tools`, `--extension`, `--no-extensions`, `--skill`, `--no-skills`, `--no-context-files`, `--system-prompt`, `--append-system-prompt`, and `--session-dir`.
+`pd run` supports direct Pi launch options including `--provider`, `--model`, `--thinking`, `--tools`, `--no-builtin-tools`, `--no-tools`, `--extension`, `--no-extensions`, `--skill`, `--no-skills`, `--no-context-files`, `--system-prompt`, `--append-system-prompt`, and `--session-dir`. Each run stores the effective launch options and exact Pi argv in SQLite for debugging; `pd status` and Dashboard Overview show non-prompt launch fields.
 
 ## Paths
 

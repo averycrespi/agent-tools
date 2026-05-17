@@ -17,9 +17,62 @@ func TestOpenCreatesSchemaAndInsertTaskRun(t *testing.T) {
 
 	now := time.Now()
 	task := Task{ID: "pd-test", RepoPath: "/repo", RepoName: "repo", Branch: "pd/test", WorktreePath: "/wt", PromptSource: "arg", Prompt: "hello", PromptPreview: "hello", Status: StatusQueued, CreatedAt: now, UpdatedAt: now}
-	run := Run{ID: "run-test", TaskID: task.ID, Attempt: 1, Status: StatusQueued, StartedAt: now, ControlSocketPath: "/sock", StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: "/events"}
+	run := Run{ID: "run-test", TaskID: task.ID, Attempt: 1, Status: StatusQueued, StartedAt: now, AgentOptionsJSON: `{"model":"gpt-5"}`, PiArgvJSON: `["pi","--mode","rpc","--model","gpt-5"]`, ControlSocketPath: "/sock", StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: "/events"}
 
 	require.NoError(t, st.CreateTaskWithRun(context.Background(), task, run))
+
+	got, err := st.LatestRun(context.Background(), task.ID)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"model":"gpt-5"}`, got.AgentOptionsJSON)
+	require.JSONEq(t, `["pi","--mode","rpc","--model","gpt-5"]`, got.PiArgvJSON)
+}
+
+func TestOpenMigratesRunMetadataColumns(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pd.db")
+	db, err := sql.Open("sqlite3", path)
+	require.NoError(t, err)
+	_, err = db.Exec(`
+CREATE TABLE tasks (
+    id TEXT PRIMARY KEY,
+    repo_path TEXT NOT NULL,
+    repo_name TEXT NOT NULL,
+    branch TEXT NOT NULL,
+    worktree_path TEXT NOT NULL,
+    prompt_source TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    prompt_preview TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE runs (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id),
+    attempt INTEGER NOT NULL,
+    supervisor_pid INTEGER NOT NULL DEFAULT 0,
+    pi_session_file TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    exit_code INTEGER,
+    error_message TEXT NOT NULL DEFAULT '',
+    control_socket_path TEXT NOT NULL,
+    stdout_log_path TEXT NOT NULL,
+    stderr_log_path TEXT NOT NULL,
+    pi_events_path TEXT NOT NULL
+);
+`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	st, err := Open(path)
+	require.NoError(t, err)
+	defer st.Close() //nolint:errcheck
+
+	columns, err := runTableColumns(st.db)
+	require.NoError(t, err)
+	require.True(t, columns["agent_options_json"])
+	require.True(t, columns["pi_argv_json"])
 }
 
 func TestOpenDoesNotCreateEventsTable(t *testing.T) {

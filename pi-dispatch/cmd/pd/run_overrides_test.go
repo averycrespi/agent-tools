@@ -7,6 +7,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRunLaunchMetadataRendersEffectiveOptions(t *testing.T) {
+	agent := pdconfig.AgentOptions{Provider: "openai", Model: "gpt-5", Thinking: "high", Tools: []string{"bash"}, SystemPrompt: "secret system prompt"}
+
+	agentOptionsJSON, piArgvJSON, err := runLaunchMetadata(agent)
+
+	require.NoError(t, err)
+	require.JSONEq(t, `{"provider":"openai","model":"gpt-5","thinking":"high","tools":["bash"],"system_prompt":"secret system prompt"}`, agentOptionsJSON)
+	require.JSONEq(t, `["pi","--mode","rpc","--provider","openai","--model","gpt-5","--thinking","high","--tools","bash","--system-prompt","secret system prompt"]`, piArgvJSON)
+}
+
 func TestApplyRunOverrides(t *testing.T) {
 	old := runAgentOverrides
 	runAgentOverrides = pdconfig.AgentOptions{Model: "gpt-5", Thinking: "high", Tools: []string{"bash"}, Extensions: []string{"x.ts"}, DisableAllTools: true, SessionDir: "/tmp/pi"}

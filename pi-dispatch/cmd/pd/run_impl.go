@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -106,8 +107,13 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err := os.MkdirAll(taskDir, 0o750); err != nil {
 		return err
 	}
+	agent := applyRunOverrides(pdconfig.AgentOptions{})
+	agentOptionsJSON, piArgvJSON, err := runLaunchMetadata(agent)
+	if err != nil {
+		return err
+	}
 	task := store.Task{ID: taskID, RepoPath: repo.Root, RepoName: repo.Name, Branch: branch, WorktreePath: worktreePath, PromptSource: source, Prompt: prompt, PromptPreview: preview(prompt), Status: store.StatusStarting, CreatedAt: now, UpdatedAt: now}
-	run := store.Run{ID: runID, TaskID: taskID, Attempt: 1, Status: store.StatusStarting, StartedAt: now, ControlSocketPath: filepath.Join(pdconfig.RuntimeDir(), "tasks", taskID+".sock"), StdoutLogPath: filepath.Join(taskDir, "stdout.log"), StderrLogPath: filepath.Join(taskDir, "stderr.log"), PiEventsPath: filepath.Join(taskDir, "pi-events.jsonl")}
+	run := store.Run{ID: runID, TaskID: taskID, Attempt: 1, Status: store.StatusStarting, StartedAt: now, AgentOptionsJSON: agentOptionsJSON, PiArgvJSON: piArgvJSON, ControlSocketPath: filepath.Join(pdconfig.RuntimeDir(), "tasks", taskID+".sock"), StdoutLogPath: filepath.Join(taskDir, "stdout.log"), StderrLogPath: filepath.Join(taskDir, "stderr.log"), PiEventsPath: filepath.Join(taskDir, "pi-events.jsonl")}
 	if err := db.CreateTaskWithRun(cmdCtx, task, run); err != nil {
 		return err
 	}
@@ -121,7 +127,7 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err := checkWorktreeVisible(sb, worktreePath); err != nil {
 		return failRunLaunch(cmdCtx, db, taskID, err)
 	}
-	argv := pdconfig.RenderPiArgv(applyRunOverrides(pdconfig.AgentOptions{}))
+	argv := pdconfig.RenderPiArgv(agent)
 	encodedArgv, err := encodePiArgv(argv)
 	if err != nil {
 		return failRunLaunch(cmdCtx, db, taskID, err)
@@ -178,6 +184,18 @@ func checkWorktreeVisible(sb interface {
 
 func applyRunOverrides(agent pdconfig.AgentOptions) pdconfig.AgentOptions {
 	return pdconfig.ApplyAgentOverrides(agent, runAgentOverrides)
+}
+
+func runLaunchMetadata(agent pdconfig.AgentOptions) (string, string, error) {
+	agentOptions, err := json.Marshal(agent)
+	if err != nil {
+		return "", "", err
+	}
+	piArgv, err := json.Marshal(pdconfig.RenderPiArgv(agent))
+	if err != nil {
+		return "", "", err
+	}
+	return string(agentOptions), string(piArgv), nil
 }
 
 func resolvePrompt(args []string) (string, string, error) {

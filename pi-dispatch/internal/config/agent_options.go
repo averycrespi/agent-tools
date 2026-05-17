@@ -1,20 +1,20 @@
 package config
 
 type AgentOptions struct {
-	Provider                  string
-	Model                     string
-	Thinking                  string
-	Tools                     []string
-	DisableBuiltinTools       bool
-	DisableAllTools           bool
-	Extensions                []string
-	DisableExtensionDiscovery bool
-	Skills                    []string
-	DisableSkillDiscovery     bool
-	DisableContextFiles       bool
-	SystemPrompt              string
-	AppendSystemPrompt        string
-	SessionDir                string
+	Provider                  string   `json:"provider,omitempty"`
+	Model                     string   `json:"model,omitempty"`
+	Thinking                  string   `json:"thinking,omitempty"`
+	Tools                     []string `json:"tools,omitempty"`
+	DisableBuiltinTools       bool     `json:"disable_builtin_tools,omitempty"`
+	DisableAllTools           bool     `json:"disable_all_tools,omitempty"`
+	Extensions                []string `json:"extensions,omitempty"`
+	DisableExtensionDiscovery bool     `json:"disable_extension_discovery,omitempty"`
+	Skills                    []string `json:"skills,omitempty"`
+	DisableSkillDiscovery     bool     `json:"disable_skill_discovery,omitempty"`
+	DisableContextFiles       bool     `json:"disable_context_files,omitempty"`
+	SystemPrompt              string   `json:"system_prompt,omitempty"`
+	AppendSystemPrompt        string   `json:"append_system_prompt,omitempty"`
+	SessionDir                string   `json:"session_dir,omitempty"`
 }
 
 func RenderPiArgv(agent AgentOptions) []string {

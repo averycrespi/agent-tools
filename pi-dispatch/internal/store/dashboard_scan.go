@@ -19,6 +19,8 @@ func scanTaskSummary(row taskScanner) (TaskSummary, error) {
 	var ended sql.NullString
 	var exitCode sql.NullInt64
 	var errorMessage sql.NullString
+	var agentOptionsJSON sql.NullString
+	var piArgvJSON sql.NullString
 	var controlSocketPath sql.NullString
 	var stdoutLogPath sql.NullString
 	var stderrLogPath sql.NullString
@@ -26,7 +28,7 @@ func scanTaskSummary(row taskScanner) (TaskSummary, error) {
 
 	if err := row.Scan(
 		&summary.Task.ID, &summary.Task.RepoPath, &summary.Task.RepoName, &summary.Task.Branch, &summary.Task.WorktreePath, &summary.Task.PromptSource, &summary.Task.Prompt, &summary.Task.PromptPreview, &taskStatus, &created, &updated,
-		&runID, &runTaskID, &runAttempt, &supervisorPID, &piSessionFile, &runStatus, &started, &ended, &exitCode, &errorMessage, &controlSocketPath, &stdoutLogPath, &stderrLogPath, &piEventsPath,
+		&runID, &runTaskID, &runAttempt, &supervisorPID, &piSessionFile, &runStatus, &started, &ended, &exitCode, &errorMessage, &agentOptionsJSON, &piArgvJSON, &controlSocketPath, &stdoutLogPath, &stderrLogPath, &piEventsPath,
 	); err != nil {
 		return TaskSummary{}, err
 	}
@@ -45,6 +47,8 @@ func scanTaskSummary(row taskScanner) (TaskSummary, error) {
 		PiSessionFile:     piSessionFile.String,
 		ExitCode:          exitCode,
 		ErrorMessage:      errorMessage.String,
+		AgentOptionsJSON:  agentOptionsJSON.String,
+		PiArgvJSON:        piArgvJSON.String,
 		ControlSocketPath: controlSocketPath.String,
 		StdoutLogPath:     stdoutLogPath.String,
 		StderrLogPath:     stderrLogPath.String,
