@@ -34,7 +34,7 @@ func waitForTask(cmd *cobra.Command, args []string) error {
 	for {
 		view, err := waitStatusView(ctx, taskID)
 		if err != nil {
-			if timeout > 0 && errors.Is(err, context.DeadlineExceeded) {
+			if timeout > 0 && (errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded)) {
 				return waitTimeoutError(taskID, timeout)
 			}
 			return err
