@@ -63,11 +63,12 @@ func (p *ToolPatchConfig) UnmarshalJSON(data []byte) error {
 
 	p.Tool = decoded.Tool
 	p.Annotations = decoded.Annotations
-	if decoded.Disabled != nil {
+	switch {
+	case decoded.Disabled != nil:
 		p.Disabled = *decoded.Disabled
-	} else if decoded.LegacyDisable != nil {
+	case decoded.LegacyDisable != nil:
 		p.Disabled = *decoded.LegacyDisable
-	} else {
+	default:
 		p.Disabled = false
 	}
 	return nil
