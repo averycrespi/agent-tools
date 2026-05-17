@@ -38,7 +38,7 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 	port, _ := cmd.Flags().GetInt("port")
 	noOpen, _ := cmd.Flags().GetBool("no-open")
 	logf := func(format string, args ...any) {
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "pd dashboard: "+format+"\n", args...)
+		dashboardLogf(cmd.ErrOrStderr(), format, args...)
 	}
 	verboseLogf := func(format string, args ...any) {
 		if verbose {
@@ -164,9 +164,13 @@ func dashboardRequestLogger(out io.Writer, verbose bool, next http.Handler) http
 		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(recorder, r)
 		if verbose || recorder.status >= http.StatusBadRequest {
-			_, _ = fmt.Fprintf(out, "pd dashboard: request method=%s path=%s status=%d duration=%s\n", r.Method, r.URL.Path, recorder.status, time.Since(start).Round(time.Millisecond))
+			dashboardLogf(out, "request method=%s path=%s status=%d duration=%s", r.Method, r.URL.Path, recorder.status, time.Since(start).Round(time.Millisecond))
 		}
 	})
+}
+
+func dashboardLogf(out io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(out, format+"\n", args...)
 }
 
 func validateDashboardHost(host string) error {

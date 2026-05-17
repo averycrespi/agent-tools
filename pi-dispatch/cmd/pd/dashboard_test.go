@@ -64,8 +64,17 @@ func TestDashboardRequestLoggerReportsFailedRequestsByDefault(t *testing.T) {
 
 	log := out.String()
 	require.Contains(t, log, "request method=GET path=/dashboard/ status=500")
+	require.NotContains(t, log, "pd dashboard:")
 	require.NotContains(t, log, "secret")
 	require.NotContains(t, log, "token=")
+}
+
+func TestDashboardLogfOmitsCommandPrefix(t *testing.T) {
+	var out bytes.Buffer
+
+	dashboardLogf(&out, "listening addr=%s", "127.0.0.1:8300")
+
+	require.Equal(t, "listening addr=127.0.0.1:8300\n", out.String())
 }
 
 func TestDashboardRequestLoggerReportsSuccessfulRequestsWhenVerbose(t *testing.T) {
