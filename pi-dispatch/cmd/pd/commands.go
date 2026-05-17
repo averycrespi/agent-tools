@@ -62,6 +62,13 @@ var statusCmd = &cobra.Command{
 	RunE:  notImplemented("status"),
 }
 
+var waitCmd = &cobra.Command{
+	Use:   "wait <task-id>",
+	Short: "Wait for a task to finish",
+	Args:  exactArgs("task-id"),
+	RunE:  notImplemented("wait"),
+}
+
 var logsCmd = &cobra.Command{
 	Use:   "logs <task-id>",
 	Short: "Show task logs",
@@ -107,6 +114,7 @@ var supervisorCmd = &cobra.Command{
 }
 
 func init() {
+	waitCmd.Flags().Duration("timeout", 0, "maximum time to wait, such as 30s, 5m, or 1h; 0 waits forever")
 	logsCmd.Flags().BoolP("follow", "f", false, "follow log output")
 	stopCmd.Flags().Bool("force", false, "force termination after graceful abort")
 	rmCmd.Flags().Bool("worktree", false, "also remove the associated worktree")

@@ -18,6 +18,7 @@ pd run "fix the failing tests"
 
 pd ps
 pd status <task-id>
+pd wait --timeout 30m <task-id>
 pd logs -f <task-id>
 pd dashboard
 pd steer <task-id> "focus on the failing package"
@@ -28,9 +29,9 @@ pd rm <task-id>
 pd rm --worktree <task-id>
 ```
 
-`pd run --json`, `pd ps --json`, and `pd status --json <task-id>` emit machine-readable JSON. Mutation commands `pd steer --json`, `pd followup --json`, `pd stop --json`, and `pd rm --json` emit JSON success responses.
+`pd run --json`, `pd ps --json`, `pd status --json <task-id>`, and `pd wait --json <task-id>` emit machine-readable JSON. Mutation commands `pd steer --json`, `pd followup --json`, `pd stop --json`, and `pd rm --json` emit JSON success responses.
 
-`pd status` shows terminal run metadata when available, including ended time, exit code, error message, and Pi session file. `pd ps` stays compact for scanning task IDs.
+`pd status` shows terminal run metadata when available, including ended time, exit code, error message, and Pi session file. `pd ps` stays compact for scanning task IDs. `pd wait <task-id>` blocks until a task reaches a terminal state, prints the final status, and returns immediately if the task is already done. It exits 0 only for `succeeded`; `failed`, `stopped`, `unknown`, and timeout return exit code 1. Use `pd wait --timeout 10m <task-id>` to bound the wait.
 
 `pd logs -f` follows stdout and stderr with `stdout:` / `stderr:` prefixes and prints task status, log path, and raw Pi event stream path before following. `pd status` shows the raw Pi event stream path for advanced debugging.
 

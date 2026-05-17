@@ -11,6 +11,7 @@ Pi Dispatch (`pd`) is a local job runner for autonomous Pi coding-agent runs.
 - Blocking Pi extension UI requests are auto-cancelled in headless mode.
 - SQLite stores compact task and run metadata, including supervisor PID, end time, exit code, error message, and Pi session file. Raw stdout/stderr and Pi RPC JSONL records are stored as files under the task state directory.
 - Inspection commands reconcile stale starting/running/stopping tasks to `unknown` when the supervisor PID is gone; stale control socket files are ignored.
+- `pd wait` polls persisted task state, applies the same stale-supervisor reconciliation as inspection commands, returns immediately for terminal tasks, and can bound the wait with `--timeout`.
 - `pd dashboard` starts Pi Dispatch Dashboard, an on-demand loopback HTTP server for read-only task exploration. It is not a daemon and runs only while the command is active.
 
 ## State model
