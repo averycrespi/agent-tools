@@ -69,13 +69,6 @@ var logsCmd = &cobra.Command{
 	RunE:  notImplemented("logs"),
 }
 
-var attachCmd = &cobra.Command{
-	Use:   "attach <task-id>",
-	Short: "Attach to a read-only task monitor",
-	Args:  exactArgs("task-id"),
-	RunE:  notImplemented("attach"),
-}
-
 var steerCmd = &cobra.Command{
 	Use:     "steer <task-id> <message>",
 	Short:   "Send steering to a running task",

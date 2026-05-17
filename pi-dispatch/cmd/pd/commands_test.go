@@ -25,6 +25,14 @@ func TestRootDoesNotExposeEventsCommand(t *testing.T) {
 	require.Contains(t, err.Error(), "unknown command")
 }
 
+func TestRootDoesNotExposeAttachCommand(t *testing.T) {
+	cmd, _, err := rootCmd.Find([]string{"attach"})
+
+	require.Error(t, err)
+	require.Same(t, rootCmd, cmd)
+	require.Contains(t, err.Error(), "unknown command")
+}
+
 func TestRunDoesNotExposeTemplateFlags(t *testing.T) {
 	require.Nil(t, runCmd.Flags().Lookup("template"))
 	require.Nil(t, runCmd.Flags().ShorthandLookup("t"))

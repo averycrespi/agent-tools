@@ -19,7 +19,6 @@ import (
 
 func init() {
 	logsCmd.RunE = showLogs
-	attachCmd.RunE = attachTask
 	rmCmd.RunE = removeTask
 	steerCmd.RunE = sendSteer
 	followupCmd.RunE = sendFollowUp
@@ -27,11 +26,24 @@ func init() {
 }
 
 func showLogs(cmd *cobra.Command, args []string) error {
-	run, err := latestRun(cmd, args[0])
+	follow, _ := cmd.Flags().GetBool("follow")
+	taskID := args[0]
+	var task store.Task
+	var run store.Run
+	var err error
+	if follow {
+		task, run, err = taskAndRunReconciled(cmd, taskID, processExists)
+	} else {
+		run, err = latestRun(cmd, taskID)
+	}
 	if err != nil {
 		return err
 	}
-	follow, _ := cmd.Flags().GetBool("follow")
+	if follow {
+		if _, err := fmt.Fprintf(os.Stdout, "Task %s [%s]\nLogs: %s\nRaw Pi events: %s\n", task.ID, task.Status, run.StdoutLogPath, run.PiEventsPath); err != nil {
+			return err
+		}
+	}
 	if err := printFile(run.StdoutLogPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -39,24 +51,9 @@ func showLogs(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if follow {
-		return followFiles(logFollowTarget{label: "stdout", path: run.StdoutLogPath}, logFollowTarget{label: "stderr", path: run.StderrLogPath})
+		return followLogFiles(logFollowTarget{label: "stdout", path: run.StdoutLogPath}, logFollowTarget{label: "stderr", path: run.StderrLogPath})
 	}
 	return nil
-}
-
-func attachTask(cmd *cobra.Command, args []string) error {
-	task, run, err := taskAndRunReconciled(cmd, args[0], pdprocess.Exists)
-	if err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(os.Stdout, "Task %s [%s]\nLogs: %s\nRaw Pi events: %s\n", task.ID, task.Status, run.StdoutLogPath, run.PiEventsPath); err != nil {
-		return err
-	}
-	if task.Status == store.StatusRunning || task.Status == store.StatusStarting {
-		return followFiles(logFollowTarget{label: "stdout", path: run.StdoutLogPath}, logFollowTarget{label: "stderr", path: run.StderrLogPath})
-	}
-	_, err = fmt.Fprintf(os.Stdout, "Task is not running. Use `pd logs %s` for persisted output.\n", task.ID)
-	return err
 }
 
 type removeResult struct {
@@ -67,7 +64,7 @@ type removeResult struct {
 
 func removeTask(cmd *cobra.Command, args []string) error {
 	removeWorktree, _ := cmd.Flags().GetBool("worktree")
-	task, run, err := taskAndRunReconciled(cmd, args[0], pdprocess.Exists)
+	task, run, err := taskAndRunReconciled(cmd, args[0], processExists)
 	if err != nil {
 		return err
 	}
@@ -125,10 +122,14 @@ type controlResult struct {
 	OK        bool   `json:"ok"`
 }
 
-var sendControlRequest = control.Send
+var (
+	sendControlRequest = control.Send
+	processExists      = pdprocess.Exists
+	followLogFiles     = followFiles
+)
 
 func sendControl(cmd *cobra.Command, taskID string, req control.Request) error {
-	task, run, err := taskAndRunReconciled(cmd, taskID, pdprocess.Exists)
+	task, run, err := taskAndRunReconciled(cmd, taskID, processExists)
 	if err != nil {
 		return err
 	}

@@ -19,7 +19,6 @@ pd run "fix the failing tests"
 pd ps
 pd status <task-id>
 pd logs -f <task-id>
-pd attach <task-id>
 pd dashboard
 pd steer <task-id> "focus on the failing package"
 pd followup <task-id> "run the full test suite now"
@@ -33,7 +32,7 @@ pd rm --worktree <task-id>
 
 `pd status` shows terminal run metadata when available, including ended time, exit code, error message, and Pi session file. `pd ps` stays compact for scanning task IDs.
 
-`pd logs -f` and `pd attach` follow stdout and stderr with `stdout:` / `stderr:` prefixes. `pd status` shows the raw Pi event stream path for advanced debugging.
+`pd logs -f` follows stdout and stderr with `stdout:` / `stderr:` prefixes and prints task status, log path, and raw Pi event stream path before following. `pd status` shows the raw Pi event stream path for advanced debugging.
 
 `pd dashboard` starts Pi Dispatch Dashboard, a local read-only web UI for exploring tasks, latest run metadata, the latest assistant response, raw Pi event stream paths, and stdout/stderr logs. By default it binds `127.0.0.1:8300`, prints an authenticated URL under `/dashboard/`, emits startup diagnostics and failed request logs to stderr, and opens the browser. Use `pd dashboard --no-open` to print the URL without opening a browser, or `--host` / `--port` to choose another loopback bind address. APIs and SSE live under `/dashboard/api/*` and `/dashboard/events`; `pd --verbose dashboard` logs all request/auth flow details.
 

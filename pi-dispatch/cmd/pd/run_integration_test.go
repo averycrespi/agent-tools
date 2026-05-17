@@ -38,3 +38,12 @@ func TestCheckWorktreeVisibleErrorHasMountGuidance(t *testing.T) {
 	assert.ErrorContains(t, err, "worktree is not visible")
 	assert.ErrorContains(t, err, "writable sb mount")
 }
+
+func TestStartedTaskMessageDoesNotAdvertiseAttach(t *testing.T) {
+	message := startedTaskMessage("pd-123")
+
+	require.Contains(t, message, "Status:  pd status pd-123")
+	require.Contains(t, message, "Logs:    pd logs -f pd-123")
+	require.NotContains(t, message, "Attach:")
+	require.NotContains(t, message, "pd attach")
+}

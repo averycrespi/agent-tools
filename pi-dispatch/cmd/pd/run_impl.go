@@ -136,8 +136,12 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if jsonOut {
 		return output.JSON(os.Stdout, runResult{TaskID: taskID, Status: string(store.StatusStarting)})
 	}
-	_, err = fmt.Fprintf(os.Stdout, "Started task %s\nStatus:  pd status %s\nLogs:    pd logs -f %s\nAttach:  pd attach %s\n", taskID, taskID, taskID, taskID)
+	_, err = fmt.Fprint(os.Stdout, startedTaskMessage(taskID))
 	return err
+}
+
+func startedTaskMessage(taskID string) string {
+	return fmt.Sprintf("Started task %s\nStatus:  pd status %s\nLogs:    pd logs -f %s\n", taskID, taskID, taskID)
 }
 
 func failRunLaunch(ctx context.Context, db *store.Store, taskID string, err error) error {

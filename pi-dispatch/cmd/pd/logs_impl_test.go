@@ -146,7 +146,7 @@ func (w *fakeRemoveWorktree) Remove(repoRoot, branch string) error {
 	return w.err
 }
 
-func TestTaskAndRunReconciledMarksAttachStaleTaskUnknown(t *testing.T) {
+func TestShowLogsFollowPrintsMonitorHeaderAndReconcilesStaleTask(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "pd.db")
 	oldCfg := cfg
 	cfg = pdconfig.Config{DatabasePath: dbPath}
@@ -154,15 +154,42 @@ func TestTaskAndRunReconciledMarksAttachStaleTaskUnknown(t *testing.T) {
 
 	db, err := store.Open(dbPath)
 	require.NoError(t, err)
-	now := time.Now()
+	now := time.Now().Add(-time.Minute)
+	logDir := t.TempDir()
 	task := store.Task{ID: "pd-test", RepoPath: "/repo", RepoName: "repo", Branch: "pd/test", WorktreePath: "/wt", PromptSource: "arg", Prompt: "hello", PromptPreview: "hello", Status: store.StatusRunning, CreatedAt: now, UpdatedAt: now}
-	run := store.Run{ID: "run-test", TaskID: task.ID, Attempt: 1, SupervisorPID: 4242, Status: store.StatusRunning, StartedAt: now, ControlSocketPath: filepath.Join(t.TempDir(), "missing.sock"), StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: "/events"}
+	run := store.Run{ID: "run-test", TaskID: task.ID, Attempt: 1, SupervisorPID: 4242, Status: store.StatusRunning, StartedAt: now, ControlSocketPath: filepath.Join(t.TempDir(), "missing.sock"), StdoutLogPath: filepath.Join(logDir, "stdout.log"), StderrLogPath: filepath.Join(logDir, "stderr.log"), PiEventsPath: filepath.Join(logDir, "pi-events.jsonl")}
+	require.NoError(t, os.WriteFile(run.StdoutLogPath, []byte("old stdout\n"), 0o600))
+	require.NoError(t, os.WriteFile(run.StderrLogPath, []byte("old stderr\n"), 0o600))
 	require.NoError(t, db.CreateTaskWithRun(context.Background(), task, run))
 	require.NoError(t, db.Close())
 
+	cmd := logsTestCommand(t, true)
+	oldFollowLogFiles := followLogFiles
+	followLogFiles = func(targets ...logFollowTarget) error {
+		require.Equal(t, []logFollowTarget{{label: "stdout", path: run.StdoutLogPath}, {label: "stderr", path: run.StderrLogPath}}, targets)
+		return nil
+	}
+	defer func() { followLogFiles = oldFollowLogFiles }()
+	oldProcessExists := processExists
+	processExists = func(int) bool { return false }
+	defer func() { processExists = oldProcessExists }()
+
+	out := captureStdout(t, func() {
+		require.NoError(t, showLogs(cmd, []string{task.ID}))
+	})
+
+	require.Contains(t, out, "Task pd-test [unknown]")
+	require.Contains(t, out, "Logs: "+run.StdoutLogPath)
+	require.Contains(t, out, "Raw Pi events: "+run.PiEventsPath)
+	require.Contains(t, out, "old stdout\n")
+	require.Contains(t, out, "old stderr\n")
+}
+
+func logsTestCommand(t *testing.T, follow bool) *cobra.Command {
+	t.Helper()
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
-	got, _, err := taskAndRunReconciled(cmd, task.ID, func(int) bool { return false })
-	require.NoError(t, err)
-	require.Equal(t, store.StatusUnknown, got.Status)
+	cmd.Flags().BoolP("follow", "f", false, "")
+	require.NoError(t, cmd.Flags().Set("follow", fmt.Sprintf("%t", follow)))
+	return cmd
 }
