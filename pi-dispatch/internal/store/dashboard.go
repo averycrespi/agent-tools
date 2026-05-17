@@ -37,15 +37,3 @@ ORDER BY t.created_at DESC`)
 	}
 	return summaries, rows.Err()
 }
-
-func (s *Store) ListEventsAfter(ctx context.Context, taskID string, afterID int64, limit int) ([]Event, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, task_id, run_id, timestamp, type, message, payload_json FROM events WHERE task_id = ? AND id > ? ORDER BY id LIMIT ?`, taskID, afterID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close() //nolint:errcheck
-	return scanEvents(rows)
-}

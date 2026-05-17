@@ -69,7 +69,6 @@ func init() {
 	runCmd.RunE = runTask
 	listCmd.RunE = listTasks
 	statusCmd.RunE = showStatus
-	eventsCmd.RunE = showEvents
 }
 
 func runTask(cmd *cobra.Command, args []string) error {

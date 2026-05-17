@@ -79,13 +79,6 @@ type Event struct {
 	Raw      json.RawMessage `json:"-"`
 }
 
-func (e Event) CompactType() string {
-	if e.Type == "" {
-		return "pi.unknown"
-	}
-	return "pi." + e.Type
-}
-
 func (e Event) IsExtensionUIRequest() bool { return e.Type == "extension_ui_request" }
 
 func (e Event) IsBlockingExtensionUI() bool {

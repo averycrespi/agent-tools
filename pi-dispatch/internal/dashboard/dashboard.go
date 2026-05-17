@@ -72,16 +72,6 @@ type RunSummary struct {
 	PiEventsPath      string     `json:"pi_events_path"`
 }
 
-type Event struct {
-	ID          int64     `json:"id"`
-	TaskID      string    `json:"task_id"`
-	RunID       string    `json:"run_id"`
-	Timestamp   time.Time `json:"timestamp"`
-	Type        string    `json:"type"`
-	Message     string    `json:"message"`
-	PayloadJSON string    `json:"payload_json"`
-}
-
 type LogWindow struct {
 	Stream     string `json:"stream"`
 	Offset     int64  `json:"offset"`
@@ -98,7 +88,6 @@ func (d *Dashboard) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/tasks", d.handleTasks)
 	mux.HandleFunc("GET /api/tasks/{id}", d.handleTaskDetail)
-	mux.HandleFunc("GET /api/tasks/{id}/events", d.handleTaskEvents)
 	mux.HandleFunc("GET /api/tasks/{id}/logs", d.handleTaskLogs)
 	mux.HandleFunc("GET /events", d.handleEvents)
 	mux.HandleFunc("GET /unauthorized", d.handleUnauthorized)
@@ -146,33 +135,6 @@ func (d *Dashboard) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		responsePreview, responseTruncated = responsePreviewFromPiEvents(run.PiEventsPath)
 	}
 	writeJSON(w, http.StatusOK, TaskDetail{Task: view, LatestRun: latest, ResponsePreview: responsePreview, ResponseTruncated: responseTruncated})
-}
-
-func (d *Dashboard) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
-	afterID, err := parseInt64Query(r, "after_id", 0)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	limit, err := parseIntQuery(r, "limit", 100)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	events, err := d.store.ListEventsAfter(r.Context(), r.PathValue("id"), afterID, limit+1)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	hasMore := len(events) > limit
-	if hasMore {
-		events = events[:limit]
-	}
-	out := make([]Event, 0, len(events))
-	for _, event := range events {
-		out = append(out, eventView(event))
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": out, "has_more": hasMore})
 }
 
 func (d *Dashboard) handleTaskLogs(w http.ResponseWriter, r *http.Request) {
@@ -370,10 +332,6 @@ func runSummaryView(run store.Run) *RunSummary {
 		view.ExitCode = &exitCode
 	}
 	return view
-}
-
-func eventView(event store.Event) Event {
-	return Event{ID: event.ID, TaskID: event.TaskID, RunID: event.RunID, Timestamp: event.Timestamp, Type: event.Type, Message: event.Message, PayloadJSON: event.PayloadJSON}
 }
 
 func readTail(path string, limit int64) ([]byte, error) {

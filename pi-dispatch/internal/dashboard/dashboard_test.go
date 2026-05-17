@@ -28,13 +28,13 @@ func TestIndexIncludesExplorerUI(t *testing.T) {
 	require.Contains(t, body, "Pi Dispatch")
 	require.Contains(t, body, "favicon.svg")
 	require.Contains(t, body, "Search tasks")
-	require.Contains(t, body, "eventClass")
-	require.Contains(t, body, "event-type")
-	require.Contains(t, body, "evt-good")
-	require.Contains(t, body, "loadMoreEvents")
-	require.Contains(t, body, "eventsHasMore")
-	require.Contains(t, body, "Load more events")
-	require.NotContains(t, body, "events-panel').addEventListener('scroll'")
+	require.NotContains(t, body, "eventClass")
+	require.NotContains(t, body, "event-type")
+	require.NotContains(t, body, "evt-good")
+	require.NotContains(t, body, "loadMoreEvents")
+	require.NotContains(t, body, "eventsHasMore")
+	require.NotContains(t, body, "Load more events")
+	require.NotContains(t, body, "events-panel")
 	require.Contains(t, body, "grid-template-columns:minmax(100px,140px) minmax(0,1fr)")
 	require.Contains(t, body, "box-shadow:inset 4px 0 0 var(--accent)")
 	require.Contains(t, body, ".logbar #logstate")
@@ -43,12 +43,13 @@ func TestIndexIncludesExplorerUI(t *testing.T) {
 	require.Contains(t, body, "Disconnected")
 	require.Contains(t, body, "Connected")
 	require.Contains(t, body, `data-tab="overview"`)
-	require.Contains(t, body, `data-tab="events"`)
+	require.NotContains(t, body, `data-tab="events"`)
 	require.Contains(t, body, `data-tab="logs"`)
 	require.Contains(t, body, "location.hash")
 	require.Contains(t, body, "setTab(state.tab)")
 	require.Contains(t, body, "promptText(d.task)")
 	require.Contains(t, body, "responseText(d)")
+	require.Contains(t, body, "pi_events")
 	require.Contains(t, body, "api('api/tasks')")
 	require.Contains(t, body, "new EventSource('events')")
 	require.Contains(t, body, "if(state.selected)await refreshSelectedTask()")
@@ -185,23 +186,15 @@ func TestAPITaskDetailReportsTruncatedPrompt(t *testing.T) {
 	require.True(t, payload.Task.PromptTruncated)
 }
 
-func TestAPITaskEventsSupportsAfterLimitAndHasMore(t *testing.T) {
+func TestAPITaskEventsRouteIsNotExposed(t *testing.T) {
 	st, task := testStore(t)
-	require.NoError(t, st.AddEvent(context.Background(), store.Event{TaskID: task.ID, RunID: "run-test", Timestamp: time.Now(), Type: "three"}))
 	dash := New(st)
 
 	rec := httptest.NewRecorder()
-	dash.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID+"/events?after_id=1&limit=1", nil))
+	dash.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID+"/events", nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	var payload struct {
-		Events  []Event `json:"events"`
-		HasMore bool    `json:"has_more"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
-	require.Len(t, payload.Events, 1)
-	require.Equal(t, int64(2), payload.Events[0].ID)
-	require.True(t, payload.HasMore)
+	require.Contains(t, rec.Body.String(), "Pi Dispatch")
 }
 
 func TestAPITaskLogsReadsBoundedWindow(t *testing.T) {
@@ -268,7 +261,5 @@ func testStore(t *testing.T) (*store.Store, store.Task) {
 	task := store.Task{ID: "pd-test", RepoPath: "/repo", RepoName: "repo", Branch: "pd/test", WorktreePath: "/wt", PromptSource: "arg", Prompt: "hello", PromptPreview: "hello", Status: store.StatusRunning, CreatedAt: now, UpdatedAt: now}
 	run := store.Run{ID: "run-test", TaskID: task.ID, Attempt: 1, SupervisorPID: 123, Status: store.StatusRunning, StartedAt: now, EndedAt: sql.NullTime{}, ControlSocketPath: "/sock", StdoutLogPath: stdout, StderrLogPath: stderr, PiEventsPath: "/events"}
 	require.NoError(t, st.CreateTaskWithRun(context.Background(), task, run))
-	require.NoError(t, st.AddEvent(context.Background(), store.Event{TaskID: task.ID, RunID: run.ID, Timestamp: now, Type: "one"}))
-	require.NoError(t, st.AddEvent(context.Background(), store.Event{TaskID: task.ID, RunID: run.ID, Timestamp: now, Type: "two"}))
 	return st, task
 }

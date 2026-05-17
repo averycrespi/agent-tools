@@ -69,13 +69,6 @@ var logsCmd = &cobra.Command{
 	RunE:  notImplemented("logs"),
 }
 
-var eventsCmd = &cobra.Command{
-	Use:   "events <task-id>",
-	Short: "Show task events",
-	Args:  exactArgs("task-id"),
-	RunE:  notImplemented("events"),
-}
-
 var attachCmd = &cobra.Command{
 	Use:   "attach <task-id>",
 	Short: "Attach to a read-only task monitor",

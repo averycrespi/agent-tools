@@ -103,7 +103,7 @@ func showStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if view.Run != nil {
-		if _, err := fmt.Fprintf(os.Stdout, "Logs:    %s\nEvents:  %s\n", view.Run.StdoutLogPath, view.Run.PiEventsPath); err != nil {
+		if _, err := fmt.Fprintf(os.Stdout, "Logs:          %s\nRaw Pi events: %s\n", view.Run.StdoutLogPath, view.Run.PiEventsPath); err != nil {
 			return err
 		}
 		if view.Run.EndedAt != nil {
@@ -125,30 +125,6 @@ func showStatus(cmd *cobra.Command, args []string) error {
 			if _, err := fmt.Fprintf(os.Stdout, "Session: %s\n", view.Run.PiSessionFile); err != nil {
 				return err
 			}
-		}
-	}
-	return nil
-}
-
-func showEvents(cmd *cobra.Command, args []string) error {
-	db, err := store.Open(cfg.DBPath())
-	if err != nil {
-		return err
-	}
-	defer db.Close() //nolint:errcheck
-	if _, err := db.GetTask(cmd.Context(), args[0]); err != nil {
-		return taskLookupError(args[0], err)
-	}
-	events, err := db.ListEvents(cmd.Context(), args[0])
-	if err != nil {
-		return err
-	}
-	if jsonOut {
-		return output.JSON(os.Stdout, events)
-	}
-	for _, event := range events {
-		if _, err := fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", event.Timestamp.Format(time.RFC3339), event.Type, event.Message); err != nil {
-			return err
 		}
 	}
 	return nil

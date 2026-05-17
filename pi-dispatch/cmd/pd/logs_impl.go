@@ -49,13 +49,13 @@ func attachTask(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(os.Stdout, "Task %s [%s]\nLogs: %s\nEvents: %s\n", task.ID, task.Status, run.StdoutLogPath, run.PiEventsPath); err != nil {
+	if _, err := fmt.Fprintf(os.Stdout, "Task %s [%s]\nLogs: %s\nRaw Pi events: %s\n", task.ID, task.Status, run.StdoutLogPath, run.PiEventsPath); err != nil {
 		return err
 	}
 	if task.Status == store.StatusRunning || task.Status == store.StatusStarting {
 		return followFiles(logFollowTarget{label: "stdout", path: run.StdoutLogPath}, logFollowTarget{label: "stderr", path: run.StderrLogPath})
 	}
-	_, err = fmt.Fprintf(os.Stdout, "Task is not running. Use `pd logs %s` or `pd events %s` for persisted output.\n", task.ID, task.ID)
+	_, err = fmt.Fprintf(os.Stdout, "Task is not running. Use `pd logs %s` for persisted output.\n", task.ID)
 	return err
 }
 

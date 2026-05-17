@@ -22,6 +22,17 @@ func TestOpenCreatesSchemaAndInsertTaskRun(t *testing.T) {
 	require.NoError(t, st.CreateTaskWithRun(context.Background(), task, run))
 }
 
+func TestOpenDoesNotCreateEventsTable(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "pd.db"))
+	require.NoError(t, err)
+	defer st.Close() //nolint:errcheck
+
+	var count int
+	err = st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'events'`).Scan(&count)
+	require.NoError(t, err)
+	require.Zero(t, count)
+}
+
 func TestCompleteRunRecordsTerminalMetadata(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "pd.db"))
 	require.NoError(t, err)
@@ -47,7 +58,7 @@ func TestCompleteRunRecordsTerminalMetadata(t *testing.T) {
 	require.Equal(t, "/tmp/session.json", gotRun.PiSessionFile)
 }
 
-func TestDeleteTaskDeletesTaskRunsAndEvents(t *testing.T) {
+func TestDeleteTaskDeletesTaskAndRuns(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "pd.db"))
 	require.NoError(t, err)
 	defer st.Close() //nolint:errcheck
@@ -56,16 +67,12 @@ func TestDeleteTaskDeletesTaskRunsAndEvents(t *testing.T) {
 	task := Task{ID: "pd-test", RepoPath: "/repo", RepoName: "repo", Branch: "pd/test", WorktreePath: "/wt", PromptSource: "arg", Prompt: "hello", PromptPreview: "hello", Status: StatusFailed, CreatedAt: now, UpdatedAt: now}
 	run := Run{ID: "run-test", TaskID: task.ID, Attempt: 1, Status: StatusFailed, StartedAt: now, ControlSocketPath: "/sock", StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: "/events"}
 	require.NoError(t, st.CreateTaskWithRun(context.Background(), task, run))
-	require.NoError(t, st.AddEvent(context.Background(), Event{TaskID: task.ID, RunID: run.ID, Timestamp: now, Type: "test", Message: "event"}))
 
 	require.NoError(t, st.DeleteTask(context.Background(), task.ID))
 	_, err = st.GetTask(context.Background(), task.ID)
 	require.ErrorIs(t, err, sql.ErrNoRows)
 	_, err = st.LatestRun(context.Background(), task.ID)
 	require.ErrorIs(t, err, sql.ErrNoRows)
-	events, err := st.ListEvents(context.Background(), task.ID)
-	require.NoError(t, err)
-	require.Empty(t, events)
 }
 
 func TestUpdateRunSupervisorPID(t *testing.T) {
@@ -109,24 +116,4 @@ func TestListTaskSummariesIncludesLatestRun(t *testing.T) {
 	require.Equal(t, "run-new-2", summaries[0].LatestRun.Run.ID)
 	require.Equal(t, 2, summaries[0].LatestRun.Run.Attempt)
 	require.Equal(t, "pd-old", summaries[1].Task.ID)
-}
-
-func TestListEventsAfterLimitsIncrementalResults(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "pd.db"))
-	require.NoError(t, err)
-	defer st.Close() //nolint:errcheck
-
-	now := time.Now()
-	task := Task{ID: "pd-test", RepoPath: "/repo", RepoName: "repo", Branch: "pd/test", WorktreePath: "/wt", PromptSource: "arg", Prompt: "hello", PromptPreview: "hello", Status: StatusRunning, CreatedAt: now, UpdatedAt: now}
-	run := Run{ID: "run-test", TaskID: task.ID, Attempt: 1, Status: StatusRunning, StartedAt: now, ControlSocketPath: "/sock", StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: "/events"}
-	require.NoError(t, st.CreateTaskWithRun(context.Background(), task, run))
-	require.NoError(t, st.AddEvent(context.Background(), Event{TaskID: task.ID, RunID: run.ID, Timestamp: now, Type: "one"}))
-	require.NoError(t, st.AddEvent(context.Background(), Event{TaskID: task.ID, RunID: run.ID, Timestamp: now, Type: "two"}))
-	require.NoError(t, st.AddEvent(context.Background(), Event{TaskID: task.ID, RunID: run.ID, Timestamp: now, Type: "three"}))
-
-	events, err := st.ListEventsAfter(context.Background(), task.ID, 1, 1)
-	require.NoError(t, err)
-	require.Len(t, events, 1)
-	require.Equal(t, int64(2), events[0].ID)
-	require.Equal(t, "two", events[0].Type)
 }

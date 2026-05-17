@@ -77,15 +77,12 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 	if err := db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusRunning); err != nil {
 		return finishSupervisor(cmd.Context(), db, run, proc, &supervisorRunState{}, err, err.Error())
 	}
-	addEvent(db, run, "supervisor.started", "supervisor started")
 	go io.Copy(stderrLog, proc.Stderr()) //nolint:errcheck
 
 	client := pi.NewClient(proc.Stdin(), io.TeeReader(proc.Stdout(), stdoutLog))
 	state := &supervisorRunState{queuesEmpty: true}
 	server, err := control.Listen(run.ControlSocketPath)
-	if err != nil {
-		addEvent(db, run, "control.failed", err.Error())
-	} else {
+	if err == nil {
 		defer server.Close() //nolint:errcheck
 		go server.Serve(func(req control.Request) control.Response {
 			switch req.Operation {
@@ -105,7 +102,6 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 	}
 
 	if err := client.Prompt(task.Prompt); err != nil {
-		addEvent(db, run, "supervisor.failed", err.Error())
 		return db.CompleteRun(cmd.Context(), supervisorTaskID, store.StatusFailed, 1, err.Error(), "")
 	}
 	for {
@@ -117,15 +113,12 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 			break
 		}
 		if err != nil {
-			addEvent(db, run, "pi.error", err.Error())
 			return finishSupervisor(cmd.Context(), db, run, proc, state, err, err.Error())
 		}
 		if event.IsExtensionUIRequest() && event.IsBlockingExtensionUI() {
 			_ = client.ExtensionUIResponse(event.ID, true, nil)
-			addEvent(db, run, "pi.extension_ui.auto_cancelled", event.Method)
 			continue
 		}
-		addPiEvent(db, run, event)
 		if event.Type == "queue_update" {
 			state.queuesEmpty = queueUpdateEmpty(raw)
 		}
@@ -213,23 +206,16 @@ func finishSupervisor(ctx context.Context, db *store.Store, run store.Run, proc 
 	if message == "" {
 		message = "agent run completed"
 	}
-	eventType := "supervisor.succeeded"
 	exitCode := 0
 	errorMessage := ""
-	switch status {
-	case store.StatusStopped:
-		eventType = "supervisor.stopped"
-	case store.StatusFailed:
-		eventType = "supervisor.failed"
+	if status == store.StatusFailed {
 		exitCode = 1
 		errorMessage = message
 	}
-	addEvent(db, run, eventType, message)
 	return db.CompleteRun(ctx, run.TaskID, status, exitCode, errorMessage, state.piSessionFile)
 }
 
 func failSupervisorStartup(ctx context.Context, db *store.Store, run store.Run, err error) error {
-	addEvent(db, run, "supervisor.failed", err.Error())
 	if completeErr := db.CompleteRun(ctx, run.TaskID, store.StatusFailed, 1, err.Error(), ""); completeErr != nil {
 		return completeErr
 	}
@@ -264,16 +250,6 @@ func response(err error) control.Response {
 	}
 	return control.Response{OK: true}
 }
-
-func addPiEvent(db *store.Store, run store.Run, event pi.Event) {
-	addEvent(db, run, event.CompactType(), event.Type)
-}
-
-func addEvent(db *store.Store, run store.Run, typ, message string) {
-	_ = db.AddEvent(contextTODO(), store.Event{TaskID: run.TaskID, RunID: run.ID, Timestamp: time.Now(), Type: typ, Message: message})
-}
-
-func contextTODO() context.Context { return context.Background() }
 
 func queueUpdateEmpty(raw []byte) bool {
 	var payload struct {

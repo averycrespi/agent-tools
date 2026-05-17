@@ -56,16 +56,6 @@ type Run struct {
 	PiEventsPath      string
 }
 
-type Event struct {
-	ID          int64
-	TaskID      string
-	RunID       string
-	Timestamp   time.Time
-	Type        string
-	Message     string
-	PayloadJSON string
-}
-
 type Store struct {
 	db *sql.DB
 }
@@ -105,17 +95,6 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 CREATE INDEX IF NOT EXISTS idx_runs_task_id ON runs(task_id);
 
-CREATE TABLE IF NOT EXISTS events (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id      TEXT NOT NULL REFERENCES tasks(id),
-    run_id       TEXT NOT NULL REFERENCES runs(id),
-    timestamp    TEXT NOT NULL,
-    type         TEXT NOT NULL,
-    message      TEXT NOT NULL DEFAULT '',
-    payload_json TEXT NOT NULL DEFAULT ''
-);
-CREATE INDEX IF NOT EXISTS idx_events_task_id_id ON events(task_id, id);
-CREATE INDEX IF NOT EXISTS idx_events_run_id_id ON events(run_id, id);
 `
 
 func Open(path string) (*Store, error) {
@@ -211,20 +190,12 @@ func (s *Store) CompleteRun(ctx context.Context, taskID string, status TaskStatu
 	return tx.Commit()
 }
 
-func (s *Store) AddEvent(ctx context.Context, event Event) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO events (task_id, run_id, timestamp, type, message, payload_json) VALUES (?, ?, ?, ?, ?, ?)`, event.TaskID, event.RunID, formatTime(event.Timestamp), event.Type, event.Message, event.PayloadJSON)
-	return err
-}
-
 func (s *Store) DeleteTask(ctx context.Context, taskID string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
-	if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE task_id = ?`, taskID); err != nil {
-		return err
-	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM runs WHERE task_id = ?`, taskID); err != nil {
 		return err
 	}
