@@ -14,6 +14,7 @@ import (
 type Config struct {
 	Servers                map[string]ServerConfig `json:"servers"`
 	Rules                  []RuleConfig            `json:"rules"`
+	ToolPatches            []ToolPatchConfig       `json:"tool_patches,omitempty"`
 	Host                   string                  `json:"host"`
 	Port                   int                     `json:"port"`
 	OpenBrowser            bool                    `json:"open_browser"`
@@ -40,6 +41,22 @@ type RuleConfig struct {
 	Tool    string       `json:"tool"`
 	Verdict string       `json:"verdict"`
 	Args    []ArgPattern `json:"args,omitempty"`
+}
+
+// ToolPatchConfig defines a load-time transform for a discovered tool.
+type ToolPatchConfig struct {
+	Tool        string                `json:"tool"`
+	Disable     bool                  `json:"disable,omitempty"`
+	Annotations *ToolAnnotationsPatch `json:"annotations,omitempty"`
+}
+
+// ToolAnnotationsPatch defines field-level overrides for MCP tool annotations.
+type ToolAnnotationsPatch struct {
+	Title           *string `json:"title,omitempty"`
+	ReadOnlyHint    *bool   `json:"readOnlyHint,omitempty"`
+	DestructiveHint *bool   `json:"destructiveHint,omitempty"`
+	IdempotentHint  *bool   `json:"idempotentHint,omitempty"`
+	OpenWorldHint   *bool   `json:"openWorldHint,omitempty"`
 }
 
 // ArgPattern constrains a rule to tool calls where the value at Path matches.

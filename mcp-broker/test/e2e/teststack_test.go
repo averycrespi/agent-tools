@@ -140,6 +140,7 @@ func startMockBackend(t *testing.T, tools []toolDef) string {
 type testConfig struct {
 	Servers     map[string]testServerConfig `json:"servers"`
 	Rules       []testRuleConfig            `json:"rules"`
+	ToolPatches []testToolPatchConfig       `json:"tool_patches,omitempty"`
 	Port        int                         `json:"port"`
 	OpenBrowser bool                        `json:"open_browser"`
 	Audit       testAuditConfig             `json:"audit"`
@@ -162,6 +163,20 @@ type testArgPattern struct {
 	Match json.RawMessage `json:"match"`
 }
 
+type testToolPatchConfig struct {
+	Tool        string                    `json:"tool"`
+	Disable     bool                      `json:"disable,omitempty"`
+	Annotations *testToolAnnotationsPatch `json:"annotations,omitempty"`
+}
+
+type testToolAnnotationsPatch struct {
+	Title           *string `json:"title,omitempty"`
+	ReadOnlyHint    *bool   `json:"readOnlyHint,omitempty"`
+	DestructiveHint *bool   `json:"destructiveHint,omitempty"`
+	IdempotentHint  *bool   `json:"idempotentHint,omitempty"`
+	OpenWorldHint   *bool   `json:"openWorldHint,omitempty"`
+}
+
 type testAuditConfig struct {
 	Path string `json:"path"`
 }
@@ -180,8 +195,9 @@ type TestStack struct {
 }
 
 type stackOpts struct {
-	Tools []toolDef
-	Rules []testRuleConfig
+	Tools       []toolDef
+	Rules       []testRuleConfig
+	ToolPatches []testToolPatchConfig
 }
 
 func newTestStack(t *testing.T, opts stackOpts) *TestStack {
@@ -206,6 +222,7 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 			"echo": {Type: "streamable-http", URL: backendURL},
 		},
 		Rules:       rules,
+		ToolPatches: opts.ToolPatches,
 		Port:        brokerPort,
 		OpenBrowser: false,
 		Audit:       testAuditConfig{Path: filepath.Join(tmpDir, "audit.db")},

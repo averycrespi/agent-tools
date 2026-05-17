@@ -127,6 +127,129 @@ func TestToBrokerTool_DropsEmptyAnnotationsAndOutputSchema(t *testing.T) {
 	require.Equal(t, "object", rich.OutputSchema.Type)
 }
 
+func TestManager_DiscoverTools_AppliesDisablePatch(t *testing.T) {
+	mb := new(mockBackend)
+	mb.On("ListTools", mock.Anything).Return([]Tool{
+		{Name: "search", Description: "Search"},
+		{Name: "delete", Description: "Delete"},
+	}, nil)
+
+	m := &Manager{
+		backends: map[string]Backend{"github": mb},
+		tools:    make(map[string]toolEntry),
+		toolPatches: []config.ToolPatchConfig{
+			{Tool: "github.delete", Disable: true},
+		},
+	}
+
+	require.NoError(t, m.discover(context.Background()))
+
+	tools := m.Tools()
+	require.Len(t, tools, 1)
+	require.Equal(t, "github.search", tools[0].Name)
+
+	_, err := m.Call(context.Background(), "github.delete", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown tool")
+}
+
+func TestManager_DiscoverTools_MergesAnnotationPatch(t *testing.T) {
+	readOnly := false
+	destructive := true
+	idempotent := true
+	openWorld := false
+	backendTitle := "Backend search"
+	patchTitle := "Patched search"
+	patchedReadOnly := true
+	patchedDestructive := false
+
+	mb := new(mockBackend)
+	mb.On("ListTools", mock.Anything).Return([]Tool{
+		{
+			Name:        "search",
+			Description: "Search",
+			Annotations: &mcp.ToolAnnotation{
+				Title:           backendTitle,
+				ReadOnlyHint:    &readOnly,
+				DestructiveHint: &destructive,
+				IdempotentHint:  &idempotent,
+				OpenWorldHint:   &openWorld,
+			},
+		},
+	}, nil)
+
+	m := &Manager{
+		backends: map[string]Backend{"github": mb},
+		tools:    make(map[string]toolEntry),
+		toolPatches: []config.ToolPatchConfig{
+			{
+				Tool: "github.search",
+				Annotations: &config.ToolAnnotationsPatch{
+					Title:           &patchTitle,
+					ReadOnlyHint:    &patchedReadOnly,
+					DestructiveHint: &patchedDestructive,
+				},
+			},
+		},
+	}
+
+	require.NoError(t, m.discover(context.Background()))
+
+	tools := m.Tools()
+	require.Len(t, tools, 1)
+	annotations := tools[0].Annotations
+	require.NotNil(t, annotations)
+	require.Equal(t, patchTitle, annotations.Title)
+	require.True(t, *annotations.ReadOnlyHint)
+	require.False(t, *annotations.DestructiveHint)
+	require.True(t, *annotations.IdempotentHint)
+	require.False(t, *annotations.OpenWorldHint)
+}
+
+func TestManager_DiscoverTools_CreatesAnnotationPatch(t *testing.T) {
+	readOnly := true
+	mb := new(mockBackend)
+	mb.On("ListTools", mock.Anything).Return([]Tool{{Name: "search", Description: "Search"}}, nil)
+
+	m := &Manager{
+		backends: map[string]Backend{"github": mb},
+		tools:    make(map[string]toolEntry),
+		toolPatches: []config.ToolPatchConfig{
+			{Tool: "github.search", Annotations: &config.ToolAnnotationsPatch{ReadOnlyHint: &readOnly}},
+		},
+	}
+
+	require.NoError(t, m.discover(context.Background()))
+
+	tools := m.Tools()
+	require.Len(t, tools, 1)
+	require.NotNil(t, tools[0].Annotations)
+	require.True(t, *tools[0].Annotations.ReadOnlyHint)
+}
+
+func TestManager_DiscoverTools_FirstPatchWins(t *testing.T) {
+	firstTitle := "first"
+	secondTitle := "second"
+	mb := new(mockBackend)
+	mb.On("ListTools", mock.Anything).Return([]Tool{{Name: "search", Description: "Search"}}, nil)
+
+	m := &Manager{
+		backends: map[string]Backend{"github": mb},
+		tools:    make(map[string]toolEntry),
+		toolPatches: []config.ToolPatchConfig{
+			{Tool: "github.*", Annotations: &config.ToolAnnotationsPatch{Title: &firstTitle}},
+			{Tool: "github.search", Annotations: &config.ToolAnnotationsPatch{Title: &secondTitle}},
+		},
+	}
+
+	require.NoError(t, m.discover(context.Background()))
+
+	tools := m.Tools()
+	require.Len(t, tools, 1)
+	require.NotNil(t, tools[0].Annotations)
+	require.Equal(t, firstTitle, tools[0].Annotations.Title)
+}
+
 func TestManager_Call_ProxiesToCorrectBackend(t *testing.T) {
 	mb := new(mockBackend)
 	mb.On("ListTools", mock.Anything).Return([]Tool{

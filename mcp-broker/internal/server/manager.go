@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
@@ -77,17 +78,19 @@ type toolEntry struct {
 
 // Manager manages connections to backend MCP servers.
 type Manager struct {
-	backends map[string]Backend
-	tools    map[string]toolEntry
-	logger   *slog.Logger
+	backends    map[string]Backend
+	tools       map[string]toolEntry
+	toolPatches []config.ToolPatchConfig
+	logger      *slog.Logger
 }
 
 // NewManager creates a Manager and connects to all configured backends.
-func NewManager(ctx context.Context, servers map[string]config.ServerConfig, logger *slog.Logger) (*Manager, error) {
+func NewManager(ctx context.Context, servers map[string]config.ServerConfig, toolPatches []config.ToolPatchConfig, logger *slog.Logger) (*Manager, error) {
 	m := &Manager{
-		backends: make(map[string]Backend),
-		tools:    make(map[string]toolEntry),
-		logger:   logger,
+		backends:    make(map[string]Backend),
+		tools:       make(map[string]toolEntry),
+		toolPatches: toolPatches,
+		logger:      logger,
 	}
 
 	for name, srv := range servers {
@@ -131,17 +134,15 @@ func (m *Manager) discover(ctx context.Context) error {
 		}
 		for _, tool := range tools {
 			prefixed := name + "." + tool.Name
+			tool.Name = prefixed
+			patched, disabled := m.applyToolPatch(tool)
+			if disabled {
+				continue
+			}
 			m.tools[prefixed] = toolEntry{
 				backend:      backend,
-				originalName: tool.Name,
-				tool: Tool{
-					Name:         prefixed,
-					Description:  tool.Description,
-					InputSchema:  tool.InputSchema,
-					OutputSchema: tool.OutputSchema,
-					Annotations:  tool.Annotations,
-					Meta:         tool.Meta,
-				},
+				originalName: tool.Name[len(name)+1:],
+				tool:         patched,
 			}
 		}
 		if m.logger != nil {
@@ -149,6 +150,49 @@ func (m *Manager) discover(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (m *Manager) applyToolPatch(tool Tool) (Tool, bool) {
+	for _, patch := range m.toolPatches {
+		matched, err := filepath.Match(patch.Tool, tool.Name)
+		if err != nil || !matched {
+			continue
+		}
+		if patch.Disable {
+			return tool, true
+		}
+		if patch.Annotations != nil {
+			tool.Annotations = mergeAnnotations(tool.Annotations, patch.Annotations)
+		}
+		return tool, false
+	}
+	return tool, false
+}
+
+func mergeAnnotations(base *mcp.ToolAnnotation, patch *config.ToolAnnotationsPatch) *mcp.ToolAnnotation {
+	if patch == nil {
+		return base
+	}
+	merged := mcp.ToolAnnotation{}
+	if base != nil {
+		merged = *base
+	}
+	if patch.Title != nil {
+		merged.Title = *patch.Title
+	}
+	if patch.ReadOnlyHint != nil {
+		merged.ReadOnlyHint = patch.ReadOnlyHint
+	}
+	if patch.DestructiveHint != nil {
+		merged.DestructiveHint = patch.DestructiveHint
+	}
+	if patch.IdempotentHint != nil {
+		merged.IdempotentHint = patch.IdempotentHint
+	}
+	if patch.OpenWorldHint != nil {
+		merged.OpenWorldHint = patch.OpenWorldHint
+	}
+	return &merged
 }
 
 // Tools returns all discovered tools across all backends.

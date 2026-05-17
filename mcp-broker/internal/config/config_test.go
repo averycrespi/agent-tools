@@ -116,6 +116,85 @@ func TestLoad_OpenBrowserFromJSON(t *testing.T) {
 	require.False(t, cfg.OpenBrowser)
 }
 
+func TestConfig_ToolPatchesRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	data := `{
+		"tool_patches": [
+			{
+				"tool": "github.search_*",
+				"annotations": {
+					"title": "GitHub search",
+					"readOnlyHint": true,
+					"destructiveHint": false,
+					"idempotentHint": true,
+					"openWorldHint": true
+				}
+			},
+			{"tool": "github.delete_*", "disable": true}
+		]
+	}`
+	err := os.WriteFile(path, []byte(data), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Len(t, cfg.ToolPatches, 2)
+
+	patch := cfg.ToolPatches[0]
+	require.Equal(t, "github.search_*", patch.Tool)
+	require.NotNil(t, patch.Annotations)
+	require.Equal(t, "GitHub search", *patch.Annotations.Title)
+	require.True(t, *patch.Annotations.ReadOnlyHint)
+	require.False(t, *patch.Annotations.DestructiveHint)
+	require.True(t, *patch.Annotations.IdempotentHint)
+	require.True(t, *patch.Annotations.OpenWorldHint)
+	require.True(t, cfg.ToolPatches[1].Disable)
+
+	_, err = Save(cfg, path)
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"readOnlyHint": true`)
+	require.Contains(t, string(raw), `"destructiveHint": false`)
+	require.NotContains(t, string(raw), "ReadOnlyHint")
+	require.NotContains(t, string(raw), "DestructiveHint")
+
+	cfg2, err := Load(path)
+	require.NoError(t, err)
+	require.Len(t, cfg2.ToolPatches, 2)
+	require.False(t, *cfg2.ToolPatches[0].Annotations.DestructiveHint)
+}
+
+func TestConfig_ToolPatchOmittedAnnotations(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	err := os.WriteFile(path, []byte(`{"tool_patches": [{"tool": "github.delete_*", "disable": true}]}`), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Len(t, cfg.ToolPatches, 1)
+	require.Nil(t, cfg.ToolPatches[0].Annotations)
+
+	_, err = Save(cfg, path)
+	require.NoError(t, err)
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+	patches, ok := decoded["tool_patches"].([]any)
+	require.True(t, ok)
+	patch, ok := patches[0].(map[string]any)
+	require.True(t, ok)
+	_, hasAnnotations := patch["annotations"]
+	require.False(t, hasAnnotations)
+}
+
 func TestConfigPath_ReturnsXDGPath(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)

@@ -93,7 +93,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	// Connect to backend servers
 	ctx := context.Background()
-	mgr, err := server.NewManager(ctx, cfg.Servers, logger.With("component", "server"))
+	mgr, err := server.NewManager(ctx, cfg.Servers, cfg.ToolPatches, logger.With("component", "server"))
 	if err != nil {
 		return fmt.Errorf("creating server manager: %w", err)
 	}

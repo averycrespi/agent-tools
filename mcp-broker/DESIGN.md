@@ -71,7 +71,9 @@ Each backend server has a name (from config). When tools are discovered, they ar
 
 Single JSON file at `~/.config/mcp-broker/config.json`. On first run, a default config is written. The `Refresh` function loads, overlays defaults for new fields, and writes back — useful for upgrading config after new features are added.
 
-Config is loaded once at startup. Defaults:
+Config is loaded once at startup. In addition to backend server and rule policy, config may include `tool_patches`: ordered load-time transforms for discovered tools. Tool patch patterns match broker-prefixed tool names with `filepath.Match`; the first matching patch applies. `disable: true` removes the tool from the broker registry, and `annotations` merges field-by-field into MCP tool annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). `_meta` is passed through unchanged and is not patched.
+
+Defaults:
 
 - Host: `127.0.0.1` (must resolve to a loopback interface — validated at startup)
 - Port: 8200
@@ -142,9 +144,11 @@ Manages connections to backend MCP servers. At startup:
 1. Connects to each configured server (stdio subprocess, HTTP, SSE, or OAuth)
 2. Sends MCP `initialize` handshake
 3. Calls `tools/list` to discover available tools
-4. Builds a registry of `<server>.<tool>` → backend mapping
+4. Prefixes each tool name as `<server>.<tool>`
+5. Applies the first matching `tool_patches` entry, if any
+6. Builds a registry of `<server>.<tool>` → backend mapping
 
-Tool descriptors are passed through to clients with full fidelity: in addition to name and input schema, the broker preserves each tool's `outputSchema`, `annotations` (including `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), and `_meta` from the upstream backend. The only field the broker rewrites is the tool name, which is prefixed with `<server>.` for routing.
+Tool descriptors are passed through to clients with full fidelity: in addition to name and input schema, the broker preserves each tool's `outputSchema`, `annotations` (including `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), and `_meta` from the upstream backend. The broker rewrites the tool name with a `<server>.` prefix for routing, may merge configured annotation patches, and may remove configured disabled tools from the registry entirely. Disabled tools are not listed in MCP `tools/list`, the dashboard tools view, or rule debugging views, and cannot be routed through the broker.
 
 The `Backend` interface abstracts transport:
 

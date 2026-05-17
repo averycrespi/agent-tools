@@ -82,6 +82,18 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
     { "tool": "github.push*", "verdict": "require-approval" },
     { "tool": "*", "verdict": "require-approval" }
   ],
+  "tool_patches": [
+    {
+      "tool": "github.search_*",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    { "tool": "github.delete_*", "disable": true }
+  ],
   "host": "127.0.0.1",
   "port": 8200,
   "approval_timeout_seconds": 600,
@@ -178,6 +190,30 @@ Rules can optionally constrain on argument values using the `args` field. All pa
 `path` is a dot-separated field path (e.g. `remote`, `commit.message`, `command.0`). `match` is either a bare string for exact matching or `{"regex": "<RE2 pattern>"}` for regex matching. If a path cannot be resolved (missing key, wrong type, out-of-range index), the rule does not match and evaluation continues.
 
 Note: regexes are not auto-anchored — use `^...$` for full-match semantics.
+
+### Tool patches
+
+Tool patches are optional load-time transforms for discovered tools. They match the broker-prefixed tool name, such as `github.search_code`, using the same `filepath.Match` glob syntax as rules. Patches are evaluated top-to-bottom and only the first matching patch applies.
+
+```json
+{
+  "tool_patches": [
+    {
+      "tool": "github.search_*",
+      "annotations": {
+        "title": "GitHub search",
+        "readOnlyHint": true,
+        "destructiveHint": false
+      }
+    },
+    { "tool": "github.delete_*", "disable": true }
+  ]
+}
+```
+
+`annotations` merges field-by-field with upstream MCP tool annotations: fields present in the patch override upstream values, omitted fields are preserved, and missing upstream annotations are created. Supported fields are `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`.
+
+`disable: true` removes matching tools from the broker registry. Disabled tools do not appear in MCP `tools/list` or the dashboard and cannot be called through the broker.
 
 ## Authentication
 

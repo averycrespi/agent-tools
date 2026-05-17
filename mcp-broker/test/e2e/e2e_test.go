@@ -178,6 +178,98 @@ func TestE2E_AnnotationsRoundTripThroughBroker(t *testing.T) {
 	require.Empty(t, plain.OutputSchema.Type)
 }
 
+func TestE2E_ToolPatchesDisableTool(t *testing.T) {
+	s := newTestStack(t, stackOpts{
+		Tools: []toolDef{
+			{Name: "search", Description: "Search", Response: `{"hits":0}`},
+			{Name: "delete", Description: "Delete", Response: `{"deleted":true}`},
+		},
+		Rules: []testRuleConfig{{Tool: "*", Verdict: "allow"}},
+		ToolPatches: []testToolPatchConfig{
+			{Tool: "echo.delete", Disable: true},
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	list, err := s.Client.ListTools(ctx, gomcp.ListToolsRequest{})
+	require.NoError(t, err)
+	names := make([]string, 0, len(list.Tools))
+	for _, tool := range list.Tools {
+		names = append(names, tool.Name)
+	}
+	require.Contains(t, names, "echo.search")
+	require.NotContains(t, names, "echo.delete")
+
+	dashboard := s.getTools()
+	dashboardNames := make([]string, 0, len(dashboard.Tools))
+	for _, tool := range dashboard.Tools {
+		dashboardNames = append(dashboardNames, tool.Name)
+	}
+	require.Contains(t, dashboardNames, "echo.search")
+	require.NotContains(t, dashboardNames, "echo.delete")
+
+	_, err = s.callTool("echo.delete", map[string]any{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tool not found")
+}
+
+func TestE2E_ToolPatchesMergeAnnotations(t *testing.T) {
+	backendReadOnly := false
+	backendDestructive := true
+	backendOpenWorld := true
+	patchedTitle := "Patched search"
+	patchedReadOnly := true
+	patchedDestructive := false
+	s := newTestStack(t, stackOpts{
+		Tools: []toolDef{
+			{
+				Name:        "search",
+				Description: "Search",
+				Response:    `{"hits":0}`,
+				Annotations: &gomcp.ToolAnnotation{
+					Title:           "Backend search",
+					ReadOnlyHint:    &backendReadOnly,
+					DestructiveHint: &backendDestructive,
+					OpenWorldHint:   &backendOpenWorld,
+				},
+			},
+			{Name: "plain", Description: "Plain", Response: `"ok"`},
+		},
+		Rules: []testRuleConfig{{Tool: "*", Verdict: "allow"}},
+		ToolPatches: []testToolPatchConfig{
+			{
+				Tool: "echo.search",
+				Annotations: &testToolAnnotationsPatch{
+					Title:           &patchedTitle,
+					ReadOnlyHint:    &patchedReadOnly,
+					DestructiveHint: &patchedDestructive,
+				},
+			},
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.Client.ListTools(ctx, gomcp.ListToolsRequest{})
+	require.NoError(t, err)
+
+	byName := make(map[string]gomcp.Tool, len(resp.Tools))
+	for _, tool := range resp.Tools {
+		byName[tool.Name] = tool
+	}
+	patched := byName["echo.search"]
+	require.Equal(t, patchedTitle, patched.Annotations.Title)
+	require.NotNil(t, patched.Annotations.ReadOnlyHint)
+	require.True(t, *patched.Annotations.ReadOnlyHint)
+	require.NotNil(t, patched.Annotations.DestructiveHint)
+	require.False(t, *patched.Annotations.DestructiveHint)
+	require.NotNil(t, patched.Annotations.OpenWorldHint)
+	require.True(t, *patched.Annotations.OpenWorldHint)
+}
+
 func TestE2E_DashboardToolsListing(t *testing.T) {
 	tools := []toolDef{
 		{Name: "greet", Description: "Greets the user", Response: `"hi"`},
