@@ -141,7 +141,7 @@ func runTask(cmd *cobra.Command, args []string) error {
 }
 
 func startedTaskMessage(taskID string) string {
-	return fmt.Sprintf("Started task %s\nStatus:  pd status %s\nLogs:    pd logs -f %s\n", taskID, taskID, taskID)
+	return fmt.Sprintf("%s\n", taskID)
 }
 
 func failRunLaunch(ctx context.Context, db *store.Store, taskID string, err error) error {
