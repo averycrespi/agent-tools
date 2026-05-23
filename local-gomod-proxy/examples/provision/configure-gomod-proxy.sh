@@ -94,7 +94,7 @@ cat >>"$HOME/.bashrc" <<EOF
 $MARKER_START
 # Route Go module resolution through the host's local-gomod-proxy over HTTPS.
 # The proxy's self-signed cert is installed into the sandbox's system trust
-# store (see the install step in gomod-proxy.sh) so Go can verify it.
+# store (see the install step in configure-gomod-proxy.sh) so Go can verify it.
 # Credentials were copied in from the host by sandbox-manager's copy_paths.
 export GOPROXY="https://\$(tr -d '\n' < \$HOME/.local/state/local-gomod-proxy/credentials)@host.lima.internal:7070/"
 # go.sum (committed to the repo) is the primary integrity check; disable the

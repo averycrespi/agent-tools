@@ -9,8 +9,8 @@ Reference any script by path in the `scripts` field of your config. Paths starti
 ```json
 {
   "scripts": [
-    "~/Workspace/agent-tools/sandbox-manager/examples/provision/docker.sh",
-    "~/Workspace/agent-tools/sandbox-manager/examples/provision/claude-code.sh"
+    "~/Workspace/agent-tools/sandbox-manager/examples/provision/install-docker.sh",
+    "~/Workspace/agent-tools/sandbox-manager/examples/provision/install-claude-code.sh"
   ]
 }
 ```
@@ -19,15 +19,15 @@ Scripts run in the listed order.
 
 ## Catalog
 
-| Script            | What it does                                                | Requires         |
-| ----------------- | ----------------------------------------------------------- | ---------------- |
-| `apt-packages.sh` | Template for installing a user-defined list of apt packages | —                |
-| `docker.sh`       | Install Docker Engine and enable the daemon                 | —                |
-| `asdf.sh`         | Install asdf as a prebuilt binary and wire up `$PATH`       | —                |
-| `asdf-nodejs.sh`  | Install the latest Node.js via asdf                         | `asdf.sh`        |
-| `asdf-golang.sh`  | Install the latest Go via asdf                              | `asdf.sh`        |
-| `claude-code.sh`  | Install Claude Code (native binary)                         | —                |
-| `pi-agent.sh`     | Install the Pi coding agent via npm                         | `asdf-nodejs.sh` |
+| Script                    | What it does                                                | Requires                 |
+| ------------------------- | ----------------------------------------------------------- | ------------------------ |
+| `install-apt-packages.sh` | Template for installing a user-defined list of apt packages | —                        |
+| `install-docker.sh`       | Install Docker Engine and enable the daemon                 | —                        |
+| `install-asdf.sh`         | Install asdf as a prebuilt binary and wire up `$PATH`       | —                        |
+| `install-asdf-nodejs.sh`  | Install the latest Node.js via asdf                         | `install-asdf.sh`        |
+| `install-asdf-golang.sh`  | Install the latest Go via asdf                              | `install-asdf.sh`        |
+| `install-claude-code.sh`  | Install Claude Code (native binary)                         | —                        |
+| `install-pi-agent.sh`     | Install the Pi coding agent via npm                         | `install-asdf-nodejs.sh` |
 
 ## Convention for new examples
 

@@ -255,7 +255,7 @@ Add the token to `copy_paths` and the provisioning script to `scripts` in your `
 {
   "copy_paths": ["~/.config/mcp-broker/auth-token"],
   "scripts": [
-    "/path/to/agent-tools/mcp-broker/examples/provision/mcp-broker.sh"
+    "/path/to/agent-tools/mcp-broker/examples/provision/configure-mcp-broker.sh"
   ]
 }
 ```
@@ -266,7 +266,7 @@ The token lands at `~/.config/mcp-broker/auth-token` inside the sandbox. The pro
 
 ### Without sandbox-manager
 
-Copy the token file into the sandbox via whatever mechanism your setup uses, then run [`examples/provision/mcp-broker.sh`](examples/provision/mcp-broker.sh) — it writes the env-var block to `~/.bashrc`. The script targets bash; adapt the rc-file write for other shells.
+Copy the token file into the sandbox via whatever mechanism your setup uses, then run [`examples/provision/configure-mcp-broker.sh`](examples/provision/configure-mcp-broker.sh) — it writes the env-var block to `~/.bashrc`. The script targets bash; adapt the rc-file write for other shells.
 
 ## Run as a launchd agent (macOS)
 
