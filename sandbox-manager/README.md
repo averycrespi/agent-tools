@@ -142,7 +142,6 @@ The repo ships drop-in provisioning scripts under [`examples/provision/`](exampl
 | `install-asdf.sh`                  | Install asdf as a prebuilt binary and wire up `$PATH`       | —                 |
 | `install-asdf-nodejs.sh`           | Install the latest Node.js via asdf                         | `install-asdf.sh` |
 | `install-asdf-golang.sh`           | Install the latest Go via asdf                              | `install-asdf.sh` |
-| `install-claude-code.sh`           | Install Claude Code (native binary)                         | —                 |
 
 See [`examples/provision/README.md`](examples/provision/README.md) for the full catalog and the convention for adding new examples.
 

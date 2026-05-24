@@ -9,8 +9,7 @@ Reference any script by path in the `scripts` field of your config. Paths starti
 ```json
 {
   "scripts": [
-    "~/Workspace/agent-tools/sandbox-manager/examples/provision/install-and-start-docker.sh",
-    "~/Workspace/agent-tools/sandbox-manager/examples/provision/install-claude-code.sh"
+    "~/Workspace/agent-tools/sandbox-manager/examples/provision/install-and-start-docker.sh"
   ]
 }
 ```
@@ -26,7 +25,6 @@ Scripts run in the listed order.
 | `install-asdf.sh`                  | Install asdf as a prebuilt binary and wire up `$PATH`       | —                 |
 | `install-asdf-nodejs.sh`           | Install the latest Node.js via asdf                         | `install-asdf.sh` |
 | `install-asdf-golang.sh`           | Install the latest Go via asdf                              | `install-asdf.sh` |
-| `install-claude-code.sh`           | Install Claude Code (native binary)                         | —                 |
 
 ## Convention for new examples
 
