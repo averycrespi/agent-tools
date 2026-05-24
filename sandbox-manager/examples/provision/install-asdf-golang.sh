@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install the asdf golang plugin.
+# Install the latest Go via asdf.
 # Requires asdf to already be installed — run install-asdf.sh first.
 
 set -euo pipefail
@@ -15,3 +15,7 @@ if ! asdf plugin list 2>/dev/null | grep -qx 'golang'; then
 else
 	echo "asdf golang plugin already installed"
 fi
+
+echo "Installing latest golang version"
+asdf install golang latest
+asdf set --home golang latest

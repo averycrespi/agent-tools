@@ -7,11 +7,6 @@ ASDF_VERSION="v0.18.0"
 
 command_exists() { command -v "$1" &>/dev/null; }
 
-if command_exists asdf; then
-	echo "asdf already installed"
-	exit 0
-fi
-
 if ! command_exists curl; then
 	echo "Installing curl (required to fetch asdf)"
 	sudo apt-get update -qq
@@ -20,15 +15,19 @@ else
 	echo "curl already installed"
 fi
 
-ARCH="$(dpkg --print-architecture)"
-TARBALL="asdf-${ASDF_VERSION}-linux-${ARCH}.tar.gz"
-URL="https://github.com/asdf-vm/asdf/releases/download/${ASDF_VERSION}/${TARBALL}"
+if ! command_exists asdf; then
+	ARCH="$(dpkg --print-architecture)"
+	TARBALL="asdf-${ASDF_VERSION}-linux-${ARCH}.tar.gz"
+	URL="https://github.com/asdf-vm/asdf/releases/download/${ASDF_VERSION}/${TARBALL}"
 
-echo "Installing asdf ${ASDF_VERSION} (${ARCH})"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-curl -fsSL "$URL" | tar -C "$TMP" -xz
-sudo install -m 0755 "$TMP/asdf" /usr/local/bin/asdf
+	echo "Installing asdf ${ASDF_VERSION} (${ARCH})"
+	TMP="$(mktemp -d)"
+	trap 'rm -rf "$TMP"' EXIT
+	curl -fsSL "$URL" | tar -C "$TMP" -xz
+	sudo install -m 0755 "$TMP/asdf" /usr/local/bin/asdf
+else
+	echo "asdf already installed"
+fi
 
 MARKER_START="# >>> asdf-config >>>"
 MARKER_END="# <<< asdf-config <<<"

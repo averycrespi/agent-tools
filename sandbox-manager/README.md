@@ -140,8 +140,8 @@ The repo ships drop-in provisioning scripts under [`examples/provision/`](exampl
 | `install-apt-packages-template.sh` | Template for installing a user-defined list of apt packages | —                 |
 | `install-and-start-docker.sh`      | Install Docker Engine and start the daemon                  | —                 |
 | `install-asdf.sh`                  | Install asdf as a prebuilt binary and wire up `$PATH`       | —                 |
-| `install-asdf-nodejs-plugin.sh`    | Install the asdf nodejs plugin                              | `install-asdf.sh` |
-| `install-asdf-golang-plugin.sh`    | Install the asdf golang plugin                              | `install-asdf.sh` |
+| `install-asdf-nodejs.sh`           | Install the latest Node.js via asdf                         | `install-asdf.sh` |
+| `install-asdf-golang.sh`           | Install the latest Go via asdf                              | `install-asdf.sh` |
 | `install-claude-code.sh`           | Install Claude Code (native binary)                         | —                 |
 
 See [`examples/provision/README.md`](examples/provision/README.md) for the full catalog and the convention for adding new examples.
