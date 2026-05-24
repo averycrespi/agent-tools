@@ -46,13 +46,9 @@ fi
 MARKER_START="# >>> mcp-broker >>>"
 MARKER_END="# <<< mcp-broker <<<"
 
-if grep -qF "$MARKER_START" "$HOME/.bashrc" 2>/dev/null; then
-	echo "mcp-broker env already configured in ~/.bashrc, skipping"
-	exit 0
-fi
-
-echo "Configuring MCP_BROKER_URL and MCP_BROKER_TOKEN in ~/.bashrc"
-cat >>"$HOME/.bashrc" <<EOF
+if ! grep -qF "$MARKER_START" "$HOME/.bashrc" 2>/dev/null; then
+	echo "Adding mcp-broker config to ~/.bashrc"
+	cat >>"$HOME/.bashrc" <<EOF
 
 $MARKER_START
 # Point agent MCP clients at the host's mcp-broker. Lima's default
@@ -65,3 +61,6 @@ export MCP_BROKER_URL="http://host.lima.internal:8200/mcp"
 export MCP_BROKER_TOKEN="\$(tr -d '\n' < \$HOME/.config/mcp-broker/auth-token)"
 $MARKER_END
 EOF
+else
+	echo "mcp-broker already configured in ~/.bashrc"
+fi

@@ -35,11 +35,6 @@ set -euo pipefail
 
 command_exists() { command -v "$1" &>/dev/null; }
 
-if ! command_exists go; then
-	echo "error: go not found on PATH — install Go first (e.g. asdf-golang.sh)" >&2
-	exit 1
-fi
-
 if ! command_exists update-ca-certificates; then
 	echo "error: update-ca-certificates not found; this script targets Debian/Ubuntu sandboxes" >&2
 	exit 1
@@ -77,19 +72,15 @@ if ! [[ -f "$INSTALLED_CERT" ]] || ! sudo cmp -s "$CERT_FILE" "$INSTALLED_CERT";
 	sudo cp "$CERT_FILE" "$INSTALLED_CERT"
 	sudo update-ca-certificates >/dev/null
 else
-	echo "local-gomod-proxy cert already in system trust store, skipping"
+	echo "local-gomod-proxy cert already in system trust store"
 fi
 
 MARKER_START="# >>> local-gomod-proxy >>>"
 MARKER_END="# <<< local-gomod-proxy <<<"
 
-if grep -qF "$MARKER_START" "$HOME/.bashrc" 2>/dev/null; then
-	echo "local-gomod-proxy env already configured in ~/.bashrc, skipping"
-	exit 0
-fi
-
-echo "Configuring GOPROXY in ~/.bashrc"
-cat >>"$HOME/.bashrc" <<EOF
+if ! grep -qF "$MARKER_START" "$HOME/.bashrc" 2>/dev/null; then
+	echo "Configuring local-gomod-proxy in ~/.bashrc"
+	cat >>"$HOME/.bashrc" <<EOF
 
 $MARKER_START
 # Route Go module resolution through the host's local-gomod-proxy over HTTPS.
@@ -105,3 +96,6 @@ export GOSUMDB=off
 unset GOPRIVATE
 $MARKER_END
 EOF
+else
+	echo "local-gomod-proxy already configured in ~/.bashrc"
+fi

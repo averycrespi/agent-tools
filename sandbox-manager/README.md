@@ -128,15 +128,14 @@ Paths starting with `~/` are expanded to the user's home directory. Directories 
 
 The repo ships drop-in provisioning scripts under [`examples/provision/`](examples/provision/). Most are self-contained (work on a bare sandbox) and idempotent; the `asdf-*` scripts require `asdf.sh` to have run first and fail fast with a clear error otherwise. Reference them by absolute path in the `scripts` field of your config, individually or in combination:
 
-| Script                    | What it does                                                | Requires                 |
-| ------------------------- | ----------------------------------------------------------- | ------------------------ |
-| `install-apt-packages.sh` | Template for installing a user-defined list of apt packages | —                        |
-| `install-docker.sh`       | Install Docker Engine and enable the daemon                 | —                        |
-| `install-asdf.sh`         | Install asdf as a prebuilt binary and wire up `$PATH`       | —                        |
-| `install-asdf-nodejs.sh`  | Install the latest Node.js via asdf                         | `install-asdf.sh`        |
-| `install-asdf-golang.sh`  | Install the latest Go via asdf                              | `install-asdf.sh`        |
-| `install-claude-code.sh`  | Install Claude Code (native binary)                         | —                        |
-| `install-pi-agent.sh`     | Install the Pi coding agent via npm                         | `install-asdf-nodejs.sh` |
+| Script                             | What it does                                                | Requires          |
+| ---------------------------------- | ----------------------------------------------------------- | ----------------- |
+| `install-apt-packages-template.sh` | Template for installing a user-defined list of apt packages | —                 |
+| `install-and-start-docker.sh`      | Install Docker Engine and start the daemon                  | —                 |
+| `install-asdf.sh`                  | Install asdf as a prebuilt binary and wire up `$PATH`       | —                 |
+| `install-asdf-nodejs-plugin.sh`    | Install the asdf nodejs plugin                              | `install-asdf.sh` |
+| `install-asdf-golang-plugin.sh`    | Install the asdf golang plugin                              | `install-asdf.sh` |
+| `install-claude-code.sh`           | Install Claude Code (native binary)                         | —                 |
 
 See [`examples/provision/README.md`](examples/provision/README.md) for the full catalog and the convention for adding new examples.
 
