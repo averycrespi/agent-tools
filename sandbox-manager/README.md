@@ -34,6 +34,9 @@ sb stop
 # Start it again
 sb start
 
+# Restart (e.g. to pick up new group memberships from provisioning)
+sb restart
+
 # Re-provision (copy files and run scripts)
 sb provision
 
@@ -60,6 +63,10 @@ Starts a stopped sandbox. Errors if the VM doesn't exist.
 ### `sb stop`
 
 Stops a running sandbox. No-op if already stopped or not created.
+
+### `sb restart`
+
+Stops a running sandbox and starts it again, forcing fresh login sessions so changes like new group memberships from provisioning take effect. Just starts the VM if it was stopped. Errors if the VM doesn't exist.
 
 ### `sb destroy [--force]`
 
