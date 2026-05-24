@@ -22,4 +22,4 @@ if command -v pi &>/dev/null; then
 fi
 
 echo "Installing Pi coding agent"
-npm install -g @mariozechner/pi-coding-agent
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
