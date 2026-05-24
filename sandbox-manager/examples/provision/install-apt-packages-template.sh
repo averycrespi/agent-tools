@@ -26,7 +26,7 @@ for pkg in "${PACKAGES[@]}"; do
 done
 
 if [ ${#MISSING[@]} -eq 0 ]; then
-	echo "All apt packages already installed, skipping"
+	echo "All apt packages already installed"
 	exit 0
 fi
 
