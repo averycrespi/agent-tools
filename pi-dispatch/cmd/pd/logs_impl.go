@@ -113,7 +113,10 @@ func sendFollowUp(cmd *cobra.Command, args []string) error {
 
 func sendStop(cmd *cobra.Command, args []string) error {
 	force, _ := cmd.Flags().GetBool("force")
-	return sendControl(cmd, args[0], control.Request{Operation: control.OpStop, Force: force})
+	if force {
+		return forceStopTask(cmd, args[0])
+	}
+	return sendControl(cmd, args[0], control.Request{Operation: control.OpStop})
 }
 
 type controlResult struct {
@@ -123,10 +126,67 @@ type controlResult struct {
 }
 
 var (
-	sendControlRequest = control.Send
-	processExists      = pdprocess.Exists
-	followLogFiles     = followFiles
+	sendControlRequest       = control.Send
+	processExists            = pdprocess.Exists
+	killProcessGroup         = pdprocess.KillGroup
+	followLogFiles           = followFiles
+	forceStopEscalationGrace = 3 * time.Second
+	forceStopPollInterval    = 100 * time.Millisecond
 )
+
+func forceStopTask(cmd *cobra.Command, taskID string) error {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	task, run, err := taskAndRunReconciled(cmd, taskID, processExists)
+	if err != nil {
+		return err
+	}
+	req := control.Request{Operation: control.OpStop, Force: true}
+	if err := controlAllowed(task.Status, req); err != nil {
+		return fmt.Errorf("cannot %s task %s: %w", req.Operation, task.ID, err)
+	}
+	if run.ControlSocketPath != "" {
+		_, _ = sendControlRequest(run.ControlSocketPath, req)
+	}
+	db, err := store.Open(cfg.DBPath())
+	if err != nil {
+		return err
+	}
+	defer db.Close() //nolint:errcheck
+	if waitForTerminalStatus(ctx, db, taskID, forceStopEscalationGrace) {
+		return printForceStopResult(taskID)
+	}
+	if run.SupervisorPID > 0 {
+		_ = killProcessGroup(run.SupervisorPID)
+	}
+	if err := db.CompleteRun(ctx, taskID, store.StatusStopped, 0, "force-killed by pd stop --force", ""); err != nil {
+		return err
+	}
+	return printForceStopResult(taskID)
+}
+
+func waitForTerminalStatus(ctx context.Context, db *store.Store, taskID string, grace time.Duration) bool {
+	deadline := time.Now().Add(grace)
+	for {
+		task, err := db.GetTask(ctx, taskID)
+		if err == nil && isTerminalStatus(task.Status) {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(forceStopPollInterval)
+	}
+}
+
+func printForceStopResult(taskID string) error {
+	if jsonOut {
+		return output.JSON(os.Stdout, controlResult{TaskID: taskID, Operation: string(control.OpStop), OK: true})
+	}
+	return nil
+}
 
 func sendControl(cmd *cobra.Command, taskID string, req control.Request) error {
 	task, run, err := taskAndRunReconciled(cmd, taskID, processExists)

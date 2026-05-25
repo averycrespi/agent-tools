@@ -102,7 +102,7 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 				return response(client.FollowUp(req.Message))
 			case control.OpStop:
 				_ = db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusStopping)
-				return applyStopRequest(state, client, proc, req, forceStopGrace)
+				return applyStopRequest(state, client, proc, req, stopGrace)
 			case control.OpPing:
 				return control.Response{OK: true}
 			default:
@@ -129,6 +129,14 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 			_ = client.ExtensionUIResponse(event.ID, true, nil)
 			continue
 		}
+		if event.Type == "response" && !event.Success && event.Command != "abort" {
+			errMsg := event.Error
+			if errMsg == "" {
+				errMsg = fmt.Sprintf("Pi command %q failed", event.Command)
+			}
+			_ = client.Abort()
+			return finishSupervisor(cmd.Context(), db, run, proc, state, errors.New(errMsg), errMsg)
+		}
 		if event.Type == "queue_update" {
 			state.queuesEmpty = queueUpdateEmpty(raw)
 		}
@@ -148,7 +156,15 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 	return finishSupervisor(cmd.Context(), db, run, proc, state, nil, "Pi process exited")
 }
 
-const forceStopGrace = 5 * time.Second
+const (
+	// stopGrace is how long the supervisor waits for Pi to exit on its own
+	// after sending Abort before force-killing the process. `pd stop --force`
+	// skips the grace and kills immediately.
+	stopGrace = 10 * time.Second
+	// supervisorFinishGrace bounds proc.Wait() inside finishSupervisor so the
+	// supervisor can't hang if Pi doesn't exit when its stdin is closed.
+	supervisorFinishGrace = 15 * time.Second
+)
 
 type supervisorRunState struct {
 	mu            sync.Mutex
@@ -183,10 +199,13 @@ func applyStopRequest(state *supervisorRunState, client abortClient, proc killPr
 	state.mu.Lock()
 	state.stopRequested = true
 	state.mu.Unlock()
+	abortErr := client.Abort()
 	if req.Force {
+		scheduleForceKill(proc, 0)
+	} else {
 		scheduleForceKill(proc, grace)
 	}
-	return response(client.Abort())
+	return response(abortErr)
 }
 
 func scheduleForceKill(proc killProcess, grace time.Duration) {
@@ -200,8 +219,11 @@ func scheduleForceKill(proc killProcess, grace time.Duration) {
 func finishSupervisor(ctx context.Context, db *store.Store, run store.Run, proc interface {
 	Stdin() io.WriteCloser
 	Wait() error
+	Kill() error
 }, state *supervisorRunState, err error, message string) error {
 	_ = proc.Stdin().Close()
+	killTimer := time.AfterFunc(supervisorFinishGrace, func() { _ = proc.Kill() })
+	defer killTimer.Stop()
 	waitErr := proc.Wait()
 	if err == nil {
 		err = waitErr
