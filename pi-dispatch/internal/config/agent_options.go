@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 type AgentOptions struct {
 	Provider                  string   `json:"provider,omitempty"`
 	Model                     string   `json:"model,omitempty"`
@@ -31,6 +33,19 @@ func RenderPiArgv(agent AgentOptions) []string {
 			}
 		}
 	}
+	// Pi-CLI overwrites --tools on each occurrence but splits the value on
+	// commas, so emit a single comma-joined pair instead of repeating the flag.
+	addCommaList := func(flag string, values []string) {
+		nonEmpty := make([]string, 0, len(values))
+		for _, value := range values {
+			if value != "" {
+				nonEmpty = append(nonEmpty, value)
+			}
+		}
+		if len(nonEmpty) > 0 {
+			argv = append(argv, flag, strings.Join(nonEmpty, ","))
+		}
+	}
 	addBool := func(flag string, value bool) {
 		if value {
 			argv = append(argv, flag)
@@ -39,7 +54,7 @@ func RenderPiArgv(agent AgentOptions) []string {
 	addValue("--provider", agent.Provider)
 	addValue("--model", agent.Model)
 	addValue("--thinking", agent.Thinking)
-	addList("--tools", agent.Tools)
+	addCommaList("--tools", agent.Tools)
 	addBool("--no-builtin-tools", agent.DisableBuiltinTools)
 	addBool("--no-tools", agent.DisableAllTools)
 	addList("--extension", agent.Extensions)
