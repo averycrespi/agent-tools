@@ -144,6 +144,40 @@ func TestService_Start_AlreadyRunning(t *testing.T) {
 	ml.AssertNotCalled(t, "Start")
 }
 
+func TestService_Restart_Running(t *testing.T) {
+	ml := new(mockLima)
+	ml.On("Status").Return(lima.StatusRunning, nil)
+	ml.On("Stop").Return(nil)
+	ml.On("Start").Return(nil)
+
+	svc := sandbox.NewService(ml, config.Default(), nopLogger)
+	require.NoError(t, svc.Restart())
+	ml.AssertCalled(t, "Stop")
+	ml.AssertCalled(t, "Start")
+}
+
+func TestService_Restart_Stopped(t *testing.T) {
+	ml := new(mockLima)
+	ml.On("Status").Return(lima.StatusStopped, nil)
+	ml.On("Start").Return(nil)
+
+	svc := sandbox.NewService(ml, config.Default(), nopLogger)
+	require.NoError(t, svc.Restart())
+	ml.AssertNotCalled(t, "Stop")
+	ml.AssertCalled(t, "Start")
+}
+
+func TestService_Restart_NotCreated(t *testing.T) {
+	ml := new(mockLima)
+	ml.On("Status").Return(lima.StatusNotCreated, nil)
+
+	svc := sandbox.NewService(ml, config.Default(), nopLogger)
+	err := svc.Restart()
+	assert.ErrorContains(t, err, "not created")
+	ml.AssertNotCalled(t, "Stop")
+	ml.AssertNotCalled(t, "Start")
+}
+
 func TestService_Stop_Running(t *testing.T) {
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)

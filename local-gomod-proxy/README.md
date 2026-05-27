@@ -52,7 +52,7 @@ Add both files to `copy_paths` and the provisioning script to `scripts` in your 
     "~/.local/state/local-gomod-proxy/credentials"
   ],
   "scripts": [
-    "/path/to/agent-tools/local-gomod-proxy/examples/provision/gomod-proxy.sh"
+    "/path/to/agent-tools/local-gomod-proxy/examples/provision/configure-gomod-proxy.sh"
   ]
 }
 ```
@@ -63,7 +63,7 @@ Both files land at `~/.local/state/local-gomod-proxy/` inside the sandbox. The p
 
 ### Without sandbox-manager
 
-Copy both files into the sandbox via whatever mechanism your setup uses, then run [`examples/provision/gomod-proxy.sh`](examples/provision/gomod-proxy.sh) — it installs the cert into the system trust store and writes the `GOPROXY` / `GOSUMDB` block to `~/.bashrc`. The script targets Debian/Ubuntu sandboxes (uses `update-ca-certificates`); adapt the cert-install step for other distros.
+Copy both files into the sandbox via whatever mechanism your setup uses, then run [`examples/provision/configure-gomod-proxy.sh`](examples/provision/configure-gomod-proxy.sh) — it installs the cert into the system trust store and writes the `GOPROXY` / `GOSUMDB` block to `~/.bashrc`. The script targets Debian/Ubuntu sandboxes (uses `update-ca-certificates`); adapt the cert-install step for other distros.
 
 ## Run as a launchd agent (macOS)
 

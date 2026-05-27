@@ -111,6 +111,26 @@ func (s *Service) Start() error {
 	}
 }
 
+// Restart stops a running VM and starts it again, forcing fresh login sessions
+// so changes like new group memberships from provisioning take effect.
+func (s *Service) Restart() error {
+	status, err := s.lima.Status()
+	if err != nil {
+		return err
+	}
+
+	switch status {
+	case lima.StatusNotCreated:
+		return fmt.Errorf("VM not created: run \"sb create\" first")
+	case lima.StatusRunning:
+		if err := s.lima.Stop(); err != nil {
+			return err
+		}
+	}
+
+	return s.lima.Start()
+}
+
 // Stop stops the VM.
 func (s *Service) Stop() error {
 	status, err := s.lima.Status()

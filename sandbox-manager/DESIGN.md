@@ -17,6 +17,7 @@ cmd/
   create.go       sb create
   start.go        sb start
   stop.go         sb stop
+  restart.go      sb restart
   destroy.go      sb destroy
   provision.go    sb provision
   status.go       sb status
@@ -87,6 +88,15 @@ limactl start sb
 ```
 limactl stop sb
 ```
+
+**Restart (`sb restart`):**
+
+```
+If running → limactl stop sb
+limactl start sb
+```
+
+Forces fresh login sessions so changes like new group memberships from provisioning take effect (Lima reuses the SSH ControlMaster socket, so a plain `sb shell` after `usermod -aG` would otherwise keep the old group set).
 
 **Destroy (`sb destroy`):**
 

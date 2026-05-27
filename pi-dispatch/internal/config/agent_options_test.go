@@ -23,6 +23,11 @@ func TestApplyAgentOverrides(t *testing.T) {
 	assert.Equal(t, "/tmp/sessions", got.SessionDir)
 }
 
+func TestRenderPiArgvToolsJoined(t *testing.T) {
+	argv := RenderPiArgv(AgentOptions{Tools: []string{"read", "ls", "grep", "find"}, Extensions: []string{"a.ts", "b.ts"}})
+	assert.Equal(t, []string{"pi", "--mode", "rpc", "--tools", "read,ls,grep,find", "--extension", "a.ts", "--extension", "b.ts"}, argv)
+}
+
 func TestRenderPiArgvSessionDir(t *testing.T) {
 	argv := RenderPiArgv(AgentOptions{SessionDir: "/tmp/pi"})
 	assert.Contains(t, argv, "--session-dir")

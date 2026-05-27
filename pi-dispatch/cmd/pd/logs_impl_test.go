@@ -20,6 +20,133 @@ func TestControlAllowedAllowsForceStopWhileStopping(t *testing.T) {
 	require.NoError(t, controlAllowed(store.StatusStopping, control.Request{Operation: control.OpStop, Force: true}))
 }
 
+func TestForceStopTaskWaitsForSupervisorToTransition(t *testing.T) {
+	db, task, run := setupRemoveTask(t, store.StatusRunning)
+	require.NoError(t, db.UpdateRunSupervisorPID(context.Background(), task.ID, os.Getpid()))
+	require.NoError(t, db.Close())
+	withProcessExists(t, func(int) bool { return true })
+	withControlSender(t, func(path string, req control.Request) (control.Response, error) {
+		if req.Operation == control.OpStop {
+			require.Equal(t, run.ControlSocketPath, path)
+			db, err := store.Open(cfg.DBPath())
+			require.NoError(t, err)
+			defer db.Close() //nolint:errcheck
+			require.NoError(t, db.CompleteRun(context.Background(), task.ID, store.StatusStopped, 0, "", ""))
+		}
+		return control.Response{OK: true}, nil
+	})
+	killed := false
+	withKillProcessGroup(t, func(int) error { killed = true; return nil })
+	withForceStopTiming(t, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, sendStop(stopTestCommand(t, true), []string{task.ID}))
+
+	require.False(t, killed, "supervisor should not be killed when it transitions cleanly")
+	checkDB, err := store.Open(cfg.DBPath())
+	require.NoError(t, err)
+	defer checkDB.Close() //nolint:errcheck
+	got, err := checkDB.GetTask(context.Background(), task.ID)
+	require.NoError(t, err)
+	require.Equal(t, store.StatusStopped, got.Status)
+}
+
+func TestForceStopTaskEscalatesWhenSupervisorIsStuck(t *testing.T) {
+	db, task, run := setupRemoveTask(t, store.StatusStopping)
+	require.NoError(t, db.UpdateRunSupervisorPID(context.Background(), task.ID, 4242))
+	require.NoError(t, db.Close())
+	withProcessExists(t, func(int) bool { return true })
+	withControlSender(t, func(path string, req control.Request) (control.Response, error) {
+		if req.Operation == control.OpStop {
+			require.Equal(t, run.ControlSocketPath, path)
+			require.True(t, req.Force)
+		}
+		return control.Response{OK: true}, nil
+	})
+	killedPID := 0
+	withKillProcessGroup(t, func(pid int) error { killedPID = pid; return nil })
+	withForceStopTiming(t, 50*time.Millisecond, 10*time.Millisecond)
+
+	require.NoError(t, sendStop(stopTestCommand(t, true), []string{task.ID}))
+
+	require.Equal(t, 4242, killedPID, "supervisor process group should be killed when status is stuck")
+	checkDB, err := store.Open(cfg.DBPath())
+	require.NoError(t, err)
+	defer checkDB.Close() //nolint:errcheck
+	got, err := checkDB.GetTask(context.Background(), task.ID)
+	require.NoError(t, err)
+	require.Equal(t, store.StatusStopped, got.Status)
+	gotRun, err := checkDB.LatestRun(context.Background(), task.ID)
+	require.NoError(t, err)
+	require.Equal(t, "force-killed by pd stop --force", gotRun.ErrorMessage)
+}
+
+func TestForceStopTaskRejectsTerminalStatus(t *testing.T) {
+	db, task, _ := setupRemoveTask(t, store.StatusSucceeded)
+	require.NoError(t, db.Close())
+	withProcessExists(t, func(int) bool { return false })
+
+	err := sendStop(stopTestCommand(t, true), []string{task.ID})
+
+	require.ErrorContains(t, err, "not running")
+}
+
+func TestSendStopWithoutForceUsesGracefulPath(t *testing.T) {
+	db, task, run := setupRemoveTask(t, store.StatusRunning)
+	require.NoError(t, db.UpdateRunSupervisorPID(context.Background(), task.ID, os.Getpid()))
+	require.NoError(t, db.Close())
+	withProcessExists(t, func(int) bool { return true })
+	sentForce := false
+	withControlSender(t, func(path string, req control.Request) (control.Response, error) {
+		if req.Operation == control.OpStop {
+			require.Equal(t, run.ControlSocketPath, path)
+			sentForce = req.Force
+		}
+		return control.Response{OK: true}, nil
+	})
+	killed := false
+	withKillProcessGroup(t, func(int) error { killed = true; return nil })
+
+	require.NoError(t, sendStop(stopTestCommand(t, false), []string{task.ID}))
+
+	require.False(t, sentForce, "non-force stop should not set Force=true")
+	require.False(t, killed, "non-force stop should never escalate to KillProcessGroup")
+}
+
+func withProcessExists(t *testing.T, fn func(int) bool) {
+	t.Helper()
+	old := processExists
+	processExists = fn
+	t.Cleanup(func() { processExists = old })
+}
+
+func withKillProcessGroup(t *testing.T, fn func(int) error) {
+	t.Helper()
+	old := killProcessGroup
+	killProcessGroup = fn
+	t.Cleanup(func() { killProcessGroup = old })
+}
+
+func withForceStopTiming(t *testing.T, grace, poll time.Duration) {
+	t.Helper()
+	oldGrace := forceStopEscalationGrace
+	oldPoll := forceStopPollInterval
+	forceStopEscalationGrace = grace
+	forceStopPollInterval = poll
+	t.Cleanup(func() {
+		forceStopEscalationGrace = oldGrace
+		forceStopPollInterval = oldPoll
+	})
+}
+
+func stopTestCommand(t *testing.T, force bool) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().Bool("force", false, "")
+	require.NoError(t, cmd.Flags().Set("force", fmt.Sprintf("%t", force)))
+	return cmd
+}
+
 func TestControlAllowedRejectsSteerWhileStopping(t *testing.T) {
 	err := controlAllowed(store.StatusStopping, control.Request{Operation: control.OpSteer})
 	require.Error(t, err)

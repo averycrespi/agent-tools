@@ -42,3 +42,16 @@ func Exists(pid int) bool {
 	err := syscall.Kill(pid, 0)
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
+
+// KillGroup sends SIGKILL to the process group led by pid. Supervisors are
+// started with Setpgid so the group includes the supervisor, its limactl
+// shell, and any other descendants.
+func KillGroup(pid int) error {
+	if pid <= 0 {
+		return fmt.Errorf("invalid pid %d", pid)
+	}
+	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
+		return fmt.Errorf("kill process group %d: %w", pid, err)
+	}
+	return nil
+}
