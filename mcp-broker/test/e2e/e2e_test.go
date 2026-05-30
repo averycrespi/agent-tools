@@ -178,6 +178,43 @@ func TestE2E_AnnotationsRoundTripThroughBroker(t *testing.T) {
 	require.Empty(t, plain.OutputSchema.Type)
 }
 
+func TestE2E_StructuredContentRoundTripThroughBroker(t *testing.T) {
+	s := newTestStack(t, stackOpts{
+		Tools: []toolDef{
+			{
+				Name:               "search",
+				Description:        "Search the index",
+				Response:           `{"hits":1}`,
+				StructuredResponse: map[string]any{"hits": 1},
+				OutputSchema: &gomcp.ToolOutputSchema{
+					Type:       "object",
+					Properties: map[string]any{"hits": map[string]any{"type": "integer"}},
+				},
+			},
+		},
+		Rules: []testRuleConfig{{Tool: "*", Verdict: "allow"}},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	list, err := s.Client.ListTools(ctx, gomcp.ListToolsRequest{})
+	require.NoError(t, err)
+	require.Len(t, list.Tools, 1)
+	require.Equal(t, "object", list.Tools[0].OutputSchema.Type)
+
+	result, err := s.callTool("echo.search", map[string]any{})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	require.NotNil(t, result.StructuredContent)
+	require.Equal(t, map[string]any{"hits": float64(1)}, result.StructuredContent)
+
+	require.Len(t, result.Content, 1)
+	text, ok := result.Content[0].(gomcp.TextContent)
+	require.True(t, ok)
+	require.Equal(t, `{"hits":1}`, text.Text)
+}
+
 func TestE2E_ToolPatchesDisabledTool(t *testing.T) {
 	s := newTestStack(t, stackOpts{
 		Tools: []toolDef{

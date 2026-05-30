@@ -160,8 +160,9 @@ func (b *httpBackend) CallTool(ctx context.Context, name string, arguments map[s
 	}
 
 	return &ToolResult{
-		Content: resp.Content,
-		IsError: resp.IsError,
+		Content:           resp.Content,
+		StructuredContent: resp.StructuredContent,
+		IsError:           resp.IsError,
 	}, nil
 }
 

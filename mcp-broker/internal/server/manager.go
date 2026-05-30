@@ -57,8 +57,9 @@ func toBrokerTool(t mcp.Tool) Tool {
 
 // ToolResult holds the result of a tool call.
 type ToolResult struct {
-	Content any
-	IsError bool
+	Content           any
+	StructuredContent any
+	IsError           bool
 }
 
 // Backend is the interface for communicating with an MCP server.

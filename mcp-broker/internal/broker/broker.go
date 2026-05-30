@@ -53,8 +53,17 @@ func New(servers ServerManager, rulesEngine *rules.Engine, auditor AuditLogger, 
 	}
 }
 
-// Handle drives the full tool call pipeline: rules -> approval -> proxy -> audit.
+// Handle drives the full tool call pipeline and returns the result content.
 func (b *Broker) Handle(ctx context.Context, tool string, args map[string]any) (any, error) {
+	result, err := b.HandleToolResult(ctx, tool, args)
+	if err != nil {
+		return nil, err
+	}
+	return result.Content, nil
+}
+
+// HandleToolResult drives the full tool call pipeline: rules -> approval -> proxy -> audit.
+func (b *Broker) HandleToolResult(ctx context.Context, tool string, args map[string]any) (*server.ToolResult, error) {
 	rec := audit.Record{
 		Timestamp: time.Now(),
 		Tool:      tool,
@@ -119,7 +128,7 @@ func (b *Broker) Handle(ctx context.Context, tool string, args map[string]any) (
 		b.logger.Info("tool call handled", "tool", tool, "verdict", verdict)
 	}
 
-	return result.Content, nil
+	return result, nil
 }
 
 // Tools returns all discovered tools (delegates to server manager).

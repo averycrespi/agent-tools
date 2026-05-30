@@ -80,12 +80,13 @@ func freePort(t *testing.T) int {
 // --- Mock MCP backend ---
 
 type toolDef struct {
-	Name         string
-	Description  string
-	Response     string // JSON text returned by CallTool
-	Annotations  *gomcp.ToolAnnotation
-	OutputSchema *gomcp.ToolOutputSchema
-	Meta         *gomcp.Meta
+	Name               string
+	Description        string
+	Response           string // JSON text returned by CallTool
+	StructuredResponse any
+	Annotations        *gomcp.ToolAnnotation
+	OutputSchema       *gomcp.ToolOutputSchema
+	Meta               *gomcp.Meta
 }
 
 // startMockBackend starts an in-process mcp-go HTTP server with the given tools
@@ -112,6 +113,9 @@ func startMockBackend(t *testing.T, tools []toolDef) string {
 		srv.AddTool(
 			tool,
 			func(_ context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+				if td.StructuredResponse != nil {
+					return gomcp.NewToolResultStructured(td.StructuredResponse, td.Response), nil
+				}
 				return gomcp.NewToolResultText(td.Response), nil
 			},
 		)

@@ -259,21 +259,40 @@ func makeMCPHandler(b *broker.Broker) func(ctx context.Context, req gomcp.CallTo
 			args = make(map[string]any)
 		}
 
-		result, err := b.Handle(ctx, req.Params.Name, args)
+		result, err := b.HandleToolResult(ctx, req.Params.Name, args)
 		if err != nil {
 			return gomcp.NewToolResultError(err.Error()), nil
 		}
 
+		if result.StructuredContent != nil {
+			content, ok := result.Content.([]gomcp.Content)
+			if !ok {
+				data, err := json.Marshal(result.Content)
+				if err != nil {
+					return gomcp.NewToolResultError(err.Error()), nil
+				}
+				content = []gomcp.Content{gomcp.TextContent{Type: gomcp.ContentTypeText, Text: string(data)}}
+			}
+			return &gomcp.CallToolResult{
+				Content:           content,
+				StructuredContent: result.StructuredContent,
+				IsError:           result.IsError,
+			}, nil
+		}
+
+		content := result.Content
 		// Wrap slice results for MCP compliance
-		if _, ok := result.([]any); ok {
-			result = map[string]any{"items": result}
+		if _, ok := content.([]any); ok {
+			content = map[string]any{"items": content}
 		}
 
 		// Marshal to JSON text for the tool result
-		data, err := json.Marshal(result)
+		data, err := json.Marshal(content)
 		if err != nil {
 			return gomcp.NewToolResultError(err.Error()), nil
 		}
-		return gomcp.NewToolResultText(string(data)), nil
+		out := gomcp.NewToolResultText(string(data))
+		out.IsError = result.IsError
+		return out, nil
 	}
 }

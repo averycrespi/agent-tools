@@ -71,8 +71,9 @@ func (b *stdioBackend) CallTool(ctx context.Context, name string, arguments map[
 	}
 
 	return &ToolResult{
-		Content: resp.Content,
-		IsError: resp.IsError,
+		Content:           resp.Content,
+		StructuredContent: resp.StructuredContent,
+		IsError:           resp.IsError,
 	}, nil
 }
 
