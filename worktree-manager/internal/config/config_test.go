@@ -53,6 +53,8 @@ func TestSanitizeBranch(t *testing.T) {
 
 func TestTmuxSessionName(t *testing.T) {
 	assert.Equal(t, "wt-myapp", TmuxSessionName("myapp"))
+	assert.Equal(t, "wt-averycrespi_com", TmuxSessionName("averycrespi.com"))
+	assert.Equal(t, "wt-my_repo", TmuxSessionName("my:repo"))
 }
 
 func TestTmuxWindowName(t *testing.T) {

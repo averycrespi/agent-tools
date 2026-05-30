@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 var nonAlphanumericDash = regexp.MustCompile(`[^a-zA-Z0-9-]`)
@@ -107,6 +108,8 @@ func SanitizeBranch(branch string) string {
 
 // TmuxSessionName returns the tmux session name for a repository.
 func TmuxSessionName(repo string) string {
+	// tmux treats . and : as target separators, and normalizes them to _ in session names.
+	repo = strings.NewReplacer(".", "_", ":", "_").Replace(repo)
 	return "wt-" + repo
 }
 
