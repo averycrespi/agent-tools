@@ -12,11 +12,15 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 )
 
-// isUnauthorized returns true if the error indicates a 401 response,
-// whether from a plain client (ErrUnauthorized) or an OAuth-aware client
-// (OAuthAuthorizationRequiredError).
+// isUnauthorized returns true if the error indicates a 401 response. A plain
+// client (no OAuth handler) returns AuthorizationRequiredError on 401, while an
+// OAuth-aware client returns OAuthAuthorizationRequiredError; older mcp-go paths
+// surface the bare ErrUnauthorized sentinel. We detect all three so the
+// plain-client-first connect can upgrade to OAuth on either error shape.
 func isUnauthorized(err error) bool {
-	return client.IsOAuthAuthorizationRequiredError(err) || errors.Is(err, transport.ErrUnauthorized)
+	return client.IsOAuthAuthorizationRequiredError(err) ||
+		client.IsAuthorizationRequiredError(err) ||
+		errors.Is(err, transport.ErrUnauthorized)
 }
 
 // httpBackend communicates with an MCP server via Streamable HTTP or SSE.
