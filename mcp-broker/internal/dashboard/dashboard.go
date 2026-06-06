@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -93,8 +94,8 @@ func (d *Dashboard) Handler() http.Handler {
 }
 
 // Review blocks until a human approves or denies the request via the web UI.
-// Returns (approved, denialReason, err). On explicit denial: denialReason="user".
-// On context cancellation: returns (false, "timeout", nil).
+// Returns (approved, denialReason, err). On explicit denial: denialReason="user"
+// or "user: <reason>". On context cancellation: returns (false, "timeout", nil).
 func (d *Dashboard) Review(ctx context.Context, tool string, args map[string]any) (bool, string, error) {
 	id := generateID()
 	ch := make(chan string, 1) // sends "" for approval, "user" for denial
@@ -136,6 +137,7 @@ func (d *Dashboard) handleDecide(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		ID       string `json:"id"`
 		Decision string `json:"decision"`
+		Reason   string `json:"reason"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -158,6 +160,9 @@ func (d *Dashboard) handleDecide(w http.ResponseWriter, r *http.Request) {
 	denialReason := ""
 	if !approved {
 		denialReason = "user"
+		if reason := strings.TrimSpace(payload.Reason); reason != "" {
+			denialReason = "user: " + reason
+		}
 	}
 
 	pr.decision <- denialReason
@@ -216,6 +221,7 @@ func (d *Dashboard) handleRules(w http.ResponseWriter, _ *http.Request) {
 		Index   int                 `json:"index"`
 		Tool    string              `json:"tool"`
 		Verdict string              `json:"verdict"`
+		Reason  string              `json:"reason,omitempty"`
 		Matches []string            `json:"matches"`
 		Args    []config.ArgPattern `json:"args,omitempty"`
 	}
@@ -236,6 +242,7 @@ func (d *Dashboard) handleRules(w http.ResponseWriter, _ *http.Request) {
 			Index:   i,
 			Tool:    r.Tool,
 			Verdict: r.Verdict,
+			Reason:  r.Reason,
 			Matches: []string{},
 			Args:    r.Args,
 		}

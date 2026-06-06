@@ -102,6 +102,72 @@ func TestDashboard_Review_DeniesViaAPI(t *testing.T) {
 	require.Equal(t, "user", r.reason)
 }
 
+func TestDashboard_Review_DeniesViaAPIWithReason(t *testing.T) {
+	d := New(nil, nil, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	type result struct {
+		approved bool
+		reason   string
+	}
+	done := make(chan result, 1)
+	go func() {
+		approved, reason, err := d.Review(context.Background(), "github.push", map[string]any{})
+		require.NoError(t, err)
+		done <- result{approved, reason}
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	resp, err := http.Get(srv.URL + "/api/pending")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	var pending []pendingRequest
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&pending))
+
+	body := `{"id":"` + pending[0].ID + `","decision":"deny","reason":"  needs narrower scope  "}`
+	resp2, err := http.Post(srv.URL+"/api/decide", "application/json", strings.NewReader(body))
+	require.NoError(t, err)
+	defer func() { _ = resp2.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp2.StatusCode)
+
+	r := <-done
+	require.False(t, r.approved)
+	require.Equal(t, "user: needs narrower scope", r.reason)
+}
+
+func TestDashboard_Review_DeniesViaAPIWithBlankReason(t *testing.T) {
+	d := New(nil, nil, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	done := make(chan string, 1)
+	go func() {
+		_, reason, err := d.Review(context.Background(), "github.push", map[string]any{})
+		require.NoError(t, err)
+		done <- reason
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	resp, err := http.Get(srv.URL + "/api/pending")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	var pending []pendingRequest
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&pending))
+
+	body := `{"id":"` + pending[0].ID + `","decision":"deny","reason":"   "}`
+	resp2, err := http.Post(srv.URL+"/api/decide", "application/json", strings.NewReader(body))
+	require.NoError(t, err)
+	defer func() { _ = resp2.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp2.StatusCode)
+
+	require.Equal(t, "user", <-done)
+}
+
 func TestDashboard_Review_CancelsOnContextDone(t *testing.T) {
 	d := New(nil, nil, nil, nil)
 

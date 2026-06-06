@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
@@ -28,7 +29,8 @@ type AuditLogger interface {
 
 // Approver handles human approval decisions.
 // It returns (approved, denialReason, err). denialReason is "user" for explicit
-// denials, "timeout" for timeouts, and "" when approved or not applicable.
+// denials, "user: <reason>" for explicit denials with a reason, "timeout" for
+// timeouts, and "" when approved or not applicable.
 type Approver interface {
 	Review(ctx context.Context, tool string, args map[string]any) (bool, string, error)
 }
@@ -71,7 +73,7 @@ func (b *Broker) HandleToolResult(ctx context.Context, tool string, args map[str
 	}
 
 	// 1. Rules check
-	verdict := b.rules.Evaluate(tool, args)
+	verdict, ruleIndex := b.rules.EvaluateWithRule(tool, args)
 	rec.Verdict = verdict.String()
 
 	if b.logger != nil {
@@ -80,9 +82,16 @@ func (b *Broker) HandleToolResult(ctx context.Context, tool string, args map[str
 
 	switch verdict {
 	case rules.Deny:
-		rec.Error = fmt.Sprintf("denied by policy: %s", tool)
+		reason := "rule"
+		if ruleIndex >= 0 {
+			if configured := strings.TrimSpace(b.rules.Rules()[ruleIndex].Reason); configured != "" {
+				reason = "rule: " + configured
+			}
+		}
+		rec.DenialReason = reason
+		rec.Error = formatDenialMessage(reason)
 		_ = b.auditor.Record(ctx, rec)
-		return nil, fmt.Errorf("%w: %s", ErrDenied, tool)
+		return nil, fmt.Errorf("%w: %s", ErrDenied, rec.Error)
 
 	case rules.RequireApproval:
 		if b.approver == nil {
@@ -100,9 +109,9 @@ func (b *Broker) HandleToolResult(ctx context.Context, tool string, args map[str
 			return nil, fmt.Errorf("approver error for %s: %w", tool, err)
 		}
 		if !approved {
-			rec.Error = fmt.Sprintf("denied by approver: %s", tool)
+			rec.Error = formatDenialMessage(denialReason)
 			_ = b.auditor.Record(ctx, rec)
-			return nil, fmt.Errorf("%w (by approver): %s", ErrDenied, tool)
+			return nil, fmt.Errorf("%w: %s", ErrDenied, rec.Error)
 		}
 
 	case rules.Allow:
@@ -129,6 +138,14 @@ func (b *Broker) HandleToolResult(ctx context.Context, tool string, args map[str
 	}
 
 	return result, nil
+}
+
+func formatDenialMessage(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "user"
+	}
+	return "denied by " + reason
 }
 
 // Tools returns all discovered tools (delegates to server manager).

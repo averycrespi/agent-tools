@@ -66,6 +66,7 @@ func TestE2E_DenyToolCall(t *testing.T) {
 
 	type callResult struct {
 		isError bool
+		text    string
 		err     error
 	}
 	ch := make(chan callResult, 1)
@@ -75,16 +76,23 @@ func TestE2E_DenyToolCall(t *testing.T) {
 			ch <- callResult{err: err}
 			return
 		}
-		ch <- callResult{isError: result.IsError}
+		text := ""
+		if len(result.Content) > 0 {
+			if tc, ok := result.Content[0].(gomcp.TextContent); ok {
+				text = tc.Text
+			}
+		}
+		ch <- callResult{isError: result.IsError, text: text}
 	}()
 
 	pending := s.waitForPending(5 * time.Second)
 	require.Len(t, pending, 1)
-	s.deny(pending[0].ID)
+	s.denyWithReason(pending[0].ID, "needs narrower scope")
 
 	r := <-ch
 	require.NoError(t, r.err)  // MCP call itself succeeds...
 	require.True(t, r.isError) // ...but the tool result is an error.
+	require.Contains(t, r.text, "denied by user: needs narrower scope")
 
 	// Verify audit log.
 	audit := s.getAudit("", 10, 0)
@@ -114,13 +122,19 @@ func TestE2E_AllowedToolCall(t *testing.T) {
 func TestE2E_DeniedByRules(t *testing.T) {
 	s := newTestStack(t, stackOpts{
 		Tools: defaultTools,
-		Rules: []testRuleConfig{{Tool: "echo.*", Verdict: "deny"}},
+		Rules: []testRuleConfig{{Tool: "echo.*", Verdict: "deny", Reason: "read-only session"}},
 	})
 
 	// Tool call should return an error immediately.
 	result, err := s.callTool("echo.say_hello", map[string]any{})
 	require.NoError(t, err)         // MCP call succeeds...
 	require.True(t, result.IsError) // ...but tool result is an error.
+	require.NotEmpty(t, result.Content)
+	if tc, ok := result.Content[0].(gomcp.TextContent); ok {
+		require.Contains(t, tc.Text, "denied by rule: read-only session")
+	} else {
+		t.Fatalf("expected text content, got %T", result.Content[0])
+	}
 
 	// Verify audit log.
 	audit := s.getAudit("", 10, 0)

@@ -53,13 +53,13 @@ mcp-broker is a single Go binary serving on a single port (default 8200):
 
 Every tool call flows through the same pipeline:
 
-1. **Rules engine** — Evaluates the tool name against an ordered list of glob rules. Each rule maps a pattern to a verdict: `allow`, `deny`, or `require-approval`. First match wins; default is `require-approval`.
+1. **Rules engine** — Evaluates the tool name against an ordered list of glob rules. Each rule maps a pattern to a verdict: `allow`, `deny`, or `require-approval`. First match wins; default is `require-approval`. Deny rules may include an optional human-authored `reason`, returned to agents as `denied by rule: <reason>`.
 
-2. **Approval** — If the verdict is `require-approval`, the call blocks and appears in the web dashboard. A human approves or denies it. If no approver is configured, the call is rejected.
+2. **Approval** — If the verdict is `require-approval`, the call blocks and appears in the web dashboard. A human approves or denies it. Dashboard denials can include an optional reason, returned as `denied by user: <reason>`; binary denials return `denied by user`. Approval timeouts return `denied by timeout`. If no approver is configured, the call is rejected.
 
 3. **Proxy** — The call is forwarded to the backend MCP server that owns the tool. The broker strips the namespace prefix before forwarding.
 
-4. **Audit** — Every call is recorded in a SQLite database with: timestamp, tool name, arguments, verdict, approval status, result, and any error.
+4. **Audit** — Every call is recorded in a SQLite database with: timestamp, tool name, arguments, verdict, approval status, denial reason, result, and any error.
 
 ### Tool namespacing
 
@@ -89,7 +89,9 @@ Stateless evaluator. Takes a list of `RuleConfig` at construction time. `Evaluat
 
 #### Argument matching
 
-Each `RuleConfig` has an optional `args` field — a list of argument patterns. When `args` is absent or empty, the rule matches on tool name alone (fully backward compatible). When `args` is non-empty, all patterns must match (AND semantics): a rule fires only if the tool name matches AND every pattern resolves and matches.
+Each `RuleConfig` has optional `reason` and `args` fields. `reason` is primarily for deny rules; when present on a matching deny rule, the broker records `rule: <reason>` in audit and returns `denied by rule: <reason>` to the agent.
+
+`args` is a list of argument patterns. When `args` is absent or empty, the rule matches on tool name alone (fully backward compatible). When `args` is non-empty, all patterns must match (AND semantics): a rule fires only if the tool name matches AND every pattern resolves and matches.
 
 ```json
 {
@@ -175,12 +177,12 @@ Optional Telegram Bot API-based approver. Uses long-polling (`getUpdates?timeout
 
 Embedded single-page web application serving:
 
-- **Approvals tab** — pending requests with approve/deny buttons, decided history
+- **Approvals tab** — pending requests with approve/deny buttons, optional deny reason input, decided history
 - **Tools tab** — discovered tools grouped by server; click a tool to see its input schema
 - **Rules tab** — configured rules with the discovered tools matching each (read-only; for debugging verdicts)
 - **Audit tab** — paginated audit log with tool filter, plus a live feed of incoming records. New records are prepended in real time when the view is on page 1 with no active filter and not paused; otherwise an "N new" counter appears with a "return to live view" banner. A pause toggle freezes the live feed without affecting filter or pagination state.
 
-Real-time updates via Server-Sent Events (SSE) on a single `/events` channel. Event types are `new` (pending approval request), `removed` (request resolved), `decided` (decision applied), and `audit` (audit record written). The dashboard also implements the `Approver` interface — the `Review` method blocks until a human makes a decision via the `/api/decide` endpoint.
+Real-time updates via Server-Sent Events (SSE) on a single `/events` channel. Event types are `new` (pending approval request), `removed` (request resolved), `decided` (decision applied), and `audit` (audit record written). The dashboard also implements the `Approver` interface — the `Review` method blocks until a human makes a decision via the `/api/decide` endpoint. `/api/decide` accepts an optional `reason` for denies; whitespace-only reasons are treated as no explicit reason.
 
 ### Broker (`internal/broker`)
 
@@ -190,7 +192,7 @@ The orchestrator. Wires together rules, approval, proxy, and audit. The `Handle`
 - `AuditLogger` — recording and querying audit entries
 - `Approver` — human approval decisions
 
-`MultiApprover` fans approval requests to all configured approvers (e.g., dashboard + Telegram) concurrently with a shared timeout. First response wins.
+`MultiApprover` fans approval requests to all configured approvers (e.g., dashboard + Telegram) concurrently with a shared timeout. First response wins. Telegram denial is binary (`user`); timeout resolves as `timeout`.
 
 ### CLI (`cmd/mcp-broker`)
 
