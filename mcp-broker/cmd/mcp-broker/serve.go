@@ -35,6 +35,13 @@ func init() {
 	serveCmd.Flags().Bool("no-open", false, "do not open dashboard in browser")
 }
 
+const shutdownTimeout = 10 * time.Second
+
+type stoppableServer interface {
+	Shutdown(context.Context) error
+	Close() error
+}
+
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the MCP broker",
@@ -192,13 +199,31 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			logger.Warn("forced shutdown")
 			os.Exit(1)
 		}()
-		return srv.Shutdown(context.Background())
+		return shutdownServer(srv, logger, shutdownTimeout)
 	case err := <-errCh:
 		if !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("server error: %w", err)
 		}
 		return nil
 	}
+}
+
+func shutdownServer(srv stoppableServer, logger *slog.Logger, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		if !errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		if logger != nil {
+			logger.Warn("graceful shutdown timed out, forcing close", "timeout", timeout)
+		}
+		if closeErr := srv.Close(); closeErr != nil {
+			return fmt.Errorf("forcing shutdown: %w", closeErr)
+		}
+	}
+	return nil
 }
 
 func openBrowser(url string) error {
