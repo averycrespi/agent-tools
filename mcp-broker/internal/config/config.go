@@ -40,6 +40,7 @@ type ServerConfig struct {
 type RuleConfig struct {
 	Tool    string       `json:"tool"`
 	Verdict string       `json:"verdict"`
+	Reason  string       `json:"reason,omitempty"`
 	Args    []ArgPattern `json:"args,omitempty"`
 }
 

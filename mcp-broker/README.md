@@ -151,7 +151,7 @@ To receive approval requests on your phone and approve/deny them from anywhere, 
 2. Start a chat with your bot, then get your chat ID by calling `https://api.telegram.org/bot<TOKEN>/getUpdates` after sending any message to it.
 3. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in your environment and set `enabled: true` in config.
 
-When enabled, approval requests are sent to both the web dashboard and Telegram simultaneously. Either can resolve the request — the first response wins. The web dashboard shows a live countdown; Telegram messages are updated to show the outcome after a decision is made.
+When enabled, approval requests are sent to both the web dashboard and Telegram simultaneously. Either can resolve the request — the first response wins. The web dashboard shows a live countdown; Telegram messages are updated to show the outcome after a decision is made. Dashboard denials can include an optional reason, returned to the agent as `denied by user: <reason>`; Telegram denials are binary and return `denied by user`.
 
 ### Rules
 
@@ -163,9 +163,19 @@ Rules are evaluated top-to-bottom, first match wins. Patterns use Go's `filepath
 | `deny`             | Tool call is rejected                         |
 | `require-approval` | Tool call blocks until approved via dashboard |
 
-Default (no matching rule): `require-approval`.
+Default (no matching rule): `require-approval`. Denials are returned to agents as MCP tool errors: `denied by rule`, `denied by rule: <reason>`, `denied by user`, `denied by user: <reason>`, or `denied by timeout`.
 
 #### Argument matching
+
+Deny rules may include an optional `reason` field. When that rule rejects a call, the agent sees `denied by rule: <reason>` and the reason is recorded in audit.
+
+```json
+{
+  "tool": "github.delete_*",
+  "verdict": "deny",
+  "reason": "repository deletion is disabled"
+}
+```
 
 Rules can optionally constrain on argument values using the `args` field. All patterns must match (AND semantics) for a rule to fire.
 

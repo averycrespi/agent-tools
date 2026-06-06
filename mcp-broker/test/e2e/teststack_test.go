@@ -159,6 +159,7 @@ type testServerConfig struct {
 type testRuleConfig struct {
 	Tool    string           `json:"tool"`
 	Verdict string           `json:"verdict"`
+	Reason  string           `json:"reason,omitempty"`
 	Args    []testArgPattern `json:"args,omitempty"`
 }
 
@@ -350,7 +351,16 @@ func (s *TestStack) waitForPending(timeout time.Duration) pendingResponse {
 
 func (s *TestStack) decide(id, decision string) {
 	s.t.Helper()
-	body, _ := json.Marshal(map[string]string{"id": id, "decision": decision})
+	s.decideWithReason(id, decision, "")
+}
+
+func (s *TestStack) decideWithReason(id, decision, reason string) {
+	s.t.Helper()
+	payload := map[string]string{"id": id, "decision": decision}
+	if reason != "" {
+		payload["reason"] = reason
+	}
+	body, _ := json.Marshal(payload)
 	req, _ := http.NewRequest("POST", s.BrokerURL+"/dashboard/api/decide", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+s.AuthToken)
@@ -365,8 +375,9 @@ func (s *TestStack) decide(id, decision string) {
 	}
 }
 
-func (s *TestStack) approve(id string) { s.decide(id, "approve") }
-func (s *TestStack) deny(id string)    { s.decide(id, "deny") }
+func (s *TestStack) approve(id string)                { s.decide(id, "approve") }
+func (s *TestStack) deny(id string)                   { s.decide(id, "deny") }
+func (s *TestStack) denyWithReason(id, reason string) { s.decideWithReason(id, "deny", reason) }
 
 // toolsResponse is the JSON shape returned by GET /api/tools.
 type toolsResponse struct {

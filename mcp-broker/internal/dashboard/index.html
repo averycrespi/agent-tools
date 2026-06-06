@@ -285,6 +285,24 @@
       .actions {
         display: flex;
         gap: 0.5rem;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .deny-reason {
+        min-width: 16rem;
+        flex: 1;
+        padding: 0.4rem 0.625rem;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg-base);
+        color: var(--text-primary);
+        font-family: var(--font-sans);
+        font-size: 0.8125rem;
+      }
+
+      .deny-reason::placeholder {
+        color: var(--text-secondary);
       }
 
       .actions button {
@@ -708,6 +726,13 @@
         border-bottom: 1px solid var(--border);
         font-family: var(--font-mono);
         font-size: 0.875rem;
+      }
+
+      .rule-note {
+        padding: 0.5rem 1rem;
+        border-bottom: 1px solid var(--border);
+        color: var(--text-secondary);
+        font-size: 0.8125rem;
       }
 
       .rule-index {
@@ -1514,6 +1539,7 @@
           esc(JSON.stringify(pr.args, null, 2)) +
           "</pre>" +
           '<div class="actions">' +
+          '<input class="deny-reason" type="text" placeholder="Optional deny reason" aria-label="Optional deny reason" />' +
           '<button class="btn-approve" onclick="decide(\'' +
           pr.id +
           "','approve')\">Approve</button>" +
@@ -1539,10 +1565,18 @@
       }
 
       function decide(id, decision) {
+        var payload = { id: id, decision: decision };
+        if (decision === "deny") {
+          var div = cards.get(id);
+          var input = div && div.querySelector(".deny-reason");
+          if (input && input.value.trim() !== "") {
+            payload.reason = input.value;
+          }
+        }
         fetch("api/decide", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: id, decision: decision }),
+          body: JSON.stringify(payload),
         });
       }
 
@@ -2002,6 +2036,13 @@
                   html += '<span class="rule-with">with</span>';
                 }
                 html += "</div>";
+
+                if (rule.reason) {
+                  html +=
+                    '<div class="rule-note">reason: ' +
+                    esc(rule.reason) +
+                    "</div>";
+                }
 
                 if (hasArgs) {
                   html += '<div class="rule-patterns">';

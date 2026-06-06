@@ -76,7 +76,7 @@ func TestBroker_Handle_AllowedTool(t *testing.T) {
 func TestBroker_Handle_DeniedTool(t *testing.T) {
 	al := new(mockAuditLogger)
 	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
-		return r.Verdict == "deny" && r.Error != ""
+		return r.Verdict == "deny" && r.DenialReason == "rule" && r.Error == "denied by rule"
 	})).Return(nil)
 
 	engine, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "deny"}})
@@ -91,7 +91,31 @@ func TestBroker_Handle_DeniedTool(t *testing.T) {
 
 	_, err = b.Handle(context.Background(), "anything", nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "denied")
+	require.ErrorIs(t, err, ErrDenied)
+	require.Equal(t, "denied by policy: denied by rule", err.Error())
+}
+
+func TestBroker_Handle_DeniedToolWithRuleReason(t *testing.T) {
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
+		return r.Verdict == "deny" && r.DenialReason == "rule: force pushes are disabled" && r.Error == "denied by rule: force pushes are disabled"
+	})).Return(nil)
+
+	engine, err := rules.New([]config.RuleConfig{{Tool: "git.push", Verdict: "deny", Reason: "force pushes are disabled"}})
+	require.NoError(t, err)
+
+	b := &Broker{
+		servers:  new(mockServerManager),
+		rules:    engine,
+		auditor:  al,
+		approver: nil,
+	}
+
+	_, err = b.Handle(context.Background(), "git.push", nil)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrDenied)
+	require.Equal(t, "denied by policy: denied by rule: force pushes are disabled", err.Error())
+	al.AssertExpectations(t)
 }
 
 func TestBroker_Handle_ApprovalRequired_Approved(t *testing.T) {
@@ -145,7 +169,7 @@ func TestBroker_Handle_ApprovalRequired_Denied(t *testing.T) {
 func TestBroker_Handle_ApprovalRequired_DenialReasonPropagated(t *testing.T) {
 	al := new(mockAuditLogger)
 	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
-		return r.DenialReason == "timeout"
+		return r.DenialReason == "timeout" && r.Error == "denied by timeout"
 	})).Return(nil)
 
 	ap := new(mockApprover)
@@ -163,7 +187,34 @@ func TestBroker_Handle_ApprovalRequired_DenialReasonPropagated(t *testing.T) {
 
 	_, err = b.Handle(context.Background(), "fs.write", nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "denied")
+	require.ErrorIs(t, err, ErrDenied)
+	require.Equal(t, "denied by policy: denied by timeout", err.Error())
+	al.AssertExpectations(t)
+}
+
+func TestBroker_Handle_ApprovalRequired_UserDenialReasonFormatted(t *testing.T) {
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
+		return r.DenialReason == "user: needs narrower scope" && r.Error == "denied by user: needs narrower scope"
+	})).Return(nil)
+
+	ap := new(mockApprover)
+	ap.On("Review", mock.Anything, "fs.write", mock.Anything).Return(false, "user: needs narrower scope", nil)
+
+	engine, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
+	require.NoError(t, err)
+
+	b := &Broker{
+		servers:  new(mockServerManager),
+		rules:    engine,
+		auditor:  al,
+		approver: ap,
+	}
+
+	_, err = b.Handle(context.Background(), "fs.write", nil)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrDenied)
+	require.Equal(t, "denied by policy: denied by user: needs narrower scope", err.Error())
 	al.AssertExpectations(t)
 }
 
