@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -101,6 +102,38 @@ func TestDashboardRequestLoggerPreservesFlusher(t *testing.T) {
 	require.Empty(t, out.String())
 }
 
+func TestDashboardShutdownForcesCloseAfterTimeout(t *testing.T) {
+	signals := make(chan struct{}, 1)
+	shutdownStarted := make(chan struct{})
+	forcedClose := false
+
+	done := make(chan error, 1)
+	go func() {
+		done <- waitForDashboardShutdown(
+			signals,
+			make(chan error),
+			func(ctx context.Context) error {
+				close(shutdownStarted)
+				<-ctx.Done()
+				return ctx.Err()
+			},
+			func() error {
+				forcedClose = true
+				return nil
+			},
+			10*time.Millisecond,
+			func(string, ...any) {},
+			func() {},
+		)
+	}()
+
+	signals <- struct{}{}
+	<-shutdownStarted
+
+	require.NoError(t, <-done)
+	require.True(t, forcedClose)
+}
+
 func TestDashboardShutdownFirstSignalGracefulSecondSignalForced(t *testing.T) {
 	signals := make(chan struct{}, 2)
 	shutdownStarted := make(chan struct{})
@@ -118,6 +151,8 @@ func TestDashboardShutdownFirstSignalGracefulSecondSignalForced(t *testing.T) {
 				<-allowShutdownReturn
 				return context.Canceled
 			},
+			func() error { return nil },
+			time.Second,
 			func(format string, args ...any) { logged = append(logged, format) },
 			func() { close(forced) },
 		)

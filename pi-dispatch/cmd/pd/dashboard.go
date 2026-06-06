@@ -20,6 +20,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const dashboardShutdownTimeout = 10 * time.Second
+
 var dashboardCmd = &cobra.Command{
 	Use:   "dashboard",
 	Short: "Open Pi Dispatch Dashboard",
@@ -109,6 +111,8 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 		signalEvents(stop),
 		errCh,
 		srv.Shutdown,
+		srv.Close,
+		dashboardShutdownTimeout,
 		logf,
 		func() { os.Exit(1) },
 	)
@@ -124,7 +128,15 @@ func signalEvents(signals <-chan os.Signal) <-chan struct{} {
 	return events
 }
 
-func waitForDashboardShutdown(signals <-chan struct{}, errCh <-chan error, shutdown func(context.Context) error, logf func(string, ...any), forceExit func()) error {
+func waitForDashboardShutdown(
+	signals <-chan struct{},
+	errCh <-chan error,
+	shutdown func(context.Context) error,
+	forceClose func() error,
+	timeout time.Duration,
+	logf func(string, ...any),
+	forceExit func(),
+) error {
 	select {
 	case <-signals:
 		logf("shutting down, send Ctrl-C again to force exit")
@@ -133,7 +145,18 @@ func waitForDashboardShutdown(signals <-chan struct{}, errCh <-chan error, shutd
 			logf("forced shutdown")
 			forceExit()
 		}()
-		return shutdown(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		if err := shutdown(ctx); err != nil {
+			if !errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			logf("graceful shutdown timed out, forcing close")
+			if closeErr := forceClose(); closeErr != nil {
+				return fmt.Errorf("forcing shutdown: %w", closeErr)
+			}
+		}
+		return nil
 	case err := <-errCh:
 		if !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("server error: %w", err)
