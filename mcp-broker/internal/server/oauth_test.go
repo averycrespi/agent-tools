@@ -128,6 +128,42 @@ func TestClientCreds_GetCorruptedCreds(t *testing.T) {
 	require.Contains(t, err.Error(), "unmarshal client creds")
 }
 
+func TestClearCredentials_RemovesTokenAndClient(t *testing.T) {
+	ctx := context.Background()
+	store := &KeychainTokenStore{serverName: "logout-server"}
+	require.NoError(t, store.SaveToken(ctx, &transport.Token{AccessToken: "a", TokenType: "Bearer"}))
+	require.NoError(t, saveClientCreds("logout-server", clientCreds{ClientID: "cid", ClientSecret: "csecret"}))
+
+	clearedToken, clearedClient, err := ClearCredentials("logout-server")
+	require.NoError(t, err)
+	require.True(t, clearedToken)
+	require.True(t, clearedClient)
+
+	_, err = store.GetToken(ctx)
+	require.ErrorIs(t, err, transport.ErrNoToken)
+	got, err := getClientCreds("logout-server")
+	require.NoError(t, err)
+	require.Nil(t, got)
+}
+
+func TestClearCredentials_MissingEntriesAreNotAnError(t *testing.T) {
+	clearedToken, clearedClient, err := ClearCredentials("never-logged-in-server")
+	require.NoError(t, err)
+	require.False(t, clearedToken)
+	require.False(t, clearedClient)
+}
+
+func TestClearCredentials_TokenOnly(t *testing.T) {
+	ctx := context.Background()
+	store := &KeychainTokenStore{serverName: "token-only-server"}
+	require.NoError(t, store.SaveToken(ctx, &transport.Token{AccessToken: "a", TokenType: "Bearer"}))
+
+	clearedToken, clearedClient, err := ClearCredentials("token-only-server")
+	require.NoError(t, err)
+	require.True(t, clearedToken)
+	require.False(t, clearedClient)
+}
+
 func TestOAuthConfig_KeychainErrorContinuesWithEmptyCreds(t *testing.T) {
 	// If the keychain contains invalid JSON for the client entry, oauthConfig
 	// should log to stderr and return a config with empty ClientID/ClientSecret

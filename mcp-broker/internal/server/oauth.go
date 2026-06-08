@@ -86,6 +86,36 @@ func saveClientCreds(serverName string, creds clientCreds) error {
 	return keyring.Set(keychainService, serverName+".client", string(data))
 }
 
+// ClearCredentials removes a server's cached OAuth token and dynamic client
+// registration from the OS keychain. Use it to force a fresh OAuth flow on the
+// next connection — for example after the upstream rotates its client
+// registration and cached creds start being rejected. A missing entry is not an
+// error; the returned bools report which entries actually existed.
+func ClearCredentials(serverName string) (clearedToken, clearedClient bool, err error) {
+	clearedToken, err = deleteKeychainEntry(serverName)
+	if err != nil {
+		return false, false, fmt.Errorf("delete token for %q: %w", serverName, err)
+	}
+	clearedClient, err = deleteKeychainEntry(serverName + ".client")
+	if err != nil {
+		return clearedToken, false, fmt.Errorf("delete client registration for %q: %w", serverName, err)
+	}
+	return clearedToken, clearedClient, nil
+}
+
+// deleteKeychainEntry removes a single keychain key, reporting whether it
+// existed. A not-found entry yields (false, nil).
+func deleteKeychainEntry(key string) (existed bool, err error) {
+	switch err := keyring.Delete(keychainService, key); {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, keyring.ErrNotFound):
+		return false, nil
+	default:
+		return false, err
+	}
+}
+
 // callbackPort returns a deterministic port for the OAuth callback server,
 // derived from the server name. Maps to ephemeral range 10000-65535.
 func callbackPort(serverName string) int {

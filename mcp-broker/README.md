@@ -128,6 +128,8 @@ Servers is a map keyed by server name. Each name is used as a tool prefix (e.g. 
 
 OAuth is handled automatically. When a server responds with HTTP 401, the broker runs an OAuth flow (dynamic client registration, PKCE, browser-based authorization). Tokens are stored in the OS keychain (macOS Keychain / Linux Secret Service) and refreshed automatically. No configuration is needed.
 
+If a backend's cached login goes stale — for example after the upstream rotates its OAuth client registration and tool calls start failing with authorization errors — clear it with `mcp-broker logout <server>`. This removes the server's stored token and client registration from the keychain; the next call triggers a fresh OAuth flow.
+
 ### Mobile Approval (Telegram)
 
 To receive approval requests on your phone and approve/deny them from anywhere, enable the Telegram notifier:
@@ -289,6 +291,7 @@ mcp-broker serve              # Start the broker
 mcp-broker serve -v           # Enable debug logging
 mcp-broker serve --log-level debug  # Same, with explicit level
 mcp-broker token rotate        # Regenerate auth token
+mcp-broker logout <server>     # Clear a backend's cached OAuth credentials
 mcp-broker config path        # Print config file path
 mcp-broker config refresh     # Backfill new defaults into config
 mcp-broker config edit        # Open config in $EDITOR
