@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -27,7 +29,7 @@ type KeychainTokenStore struct {
 }
 
 func (s *KeychainTokenStore) GetToken(ctx context.Context) (*transport.Token, error) {
-	data, err := keyring.Get(keychainService, s.serverName)
+	data, err := keychainGet(keychainService, s.serverName)
 	if err != nil {
 		// Treat any keychain error (not found, service unavailable) as no token.
 		// The OAuth flow will only trigger if the server returns 401.
@@ -48,7 +50,131 @@ func (s *KeychainTokenStore) SaveToken(ctx context.Context, token *transport.Tok
 	if err != nil {
 		return fmt.Errorf("marshal token: %w", err)
 	}
-	return keyring.Set(keychainService, s.serverName, string(data))
+	return keychainSet(keychainService, s.serverName, string(data))
+}
+
+// keychainChunkSize is the maximum raw bytes stored per chunk when a value is
+// too large for the backend's single-item limit. go-keyring's macOS backend
+// rejects any item whose `security` command line exceeds ~4096 bytes; after
+// base64 expansion (~4/3) plus command overhead, 2048 raw bytes stays well
+// under that. It is a var, not a const, so tests can shrink it.
+var keychainChunkSize = 2048
+
+// chunkManifestPrefix marks a primary keychain item as a chunk manifest, with
+// the decimal chunk count as its suffix. A real value is always JSON ("{...}")
+// and never collides with this prefix.
+const chunkManifestPrefix = "go-keyring-chunked:"
+
+// keychainSet stores a keychain item, transparently chunking values the backend
+// rejects as too large. go-keyring's macOS backend caps a single item at ~4096
+// bytes (the `security -i` line-buffer limit), which large OAuth tokens (e.g.
+// Atlassian's JWTs) exceed. On ErrSetDataTooBig we split the value across
+// "<key>.chunk.N" items — each written via go-keyring's secure stdin path, so
+// the secret never reaches the process table — and store a manifest at the
+// primary key for keychainGet to reassemble. Chunking only triggers on backends
+// that report the limit (macOS); Linux's secret-service stores large values
+// directly and never reaches this path.
+func keychainSet(service, key, value string) error {
+	err := keyring.Set(service, key, value)
+	if err == nil {
+		// Value fit in one item; drop any chunks left by a prior, larger value.
+		return clearChunks(service, key, 0)
+	}
+	if !errors.Is(err, keyring.ErrSetDataTooBig) {
+		return err
+	}
+	return writeChunked(service, key, value)
+}
+
+// writeChunked splits value across "<key>.chunk.N" items and records the count
+// in a manifest at the primary key.
+func writeChunked(service, key, value string) error {
+	chunks := splitChunks(value, keychainChunkSize)
+	for i, c := range chunks {
+		if err := keyring.Set(service, chunkKey(key, i), c); err != nil {
+			return fmt.Errorf("save chunk %d/%d: %w", i, len(chunks), err)
+		}
+	}
+	// Write the manifest last: until it lands, the primary key still holds the
+	// previous value, so a partial write never leaves a manifest pointing at
+	// missing chunks.
+	manifest := fmt.Sprintf("%s%d", chunkManifestPrefix, len(chunks))
+	if err := keyring.Set(service, key, manifest); err != nil {
+		return fmt.Errorf("save chunk manifest: %w", err)
+	}
+	// Remove any surplus chunks from a previously larger value.
+	return clearChunks(service, key, len(chunks))
+}
+
+// keychainGet reads a keychain item, reassembling chunked values written by
+// keychainSet. Non-chunked values are returned unchanged.
+func keychainGet(service, key string) (string, error) {
+	data, err := keyring.Get(service, key)
+	if err != nil {
+		return "", err
+	}
+	n, ok := parseChunkManifest(data)
+	if !ok {
+		return data, nil
+	}
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		c, err := keyring.Get(service, chunkKey(key, i))
+		if err != nil {
+			return "", fmt.Errorf("read chunk %d/%d: %w", i, n, err)
+		}
+		b.WriteString(c)
+	}
+	return b.String(), nil
+}
+
+// clearChunks deletes "<key>.chunk.N" entries starting at `from` until one is
+// absent. Chunks are always written contiguously from 0, so the first gap marks
+// the end; a missing chunk stops the scan rather than being an error.
+func clearChunks(service, key string, from int) error {
+	for i := from; ; i++ {
+		switch err := keyring.Delete(service, chunkKey(key, i)); {
+		case err == nil:
+			continue
+		case errors.Is(err, keyring.ErrNotFound):
+			return nil
+		default:
+			return fmt.Errorf("delete chunk %d: %w", i, err)
+		}
+	}
+}
+
+func chunkKey(key string, i int) string {
+	return fmt.Sprintf("%s.chunk.%d", key, i)
+}
+
+// splitChunks splits s into byte slices of at most size bytes, with no empty
+// trailing slice. Splitting mid-rune is safe: callers concatenate the slices
+// back byte-for-byte.
+func splitChunks(s string, size int) []string {
+	var chunks []string
+	for i := 0; i < len(s); i += size {
+		end := i + size
+		if end > len(s) {
+			end = len(s)
+		}
+		chunks = append(chunks, s[i:end])
+	}
+	return chunks
+}
+
+// parseChunkManifest reports whether data is a chunk manifest and, if so, its
+// chunk count.
+func parseChunkManifest(data string) (int, bool) {
+	rest, ok := strings.CutPrefix(data, chunkManifestPrefix)
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.Atoi(rest)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
 }
 
 // clientCreds holds the dynamic client registration (RFC 7591) issued by
@@ -63,7 +189,7 @@ type clientCreds struct {
 // getClientCreds returns the stored dynamic client registration for a server,
 // or (nil, nil) if none has been saved yet (first-run).
 func getClientCreds(serverName string) (*clientCreds, error) {
-	data, err := keyring.Get(keychainService, serverName+".client")
+	data, err := keychainGet(keychainService, serverName+".client")
 	if err != nil {
 		if errors.Is(err, keyring.ErrNotFound) {
 			return nil, nil
@@ -83,7 +209,7 @@ func saveClientCreds(serverName string, creds clientCreds) error {
 	if err != nil {
 		return fmt.Errorf("marshal client creds: %w", err)
 	}
-	return keyring.Set(keychainService, serverName+".client", string(data))
+	return keychainSet(keychainService, serverName+".client", string(data))
 }
 
 // ClearCredentials removes a server's cached OAuth token and dynamic client
@@ -95,6 +221,10 @@ func ClearCredentials(serverName string) (clearedToken, clearedClient bool, err 
 	clearedToken, err = deleteKeychainEntry(serverName)
 	if err != nil {
 		return false, false, fmt.Errorf("delete token for %q: %w", serverName, err)
+	}
+	// The token may have been chunked across "<serverName>.chunk.N" items.
+	if err := clearChunks(keychainService, serverName, 0); err != nil {
+		return clearedToken, false, fmt.Errorf("delete token chunks for %q: %w", serverName, err)
 	}
 	clearedClient, err = deleteKeychainEntry(serverName + ".client")
 	if err != nil {
