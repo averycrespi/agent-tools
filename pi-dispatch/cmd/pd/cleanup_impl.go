@@ -29,6 +29,17 @@ type cleanupResult struct {
 	RemovedWorktree     bool   `json:"removed_worktree,omitempty"`
 }
 
+func effectiveWorktreeCleanupPolicy(configDefault, override string) (store.WorktreeCleanupPolicy, error) {
+	policy := configDefault
+	if policy == "" {
+		policy = string(store.CleanupPolicyNever)
+	}
+	if override != "" {
+		policy = override
+	}
+	return parseWorktreeCleanupPolicy(policy)
+}
+
 func parseWorktreeCleanupPolicy(value string) (store.WorktreeCleanupPolicy, error) {
 	switch value {
 	case string(store.CleanupPolicyNever):
@@ -148,4 +159,12 @@ func runPostTerminalCleanup(ctx context.Context, db *store.Store, taskID string,
 		return
 	}
 	_, _ = performWorktreeCleanup(ctx, db, task, terminalStatus, false)
+}
+
+func recordSkippedPostTerminalCleanup(ctx context.Context, db *store.Store, taskID, reason string) {
+	task, err := db.GetTask(ctx, taskID)
+	if err != nil || task.WorktreeCleanupPolicy == store.CleanupPolicyNever || task.WorktreeCleanupPolicy == "" {
+		return
+	}
+	_ = db.RecordWorktreeCleanup(ctx, taskID, store.CleanupStatusSkipped, reason, false)
 }

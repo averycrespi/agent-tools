@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"io"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -98,6 +100,40 @@ func TestScheduleForceKillWaitsForGracePeriod(t *testing.T) {
 	require.False(t, proc.wasKilled())
 	require.Eventually(t, proc.wasKilled, time.Second, 10*time.Millisecond)
 }
+
+func TestFinishSupervisorRunsCleanupAfterProcessWait(t *testing.T) {
+	db, task := setupCleanupTask(t, store.StatusRunning, store.CleanupPolicyOnSuccess, true)
+	fakeWT := &fakeRemoveWorktree{}
+	withWorktreeClient(t, fakeWT)
+	proc := &fakeFinishProcess{stdin: nopWriteCloser{}}
+	run, err := db.LatestRun(context.Background(), task.ID)
+	require.NoError(t, err)
+
+	require.NoError(t, finishSupervisor(context.Background(), db, run, proc, &supervisorRunState{}, nil, "agent run completed"))
+
+	require.True(t, proc.waited.Load())
+	require.Equal(t, task.RepoPath, fakeWT.repoRoot)
+	got, err := db.GetTask(context.Background(), task.ID)
+	require.NoError(t, err)
+	require.Equal(t, store.CleanupStatusRemoved, got.WorktreeCleanupStatus)
+}
+
+type nopWriteCloser struct{}
+
+func (nopWriteCloser) Write(p []byte) (int, error) { return len(p), nil }
+func (nopWriteCloser) Close() error                { return nil }
+
+type fakeFinishProcess struct {
+	stdin  io.WriteCloser
+	waited atomic.Bool
+}
+
+func (p *fakeFinishProcess) Stdin() io.WriteCloser { return p.stdin }
+func (p *fakeFinishProcess) Wait() error {
+	p.waited.Store(true)
+	return nil
+}
+func (p *fakeFinishProcess) Kill() error { return nil }
 
 type fakeAbortClient struct {
 	aborted bool

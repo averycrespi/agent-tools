@@ -120,6 +120,7 @@ var (
 	killProcessGroup         = pdprocess.KillGroup
 	followLogFiles           = followFiles
 	forceStopEscalationGrace = 3 * time.Second
+	forceStopKillWait        = 3 * time.Second
 	forceStopPollInterval    = 100 * time.Millisecond
 )
 
@@ -147,14 +148,37 @@ func forceStopTask(cmd *cobra.Command, taskID string) error {
 	if waitForTerminalStatus(ctx, db, taskID, forceStopEscalationGrace) {
 		return printForceStopResult(taskID)
 	}
+	processExited := true
 	if run.SupervisorPID > 0 {
 		_ = killProcessGroup(run.SupervisorPID)
+		processExited = waitForProcessExit(ctx, run.SupervisorPID, forceStopKillWait)
 	}
 	if err := db.CompleteRun(ctx, taskID, store.StatusStopped, 0, "force-killed by pd stop --force", ""); err != nil {
 		return err
 	}
-	runPostTerminalCleanup(ctx, db, taskID, store.StatusStopped)
+	if processExited {
+		runPostTerminalCleanup(ctx, db, taskID, store.StatusStopped)
+	} else {
+		recordSkippedPostTerminalCleanup(ctx, db, taskID, "supervisor process still running after force kill")
+	}
 	return printForceStopResult(taskID)
+}
+
+func waitForProcessExit(ctx context.Context, pid int, grace time.Duration) bool {
+	deadline := time.Now().Add(grace)
+	for {
+		if !processExists(pid) {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(forceStopPollInterval):
+		}
+	}
 }
 
 func waitForTerminalStatus(ctx context.Context, db *store.Store, taskID string, grace time.Duration) bool {

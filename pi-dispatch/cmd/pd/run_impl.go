@@ -38,6 +38,7 @@ type runResult struct {
 
 type worktreeClient interface {
 	AddHeadless(repoRoot, branch string) (string, error)
+	AddHeadlessWithOwnership(repoRoot, branch string) (string, bool, error)
 	Path(repoRoot, branch string) (string, error)
 	Remove(repoRoot, branch string) error
 }
@@ -48,6 +49,7 @@ type sandboxClient interface {
 }
 
 var (
+	newRunner         = func() pdexec.Runner { return pdexec.NewOSRunner() }
 	newWorktreeClient = func() (worktreeClient, error) { return wtworktree.New() }
 	newSandboxClient  = func() (sandboxClient, error) { return sbsandbox.New() }
 )
@@ -87,19 +89,12 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	runner := pdexec.NewOSRunner()
+	runner := newRunner()
 	repo, err := resolveRunRepoInfo(runner, runRepo)
 	if err != nil {
 		return err
 	}
-	cleanupPolicy := cfg.DefaultWorktreeCleanupPolicy
-	if cleanupPolicy == "" {
-		cleanupPolicy = string(store.CleanupPolicyNever)
-	}
-	if runCleanupPolicy != "" {
-		cleanupPolicy = runCleanupPolicy
-	}
-	parsedCleanupPolicy, err := parseWorktreeCleanupPolicy(cleanupPolicy)
+	parsedCleanupPolicy, err := effectiveWorktreeCleanupPolicy(cfg.DefaultWorktreeCleanupPolicy, runCleanupPolicy)
 	if err != nil {
 		return err
 	}
@@ -111,15 +106,7 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	worktreeCreatedByPD := false
-	if expectedPath, pathErr := wt.Path(repo.Root, branch); pathErr == nil {
-		if _, statErr := os.Stat(expectedPath); os.IsNotExist(statErr) {
-			worktreeCreatedByPD = true
-		} else if statErr != nil {
-			worktreeCreatedByPD = false
-		}
-	}
-	worktreePath, err := wt.AddHeadless(repo.Root, branch)
+	worktreePath, worktreeCreatedByPD, err := wt.AddHeadlessWithOwnership(repo.Root, branch)
 	if err != nil {
 		return err
 	}
@@ -174,6 +161,9 @@ func runTask(cmd *cobra.Command, args []string) error {
 	}
 	pid, err := process.NewLauncher(runner).StartSupervisorWithEnv(runEnvEnviron(envVars), "--task-id", taskID, "--pi-argv", encodedArgv, "--env-names", encodedEnvNames)
 	if err != nil {
+		if pid > 0 {
+			return failRunLaunchWithoutCleanup(cmdCtx, db, taskID, err)
+		}
 		return failRunLaunch(cmdCtx, db, taskID, err)
 	}
 	if err := db.UpdateRunSupervisorPID(cmdCtx, taskID, pid); err != nil {

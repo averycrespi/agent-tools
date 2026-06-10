@@ -408,19 +408,7 @@ func scanTask(row taskScanner) (Task, error) {
 		return Task{}, err
 	}
 	task.Status = TaskStatus(status)
-	task.WorktreeCleanupPolicy = WorktreeCleanupPolicy(cleanupPolicy)
-	task.WorktreeCreatedByPD = createdByPD != 0
-	task.WorktreeCleanupStatus = WorktreeCleanupStatus(cleanupStatus)
-	if cleanupAttemptedAt.Valid {
-		if attemptedAt, err := time.Parse(time.RFC3339Nano, cleanupAttemptedAt.String); err == nil {
-			task.WorktreeCleanupAttemptedAt = sql.NullTime{Time: attemptedAt, Valid: true}
-		}
-	}
-	if removedAt.Valid {
-		if parsedRemovedAt, err := time.Parse(time.RFC3339Nano, removedAt.String); err == nil {
-			task.WorktreeRemovedAt = sql.NullTime{Time: parsedRemovedAt, Valid: true}
-		}
-	}
+	populateTaskCleanup(&task, cleanupPolicy, createdByPD, cleanupStatus, cleanupAttemptedAt, removedAt)
 	task.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
 	task.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
 	return task, nil
@@ -436,6 +424,22 @@ func scanRun(row taskScanner) (Run, error) {
 	}
 	populateRunTimes(&run, status, started, ended)
 	return run, nil
+}
+
+func populateTaskCleanup(task *Task, cleanupPolicy string, createdByPD int, cleanupStatus string, cleanupAttemptedAt, removedAt sql.NullString) {
+	task.WorktreeCleanupPolicy = WorktreeCleanupPolicy(cleanupPolicy)
+	task.WorktreeCreatedByPD = createdByPD != 0
+	task.WorktreeCleanupStatus = WorktreeCleanupStatus(cleanupStatus)
+	if cleanupAttemptedAt.Valid {
+		if attemptedAt, err := time.Parse(time.RFC3339Nano, cleanupAttemptedAt.String); err == nil {
+			task.WorktreeCleanupAttemptedAt = sql.NullTime{Time: attemptedAt, Valid: true}
+		}
+	}
+	if removedAt.Valid {
+		if parsedRemovedAt, err := time.Parse(time.RFC3339Nano, removedAt.String); err == nil {
+			task.WorktreeRemovedAt = sql.NullTime{Time: parsedRemovedAt, Valid: true}
+		}
+	}
 }
 
 func populateRunTimes(run *Run, status, started string, ended sql.NullString) {

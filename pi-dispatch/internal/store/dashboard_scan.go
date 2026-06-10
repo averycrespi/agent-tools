@@ -36,19 +36,7 @@ func scanTaskSummary(row taskScanner) (TaskSummary, error) {
 		return TaskSummary{}, err
 	}
 	summary.Task.Status = TaskStatus(taskStatus)
-	summary.Task.WorktreeCleanupPolicy = WorktreeCleanupPolicy(cleanupPolicy)
-	summary.Task.WorktreeCreatedByPD = createdByPD != 0
-	summary.Task.WorktreeCleanupStatus = WorktreeCleanupStatus(cleanupStatus)
-	if cleanupAttemptedAt.Valid {
-		if attemptedAt, err := time.Parse(time.RFC3339Nano, cleanupAttemptedAt.String); err == nil {
-			summary.Task.WorktreeCleanupAttemptedAt = sql.NullTime{Time: attemptedAt, Valid: true}
-		}
-	}
-	if removedAt.Valid {
-		if parsedRemovedAt, err := time.Parse(time.RFC3339Nano, removedAt.String); err == nil {
-			summary.Task.WorktreeRemovedAt = sql.NullTime{Time: parsedRemovedAt, Valid: true}
-		}
-	}
+	populateTaskCleanup(&summary.Task, cleanupPolicy, createdByPD, cleanupStatus, cleanupAttemptedAt, removedAt)
 	summary.Task.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
 	summary.Task.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
 

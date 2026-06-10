@@ -73,6 +73,10 @@ CREATE TABLE runs (
 );
 `)
 	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO tasks (id, repo_path, repo_name, branch, worktree_path, prompt_source, prompt, prompt_preview, status, created_at, updated_at) VALUES ('pd-old', '/repo', 'repo', 'pd/old', '/wt', 'arg', 'hello', 'hello', 'succeeded', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')`)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO runs (id, task_id, attempt, status, started_at, control_socket_path, stdout_log_path, stderr_log_path, pi_events_path) VALUES ('run-old', 'pd-old', 1, 'succeeded', '2024-01-01T00:00:00Z', '/sock', '/stdout', '/stderr', '/events')`)
+	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
 	st, err := Open(path)
@@ -84,6 +88,11 @@ CREATE TABLE runs (
 	require.True(t, taskColumns["worktree_cleanup_policy"])
 	require.True(t, taskColumns["worktree_created_by_pd"])
 	require.True(t, taskColumns["worktree_cleanup_status"])
+	oldTask, err := st.GetTask(context.Background(), "pd-old")
+	require.NoError(t, err)
+	require.Equal(t, CleanupPolicyNever, oldTask.WorktreeCleanupPolicy)
+	require.False(t, oldTask.WorktreeCreatedByPD)
+	require.Equal(t, CleanupStatusNotRequested, oldTask.WorktreeCleanupStatus)
 
 	columns, err := runTableColumns(st.db)
 	require.NoError(t, err)

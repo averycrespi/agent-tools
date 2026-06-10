@@ -80,6 +80,32 @@ func TestForceStopTaskEscalatesWhenSupervisorIsStuck(t *testing.T) {
 	require.Equal(t, "force-killed by pd stop --force", gotRun.ErrorMessage)
 }
 
+func TestForceStopTaskSkipsCleanupWhenKilledSupervisorStillExists(t *testing.T) {
+	db, task, _ := setupRemoveTask(t, store.StatusStopping, struct {
+		policy store.WorktreeCleanupPolicy
+		owned  bool
+	}{policy: store.CleanupPolicyOnTerminal, owned: true})
+	require.NoError(t, db.UpdateRunSupervisorPID(context.Background(), task.ID, 4242))
+	require.NoError(t, db.Close())
+	withProcessExists(t, func(int) bool { return true })
+	withControlSender(t, func(string, control.Request) (control.Response, error) { return control.Response{OK: true}, nil })
+	withKillProcessGroup(t, func(int) error { return nil })
+	withForceStopTiming(t, 20*time.Millisecond, 5*time.Millisecond)
+	fakeWT := &fakeRemoveWorktree{}
+	withWorktreeClient(t, fakeWT)
+
+	require.NoError(t, sendStop(stopTestCommand(t, true), []string{task.ID}))
+
+	require.Empty(t, fakeWT.repoRoot)
+	checkDB, err := store.Open(cfg.DBPath())
+	require.NoError(t, err)
+	defer checkDB.Close() //nolint:errcheck
+	got, err := checkDB.GetTask(context.Background(), task.ID)
+	require.NoError(t, err)
+	require.Equal(t, store.CleanupStatusSkipped, got.WorktreeCleanupStatus)
+	require.Contains(t, got.WorktreeCleanupError, "still running")
+}
+
 func TestForceStopTaskRejectsTerminalStatus(t *testing.T) {
 	db, task, _ := setupRemoveTask(t, store.StatusSucceeded)
 	require.NoError(t, db.Close())
@@ -129,11 +155,14 @@ func withKillProcessGroup(t *testing.T, fn func(int) error) {
 func withForceStopTiming(t *testing.T, grace, poll time.Duration) {
 	t.Helper()
 	oldGrace := forceStopEscalationGrace
+	oldKillWait := forceStopKillWait
 	oldPoll := forceStopPollInterval
 	forceStopEscalationGrace = grace
+	forceStopKillWait = grace
 	forceStopPollInterval = poll
 	t.Cleanup(func() {
 		forceStopEscalationGrace = oldGrace
+		forceStopKillWait = oldKillWait
 		forceStopPollInterval = oldPoll
 	})
 }
@@ -275,7 +304,10 @@ func TestCleanupTaskFailurePreservesDBAndLogsAndRecordsFailure(t *testing.T) {
 	require.Contains(t, got.WorktreeCleanupError, "remove failed")
 }
 
-func setupRemoveTask(t *testing.T, status store.TaskStatus) (*store.Store, store.Task, store.Run) {
+func setupRemoveTask(t *testing.T, status store.TaskStatus, cleanup ...struct {
+	policy store.WorktreeCleanupPolicy
+	owned  bool
+}) (*store.Store, store.Task, store.Run) {
 	t.Helper()
 	stateDir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateDir)
@@ -286,7 +318,17 @@ func setupRemoveTask(t *testing.T, status store.TaskStatus) (*store.Store, store
 	db, err := store.Open(dbPath)
 	require.NoError(t, err)
 	now := time.Now().Add(-time.Minute)
-	task := store.Task{ID: "pd-test", RepoPath: "/repo", RepoName: "repo", Branch: "pd/test", WorktreePath: "/wt", PromptSource: "arg", Prompt: "hello", PromptPreview: "hello", Status: status, CreatedAt: now, UpdatedAt: now}
+	policy := store.CleanupPolicyNever
+	owned := false
+	cleanupStatus := store.CleanupStatusNotRequested
+	if len(cleanup) > 0 {
+		policy = cleanup[0].policy
+		owned = cleanup[0].owned
+		if policy != store.CleanupPolicyNever {
+			cleanupStatus = store.CleanupStatusPending
+		}
+	}
+	task := store.Task{ID: "pd-test", RepoPath: "/repo", RepoName: "repo", Branch: "pd/test", WorktreePath: "/wt", PromptSource: "arg", Prompt: "hello", PromptPreview: "hello", Status: status, WorktreeCleanupPolicy: policy, WorktreeCreatedByPD: owned, WorktreeCleanupStatus: cleanupStatus, CreatedAt: now, UpdatedAt: now}
 	run := store.Run{ID: "run-test", TaskID: task.ID, Attempt: 1, SupervisorPID: 0, Status: status, StartedAt: now, ControlSocketPath: filepath.Join(stateDir, "run", "pd-test.sock"), StdoutLogPath: filepath.Join(pdconfig.TaskDir(task.ID), "stdout.log"), StderrLogPath: filepath.Join(pdconfig.TaskDir(task.ID), "stderr.log"), PiEventsPath: filepath.Join(pdconfig.TaskDir(task.ID), "pi-events.jsonl")}
 	require.NoError(t, db.CreateTaskWithRun(context.Background(), task, run))
 	return db, task, run
@@ -315,7 +357,10 @@ type fakeRemoveWorktree struct {
 }
 
 func (w *fakeRemoveWorktree) AddHeadless(string, string) (string, error) { return "", nil }
-func (w *fakeRemoveWorktree) Path(string, string) (string, error)        { return "", nil }
+func (w *fakeRemoveWorktree) AddHeadlessWithOwnership(string, string) (string, bool, error) {
+	return "", false, nil
+}
+func (w *fakeRemoveWorktree) Path(string, string) (string, error) { return "", nil }
 func (w *fakeRemoveWorktree) Remove(repoRoot, branch string) error {
 	w.repoRoot = repoRoot
 	w.branch = branch

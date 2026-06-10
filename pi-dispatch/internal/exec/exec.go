@@ -67,7 +67,7 @@ func (r *OSRunner) start(env []string, name string, args ...string) (int, error)
 	}
 	pid := cmd.Process.Pid
 	if err := cmd.Process.Release(); err != nil {
-		return 0, err
+		return pid, err
 	}
 	return pid, nil
 }

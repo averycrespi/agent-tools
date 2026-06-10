@@ -107,22 +107,30 @@ func (s *Service) Add(repoRoot, branch string) error {
 
 // AddHeadless creates/configures a worktree without creating a tmux window.
 func (s *Service) AddHeadless(repoRoot, branch string) (string, error) {
+	worktreeDir, _, err := s.AddHeadlessWithOwnership(repoRoot, branch)
+	return worktreeDir, err
+}
+
+// AddHeadlessWithOwnership creates/configures a worktree and reports whether this call created it.
+func (s *Service) AddHeadlessWithOwnership(repoRoot, branch string) (string, bool, error) {
 	info, err := s.git.RepoInfo(repoRoot)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if info.IsWorktree {
-		return "", fmt.Errorf("this command must be run from the main git repository, not a worktree")
+		return "", false, fmt.Errorf("this command must be run from the main git repository, not a worktree")
 	}
 
 	worktreeDir := config.WorktreeDir(info.Name, branch)
+	created := false
 	if _, err := os.Stat(worktreeDir); os.IsNotExist(err) {
+		created = true
 		s.logger.Info("creating worktree", "path", worktreeDir)
 		if err := os.MkdirAll(filepath.Dir(worktreeDir), 0o755); err != nil { //nolint:gosec // 0755 is appropriate for worktree directories
-			return "", fmt.Errorf("could not create worktree directory: %w", err)
+			return "", false, fmt.Errorf("could not create worktree directory: %w", err)
 		}
 		if err := s.git.AddWorktree(info.Root, worktreeDir, branch); err != nil {
-			return "", err
+			return "", false, err
 		}
 
 		for _, relPath := range s.config.CopyFiles {
@@ -134,7 +142,7 @@ func (s *Service) AddHeadless(repoRoot, branch string) (string, error) {
 		s.logger.Debug("worktree already exists", "path", worktreeDir)
 	}
 
-	return worktreeDir, nil
+	return worktreeDir, created, nil
 }
 
 // Path returns the expected absolute worktree path for branch without creating it.

@@ -30,6 +30,10 @@ func (c *Client) AddHeadless(repoRoot, branch string) (string, error) {
 	return c.service.AddHeadless(repoRoot, branch)
 }
 
+func (c *Client) AddHeadlessWithOwnership(repoRoot, branch string) (string, bool, error) {
+	return c.service.AddHeadlessWithOwnership(repoRoot, branch)
+}
+
 func (c *Client) Path(repoRoot, branch string) (string, error) {
 	return c.service.Path(repoRoot, branch)
 }
