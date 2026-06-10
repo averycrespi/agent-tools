@@ -8,7 +8,9 @@ import (
 func scanTaskSummary(row taskScanner) (TaskSummary, error) {
 	var summary TaskSummary
 	var created, updated string
-	var taskStatus string
+	var taskStatus, cleanupPolicy, cleanupStatus string
+	var createdByPD int
+	var cleanupAttemptedAt, removedAt sql.NullString
 	var runID sql.NullString
 	var runTaskID sql.NullString
 	var runAttempt sql.NullInt64
@@ -28,12 +30,25 @@ func scanTaskSummary(row taskScanner) (TaskSummary, error) {
 	var piEventsPath sql.NullString
 
 	if err := row.Scan(
-		&summary.Task.ID, &summary.Task.RepoPath, &summary.Task.RepoName, &summary.Task.Branch, &summary.Task.WorktreePath, &summary.Task.PromptSource, &summary.Task.Prompt, &summary.Task.PromptPreview, &taskStatus, &created, &updated,
+		&summary.Task.ID, &summary.Task.RepoPath, &summary.Task.RepoName, &summary.Task.Branch, &summary.Task.WorktreePath, &summary.Task.PromptSource, &summary.Task.Prompt, &summary.Task.PromptPreview, &taskStatus, &cleanupPolicy, &createdByPD, &cleanupStatus, &summary.Task.WorktreeCleanupError, &cleanupAttemptedAt, &removedAt, &created, &updated,
 		&runID, &runTaskID, &runAttempt, &supervisorPID, &piSessionFile, &runStatus, &started, &ended, &exitCode, &errorMessage, &agentOptionsJSON, &piArgvJSON, &envVarNamesJSON, &controlSocketPath, &stdoutLogPath, &stderrLogPath, &piEventsPath,
 	); err != nil {
 		return TaskSummary{}, err
 	}
 	summary.Task.Status = TaskStatus(taskStatus)
+	summary.Task.WorktreeCleanupPolicy = WorktreeCleanupPolicy(cleanupPolicy)
+	summary.Task.WorktreeCreatedByPD = createdByPD != 0
+	summary.Task.WorktreeCleanupStatus = WorktreeCleanupStatus(cleanupStatus)
+	if cleanupAttemptedAt.Valid {
+		if attemptedAt, err := time.Parse(time.RFC3339Nano, cleanupAttemptedAt.String); err == nil {
+			summary.Task.WorktreeCleanupAttemptedAt = sql.NullTime{Time: attemptedAt, Valid: true}
+		}
+	}
+	if removedAt.Valid {
+		if parsedRemovedAt, err := time.Parse(time.RFC3339Nano, removedAt.String); err == nil {
+			summary.Task.WorktreeRemovedAt = sql.NullTime{Time: parsedRemovedAt, Valid: true}
+		}
+	}
 	summary.Task.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
 	summary.Task.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
 

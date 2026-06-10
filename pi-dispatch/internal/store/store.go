@@ -14,6 +14,10 @@ import (
 
 type TaskStatus string
 
+type WorktreeCleanupPolicy string
+
+type WorktreeCleanupStatus string
+
 const (
 	StatusQueued    TaskStatus = "queued"
 	StatusStarting  TaskStatus = "starting"
@@ -23,20 +27,37 @@ const (
 	StatusStopping  TaskStatus = "stopping"
 	StatusStopped   TaskStatus = "stopped"
 	StatusUnknown   TaskStatus = "unknown"
+
+	CleanupPolicyNever      WorktreeCleanupPolicy = "never"
+	CleanupPolicyOnSuccess  WorktreeCleanupPolicy = "on-success"
+	CleanupPolicyOnTerminal WorktreeCleanupPolicy = "on-terminal"
+
+	CleanupStatusNotRequested WorktreeCleanupStatus = "not_requested"
+	CleanupStatusPending      WorktreeCleanupStatus = "pending"
+	CleanupStatusRemoved      WorktreeCleanupStatus = "removed"
+	CleanupStatusKept         WorktreeCleanupStatus = "kept"
+	CleanupStatusSkipped      WorktreeCleanupStatus = "skipped"
+	CleanupStatusFailed       WorktreeCleanupStatus = "failed"
 )
 
 type Task struct {
-	ID            string
-	RepoPath      string
-	RepoName      string
-	Branch        string
-	WorktreePath  string
-	PromptSource  string
-	Prompt        string
-	PromptPreview string
-	Status        TaskStatus
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID                         string
+	RepoPath                   string
+	RepoName                   string
+	Branch                     string
+	WorktreePath               string
+	PromptSource               string
+	Prompt                     string
+	PromptPreview              string
+	Status                     TaskStatus
+	WorktreeCleanupPolicy      WorktreeCleanupPolicy
+	WorktreeCreatedByPD        bool
+	WorktreeCleanupStatus      WorktreeCleanupStatus
+	WorktreeCleanupError       string
+	WorktreeCleanupAttemptedAt sql.NullTime
+	WorktreeRemovedAt          sql.NullTime
+	CreatedAt                  time.Time
+	UpdatedAt                  time.Time
 }
 
 type Run struct {
@@ -73,9 +94,15 @@ CREATE TABLE IF NOT EXISTS tasks (
     prompt_source  TEXT NOT NULL,
     prompt         TEXT NOT NULL,
     prompt_preview TEXT NOT NULL,
-    status         TEXT NOT NULL,
-    created_at     TEXT NOT NULL,
-    updated_at     TEXT NOT NULL
+    status                         TEXT NOT NULL,
+    worktree_cleanup_policy        TEXT NOT NULL DEFAULT 'never',
+    worktree_created_by_pd         INTEGER NOT NULL DEFAULT 0,
+    worktree_cleanup_status        TEXT NOT NULL DEFAULT 'not_requested',
+    worktree_cleanup_error         TEXT NOT NULL DEFAULT '',
+    worktree_cleanup_attempted_at  TEXT,
+    worktree_removed_at            TEXT,
+    created_at                     TEXT NOT NULL,
+    updated_at                     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
@@ -123,11 +150,47 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
+	if err := ensureTaskCleanupColumns(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if err := ensureRunMetadataColumns(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	return &Store{db: db}, nil
+}
+
+func ensureTaskCleanupColumns(db *sql.DB) error {
+	columns, err := taskTableColumns(db)
+	if err != nil {
+		return fmt.Errorf("inspect tasks schema: %w", err)
+	}
+	add := func(name, ddl string) error {
+		if columns[name] {
+			return nil
+		}
+		if _, err := db.Exec(ddl); err != nil {
+			return fmt.Errorf("add task %s column: %w", name, err)
+		}
+		return nil
+	}
+	if err := add("worktree_cleanup_policy", `ALTER TABLE tasks ADD COLUMN worktree_cleanup_policy TEXT NOT NULL DEFAULT 'never'`); err != nil {
+		return err
+	}
+	if err := add("worktree_created_by_pd", `ALTER TABLE tasks ADD COLUMN worktree_created_by_pd INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return err
+	}
+	if err := add("worktree_cleanup_status", `ALTER TABLE tasks ADD COLUMN worktree_cleanup_status TEXT NOT NULL DEFAULT 'not_requested'`); err != nil {
+		return err
+	}
+	if err := add("worktree_cleanup_error", `ALTER TABLE tasks ADD COLUMN worktree_cleanup_error TEXT NOT NULL DEFAULT ''`); err != nil {
+		return err
+	}
+	if err := add("worktree_cleanup_attempted_at", `ALTER TABLE tasks ADD COLUMN worktree_cleanup_attempted_at TEXT`); err != nil {
+		return err
+	}
+	return add("worktree_removed_at", `ALTER TABLE tasks ADD COLUMN worktree_removed_at TEXT`)
 }
 
 func ensureRunMetadataColumns(db *sql.DB) error {
@@ -153,8 +216,16 @@ func ensureRunMetadataColumns(db *sql.DB) error {
 	return nil
 }
 
+func taskTableColumns(db *sql.DB) (map[string]bool, error) {
+	return tableColumns(db, "tasks")
+}
+
 func runTableColumns(db *sql.DB) (map[string]bool, error) {
-	rows, err := db.Query(`PRAGMA table_info(runs)`)
+	return tableColumns(db, "runs")
+}
+
+func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +248,7 @@ func runTableColumns(db *sql.DB) (map[string]bool, error) {
 func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) ListTasks(ctx context.Context) ([]Task, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, repo_path, repo_name, branch, worktree_path, prompt_source, prompt, prompt_preview, status, created_at, updated_at FROM tasks ORDER BY created_at DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, repo_path, repo_name, branch, worktree_path, prompt_source, prompt, prompt_preview, status, worktree_cleanup_policy, worktree_created_by_pd, worktree_cleanup_status, worktree_cleanup_error, worktree_cleanup_attempted_at, worktree_removed_at, created_at, updated_at FROM tasks ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +265,7 @@ func (s *Store) ListTasks(ctx context.Context) ([]Task, error) {
 }
 
 func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, repo_path, repo_name, branch, worktree_path, prompt_source, prompt, prompt_preview, status, created_at, updated_at FROM tasks WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, repo_path, repo_name, branch, worktree_path, prompt_source, prompt, prompt_preview, status, worktree_cleanup_policy, worktree_created_by_pd, worktree_cleanup_status, worktree_cleanup_error, worktree_cleanup_attempted_at, worktree_removed_at, created_at, updated_at FROM tasks WHERE id = ?`, id)
 	return scanTask(row)
 }
 
@@ -267,14 +338,30 @@ func (s *Store) DeleteTask(ctx context.Context, taskID string) error {
 	return tx.Commit()
 }
 
+func (s *Store) RecordWorktreeCleanup(ctx context.Context, taskID string, status WorktreeCleanupStatus, cleanupErr string, removed bool) error {
+	now := formatTime(time.Now())
+	removedAt := any(nil)
+	if removed {
+		removedAt = now
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE tasks SET worktree_cleanup_status = ?, worktree_cleanup_error = ?, worktree_cleanup_attempted_at = ?, worktree_removed_at = COALESCE(?, worktree_removed_at), updated_at = ? WHERE id = ?`, status, cleanupErr, now, removedAt, now, taskID)
+	return err
+}
+
 func (s *Store) CreateTaskWithRun(ctx context.Context, task Task, run Run) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
-	if _, err := tx.ExecContext(ctx, `INSERT INTO tasks (id, repo_path, repo_name, branch, worktree_path, prompt_source, prompt, prompt_preview, status, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, task.ID, task.RepoPath, task.RepoName, task.Branch, task.WorktreePath, task.PromptSource, task.Prompt, task.PromptPreview, task.Status, formatTime(task.CreatedAt), formatTime(task.UpdatedAt)); err != nil {
+	if task.WorktreeCleanupPolicy == "" {
+		task.WorktreeCleanupPolicy = CleanupPolicyNever
+	}
+	if task.WorktreeCleanupStatus == "" {
+		task.WorktreeCleanupStatus = CleanupStatusNotRequested
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tasks (id, repo_path, repo_name, branch, worktree_path, prompt_source, prompt, prompt_preview, status, worktree_cleanup_policy, worktree_created_by_pd, worktree_cleanup_status, worktree_cleanup_error, worktree_cleanup_attempted_at, worktree_removed_at, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, task.ID, task.RepoPath, task.RepoName, task.Branch, task.WorktreePath, task.PromptSource, task.Prompt, task.PromptPreview, task.Status, task.WorktreeCleanupPolicy, boolInt(task.WorktreeCreatedByPD), task.WorktreeCleanupStatus, task.WorktreeCleanupError, nullableTime(task.WorktreeCleanupAttemptedAt), nullableTime(task.WorktreeRemovedAt), formatTime(task.CreatedAt), formatTime(task.UpdatedAt)); err != nil {
 		return fmt.Errorf("insert task: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO runs (id, task_id, attempt, supervisor_pid, pi_session_file, status, started_at, ended_at, exit_code, error_message, agent_options_json, pi_argv_json, env_var_names_json, control_socket_path, stdout_log_path, stderr_log_path, pi_events_path)
@@ -293,6 +380,13 @@ func nullableTime(t sql.NullTime) any {
 	return formatTime(t.Time)
 }
 
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
 func nullableInt(i sql.NullInt64) any {
 	if !i.Valid {
 		return nil
@@ -307,11 +401,26 @@ type taskScanner interface {
 func scanTask(row taskScanner) (Task, error) {
 	var task Task
 	var created, updated string
-	var status string
-	if err := row.Scan(&task.ID, &task.RepoPath, &task.RepoName, &task.Branch, &task.WorktreePath, &task.PromptSource, &task.Prompt, &task.PromptPreview, &status, &created, &updated); err != nil {
+	var status, cleanupPolicy, cleanupStatus string
+	var createdByPD int
+	var cleanupAttemptedAt, removedAt sql.NullString
+	if err := row.Scan(&task.ID, &task.RepoPath, &task.RepoName, &task.Branch, &task.WorktreePath, &task.PromptSource, &task.Prompt, &task.PromptPreview, &status, &cleanupPolicy, &createdByPD, &cleanupStatus, &task.WorktreeCleanupError, &cleanupAttemptedAt, &removedAt, &created, &updated); err != nil {
 		return Task{}, err
 	}
 	task.Status = TaskStatus(status)
+	task.WorktreeCleanupPolicy = WorktreeCleanupPolicy(cleanupPolicy)
+	task.WorktreeCreatedByPD = createdByPD != 0
+	task.WorktreeCleanupStatus = WorktreeCleanupStatus(cleanupStatus)
+	if cleanupAttemptedAt.Valid {
+		if attemptedAt, err := time.Parse(time.RFC3339Nano, cleanupAttemptedAt.String); err == nil {
+			task.WorktreeCleanupAttemptedAt = sql.NullTime{Time: attemptedAt, Valid: true}
+		}
+	}
+	if removedAt.Valid {
+		if parsedRemovedAt, err := time.Parse(time.RFC3339Nano, removedAt.String); err == nil {
+			task.WorktreeRemovedAt = sql.NullTime{Time: parsedRemovedAt, Valid: true}
+		}
+	}
 	task.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
 	task.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
 	return task, nil

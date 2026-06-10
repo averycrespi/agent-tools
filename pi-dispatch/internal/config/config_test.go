@@ -2,6 +2,9 @@ package config
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -14,12 +17,34 @@ func TestLoad_DefaultWhenMissing(t *testing.T) {
 	cfg, err := Load()
 	require.NoError(t, err)
 	assert.Empty(t, cfg.DatabasePath)
+	assert.Equal(t, "never", cfg.DefaultWorktreeCleanupPolicy)
 }
 
 func TestDefaultConfigDoesNotMarshalTemplateDirs(t *testing.T) {
 	data, err := json.Marshal(Default())
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), "template_dirs")
+}
+
+func TestRefreshWritesCleanupPolicyDefault(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	require.NoError(t, Refresh(slog.New(slog.NewTextHandler(io.Discard, nil))))
+
+	data, err := os.ReadFile(ConfigFilePath())
+	require.NoError(t, err)
+	require.JSONEq(t, `{"database_path":"","default_worktree_cleanup_policy":"never"}`, string(data))
+}
+
+func TestLoadRejectsInvalidCleanupPolicy(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	require.NoError(t, os.MkdirAll(ConfigDir(), 0o750))
+	require.NoError(t, os.WriteFile(ConfigFilePath(), []byte(`{"default_worktree_cleanup_policy":"always"}`), 0o600))
+
+	_, err := Load()
+
+	require.ErrorContains(t, err, "default_worktree_cleanup_policy")
 }
 
 func TestConfig_DBPath_DefaultsToStateDir(t *testing.T) {

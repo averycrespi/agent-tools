@@ -112,7 +112,7 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 	}
 
 	if err := client.Prompt(task.Prompt); err != nil {
-		return db.CompleteRun(cmd.Context(), supervisorTaskID, store.StatusFailed, 1, err.Error(), "")
+		return finishSupervisor(cmd.Context(), db, run, proc, state, err, err.Error())
 	}
 	for {
 		event, raw, err := client.Next()
@@ -244,13 +244,18 @@ func finishSupervisor(ctx context.Context, db *store.Store, run store.Run, proc 
 		exitCode = 1
 		errorMessage = message
 	}
-	return db.CompleteRun(ctx, run.TaskID, status, exitCode, errorMessage, state.piSessionFile)
+	if completeErr := db.CompleteRun(ctx, run.TaskID, status, exitCode, errorMessage, state.piSessionFile); completeErr != nil {
+		return completeErr
+	}
+	runPostTerminalCleanup(ctx, db, run.TaskID, status)
+	return nil
 }
 
 func failSupervisorStartup(ctx context.Context, db *store.Store, run store.Run, err error) error {
 	if completeErr := db.CompleteRun(ctx, run.TaskID, store.StatusFailed, 1, err.Error(), ""); completeErr != nil {
 		return completeErr
 	}
+	runPostTerminalCleanup(ctx, db, run.TaskID, store.StatusFailed)
 	return err
 }
 

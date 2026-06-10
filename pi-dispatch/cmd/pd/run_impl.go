@@ -27,6 +27,7 @@ var (
 	runBranch         string
 	runRepo           string
 	runEnvAssignments []string
+	runCleanupPolicy  string
 	runAgentOverrides pdconfig.AgentOptions
 )
 
@@ -37,6 +38,7 @@ type runResult struct {
 
 type worktreeClient interface {
 	AddHeadless(repoRoot, branch string) (string, error)
+	Path(repoRoot, branch string) (string, error)
 	Remove(repoRoot, branch string) error
 }
 
@@ -55,6 +57,7 @@ func init() {
 	runCmd.Flags().StringVar(&runBranch, "branch", "", "branch name to create/use")
 	runCmd.Flags().StringVar(&runRepo, "repo", "", "main repository root")
 	runCmd.Flags().StringArrayVar(&runEnvAssignments, "env", nil, "environment variable for Pi process as KEY=VALUE")
+	runCmd.Flags().StringVar(&runCleanupPolicy, "cleanup-worktree", "", "worktree cleanup policy: never, on-success, or on-terminal")
 	runCmd.Flags().StringVar(&runAgentOverrides.Provider, "provider", "", "Pi provider override")
 	runCmd.Flags().StringVar(&runAgentOverrides.Model, "model", "", "Pi model override")
 	runCmd.Flags().StringVar(&runAgentOverrides.Thinking, "thinking", "", "Pi thinking level override")
@@ -89,6 +92,17 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	cleanupPolicy := cfg.DefaultWorktreeCleanupPolicy
+	if cleanupPolicy == "" {
+		cleanupPolicy = string(store.CleanupPolicyNever)
+	}
+	if runCleanupPolicy != "" {
+		cleanupPolicy = runCleanupPolicy
+	}
+	parsedCleanupPolicy, err := parseWorktreeCleanupPolicy(cleanupPolicy)
+	if err != nil {
+		return err
+	}
 	branch := runBranch
 	if branch == "" {
 		branch = "pd/" + slug(prompt) + "-" + shortID()
@@ -96,6 +110,14 @@ func runTask(cmd *cobra.Command, args []string) error {
 	wt, err := newWorktreeClient()
 	if err != nil {
 		return err
+	}
+	worktreeCreatedByPD := false
+	if expectedPath, pathErr := wt.Path(repo.Root, branch); pathErr == nil {
+		if _, statErr := os.Stat(expectedPath); os.IsNotExist(statErr) {
+			worktreeCreatedByPD = true
+		} else if statErr != nil {
+			worktreeCreatedByPD = false
+		}
 	}
 	worktreePath, err := wt.AddHeadless(repo.Root, branch)
 	if err != nil {
@@ -122,7 +144,11 @@ func runTask(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	task := store.Task{ID: taskID, RepoPath: repo.Root, RepoName: repo.Name, Branch: branch, WorktreePath: worktreePath, PromptSource: source, Prompt: prompt, PromptPreview: preview(prompt), Status: store.StatusStarting, CreatedAt: now, UpdatedAt: now}
+	cleanupStatus := store.CleanupStatusNotRequested
+	if parsedCleanupPolicy != store.CleanupPolicyNever {
+		cleanupStatus = store.CleanupStatusPending
+	}
+	task := store.Task{ID: taskID, RepoPath: repo.Root, RepoName: repo.Name, Branch: branch, WorktreePath: worktreePath, PromptSource: source, Prompt: prompt, PromptPreview: preview(prompt), Status: store.StatusStarting, WorktreeCleanupPolicy: parsedCleanupPolicy, WorktreeCreatedByPD: worktreeCreatedByPD, WorktreeCleanupStatus: cleanupStatus, CreatedAt: now, UpdatedAt: now}
 	run := store.Run{ID: runID, TaskID: taskID, Attempt: 1, Status: store.StatusStarting, StartedAt: now, AgentOptionsJSON: agentOptionsJSON, PiArgvJSON: piArgvJSON, EnvVarNamesJSON: envVarNamesJSON, ControlSocketPath: filepath.Join(pdconfig.RuntimeDir(), "tasks", taskID+".sock"), StdoutLogPath: filepath.Join(taskDir, "stdout.log"), StderrLogPath: filepath.Join(taskDir, "stderr.log"), PiEventsPath: filepath.Join(taskDir, "pi-events.jsonl")}
 	if err := db.CreateTaskWithRun(cmdCtx, task, run); err != nil {
 		return err
@@ -151,7 +177,7 @@ func runTask(cmd *cobra.Command, args []string) error {
 		return failRunLaunch(cmdCtx, db, taskID, err)
 	}
 	if err := db.UpdateRunSupervisorPID(cmdCtx, taskID, pid); err != nil {
-		return failRunLaunch(cmdCtx, db, taskID, err)
+		return failRunLaunchWithoutCleanup(cmdCtx, db, taskID, err)
 	}
 	if jsonOut {
 		return output.JSON(os.Stdout, runResult{TaskID: taskID, Status: string(store.StatusStarting)})
@@ -165,6 +191,14 @@ func startedTaskMessage(taskID string) string {
 }
 
 func failRunLaunch(ctx context.Context, db *store.Store, taskID string, err error) error {
+	if completeErr := db.CompleteRun(ctx, taskID, store.StatusFailed, 1, err.Error(), ""); completeErr != nil {
+		return completeErr
+	}
+	runPostTerminalCleanup(ctx, db, taskID, store.StatusFailed)
+	return err
+}
+
+func failRunLaunchWithoutCleanup(ctx context.Context, db *store.Store, taskID string, err error) error {
 	if completeErr := db.CompleteRun(ctx, taskID, store.StatusFailed, 1, err.Error(), ""); completeErr != nil {
 		return completeErr
 	}

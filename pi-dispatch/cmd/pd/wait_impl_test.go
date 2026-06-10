@@ -74,7 +74,7 @@ func TestWaitJSONPrintsStatusView(t *testing.T) {
 		require.NoError(t, waitForTask(waitTestCommand(t, 0), []string{task.ID}))
 	})
 
-	require.JSONEq(t, `{"task":{"id":"pd-test","status":"succeeded","repo_name":"repo","branch":"pd/test","worktree_path":"/wt","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"},"run":{"id":"run-test","status":"succeeded","attempt":1,"agent_options":{"model":"gpt-5"},"env_var_names":["OPENAI_API_KEY"],"control_socket_path":"/sock","stdout_log_path":"/stdout","stderr_log_path":"/stderr","pi_events_path":"/events"}}`, out)
+	require.JSONEq(t, `{"task":{"id":"pd-test","status":"succeeded","repo_name":"repo","branch":"pd/test","worktree_path":"/wt","worktree_cleanup_policy":"never","worktree_created_by_pd":false,"worktree_cleanup_status":"not_requested","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"},"run":{"id":"run-test","status":"succeeded","attempt":1,"agent_options":{"model":"gpt-5"},"env_var_names":["OPENAI_API_KEY"],"control_socket_path":"/sock","stdout_log_path":"/stdout","stderr_log_path":"/stderr","pi_events_path":"/events"}}`, out)
 }
 
 func setupWaitTask(t *testing.T, status store.TaskStatus) (*store.Store, store.Task, store.Run) {

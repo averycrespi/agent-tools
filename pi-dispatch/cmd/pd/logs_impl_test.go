@@ -152,7 +152,7 @@ func TestControlAllowedRejectsSteerWhileStopping(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestRemoveTaskDeletesInactiveMetadataLogsAndSocket(t *testing.T) {
+func TestRemoveTaskDeletesInactiveMetadataLogsAndSocketWithoutRemovingWorktree(t *testing.T) {
 	db, task, run := setupRemoveTask(t, store.StatusFailed)
 	logPath := filepath.Join(pdconfig.TaskDir(task.ID), "stdout.log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
@@ -160,6 +160,8 @@ func TestRemoveTaskDeletesInactiveMetadataLogsAndSocket(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(run.ControlSocketPath), 0o750))
 	require.NoError(t, os.WriteFile(run.ControlSocketPath, nil, 0o600))
 	require.NoError(t, db.Close())
+	fakeWT := &fakeRemoveWorktree{}
+	withWorktreeClient(t, fakeWT)
 
 	cmd := removeTestCommand(t, false)
 	require.NoError(t, removeTask(cmd, []string{task.ID}))
@@ -171,6 +173,7 @@ func TestRemoveTaskDeletesInactiveMetadataLogsAndSocket(t *testing.T) {
 	require.Error(t, err)
 	require.NoFileExists(t, logPath)
 	require.NoFileExists(t, run.ControlSocketPath)
+	require.Empty(t, fakeWT.repoRoot)
 }
 
 func TestRemoveTaskRefusesActiveTask(t *testing.T) {
@@ -193,26 +196,31 @@ func TestRemoveTaskRefusesActiveTask(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestRemoveTaskWithWorktreeRemovesWorktreeBeforeDB(t *testing.T) {
+func TestCleanupTaskRemovesWorktreeAndPreservesDBAndLogs(t *testing.T) {
 	db, task, _ := setupRemoveTask(t, store.StatusFailed)
+	logPath := filepath.Join(pdconfig.TaskDir(task.ID), "stdout.log")
+	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
+	require.NoError(t, os.WriteFile(logPath, []byte("log"), 0o600))
 	require.NoError(t, db.Close())
 	fakeWT := &fakeRemoveWorktree{}
 	oldNewWorktreeClient := newWorktreeClient
 	newWorktreeClient = func() (worktreeClient, error) { return fakeWT, nil }
 	defer func() { newWorktreeClient = oldNewWorktreeClient }()
 
-	require.NoError(t, removeTask(removeTestCommand(t, true), []string{task.ID}))
+	require.NoError(t, cleanupTask(cleanupTestCommand(t, false), []string{task.ID}))
 
 	require.Equal(t, task.RepoPath, fakeWT.repoRoot)
 	require.Equal(t, task.Branch, fakeWT.branch)
+	require.FileExists(t, logPath)
 	checkDB, err := store.Open(cfg.DBPath())
 	require.NoError(t, err)
 	defer checkDB.Close() //nolint:errcheck
-	_, err = checkDB.GetTask(context.Background(), task.ID)
-	require.Error(t, err)
+	got, err := checkDB.GetTask(context.Background(), task.ID)
+	require.NoError(t, err)
+	require.Equal(t, store.CleanupStatusRemoved, got.WorktreeCleanupStatus)
 }
 
-func TestRemoveTaskWithWorktreeFailurePreservesDBAndLogs(t *testing.T) {
+func TestCleanupTaskFailurePreservesDBAndLogsAndRecordsFailure(t *testing.T) {
 	db, task, _ := setupRemoveTask(t, store.StatusFailed)
 	logPath := filepath.Join(pdconfig.TaskDir(task.ID), "stdout.log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
@@ -223,15 +231,16 @@ func TestRemoveTaskWithWorktreeFailurePreservesDBAndLogs(t *testing.T) {
 	newWorktreeClient = func() (worktreeClient, error) { return fakeWT, nil }
 	defer func() { newWorktreeClient = oldNewWorktreeClient }()
 
-	err := removeTask(removeTestCommand(t, true), []string{task.ID})
+	require.NoError(t, cleanupTask(cleanupTestCommand(t, false), []string{task.ID}))
 
-	require.ErrorContains(t, err, "remove failed")
 	require.FileExists(t, logPath)
 	checkDB, err := store.Open(cfg.DBPath())
 	require.NoError(t, err)
 	defer checkDB.Close() //nolint:errcheck
-	_, err = checkDB.GetTask(context.Background(), task.ID)
+	got, err := checkDB.GetTask(context.Background(), task.ID)
 	require.NoError(t, err)
+	require.Equal(t, store.CleanupStatusFailed, got.WorktreeCleanupStatus)
+	require.Contains(t, got.WorktreeCleanupError, "remove failed")
 }
 
 func setupRemoveTask(t *testing.T, status store.TaskStatus) (*store.Store, store.Task, store.Run) {
@@ -251,12 +260,19 @@ func setupRemoveTask(t *testing.T, status store.TaskStatus) (*store.Store, store
 	return db, task, run
 }
 
-func removeTestCommand(t *testing.T, removeWorktree bool) *cobra.Command {
+func removeTestCommand(t *testing.T, _ bool) *cobra.Command {
 	t.Helper()
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
-	cmd.Flags().Bool("worktree", false, "")
-	require.NoError(t, cmd.Flags().Set("worktree", fmt.Sprintf("%t", removeWorktree)))
+	return cmd
+}
+
+func cleanupTestCommand(t *testing.T, dryRun bool) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().Bool("dry-run", false, "")
+	require.NoError(t, cmd.Flags().Set("dry-run", fmt.Sprintf("%t", dryRun)))
 	return cmd
 }
 
@@ -267,6 +283,7 @@ type fakeRemoveWorktree struct {
 }
 
 func (w *fakeRemoveWorktree) AddHeadless(string, string) (string, error) { return "", nil }
+func (w *fakeRemoveWorktree) Path(string, string) (string, error)        { return "", nil }
 func (w *fakeRemoveWorktree) Remove(repoRoot, branch string) error {
 	w.repoRoot = repoRoot
 	w.branch = branch

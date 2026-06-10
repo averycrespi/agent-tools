@@ -100,6 +100,13 @@ var stopCmd = &cobra.Command{
 	RunE:  notImplemented("stop"),
 }
 
+var cleanupCmd = &cobra.Command{
+	Use:   "cleanup <task-id>",
+	Short: "Remove task resources while preserving metadata and branch",
+	Args:  exactArgs("task-id"),
+	RunE:  notImplemented("cleanup"),
+}
+
 var rmCmd = &cobra.Command{
 	Use:   "rm <task-id>",
 	Short: "Remove task metadata and logs",
@@ -117,5 +124,4 @@ func init() {
 	waitCmd.Flags().Duration("timeout", 0, "maximum time to wait, such as 30s, 5m, or 1h; 0 waits forever")
 	logsCmd.Flags().BoolP("follow", "f", false, "follow log output")
 	stopCmd.Flags().Bool("force", false, "force termination after graceful abort")
-	rmCmd.Flags().Bool("worktree", false, "also remove the associated worktree")
 }

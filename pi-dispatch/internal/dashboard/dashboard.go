@@ -35,18 +35,24 @@ type Dashboard struct {
 }
 
 type TaskSummary struct {
-	ID              string      `json:"id"`
-	RepoPath        string      `json:"repo_path"`
-	RepoName        string      `json:"repo_name"`
-	Branch          string      `json:"branch"`
-	WorktreePath    string      `json:"worktree_path"`
-	PromptSource    string      `json:"prompt_source"`
-	PromptPreview   string      `json:"prompt_preview"`
-	PromptTruncated bool        `json:"prompt_truncated"`
-	Status          string      `json:"status"`
-	CreatedAt       time.Time   `json:"created_at"`
-	UpdatedAt       time.Time   `json:"updated_at"`
-	LatestRun       *RunSummary `json:"latest_run,omitempty"`
+	ID                         string      `json:"id"`
+	RepoPath                   string      `json:"repo_path"`
+	RepoName                   string      `json:"repo_name"`
+	Branch                     string      `json:"branch"`
+	WorktreePath               string      `json:"worktree_path"`
+	WorktreeCleanupPolicy      string      `json:"worktree_cleanup_policy"`
+	WorktreeCreatedByPD        bool        `json:"worktree_created_by_pd"`
+	WorktreeCleanupStatus      string      `json:"worktree_cleanup_status"`
+	WorktreeCleanupError       string      `json:"worktree_cleanup_error,omitempty"`
+	WorktreeCleanupAttemptedAt *time.Time  `json:"worktree_cleanup_attempted_at,omitempty"`
+	WorktreeRemovedAt          *time.Time  `json:"worktree_removed_at,omitempty"`
+	PromptSource               string      `json:"prompt_source"`
+	PromptPreview              string      `json:"prompt_preview"`
+	PromptTruncated            bool        `json:"prompt_truncated"`
+	Status                     string      `json:"status"`
+	CreatedAt                  time.Time   `json:"created_at"`
+	UpdatedAt                  time.Time   `json:"updated_at"`
+	LatestRun                  *RunSummary `json:"latest_run,omitempty"`
 }
 
 type TaskDetail struct {
@@ -143,7 +149,7 @@ func (d *Dashboard) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	view := TaskSummary{ID: task.ID, RepoPath: task.RepoPath, RepoName: task.RepoName, Branch: task.Branch, WorktreePath: task.WorktreePath, PromptSource: task.PromptSource, PromptPreview: task.PromptPreview, PromptTruncated: promptTruncated(task.Prompt, task.PromptPreview), Status: string(task.Status), CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt}
+	view := taskSummaryFromTask(task)
 	var latest *RunSummary
 	var responsePreview string
 	var responseTruncated bool
@@ -248,9 +254,22 @@ func (d *Dashboard) handleIndex(w http.ResponseWriter, _ *http.Request) {
 }
 
 func taskSummaryView(summary store.TaskSummary) TaskSummary {
-	view := TaskSummary{ID: summary.Task.ID, RepoPath: summary.Task.RepoPath, RepoName: summary.Task.RepoName, Branch: summary.Task.Branch, WorktreePath: summary.Task.WorktreePath, PromptSource: summary.Task.PromptSource, PromptPreview: summary.Task.PromptPreview, PromptTruncated: promptTruncated(summary.Task.Prompt, summary.Task.PromptPreview), Status: string(summary.Task.Status), CreatedAt: summary.Task.CreatedAt, UpdatedAt: summary.Task.UpdatedAt}
+	view := taskSummaryFromTask(summary.Task)
 	if summary.LatestRun.Valid {
 		view.LatestRun = runSummaryView(summary.LatestRun.Run)
+	}
+	return view
+}
+
+func taskSummaryFromTask(task store.Task) TaskSummary {
+	view := TaskSummary{ID: task.ID, RepoPath: task.RepoPath, RepoName: task.RepoName, Branch: task.Branch, WorktreePath: task.WorktreePath, WorktreeCleanupPolicy: string(task.WorktreeCleanupPolicy), WorktreeCreatedByPD: task.WorktreeCreatedByPD, WorktreeCleanupStatus: string(task.WorktreeCleanupStatus), WorktreeCleanupError: task.WorktreeCleanupError, PromptSource: task.PromptSource, PromptPreview: task.PromptPreview, PromptTruncated: promptTruncated(task.Prompt, task.PromptPreview), Status: string(task.Status), CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt}
+	if task.WorktreeCleanupAttemptedAt.Valid {
+		attemptedAt := task.WorktreeCleanupAttemptedAt.Time
+		view.WorktreeCleanupAttemptedAt = &attemptedAt
+	}
+	if task.WorktreeRemovedAt.Valid {
+		removedAt := task.WorktreeRemovedAt.Time
+		view.WorktreeRemovedAt = &removedAt
 	}
 	return view
 }

@@ -12,12 +12,14 @@ import (
 )
 
 type Config struct {
-	DatabasePath string `json:"database_path"`
+	DatabasePath                 string `json:"database_path"`
+	DefaultWorktreeCleanupPolicy string `json:"default_worktree_cleanup_policy"`
 }
 
 func Default() Config {
 	return Config{
-		DatabasePath: "",
+		DatabasePath:                 "",
+		DefaultWorktreeCleanupPolicy: "never",
 	}
 }
 
@@ -29,9 +31,12 @@ func Load() (Config, error) {
 		}
 		return Config{}, fmt.Errorf("failed to read config: %w", err)
 	}
-	var cfg Config
+	cfg := Default()
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("failed to parse config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
 	}
 	return cfg, nil
 }
@@ -53,6 +58,15 @@ func Refresh(logger *slog.Logger) error {
 	}
 	logger.Debug("refreshed config", "path", ConfigFilePath())
 	return nil
+}
+
+func (c Config) Validate() error {
+	switch c.DefaultWorktreeCleanupPolicy {
+	case "never", "on-success", "on-terminal":
+		return nil
+	default:
+		return fmt.Errorf("default_worktree_cleanup_policy must be one of never, on-success, or on-terminal")
+	}
 }
 
 func (c Config) DBPath() string {

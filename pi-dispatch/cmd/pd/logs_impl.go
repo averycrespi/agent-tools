@@ -57,28 +57,17 @@ func showLogs(cmd *cobra.Command, args []string) error {
 }
 
 type removeResult struct {
-	TaskID          string `json:"task_id"`
-	Removed         bool   `json:"removed"`
-	WorktreeRemoved bool   `json:"worktree_removed"`
+	TaskID  string `json:"task_id"`
+	Removed bool   `json:"removed"`
 }
 
 func removeTask(cmd *cobra.Command, args []string) error {
-	removeWorktree, _ := cmd.Flags().GetBool("worktree")
 	task, run, err := taskAndRunReconciled(cmd, args[0], processExists)
 	if err != nil {
 		return err
 	}
 	if task.Status == store.StatusRunning || task.Status == store.StatusStopping || task.Status == store.StatusStarting {
 		return fmt.Errorf("refusing to remove %s task; stop it first", task.Status)
-	}
-	if removeWorktree {
-		wt, err := newWorktreeClient()
-		if err != nil {
-			return err
-		}
-		if err := wt.Remove(task.RepoPath, task.Branch); err != nil {
-			return err
-		}
 	}
 	if err := os.RemoveAll(pdconfig.TaskDir(task.ID)); err != nil {
 		return err
@@ -97,7 +86,7 @@ func removeTask(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if jsonOut {
-		return output.JSON(os.Stdout, removeResult{TaskID: task.ID, Removed: true, WorktreeRemoved: removeWorktree})
+		return output.JSON(os.Stdout, removeResult{TaskID: task.ID, Removed: true})
 	}
 	_, err = fmt.Fprintf(os.Stdout, "Removed task %s\n", task.ID)
 	return err
@@ -164,6 +153,7 @@ func forceStopTask(cmd *cobra.Command, taskID string) error {
 	if err := db.CompleteRun(ctx, taskID, store.StatusStopped, 0, "force-killed by pd stop --force", ""); err != nil {
 		return err
 	}
+	runPostTerminalCleanup(ctx, db, taskID, store.StatusStopped)
 	return printForceStopResult(taskID)
 }
 

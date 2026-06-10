@@ -19,7 +19,16 @@ func TestOpenCreatesSchemaAndInsertTaskRun(t *testing.T) {
 	task := Task{ID: "pd-test", RepoPath: "/repo", RepoName: "repo", Branch: "pd/test", WorktreePath: "/wt", PromptSource: "arg", Prompt: "hello", PromptPreview: "hello", Status: StatusQueued, CreatedAt: now, UpdatedAt: now}
 	run := Run{ID: "run-test", TaskID: task.ID, Attempt: 1, Status: StatusQueued, StartedAt: now, AgentOptionsJSON: `{"model":"gpt-5"}`, PiArgvJSON: `["pi","--mode","rpc","--model","gpt-5"]`, EnvVarNamesJSON: `["OPENAI_API_KEY","EMPTY"]`, ControlSocketPath: "/sock", StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: "/events"}
 
+	task.WorktreeCleanupPolicy = CleanupPolicyOnSuccess
+	task.WorktreeCreatedByPD = true
+	task.WorktreeCleanupStatus = CleanupStatusPending
 	require.NoError(t, st.CreateTaskWithRun(context.Background(), task, run))
+
+	gotTask, err := st.GetTask(context.Background(), task.ID)
+	require.NoError(t, err)
+	require.Equal(t, CleanupPolicyOnSuccess, gotTask.WorktreeCleanupPolicy)
+	require.True(t, gotTask.WorktreeCreatedByPD)
+	require.Equal(t, CleanupStatusPending, gotTask.WorktreeCleanupStatus)
 
 	got, err := st.LatestRun(context.Background(), task.ID)
 	require.NoError(t, err)
@@ -70,6 +79,12 @@ CREATE TABLE runs (
 	require.NoError(t, err)
 	defer st.Close() //nolint:errcheck
 
+	taskColumns, err := taskTableColumns(st.db)
+	require.NoError(t, err)
+	require.True(t, taskColumns["worktree_cleanup_policy"])
+	require.True(t, taskColumns["worktree_created_by_pd"])
+	require.True(t, taskColumns["worktree_cleanup_status"])
+
 	columns, err := runTableColumns(st.db)
 	require.NoError(t, err)
 	require.True(t, columns["agent_options_json"])
@@ -111,6 +126,27 @@ func TestCompleteRunRecordsTerminalMetadata(t *testing.T) {
 	require.Equal(t, int64(7), gotRun.ExitCode.Int64)
 	require.Equal(t, "boom", gotRun.ErrorMessage)
 	require.Equal(t, "/tmp/session.json", gotRun.PiSessionFile)
+}
+
+func TestRecordWorktreeCleanupKeepsTaskStatus(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "pd.db"))
+	require.NoError(t, err)
+	defer st.Close() //nolint:errcheck
+
+	now := time.Now()
+	task := Task{ID: "pd-test", RepoPath: "/repo", RepoName: "repo", Branch: "pd/test", WorktreePath: "/wt", PromptSource: "arg", Prompt: "hello", PromptPreview: "hello", Status: StatusSucceeded, WorktreeCleanupPolicy: CleanupPolicyOnSuccess, WorktreeCreatedByPD: true, WorktreeCleanupStatus: CleanupStatusPending, CreatedAt: now, UpdatedAt: now}
+	run := Run{ID: "run-test", TaskID: task.ID, Attempt: 1, Status: StatusSucceeded, StartedAt: now, ControlSocketPath: "/sock", StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: "/events"}
+	require.NoError(t, st.CreateTaskWithRun(context.Background(), task, run))
+
+	require.NoError(t, st.RecordWorktreeCleanup(context.Background(), task.ID, CleanupStatusFailed, "dirty worktree", false))
+
+	got, err := st.GetTask(context.Background(), task.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusSucceeded, got.Status)
+	require.Equal(t, CleanupStatusFailed, got.WorktreeCleanupStatus)
+	require.Equal(t, "dirty worktree", got.WorktreeCleanupError)
+	require.True(t, got.WorktreeCleanupAttemptedAt.Valid)
+	require.False(t, got.WorktreeRemovedAt.Valid)
 }
 
 func TestDeleteTaskDeletesTaskAndRuns(t *testing.T) {

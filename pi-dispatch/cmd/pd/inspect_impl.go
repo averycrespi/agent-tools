@@ -19,13 +19,19 @@ import (
 )
 
 type taskView struct {
-	ID           string    `json:"id"`
-	Status       string    `json:"status"`
-	RepoName     string    `json:"repo_name"`
-	Branch       string    `json:"branch"`
-	WorktreePath string    `json:"worktree_path"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                         string     `json:"id"`
+	Status                     string     `json:"status"`
+	RepoName                   string     `json:"repo_name"`
+	Branch                     string     `json:"branch"`
+	WorktreePath               string     `json:"worktree_path"`
+	WorktreeCleanupPolicy      string     `json:"worktree_cleanup_policy"`
+	WorktreeCreatedByPD        bool       `json:"worktree_created_by_pd"`
+	WorktreeCleanupStatus      string     `json:"worktree_cleanup_status"`
+	WorktreeCleanupError       string     `json:"worktree_cleanup_error,omitempty"`
+	WorktreeCleanupAttemptedAt *time.Time `json:"worktree_cleanup_attempted_at,omitempty"`
+	WorktreeRemovedAt          *time.Time `json:"worktree_removed_at,omitempty"`
+	CreatedAt                  time.Time  `json:"created_at"`
+	UpdatedAt                  time.Time  `json:"updated_at"`
 }
 
 type statusView struct {
@@ -122,6 +128,21 @@ func showStatus(cmd *cobra.Command, args []string) error {
 	if _, err := fmt.Fprintf(os.Stdout, "Task:    %s\nStatus:  %s\nRepo:    %s\nBranch:  %s\nWorktree:%s\n", view.Task.ID, view.Task.Status, view.Task.RepoName, view.Task.Branch, view.Task.WorktreePath); err != nil {
 		return err
 	}
+	if view.Task.WorktreeCleanupPolicy != string(store.CleanupPolicyNever) || view.Task.WorktreeCleanupStatus != string(store.CleanupStatusNotRequested) || view.Task.WorktreeCleanupError != "" {
+		if _, err := fmt.Fprintf(os.Stdout, "Cleanup: policy=%s status=%s\n", view.Task.WorktreeCleanupPolicy, view.Task.WorktreeCleanupStatus); err != nil {
+			return err
+		}
+		if view.Task.WorktreeCleanupError != "" {
+			if _, err := fmt.Fprintf(os.Stdout, "Cleanup error: %s\n", view.Task.WorktreeCleanupError); err != nil {
+				return err
+			}
+		}
+		if view.Task.WorktreeRemovedAt != nil {
+			if _, err := fmt.Fprintf(os.Stdout, "Worktree removed: %s (branch preserved)\n", view.Task.WorktreeRemovedAt.Format(time.RFC3339)); err != nil {
+				return err
+			}
+		}
+	}
 	if view.Run != nil {
 		if _, err := fmt.Fprintf(os.Stdout, "Logs:          %s\nRaw Pi events: %s\n", view.Run.StdoutLogPath, view.Run.PiEventsPath); err != nil {
 			return err
@@ -182,7 +203,16 @@ func reconcileTask(ctx context.Context, db *store.Store, task store.Task, run st
 }
 
 func viewTask(task store.Task) taskView {
-	return taskView{ID: task.ID, Status: string(task.Status), RepoName: task.RepoName, Branch: task.Branch, WorktreePath: task.WorktreePath, CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt}
+	view := taskView{ID: task.ID, Status: string(task.Status), RepoName: task.RepoName, Branch: task.Branch, WorktreePath: task.WorktreePath, WorktreeCleanupPolicy: string(task.WorktreeCleanupPolicy), WorktreeCreatedByPD: task.WorktreeCreatedByPD, WorktreeCleanupStatus: string(task.WorktreeCleanupStatus), WorktreeCleanupError: task.WorktreeCleanupError, CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt}
+	if task.WorktreeCleanupAttemptedAt.Valid {
+		attemptedAt := task.WorktreeCleanupAttemptedAt.Time
+		view.WorktreeCleanupAttemptedAt = &attemptedAt
+	}
+	if task.WorktreeRemovedAt.Valid {
+		removedAt := task.WorktreeRemovedAt.Time
+		view.WorktreeRemovedAt = &removedAt
+	}
+	return view
 }
 
 func viewRun(run store.Run) runView {
