@@ -196,6 +196,38 @@ func TestRemoveTaskRefusesActiveTask(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestCleanupTaskDryRunDoesNotRemoveOrMutate(t *testing.T) {
+	db, task, _ := setupRemoveTask(t, store.StatusFailed)
+	require.NoError(t, db.Close())
+	fakeWT := &fakeRemoveWorktree{}
+	withWorktreeClient(t, fakeWT)
+
+	require.NoError(t, cleanupTask(cleanupTestCommand(t, true), []string{task.ID}))
+
+	require.Empty(t, fakeWT.repoRoot)
+	checkDB, err := store.Open(cfg.DBPath())
+	require.NoError(t, err)
+	defer checkDB.Close() //nolint:errcheck
+	got, err := checkDB.GetTask(context.Background(), task.ID)
+	require.NoError(t, err)
+	require.Equal(t, store.CleanupStatusNotRequested, got.WorktreeCleanupStatus)
+	require.False(t, got.WorktreeCleanupAttemptedAt.Valid)
+}
+
+func TestCleanupTaskRefusesActiveTask(t *testing.T) {
+	db, task, run := setupRemoveTask(t, store.StatusRunning)
+	require.NoError(t, db.UpdateRunSupervisorPID(context.Background(), task.ID, os.Getpid()))
+	require.NoError(t, db.Close())
+	withControlSender(t, func(path string, req control.Request) (control.Response, error) {
+		require.Equal(t, run.ControlSocketPath, path)
+		return control.Response{OK: true}, nil
+	})
+
+	err := cleanupTask(cleanupTestCommand(t, false), []string{task.ID})
+
+	require.ErrorContains(t, err, "refusing to cleanup running task")
+}
+
 func TestCleanupTaskRemovesWorktreeAndPreservesDBAndLogs(t *testing.T) {
 	db, task, _ := setupRemoveTask(t, store.StatusFailed)
 	logPath := filepath.Join(pdconfig.TaskDir(task.ID), "stdout.log")

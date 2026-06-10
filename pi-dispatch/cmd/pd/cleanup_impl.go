@@ -43,6 +43,7 @@ func parseWorktreeCleanupPolicy(value string) (store.WorktreeCleanupPolicy, erro
 }
 
 func cleanupTask(cmd *cobra.Command, args []string) error {
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	task, _, err := taskAndRunReconciled(cmd, args[0], processExists)
 	if err != nil {
 		return err
@@ -50,7 +51,7 @@ func cleanupTask(cmd *cobra.Command, args []string) error {
 	if !isTerminalStatus(task.Status) {
 		return fmt.Errorf("refusing to cleanup %s task; wait for it to finish or stop it first", task.Status)
 	}
-	if cleanupDryRun {
+	if dryRun {
 		result := cleanupDryRunResult(task)
 		if jsonOut {
 			return output.JSON(os.Stdout, result)
