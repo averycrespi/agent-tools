@@ -183,6 +183,23 @@ func TestService_Add_CreatesWorktreeAndWindow(t *testing.T) {
 	tm.AssertCalled(t, "SendKeys", "wt-myrepo", "feat", "claude")
 }
 
+func TestService_AddHeadless_RecoversWhenConcurrentAddCreatedWorktree(t *testing.T) {
+	repoDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	g := new(mockGitClient)
+	g.On("RepoInfo", repoDir).Return(git.Info{Name: "myrepo", Root: repoDir}, nil)
+	g.On("AddWorktree", repoDir, mock.Anything, "feat").Return(errors.New("worktree already exists")).Run(func(args mock.Arguments) {
+		require.NoError(t, os.MkdirAll(args.String(1), 0o755))
+	})
+
+	svc := NewService(g, new(mockTmuxClient), config.Default(), nopLogger, nil)
+	path, err := svc.AddHeadless(repoDir, "feat")
+
+	require.NoError(t, err)
+	require.DirExists(t, path)
+}
+
 func TestService_AddHeadless_CreatesWorktreeWithoutTmux(t *testing.T) {
 	g := new(mockGitClient)
 	g.On("RepoInfo", "/repo").Return(git.Info{Name: "myrepo", Root: "/repo"}, nil)

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/averycrespi/agent-tools/worktree-manager/internal/config"
 	"github.com/averycrespi/agent-tools/worktree-manager/internal/exec"
@@ -130,8 +131,18 @@ func (s *Service) AddHeadlessWithOwnership(repoRoot, branch string) (string, boo
 			return "", false, fmt.Errorf("could not create worktree directory: %w", err)
 		}
 		if err := s.git.AddWorktree(info.Root, worktreeDir, branch); err != nil {
+			if _, statErr := os.Stat(worktreeDir); statErr != nil {
+				return "", false, err
+			}
+			created = false
+			s.logger.Debug("worktree appeared after add failure, treating as recoverable", "path", worktreeDir, "error", err)
+		}
+
+		unlock, err := acquireSetupLock(worktreeDir)
+		if err != nil {
 			return "", false, err
 		}
+		defer unlock()
 
 		for _, relPath := range s.config.CopyFiles {
 			if err := s.copyFile(info.Root, worktreeDir, relPath); err != nil {
@@ -147,6 +158,25 @@ func (s *Service) AddHeadlessWithOwnership(repoRoot, branch string) (string, boo
 	}
 
 	return worktreeDir, created, nil
+}
+
+func acquireSetupLock(worktreeDir string) (func(), error) {
+	lockPath := filepath.Join(filepath.Dir(worktreeDir), filepath.Base(worktreeDir)+".setup.lock")
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			_ = f.Close()
+			return func() { _ = os.Remove(lockPath) }, nil
+		}
+		if !os.IsExist(err) {
+			return nil, fmt.Errorf("creating setup lock: %w", err)
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("timed out waiting for setup lock: %s", lockPath)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // Path returns the expected absolute worktree path for branch without creating it.
