@@ -14,6 +14,20 @@ func notImplemented(name string) func(*cobra.Command, []string) error {
 	}
 }
 
+func atLeastOneArg(name string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) >= 1 {
+			return nil
+		}
+		message := fmt.Sprintf("%s is required", name)
+		message += fmt.Sprintf("\nUsage: %s", cmd.UseLine())
+		if cmd.Example != "" {
+			message += fmt.Sprintf("\nExample: %s", strings.TrimSpace(cmd.Example))
+		}
+		return errors.New(message)
+	}
+}
+
 func exactArgs(names ...string) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
 		if len(args) == len(names) {
@@ -77,23 +91,23 @@ var logsCmd = &cobra.Command{
 }
 
 var stopCmd = &cobra.Command{
-	Use:   "stop <task-id>",
-	Short: "Stop a running task",
-	Args:  exactArgs("task-id"),
+	Use:   "stop <task-id>...",
+	Short: "Stop one or more running tasks",
+	Args:  atLeastOneArg("task-id"),
 	RunE:  notImplemented("stop"),
 }
 
 var cleanupCmd = &cobra.Command{
-	Use:   "cleanup <task-id>",
+	Use:   "cleanup <task-id>...",
 	Short: "Remove task resources while preserving metadata and branch",
-	Args:  exactArgs("task-id"),
+	Args:  atLeastOneArg("task-id"),
 	RunE:  notImplemented("cleanup"),
 }
 
 var rmCmd = &cobra.Command{
-	Use:   "rm <task-id>",
+	Use:   "rm <task-id>...",
 	Short: "Remove task metadata and logs",
-	Args:  exactArgs("task-id"),
+	Args:  atLeastOneArg("task-id"),
 	RunE:  notImplemented("rm"),
 }
 

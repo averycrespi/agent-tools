@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -54,40 +55,64 @@ func parseWorktreeCleanupPolicy(value string) (store.WorktreeCleanupPolicy, erro
 }
 
 func cleanupTask(cmd *cobra.Command, args []string) error {
+	results := make([]cleanupResult, 0, len(args))
+	var errs []error
+	for _, taskID := range args {
+		res, err := cleanupOneTask(cmd, taskID)
+		if err != nil {
+			errs = append(errs, err)
+			results = append(results, cleanupResult{TaskID: taskID, Status: "error", Error: err.Error()})
+			continue
+		}
+		results = append(results, res)
+	}
+	if jsonOut {
+		if err := output.JSON(os.Stdout, results); err != nil {
+			return err
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func cleanupOneTask(cmd *cobra.Command, taskID string) (cleanupResult, error) {
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	task, _, err := taskAndRunReconciled(cmd, args[0], processExists)
+	task, _, err := taskAndRunReconciled(cmd, taskID, processExists)
 	if err != nil {
-		return err
+		return cleanupResult{}, err
 	}
 	if !isTerminalStatus(task.Status) {
-		return fmt.Errorf("refusing to cleanup %s task; wait for it to finish or stop it first", task.Status)
+		return cleanupResult{}, fmt.Errorf("refusing to cleanup %s task; wait for it to finish or stop it first", task.Status)
 	}
 	if dryRun {
 		result := cleanupDryRunResult(task)
-		if jsonOut {
-			return output.JSON(os.Stdout, result)
+		if !jsonOut {
+			if _, err := fmt.Fprintf(os.Stdout, "Would remove worktree %s for task %s; branch %s would be preserved\n", task.WorktreePath, task.ID, task.Branch); err != nil {
+				return cleanupResult{}, err
+			}
 		}
-		_, err := fmt.Fprintf(os.Stdout, "Would remove worktree %s for task %s; branch %s would be preserved\n", task.WorktreePath, task.ID, task.Branch)
-		return err
+		return result, nil
 	}
 	db, err := store.Open(cfg.DBPath())
 	if err != nil {
-		return err
+		return cleanupResult{}, err
 	}
 	defer db.Close() //nolint:errcheck
 	result, err := performWorktreeCleanup(cmd.Context(), db, task, task.Status, true)
 	if err != nil {
-		return err
+		return cleanupResult{}, err
 	}
-	if jsonOut {
-		return output.JSON(os.Stdout, result)
+	if !jsonOut {
+		if result.Status == string(store.CleanupStatusRemoved) {
+			if _, err := fmt.Fprintf(os.Stdout, "Removed worktree %s for task %s; branch %s preserved\n", task.WorktreePath, task.ID, task.Branch); err != nil {
+				return cleanupResult{}, err
+			}
+		} else {
+			if _, err := fmt.Fprintf(os.Stdout, "Worktree cleanup %s for task %s: %s\n", result.Status, task.ID, result.Error); err != nil {
+				return cleanupResult{}, err
+			}
+		}
 	}
-	if result.Status == string(store.CleanupStatusRemoved) {
-		_, err = fmt.Fprintf(os.Stdout, "Removed worktree %s for task %s; branch %s preserved\n", task.WorktreePath, task.ID, task.Branch)
-		return err
-	}
-	_, err = fmt.Fprintf(os.Stdout, "Worktree cleanup %s for task %s: %s\n", result.Status, task.ID, result.Error)
-	return err
+	return result, nil
 }
 
 func cleanupDryRunResult(task store.Task) cleanupResult {

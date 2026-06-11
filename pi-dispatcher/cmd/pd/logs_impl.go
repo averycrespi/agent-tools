@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -65,51 +66,93 @@ func showLogs(cmd *cobra.Command, args []string) error {
 type removeResult struct {
 	TaskID  string `json:"task_id"`
 	Removed bool   `json:"removed"`
+	Error   string `json:"error,omitempty"`
 }
 
 func removeTask(cmd *cobra.Command, args []string) error {
-	task, run, err := taskAndRunReconciled(cmd, args[0], processExists)
+	results := make([]removeResult, 0, len(args))
+	var errs []error
+	for _, taskID := range args {
+		res, err := removeOneTask(cmd, taskID)
+		if err != nil {
+			errs = append(errs, err)
+			results = append(results, removeResult{TaskID: taskID, Error: err.Error()})
+			continue
+		}
+		results = append(results, res)
+		if !jsonOut {
+			if _, err := fmt.Fprintf(os.Stdout, "Removed task %s\n", res.TaskID); err != nil {
+				return err
+			}
+		}
+	}
+	if jsonOut {
+		if err := output.JSON(os.Stdout, results); err != nil {
+			return err
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func removeOneTask(cmd *cobra.Command, taskID string) (removeResult, error) {
+	task, run, err := taskAndRunReconciled(cmd, taskID, processExists)
 	if err != nil {
-		return err
+		return removeResult{}, err
 	}
 	if task.Status == store.StatusRunning || task.Status == store.StatusStopping || task.Status == store.StatusStarting {
-		return fmt.Errorf("refusing to remove %s task; stop it first", task.Status)
+		return removeResult{}, fmt.Errorf("refusing to remove %s task; stop it first", task.Status)
 	}
 	if err := os.RemoveAll(pdconfig.TaskDir(task.ID)); err != nil {
-		return err
+		return removeResult{}, err
 	}
 	if run.ControlSocketPath != "" {
 		if err := os.Remove(run.ControlSocketPath); err != nil && !os.IsNotExist(err) {
-			return err
+			return removeResult{}, err
 		}
 	}
 	db, err := store.Open(cfg.DBPath())
 	if err != nil {
-		return err
+		return removeResult{}, err
 	}
 	defer db.Close() //nolint:errcheck
 	if err := db.DeleteTask(cmd.Context(), task.ID); err != nil {
-		return err
+		return removeResult{}, err
 	}
-	if jsonOut {
-		return output.JSON(os.Stdout, removeResult{TaskID: task.ID, Removed: true})
-	}
-	_, err = fmt.Fprintf(os.Stdout, "Removed task %s\n", task.ID)
-	return err
+	return removeResult{TaskID: task.ID, Removed: true}, nil
 }
 
 func sendStop(cmd *cobra.Command, args []string) error {
 	force, _ := cmd.Flags().GetBool("force")
-	if force {
-		return forceStopTask(cmd, args[0])
+	results := make([]controlResult, 0, len(args))
+	var errs []error
+	for _, taskID := range args {
+		var res controlResult
+		var err error
+		if force {
+			res, err = forceStopTask(cmd, taskID)
+		} else {
+			res, err = sendControl(cmd, taskID, control.Request{Operation: control.OpStop})
+		}
+		if err != nil {
+			errs = append(errs, err)
+			results = append(results, controlResult{TaskID: taskID, Operation: string(control.OpStop), Error: err.Error()})
+			continue
+		}
+		results = append(results, res)
 	}
-	return sendControl(cmd, args[0], control.Request{Operation: control.OpStop})
+	if jsonOut {
+		if err := output.JSON(os.Stdout, results); err != nil {
+			return err
+		}
+	}
+	return errors.Join(errs...)
 }
 
 type controlResult struct {
 	TaskID    string `json:"task_id"`
 	Operation string `json:"operation"`
 	OK        bool   `json:"ok"`
+	Error     string `json:"error,omitempty"`
 }
 
 var (
@@ -122,29 +165,29 @@ var (
 	forceStopPollInterval    = 100 * time.Millisecond
 )
 
-func forceStopTask(cmd *cobra.Command, taskID string) error {
+func forceStopTask(cmd *cobra.Command, taskID string) (controlResult, error) {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	task, run, err := taskAndRunReconciled(cmd, taskID, processExists)
 	if err != nil {
-		return err
+		return controlResult{}, err
 	}
 	req := control.Request{Operation: control.OpStop, Force: true}
 	if err := controlAllowed(task.Status, req); err != nil {
-		return fmt.Errorf("cannot %s task %s: %w", req.Operation, task.ID, err)
+		return controlResult{}, fmt.Errorf("cannot %s task %s: %w", req.Operation, task.ID, err)
 	}
 	if run.ControlSocketPath != "" {
 		_, _ = sendControlRequest(run.ControlSocketPath, req)
 	}
 	db, err := store.Open(cfg.DBPath())
 	if err != nil {
-		return err
+		return controlResult{}, err
 	}
 	defer db.Close() //nolint:errcheck
 	if waitForTerminalStatus(ctx, db, taskID, forceStopEscalationGrace) {
-		return printForceStopResult(taskID)
+		return forceStopResult(taskID), nil
 	}
 	processExited := true
 	if run.SupervisorPID > 0 {
@@ -152,14 +195,14 @@ func forceStopTask(cmd *cobra.Command, taskID string) error {
 		processExited = waitForProcessExit(ctx, run.SupervisorPID, forceStopKillWait)
 	}
 	if err := db.CompleteRun(ctx, taskID, store.StatusStopped, 0, "force-killed by pd stop --force", ""); err != nil {
-		return err
+		return controlResult{}, err
 	}
 	if processExited {
 		runPostTerminalCleanup(ctx, db, taskID, store.StatusStopped)
 	} else {
 		recordSkippedPostTerminalCleanup(ctx, db, taskID, "supervisor process still running after force kill")
 	}
-	return printForceStopResult(taskID)
+	return forceStopResult(taskID), nil
 }
 
 func waitForProcessExit(ctx context.Context, pid int, grace time.Duration) bool {
@@ -193,29 +236,22 @@ func waitForTerminalStatus(ctx context.Context, db *store.Store, taskID string, 
 	}
 }
 
-func printForceStopResult(taskID string) error {
-	if jsonOut {
-		return output.JSON(os.Stdout, controlResult{TaskID: taskID, Operation: string(control.OpStop), OK: true})
-	}
-	return nil
+func forceStopResult(taskID string) controlResult {
+	return controlResult{TaskID: taskID, Operation: string(control.OpStop), OK: true}
 }
 
-func sendControl(cmd *cobra.Command, taskID string, req control.Request) error {
+func sendControl(cmd *cobra.Command, taskID string, req control.Request) (controlResult, error) {
 	task, run, err := taskAndRunReconciled(cmd, taskID, processExists)
 	if err != nil {
-		return err
+		return controlResult{}, err
 	}
 	if err := controlAllowed(task.Status, req); err != nil {
-		return fmt.Errorf("cannot %s task %s: %w", req.Operation, task.ID, err)
+		return controlResult{}, fmt.Errorf("cannot %s task %s: %w", req.Operation, task.ID, err)
 	}
-	_, err = sendControlRequest(run.ControlSocketPath, req)
-	if err != nil {
-		return err
+	if _, err := sendControlRequest(run.ControlSocketPath, req); err != nil {
+		return controlResult{}, err
 	}
-	if jsonOut {
-		return output.JSON(os.Stdout, controlResult{TaskID: task.ID, Operation: string(req.Operation), OK: true})
-	}
-	return nil
+	return controlResult{TaskID: task.ID, Operation: string(req.Operation), OK: true}, nil
 }
 
 func controlAllowed(status store.TaskStatus, req control.Request) error {

@@ -206,6 +206,51 @@ func TestRemoveTaskDeletesInactiveMetadataLogsAndSocketWithoutRemovingWorktree(t
 	require.Empty(t, fakeWT.repoRoot)
 }
 
+func TestRemoveTaskRemovesMultipleTasks(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+	dbPath := filepath.Join(t.TempDir(), "pd.db")
+	oldCfg := cfg
+	cfg = pdconfig.Config{DatabasePath: dbPath}
+	t.Cleanup(func() { cfg = oldCfg })
+	db, err := store.Open(dbPath)
+	require.NoError(t, err)
+	now := time.Now().Add(-time.Minute)
+	ids := []string{"pd-a", "pd-b"}
+	for _, id := range ids {
+		task := store.Task{ID: id, RepoPath: "/repo", RepoName: "repo", Branch: "pd/" + id, WorktreePath: "/wt", PromptSource: "arg", Prompt: "hi", PromptPreview: "hi", Status: store.StatusSucceeded, CreatedAt: now, UpdatedAt: now}
+		run := store.Run{ID: "run-" + id, TaskID: id, Attempt: 1, Status: store.StatusSucceeded, StartedAt: now, StdoutLogPath: filepath.Join(pdconfig.TaskDir(id), "stdout.log"), StderrLogPath: filepath.Join(pdconfig.TaskDir(id), "stderr.log"), PiEventsPath: filepath.Join(pdconfig.TaskDir(id), "pi-events.jsonl")}
+		require.NoError(t, db.CreateTaskWithRun(context.Background(), task, run))
+	}
+	require.NoError(t, db.Close())
+	withProcessExists(t, func(int) bool { return false })
+
+	require.NoError(t, removeTask(removeTestCommand(t, false), ids))
+
+	checkDB, err := store.Open(cfg.DBPath())
+	require.NoError(t, err)
+	defer checkDB.Close() //nolint:errcheck
+	for _, id := range ids {
+		_, err := checkDB.GetTask(context.Background(), id)
+		require.Error(t, err, "task %s should be removed", id)
+	}
+}
+
+func TestRemoveTaskIsBestEffortAcrossTaskIDs(t *testing.T) {
+	db, task, _ := setupRemoveTask(t, store.StatusFailed)
+	require.NoError(t, db.Close())
+	withProcessExists(t, func(int) bool { return false })
+
+	err := removeTask(removeTestCommand(t, false), []string{task.ID, "pd-missing"})
+
+	require.ErrorContains(t, err, "task pd-missing not found")
+	checkDB, openErr := store.Open(cfg.DBPath())
+	require.NoError(t, openErr)
+	defer checkDB.Close() //nolint:errcheck
+	_, getErr := checkDB.GetTask(context.Background(), task.ID)
+	require.Error(t, getErr, "existing task should still be removed despite a missing sibling")
+}
+
 func TestRemoveTaskRefusesActiveTask(t *testing.T) {
 	db, task, run := setupRemoveTask(t, store.StatusStarting)
 	require.NoError(t, db.UpdateRunSupervisorPID(context.Background(), task.ID, os.Getpid()))

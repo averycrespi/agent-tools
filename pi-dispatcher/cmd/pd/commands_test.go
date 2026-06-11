@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,6 +48,21 @@ func TestStatusArgValidationShowsUsage(t *testing.T) {
 	require.Contains(t, err.Error(), "task-id is required")
 	require.Contains(t, err.Error(), "Usage: pd status <task-id>")
 	require.NotContains(t, err.Error(), "accepts 1 arg(s)")
+}
+
+func TestMutationCommandsAcceptMultipleTaskIDs(t *testing.T) {
+	for _, c := range []*cobra.Command{stopCmd, cleanupCmd, rmCmd} {
+		require.NoError(t, c.Args(c, []string{"a", "b", "c"}), c.Name())
+	}
+}
+
+func TestStopArgValidationRequiresAtLeastOneTaskID(t *testing.T) {
+	err := stopCmd.Args(stopCmd, nil)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "task-id is required")
+	require.Contains(t, err.Error(), "Usage: pd stop <task-id>...")
+	require.NotContains(t, err.Error(), "accepts")
 }
 
 func TestExecuteDoesNotPrintValidationErrorTwice(t *testing.T) {
