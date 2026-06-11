@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -20,6 +21,8 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 )
+
+var ErrApprovalQueueFull = errors.New("approval queue full")
 
 type pendingRequest struct {
 	ID        string         `json:"id"`
@@ -57,24 +60,30 @@ type AuditQuerier interface {
 
 // Dashboard serves the web UI and manages the approval flow.
 type Dashboard struct {
-	mu      sync.Mutex
-	pending map[string]*pendingRequest
-	decided []decidedRequest
-	clients []chan []byte
-	tools   ToolLister
-	rules   RulesLister
-	auditor AuditQuerier
-	logger  *slog.Logger
+	mu         sync.Mutex
+	pending    map[string]*pendingRequest
+	decided    []decidedRequest
+	clients    []chan []byte
+	tools      ToolLister
+	rules      RulesLister
+	auditor    AuditQuerier
+	logger     *slog.Logger
+	maxPending int
 }
 
 // New creates a Dashboard.
 func New(tools ToolLister, rules RulesLister, auditor AuditQuerier, logger *slog.Logger) *Dashboard {
+	return NewWithMaxPending(tools, rules, auditor, logger, 0)
+}
+
+func NewWithMaxPending(tools ToolLister, rules RulesLister, auditor AuditQuerier, logger *slog.Logger, maxPending int) *Dashboard {
 	return &Dashboard{
-		pending: make(map[string]*pendingRequest),
-		tools:   tools,
-		rules:   rules,
-		auditor: auditor,
-		logger:  logger,
+		pending:    make(map[string]*pendingRequest),
+		tools:      tools,
+		rules:      rules,
+		auditor:    auditor,
+		logger:     logger,
+		maxPending: maxPending,
 	}
 }
 
@@ -112,6 +121,10 @@ func (d *Dashboard) Review(ctx context.Context, tool string, args map[string]any
 	}
 
 	d.mu.Lock()
+	if d.maxPending > 0 && len(d.pending) >= d.maxPending {
+		d.mu.Unlock()
+		return false, "", ErrApprovalQueueFull
+	}
 	d.pending[id] = pr
 	d.mu.Unlock()
 

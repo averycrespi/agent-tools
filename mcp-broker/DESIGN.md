@@ -192,7 +192,7 @@ The orchestrator. Wires together rules, approval, proxy, and audit. The `Handle`
 - `AuditLogger` — recording and querying audit entries
 - `Approver` — human approval decisions
 
-`MultiApprover` fans approval requests to all configured approvers (e.g., dashboard + Telegram) concurrently with a shared timeout. First response wins. Telegram denial is binary (`user`); timeout resolves as `timeout`.
+`MultiApprover` fans approval requests to all configured approvers (e.g., dashboard + Telegram) concurrently with a shared timeout. First response wins. Telegram denial is binary (`user`); timeout resolves as `timeout`. Dashboard pending approvals are bounded by `max_pending_approvals` (default 100); when full, the approver returns a clear `approval queue full` error instead of enqueueing indefinitely.
 
 ### CLI (`cmd/mcp-broker`)
 

@@ -27,6 +27,31 @@ type fakeRulesLister struct{ rules []config.RuleConfig }
 
 func (f *fakeRulesLister) Rules() []config.RuleConfig { return f.rules }
 
+func TestDashboard_Review_ReturnsErrorWhenPendingLimitExceeded(t *testing.T) {
+	d := NewWithMaxPending(nil, nil, nil, nil, 1)
+
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	defer cancelFirst()
+	firstStarted := make(chan struct{})
+	go func() {
+		close(firstStarted)
+		_, _, _ = d.Review(firstCtx, "github.push", map[string]any{"branch": "main"})
+	}()
+	<-firstStarted
+	require.Eventually(t, func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return len(d.pending) == 1
+	}, time.Second, 10*time.Millisecond)
+
+	approved, reason, err := d.Review(context.Background(), "github.merge", map[string]any{"pr": 1})
+
+	require.Error(t, err)
+	require.ErrorContains(t, err, "approval queue full")
+	require.False(t, approved)
+	require.Empty(t, reason)
+}
+
 func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
 	d := New(nil, nil, nil, nil)
 	mux := d.Handler()
