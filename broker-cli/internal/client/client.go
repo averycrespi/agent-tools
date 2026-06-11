@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"time"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -42,10 +43,23 @@ type mcpClientImpl struct {
 // New connects to the broker at endpoint (e.g. "http://localhost:8200/mcp")
 // and authenticates with token.
 func New(ctx context.Context, endpoint, token string) (Client, error) {
+	return NewWithTimeout(ctx, endpoint, token, 0)
+}
+
+func NewWithTimeout(ctx context.Context, endpoint, token string, timeout time.Duration) (Client, error) {
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	opts := []transport.StreamableHTTPCOption{
 		transport.WithHTTPHeaders(map[string]string{
 			"Authorization": "Bearer " + token,
 		}),
+	}
+	if timeout > 0 {
+		opts = append(opts, transport.WithHTTPTimeout(timeout))
 	}
 
 	c, err := mcpclient.NewStreamableHttpClient(endpoint, opts...)

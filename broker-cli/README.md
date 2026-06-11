@@ -41,11 +41,12 @@ On startup, `broker-cli` fetches the tool list from the broker and caches it in 
 
 ## Flags
 
-| Flag                     | Description                                                   |
-| ------------------------ | ------------------------------------------------------------- |
-| `--no-cache`             | Bypass tool discovery cache                                   |
-| `--raw-field key=<json>` | Set a field as raw JSON (per tool command)                    |
-| `--raw-input <json>`     | Pass entire input as JSON, bypassing flags (per tool command) |
+| Flag                     | Description                                                    |
+| ------------------------ | -------------------------------------------------------------- |
+| `--no-cache`             | Bypass tool discovery cache                                    |
+| `--timeout <duration>`   | Broker HTTP timeout for discovery and tool calls (default 15s) |
+| `--raw-field key=<json>` | Set a field as raw JSON (per tool command)                     |
+| `--raw-input <json>`     | Pass entire input as JSON, bypassing flags (per tool command)  |
 
 ## Environment
 
