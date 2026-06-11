@@ -23,15 +23,16 @@ make install
 ## Run
 
 ```bash
-local-gomod-proxy serve [--addr 127.0.0.1:7070] [--private PATTERN] [--upstream URL]
+local-gomod-proxy serve [--addr 127.0.0.1:7070] [--private PATTERN] [--private-timeout 10m] [--upstream URL]
 ```
 
-| Flag          | Default                             | Description                                                                                           |
-| ------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `--addr`      | `127.0.0.1:7070`                    | Address to listen on. Loopback by default; the Lima sandbox reaches it via `host.lima.internal`.      |
-| `--private`   | _(reads `go env GOPRIVATE`)_        | GOPRIVATE-style glob patterns for private modules. Overrides `go env GOPRIVATE`.                      |
-| `--state-dir` | `$XDG_STATE_HOME/local-gomod-proxy` | Directory for TLS cert + credentials. Defaults under `~/.local/state/` if `$XDG_STATE_HOME` is unset. |
-| `--upstream`  | `https://proxy.golang.org`          | Public upstream proxy URL                                                                             |
+| Flag                | Default                             | Description                                                                                           |
+| ------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `--addr`            | `127.0.0.1:7070`                    | Address to listen on. Loopback by default; the Lima sandbox reaches it via `host.lima.internal`.      |
+| `--private`         | _(reads `go env GOPRIVATE`)_        | GOPRIVATE-style glob patterns for private modules. Overrides `go env GOPRIVATE`.                      |
+| `--private-timeout` | `10m`                               | Timeout for private `go mod download` / `go list` subprocesses.                                       |
+| `--state-dir`       | `$XDG_STATE_HOME/local-gomod-proxy` | Directory for TLS cert + credentials. Defaults under `~/.local/state/` if `$XDG_STATE_HOME` is unset. |
+| `--upstream`        | `https://proxy.golang.org`          | Public upstream proxy URL                                                                             |
 
 On first launch, the proxy creates `$XDG_STATE_HOME/local-gomod-proxy/` (mode 0700) and generates a self-signed TLS cert, private key, and a random basic-auth credential inside it. Subsequent launches reuse those files; the cert is regenerated automatically 30 days before expiry. See [Security](#security) for rotation.
 

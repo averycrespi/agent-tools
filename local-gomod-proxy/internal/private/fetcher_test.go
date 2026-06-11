@@ -7,7 +7,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,6 +69,25 @@ func TestFetcher_Info_RejectsPathOutsideGoModCache(t *testing.T) {
 	assert.Contains(t, err.Error(), "outside GOMODCACHE")
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Empty(t, w.Body.String())
+}
+
+type blockingRunner struct{}
+
+func (blockingRunner) Run(ctx context.Context, _ string, _ ...string) ([]byte, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestFetcher_Info_ReturnsWhenGoCommandBlocks(t *testing.T) {
+	f := New(blockingRunner{}, t.TempDir(), 10*time.Millisecond)
+	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
+	start := time.Now()
+
+	err := f.Serve(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil), req)
+
+	require.Error(t, err)
+	assert.Less(t, time.Since(start), time.Second)
+	assert.True(t, strings.Contains(err.Error(), "context deadline exceeded") || strings.Contains(err.Error(), "signal: killed"), err.Error())
 }
 
 func TestFetcher_List_ReturnsPlaintext(t *testing.T) {

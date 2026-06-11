@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/exec"
 )
@@ -17,11 +18,16 @@ import (
 type Fetcher struct {
 	runner     exec.Runner
 	gomodcache string
+	timeout    time.Duration
 }
 
 // New returns a Fetcher that shells out via runner.
-func New(runner exec.Runner, gomodcache string) *Fetcher {
-	return &Fetcher{runner: runner, gomodcache: gomodcache}
+func New(runner exec.Runner, gomodcache string, timeout ...time.Duration) *Fetcher {
+	var t time.Duration
+	if len(timeout) > 0 {
+		t = timeout[0]
+	}
+	return &Fetcher{runner: runner, gomodcache: gomodcache, timeout: t}
 }
 
 type downloadResult struct {
@@ -46,6 +52,11 @@ type listResult struct {
 // shutdown terminate in-flight `go` commands.
 func (f *Fetcher) Serve(w http.ResponseWriter, httpReq *http.Request, req Request) error {
 	ctx := httpReq.Context()
+	if f.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, f.timeout)
+		defer cancel()
+	}
 	switch req.Artifact {
 	case ArtifactInfo, ArtifactMod, ArtifactZip:
 		return f.serveArtifact(ctx, w, req)
