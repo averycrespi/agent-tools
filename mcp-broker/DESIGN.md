@@ -167,7 +167,7 @@ Environment variables in server config support `$VAR` expansion from the process
 
 ### Auth (`internal/auth`)
 
-Bearer token authentication for the `/mcp` endpoint. Generates a 32-byte random token (hex-encoded, 64 chars) stored with `0600` file permissions (parent directories `0750`). The HTTP middleware validates tokens using `crypto/subtle.ConstantTimeCompare`. Token is generated on first `serve` if it doesn't already exist.
+Bearer token authentication for the `/mcp` endpoint. Generates a 32-byte random token (hex-encoded, 64 chars) stored with `0600` file permissions (parent directories `0750`). The HTTP middleware validates tokens using `crypto/subtle.ConstantTimeCompare`. Token is generated on first `serve` if it doesn't already exist. `/mcp` request bodies are capped by configurable `mcp_max_body_bytes` (default 1 MiB, `0` disables) before reaching the streamable HTTP handler.
 
 ### Telegram approver (`internal/telegram`)
 

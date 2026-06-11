@@ -97,6 +97,7 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
   "host": "127.0.0.1",
   "port": 8200,
   "approval_timeout_seconds": 600,
+  "mcp_max_body_bytes": 1048576,
   "telegram": {
     "enabled": false,
     "token": "$TELEGRAM_BOT_TOKEN",

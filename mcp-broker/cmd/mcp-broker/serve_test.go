@@ -1,35 +1,46 @@
 package main
 
 import (
-	"context"
-	"log/slog"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
-type blockingShutdownServer struct {
-	closed bool
+func TestLimitRequestBodyRejectsOversizedBody(t *testing.T) {
+	h := limitRequestBody(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := io.ReadAll(r.Body)
+		if err != nil {
+			var maxErr *http.MaxBytesError
+			require.True(t, errors.As(err, &maxErr), "got %T: %v", err, err)
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}), 4)
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader("12345"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+	require.Contains(t, w.Body.String(), "request body too large")
 }
 
-func (s *blockingShutdownServer) Shutdown(ctx context.Context) error {
-	<-ctx.Done()
-	return ctx.Err()
-}
+func TestLimitRequestBodyCanBeDisabled(t *testing.T) {
+	h := limitRequestBody(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		w.WriteHeader(http.StatusOK)
+	}), 0)
 
-func (s *blockingShutdownServer) Close() error {
-	s.closed = true
-	return nil
-}
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader("12345"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
 
-func TestShutdownServerForcesCloseAfterTimeout(t *testing.T) {
-	srv := &blockingShutdownServer{}
-
-	start := time.Now()
-	err := shutdownServer(srv, slog.Default(), 10*time.Millisecond)
-
-	require.NoError(t, err)
-	require.True(t, srv.closed)
-	require.Less(t, time.Since(start), time.Second)
+	require.Equal(t, http.StatusOK, w.Code)
 }
