@@ -164,7 +164,7 @@ func acquireSetupLock(worktreeDir string) (func(), error) {
 	lockPath := filepath.Join(filepath.Dir(worktreeDir), filepath.Base(worktreeDir)+".setup.lock")
 	deadline := time.Now().Add(30 * time.Second)
 	for {
-		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) //nolint:gosec // lock path is derived from the managed worktree directory
 		if err == nil {
 			_ = f.Close()
 			return func() { _ = os.Remove(lockPath) }, nil
