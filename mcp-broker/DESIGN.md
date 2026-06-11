@@ -57,7 +57,7 @@ Every tool call flows through the same pipeline:
 
 2. **Approval** — If the verdict is `require-approval`, the call blocks and appears in the web dashboard. A human approves or denies it. Dashboard denials can include an optional reason, returned as `denied by user: <reason>`; binary denials return `denied by user`. Approval timeouts return `denied by timeout`. If no approver is configured, the call is rejected.
 
-3. **Proxy** — The call is forwarded to the backend MCP server that owns the tool. The broker strips the namespace prefix before forwarding.
+3. **Proxy** — The call is forwarded to the backend MCP server that owns the tool with a finite backend timeout (`backend_timeout_seconds`, default 120 s). The broker strips the namespace prefix before forwarding.
 
 4. **Audit** — Every call is recorded in a SQLite database with: timestamp, tool name, arguments, verdict, approval status, denial reason, result, and any error.
 

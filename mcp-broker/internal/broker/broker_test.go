@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -43,6 +44,31 @@ type mockApprover struct{ mock.Mock }
 func (m *mockApprover) Review(ctx context.Context, tool string, args map[string]any) (bool, string, error) {
 	a := m.Called(ctx, tool, args)
 	return a.Bool(0), a.String(1), a.Error(2)
+}
+
+type blockingServerManager struct{}
+
+func (blockingServerManager) Tools() []server.Tool { return nil }
+func (blockingServerManager) Call(ctx context.Context, _ string, _ map[string]any) (*server.ToolResult, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestBroker_Handle_BackendTimeout(t *testing.T) {
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
+		return r.Verdict == "allow" && r.Error != ""
+	})).Return(nil)
+	engine, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "allow"}})
+	require.NoError(t, err)
+	b := NewWithBackendTimeout(blockingServerManager{}, engine, al, nil, nil, 10*time.Millisecond)
+	start := time.Now()
+
+	_, err = b.Handle(context.Background(), "github.search", map[string]any{"q": "test"})
+
+	require.Error(t, err)
+	require.Less(t, time.Since(start), time.Second)
+	require.Contains(t, err.Error(), "context deadline exceeded")
 }
 
 func TestBroker_Handle_AllowedTool(t *testing.T) {

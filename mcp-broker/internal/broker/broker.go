@@ -37,21 +37,27 @@ type Approver interface {
 
 // Broker orchestrates the tool call pipeline.
 type Broker struct {
-	servers  ServerManager
-	rules    *rules.Engine
-	auditor  AuditLogger
-	approver Approver
-	logger   *slog.Logger
+	servers        ServerManager
+	rules          *rules.Engine
+	auditor        AuditLogger
+	approver       Approver
+	logger         *slog.Logger
+	backendTimeout time.Duration
 }
 
 // New creates a Broker with the given components.
 func New(servers ServerManager, rulesEngine *rules.Engine, auditor AuditLogger, approver Approver, logger *slog.Logger) *Broker {
+	return NewWithBackendTimeout(servers, rulesEngine, auditor, approver, logger, 0)
+}
+
+func NewWithBackendTimeout(servers ServerManager, rulesEngine *rules.Engine, auditor AuditLogger, approver Approver, logger *slog.Logger, backendTimeout time.Duration) *Broker {
 	return &Broker{
-		servers:  servers,
-		rules:    rulesEngine,
-		auditor:  auditor,
-		approver: approver,
-		logger:   logger,
+		servers:        servers,
+		rules:          rulesEngine,
+		auditor:        auditor,
+		approver:       approver,
+		logger:         logger,
+		backendTimeout: backendTimeout,
 	}
 }
 
@@ -119,7 +125,13 @@ func (b *Broker) HandleToolResult(ctx context.Context, tool string, args map[str
 	}
 
 	// 2. Proxy to backend
-	result, err := b.servers.Call(ctx, tool, args)
+	backendCtx := ctx
+	var cancel context.CancelFunc
+	if b.backendTimeout > 0 {
+		backendCtx, cancel = context.WithTimeout(ctx, b.backendTimeout)
+		defer cancel()
+	}
+	result, err := b.servers.Call(backendCtx, tool, args)
 	if err != nil {
 		rec.Error = err.Error()
 		_ = b.auditor.Record(ctx, rec)

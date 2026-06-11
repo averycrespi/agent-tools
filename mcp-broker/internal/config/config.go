@@ -23,6 +23,7 @@ type Config struct {
 	ApprovalTimeoutSeconds int                     `json:"approval_timeout_seconds"`
 	MCPMaxBodyBytes        int64                   `json:"mcp_max_body_bytes"`
 	MaxPendingApprovals    int                     `json:"max_pending_approvals"`
+	BackendTimeoutSeconds  int                     `json:"backend_timeout_seconds"`
 	Telegram               TelegramConfig          `json:"telegram"`
 }
 
@@ -148,6 +149,7 @@ func DefaultConfig() Config {
 		ApprovalTimeoutSeconds: 600,
 		MCPMaxBodyBytes:        1 << 20,
 		MaxPendingApprovals:    100,
+		BackendTimeoutSeconds:  120,
 		Audit: AuditConfig{
 			Path: filepath.Join(xdgDataHome(), "mcp-broker", "audit.db"),
 		},
