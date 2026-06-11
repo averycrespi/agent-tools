@@ -40,25 +40,17 @@ func TestRunDoesNotExposeTemplateFlags(t *testing.T) {
 	require.Nil(t, runCmd.Flags().Lookup("no-prompt-templates"))
 }
 
-func TestSteerArgValidationShowsUsage(t *testing.T) {
-	err := steerCmd.Args(steerCmd, nil)
+func TestStatusArgValidationShowsUsage(t *testing.T) {
+	err := statusCmd.Args(statusCmd, nil)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "missing required arguments")
-	require.Contains(t, err.Error(), "Usage: pd steer <task-id> <message>")
-	require.NotContains(t, err.Error(), "accepts 2 arg(s)")
-}
-
-func TestSteerArgValidationExplainsQuotedMessage(t *testing.T) {
-	err := steerCmd.Args(steerCmd, []string{"task-123"})
-
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "message is required")
-	require.Contains(t, err.Error(), `Example: pd steer task-123 "focus on the failing package"`)
+	require.Contains(t, err.Error(), "task-id is required")
+	require.Contains(t, err.Error(), "Usage: pd status <task-id>")
+	require.NotContains(t, err.Error(), "accepts 1 arg(s)")
 }
 
 func TestExecuteDoesNotPrintValidationErrorTwice(t *testing.T) {
-	rootCmd.SetArgs([]string{"steer"})
+	rootCmd.SetArgs([]string{"status"})
 	var cobraErr bytes.Buffer
 	rootCmd.SetErr(&cobraErr)
 	t.Cleanup(func() {

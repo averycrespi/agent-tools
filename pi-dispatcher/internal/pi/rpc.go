@@ -17,12 +17,8 @@ func NewClient(stdin io.WriteCloser, stdout io.Reader) *Client {
 }
 
 func (c *Client) Prompt(text string) error { return c.send(command{Type: "prompt", Message: text}) }
-func (c *Client) Steer(text string) error  { return c.send(command{Type: "steer", Message: text}) }
-func (c *Client) FollowUp(text string) error {
-	return c.send(command{Type: "follow_up", Message: text})
-}
-func (c *Client) Abort() error    { return c.send(command{Type: "abort"}) }
-func (c *Client) GetState() error { return c.send(command{Type: "get_state"}) }
+func (c *Client) Abort() error             { return c.send(command{Type: "abort"}) }
+func (c *Client) GetState() error          { return c.send(command{Type: "get_state"}) }
 
 func (c *Client) ExtensionUIResponse(id string, cancelled bool, value any) error {
 	return c.send(map[string]any{"type": "extension_ui_response", "id": id, "cancelled": cancelled, "value": value})

@@ -90,16 +90,12 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 	go io.Copy(stderrLog, proc.Stderr()) //nolint:errcheck
 
 	client := pi.NewClient(proc.Stdin(), io.TeeReader(proc.Stdout(), stdoutLog))
-	state := &supervisorRunState{queuesEmpty: true}
+	state := &supervisorRunState{}
 	server, err := control.Listen(run.ControlSocketPath)
 	if err == nil {
 		defer server.Close() //nolint:errcheck
 		go server.Serve(func(req control.Request) control.Response {
 			switch req.Operation {
-			case control.OpSteer:
-				return response(client.Steer(req.Message))
-			case control.OpFollowUp:
-				return response(client.FollowUp(req.Message))
 			case control.OpStop:
 				_ = db.UpdateStatuses(cmd.Context(), supervisorTaskID, store.StatusStopping)
 				return applyStopRequest(state, client, proc, req, stopGrace)
@@ -137,16 +133,13 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 			_ = client.Abort()
 			return finishSupervisor(cmd.Context(), db, run, proc, state, errors.New(errMsg), errMsg)
 		}
-		if event.Type == "queue_update" {
-			state.queuesEmpty = queueUpdateEmpty(raw)
-		}
 		if event.Type == "response" && event.Command == "get_state" {
 			state.piSessionFile = event.SessionFile()
 			if state.awaitingState {
 				return finishSupervisor(cmd.Context(), db, run, proc, state, nil, "agent run completed")
 			}
 		}
-		if event.Type == "agent_end" && state.queuesEmpty {
+		if event.Type == "agent_end" {
 			state.awaitingState = true
 			if err := client.GetState(); err != nil {
 				return finishSupervisor(cmd.Context(), db, run, proc, state, err, err.Error())
@@ -169,7 +162,6 @@ const (
 type supervisorRunState struct {
 	mu            sync.Mutex
 	stopRequested bool
-	queuesEmpty   bool
 	awaitingState bool
 	piSessionFile string
 }
@@ -286,17 +278,6 @@ func response(err error) control.Response {
 		return control.Response{OK: false, Error: err.Error()}
 	}
 	return control.Response{OK: true}
-}
-
-func queueUpdateEmpty(raw []byte) bool {
-	var payload struct {
-		Steering []string `json:"steering"`
-		FollowUp []string `json:"followUp"`
-	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return true
-	}
-	return len(payload.Steering) == 0 && len(payload.FollowUp) == 0
 }
 
 func piCommandWithEnv(argv []string, names []string) ([]string, error) {

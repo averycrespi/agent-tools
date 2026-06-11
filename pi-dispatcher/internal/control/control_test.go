@@ -18,13 +18,13 @@ func TestSendServe(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- server.Serve(func(req Request) Response {
-			assert.Equal(t, OpSteer, req.Operation)
+			assert.Equal(t, OpStop, req.Operation)
 			assert.Equal(t, "focus", req.Message)
 			return Response{OK: true}
 		})
 	}()
 
-	resp, err := Send(path, Request{Operation: OpSteer, Message: "focus"})
+	resp, err := Send(path, Request{Operation: OpStop, Message: "focus"})
 	require.NoError(t, err)
 	assert.True(t, resp.OK)
 	require.NoError(t, server.Close())

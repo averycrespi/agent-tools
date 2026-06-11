@@ -17,12 +17,8 @@ func TestClientCommands(t *testing.T) {
 	stdin := &writeCloser{}
 	client := NewClient(stdin, bytes.NewBuffer(nil))
 	require.NoError(t, client.Prompt("hello"))
-	require.NoError(t, client.Steer("focus"))
-	require.NoError(t, client.FollowUp("next"))
 	require.NoError(t, client.Abort())
 	assert.Contains(t, stdin.String(), `{"type":"prompt","message":"hello"}`)
-	assert.Contains(t, stdin.String(), `{"type":"steer","message":"focus"}`)
-	assert.Contains(t, stdin.String(), `{"type":"follow_up","message":"next"}`)
 	assert.Contains(t, stdin.String(), `{"type":"abort"}`)
 }
 

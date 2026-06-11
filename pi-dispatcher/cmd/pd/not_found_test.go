@@ -22,8 +22,6 @@ func TestTaskCommandsReportHelpfulNotFoundErrors(t *testing.T) {
 		{name: "wait", run: func(cmd *cobra.Command) error { return waitForTask(waitTestCommand(t, 0), []string{"123"}) }},
 		{name: "logs", run: func(cmd *cobra.Command) error { return showLogs(cmd, []string{"123"}) }},
 		{name: "rm", run: func(cmd *cobra.Command) error { return removeTask(removeTestCommand(t, false), []string{"123"}) }},
-		{name: "steer", run: func(cmd *cobra.Command) error { return sendSteer(cmd, []string{"123", "focus"}) }},
-		{name: "followup", run: func(cmd *cobra.Command) error { return sendFollowUp(cmd, []string{"123", "next"}) }},
 		{name: "stop", run: func(cmd *cobra.Command) error { return sendStop(stopCommand(t), []string{"123"}) }},
 	}
 

@@ -13,10 +13,8 @@ import (
 type Operation string
 
 const (
-	OpSteer    Operation = "steer"
-	OpFollowUp Operation = "follow_up"
-	OpStop     Operation = "stop"
-	OpPing     Operation = "ping"
+	OpStop Operation = "stop"
+	OpPing Operation = "ping"
 )
 
 type Request struct {

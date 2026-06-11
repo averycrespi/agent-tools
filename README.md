@@ -75,11 +75,11 @@ See the [sandbox-manager README](sandbox-manager/README.md) for more information
 
 ### Pi Dispatcher (pd)
 
-Autonomous coding-agent runs need more than a terminal: a clean worktree, sandboxed execution, durable status, logs, and a way to steer or stop the task later. `pd` composes `wt`, `sb`, and Pi RPC into a daemonless local task runner.
+Autonomous coding-agent runs need more than a terminal: a clean worktree, sandboxed execution, durable status, logs, and a way to stop the task later. `pd` composes `wt`, `sb`, and Pi RPC into a daemonless local task runner.
 
 - `pd run "prompt"` creates a headless `wt` worktree, verifies it is visible inside `sb`, starts a detached supervisor, and returns a task ID.
 - `pd ps`, `pd status`, `pd wait`, `pd logs`, and `pd dashboard` inspect or follow running and completed tasks from persisted state.
-- `pd steer`, `pd followup`, and `pd stop` communicate with the supervisor over a per-task Unix socket when the task is running.
+- `pd stop` communicates with the supervisor over a per-task Unix socket when the task is running.
 
 See the [pi-dispatcher README](pi-dispatcher/README.md) for more information.
 

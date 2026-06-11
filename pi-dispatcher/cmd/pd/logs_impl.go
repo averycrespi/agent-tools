@@ -20,8 +20,6 @@ import (
 func init() {
 	logsCmd.RunE = showLogs
 	rmCmd.RunE = removeTask
-	steerCmd.RunE = sendSteer
-	followupCmd.RunE = sendFollowUp
 	stopCmd.RunE = sendStop
 }
 
@@ -90,14 +88,6 @@ func removeTask(cmd *cobra.Command, args []string) error {
 	}
 	_, err = fmt.Fprintf(os.Stdout, "Removed task %s\n", task.ID)
 	return err
-}
-
-func sendSteer(cmd *cobra.Command, args []string) error {
-	return sendControl(cmd, args[0], control.Request{Operation: control.OpSteer, Message: args[1]})
-}
-
-func sendFollowUp(cmd *cobra.Command, args []string) error {
-	return sendControl(cmd, args[0], control.Request{Operation: control.OpFollowUp, Message: args[1]})
 }
 
 func sendStop(cmd *cobra.Command, args []string) error {

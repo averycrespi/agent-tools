@@ -76,23 +76,6 @@ var logsCmd = &cobra.Command{
 	RunE:  notImplemented("logs"),
 }
 
-var steerCmd = &cobra.Command{
-	Use:     "steer <task-id> <message>",
-	Short:   "Send steering to a running task",
-	Example: `pd steer task-123 "focus on the failing package"`,
-	Args:    exactArgs("task-id", "message"),
-	RunE:    notImplemented("steer"),
-}
-
-var followupCmd = &cobra.Command{
-	Use:     "followup <task-id> <message>",
-	Aliases: []string{"follow-up"},
-	Short:   "Queue a follow-up for a running task",
-	Example: `pd followup task-123 "run the full test suite now"`,
-	Args:    exactArgs("task-id", "message"),
-	RunE:    notImplemented("followup"),
-}
-
 var stopCmd = &cobra.Command{
 	Use:   "stop <task-id>",
 	Short: "Stop a running task",

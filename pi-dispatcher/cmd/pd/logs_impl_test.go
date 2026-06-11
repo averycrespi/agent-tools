@@ -176,8 +176,8 @@ func stopTestCommand(t *testing.T, force bool) *cobra.Command {
 	return cmd
 }
 
-func TestControlAllowedRejectsSteerWhileStopping(t *testing.T) {
-	err := controlAllowed(store.StatusStopping, control.Request{Operation: control.OpSteer})
+func TestControlAllowedRejectsNonForceStopWhileStopping(t *testing.T) {
+	err := controlAllowed(store.StatusStopping, control.Request{Operation: control.OpStop})
 	require.Error(t, err)
 }
 

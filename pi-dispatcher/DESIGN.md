@@ -5,8 +5,8 @@ Pi Dispatcher (`pd`) is a local job runner for autonomous Pi coding-agent runs.
 ## V1 architecture
 
 - `pd run` creates a headless worktree through the worktree-manager package, ensures the sandbox-manager Lima VM is available, verifies the worktree path is mounted in the sandbox, creates task/run records in SQLite, and starts a detached `pd supervisor` process.
-- The supervisor owns the sandboxed `pi --mode rpc` process and a per-task Unix socket for steering, follow-up, and stop requests.
-- The supervisor treats `agent_end` with empty queues as terminal for a one-shot run, requests Pi state, records the session file when reported, then closes and waits for the Pi RPC process, records terminal run metadata, and performs optional post-run worktree cleanup when the persisted launch-time policy allows it.
+- The supervisor owns the sandboxed `pi --mode rpc` process and a per-task Unix socket for stop requests.
+- The supervisor treats `agent_end` as terminal for a one-shot run, requests Pi state, records the session file when reported, then closes and waits for the Pi RPC process, records terminal run metadata, and performs optional post-run worktree cleanup when the persisted launch-time policy allows it.
 - Stop requests mark the task as stopping, send Pi RPC `abort`, and finalize as stopped. `pd stop --force` additionally schedules process termination after a bounded grace period.
 - Blocking Pi extension UI requests are auto-cancelled in headless mode.
 - SQLite stores compact task and run metadata, including supervisor PID, launch options, exact Pi argv, environment variable names, worktree cleanup policy/result, end time, exit code, error message, and Pi session file. Environment variable values are passed to the run but are not persisted. Raw stdout/stderr and Pi RPC JSONL records are stored as files under the task state directory.
@@ -38,7 +38,7 @@ The public dashboard surface is:
 
 Dashboard auth uses the generic pd auth token at `$XDG_CONFIG_HOME/pd/auth-token` or `~/.config/pd/auth-token`. Requests without a valid token or dashboard cookie cannot access the UI, APIs, or SSE stream. `pd token rotate` replaces the token without printing the secret; running dashboard servers must be restarted to apply a rotated token.
 
-Pi Dispatcher Dashboard is strictly read-only in v1. It displays persisted cleanup policy/result/error fields but does not initiate, retry, or reconcile cleanup. It does not expose mutation routes or UI controls for steer, follow-up, stop, cleanup, remove, worktree changes, or control-socket operations. It also does not perform stale-status reconciliation, because CLI reconciliation writes `unknown` statuses to SQLite. Dashboard status displays raw persisted state; users can run `pd ps` or `pd status` when they want explicit CLI reconciliation.
+Pi Dispatcher Dashboard is strictly read-only in v1. It displays persisted cleanup policy/result/error fields but does not initiate, retry, or reconcile cleanup. It does not expose mutation routes or UI controls for stop, cleanup, remove, worktree changes, or control-socket operations. It also does not perform stale-status reconciliation, because CLI reconciliation writes `unknown` statuses to SQLite. Dashboard status displays raw persisted state; users can run `pd ps` or `pd status` when they want explicit CLI reconciliation.
 
 ## Boundaries
 

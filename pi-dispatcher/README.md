@@ -22,8 +22,6 @@ pd status <task-id>
 pd wait --timeout 30m <task-id>
 pd logs -f <task-id>
 pd dashboard
-pd steer <task-id> "focus on the failing package"
-pd followup <task-id> "run the full test suite now"
 pd stop <task-id>
 pd stop --force <task-id>
 pd cleanup <task-id>
@@ -31,7 +29,7 @@ pd cleanup --dry-run <task-id>
 pd rm <task-id>
 ```
 
-`pd run --json`, `pd ps --json`, `pd status --json <task-id>`, and `pd wait --json <task-id>` emit machine-readable JSON, including worktree cleanup policy/result fields. Mutation commands `pd steer --json`, `pd followup --json`, `pd stop --json`, `pd cleanup --json`, and `pd rm --json` emit JSON success responses.
+`pd run --json`, `pd ps --json`, `pd status --json <task-id>`, and `pd wait --json <task-id>` emit machine-readable JSON, including worktree cleanup policy/result fields. Mutation commands `pd stop --json`, `pd cleanup --json`, and `pd rm --json` emit JSON success responses.
 
 `pd status` shows launch options and terminal run metadata when available, including ended time, exit code, error message, and Pi session file. `pd ps` stays compact for scanning task IDs. `pd wait <task-id>` blocks until a task reaches a terminal state, prints the final status, and returns immediately if the task is already done. It exits 0 only for `succeeded`; `failed`, `stopped`, `unknown`, and timeout return exit code 1. Use `pd wait --timeout 10m <task-id>` to bound the wait.
 
@@ -51,7 +49,7 @@ Automatic cleanup is disabled by default. Use `pd run --cleanup-worktree on-succ
 
 `pd rm <task-id>` removes inactive task metadata, logs, and stale control sockets only. It refuses `starting`, `running`, and `stopping` tasks; stop them first. It does not remove the worktree or branch.
 
-Pi Dispatcher Dashboard is read-only in v1. It does not expose steer, follow-up, stop, remove, worktree mutation, control-socket, or stale-status reconciliation actions. It shows persisted SQLite state as-is; run `pd ps` or `pd status` when you want CLI inspection to reconcile stale supervisors to `unknown`.
+Pi Dispatcher Dashboard is read-only in v1. It does not expose stop, remove, worktree mutation, control-socket, or stale-status reconciliation actions. It shows persisted SQLite state as-is; run `pd ps` or `pd status` when you want CLI inspection to reconcile stale supervisors to `unknown`.
 
 Pi Dispatcher Dashboard requires local auth because prompts, repo paths, logs, and session file paths can be sensitive. The pd auth token is stored at `$XDG_CONFIG_HOME/pd/auth-token` or `~/.config/pd/auth-token` with restrictive permissions. Visiting the printed token URL sets an HttpOnly dashboard cookie. Rotate the token with `pd token rotate`; restart any running dashboard servers afterward.
 
