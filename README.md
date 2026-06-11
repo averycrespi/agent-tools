@@ -10,7 +10,6 @@ This repo is opinionated. It provides structured worktree management, sandboxed 
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
 - **[Pi Dispatcher](#pi-dispatcher-pd)** — Launch and inspect background Pi runs in worktrees and the sandbox
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
-- **[Broker CLI](#broker-cli)** — CLI frontend for the MCP broker
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local GH MCP](#local-gh-mcp)** — Stdio MCP server for GitHub operations via the gh CLI
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
@@ -43,7 +42,6 @@ cd worktree-manager && make install
 cd sandbox-manager && make install
 cd pi-dispatcher && make install
 cd mcp-broker && make install
-cd broker-cli && make install
 cd local-git-mcp && make install
 cd local-gh-mcp && make install
 cd local-gomod-proxy && make install
@@ -98,19 +96,6 @@ AI agents need to call external APIs (GitHub, Jira, Slack), but giving a sandbox
 - A web dashboard handles approval requests in real time and surfaces the configured rules, discovered tools, and searchable audit log.
 
 See the [mcp-broker README](mcp-broker/README.md) for more information.
-
-### Broker CLI
-
-Some agents speak MCP natively, but others work better by running shell commands — and writing a wrapper per tool means keeping a second set of stubs in sync with whatever the broker currently exposes. What you want is a CLI that mirrors the broker's tool list automatically, with typed flags and predictable JSON output.
-
-`broker-cli` connects to the MCP broker, discovers available tools at startup, and builds the full command tree on the fly:
-
-- One subcommand per tool, grouped by namespace (e.g. `broker-cli git push --remote origin`).
-- Typed flags generated from each tool's JSON Schema, with `--raw-field` and `--raw-input` escape hatches for complex inputs.
-- Output is always a JSON array on stdout; errors are a JSON object on stderr — easy to pipe into `jq`.
-- Tool list is cached to keep repeated calls fast.
-
-See the [broker-cli README](broker-cli/README.md) for more information.
 
 ### Local Git MCP
 
