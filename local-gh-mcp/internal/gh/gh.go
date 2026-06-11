@@ -180,8 +180,8 @@ func cleanGhError(out []byte) string {
 }
 
 // AuthStatus checks whether the gh CLI is authenticated.
-func (c *Client) AuthStatus(_ context.Context) error {
-	out, err := c.runner.Run(context.Background(), "gh", "auth", "status")
+func (c *Client) AuthStatus(ctx context.Context) error {
+	out, err := c.runner.Run(ctx, "gh", "auth", "status")
 	if err != nil {
 		return fmt.Errorf("gh auth status failed: %s", cleanGhStderr(out))
 	}
@@ -189,8 +189,8 @@ func (c *Client) AuthStatus(_ context.Context) error {
 }
 
 // ViewUser returns the authenticated user as JSON from `gh api /user`.
-func (c *Client) ViewUser(_ context.Context) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "api", "/user")
+func (c *Client) ViewUser(ctx context.Context) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "api", "/user")
 	if err != nil {
 		return "", fmt.Errorf("gh api /user failed: %s", cleanAPIError(out))
 	}
@@ -198,7 +198,7 @@ func (c *Client) ViewUser(_ context.Context) (string, error) {
 }
 
 // CreatePR creates a new pull request.
-func (c *Client) CreatePR(_ context.Context, owner, repo string, opts CreatePROpts) (string, error) {
+func (c *Client) CreatePR(ctx context.Context, owner, repo string, opts CreatePROpts) (string, error) {
 	args := []string{"pr", "create", "-R", repoFlag(owner, repo), "--title", opts.Title, "--body", opts.Body}
 	if opts.Base != "" {
 		args = append(args, "--base", opts.Base)
@@ -218,7 +218,7 @@ func (c *Client) CreatePR(_ context.Context, owner, repo string, opts CreatePROp
 	for _, a := range opts.Assignees {
 		args = append(args, "--assignee", a)
 	}
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh pr create failed: %s", cleanGhStderr(out))
 	}
@@ -226,8 +226,8 @@ func (c *Client) CreatePR(_ context.Context, owner, repo string, opts CreatePROp
 }
 
 // ViewPR retrieves details for a pull request.
-func (c *Client) ViewPR(_ context.Context, owner, repo string, number int) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "pr", "view", "-R", repoFlag(owner, repo), "--json", prViewFields, strconv.Itoa(number))
+func (c *Client) ViewPR(ctx context.Context, owner, repo string, number int) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "pr", "view", "-R", repoFlag(owner, repo), "--json", prViewFields, strconv.Itoa(number))
 	if err != nil {
 		return "", fmt.Errorf("gh pr view failed: %s", cleanGhStderr(out))
 	}
@@ -236,7 +236,7 @@ func (c *Client) ViewPR(_ context.Context, owner, repo string, number int) (stri
 
 // ListPRs lists pull requests for a repository.
 // Requests limit+1 items so the caller can detect truncation.
-func (c *Client) ListPRs(_ context.Context, owner, repo string, opts ListPROpts) (string, error) {
+func (c *Client) ListPRs(ctx context.Context, owner, repo string, opts ListPROpts) (string, error) {
 	args := []string{"pr", "list", "-R", repoFlag(owner, repo), "--json", prListFields, "--limit", strconv.Itoa(fetchLimit(opts.Limit))}
 	if opts.State != "" {
 		args = append(args, "--state", opts.State)
@@ -253,7 +253,7 @@ func (c *Client) ListPRs(_ context.Context, owner, repo string, opts ListPROpts)
 	if opts.Head != "" {
 		args = append(args, "--head", opts.Head)
 	}
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh pr list failed: %s", cleanGhStderr(out))
 	}
@@ -261,8 +261,8 @@ func (c *Client) ListPRs(_ context.Context, owner, repo string, opts ListPROpts)
 }
 
 // DiffPR retrieves the diff for a pull request.
-func (c *Client) DiffPR(_ context.Context, owner, repo string, number int) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "pr", "diff", "-R", repoFlag(owner, repo), strconv.Itoa(number))
+func (c *Client) DiffPR(ctx context.Context, owner, repo string, number int) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "pr", "diff", "-R", repoFlag(owner, repo), strconv.Itoa(number))
 	if err != nil {
 		return "", fmt.Errorf("gh pr diff failed: %s", cleanGhStderr(out))
 	}
@@ -270,8 +270,8 @@ func (c *Client) DiffPR(_ context.Context, owner, repo string, number int) (stri
 }
 
 // CommentPR adds a comment to a pull request.
-func (c *Client) CommentPR(_ context.Context, owner, repo string, number int, body string) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "pr", "comment", "-R", repoFlag(owner, repo), "--body", body, strconv.Itoa(number))
+func (c *Client) CommentPR(ctx context.Context, owner, repo string, number int, body string) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "pr", "comment", "-R", repoFlag(owner, repo), "--body", body, strconv.Itoa(number))
 	if err != nil {
 		return "", fmt.Errorf("gh pr comment failed: %s", cleanGhStderr(out))
 	}
@@ -279,7 +279,7 @@ func (c *Client) CommentPR(_ context.Context, owner, repo string, number int, bo
 }
 
 // ReviewPR submits a review on a pull request.
-func (c *Client) ReviewPR(_ context.Context, owner, repo string, number int, event, body string) (string, error) {
+func (c *Client) ReviewPR(ctx context.Context, owner, repo string, number int, event, body string) (string, error) {
 	args := []string{"pr", "review", "-R", repoFlag(owner, repo)}
 	switch event {
 	case "approve":
@@ -293,7 +293,7 @@ func (c *Client) ReviewPR(_ context.Context, owner, repo string, number int, eve
 		args = append(args, "--body", body)
 	}
 	args = append(args, strconv.Itoa(number))
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh pr review failed: %s", cleanGhStderr(out))
 	}
@@ -301,7 +301,7 @@ func (c *Client) ReviewPR(_ context.Context, owner, repo string, number int, eve
 }
 
 // MergePR merges a pull request.
-func (c *Client) MergePR(_ context.Context, owner, repo string, number int, opts MergePROpts) (string, error) {
+func (c *Client) MergePR(ctx context.Context, owner, repo string, number int, opts MergePROpts) (string, error) {
 	args := []string{"pr", "merge", "-R", repoFlag(owner, repo)}
 	switch opts.Method {
 	case "squash":
@@ -318,7 +318,7 @@ func (c *Client) MergePR(_ context.Context, owner, repo string, number int, opts
 		args = append(args, "--auto")
 	}
 	args = append(args, strconv.Itoa(number))
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh pr merge failed: %s", cleanGhStderr(out))
 	}
@@ -326,7 +326,7 @@ func (c *Client) MergePR(_ context.Context, owner, repo string, number int, opts
 }
 
 // EditPR edits a pull request.
-func (c *Client) EditPR(_ context.Context, owner, repo string, number int, opts EditPROpts) (string, error) {
+func (c *Client) EditPR(ctx context.Context, owner, repo string, number int, opts EditPROpts) (string, error) {
 	args := []string{"pr", "edit", "-R", repoFlag(owner, repo)}
 	if opts.Title != "" {
 		args = append(args, "--title", opts.Title)
@@ -356,7 +356,7 @@ func (c *Client) EditPR(_ context.Context, owner, repo string, number int, opts 
 		args = append(args, "--remove-assignee", strings.Join(opts.RemoveAssignees, ","))
 	}
 	args = append(args, strconv.Itoa(number))
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh pr edit failed: %s", cleanGhStderr(out))
 	}
@@ -364,8 +364,8 @@ func (c *Client) EditPR(_ context.Context, owner, repo string, number int, opts 
 }
 
 // CheckPR retrieves status checks for a pull request.
-func (c *Client) CheckPR(_ context.Context, owner, repo string, number int) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "pr", "checks", "-R", repoFlag(owner, repo), "--json", prCheckFields, strconv.Itoa(number))
+func (c *Client) CheckPR(ctx context.Context, owner, repo string, number int) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "pr", "checks", "-R", repoFlag(owner, repo), "--json", prCheckFields, strconv.Itoa(number))
 	if err != nil {
 		return "", fmt.Errorf("gh pr checks failed: %s", cleanGhStderr(out))
 	}
@@ -373,13 +373,13 @@ func (c *Client) CheckPR(_ context.Context, owner, repo string, number int) (str
 }
 
 // ClosePR closes a pull request.
-func (c *Client) ClosePR(_ context.Context, owner, repo string, number int, comment string) (string, error) {
+func (c *Client) ClosePR(ctx context.Context, owner, repo string, number int, comment string) (string, error) {
 	args := []string{"pr", "close", "-R", repoFlag(owner, repo)}
 	if comment != "" {
 		args = append(args, "--comment", comment)
 	}
 	args = append(args, strconv.Itoa(number))
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh pr close failed: %s", cleanGhStderr(out))
 	}
@@ -387,8 +387,8 @@ func (c *Client) ClosePR(_ context.Context, owner, repo string, number int, comm
 }
 
 // ReadyPR marks a draft pull request as ready for review.
-func (c *Client) ReadyPR(_ context.Context, owner, repo string, number int) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "pr", "ready", strconv.Itoa(number), "-R", repoFlag(owner, repo))
+func (c *Client) ReadyPR(ctx context.Context, owner, repo string, number int) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "pr", "ready", strconv.Itoa(number), "-R", repoFlag(owner, repo))
 	if err != nil {
 		return "", fmt.Errorf("gh pr ready failed: %s", cleanGhStderr(out))
 	}
@@ -396,8 +396,8 @@ func (c *Client) ReadyPR(_ context.Context, owner, repo string, number int) (str
 }
 
 // DraftPR converts a pull request back to draft.
-func (c *Client) DraftPR(_ context.Context, owner, repo string, number int) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "pr", "ready", strconv.Itoa(number), "--undo", "-R", repoFlag(owner, repo))
+func (c *Client) DraftPR(ctx context.Context, owner, repo string, number int) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "pr", "ready", strconv.Itoa(number), "--undo", "-R", repoFlag(owner, repo))
 	if err != nil {
 		return "", fmt.Errorf("gh pr ready --undo failed: %s", cleanGhStderr(out))
 	}
@@ -405,8 +405,8 @@ func (c *Client) DraftPR(_ context.Context, owner, repo string, number int) (str
 }
 
 // ReopenPR reopens a closed pull request.
-func (c *Client) ReopenPR(_ context.Context, owner, repo string, number int) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "pr", "reopen", strconv.Itoa(number), "-R", repoFlag(owner, repo))
+func (c *Client) ReopenPR(ctx context.Context, owner, repo string, number int) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "pr", "reopen", strconv.Itoa(number), "-R", repoFlag(owner, repo))
 	if err != nil {
 		return "", fmt.Errorf("gh pr reopen failed: %s", cleanGhStderr(out))
 	}
@@ -487,8 +487,8 @@ type SearchCommitsOpts struct {
 }
 
 // ViewIssue retrieves details for an issue.
-func (c *Client) ViewIssue(_ context.Context, owner, repo string, number int) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "issue", "view", "-R", repoFlag(owner, repo), "--json", issueViewFields, strconv.Itoa(number))
+func (c *Client) ViewIssue(ctx context.Context, owner, repo string, number int) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "issue", "view", "-R", repoFlag(owner, repo), "--json", issueViewFields, strconv.Itoa(number))
 	if err != nil {
 		return "", fmt.Errorf("gh issue view failed: %s", cleanGhStderr(out))
 	}
@@ -497,7 +497,7 @@ func (c *Client) ViewIssue(_ context.Context, owner, repo string, number int) (s
 
 // ListIssues lists issues for a repository.
 // Requests limit+1 items so the caller can detect truncation.
-func (c *Client) ListIssues(_ context.Context, owner, repo string, opts ListIssuesOpts) (string, error) {
+func (c *Client) ListIssues(ctx context.Context, owner, repo string, opts ListIssuesOpts) (string, error) {
 	args := []string{"issue", "list", "-R", repoFlag(owner, repo), "--json", issueListFields, "--limit", strconv.Itoa(fetchLimit(opts.Limit))}
 	if opts.State != "" {
 		args = append(args, "--state", opts.State)
@@ -514,7 +514,7 @@ func (c *Client) ListIssues(_ context.Context, owner, repo string, opts ListIssu
 	if opts.Milestone != "" {
 		args = append(args, "--milestone", opts.Milestone)
 	}
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh issue list failed: %s", cleanGhStderr(out))
 	}
@@ -522,8 +522,8 @@ func (c *Client) ListIssues(_ context.Context, owner, repo string, opts ListIssu
 }
 
 // CommentIssue adds a comment to an issue.
-func (c *Client) CommentIssue(_ context.Context, owner, repo string, number int, body string) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "issue", "comment", "-R", repoFlag(owner, repo), "--body", body, strconv.Itoa(number))
+func (c *Client) CommentIssue(ctx context.Context, owner, repo string, number int, body string) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "issue", "comment", "-R", repoFlag(owner, repo), "--body", body, strconv.Itoa(number))
 	if err != nil {
 		return "", fmt.Errorf("gh issue comment failed: %s", cleanGhStderr(out))
 	}
@@ -532,8 +532,8 @@ func (c *Client) CommentIssue(_ context.Context, owner, repo string, number int,
 
 // PRComments retrieves comments on a pull request.
 // Requests limit+1 items via jq slice so the caller can detect truncation.
-func (c *Client) PRComments(_ context.Context, owner, repo string, number int, limit int) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "pr", "view", "-R", repoFlag(owner, repo),
+func (c *Client) PRComments(ctx context.Context, owner, repo string, number int, limit int) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "pr", "view", "-R", repoFlag(owner, repo),
 		"--json", "comments", "--jq",
 		fmt.Sprintf(".comments[:%d] | map({author,authorAssociation,body,createdAt,isMinimized,minimizedReason})", fetchLimit(limit)),
 		strconv.Itoa(number))
@@ -545,8 +545,8 @@ func (c *Client) PRComments(_ context.Context, owner, repo string, number int, l
 
 // PRReviews retrieves top-level review submissions on a pull request.
 // Requests limit+1 items via jq slice so the caller can detect truncation.
-func (c *Client) PRReviews(_ context.Context, owner, repo string, number int, limit int) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "pr", "view", "-R", repoFlag(owner, repo),
+func (c *Client) PRReviews(ctx context.Context, owner, repo string, number int, limit int) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "pr", "view", "-R", repoFlag(owner, repo),
 		"--json", "reviews", "--jq",
 		fmt.Sprintf(".reviews[:%d] | map({author,authorAssociation,body,state,submittedAt})", fetchLimit(limit)),
 		strconv.Itoa(number))
@@ -559,10 +559,10 @@ func (c *Client) PRReviews(_ context.Context, owner, repo string, number int, li
 // PRReviewComments retrieves inline review comments on a pull request.
 // Uses the REST API via `gh api` because `gh pr view --json` does not expose inline comments.
 // Requests limit+1 items (capped at 100) so the caller can detect truncation.
-func (c *Client) PRReviewComments(_ context.Context, owner, repo string, number int, limit int) (string, error) {
+func (c *Client) PRReviewComments(ctx context.Context, owner, repo string, number int, limit int) (string, error) {
 	endpoint := fmt.Sprintf("repos/%s/pulls/%d/comments?per_page=%d", repoFlag(owner, repo), number, fetchLimit(limit))
 	jq := "map({id, in_reply_to_id, pull_request_review_id, user: {login: .user.login, type: .user.type}, author_association, body, path, line, original_line, side, diff_hunk, created_at})"
-	out, err := c.runner.Run(context.Background(), "gh", "api", "--jq", jq, "--", endpoint)
+	out, err := c.runner.Run(ctx, "gh", "api", "--jq", jq, "--", endpoint)
 	if err != nil {
 		return "", fmt.Errorf("gh pr review comments failed: %s", cleanAPIError(out))
 	}
@@ -571,8 +571,8 @@ func (c *Client) PRReviewComments(_ context.Context, owner, repo string, number 
 
 // IssueComments retrieves comments on an issue.
 // Requests limit+1 items via jq slice so the caller can detect truncation.
-func (c *Client) IssueComments(_ context.Context, owner, repo string, number int, limit int) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "issue", "view", "-R", repoFlag(owner, repo),
+func (c *Client) IssueComments(ctx context.Context, owner, repo string, number int, limit int) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "issue", "view", "-R", repoFlag(owner, repo),
 		"--json", "comments", "--jq",
 		fmt.Sprintf(".comments[:%d] | map({author,authorAssociation,body,createdAt,isMinimized,minimizedReason})", fetchLimit(limit)),
 		strconv.Itoa(number))
@@ -584,7 +584,7 @@ func (c *Client) IssueComments(_ context.Context, owner, repo string, number int
 
 // ListRuns lists workflow runs for a repository.
 // Requests limit+1 items so the caller can detect truncation.
-func (c *Client) ListRuns(_ context.Context, owner, repo string, opts ListRunsOpts) (string, error) {
+func (c *Client) ListRuns(ctx context.Context, owner, repo string, opts ListRunsOpts) (string, error) {
 	args := []string{"run", "list", "-R", repoFlag(owner, repo), "--json", runListFields, "--limit", strconv.Itoa(fetchLimit(opts.Limit))}
 	if opts.Branch != "" {
 		args = append(args, "--branch", opts.Branch)
@@ -601,7 +601,7 @@ func (c *Client) ListRuns(_ context.Context, owner, repo string, opts ListRunsOp
 	if opts.Event != "" {
 		args = append(args, "--event", opts.Event)
 	}
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh run list failed: %s", cleanGhStderr(out))
 	}
@@ -631,7 +631,7 @@ func (c *Client) ViewRun(ctx context.Context, owner, repo string, runID string, 
 	} else {
 		args = []string{"run", "view", "-R", repoFlag(owner, repo), "--json", runViewFields, "--", runID}
 	}
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh run view failed: %s", cleanGhStderr(out))
 	}
@@ -649,8 +649,8 @@ func (c *Client) ViewRun(ctx context.Context, owner, repo string, runID string, 
 // burns the byte cap with noise. We collapse those occurrences via
 // normalizeRunLog. We also strip a leading UTF-8 BOM that gh sometimes emits
 // on the first line.
-func (c *Client) ViewRunJobLog(_ context.Context, owner, repo string, jobID int64, tailLines int) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "run", "view", "--job", strconv.FormatInt(jobID, 10), "--log", "-R", repoFlag(owner, repo))
+func (c *Client) ViewRunJobLog(ctx context.Context, owner, repo string, jobID int64, tailLines int) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "run", "view", "--job", strconv.FormatInt(jobID, 10), "--log", "-R", repoFlag(owner, repo))
 	if err != nil {
 		return "", fmt.Errorf("gh run view --job failed: %s", cleanGhStderr(out))
 	}
@@ -663,13 +663,13 @@ func (c *Client) ViewRunJobLog(_ context.Context, owner, repo string, jobID int6
 }
 
 // Rerun re-runs a workflow run.
-func (c *Client) Rerun(_ context.Context, owner, repo string, runID string, failedOnly bool) (string, error) {
+func (c *Client) Rerun(ctx context.Context, owner, repo string, runID string, failedOnly bool) (string, error) {
 	args := []string{"run", "rerun", "-R", repoFlag(owner, repo)}
 	if failedOnly {
 		args = append(args, "--failed")
 	}
 	args = append(args, "--", runID)
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh run rerun failed: %s", cleanGhStderr(out))
 	}
@@ -678,7 +678,7 @@ func (c *Client) Rerun(_ context.Context, owner, repo string, runID string, fail
 
 // CancelRun cancels a workflow run.
 func (c *Client) CancelRun(ctx context.Context, owner, repo string, runID string) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "run", "cancel", "-R", repoFlag(owner, repo), "--", runID)
+	out, err := c.runner.Run(ctx, "gh", "run", "cancel", "-R", repoFlag(owner, repo), "--", runID)
 	if err != nil {
 		return "", fmt.Errorf("gh run cancel failed: %s", cleanGhStderr(out))
 	}
@@ -687,7 +687,7 @@ func (c *Client) CancelRun(ctx context.Context, owner, repo string, runID string
 
 // ListCaches lists caches for a repository.
 // Requests limit+1 items so the caller can detect truncation.
-func (c *Client) ListCaches(_ context.Context, owner, repo string, opts ListCachesOpts) (string, error) {
+func (c *Client) ListCaches(ctx context.Context, owner, repo string, opts ListCachesOpts) (string, error) {
 	args := []string{"cache", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(fetchLimit(opts.Limit)), "--json", cacheListFields}
 	if opts.Sort != "" {
 		args = append(args, "--sort", opts.Sort)
@@ -695,7 +695,7 @@ func (c *Client) ListCaches(_ context.Context, owner, repo string, opts ListCach
 	if opts.Order != "" {
 		args = append(args, "--order", opts.Order)
 	}
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh cache list failed: %s", cleanGhStderr(out))
 	}
@@ -703,8 +703,8 @@ func (c *Client) ListCaches(_ context.Context, owner, repo string, opts ListCach
 }
 
 // DeleteCache deletes a cache from a repository.
-func (c *Client) DeleteCache(_ context.Context, owner, repo string, cacheID string) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "cache", "delete", "-R", repoFlag(owner, repo), "--", cacheID)
+func (c *Client) DeleteCache(ctx context.Context, owner, repo string, cacheID string) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "cache", "delete", "-R", repoFlag(owner, repo), "--", cacheID)
 	if err != nil {
 		return "", fmt.Errorf("gh cache delete failed: %s", cleanGhStderr(out))
 	}
@@ -713,8 +713,8 @@ func (c *Client) DeleteCache(_ context.Context, owner, repo string, cacheID stri
 
 // ListPRFiles lists files changed by a pull request.
 // Requests one extra item (up to 100) so callers can detect truncation.
-func (c *Client) ListPRFiles(_ context.Context, owner, repo string, number, limit int) (string, error) {
-	out, err := c.runner.Run(context.Background(), "gh", "api",
+func (c *Client) ListPRFiles(ctx context.Context, owner, repo string, number, limit int) (string, error) {
+	out, err := c.runner.Run(ctx, "gh", "api",
 		fmt.Sprintf("repos/%s/%s/pulls/%s/files?per_page=%s", owner, repo, strconv.Itoa(number), strconv.Itoa(fetchLimit(limit))),
 	)
 	if err != nil {
@@ -726,11 +726,11 @@ func (c *Client) ListPRFiles(_ context.Context, owner, repo string, number, limi
 // ListBranches lists branches in a repository.
 // Requests one extra item (up to 100) so callers can detect truncation.
 // page is 1-indexed; values < 1 are treated as 1.
-func (c *Client) ListBranches(_ context.Context, owner, repo string, limit, page int) (string, error) {
+func (c *Client) ListBranches(ctx context.Context, owner, repo string, limit, page int) (string, error) {
 	if page < 1 {
 		page = 1
 	}
-	out, err := c.runner.Run(context.Background(), "gh", "api",
+	out, err := c.runner.Run(ctx, "gh", "api",
 		fmt.Sprintf("repos/%s/%s/branches?per_page=%s&page=%s", owner, repo, strconv.Itoa(fetchLimit(limit)), strconv.Itoa(page)),
 	)
 	if err != nil {
@@ -740,7 +740,7 @@ func (c *Client) ListBranches(_ context.Context, owner, repo string, limit, page
 }
 
 // SearchPRs searches for pull requests.
-func (c *Client) SearchPRs(_ context.Context, query string, opts SearchPRsOpts) (string, error) {
+func (c *Client) SearchPRs(ctx context.Context, query string, opts SearchPRsOpts) (string, error) {
 	args := []string{"search", "prs", "--json", searchPRFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
 	if opts.Repo != "" {
 		args = append(args, "--repo", opts.Repo)
@@ -770,7 +770,7 @@ func (c *Client) SearchPRs(_ context.Context, query string, opts SearchPRsOpts) 
 	}
 	args = append(args, "--")
 	args = append(args, tokens...)
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh search prs failed: %s", cleanGhError(out))
 	}
@@ -778,7 +778,7 @@ func (c *Client) SearchPRs(_ context.Context, query string, opts SearchPRsOpts) 
 }
 
 // SearchIssues searches for issues.
-func (c *Client) SearchIssues(_ context.Context, query string, opts SearchIssuesOpts) (string, error) {
+func (c *Client) SearchIssues(ctx context.Context, query string, opts SearchIssuesOpts) (string, error) {
 	args := []string{"search", "issues", "--json", searchIssueFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
 	if opts.Repo != "" {
 		args = append(args, "--repo", opts.Repo)
@@ -806,7 +806,7 @@ func (c *Client) SearchIssues(_ context.Context, query string, opts SearchIssues
 	}
 	args = append(args, "--")
 	args = append(args, tokens...)
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh search issues failed: %s", cleanGhError(out))
 	}
@@ -814,7 +814,7 @@ func (c *Client) SearchIssues(_ context.Context, query string, opts SearchIssues
 }
 
 // SearchRepos searches for repositories.
-func (c *Client) SearchRepos(_ context.Context, query string, opts SearchReposOpts) (string, error) {
+func (c *Client) SearchRepos(ctx context.Context, query string, opts SearchReposOpts) (string, error) {
 	args := []string{"search", "repos", "--json", searchRepoFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
 	if opts.Owner != "" {
 		args = append(args, "--owner", opts.Owner)
@@ -834,7 +834,7 @@ func (c *Client) SearchRepos(_ context.Context, query string, opts SearchReposOp
 	}
 	args = append(args, "--")
 	args = append(args, tokens...)
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh search repos failed: %s", cleanGhError(out))
 	}
@@ -842,7 +842,7 @@ func (c *Client) SearchRepos(_ context.Context, query string, opts SearchReposOp
 }
 
 // SearchCode searches for code.
-func (c *Client) SearchCode(_ context.Context, query string, opts SearchCodeOpts) (string, error) {
+func (c *Client) SearchCode(ctx context.Context, query string, opts SearchCodeOpts) (string, error) {
 	args := []string{"search", "code", "--json", searchCodeFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
 	if opts.Repo != "" {
 		args = append(args, "--repo", opts.Repo)
@@ -865,7 +865,7 @@ func (c *Client) SearchCode(_ context.Context, query string, opts SearchCodeOpts
 	}
 	args = append(args, "--")
 	args = append(args, tokens...)
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh search code failed: %s", cleanGhError(out))
 	}
@@ -878,9 +878,9 @@ func (c *Client) SearchCode(_ context.Context, query string, opts SearchCodeOpts
 // `gh release list --json` does not support an `author` field (only `gh release
 // view --json` does); requesting it makes gh exit non-zero with
 // `Unknown JSON field: "author"`. Per-release author is only available via view.
-func (c *Client) ListReleases(_ context.Context, owner, repo string, limit int) (string, error) {
+func (c *Client) ListReleases(ctx context.Context, owner, repo string, limit int) (string, error) {
 	args := []string{"release", "list", "-R", repoFlag(owner, repo), "--limit", strconv.Itoa(fetchLimit(limit)), "--json", "tagName,name,publishedAt,isDraft,isPrerelease"}
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh release list failed: %s", cleanGhStderr(out))
 	}
@@ -889,12 +889,12 @@ func (c *Client) ListReleases(_ context.Context, owner, repo string, limit int) 
 
 // ViewRelease retrieves details for a single release. When tag is empty, gh
 // returns the latest release.
-func (c *Client) ViewRelease(_ context.Context, owner, repo, tag string) (string, error) {
+func (c *Client) ViewRelease(ctx context.Context, owner, repo, tag string) (string, error) {
 	args := []string{"release", "view", "-R", repoFlag(owner, repo), "--json", "tagName,name,author,publishedAt,body,isDraft,isPrerelease,assets"}
 	if tag != "" {
 		args = append(args, "--", tag)
 	}
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh release view failed: %s", cleanGhStderr(out))
 	}
@@ -902,7 +902,7 @@ func (c *Client) ViewRelease(_ context.Context, owner, repo, tag string) (string
 }
 
 // SearchCommits searches for commits.
-func (c *Client) SearchCommits(_ context.Context, query string, opts SearchCommitsOpts) (string, error) {
+func (c *Client) SearchCommits(ctx context.Context, query string, opts SearchCommitsOpts) (string, error) {
 	args := []string{"search", "commits", "--json", searchCommitFields, "--limit", strconv.Itoa(clampLimit(opts.Limit))}
 	if opts.Repo != "" {
 		args = append(args, "--repo", opts.Repo)
@@ -919,7 +919,7 @@ func (c *Client) SearchCommits(_ context.Context, query string, opts SearchCommi
 	}
 	args = append(args, "--")
 	args = append(args, tokens...)
-	out, err := c.runner.Run(context.Background(), "gh", args...)
+	out, err := c.runner.Run(ctx, "gh", args...)
 	if err != nil {
 		return "", fmt.Errorf("gh search commits failed: %s", cleanGhError(out))
 	}

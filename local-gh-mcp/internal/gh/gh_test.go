@@ -54,6 +54,26 @@ func TestAuthStatus_Failure(t *testing.T) {
 	assert.ErrorContains(t, err, "gh auth status failed")
 }
 
+func TestAuthStatus_UsesCallerContext(t *testing.T) {
+	type ctxKey string
+	ctx := context.WithValue(context.Background(), ctxKey("request"), "caller")
+	c := NewClient(contextCheckingRunner{t: t, key: ctxKey("request")})
+
+	err := c.AuthStatus(ctx)
+
+	require.NoError(t, err)
+}
+
+type contextCheckingRunner struct {
+	t   *testing.T
+	key any
+}
+
+func (r contextCheckingRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	require.Equal(r.t, "caller", ctx.Value(r.key))
+	return []byte("Logged in to github.com"), nil
+}
+
 func TestValidateOwnerRepo_Valid(t *testing.T) {
 	assert.NoError(t, ValidateOwnerRepo("octocat", "hello-world"))
 	assert.NoError(t, ValidateOwnerRepo("my.org", "repo_name"))

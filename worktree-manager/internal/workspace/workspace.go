@@ -124,8 +124,10 @@ func (s *Service) AddHeadlessWithOwnership(repoRoot, branch string) (string, boo
 
 	worktreeDir := config.WorktreeDir(info.Name, branch)
 	created := false
+	needsSetup := false
 	if _, err := os.Stat(worktreeDir); os.IsNotExist(err) {
 		created = true
+		needsSetup = true
 		s.logger.Info("creating worktree", "path", worktreeDir)
 		if err := os.MkdirAll(filepath.Dir(worktreeDir), 0o755); err != nil { //nolint:gosec // 0755 is appropriate for worktree directories
 			return "", false, fmt.Errorf("could not create worktree directory: %w", err)
@@ -137,13 +139,17 @@ func (s *Service) AddHeadlessWithOwnership(repoRoot, branch string) (string, boo
 			created = false
 			s.logger.Debug("worktree appeared after add failure, treating as recoverable", "path", worktreeDir, "error", err)
 		}
+	} else {
+		s.logger.Debug("worktree already exists", "path", worktreeDir)
+	}
 
-		unlock, err := acquireSetupLock(worktreeDir)
-		if err != nil {
-			return "", false, err
-		}
-		defer unlock()
+	unlock, err := acquireSetupLock(worktreeDir)
+	if err != nil {
+		return "", false, err
+	}
+	defer unlock()
 
+	if needsSetup {
 		for _, relPath := range s.config.CopyFiles {
 			if err := s.copyFile(info.Root, worktreeDir, relPath); err != nil {
 				return "", false, err
@@ -153,16 +159,16 @@ func (s *Service) AddHeadlessWithOwnership(repoRoot, branch string) (string, boo
 		if err := s.runSetupScripts(worktreeDir); err != nil {
 			return "", false, err
 		}
-	} else {
-		s.logger.Debug("worktree already exists", "path", worktreeDir)
 	}
 
 	return worktreeDir, created, nil
 }
 
+var setupLockTimeout = 30 * time.Second
+
 func acquireSetupLock(worktreeDir string) (func(), error) {
 	lockPath := filepath.Join(filepath.Dir(worktreeDir), filepath.Base(worktreeDir)+".setup.lock")
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(setupLockTimeout)
 	for {
 		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) //nolint:gosec // lock path is derived from the managed worktree directory
 		if err == nil {

@@ -6,7 +6,6 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -18,11 +17,10 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/broker"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 )
-
-var ErrApprovalQueueFull = errors.New("approval queue full")
 
 type pendingRequest struct {
 	ID        string         `json:"id"`
@@ -123,7 +121,7 @@ func (d *Dashboard) Review(ctx context.Context, tool string, args map[string]any
 	d.mu.Lock()
 	if d.maxPending > 0 && len(d.pending) >= d.maxPending {
 		d.mu.Unlock()
-		return false, "", ErrApprovalQueueFull
+		return false, "", broker.ErrApprovalQueueFull
 	}
 	d.pending[id] = pr
 	d.mu.Unlock()

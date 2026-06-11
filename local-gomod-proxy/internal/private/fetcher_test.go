@@ -71,6 +71,27 @@ func TestFetcher_Info_RejectsPathOutsideGoModCache(t *testing.T) {
 	assert.Empty(t, w.Body.String())
 }
 
+func TestFetcher_Info_RejectsSymlinkEscapeFromGoModCache(t *testing.T) {
+	cache := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "v1.2.3.info")
+	require.NoError(t, os.WriteFile(outside, []byte(`{"Version":"v1.2.3"}`), 0o600))
+	link := filepath.Join(cache, "link.info")
+	require.NoError(t, os.Symlink(outside, link))
+
+	runner := &stubRunner{
+		out: []byte(`{"Info":"` + link + `","GoMod":"/x","Zip":"/y","Version":"v1.2.3"}`),
+	}
+	f := New(runner, cache)
+
+	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
+	w := httptest.NewRecorder()
+	err := f.Serve(w, httptest.NewRequest(http.MethodGet, "/", nil), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "outside GOMODCACHE")
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, w.Body.String())
+}
+
 type blockingRunner struct{}
 
 func (blockingRunner) Run(ctx context.Context, _ string, _ ...string) ([]byte, error) {

@@ -37,9 +37,12 @@ func TestFormatAuthor_ExplicitNotBotBeatsSuffixHeuristic(t *testing.T) {
 }
 
 func TestFormatAuthor_BotSuffix_IsBot_True(t *testing.T) {
-	// Both flags agree — should not double the suffix.
-	got := FormatAuthor(Author{Login: "github-actions[bot]", IsBot: true})
-	assert.Equal(t, "@github-actions [bot]", got)
+	// Explicit is_bot wins; suffix stripping only applies when the field is absent.
+	var author Author
+	assert.NoError(t, json.Unmarshal([]byte(`{"login":"github-actions[bot]","is_bot":true}`), &author))
+
+	got := FormatAuthor(author)
+	assert.Equal(t, "@github-actions[bot] [bot]", got)
 }
 
 func TestFormatAuthor_BotSuffixOnly(t *testing.T) {

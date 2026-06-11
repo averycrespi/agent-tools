@@ -72,3 +72,15 @@ func TestMultiApprover_ContextCancelledApproverSkipped(t *testing.T) {
 	require.True(t, approved)
 	require.Empty(t, reason)
 }
+
+func TestMultiApprover_CapacityErrorIsTerminal(t *testing.T) {
+	full := &stubApprover{err: ErrApprovalQueueFull, delay: 0}
+	slow := &stubApprover{approved: true, delay: time.Second}
+
+	m := NewMultiApprover(30*time.Second, full, slow)
+	approved, reason, err := m.Review(context.Background(), "tool", nil)
+
+	require.ErrorIs(t, err, ErrApprovalQueueFull)
+	require.False(t, approved)
+	require.Empty(t, reason)
+}

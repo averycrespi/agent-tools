@@ -18,6 +18,7 @@ import (
 var (
 	noCache       bool
 	brokerTimeout time.Duration
+	callTimeout   time.Duration
 )
 
 var rootCmd = &cobra.Command{
@@ -34,7 +35,8 @@ Environment:
 
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&noCache, "no-cache", false, "Bypass tool discovery cache")
-	rootCmd.PersistentFlags().DurationVar(&brokerTimeout, "timeout", 15*time.Second, "Broker HTTP timeout")
+	rootCmd.PersistentFlags().DurationVar(&brokerTimeout, "timeout", 15*time.Second, "Broker HTTP timeout for discovery")
+	rootCmd.PersistentFlags().DurationVar(&callTimeout, "call-timeout", 0, "Broker HTTP timeout for tool calls (0 disables client timeout)")
 }
 
 func buildTree() error {
@@ -86,7 +88,7 @@ func buildTree() error {
 
 func callTool(endpoint, token, toolName string, args map[string]any) error {
 	ctx := context.Background()
-	c, err := client.NewWithTimeout(ctx, endpoint+"/mcp", token, brokerTimeout)
+	c, err := client.NewWithTimeout(ctx, endpoint+"/mcp", token, callTimeout)
 	if err != nil {
 		return fmt.Errorf("connect to broker: %w", err)
 	}

@@ -44,3 +44,17 @@ func TestLimitRequestBodyCanBeDisabled(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 }
+
+func TestLimitRequestBodyRejectsOversizedBodyWhenHandlerDoesNotHandleReadError(t *testing.T) {
+	h := limitRequestBody(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}), 4)
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader("12345"))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+	require.Contains(t, w.Body.String(), "request body too large")
+}

@@ -13,7 +13,10 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 )
 
-var ErrDenied = errors.New("denied by policy")
+var (
+	ErrDenied            = errors.New("denied by policy")
+	ErrApprovalQueueFull = errors.New("approval queue full")
+)
 
 // ServerManager proxies tool calls to backend MCP servers.
 type ServerManager interface {

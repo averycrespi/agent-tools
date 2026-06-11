@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -46,6 +47,10 @@ func (m *MultiApprover) Review(ctx context.Context, tool string, args map[string
 			if r.err == nil {
 				cancel()
 				return r.approved, r.denialReason, nil
+			}
+			if errors.Is(r.err, ErrApprovalQueueFull) {
+				cancel()
+				return false, "", r.err
 			}
 			// approver was cancelled or errored — try the next one
 		case <-ctx.Done():

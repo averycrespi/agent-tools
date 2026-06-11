@@ -166,7 +166,22 @@ func validateCachePath(gomodcache, path string) error {
 	if err != nil {
 		return fmt.Errorf("resolving module artifact path: %w", err)
 	}
-	rel, err := filepath.Rel(cacheAbs, pathAbs)
+	if err := requirePathUnderCache(cacheAbs, pathAbs, gomodcache, path); err != nil {
+		return err
+	}
+	cacheReal, err := filepath.EvalSymlinks(cacheAbs)
+	if err != nil {
+		return fmt.Errorf("resolving GOMODCACHE symlinks: %w", err)
+	}
+	pathReal, err := filepath.EvalSymlinks(pathAbs)
+	if err != nil {
+		return fmt.Errorf("resolving module artifact path symlinks: %w", err)
+	}
+	return requirePathUnderCache(cacheReal, pathReal, gomodcache, path)
+}
+
+func requirePathUnderCache(cachePath, artifactPath, gomodcache, path string) error {
+	rel, err := filepath.Rel(cachePath, artifactPath)
 	if err != nil {
 		return fmt.Errorf("checking module artifact path: %w", err)
 	}

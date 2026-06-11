@@ -200,6 +200,29 @@ func TestService_AddHeadless_RecoversWhenConcurrentAddCreatedWorktree(t *testing
 	require.DirExists(t, path)
 }
 
+func TestService_AddHeadless_WaitsForSetupLockWhenWorktreeAlreadyExists(t *testing.T) {
+	repoDir := t.TempDir()
+	dataDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataDir)
+	oldTimeout := setupLockTimeout
+	setupLockTimeout = 20
+	t.Cleanup(func() { setupLockTimeout = oldTimeout })
+
+	worktreeDir := filepath.Join(dataDir, "wt", "worktrees", "myrepo", "myrepo-feat")
+	require.NoError(t, os.MkdirAll(worktreeDir, 0o755))
+	require.NoError(t, os.WriteFile(worktreeDir+".setup.lock", []byte("locked"), 0o600))
+
+	g := new(mockGitClient)
+	g.On("RepoInfo", repoDir).Return(git.Info{Name: "myrepo", Root: repoDir}, nil)
+
+	svc := NewService(g, new(mockTmuxClient), config.Default(), nopLogger, nil)
+	_, err := svc.AddHeadless(repoDir, "feat")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timed out waiting for setup lock")
+	g.AssertNotCalled(t, "AddWorktree", mock.Anything, mock.Anything, mock.Anything)
+}
+
 func TestService_AddHeadless_CreatesWorktreeWithoutTmux(t *testing.T) {
 	g := new(mockGitClient)
 	g.On("RepoInfo", "/repo").Return(git.Info{Name: "myrepo", Root: "/repo"}, nil)
