@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"text/tabwriter"
 	"time"
 
 	pdconfig "github.com/averycrespi/agent-tools/pi-dispatcher/internal/config"
@@ -38,7 +39,14 @@ func showLogs(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if follow {
-		if _, err := fmt.Fprintf(os.Stdout, "Task %s [%s]\nLogs: %s\nRaw Pi events: %s\n", task.ID, task.Status, run.StdoutLogPath, run.PiEventsPath); err != nil {
+		if _, err := fmt.Fprintf(os.Stdout, "Task %s [%s]\n", task.ID, task.Status); err != nil {
+			return err
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		if _, err := fmt.Fprintf(tw, "Logs:\t%s\nRaw Pi events:\t%s\n", run.StdoutLogPath, run.PiEventsPath); err != nil {
+			return err
+		}
+		if err := tw.Flush(); err != nil {
 			return err
 		}
 	}

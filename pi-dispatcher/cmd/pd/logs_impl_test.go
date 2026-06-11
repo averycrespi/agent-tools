@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
@@ -400,8 +401,8 @@ func TestShowLogsFollowPrintsMonitorHeaderAndReconcilesStaleTask(t *testing.T) {
 	})
 
 	require.Contains(t, out, "Task pd-test [unknown]")
-	require.Contains(t, out, "Logs: "+run.StdoutLogPath)
-	require.Contains(t, out, "Raw Pi events: "+run.PiEventsPath)
+	require.Regexp(t, `Logs:\s+`+regexp.QuoteMeta(run.StdoutLogPath), out)
+	require.Regexp(t, `Raw Pi events:\s+`+regexp.QuoteMeta(run.PiEventsPath), out)
 	require.Contains(t, out, "old stdout\n")
 	require.Contains(t, out, "old stderr\n")
 }
