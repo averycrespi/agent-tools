@@ -12,9 +12,10 @@ import (
 func (h *Handler) contextTools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
-			Name:        "gh_whoami",
-			Description: "Show the authenticated GitHub user (login, display name, profile URL). Useful for grounding `author:@me` or `review-requested:@me` search queries.",
-			Annotations: annRead,
+			Name:         "gh_whoami",
+			Description:  "Show the authenticated GitHub user (login, display name, profile URL). Useful for grounding `author:@me` or `review-requested:@me` search queries.",
+			Annotations:  annRead,
+			OutputSchema: whoamiOutputSchema(),
 			InputSchema: gomcp.ToolInputSchema{
 				Type:       "object",
 				Properties: map[string]any{},
@@ -50,5 +51,30 @@ func (h *Handler) handleWhoami(ctx context.Context, _ gomcp.CallToolRequest) (*g
 	}
 	b.WriteString("\n")
 	b.WriteString(u.HTMLURL)
-	return gomcp.NewToolResultText(b.String()), nil
+	result := gomcp.NewToolResultText(b.String())
+	structured := map[string]any{
+		"login":    u.Login,
+		"html_url": u.HTMLURL,
+		"is_bot":   u.Type == "Bot",
+		"type":     u.Type,
+	}
+	if u.Name != nil {
+		structured["name"] = *u.Name
+	}
+	result.StructuredContent = structured
+	return result, nil
+}
+
+func whoamiOutputSchema() gomcp.ToolOutputSchema {
+	return gomcp.ToolOutputSchema{
+		Type: "object",
+		Properties: map[string]any{
+			"login":    map[string]any{"type": "string"},
+			"name":     map[string]any{"type": "string"},
+			"html_url": map[string]any{"type": "string"},
+			"type":     map[string]any{"type": "string"},
+			"is_bot":   map[string]any{"type": "boolean"},
+		},
+		Required: []string{"login", "html_url", "type", "is_bot"},
+	}
 }

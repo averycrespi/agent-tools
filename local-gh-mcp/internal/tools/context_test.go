@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	gomcp "github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -14,6 +16,18 @@ func textOf(res *gomcp.CallToolResult) string {
 		return ""
 	}
 	return res.Content[0].(gomcp.TextContent).Text
+}
+
+func TestGhWhoamiHasOutputSchema(t *testing.T) {
+	h := NewHandler(&mockGHClient{})
+	var whoami gomcp.Tool
+	for _, tool := range h.Tools() {
+		if tool.Name == "gh_whoami" {
+			whoami = tool
+		}
+	}
+	require.Equal(t, "object", whoami.OutputSchema.Type)
+	require.Contains(t, whoami.OutputSchema.Properties, "login")
 }
 
 func TestGhWhoami(t *testing.T) {
@@ -39,6 +53,12 @@ func TestGhWhoami(t *testing.T) {
 	if !strings.Contains(out, "https://github.com/octocat") {
 		t.Errorf("missing html_url, got: %s", out)
 	}
+	structured, ok := res.StructuredContent.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "octocat", structured["login"])
+	require.Equal(t, "The Octocat", structured["name"])
+	require.Equal(t, "https://github.com/octocat", structured["html_url"])
+	require.Equal(t, false, structured["is_bot"])
 }
 
 func TestGhWhoamiBot(t *testing.T) {

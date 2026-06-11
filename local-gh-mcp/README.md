@@ -109,7 +109,7 @@ Search tools accept the [GitHub search DSL](https://docs.github.com/en/search-gi
 
 All tools targeting a specific repository use `owner` and `repo` parameters (mapped to `gh -R owner/repo`). Search tools use a `query` parameter instead, since they operate across repositories. List/search tools accept an optional `limit` (default 30, max 100). View and comment tools accept an optional `max_body_length` (default 2000, max 50000) to truncate text bodies. `gh_diff_pr` accepts `max_bytes` (default 50000, max 500000) to cap the diff body, and `gh_view_run` (with `log_failed=true`) and `gh_view_run_job_logs` accept `tail_lines` (default 200, max 5000) plus `max_bytes` (default 50000, max 500000) to cap log output.
 
-All read tools return **structured markdown** (not raw JSON) — author objects are flattened to `@login`, long bodies are truncated, and output is formatted with headers and labeled fields for easy LLM consumption. Write tools return plain text confirmations.
+All read tools return **structured markdown** (not raw JSON) — author objects are flattened to `@login`, long bodies are truncated, and output is formatted with headers and labeled fields for easy LLM consumption. Where a compact object is natural, read tools also include MCP `structuredContent` and `outputSchema` while preserving text fallback (for example, `gh_whoami`). Write tools return plain text confirmations.
 
 ## Quick start
 
