@@ -1,6 +1,8 @@
 package cache_test
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -44,4 +46,26 @@ func TestCache_differentKeys(t *testing.T) {
 	require.NoError(t, c.Set("http://localhost:8200", tools()))
 	_, ok := c.Get("http://localhost:9999")
 	assert.False(t, ok)
+}
+
+func TestCache_concurrentSetLeavesReadableCache(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	c := cache.New(30 * time.Second)
+	endpoint := "http://localhost:8200"
+
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			items := []client.Tool{{Name: fmt.Sprintf("tool.%d", i), InputSchema: map[string]any{}}}
+			require.NoError(t, c.Set(endpoint, items))
+		}(i)
+	}
+	wg.Wait()
+
+	got, ok := c.Get(endpoint)
+	require.True(t, ok)
+	require.Len(t, got, 1)
+	assert.NotEmpty(t, got[0].Name)
 }

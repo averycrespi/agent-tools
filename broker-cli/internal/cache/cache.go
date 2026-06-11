@@ -49,8 +49,33 @@ func (c *Cache) Set(endpoint string, tools []client.Tool) error {
 	if err != nil {
 		return fmt.Errorf("marshal cache: %w", err)
 	}
-	if err := os.WriteFile(c.path(endpoint), data, 0o600); err != nil {
-		return fmt.Errorf("write cache: %w", err)
+	path := c.path(endpoint)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create cache directory: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+"-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create cache temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write cache temp file: %w", err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod cache temp file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sync cache temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close cache temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("rename cache temp file: %w", err)
 	}
 	return nil
 }
