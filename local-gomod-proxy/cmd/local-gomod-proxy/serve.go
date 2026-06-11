@@ -107,7 +107,7 @@ var serveCmd = &cobra.Command{
 		handler := auth.Middleware(
 			server.New(
 				router.New(private_),
-				private.New(runner),
+				private.New(runner, env.GOMODCACHE),
 				public.New(upstream),
 				maxConcurrentPrivate,
 			),

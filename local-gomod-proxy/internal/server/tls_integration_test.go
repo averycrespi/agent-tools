@@ -40,7 +40,7 @@ func TestIntegration_TLSAndAuth(t *testing.T) {
 	handler := auth.Middleware(
 		New(
 			router.New("github.com/never-match/*"),
-			private.New(&stubRunner{}),
+			private.New(&stubRunner{}, t.TempDir()),
 			public.New(u),
 			8,
 		),

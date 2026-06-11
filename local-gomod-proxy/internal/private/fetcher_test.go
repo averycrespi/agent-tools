@@ -37,7 +37,7 @@ func TestFetcher_Info_StreamsFile(t *testing.T) {
 	runner := &stubRunner{
 		out: []byte(`{"Info":"` + infoPath + `","GoMod":"/x","Zip":"/y","Version":"v1.2.3"}`),
 	}
-	f := New(runner)
+	f := New(runner, tmp)
 
 	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
 	w := httptest.NewRecorder()
@@ -50,11 +50,30 @@ func TestFetcher_Info_StreamsFile(t *testing.T) {
 	assert.Equal(t, []string{"mod", "download", "-json", "github.com/foo/bar@v1.2.3"}, runner.got.args)
 }
 
+func TestFetcher_Info_RejectsPathOutsideGoModCache(t *testing.T) {
+	cache := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "v1.2.3.info")
+	require.NoError(t, os.WriteFile(outside, []byte(`{"Version":"v1.2.3"}`), 0o600))
+
+	runner := &stubRunner{
+		out: []byte(`{"Info":"` + outside + `","GoMod":"/x","Zip":"/y","Version":"v1.2.3"}`),
+	}
+	f := New(runner, cache)
+
+	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
+	w := httptest.NewRecorder()
+	err := f.Serve(w, httptest.NewRequest(http.MethodGet, "/", nil), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "outside GOMODCACHE")
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, w.Body.String())
+}
+
 func TestFetcher_List_ReturnsPlaintext(t *testing.T) {
 	runner := &stubRunner{
 		out: []byte(`{"Path":"github.com/foo/bar","Versions":["v1.0.0","v1.1.0"]}`),
 	}
-	f := New(runner)
+	f := New(runner, t.TempDir())
 
 	req := Request{Module: "github.com/foo/bar", Artifact: ArtifactList}
 	w := httptest.NewRecorder()
@@ -69,7 +88,7 @@ func TestFetcher_Latest_ReturnsInfoJSON(t *testing.T) {
 	runner := &stubRunner{
 		out: []byte(`{"Path":"github.com/foo/bar","Version":"v1.1.0","Time":"2024-01-01T00:00:00Z"}`),
 	}
-	f := New(runner)
+	f := New(runner, t.TempDir())
 
 	req := Request{Module: "github.com/foo/bar", Artifact: ArtifactLatest}
 	w := httptest.NewRecorder()
@@ -81,7 +100,7 @@ func TestFetcher_Latest_ReturnsInfoJSON(t *testing.T) {
 
 func TestFetcher_PropagatesToolError(t *testing.T) {
 	runner := &stubRunner{err: assertErr{}, out: []byte("go: no such module")}
-	f := New(runner)
+	f := New(runner, t.TempDir())
 
 	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
 	w := httptest.NewRecorder()
@@ -94,7 +113,7 @@ func TestFetcher_Info_FileMissing(t *testing.T) {
 	runner := &stubRunner{
 		out: []byte(`{"Info":"/nonexistent/path/v1.2.3.info","GoMod":"/x","Zip":"/y","Version":"v1.2.3"}`),
 	}
-	f := New(runner)
+	f := New(runner, t.TempDir())
 
 	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
 	w := httptest.NewRecorder()
@@ -107,7 +126,7 @@ func TestFetcher_ReportsDownloadError(t *testing.T) {
 	runner := &stubRunner{
 		out: []byte(`{"Error":"go: no such module"}`),
 	}
-	f := New(runner)
+	f := New(runner, t.TempDir())
 
 	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
 	w := httptest.NewRecorder()
@@ -119,7 +138,7 @@ func TestFetcher_ReportsDownloadError(t *testing.T) {
 func TestFetcher_Info_MalformedJSON(t *testing.T) {
 	// Runner exits cleanly but returns invalid JSON.
 	runner := &stubRunner{out: []byte("not-json")}
-	f := New(runner)
+	f := New(runner, t.TempDir())
 
 	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
 	w := httptest.NewRecorder()
@@ -133,7 +152,7 @@ func TestFetcher_Info_NotFound_ReportedError(t *testing.T) {
 	runner := &stubRunner{
 		out: []byte(`{"Error":"github.com/foo/bar@v99.99.99: invalid version: unknown revision v99.99.99"}`),
 	}
-	f := New(runner)
+	f := New(runner, t.TempDir())
 
 	req := Request{Module: "github.com/foo/bar", Version: "v99.99.99", Artifact: ArtifactInfo}
 	w := httptest.NewRecorder()
@@ -148,7 +167,7 @@ func TestFetcher_Info_NotFound_CommandFailed(t *testing.T) {
 		err: assertErr{},
 		out: []byte(`{"Error":"reading https://proxy.golang.org/...: 404 Not Found"}`),
 	}
-	f := New(runner)
+	f := New(runner, t.TempDir())
 
 	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
 	w := httptest.NewRecorder()
@@ -163,7 +182,7 @@ func TestFetcher_Info_NotClassifiedAsNotFound(t *testing.T) {
 		err: assertErr{},
 		out: []byte(`could not read Username for 'https://github.com': terminal prompts disabled`),
 	}
-	f := New(runner)
+	f := New(runner, t.TempDir())
 
 	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
 	w := httptest.NewRecorder()
@@ -176,7 +195,7 @@ func TestFetcher_List_NotFound(t *testing.T) {
 	runner := &stubRunner{
 		out: []byte(`{"Path":"github.com/foo/ghost","Error":"repository does not exist"}`),
 	}
-	f := New(runner)
+	f := New(runner, t.TempDir())
 
 	req := Request{Module: "github.com/foo/ghost", Artifact: ArtifactList}
 	w := httptest.NewRecorder()
@@ -190,7 +209,7 @@ func TestFetcher_Latest_NotFound(t *testing.T) {
 		err: assertErr{},
 		out: []byte(`{"Error":"no matching versions for query \"latest\""}`),
 	}
-	f := New(runner)
+	f := New(runner, t.TempDir())
 
 	req := Request{Module: "github.com/foo/bar", Artifact: ArtifactLatest}
 	w := httptest.NewRecorder()
@@ -231,7 +250,7 @@ func TestFetcher_StreamFile_ResponseCommitted(t *testing.T) {
 	runner := &stubRunner{
 		out: []byte(`{"Info":"` + infoPath + `","GoMod":"/x","Zip":"/y","Version":"v1.2.3"}`),
 	}
-	f := New(runner)
+	f := New(runner, tmp)
 
 	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
 	err := f.Serve(&failingWriter{}, httptest.NewRequest(http.MethodGet, "/", nil), req)
@@ -243,7 +262,7 @@ func TestFetcher_List_ResponseCommitted(t *testing.T) {
 	runner := &stubRunner{
 		out: []byte(`{"Versions":["v1.0.0","v1.1.0"]}`),
 	}
-	f := New(runner)
+	f := New(runner, t.TempDir())
 
 	req := Request{Module: "github.com/foo/bar", Artifact: ArtifactList}
 	err := f.Serve(&failingWriter{}, httptest.NewRequest(http.MethodGet, "/", nil), req)
@@ -261,7 +280,7 @@ func TestFetcher_PropagatesRequestContext(t *testing.T) {
 	runner := &stubRunner{
 		out: []byte(`{"Info":"` + infoPath + `","GoMod":"/x","Zip":"/y","Version":"v1.2.3"}`),
 	}
-	f := New(runner)
+	f := New(runner, tmp)
 
 	type ctxKey struct{}
 	ctx := context.WithValue(context.Background(), ctxKey{}, "sentinel")
@@ -277,7 +296,7 @@ func TestFetcher_Latest_ResponseCommitted(t *testing.T) {
 	runner := &stubRunner{
 		out: []byte(`{"Version":"v1.1.0","Time":"2024-01-01T00:00:00Z"}`),
 	}
-	f := New(runner)
+	f := New(runner, t.TempDir())
 
 	req := Request{Module: "github.com/foo/bar", Artifact: ArtifactLatest}
 	err := f.Serve(&failingWriter{}, httptest.NewRequest(http.MethodGet, "/", nil), req)

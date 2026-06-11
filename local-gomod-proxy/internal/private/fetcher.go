@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/exec"
@@ -14,12 +15,13 @@ import (
 
 // Fetcher serves private module artifacts by invoking the host's go toolchain.
 type Fetcher struct {
-	runner exec.Runner
+	runner     exec.Runner
+	gomodcache string
 }
 
 // New returns a Fetcher that shells out via runner.
-func New(runner exec.Runner) *Fetcher {
-	return &Fetcher{runner: runner}
+func New(runner exec.Runner, gomodcache string) *Fetcher {
+	return &Fetcher{runner: runner, gomodcache: gomodcache}
 }
 
 type downloadResult struct {
@@ -76,6 +78,9 @@ func (f *Fetcher) serveArtifact(ctx context.Context, w http.ResponseWriter, req 
 		path, contentType = r.GoMod, "text/plain; charset=utf-8"
 	case ArtifactZip:
 		path, contentType = r.Zip, "application/zip"
+	}
+	if err := validateCachePath(f.gomodcache, path); err != nil {
+		return err
 	}
 	return streamFile(w, path, contentType)
 }
@@ -139,6 +144,28 @@ func wrapRunError(stage string, out []byte, runErr error) error {
 		msg = e.Error
 	}
 	return classifyError(fmt.Errorf("%s: %w: %s", stage, runErr, trimmed), msg)
+}
+
+func validateCachePath(gomodcache, path string) error {
+	cacheAbs, err := filepath.Abs(gomodcache)
+	if err != nil {
+		return fmt.Errorf("resolving GOMODCACHE: %w", err)
+	}
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolving module artifact path: %w", err)
+	}
+	rel, err := filepath.Rel(cacheAbs, pathAbs)
+	if err != nil {
+		return fmt.Errorf("checking module artifact path: %w", err)
+	}
+	if rel == "." || rel == "" {
+		return nil
+	}
+	if strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." || filepath.IsAbs(rel) {
+		return fmt.Errorf("module artifact path %q is outside GOMODCACHE %q", path, gomodcache)
+	}
+	return nil
 }
 
 func streamFile(w http.ResponseWriter, path, contentType string) error {

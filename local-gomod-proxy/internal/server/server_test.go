@@ -34,7 +34,7 @@ func TestHandler_PublicRoute(t *testing.T) {
 	defer upstream.Close()
 	u, _ := url.Parse(upstream.URL)
 
-	h := New(router.New("github.com/private/*"), private.New(&stubRunner{}), public.New(u), 8)
+	h := New(router.New("github.com/private/*"), private.New(&stubRunner{}, t.TempDir()), public.New(u), 8)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/rsc.io/quote/@v/list", nil)
@@ -48,7 +48,7 @@ func TestHandler_PrivateRoute(t *testing.T) {
 	runner := &stubRunner{out: []byte(`{"Versions":["v1.0.0"]}`)}
 	h := New(
 		router.New("github.com/private/*"),
-		private.New(runner),
+		private.New(runner, t.TempDir()),
 		public.New(mustURL(t, "http://127.0.0.1:1")), // should never be hit
 		8,
 	)
@@ -65,7 +65,7 @@ func TestHandler_PrivateRoute_BadGateway(t *testing.T) {
 	runner := &stubRunner{err: fmt.Errorf("boom")}
 	h := New(
 		router.New("github.com/private/*"),
-		private.New(runner),
+		private.New(runner, t.TempDir()),
 		public.New(mustURL(t, "http://127.0.0.1:1")), // should never be hit
 		8,
 	)
@@ -88,7 +88,7 @@ func TestHandler_PrivateRoute_NotFound(t *testing.T) {
 	}
 	h := New(
 		router.New("github.com/private/*"),
-		private.New(runner),
+		private.New(runner, t.TempDir()),
 		public.New(mustURL(t, "http://127.0.0.1:1")),
 		8,
 	)
@@ -113,7 +113,7 @@ func TestHandler_PrivateRoute_BadGateway_NoLeak(t *testing.T) {
 	}
 	h := New(
 		router.New("github.com/private/*"),
-		private.New(runner),
+		private.New(runner, t.TempDir()),
 		public.New(mustURL(t, "http://127.0.0.1:1")),
 		8,
 	)
@@ -182,7 +182,7 @@ func TestHandler_ConcurrencyCap(t *testing.T) {
 	runner := &blockingRunner{release: make(chan struct{})}
 	h := New(
 		router.New("github.com/private/*"),
-		private.New(runner),
+		private.New(runner, t.TempDir()),
 		public.New(mustURL(t, "http://127.0.0.1:1")),
 		2,
 	)
