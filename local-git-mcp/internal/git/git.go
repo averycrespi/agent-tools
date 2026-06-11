@@ -127,13 +127,14 @@ func (c *Client) ListRemotes(ctx context.Context, repoPath string) ([]Remote, er
 		name := parts[0]
 		rest := parts[1]
 		var url, kind string
-		if strings.HasSuffix(rest, " (fetch)") {
+		switch {
+		case strings.HasSuffix(rest, " (fetch)"):
 			url = strings.TrimSuffix(rest, " (fetch)")
 			kind = "fetch"
-		} else if strings.HasSuffix(rest, " (push)") {
+		case strings.HasSuffix(rest, " (push)"):
 			url = strings.TrimSuffix(rest, " (push)")
 			kind = "push"
-		} else {
+		default:
 			continue
 		}
 		if _, ok := seen[name]; !ok {

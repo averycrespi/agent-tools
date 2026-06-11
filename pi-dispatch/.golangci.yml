@@ -6,7 +6,10 @@ linters:
     - errorlint
     - gocritic
     - gosec
-
+  settings:
+    gosec:
+      excludes:
+        - G304 # file path from variable is expected in CLI/config path handling; use targeted nolint for intentional cases where possible
   exclusions:
     rules:
       - path: "_test\\.go$"

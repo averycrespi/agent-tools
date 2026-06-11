@@ -90,7 +90,7 @@ func generateCert(dir string, validFor time.Duration) (certPath, keyPath string,
 	}
 
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil {
+	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil { //nolint:gosec // certificate is public; private key is written 0600
 		return "", "", fmt.Errorf("writing cert: %w", err)
 	}
 

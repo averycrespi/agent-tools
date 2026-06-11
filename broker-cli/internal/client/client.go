@@ -122,8 +122,7 @@ func (m *mcpClientImpl) CallTool(ctx context.Context, name string, args map[stri
 
 	result := &ToolResult{IsError: resp.IsError}
 	for _, block := range resp.Content {
-		switch v := block.(type) {
-		case mcp.TextContent:
+		if v, ok := block.(mcp.TextContent); ok {
 			result.Content = append(result.Content, ContentBlock{Type: "text", Text: v.Text})
 		}
 	}

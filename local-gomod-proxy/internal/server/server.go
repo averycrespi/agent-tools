@@ -29,7 +29,7 @@ func New(r *router.Router, priv *private.Fetcher, pub *public.Fetcher, maxConcur
 
 		parsed, err := private.ParseRequest(req.URL.Path)
 		if err != nil {
-			slog.Info("bad request", "path", req.URL.Path, "err", err)
+			slog.Info("bad request", "path", req.URL.Path, "err", err) //nolint:gosec // request path is needed for local proxy diagnostics
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

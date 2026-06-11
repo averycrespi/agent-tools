@@ -52,7 +52,7 @@ Each doc has a distinct audience and scope — don't duplicate content between t
 ## Adding a New Tool
 
 1. Create `<name>/` with `go.mod` (`module github.com/averycrespi/agent-tools/<name>`)
-2. Copy `Makefile` from an existing tool and update the binary name
+2. Copy `Makefile` and `.golangci.yml` from an existing tool and update the binary name
 3. Scaffold `cmd/<binary>/main.go` + `root.go` and `internal/` packages
 4. Write `README.md`, `DESIGN.md`, `CLAUDE.md` (see purposes above), and add an `AGENTS.md` symlink to `CLAUDE.md` (`ln -s CLAUDE.md AGENTS.md`)
 5. Add `<name>` to the `TOOLS` list in the root `Makefile`
