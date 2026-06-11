@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	pdconfig "github.com/averycrespi/agent-tools/pi-dispatcher/internal/config"
@@ -92,12 +93,13 @@ func listTasks(cmd *cobra.Command, _ []string) error {
 	if jsonOut {
 		return output.JSON(os.Stdout, views)
 	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	for _, task := range views {
-		if _, err := fmt.Fprintf(os.Stdout, "%s\t%s\t%s\t%s\n", task.ID, task.Status, task.RepoName, task.Branch); err != nil {
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", task.ID, task.Status, task.RepoName, task.Branch); err != nil {
 			return err
 		}
 	}
-	return nil
+	return tw.Flush()
 }
 
 func showStatus(cmd *cobra.Command, args []string) error {
