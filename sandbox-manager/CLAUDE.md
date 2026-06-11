@@ -42,6 +42,6 @@ internal/
 - Command failures use `%s` with trimmed output; Go errors use `%w` for wrapping
 - VM name is hardcoded as `sb` in the lima package
 - Lima template is embedded via `//go:embed` in `internal/sandbox`
-- UID/GID from the host user are injected into the template for mount permission compatibility
+- Host username, UID, and home directory are injected into the template; GID is not currently injected, so group-write behavior depends on provisioning or host permissions
 - gosec `nolint` directives on `os/exec`, file permissions, and `os.Open` are intentional for a CLI tool
 - Example provisioning scripts live in `examples/provision/`; prefer self-contained (works on a bare sandbox), always idempotent (guard installs with `command_exists`/`dpkg -s`), single-purpose. Scripts that depend on another example script must check for the prerequisite upfront and fail fast with a clear error

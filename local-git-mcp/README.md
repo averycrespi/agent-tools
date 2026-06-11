@@ -17,7 +17,7 @@ diff, rebase, ...                    │
 
 local-git-mcp is a stdio MCP server — a caller spawns it as a subprocess and communicates over stdin/stdout. It shells out to the host's `git` binary, which picks up the user's existing credential configuration.
 
-At startup, callers must provide one or more allowed path prefixes. Tool calls can only access repositories at those paths or their descendants. Starting without allowed paths fails unless `--allow-all-paths` is provided.
+At startup, callers must provide one or more allowed path prefixes. Tool calls can only access repositories at those paths or their descendants. Starting without allowed paths fails unless `--allow-all-paths` is provided. `--allow-all-paths` disables the path-sandboxing guarantee and should only be used in trusted host contexts.
 
 ## Tools
 
@@ -47,7 +47,7 @@ make build
   }
 }
 
-# Explicitly allow all host paths, preserving the old unrestricted behavior
+# Explicitly allow all host paths, disabling path sandboxing
 local-git-mcp --allow-all-paths
 ```
 

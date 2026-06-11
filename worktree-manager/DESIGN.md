@@ -46,7 +46,7 @@ All external commands flow through `exec.Runner`, an interface with `Run`, `RunD
 
 **Config-driven behavior.** What to launch, which files to copy, which scripts to run — all driven by `~/.config/wt/config.json`. The tool has no hardcoded knowledge of any specific agent or workflow.
 
-**Idempotent operations.** `wt add` skips steps already completed (worktree exists, window exists). `wt rm` skips resources already removed. This makes it safe to re-run commands without side effects.
+**Recoverable operations.** `wt add` uses deterministic paths and reuses an already-created worktree or window when it is safe to do so, while still surfacing copy/setup failures as command errors. `wt rm` skips resources already removed. This makes interrupted runs recoverable without hiding setup problems.
 
 **Tmux socket isolation.** All tmux operations use `-L wt`, a dedicated socket separate from the user's default tmux. This prevents `wt` from interfering with existing tmux sessions.
 
@@ -103,5 +103,5 @@ If branch given     → target specific window
 ### Error Handling
 
 - Git and tmux failures propagate as errors and halt the operation
-- File copy and setup script failures log warnings but don't halt — these are best-effort
+- File copy and setup script failures propagate as errors so incomplete setup is visible to callers
 - All commands reject being run from a worktree (except `attach`, which resolves back to the main repo)

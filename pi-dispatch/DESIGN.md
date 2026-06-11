@@ -1,6 +1,6 @@
 # Pi Dispatch Design
 
-Pi Dispatch (`pd`) is a local job runner for autonomous Pi coding-agent runs.
+Pi Dispatch (`pd`) is a local job runner for autonomous Pi coding-agent runs. It has no central daemon; each active task is owned by its own detached supervisor process.
 
 ## V1 architecture
 

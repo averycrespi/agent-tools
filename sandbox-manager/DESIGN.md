@@ -6,7 +6,7 @@ Running AI coding agents with full host access is a non-starter for autonomous w
 
 Lima provides lightweight Linux VMs on macOS with near-native performance via Apple's Virtualization.framework. `sb` wraps Lima's lifecycle into a small set of commands: `sb create` spins up a provisioned VM, `sb destroy` tears it down, and `sb shell` drops you in. Configuration drives what gets copied in and what scripts run during provisioning, so the sandbox can be tailored to any workflow.
 
-The key design goal: **the sandbox should feel like a fresh development machine, not a container.** Full systemd, real user accounts with matching UID/GID, writable mounts for shared directories, and provisioning scripts that install the same tools you'd install on a real box.
+The key design goal: **the sandbox should feel like a fresh development machine, not a container.** Full systemd, a real user account with matching host UID, writable mounts for shared directories, and provisioning scripts that install the same tools you'd install on a real box.
 
 ## Architecture
 
@@ -52,9 +52,9 @@ All external commands flow through `exec.Runner`, an interface with `Run`, `RunI
 
 **Smart create.** `sb create` is the primary entry point and handles all states: if the VM doesn't exist, it creates and provisions it; if it's stopped, it starts and provisions it; if it's running, it re-provisions it. This makes it safe to re-run without thinking about current state.
 
-**Template rendering.** The Lima YAML template is embedded in the binary via `//go:embed`. At create time, it's rendered with host user information (username, UID, GID, home directory) and config values (CPUs, memory, disk, mounts). This ensures the VM user matches the host user, which makes shared mounts work without permission issues.
+**Template rendering.** The Lima YAML template is embedded in the binary via `//go:embed`. At create time, it's rendered with host user information (username, UID, home directory) and config values (CPUs, memory, disk, mounts). The template does not currently inject the host GID.
 
-**UID/GID preservation.** The VM user is created with the same UID and GID as the host user. This is critical for writable mounts — files created in the VM have the correct ownership on the host.
+**UID preservation.** The VM user is created with the same UID as the host user. This preserves owner permissions for writable mounts, but group ownership is not normalized to the host's primary GID; workflows that depend on host group-write permissions may need provisioning or host-side permissions to account for that.
 
 **XDG base directories.** Config in `$XDG_CONFIG_HOME/sb`. Falls back to `~/.config` per the XDG spec.
 
