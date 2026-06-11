@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -26,14 +27,29 @@ func TestDefaultConfigDoesNotMarshalTemplateDirs(t *testing.T) {
 	assert.NotContains(t, string(data), "template_dirs")
 }
 
-func TestRefreshWritesCleanupPolicyDefault(t *testing.T) {
+func TestRefreshWritesResolvedDefaults(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
 
 	require.NoError(t, Refresh(slog.New(slog.NewTextHandler(io.Discard, nil))))
 
 	data, err := os.ReadFile(ConfigFilePath())
 	require.NoError(t, err)
-	require.JSONEq(t, `{"database_path":"","default_worktree_cleanup_policy":"never"}`, string(data))
+	expected := fmt.Sprintf(`{"database_path":%q,"default_worktree_cleanup_policy":"never"}`, filepath.Join(stateHome, "pd", "pd.db"))
+	require.JSONEq(t, expected, string(data))
+}
+
+func TestRefreshPreservesExplicitDatabasePath(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	require.NoError(t, os.MkdirAll(ConfigDir(), 0o750))
+	require.NoError(t, os.WriteFile(ConfigFilePath(), []byte(`{"database_path":"~/custom/pd.db","default_worktree_cleanup_policy":"never"}`), 0o600))
+
+	require.NoError(t, Refresh(slog.New(slog.NewTextHandler(io.Discard, nil))))
+
+	data, err := os.ReadFile(ConfigFilePath())
+	require.NoError(t, err)
+	require.Contains(t, string(data), `"database_path": "~/custom/pd.db"`)
 }
 
 func TestLoadRejectsInvalidCleanupPolicy(t *testing.T) {

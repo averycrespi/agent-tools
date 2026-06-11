@@ -49,6 +49,9 @@ func Refresh(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	if cfg.DatabasePath == "" {
+		cfg.DatabasePath = DefaultDBPath()
+	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
@@ -73,8 +76,11 @@ func (c Config) DBPath() string {
 	if c.DatabasePath != "" {
 		return ExpandTilde(c.DatabasePath)
 	}
-	return filepath.Join(StateDir(), "pd.db")
+	return DefaultDBPath()
 }
+
+// DefaultDBPath is the database path used when the config does not set one.
+func DefaultDBPath() string { return filepath.Join(StateDir(), "pd.db") }
 
 func ConfigDir() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {

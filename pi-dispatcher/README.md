@@ -61,10 +61,12 @@ Config file: `~/.config/pd/config.json`.
 
 ```json
 {
-  "database_path": "",
+  "database_path": "~/.local/state/pd/pd.db",
   "default_worktree_cleanup_policy": "never"
 }
 ```
+
+`pd config refresh` creates the file with defaults filled in, writing `database_path` resolved to its actual default (`$XDG_STATE_HOME/pd/pd.db` or `~/.local/state/pd/pd.db`). Set `database_path` to point the SQLite database elsewhere; a leading `~` is expanded, and an explicit value is preserved across refreshes.
 
 `default_worktree_cleanup_policy` accepts `never`, `on-success`, or `on-terminal`; `pd run --cleanup-worktree <policy>` overrides it per run and persists the launch-time policy for the detached supervisor.
 
