@@ -64,10 +64,19 @@ func (m *mockGitClient) ListRemotes(repoPath string) ([]git.Remote, error) {
 	return nil, nil
 }
 
-func TestToolCount(t *testing.T) {
+func TestToolDefinitions(t *testing.T) {
 	h := NewHandler(&mockGitClient{})
 	tools := h.Tools()
 	assert.Len(t, tools, 5)
+	assert.Equal(t, []string{"push", "pull", "fetch", "list_remote_refs", "list_remotes"}, toolNames(tools))
+}
+
+func toolNames(tools []gomcp.Tool) []string {
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		names = append(names, tool.Name)
+	}
+	return names
 }
 
 func TestPushHandler_Success(t *testing.T) {
@@ -81,7 +90,7 @@ func TestPushHandler_Success(t *testing.T) {
 		},
 	})
 	req := gomcp.CallToolRequest{}
-	req.Params.Name = "git_push"
+	req.Params.Name = "push"
 	req.Params.Arguments = map[string]any{
 		"repo_path": "/my/repo",
 	}
@@ -102,7 +111,7 @@ func TestPushHandler_UsesValidatedRepoPath(t *testing.T) {
 		},
 	})
 	req := gomcp.CallToolRequest{}
-	req.Params.Name = "git_push"
+	req.Params.Name = "push"
 	req.Params.Arguments = map[string]any{
 		"repo_path": "/my/repo/../repo",
 	}
@@ -118,7 +127,7 @@ func TestPushHandler_ValidationError(t *testing.T) {
 		},
 	})
 	req := gomcp.CallToolRequest{}
-	req.Params.Name = "git_push"
+	req.Params.Name = "push"
 	req.Params.Arguments = map[string]any{
 		"repo_path": "/bad/path",
 	}
@@ -130,7 +139,7 @@ func TestPushHandler_ValidationError(t *testing.T) {
 func TestPushHandler_MissingRepoPath(t *testing.T) {
 	h := NewHandler(&mockGitClient{})
 	req := gomcp.CallToolRequest{}
-	req.Params.Name = "git_push"
+	req.Params.Name = "push"
 	req.Params.Arguments = map[string]any{}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -146,7 +155,7 @@ func TestPullHandler_WithRebase(t *testing.T) {
 		},
 	})
 	req := gomcp.CallToolRequest{}
-	req.Params.Name = "git_pull"
+	req.Params.Name = "pull"
 	req.Params.Arguments = map[string]any{
 		"repo_path": "/my/repo",
 		"branch":    "main",
@@ -166,7 +175,7 @@ func TestListRemotesHandler_Success(t *testing.T) {
 		},
 	})
 	req := gomcp.CallToolRequest{}
-	req.Params.Name = "git_list_remotes"
+	req.Params.Name = "list_remotes"
 	req.Params.Arguments = map[string]any{"repo_path": "/repo"}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -186,7 +195,7 @@ func TestListRemoteRefsHandler_Success(t *testing.T) {
 		},
 	})
 	req := gomcp.CallToolRequest{}
-	req.Params.Name = "git_list_remote_refs"
+	req.Params.Name = "list_remote_refs"
 	req.Params.Arguments = map[string]any{"repo_path": "/repo"}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
@@ -260,7 +269,7 @@ func TestEveryToolHasAnnotations(t *testing.T) {
 func TestUnknownTool(t *testing.T) {
 	h := NewHandler(&mockGitClient{})
 	req := gomcp.CallToolRequest{}
-	req.Params.Name = "git_unknown"
+	req.Params.Name = "unknown"
 	req.Params.Arguments = map[string]any{"repo_path": "/repo"}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)

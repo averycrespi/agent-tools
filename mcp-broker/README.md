@@ -185,16 +185,16 @@ Rules can optionally constrain on argument values using the `args` field. All pa
 {
   "rules": [
     {
-      "tool": "git_push",
+      "tool": "push",
       "verdict": "allow",
       "args": [{ "path": "remote", "match": "origin" }]
     },
     {
-      "tool": "git_push",
+      "tool": "push",
       "verdict": "deny",
       "args": [{ "path": "commit.message", "match": { "regex": "^chore:" } }]
     },
-    { "tool": "git_push", "verdict": "require-approval" }
+    { "tool": "push", "verdict": "require-approval" }
   ]
 }
 ```

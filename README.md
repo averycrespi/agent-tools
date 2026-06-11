@@ -101,7 +101,7 @@ Sandboxed agents can do most git operations locally — staging, committing, dif
 
 `local-git-mcp` is a stdio MCP server that runs on the host and shells out to the user's existing `git` setup:
 
-- Five tools — `git_push`, `git_pull`, `git_fetch`, `git_list_remote_refs`, and `git_list_remotes` — cover every remote operation an agent typically needs.
+- Five tools — `push`, `pull`, `fetch`, `list_remote_refs`, and `list_remotes` — cover every remote operation an agent typically needs.
 - Uses the host's existing SSH keys and credential helpers; no tokens or keys ever cross into the sandbox.
 - Designed to sit behind `mcp-broker`, so the broker's rules and audit log apply to every push and pull.
 - No config, no state, no network listener — spawned as a subprocess over stdio.

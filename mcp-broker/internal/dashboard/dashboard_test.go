@@ -523,9 +523,9 @@ func TestHandleRules_PassesThroughArgs(t *testing.T) {
 		Path:  "remote",
 		Match: json.RawMessage(`"origin"`),
 	}
-	tools := &fakeToolLister{tools: []server.Tool{{Name: "git_push"}}}
+	tools := &fakeToolLister{tools: []server.Tool{{Name: "push"}}}
 	rulesLister := &fakeRulesLister{rules: []config.RuleConfig{
-		{Tool: "git_push", Args: []config.ArgPattern{argPattern}, Verdict: "allow"},
+		{Tool: "push", Args: []config.ArgPattern{argPattern}, Verdict: "allow"},
 	}}
 	d := New(tools, rulesLister, nil, nil)
 	srv := httptest.NewServer(d.Handler())
@@ -553,11 +553,11 @@ func TestHandleRules_PassesThroughArgs(t *testing.T) {
 
 func TestHandleRules_MayFallThrough(t *testing.T) {
 	tools := &fakeToolLister{tools: []server.Tool{
-		{Name: "git_push"},
+		{Name: "push"},
 		{Name: "github.list_prs"},
 	}}
 	rulesLister := &fakeRulesLister{rules: []config.RuleConfig{
-		{Tool: "git_push", Args: []config.ArgPattern{{Path: "remote", Match: json.RawMessage(`"origin"`)}}, Verdict: "allow"},
+		{Tool: "push", Args: []config.ArgPattern{{Path: "remote", Match: json.RawMessage(`"origin"`)}}, Verdict: "allow"},
 		{Tool: "github.*", Verdict: "allow"},
 	}}
 	d := New(tools, rulesLister, nil, nil)
@@ -579,11 +579,11 @@ func TestHandleRules_MayFallThrough(t *testing.T) {
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 
-	// git_push: its only name-matching rule is constrained → listed under that
+	// push: its only name-matching rule is constrained → listed under that
 	// rule (so users can see the rule targets it) AND in may_fall_through
 	// (because args may not match, in which case it falls through to default).
-	require.Equal(t, []string{"git_push"}, body.Rules[0].Matches)
-	require.Equal(t, []string{"git_push"}, body.MayFallThrough)
+	require.Equal(t, []string{"push"}, body.Rules[0].Matches)
+	require.Equal(t, []string{"push"}, body.MayFallThrough)
 	// github.list_prs: rule index 1 is unconstrained → Matches[1]
 	require.Equal(t, 1, body.Rules[1].Index)
 	require.Equal(t, []string{"github.list_prs"}, body.Rules[1].Matches)
@@ -626,7 +626,7 @@ func TestDashboard_OnAuditRecord_BroadcastsSSEFrame(t *testing.T) {
 	approved := true
 	rec := audit.Record{
 		Timestamp: time.Now().UTC().Truncate(time.Second),
-		Tool:      "git_push",
+		Tool:      "push",
 		Args:      map[string]any{"remote": "origin"},
 		Verdict:   "allow",
 		Approved:  &approved,
@@ -657,10 +657,10 @@ func TestDashboard_OnAuditRecord_BroadcastsSSEFrame(t *testing.T) {
 }
 
 func TestHandleRules_ConstrainedThenUnconstrained(t *testing.T) {
-	tools := &fakeToolLister{tools: []server.Tool{{Name: "git_push"}}}
+	tools := &fakeToolLister{tools: []server.Tool{{Name: "push"}}}
 	rulesLister := &fakeRulesLister{rules: []config.RuleConfig{
-		{Tool: "git_push", Args: []config.ArgPattern{{Path: "remote", Match: json.RawMessage(`"origin"`)}}, Verdict: "allow"},
-		{Tool: "git_*", Verdict: "deny"},
+		{Tool: "push", Args: []config.ArgPattern{{Path: "remote", Match: json.RawMessage(`"origin"`)}}, Verdict: "allow"},
+		{Tool: "p*", Verdict: "deny"},
 	}}
 	d := New(tools, rulesLister, nil, nil)
 	srv := httptest.NewServer(d.Handler())
@@ -681,13 +681,13 @@ func TestHandleRules_ConstrainedThenUnconstrained(t *testing.T) {
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 
-	// git_push matches rule 0 (constrained) and rule 1 (unconstrained).
-	// Both rules list git_push so users see every rule that may apply. The
-	// unconstrained rule 1 guarantees a match, so git_push is NOT in
+	// push matches rule 0 (constrained) and rule 1 (unconstrained).
+	// Both rules list push so users see every rule that may apply. The
+	// unconstrained rule 1 guarantees a match, so push is NOT in
 	// may_fall_through.
 	require.Len(t, body.Rules, 2)
-	require.Equal(t, []string{"git_push"}, body.Rules[0].Matches)
-	require.Equal(t, []string{"git_push"}, body.Rules[1].Matches)
+	require.Equal(t, []string{"push"}, body.Rules[0].Matches)
+	require.Equal(t, []string{"push"}, body.Rules[1].Matches)
 	require.Empty(t, body.MayFallThrough)
 	require.Empty(t, body.AlwaysFallThrough)
 }

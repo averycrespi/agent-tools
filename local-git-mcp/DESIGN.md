@@ -18,13 +18,13 @@ The caller must provide one or more allowed host path prefixes at startup, for e
 
 Five tools, all requiring a `repo_path` parameter that is validated to be an existing git repository:
 
-| Tool                   | Description                           | Parameters                                                                                               | Annotation   |
-| ---------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------ |
-| `git_push`             | Push commits to remote                | `repo_path`, `remote` (default: origin), `refspec` (optional), `force` (bool, uses `--force-with-lease`) | destructive  |
-| `git_pull`             | Pull from remote                      | `repo_path`, `remote` (default: origin), `branch` (optional), `rebase` (bool, default: false)            | additive     |
-| `git_fetch`            | Fetch from remote without merging     | `repo_path`, `remote` (default: origin), `refspec` (optional)                                            | idempotent   |
-| `git_list_remote_refs` | List refs (branches/tags) on a remote | `repo_path`, `remote` (default: origin)                                                                  | read         |
-| `git_list_remotes`     | Show configured remotes and URLs      | `repo_path`                                                                                              | read (local) |
+| Tool               | Description                           | Parameters                                                                                               | Annotation   |
+| ------------------ | ------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------ |
+| `push`             | Push commits to remote                | `repo_path`, `remote` (default: origin), `refspec` (optional), `force` (bool, uses `--force-with-lease`) | destructive  |
+| `pull`             | Pull from remote                      | `repo_path`, `remote` (default: origin), `branch` (optional), `rebase` (bool, default: false)            | additive     |
+| `fetch`            | Fetch from remote without merging     | `repo_path`, `remote` (default: origin), `refspec` (optional)                                            | idempotent   |
+| `list_remote_refs` | List refs (branches/tags) on a remote | `repo_path`, `remote` (default: origin)                                                                  | read         |
+| `list_remotes`     | Show configured remotes and URLs      | `repo_path`                                                                                              | read (local) |
 
 ### Annotations
 
@@ -36,7 +36,7 @@ Each tool declares MCP `ToolAnnotation` hints so callers can reason about safety
 - **`annAdditive`** — `DestructiveHint=false`, `OpenWorldHint=true`. Mutates state, not destructive.
 - **`annDestructive`** — `DestructiveHint=true`, `OpenWorldHint=true`. Rewrites or removes state non-trivially.
 
-`git_push` is annotated conservatively as destructive even without `force=true`, because the underlying capability can rewrite remote history.
+`push` is annotated conservatively as destructive even without `force=true`, because the underlying capability can rewrite remote history.
 
 ### Parameter details
 

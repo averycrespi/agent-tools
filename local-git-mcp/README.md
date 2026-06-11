@@ -21,13 +21,13 @@ At startup, callers must provide one or more allowed path prefixes. Tool calls c
 
 ## Tools
 
-| Tool                   | Description                                              |
-| ---------------------- | -------------------------------------------------------- |
-| `git_push`             | Push commits to a remote (supports `--force-with-lease`) |
-| `git_pull`             | Pull from a remote (supports `--rebase`)                 |
-| `git_fetch`            | Fetch from a remote without merging                      |
-| `git_list_remote_refs` | List refs (branches, tags) on a remote                   |
-| `git_list_remotes`     | List configured remotes and their URLs                   |
+| Tool               | Description                                              |
+| ------------------ | -------------------------------------------------------- |
+| `push`             | Push commits to a remote (supports `--force-with-lease`) |
+| `pull`             | Pull from a remote (supports `--rebase`)                 |
+| `fetch`            | Fetch from a remote without merging                      |
+| `list_remote_refs` | List refs (branches, tags) on a remote                   |
+| `list_remotes`     | List configured remotes and their URLs                   |
 
 All tools require a `repo_path` parameter — an absolute path to a git repository on the host. The path must be equal to or inside one of the allowed path prefixes provided when the server starts.
 

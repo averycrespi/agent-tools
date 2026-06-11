@@ -311,7 +311,7 @@ func TestRuleConfig_ExactArgRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 
-	data := `{"rules": [{"tool": "git_push", "verdict": "allow", "args": [{"path": "remote", "match": "origin"}]}]}`
+	data := `{"rules": [{"tool": "push", "verdict": "allow", "args": [{"path": "remote", "match": "origin"}]}]}`
 	err := os.WriteFile(path, []byte(data), 0o600)
 	require.NoError(t, err)
 
@@ -320,7 +320,7 @@ func TestRuleConfig_ExactArgRoundTrip(t *testing.T) {
 	require.Len(t, cfg.Rules, 1)
 
 	rule := cfg.Rules[0]
-	require.Equal(t, "git_push", rule.Tool)
+	require.Equal(t, "push", rule.Tool)
 	require.Equal(t, "allow", rule.Verdict)
 	require.Len(t, rule.Args, 1)
 	require.Equal(t, "remote", rule.Args[0].Path)
@@ -348,7 +348,7 @@ func TestRuleConfig_MixedArgsRoundTrip(t *testing.T) {
 	data := `{
   "rules": [
     {
-      "tool": "git_push",
+      "tool": "push",
       "verdict": "allow",
       "args": [
         {"path": "remote", "match": "origin"},

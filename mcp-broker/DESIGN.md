@@ -95,7 +95,7 @@ Each `RuleConfig` has optional `reason` and `args` fields. `reason` is primarily
 
 ```json
 {
-  "tool": "git_push",
+  "tool": "push",
   "verdict": "allow",
   "args": [
     { "path": "remote", "match": "origin" },
@@ -104,7 +104,7 @@ Each `RuleConfig` has optional `reason` and `args` fields. `reason` is primarily
 }
 ```
 
-This rule allows `git_push` only when `remote` is exactly `"origin"` and `commit.message` starts with `"feat:"`. Any other `git_push` call fails to match this rule and falls through to the next.
+This rule allows `push` only when `remote` is exactly `"origin"` and `commit.message` starts with `"feat:"`. Any other `push` call fails to match this rule and falls through to the next.
 
 **Path syntax.** `path` is a dot-separated sequence of segments. Each segment is either a string key (object navigation) or a decimal integer (array index). Examples: `remote`, `commit.message`, `command.0`. No wildcards in v1. Empty segments (`a..b`) and the empty path (`""`) are rejected at engine construction.
 

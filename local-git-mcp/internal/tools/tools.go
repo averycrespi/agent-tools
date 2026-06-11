@@ -64,7 +64,7 @@ func NewHandler(git GitClient) *Handler {
 func (h *Handler) Tools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
-			Name:        "git_push",
+			Name:        "push",
 			Description: "Push commits to a remote repository",
 			Annotations: annDestructive,
 			InputSchema: gomcp.ToolInputSchema{
@@ -91,7 +91,7 @@ func (h *Handler) Tools() []gomcp.Tool {
 			},
 		},
 		{
-			Name:        "git_pull",
+			Name:        "pull",
 			Description: "Pull from a remote repository",
 			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
@@ -118,7 +118,7 @@ func (h *Handler) Tools() []gomcp.Tool {
 			},
 		},
 		{
-			Name:        "git_fetch",
+			Name:        "fetch",
 			Description: "Fetch from a remote without merging",
 			Annotations: annIdempotent,
 			InputSchema: gomcp.ToolInputSchema{
@@ -141,7 +141,7 @@ func (h *Handler) Tools() []gomcp.Tool {
 			},
 		},
 		{
-			Name:        "git_list_remote_refs",
+			Name:        "list_remote_refs",
 			Description: "List refs (branches, tags) on a remote",
 			Annotations: annRead,
 			InputSchema: gomcp.ToolInputSchema{
@@ -160,7 +160,7 @@ func (h *Handler) Tools() []gomcp.Tool {
 			},
 		},
 		{
-			Name:        "git_list_remotes",
+			Name:        "list_remotes",
 			Description: "List configured remotes and their URLs",
 			Annotations: annReadLocal,
 			InputSchema: gomcp.ToolInputSchema{
@@ -192,7 +192,7 @@ func (h *Handler) Handle(_ context.Context, req gomcp.CallToolRequest) (*gomcp.C
 	}
 
 	switch req.Params.Name {
-	case "git_push":
+	case "push":
 		remote := stringOrDefault(args, "remote", "origin")
 		refspec, _ := args["refspec"].(string)
 		force, _ := args["force"].(bool)
@@ -202,7 +202,7 @@ func (h *Handler) Handle(_ context.Context, req gomcp.CallToolRequest) (*gomcp.C
 		}
 		return gomcp.NewToolResultText(out), nil
 
-	case "git_pull":
+	case "pull":
 		remote := stringOrDefault(args, "remote", "origin")
 		branch, _ := args["branch"].(string)
 		rebase, _ := args["rebase"].(bool)
@@ -212,7 +212,7 @@ func (h *Handler) Handle(_ context.Context, req gomcp.CallToolRequest) (*gomcp.C
 		}
 		return gomcp.NewToolResultText(out), nil
 
-	case "git_fetch":
+	case "fetch":
 		remote := stringOrDefault(args, "remote", "origin")
 		refspec, _ := args["refspec"].(string)
 		out, err := h.git.Fetch(validatedRepoPath, remote, refspec)
@@ -221,7 +221,7 @@ func (h *Handler) Handle(_ context.Context, req gomcp.CallToolRequest) (*gomcp.C
 		}
 		return gomcp.NewToolResultText(out), nil
 
-	case "git_list_remote_refs":
+	case "list_remote_refs":
 		remote := stringOrDefault(args, "remote", "origin")
 		refs, err := h.git.ListRemoteRefs(validatedRepoPath, remote)
 		if err != nil {
@@ -230,7 +230,7 @@ func (h *Handler) Handle(_ context.Context, req gomcp.CallToolRequest) (*gomcp.C
 		out, _ := json.Marshal(refs)
 		return gomcp.NewToolResultText(string(out)), nil
 
-	case "git_list_remotes":
+	case "list_remotes":
 		remotes, err := h.git.ListRemotes(validatedRepoPath)
 		if err != nil {
 			return gomcp.NewToolResultError(err.Error()), nil
