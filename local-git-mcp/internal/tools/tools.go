@@ -141,9 +141,10 @@ func (h *Handler) Tools() []gomcp.Tool {
 			},
 		},
 		{
-			Name:        "git_list_remote_refs",
-			Description: "List refs (branches, tags) on a remote",
-			Annotations: annRead,
+			Name:         "git_list_remote_refs",
+			Description:  "List refs (branches, tags) on a remote",
+			Annotations:  annRead,
+			OutputSchema: refsOutputSchema(),
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -160,9 +161,10 @@ func (h *Handler) Tools() []gomcp.Tool {
 			},
 		},
 		{
-			Name:        "git_list_remotes",
-			Description: "List configured remotes and their URLs",
-			Annotations: annReadLocal,
+			Name:         "git_list_remotes",
+			Description:  "List configured remotes and their URLs",
+			Annotations:  annReadLocal,
+			OutputSchema: remotesOutputSchema(),
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -227,19 +229,65 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 		if err != nil {
 			return gomcp.NewToolResultError(err.Error()), nil
 		}
-		out, _ := json.Marshal(refs)
-		return gomcp.NewToolResultText(string(out)), nil
+		return structuredJSONResult(refs, map[string]any{"refs": refs}), nil
 
 	case "git_list_remotes":
 		remotes, err := h.git.ListRemotes(ctx, validatedRepoPath)
 		if err != nil {
 			return gomcp.NewToolResultError(err.Error()), nil
 		}
-		out, _ := json.Marshal(remotes)
-		return gomcp.NewToolResultText(string(out)), nil
+		return structuredJSONResult(remotes, map[string]any{"remotes": remotes}), nil
 
 	default:
 		return gomcp.NewToolResultError(fmt.Sprintf("unknown tool: %s", req.Params.Name)), nil
+	}
+}
+
+func structuredJSONResult(textValue any, structured any) *gomcp.CallToolResult {
+	out, _ := json.Marshal(textValue)
+	result := gomcp.NewToolResultText(string(out))
+	result.StructuredContent = structured
+	return result
+}
+
+func refsOutputSchema() gomcp.ToolOutputSchema {
+	return gomcp.ToolOutputSchema{
+		Type: "object",
+		Properties: map[string]any{
+			"refs": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"sha": map[string]any{"type": "string"},
+						"ref": map[string]any{"type": "string"},
+					},
+					"required": []string{"sha", "ref"},
+				},
+			},
+		},
+		Required: []string{"refs"},
+	}
+}
+
+func remotesOutputSchema() gomcp.ToolOutputSchema {
+	return gomcp.ToolOutputSchema{
+		Type: "object",
+		Properties: map[string]any{
+			"remotes": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"name":      map[string]any{"type": "string"},
+						"fetch_url": map[string]any{"type": "string"},
+						"push_url":  map[string]any{"type": "string"},
+					},
+					"required": []string{"name"},
+				},
+			},
+		},
+		Required: []string{"remotes"},
 	}
 }
 

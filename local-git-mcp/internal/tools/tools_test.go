@@ -157,6 +157,17 @@ func TestPullHandler_WithRebase(t *testing.T) {
 	assert.False(t, result.IsError)
 }
 
+func TestListToolsHaveOutputSchemasForStructuredReadResults(t *testing.T) {
+	h := NewHandler(&mockGitClient{})
+	byName := make(map[string]gomcp.Tool)
+	for _, tool := range h.Tools() {
+		byName[tool.Name] = tool
+	}
+
+	require.Equal(t, "object", byName["git_list_remotes"].OutputSchema.Type)
+	require.Equal(t, "object", byName["git_list_remote_refs"].OutputSchema.Type)
+}
+
 func TestListRemotesHandler_Success(t *testing.T) {
 	h := NewHandler(&mockGitClient{
 		listRemotesFunc: func(repoPath string) ([]git.Remote, error) {
@@ -172,9 +183,13 @@ func TestListRemotesHandler_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, result.IsError)
 	var remotes []git.Remote
-	require.NoError(t, json.Unmarshal([]byte(result.Content[0].(gomcp.TextContent).Text), &remotes))
+	text := result.Content[0].(gomcp.TextContent).Text
+	require.NoError(t, json.Unmarshal([]byte(text), &remotes))
 	assert.Equal(t, "origin", remotes[0].Name)
 	assert.Equal(t, "git@github.com:user/repo.git", remotes[0].FetchURL)
+	structured, ok := result.StructuredContent.(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []git.Remote(remotes), structured["remotes"])
 }
 
 func TestListRemoteRefsHandler_Success(t *testing.T) {
@@ -192,9 +207,13 @@ func TestListRemoteRefsHandler_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, result.IsError)
 	var refs []git.Ref
-	require.NoError(t, json.Unmarshal([]byte(result.Content[0].(gomcp.TextContent).Text), &refs))
+	text := result.Content[0].(gomcp.TextContent).Text
+	require.NoError(t, json.Unmarshal([]byte(text), &refs))
 	assert.Equal(t, "abc123", refs[0].SHA)
 	assert.Equal(t, "refs/heads/main", refs[0].Ref)
+	structured, ok := result.StructuredContent.(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []git.Ref(refs), structured["refs"])
 }
 
 func TestAnnotationPresets_Read(t *testing.T) {

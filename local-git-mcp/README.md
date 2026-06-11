@@ -31,6 +31,8 @@ At startup, callers must provide one or more allowed path prefixes. Tool calls c
 
 All tools require a `repo_path` parameter — an absolute path to a git repository on the host. The path must be equal to or inside one of the allowed path prefixes provided when the server starts.
 
+Read/list tools preserve their JSON text fallback and, where natural, also return MCP `structuredContent` with an `outputSchema` (`git_list_remote_refs` and `git_list_remotes`).
+
 ## Quick start
 
 ```bash
