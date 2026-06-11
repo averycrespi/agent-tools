@@ -74,7 +74,8 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
     },
     "internal": {
       "type": "streamable-http",
-      "url": "http://localhost:3000/mcp"
+      "url": "http://localhost:3000/mcp",
+      "timeout_seconds": 120
     }
   },
   "rules": [

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -28,11 +29,10 @@ type httpBackend struct {
 	client *client.Client
 }
 
+const defaultHTTPBackendTimeout = 2 * time.Minute
+
 func newHTTPBackend(ctx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
-	var opts []transport.StreamableHTTPCOption
-	if headers := expandEnv(srv.Headers); len(headers) > 0 {
-		opts = append(opts, transport.WithHTTPHeaders(headers))
-	}
+	opts := streamableHTTPOptions(srv)
 
 	// Try plain client first.
 	c, err := client.NewStreamableHttpClient(srv.URL, opts...)
@@ -56,6 +56,18 @@ func newHTTPBackend(ctx context.Context, name string, srv config.ServerConfig) (
 		return nil, err
 	}
 	return &httpBackend{client: c}, nil
+}
+
+func streamableHTTPOptions(srv config.ServerConfig) []transport.StreamableHTTPCOption {
+	timeout := defaultHTTPBackendTimeout
+	if srv.TimeoutSeconds > 0 {
+		timeout = time.Duration(srv.TimeoutSeconds) * time.Second
+	}
+	opts := []transport.StreamableHTTPCOption{transport.WithHTTPTimeout(timeout)}
+	if headers := expandEnv(srv.Headers); len(headers) > 0 {
+		opts = append(opts, transport.WithHTTPHeaders(headers))
+	}
+	return opts
 }
 
 func newSSEBackend(ctx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {

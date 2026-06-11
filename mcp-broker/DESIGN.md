@@ -155,7 +155,7 @@ Tool descriptors are passed through to clients with full fidelity: in addition t
 The `Backend` interface abstracts transport:
 
 - `stdioBackend` — spawns a subprocess, communicates via stdin/stdout
-- `httpBackend` — connects via Streamable HTTP
+- `httpBackend` — connects via Streamable HTTP with a finite request timeout (`timeout_seconds`, default 120 s)
 - `sseBackend` — connects via Server-Sent Events
 - `oauthBackend` — auto-detected on 401 responses from HTTP/SSE backends; tokens stored in OS keychain via `go-keyring` (service: `mcp-broker`, key: server name). OAuth callback port is deterministic per server name (FNV hash → ephemeral port range).
 

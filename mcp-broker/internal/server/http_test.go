@@ -1,12 +1,18 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/stretchr/testify/require"
+
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 )
 
 // TestIsUnauthorized guards the 401 detection that lets the plain-client-first
@@ -14,6 +20,23 @@ import (
 // different error types depending on whether an OAuth handler is configured;
 // a regression here silently disables OAuth (servers fail with a bare
 // "authorization required" instead of starting the browser flow).
+func TestNewHTTPBackendReturnsWhenServerBlocks(t *testing.T) {
+	unblock := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-unblock
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	defer close(unblock)
+
+	start := time.Now()
+	_, err := newHTTPBackend(context.Background(), "blocked", config.ServerConfig{URL: srv.URL + "/mcp", TimeoutSeconds: 1})
+
+	require.Error(t, err)
+	require.Less(t, time.Since(start), 2*time.Second)
+	require.ErrorContains(t, err, "initialize server")
+}
+
 func TestIsUnauthorized(t *testing.T) {
 	tests := []struct {
 		name string
