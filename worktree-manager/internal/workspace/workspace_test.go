@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -283,6 +284,53 @@ func TestService_Add_CopyFiles(t *testing.T) {
 	data, err := os.ReadFile(dstFile)
 	require.NoError(t, err)
 	assert.Equal(t, `{"key":"value"}`, string(data))
+}
+
+func TestService_Add_CopyFailureReturnsError(t *testing.T) {
+	repoDir := t.TempDir()
+	worktreeBase := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", worktreeBase)
+
+	g := new(mockGitClient)
+	g.On("RepoInfo", repoDir).Return(git.Info{Name: "myrepo", Root: repoDir}, nil)
+	g.On("AddWorktree", repoDir, mock.Anything, "feat").Return(nil).Run(func(args mock.Arguments) {
+		worktreeDir := args.String(1)
+		require.NoError(t, os.MkdirAll(filepath.Join(worktreeDir, "config", "secret.env"), 0o755))
+	})
+
+	srcPath := filepath.Join(repoDir, "config", "secret.env")
+	require.NoError(t, os.MkdirAll(filepath.Dir(srcPath), 0o755))
+	require.NoError(t, os.WriteFile(srcPath, []byte("TOKEN=1"), 0o644))
+
+	cfg := config.Config{CopyFiles: []string{"config/secret.env"}}
+	svc := NewService(g, new(mockTmuxClient), cfg, nopLogger, nil)
+	_, err := svc.AddHeadless(repoDir, "feat")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "copying config/secret.env")
+}
+
+func TestService_Add_SetupFailureReturnsError(t *testing.T) {
+	repoDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	g := new(mockGitClient)
+	g.On("RepoInfo", repoDir).Return(git.Info{Name: "myrepo", Root: repoDir}, nil)
+	g.On("AddWorktree", repoDir, mock.Anything, "feat").Return(nil).Run(func(args mock.Arguments) {
+		worktreeDir := args.String(1)
+		require.NoError(t, os.MkdirAll(filepath.Join(worktreeDir, "scripts"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(worktreeDir, "scripts", "setup.sh"), []byte("#!/bin/sh"), 0o755))
+	})
+
+	runner := new(mockRunner)
+	runner.On("RunDir", mock.Anything, mock.Anything, []string(nil)).Return([]byte("boom"), errors.New("exit 1"))
+
+	cfg := config.Config{SetupScripts: []string{"scripts/setup.sh"}}
+	svc := NewService(g, new(mockTmuxClient), cfg, nopLogger, runner)
+	_, err := svc.AddHeadless(repoDir, "feat")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "running setup script scripts/setup.sh")
 }
 
 func TestService_Remove_RemovesWorktreeAndWindow(t *testing.T) {
