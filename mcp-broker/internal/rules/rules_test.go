@@ -265,6 +265,22 @@ func TestEngine_ArgMatch_RegexMatcher(t *testing.T) {
 	require.Equal(t, Deny, engine.Evaluate("git.commit", map[string]any{"message": "fix: broken test"}))
 }
 
+func TestLintWarningsWarnsOnUnanchoredRegex(t *testing.T) {
+	warnings := LintWarnings([]config.RuleConfig{{
+		Tool:    "git.commit",
+		Verdict: "allow",
+		Args: []config.ArgPattern{
+			{Path: "message", Match: json.RawMessage(`{"regex":"feat"}`)},
+			{Path: "branch", Match: json.RawMessage(`{"regex":"^main$"}`)},
+		},
+	}})
+
+	require.Len(t, warnings, 1)
+	require.Contains(t, warnings[0], "rule 0")
+	require.Contains(t, warnings[0], "args[0]")
+	require.Contains(t, warnings[0], "unanchored regex")
+}
+
 // Constructor errors: bad path returns error mentioning rule and args index.
 func TestEngine_New_BadPath_EmptyPath(t *testing.T) {
 	_, err := New([]config.RuleConfig{

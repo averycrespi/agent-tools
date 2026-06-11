@@ -114,6 +114,9 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("compiling rules: %w", err)
 	}
+	for _, warning := range rules.LintWarnings(cfg.Rules) {
+		logger.Warn("rule lint warning", "warning", warning)
+	}
 
 	// Create dashboard
 	dash := dashboard.NewWithMaxPending(mgr, engine, auditor, logger.With("component", "dashboard"), cfg.MaxPendingApprovals)

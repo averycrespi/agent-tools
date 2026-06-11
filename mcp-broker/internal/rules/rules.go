@@ -1,8 +1,10 @@
 package rules
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 )
@@ -82,6 +84,46 @@ func New(rs []config.RuleConfig) (*Engine, error) {
 // Rules returns the configured rules in evaluation order.
 func (e *Engine) Rules() []config.RuleConfig {
 	return e.rules
+}
+
+func LintWarnings(rs []config.RuleConfig) []string {
+	var warnings []string
+	for i, r := range rs {
+		for j, ap := range r.Args {
+			pattern, ok := regexPattern(ap.Match)
+			if !ok {
+				continue
+			}
+			if !isAnchoredRegex(pattern) {
+				warnings = append(warnings, fmt.Sprintf("rule %d args[%d] path %q uses suspicious unanchored regex %q", i, j, ap.Path, pattern))
+			}
+		}
+	}
+	return warnings
+}
+
+func regexPattern(raw json.RawMessage) (string, bool) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return "", false
+	}
+	if len(obj) != 1 {
+		return "", false
+	}
+	rawPattern, ok := obj["regex"]
+	if !ok {
+		return "", false
+	}
+	var pattern string
+	if err := json.Unmarshal(rawPattern, &pattern); err != nil {
+		return "", false
+	}
+	return pattern, true
+}
+
+func isAnchoredRegex(pattern string) bool {
+	return (strings.HasPrefix(pattern, "^") || strings.HasPrefix(pattern, `\A`)) &&
+		(strings.HasSuffix(pattern, "$") || strings.HasSuffix(pattern, `\z`))
 }
 
 // Evaluate returns the verdict for the given tool name and arguments.
