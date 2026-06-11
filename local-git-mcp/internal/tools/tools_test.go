@@ -22,42 +22,42 @@ type mockGitClient struct {
 	listRemotesFunc    func(repoPath string) ([]git.Remote, error)
 }
 
-func (m *mockGitClient) ValidateRepo(repoPath string) (string, error) {
+func (m *mockGitClient) ValidateRepo(_ context.Context, repoPath string) (string, error) {
 	if m.validateRepoFunc != nil {
 		return m.validateRepoFunc(repoPath)
 	}
 	return repoPath, nil
 }
 
-func (m *mockGitClient) Push(repoPath, remote, refspec string, force bool) (string, error) {
+func (m *mockGitClient) Push(_ context.Context, repoPath, remote, refspec string, force bool) (string, error) {
 	if m.pushFunc != nil {
 		return m.pushFunc(repoPath, remote, refspec, force)
 	}
 	return "", nil
 }
 
-func (m *mockGitClient) Pull(repoPath, remote, branch string, rebase bool) (string, error) {
+func (m *mockGitClient) Pull(_ context.Context, repoPath, remote, branch string, rebase bool) (string, error) {
 	if m.pullFunc != nil {
 		return m.pullFunc(repoPath, remote, branch, rebase)
 	}
 	return "", nil
 }
 
-func (m *mockGitClient) Fetch(repoPath, remote, refspec string) (string, error) {
+func (m *mockGitClient) Fetch(_ context.Context, repoPath, remote, refspec string) (string, error) {
 	if m.fetchFunc != nil {
 		return m.fetchFunc(repoPath, remote, refspec)
 	}
 	return "", nil
 }
 
-func (m *mockGitClient) ListRemoteRefs(repoPath, remote string) ([]git.Ref, error) {
+func (m *mockGitClient) ListRemoteRefs(_ context.Context, repoPath, remote string) ([]git.Ref, error) {
 	if m.listRemoteRefsFunc != nil {
 		return m.listRemoteRefsFunc(repoPath, remote)
 	}
 	return nil, nil
 }
 
-func (m *mockGitClient) ListRemotes(repoPath string) ([]git.Remote, error) {
+func (m *mockGitClient) ListRemotes(_ context.Context, repoPath string) ([]git.Remote, error) {
 	if m.listRemotesFunc != nil {
 		return m.listRemotesFunc(repoPath)
 	}

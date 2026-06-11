@@ -49,6 +49,9 @@ make build
 
 # Explicitly allow all host paths, disabling path sandboxing
 local-git-mcp --allow-all-paths
+
+# Override the default 2 minute git command timeout
+local-git-mcp --timeout 5m /shared/worktrees
 ```
 
 ## Development
