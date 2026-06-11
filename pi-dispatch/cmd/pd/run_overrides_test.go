@@ -94,6 +94,46 @@ func TestRunTaskPersistsCleanupPolicyAndOwnership(t *testing.T) {
 	require.Equal(t, store.CleanupStatusPending, tasks[0].WorktreeCleanupStatus)
 }
 
+func TestRunTaskMarksFailedWhenSupervisorLaunchFails(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "pd.db")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	oldCfg := cfg
+	cfg = pdconfig.Config{DatabasePath: dbPath, DefaultWorktreeCleanupPolicy: "never"}
+	t.Cleanup(func() { cfg = oldCfg })
+	oldRunRepo := runRepo
+	runRepo = "/repo"
+	t.Cleanup(func() { runRepo = oldRunRepo })
+	oldRunBranch := runBranch
+	runBranch = "pd/test"
+	t.Cleanup(func() { runBranch = oldRunBranch })
+
+	runner := &fakeRunRunner{repoRoot: "/repo", branch: "main", startErr: errReleaseFailed}
+	oldNewRunner := newRunner
+	newRunner = func() pdexec.Runner { return runner }
+	t.Cleanup(func() { newRunner = oldNewRunner })
+	withWorktreeClient(t, &fakeRunWorktree{path: "/worktrees/pd-test", created: true})
+	oldNewSandboxClient := newSandboxClient
+	newSandboxClient = func() (sandboxClient, error) { return &fakeRunSandbox{}, nil }
+	t.Cleanup(func() { newSandboxClient = oldNewSandboxClient })
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	err := runTask(cmd, []string{"hello"})
+
+	require.ErrorIs(t, err, errReleaseFailed)
+	st, openErr := store.Open(dbPath)
+	require.NoError(t, openErr)
+	defer st.Close() //nolint:errcheck
+	tasks, listErr := st.ListTasks(context.Background())
+	require.NoError(t, listErr)
+	require.Len(t, tasks, 1)
+	require.Equal(t, store.StatusFailed, tasks[0].Status)
+	run, latestErr := st.LatestRun(context.Background(), tasks[0].ID)
+	require.NoError(t, latestErr)
+	require.Equal(t, store.StatusFailed, run.Status)
+	require.Equal(t, errReleaseFailed.Error(), run.ErrorMessage)
+}
+
 func TestRunTaskDoesNotCleanupWhenSupervisorMayBeLive(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "pd.db")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())

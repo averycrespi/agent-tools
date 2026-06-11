@@ -198,8 +198,18 @@ func reconcileTask(ctx context.Context, db *store.Store, task store.Task, run st
 	if err := db.MarkUnknown(ctx, task.ID); err != nil {
 		return task, err
 	}
+	removeStaleControlSocket(run.ControlSocketPath)
 	task.Status = store.StatusUnknown
 	return task, nil
+}
+
+func removeStaleControlSocket(path string) {
+	if path == "" {
+		return
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return
+	}
 }
 
 func viewTask(task store.Task) taskView {

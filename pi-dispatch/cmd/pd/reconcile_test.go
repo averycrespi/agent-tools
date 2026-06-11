@@ -39,6 +39,7 @@ func TestReconcileStaleRunningTaskMarksUnknownWhenOnlySocketFileRemains(t *testi
 	got, err := reconcileTask(context.Background(), db, task, run, func(int) bool { return false })
 	require.NoError(t, err)
 	require.Equal(t, store.StatusUnknown, got.Status)
+	require.NoFileExists(t, socketPath)
 }
 
 func TestReconcileKeepsRunningTaskWhenPIDExistsAndPingSucceeds(t *testing.T) {
