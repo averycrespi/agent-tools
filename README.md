@@ -8,7 +8,7 @@ This repo is opinionated. It provides structured worktree management, sandboxed 
 
 - **[Worktree Manager](#worktree-manager-wt)** — Manage git worktrees with tmux integration
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
-- **[Pi Dispatch](#pi-dispatch-pd)** — Launch and inspect background Pi runs in worktrees and the sandbox
+- **[Pi Dispatcher](#pi-dispatcher-pd)** — Launch and inspect background Pi runs in worktrees and the sandbox
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
 - **[Broker CLI](#broker-cli)** — CLI frontend for the MCP broker
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
@@ -41,7 +41,7 @@ make check
 # Or, to install individual tools
 cd worktree-manager && make install
 cd sandbox-manager && make install
-cd pi-dispatch && make install
+cd pi-dispatcher && make install
 cd mcp-broker && make install
 cd broker-cli && make install
 cd local-git-mcp && make install
@@ -75,7 +75,7 @@ Running AI agents with full host access is risky — one bad command can trash y
 
 See the [sandbox-manager README](sandbox-manager/README.md) for more information.
 
-### Pi Dispatch (pd)
+### Pi Dispatcher (pd)
 
 Autonomous coding-agent runs need more than a terminal: a clean worktree, sandboxed execution, durable status, logs, and a way to steer or stop the task later. `pd` composes `wt`, `sb`, and Pi RPC into a daemonless local task runner.
 
@@ -83,7 +83,7 @@ Autonomous coding-agent runs need more than a terminal: a clean worktree, sandbo
 - `pd ps`, `pd status`, `pd wait`, `pd logs`, and `pd dashboard` inspect or follow running and completed tasks from persisted state.
 - `pd steer`, `pd followup`, and `pd stop` communicate with the supervisor over a per-task Unix socket when the task is running.
 
-See the [pi-dispatch README](pi-dispatch/README.md) for more information.
+See the [pi-dispatcher README](pi-dispatcher/README.md) for more information.
 
 ### MCP Broker
 

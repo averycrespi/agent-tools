@@ -1,6 +1,6 @@
 # Pi Orchestrator — Ideation (2026-06-10)
 
-A layer above pi-dispatch (`pd`) that decides _when_ and _with what_ to spawn agent runs:
+A layer above pi-dispatcher (`pd`) that decides _when_ and _with what_ to spawn agent runs:
 reusable task templates, cron-like schedules, and external-event triggers (GitHub events, CI
 failures, manual fire). Working name: `po` (pi-orchestrator). This is an ideation document,
 not an implementation plan — it surveys prior art, proposes a shape, and lists open

@@ -50,7 +50,7 @@ calling handler indefinitely. One pattern, four tools:
   flag/config with sane default). Add a test per tool that a stuck subprocess/backend returns
   a timeout error instead of hanging (fake runner that blocks).
 
-### 1.3 worktree-manager + pi-dispatch: concurrency and partial failure [L]
+### 1.3 worktree-manager + pi-dispatcher: concurrency and partial failure [L]
 
 - TOCTOU race in `workspace.go:126-132` (stat-then-`git worktree add`); two concurrent
   `wt add`/`pd run` on the same branch race. Add file locking (`flock` on a per-repo lock
@@ -61,7 +61,7 @@ calling handler indefinitely. One pattern, four tools:
   (remove the worktree), or (b) make `wt add` truly idempotent/resumable and surface copy/
   setup failures as errors instead of debug logs (`workspace.go:136-140`). Update DESIGN.md
   to match the choice.
-- pi-dispatch launch failure path (`cmd/pd/run_impl.go:140-169`): task row created, supervisor
+- pi-dispatcher launch failure path (`cmd/pd/run_impl.go:140-169`): task row created, supervisor
   launch fails, PID never recorded → "unknown" orphan. Ensure launch failure transitions the
   task to a terminal `failed` state and runs cleanup regardless of cleanup policy nuances
   (or records why it didn't).
@@ -182,7 +182,7 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
 
 ### 4.2 Lint config consistency [S]
 
-- `.golangci.yml` exists in 4 of 8 tools (mcp-broker, sandbox-manager, pi-dispatch,
+- `.golangci.yml` exists in 4 of 8 tools (mcp-broker, sandbox-manager, pi-dispatcher,
   worktree-manager) and is missing in broker-cli, local-git-mcp, local-gh-mcp,
   local-gomod-proxy. Pick one shared config (root-level with per-tool inclusion, or copy)
   and apply everywhere. Update "Adding a New Tool" checklist in root CLAUDE.md.
@@ -192,7 +192,7 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
 - worktree-manager DESIGN.md/CLAUDE.md: "idempotent operations" claim (align with 1.3
   decision).
 - sandbox-manager docs: UID/GID claim (align with 1.1).
-- pi-dispatch DESIGN.md: "daemonless" wording — per-task supervisors are long-lived
+- pi-dispatcher DESIGN.md: "daemonless" wording — per-task supervisors are long-lived
   processes; reword to "no central daemon".
 - broker-cli README: `--no-cache` flag missing from flags table.
 - Optional: a tiny doc-drift make target that greps docs for referenced paths/flags and
@@ -227,7 +227,7 @@ status dashboards. Cheap wins first:
 - Watch Lima v2.x (CNCF incubating, AI-sandbox focus: plugins, krunkit, native Lima MCP
   server) — evaluate whether the native MCP server overlaps or composes with mcp-broker.
 
-### 5.3 pi-dispatch [M-L]
+### 5.3 pi-dispatcher [M-L]
 
 - `pd cleanup --all` for batch cleanup of terminal tasks.
 - Optional max-runtime per task (`pd run --max-duration`) so a looping agent can't run
@@ -243,7 +243,7 @@ status dashboards. Cheap wins first:
 
 - mcp-broker already has the audit DB — add OTel-style trace/correlation IDs to audit rows
   (cheap now, mandatory-ish when 2026-07-28 lands).
-- pi-dispatch: per-task token/cost capture if the Pi event stream exposes usage; surface in
+- pi-dispatcher: per-task token/cost capture if the Pi event stream exposes usage; surface in
   `pd ps`/dashboard.
 - Optional `--log-file` (or env) writing structured logs to XDG state dir for the
   long-running services.
@@ -268,7 +268,7 @@ follow the standard new-tool checklist in root CLAUDE.md.
 
 ### 6.2 gate-runner: deterministic quality gate for finished agent work [HIGH]
 
-- Watches for completed pi-dispatch tasks (or invoked as `pd`'s completion hook), runs the
+- Watches for completed pi-dispatcher tasks (or invoked as `pd`'s completion hook), runs the
   repo's deterministic gates (fmt/lint/test/govulncheck) in the worktree, optionally one
   LLM review pass, then notifies and/or opens a draft PR via local-gh-mcp.
 - Why: "agent finished → gate → notify → PR" is universally bespoke bash today; this repo
@@ -289,7 +289,7 @@ follow the standard new-tool checklist in root CLAUDE.md.
 
 ### 6.4 agent-notify: fleet notification/approval multiplexer [MEDIUM]
 
-- Multiplexes events from pi-dispatch tasks, broker approval requests, and hook "ask"
+- Multiplexes events from pi-dispatcher tasks, broker approval requests, and hook "ask"
   decisions into one ntfy.sh topic with per-agent action buttons; button presses route back
   to the right approver (broker approval API, pd steer/stop, hook response).
 - Why: single-session remote control is solved (Happy, official Remote Control); fleet-level

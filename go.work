@@ -6,7 +6,7 @@ use (
 	./local-git-mcp
 	./local-gomod-proxy
 	./mcp-broker
-	./pi-dispatch
+	./pi-dispatcher
 	./sandbox-manager
 	./worktree-manager
 )
