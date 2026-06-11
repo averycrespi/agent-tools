@@ -34,14 +34,14 @@ func TestShowStatusLabelsPiEventsAsRawArtifact(t *testing.T) {
 		require.NoError(t, showStatus(cmd, []string{task.ID}))
 	})
 
-	require.Contains(t, out, "Raw Pi events: /events/pi-events.jsonl")
-	require.Contains(t, out, "Provider: openai")
-	require.Contains(t, out, "Model:    gpt-5")
-	require.Contains(t, out, "Tools:    bash")
-	require.Contains(t, out, "Env:      OPENAI_API_KEY, EMPTY")
+	require.Regexp(t, `Raw Pi events:\s+/events/pi-events\.jsonl`, out)
+	require.Regexp(t, `Provider:\s+openai`, out)
+	require.Regexp(t, `Model:\s+gpt-5`, out)
+	require.Regexp(t, `Tools:\s+bash`, out)
+	require.Regexp(t, `Env:\s+OPENAI_API_KEY, EMPTY`, out)
 	require.NotContains(t, out, "Pi argv:")
 	require.NotContains(t, out, "--system-prompt")
-	require.NotContains(t, out, "Events:  /events/pi-events.jsonl")
+	require.NotRegexp(t, `(^|\s)Events:\s+/events/pi-events\.jsonl`, out)
 	require.NotContains(t, out, "secret")
 }
 

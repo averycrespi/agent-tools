@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -127,60 +128,61 @@ func showStatus(cmd *cobra.Command, args []string) error {
 	if jsonOut {
 		return output.JSON(os.Stdout, view)
 	}
-	if _, err := fmt.Fprintf(os.Stdout, "Task:    %s\nStatus:  %s\nRepo:    %s\nBranch:  %s\nWorktree:%s\n", view.Task.ID, view.Task.Status, view.Task.RepoName, view.Task.Branch, view.Task.WorktreePath); err != nil {
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	if _, err := fmt.Fprintf(tw, "Task:\t%s\nStatus:\t%s\nRepo:\t%s\nBranch:\t%s\nWorktree:\t%s\n", view.Task.ID, view.Task.Status, view.Task.RepoName, view.Task.Branch, view.Task.WorktreePath); err != nil {
 		return err
 	}
 	if view.Task.WorktreeCleanupPolicy != string(store.CleanupPolicyNever) || view.Task.WorktreeCleanupStatus != string(store.CleanupStatusNotRequested) || view.Task.WorktreeCleanupError != "" {
-		if _, err := fmt.Fprintf(os.Stdout, "Cleanup: policy=%s status=%s\n", view.Task.WorktreeCleanupPolicy, view.Task.WorktreeCleanupStatus); err != nil {
+		if _, err := fmt.Fprintf(tw, "Cleanup:\tpolicy=%s status=%s\n", view.Task.WorktreeCleanupPolicy, view.Task.WorktreeCleanupStatus); err != nil {
 			return err
 		}
 		if view.Task.WorktreeCleanupError != "" {
-			if _, err := fmt.Fprintf(os.Stdout, "Cleanup error: %s\n", view.Task.WorktreeCleanupError); err != nil {
+			if _, err := fmt.Fprintf(tw, "Cleanup error:\t%s\n", view.Task.WorktreeCleanupError); err != nil {
 				return err
 			}
 		}
 		if view.Task.WorktreeRemovedAt != nil {
-			if _, err := fmt.Fprintf(os.Stdout, "Worktree removed: %s (branch preserved)\n", view.Task.WorktreeRemovedAt.Format(time.RFC3339)); err != nil {
+			if _, err := fmt.Fprintf(tw, "Worktree removed:\t%s (branch preserved)\n", view.Task.WorktreeRemovedAt.Format(time.RFC3339)); err != nil {
 				return err
 			}
 		}
 	}
 	if view.Run != nil {
-		if _, err := fmt.Fprintf(os.Stdout, "Logs:          %s\nRaw Pi events: %s\n", view.Run.StdoutLogPath, view.Run.PiEventsPath); err != nil {
+		if _, err := fmt.Fprintf(tw, "Logs:\t%s\nRaw Pi events:\t%s\n", view.Run.StdoutLogPath, view.Run.PiEventsPath); err != nil {
 			return err
 		}
 		if view.Run.AgentOptions != nil {
-			if err := printAgentOptions(view.Run.AgentOptions); err != nil {
+			if err := printAgentOptions(tw, view.Run.AgentOptions); err != nil {
 				return err
 			}
 		}
 		if len(view.Run.EnvVarNames) > 0 {
-			if _, err := fmt.Fprintf(os.Stdout, "Env:      %s\n", strings.Join(view.Run.EnvVarNames, ", ")); err != nil {
+			if _, err := fmt.Fprintf(tw, "Env:\t%s\n", strings.Join(view.Run.EnvVarNames, ", ")); err != nil {
 				return err
 			}
 		}
 		if view.Run.EndedAt != nil {
-			if _, err := fmt.Fprintf(os.Stdout, "Ended:   %s\n", view.Run.EndedAt.Format(time.RFC3339)); err != nil {
+			if _, err := fmt.Fprintf(tw, "Ended:\t%s\n", view.Run.EndedAt.Format(time.RFC3339)); err != nil {
 				return err
 			}
 		}
 		if view.Run.ExitCode != nil {
-			if _, err := fmt.Fprintf(os.Stdout, "Exit:    %d\n", *view.Run.ExitCode); err != nil {
+			if _, err := fmt.Fprintf(tw, "Exit:\t%d\n", *view.Run.ExitCode); err != nil {
 				return err
 			}
 		}
 		if view.Run.ErrorMessage != "" {
-			if _, err := fmt.Fprintf(os.Stdout, "Error:   %s\n", view.Run.ErrorMessage); err != nil {
+			if _, err := fmt.Fprintf(tw, "Error:\t%s\n", view.Run.ErrorMessage); err != nil {
 				return err
 			}
 		}
 		if view.Run.PiSessionFile != "" {
-			if _, err := fmt.Fprintf(os.Stdout, "Session: %s\n", view.Run.PiSessionFile); err != nil {
+			if _, err := fmt.Fprintf(tw, "Session:\t%s\n", view.Run.PiSessionFile); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
+	return tw.Flush()
 }
 
 const startingPingGrace = 3 * time.Second
@@ -260,31 +262,31 @@ func (a agentOptionsView) hasValues() bool {
 	return a.Provider != "" || a.Model != "" || a.Thinking != "" || len(a.Tools) > 0 || a.DisableBuiltinTools || a.DisableAllTools || len(a.Extensions) > 0 || a.DisableExtensionDiscovery || len(a.Skills) > 0 || a.DisableSkillDiscovery || a.DisableContextFiles || a.SessionDir != ""
 }
 
-func printAgentOptions(agent *agentOptionsView) error {
+func printAgentOptions(w io.Writer, agent *agentOptionsView) error {
 	printValue := func(label, value string) error {
 		if value == "" {
 			return nil
 		}
-		_, err := fmt.Fprintf(os.Stdout, "%s %s\n", label, value)
+		_, err := fmt.Fprintf(w, "%s\t%s\n", label, value)
 		return err
 	}
 	printBool := func(label string, value bool) error {
 		if !value {
 			return nil
 		}
-		_, err := fmt.Fprintf(os.Stdout, "%s true\n", label)
+		_, err := fmt.Fprintf(w, "%s\ttrue\n", label)
 		return err
 	}
 	if err := printValue("Provider:", agent.Provider); err != nil {
 		return err
 	}
-	if err := printValue("Model:   ", agent.Model); err != nil {
+	if err := printValue("Model:", agent.Model); err != nil {
 		return err
 	}
 	if err := printValue("Thinking:", agent.Thinking); err != nil {
 		return err
 	}
-	if err := printValue("Tools:   ", strings.Join(agent.Tools, ", ")); err != nil {
+	if err := printValue("Tools:", strings.Join(agent.Tools, ", ")); err != nil {
 		return err
 	}
 	if err := printBool("No builtin tools:", agent.DisableBuiltinTools); err != nil {
@@ -299,7 +301,7 @@ func printAgentOptions(agent *agentOptionsView) error {
 	if err := printBool("No extensions:", agent.DisableExtensionDiscovery); err != nil {
 		return err
 	}
-	if err := printValue("Skills:  ", strings.Join(agent.Skills, ", ")); err != nil {
+	if err := printValue("Skills:", strings.Join(agent.Skills, ", ")); err != nil {
 		return err
 	}
 	if err := printBool("No skills:", agent.DisableSkillDiscovery); err != nil {
