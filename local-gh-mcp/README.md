@@ -125,6 +125,9 @@ make build
     }
   }
 }
+
+# Override the default 2 minute gh command timeout
+local-gh-mcp --timeout 5m
 ```
 
 ## Development

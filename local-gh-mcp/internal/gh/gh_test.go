@@ -25,7 +25,7 @@ type mockRunner struct {
 	runFunc func(name string, args ...string) ([]byte, error)
 }
 
-func (m *mockRunner) Run(name string, args ...string) ([]byte, error) {
+func (m *mockRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
 	if m.runFunc != nil {
 		return m.runFunc(name, args...)
 	}
