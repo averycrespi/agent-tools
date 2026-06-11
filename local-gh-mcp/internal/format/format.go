@@ -3,6 +3,7 @@
 package format
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -10,8 +11,27 @@ import (
 
 // Author represents a GitHub user in JSON responses.
 type Author struct {
-	Login string `json:"login"`
-	IsBot bool   `json:"is_bot"`
+	Login    string `json:"login"`
+	IsBot    bool   `json:"is_bot"`
+	IsBotSet bool   `json:"-"`
+}
+
+func (a *Author) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Login string `json:"login"`
+		IsBot *bool  `json:"is_bot"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	a.Login = raw.Login
+	a.IsBotSet = raw.IsBot != nil
+	if raw.IsBot != nil {
+		a.IsBot = *raw.IsBot
+	} else {
+		a.IsBot = false
+	}
+	return nil
 }
 
 // Label represents a GitHub label.
@@ -20,14 +40,13 @@ type Label struct {
 }
 
 // FormatAuthor returns "@login" or "@login [bot]".
-// If login ends with the literal suffix "[bot]", the suffix is stripped and
-// the author is treated as a bot regardless of the IsBot field. This handles
-// endpoints (e.g. releases) where is_bot is not populated but the login
-// already encodes the bot marker.
+// If login ends with the literal suffix "[bot]" and is_bot is absent, the
+// suffix is stripped and the author is treated as a bot. This handles endpoints
+// where is_bot is not populated but the login already encodes the bot marker.
 func FormatAuthor(a Author) string {
 	login := a.Login
 	isBot := a.IsBot
-	if strings.HasSuffix(login, "[bot]") {
+	if !a.IsBotSet && strings.HasSuffix(login, "[bot]") {
 		login = strings.TrimSuffix(login, "[bot]")
 		isBot = true
 	}

@@ -1,6 +1,7 @@
 package format
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,10 +22,18 @@ func TestFormatAuthor_Empty(t *testing.T) {
 	assert.Equal(t, "@unknown", got)
 }
 
-func TestFormatAuthor_BotSuffix_IsBot_False(t *testing.T) {
-	// Defensive path: login carries "[bot]" suffix even when IsBot is false.
-	got := FormatAuthor(Author{Login: "github-actions[bot]", IsBot: false})
+func TestFormatAuthor_BotSuffix_IsBot_Absent(t *testing.T) {
+	// Defensive path: login carries "[bot]" suffix when IsBot is absent.
+	got := FormatAuthor(Author{Login: "github-actions[bot]"})
 	assert.Equal(t, "@github-actions [bot]", got)
+}
+
+func TestFormatAuthor_ExplicitNotBotBeatsSuffixHeuristic(t *testing.T) {
+	var author Author
+	assert.NoError(t, json.Unmarshal([]byte(`{"login":"github-actions[bot]","is_bot":false}`), &author))
+
+	got := FormatAuthor(author)
+	assert.Equal(t, "@github-actions[bot]", got)
 }
 
 func TestFormatAuthor_BotSuffix_IsBot_True(t *testing.T) {
