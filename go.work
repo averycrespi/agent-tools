@@ -1,7 +1,6 @@
 go 1.25.9
 
 use (
-	./local-gh-mcp
 	./local-git-mcp
 	./local-gomod-proxy
 	./mcp-broker

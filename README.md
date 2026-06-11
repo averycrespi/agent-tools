@@ -11,7 +11,6 @@ This repo is opinionated. It provides structured worktree management, sandboxed 
 - **[Pi Dispatcher](#pi-dispatcher-pd)** — Launch and inspect background Pi runs in worktrees and the sandbox
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
-- **[Local GH MCP](#local-gh-mcp)** — Stdio MCP server for GitHub operations via the gh CLI
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
 - **[Hindsight](#hindsight)** — Local memory server stack for AI agents
 
@@ -43,7 +42,6 @@ cd sandbox-manager && make install
 cd pi-dispatcher && make install
 cd mcp-broker && make install
 cd local-git-mcp && make install
-cd local-gh-mcp && make install
 cd local-gomod-proxy && make install
 ```
 
@@ -109,19 +107,6 @@ Sandboxed agents can do most git operations locally — staging, committing, dif
 - No config, no state, no network listener — spawned as a subprocess over stdio.
 
 See the [local-git-mcp README](local-git-mcp/README.md) for more information.
-
-### Local GH MCP
-
-Sandboxed agents need to interact with GitHub — opening PRs, reading issues, checking CI, debugging workflow failures — but giving them credentials defeats the purpose of sandboxing. There's an official GitHub MCP server, but it requires OAuth (with a GitHub App) or a powerful personal access token. Meanwhile, the host machine already has `gh` authenticated. What you want is a host-side MCP server that reuses that existing `gh` login instead of demanding its own secret.
-
-`local-gh-mcp` is a stdio MCP server that runs on the host and shells out to the `gh` CLI:
-
-- Covers PRs, issues, workflow runs, Actions caches, and search across repos — over two dozen tools in all.
-- Uses the host's existing `gh auth login`; no tokens or OAuth flow inside the sandbox.
-- Read tools return structured Markdown (not raw JSON) with authors flattened to `@login` and long bodies truncated, which is a better fit for LLM consumption.
-- Designed to sit behind `mcp-broker`, so the broker's rules and audit log apply to every GitHub call.
-
-See the [local-gh-mcp README](local-gh-mcp/README.md) for more information.
 
 ### Local Gomod Proxy
 

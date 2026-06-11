@@ -8,7 +8,7 @@ launchd does not source your shell profile, so backend MCP servers configured wi
 
 The path of least resistance is to use backends that read host credentials from the macOS Keychain rather than from process env:
 
-- **GitHub** — use [`local-gh-mcp`](../../local-gh-mcp/) instead of the upstream npx server. It shells out to `gh`, which reads its token from the Keychain (unlocked at login) — no env vars needed.
+- **GitHub** — use the official remote GitHub MCP server (`https://api.githubcopilot.com/mcp/`). It authenticates over OAuth, and the broker stores the refresh token in the Keychain — no env vars needed.
 - **Git operations** — use [`local-git-mcp`](../../local-git-mcp/) with `gh auth setup-git` configured on the host.
 
 If you do need to inject a secret, uncomment the relevant block in `examples/launchd/mcp-broker.plist` and paste the value. The plist file should stay `chmod 600` (which `launchctl bootstrap` enforces). Shell exports in `.zshrc`/`.bashrc` won't reach launchd.

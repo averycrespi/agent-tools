@@ -41,8 +41,8 @@
              exec. Defaults cover Homebrew on Apple Silicon
              (/opt/homebrew/bin), Homebrew on Intel (/usr/local/bin), the
              official Go tarball layout (/usr/local/go/bin), and ~/go/bin
-             (where `go install` drops local-gh-mcp / local-git-mcp). Add
-             ~/.asdf/shims or similar if your stdio backends need npx. -->
+             (where `go install` drops local-git-mcp). Add ~/.asdf/shims or
+             similar if your stdio backends need npx. -->
         <key>PATH</key>
         <string>/Users/USERNAME/go/bin:/opt/homebrew/bin:/usr/local/bin:/usr/local/go/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
 
@@ -51,8 +51,8 @@
              vars present in the broker's process environment. Shell exports
              in .zshrc/.bashrc don't reach launchd, so add them here. The
              recommended path is to use backends that read host credentials
-             from the macOS Keychain (e.g. local-gh-mcp via `gh auth`,
-             local-git-mcp via `gh auth setup-git`) so this block stays
+             from the macOS Keychain (e.g. the official remote GitHub MCP via
+             OAuth, local-git-mcp via `gh auth setup-git`) so this block stays
              empty. -->
         <!--
         <key>GITHUB_TOKEN</key>
