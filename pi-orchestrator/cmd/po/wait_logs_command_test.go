@@ -46,6 +46,29 @@ func TestWaitCommandReturnsErrorForFailedWorkflowRun(t *testing.T) {
 	}
 }
 
+func TestWaitCommandMarksMissingSupervisorUnknown(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, t.TempDir(), stateDir)
+	seedWaitLogsWorkflowRun(t, stateDir, store.StateRunning)
+	waitPollInterval = time.Millisecond
+	supervisorProcessAlive = func(int) bool { return false }
+	t.Cleanup(func() {
+		waitPollInterval = time.Second
+		supervisorProcessAlive = defaultSupervisorProcessAlive
+	})
+
+	stdout, err := executeCommand("wait", "run-1", "--timeout", "50ms")
+	if err == nil {
+		t.Fatal("wait error = nil, want unknown workflow error")
+	}
+	if strings.TrimSpace(stdout) != "run-1 unknown" {
+		t.Fatalf("stdout = %q, want unknown line", stdout)
+	}
+	if !strings.Contains(err.Error(), "workflow run run-1 unknown") {
+		t.Fatalf("error = %q, want unknown workflow", err.Error())
+	}
+}
+
 func TestLogsCommandShowsSupervisorLogAndPDLogPointers(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	cfg = testConfig(t, t.TempDir(), stateDir)

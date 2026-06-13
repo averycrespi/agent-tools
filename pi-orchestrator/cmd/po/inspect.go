@@ -35,6 +35,13 @@ func listWorkflowRuns(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	for i := range runs {
+		reconciled, err := reconcileWorkflowRun(cmd.Context(), db, runs[i])
+		if err != nil {
+			return err
+		}
+		runs[i] = reconciled
+	}
 	if jsonOut {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(runs)
 	}
@@ -60,6 +67,11 @@ func showWorkflowRunStatus(cmd *cobra.Command, args []string) error {
 		}
 		return err
 	}
+	reconciled, err := reconcileWorkflowRun(cmd.Context(), db, detail.Run)
+	if err != nil {
+		return err
+	}
+	detail.Run = reconciled
 	if jsonOut {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(detail)
 	}

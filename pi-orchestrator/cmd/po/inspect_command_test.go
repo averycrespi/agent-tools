@@ -13,6 +13,8 @@ import (
 func TestPSCommandListsWorkflowRuns(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	cfg = testConfig(t, t.TempDir(), stateDir)
+	supervisorProcessAlive = func(int) bool { return true }
+	t.Cleanup(func() { supervisorProcessAlive = defaultSupervisorProcessAlive })
 	seedInspectWorkflowRun(t, stateDir)
 
 	stdout, err := executeCommand("ps")
@@ -27,6 +29,8 @@ func TestPSCommandListsWorkflowRuns(t *testing.T) {
 func TestStatusCommandShowsWorkflowRunDetail(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	cfg = testConfig(t, t.TempDir(), stateDir)
+	supervisorProcessAlive = func(int) bool { return true }
+	t.Cleanup(func() { supervisorProcessAlive = defaultSupervisorProcessAlive })
 	seedInspectWorkflowRun(t, stateDir)
 
 	stdout, err := executeCommand("status", "run-1")

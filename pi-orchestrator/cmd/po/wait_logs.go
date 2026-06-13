@@ -93,6 +93,11 @@ func showWorkflowRunLogs(cmd *cobra.Command, args []string) error {
 		}
 		return err
 	}
+	reconciled, err := reconcileWorkflowRun(cmd.Context(), db, detail.Run)
+	if err != nil {
+		return err
+	}
+	detail.Run = reconciled
 	if detail.Run.SupervisorLogPath != "" {
 		file, err := os.Open(detail.Run.SupervisorLogPath) //nolint:gosec
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -137,7 +142,7 @@ func getWorkflowRun(ctx context.Context, runID string) (store.WorkflowRun, error
 		}
 		return store.WorkflowRun{}, err
 	}
-	return run, nil
+	return reconcileWorkflowRun(ctx, db, run)
 }
 
 func isTerminalState(state store.State) bool {

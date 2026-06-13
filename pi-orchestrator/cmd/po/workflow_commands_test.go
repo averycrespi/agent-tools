@@ -72,6 +72,7 @@ func executeCommand(args ...string) (string, error) {
 		cleanupDryRun = false
 		supervisorRunID = ""
 		newStepRunner = defaultNewStepRunner
+		supervisorProcessAlive = defaultSupervisorProcessAlive
 	}()
 	err := Execute()
 	return stdout.String(), err

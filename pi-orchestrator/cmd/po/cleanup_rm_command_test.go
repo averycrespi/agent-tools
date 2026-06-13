@@ -57,6 +57,8 @@ func TestCleanupRejectsNonTerminalRun(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	cfg = testConfig(t, t.TempDir(), stateDir)
 	installFakeWorktreeRemover(t)
+	supervisorProcessAlive = func(int) bool { return true }
+	t.Cleanup(func() { supervisorProcessAlive = defaultSupervisorProcessAlive })
 	seedCleanupWorkflowRun(t, stateDir, store.StateRunning)
 
 	_, err := executeCommand("cleanup", "run-1")
