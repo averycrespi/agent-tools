@@ -85,7 +85,7 @@ func showWorkflowRunStatus(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		for _, step := range detail.Steps {
-			if _, err := fmt.Fprintf(tw, "  %s\t%s\tagent=%s\tpd_task=%s\tpd_run=%s\n", step.StepID, step.State, step.Agent, step.PDTaskID, step.PDRunID); err != nil {
+			if _, err := fmt.Fprintf(tw, "  %s\t%s\tagent=%s\tpd_task=%s\tpd_run=%s\tstdout=%s\tstderr=%s\tevents=%s\n", step.StepID, step.State, step.Agent, step.PDTaskID, step.PDRunID, step.PDStdoutPath, step.PDStderrPath, step.PDEventsPath); err != nil {
 				return err
 			}
 		}

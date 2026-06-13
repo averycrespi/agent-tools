@@ -49,7 +49,7 @@ func (r DispatcherRunner) StartStep(ctx context.Context, req StepRequest) (StepH
 	if err != nil {
 		return nil, err
 	}
-	return dispatcherStepHandle{client: r.Client, started: StepResult{PDTaskID: result.TaskID, PDRunID: result.RunID, State: store.StateRunning}}, nil
+	return dispatcherStepHandle{client: r.Client, started: StepResult{PDTaskID: result.TaskID, PDRunID: result.RunID, PDStdoutPath: result.StdoutPath, PDStderrPath: result.StderrPath, PDEventsPath: result.PiEventsPath, State: store.StateRunning}}, nil
 }
 
 type dispatcherStepHandle struct {
@@ -62,9 +62,9 @@ func (h dispatcherStepHandle) Started() StepResult { return h.started }
 func (h dispatcherStepHandle) Wait(ctx context.Context) (StepResult, error) {
 	info, err := h.client.WaitTaskRun(ctx, pddispatcher.WaitTaskRunRequest{TaskID: h.started.PDTaskID, RunID: h.started.PDRunID})
 	if err != nil {
-		return StepResult{PDTaskID: h.started.PDTaskID, PDRunID: h.started.PDRunID, State: store.StateFailed, Outcome: err.Error()}, err
+		return StepResult{PDTaskID: h.started.PDTaskID, PDRunID: h.started.PDRunID, PDStdoutPath: h.started.PDStdoutPath, PDStderrPath: h.started.PDStderrPath, PDEventsPath: h.started.PDEventsPath, State: store.StateFailed, Outcome: err.Error()}, err
 	}
-	return StepResult{PDTaskID: h.started.PDTaskID, PDRunID: h.started.PDRunID, State: mapPDStatus(info.Status), Outcome: info.ErrorMessage}, nil
+	return StepResult{PDTaskID: h.started.PDTaskID, PDRunID: h.started.PDRunID, PDStdoutPath: h.started.PDStdoutPath, PDStderrPath: h.started.PDStderrPath, PDEventsPath: h.started.PDEventsPath, State: mapPDStatus(info.Status), Outcome: info.ErrorMessage}, nil
 }
 
 func mapPDStatus(status pddispatcher.TaskRunStatus) store.State {

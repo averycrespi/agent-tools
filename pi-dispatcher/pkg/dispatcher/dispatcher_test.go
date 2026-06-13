@@ -78,7 +78,7 @@ func TestGetTaskRunReturnsStateAndMetadata(t *testing.T) {
 	t.Parallel()
 	client, result := startedTaskRun(t)
 
-	info, err := client.GetTaskRun(context.Background(), GetTaskRunRequest(result))
+	info, err := client.GetTaskRun(context.Background(), GetTaskRunRequest{TaskID: result.TaskID, RunID: result.RunID})
 	if err != nil {
 		t.Fatalf("GetTaskRun() error = %v", err)
 	}

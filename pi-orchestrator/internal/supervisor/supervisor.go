@@ -25,10 +25,13 @@ type StepRequest struct {
 }
 
 type StepResult struct {
-	PDTaskID string
-	PDRunID  string
-	State    store.State
-	Outcome  string
+	PDTaskID     string
+	PDRunID      string
+	PDStdoutPath string
+	PDStderrPath string
+	PDEventsPath string
+	State        store.State
+	Outcome      string
 }
 
 type StepRunner interface {
@@ -155,7 +158,7 @@ func startAndPersistStep(ctx context.Context, db *store.Store, runner StepRunner
 
 func createRunningStep(ctx context.Context, db *store.Store, run store.WorkflowRun, step workflow.Step, executionIndex int, artifacts []store.Artifact, result StepResult) error {
 	now := time.Now().UTC()
-	stepRun := store.StepRun{WorkflowRunID: run.ID, StepID: step.ID, Agent: step.Agent, ExecutionIndex: executionIndex, State: store.StateRunning, PDTaskID: result.PDTaskID, PDRunID: result.PDRunID, StartedAt: now, UpdatedAt: now}
+	stepRun := store.StepRun{WorkflowRunID: run.ID, StepID: step.ID, Agent: step.Agent, ExecutionIndex: executionIndex, State: store.StateRunning, PDTaskID: result.PDTaskID, PDRunID: result.PDRunID, PDStdoutPath: result.PDStdoutPath, PDStderrPath: result.PDStderrPath, PDEventsPath: result.PDEventsPath, StartedAt: now, UpdatedAt: now}
 	return db.CreateStepRun(ctx, stepRun, artifacts)
 }
 

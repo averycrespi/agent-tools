@@ -39,8 +39,11 @@ type StartTaskRunRequest struct {
 }
 
 type StartTaskRunResult struct {
-	TaskID string
-	RunID  string
+	TaskID       string
+	RunID        string
+	StdoutPath   string
+	StderrPath   string
+	PiEventsPath string
 }
 
 type TaskRunStatus string
@@ -163,7 +166,7 @@ func (c *Client) StartTaskRun(ctx context.Context, req StartTaskRunRequest) (Sta
 	if err := db.UpdateRunSupervisorPID(ctx, taskID, pid); err != nil {
 		return StartTaskRunResult{}, err
 	}
-	return StartTaskRunResult{TaskID: taskID, RunID: runID}, nil
+	return StartTaskRunResult{TaskID: taskID, RunID: runID, StdoutPath: run.StdoutLogPath, StderrPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath}, nil
 }
 
 func (c *Client) GetTaskRun(ctx context.Context, req GetTaskRunRequest) (TaskRunInfo, error) {

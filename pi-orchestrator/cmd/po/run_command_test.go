@@ -157,8 +157,14 @@ func TestRunCommandCreatesWorkflowRunWithOneWorktree(t *testing.T) {
 	if launcher.logPath != run.SupervisorLogPath {
 		t.Fatalf("supervisor log path = %q, want %q", launcher.logPath, run.SupervisorLogPath)
 	}
-	if len(launcher.args) != 2 || launcher.args[0] != "--run-id" || launcher.args[1] != run.ID {
-		t.Fatalf("supervisor args = %#v, want --run-id", launcher.args)
+	wantArgs := []string{"--workflow-dir", cfg.WorkflowDir, "--run-id", run.ID}
+	if len(launcher.args) != len(wantArgs) {
+		t.Fatalf("supervisor args = %#v, want %#v", launcher.args, wantArgs)
+	}
+	for i := range wantArgs {
+		if launcher.args[i] != wantArgs[i] {
+			t.Fatalf("supervisor args = %#v, want %#v", launcher.args, wantArgs)
+		}
 	}
 	if run.WorktreePath != "/worktrees/po-review-abcd" {
 		t.Fatalf("WorktreePath = %q", run.WorktreePath)

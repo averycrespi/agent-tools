@@ -59,6 +59,9 @@ type StepRun struct {
 	State          State
 	PDTaskID       string
 	PDRunID        string
+	PDStdoutPath   string
+	PDStderrPath   string
+	PDEventsPath   string
 	Outcome        string
 	StartedAt      time.Time
 	UpdatedAt      time.Time
@@ -125,6 +128,9 @@ CREATE TABLE IF NOT EXISTS step_runs (
     state           TEXT NOT NULL,
     pd_task_id      TEXT NOT NULL DEFAULT '',
     pd_run_id       TEXT NOT NULL DEFAULT '',
+    pd_stdout_path  TEXT NOT NULL DEFAULT '',
+    pd_stderr_path  TEXT NOT NULL DEFAULT '',
+    pd_events_path  TEXT NOT NULL DEFAULT '',
     outcome         TEXT NOT NULL DEFAULT '',
     started_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL,
@@ -167,7 +173,54 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
+	if err := ensureStepRunMetadataColumns(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return &Store{db: db}, nil
+}
+
+func ensureStepRunMetadataColumns(db *sql.DB) error {
+	columns, err := tableColumns(db, "step_runs")
+	if err != nil {
+		return fmt.Errorf("inspect step_runs schema: %w", err)
+	}
+	add := func(name string) error {
+		if columns[name] {
+			return nil
+		}
+		if _, err := db.Exec(`ALTER TABLE step_runs ADD COLUMN ` + name + ` TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("add step_runs %s column: %w", name, err)
+		}
+		return nil
+	}
+	for _, name := range []string{"pd_stdout_path", "pd_stderr_path", "pd_events_path"} {
+		if err := add(name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull int
+		var defaultValue any
+		var primaryKey int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return nil, err
+		}
+		columns[name] = true
+	}
+	return columns, rows.Err()
 }
 
 func (s *Store) Close() error {
@@ -228,7 +281,7 @@ func (s *Store) CreateStepRun(ctx context.Context, step StepRun, artifacts []Art
 		return fmt.Errorf("begin create step run: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck
-	if _, err := tx.ExecContext(ctx, `INSERT INTO step_runs (workflow_run_id, step_id, agent, execution_index, state, pd_task_id, pd_run_id, outcome, started_at, updated_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, step.WorkflowRunID, step.StepID, step.Agent, step.ExecutionIndex, string(step.State), step.PDTaskID, step.PDRunID, step.Outcome, formatTime(step.StartedAt), formatTime(step.UpdatedAt), nullTimeString(step.EndedAt)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO step_runs (workflow_run_id, step_id, agent, execution_index, state, pd_task_id, pd_run_id, pd_stdout_path, pd_stderr_path, pd_events_path, outcome, started_at, updated_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, step.WorkflowRunID, step.StepID, step.Agent, step.ExecutionIndex, string(step.State), step.PDTaskID, step.PDRunID, step.PDStdoutPath, step.PDStderrPath, step.PDEventsPath, step.Outcome, formatTime(step.StartedAt), formatTime(step.UpdatedAt), nullTimeString(step.EndedAt)); err != nil {
 		return fmt.Errorf("insert step run: %w", err)
 	}
 	for _, artifact := range artifacts {
@@ -293,7 +346,7 @@ func (s *Store) UpdateWorkflowRunState(ctx context.Context, id string, state Sta
 }
 
 func (s *Store) RunningStepRun(ctx context.Context, workflowRunID string) (StepRun, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT workflow_run_id, step_id, agent, execution_index, state, pd_task_id, pd_run_id, outcome, started_at, updated_at, ended_at FROM step_runs WHERE workflow_run_id = ? AND state IN ('starting', 'running', 'stopping') ORDER BY execution_index LIMIT 1`, workflowRunID)
+	row := s.db.QueryRowContext(ctx, `SELECT workflow_run_id, step_id, agent, execution_index, state, pd_task_id, pd_run_id, pd_stdout_path, pd_stderr_path, pd_events_path, outcome, started_at, updated_at, ended_at FROM step_runs WHERE workflow_run_id = ? AND state IN ('starting', 'running', 'stopping') ORDER BY execution_index LIMIT 1`, workflowRunID)
 	return scanStepRun(row)
 }
 
@@ -331,7 +384,7 @@ func (s *Store) DeleteWorkflowRun(ctx context.Context, id string) error {
 }
 
 func (s *Store) listStepRuns(ctx context.Context, workflowRunID string) ([]StepRun, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT workflow_run_id, step_id, agent, execution_index, state, pd_task_id, pd_run_id, outcome, started_at, updated_at, ended_at FROM step_runs WHERE workflow_run_id = ? ORDER BY execution_index`, workflowRunID)
+	rows, err := s.db.QueryContext(ctx, `SELECT workflow_run_id, step_id, agent, execution_index, state, pd_task_id, pd_run_id, pd_stdout_path, pd_stderr_path, pd_events_path, outcome, started_at, updated_at, ended_at FROM step_runs WHERE workflow_run_id = ? ORDER BY execution_index`, workflowRunID)
 	if err != nil {
 		return nil, fmt.Errorf("list step runs: %w", err)
 	}
@@ -402,7 +455,7 @@ func scanStepRun(row interface{ Scan(...any) error }) (StepRun, error) {
 	var startedAt string
 	var updatedAt string
 	var endedAt sql.NullString
-	if err := row.Scan(&step.WorkflowRunID, &step.StepID, &step.Agent, &step.ExecutionIndex, &state, &step.PDTaskID, &step.PDRunID, &step.Outcome, &startedAt, &updatedAt, &endedAt); err != nil {
+	if err := row.Scan(&step.WorkflowRunID, &step.StepID, &step.Agent, &step.ExecutionIndex, &state, &step.PDTaskID, &step.PDRunID, &step.PDStdoutPath, &step.PDStderrPath, &step.PDEventsPath, &step.Outcome, &startedAt, &updatedAt, &endedAt); err != nil {
 		return StepRun{}, fmt.Errorf("scan step run: %w", err)
 	}
 	step.State = State(state)

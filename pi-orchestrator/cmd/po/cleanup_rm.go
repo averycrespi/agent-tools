@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -64,9 +65,29 @@ func cleanupWorkflowRun(cmd *cobra.Command, args []string) error {
 		if err := os.RemoveAll(run.ArtifactRoot); err != nil {
 			return fmt.Errorf("remove artifacts %s: %w", run.ArtifactRoot, err)
 		}
+		if err := markRunArtifactsRemoved(cmd.Context(), run.ID); err != nil {
+			return err
+		}
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s cleaned up\n", run.ID)
 	return err
+}
+
+func markRunArtifactsRemoved(ctx context.Context, runID string) error {
+	db, err := store.Open(cfg.DBPath())
+	if err != nil {
+		return err
+	}
+	defer db.Close() //nolint:errcheck
+	detail, err := db.GetWorkflowRunDetail(ctx, runID)
+	if err != nil {
+		return err
+	}
+	for i := range detail.Artifacts {
+		detail.Artifacts[i].Exists = false
+		detail.Artifacts[i].UpdatedAt = nowFunc().UTC()
+	}
+	return db.UpdateArtifactExistence(ctx, detail.Artifacts)
 }
 
 func removeWorkflowRunMetadata(cmd *cobra.Command, args []string) error {

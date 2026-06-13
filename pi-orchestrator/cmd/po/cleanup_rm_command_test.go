@@ -48,6 +48,18 @@ func TestCleanupRemovesTerminalRunWorktreeAndArtifacts(t *testing.T) {
 	if _, err := os.Stat(paths.artifacts); !os.IsNotExist(err) {
 		t.Fatalf("artifacts stat error = %v, want not exist", err)
 	}
+	db, err := store.Open(filepath.Join(stateDir, "po", "po.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+	detail, err := db.GetWorkflowRunDetail(context.Background(), "run-1")
+	if err != nil {
+		t.Fatalf("GetWorkflowRunDetail() error = %v", err)
+	}
+	if len(detail.Artifacts) != 1 || detail.Artifacts[0].Exists {
+		t.Fatalf("artifacts = %+v, want metadata marked removed", detail.Artifacts)
+	}
 	if !fakeWT.called || fakeWT.repoRoot != "/repo" || fakeWT.branch != "po/sample" {
 		t.Fatalf("worktree remover = %+v, want persisted repo and branch", fakeWT)
 	}
@@ -136,6 +148,15 @@ func seedCleanupWorkflowRun(t *testing.T, stateDir string, state store.State) cl
 	run := store.WorkflowRun{ID: "run-1", RequestID: "req-1", Workflow: "sample", DefinitionHash: "hash", InputsJSON: `{}`, Repo: "/repo", Branch: "po/sample", WorktreePath: worktree, ArtifactRoot: artifacts, State: state, SupervisorLogPath: filepath.Join(root, "supervisor.log"), CreatedAt: now, UpdatedAt: now}
 	if err := db.CreateRunRequestWithWorkflowRun(context.Background(), req, run); err != nil {
 		t.Fatalf("create run: %v", err)
+	}
+	artifactPath := filepath.Join(artifacts, "out.md")
+	if err := os.WriteFile(artifactPath, []byte("out"), 0o600); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+	step := store.StepRun{WorkflowRunID: "run-1", StepID: "review", Agent: "reviewer", ExecutionIndex: 0, State: state, StartedAt: now, UpdatedAt: now}
+	artifact := store.Artifact{WorkflowRunID: "run-1", StepID: "review", Name: "out", RelativePath: "out.md", AbsolutePath: artifactPath, Required: true, Exists: true, UpdatedAt: now}
+	if err := db.CreateStepRun(context.Background(), step, []store.Artifact{artifact}); err != nil {
+		t.Fatalf("create step: %v", err)
 	}
 	return cleanupPaths{worktree: worktree, artifacts: artifacts}
 }
