@@ -82,12 +82,12 @@ indefinitely. One pattern, three tools:
 
 Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
 
-### 2.1 mcp-broker: tool-description pinning / rug-pull detection [M]
+### 2.1 mcp-broker: tool-description pinning / rug-pull detection [M] — SKIPPED
 
-- Tool poisoning via changed upstream tool descriptions is a named 2025-26 attack class
-  (CVE-2025-54136). On startup, hash each backend tool's name+description+schema; persist
-  hashes (SQLite or config dir). On change, log loudly and optionally flip the tool to
-  `require-approval` until the operator re-pins (`mcp-broker pin <server>`).
+- Decision: do not add tool-description/schema pinning right now.
+- Rationale: the broker is local and single-user, upstream server configuration is explicit,
+  and adding pin storage plus re-pin CLI surface area is not worth the complexity until backend
+  tool drift becomes a recurring operational concern.
 
 ### 2.2 mcp-broker: request limits and approval backpressure [M]
 
@@ -225,8 +225,9 @@ status dashboards. Cheap wins first:
   forever; ties into supervisor stop path — RESOLVED. The per-run max duration is persisted
   on the run row, enforced by the detached supervisor, and finalizes timed-out tasks as
   `failed` with a `max duration exceeded` error.
-- Dashboard: token rotation currently strands running dashboards — have the dashboard reload
-  the token or document restart requirement.
+- Dashboard token rotation behavior — SKIPPED. Running dashboards can be restarted after
+  rotating tokens; adding live token reload is not worth extra lifecycle complexity for a
+  local on-demand dashboard.
 - Completion gate hook (see new-tool 6.2 — could live inside pd): on task terminal-success,
   optionally run a configured gate command (make audit, tests) in the worktree and record
   pass/fail in task state. This is the "agent finished → gate → human review" pattern the
