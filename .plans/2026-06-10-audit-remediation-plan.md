@@ -148,11 +148,11 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
   in this remediation plan. Revisit once `mcp-go` ships stable support for `Mcp-Method`/
   `Mcp-Name`, list cache metadata, and Trace Context propagation.
 
-### 3.3 mcp-broker: elicitation-based approvals [M, optional]
+### 3.3 mcp-broker: elicitation-based approvals [M, optional] — SKIPPED
 
-- The spec-native human-in-the-loop primitive is `elicitation/create`. Today approval goes
-  through dashboard/Telegram. Consider also surfacing approval as elicitation back to the
-  calling client when the client supports it — keeps the human in the agent's own UI.
+- Decision: do not add elicitation-based approvals now.
+- Rationale: dashboard/Telegram approvals cover the current workflow, and elicitation support
+  should wait until client/server support is mature enough to justify parallel approval paths.
 
 ---
 
