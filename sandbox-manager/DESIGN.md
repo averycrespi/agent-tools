@@ -111,6 +111,14 @@ limactl delete --force sb
 limactl shell --workdir / sb [-- command]
 ```
 
+**Status (`sb status [--json]`):**
+
+```
+limactl list --json
+```
+
+Human output is `running`, `stopped`, or `not created`. JSON output uses `{"status":"running"}`, `{"status":"stopped"}`, or `{"status":"not_created"}` for scripts and agents.
+
 **Exec (`sb exec [--workdir <path>] -- <command...>`):**
 
 ```

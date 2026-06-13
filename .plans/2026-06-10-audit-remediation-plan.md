@@ -209,7 +209,8 @@ status dashboards. Cheap wins first:
 
 - Capture and persist provisioning output (`sb create`/`sb provision` currently discard
   script stdout/stderr) → `sb logs`.
-- `sb status --json`.
+- `sb status --json` — RESOLVED. Human status remains unchanged; JSON output uses
+  `running`, `stopped`, or `not_created`.
 - Defer: multi-instance VMs, hot mount-add (recreate is acceptable for now; document it).
 - Watch Lima v2.x (CNCF incubating, AI-sandbox focus: plugins, krunkit, native Lima MCP
   server) — evaluate whether the native MCP server overlaps or composes with mcp-broker.

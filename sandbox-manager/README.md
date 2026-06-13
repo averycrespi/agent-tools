@@ -76,9 +76,9 @@ Destroys the sandbox VM. Stops it first if running. Prompts for confirmation unl
 
 Re-runs provisioning on a running sandbox: copies files and executes scripts from the config. Useful after changing config without recreating the VM.
 
-### `sb status`
+### `sb status [--json]`
 
-Prints the sandbox status: `running`, `stopped`, or `not created`.
+Prints the sandbox status: `running`, `stopped`, or `not created`. Pass `--json` for machine-readable output, with status values `running`, `stopped`, or `not_created`.
 
 ### `sb shell [-- command]`
 
