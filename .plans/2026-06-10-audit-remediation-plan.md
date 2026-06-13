@@ -98,11 +98,11 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
 - Optional: simple per-token rate limit — SKIPPED for now for the same single-user/loopback
   rationale.
 
-### 2.3 mcp-broker: rules-engine ergonomics [S-M]
+### 2.3 mcp-broker: rules-engine ergonomics [S-M] — SKIPPED
 
-- Unanchored-regex footgun: add a startup lint that warns on regex matchers lacking `^`/`$`
-  (or add an `anchored` default with opt-out). Also: `mcp-broker rules test <tool> <args-json>`
-  subcommand to dry-run a call against the rules — makes policy authoring safe.
+- Decision: do not add regex linting or a `mcp-broker rules test` subcommand for now.
+- Rationale: current rules are local single-user configuration, and adding warnings or CLI
+  surface area is not worth the complexity until policy authoring becomes a recurring pain.
 
 ### 2.4 local-git-mcp: warn on `--allow-all-paths` [S] — RESOLVED
 
