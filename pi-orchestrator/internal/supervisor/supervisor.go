@@ -68,7 +68,7 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 			if !dependenciesSucceeded(step, stepStates) {
 				continue
 			}
-			renderedPrompt, err := renderPrompt(run, step, inputs)
+			renderedPrompt, err := renderPrompt(run, def, step, inputs)
 			if err != nil {
 				return err
 			}
@@ -122,11 +122,8 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 	return firstErr
 }
 
-func renderPrompt(run store.WorkflowRun, step workflow.Step, inputs map[string]any) (string, error) {
-	artifactPaths := make(map[string]string, len(step.Artifacts))
-	for _, artifact := range step.Artifacts {
-		artifactPaths[artifact.Name] = filepath.Join(run.ArtifactRoot, artifact.Path)
-	}
+func renderPrompt(run store.WorkflowRun, def *workflow.Definition, step workflow.Step, inputs map[string]any) (string, error) {
+	artifactPaths := artifactPathsForWorkflow(run, def)
 	funcs := template.FuncMap{
 		"artifact_path": func(name string) (string, error) {
 			path, ok := artifactPaths[name]
@@ -145,6 +142,20 @@ func renderPrompt(run store.WorkflowRun, step workflow.Step, inputs map[string]a
 		return "", fmt.Errorf("render prompt for step %s: %w", step.ID, err)
 	}
 	return rendered.String(), nil
+}
+
+func artifactPathsForWorkflow(run store.WorkflowRun, def *workflow.Definition) map[string]string {
+	count := 0
+	for _, step := range def.Steps {
+		count += len(step.Artifacts)
+	}
+	artifactPaths := make(map[string]string, count)
+	for _, step := range def.Steps {
+		for _, artifact := range step.Artifacts {
+			artifactPaths[artifact.Name] = filepath.Join(run.ArtifactRoot, artifact.Path)
+		}
+	}
+	return artifactPaths
 }
 
 func hasFailedDependency(step workflow.Step, stepStates map[string]store.State) bool {

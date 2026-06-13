@@ -102,6 +102,31 @@ func TestExecuteRendersPromptInputsAndArtifactPath(t *testing.T) {
 	}
 }
 
+func TestExecuteRendersPreviousStepArtifactPath(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, run := supervisorTestRun(t)
+	defer db.Close() //nolint:errcheck
+	runner := &recordingRunner{results: []StepResult{{PDTaskID: "pd-1", PDRunID: "pd-1-run-1", State: store.StateSucceeded}, {PDTaskID: "pd-2", PDRunID: "pd-2-run-1", State: store.StateSucceeded}}}
+	def := &workflow.Definition{
+		Name:   "sample",
+		Agents: map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Steps: []workflow.Step{
+			{ID: "first", Agent: "reviewer", Prompt: `write {{ artifact_path "findings" }}`, Artifacts: []workflow.Artifact{{Name: "findings", Path: "findings.md"}}},
+			{ID: "second", Agent: "reviewer", Needs: []string{"first"}, Prompt: `read {{ artifact_path "findings" }} and write {{ artifact_path "final" }}`, Artifacts: []workflow.Artifact{{Name: "final", Path: "final.md"}}},
+		},
+	}
+
+	if err := Execute(ctx, db, runner, def, run); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	findingsPath := filepath.Join(run.ArtifactRoot, "findings.md")
+	finalPath := filepath.Join(run.ArtifactRoot, "final.md")
+	if len(runner.calls) != 2 || runner.calls[1].Prompt != "read "+findingsPath+" and write "+finalPath {
+		t.Fatalf("second prompt = %q, want previous artifact path %q and final path %q", runner.calls[1].Prompt, findingsPath, finalPath)
+	}
+}
+
 func TestExecuteFailsStepWhenRequiredArtifactMissingAndSkipsDependent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

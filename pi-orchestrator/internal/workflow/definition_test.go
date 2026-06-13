@@ -182,6 +182,34 @@ steps:
 	assertErrorContains(t, err, "artifact out path must be relative")
 }
 
+func TestValidateRejectsDuplicateArtifactNames(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+agents:
+  runner:
+    model: gpt-5.1-codex
+steps:
+  - id: first
+    agent: runner
+    prompt: first
+    artifacts:
+      - name: out
+        path: first.md
+  - id: second
+    agent: runner
+    prompt: second
+    artifacts:
+      - name: out
+        path: second.md
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, "artifact out is declared by both step first and step second")
+}
+
 func minimalWorkflow(name string) string {
 	return `name: ` + name + `
 repo: repo

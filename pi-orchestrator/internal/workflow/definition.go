@@ -96,6 +96,7 @@ func (d *Definition) Validate(filenameStem string) error {
 	}
 
 	stepIDs := make(map[string]struct{}, len(d.Steps))
+	artifactNames := make(map[string]string)
 	for _, step := range d.Steps {
 		if step.ID == "" {
 			return fmt.Errorf("step id is required")
@@ -111,6 +112,10 @@ func (d *Definition) Validate(filenameStem string) error {
 			if artifact.Name == "" {
 				return fmt.Errorf("step %s artifact name is required", step.ID)
 			}
+			if previousStep, exists := artifactNames[artifact.Name]; exists {
+				return fmt.Errorf("artifact %s is declared by both step %s and step %s", artifact.Name, previousStep, step.ID)
+			}
+			artifactNames[artifact.Name] = step.ID
 			if artifact.Path == "" {
 				return fmt.Errorf("artifact %s path is required", artifact.Name)
 			}
