@@ -19,7 +19,15 @@ func TestStopCommandStopsWorkflowAndCurrentPDRun(t *testing.T) {
 		stopped = append(stopped, pdRunRef{taskID: taskID, runID: runID})
 		return nil
 	}
-	t.Cleanup(func() { stopPDRun = defaultStopPDRun })
+	killedSupervisorPID := 0
+	killSupervisor = func(pid int) error {
+		killedSupervisorPID = pid
+		return nil
+	}
+	t.Cleanup(func() {
+		stopPDRun = defaultStopPDRun
+		killSupervisor = defaultKillSupervisor
+	})
 
 	stdout, err := executeCommand("stop", "run-1")
 	if err != nil {
@@ -30,6 +38,9 @@ func TestStopCommandStopsWorkflowAndCurrentPDRun(t *testing.T) {
 	}
 	if len(stopped) != 1 || stopped[0].taskID != "pd-task-1" || stopped[0].runID != "pd-run-1" {
 		t.Fatalf("stopped = %+v, want current backing pd run", stopped)
+	}
+	if killedSupervisorPID != 4321 {
+		t.Fatalf("killedSupervisorPID = %d, want 4321", killedSupervisorPID)
 	}
 	db, err := store.Open(filepath.Join(stateDir, "po", "po.db"))
 	if err != nil {
@@ -73,7 +84,7 @@ func seedStopWorkflowRun(t *testing.T, stateDir string, runState store.State, st
 	defer db.Close() //nolint:errcheck
 	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
 	req := store.RunRequest{ID: "req-1", Workflow: "sample", InputsJSON: `{}`, Source: "test", CreatedAt: now}
-	run := store.WorkflowRun{ID: "run-1", RequestID: "req-1", Workflow: "sample", DefinitionHash: "hash", InputsJSON: `{}`, Repo: "/repo", Branch: "po/sample", WorktreePath: "/worktree", ArtifactRoot: "/artifacts/run-1", State: runState, SupervisorLogPath: "/logs/supervisor.log", CreatedAt: now, UpdatedAt: now}
+	run := store.WorkflowRun{ID: "run-1", RequestID: "req-1", Workflow: "sample", DefinitionHash: "hash", InputsJSON: `{}`, Repo: "/repo", Branch: "po/sample", WorktreePath: "/worktree", ArtifactRoot: "/artifacts/run-1", State: runState, SupervisorPID: 4321, SupervisorLogPath: "/logs/supervisor.log", CreatedAt: now, UpdatedAt: now}
 	if err := db.CreateRunRequestWithWorkflowRun(context.Background(), req, run); err != nil {
 		t.Fatalf("create run: %v", err)
 	}

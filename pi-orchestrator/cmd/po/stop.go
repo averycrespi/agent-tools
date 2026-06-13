@@ -58,6 +58,9 @@ func stopWorkflowRun(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
+	if err := killSupervisor(run.SupervisorPID); err != nil {
+		return err
+	}
 	if err := db.UpdateWorkflowRunState(cmd.Context(), run.ID, store.StateStopped, "stop requested", now); err != nil {
 		return err
 	}
