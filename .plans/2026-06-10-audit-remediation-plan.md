@@ -113,12 +113,12 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
 - This is the single highest-value security improvement in the repo; it converts the stack
   from "credentials are isolated" to "exfiltration is also constrained".
 
-### 2.6 Secrets-into-VM story [M, design decision]
+### 2.6 Secrets-into-VM story [M, design decision] — DECLINED
 
-- `sb` provisioning can copy `.gitconfig`/`.ssh` etc. into the VM; once in, no revocation.
-  Decide and document a policy: prefer _not_ copying credentials (the MCP/proxy stack exists
-  precisely so the sandbox needs none) and add a startup/`sb status` warning when configured
-  copy_files include known-sensitive paths (`.ssh`, `.aws`, `.netrc`, tokens).
+- Decision: do not add warnings for sensitive-looking `sb` copy paths.
+- Rationale: `copy_paths` is explicit user configuration. Warning on paths the user deliberately
+  chose to copy would add noise without changing the trust model. The tool should not second-
+  guess intentional provisioning choices.
 
 ---
 
