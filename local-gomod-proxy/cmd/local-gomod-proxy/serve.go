@@ -29,10 +29,11 @@ import (
 )
 
 var (
-	serveAddr     string
-	servePrivate  string
-	serveUpstream string
-	serveStateDir string
+	serveAddr            string
+	servePrivate         string
+	serveUpstream        string
+	serveStateDir        string
+	serveDownloadTimeout time.Duration
 )
 
 // maxConcurrentPrivate caps in-flight `go mod download` subprocesses so a
@@ -46,6 +47,8 @@ func init() {
 	serveCmd.Flags().StringVar(&serveUpstream, "upstream", "https://proxy.golang.org", "public upstream proxy URL")
 	serveCmd.Flags().StringVar(&serveStateDir, "state-dir", "",
 		"directory for TLS cert + credentials (default $XDG_STATE_HOME/local-gomod-proxy)")
+	serveCmd.Flags().DurationVar(&serveDownloadTimeout, "download-timeout", private.DefaultCommandTimeout,
+		"maximum duration for each private go command (0 disables timeout)")
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -107,7 +110,7 @@ var serveCmd = &cobra.Command{
 		handler := auth.Middleware(
 			server.New(
 				router.New(private_),
-				private.NewWithGOMODCACHE(runner, env.GOMODCACHE),
+				private.NewWithGOMODCACHEAndTimeout(runner, env.GOMODCACHE, serveDownloadTimeout),
 				public.New(upstream),
 				maxConcurrentPrivate,
 			),
@@ -132,7 +135,8 @@ var serveCmd = &cobra.Command{
 			"goversion", env.GOVERSION,
 			"upstream", serveUpstream,
 			"statedir", stateDir,
-			"certfp", fingerprint)
+			"certfp", fingerprint,
+			"download_timeout", serveDownloadTimeout)
 
 		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 

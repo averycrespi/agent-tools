@@ -38,7 +38,9 @@ indefinitely. One pattern, three tools:
   Added a context-aware runner and configurable `--git-timeout` defaulting to 5 minutes per
   git command.
 - local-gomod-proxy: wrap `go mod download` in a per-request timeout (long default, e.g.
-  5-10 min — module downloads can legitimately be slow — but finite).
+  5-10 min — module downloads can legitimately be slow — but finite) — RESOLVED.
+  Added a context-aware private command timeout and configurable `--download-timeout`
+  defaulting to 10 minutes per private `go` command.
 - mcp-broker: pass an `http.Client` with timeout to `NewStreamableHttpClient`
   (`internal/server/http.go:38-59`) and consider a per-tool-call deadline on the proxy path
   (must exceed approval timeout for require-approval tools).

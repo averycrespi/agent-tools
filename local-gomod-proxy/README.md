@@ -23,15 +23,16 @@ make install
 ## Run
 
 ```bash
-local-gomod-proxy serve [--addr 127.0.0.1:7070] [--private PATTERN] [--upstream URL]
+local-gomod-proxy serve [--addr 127.0.0.1:7070] [--private PATTERN] [--upstream URL] [--download-timeout 10m]
 ```
 
-| Flag          | Default                             | Description                                                                                           |
-| ------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `--addr`      | `127.0.0.1:7070`                    | Address to listen on. Loopback by default; the Lima sandbox reaches it via `host.lima.internal`.      |
-| `--private`   | _(reads `go env GOPRIVATE`)_        | GOPRIVATE-style glob patterns for private modules. Overrides `go env GOPRIVATE`.                      |
-| `--state-dir` | `$XDG_STATE_HOME/local-gomod-proxy` | Directory for TLS cert + credentials. Defaults under `~/.local/state/` if `$XDG_STATE_HOME` is unset. |
-| `--upstream`  | `https://proxy.golang.org`          | Public upstream proxy URL                                                                             |
+| Flag                 | Default                             | Description                                                                                           |
+| -------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `--addr`             | `127.0.0.1:7070`                    | Address to listen on. Loopback by default; the Lima sandbox reaches it via `host.lima.internal`.      |
+| `--private`          | _(reads `go env GOPRIVATE`)_        | GOPRIVATE-style glob patterns for private modules. Overrides `go env GOPRIVATE`.                      |
+| `--download-timeout` | `10m`                               | Maximum duration for each private `go mod download` / `go list` command. Use `0` to disable.          |
+| `--state-dir`        | `$XDG_STATE_HOME/local-gomod-proxy` | Directory for TLS cert + credentials. Defaults under `~/.local/state/` if `$XDG_STATE_HOME` is unset. |
+| `--upstream`         | `https://proxy.golang.org`          | Public upstream proxy URL                                                                             |
 
 On first launch, the proxy creates `$XDG_STATE_HOME/local-gomod-proxy/` (mode 0700) and generates a self-signed TLS cert, private key, and a random basic-auth credential inside it. Subsequent launches reuse those files; the cert is regenerated automatically 30 days before expiry. See [Security](#security) for rotation.
 
@@ -74,7 +75,7 @@ To keep the proxy running in the background whenever you're logged in, install i
 - **What's blocked:** browser JS, casual `localhost` probes, and any process that doesn't know to read the credentials file. The default `--addr` of `127.0.0.1:7070` binds loopback only; TLS + basic auth layer on top. Do not override `--addr` to a public interface, a VPN-reachable interface, or `0.0.0.0`. If you run a custom Lima network (`networks:` in `lima.yaml`) whose gateway is not the host loopback, bind explicitly to that gateway IP instead.
 - **What isn't blocked:** any process running as the same OS user can `cat ~/.local/state/local-gomod-proxy/credentials` and use them. The `0600` mode prevents other OS-level users from reading the file, not other processes of yours.
 - **Rotation:** `rm -rf "$XDG_STATE_HOME/local-gomod-proxy"` (or `~/.local/state/local-gomod-proxy/` if `$XDG_STATE_HOME` is unset), restart the proxy, then re-run provisioning in every sandbox that uses it.
-- Module paths are validated before any shell-out. No shell interpolation — `go mod download` is invoked via `os/exec` with an argv slice.
+- Module paths are validated before any shell-out. No shell interpolation — `go mod download` and `go list` are invoked via `os/exec` with argv slices and a finite timeout.
 - Private artifact paths reported by `go mod download -json` must stay inside the host's configured `GOMODCACHE`; paths outside it are rejected before file open.
 
 ## Development

@@ -8,15 +8,17 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type stubRunner struct {
-	out []byte
-	err error
-	got struct {
+	out     []byte
+	err     error
+	runFunc func(ctx context.Context, name string, args ...string) ([]byte, error)
+	got     struct {
 		ctx  context.Context
 		name string
 		args []string
@@ -25,6 +27,9 @@ type stubRunner struct {
 
 func (s *stubRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	s.got.ctx, s.got.name, s.got.args = ctx, name, args
+	if s.runFunc != nil {
+		return s.runFunc(ctx, name, args...)
+	}
 	return s.out, s.err
 }
 
@@ -87,6 +92,24 @@ func TestFetcher_PropagatesToolError(t *testing.T) {
 	w := httptest.NewRecorder()
 	err := f.Serve(w, httptest.NewRequest(http.MethodGet, "/", nil), req)
 	assert.Error(t, err)
+}
+
+func TestFetcher_TimesOutBlockedCommand(t *testing.T) {
+	runner := &stubRunner{
+		runFunc: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+	f := NewWithTimeout(runner, time.Millisecond)
+
+	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
+	w := httptest.NewRecorder()
+	err := f.Serve(w, httptest.NewRequest(http.MethodGet, "/", nil), req)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "go mod download")
+	assert.Contains(t, err.Error(), context.DeadlineExceeded.Error())
 }
 
 func TestFetcher_Info_FileMissing(t *testing.T) {

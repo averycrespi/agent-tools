@@ -34,7 +34,7 @@ local-gomod-proxy is a single HTTPS binary. State (TLS cert + credentials) is pe
 
 1. The sandbox's `go` tool makes a Go module proxy protocol request (`GET /<module>/@v/...`).
 2. The router checks the module path against the configured `GOPRIVATE` glob patterns using `golang.org/x/mod/module.MatchPrefixPatterns` — the same function Go's own toolchain uses.
-3. **Private match** — `PrivateFetcher` shells out to `go mod download -json <module>@<version>` in the server's working directory, inheriting the host's git credentials via its environment. It parses the JSON result for absolute paths to the `.info`, `.mod`, and `.zip` files, verifies each requested artifact path is inside the host's `GOMODCACHE`, and streams those files back.
+3. **Private match** — `PrivateFetcher` shells out to `go mod download -json <module>@<version>` in the server's working directory, inheriting the host's git credentials via its environment. Each private `go` command receives the request context plus the configured `--download-timeout` deadline. It parses the JSON result for absolute paths to the `.info`, `.mod`, and `.zip` files, verifies each requested artifact path is inside the host's `GOMODCACHE`, and streams those files back.
 4. **No private match** — `PublicFetcher` reverse-proxies the request unchanged to `https://proxy.golang.org/<same-path>`.
 5. The response flows back to the sandbox's `go` tool.
 
@@ -129,7 +129,7 @@ Every request validates the module path and version before any shell-out:
 2. **Module path** — URL-unescaped via `module.UnescapePath` before being passed as argv to `go mod download`. No shell interpolation — argv slice only. `go mod download` rejects malformed module paths itself.
 3. **Version** — URL-unescaped via `module.UnescapeVersion` before being passed as argv to `go mod download`; `go mod download` rejects malformed versions itself.
 
-Errors from `go mod download` include the command's stderr so callers get actionable output (e.g., "repository not found", "permission denied").
+Errors from `go mod download` include the command's stderr so callers get actionable output (e.g., "repository not found", "permission denied"). If a private `go` command exceeds `--download-timeout` or the request context is canceled, the subprocess is canceled and the error is surfaced as an upstream failure.
 
 Errors are classified before responding. When the toolchain emits a known "module/version does not exist" signal (`unknown revision`, `invalid version`, `repository does not exist`, `repository not found`, `no matching versions`, or an upstream `404 Not Found` / `410 Gone`), the server responds with **HTTP 404** so the Go client surfaces a clean "not found" error and, if multiple GOPROXY sources are configured, falls through to the next. Everything else (auth failures, network errors, unexpected toolchain output) stays **502** so transient issues are not silently masked as missing modules. Classification lives in `internal/private/classify.go`; see that file's comments for the substring list and its sources. Caveat (golang/go#42751): GitHub returns 404 for inaccessible private repos, so an auth problem against GitHub can surface as `unknown revision` and be mapped to 404 — that is a Go tooling limitation we cannot disambiguate from the toolchain's output.
 
@@ -147,7 +147,7 @@ Startup validation:
 
 - **Authenticated over TLS** — every request requires HTTP Basic auth against a credentials file in `$XDG_STATE_HOME/local-gomod-proxy/credentials`. TLS uses a generated self-signed cert. The listener is still loopback-only; TLS + auth add defense-in-depth against same-user processes on the host, not replace the network boundary.
 - **TLS, self-signed cert** — traffic stays on the Lima bridge; cert rotation is manual via `rm -rf $state_dir` followed by restart + sandbox re-provision. Cert is regenerated automatically 30 days before expiry on the next startup.
-- **No shell interpolation** — `go mod download` is invoked via `os/exec` with an argv slice. Module paths and versions are URL-unescaped via `module.UnescapePath` / `module.UnescapeVersion` before use; `go mod download` rejects malformed inputs itself.
+- **No shell interpolation** — `go mod download` and `go list` are invoked via `os/exec` with argv slices and a finite timeout. Module paths and versions are URL-unescaped via `module.UnescapePath` / `module.UnescapeVersion` before use; the Go toolchain rejects malformed inputs itself.
 - **GOMODCACHE containment** — artifact paths reported by `go mod download -json` are checked with `filepath.Rel` before opening; paths outside the host's configured `GOMODCACHE` are rejected.
 - **Request logging** — module path, version, and private/public verdict logged via `log/slog`. The password is never logged.
 
@@ -179,7 +179,7 @@ No Athens, no `golang.org/x/mod/zip` — `go mod download` hands us finished art
 
 **Rely on the host's `GOMODCACHE`, no separate proxy cache.** `go mod download` populates the shared host cache. Subsequent requests for the same `<module>@<version>` hit the same cache entry. Zero extra code, automatic cleanup via `go clean -modcache`, no cache-coherence bugs.
 
-**Graceful shutdown.** On SIGINT/SIGTERM, the HTTP server is given 5 s to drain in-flight requests via `Server.Shutdown`. `exec.Runner.Run` takes a `context.Context` and `OSRunner` uses `exec.CommandContext`, so `Server.Shutdown`'s per-request context cancellation also kills any in-flight `go mod download` / `go list` subprocess (SIGKILL). The same mechanism propagates client disconnects: a sandbox client aborting its HTTP request cancels the request context, which terminates the subprocess instead of letting it complete unwanted work.
+**Graceful shutdown and command deadlines.** On SIGINT/SIGTERM, the HTTP server is given 5 s to drain in-flight requests via `Server.Shutdown`. `exec.Runner.Run` takes a `context.Context` and `OSRunner` uses `exec.CommandContext`, so `Server.Shutdown`'s per-request context cancellation also kills any in-flight `go mod download` / `go list` subprocess (SIGKILL). The same mechanism propagates client disconnects: a sandbox client aborting its HTTP request cancels the request context, which terminates the subprocess instead of letting it complete unwanted work. Private `go` commands also receive a configurable `--download-timeout` deadline, defaulting to 10 minutes, so a stuck host git/module operation cannot hold the handler forever.
 
 ## Testing
 

@@ -54,7 +54,7 @@ When you change a flag, endpoint, env-var contract, or file layout, audit every 
 
 - Errors are wrapped with context: `fmt.Errorf("doing X: %w", err)`
 - Command output interpolated into errors with `%s` after trimming (never `%w` for command stderr)
-- All external commands go through `exec.Runner` interface
+- All external commands go through the context-aware `exec.Runner` interface; private module commands respect the configured per-command `--download-timeout`
 - `cmd/` has no tests (thin wrappers); all internal packages have unit tests
 - gosec `nolint` directives on `os/exec` calls are acceptable inside the `exec` package only; also acceptable inside `private.streamFile` on `os.Open`
 - `--private` flag overrides `go env GOPRIVATE`; if neither is set, startup fails with an actionable error

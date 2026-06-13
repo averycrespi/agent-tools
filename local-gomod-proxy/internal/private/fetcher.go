@@ -9,24 +9,38 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/exec"
 )
 
+const DefaultCommandTimeout = 10 * time.Minute
+
 // Fetcher serves private module artifacts by invoking the host's go toolchain.
 type Fetcher struct {
-	runner     exec.Runner
-	gomodcache string
+	runner         exec.Runner
+	gomodcache     string
+	commandTimeout time.Duration
 }
 
 // New returns a Fetcher that shells out via runner.
 func New(runner exec.Runner) *Fetcher {
-	return &Fetcher{runner: runner}
+	return NewWithTimeout(runner, DefaultCommandTimeout)
+}
+
+// NewWithTimeout returns a Fetcher using the given per-command timeout.
+func NewWithTimeout(runner exec.Runner, commandTimeout time.Duration) *Fetcher {
+	return &Fetcher{runner: runner, commandTimeout: commandTimeout}
 }
 
 // NewWithGOMODCACHE returns a Fetcher that only streams artifacts under gomodcache.
 func NewWithGOMODCACHE(runner exec.Runner, gomodcache string) *Fetcher {
-	return &Fetcher{runner: runner, gomodcache: filepath.Clean(gomodcache)}
+	return NewWithGOMODCACHEAndTimeout(runner, gomodcache, DefaultCommandTimeout)
+}
+
+// NewWithGOMODCACHEAndTimeout returns a Fetcher that only streams artifacts under gomodcache and uses the given per-command timeout.
+func NewWithGOMODCACHEAndTimeout(runner exec.Runner, gomodcache string, commandTimeout time.Duration) *Fetcher {
+	return &Fetcher{runner: runner, gomodcache: filepath.Clean(gomodcache), commandTimeout: commandTimeout}
 }
 
 type downloadResult struct {
@@ -64,7 +78,7 @@ func (f *Fetcher) Serve(w http.ResponseWriter, httpReq *http.Request, req Reques
 }
 
 func (f *Fetcher) serveArtifact(ctx context.Context, w http.ResponseWriter, req Request) error {
-	out, err := f.runner.Run(ctx, "go", "mod", "download", "-json", req.Module+"@"+req.Version)
+	out, err := f.run(ctx, "go", "mod", "download", "-json", req.Module+"@"+req.Version)
 	if err != nil {
 		return wrapRunError("go mod download", out, err)
 	}
@@ -88,7 +102,7 @@ func (f *Fetcher) serveArtifact(ctx context.Context, w http.ResponseWriter, req 
 }
 
 func (f *Fetcher) serveList(ctx context.Context, w http.ResponseWriter, req Request) error {
-	out, err := f.runner.Run(ctx, "go", "list", "-m", "-json", "-versions", req.Module+"@latest")
+	out, err := f.run(ctx, "go", "list", "-m", "-json", "-versions", req.Module+"@latest")
 	if err != nil {
 		return wrapRunError("go list", out, err)
 	}
@@ -112,7 +126,7 @@ func (f *Fetcher) serveList(ctx context.Context, w http.ResponseWriter, req Requ
 }
 
 func (f *Fetcher) serveLatest(ctx context.Context, w http.ResponseWriter, req Request) error {
-	out, err := f.runner.Run(ctx, "go", "list", "-m", "-json", req.Module+"@latest")
+	out, err := f.run(ctx, "go", "list", "-m", "-json", req.Module+"@latest")
 	if err != nil {
 		return wrapRunError("go list", out, err)
 	}
@@ -136,6 +150,18 @@ func (f *Fetcher) serveLatest(ctx context.Context, w http.ResponseWriter, req Re
 // structured JSON with an Error field, we prefer that for classification
 // (it's the authoritative reason). Otherwise we classify against the raw
 // combined output.
+func (f *Fetcher) run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if f.commandTimeout <= 0 {
+		return f.runner.Run(ctx, name, args...)
+	}
+	ctx, cancel := context.WithTimeout(ctx, f.commandTimeout)
+	defer cancel()
+	return f.runner.Run(ctx, name, args...)
+}
+
 func wrapRunError(stage string, out []byte, runErr error) error {
 	trimmed := strings.TrimSpace(string(out))
 	msg := trimmed
