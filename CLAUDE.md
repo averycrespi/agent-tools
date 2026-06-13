@@ -31,6 +31,10 @@ Targets are forwarded to each tool's Makefile. Run from any subdirectory for a s
 
 Each tool is a separate Go module under `go.work` and follows the same baseline so structure is predictable. When adding a new tool or looking for the expected shape, mirror an existing tool (e.g. `worktree-manager/`) as a template — file layout, Makefile targets, and package organization should match.
 
+## Go Conventions
+
+Keep each tool as an independent Go module. Prefer copying small local interfaces and helpers, such as `exec.Runner`, over introducing a shared internal module. When adding subprocess execution, use a context-aware runner with finite deadlines; copy the nearest tool's established pattern and keep timeout behavior documented in that tool's `DESIGN.md` or `CLAUDE.md`.
+
 ## CLI Conventions
 
 For Cobra commands, avoid exposing generic argument validation errors such as `accepts 2 arg(s), received 0`.

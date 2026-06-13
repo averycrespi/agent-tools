@@ -178,12 +178,13 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
 - Optional future work: a tiny doc-drift make target that greps docs for referenced paths/flags
   and checks they exist (see new-tool idea 6.5 — could start as a 50-line script here).
 
-### 4.4 Shared conventions without a shared module [S, decide]
+### 4.4 Shared conventions without a shared module [S] — RESOLVED
 
-- `exec.Runner` is copy-pasted across tools; timeouts (1.2) will touch all copies. Decide:
-  keep copy-paste (tool independence, current stance) or add one small shared module.
-  Recommendation: keep copy-paste, but make the timeout-aware Runner the canonical template
-  and note it in root CLAUDE.md.
+- Decision: keep copy-paste rather than adding a shared internal module.
+- Rationale: each tool remains an independent Go module, and small local interfaces/helpers like
+  `exec.Runner` are not worth cross-tool coupling.
+- Added a root CLAUDE.md convention: when adding subprocess execution, use a context-aware
+  runner with finite deadlines and copy the nearest tool's established pattern.
 
 ---
 
