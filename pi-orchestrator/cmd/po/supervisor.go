@@ -41,7 +41,12 @@ func runSupervisorCommand(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	definition, err := workflow.LoadFile(workflowFilePath(run.Workflow))
+	definitionPath, err := workflowFilePath(run.Workflow)
+	if err != nil {
+		_ = db.UpdateWorkflowRunState(cmd.Context(), run.ID, store.StateFailed, err.Error(), nowFunc().UTC())
+		return err
+	}
+	definition, err := workflow.LoadFile(definitionPath)
 	if err != nil {
 		_ = db.UpdateWorkflowRunState(cmd.Context(), run.ID, store.StateFailed, err.Error(), nowFunc().UTC())
 		return err

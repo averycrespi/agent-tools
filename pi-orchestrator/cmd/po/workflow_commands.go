@@ -33,7 +33,11 @@ var listCmd = &cobra.Command{
 		}
 		sort.Strings(names)
 		for _, name := range names {
-			if _, err := workflow.LoadFile(workflowFilePath(name)); err != nil {
+			path, err := workflowFilePath(name)
+			if err != nil {
+				return err
+			}
+			if _, err := workflow.LoadFile(path); err != nil {
 				return err
 			}
 			if _, err := fmt.Fprintln(cmd.OutOrStdout(), name); err != nil {
@@ -49,7 +53,10 @@ var showCmd = &cobra.Command{
 	Short: "Show a workflow definition",
 	Args:  requireWorkflowArg("po show <workflow>"),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		path := workflowFilePath(args[0])
+		path, err := workflowFilePath(args[0])
+		if err != nil {
+			return err
+		}
 		if _, err := workflow.LoadFile(path); err != nil {
 			return err
 		}
@@ -67,10 +74,14 @@ var lintCmd = &cobra.Command{
 	Short: "Validate a workflow definition",
 	Args:  requireWorkflowArg("po lint <workflow>"),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if _, err := workflow.LoadFile(workflowFilePath(args[0])); err != nil {
+		path, err := workflowFilePath(args[0])
+		if err != nil {
 			return err
 		}
-		_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s ok\n", args[0])
+		if _, err := workflow.LoadFile(path); err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s ok\n", args[0])
 		return err
 	},
 }
@@ -87,11 +98,18 @@ func requireWorkflowArg(usage string) cobra.PositionalArgs {
 	}
 }
 
-func workflowFilePath(name string) string {
-	if filepath.Ext(name) == ".yaml" || filepath.Ext(name) == ".yml" {
-		return filepath.Join(resolveWorkflowDir(), name)
+func workflowFilePath(name string) (string, error) {
+	if strings.ContainsAny(name, `/\\`) {
+		return "", fmt.Errorf("workflow name must not contain path separators: %s", name)
 	}
-	return filepath.Join(resolveWorkflowDir(), name+".yaml")
+	stem := strings.TrimSuffix(name, filepath.Ext(name))
+	if stem == "" || stem == "." || stem == ".." {
+		return "", fmt.Errorf("workflow name is invalid: %s", name)
+	}
+	if filepath.Ext(name) == ".yaml" || filepath.Ext(name) == ".yml" {
+		return filepath.Join(resolveWorkflowDir(), name), nil
+	}
+	return filepath.Join(resolveWorkflowDir(), name+".yaml"), nil
 }
 
 func workflowNameFromFile(name string) (string, bool) {

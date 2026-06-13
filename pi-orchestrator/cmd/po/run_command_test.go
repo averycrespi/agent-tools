@@ -37,6 +37,31 @@ func TestRunCommandValidatesInputsBeforeCreatingWorktree(t *testing.T) {
 	}
 }
 
+func TestRunCommandRejectsWorkflowPathTraversalBeforeCreatingWorktree(t *testing.T) {
+	dir := t.TempDir()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, dir, stateDir)
+	artifactChecks := 0
+	validateArtifactParent = func(string) error {
+		artifactChecks++
+		return nil
+	}
+	worktreeCalls := 0
+	newWorktreeClient = func() (worktreeClient, error) {
+		worktreeCalls++
+		return fakeWorktreeClient{path: "/worktree/review"}, nil
+	}
+	t.Cleanup(resetRunTestHooks)
+
+	_, err := executeCommand("--workflow-dir", dir, "run", "../review", "--input", "repo=/repo", "--input", "pr_number=42")
+	if err == nil || !strings.Contains(err.Error(), "workflow name must not contain path separators") {
+		t.Fatalf("run error = %v, want path separator rejection", err)
+	}
+	if artifactChecks != 0 || worktreeCalls != 0 {
+		t.Fatalf("artifact checks = %d worktree calls = %d, want both 0", artifactChecks, worktreeCalls)
+	}
+}
+
 func TestRunCommandRejectsInvisibleArtifactParentBeforeCreatingWorktree(t *testing.T) {
 	dir := t.TempDir()
 	writeWorkflow(t, dir, "review", runWorkflowYAML("review"))

@@ -45,7 +45,10 @@ func init() {
 }
 
 func runWorkflow(cmd *cobra.Command, args []string) error {
-	definitionPath := workflowFilePath(args[0])
+	definitionPath, err := workflowFilePath(args[0])
+	if err != nil {
+		return err
+	}
 	definition, err := workflow.LoadFile(definitionPath)
 	if err != nil {
 		return err

@@ -50,6 +50,14 @@ func TestShowCommandPrintsWorkflowYAML(t *testing.T) {
 	}
 }
 
+func TestShowCommandRejectsWorkflowPathTraversal(t *testing.T) {
+	dir := t.TempDir()
+	_, err := executeCommand("--workflow-dir", dir, "show", "../outside")
+	if err == nil || !strings.Contains(err.Error(), "workflow name must not contain path separators") {
+		t.Fatalf("show error = %v, want path separator rejection", err)
+	}
+}
+
 func executeCommand(args ...string) (string, error) {
 	var stdout bytes.Buffer
 	rootCmd.SetOut(&stdout)
