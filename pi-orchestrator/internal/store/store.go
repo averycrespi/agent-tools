@@ -198,6 +198,26 @@ func (s *Store) GetWorkflowRun(ctx context.Context, id string) (WorkflowRun, err
 	return scanWorkflowRun(row)
 }
 
+func (s *Store) ListWorkflowRuns(ctx context.Context) ([]WorkflowRun, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, request_id, workflow, definition_hash, inputs_json, repo, branch, worktree_path, artifact_root, state, supervisor_pid, supervisor_log_path, outcome, created_at, updated_at, ended_at FROM workflow_runs ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list workflow runs: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var runs []WorkflowRun
+	for rows.Next() {
+		run, err := scanWorkflowRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list workflow runs: %w", err)
+	}
+	return runs, nil
+}
+
 func (s *Store) CreateStepRun(ctx context.Context, step StepRun, artifacts []Artifact) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
