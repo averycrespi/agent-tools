@@ -49,7 +49,12 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	definition, err := workflow.LoadFile(definitionPath)
+	definitionYAML, err := os.ReadFile(definitionPath) // #nosec G304 -- path is resolved under the configured workflow definition directory.
+	if err != nil {
+		return err
+	}
+	definitionStem := strings.TrimSuffix(filepath.Base(definitionPath), filepath.Ext(definitionPath))
+	definition, err := workflow.LoadBytes(definitionYAML, definitionStem, definitionPath)
 	if err != nil {
 		return err
 	}
@@ -110,7 +115,7 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close() //nolint:errcheck
 	req := store.RunRequest{ID: requestID, Workflow: definition.Name, InputsJSON: string(inputsJSON), Source: "cli", CreatedAt: now}
-	run := store.WorkflowRun{ID: runID, RequestID: requestID, Workflow: definition.Name, DefinitionHash: definitionHash, InputsJSON: string(inputsJSON), Repo: repo, Branch: branch, WorktreePath: worktreePath, ArtifactRoot: artifactRoot, State: store.StateStarting, SupervisorLogPath: filepath.Join(logDir, "supervisor.log"), CreatedAt: now, UpdatedAt: now}
+	run := store.WorkflowRun{ID: runID, RequestID: requestID, Workflow: definition.Name, DefinitionHash: definitionHash, DefinitionYAML: string(definitionYAML), InputsJSON: string(inputsJSON), Repo: repo, Branch: branch, WorktreePath: worktreePath, ArtifactRoot: artifactRoot, State: store.StateStarting, SupervisorLogPath: filepath.Join(logDir, "supervisor.log"), CreatedAt: now, UpdatedAt: now}
 	if err := db.CreateRunRequestWithWorkflowRun(cmd.Context(), req, run); err != nil {
 		return err
 	}

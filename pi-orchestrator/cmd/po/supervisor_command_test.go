@@ -38,6 +38,24 @@ func TestSupervisorCommandExecutesPersistedWorkflowRun(t *testing.T) {
 	}
 }
 
+func TestSupervisorCommandUsesPersistedWorkflowSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	writeWorkflow(t, dir, "review", minimalCommandWorkflow("changed"))
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, dir, stateDir)
+	seedSupervisorCommandRunWithSnapshot(t, stateDir, minimalCommandWorkflow("review"))
+	runner := &recordingSupervisorCommandRunner{}
+	newStepRunner = func() posupervisor.StepRunner { return runner }
+	t.Cleanup(func() { newStepRunner = defaultNewStepRunner })
+
+	if _, err := executeCommand("--workflow-dir", dir, "supervisor", "--run-id", "run-1"); err != nil {
+		t.Fatalf("supervisor error = %v", err)
+	}
+	if len(runner.calls) != 1 || runner.calls[0].StepID != "run" {
+		t.Fatalf("calls = %+v, want step from persisted snapshot", runner.calls)
+	}
+}
+
 func TestSupervisorCommandMarksRunFailedWhenWorkflowDefinitionMissing(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	cfg = testConfig(t, t.TempDir(), stateDir)
@@ -67,7 +85,21 @@ func (supervisorCommandRunner) RunStep(context.Context, posupervisor.StepRequest
 	return posupervisor.StepResult{PDTaskID: "pd-task-1", PDRunID: "pd-run-1", State: store.StateSucceeded}, nil
 }
 
+type recordingSupervisorCommandRunner struct {
+	calls []posupervisor.StepRequest
+}
+
+func (r *recordingSupervisorCommandRunner) RunStep(_ context.Context, req posupervisor.StepRequest) (posupervisor.StepResult, error) {
+	r.calls = append(r.calls, req)
+	return posupervisor.StepResult{State: store.StateSucceeded}, nil
+}
+
 func seedSupervisorCommandRun(t *testing.T, stateDir string) {
+	t.Helper()
+	seedSupervisorCommandRunWithSnapshot(t, stateDir, "")
+}
+
+func seedSupervisorCommandRunWithSnapshot(t *testing.T, stateDir string, definitionYAML string) {
 	t.Helper()
 	db, err := store.Open(filepath.Join(stateDir, "po", "po.db"))
 	if err != nil {
@@ -76,7 +108,7 @@ func seedSupervisorCommandRun(t *testing.T, stateDir string) {
 	defer db.Close() //nolint:errcheck
 	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
 	req := store.RunRequest{ID: "req-1", Workflow: "review", InputsJSON: `{}`, Source: "test", CreatedAt: now}
-	run := store.WorkflowRun{ID: "run-1", RequestID: req.ID, Workflow: "review", DefinitionHash: "hash", InputsJSON: `{}`, Repo: "/repo", Branch: "po/review", WorktreePath: "/worktree", ArtifactRoot: filepath.Join(t.TempDir(), "artifacts"), State: store.StateStarting, SupervisorLogPath: filepath.Join(t.TempDir(), "supervisor.log"), CreatedAt: now, UpdatedAt: now}
+	run := store.WorkflowRun{ID: "run-1", RequestID: req.ID, Workflow: "review", DefinitionHash: "hash", DefinitionYAML: definitionYAML, InputsJSON: `{}`, Repo: "/repo", Branch: "po/review", WorktreePath: "/worktree", ArtifactRoot: filepath.Join(t.TempDir(), "artifacts"), State: store.StateStarting, SupervisorLogPath: filepath.Join(t.TempDir(), "supervisor.log"), CreatedAt: now, UpdatedAt: now}
 	if err := db.CreateRunRequestWithWorkflowRun(context.Background(), req, run); err != nil {
 		t.Fatalf("create run: %v", err)
 	}

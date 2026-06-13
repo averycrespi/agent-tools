@@ -41,12 +41,7 @@ func runSupervisorCommand(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	definitionPath, err := workflowFilePath(run.Workflow)
-	if err != nil {
-		_ = db.UpdateWorkflowRunState(cmd.Context(), run.ID, store.StateFailed, err.Error(), nowFunc().UTC())
-		return err
-	}
-	definition, err := workflow.LoadFile(definitionPath)
+	definition, err := workflowDefinitionForRun(run)
 	if err != nil {
 		_ = db.UpdateWorkflowRunState(cmd.Context(), run.ID, store.StateFailed, err.Error(), nowFunc().UTC())
 		return err
@@ -59,4 +54,15 @@ func runSupervisorCommand(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	return nil
+}
+
+func workflowDefinitionForRun(run store.WorkflowRun) (*workflow.Definition, error) {
+	if run.DefinitionYAML != "" {
+		return workflow.LoadBytes([]byte(run.DefinitionYAML), run.Workflow, "workflow snapshot "+run.ID)
+	}
+	definitionPath, err := workflowFilePath(run.Workflow)
+	if err != nil {
+		return nil, err
+	}
+	return workflow.LoadFile(definitionPath)
 }

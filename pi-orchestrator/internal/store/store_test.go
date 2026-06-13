@@ -26,6 +26,7 @@ func TestCreateRunRequestWithWorkflowRunPersistsV1Metadata(t *testing.T) {
 		RequestID:         req.ID,
 		Workflow:          "pr-review",
 		DefinitionHash:    "sha256:abc",
+		DefinitionYAML:    "name: pr-review\n",
 		InputsJSON:        req.InputsJSON,
 		Repo:              "/repo",
 		Branch:            "po/pr-review-abcd",
@@ -45,7 +46,7 @@ func TestCreateRunRequestWithWorkflowRunPersistsV1Metadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetWorkflowRun() error = %v", err)
 	}
-	if got.RequestID != req.ID || got.Workflow != "pr-review" || got.State != StateStarting {
+	if got.RequestID != req.ID || got.Workflow != "pr-review" || got.DefinitionYAML != "name: pr-review\n" || got.State != StateStarting {
 		t.Fatalf("run = %+v, want persisted request/workflow/state", got)
 	}
 	if got.ArtifactRoot != run.ArtifactRoot || got.SupervisorLogPath != run.SupervisorLogPath {

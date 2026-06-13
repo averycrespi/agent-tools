@@ -151,6 +151,9 @@ func TestRunCommandCreatesWorkflowRunWithOneWorktree(t *testing.T) {
 	if run.State != store.StateStarting || run.Workflow != "review" || run.Repo != "/repo" {
 		t.Fatalf("run = %+v, want starting review for /repo", run)
 	}
+	if !strings.Contains(run.DefinitionYAML, "name: review") || run.DefinitionHash == "" {
+		t.Fatalf("definition snapshot/hash = %q %q, want persisted workflow definition", run.DefinitionYAML, run.DefinitionHash)
+	}
 	if run.SupervisorPID != 4321 {
 		t.Fatalf("SupervisorPID = %d, want 4321", run.SupervisorPID)
 	}

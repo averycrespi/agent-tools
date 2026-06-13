@@ -57,6 +57,11 @@ func LoadFile(path string) (*Definition, error) {
 		return nil, fmt.Errorf("read workflow %s: %w", path, err)
 	}
 
+	stem := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	return LoadBytes(data, stem, path)
+}
+
+func LoadBytes(data []byte, filenameStem string, source string) (*Definition, error) {
 	if err := rejectUnsupportedTopLevelFields(data); err != nil {
 		return nil, err
 	}
@@ -65,11 +70,10 @@ func LoadFile(path string) (*Definition, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&def); err != nil {
-		return nil, fmt.Errorf("parse workflow %s: %w", path, err)
+		return nil, fmt.Errorf("parse workflow %s: %w", source, err)
 	}
 
-	stem := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-	if err := def.Validate(stem); err != nil {
+	if err := def.Validate(filenameStem); err != nil {
 		return nil, err
 	}
 	return &def, nil

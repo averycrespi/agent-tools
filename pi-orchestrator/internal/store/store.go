@@ -37,6 +37,7 @@ type WorkflowRun struct {
 	RequestID          string
 	Workflow           string
 	DefinitionHash     string
+	DefinitionYAML     string
 	InputsJSON         string
 	Repo               string
 	Branch             string
@@ -107,6 +108,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
     request_id          TEXT NOT NULL REFERENCES run_requests(id),
     workflow            TEXT NOT NULL,
     definition_hash     TEXT NOT NULL,
+    definition_yaml     TEXT NOT NULL DEFAULT '',
     inputs_json         TEXT NOT NULL,
     repo                TEXT NOT NULL,
     branch              TEXT NOT NULL,
@@ -179,6 +181,10 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
+	if err := ensureWorkflowDefinitionColumns(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if err := ensureWorkflowCleanupColumns(db); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -188,6 +194,20 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	return &Store{db: db}, nil
+}
+
+func ensureWorkflowDefinitionColumns(db *sql.DB) error {
+	columns, err := tableColumns(db, "workflow_runs")
+	if err != nil {
+		return fmt.Errorf("inspect workflow_runs schema: %w", err)
+	}
+	if columns["definition_yaml"] {
+		return nil
+	}
+	if _, err := db.Exec(`ALTER TABLE workflow_runs ADD COLUMN definition_yaml TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("add workflow_runs definition_yaml column: %w", err)
+	}
+	return nil
 }
 
 func ensureWorkflowCleanupColumns(db *sql.DB) error {
@@ -277,7 +297,7 @@ func (s *Store) CreateRunRequestWithWorkflowRun(ctx context.Context, req RunRequ
 	if run.CleanupStatus == "" {
 		run.CleanupStatus = "not_requested"
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_runs (id, request_id, workflow, definition_hash, inputs_json, repo, branch, worktree_path, artifact_root, state, supervisor_pid, supervisor_log_path, outcome, cleanup_status, cleanup_error, cleanup_attempted_at, created_at, updated_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ID, run.RequestID, run.Workflow, run.DefinitionHash, run.InputsJSON, run.Repo, run.Branch, run.WorktreePath, run.ArtifactRoot, string(run.State), run.SupervisorPID, run.SupervisorLogPath, run.Outcome, run.CleanupStatus, run.CleanupError, nullTimeString(run.CleanupAttemptedAt), formatTime(run.CreatedAt), formatTime(run.UpdatedAt), nullTimeString(run.EndedAt)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_runs (id, request_id, workflow, definition_hash, definition_yaml, inputs_json, repo, branch, worktree_path, artifact_root, state, supervisor_pid, supervisor_log_path, outcome, cleanup_status, cleanup_error, cleanup_attempted_at, created_at, updated_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ID, run.RequestID, run.Workflow, run.DefinitionHash, run.DefinitionYAML, run.InputsJSON, run.Repo, run.Branch, run.WorktreePath, run.ArtifactRoot, string(run.State), run.SupervisorPID, run.SupervisorLogPath, run.Outcome, run.CleanupStatus, run.CleanupError, nullTimeString(run.CleanupAttemptedAt), formatTime(run.CreatedAt), formatTime(run.UpdatedAt), nullTimeString(run.EndedAt)); err != nil {
 		return fmt.Errorf("insert workflow run: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -292,12 +312,12 @@ func (s *Store) GetRunRequest(ctx context.Context, id string) (RunRequest, error
 }
 
 func (s *Store) GetWorkflowRun(ctx context.Context, id string) (WorkflowRun, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, request_id, workflow, definition_hash, inputs_json, repo, branch, worktree_path, artifact_root, state, supervisor_pid, supervisor_log_path, outcome, cleanup_status, cleanup_error, cleanup_attempted_at, created_at, updated_at, ended_at FROM workflow_runs WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, request_id, workflow, definition_hash, definition_yaml, inputs_json, repo, branch, worktree_path, artifact_root, state, supervisor_pid, supervisor_log_path, outcome, cleanup_status, cleanup_error, cleanup_attempted_at, created_at, updated_at, ended_at FROM workflow_runs WHERE id = ?`, id)
 	return scanWorkflowRun(row)
 }
 
 func (s *Store) ListWorkflowRuns(ctx context.Context) ([]WorkflowRun, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, request_id, workflow, definition_hash, inputs_json, repo, branch, worktree_path, artifact_root, state, supervisor_pid, supervisor_log_path, outcome, cleanup_status, cleanup_error, cleanup_attempted_at, created_at, updated_at, ended_at FROM workflow_runs ORDER BY created_at DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, request_id, workflow, definition_hash, definition_yaml, inputs_json, repo, branch, worktree_path, artifact_root, state, supervisor_pid, supervisor_log_path, outcome, cleanup_status, cleanup_error, cleanup_attempted_at, created_at, updated_at, ended_at FROM workflow_runs ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list workflow runs: %w", err)
 	}
@@ -489,7 +509,7 @@ func scanWorkflowRun(row interface{ Scan(...any) error }) (WorkflowRun, error) {
 	var updatedAt string
 	var endedAt sql.NullString
 	var cleanupAttemptedAt sql.NullString
-	if err := row.Scan(&run.ID, &run.RequestID, &run.Workflow, &run.DefinitionHash, &run.InputsJSON, &run.Repo, &run.Branch, &run.WorktreePath, &run.ArtifactRoot, &state, &run.SupervisorPID, &run.SupervisorLogPath, &run.Outcome, &run.CleanupStatus, &run.CleanupError, &cleanupAttemptedAt, &createdAt, &updatedAt, &endedAt); err != nil {
+	if err := row.Scan(&run.ID, &run.RequestID, &run.Workflow, &run.DefinitionHash, &run.DefinitionYAML, &run.InputsJSON, &run.Repo, &run.Branch, &run.WorktreePath, &run.ArtifactRoot, &state, &run.SupervisorPID, &run.SupervisorLogPath, &run.Outcome, &run.CleanupStatus, &run.CleanupError, &cleanupAttemptedAt, &createdAt, &updatedAt, &endedAt); err != nil {
 		return WorkflowRun{}, fmt.Errorf("scan workflow run: %w", err)
 	}
 	run.State = State(state)
