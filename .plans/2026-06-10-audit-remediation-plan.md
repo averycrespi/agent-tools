@@ -208,7 +208,9 @@ status dashboards. Cheap wins first:
 ### 5.2 sandbox-manager [M]
 
 - Capture and persist provisioning output (`sb create`/`sb provision` currently discard
-  script stdout/stderr) → `sb logs`.
+  script stdout/stderr) → `sb logs` — SKIPPED for now. Provisioning failures already surface
+  through command output, and durable log storage can wait until debugging missed output becomes
+  recurring pain.
 - `sb status --json` — RESOLVED. Human status remains unchanged; JSON output uses
   `running`, `stopped`, or `not_created`.
 - Defer: multi-instance VMs, hot mount-add (recreate is acceptable for now; document it).
