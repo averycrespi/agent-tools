@@ -34,7 +34,9 @@ findings came from subagent review and should be re-confirmed at implementation 
 A hung `git push`, `go mod download`, or backend MCP server currently hangs the calling handler
 indefinitely. One pattern, three tools:
 
-- local-git-mcp: thread MCP request context with a deadline into `runner.Run()`.
+- local-git-mcp: thread MCP request context with a deadline into `runner.Run()` — RESOLVED.
+  Added a context-aware runner and configurable `--git-timeout` defaulting to 5 minutes per
+  git command.
 - local-gomod-proxy: wrap `go mod download` in a per-request timeout (long default, e.g.
   5-10 min — module downloads can legitimately be slow — but finite).
 - mcp-broker: pass an `http.Client` with timeout to `NewStreamableHttpClient`

@@ -14,52 +14,52 @@ import (
 )
 
 type mockGitClient struct {
-	validateRepoFunc   func(repoPath string) (string, error)
-	pushFunc           func(repoPath, remote, refspec string, force bool) (string, error)
-	pullFunc           func(repoPath, remote, branch string, rebase bool) (string, error)
-	fetchFunc          func(repoPath, remote, refspec string) (string, error)
-	listRemoteRefsFunc func(repoPath, remote string) ([]git.Ref, error)
-	listRemotesFunc    func(repoPath string) ([]git.Remote, error)
+	validateRepoFunc   func(ctx context.Context, repoPath string) (string, error)
+	pushFunc           func(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error)
+	pullFunc           func(ctx context.Context, repoPath, remote, branch string, rebase bool) (string, error)
+	fetchFunc          func(ctx context.Context, repoPath, remote, refspec string) (string, error)
+	listRemoteRefsFunc func(ctx context.Context, repoPath, remote string) ([]git.Ref, error)
+	listRemotesFunc    func(ctx context.Context, repoPath string) ([]git.Remote, error)
 }
 
-func (m *mockGitClient) ValidateRepo(repoPath string) (string, error) {
+func (m *mockGitClient) ValidateRepo(ctx context.Context, repoPath string) (string, error) {
 	if m.validateRepoFunc != nil {
-		return m.validateRepoFunc(repoPath)
+		return m.validateRepoFunc(ctx, repoPath)
 	}
 	return repoPath, nil
 }
 
-func (m *mockGitClient) Push(repoPath, remote, refspec string, force bool) (string, error) {
+func (m *mockGitClient) Push(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error) {
 	if m.pushFunc != nil {
-		return m.pushFunc(repoPath, remote, refspec, force)
+		return m.pushFunc(ctx, repoPath, remote, refspec, force)
 	}
 	return "", nil
 }
 
-func (m *mockGitClient) Pull(repoPath, remote, branch string, rebase bool) (string, error) {
+func (m *mockGitClient) Pull(ctx context.Context, repoPath, remote, branch string, rebase bool) (string, error) {
 	if m.pullFunc != nil {
-		return m.pullFunc(repoPath, remote, branch, rebase)
+		return m.pullFunc(ctx, repoPath, remote, branch, rebase)
 	}
 	return "", nil
 }
 
-func (m *mockGitClient) Fetch(repoPath, remote, refspec string) (string, error) {
+func (m *mockGitClient) Fetch(ctx context.Context, repoPath, remote, refspec string) (string, error) {
 	if m.fetchFunc != nil {
-		return m.fetchFunc(repoPath, remote, refspec)
+		return m.fetchFunc(ctx, repoPath, remote, refspec)
 	}
 	return "", nil
 }
 
-func (m *mockGitClient) ListRemoteRefs(repoPath, remote string) ([]git.Ref, error) {
+func (m *mockGitClient) ListRemoteRefs(ctx context.Context, repoPath, remote string) ([]git.Ref, error) {
 	if m.listRemoteRefsFunc != nil {
-		return m.listRemoteRefsFunc(repoPath, remote)
+		return m.listRemoteRefsFunc(ctx, repoPath, remote)
 	}
 	return nil, nil
 }
 
-func (m *mockGitClient) ListRemotes(repoPath string) ([]git.Remote, error) {
+func (m *mockGitClient) ListRemotes(ctx context.Context, repoPath string) ([]git.Remote, error) {
 	if m.listRemotesFunc != nil {
-		return m.listRemotesFunc(repoPath)
+		return m.listRemotesFunc(ctx, repoPath)
 	}
 	return nil, nil
 }
@@ -81,7 +81,7 @@ func toolNames(tools []gomcp.Tool) []string {
 
 func TestPushHandler_Success(t *testing.T) {
 	h := NewHandler(&mockGitClient{
-		pushFunc: func(repoPath, remote, refspec string, force bool) (string, error) {
+		pushFunc: func(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error) {
 			assert.Equal(t, "/my/repo", repoPath)
 			assert.Equal(t, "origin", remote)
 			assert.Equal(t, "", refspec)
@@ -99,13 +99,38 @@ func TestPushHandler_Success(t *testing.T) {
 	assert.False(t, result.IsError)
 }
 
+func TestPushHandler_ForwardsRequestContext(t *testing.T) {
+	type contextKey string
+	const key contextKey = "request-id"
+	ctx := context.WithValue(context.Background(), key, "abc123")
+	h := NewHandler(&mockGitClient{
+		validateRepoFunc: func(ctx context.Context, repoPath string) (string, error) {
+			assert.Equal(t, "abc123", ctx.Value(key))
+			return repoPath, nil
+		},
+		pushFunc: func(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error) {
+			assert.Equal(t, "abc123", ctx.Value(key))
+			return "Everything up-to-date", nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "push"
+	req.Params.Arguments = map[string]any{
+		"repo_path": "/my/repo",
+	}
+
+	_, err := h.Handle(ctx, req)
+
+	require.NoError(t, err)
+}
+
 func TestPushHandler_UsesValidatedRepoPath(t *testing.T) {
 	h := NewHandler(&mockGitClient{
-		validateRepoFunc: func(repoPath string) (string, error) {
+		validateRepoFunc: func(ctx context.Context, repoPath string) (string, error) {
 			assert.Equal(t, "/my/repo/../repo", repoPath)
 			return "/my/repo", nil
 		},
-		pushFunc: func(repoPath, remote, refspec string, force bool) (string, error) {
+		pushFunc: func(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error) {
 			assert.Equal(t, "/my/repo", repoPath)
 			return "Everything up-to-date", nil
 		},
@@ -122,7 +147,7 @@ func TestPushHandler_UsesValidatedRepoPath(t *testing.T) {
 
 func TestPushHandler_ValidationError(t *testing.T) {
 	h := NewHandler(&mockGitClient{
-		validateRepoFunc: func(repoPath string) (string, error) {
+		validateRepoFunc: func(ctx context.Context, repoPath string) (string, error) {
 			return "", fmt.Errorf("not a git repository")
 		},
 	})
@@ -148,7 +173,7 @@ func TestPushHandler_MissingRepoPath(t *testing.T) {
 
 func TestPullHandler_WithRebase(t *testing.T) {
 	h := NewHandler(&mockGitClient{
-		pullFunc: func(repoPath, remote, branch string, rebase bool) (string, error) {
+		pullFunc: func(ctx context.Context, repoPath, remote, branch string, rebase bool) (string, error) {
 			assert.True(t, rebase)
 			assert.Equal(t, "main", branch)
 			return "Already up to date.", nil
@@ -168,7 +193,7 @@ func TestPullHandler_WithRebase(t *testing.T) {
 
 func TestListRemotesHandler_Success(t *testing.T) {
 	h := NewHandler(&mockGitClient{
-		listRemotesFunc: func(repoPath string) ([]git.Remote, error) {
+		listRemotesFunc: func(ctx context.Context, repoPath string) ([]git.Remote, error) {
 			return []git.Remote{
 				{Name: "origin", FetchURL: "git@github.com:user/repo.git", PushURL: "git@github.com:user/repo.git"},
 			}, nil
@@ -188,7 +213,7 @@ func TestListRemotesHandler_Success(t *testing.T) {
 
 func TestListRemoteRefsHandler_Success(t *testing.T) {
 	h := NewHandler(&mockGitClient{
-		listRemoteRefsFunc: func(repoPath, remote string) ([]git.Ref, error) {
+		listRemoteRefsFunc: func(ctx context.Context, repoPath, remote string) ([]git.Ref, error) {
 			return []git.Ref{
 				{SHA: "abc123", Ref: "refs/heads/main"},
 			}, nil

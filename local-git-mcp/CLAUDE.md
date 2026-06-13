@@ -34,7 +34,7 @@ internal/
 ## Conventions
 
 - Errors are wrapped with context: `fmt.Errorf("doing X: %w", err)`
-- All external commands go through `exec.Runner` interface
+- All external commands go through the context-aware `exec.Runner` interface and respect the configured per-command timeout
 - `cmd/` has no tests (thin wrappers); all internal packages have tests
 - Command failures use `%s` with trimmed output; Go errors use `%w` for wrapping
 - gosec nolint directives on os/exec are intentional for CLI

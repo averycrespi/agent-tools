@@ -49,9 +49,14 @@ make build
 
 # Explicitly allow all host paths, preserving the old unrestricted behavior
 local-git-mcp --allow-all-paths
+
+# Override the per-git-command timeout (default: 5m; 0 disables it)
+local-git-mcp --git-timeout 20m /shared/worktrees
 ```
 
 `--allow-all-paths` disables repository path isolation. Use it only when the caller is trusted to operate on any absolute git repository path visible to the host; the server logs a startup warning when this flag is enabled.
+
+Each git command runs with a finite timeout so hung remote operations do not block the MCP handler forever. The default is 5 minutes per git command. Use `--git-timeout` to adjust it, or `--git-timeout 0` to disable the timeout.
 
 ## Development
 

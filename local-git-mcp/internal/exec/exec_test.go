@@ -1,6 +1,7 @@
 package exec
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,14 +13,14 @@ func TestOSRunner_ImplementsRunner(t *testing.T) {
 
 func TestOSRunner_Run(t *testing.T) {
 	r := NewOSRunner()
-	out, err := r.Run("echo", "hello")
+	out, err := r.Run(context.Background(), "echo", "hello")
 	assert.NoError(t, err)
 	assert.Contains(t, string(out), "hello")
 }
 
 func TestOSRunner_RunDir(t *testing.T) {
 	r := NewOSRunner()
-	out, err := r.RunDir("/tmp", "pwd")
+	out, err := r.RunDir(context.Background(), "/tmp", "pwd")
 	assert.NoError(t, err)
 	assert.Contains(t, string(out), "tmp")
 }

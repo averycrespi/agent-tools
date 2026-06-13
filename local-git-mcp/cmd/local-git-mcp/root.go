@@ -2,6 +2,7 @@ package main
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/averycrespi/agent-tools/local-git-mcp/internal/exec"
 	"github.com/averycrespi/agent-tools/local-git-mcp/internal/git"
@@ -10,7 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var allowAllPaths bool
+var (
+	allowAllPaths bool
+	gitTimeout    time.Duration
+)
 
 const allowAllPathsWarning = "--allow-all-paths disables repository path isolation; sandboxed callers can request operations on any absolute git repository path visible to the host"
 
@@ -20,7 +24,7 @@ var rootCmd = &cobra.Command{
 	Args:  cobra.ArbitraryArgs,
 	RunE: func(_ *cobra.Command, args []string) error {
 		runner := exec.NewOSRunner()
-		gitClient, err := git.NewClient(runner, args, allowAllPaths)
+		gitClient, err := git.NewClientWithTimeout(runner, args, allowAllPaths, gitTimeout)
 		if err != nil {
 			return err
 		}
@@ -40,6 +44,7 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.Flags().BoolVar(&allowAllPaths, "allow-all-paths", false, "allow access to any absolute git repository path")
+	rootCmd.Flags().DurationVar(&gitTimeout, "git-timeout", git.DefaultCommandTimeout, "maximum duration for each git command (0 disables timeout)")
 }
 
 func warnIfAllowAllPaths(allow bool) {

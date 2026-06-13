@@ -14,6 +14,8 @@ local-git-mcp is a stdio MCP server. No network listener, no config file, no sta
 
 The caller must provide one or more allowed host path prefixes at startup, for example `local-git-mcp /shared/worktrees /other/repo/root`. Tool calls can access only repositories at those prefixes or their descendants. For the old unrestricted behavior, the caller must explicitly pass `--allow-all-paths`.
 
+Every git subprocess receives the MCP request context plus a per-command timeout. The default timeout is 5 minutes and can be changed with `--git-timeout`; `--git-timeout 0` disables the timeout.
+
 ## Tools
 
 Five tools, all requiring a `repo_path` parameter that is validated to be an existing git repository:
@@ -89,7 +91,7 @@ Every tool call validates `repo_path` before executing:
 
 Errors are returned as MCP tool error responses. Git's stderr is included in the error message so agents get actionable feedback (e.g., "remote not found", "permission denied").
 
-No retries or special error recovery — git's exit code and output are passed through faithfully.
+No retries or special error recovery — git's exit code and output are passed through faithfully. If a command exceeds its timeout or the MCP request context is canceled, the command is canceled and the tool returns the context error.
 
 ## Security
 
@@ -110,7 +112,7 @@ Callers that intentionally want unrestricted host-path access must pass `--allow
 
 **Stdio transport, not HTTP.** Stdio is simpler — no port allocation, no TLS, no auth. The caller manages the process lifecycle.
 
-**No config file.** Access policy is supplied as startup arguments rather than a config file. Credentials come from the host's existing git setup.
+**No config file.** Access policy and command timeout are supplied as startup arguments rather than a config file. Credentials come from the host's existing git setup.
 
 **Explicit path allowlist.** The server rejects `repo_path` values outside configured allowed prefixes before running git. This matches sandbox/host shared-path setups and avoids exposing every host repository by default.
 

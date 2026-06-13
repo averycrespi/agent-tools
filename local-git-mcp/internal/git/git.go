@@ -1,12 +1,16 @@
 package git
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/averycrespi/agent-tools/local-git-mcp/internal/exec"
 )
+
+const DefaultCommandTimeout = 5 * time.Minute
 
 // Remote represents a configured git remote.
 type Remote struct {
@@ -23,23 +27,29 @@ type Ref struct {
 
 // Client wraps git remote operations with an injectable command runner.
 type Client struct {
-	runner        exec.Runner
-	allowedPaths  []string
-	allowAllPaths bool
+	runner         exec.Runner
+	allowedPaths   []string
+	allowAllPaths  bool
+	commandTimeout time.Duration
 }
 
 // NewClient returns a git Client using the given command runner.
 func NewClient(runner exec.Runner, allowedPaths []string, allowAllPaths bool) (*Client, error) {
+	return NewClientWithTimeout(runner, allowedPaths, allowAllPaths, DefaultCommandTimeout)
+}
+
+// NewClientWithTimeout returns a git Client using the given command runner and per-command timeout.
+func NewClientWithTimeout(runner exec.Runner, allowedPaths []string, allowAllPaths bool, commandTimeout time.Duration) (*Client, error) {
 	normalizedPaths, err := normalizeAllowedPaths(allowedPaths, allowAllPaths)
 	if err != nil {
 		return nil, err
 	}
-	return &Client{runner: runner, allowedPaths: normalizedPaths, allowAllPaths: allowAllPaths}, nil
+	return &Client{runner: runner, allowedPaths: normalizedPaths, allowAllPaths: allowAllPaths, commandTimeout: commandTimeout}, nil
 }
 
 // Push pushes commits to a remote.
 // If force is true, uses --force-with-lease.
-func (c *Client) Push(repoPath, remote, refspec string, force bool) (string, error) {
+func (c *Client) Push(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error) {
 	args := []string{"push"}
 	if force {
 		args = append(args, "--force-with-lease")
@@ -48,16 +58,16 @@ func (c *Client) Push(repoPath, remote, refspec string, force bool) (string, err
 	if refspec != "" {
 		args = append(args, refspec)
 	}
-	out, err := c.runner.RunDir(repoPath, "git", args...)
+	out, err := c.runDir(ctx, repoPath, "git", args...)
 	if err != nil {
-		return "", fmt.Errorf("git push failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("git push failed: %s", commandErrorMessage(out, err))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
 // Pull pulls from a remote.
 // If rebase is true, uses --rebase.
-func (c *Client) Pull(repoPath, remote, branch string, rebase bool) (string, error) {
+func (c *Client) Pull(ctx context.Context, repoPath, remote, branch string, rebase bool) (string, error) {
 	args := []string{"pull"}
 	if rebase {
 		args = append(args, "--rebase")
@@ -66,31 +76,31 @@ func (c *Client) Pull(repoPath, remote, branch string, rebase bool) (string, err
 	if branch != "" {
 		args = append(args, branch)
 	}
-	out, err := c.runner.RunDir(repoPath, "git", args...)
+	out, err := c.runDir(ctx, repoPath, "git", args...)
 	if err != nil {
-		return "", fmt.Errorf("git pull failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("git pull failed: %s", commandErrorMessage(out, err))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
 // Fetch fetches from a remote without merging.
-func (c *Client) Fetch(repoPath, remote, refspec string) (string, error) {
+func (c *Client) Fetch(ctx context.Context, repoPath, remote, refspec string) (string, error) {
 	args := []string{"fetch", "--", remote}
 	if refspec != "" {
 		args = append(args, refspec)
 	}
-	out, err := c.runner.RunDir(repoPath, "git", args...)
+	out, err := c.runDir(ctx, repoPath, "git", args...)
 	if err != nil {
-		return "", fmt.Errorf("git fetch failed: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("git fetch failed: %s", commandErrorMessage(out, err))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
 // ListRemoteRefs lists refs on a remote (branches, tags, etc.).
-func (c *Client) ListRemoteRefs(repoPath, remote string) ([]Ref, error) {
-	out, err := c.runner.RunDir(repoPath, "git", "ls-remote", "--", remote)
+func (c *Client) ListRemoteRefs(ctx context.Context, repoPath, remote string) ([]Ref, error) {
+	out, err := c.runDir(ctx, repoPath, "git", "ls-remote", "--", remote)
 	if err != nil {
-		return nil, fmt.Errorf("git ls-remote failed: %s", strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("git ls-remote failed: %s", commandErrorMessage(out, err))
 	}
 	var refs []Ref
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
@@ -107,10 +117,10 @@ func (c *Client) ListRemoteRefs(repoPath, remote string) ([]Ref, error) {
 }
 
 // ListRemotes lists configured remotes with their URLs.
-func (c *Client) ListRemotes(repoPath string) ([]Remote, error) {
-	out, err := c.runner.RunDir(repoPath, "git", "remote", "-v")
+func (c *Client) ListRemotes(ctx context.Context, repoPath string) ([]Remote, error) {
+	out, err := c.runDir(ctx, repoPath, "git", "remote", "-v")
 	if err != nil {
-		return nil, fmt.Errorf("git remote failed: %s", strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("git remote failed: %s", commandErrorMessage(out, err))
 	}
 	seen := make(map[string]*Remote)
 	var order []string
@@ -154,7 +164,7 @@ func (c *Client) ListRemotes(repoPath string) ([]Remote, error) {
 }
 
 // ValidateRepo checks that the given path is allowed, absolute, and is a git repository.
-func (c *Client) ValidateRepo(repoPath string) (string, error) {
+func (c *Client) ValidateRepo(ctx context.Context, repoPath string) (string, error) {
 	if !filepath.IsAbs(repoPath) {
 		return "", fmt.Errorf("repo_path must be an absolute path: %s", repoPath)
 	}
@@ -162,11 +172,31 @@ func (c *Client) ValidateRepo(repoPath string) (string, error) {
 	if !c.isAllowedPath(cleanRepoPath) {
 		return "", fmt.Errorf("repo_path %s is outside allowed paths; allowed prefixes: %s", cleanRepoPath, strings.Join(c.allowedPaths, ", "))
 	}
-	out, err := c.runner.RunDir(cleanRepoPath, "git", "rev-parse", "--git-dir")
+	out, err := c.runDir(ctx, cleanRepoPath, "git", "rev-parse", "--git-dir")
 	if err != nil {
-		return "", fmt.Errorf("not a git repository: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("not a git repository: %s", commandErrorMessage(out, err))
 	}
 	return cleanRepoPath, nil
+}
+
+func (c *Client) runDir(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if c.commandTimeout <= 0 {
+		return c.runner.RunDir(ctx, dir, name, args...)
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.commandTimeout)
+	defer cancel()
+	return c.runner.RunDir(ctx, dir, name, args...)
+}
+
+func commandErrorMessage(out []byte, err error) string {
+	message := strings.TrimSpace(string(out))
+	if message != "" {
+		return message
+	}
+	return err.Error()
 }
 
 func normalizeAllowedPaths(allowedPaths []string, allowAllPaths bool) ([]string, error) {
