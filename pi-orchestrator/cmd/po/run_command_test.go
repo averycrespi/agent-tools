@@ -75,6 +75,9 @@ func TestRunCommandCreatesWorkflowRunWithOneWorktree(t *testing.T) {
 	if run.SupervisorPID != 4321 {
 		t.Fatalf("SupervisorPID = %d, want 4321", run.SupervisorPID)
 	}
+	if launcher.logPath != run.SupervisorLogPath {
+		t.Fatalf("supervisor log path = %q, want %q", launcher.logPath, run.SupervisorLogPath)
+	}
 	if len(launcher.args) != 2 || launcher.args[0] != "--run-id" || launcher.args[1] != run.ID {
 		t.Fatalf("supervisor args = %#v, want --run-id", launcher.args)
 	}
@@ -144,11 +147,13 @@ func testConfig(t *testing.T, workflowDir string, stateDir string) config.Config
 }
 
 type recordingSupervisorLauncher struct {
-	pid  int
-	args []string
+	pid     int
+	logPath string
+	args    []string
 }
 
-func (r *recordingSupervisorLauncher) Start(args ...string) (int, error) {
+func (r *recordingSupervisorLauncher) Start(logPath string, args ...string) (int, error) {
+	r.logPath = logPath
 	r.args = append([]string(nil), args...)
 	return r.pid, nil
 }
