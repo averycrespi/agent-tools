@@ -136,6 +136,29 @@ steps:
 	assertErrorContains(t, err, "step dependencies contain a cycle")
 }
 
+func TestValidateRejectsArtifactPathTraversal(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+agents:
+  runner:
+    model: gpt-5.1-codex
+steps:
+  - id: run
+    agent: runner
+    prompt: run
+    artifacts:
+      - name: out
+        path: ../out.txt
+        required: true
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, "artifact out path must not contain ..")
+}
+
 func TestValidateRejectsAbsoluteArtifactPath(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

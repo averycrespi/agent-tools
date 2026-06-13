@@ -117,6 +117,9 @@ func (d *Definition) Validate(filenameStem string) error {
 			if filepath.IsAbs(artifact.Path) {
 				return fmt.Errorf("artifact %s path must be relative", artifact.Name)
 			}
+			if containsDotDot(artifact.Path) {
+				return fmt.Errorf("artifact %s path must not contain ..", artifact.Name)
+			}
 		}
 	}
 
@@ -157,6 +160,15 @@ func rejectUnsupportedTopLevelFields(data []byte) error {
 		}
 	}
 	return nil
+}
+
+func containsDotDot(path string) bool {
+	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func hasCycle(steps []Step) bool {
