@@ -12,6 +12,8 @@ import (
 
 var allowAllPaths bool
 
+const allowAllPathsWarning = "--allow-all-paths disables repository path isolation; sandboxed callers can request operations on any absolute git repository path visible to the host"
+
 var rootCmd = &cobra.Command{
 	Use:   "local-git-mcp [--allow-all-paths] ALLOWED_PATH...",
 	Short: "Stdio MCP server for authenticated git remote operations",
@@ -22,6 +24,7 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		warnIfAllowAllPaths(allowAllPaths)
 		handler := tools.NewHandler(gitClient)
 
 		srv := mcpserver.NewMCPServer("local-git-mcp", "0.1.0")
@@ -37,4 +40,11 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.Flags().BoolVar(&allowAllPaths, "allow-all-paths", false, "allow access to any absolute git repository path")
+}
+
+func warnIfAllowAllPaths(allow bool) {
+	if !allow {
+		return
+	}
+	slog.Warn(allowAllPathsWarning, "flag", "--allow-all-paths")
 }

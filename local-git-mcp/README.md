@@ -51,6 +51,8 @@ make build
 local-git-mcp --allow-all-paths
 ```
 
+`--allow-all-paths` disables repository path isolation. Use it only when the caller is trusted to operate on any absolute git repository path visible to the host; the server logs a startup warning when this flag is enabled.
+
 ## Development
 
 ```bash

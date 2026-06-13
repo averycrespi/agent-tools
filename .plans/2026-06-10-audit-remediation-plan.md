@@ -100,9 +100,10 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
   (or add an `anchored` default with opt-out). Also: `mcp-broker rules test <tool> <args-json>`
   subcommand to dry-run a call against the rules — makes policy authoring safe.
 
-### 2.4 local-git-mcp: warn on `--allow-all-paths` [S]
+### 2.4 local-git-mcp: warn on `--allow-all-paths` [S] — RESOLVED
 
-- Log a prominent startup warning; mention in README that it defeats the sandboxing intent.
+- Implemented a prominent startup warning and README note that `--allow-all-paths` disables
+  repository path isolation.
 
 ### 2.5 sandbox-manager: network egress posture [L, design decision]
 
@@ -310,7 +311,7 @@ follow the standard new-tool checklist in root CLAUDE.md.
 ## Suggested sequencing
 
 1. **Week 1 (correctness):** 1.1 GID, 1.2 timeouts, 1.4 small fix, 4.2 lint config,
-   4.3 doc drift, 2.4 allow-all-paths warning.
+   4.3 doc drift.
 2. **Week 2 (infra + concurrency):** 4.1 CI, 1.3 worktree/pd partial-failure work.
 3. **Week 3-4 (security):** 2.1 tool pinning, 2.2 limits, 2.3 rules lint/test command;
    design spike for 2.5 egress allowlist.
