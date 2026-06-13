@@ -26,7 +26,8 @@ func TestDashboardMuxExposesEventsRoute(t *testing.T) {
 	}
 
 	handler := dashboardMux(db, "secret")
-	req := httptest.NewRequest(http.MethodGet, "/events/runs?token=secret", nil)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/events", nil)
+	req.AddCookie(&http.Cookie{Name: "po-auth", Value: "secret"})
 	resp := httptest.NewRecorder()
 	handler.ServeHTTP(resp, req)
 

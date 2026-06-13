@@ -5,15 +5,21 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
+	"github.com/averycrespi/agent-tools/pi-orchestrator/internal/auth"
 	"github.com/averycrespi/agent-tools/pi-orchestrator/internal/store"
 )
 
+const maxLogBytes = 64 * 1024
+
 func NewHandler(db *store.Store, token string) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/runs", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/dashboard/api/runs", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -21,7 +27,7 @@ func NewHandler(db *store.Store, token string) http.Handler {
 		summaries, err := db.ListWorkflowRunSummaries(r.Context())
 		writeJSON(w, summaries, err)
 	})
-	mux.HandleFunc("/events/runs", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/dashboard/events", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -43,14 +49,18 @@ func NewHandler(db *store.Store, token string) http.Handler {
 		_, _ = w.Write(data)
 		_, _ = w.Write([]byte("\n\n"))
 	})
-	mux.HandleFunc("/api/runs/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/dashboard/api/runs/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		id := strings.TrimPrefix(r.URL.Path, "/api/runs/")
-		if id == "" || strings.Contains(id, "/") {
+		id, logs, ok := parseRunPath(r.URL.Path)
+		if !ok {
 			http.NotFound(w, r)
+			return
+		}
+		if logs {
+			writeRunLogs(w, r, db, id)
 			return
 		}
 		detail, err := db.GetWorkflowRunDetail(r.Context(), id)
@@ -60,19 +70,39 @@ func NewHandler(db *store.Store, token string) http.Handler {
 		}
 		writeJSON(w, detail, err)
 	})
+	mux.HandleFunc("/dashboard/", dashboardUI)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/dashboard/", http.StatusFound)
+	})
 	return authMiddleware(token, mux)
 }
 
 func authMiddleware(token string, next http.Handler) http.Handler {
 	tokenBytes := []byte(token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if token == "" || (!hasBearer(r, tokenBytes) && !hasQueryToken(r, tokenBytes)) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+		if token != "" && (hasBearer(r, tokenBytes) || hasCookie(r, tokenBytes)) {
+			next.ServeHTTP(w, r)
 			return
 		}
-		next.ServeHTTP(w, r)
+		if token != "" && hasQueryToken(r, tokenBytes) && strings.HasPrefix(r.URL.Path, "/dashboard/") {
+			http.SetCookie(w, &http.Cookie{ //nolint:gosec // Local loopback dashboard may run over plain HTTP; cookie is HttpOnly and SameSite.
+				Name:     auth.CookieName,
+				Value:    token,
+				Path:     "/dashboard/",
+				HttpOnly: true,
+				SameSite: http.SameSiteStrictMode,
+				MaxAge:   int((365 * 24 * time.Hour) / time.Second),
+			})
+			clean := *r.URL
+			q := clean.Query()
+			q.Del("token")
+			clean.RawQuery = q.Encode()
+			http.Redirect(w, r, clean.RequestURI(), http.StatusFound) //nolint:gosec // Redirect target is same path with only the token query removed.
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 	})
 }
 
@@ -90,6 +120,84 @@ func hasQueryToken(r *http.Request, token []byte) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(value), token) == 1
+}
+
+func hasCookie(r *http.Request, token []byte) bool {
+	cookie, err := r.Cookie(auth.CookieName)
+	if err != nil {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(cookie.Value), token) == 1
+}
+
+func parseRunPath(path string) (string, bool, bool) {
+	suffix := strings.TrimPrefix(path, "/dashboard/api/runs/")
+	if suffix == "" {
+		return "", false, false
+	}
+	if strings.HasSuffix(suffix, "/logs") {
+		id := strings.TrimSuffix(suffix, "/logs")
+		return id, true, id != "" && !strings.Contains(id, "/")
+	}
+	return suffix, false, !strings.Contains(suffix, "/")
+}
+
+func writeRunLogs(w http.ResponseWriter, r *http.Request, db *store.Store, id string) {
+	run, err := db.GetWorkflowRun(r.Context(), id)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		writeJSON(w, nil, err)
+		return
+	}
+	content, truncated, err := readLogWindow(run.SupervisorLogPath)
+	writeJSON(w, map[string]any{"run_id": id, "path": run.SupervisorLogPath, "content": content, "truncated": truncated}, err)
+}
+
+func readLogWindow(path string) (string, bool, error) {
+	if path == "" {
+		return "", false, nil
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // Path is persisted po supervisor log metadata for a local dashboard.
+	if os.IsNotExist(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("read supervisor log: %w", err)
+	}
+	if len(data) <= maxLogBytes {
+		return string(data), false, nil
+	}
+	return string(data[len(data)-maxLogBytes:]), true, nil
+}
+
+func dashboardUI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if r.URL.Path != "/dashboard/" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = fmt.Fprintf(w, `<!doctype html>
+<title>Pi Orchestrator</title>
+<h1>Pi Orchestrator</h1>
+<pre id="runs">Loading...</pre>
+<script>
+async function refresh() {
+  const res = await fetch('/dashboard/api/runs');
+  document.getElementById('runs').textContent = JSON.stringify(await res.json(), null, 2);
+}
+refresh();
+const events = new EventSource('/dashboard/events');
+events.addEventListener('snapshot', event => {
+  document.getElementById('runs').textContent = JSON.stringify(JSON.parse(event.data), null, 2);
+});
+</script>`)
 }
 
 func writeJSON(w http.ResponseWriter, value any, err error) {
