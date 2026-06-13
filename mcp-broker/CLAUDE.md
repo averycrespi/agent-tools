@@ -45,7 +45,7 @@ internal/
 - Listener binds loopback only. `serve.go` calls `server.ValidateLoopbackAddr` before `ListenAndServe`, which rejects anything but `127.0.0.0/8`, `::1`, or `localhost`. The bearer token is defense-in-depth; the network boundary is the load-bearing security boundary. Sandboxed agents reach the broker via Lima's user-mode forwarding of `host.lima.internal` to the host's loopback — do not relax this to support non-loopback binds
 - `/mcp` requests are wrapped by `limitRequestBody`; keep body-limit changes scoped to MCP requests so dashboard/API routes are unaffected
 - Audit write errors are intentionally discarded (`_ =`) — the pipeline should not fail because audit failed
-- Logger is nil-checked in packages that can be constructed without one (broker, dashboard, manager)
+- Logger nil handling is package-specific: broker/dashboard tolerate nil, while manager/backend construction expects a real logger. Do not add new nil-logger call paths without either guarding calls or providing a default logger.
 - `expandEnv` in server package uses `os.ExpandEnv` — supports `$VAR` and `${VAR}` anywhere in the value (e.g., `"Bearer $TOKEN"`)
 - Config file permissions: `0o600` for files, `0o750` for directories
 - `mcp-go` HTTP client constructor is `client.NewStreamableHttpClient` (lowercase h); Streamable HTTP backends must include `transport.WithHTTPTimeout(httpBackendTimeout(srv))` so hung backend requests are bounded

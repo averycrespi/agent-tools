@@ -11,7 +11,7 @@ The path of least resistance is to use backends that read host credentials from 
 - **GitHub** — use the official remote GitHub MCP server (`https://api.githubcopilot.com/mcp/`). It authenticates over OAuth, and the broker stores the refresh token in the Keychain — no env vars needed.
 - **Git operations** — use [`local-git-mcp`](../../local-git-mcp/) with `gh auth setup-git` configured on the host.
 
-If you do need to inject a secret, uncomment the relevant block in `examples/launchd/mcp-broker.plist` and paste the value. The plist file should stay `chmod 600` (which `launchctl bootstrap` enforces). Shell exports in `.zshrc`/`.bashrc` won't reach launchd.
+If you do need to inject a secret, uncomment the relevant block in `examples/launchd/mcp-broker.plist` and paste the value. The plist file should stay `chmod 600`; `launchctl bootstrap` rejects group- or world-writable plists, but it does not make secret-bearing files private for you. Shell exports in `.zshrc`/`.bashrc` won't reach launchd.
 
 ## State paths
 
@@ -35,6 +35,7 @@ make install   # drops it at $(go env GOPATH)/bin, typically ~/go/bin.
 #    ~/Library/LaunchAgents/.
 sed "s/USERNAME/$USER/g" examples/launchd/mcp-broker.plist \
     > ~/Library/LaunchAgents/dev.agent-tools.mcp-broker.plist
+chmod 600 ~/Library/LaunchAgents/dev.agent-tools.mcp-broker.plist
 
 # 3. Load and start it.
 launchctl bootstrap gui/$UID ~/Library/LaunchAgents/dev.agent-tools.mcp-broker.plist

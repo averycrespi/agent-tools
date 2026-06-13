@@ -95,7 +95,7 @@ Each `RuleConfig` has optional `reason` and `args` fields. `reason` is primarily
 
 ```json
 {
-  "tool": "push",
+  "tool": "local-git.push",
   "verdict": "allow",
   "args": [
     { "path": "remote", "match": "origin" },
@@ -155,9 +155,10 @@ Tool descriptors are passed through to clients with full fidelity: in addition t
 The `Backend` interface abstracts transport:
 
 - `stdioBackend` — spawns a subprocess, communicates via stdin/stdout
-- `httpBackend` — connects via Streamable HTTP
-- `sseBackend` — connects via Server-Sent Events
-- `oauthBackend` — auto-detected on 401 responses from HTTP/SSE backends; tokens stored in OS keychain via `go-keyring` (service: `mcp-broker`, key: server name). OAuth callback port is deterministic per server name (FNV hash → ephemeral port range).
+- `httpBackend` — connects via Streamable HTTP, with optional OAuth after a 401 challenge
+- `sseBackend` — connects via Server-Sent Events, with optional OAuth after a 401 challenge
+
+OAuth refresh tokens for HTTP/SSE backends are stored in OS keychain via `go-keyring` (service: `mcp-broker`, key: server name). OAuth callback port is deterministic per server name (FNV hash → ephemeral port range).
 
 Streamable HTTP backends use a finite HTTP request/stream timeout so a hung backend server does not block broker startup, tool discovery, or approved proxy calls forever. The timeout is configured per server with `http_timeout_seconds` and defaults to 120 seconds. This backend timeout is separate from the human approval timeout; it applies only while communicating with the backend.
 
@@ -204,6 +205,8 @@ Cobra-based CLI with commands:
 - `config path` — prints config file location
 - `config refresh` — backfills new defaults
 - `config edit` — opens config in `$EDITOR`
+- `token rotate` — rotates the broker bearer token
+- `logout <server>` — removes stored OAuth credentials for a backend server
 
 ## Tech stack
 

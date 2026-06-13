@@ -40,7 +40,7 @@ mcp-broker is designed for **local use only**. Startup refuses to bind anything 
 - User accounts or role-based access — there is one token for everything
 - Automatic token rotation (use `mcp-broker token rotate` to rotate manually)
 
-**Sandboxed agents** reach the broker via Lima's user-mode networking, which forwards guest connections to `host.lima.internal:8200` to the host's loopback. Set `MCP_BROKER_ENDPOINT=http://host.lima.internal:8200` inside the sandbox.
+**Sandboxed agents** reach the broker via Lima's user-mode networking, which forwards guest connections to `host.lima.internal:8200` to the host's loopback. Set `MCP_BROKER_URL=http://host.lima.internal:8200/mcp` inside the sandbox.
 
 ## Quick start
 
@@ -105,7 +105,7 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
     "chat_id": "$TELEGRAM_CHAT_ID"
   },
   "audit": {
-    "path": "~/.local/share/mcp-broker/audit.db"
+    "path": "/Users/alice/.local/share/mcp-broker/audit.db"
   },
   "log": {
     "level": "info"
@@ -200,16 +200,16 @@ Rules can optionally constrain on argument values using the `args` field. All pa
 {
   "rules": [
     {
-      "tool": "push",
+      "tool": "local-git.push",
       "verdict": "allow",
       "args": [{ "path": "remote", "match": "origin" }]
     },
     {
-      "tool": "push",
+      "tool": "local-git.push",
       "verdict": "deny",
       "args": [{ "path": "commit.message", "match": { "regex": "^chore:" } }]
     },
-    { "tool": "push", "verdict": "require-approval" }
+    { "tool": "local-git.push", "verdict": "require-approval" }
   ]
 }
 ```
