@@ -65,10 +65,11 @@ indefinitely. One pattern, three tools:
   was written. Current `failRunLaunch` transitions launch failures to terminal `failed` and
   runs cleanup for failures before a supervisor PID is returned; failures after a supervisor
   PID is returned intentionally skip cleanup because the supervisor may still own the task.
-- Stale control sockets under `/tmp/pd/tasks/`: have reconciliation and `pd rm` delete socket
-  files for dead supervisors.
+- Stale control sockets under `/tmp/pd/tasks/`: RESOLVED for reconciliation and `pd rm`.
+  `pd rm` already removed sockets, and reconciliation now deletes a dead supervisor's stale
+  socket before marking the task `unknown`.
 - Verify: add tests for concurrent `wt add` (two goroutines, same branch), launch-failure
-  state transition, and socket cleanup on reconcile.
+  state transition, and socket cleanup on reconcile — socket cleanup on reconcile is covered.
 
 ### 1.4 local-gomod-proxy: path containment on streamed files [S] — RESOLVED
 

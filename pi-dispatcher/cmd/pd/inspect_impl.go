@@ -199,6 +199,11 @@ func reconcileTask(ctx context.Context, db *store.Store, task store.Task, run st
 			return task, nil
 		}
 	}
+	if run.ControlSocketPath != "" {
+		if err := os.Remove(run.ControlSocketPath); err != nil && !os.IsNotExist(err) {
+			return task, err
+		}
+	}
 	if err := db.MarkUnknown(ctx, task.ID); err != nil {
 		return task, err
 	}
