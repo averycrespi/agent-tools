@@ -1,10 +1,10 @@
 # Pi Orchestrator — Ideation (2026-06-10)
 
-A workflow layer above pi-dispatcher (`pd`) that accepts workflow fire requests and stitches
+A workflow layer above pi-dispatcher (`pd`) that accepts workflow run requests and stitches
 one or more workflow steps together, each backed by a `pd` task run: reusable workflow
-definitions, typed inputs, idempotent run creation, step orchestration, artifacts, and outcome
-routing. External systems such as launchd/cron, GitHub pollers, MCP tools, or humans decide
-_when_ to call `po fire`.
+definitions, typed inputs, run creation, step orchestration, artifacts, and outcome routing.
+External systems such as launchd/cron, GitHub pollers, MCP tools, or humans decide _when_ to
+call `po run`.
 Working name: `po` (pi-orchestrator). This is an ideation document, not an implementation
 plan — it surveys prior art, proposes a shape, and lists open questions.
 
@@ -13,7 +13,7 @@ plan — it surveys prior art, proposes a shape, and lists open questions.
 Today's stack has clean layers; `po` adds one more without disturbing them:
 
 ```
-po   — runs WORKFLOWS (fire API, inputs, step graph, artifacts, dedup, caps, outcome routing)
+po   — runs WORKFLOWS (run API, inputs, step graph, artifacts, caps, outcome routing)
 pd   — runs TASKS (one agent task run: worktree, sandbox, supervisor, SQLite state, steer/stop/wait)
 wt   — worktree lifecycle          sb — sandbox lifecycle
 ```
@@ -23,9 +23,9 @@ imports a stable `pd/pkg/...` execution API the way `pd` imports the worktree-ma
 sandbox-manager packages. The `pd` CLI remains a standalone user-facing wrapper over the
 same primitives. `pd` should expose completion observability (`Wait`, `Watch`, terminal-state
 queries, result metadata) so `po` can reconcile steps without scraping CLI status or adding
-`po`-specific callbacks. `po` owns: workflow definitions, input validation, fire acceptance,
-step graph and artifact handoff, dedup and claims, concurrency/budget caps, retry/respawn
-policy, and routing outcomes to the human.
+`po`-specific callbacks. `po` owns: workflow definitions, input validation, run admission,
+step graph and artifact handoff, claims, concurrency/budget caps, respawn/recovery policy,
+and routing outcomes to the human.
 
 Vocabulary boundary: `pd` owns **tasks** and **task runs**. `po` owns **workflows**,
 **workflow runs**, **steps**, and **step runs**. A `po` step run is executed by creating or
@@ -37,11 +37,11 @@ Equally important — what `po` is **not**:
 - Not a merge bot. Agents may open draft PRs via broker-backed GitHub tooling; only humans merge.
   Every system surveyed keeps this line.
 - Not a free-form multi-agent collaboration framework (no inter-agent messaging, role
-  hierarchies, or autonomous delegation trees a la Gas Town). One workflow fire = a bounded,
+  hierarchies, or autonomous delegation trees a la Gas Town). One workflow run = a bounded,
   deterministic graph of explicit steps connected by stored artifacts; each executable step is
   backed by a `pd` task run.
 - Not a scheduler or webhook SaaS. Local-first; external launchd/cron jobs, pollers, MCP
-  tools, or humans call `po fire`; `po` accepts/dedups/runs the workflow.
+  tools, or humans call `po run`; `po` validates, admits, and runs the workflow.
 
 ## Prior art — what others built, and what to steal
 
@@ -56,14 +56,13 @@ Equally important — what `po` is **not**:
 | **Terragon** (OSS snapshot: terragon-labs/terragon-oss; shut down 2026) | Full reference impl: tasks from web/CLI/@-mention/MCP; Automations = recurring or event-triggered; container + unique branch per task                                                                                                                                      | Founder's lessons: at ~30 tasks/day the bottleneck is 100% human review; **abandon-and-respawn with amended prompt beats iterative steering** — make respawn a first-class verb.             |
 | **Baton** (mraza007/baton)                                              | Daemonless-ish poller→dispatcher→reconciler over a `WORKFLOW.md` (YAML frontmatter + Jinja2 prompt from issue fields, `{{ attempt }}` exposed); claim state machine; outcome-dependent retry (PR created = release; error = exp backoff; issue closed = release + cleanup) | The **runtime architecture** — closest existing thing to what `po` should be in Go. Polling via `gh` instead of webhooks fits local-first.                                                   |
 | **Gas Town / Beads** (Yegge)                                            | 20-30 agents, role hierarchy, git-backed SQL-queryable work units                                                                                                                                                                                                          | Only two ideas at our scale: durable queryable work queue (we have SQLite) and a dedicated merge/integration serialization point.                                                            |
-| **Vibe Kanban** (now community OSS)                                     | Kanban columns as run states; agents can enqueue cards via MCP                                                                                                                                                                                                             | Agents enqueueing work for agents (a `po fire` MCP tool / broker backend) is a cheap, powerful hook. Commercial lesson: pure-orchestration UIs died; local-first OSS survived.               |
+| **Vibe Kanban** (now community OSS)                                     | Kanban columns as run states; agents can enqueue cards via MCP                                                                                                                                                                                                             | Agents enqueueing work for agents (a `po run` MCP tool / broker backend) is a cheap, powerful hook. Commercial lesson: pure-orchestration UIs died; local-first OSS survived.                |
 | **Temporal/Inngest/Hatchet**                                            | Durable execution platforms                                                                                                                                                                                                                                                | Overkill (server + workers) for single-user, but their vocabulary is the checklist to reimplement over SQLite: per-key concurrency, debounce, priority, idempotency keys, persist-each-step. |
 | **Heartbeat pattern** (community)                                       | Cron agent reads state file from last run, acts, writes back                                                                                                                                                                                                               | Optional per-workflow persistent state ("since-last-run" watermark) carried between runs.                                                                                                    |
 | **Claude Code local scheduled tasks** (/loop, CronCreate)               | Deterministic jitter from task ID; **7-day auto-expiry**; no catch-up for missed fires                                                                                                                                                                                     | Good semantics for optional external schedule wrappers/docs, without putting scheduling inside the core workflow engine.                                                                      |
 
-Composite recommendation: **Routines' fire/request ergonomics + Baton's durable
-reconciler runtime + Codex's triage-with-auto-archive output + a workflow-run/step-run state
-model in SQLite.**
+Composite recommendation: **Routines' request ergonomics + Baton's durable reconciler runtime
++ Codex's triage-with-auto-archive output + a workflow-run/step-run state model in SQLite.**
 
 ## Proposed shape
 
@@ -106,22 +105,23 @@ on_empty: archive # workflow reports nothing actionable → silent
 state_key: "pr-review:{{ .Inputs.repo }}" # optional heartbeat watermark carried between runs
 ```
 
-Concrete workflow runs are created by `po fire`, which supplies validated inputs and an
-optional raw payload for audit/debug:
+Concrete workflow runs are created by `po run`, which supplies validated inputs:
 
 ```sh
-po fire pr-review \
+po run pr-review \
   --input repo=averycrespi/agent-tools \
   --input pr_number=123 \
-  --input head_sha=abc123 \
-  --dedup-key github:averycrespi/agent-tools:pr:123:abc123 \
-  --payload-file github-event.json
+  --input head_sha=abc123
 ```
 
-Inputs are typed, validated, and safe to use in workflow control flow. Raw payloads are
-stored separately and are not automatically interpolated into prompts; event bodies,
-comments, and issue descriptions are untrusted content. A workflow may explicitly choose to
-include a raw field, but the safer default is to pass identifiers (`repo`, `issue_number`,
+Inputs are typed, validated, and safe to use in workflow control flow. Keep v1 inputs flat and
+simple (`string`, `integer`, `boolean`; `required`, `default`, and `enum` are enough). External
+adapters normalize events into these inputs before calling `po run`; core `po` should not
+understand GitHub event schemas. Raw payload storage (`--payload-file`) and bulk input loading
+(`--input-file`) are convenience features to add when adapter needs justify them, not v1
+requirements. If raw payloads are stored later, they are audit/debug data and are not
+automatically interpolated into prompts; event bodies, comments, and issue descriptions are
+untrusted content. The safer default is to pass identifiers (`repo`, `issue_number`,
 `pr_number`) and let the agent fetch needed context through gated tools.
 
 Multi-step workflows add explicit dependencies and pass stored artifacts between steps:
@@ -143,25 +143,26 @@ to "make the prompt explicit about success"); `pd` already decouples cleanup/exi
 state, so recording `infra_status` vs step/workflow `outcome` separately fits the existing
 schema philosophy.
 
-### Fire requests, not built-in scheduling
+### Run requests, not built-in scheduling
 
 `po` should not be a scheduler or event poller in v1. External systems decide when a workflow
-should start and call the same fire API:
+should start and call the same run API:
 
-1. **Schedules** — launchd/systemd-timer/cron invokes `po fire <workflow> ...`. Jitter, TTL,
+1. **Schedules** — launchd/systemd-timer/cron invokes `po run <workflow> ...`. Jitter, TTL,
    and missed-run semantics can live in those wrappers or docs rather than the core workflow
    engine.
 2. **Events** — GitHub/CI/issue pollers, broker-backed MCP tools, or local scripts normalize
-   events into typed workflow inputs and call `po fire --input ... --payload-file ...
-   --dedup-key ...`. Polling remains preferred over inbound webhooks for local-first use.
-3. **Manual/API** — humans and agents call `po fire <workflow> [--input ...]`; the same can be
+   events into typed workflow inputs and call `po run --input ...`. Polling remains preferred
+   over inbound webhooks for local-first use.
+3. **Manual/API** — humans and agents call `po run <workflow> [--input ...]`; the same can be
    exposed as an MCP tool through mcp-broker so agents can enqueue workflows, gated by broker
    rules.
 
-`po fire` validates inputs, stores the raw payload if provided, computes or accepts an
-idempotency/dedup key, applies caps/backpressure, creates or returns a durable workflow run,
-and starts/adopts a workflow supervisor for that run. External trigger code may be dumb; `po`
-remains responsible for accepting, deduping, or rejecting the run safely.
+`po run` validates inputs, applies caps/backpressure, creates a durable workflow run, and
+starts/adopts a workflow supervisor for that run. In v1, successful CLI output can simply be
+the workflow run ID; validation and cap failures can be ordinary non-zero CLI errors with
+clear messages. Structured run responses and idempotency/dedup keys can wait until trigger
+adapter needs justify them.
 
 ### Runtime: per-workflow supervisor, not a global daemon
 
@@ -169,13 +170,13 @@ No global daemon and no user-facing periodic advance loop. Each accepted workflo
 workflow supervisor process, analogous to `pd`'s supervisor around one Pi task run. The
 workflow supervisor owns one workflow run: start ready step runs by creating `pd` task runs,
 wait for or watch task-run terminal state, run `success_check`, collect artifacts, evaluate
-dependencies/retries/fix policy, route final outcomes, and exit when the workflow reaches a
+dependencies and terminal outcomes, route final outcomes, and exit when the workflow reaches a
 terminal state. `pd` supervisors continue to own individual Pi task-run lifecycles.
 
 A crashed `po` supervisor loses no workflow state because every transition is persisted in
-SQLite. A recovery/adoption path (`po recover` or `po supervisor --adopt <run>`, exact CLI
-TBD) can scan non-terminal workflow runs, reconcile `pd` state, and restart supervisors after
-process death or reboot.
+SQLite. V1 does not need a user-facing recovery command; inspection and wait commands should
+reconcile missing supervisors to `unknown` the way `pd` does. A later recovery/adoption path
+can restart supervisors after process death or reboot if the need is proven.
 
 ### Worktree ownership
 
@@ -191,12 +192,33 @@ workflow-owned worktree with per-task cleanup disabled. Per-step worktrees can b
 if a real workflow needs isolation or parallel write branches, but they are deliberately out
 of scope for v1.
 
+### Step completion and failure propagation
+
+V1 should keep step semantics strict: every executable step is an agent-backed `pd` task run,
+and each required step must completely succeed. A step run succeeds only when all configured
+completion gates pass:
+
+1. the backing `pd` task run reaches `succeeded`;
+2. all required declared artifacts for the step exist;
+3. the step `success_check`, if configured, exits 0.
+
+If any gate fails, the step run is `failed`. A clean `pd` task exit is necessary but not
+sufficient, because `pd` success means the agent process ended cleanly, not that the workflow
+objective was satisfied. Workflow success requires every required step on the executed path to
+succeed; if a required step fails, dependent steps are marked `skipped` and the workflow run
+fails.
+
+No optional steps, semantic auto-retries, or hidden fix loops in v1. Recovery is explicit:
+manual `respawn` or a workflow-authored later step once outcome/artifact contracts are solid.
+Automatic retry can be added later for clearly classified infra failures, but semantic
+failures should not be retried by default.
+
 ### State model (own SQLite DB, `~/.local/state/po/po.db`)
 
 - `workflows` (mirrored from files, with content hash → detect edits)
-- `fire_requests` (accepted fire API calls: workflow, typed inputs JSON, raw payload pointer,
-  dedup_key, source, requested_by, accepted/rejected reason)
-- `workflow_runs` (workflow + fire request → typed inputs snapshot, workflow worktree/branch,
+- `run_requests` (accepted run API calls: workflow, typed inputs JSON, source, requested_by;
+  dedup keys and raw payload pointers can be added when trigger adapter needs justify them)
+- `workflow_runs` (workflow + run request → typed inputs snapshot, workflow worktree/branch,
   attempt counter, claim/lease, aggregate outcome, routed-notification status)
 - `step_runs` (workflow_run + step ID → backing pd task run ID, dependencies, attempt counter,
   success_check result, infra status, step outcome)
@@ -208,10 +230,10 @@ from semantic outcome. Workflow-run states:
 `starting → running → succeeded | failed | stopping → stopped | unknown`. Step-run states:
 `starting → running → succeeded | failed | stopping → stopped | skipped | unknown`.
 
-No `queued` state in v0: `po fire` either rejects/dedups the fire request or admits it by
-creating a workflow run and starting/adopting its supervisor. Deferred admission can be added
-later as fire-request metadata or an explicit queue if needed, but it should not complicate
-the initial workflow-run lifecycle.
+No `queued` state in v0: `po run` either rejects the run request or admits it by creating a
+workflow run and starting/adopting its supervisor. Deferred admission can be added later as
+run-request metadata or an explicit queue if needed, but it should not complicate the initial
+workflow-run lifecycle.
 
 `awaiting-input` is intentionally not a `po` state: workflows are autonomous, and temporary
 MCP broker approvals or tool waits are part of a running backing `pd` task run. `stale` is
@@ -273,55 +295,62 @@ artifacts to worktree cleanup, and breaks down when steps use different worktree
 Layered, all cheap over SQLite:
 
 - **Caps**: global max concurrent workflow step runs (default 2-3 — Osmani's sweet spot);
-  per-workflow max concurrent workflow runs (default 1); daily fire cap per workflow and
+  per-workflow max concurrent workflow runs (default 1); daily run cap per workflow and
   global; optional per-source cap for noisy external pollers with overflow _dropped and
   logged_.
-- **Anti-loop**: dedup/idempotency keys and source metadata prevent external pollers from
-  repeatedly firing on agent-created branches or PRs; n8n-style retry constraints — max 3
-  attempts per logical item per day, minimum gap between attempts, never retry non-retryable
-  failures.
-- **Outcome-dependent retry** (Baton): PR-created → release; clean-empty → done;
-  infra error → exponential backoff; source issue closed → release + cleanup.
+- **Anti-loop**: V1 keeps core `po` simple and relies on external trigger adapters plus branch
+  prefix/actor filtering to avoid self-triggering. Future adapter hardening can add
+  idempotency keys, debounce, or per-source duplicate suppression. V1 does not automatically
+  retry semantic failures; future infra-only retries need explicit attempt caps, minimum gaps,
+  and non-retryable failure classification.
+- **Outcome-dependent routing** (Baton): PR-created → reviewable success; clean-empty → done;
+  infra error → failed/unknown notification; source issue closed before run admission → reject
+  or skip admission.
 - **Circuit breaker**: if a workflow's last N runs all failed, auto-pause it and notify
   ("nightly-audit paused after 3 consecutive failures").
 - **Review backpressure**: cap workflow runs with reviewable outcomes (for example,
-  `state=succeeded`, `outcome=pr_created`); when the human's review queue is full, new fires
-  are rejected or deferred at the fire-request layer instead of spawning. The unanimous lesson
-  (Terragon, Osmani) is that human review is the bottleneck — the orchestrator should respect
-  it, not bury it.
+  `state=succeeded`, `outcome=pr_created`); when the human's review queue is full, new run
+  requests are rejected or deferred at the run-request layer instead of spawning. The unanimous
+  lesson (Terragon, Osmani) is that human review is the bottleneck — the orchestrator should
+  respect it, not bury it.
 - **Budget**: `max_duration`/`max_turns` per workflow step run; optionally a daily token/cost budget once pd captures usage.
 
-### Output routing
+### Output, logs, and control
 
-- Pull-based **inbox** first (`po inbox`, plus a tab in the pd dashboard or a sibling
-  loopback UI): each workflow run lands with lifecycle state, semantic outcome, step
-  summaries, diff/PR links, and artifacts.
-- **Auto-archive empty results** (Codex Triage) — a nightly audit that found nothing
-  makes no sound.
-- Push notifications only for failed/unknown workflow runs and workflow auto-pause — via the
-  planned ntfy approver/agent-notify path (audit plan 6.4), with action buttons (respawn /
-  steer / dismiss).
-- **`po respawn <run-or-step> [--amend "..."]`** as a first-class verb: clone a failed
-  workflow run or step with amended inputs, abandon the old worktree. Terragon's core lesson
-  operationalized.
+V1 should start with `pd`-aligned pull inspection rather than a separate inbox. `po ps`,
+`po status`, and `po wait` show workflow-run lifecycle state, semantic outcome, step
+summaries, backing `pd` task run IDs, diff/PR links, and artifacts. `po logs <run>` shows
+workflow supervisor logs plus pointers to the underlying `pd` task logs for each step; it does
+not need to stream or duplicate all `pd` logs in v1.
+
+`po wait <run>` should mirror `pd wait`: block until terminal and exit non-zero unless the
+workflow run succeeded. `po stop <run>` should stop the workflow supervisor and the currently
+running backing `pd` task run, then finalize the workflow as stopped. `po rm <run>` should
+forget `po` metadata/logs for terminal workflow runs; cleanup semantics can mirror `pd` and
+stay conservative.
+
+Defer `po inbox`, dashboard tabs, push notifications, auto-archive behavior, and `po recover`
+until the basic run/inspect/wait/stop loop is solid. `po respawn <run-or-step> [--amend "..."]`
+remains a likely follow-on control verb, but is not required for the smallest v1.
 
 ## Strawman CLI
 
 ```
-po workflow list|show|lint <name>      # lint = validate YAML and input schema
-po fire <workflow> [--input k=v ...]   # validate inputs, dedup, create/adopt workflow-run supervisor
-po fire <workflow> --input-file in.json --payload-file raw.json --dedup-key ...
-po run <workflow> [--input k=v ...]    # likely fire + attach/wait for manual/debug use; TBD
-po ps / po inbox / po log <run>        # observe
-po recover                             # restart/adopt supervisors for non-terminal runs; TBD
-po respawn <run-or-step> [--amend ...] # abandon-and-respawn
-po pause|resume <workflow>             # manual circuit breaker
+po list                                # list workflow definitions
+po show <workflow>                     # show a workflow definition
+po lint <workflow>                     # validate YAML and input schema
+po run <workflow> [--input k=v ...]    # validate inputs, create/adopt workflow-run supervisor
+po ps                                  # list workflow runs
+po status <run>                        # show workflow run, steps, artifacts, backing pd task IDs
+po wait <run>                          # block until terminal; non-zero unless succeeded
+po logs <run>                          # workflow supervisor logs + pointers to pd step logs
+po stop <run>                          # stop supervisor and current backing pd task run
+po rm <run>                            # forget terminal workflow run metadata/logs
 
-CLI surface is intentionally unsettled, but should align with `pd` wherever the concepts
-overlap to reduce mental load: use familiar inspection/control verbs such as `ps`, `status`,
-`wait`, `logs`, `stop`, and `rm` when their semantics match. The design decision is the
-runtime shape: `po fire` creates/adopts a workflow-run supervisor; there is no core scheduler
-and no normal operator-facing `advance` command.
+CLI surface should align with `pd` wherever concepts overlap to reduce mental load. The design
+decision is the runtime shape: `po run` creates/adopts a workflow-run supervisor; there is no
+core scheduler, no normal operator-facing `advance` command, no v1 `inbox`, and no v1
+user-facing `recover`.
 ```
 
 ## Open questions
@@ -331,7 +360,7 @@ and no normal operator-facing `advance` command.
    Defer to vNext; `fresh` covers most workflow steps.
 2. **Trigger adapters live where?** Core `po` should not own scheduling/polling, but examples
    or companion commands may be useful: launchd plist snippets, `po-github-poll`, or broker
-   tools that normalize external events into `po fire` inputs.
+   tools that normalize external events into `po run` inputs.
 3. **Is `po` a new tool or a `pd` subsystem?** Separate tool fits the repo's
    one-tool-one-job pattern and keeps pd's scope honest; but they share SQLite idioms,
    auth-token plumbing, and the dashboard. The expected boundary is a stable `pd/pkg/...`
@@ -349,19 +378,21 @@ and no normal operator-facing `advance` command.
 ## MVP slicing
 
 1. **v0 — input-driven single-step workflows**: workflow files with typed inputs,
-   `po fire` creating/adopting a workflow supervisor, one step run backed by one `pd` task run
-   per workflow run, fire_requests/workflow_runs/step_runs tables, inbox via `po ps`. No built-in scheduler,
-   no success_check. (Strictly more useful than `cron + bash` because of validation, dedup,
-   caps, artifacts, and state.)
-2. **v0.5 — outcomes and linear workflows**: success_check, on_success/on_failure routing,
-   artifact handoff, `needs` dependencies for linear multi-step workflows, respawn verb,
-   circuit breaker, ntfy notifications for failures.
+   `po run` creating/adopting a workflow supervisor, one step run backed by one `pd` task run
+   per workflow run, run_requests/workflow_runs/step_runs tables, inspection via `po ps` /
+   `po status`. No built-in scheduler,
+   no success_check. (Strictly more useful than `cron + bash` because of validation, caps,
+   artifacts, and state.)
+2. **v0.5 — outcomes and linear workflows**: success_check, required artifact validation,
+   on_success/on_failure routing, artifact handoff, and `needs` dependencies for linear
+   multi-step workflows.
 3. **v1 — trigger adapters and bounded DAGs**: documented launchd/cron examples, optional
-   GitHub/CI poller wrappers that call `po fire`, MCP fire tool via broker, parallel read-only
-   steps, bounded review/fix loops.
-4. **vNext**: per-step worktree policies; resume mode; review-backpressure deferred admission;
-   dashboard tab; cost budgets (after pd usage capture); richer trigger adapter ecosystem if
-   demand appears.
+   GitHub/CI poller wrappers that call `po run`, MCP run tool via broker, parallel read-only
+   steps, strict required-step success semantics.
+4. **vNext**: inbox/dashboard views; respawn; circuit breaker; recovery/adoption command;
+   push notifications; dedup/idempotency for trigger adapters; per-step worktree policies;
+   resume mode; review-backpressure deferred admission; cost budgets (after pd usage capture);
+   richer trigger adapter ecosystem if demand appears.
 
 ## Prerequisites
 
