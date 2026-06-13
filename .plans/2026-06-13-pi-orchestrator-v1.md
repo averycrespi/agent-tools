@@ -33,17 +33,20 @@ The original ideation document remains the broader reference: `.plans/2026-06-10
 - AC-7: Required artifact validation is enforced: when a backing `pd` task run succeeds but a required artifact is missing, the step fails, dependent steps are marked `skipped`, and the workflow run fails.
 - AC-8: Workflow and step lifecycle states align with `pd`: workflow runs use `starting`, `running`, `succeeded`, `failed`, `stopping`, `stopped`, `unknown`; step runs use the same states plus `skipped`.
 - AC-9: `po ps`, `po status <run>`, `po wait <run>`, `po logs <run>`, `po stop <run>`, and `po rm <run>` behave consistently with the corresponding `pd` concepts.
-- AC-10: `po wait <run>` blocks until terminal state and exits non-zero unless the workflow run succeeded.
-- AC-11: `po logs <run>` shows workflow supervisor logs and pointers to the underlying `pd` task logs for each step.
-- AC-12: `po stop <run>` stops the workflow supervisor and the currently running backing `pd` task run, then records the workflow run as stopped.
-- AC-13: Deterministic tests cover workflow loading/validation, input validation, graph execution ordering, shared-worktree behavior, artifact validation failure, wait exit behavior, stop behavior, and terminal run removal.
-- AC-14: Documentation explains the V1 workflow model, CLI commands, state/artifact locations, and how `po` relates to `pd`.
+- AC-10: `po dashboard` starts a read-only loopback web UI, inspired by `pd dashboard`, for exploring workflow runs, steps, artifacts, workflow supervisor logs, and backing `pd` task/run metadata.
+- AC-11: Dashboard routes are local-authenticated, expose read-only APIs, and do not mutate workflow, worktree, artifact, or `pd` task state.
+- AC-12: `po wait <run>` blocks until terminal state and exits non-zero unless the workflow run succeeded.
+- AC-13: `po logs <run>` shows workflow supervisor logs and pointers to the underlying `pd` task logs for each step.
+- AC-14: `po stop <run>` stops the workflow supervisor and the currently running backing `pd` task run, then records the workflow run as stopped.
+- AC-15: Deterministic tests cover workflow loading/validation, input validation, graph execution ordering, shared-worktree behavior, artifact validation failure, wait exit behavior, stop behavior, terminal run removal, and read-only dashboard API behavior.
+- AC-16: Documentation explains the V1 workflow model, CLI commands, dashboard, state/artifact locations, and how `po` relates to `pd`.
 
 ## Non-Goals / Out of Scope
 
 - Built-in scheduling, polling, webhooks, or event adapters.
 - Workflow queues or deferred admission; `po run` either rejects or admits immediately.
-- Any workflow YAML fields, CLI commands, state fields, or supervisor behaviors not explicitly listed in this V1 plan.
+- Any workflow YAML fields, CLI commands, state fields, API endpoints, or supervisor behaviors not explicitly listed in this V1 plan.
+- Dashboard mutation actions; the dashboard is read-only.
 - Merge-bot behavior or automatic PR merging.
 
 ## Constraints
@@ -146,9 +149,10 @@ po wait <run>                          # block until terminal; non-zero unless s
 po logs <run>                          # workflow supervisor logs + pointers to pd step logs
 po stop <run>                          # stop supervisor and current backing pd task run
 po rm <run>                            # forget terminal workflow run metadata/logs
+po dashboard                           # read-only loopback web UI for workflow runs and steps
 ```
 
-CLI behavior should follow existing `pd` conventions for argument validation, error printing, exit codes, and status/log display style where practical.
+CLI behavior should follow existing `pd` conventions for argument validation, error printing, exit codes, status/log display style, and dashboard serving behavior where practical.
 
 ## State Model
 
@@ -162,9 +166,11 @@ Required V1 tables or equivalent persisted records:
 
 - `workflows`: loaded workflow metadata and definition hash.
 - `run_requests`: accepted `po run` requests with workflow name, validated typed inputs JSON, source, and requested-by metadata when available.
-- `workflow_runs`: workflow run ID, workflow name/version snapshot, rendered repo/worktree metadata, state, timestamps, supervisor metadata, and terminal outcome.
+- `workflow_runs`: workflow run ID, workflow name/version snapshot, rendered repo/worktree metadata, state, timestamps, supervisor metadata, supervisor log path, and terminal outcome.
 - `step_runs`: workflow run ID, step ID, selected agent, dependency state, backing `pd` task run ID, state, timestamps, and terminal outcome.
 - `artifacts`: workflow run ID, step ID, artifact name, relative path, absolute path, required flag, existence status, and timestamps.
+
+The store should also provide dashboard-oriented read queries that return workflow-run summaries and workflow-run detail with nested step runs, artifacts, supervisor log paths, and backing `pd` task/run metadata.
 
 Do not include fields that only support out-of-scope behavior.
 
@@ -176,6 +182,29 @@ step:     starting -> running -> succeeded | failed | stopping -> stopped | skip
 ```
 
 State reconciliation should mirror `pd`: if inspection observes a non-terminal run whose supervisor is missing and cannot be explained as actively running, report/persist `unknown` rather than inventing a separate stale state.
+
+## Dashboard Behavior
+
+`po dashboard` should mirror the shape and safety model of `pd dashboard` one level higher:
+
+- Start an on-demand loopback-only HTTP server, defaulting to a `po` port and supporting `--host`, `--port`, and `--no-open` flags.
+- Print an authenticated URL and open the browser by default.
+- Serve an embedded single-page UI plus read-only JSON APIs and polling-backed SSE snapshots.
+- Use local auth equivalent to `pd dashboard` because workflow prompts, repository paths, artifact paths, and `pd` log paths can be sensitive.
+- Show workflow-run summaries: workflow name, run ID, state, created/updated times, repo/worktree, current/terminal outcome, and step counts by state.
+- Show workflow-run detail: validated inputs, rendered repo/worktree, step graph, each step's selected agent, state, required artifacts, backing `pd` task/run IDs, and links or paths to backing `pd` logs/events.
+- Show bounded workflow supervisor log windows. Do not duplicate full `pd` logs; surface backing `pd` log pointers and enough metadata for the user to jump to `pd` when needed.
+- Never expose stop/remove/retry/mutation actions. The dashboard reads persisted state as-is; CLI inspection/control remains responsible for reconciliation and mutation.
+
+Suggested public dashboard surface, matching `pd` naming where practical:
+
+```text
+GET /dashboard/                       # embedded Explorer UI
+GET /dashboard/api/runs               # workflow-run summaries
+GET /dashboard/api/runs/{id}          # workflow-run detail with steps/artifacts/pd metadata
+GET /dashboard/api/runs/{id}/logs     # bounded workflow supervisor log windows
+GET /dashboard/events                 # polling-backed SSE snapshots
+```
 
 ## Supervisor Behavior
 
@@ -251,6 +280,7 @@ Suggested `pi-orchestrator/` package areas:
 - `internal/supervisor`: per-workflow-run supervisor loop.
 - `internal/artifact`: artifact path rendering and validation.
 - `internal/dispatcher`: adapter around the new `pd/pkg/...` API.
+- `internal/dashboard`: embedded read-only dashboard UI, API handlers, SSE snapshots, and bounded supervisor log windows.
 
 Likely `pi-dispatcher/` changes:
 
@@ -265,8 +295,8 @@ Follow existing `pd` test/store patterns where possible. Keep implementation det
 
 Add the standard docs for the new tool:
 
-- `pi-orchestrator/README.md`: user-facing V1 overview, install/build command, workflow YAML example, CLI reference, artifact/state locations, and relationship to `pd`.
-- `pi-orchestrator/DESIGN.md`: source of truth for the V1 architecture and lifecycle behavior.
+- `pi-orchestrator/README.md`: user-facing V1 overview, install/build command, workflow YAML example, CLI/dashboard reference, artifact/state locations, and relationship to `pd`.
+- `pi-orchestrator/DESIGN.md`: source of truth for the V1 architecture, lifecycle behavior, and dashboard safety/API surface.
 - `pi-orchestrator/CLAUDE.md`: development commands, package layout, and tool-specific conventions.
 - `pi-orchestrator/AGENTS.md`: symlink to `CLAUDE.md`.
 
@@ -292,7 +322,10 @@ Update root docs only where needed to list the new tool:
   - `po wait` exits non-zero for failed workflow runs,
   - `po stop` stops the current backing `pd` task run,
   - `po logs` reports supervisor log location and backing `pd` log pointers,
-  - `po rm` removes terminal workflow-run metadata/log references according to documented semantics.
+  - `po rm` removes terminal workflow-run metadata/log references according to documented semantics,
+  - dashboard APIs return workflow-run summaries/details/log windows,
+  - dashboard handlers reject unauthenticated requests,
+  - dashboard routes do not expose mutating methods or actions.
 - V6: documentation review confirms no V1 docs describe out-of-scope behavior as implemented.
 
 ## Risks and Mitigations
@@ -302,6 +335,7 @@ Update root docs only where needed to list the new tool:
 - Risk: artifact paths differ between host and sandbox. Mitigation: require host/sandbox path identity for the artifact root and test prompt-rendered artifact paths.
 - Risk: required artifact validation is mistaken for semantic success. Mitigation: document that V1 validates only process success plus declared artifact existence.
 - Risk: command names collide semantically between workflow definitions and workflow runs. Mitigation: keep definition commands as `list/show/lint`; keep run inspection/control as `ps/status/wait/logs/stop/rm`.
+- Risk: dashboard grows into a control surface. Mitigation: copy `pd dashboard`'s read-only safety model and test that dashboard routes expose no mutation actions.
 
 ## Assumptions
 
@@ -312,4 +346,4 @@ Update root docs only where needed to list the new tool:
 
 ## Handoff Summary
 
-Implement `.plans/2026-06-13-pi-orchestrator-v1.md` as the V1 `po` tool. Keep scope limited to workflow YAML loading/validation, typed inputs, named agents, `po run`, per-workflow-run supervision, `pd`-backed step execution, required artifact validation, SQLite state, and `pd`-aligned inspection/control commands. Complete only after every acceptance criterion is satisfied with concrete command output, tests, and documentation updates.
+Implement `.plans/2026-06-13-pi-orchestrator-v1.md` as the V1 `po` tool. Keep scope limited to workflow YAML loading/validation, typed inputs, named agents, `po run`, per-workflow-run supervision, `pd`-backed step execution, required artifact validation, SQLite state, `pd`-aligned inspection/control commands, and a read-only `pd`-inspired dashboard. Complete only after every acceptance criterion is satisfied with concrete command output, tests, and documentation updates.
