@@ -20,18 +20,14 @@ findings came from subagent review and should be re-confirmed at implementation 
 
 ## Phase 1 — Bugs and correctness (do first)
 
-### 1.1 sandbox-manager: missing GID injection [M] — CONFIRMED
+### 1.1 sandbox-manager: missing GID injection [M] — RESOLVED
 
-- `internal/sandbox/files/lima.yaml:13` renders only `uid: {{.UID}}`; `TemplateParams`
-  (`internal/sandbox/template.go:22`) has no GID field. CLAUDE.md/DESIGN.md claim "UID/GID
-  from the host user are injected" — doc drift at minimum, broken group permissions on
-  writable mounts at worst.
-- Plan: check whether Lima's `user:` block supports `gid` in the Lima version we pin. If yes,
-  add `GID` to `TemplateParams` (parse `u.Gid` alongside `u.Uid`) and render it; add a
-  template-rendering test. If Lima doesn't support it, fix DESIGN.md/CLAUDE.md to state the
-  actual behavior and document the group-permission limitation.
-- Verify: create sandbox, `id` inside VM matches host `id -u`/`id -g`; write to a
-  group-writable mount.
+- Lima's `user:` template supports UID but not GID, so this is doc drift rather than an
+  implementable template fix.
+- Updated sandbox-manager docs to state that the VM user preserves the host UID only, and that
+  Lima does not support setting the VM user's primary GID in the template.
+- If group ownership on writable mounts becomes a practical issue, address it through
+  provisioning or Lima mount configuration rather than `user.gid` template rendering.
 
 ### 1.2 Subprocess/HTTP timeouts everywhere [M]
 
