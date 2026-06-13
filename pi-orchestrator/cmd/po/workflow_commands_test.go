@@ -63,6 +63,7 @@ func executeCommand(args ...string) (string, error) {
 		runInputs = nil
 		cleanupDryRun = false
 		supervisorRunID = ""
+		newStepRunner = defaultNewStepRunner
 	}()
 	err := Execute()
 	return stdout.String(), err
