@@ -14,6 +14,7 @@ import (
 func TestCleanupDryRunShowsTerminalRunTargetsWithoutRemoving(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	cfg = testConfig(t, t.TempDir(), stateDir)
+	fakeWT := installFakeWorktreeRemover(t)
 	paths := seedCleanupWorkflowRun(t, stateDir, store.StateSucceeded)
 
 	stdout, err := executeCommand("cleanup", "--dry-run", "run-1")
@@ -26,12 +27,17 @@ func TestCleanupDryRunShowsTerminalRunTargetsWithoutRemoving(t *testing.T) {
 	if _, err := os.Stat(paths.worktree); err != nil {
 		t.Fatalf("worktree stat after dry-run: %v", err)
 	}
+	if fakeWT.called {
+		t.Fatal("worktree remover called during dry-run")
+	}
 }
 
 func TestCleanupRemovesTerminalRunWorktreeAndArtifacts(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	cfg = testConfig(t, t.TempDir(), stateDir)
+	fakeWT := installFakeWorktreeRemover(t)
 	paths := seedCleanupWorkflowRun(t, stateDir, store.StateSucceeded)
+	fakeWT.remove = func() error { return os.RemoveAll(paths.worktree) }
 
 	if _, err := executeCommand("cleanup", "run-1"); err != nil {
 		t.Fatalf("cleanup error = %v", err)
@@ -42,11 +48,15 @@ func TestCleanupRemovesTerminalRunWorktreeAndArtifacts(t *testing.T) {
 	if _, err := os.Stat(paths.artifacts); !os.IsNotExist(err) {
 		t.Fatalf("artifacts stat error = %v, want not exist", err)
 	}
+	if !fakeWT.called || fakeWT.repoRoot != "/repo" || fakeWT.branch != "po/sample" {
+		t.Fatalf("worktree remover = %+v, want persisted repo and branch", fakeWT)
+	}
 }
 
 func TestCleanupRejectsNonTerminalRun(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	cfg = testConfig(t, t.TempDir(), stateDir)
+	installFakeWorktreeRemover(t)
 	seedCleanupWorkflowRun(t, stateDir, store.StateRunning)
 
 	_, err := executeCommand("cleanup", "run-1")
@@ -76,6 +86,32 @@ func TestRMDeletesTerminalRunMetadata(t *testing.T) {
 type cleanupPaths struct {
 	worktree  string
 	artifacts string
+}
+
+type fakeWorktreeRemover struct {
+	called   bool
+	repoRoot string
+	branch   string
+	remove   func() error
+}
+
+func installFakeWorktreeRemover(t *testing.T) *fakeWorktreeRemover {
+	t.Helper()
+	fake := &fakeWorktreeRemover{}
+	old := newWorktreeRemover
+	newWorktreeRemover = func() (worktreeRemover, error) { return fake, nil }
+	t.Cleanup(func() { newWorktreeRemover = old })
+	return fake
+}
+
+func (f *fakeWorktreeRemover) Remove(repoRoot, branch string) error {
+	f.called = true
+	f.repoRoot = repoRoot
+	f.branch = branch
+	if f.remove != nil {
+		return f.remove()
+	}
+	return nil
 }
 
 func seedCleanupWorkflowRun(t *testing.T, stateDir string, state store.State) cleanupPaths {

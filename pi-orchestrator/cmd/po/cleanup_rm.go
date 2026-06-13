@@ -7,10 +7,19 @@ import (
 	"os"
 
 	"github.com/averycrespi/agent-tools/pi-orchestrator/internal/store"
+	wtworktree "github.com/averycrespi/agent-tools/worktree-manager/pkg/worktree"
 	"github.com/spf13/cobra"
 )
 
 var cleanupDryRun bool
+
+type worktreeRemover interface {
+	Remove(repoRoot, branch string) error
+}
+
+var newWorktreeRemover = func() (worktreeRemover, error) {
+	return wtworktree.New()
+}
 
 var cleanupCmd = &cobra.Command{
 	Use:   "cleanup <run>",
@@ -42,12 +51,18 @@ func cleanupWorkflowRun(cmd *cobra.Command, args []string) error {
 		_, err := fmt.Fprintf(cmd.OutOrStdout(), "Worktree:\t%s\nArtifacts:\t%s\n", run.WorktreePath, run.ArtifactRoot)
 		return err
 	}
-	for _, target := range []string{run.WorktreePath, run.ArtifactRoot} {
-		if target == "" {
-			continue
+	if run.WorktreePath != "" {
+		remover, err := newWorktreeRemover()
+		if err != nil {
+			return err
 		}
-		if err := os.RemoveAll(target); err != nil {
-			return fmt.Errorf("remove %s: %w", target, err)
+		if err := remover.Remove(run.Repo, run.Branch); err != nil {
+			return fmt.Errorf("remove workflow worktree %s: %w", run.WorktreePath, err)
+		}
+	}
+	if run.ArtifactRoot != "" {
+		if err := os.RemoveAll(run.ArtifactRoot); err != nil {
+			return fmt.Errorf("remove artifacts %s: %w", run.ArtifactRoot, err)
 		}
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s cleaned up\n", run.ID)
