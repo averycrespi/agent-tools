@@ -6,6 +6,7 @@ import (
 )
 
 type Config struct {
+	ConfigDir         string
 	WorkflowDir       string
 	StateDir          string
 	RuntimeDir        string
@@ -13,8 +14,9 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	configDir := filepath.Join(xdgConfigHome(), "po")
 	stateDir := filepath.Join(xdgStateHome(), "po")
-	workflowDir := filepath.Join(xdgConfigHome(), "po", "workflows")
+	workflowDir := filepath.Join(configDir, "workflows")
 	if override := os.Getenv("PO_WORKFLOW_DIR"); override != "" {
 		workflowDir = override
 	}
@@ -23,6 +25,7 @@ func Load() (Config, error) {
 		artifactParentDir = override
 	}
 	return Config{
+		ConfigDir:         configDir,
 		WorkflowDir:       workflowDir,
 		StateDir:          stateDir,
 		RuntimeDir:        filepath.Join(xdgRuntimeDir(), "po"),
