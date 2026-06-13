@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	pddispatcher "github.com/averycrespi/agent-tools/pi-dispatcher/pkg/dispatcher"
 	"github.com/averycrespi/agent-tools/pi-orchestrator/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -18,7 +19,9 @@ var stopCmd = &cobra.Command{
 	RunE:  stopWorkflowRun,
 }
 
-var defaultStopPDRun = func(context.Context, string, string) error { return nil }
+var defaultStopPDRun = func(ctx context.Context, taskID string, runID string) error {
+	return pddispatcher.NewClient(pddispatcher.Config{}).StopTaskRun(ctx, pddispatcher.StopTaskRunRequest{TaskID: taskID, RunID: runID})
+}
 var stopPDRun = defaultStopPDRun
 
 func stopWorkflowRun(cmd *cobra.Command, args []string) error {
