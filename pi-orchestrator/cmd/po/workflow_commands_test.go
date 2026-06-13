@@ -60,6 +60,7 @@ func executeCommand(args ...string) (string, error) {
 		rootCmd.SetErr(os.Stderr)
 		rootCmd.SetArgs(nil)
 		workflowDir = ""
+		runInputs = nil
 	}()
 	err := Execute()
 	return stdout.String(), err

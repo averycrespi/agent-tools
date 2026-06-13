@@ -1,0 +1,142 @@
+package main
+
+import (
+	"context"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/averycrespi/agent-tools/pi-orchestrator/internal/config"
+	"github.com/averycrespi/agent-tools/pi-orchestrator/internal/store"
+)
+
+func TestRunCommandValidatesInputsBeforeCreatingWorktree(t *testing.T) {
+	dir := t.TempDir()
+	writeWorkflow(t, dir, "review", runWorkflowYAML("review"))
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, dir, stateDir)
+	calls := 0
+	newWorktreeClient = func() (worktreeClient, error) {
+		calls++
+		return fakeWorktreeClient{path: "/worktree/review"}, nil
+	}
+	t.Cleanup(resetRunTestHooks)
+
+	_, err := executeCommand("--workflow-dir", dir, "run", "review", "--input", "repo=/repo")
+	if err == nil {
+		t.Fatal("run error = nil, want missing input error")
+	}
+	if !strings.Contains(err.Error(), "missing required input pr_number") {
+		t.Fatalf("error = %q, want missing pr_number", err.Error())
+	}
+	if calls != 0 {
+		t.Fatalf("worktree calls = %d, want 0", calls)
+	}
+}
+
+func TestRunCommandCreatesWorkflowRunWithOneWorktree(t *testing.T) {
+	dir := t.TempDir()
+	writeWorkflow(t, dir, "review", runWorkflowYAML("review"))
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, dir, stateDir)
+	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
+	nowFunc = func() time.Time { return now }
+	shortIDFunc = func() string { return "abcd" }
+	fakeWT := &recordingWorktreeClient{path: "/worktrees/po-review-abcd"}
+	newWorktreeClient = func() (worktreeClient, error) { return fakeWT, nil }
+	t.Cleanup(resetRunTestHooks)
+
+	stdout, err := executeCommand("--workflow-dir", dir, "run", "review", "--input", "repo=/repo", "--input", "pr_number=42")
+	if err != nil {
+		t.Fatalf("run error = %v", err)
+	}
+	if strings.TrimSpace(stdout) != "po-20260613-120000-abcd" {
+		t.Fatalf("stdout = %q, want run id", stdout)
+	}
+	if fakeWT.repoRoot != "/repo" || fakeWT.branch != "po/review-abcd" || fakeWT.calls != 1 {
+		t.Fatalf("worktree call = repo %q branch %q calls %d", fakeWT.repoRoot, fakeWT.branch, fakeWT.calls)
+	}
+
+	db, err := store.Open(filepath.Join(stateDir, "po", "po.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+	run, err := db.GetWorkflowRun(context.Background(), "po-20260613-120000-abcd")
+	if err != nil {
+		t.Fatalf("GetWorkflowRun() error = %v", err)
+	}
+	if run.State != store.StateStarting || run.Workflow != "review" || run.Repo != "/repo" {
+		t.Fatalf("run = %+v, want starting review for /repo", run)
+	}
+	if run.WorktreePath != "/worktrees/po-review-abcd" {
+		t.Fatalf("WorktreePath = %q", run.WorktreePath)
+	}
+	if run.ArtifactRoot != filepath.Join(stateDir, "po", "artifacts", run.ID) {
+		t.Fatalf("ArtifactRoot = %q", run.ArtifactRoot)
+	}
+}
+
+func runWorkflowYAML(name string) string {
+	return `name: ` + name + `
+repo: "{{ .Inputs.repo }}"
+inputs:
+  repo:
+    type: string
+    required: true
+  pr_number:
+    type: integer
+    required: true
+agents:
+  reviewer:
+    model: gpt-5.1-codex
+steps:
+  - id: review
+    agent: reviewer
+    prompt: review
+`
+}
+
+type fakeWorktreeClient struct{ path string }
+
+func (f fakeWorktreeClient) AddHeadlessWithOwnership(string, string) (string, bool, error) {
+	return f.path, true, nil
+}
+
+func (f fakeWorktreeClient) Remove(string, string) error { return nil }
+
+type recordingWorktreeClient struct {
+	path     string
+	repoRoot string
+	branch   string
+	calls    int
+}
+
+func (r *recordingWorktreeClient) AddHeadlessWithOwnership(repoRoot, branch string) (string, bool, error) {
+	r.calls++
+	r.repoRoot = repoRoot
+	r.branch = branch
+	return r.path, true, nil
+}
+
+func (r *recordingWorktreeClient) Remove(string, string) error { return nil }
+
+func testConfig(t *testing.T, workflowDir string, stateDir string) config.Config {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Dir(filepath.Dir(workflowDir)))
+	t.Setenv("XDG_STATE_HOME", stateDir)
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(t.TempDir(), "runtime"))
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.WorkflowDir = workflowDir
+	return cfg
+}
+
+func resetRunTestHooks() {
+	newWorktreeClient = defaultNewWorktreeClient
+	nowFunc = time.Now
+	shortIDFunc = randomShortID
+}

@@ -42,7 +42,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable debug output")
 	rootCmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "emit machine-readable JSON where supported")
 	rootCmd.PersistentFlags().StringVar(&workflowDir, "workflow-dir", "", "workflow definition directory")
-	rootCmd.AddCommand(listCmd, showCmd, lintCmd)
+	rootCmd.AddCommand(listCmd, showCmd, lintCmd, runCmd)
 }
 
 func Execute() error {
