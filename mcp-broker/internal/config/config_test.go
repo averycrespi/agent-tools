@@ -70,6 +70,24 @@ func TestConfig_ServerTypes(t *testing.T) {
 	require.Equal(t, "http://localhost:3000/mcp", cfg.Servers["remote"].URL)
 }
 
+func TestLoad_MaxRequestBodyBytes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	data := `{"max_request_body_bytes": 1024}`
+	err := os.WriteFile(path, []byte(data), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 1024, cfg.MaxRequestBodyBytes)
+}
+
+func TestDefaultConfig_MaxRequestBodyBytesDefaultsToTenMiB(t *testing.T) {
+	cfg := DefaultConfig()
+	require.EqualValues(t, 10*1024*1024, cfg.MaxRequestBodyBytes)
+}
+
 func TestDefaultConfig_OpenBrowserDefaultsTrue(t *testing.T) {
 	cfg := DefaultConfig()
 	require.True(t, cfg.OpenBrowser)

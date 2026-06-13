@@ -46,7 +46,7 @@ Human ──HTTP(:8200)──▶    │            Dashboard (Web UI)           
 
 mcp-broker is a single Go binary serving on a single port (default 8200):
 
-- `/mcp` — Streamable HTTP MCP endpoint for agents
+- `/mcp` — Streamable HTTP MCP endpoint for agents, protected by a configurable request body limit (`max_request_body_bytes`, default 10 MiB)
 - `/` — Web dashboard for humans (approval, tools, audit log)
 
 ### Pipeline

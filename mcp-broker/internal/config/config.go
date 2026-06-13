@@ -21,6 +21,7 @@ type Config struct {
 	Audit                  AuditConfig             `json:"audit"`
 	Log                    LogConfig               `json:"log"`
 	ApprovalTimeoutSeconds int                     `json:"approval_timeout_seconds"`
+	MaxRequestBodyBytes    int64                   `json:"max_request_body_bytes"`
 	Telegram               TelegramConfig          `json:"telegram"`
 }
 
@@ -144,6 +145,7 @@ func DefaultConfig() Config {
 		Port:                   8200,
 		OpenBrowser:            true,
 		ApprovalTimeoutSeconds: 600,
+		MaxRequestBodyBytes:    10 * 1024 * 1024,
 		Audit: AuditConfig{
 			Path: filepath.Join(xdgDataHome(), "mcp-broker", "audit.db"),
 		},

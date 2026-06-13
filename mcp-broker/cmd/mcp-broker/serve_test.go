@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +25,50 @@ func (s *blockingShutdownServer) Shutdown(ctx context.Context) error {
 func (s *blockingShutdownServer) Close() error {
 	s.closed = true
 	return nil
+}
+
+func TestLimitRequestBodyRejectsOversizedContentLength(t *testing.T) {
+	called := false
+	handler := limitRequestBody(4, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		called = true
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader("12345"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	require.False(t, called)
+}
+
+func TestLimitRequestBodyAllowsWithinLimit(t *testing.T) {
+	handler := limitRequestBody(4, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.Equal(t, "1234", string(body))
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader("1234"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestLimitRequestBodyDisabledWhenZero(t *testing.T) {
+	handler := limitRequestBody(0, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.Equal(t, "12345", string(body))
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader("12345"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusNoContent, rec.Code)
 }
 
 func TestShutdownServerForcesCloseAfterTimeout(t *testing.T) {

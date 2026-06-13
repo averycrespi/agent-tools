@@ -98,6 +98,7 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
   "host": "127.0.0.1",
   "port": 8200,
   "approval_timeout_seconds": 600,
+  "max_request_body_bytes": 10485760,
   "telegram": {
     "enabled": false,
     "token": "$TELEGRAM_BOT_TOKEN",
@@ -111,6 +112,16 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
   }
 }
 ```
+
+### Top-level settings
+
+| Field                      | Description                                                                              |
+| -------------------------- | ---------------------------------------------------------------------------------------- |
+| `host`                     | Listen host. Must resolve to loopback. Defaults to `127.0.0.1`.                          |
+| `port`                     | Listen port. Defaults to `8200`.                                                         |
+| `approval_timeout_seconds` | Human approval timeout. Defaults to 600 seconds.                                         |
+| `max_request_body_bytes`   | Maximum accepted request body size on `/mcp`. Defaults to 10 MiB; set to `0` to disable. |
+| `open_browser`             | Open the dashboard in a browser on startup. Defaults to `true`.                          |
 
 ### Servers
 

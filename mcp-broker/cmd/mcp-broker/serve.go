@@ -153,7 +153,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	// Mount MCP at /mcp
 	streamHandler := mcpserver.NewStreamableHTTPServer(mcpSrv)
-	mux.Handle("/mcp", streamHandler)
+	mux.Handle("/mcp", limitRequestBody(cfg.MaxRequestBodyBytes, streamHandler))
 
 	// Mount dashboard at /dashboard
 	dashHandler := dash.Handler()
@@ -206,6 +206,20 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		}
 		return nil
 	}
+}
+
+func limitRequestBody(maxBytes int64, next http.Handler) http.Handler {
+	if maxBytes <= 0 {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ContentLength > maxBytes {
+			http.Error(w, http.StatusText(http.StatusRequestEntityTooLarge), http.StatusRequestEntityTooLarge)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+		next.ServeHTTP(w, r)
+	})
 }
 
 func shutdownServer(srv stoppableServer, logger *slog.Logger, timeout time.Duration) error {
