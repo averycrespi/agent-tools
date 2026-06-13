@@ -12,6 +12,7 @@ import (
 	"time"
 
 	pdconfig "github.com/averycrespi/agent-tools/pi-dispatcher/internal/config"
+	"github.com/averycrespi/agent-tools/pi-dispatcher/internal/control"
 	pdexec "github.com/averycrespi/agent-tools/pi-dispatcher/internal/exec"
 	"github.com/averycrespi/agent-tools/pi-dispatcher/internal/process"
 	"github.com/averycrespi/agent-tools/pi-dispatcher/internal/store"
@@ -40,6 +41,12 @@ type StartTaskRunRequest struct {
 type StartTaskRunResult struct {
 	TaskID string
 	RunID  string
+}
+
+type StopTaskRunRequest struct {
+	TaskID string
+	RunID  string
+	Force  bool
 }
 
 type supervisorLauncher interface {
@@ -123,6 +130,36 @@ func (c *Client) StartTaskRun(ctx context.Context, req StartTaskRunRequest) (Sta
 		return StartTaskRunResult{}, err
 	}
 	return StartTaskRunResult{TaskID: taskID, RunID: runID}, nil
+}
+
+func (c *Client) StopTaskRun(ctx context.Context, req StopTaskRunRequest) error {
+	if req.TaskID == "" {
+		return fmt.Errorf("task id is required")
+	}
+	db, err := store.Open(c.dbPath())
+	if err != nil {
+		return err
+	}
+	defer db.Close() //nolint:errcheck
+	task, err := db.GetTask(ctx, req.TaskID)
+	if err != nil {
+		return err
+	}
+	run, err := db.LatestRun(ctx, req.TaskID)
+	if err != nil {
+		return err
+	}
+	if req.RunID != "" && run.ID != req.RunID {
+		return fmt.Errorf("task %s latest run is %s, not %s", req.TaskID, run.ID, req.RunID)
+	}
+	if task.Status != store.StatusRunning && !(req.Force && task.Status == store.StatusStopping) {
+		return fmt.Errorf("task is %s, not running", task.Status)
+	}
+	request := control.Request{Operation: control.OpStop, Force: req.Force}
+	if _, err := control.Send(run.ControlSocketPath, request); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *Client) dbPath() string {
