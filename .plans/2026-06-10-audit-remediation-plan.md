@@ -141,16 +141,12 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
   usage; revisit when downstream agents demonstrably benefit from structured git remote/ref
   outputs or mcp-go exposes cleaner validation-error semantics.
 
-### 3.2 mcp-broker: prepare for the 2026-07-28 stateless core [L, watch-and-plan]
+### 3.2 mcp-broker: prepare for the 2026-07-28 stateless core [L, watch-and-plan] — SKIPPED
 
-- The RC removes `initialize`/`Mcp-Session-Id`, mandates `Mcp-Method`/`Mcp-Name` headers
-  (gateway routing without body parsing), adds `ttlMs`/`cacheScope` on list results, and
-  W3C Trace Context in `_meta`. Deprecates sampling/roots/logging.
-- Plan: track mcp-go's adoption; when it lands, (a) route/log on `Mcp-Method`/`Mcp-Name`,
-  (b) cache `tools/list` per the new cache metadata, (c) propagate Trace Context through to
-  backends and into the audit log (gives every audit row a trace ID for free).
-- Don't build against the RC yet; create a tracking issue with the SEP numbers
-  (SEP-2575, SEP-2322, SEP-2243, SEP-2549, SEP-414).
+- Decision: do not create a tracking issue or add preparatory code for the 2026-07-28 RC now.
+- Rationale: mcp-broker should follow stable `mcp-go` support rather than tracking RC details
+  in this remediation plan. Revisit once `mcp-go` ships stable support for `Mcp-Method`/
+  `Mcp-Name`, list cache metadata, and Trace Context propagation.
 
 ### 3.3 mcp-broker: elicitation-based approvals [M, optional]
 
