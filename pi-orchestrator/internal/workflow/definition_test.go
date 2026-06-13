@@ -71,6 +71,29 @@ func TestLoadFileRejectsUnsupportedV1Field(t *testing.T) {
 	assertErrorContains(t, err, "unsupported workflow field schedule")
 }
 
+func TestLoadFileRejectsUnsupportedNestedV1Field(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+inputs:
+  repo:
+    type: string
+    secret: true
+agents:
+  runner:
+    model: gpt-5.1-codex
+steps:
+  - id: run
+    agent: runner
+    prompt: run
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, "field secret not found")
+}
+
 func TestValidateRejectsInvalidInputSchema(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

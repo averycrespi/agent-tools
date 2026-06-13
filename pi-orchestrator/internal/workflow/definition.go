@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -61,7 +62,9 @@ func LoadFile(path string) (*Definition, error) {
 	}
 
 	var def Definition
-	if err := yaml.Unmarshal(data, &def); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&def); err != nil {
 		return nil, fmt.Errorf("parse workflow %s: %w", path, err)
 	}
 
