@@ -75,6 +75,7 @@ To keep the proxy running in the background whenever you're logged in, install i
 - **What isn't blocked:** any process running as the same OS user can `cat ~/.local/state/local-gomod-proxy/credentials` and use them. The `0600` mode prevents other OS-level users from reading the file, not other processes of yours.
 - **Rotation:** `rm -rf "$XDG_STATE_HOME/local-gomod-proxy"` (or `~/.local/state/local-gomod-proxy/` if `$XDG_STATE_HOME` is unset), restart the proxy, then re-run provisioning in every sandbox that uses it.
 - Module paths are validated before any shell-out. No shell interpolation — `go mod download` is invoked via `os/exec` with an argv slice.
+- Private artifact paths reported by `go mod download -json` must stay inside the host's configured `GOMODCACHE`; paths outside it are rejected before file open.
 
 ## Development
 

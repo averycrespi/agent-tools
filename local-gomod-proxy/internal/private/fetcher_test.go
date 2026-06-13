@@ -37,7 +37,7 @@ func TestFetcher_Info_StreamsFile(t *testing.T) {
 	runner := &stubRunner{
 		out: []byte(`{"Info":"` + infoPath + `","GoMod":"/x","Zip":"/y","Version":"v1.2.3"}`),
 	}
-	f := New(runner)
+	f := NewWithGOMODCACHE(runner, tmp)
 
 	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
 	w := httptest.NewRecorder()
@@ -100,6 +100,26 @@ func TestFetcher_Info_FileMissing(t *testing.T) {
 	w := httptest.NewRecorder()
 	err := f.Serve(w, httptest.NewRequest(http.MethodGet, "/", nil), req)
 	assert.Error(t, err)
+}
+
+func TestFetcher_Info_RejectsFileOutsideGOMODCACHE(t *testing.T) {
+	modcache := t.TempDir()
+	outside := t.TempDir()
+	infoPath := filepath.Join(outside, "v1.2.3.info")
+	require.NoError(t, os.WriteFile(infoPath, []byte(`{"Version":"v1.2.3"}`), 0o600))
+
+	runner := &stubRunner{
+		out: []byte(`{"Info":"` + infoPath + `","GoMod":"/x","Zip":"/y","Version":"v1.2.3"}`),
+	}
+	f := NewWithGOMODCACHE(runner, modcache)
+
+	req := Request{Module: "github.com/foo/bar", Version: "v1.2.3", Artifact: ArtifactInfo}
+	w := httptest.NewRecorder()
+	err := f.Serve(w, httptest.NewRequest(http.MethodGet, "/", nil), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "outside GOMODCACHE")
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, w.Body.String())
 }
 
 func TestFetcher_ReportsDownloadError(t *testing.T) {

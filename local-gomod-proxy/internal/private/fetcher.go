@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/averycrespi/agent-tools/local-gomod-proxy/internal/exec"
@@ -14,12 +15,18 @@ import (
 
 // Fetcher serves private module artifacts by invoking the host's go toolchain.
 type Fetcher struct {
-	runner exec.Runner
+	runner     exec.Runner
+	gomodcache string
 }
 
 // New returns a Fetcher that shells out via runner.
 func New(runner exec.Runner) *Fetcher {
 	return &Fetcher{runner: runner}
+}
+
+// NewWithGOMODCACHE returns a Fetcher that only streams artifacts under gomodcache.
+func NewWithGOMODCACHE(runner exec.Runner, gomodcache string) *Fetcher {
+	return &Fetcher{runner: runner, gomodcache: filepath.Clean(gomodcache)}
 }
 
 type downloadResult struct {
@@ -77,7 +84,7 @@ func (f *Fetcher) serveArtifact(ctx context.Context, w http.ResponseWriter, req 
 	case ArtifactZip:
 		path, contentType = r.Zip, "application/zip"
 	}
-	return streamFile(w, path, contentType)
+	return f.streamFile(w, path, contentType)
 }
 
 func (f *Fetcher) serveList(ctx context.Context, w http.ResponseWriter, req Request) error {
@@ -141,16 +148,34 @@ func wrapRunError(stage string, out []byte, runErr error) error {
 	return classifyError(fmt.Errorf("%s: %w: %s", stage, runErr, trimmed), msg)
 }
 
-func streamFile(w http.ResponseWriter, path, contentType string) error {
-	f, err := os.Open(path) //nolint:gosec
+func (f *Fetcher) streamFile(w http.ResponseWriter, path, contentType string) error {
+	if err := f.validateGOMODCACHEPath(path); err != nil {
+		return err
+	}
+	file, err := os.Open(path) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("opening %s: %w", path, err)
 	}
-	defer func() { _ = f.Close() }()
+	defer func() { _ = file.Close() }()
 	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(http.StatusOK)
-	if _, err := io.Copy(w, f); err != nil {
+	if _, err := io.Copy(w, file); err != nil {
 		return fmt.Errorf("%w: streaming %s: %w", ErrResponseCommitted, path, err)
+	}
+	return nil
+}
+
+func (f *Fetcher) validateGOMODCACHEPath(path string) error {
+	if f.gomodcache == "" {
+		return nil
+	}
+	cleanPath := filepath.Clean(path)
+	rel, err := filepath.Rel(f.gomodcache, cleanPath)
+	if err != nil {
+		return fmt.Errorf("validating GOMODCACHE path %s: %w", path, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("go mod download reported artifact path outside GOMODCACHE: %s", path)
 	}
 	return nil
 }

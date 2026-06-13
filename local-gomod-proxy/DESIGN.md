@@ -34,7 +34,7 @@ local-gomod-proxy is a single HTTPS binary. State (TLS cert + credentials) is pe
 
 1. The sandbox's `go` tool makes a Go module proxy protocol request (`GET /<module>/@v/...`).
 2. The router checks the module path against the configured `GOPRIVATE` glob patterns using `golang.org/x/mod/module.MatchPrefixPatterns` — the same function Go's own toolchain uses.
-3. **Private match** — `PrivateFetcher` shells out to `go mod download -json <module>@<version>` in the server's working directory, inheriting the host's git credentials via its environment. It parses the JSON result for absolute paths to the `.info`, `.mod`, and `.zip` files inside the host's `GOMODCACHE` and streams those files back.
+3. **Private match** — `PrivateFetcher` shells out to `go mod download -json <module>@<version>` in the server's working directory, inheriting the host's git credentials via its environment. It parses the JSON result for absolute paths to the `.info`, `.mod`, and `.zip` files, verifies each requested artifact path is inside the host's `GOMODCACHE`, and streams those files back.
 4. **No private match** — `PublicFetcher` reverse-proxies the request unchanged to `https://proxy.golang.org/<same-path>`.
 5. The response flows back to the sandbox's `go` tool.
 
@@ -148,6 +148,7 @@ Startup validation:
 - **Authenticated over TLS** — every request requires HTTP Basic auth against a credentials file in `$XDG_STATE_HOME/local-gomod-proxy/credentials`. TLS uses a generated self-signed cert. The listener is still loopback-only; TLS + auth add defense-in-depth against same-user processes on the host, not replace the network boundary.
 - **TLS, self-signed cert** — traffic stays on the Lima bridge; cert rotation is manual via `rm -rf $state_dir` followed by restart + sandbox re-provision. Cert is regenerated automatically 30 days before expiry on the next startup.
 - **No shell interpolation** — `go mod download` is invoked via `os/exec` with an argv slice. Module paths and versions are URL-unescaped via `module.UnescapePath` / `module.UnescapeVersion` before use; `go mod download` rejects malformed inputs itself.
+- **GOMODCACHE containment** — artifact paths reported by `go mod download -json` are checked with `filepath.Rel` before opening; paths outside the host's configured `GOMODCACHE` are rejected.
 - **Request logging** — module path, version, and private/public verdict logged via `log/slog`. The password is never logged.
 
 ## Tech stack

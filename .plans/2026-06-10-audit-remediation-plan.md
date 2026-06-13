@@ -68,11 +68,10 @@ indefinitely. One pattern, three tools:
 - Verify: add tests for concurrent `wt add` (two goroutines, same branch), launch-failure
   state transition, and socket cleanup on reconcile.
 
-### 1.4 local-gomod-proxy: path containment on streamed files [S]
+### 1.4 local-gomod-proxy: path containment on streamed files [S] — RESOLVED
 
-- `streamFile()` streams whatever path `go mod download -json` reports. Defense-in-depth:
-  validate the path is under `GOMODCACHE` (`filepath.Rel` + reject `..`) before opening.
-  Low real-world risk (the path comes from the Go toolchain, not the client) but cheap.
+- Implemented defense-in-depth validation that `go mod download -json` artifact paths are
+  under the configured host `GOMODCACHE` before opening them.
 
 ---
 
@@ -310,8 +309,7 @@ follow the standard new-tool checklist in root CLAUDE.md.
 
 ## Suggested sequencing
 
-1. **Week 1 (correctness):** 1.1 GID, 1.2 timeouts, 1.4 small fix, 4.2 lint config,
-   4.3 doc drift.
+1. **Week 1 (correctness):** 1.1 GID, 1.2 timeouts, 4.2 lint config, 4.3 doc drift.
 2. **Week 2 (infra + concurrency):** 4.1 CI, 1.3 worktree/pd partial-failure work.
 3. **Week 3-4 (security):** 2.1 tool pinning, 2.2 limits, 2.3 rules lint/test command;
    design spike for 2.5 egress allowlist.
