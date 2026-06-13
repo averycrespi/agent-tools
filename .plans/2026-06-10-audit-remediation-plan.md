@@ -209,8 +209,8 @@ status dashboards. Cheap wins first:
 
 ### 5.3 pi-dispatcher [M-L]
 
-- `pd cleanup --all` for batch cleanup of terminal tasks. Since this plan was written, `pd cleanup`
-  gained support for multiple explicit task IDs; `--all` would still be a separate convenience mode.
+- `pd cleanup --all` for batch cleanup of terminal tasks — SKIPPED. `pd cleanup` already supports
+  multiple explicit task IDs, which is sufficient; avoid adding broad cleanup affordances for now.
 - Optional max-runtime per task (`pd run --max-duration`) so a looping agent can't run
   forever; ties into supervisor stop path.
 - Dashboard: token rotation currently strands running dashboards — have the dashboard reload
