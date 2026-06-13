@@ -35,6 +35,15 @@ type StepRunner interface {
 	RunStep(context.Context, StepRequest) (StepResult, error)
 }
 
+type StepStarter interface {
+	StartStep(context.Context, StepRequest) (StepHandle, error)
+}
+
+type StepHandle interface {
+	Started() StepResult
+	Wait(context.Context) (StepResult, error)
+}
+
 func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workflow.Definition, run store.WorkflowRun) error {
 	stepStates := make(map[string]store.State, len(def.Steps))
 	inputs := map[string]any{}
@@ -72,20 +81,16 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 			if err != nil {
 				return err
 			}
-			result, err := runner.RunStep(ctx, StepRequest{WorkflowRunID: run.ID, StepID: step.ID, Agent: def.Agents[step.Agent], Prompt: renderedPrompt, Repo: run.Repo, Branch: run.Branch, WorktreePath: run.WorktreePath})
+			request := StepRequest{WorkflowRunID: run.ID, StepID: step.ID, Agent: def.Agents[step.Agent], Prompt: renderedPrompt, Repo: run.Repo, Branch: run.Branch, WorktreePath: run.WorktreePath}
 			artifacts := artifactsForStep(run, step)
+			result, err := startAndPersistStep(ctx, db, runner, request, run, step, executionIndex, artifacts)
+			executionIndex++
 			if err != nil {
 				result.State = store.StateFailed
 				result.Outcome = err.Error()
 			}
 			if result.State == "" {
 				result.State = store.StateSucceeded
-			}
-			now := time.Now().UTC()
-			stepRun := store.StepRun{WorkflowRunID: run.ID, StepID: step.ID, Agent: step.Agent, ExecutionIndex: executionIndex, State: store.StateRunning, PDTaskID: result.PDTaskID, PDRunID: result.PDRunID, StartedAt: now, UpdatedAt: now}
-			executionIndex++
-			if err := db.CreateStepRun(ctx, stepRun, artifacts); err != nil {
-				return err
 			}
 			finalState := result.State
 			outcome := result.Outcome
@@ -96,7 +101,7 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 					outcome = fmt.Sprintf("missing required artifact %s", missing[0].Name)
 				}
 			}
-			if err := db.UpdateStepState(ctx, run.ID, step.ID, finalState, outcome, now); err != nil {
+			if err := db.UpdateStepState(ctx, run.ID, step.ID, finalState, outcome, time.Now().UTC()); err != nil {
 				return err
 			}
 			stepStates[step.ID] = finalState
@@ -120,6 +125,34 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 		return err
 	}
 	return firstErr
+}
+
+func startAndPersistStep(ctx context.Context, db *store.Store, runner StepRunner, request StepRequest, run store.WorkflowRun, step workflow.Step, executionIndex int, artifacts []store.Artifact) (StepResult, error) {
+	if starter, ok := runner.(StepStarter); ok {
+		handle, err := starter.StartStep(ctx, request)
+		result := StepResult{State: store.StateFailed}
+		if handle != nil {
+			result = handle.Started()
+		}
+		if createErr := createRunningStep(ctx, db, run, step, executionIndex, artifacts, result); createErr != nil {
+			return StepResult{}, createErr
+		}
+		if err != nil {
+			return result, err
+		}
+		return handle.Wait(ctx)
+	}
+	result, err := runner.RunStep(ctx, request)
+	if createErr := createRunningStep(ctx, db, run, step, executionIndex, artifacts, result); createErr != nil {
+		return StepResult{}, createErr
+	}
+	return result, err
+}
+
+func createRunningStep(ctx context.Context, db *store.Store, run store.WorkflowRun, step workflow.Step, executionIndex int, artifacts []store.Artifact, result StepResult) error {
+	now := time.Now().UTC()
+	stepRun := store.StepRun{WorkflowRunID: run.ID, StepID: step.ID, Agent: step.Agent, ExecutionIndex: executionIndex, State: store.StateRunning, PDTaskID: result.PDTaskID, PDRunID: result.PDRunID, StartedAt: now, UpdatedAt: now}
+	return db.CreateStepRun(ctx, stepRun, artifacts)
 }
 
 func renderPrompt(run store.WorkflowRun, def *workflow.Definition, step workflow.Step, inputs map[string]any) (string, error) {

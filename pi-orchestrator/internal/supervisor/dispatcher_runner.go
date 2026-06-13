@@ -26,6 +26,14 @@ func NewDispatcherRunner(client PDClient) DispatcherRunner {
 }
 
 func (r DispatcherRunner) RunStep(ctx context.Context, req StepRequest) (StepResult, error) {
+	handle, err := r.StartStep(ctx, req)
+	if err != nil {
+		return StepResult{State: store.StateFailed, Outcome: err.Error()}, err
+	}
+	return handle.Wait(ctx)
+}
+
+func (r DispatcherRunner) StartStep(ctx context.Context, req StepRequest) (StepHandle, error) {
 	result, err := r.Client.StartTaskRun(ctx, pddispatcher.StartTaskRunRequest{
 		RepoPath:     req.Repo,
 		RepoName:     "",
@@ -39,13 +47,24 @@ func (r DispatcherRunner) RunStep(ctx context.Context, req StepRequest) (StepRes
 		},
 	})
 	if err != nil {
-		return StepResult{State: store.StateFailed, Outcome: err.Error()}, err
+		return nil, err
 	}
-	info, err := r.Client.WaitTaskRun(ctx, pddispatcher.WaitTaskRunRequest{TaskID: result.TaskID, RunID: result.RunID})
+	return dispatcherStepHandle{client: r.Client, started: StepResult{PDTaskID: result.TaskID, PDRunID: result.RunID, State: store.StateRunning}}, nil
+}
+
+type dispatcherStepHandle struct {
+	client  PDClient
+	started StepResult
+}
+
+func (h dispatcherStepHandle) Started() StepResult { return h.started }
+
+func (h dispatcherStepHandle) Wait(ctx context.Context) (StepResult, error) {
+	info, err := h.client.WaitTaskRun(ctx, pddispatcher.WaitTaskRunRequest{TaskID: h.started.PDTaskID, RunID: h.started.PDRunID})
 	if err != nil {
-		return StepResult{PDTaskID: result.TaskID, PDRunID: result.RunID, State: store.StateFailed, Outcome: err.Error()}, err
+		return StepResult{PDTaskID: h.started.PDTaskID, PDRunID: h.started.PDRunID, State: store.StateFailed, Outcome: err.Error()}, err
 	}
-	return StepResult{PDTaskID: result.TaskID, PDRunID: result.RunID, State: mapPDStatus(info.Status), Outcome: info.ErrorMessage}, nil
+	return StepResult{PDTaskID: h.started.PDTaskID, PDRunID: h.started.PDRunID, State: mapPDStatus(info.Status), Outcome: info.ErrorMessage}, nil
 }
 
 func mapPDStatus(status pddispatcher.TaskRunStatus) store.State {

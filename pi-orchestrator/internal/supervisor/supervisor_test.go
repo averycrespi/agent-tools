@@ -79,6 +79,32 @@ func TestExecuteRunsReadyStepsInFileOrderWhenDependenciesAppearLater(t *testing.
 	}
 }
 
+func TestExecutePersistsBackingIDsBeforeWaiting(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, run := supervisorTestRun(t)
+	defer db.Close() //nolint:errcheck
+	runner := &recordingStarter{started: StepResult{PDTaskID: "pd-active", PDRunID: "pd-active-run-1", State: store.StateRunning}, waitResult: StepResult{PDTaskID: "pd-active", PDRunID: "pd-active-run-1", State: store.StateSucceeded}}
+	runner.beforeWait = func() {
+		detail, err := db.GetWorkflowRunDetail(ctx, run.ID)
+		if err != nil {
+			t.Fatalf("GetWorkflowRunDetail() error = %v", err)
+		}
+		if len(detail.Steps) != 1 || detail.Steps[0].State != store.StateRunning || detail.Steps[0].PDTaskID != "pd-active" || detail.Steps[0].PDRunID != "pd-active-run-1" {
+			t.Fatalf("steps before wait = %+v, want running step with backing pd ids", detail.Steps)
+		}
+	}
+	def := &workflow.Definition{
+		Name:   "sample",
+		Agents: map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Steps:  []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: "review"}},
+	}
+
+	if err := Execute(ctx, db, runner, def, run); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+}
+
 func TestExecuteRendersPromptInputsAndArtifactPath(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -163,6 +189,37 @@ func TestExecuteFailsStepWhenRequiredArtifactMissingAndSkipsDependent(t *testing
 type recordingRunner struct {
 	results []StepResult
 	calls   []StepRequest
+}
+
+type recordingStarter struct {
+	started    StepResult
+	waitResult StepResult
+	calls      []StepRequest
+	beforeWait func()
+}
+
+func (r *recordingStarter) RunStep(context.Context, StepRequest) (StepResult, error) {
+	return StepResult{}, nil
+}
+
+func (r *recordingStarter) StartStep(_ context.Context, req StepRequest) (StepHandle, error) {
+	r.calls = append(r.calls, req)
+	return recordingHandle{started: r.started, waitResult: r.waitResult, beforeWait: r.beforeWait}, nil
+}
+
+type recordingHandle struct {
+	started    StepResult
+	waitResult StepResult
+	beforeWait func()
+}
+
+func (h recordingHandle) Started() StepResult { return h.started }
+
+func (h recordingHandle) Wait(context.Context) (StepResult, error) {
+	if h.beforeWait != nil {
+		h.beforeWait()
+	}
+	return h.waitResult, nil
 }
 
 func (r *recordingRunner) RunStep(_ context.Context, req StepRequest) (StepResult, error) {
