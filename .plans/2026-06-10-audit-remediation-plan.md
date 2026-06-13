@@ -228,10 +228,8 @@ status dashboards. Cheap wins first:
 - Dashboard token rotation behavior — SKIPPED. Running dashboards can be restarted after
   rotating tokens; adding live token reload is not worth extra lifecycle complexity for a
   local on-demand dashboard.
-- Completion gate hook (see new-tool 6.2 — could live inside pd): on task terminal-success,
-  optionally run a configured gate command (make audit, tests) in the worktree and record
-  pass/fail in task state. This is the "agent finished → gate → human review" pattern the
-  ecosystem converged on, and pd already owns the lifecycle hook point.
+- Completion gate hook — SKIPPED. This should live at a higher abstraction level later rather
+  than inside `pd`; keep Pi Dispatcher focused on launching, supervising, and inspecting runs.
 
 ### 5.4 Observability across the stack [M]
 
