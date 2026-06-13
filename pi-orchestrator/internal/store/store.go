@@ -262,6 +262,14 @@ func (s *Store) UpdateStepState(ctx context.Context, workflowRunID string, stepI
 	return nil
 }
 
+func (s *Store) UpdateWorkflowRunSupervisorPID(ctx context.Context, id string, pid int) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE workflow_runs SET supervisor_pid = ?, updated_at = ? WHERE id = ?`, pid, formatTime(time.Now()), id)
+	if err != nil {
+		return fmt.Errorf("update workflow supervisor pid: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) UpdateWorkflowRunState(ctx context.Context, id string, state State, outcome string, updatedAt time.Time) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE workflow_runs SET state = ?, outcome = ?, updated_at = ?, ended_at = ? WHERE id = ?`, string(state), outcome, formatTime(updatedAt), terminalEndedAt(state, updatedAt), id)
 	if err != nil {

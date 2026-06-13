@@ -45,6 +45,8 @@ func TestRunCommandCreatesWorkflowRunWithOneWorktree(t *testing.T) {
 	shortIDFunc = func() string { return "abcd" }
 	fakeWT := &recordingWorktreeClient{path: "/worktrees/po-review-abcd"}
 	newWorktreeClient = func() (worktreeClient, error) { return fakeWT, nil }
+	launcher := &recordingSupervisorLauncher{pid: 4321}
+	startSupervisor = launcher.Start
 	t.Cleanup(resetRunTestHooks)
 
 	stdout, err := executeCommand("--workflow-dir", dir, "run", "review", "--input", "repo=/repo", "--input", "pr_number=42")
@@ -69,6 +71,12 @@ func TestRunCommandCreatesWorkflowRunWithOneWorktree(t *testing.T) {
 	}
 	if run.State != store.StateStarting || run.Workflow != "review" || run.Repo != "/repo" {
 		t.Fatalf("run = %+v, want starting review for /repo", run)
+	}
+	if run.SupervisorPID != 4321 {
+		t.Fatalf("SupervisorPID = %d, want 4321", run.SupervisorPID)
+	}
+	if len(launcher.args) != 2 || launcher.args[0] != "--run-id" || launcher.args[1] != run.ID {
+		t.Fatalf("supervisor args = %#v, want --run-id", launcher.args)
 	}
 	if run.WorktreePath != "/worktrees/po-review-abcd" {
 		t.Fatalf("WorktreePath = %q", run.WorktreePath)
@@ -135,8 +143,19 @@ func testConfig(t *testing.T, workflowDir string, stateDir string) config.Config
 	return cfg
 }
 
+type recordingSupervisorLauncher struct {
+	pid  int
+	args []string
+}
+
+func (r *recordingSupervisorLauncher) Start(args ...string) (int, error) {
+	r.args = append([]string(nil), args...)
+	return r.pid, nil
+}
+
 func resetRunTestHooks() {
 	newWorktreeClient = defaultNewWorktreeClient
+	startSupervisor = defaultStartSupervisor
 	nowFunc = time.Now
 	shortIDFunc = randomShortID
 }

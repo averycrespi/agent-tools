@@ -62,6 +62,7 @@ func executeCommand(args ...string) (string, error) {
 		workflowDir = ""
 		runInputs = nil
 		cleanupDryRun = false
+		supervisorRunID = ""
 	}()
 	err := Execute()
 	return stdout.String(), err

@@ -104,6 +104,13 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 	if err := db.CreateRunRequestWithWorkflowRun(cmd.Context(), req, run); err != nil {
 		return err
 	}
+	pid, err := startSupervisor("--run-id", runID)
+	if err != nil {
+		return err
+	}
+	if err := db.UpdateWorkflowRunSupervisorPID(cmd.Context(), runID, pid); err != nil {
+		return err
+	}
 	_, err = fmt.Fprintln(cmd.OutOrStdout(), runID)
 	return err
 }
