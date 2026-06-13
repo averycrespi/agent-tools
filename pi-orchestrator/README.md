@@ -1,7 +1,74 @@
 # pi-orchestrator
 
-`po` is a local workflow layer above `pi-dispatcher` (`pd`). V1 runs explicit workflow definitions from a configured workflow directory, validates typed inputs, creates durable workflow runs, delegates each step to `pd`, validates required artifacts, and provides `pd`-aligned inspection and control commands.
+`po` is a local workflow layer above `pi-dispatcher` (`pd`). V1 runs explicit YAML workflow definitions, validates typed inputs, creates a durable workflow run, delegates executable steps to `pd`, validates required artifacts, and exposes `pd`-aligned inspection/control commands.
 
-## Status
+## Workflow definitions
 
-Initial implementation is in progress. The first supported surface is workflow definition loading and validation for `po list`, `po show`, and `po lint`.
+Workflow files are loaded from `~/.config/po/workflows` by default, or from `--workflow-dir`. The filename stem must match `name`.
+
+Supported V1 fields are intentionally narrow:
+
+```yaml
+name: pr-review
+description: Review a pull request
+repo: "{{ .Inputs.repo }}"
+inputs:
+  repo:
+    type: string
+    required: true
+  pr_number:
+    type: integer
+    required: true
+agents:
+  reviewer:
+    model: gpt-5.1-codex
+    skills: [review]
+steps:
+  - id: review
+    agent: reviewer
+    prompt: |
+      Review PR #{{ .Inputs.pr_number }}.
+      Write findings to {{ artifact_path "findings" }}.
+    artifacts:
+      - name: findings
+        path: findings.md
+        required: true
+```
+
+Inputs are flat and typed as `string`, `integer`, or `boolean`, with `required`, `default`, and `enum` validation. Step prompts can render `.Inputs` and the `artifact_path "name"` helper.
+
+## Commands
+
+```bash
+po list
+po show <workflow>
+po lint <workflow>
+po run <workflow> --input key=value
+po ps
+po status <run>
+po wait <run> [--timeout 5m]
+po logs <run>
+po stop <run>
+po cleanup [--dry-run] <run>
+po rm <run>
+po dashboard [--host 127.0.0.1] [--port 8400] [--no-open]
+po token rotate
+```
+
+`po run` validates inputs before side effects, creates one workflow worktree, creates a workflow artifact root, persists the run in SQLite, and records workflow metadata. Workflow steps are executed serially by the supervisor core and each executable step is represented by a backing `pd` task/run.
+
+## State and artifacts
+
+Defaults follow XDG paths:
+
+- Config/workflows: `~/.config/po/workflows`
+- Dashboard auth token: `~/.config/po/auth-token`
+- SQLite database: `~/.local/state/po/po.db`
+- Run logs: `~/.local/state/po/runs/<run-id>`
+- Artifacts: `~/.local/state/po/artifacts/<run-id>`
+
+`PO_WORKFLOW_DIR` and `PO_ARTIFACT_PARENT_DIR` can override workflow and artifact directories.
+
+## Dashboard
+
+`po dashboard` starts a loopback-only HTTP server and prints an authenticated URL. APIs are bearer-token protected and read-only; mutation methods are rejected. Rotate the `po` dashboard token with `po token rotate`. `po` token state is separate from `pd` token state.
