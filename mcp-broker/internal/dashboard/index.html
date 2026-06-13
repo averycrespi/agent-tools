@@ -1919,15 +1919,27 @@
             emptyEl.style.display = "none";
 
             var groups = {};
-            tools.forEach(function (tool) {
-              var parts = tool.name.split(".");
-              var provider = parts.length > 1 ? parts[0] : "other";
-              if (!groups[provider]) groups[provider] = { tools: [] };
-              groups[provider].tools.push(tool);
-            });
             backendStatuses.forEach(function (backend) {
               if (!groups[backend.name]) groups[backend.name] = { tools: [] };
               groups[backend.name].status = backend;
+            });
+            var backendNames = backendStatuses
+              .map(function (backend) {
+                return backend.name;
+              })
+              .sort(function (a, b) {
+                return b.length - a.length;
+              });
+            tools.forEach(function (tool) {
+              var provider = backendNames.find(function (backendName) {
+                return tool.name.indexOf(backendName + ".") === 0;
+              });
+              if (!provider) {
+                var parts = tool.name.split(".");
+                provider = parts.length > 1 ? parts[0] : "other";
+              }
+              if (!groups[provider]) groups[provider] = { tools: [] };
+              groups[provider].tools.push(tool);
             });
 
             var html = "";

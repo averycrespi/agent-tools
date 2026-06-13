@@ -26,6 +26,9 @@ type Config struct {
 	Telegram               TelegramConfig          `json:"telegram"`
 }
 
+// MaxStartupRetryCount bounds configured startup retries to avoid overflow and accidental long startup delays.
+const MaxStartupRetryCount = 1000
+
 // ServerConfig defines a backend MCP server.
 type ServerConfig struct {
 	Command               string            `json:"command,omitempty"`
@@ -187,6 +190,9 @@ func validate(cfg Config) error {
 	for name, srv := range cfg.Servers {
 		if srv.StartupRetryCount != nil && *srv.StartupRetryCount < 0 {
 			return fmt.Errorf("servers.%s.startup_retry_count must be non-negative", name)
+		}
+		if srv.StartupRetryCount != nil && *srv.StartupRetryCount > MaxStartupRetryCount {
+			return fmt.Errorf("servers.%s.startup_retry_count must be <= %d", name, MaxStartupRetryCount)
 		}
 		if srv.StartupRetryBackoffMS != nil && *srv.StartupRetryBackoffMS < 0 {
 			return fmt.Errorf("servers.%s.startup_retry_backoff_ms must be non-negative", name)

@@ -326,6 +326,23 @@ func TestHandleTools_IncludesBackendStatuses(t *testing.T) {
 	}, body.Backends)
 }
 
+func TestDashboardIndex_IncludesBackendStatusRendering(t *testing.T) {
+	d := New(nil, nil, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	html := string(body)
+	require.Contains(t, html, "Failed during startup")
+	require.Contains(t, html, "No tools discovered")
+	require.Contains(t, html, "backendNames.find")
+	require.Contains(t, html, "backendName + \".\"")
+}
+
 func TestHandleRules_GroupsToolsByMatchingRule(t *testing.T) {
 	tools := &fakeToolLister{tools: []server.Tool{
 		{Name: "github.list_prs"},

@@ -338,6 +338,18 @@ func TestLoad_ServerStartupRetryConfigRejectsNegativeValues(t *testing.T) {
 	}
 }
 
+func TestLoad_ServerStartupRetryConfigRejectsTooLargeRetryCount(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	data := `{"servers":{"bad":{"startup_retry_count": 1001}}}`
+	require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "servers.bad.startup_retry_count")
+	require.Contains(t, err.Error(), "1000")
+}
+
 func TestLoad_TelegramConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")

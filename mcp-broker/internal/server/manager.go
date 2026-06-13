@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -100,7 +101,7 @@ type Manager struct {
 	logger         *slog.Logger
 }
 
-var connectBackend = connect
+var connectBackend = connectWithContexts
 
 // NewManager creates a Manager and connects to all configured backends.
 func NewManager(ctx context.Context, servers map[string]config.ServerConfig, toolPatches []config.ToolPatchConfig, logger *slog.Logger) (*Manager, error) {
@@ -139,13 +140,17 @@ func NewManager(ctx context.Context, servers map[string]config.ServerConfig, too
 
 // connect creates a Backend for the given server config.
 func connect(ctx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
+	return connectWithContexts(ctx, ctx, name, srv, logger)
+}
+
+func connectWithContexts(lifetimeCtx context.Context, startupCtx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
 	switch srv.Type {
 	case "streamable-http":
-		return newHTTPBackend(ctx, name, srv)
+		return newHTTPBackend(startupCtx, lifetimeCtx, name, srv)
 	case "sse":
-		return newSSEBackend(ctx, name, srv)
+		return newSSEBackend(startupCtx, lifetimeCtx, name, srv)
 	default:
-		return newStdioBackend(ctx, name, srv, logger)
+		return newStdioBackend(startupCtx, name, srv, logger)
 	}
 }
 
@@ -235,9 +240,9 @@ func mergeAnnotations(base *mcp.ToolAnnotation, patch *config.ToolAnnotationsPat
 
 func (m *Manager) connectWithRetry(ctx context.Context, name string, srv config.ServerConfig) (Backend, int, error) {
 	var backend Backend
-	attempts, err := retryStartup(ctx, srv, func(attemptCtx context.Context) error {
+	attempts, err := retryStartup(ctx, srv, func(lifetimeCtx context.Context, attemptCtx context.Context) error {
 		var err error
-		backend, err = connectBackend(attemptCtx, name, srv, m.logger)
+		backend, err = connectBackend(lifetimeCtx, attemptCtx, name, srv, m.logger)
 		return err
 	})
 	if err != nil {
@@ -248,7 +253,7 @@ func (m *Manager) connectWithRetry(ctx context.Context, name string, srv config.
 
 func (m *Manager) listToolsWithRetry(ctx context.Context, name string, srv config.ServerConfig, backend Backend) ([]Tool, int, error) {
 	var tools []Tool
-	attempts, err := retryStartup(ctx, srv, func(attemptCtx context.Context) error {
+	attempts, err := retryStartup(ctx, srv, func(_ context.Context, attemptCtx context.Context) error {
 		var err error
 		tools, err = backend.ListTools(attemptCtx)
 		return err
@@ -259,7 +264,7 @@ func (m *Manager) listToolsWithRetry(ctx context.Context, name string, srv confi
 	return tools, attempts, nil
 }
 
-func retryStartup(ctx context.Context, srv config.ServerConfig, op func(context.Context) error) (int, error) {
+func retryStartup(ctx context.Context, srv config.ServerConfig, op func(context.Context, context.Context) error) (int, error) {
 	policy := startupRetryPolicy(srv)
 	var lastErr error
 	for attempt := 1; attempt <= policy.maxAttempts; attempt++ {
@@ -268,7 +273,7 @@ func retryStartup(ctx context.Context, srv config.ServerConfig, op func(context.
 		if policy.timeout > 0 {
 			attemptCtx, cancel = context.WithTimeout(ctx, policy.timeout)
 		}
-		err := op(attemptCtx)
+		err := op(ctx, attemptCtx)
 		if cancel != nil {
 			cancel()
 		}
@@ -309,7 +314,7 @@ type retryPolicy struct {
 func startupRetryPolicy(srv config.ServerConfig) retryPolicy {
 	retries := 3
 	if srv.StartupRetryCount != nil {
-		retries = *srv.StartupRetryCount
+		retries = min(*srv.StartupRetryCount, config.MaxStartupRetryCount)
 	}
 	backoffMS := 1000
 	if srv.StartupRetryBackoffMS != nil {
@@ -339,11 +344,25 @@ func summarizeStartupError(err error) string {
 	if err == nil {
 		return ""
 	}
-	summary := err.Error()
-	if len(summary) > 240 {
-		return summary[:240] + "…"
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "startup attempt timed out"
 	}
-	return summary
+	if errors.Is(err, context.Canceled) {
+		return "startup canceled"
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "connection refused"):
+		return "connection refused"
+	case strings.Contains(msg, "no such file") || strings.Contains(msg, "executable file not found"):
+		return "backend command unavailable"
+	case strings.Contains(msg, "oauth"):
+		return "OAuth flow failed"
+	case strings.Contains(msg, "authorization"):
+		return "authorization required"
+	default:
+		return "backend startup failed; see broker logs"
+	}
 }
 
 // BackendStatuses returns startup status for every configured backend, sorted by name.

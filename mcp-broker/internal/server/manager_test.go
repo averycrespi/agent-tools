@@ -295,7 +295,7 @@ func TestNewManager_RetriesConnectBeforeDiscovery(t *testing.T) {
 	attempts := 0
 	mb := new(mockBackend)
 	mb.On("ListTools", mock.Anything).Return([]Tool{{Name: "search", Description: "Search"}}, nil)
-	connectBackend = func(ctx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
+	connectBackend = func(lifetimeCtx context.Context, startupCtx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
 		attempts++
 		if attempts == 1 {
 			return nil, errors.New("not ready")
@@ -326,7 +326,7 @@ func TestNewManager_ConnectExhaustionIsNonFatalAndRecordsStatus(t *testing.T) {
 	backoffMS := 0
 	timeoutSeconds := 0
 	attempts := 0
-	connectBackend = func(ctx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
+	connectBackend = func(lifetimeCtx context.Context, startupCtx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
 		attempts++
 		return nil, errors.New("temporary unavailable")
 	}
@@ -348,7 +348,47 @@ func TestNewManager_ConnectExhaustionIsNonFatalAndRecordsStatus(t *testing.T) {
 	require.Equal(t, "failed", statuses[0].Status)
 	require.Equal(t, "connect", statuses[0].Phase)
 	require.Equal(t, 2, statuses[0].Attempts)
-	require.Contains(t, statuses[0].Error, "temporary unavailable")
+	require.Equal(t, "backend startup failed; see broker logs", statuses[0].Error)
+}
+
+func TestNewManager_MixedHealthyAndFailedBackendsKeepsHealthyTools(t *testing.T) {
+	oldConnectBackend := connectBackend
+	defer func() { connectBackend = oldConnectBackend }()
+
+	retryCount := 1
+	backoffMS := 0
+	timeoutSeconds := 0
+	healthy := new(mockBackend)
+	healthy.On("ListTools", mock.Anything).Return([]Tool{{Name: "search", Description: "Search"}}, nil)
+	brokenAttempts := 0
+	connectBackend = func(lifetimeCtx context.Context, startupCtx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
+		if name == "broken" {
+			brokenAttempts++
+			return nil, errors.New("temporary unavailable")
+		}
+		return healthy, nil
+	}
+
+	m, err := NewManager(context.Background(), map[string]config.ServerConfig{
+		"broken": {
+			StartupRetryCount:     &retryCount,
+			StartupRetryBackoffMS: &backoffMS,
+			StartupTimeoutSeconds: &timeoutSeconds,
+		},
+		"github": {
+			StartupRetryCount:     &retryCount,
+			StartupRetryBackoffMS: &backoffMS,
+			StartupTimeoutSeconds: &timeoutSeconds,
+		},
+	}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	require.NoError(t, err)
+	require.Equal(t, 2, brokenAttempts)
+	require.Equal(t, []Tool{{Name: "github.search", Description: "Search"}}, m.Tools())
+	require.Equal(t, []BackendStatus{
+		{Name: "broken", Status: "failed", Phase: "connect", Attempts: 2, Error: "backend startup failed; see broker logs"},
+		{Name: "github", Status: "connected", Attempts: 1, ToolCount: 1},
+	}, m.BackendStatuses())
+	healthy.AssertExpectations(t)
 }
 
 func TestNewManager_ListToolsExhaustionRemovesBackendAndRecordsStatus(t *testing.T) {
@@ -361,7 +401,7 @@ func TestNewManager_ListToolsExhaustionRemovesBackendAndRecordsStatus(t *testing
 	mb := new(mockBackend)
 	mb.On("ListTools", mock.Anything).Return([]Tool{}, errors.New("tools not ready")).Twice()
 	mb.On("Close").Return(nil).Once()
-	connectBackend = func(ctx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
+	connectBackend = func(lifetimeCtx context.Context, startupCtx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
 		return mb, nil
 	}
 
@@ -380,7 +420,7 @@ func TestNewManager_ListToolsExhaustionRemovesBackendAndRecordsStatus(t *testing
 	require.Equal(t, "failed", statuses[0].Status)
 	require.Equal(t, "list_tools", statuses[0].Phase)
 	require.Equal(t, 2, statuses[0].Attempts)
-	require.Contains(t, statuses[0].Error, "tools not ready")
+	require.Equal(t, "backend startup failed; see broker logs", statuses[0].Error)
 	mb.AssertExpectations(t)
 }
 
@@ -392,7 +432,7 @@ func TestNewManager_OAuthFlowErrorsAreNotRetried(t *testing.T) {
 	backoffMS := 0
 	timeoutSeconds := 0
 	attempts := 0
-	connectBackend = func(ctx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
+	connectBackend = func(lifetimeCtx context.Context, startupCtx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
 		attempts++
 		return nil, errors.New("OAuth flow cancelled: context canceled")
 	}
@@ -416,7 +456,7 @@ func TestRetryStartup_UsesStartupTimeoutInsteadOfHTTPTimeout(t *testing.T) {
 		HTTPTimeoutSeconds:    120,
 		StartupRetryCount:     &retryCount,
 		StartupTimeoutSeconds: &timeoutSeconds,
-	}, func(ctx context.Context) error {
+	}, func(_ context.Context, ctx context.Context) error {
 		deadline, ok := ctx.Deadline()
 		require.True(t, ok)
 		require.WithinDuration(t, time.Now().Add(time.Second), deadline, 250*time.Millisecond)
@@ -437,11 +477,87 @@ func TestRetryStartup_StopsWhenParentContextIsCanceled(t *testing.T) {
 		StartupRetryCount:     &retryCount,
 		StartupRetryBackoffMS: &backoffMS,
 		StartupTimeoutSeconds: &timeoutSeconds,
-	}, func(ctx context.Context) error {
+	}, func(_ context.Context, ctx context.Context) error {
 		return ctx.Err()
 	})
 	require.ErrorIs(t, err, context.Canceled)
 	require.Equal(t, 1, attempts)
+}
+
+func TestRetryStartup_DefaultRetryCountAndExplicitZero(t *testing.T) {
+	backoffMS := 0
+	defaultAttempts := 0
+	attempts, err := retryStartup(context.Background(), config.ServerConfig{StartupRetryBackoffMS: &backoffMS}, func(_ context.Context, _ context.Context) error {
+		defaultAttempts++
+		if defaultAttempts < 4 {
+			return errors.New("not ready")
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 4, attempts)
+	require.Equal(t, 4, defaultAttempts)
+
+	retryCount := 0
+	zeroAttempts := 0
+	attempts, err = retryStartup(context.Background(), config.ServerConfig{StartupRetryCount: &retryCount}, func(_ context.Context, _ context.Context) error {
+		zeroAttempts++
+		return errors.New("not ready")
+	})
+	require.Error(t, err)
+	require.Equal(t, 1, attempts)
+	require.Equal(t, 1, zeroAttempts)
+}
+
+func TestRetryStartup_BackoffStopsOnContextCancellation(t *testing.T) {
+	retryCount := 3
+	backoffMS := 10_000
+	timeoutSeconds := 0
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	firstAttemptDone := make(chan struct{})
+
+	go func() {
+		<-firstAttemptDone
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+
+	started := time.Now()
+	attempts, err := retryStartup(ctx, config.ServerConfig{
+		StartupRetryCount:     &retryCount,
+		StartupRetryBackoffMS: &backoffMS,
+		StartupTimeoutSeconds: &timeoutSeconds,
+	}, func(_ context.Context, _ context.Context) error {
+		close(firstAttemptDone)
+		return errors.New("not ready")
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, 1, attempts)
+	require.Less(t, time.Since(started), 500*time.Millisecond)
+}
+
+func TestRetryStartup_SeparatesLifetimeContextFromStartupTimeout(t *testing.T) {
+	retryCount := 0
+	timeoutSeconds := 1
+	attempts, err := retryStartup(context.Background(), config.ServerConfig{
+		StartupRetryCount:     &retryCount,
+		StartupTimeoutSeconds: &timeoutSeconds,
+	}, func(lifetimeCtx context.Context, startupCtx context.Context) error {
+		_, lifetimeHasDeadline := lifetimeCtx.Deadline()
+		startupDeadline, startupHasDeadline := startupCtx.Deadline()
+		require.False(t, lifetimeHasDeadline)
+		require.True(t, startupHasDeadline)
+		require.WithinDuration(t, time.Now().Add(time.Second), startupDeadline, 250*time.Millisecond)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, attempts)
+}
+
+func TestSummarizeStartupErrorAvoidsRawUnexpectedErrorText(t *testing.T) {
+	require.Equal(t, "connection refused", summarizeStartupError(errors.New("dial tcp 127.0.0.1:9: connection refused")))
+	require.Equal(t, "backend startup failed; see broker logs", summarizeStartupError(errors.New("GET https://secret.example/mcp?token=abc failed")))
 }
 
 func TestConnect_UnknownTypeDefaultsToStdio(t *testing.T) {

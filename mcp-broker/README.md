@@ -139,11 +139,11 @@ Servers is a map keyed by server name. Each name is used as a tool prefix (e.g. 
 | `url`                  | URL for HTTP/SSE transport                                                                      |
 | `headers`              | HTTP headers; `$VAR` and `${VAR}` references are expanded from the process environment          |
 | `http_timeout_seconds` | Streamable HTTP backend request/stream timeout. Defaults to 120 seconds when omitted.           |
-| `startup_retry_count` | Startup retries after the first connect or `tools/list` attempt. Defaults to 3. Set `0` for one attempt only. Negative values are invalid. |
+| `startup_retry_count` | Startup retries after the first connect or `tools/list` attempt. Defaults to 3. Set `0` for one attempt only. Negative values and values above 1000 are invalid. |
 | `startup_retry_backoff_ms` | Fixed delay between startup attempts. Defaults to 1000 ms. Set `0` for no delay. Negative values are invalid. |
 | `startup_timeout_seconds` | Per-attempt startup timeout for connect and initial `tools/list`. Defaults to 10 seconds. Set `0` to disable this startup-specific timeout. Negative values are invalid. |
 
-Startup retry settings are per backend. Worst-case serial startup delay is roughly the sum, across configured backends, of `(startup_retry_count + 1) * startup_timeout_seconds + startup_retry_count * startup_retry_backoff_ms`, plus backend work that is not bounded when `startup_timeout_seconds` is `0`. `http_timeout_seconds` still controls normal Streamable HTTP backend requests after startup; it is not the startup retry timeout.
+Startup retry settings are per backend and apply independently to the connect and initial `tools/list` phases. Worst-case serial startup delay is roughly the sum, across configured backends, of up to `2 * ((startup_retry_count + 1) * startup_timeout_seconds + startup_retry_count * startup_retry_backoff_ms)`, plus backend work that is not bounded when `startup_timeout_seconds` is `0`. Interactive OAuth browser flows are not capped by `startup_timeout_seconds`; they follow the broker's parent startup context. `http_timeout_seconds` still controls normal Streamable HTTP backend requests after startup; it is not the startup retry timeout.
 
 If a backend exhausts startup retries, mcp-broker logs the failure, continues serving MCP and dashboard endpoints with the remaining healthy backends, and shows the failed backend in the dashboard Tools tab with its failed phase, attempt count, and concise error. Runtime rediscovery is not implemented: after fixing an exhausted backend, restart mcp-broker to discover its tools.
 
