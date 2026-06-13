@@ -125,6 +125,26 @@ func TestUpdateArtifactExistence(t *testing.T) {
 	}
 }
 
+func TestRecordWorkflowCleanup(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := openTestStore(t)
+	defer db.Close() //nolint:errcheck
+	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
+	createWorkflowRun(t, ctx, db, now)
+
+	if err := db.RecordWorkflowCleanup(ctx, "run-1", "removed", "", now.Add(time.Minute)); err != nil {
+		t.Fatalf("RecordWorkflowCleanup() error = %v", err)
+	}
+	run, err := db.GetWorkflowRun(ctx, "run-1")
+	if err != nil {
+		t.Fatalf("GetWorkflowRun() error = %v", err)
+	}
+	if run.CleanupStatus != "removed" || run.CleanupError != "" || !run.CleanupAttemptedAt.Valid {
+		t.Fatalf("run = %+v, want cleanup metadata", run)
+	}
+}
+
 func TestDeleteWorkflowRunRemovesRunRequestMetadata(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

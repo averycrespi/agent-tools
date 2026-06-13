@@ -60,6 +60,9 @@ func TestCleanupRemovesTerminalRunWorktreeAndArtifacts(t *testing.T) {
 	if len(detail.Artifacts) != 1 || detail.Artifacts[0].Exists {
 		t.Fatalf("artifacts = %+v, want metadata marked removed", detail.Artifacts)
 	}
+	if detail.Run.CleanupStatus != "removed" || detail.Run.CleanupError != "" || !detail.Run.CleanupAttemptedAt.Valid {
+		t.Fatalf("run cleanup metadata = status %q error %q attempted %v, want removed", detail.Run.CleanupStatus, detail.Run.CleanupError, detail.Run.CleanupAttemptedAt)
+	}
 	if !fakeWT.called || fakeWT.repoRoot != "/repo" || fakeWT.branch != "po/sample" {
 		t.Fatalf("worktree remover = %+v, want persisted repo and branch", fakeWT)
 	}

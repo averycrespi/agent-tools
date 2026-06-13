@@ -31,6 +31,7 @@ type StartTaskRunRequest struct {
 	RepoName           string
 	Branch             string
 	WorktreePath       string
+	ArtifactParentPath string
 	Prompt             string
 	PromptSource       string
 	Agent              AgentOptions

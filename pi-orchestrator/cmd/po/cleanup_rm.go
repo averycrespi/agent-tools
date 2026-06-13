@@ -55,22 +55,40 @@ func cleanupWorkflowRun(cmd *cobra.Command, args []string) error {
 	if run.WorktreePath != "" {
 		remover, err := newWorktreeRemover()
 		if err != nil {
+			_ = recordWorkflowCleanup(cmd.Context(), run.ID, "failed", err.Error())
 			return err
 		}
 		if err := remover.Remove(run.Repo, run.Branch); err != nil {
-			return fmt.Errorf("remove workflow worktree %s: %w", run.WorktreePath, err)
+			wrapped := fmt.Errorf("remove workflow worktree %s: %w", run.WorktreePath, err)
+			_ = recordWorkflowCleanup(cmd.Context(), run.ID, "failed", wrapped.Error())
+			return wrapped
 		}
 	}
 	if run.ArtifactRoot != "" {
 		if err := os.RemoveAll(run.ArtifactRoot); err != nil {
-			return fmt.Errorf("remove artifacts %s: %w", run.ArtifactRoot, err)
+			wrapped := fmt.Errorf("remove artifacts %s: %w", run.ArtifactRoot, err)
+			_ = recordWorkflowCleanup(cmd.Context(), run.ID, "failed", wrapped.Error())
+			return wrapped
 		}
 		if err := markRunArtifactsRemoved(cmd.Context(), run.ID); err != nil {
+			_ = recordWorkflowCleanup(cmd.Context(), run.ID, "failed", err.Error())
 			return err
 		}
 	}
+	if err := recordWorkflowCleanup(cmd.Context(), run.ID, "removed", ""); err != nil {
+		return err
+	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s cleaned up\n", run.ID)
 	return err
+}
+
+func recordWorkflowCleanup(ctx context.Context, runID string, status string, cleanupErr string) error {
+	db, err := store.Open(cfg.DBPath())
+	if err != nil {
+		return err
+	}
+	defer db.Close() //nolint:errcheck
+	return db.RecordWorkflowCleanup(ctx, runID, status, cleanupErr, nowFunc().UTC())
 }
 
 func markRunArtifactsRemoved(ctx context.Context, runID string) error {

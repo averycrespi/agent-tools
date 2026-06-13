@@ -37,6 +37,9 @@ func TestStartTaskRunUsesCallerOwnedWorktree(t *testing.T) {
 	if result.TaskID != "pd-20260613-120000-abcd" || result.RunID != "pd-20260613-120000-abcd-run-1" {
 		t.Fatalf("result = %+v, want deterministic task/run ids", result)
 	}
+	if result.StdoutPath == "" || result.StderrPath == "" || result.PiEventsPath == "" {
+		t.Fatalf("result = %+v, want log/event paths", result)
+	}
 	if !reflect.DeepEqual(launcher.args, []string{"--task-id", result.TaskID, "--pi-argv", launcher.args[3], "--env-names", "[]"}) {
 		t.Fatalf("launcher args = %#v", launcher.args)
 	}

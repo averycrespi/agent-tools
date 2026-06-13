@@ -35,12 +35,13 @@ func (r DispatcherRunner) RunStep(ctx context.Context, req StepRequest) (StepRes
 
 func (r DispatcherRunner) StartStep(ctx context.Context, req StepRequest) (StepHandle, error) {
 	result, err := r.Client.StartTaskRun(ctx, pddispatcher.StartTaskRunRequest{
-		RepoPath:     req.Repo,
-		RepoName:     "",
-		Branch:       req.Branch,
-		WorktreePath: req.WorktreePath,
-		Prompt:       req.Prompt,
-		PromptSource: "workflow:" + req.WorkflowRunID + ":" + req.StepID,
+		RepoPath:           req.Repo,
+		RepoName:           "",
+		Branch:             req.Branch,
+		WorktreePath:       req.WorktreePath,
+		ArtifactParentPath: req.ArtifactParentPath,
+		Prompt:             req.Prompt,
+		PromptSource:       "workflow:" + req.WorkflowRunID + ":" + req.StepID,
 		Agent: pddispatcher.AgentOptions{
 			Model:  req.Agent.Model,
 			Skills: req.Agent.Skills,

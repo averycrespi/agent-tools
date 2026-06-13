@@ -15,13 +15,14 @@ import (
 )
 
 type StepRequest struct {
-	WorkflowRunID string
-	StepID        string
-	Agent         workflow.Agent
-	Prompt        string
-	Repo          string
-	Branch        string
-	WorktreePath  string
+	WorkflowRunID      string
+	StepID             string
+	Agent              workflow.Agent
+	Prompt             string
+	Repo               string
+	Branch             string
+	WorktreePath       string
+	ArtifactParentPath string
 }
 
 type StepResult struct {
@@ -84,7 +85,7 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 			if err != nil {
 				return err
 			}
-			request := StepRequest{WorkflowRunID: run.ID, StepID: step.ID, Agent: def.Agents[step.Agent], Prompt: renderedPrompt, Repo: run.Repo, Branch: run.Branch, WorktreePath: run.WorktreePath}
+			request := StepRequest{WorkflowRunID: run.ID, StepID: step.ID, Agent: def.Agents[step.Agent], Prompt: renderedPrompt, Repo: run.Repo, Branch: run.Branch, WorktreePath: run.WorktreePath, ArtifactParentPath: filepath.Dir(run.ArtifactRoot)}
 			artifacts := artifactsForStep(run, step)
 			result, err := startAndPersistStep(ctx, db, runner, request, run, step, executionIndex, artifacts)
 			executionIndex++

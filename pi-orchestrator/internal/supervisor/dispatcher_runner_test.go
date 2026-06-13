@@ -20,10 +20,11 @@ func TestDispatcherRunnerStartsPDRunOnWorkflowWorktree(t *testing.T) {
 			Model:  "gpt-5.1-codex",
 			Skills: []string{"review"},
 		},
-		Prompt:       "rendered prompt",
-		Repo:         "/repo",
-		Branch:       "po/review-abcd",
-		WorktreePath: "/worktrees/review-abcd",
+		Prompt:             "rendered prompt",
+		Repo:               "/repo",
+		Branch:             "po/review-abcd",
+		WorktreePath:       "/worktrees/review-abcd",
+		ArtifactParentPath: "/artifacts",
 	})
 	if err != nil {
 		t.Fatalf("RunStep() error = %v", err)
@@ -34,8 +35,8 @@ func TestDispatcherRunnerStartsPDRunOnWorkflowWorktree(t *testing.T) {
 	if starter.waitRequest.TaskID != "pd-task-1" || starter.waitRequest.RunID != "pd-run-1" {
 		t.Fatalf("wait request = %+v, want backing pd ids", starter.waitRequest)
 	}
-	if starter.request.RepoPath != "/repo" || starter.request.Branch != "po/review-abcd" || starter.request.WorktreePath != "/worktrees/review-abcd" {
-		t.Fatalf("request = %+v, want shared workflow repo/branch/worktree", starter.request)
+	if starter.request.RepoPath != "/repo" || starter.request.Branch != "po/review-abcd" || starter.request.WorktreePath != "/worktrees/review-abcd" || starter.request.ArtifactParentPath != "/artifacts" {
+		t.Fatalf("request = %+v, want shared workflow repo/branch/worktree and artifact parent", starter.request)
 	}
 	if starter.request.Prompt != "rendered prompt" || starter.request.PromptSource != "workflow:po-run-1:review" {
 		t.Fatalf("request = %+v, want rendered workflow prompt source", starter.request)
