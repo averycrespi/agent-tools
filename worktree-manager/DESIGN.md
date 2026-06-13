@@ -46,7 +46,7 @@ All external commands flow through `exec.Runner`, an interface with `Run`, `RunD
 
 **Config-driven behavior.** What to launch, which files to copy, which scripts to run — all driven by `~/.config/wt/config.json`. The tool has no hardcoded knowledge of any specific agent or workflow.
 
-**Idempotent operations.** `wt add` skips steps already completed (worktree exists, window exists). `wt rm` skips resources already removed. This makes it safe to re-run commands without side effects.
+**Idempotent resource operations.** `wt add` skips already-existing worktrees and tmux windows. `wt rm` skips resources already removed. Copying configured files and running setup scripts are best-effort during initial worktree creation only, so re-running `wt add` does not repair a partially configured existing worktree.
 
 **Tmux socket isolation.** All tmux operations use `-L wt`, a dedicated socket separate from the user's default tmux. This prevents `wt` from interfering with existing tmux sessions.
 

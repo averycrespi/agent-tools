@@ -64,7 +64,7 @@ Running AI agents with full host access is risky — one bad command can trash y
 
 `sb` wraps Lima to manage a lightweight Linux VM on macOS:
 
-- `sb create` spins up a provisioned Ubuntu VM with matching UID/GID, writable mounts, and any tools your provisioning scripts install.
+- `sb create` spins up a provisioned Ubuntu VM with a host-matching UID, writable mounts, and any tools your provisioning scripts install.
 - `sb shell` drops you in.
 - `sb provision` re-provisions a running VM.
 - `sb destroy` tears it down.
@@ -73,7 +73,7 @@ See the [sandbox-manager README](sandbox-manager/README.md) for more information
 
 ### Pi Dispatcher (pd)
 
-Autonomous coding-agent runs need more than a terminal: a clean worktree, sandboxed execution, durable status, logs, and a way to stop the task later. `pd` composes `wt`, `sb`, and Pi RPC into a daemonless local task runner.
+Autonomous coding-agent runs need more than a terminal: a clean worktree, sandboxed execution, durable status, logs, and a way to stop the task later. `pd` composes `wt`, `sb`, and Pi RPC into a local task runner with no central daemon.
 
 - `pd run "prompt"` creates a headless `wt` worktree, verifies it is visible inside `sb`, starts a detached supervisor, and returns a task ID.
 - `pd ps`, `pd status`, `pd wait`, `pd logs`, and `pd dashboard` inspect or follow running and completed tasks from persisted state.

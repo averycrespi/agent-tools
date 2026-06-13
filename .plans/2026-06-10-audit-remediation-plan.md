@@ -172,15 +172,15 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
 - Added matching `.golangci.yml` configs to local-git-mcp and local-gomod-proxy, so all 6 Go
   tools now have lint config. Updated the "Adding a New Tool" checklist in root CLAUDE.md.
 
-### 4.3 Doc drift fixes [S]
+### 4.3 Doc drift fixes [S] — RESOLVED
 
-- worktree-manager DESIGN.md/CLAUDE.md: "idempotent operations" claim (align with 1.3
-  decision).
-- sandbox-manager docs: UID/GID claim (align with 1.1).
-- pi-dispatcher DESIGN.md: "daemonless" wording — per-task supervisors are long-lived
-  processes; reword to "no central daemon".
-- Optional: a tiny doc-drift make target that greps docs for referenced paths/flags and
-  checks they exist (see new-tool idea 6.5 — could start as a 50-line script here).
+- Updated worktree-manager docs to narrow idempotency claims to existing worktrees/windows and
+  removal, with copy/setup documented as best-effort initial-creation steps.
+- Updated sandbox-manager docs to state Lima preserves the host UID but does not support
+  setting the VM user's primary GID in the template.
+- Updated pi-dispatcher docs to say "no central daemon" instead of "daemonless".
+- Optional future work: a tiny doc-drift make target that greps docs for referenced paths/flags
+  and checks they exist (see new-tool idea 6.5 — could start as a 50-line script here).
 
 ### 4.4 Shared conventions without a shared module [S, decide]
 
@@ -307,7 +307,7 @@ follow the standard new-tool checklist in root CLAUDE.md.
 
 ## Suggested sequencing
 
-1. **Week 1 (correctness):** 1.1 GID, 1.2 timeouts, 4.3 doc drift.
+1. **Week 1 (correctness):** 1.1 GID, 1.2 timeouts.
 2. **Week 2 (infra + concurrency):** 4.1 CI, 1.3 worktree/pd partial-failure work.
 3. **Week 3-4 (security):** 2.1 tool pinning, 2.2 limits, 2.3 rules lint/test command;
    design spike for 2.5 egress allowlist.

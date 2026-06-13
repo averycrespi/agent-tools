@@ -38,8 +38,8 @@ internal/
 
 - All external commands go through `exec.Runner` — tests mock this interface, no real git/tmux calls in unit tests
 - `cmd/` has no tests (thin wrappers); all internal packages do
-- Operations are idempotent: `Add` skips existing worktrees/windows, `Remove` skips already-removed resources
-- File copy and setup script failures log warnings but don't halt (best-effort)
+- Resource operations are idempotent: `Add` skips existing worktrees/windows, `Remove` skips already-removed resources
+- File copy and setup scripts run only during initial worktree creation; failures log warnings but don't halt (best-effort)
 - Command failures use `%s` with trimmed output; Go errors use `%w` for wrapping
 - All tmux calls use `-L wt` socket to avoid interfering with the user's default tmux
 - gosec `nolint` directives on `os/exec`, file permissions, and `os.Open` are intentional for a CLI tool

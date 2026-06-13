@@ -1,8 +1,10 @@
 # Pi Dispatcher (pd)
 
-Launch and manage autonomous background Pi coding-agent runs in isolated git worktrees inside the shared Lima sandbox.
+Pi Dispatcher (`pd`) is a background task runner for autonomous Pi coding-agent work.
 
-Pi Dispatcher is daemonless in v1: `pd run` creates durable task state, starts a detached supervisor, and returns a task ID for later inspection.
+It turns a prompt into a tracked task: `pd run` creates a fresh worktree through `wt`, checks that the worktree is mounted in the shared `sb` Lima sandbox, launches Pi in RPC mode, and records durable task/run metadata, logs, and event paths. Running tasks are managed by detached per-task supervisor processes, so the original terminal can exit while the agent continues.
+
+Use `pd ps`, `pd status`, `pd wait`, `pd logs`, `pd stop`, `pd cleanup`, and `pd dashboard` to manage those tasks after launch. There is no central daemon; supervisors exist only for active tasks.
 
 ## Install
 
