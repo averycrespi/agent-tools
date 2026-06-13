@@ -280,6 +280,64 @@ func TestLoad_ServerHTTPTimeoutSeconds(t *testing.T) {
 	require.Equal(t, 30, cfg.Servers["internal"].HTTPTimeoutSeconds)
 }
 
+func TestLoad_ServerStartupRetryConfigPreservesAbsentAndZero(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	data := `{
+		"servers": {
+			"defaulted": {"command": "echo"},
+			"disabled": {
+				"command": "echo",
+				"startup_retry_count": 0,
+				"startup_retry_backoff_ms": 0,
+				"startup_timeout_seconds": 0
+			},
+			"custom": {
+				"command": "echo",
+				"startup_retry_count": 5,
+				"startup_retry_backoff_ms": 250,
+				"startup_timeout_seconds": 2
+			}
+		}
+	}`
+	err := os.WriteFile(path, []byte(data), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Nil(t, cfg.Servers["defaulted"].StartupRetryCount)
+	require.Nil(t, cfg.Servers["defaulted"].StartupRetryBackoffMS)
+	require.Nil(t, cfg.Servers["defaulted"].StartupTimeoutSeconds)
+	require.Equal(t, 0, *cfg.Servers["disabled"].StartupRetryCount)
+	require.Equal(t, 0, *cfg.Servers["disabled"].StartupRetryBackoffMS)
+	require.Equal(t, 0, *cfg.Servers["disabled"].StartupTimeoutSeconds)
+	require.Equal(t, 5, *cfg.Servers["custom"].StartupRetryCount)
+	require.Equal(t, 250, *cfg.Servers["custom"].StartupRetryBackoffMS)
+	require.Equal(t, 2, *cfg.Servers["custom"].StartupTimeoutSeconds)
+}
+
+func TestLoad_ServerStartupRetryConfigRejectsNegativeValues(t *testing.T) {
+	for name, body := range map[string]string{
+		"startup retry count":      `{"startup_retry_count": -1}`,
+		"startup retry backoff ms": `{"startup_retry_backoff_ms": -1}`,
+		"startup timeout seconds":  `{"startup_timeout_seconds": -1}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.json")
+
+			data := `{"servers":{"bad":` + body + `}}`
+			err := os.WriteFile(path, []byte(data), 0o600)
+			require.NoError(t, err)
+
+			_, err = Load(path)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "servers.bad")
+		})
+	}
+}
+
 func TestLoad_TelegramConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")

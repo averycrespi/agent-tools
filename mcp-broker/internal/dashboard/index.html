@@ -442,6 +442,40 @@
         border: 1px solid var(--border);
       }
 
+      .provider-status {
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        padding: 0.1rem 0.5rem;
+        border-radius: 9999px;
+      }
+
+      .provider-status.connected {
+        background: rgba(34, 197, 94, 0.15);
+        color: var(--green);
+      }
+
+      .provider-status.failed {
+        background: rgba(239, 68, 68, 0.15);
+        color: var(--red);
+      }
+
+      .backend-failure,
+      .backend-empty {
+        padding: 0.75rem 1rem 0.75rem 1.75rem;
+        color: var(--text-secondary);
+        font-size: 0.8125rem;
+      }
+
+      .backend-failure strong {
+        color: var(--red);
+      }
+
+      .backend-failure code {
+        font-family: var(--font-mono);
+        color: var(--text-primary);
+      }
+
       .provider-capabilities {
         border-top: 1px solid var(--border);
       }
@@ -1876,37 +1910,69 @@
           })
           .then(function (data) {
             var tools = data.tools || [];
-            if (tools.length === 0) {
+            var backendStatuses = data.backends || [];
+            if (tools.length === 0 && backendStatuses.length === 0) {
               list.innerHTML = "";
               emptyEl.style.display = "block";
               return;
             }
             emptyEl.style.display = "none";
 
-            // Group by provider prefix
             var groups = {};
             tools.forEach(function (tool) {
               var parts = tool.name.split(".");
               var provider = parts.length > 1 ? parts[0] : "other";
-              if (!groups[provider]) groups[provider] = [];
-              groups[provider].push(tool);
+              if (!groups[provider]) groups[provider] = { tools: [] };
+              groups[provider].tools.push(tool);
+            });
+            backendStatuses.forEach(function (backend) {
+              if (!groups[backend.name]) groups[backend.name] = { tools: [] };
+              groups[backend.name].status = backend;
             });
 
             var html = "";
             var providers = Object.keys(groups).sort();
             providers.forEach(function (provider) {
-              var items = groups[provider];
+              var group = groups[provider];
+              var items = group.tools || [];
+              var status = group.status || {
+                name: provider,
+                status: "connected",
+                tool_count: items.length,
+              };
               html += '<div class="provider-group">';
               html +=
                 '<button class="provider-header collapsed" onclick="toggleProvider(this)">';
               html +=
                 '<div class="provider-header-left"><span class="chevron">&#9660;</span> ' +
                 esc(provider) +
-                "</div>";
+                '<span class="provider-status ' +
+                escAttr(status.status) +
+                '">' +
+                esc(status.status) +
+                "</span></div>";
               html +=
-                '<span class="provider-count">' + items.length + "</span>";
+                '<span class="provider-count">' + items.length + " tools</span>";
               html += "</button>";
               html += '<div class="provider-capabilities hidden">';
+              if (status.status === "failed") {
+                html += '<div class="backend-failure">';
+                html +=
+                  "<strong>Failed during startup</strong> after " +
+                  esc(String(status.attempts || 0)) +
+                  " attempts.";
+                if (status.phase) {
+                  html += " Phase: <code>" + esc(status.phase) + "</code>.";
+                }
+                if (status.error) {
+                  html += " Error: " + esc(status.error);
+                }
+                html +=
+                  " Restart broker after fixing this backend to discover tools.";
+                html += "</div>";
+              } else if (items.length === 0) {
+                html += '<div class="backend-empty">No tools discovered</div>';
+              }
               items.forEach(function (tool) {
                 var toolAttr = escAttr(JSON.stringify(tool));
                 html +=

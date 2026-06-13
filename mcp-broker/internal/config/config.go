@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -27,13 +28,16 @@ type Config struct {
 
 // ServerConfig defines a backend MCP server.
 type ServerConfig struct {
-	Command            string            `json:"command,omitempty"`
-	Args               []string          `json:"args,omitempty"`
-	Env                map[string]string `json:"env,omitempty"`
-	Type               string            `json:"type,omitempty"`
-	URL                string            `json:"url,omitempty"`
-	Headers            map[string]string `json:"headers,omitempty"`
-	HTTPTimeoutSeconds int               `json:"http_timeout_seconds,omitempty"`
+	Command               string            `json:"command,omitempty"`
+	Args                  []string          `json:"args,omitempty"`
+	Env                   map[string]string `json:"env,omitempty"`
+	Type                  string            `json:"type,omitempty"`
+	URL                   string            `json:"url,omitempty"`
+	Headers               map[string]string `json:"headers,omitempty"`
+	HTTPTimeoutSeconds    int               `json:"http_timeout_seconds,omitempty"`
+	StartupRetryCount     *int              `json:"startup_retry_count,omitempty"`
+	StartupRetryBackoffMS *int              `json:"startup_retry_backoff_ms,omitempty"`
+	StartupTimeoutSeconds *int              `json:"startup_timeout_seconds,omitempty"`
 }
 
 // RuleConfig defines a policy rule mapping a tool glob to a verdict.
@@ -173,7 +177,25 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, err
 	}
+	if err := validate(cfg); err != nil {
+		return cfg, err
+	}
 	return cfg, nil
+}
+
+func validate(cfg Config) error {
+	for name, srv := range cfg.Servers {
+		if srv.StartupRetryCount != nil && *srv.StartupRetryCount < 0 {
+			return fmt.Errorf("servers.%s.startup_retry_count must be non-negative", name)
+		}
+		if srv.StartupRetryBackoffMS != nil && *srv.StartupRetryBackoffMS < 0 {
+			return fmt.Errorf("servers.%s.startup_retry_backoff_ms must be non-negative", name)
+		}
+		if srv.StartupTimeoutSeconds != nil && *srv.StartupTimeoutSeconds < 0 {
+			return fmt.Errorf("servers.%s.startup_timeout_seconds must be non-negative", name)
+		}
+	}
+	return nil
 }
 
 // Save writes cfg to path. Creates parent directories as needed.

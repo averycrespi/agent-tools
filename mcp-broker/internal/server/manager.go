@@ -6,6 +6,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
@@ -77,31 +80,54 @@ type toolEntry struct {
 	tool         Tool
 }
 
+// BackendStatus describes startup health for one configured backend.
+type BackendStatus struct {
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	Phase     string `json:"phase,omitempty"`
+	Attempts  int    `json:"attempts"`
+	Error     string `json:"error,omitempty"`
+	ToolCount int    `json:"tool_count"`
+}
+
 // Manager manages connections to backend MCP servers.
 type Manager struct {
-	backends    map[string]Backend
-	tools       map[string]toolEntry
-	toolPatches []config.ToolPatchConfig
-	logger      *slog.Logger
+	backends       map[string]Backend
+	backendConfigs map[string]config.ServerConfig
+	statuses       map[string]BackendStatus
+	tools          map[string]toolEntry
+	toolPatches    []config.ToolPatchConfig
+	logger         *slog.Logger
 }
+
+var connectBackend = connect
 
 // NewManager creates a Manager and connects to all configured backends.
 func NewManager(ctx context.Context, servers map[string]config.ServerConfig, toolPatches []config.ToolPatchConfig, logger *slog.Logger) (*Manager, error) {
 	m := &Manager{
-		backends:    make(map[string]Backend),
-		tools:       make(map[string]toolEntry),
-		toolPatches: toolPatches,
-		logger:      logger,
+		backends:       make(map[string]Backend),
+		backendConfigs: make(map[string]config.ServerConfig),
+		statuses:       make(map[string]BackendStatus),
+		tools:          make(map[string]toolEntry),
+		toolPatches:    toolPatches,
+		logger:         logger,
 	}
 
 	for name, srv := range servers {
-		backend, err := connect(ctx, name, srv, logger)
+		m.backendConfigs[name] = srv
+		m.statuses[name] = BackendStatus{Name: name, Status: "failed"}
+		backend, attempts, err := m.connectWithRetry(ctx, name, srv)
 		if err != nil {
-			logger.Error("failed to connect to backend", "name", name, "error", err)
+			if logger != nil {
+				logger.Error("failed to connect to backend", "name", name, "attempts", attempts, "error", err)
+			}
+			m.statuses[name] = BackendStatus{Name: name, Status: "failed", Phase: "connect", Attempts: attempts, Error: summarizeStartupError(err)}
 			continue
 		}
 		m.backends[name] = backend
-		logger.Info("connected to backend", "name", name)
+		if logger != nil {
+			logger.Info("connected to backend", "name", name)
+		}
 	}
 
 	if err := m.discover(ctx); err != nil {
@@ -126,10 +152,18 @@ func connect(ctx context.Context, name string, srv config.ServerConfig, logger *
 // discover calls tools/list on each backend and builds the prefixed tool registry.
 func (m *Manager) discover(ctx context.Context) error {
 	for name, backend := range m.backends {
-		tools, err := backend.ListTools(ctx)
+		srv := m.backendConfigs[name]
+		tools, attempts, err := m.listToolsWithRetry(ctx, name, srv, backend)
 		if err != nil {
 			if m.logger != nil {
-				m.logger.Error("failed to list tools", "backend", name, "error", err)
+				m.logger.Error("failed to list tools", "backend", name, "attempts", attempts, "error", err)
+			}
+			if closeErr := backend.Close(); closeErr != nil && m.logger != nil {
+				m.logger.Error("failed to close backend after discovery failure", "backend", name, "error", closeErr)
+			}
+			delete(m.backends, name)
+			if m.statuses != nil {
+				m.statuses[name] = BackendStatus{Name: name, Status: "failed", Phase: "list_tools", Attempts: attempts, Error: summarizeStartupError(err)}
 			}
 			continue
 		}
@@ -145,6 +179,9 @@ func (m *Manager) discover(ctx context.Context) error {
 				originalName: tool.Name[len(name)+1:],
 				tool:         patched,
 			}
+		}
+		if m.statuses != nil {
+			m.statuses[name] = BackendStatus{Name: name, Status: "connected", Attempts: attempts, ToolCount: len(tools)}
 		}
 		if m.logger != nil {
 			m.logger.Info("discovered tools", "backend", name, "count", len(tools))
@@ -194,6 +231,129 @@ func mergeAnnotations(base *mcp.ToolAnnotation, patch *config.ToolAnnotationsPat
 		merged.OpenWorldHint = patch.OpenWorldHint
 	}
 	return &merged
+}
+
+func (m *Manager) connectWithRetry(ctx context.Context, name string, srv config.ServerConfig) (Backend, int, error) {
+	var backend Backend
+	attempts, err := retryStartup(ctx, srv, func(attemptCtx context.Context) error {
+		var err error
+		backend, err = connectBackend(attemptCtx, name, srv, m.logger)
+		return err
+	})
+	if err != nil {
+		return nil, attempts, err
+	}
+	return backend, attempts, nil
+}
+
+func (m *Manager) listToolsWithRetry(ctx context.Context, name string, srv config.ServerConfig, backend Backend) ([]Tool, int, error) {
+	var tools []Tool
+	attempts, err := retryStartup(ctx, srv, func(attemptCtx context.Context) error {
+		var err error
+		tools, err = backend.ListTools(attemptCtx)
+		return err
+	})
+	if err != nil {
+		return nil, attempts, err
+	}
+	return tools, attempts, nil
+}
+
+func retryStartup(ctx context.Context, srv config.ServerConfig, op func(context.Context) error) (int, error) {
+	policy := startupRetryPolicy(srv)
+	var lastErr error
+	for attempt := 1; attempt <= policy.maxAttempts; attempt++ {
+		attemptCtx := ctx
+		var cancel context.CancelFunc
+		if policy.timeout > 0 {
+			attemptCtx, cancel = context.WithTimeout(ctx, policy.timeout)
+		}
+		err := op(attemptCtx)
+		if cancel != nil {
+			cancel()
+		}
+		if err == nil {
+			return attempt, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			return attempt, ctx.Err()
+		}
+		if attempt == policy.maxAttempts || isNonRetryableStartupError(err) {
+			return attempt, err
+		}
+		if policy.backoff > 0 {
+			timer := time.NewTimer(policy.backoff)
+			select {
+			case <-ctx.Done():
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				return attempt, ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
+	return policy.maxAttempts, lastErr
+}
+
+type retryPolicy struct {
+	maxAttempts int
+	backoff     time.Duration
+	timeout     time.Duration
+}
+
+func startupRetryPolicy(srv config.ServerConfig) retryPolicy {
+	retries := 3
+	if srv.StartupRetryCount != nil {
+		retries = *srv.StartupRetryCount
+	}
+	backoffMS := 1000
+	if srv.StartupRetryBackoffMS != nil {
+		backoffMS = *srv.StartupRetryBackoffMS
+	}
+	timeoutSeconds := 10
+	if srv.StartupTimeoutSeconds != nil {
+		timeoutSeconds = *srv.StartupTimeoutSeconds
+	}
+	return retryPolicy{
+		maxAttempts: retries + 1,
+		backoff:     time.Duration(backoffMS) * time.Millisecond,
+		timeout:     time.Duration(timeoutSeconds) * time.Second,
+	}
+}
+
+func isNonRetryableStartupError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "oauth flow") ||
+		strings.Contains(msg, "authorization denied") ||
+		strings.Contains(msg, "authorization required") ||
+		strings.Contains(msg, "oauth callback") ||
+		strings.Contains(msg, "oauth flow cancelled")
+}
+
+func summarizeStartupError(err error) string {
+	if err == nil {
+		return ""
+	}
+	summary := err.Error()
+	if len(summary) > 240 {
+		return summary[:240] + "…"
+	}
+	return summary
+}
+
+// BackendStatuses returns startup status for every configured backend, sorted by name.
+func (m *Manager) BackendStatuses() []BackendStatus {
+	statuses := make([]BackendStatus, 0, len(m.statuses))
+	for _, status := range m.statuses {
+		statuses = append(statuses, status)
+	}
+	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Name < statuses[j].Name })
+	return statuses
 }
 
 // Tools returns all discovered tools across all backends.

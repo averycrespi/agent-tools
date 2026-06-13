@@ -23,6 +23,15 @@ type fakeToolLister struct{ tools []server.Tool }
 
 func (f *fakeToolLister) Tools() []server.Tool { return f.tools }
 
+type fakeToolAndBackendLister struct {
+	tools    []server.Tool
+	backends []server.BackendStatus
+}
+
+func (f *fakeToolAndBackendLister) Tools() []server.Tool { return f.tools }
+
+func (f *fakeToolAndBackendLister) BackendStatuses() []server.BackendStatus { return f.backends }
+
 type fakeRulesLister struct{ rules []config.RuleConfig }
 
 func (f *fakeRulesLister) Rules() []config.RuleConfig { return f.rules }
@@ -286,6 +295,35 @@ func TestHandleTools_SerializesAnnotationsOutputSchemaAndMeta(t *testing.T) {
 	require.Nil(t, plain.Annotations)
 	require.Nil(t, plain.OutputSchema)
 	require.Nil(t, plain.Meta)
+}
+
+func TestHandleTools_IncludesBackendStatuses(t *testing.T) {
+	tools := &fakeToolAndBackendLister{
+		tools: []server.Tool{{Name: "github.search"}},
+		backends: []server.BackendStatus{
+			{Name: "zeta", Status: "failed", Phase: "connect", Attempts: 2, Error: "connection refused"},
+			{Name: "github", Status: "connected", Attempts: 1, ToolCount: 1},
+		},
+	}
+	d := New(tools, nil, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/tools")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Tools    []server.Tool          `json:"tools"`
+		Backends []server.BackendStatus `json:"backends"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Equal(t, []server.Tool{{Name: "github.search"}}, body.Tools)
+	require.Equal(t, []server.BackendStatus{
+		{Name: "github", Status: "connected", Attempts: 1, ToolCount: 1},
+		{Name: "zeta", Status: "failed", Phase: "connect", Attempts: 2, Error: "connection refused"},
+	}, body.Backends)
 }
 
 func TestHandleRules_GroupsToolsByMatchingRule(t *testing.T) {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -282,6 +283,165 @@ func TestManager_Call_UnknownToolReturnsError(t *testing.T) {
 	_, err := m.Call(context.Background(), "nonexistent.tool", nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown tool")
+}
+
+func TestNewManager_RetriesConnectBeforeDiscovery(t *testing.T) {
+	oldConnectBackend := connectBackend
+	defer func() { connectBackend = oldConnectBackend }()
+
+	retryCount := 1
+	backoffMS := 0
+	timeoutSeconds := 0
+	attempts := 0
+	mb := new(mockBackend)
+	mb.On("ListTools", mock.Anything).Return([]Tool{{Name: "search", Description: "Search"}}, nil)
+	connectBackend = func(ctx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, errors.New("not ready")
+		}
+		return mb, nil
+	}
+
+	m, err := NewManager(context.Background(), map[string]config.ServerConfig{
+		"github": {
+			StartupRetryCount:     &retryCount,
+			StartupRetryBackoffMS: &backoffMS,
+			StartupTimeoutSeconds: &timeoutSeconds,
+		},
+	}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	require.NoError(t, err)
+	require.Equal(t, 2, attempts)
+	require.Len(t, m.Tools(), 1)
+
+	statuses := m.BackendStatuses()
+	require.Equal(t, []BackendStatus{{Name: "github", Status: "connected", Attempts: 1, ToolCount: 1}}, statuses)
+}
+
+func TestNewManager_ConnectExhaustionIsNonFatalAndRecordsStatus(t *testing.T) {
+	oldConnectBackend := connectBackend
+	defer func() { connectBackend = oldConnectBackend }()
+
+	retryCount := 1
+	backoffMS := 0
+	timeoutSeconds := 0
+	attempts := 0
+	connectBackend = func(ctx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
+		attempts++
+		return nil, errors.New("temporary unavailable")
+	}
+
+	m, err := NewManager(context.Background(), map[string]config.ServerConfig{
+		"broken": {
+			StartupRetryCount:     &retryCount,
+			StartupRetryBackoffMS: &backoffMS,
+			StartupTimeoutSeconds: &timeoutSeconds,
+		},
+	}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	require.NoError(t, err)
+	require.Empty(t, m.Tools())
+	require.Equal(t, 2, attempts)
+
+	statuses := m.BackendStatuses()
+	require.Len(t, statuses, 1)
+	require.Equal(t, "broken", statuses[0].Name)
+	require.Equal(t, "failed", statuses[0].Status)
+	require.Equal(t, "connect", statuses[0].Phase)
+	require.Equal(t, 2, statuses[0].Attempts)
+	require.Contains(t, statuses[0].Error, "temporary unavailable")
+}
+
+func TestNewManager_ListToolsExhaustionRemovesBackendAndRecordsStatus(t *testing.T) {
+	oldConnectBackend := connectBackend
+	defer func() { connectBackend = oldConnectBackend }()
+
+	retryCount := 1
+	backoffMS := 0
+	timeoutSeconds := 0
+	mb := new(mockBackend)
+	mb.On("ListTools", mock.Anything).Return([]Tool{}, errors.New("tools not ready")).Twice()
+	mb.On("Close").Return(nil).Once()
+	connectBackend = func(ctx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
+		return mb, nil
+	}
+
+	m, err := NewManager(context.Background(), map[string]config.ServerConfig{
+		"github": {
+			StartupRetryCount:     &retryCount,
+			StartupRetryBackoffMS: &backoffMS,
+			StartupTimeoutSeconds: &timeoutSeconds,
+		},
+	}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	require.NoError(t, err)
+	require.Empty(t, m.Tools())
+
+	statuses := m.BackendStatuses()
+	require.Len(t, statuses, 1)
+	require.Equal(t, "failed", statuses[0].Status)
+	require.Equal(t, "list_tools", statuses[0].Phase)
+	require.Equal(t, 2, statuses[0].Attempts)
+	require.Contains(t, statuses[0].Error, "tools not ready")
+	mb.AssertExpectations(t)
+}
+
+func TestNewManager_OAuthFlowErrorsAreNotRetried(t *testing.T) {
+	oldConnectBackend := connectBackend
+	defer func() { connectBackend = oldConnectBackend }()
+
+	retryCount := 3
+	backoffMS := 0
+	timeoutSeconds := 0
+	attempts := 0
+	connectBackend = func(ctx context.Context, name string, srv config.ServerConfig, logger *slog.Logger) (Backend, error) {
+		attempts++
+		return nil, errors.New("OAuth flow cancelled: context canceled")
+	}
+
+	m, err := NewManager(context.Background(), map[string]config.ServerConfig{
+		"github": {
+			StartupRetryCount:     &retryCount,
+			StartupRetryBackoffMS: &backoffMS,
+			StartupTimeoutSeconds: &timeoutSeconds,
+		},
+	}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	require.NoError(t, err)
+	require.Equal(t, 1, attempts)
+	require.Equal(t, 1, m.BackendStatuses()[0].Attempts)
+}
+
+func TestRetryStartup_UsesStartupTimeoutInsteadOfHTTPTimeout(t *testing.T) {
+	retryCount := 0
+	timeoutSeconds := 1
+	attempts, err := retryStartup(context.Background(), config.ServerConfig{
+		HTTPTimeoutSeconds:    120,
+		StartupRetryCount:     &retryCount,
+		StartupTimeoutSeconds: &timeoutSeconds,
+	}, func(ctx context.Context) error {
+		deadline, ok := ctx.Deadline()
+		require.True(t, ok)
+		require.WithinDuration(t, time.Now().Add(time.Second), deadline, 250*time.Millisecond)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, attempts)
+}
+
+func TestRetryStartup_StopsWhenParentContextIsCanceled(t *testing.T) {
+	retryCount := 3
+	backoffMS := 0
+	timeoutSeconds := 0
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	attempts, err := retryStartup(ctx, config.ServerConfig{
+		StartupRetryCount:     &retryCount,
+		StartupRetryBackoffMS: &backoffMS,
+		StartupTimeoutSeconds: &timeoutSeconds,
+	}, func(ctx context.Context) error {
+		return ctx.Err()
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, 1, attempts)
 }
 
 func TestConnect_UnknownTypeDefaultsToStdio(t *testing.T) {

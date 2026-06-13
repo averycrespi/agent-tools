@@ -92,6 +92,7 @@ func Middleware(token string, next http.Handler) http.Handler {
 		if isDashboard {
 			if qToken := r.URL.Query().Get("token"); qToken != "" {
 				if subtle.ConstantTimeCompare([]byte(qToken), tokenBytes) == 1 {
+					//nolint:gosec // Dashboard is loopback-only plain HTTP; Secure cookies would prevent local auth from working.
 					http.SetCookie(w, &http.Cookie{
 						Name:     cookieName,
 						Value:    token,
@@ -100,11 +101,12 @@ func Middleware(token string, next http.Handler) http.Handler {
 						SameSite: http.SameSiteStrictMode,
 						MaxAge:   int(365 * 24 * time.Hour / time.Second),
 					})
-					// Redirect to path without the token query param.
+					// Redirect to the same dashboard path without the token query param.
 					clean := *r.URL
 					q := clean.Query()
 					q.Del("token")
 					clean.RawQuery = q.Encode()
+					//nolint:gosec // RequestURI is a relative same-origin redirect, not an external target.
 					http.Redirect(w, r, clean.RequestURI(), http.StatusFound)
 					return
 				}
