@@ -109,18 +109,11 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
 - Implemented a prominent startup warning and README note that `--allow-all-paths` disables
   repository path isolation.
 
-### 2.5 sandbox-manager: network egress posture [L, design decision]
+### 2.5 sandbox-manager: network egress posture [L, design decision] — SKIPPED
 
-- The VM currently has unrestricted network access. Best practice (Claude Code sandboxing,
-  Codex default-deny, lethal-trifecta reasoning) is to cut the exfiltration leg: agents read
-  untrusted content, so egress should be allowlisted.
-- Plan: add an optional egress allowlist mode — default-deny iptables/ipset (or nftables)
-  provisioned into the VM from config (modeled on Anthropic's devcontainer
-  `init-firewall.sh`), allowing host.lima.internal (broker, gomod-proxy), package registries,
-  and configured domains. Lessons from the Claude Code allowlist bypass: canonicalize
-  hostnames, allowlist valid DNS characters, don't blocklist.
-- This is the single highest-value security improvement in the repo; it converts the stack
-  from "credentials are isolated" to "exfiltration is also constrained".
+- Decision: do not add VM egress allowlisting under the current security posture.
+- Rationale: the sandbox's current credential isolation model is sufficient for present use,
+  and default-deny network controls would add operational complexity that is not needed now.
 
 ### 2.6 Secrets-into-VM story [M, design decision] — DECLINED
 
@@ -231,14 +224,11 @@ status dashboards. Cheap wins first:
 - Completion gate hook — SKIPPED. This should live at a higher abstraction level later rather
   than inside `pd`; keep Pi Dispatcher focused on launching, supervising, and inspecting runs.
 
-### 5.4 Observability across the stack [M]
+### 5.4 Observability across the stack [M] — SKIPPED
 
-- mcp-broker already has the audit DB — add OTel-style trace/correlation IDs to audit rows
-  (cheap now, mandatory-ish when 2026-07-28 lands).
-- pi-dispatcher: per-task token/cost capture if the Pi event stream exposes usage; surface in
-  `pd ps`/dashboard.
-- Optional `--log-file` (or env) writing structured logs to XDG state dir for the
-  long-running services.
+- Decision: do not add trace IDs, token/cost capture, or structured log-file plumbing now.
+- Rationale: current observability is sufficient for present workflows; defer additional
+  telemetry until there is a concrete debugging or reporting need.
 
 ---
 
