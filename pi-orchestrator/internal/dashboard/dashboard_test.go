@@ -120,6 +120,26 @@ func TestEventsReturnsReadOnlySSESnapshot(t *testing.T) {
 	}
 }
 
+func TestDashboardUIExposesRunDetailAndLogsExplorer(t *testing.T) {
+	db := dashboardTestStore(t)
+	handler := NewHandler(db, "secret")
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	for _, want := range []string{"/dashboard/api/runs/", "/logs", "Run detail", "Supervisor logs"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body = %q, want substring %q", body, want)
+		}
+	}
+}
+
 func TestRunDetailAPIRejectsMutationMethods(t *testing.T) {
 	db := dashboardTestStore(t)
 	seedDashboardRun(t, db)

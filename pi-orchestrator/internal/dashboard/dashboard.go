@@ -186,17 +186,45 @@ func dashboardUI(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(w, `<!doctype html>
 <title>Pi Orchestrator</title>
 <h1>Pi Orchestrator</h1>
-<pre id="runs">Loading...</pre>
+<section>
+  <h2>Workflow runs</h2>
+  <div id="runs">Loading...</div>
+</section>
+<section>
+  <h2>Run detail</h2>
+  <pre id="detail">Select a run.</pre>
+</section>
+<section>
+  <h2>Supervisor logs</h2>
+  <pre id="logs">Select a run.</pre>
+</section>
 <script>
+async function loadRun(id) {
+  const [detail, logs] = await Promise.all([
+    fetch('/dashboard/api/runs/' + encodeURIComponent(id)).then(r => r.json()),
+    fetch('/dashboard/api/runs/' + encodeURIComponent(id) + '/logs').then(r => r.json()),
+  ]);
+  document.getElementById('detail').textContent = JSON.stringify(detail, null, 2);
+  document.getElementById('logs').textContent = logs.content || JSON.stringify(logs, null, 2);
+}
+function renderRuns(summaries) {
+  const runs = document.getElementById('runs');
+  runs.innerHTML = '';
+  for (const summary of summaries) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = summary.Run.ID + ' ' + summary.Run.State + ' ' + summary.Run.Workflow;
+    button.addEventListener('click', () => loadRun(summary.Run.ID));
+    runs.appendChild(button);
+    runs.appendChild(document.createElement('br'));
+  }
+}
 async function refresh() {
-  const res = await fetch('/dashboard/api/runs');
-  document.getElementById('runs').textContent = JSON.stringify(await res.json(), null, 2);
+  renderRuns(await fetch('/dashboard/api/runs').then(r => r.json()));
 }
 refresh();
 const events = new EventSource('/dashboard/events');
-events.addEventListener('snapshot', event => {
-  document.getElementById('runs').textContent = JSON.stringify(JSON.parse(event.data), null, 2);
-});
+events.addEventListener('snapshot', event => renderRuns(JSON.parse(event.data)));
 </script>`)
 }
 
