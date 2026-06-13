@@ -49,6 +49,36 @@ func TestExecuteRunsStepsSeriallyInWorkflowOrderWithSharedWorktree(t *testing.T)
 	}
 }
 
+func TestExecuteRunsReadyStepsInFileOrderWhenDependenciesAppearLater(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, run := supervisorTestRun(t)
+	defer db.Close() //nolint:errcheck
+	runner := &recordingRunner{results: []StepResult{{PDTaskID: "pd-build", PDRunID: "pd-build-run-1", State: store.StateSucceeded}, {PDTaskID: "pd-deploy", PDRunID: "pd-deploy-run-1", State: store.StateSucceeded}}}
+	def := &workflow.Definition{
+		Name:   "sample",
+		Agents: map[string]workflow.Agent{"runner": {Model: "gpt-5.1-codex"}},
+		Steps: []workflow.Step{
+			{ID: "deploy", Agent: "runner", Needs: []string{"build"}, Prompt: "deploy"},
+			{ID: "build", Agent: "runner", Prompt: "build"},
+		},
+	}
+
+	if err := Execute(ctx, db, runner, def, run); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(runner.calls) != 2 || runner.calls[0].StepID != "build" || runner.calls[1].StepID != "deploy" {
+		t.Fatalf("calls = %+v, want build then deploy", runner.calls)
+	}
+	detail, err := db.GetWorkflowRunDetail(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunDetail() error = %v", err)
+	}
+	if detail.Steps[0].StepID != "build" || detail.Steps[1].StepID != "deploy" {
+		t.Fatalf("steps = %+v, want execution order build then deploy", detail.Steps)
+	}
+}
+
 func TestExecuteRendersPromptInputsAndArtifactPath(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
