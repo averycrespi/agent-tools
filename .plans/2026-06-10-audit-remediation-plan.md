@@ -92,9 +92,11 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
 ### 2.2 mcp-broker: request limits and approval backpressure [M]
 
 - Body-size limit on `/mcp` (e.g. `http.MaxBytesReader`, ~10MB default, configurable) — RESOLVED via `max_request_body_bytes` defaulting to 10 MiB.
-- Bound concurrent pending approvals (semaphore); reject excess with a clear tool error.
-- Optional: simple per-token rate limit. Low priority for a single-user broker, but the
-  approval-queue bound matters if a compromised agent floods require-approval tools.
+- Bound concurrent pending approvals (semaphore); reject excess with a clear tool error —
+  SKIPPED for now. The broker is single-user, loopback-bound, and already protected by body
+  limits; approval queue caps can be revisited if flooding becomes a real operational issue.
+- Optional: simple per-token rate limit — SKIPPED for now for the same single-user/loopback
+  rationale.
 
 ### 2.3 mcp-broker: rules-engine ergonomics [S-M]
 
