@@ -4,7 +4,7 @@ Pi Dispatcher (`pd`) is a background task runner for autonomous Pi coding-agent 
 
 It turns a prompt into a tracked task: `pd run` creates a fresh worktree through `wt`, checks that the worktree is mounted in the shared `sb` Lima sandbox, launches Pi in RPC mode, and records durable task/run metadata, logs, and event paths. Running tasks are managed by detached per-task supervisor processes, so the original terminal can exit while the agent continues.
 
-Use `pd ps`, `pd status`, `pd wait`, `pd logs`, `pd stop`, `pd cleanup`, and `pd dashboard` to manage those tasks after launch. There is no central daemon; supervisors exist only for active tasks.
+Use `pd ps`, `pd status`, `pd wait`, `pd logs`, `pd stop`, `pd cleanup`, `pd dashboard`, and `pd mcp` to manage or inspect those tasks after launch. There is no central daemon; supervisors exist only for active tasks.
 
 ## Install
 
@@ -25,6 +25,7 @@ pd status <task-id>
 pd wait --timeout 30m <task-id>
 pd logs -f <task-id>
 pd dashboard
+pd mcp
 pd stop <task-id>...
 pd stop --force <task-id>...
 pd cleanup <task-id>...
@@ -42,6 +43,8 @@ pd rm <task-id>...
 
 `pd dashboard` starts Pi Dispatcher Dashboard, a local read-only web UI for exploring tasks, worktree cleanup state, latest run metadata, launch options, the latest assistant response, raw Pi event stream paths, and stdout/stderr logs. By default it binds `127.0.0.1:8300`, prints an authenticated URL under `/dashboard/`, emits startup diagnostics and failed request logs to stderr, and opens the browser. Use `pd dashboard --no-open` to print the URL without opening a browser, or `--host` / `--port` to choose another loopback bind address. APIs and SSE live under `/dashboard/api/*` and `/dashboard/events`; `pd --verbose dashboard` logs all request/auth flow details.
 
+`pd mcp` starts a stdio MCP server for trusted local MCP clients that need read-only Pi Dispatcher inspection. It exposes `list_tasks`, `get_task`, and `get_task_logs` tools, mirroring Dashboard-style task summaries, task detail/latest assistant response previews, and bounded stdout/stderr log windows. Stdout is reserved for the MCP JSON-RPC stream; diagnostics and startup failures go to stderr.
+
 ## Safety model
 
 V1 always uses worktree-manager semantics and the shared sandbox-manager Lima VM. `pd` calls those managers as Go packages, so the `wt` and `sb` binaries do not need to be installed for `pd` itself. `pd run` requires the main repository root, not an existing worktree. The sandbox must be configured so the worktree base directory is mounted into the VM.
@@ -54,9 +57,9 @@ Automatic cleanup is disabled by default. Use `pd run --cleanup-worktree on-succ
 
 `pd rm <task-id>...` removes inactive task metadata, logs, and stale control sockets only. It refuses `starting`, `running`, and `stopping` tasks; stop them first. It does not remove the worktree or branch.
 
-Pi Dispatcher Dashboard is read-only in v1. It does not expose stop, remove, worktree mutation, control-socket, or stale-status reconciliation actions. It shows persisted SQLite state as-is; run `pd ps` or `pd status` when you want CLI inspection to reconcile stale supervisors to `unknown`.
+Pi Dispatcher Dashboard and `pd mcp` are read-only in v1. They do not expose stop, remove, worktree mutation, control-socket, or stale-status reconciliation actions. They show persisted SQLite state as-is; run `pd ps` or `pd status` when you want CLI inspection to reconcile stale supervisors to `unknown`.
 
-Pi Dispatcher Dashboard requires local auth because prompts, repo paths, logs, and session file paths can be sensitive. The pd auth token is stored at `$XDG_CONFIG_HOME/pd/auth-token` or `~/.config/pd/auth-token` with restrictive permissions. Visiting the printed token URL sets an HttpOnly dashboard cookie. Rotate the token with `pd token rotate`; restart any running dashboard servers afterward.
+Pi Dispatcher Dashboard requires local auth because prompts, repo paths, logs, and session file paths can be sensitive. The pd auth token is stored at `$XDG_CONFIG_HOME/pd/auth-token` or `~/.config/pd/auth-token` with restrictive permissions. Visiting the printed token URL sets an HttpOnly dashboard cookie. Rotate the token with `pd token rotate`; restart any running dashboard servers afterward. `pd mcp` uses stdio instead of HTTP auth and exposes local pd metadata and bounded log previews to the launching MCP client, so configure it only for trusted local clients. Like Dashboard, it omits full prompt text, exact Pi argv, system-prompt fields, and environment variable values; environment variable names may be shown for debugging.
 
 ## Configuration
 
