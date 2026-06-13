@@ -85,6 +85,9 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 	}
 
 	artifactRoot := filepath.Join(cfg.ArtifactParentDir, runID)
+	if err := ensureArtifactRootOutsideWorktree(artifactRoot, worktreePath); err != nil {
+		return err
+	}
 	logDir := cfg.RunLogDir(runID)
 	if err := os.MkdirAll(artifactRoot, 0o750); err != nil {
 		return fmt.Errorf("create artifact root: %w", err)
@@ -120,6 +123,25 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 	}
 	_, err = fmt.Fprintln(cmd.OutOrStdout(), runID)
 	return err
+}
+
+func ensureArtifactRootOutsideWorktree(artifactRoot, worktreePath string) error {
+	absArtifactRoot, err := filepath.Abs(artifactRoot)
+	if err != nil {
+		return fmt.Errorf("resolve artifact root: %w", err)
+	}
+	absWorktree, err := filepath.Abs(worktreePath)
+	if err != nil {
+		return fmt.Errorf("resolve workflow worktree: %w", err)
+	}
+	rel, err := filepath.Rel(absWorktree, absArtifactRoot)
+	if err != nil {
+		return fmt.Errorf("compare artifact root and workflow worktree: %w", err)
+	}
+	if rel == "." || rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("artifact root %s must be outside workflow worktree %s", artifactRoot, worktreePath)
+	}
+	return nil
 }
 
 func parseInputAssignments(assignments []string) (map[string]string, error) {

@@ -95,6 +95,10 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 			finalState := result.State
 			outcome := result.Outcome
 			if finalState == store.StateSucceeded {
+				artifacts = artifactsForStep(run, step)
+				if err := db.UpdateArtifactExistence(ctx, artifacts); err != nil {
+					return err
+				}
 				missing := missingRequiredArtifacts(artifacts)
 				if len(missing) > 0 {
 					finalState = store.StateFailed

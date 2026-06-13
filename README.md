@@ -9,6 +9,7 @@ This repo is opinionated. It provides structured worktree management, sandboxed 
 - **[Worktree Manager](#worktree-manager-wt)** — Manage git worktrees with tmux integration
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
 - **[Pi Dispatcher](#pi-dispatcher-pd)** — Launch and inspect background Pi runs in worktrees and the sandbox
+- **[Pi Orchestrator](#pi-orchestrator-po)** — Run typed multi-step Pi workflows backed by `pd`
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
@@ -41,6 +42,7 @@ make check
 cd worktree-manager && make install
 cd sandbox-manager && make install
 cd pi-dispatcher && make install
+cd pi-orchestrator && make install
 cd mcp-broker && make install
 cd local-git-mcp && make install
 cd local-gomod-proxy && make install
@@ -81,6 +83,16 @@ Autonomous coding-agent runs need more than a terminal: a clean worktree, sandbo
 - `pd stop` communicates with the supervisor over a per-task Unix socket when the task is running.
 
 See the [pi-dispatcher README](pi-dispatcher/README.md) for more information.
+
+### Pi Orchestrator (po)
+
+Explicit multi-step agent workflows need durable workflow state, typed inputs, shared worktrees, artifact handoffs, and a way to inspect the whole run without taking task-run ownership away from `pd`. `po` is a local workflow layer above `pd`.
+
+- `po list`, `po show`, and `po lint` load and validate V1 workflow YAML definitions.
+- `po run <workflow> --input key=value` validates typed inputs, creates one workflow worktree, and executes steps serially through backing `pd` task runs.
+- `po ps`, `po status`, `po wait`, `po logs`, `po stop`, `po cleanup`, `po rm`, and `po dashboard` inspect and control workflow runs while preserving `pd` task/run records.
+
+See the [pi-orchestrator README](pi-orchestrator/README.md) for more information.
 
 ### MCP Broker
 

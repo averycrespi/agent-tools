@@ -89,6 +89,25 @@ func TestRunCommandRejectsInvisibleArtifactParentBeforeCreatingWorktree(t *testi
 	}
 }
 
+func TestRunCommandRejectsArtifactRootInsideWorktree(t *testing.T) {
+	dir := t.TempDir()
+	writeWorkflow(t, dir, "review", runWorkflowYAML("review"))
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, dir, stateDir)
+	worktree := filepath.Join(t.TempDir(), "worktree")
+	artifactParent := filepath.Join(worktree, "artifacts")
+	t.Setenv("PO_ARTIFACT_PARENT_DIR", artifactParent)
+	cfg.ArtifactParentDir = artifactParent
+	validateArtifactParent = func(string) error { return nil }
+	newWorktreeClient = func() (worktreeClient, error) { return fakeWorktreeClient{path: worktree}, nil }
+	t.Cleanup(resetRunTestHooks)
+
+	_, err := executeCommand("--workflow-dir", dir, "run", "review", "--input", "repo=/repo", "--input", "pr_number=42")
+	if err == nil || !strings.Contains(err.Error(), "must be outside workflow worktree") {
+		t.Fatalf("run error = %v, want artifact root outside worktree error", err)
+	}
+}
+
 func TestRunCommandCreatesWorkflowRunWithOneWorktree(t *testing.T) {
 	dir := t.TempDir()
 	writeWorkflow(t, dir, "review", runWorkflowYAML("review"))

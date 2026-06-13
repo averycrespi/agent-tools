@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -153,6 +154,38 @@ func TestExecuteRendersPreviousStepArtifactPath(t *testing.T) {
 	}
 }
 
+func TestExecuteRefreshesRequiredArtifactAfterStepSucceeds(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, run := supervisorTestRun(t)
+	defer db.Close() //nolint:errcheck
+	runner := &recordingRunner{results: []StepResult{{PDTaskID: "pd-1", PDRunID: "pd-1-run-1", State: store.StateSucceeded}}}
+	def := &workflow.Definition{
+		Name:   "sample",
+		Agents: map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Steps:  []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: "review", Artifacts: []workflow.Artifact{{Name: "out", Path: "out.md", Required: true}}}},
+	}
+	if err := os.MkdirAll(run.ArtifactRoot, 0o750); err != nil {
+		t.Fatalf("mkdir artifact root: %v", err)
+	}
+	runner.afterCall = func() {
+		if err := os.WriteFile(filepath.Join(run.ArtifactRoot, "out.md"), []byte("ok"), 0o600); err != nil {
+			t.Fatalf("write artifact: %v", err)
+		}
+	}
+
+	if err := Execute(ctx, db, runner, def, run); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	detail, err := db.GetWorkflowRunDetail(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunDetail() error = %v", err)
+	}
+	if detail.Run.State != store.StateSucceeded || len(detail.Artifacts) != 1 || !detail.Artifacts[0].Exists {
+		t.Fatalf("detail = %+v, want succeeded run with existing artifact", detail)
+	}
+}
+
 func TestExecuteFailsStepWhenRequiredArtifactMissingAndSkipsDependent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -187,8 +220,9 @@ func TestExecuteFailsStepWhenRequiredArtifactMissingAndSkipsDependent(t *testing
 }
 
 type recordingRunner struct {
-	results []StepResult
-	calls   []StepRequest
+	results   []StepResult
+	calls     []StepRequest
+	afterCall func()
 }
 
 type recordingStarter struct {
@@ -224,6 +258,9 @@ func (h recordingHandle) Wait(context.Context) (StepResult, error) {
 
 func (r *recordingRunner) RunStep(_ context.Context, req StepRequest) (StepResult, error) {
 	r.calls = append(r.calls, req)
+	if r.afterCall != nil {
+		r.afterCall()
+	}
 	if len(r.results) == 0 {
 		return StepResult{State: store.StateSucceeded}, nil
 	}

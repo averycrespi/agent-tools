@@ -99,6 +99,48 @@ func TestCreateStepRunAndArtifactsPersistsBackingPDMetadata(t *testing.T) {
 	}
 }
 
+func TestUpdateArtifactExistence(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := openTestStore(t)
+	defer db.Close() //nolint:errcheck
+	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
+	createWorkflowRun(t, ctx, db, now)
+	artifact := Artifact{WorkflowRunID: "run-1", StepID: "review", Name: "findings", RelativePath: "findings.md", AbsolutePath: "/artifacts/run-1/findings.md", Required: true, Exists: false, UpdatedAt: now}
+	if err := db.CreateStepRun(ctx, StepRun{WorkflowRunID: "run-1", StepID: "review", Agent: "reviewer", ExecutionIndex: 0, State: StateRunning, StartedAt: now, UpdatedAt: now}, []Artifact{artifact}); err != nil {
+		t.Fatalf("CreateStepRun() error = %v", err)
+	}
+	artifact.Exists = true
+	artifact.UpdatedAt = now.Add(time.Minute)
+
+	if err := db.UpdateArtifactExistence(ctx, []Artifact{artifact}); err != nil {
+		t.Fatalf("UpdateArtifactExistence() error = %v", err)
+	}
+	detail, err := db.GetWorkflowRunDetail(ctx, "run-1")
+	if err != nil {
+		t.Fatalf("GetWorkflowRunDetail() error = %v", err)
+	}
+	if len(detail.Artifacts) != 1 || !detail.Artifacts[0].Exists {
+		t.Fatalf("artifacts = %+v, want existing artifact", detail.Artifacts)
+	}
+}
+
+func TestDeleteWorkflowRunRemovesRunRequestMetadata(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := openTestStore(t)
+	defer db.Close() //nolint:errcheck
+	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
+	createWorkflowRun(t, ctx, db, now)
+
+	if err := db.DeleteWorkflowRun(ctx, "run-1"); err != nil {
+		t.Fatalf("DeleteWorkflowRun() error = %v", err)
+	}
+	if _, err := db.GetRunRequest(ctx, "req-1"); err == nil {
+		t.Fatal("GetRunRequest() error = nil, want removed run request")
+	}
+}
+
 func TestUpdateWorkflowAndStepState(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

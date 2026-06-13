@@ -192,6 +192,11 @@ func (s *Store) CreateRunRequestWithWorkflowRun(ctx context.Context, req RunRequ
 	return nil
 }
 
+func (s *Store) GetRunRequest(ctx context.Context, id string) (RunRequest, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, workflow, inputs_json, source, created_at FROM run_requests WHERE id = ?`, id)
+	return scanRunRequest(row)
+}
+
 func (s *Store) GetWorkflowRun(ctx context.Context, id string) (WorkflowRun, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT id, request_id, workflow, definition_hash, inputs_json, repo, branch, worktree_path, artifact_root, state, supervisor_pid, supervisor_log_path, outcome, created_at, updated_at, ended_at FROM workflow_runs WHERE id = ?`, id)
 	return scanWorkflowRun(row)
@@ -261,6 +266,16 @@ func (s *Store) UpdateStepState(ctx context.Context, workflowRunID string, stepI
 	return nil
 }
 
+func (s *Store) UpdateArtifactExistence(ctx context.Context, artifacts []Artifact) error {
+	for _, artifact := range artifacts {
+		_, err := s.db.ExecContext(ctx, `UPDATE artifacts SET artifact_exists = ?, updated_at = ? WHERE workflow_run_id = ? AND step_id = ? AND name = ?`, boolInt(artifact.Exists), formatTime(artifact.UpdatedAt), artifact.WorkflowRunID, artifact.StepID, artifact.Name)
+		if err != nil {
+			return fmt.Errorf("update artifact %s: %w", artifact.Name, err)
+		}
+	}
+	return nil
+}
+
 func (s *Store) UpdateWorkflowRunSupervisorPID(ctx context.Context, id string, pid int) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE workflow_runs SET supervisor_pid = ?, updated_at = ? WHERE id = ?`, pid, formatTime(time.Now()), id)
 	if err != nil {
@@ -294,6 +309,10 @@ func (s *Store) DeleteWorkflowRun(ctx context.Context, id string) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM step_runs WHERE workflow_run_id = ?`, id); err != nil {
 		return fmt.Errorf("delete step runs: %w", err)
 	}
+	var requestID string
+	if err := tx.QueryRowContext(ctx, `SELECT request_id FROM workflow_runs WHERE id = ?`, id).Scan(&requestID); err != nil {
+		return fmt.Errorf("select run request: %w", err)
+	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM workflow_runs WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete workflow run: %w", err)
@@ -304,6 +323,9 @@ func (s *Store) DeleteWorkflowRun(ctx context.Context, id string) error {
 	}
 	if rows == 0 {
 		return sql.ErrNoRows
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM run_requests WHERE id = ?`, requestID); err != nil {
+		return fmt.Errorf("delete run request: %w", err)
 	}
 	return tx.Commit()
 }
@@ -346,6 +368,16 @@ func (s *Store) listArtifacts(ctx context.Context, workflowRunID string) ([]Arti
 		return nil, fmt.Errorf("list artifacts: %w", err)
 	}
 	return artifacts, nil
+}
+
+func scanRunRequest(row interface{ Scan(...any) error }) (RunRequest, error) {
+	var req RunRequest
+	var createdAt string
+	if err := row.Scan(&req.ID, &req.Workflow, &req.InputsJSON, &req.Source, &createdAt); err != nil {
+		return RunRequest{}, fmt.Errorf("scan run request: %w", err)
+	}
+	req.CreatedAt = parseStoredTime(createdAt)
+	return req, nil
 }
 
 func scanWorkflowRun(row interface{ Scan(...any) error }) (WorkflowRun, error) {
