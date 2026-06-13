@@ -52,10 +52,10 @@ indefinitely. One pattern, three tools:
 
 ### 1.3 worktree-manager + pi-dispatcher: concurrency and partial failure [L]
 
-- TOCTOU race in `workspace.go:126-132` (stat-then-`git worktree add`); two concurrent
-  `wt add`/`pd run` on the same branch race. Add file locking (`flock` on a per-repo lock
-  file under the worktree base dir) or treat "worktree already exists" from git as success
-  (idempotent recovery) — prefer the latter plus a small lock for the copy/setup phase.
+- TOCTOU race in `workspace.go:126-132` (stat-then-`git worktree add`): SKIPPED for now.
+  Two concurrent `wt add`/`pd run` calls on the same branch can race, but normal `pd run`
+  usage generates unique branches, the failure is non-corrupting, and the edge case does not
+  justify adding locking or idempotent recovery yet.
 - Partial worktrees: RESOLVED for failure visibility. Missing configured files/scripts remain
   optional and are skipped, but failures while copying an existing configured file or running
   an existing setup script now return errors instead of being logged and ignored. Worktrees
