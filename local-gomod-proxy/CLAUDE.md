@@ -20,7 +20,7 @@ Run `make audit` before committing. Integration tests use `//go:build integratio
 
 ## Architecture
 
-Single HTTP binary. No config file, no persistent state.
+Single HTTP binary. No config file; persistent TLS/auth state only.
 
 Private module requests shell out to `go mod download -json` on the host and stream the resulting files from `GOMODCACHE`. Public module requests are reverse-proxied to `proxy.golang.org`.
 

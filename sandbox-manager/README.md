@@ -102,7 +102,6 @@ Config file: `~/.config/sb/config.json` (follows XDG)
 
 ```json
 {
-  "image": "ubuntu-24.04",
   "cpus": 4,
   "memory": "4GiB",
   "disk": "100GiB",
@@ -112,15 +111,14 @@ Config file: `~/.config/sb/config.json` (follows XDG)
 }
 ```
 
-| Field        | Type     | Default          | Description                                                                            |
-| ------------ | -------- | ---------------- | -------------------------------------------------------------------------------------- |
-| `image`      | string   | `"ubuntu-24.04"` | Ubuntu cloud image version                                                             |
-| `cpus`       | int      | `4`              | Number of CPUs allocated to the VM                                                     |
-| `memory`     | string   | `"4GiB"`         | Memory allocated to the VM                                                             |
-| `disk`       | string   | `"100GiB"`       | Disk size for the VM                                                                   |
-| `mounts`     | string[] | `[]`             | Host directories to mount (writable) in the VM                                         |
-| `copy_paths` | string[] | `[]`             | Files/directories to copy into the VM (format: `"src"` or `"src:dst"`, `~/` supported) |
-| `scripts`    | string[] | `[]`             | Provisioning scripts to run in the VM (paths on host, `~/` supported)                  |
+| Field        | Type     | Default    | Description                                                                            |
+| ------------ | -------- | ---------- | -------------------------------------------------------------------------------------- |
+| `cpus`       | int      | `4`        | Number of CPUs allocated to the VM                                                     |
+| `memory`     | string   | `"4GiB"`   | Memory allocated to the VM                                                             |
+| `disk`       | string   | `"100GiB"` | Disk size for the VM                                                                   |
+| `mounts`     | string[] | `[]`       | Host directories to mount (writable) in the VM                                         |
+| `copy_paths` | string[] | `[]`       | Files/directories to copy into the VM (format: `"src"` or `"src:dst"`, `~/` supported) |
+| `scripts`    | string[] | `[]`       | Provisioning scripts to run in the VM (paths on host, `~/` supported)                  |
 
 ### Copy paths
 
@@ -133,7 +131,7 @@ Paths starting with `~/` are expanded to the user's home directory. Directories 
 
 ## Example provisioning scripts
 
-The repo ships drop-in provisioning scripts under [`examples/provision/`](examples/provision/). Most are self-contained (work on a bare sandbox) and idempotent; the `asdf-*` scripts require `asdf.sh` to have run first and fail fast with a clear error otherwise. Reference them by absolute path in the `scripts` field of your config, individually or in combination:
+The repo ships drop-in provisioning scripts under [`examples/provision/`](examples/provision/). Most are self-contained (work on a bare sandbox) and idempotent; the `asdf-*` scripts require `install-asdf.sh` to have run first and fail fast with a clear error otherwise. Reference them by absolute path in the `scripts` field of your config, individually or in combination:
 
 | Script                             | What it does                                                | Requires          |
 | ---------------------------------- | ----------------------------------------------------------- | ----------------- |

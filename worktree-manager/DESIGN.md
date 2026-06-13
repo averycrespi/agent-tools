@@ -109,4 +109,4 @@ If branch given     → target specific window
 - Git and tmux failures propagate as errors and halt the operation
 - Missing configured files and setup scripts are skipped
 - Copy failures for existing configured files and failures from existing setup scripts propagate as errors and halt the operation; the worktree is left in place for inspection
-- All commands reject being run from a worktree (except `attach`, which resolves back to the main repo)
+- Worktree lifecycle/path commands reject being run from a managed worktree (except `attach`, which resolves back to the main repo)

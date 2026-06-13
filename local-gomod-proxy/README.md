@@ -2,7 +2,7 @@
 
 A host-side Go module proxy that lets sandboxed agents resolve private Go dependencies without holding the host's git credentials. Public modules are forwarded to `proxy.golang.org`; private modules (matched by `GOPRIVATE` patterns) are fetched via the host's git credentials and served back to the sandbox.
 
-> **Local-only. Do not expose to the public internet.** The proxy requires TLS + HTTP Basic auth on every request. The credentials file at `$XDG_STATE_HOME/local-gomod-proxy/credentials` is a host-local secret — keep it on the host. The proxy defaults to binding `127.0.0.1:7070`, which the Lima sandbox reaches via `host.lima.internal:7070` (Lima's default user-mode networking forwards the guest's `host.lima.internal` to the host's loopback). Do not override `--addr` to a public interface or `0.0.0.0`.
+> **Local-only. Do not expose to the public internet.** The proxy requires TLS + HTTP Basic auth on every request. The credentials file at `$XDG_STATE_HOME/local-gomod-proxy/credentials` is a secret; keep it off public networks and copy it only into trusted sandboxes that need the proxy. The proxy defaults to binding `127.0.0.1:7070`, which the Lima sandbox reaches via `host.lima.internal:7070` (Lima's default user-mode networking forwards the guest's `host.lima.internal` to the host's loopback). Do not override `--addr` to a public interface or `0.0.0.0`.
 
 ## Install
 
@@ -58,7 +58,7 @@ Add both files to `copy_paths` and the provisioning script to `scripts` in your 
 }
 ```
 
-Both files land at `~/.local/state/local-gomod-proxy/` inside the sandbox. The provisioning script then installs the cert into the sandbox's system trust store (`sudo update-ca-certificates`) and writes `GOPROXY` to `~/.bashrc`.
+Both files land at `~/.local/state/local-gomod-proxy/` inside the sandbox. The provisioning script then installs the cert into the sandbox's system trust store (`sudo update-ca-certificates`) and writes a marker-fenced shell block to `~/.bashrc` that sets `GOPROXY`, disables `GOSUMDB`, and unsets `GOPRIVATE` so matching modules continue to route through the proxy.
 
 **Cert rotation:** re-run `sb provision` after the host regenerates its cert — `copy_paths` re-runs before `scripts`, so the new cert flows through transparently.
 
@@ -72,7 +72,7 @@ To keep the proxy running in the background whenever you're logged in, install i
 
 ## Security
 
-- **What's blocked:** browser JS, casual `localhost` probes, and any process that doesn't know to read the credentials file. The default `--addr` of `127.0.0.1:7070` binds loopback only; TLS + basic auth layer on top. Do not override `--addr` to a public interface, a VPN-reachable interface, or `0.0.0.0`. If you run a custom Lima network (`networks:` in `lima.yaml`) whose gateway is not the host loopback, bind explicitly to that gateway IP instead.
+- **What's blocked:** browser JS, casual `localhost` probes, and any process that doesn't know to read the credentials file. The default `--addr` of `127.0.0.1:7070` binds loopback only; TLS + basic auth layer on top. Do not override `--addr` to a public interface, a VPN-reachable interface, or `0.0.0.0`; startup rejects non-loopback bind addresses.
 - **What isn't blocked:** any process running as the same OS user can `cat ~/.local/state/local-gomod-proxy/credentials` and use them. The `0600` mode prevents other OS-level users from reading the file, not other processes of yours.
 - **Rotation:** `rm -rf "$XDG_STATE_HOME/local-gomod-proxy"` (or `~/.local/state/local-gomod-proxy/` if `$XDG_STATE_HOME` is unset), restart the proxy, then re-run provisioning in every sandbox that uses it.
 - Module paths are validated before any shell-out. No shell interpolation — `go mod download` and `go list` are invoked via `os/exec` with argv slices and a finite timeout.

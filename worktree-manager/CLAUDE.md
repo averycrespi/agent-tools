@@ -37,7 +37,7 @@ internal/
 ## Conventions
 
 - All external commands go through `exec.Runner` — tests mock this interface, no real git/tmux calls in unit tests
-- `cmd/` has no tests (thin wrappers); all internal packages do
+- Keep `cmd/` thin; command tests are appropriate for argument parsing and user-facing command wiring that internal packages cannot cover cleanly
 - Resource operations are idempotent: `Add` skips existing worktrees/windows, `Remove` skips already-removed resources
 - File copy and setup scripts run during initial worktree creation, and rerun for existing worktrees only when `wt add --reconfigure` is used; missing configured files/scripts are skipped, but copy failures for existing files and failures from existing setup scripts must propagate as errors
 - Command failures use `%s` with trimmed output; Go errors use `%w` for wrapping

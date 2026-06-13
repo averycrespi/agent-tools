@@ -36,7 +36,7 @@ internal/
 ## Conventions
 
 - All external commands go through `exec.Runner` — tests mock this interface, no real limactl calls in unit tests
-- `cmd/` has no tests (thin wrappers); all internal packages do
+- Keep `cmd/` thin; command tests are appropriate for argument parsing, exit-code behavior, and user-facing command wiring that internal packages cannot cover cleanly
 - `sb create` is idempotent: handles all VM states (not created, stopped, running)
 - Provisioning script cleanup failures log warnings but don't halt (best-effort)
 - Command failures use `%s` with trimmed output; Go errors use `%w` for wrapping

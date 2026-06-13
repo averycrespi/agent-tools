@@ -67,7 +67,7 @@ Render lima.yaml template with host user info + config
   → limactl start --name=sb <template>
   → Provision:
     → For each copy_paths entry:
-      → Expand ~/ to home directory, detect directories (trailing /)
+      → Expand ~/ to home directory, detect directories with filesystem metadata
       → mkdir -p <parent> (or <dst> for directories) in VM
       → limactl cp [-r] <local> sb:<guest>
     → For each script:
@@ -108,7 +108,7 @@ limactl delete --force sb
 **Shell (`sb shell [-- command]`):**
 
 ```
-limactl shell --workdir / sb [-- command]
+limactl shell sb [-- command]
 ```
 
 **Status (`sb status [--json]`):**

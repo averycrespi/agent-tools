@@ -8,7 +8,7 @@ Sandboxed AI agents often work in Go projects that depend on private modules hos
 
 local-gomod-proxy solves this by running a minimal HTTPS server on the host that implements the Go module proxy protocol. Public modules are forwarded to `proxy.golang.org`. Private modules are resolved using the host's git credentials and served back to the sandbox.
 
-The proxy binds to the host loopback (`127.0.0.1:7070`) by default and requires TLS + HTTP Basic auth on every request. The Lima sandbox reaches it via `host.lima.internal:7070` — Lima's default user-mode networking forwards the guest's `host.lima.internal` to the host's loopback, so no bridge IP discovery is needed. The host still holds the git credentials; the sandbox carries only a short-lived token from the credentials file. TLS + auth layer on top of the loopback binding; they do not replace the network boundary. See [Design decisions](#design-decisions) for the rationale.
+The proxy binds to the host loopback (`127.0.0.1:7070`) by default and requires TLS + HTTP Basic auth on every request. The Lima sandbox reaches it via `host.lima.internal:7070` — Lima's default user-mode networking forwards the guest's `host.lima.internal` to the host's loopback, so no bridge IP discovery is needed. The host still holds the git credentials; trusted sandboxes carry only the persistent random basic-auth credential from the credentials file. TLS + auth layer on top of the loopback binding; they do not replace the network boundary. See [Design decisions](#design-decisions) for the rationale.
 
 ## Architecture
 
