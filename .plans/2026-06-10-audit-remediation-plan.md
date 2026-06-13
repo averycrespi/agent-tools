@@ -29,10 +29,10 @@ findings came from subagent review and should be re-confirmed at implementation 
 - If group ownership on writable mounts becomes a practical issue, address it through
   provisioning or Lima mount configuration rather than `user.gid` template rendering.
 
-### 1.2 Subprocess/HTTP timeouts everywhere [M]
+### 1.2 Subprocess/HTTP timeouts everywhere [M] — RESOLVED
 
-A hung `git push`, `go mod download`, or backend MCP server currently hangs the calling handler
-indefinitely. One pattern, three tools:
+A hung `git push`, `go mod download`, or backend MCP server should not hang the calling handler
+indefinitely. Applied one timeout pattern across the relevant tools:
 
 - local-git-mcp: thread MCP request context with a deadline into `runner.Run()` — RESOLVED.
   Added a context-aware runner and configurable `--git-timeout` defaulting to 5 minutes per
@@ -43,14 +43,11 @@ indefinitely. One pattern, three tools:
   defaulting to 10 minutes per private `go` command.
 - mcp-broker: pass an `http.Client` with timeout to `NewStreamableHttpClient`
   (`internal/server/http.go:38-59`) — RESOLVED for Streamable HTTP backends via
-  `http_timeout_seconds` defaulting to 120 seconds. Still consider a broader per-tool-call
-  deadline on the proxy path (must not count human approval wait time for require-approval
-  tools).
-- Plan: add a shared convention (context deadline at the handler boundary, configurable via
-  flag/config with sane default). Add a test per tool that a stuck subprocess/backend returns
-  a timeout error instead of hanging (fake runner that blocks).
+  `http_timeout_seconds` defaulting to 120 seconds.
+- Shared convention — RESOLVED in root `CLAUDE.md`: new subprocess execution should use a
+  context-aware runner with finite deadlines and copy the nearest tool's established pattern.
 
-### 1.3 worktree-manager + pi-dispatcher: concurrency and partial failure [L]
+### 1.3 worktree-manager + pi-dispatcher: concurrency and partial failure [L] — CLOSED
 
 - TOCTOU race in `workspace.go:126-132` (stat-then-`git worktree add`): SKIPPED for now.
   Two concurrent `wt add`/`pd run` calls on the same branch can race, but normal `pd run`
@@ -68,8 +65,8 @@ indefinitely. One pattern, three tools:
 - Stale control sockets under `/tmp/pd/tasks/`: RESOLVED for reconciliation and `pd rm`.
   `pd rm` already removed sockets, and reconciliation now deletes a dead supervisor's stale
   socket before marking the task `unknown`.
-- Verify: add tests for concurrent `wt add` (two goroutines, same branch), launch-failure
-  state transition, and socket cleanup on reconcile — socket cleanup on reconcile is covered.
+- Verification status: socket cleanup, setup/copy failure surfacing, and launch-failure state
+  transitions are covered. The concurrent `wt add` race was deliberately skipped as above.
 
 ### 1.4 local-gomod-proxy: path containment on streamed files [S] — RESOLVED
 
@@ -89,7 +86,7 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
   and adding pin storage plus re-pin CLI surface area is not worth the complexity until backend
   tool drift becomes a recurring operational concern.
 
-### 2.2 mcp-broker: request limits and approval backpressure [M]
+### 2.2 mcp-broker: request limits and approval backpressure [M] — CLOSED
 
 - Body-size limit on `/mcp` (e.g. `http.MaxBytesReader`, ~10MB default, configurable) — RESOLVED via `max_request_body_bytes` defaulting to 10 MiB.
 - Bound concurrent pending approvals (semaphore); reject excess with a clear tool error —
@@ -189,7 +186,7 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
 The 2026 parallel-agent feature baseline is: review queues, completion gates, notifications,
 status dashboards. Cheap wins first:
 
-### 5.1 worktree-manager [M]
+### 5.1 worktree-manager [M] — CLOSED
 
 - `wt ls` (enumerate worktrees with branch + tmux-window liveness) and `wt status <branch>` —
   SKIPPED. Native `git worktree list`, `git status`, and tmux commands cover this well enough
@@ -198,7 +195,7 @@ status dashboards. Cheap wins first:
   which repairs configuration without deleting/recreating the worktree.
 - Surface copy/setup failures as errors (ties into 1.3) — RESOLVED.
 
-### 5.2 sandbox-manager [M]
+### 5.2 sandbox-manager [M] — CLOSED
 
 - Capture and persist provisioning output (`sb create`/`sb provision` currently discard
   script stdout/stderr) → `sb logs` — SKIPPED for now. Provisioning failures already surface
@@ -210,7 +207,7 @@ status dashboards. Cheap wins first:
 - Watch Lima v2.x (CNCF incubating, AI-sandbox focus: plugins, krunkit, native Lima MCP
   server) — evaluate whether the native MCP server overlaps or composes with mcp-broker.
 
-### 5.3 pi-dispatcher [M-L]
+### 5.3 pi-dispatcher [M-L] — CLOSED
 
 - `pd cleanup --all` for batch cleanup of terminal tasks — SKIPPED. `pd cleanup` already supports
   multiple explicit task IDs, which is sufficient; avoid adding broad cleanup affordances for now.
