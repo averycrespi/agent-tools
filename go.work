@@ -5,6 +5,7 @@ use (
 	./local-gomod-proxy
 	./mcp-broker
 	./pi-dispatcher
+	./pi-orchestrator
 	./sandbox-manager
 	./worktree-manager
 )
