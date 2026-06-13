@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -23,6 +24,15 @@ func isUnauthorized(err error) bool {
 		errors.Is(err, transport.ErrUnauthorized)
 }
 
+func httpBackendTimeout(srv config.ServerConfig) time.Duration {
+	if srv.HTTPTimeoutSeconds > 0 {
+		return time.Duration(srv.HTTPTimeoutSeconds) * time.Second
+	}
+	return defaultHTTPBackendTimeout
+}
+
+const defaultHTTPBackendTimeout = 2 * time.Minute
+
 // httpBackend communicates with an MCP server via Streamable HTTP or SSE.
 type httpBackend struct {
 	client *client.Client
@@ -30,6 +40,7 @@ type httpBackend struct {
 
 func newHTTPBackend(ctx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
 	var opts []transport.StreamableHTTPCOption
+	opts = append(opts, transport.WithHTTPTimeout(httpBackendTimeout(srv)))
 	if headers := expandEnv(srv.Headers); len(headers) > 0 {
 		opts = append(opts, transport.WithHTTPHeaders(headers))
 	}

@@ -26,12 +26,13 @@ type Config struct {
 
 // ServerConfig defines a backend MCP server.
 type ServerConfig struct {
-	Command string            `json:"command,omitempty"`
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-	Type    string            `json:"type,omitempty"`
-	URL     string            `json:"url,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
+	Command            string            `json:"command,omitempty"`
+	Args               []string          `json:"args,omitempty"`
+	Env                map[string]string `json:"env,omitempty"`
+	Type               string            `json:"type,omitempty"`
+	URL                string            `json:"url,omitempty"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	HTTPTimeoutSeconds int               `json:"http_timeout_seconds,omitempty"`
 }
 
 // RuleConfig defines a policy rule mapping a tool glob to a verdict.

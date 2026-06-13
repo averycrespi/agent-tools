@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
+
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/stretchr/testify/require"
@@ -14,6 +17,15 @@ import (
 // different error types depending on whether an OAuth handler is configured;
 // a regression here silently disables OAuth (servers fail with a bare
 // "authorization required" instead of starting the browser flow).
+func TestHTTPBackendTimeout_Default(t *testing.T) {
+	require.Equal(t, 2*time.Minute, httpBackendTimeout(config.ServerConfig{}))
+}
+
+func TestHTTPBackendTimeout_Custom(t *testing.T) {
+	srv := config.ServerConfig{HTTPTimeoutSeconds: 30}
+	require.Equal(t, 30*time.Second, httpBackendTimeout(srv))
+}
+
 func TestIsUnauthorized(t *testing.T) {
 	tests := []struct {
 		name string

@@ -241,6 +241,27 @@ func TestConfigPath_ReturnsXDGPath(t *testing.T) {
 	require.Equal(t, filepath.Join(dir, "mcp-broker", "config.json"), path)
 }
 
+func TestLoad_ServerHTTPTimeoutSeconds(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	data := `{
+		"servers": {
+			"internal": {
+				"type": "streamable-http",
+				"url": "http://localhost:3000/mcp",
+				"http_timeout_seconds": 30
+			}
+		}
+	}`
+	err := os.WriteFile(path, []byte(data), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, 30, cfg.Servers["internal"].HTTPTimeoutSeconds)
+}
+
 func TestLoad_TelegramConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")

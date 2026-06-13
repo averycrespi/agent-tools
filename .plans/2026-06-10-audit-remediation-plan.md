@@ -42,8 +42,10 @@ indefinitely. One pattern, three tools:
   Added a context-aware private command timeout and configurable `--download-timeout`
   defaulting to 10 minutes per private `go` command.
 - mcp-broker: pass an `http.Client` with timeout to `NewStreamableHttpClient`
-  (`internal/server/http.go:38-59`) and consider a per-tool-call deadline on the proxy path
-  (must exceed approval timeout for require-approval tools).
+  (`internal/server/http.go:38-59`) — RESOLVED for Streamable HTTP backends via
+  `http_timeout_seconds` defaulting to 120 seconds. Still consider a broader per-tool-call
+  deadline on the proxy path (must not count human approval wait time for require-approval
+  tools).
 - Plan: add a shared convention (context deadline at the handler boundary, configurable via
   flag/config with sane default). Add a test per tool that a stuck subprocess/backend returns
   a timeout error instead of hanging (fake runner that blocks).

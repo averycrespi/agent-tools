@@ -159,6 +159,8 @@ The `Backend` interface abstracts transport:
 - `sseBackend` — connects via Server-Sent Events
 - `oauthBackend` — auto-detected on 401 responses from HTTP/SSE backends; tokens stored in OS keychain via `go-keyring` (service: `mcp-broker`, key: server name). OAuth callback port is deterministic per server name (FNV hash → ephemeral port range).
 
+Streamable HTTP backends use a finite HTTP request/stream timeout so a hung backend server does not block broker startup, tool discovery, or approved proxy calls forever. The timeout is configured per server with `http_timeout_seconds` and defaults to 120 seconds. This backend timeout is separate from the human approval timeout; it applies only while communicating with the backend.
+
 HTTP/SSE backends use a plain client first and auto-upgrade to OAuth on 401 — they do not proactively trigger OAuth flows.
 
 Failed backends are logged and skipped rather than failing the entire startup.

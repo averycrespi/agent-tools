@@ -74,7 +74,8 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
     },
     "internal": {
       "type": "streamable-http",
-      "url": "http://localhost:3000/mcp"
+      "url": "http://localhost:3000/mcp",
+      "http_timeout_seconds": 120
     }
   },
   "rules": [
@@ -115,14 +116,15 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
 
 Servers is a map keyed by server name. Each name is used as a tool prefix (e.g. `github.search`).
 
-| Field     | Description                                                                                     |
-| --------- | ----------------------------------------------------------------------------------------------- |
-| `command` | Command to spawn (stdio transport, default)                                                     |
-| `args`    | Command arguments                                                                               |
-| `env`     | Environment variables; `$VAR` and `${VAR}` references are expanded from the process environment |
-| `type`    | Transport type: omit for stdio, `"streamable-http"` for Streamable HTTP, `"sse"` for SSE        |
-| `url`     | URL for HTTP/SSE transport                                                                      |
-| `headers` | HTTP headers; `$VAR` and `${VAR}` references are expanded from the process environment          |
+| Field                  | Description                                                                                     |
+| ---------------------- | ----------------------------------------------------------------------------------------------- |
+| `command`              | Command to spawn (stdio transport, default)                                                     |
+| `args`                 | Command arguments                                                                               |
+| `env`                  | Environment variables; `$VAR` and `${VAR}` references are expanded from the process environment |
+| `type`                 | Transport type: omit for stdio, `"streamable-http"` for Streamable HTTP, `"sse"` for SSE        |
+| `url`                  | URL for HTTP/SSE transport                                                                      |
+| `headers`              | HTTP headers; `$VAR` and `${VAR}` references are expanded from the process environment          |
+| `http_timeout_seconds` | Streamable HTTP backend request/stream timeout. Defaults to 120 seconds when omitted.           |
 
 ### OAuth
 
@@ -166,6 +168,8 @@ Rules are evaluated top-to-bottom, first match wins. Patterns use Go's `filepath
 | `require-approval` | Tool call blocks until approved via dashboard |
 
 Default (no matching rule): `require-approval`. Denials are returned to agents as MCP tool errors: `denied by rule`, `denied by rule: <reason>`, `denied by user`, `denied by user: <reason>`, or `denied by timeout`.
+
+The approval timeout is separate from `http_timeout_seconds`: approval waiting can last up to `approval_timeout_seconds`, then approved Streamable HTTP backend calls are bounded by the backend's HTTP timeout.
 
 #### Argument matching
 
