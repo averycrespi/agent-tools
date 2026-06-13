@@ -133,14 +133,13 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
 
 ## Phase 3 — MCP spec readiness (2025-11-25 now, 2026-07-28 RC soon)
 
-### 3.1 Adopt current-spec features in local-git-mcp [M]
+### 3.1 Adopt current-spec features in local-git-mcp [M] — SKIPPED
 
-- `structuredContent` + `outputSchema` on read tools (`list_remotes`, `list_remote_refs`) —
-  agents and the broker dashboard both benefit. Keep markdown as the text fallback.
-- Input-validation failures as tool execution errors, not protocol errors (SEP-1303) — audit
-  current error paths to confirm this is already the behavior.
-- Tool annotations: already done (good). Keep the `TestEveryToolHasOpenWorldHint`-style
-  enforcement; add the same test pattern to local-git-mcp if absent.
+- Decision: do not add `structuredContent`/`outputSchema` or revisit input-validation error
+  classification for local-git-mcp right now.
+- Rationale: current text-only results and annotations are sufficient for this tool's current
+  usage; revisit when downstream agents demonstrably benefit from structured git remote/ref
+  outputs or mcp-go exposes cleaner validation-error semantics.
 
 ### 3.2 mcp-broker: prepare for the 2026-07-28 stateless core [L, watch-and-plan]
 
