@@ -270,6 +270,11 @@ func (s *Store) UpdateWorkflowRunState(ctx context.Context, id string, state Sta
 	return nil
 }
 
+func (s *Store) RunningStepRun(ctx context.Context, workflowRunID string) (StepRun, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT workflow_run_id, step_id, agent, execution_index, state, pd_task_id, pd_run_id, outcome, started_at, updated_at, ended_at FROM step_runs WHERE workflow_run_id = ? AND state IN ('starting', 'running', 'stopping') ORDER BY execution_index LIMIT 1`, workflowRunID)
+	return scanStepRun(row)
+}
+
 func (s *Store) DeleteWorkflowRun(ctx context.Context, id string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
