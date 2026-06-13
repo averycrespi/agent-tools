@@ -245,6 +245,63 @@ func TestService_Add_NoLaunchCommand(t *testing.T) {
 	tm.AssertNotCalled(t, "SendKeys", mock.Anything, mock.Anything, mock.Anything)
 }
 
+func TestService_AddHeadless_ExistingWorktreeSkipsCopyAndSetup(t *testing.T) {
+	g := new(mockGitClient)
+	repoDir := t.TempDir()
+	g.On("RepoInfo", repoDir).Return(git.Info{Name: "myrepo", Root: repoDir}, nil)
+
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmpDir)
+	worktreeDir := config.WorktreeDir("myrepo", "feat")
+	require.NoError(t, os.MkdirAll(filepath.Join(worktreeDir, "scripts"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(worktreeDir, "scripts", "setup.sh"), []byte("#!/bin/sh\n"), 0o755))
+
+	runner := new(mockRunner)
+	cfg := config.Config{
+		CopyFiles:    []string{".env.local"},
+		SetupScripts: []string{"scripts/setup.sh"},
+	}
+	svc := NewService(g, new(mockTmuxClient), cfg, nopLogger, runner)
+
+	got, err := svc.AddHeadless(repoDir, "feat")
+	require.NoError(t, err)
+	require.Equal(t, worktreeDir, got)
+	runner.AssertNotCalled(t, "RunDir", mock.Anything, mock.Anything, mock.Anything)
+	g.AssertNotCalled(t, "AddWorktree", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestService_AddHeadlessReconfigure_ExistingWorktreeRunsCopyAndSetup(t *testing.T) {
+	g := new(mockGitClient)
+	repoDir := t.TempDir()
+	g.On("RepoInfo", repoDir).Return(git.Info{Name: "myrepo", Root: repoDir}, nil)
+
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmpDir)
+	worktreeDir := config.WorktreeDir("myrepo", "feat")
+	require.NoError(t, os.MkdirAll(filepath.Join(worktreeDir, "scripts"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(worktreeDir, "scripts", "setup.sh"), []byte("#!/bin/sh\n"), 0o755))
+
+	srcFile := filepath.Join(repoDir, ".env.local")
+	require.NoError(t, os.WriteFile(srcFile, []byte("TOKEN=value\n"), 0o644))
+
+	runner := new(mockRunner)
+	runner.On("RunDir", worktreeDir, filepath.Join(worktreeDir, "scripts", "setup.sh"), []string(nil)).Return([]byte("ok"), nil)
+	cfg := config.Config{
+		CopyFiles:    []string{".env.local"},
+		SetupScripts: []string{"scripts/setup.sh"},
+	}
+	svc := NewService(g, new(mockTmuxClient), cfg, nopLogger, runner)
+
+	got, err := svc.AddHeadlessReconfigure(repoDir, "feat")
+	require.NoError(t, err)
+	require.Equal(t, worktreeDir, got)
+	data, err := os.ReadFile(filepath.Join(worktreeDir, ".env.local"))
+	require.NoError(t, err)
+	require.Equal(t, "TOKEN=value\n", string(data))
+	runner.AssertExpectations(t)
+	g.AssertNotCalled(t, "AddWorktree", mock.Anything, mock.Anything, mock.Anything)
+}
+
 func TestService_AddHeadless_SkipsMissingCopyFileAndSetupScript(t *testing.T) {
 	g := new(mockGitClient)
 	repoDir := t.TempDir()

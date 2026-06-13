@@ -69,7 +69,16 @@ func (s *Service) Init(repoRoot string) error {
 
 // Add creates a new workspace: worktree, tmux window, config-driven setup, and optional launch command.
 func (s *Service) Add(repoRoot, branch string) error {
-	worktreeDir, err := s.AddHeadless(repoRoot, branch)
+	return s.add(repoRoot, branch, false)
+}
+
+// AddReconfigure creates a workspace or reapplies configured copy/setup steps to an existing worktree.
+func (s *Service) AddReconfigure(repoRoot, branch string) error {
+	return s.add(repoRoot, branch, true)
+}
+
+func (s *Service) add(repoRoot, branch string, reconfigure bool) error {
+	worktreeDir, err := s.addHeadless(repoRoot, branch, reconfigure)
 	if err != nil {
 		return err
 	}
@@ -111,8 +120,22 @@ func (s *Service) AddHeadless(repoRoot, branch string) (string, error) {
 	return worktreeDir, err
 }
 
+// AddHeadlessReconfigure creates a headless worktree or reapplies configured copy/setup steps to an existing worktree.
+func (s *Service) AddHeadlessReconfigure(repoRoot, branch string) (string, error) {
+	return s.addHeadless(repoRoot, branch, true)
+}
+
 // AddHeadlessWithOwnership creates/configures a worktree and reports whether this call created it.
 func (s *Service) AddHeadlessWithOwnership(repoRoot, branch string) (string, bool, error) {
+	return s.addHeadlessWithOwnership(repoRoot, branch, false)
+}
+
+func (s *Service) addHeadless(repoRoot, branch string, reconfigure bool) (string, error) {
+	worktreeDir, _, err := s.addHeadlessWithOwnership(repoRoot, branch, reconfigure)
+	return worktreeDir, err
+}
+
+func (s *Service) addHeadlessWithOwnership(repoRoot, branch string, reconfigure bool) (string, bool, error) {
 	info, err := s.git.RepoInfo(repoRoot)
 	if err != nil {
 		return "", false, err
@@ -144,6 +167,16 @@ func (s *Service) AddHeadlessWithOwnership(repoRoot, branch string) (string, boo
 		}
 	} else {
 		s.logger.Debug("worktree already exists", "path", worktreeDir)
+		if reconfigure {
+			for _, relPath := range s.config.CopyFiles {
+				if err := s.copyFile(info.Root, worktreeDir, relPath); err != nil {
+					return "", false, err
+				}
+			}
+			if err := s.runSetupScripts(worktreeDir); err != nil {
+				return "", false, err
+			}
+		}
 	}
 
 	return worktreeDir, created, nil

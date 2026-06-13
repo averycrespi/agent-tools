@@ -56,11 +56,11 @@ indefinitely. One pattern, three tools:
   Two concurrent `wt add`/`pd run` calls on the same branch can race, but normal `pd run`
   usage generates unique branches, the failure is non-corrupting, and the edge case does not
   justify adding locking or idempotent recovery yet.
-- Partial worktrees: RESOLVED for failure visibility. Missing configured files/scripts remain
-  optional and are skipped, but failures while copying an existing configured file or running
-  an existing setup script now return errors instead of being logged and ignored. Worktrees
-  are intentionally left in place for inspection; a future `wt add --reconfigure` flag could
-  explicitly rerun copy/setup for existing worktrees.
+- Partial worktrees: RESOLVED. Missing configured files/scripts remain optional and are
+  skipped, but failures while copying an existing configured file or running an existing setup
+  script now return errors instead of being logged and ignored. Worktrees are intentionally
+  left in place for inspection, and `wt add --reconfigure` explicitly reruns copy/setup for
+  existing worktrees.
 - pi-dispatcher launch failure path (`cmd/pd/run_impl.go:140-169`): RESOLVED after this plan
   was written. Current `failRunLaunch` transitions launch failures to terminal `failed` and
   runs cleanup for failures before a supervisor PID is returned; failures after a supervisor
@@ -201,7 +201,8 @@ status dashboards. Cheap wins first:
 - `wt ls` (enumerate worktrees with branch + tmux-window liveness) and `wt status <branch>` —
   SKIPPED. Native `git worktree list`, `git status`, and tmux commands cover this well enough
   for current usage.
-- `wt add --force` to replace a broken/partial worktree.
+- `wt add --force` to replace a broken/partial worktree — REPLACED by `wt add --reconfigure`,
+  which repairs configuration without deleting/recreating the worktree.
 - Surface copy/setup failures as errors (ties into 1.3) — RESOLVED.
 
 ### 5.2 sandbox-manager [M]

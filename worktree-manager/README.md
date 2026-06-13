@@ -40,7 +40,7 @@ wt rm -d feat/my-feature
 
 ## Commands
 
-### `wt add <branch> [-a] [--no-window]`
+### `wt add <branch> [-a] [--no-window] [--reconfigure]`
 
 Creates a worktree for the given branch:
 
@@ -50,7 +50,7 @@ Creates a worktree for the given branch:
 4. Creates a tmux window in the `wt-<repo>` session
 5. Sends the configured launch command (e.g. `claude`)
 
-Skips already-existing worktrees and tmux windows. Configured file copies and setup scripts run only when the worktree is first created, and failures are logged as warnings. Pass `-a` to attach after creation. Pass `--no-window` to create/configure only the worktree, copied files, and setup scripts without creating a tmux window or launching the configured command. `-a` and `--no-window` cannot be combined.
+Skips already-existing worktrees and tmux windows by default. Configured file copies and setup scripts run when the worktree is first created; missing configured files/scripts are skipped, while copy/setup failures are returned as errors. Pass `--reconfigure` to rerun configured file copies and setup scripts for an existing worktree without recreating it. Existing copied files are not overwritten. Pass `-a` to attach after creation. Pass `--no-window` to create/configure only the worktree, copied files, and setup scripts without creating a tmux window or launching the configured command. `-a` and `--no-window` cannot be combined.
 
 ### `wt path <branch>`
 

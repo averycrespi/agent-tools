@@ -46,7 +46,7 @@ All external commands flow through `exec.Runner`, an interface with `Run`, `RunD
 
 **Config-driven behavior.** What to launch, which files to copy, which scripts to run — all driven by `~/.config/wt/config.json`. The tool has no hardcoded knowledge of any specific agent or workflow.
 
-**Idempotent resource operations.** `wt add` skips already-existing worktrees and tmux windows. `wt rm` skips resources already removed. Missing configured files and setup scripts are skipped during initial worktree creation, but failures while copying an existing configured file or running an existing setup script halt the add operation. Re-running `wt add` does not repair a partially configured existing worktree.
+**Idempotent resource operations.** `wt add` skips already-existing worktrees and tmux windows by default. `wt rm` skips resources already removed. Missing configured files and setup scripts are skipped during initial worktree creation, but failures while copying an existing configured file or running an existing setup script halt the add operation. `wt add --reconfigure` explicitly reapplies configured file copies and setup scripts to an existing worktree without recreating it; existing copied files are not overwritten.
 
 **Tmux socket isolation.** All tmux operations use `-L wt`, a dedicated socket separate from the user's default tmux. This prevents `wt` from interfering with existing tmux sessions.
 
@@ -75,6 +75,10 @@ git worktree add ~/.local/share/wt/worktrees/myrepo/myrepo-feat-thing -b feat/th
 ```
 
 This is used by machine orchestrators such as Pi Dispatcher, which need `wt`'s worktree naming/setup behavior without taking over a tmux window.
+
+**Reconfigure (`wt add --reconfigure feat/thing`):**
+
+For an existing worktree, rerun configured file copies and setup scripts without recreating the git worktree. Existing destination files are skipped rather than overwritten. Missing configured files/scripts are skipped. Existing setup scripts run again, so scripts used with `--reconfigure` should be safe to rerun.
 
 **Path (`wt path feat/thing`):**
 
