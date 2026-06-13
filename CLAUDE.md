@@ -52,6 +52,21 @@ Each doc has a distinct audience and scope — don't duplicate content between t
 - **`docs/*.md`** — standalone topic guides (e.g., `docs/launchd.md`). Use when a topic is too detailed for the README but isn't design-level context.
 - **`examples/`** — copy-pasteable artifacts referenced from `docs/` or the README.
 
+## Diagrams and SVGs
+
+When editing hand-authored SVG diagrams, verify both structure and appearance before reporting success:
+
+1. Validate the SVG as XML, for example with `python3 - <<'PY'` and `xml.etree.ElementTree.parse(...)`.
+2. Render the SVG to a temporary PNG and inspect it visually. If no renderer is installed, use `npx -y @resvg/resvg-js-cli path/to/input.svg /tmp/output.png`.
+3. Read the rendered PNG with the image reader and look for visual defects: overlapping labels, arrowheads landing inside text, lines crossing nodes unnecessarily, cramped spacing, unclear grouping, and inaccessible color contrast.
+4. Prefer direct horizontal or vertical arrows when boxes can be aligned. Avoid elbow/kinked arrows unless they route around another element.
+5. Leave enough whitespace that every arrow has a visible tail segment and arrowhead; widen the canvas rather than squeezing right-side or bottom-row nodes together.
+6. Align related source/target boxes on the same axis when the relationship is conceptually direct, such as host worktree to mounted worktree or proxy to external service.
+7. Keep edge labels off strokes and borders; add a small background rectangle when a label must sit near a line.
+8. Iterate on the SVG and re-render until the visual output matches the intent.
+
+Prefer SVG for diagrams that need precise layout or styling. Mermaid is fine for simple diagrams, but avoid claiming visual quality from source inspection alone.
+
 ## Adding a New Go Tool
 
 1. Create `<name>/` with `go.mod` (`module github.com/averycrespi/agent-tools/<name>`)
