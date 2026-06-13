@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	pdconfig "github.com/averycrespi/agent-tools/pi-dispatcher/internal/config"
 	pdexec "github.com/averycrespi/agent-tools/pi-dispatcher/internal/exec"
@@ -51,6 +52,63 @@ func TestEffectiveWorktreeCleanupPolicyDefaultsToNever(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, store.CleanupPolicyNever, got)
+}
+
+func TestRunTaskPersistsMaxDuration(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "pd.db")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	oldCfg := cfg
+	cfg = pdconfig.Config{DatabasePath: dbPath}
+	t.Cleanup(func() { cfg = oldCfg })
+	oldRunMaxDuration := runMaxDuration
+	runMaxDuration = 2 * time.Hour
+	t.Cleanup(func() { runMaxDuration = oldRunMaxDuration })
+	oldRunRepo := runRepo
+	runRepo = "/repo"
+	t.Cleanup(func() { runRepo = oldRunRepo })
+	oldRunBranch := runBranch
+	runBranch = "pd/test"
+	t.Cleanup(func() { runBranch = oldRunBranch })
+
+	runner := &fakeRunRunner{repoRoot: "/repo", branch: "main", pid: 4242}
+	oldNewRunner := newRunner
+	newRunner = func() pdexec.Runner { return runner }
+	t.Cleanup(func() { newRunner = oldNewRunner })
+	withWorktreeClient(t, &fakeRunWorktree{path: "/worktrees/pd-test", created: true})
+	oldNewSandboxClient := newSandboxClient
+	newSandboxClient = func() (sandboxClient, error) { return &fakeRunSandbox{}, nil }
+	t.Cleanup(func() { newSandboxClient = oldNewSandboxClient })
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	require.NoError(t, runTask(cmd, []string{"hello"}))
+
+	st, err := store.Open(dbPath)
+	require.NoError(t, err)
+	defer st.Close() //nolint:errcheck
+	tasks, err := st.ListTasks(context.Background())
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+	run, err := st.LatestRun(context.Background(), tasks[0].ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(7200), run.MaxDurationSeconds)
+}
+
+func TestMaxDurationSecondsRoundsSubsecondUp(t *testing.T) {
+	require.Equal(t, int64(1), maxDurationSeconds(100*time.Millisecond))
+	require.Equal(t, int64(90), maxDurationSeconds(90*time.Second))
+}
+
+func TestRunTaskRejectsNegativeMaxDuration(t *testing.T) {
+	oldRunMaxDuration := runMaxDuration
+	runMaxDuration = -time.Second
+	t.Cleanup(func() { runMaxDuration = oldRunMaxDuration })
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	err := runTask(cmd, []string{"hello"})
+
+	require.ErrorContains(t, err, "--max-duration cannot be negative")
 }
 
 func TestRunTaskPersistsCleanupPolicyAndOwnership(t *testing.T) {

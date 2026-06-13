@@ -42,6 +42,27 @@ func TestSupervisorFinalStatusUsesSucceededOnlyWithoutStopRequest(t *testing.T) 
 	require.Equal(t, store.StatusFailed, state.finalStatus(errors.New("boom")))
 }
 
+func TestSupervisorFinalStatusUsesFailedAfterMaxDuration(t *testing.T) {
+	state := &supervisorRunState{}
+	state.markTimedOut("max duration exceeded: 2h")
+
+	require.Equal(t, store.StatusFailed, state.finalStatus(nil))
+	require.Equal(t, "max duration exceeded: 2h", state.failureMessage("Pi process exited"))
+}
+
+func TestApplyMaxDurationTimeoutAbortsAndSchedulesForcedKill(t *testing.T) {
+	state := &supervisorRunState{}
+	client := &fakeAbortClient{}
+	proc := &fakeKillProcess{wait: make(chan struct{})}
+
+	applyMaxDurationTimeout(state, client, proc, "max duration exceeded: 1ms", 0)
+
+	require.True(t, client.aborted)
+	require.True(t, proc.wasKilled())
+	require.Equal(t, store.StatusFailed, state.finalStatus(nil))
+	require.Equal(t, "max duration exceeded: 1ms", state.failureMessage("Pi process exited"))
+}
+
 func TestApplyStopRequestAbortsAndSchedulesForcedKill(t *testing.T) {
 	state := &supervisorRunState{}
 	client := &fakeAbortClient{}

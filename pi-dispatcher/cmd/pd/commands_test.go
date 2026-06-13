@@ -41,6 +41,12 @@ func TestRunDoesNotExposeTemplateFlags(t *testing.T) {
 	require.Nil(t, runCmd.Flags().Lookup("no-prompt-templates"))
 }
 
+func TestRunDefinesMaxDurationWithoutShorthand(t *testing.T) {
+	flag := runCmd.Flags().Lookup("max-duration")
+	require.NotNil(t, flag)
+	require.Empty(t, flag.Shorthand)
+}
+
 func TestStatusArgValidationShowsUsage(t *testing.T) {
 	err := statusCmd.Args(statusCmd, nil)
 

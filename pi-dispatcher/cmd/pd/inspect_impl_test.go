@@ -14,6 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestViewRunIncludesMaxDuration(t *testing.T) {
+	view := viewRun(store.Run{ID: "run-test", Status: store.StatusRunning, Attempt: 1, MaxDurationSeconds: 7200})
+
+	require.Equal(t, int64(7200), view.MaxDurationSeconds)
+}
+
 func TestShowStatusLabelsPiEventsAsRawArtifact(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "pd.db")
 	oldCfg := cfg

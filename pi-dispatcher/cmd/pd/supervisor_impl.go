@@ -91,6 +91,8 @@ func runSupervisor(cmd *cobra.Command, _ []string) error {
 
 	client := pi.NewClient(proc.Stdin(), io.TeeReader(proc.Stdout(), stdoutLog))
 	state := &supervisorRunState{}
+	stopMaxDurationTimer := startMaxDurationTimer(run, state, client, proc)
+	defer stopMaxDurationTimer()
 	server, err := control.Listen(run.ControlSocketPath)
 	if err == nil {
 		defer server.Close() //nolint:errcheck
@@ -160,16 +162,29 @@ const (
 )
 
 type supervisorRunState struct {
-	mu            sync.Mutex
-	stopRequested bool
-	awaitingState bool
-	piSessionFile string
+	mu             sync.Mutex
+	stopRequested  bool
+	timedOut       bool
+	timeoutMessage string
+	awaitingState  bool
+	piSessionFile  string
+}
+
+func (s *supervisorRunState) markTimedOut(message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.timedOut = true
+	s.timeoutMessage = message
 }
 
 func (s *supervisorRunState) finalStatus(err error) store.TaskStatus {
 	s.mu.Lock()
+	timedOut := s.timedOut
 	stopRequested := s.stopRequested
 	s.mu.Unlock()
+	if timedOut {
+		return store.StatusFailed
+	}
 	if stopRequested {
 		return store.StatusStopped
 	}
@@ -177,6 +192,15 @@ func (s *supervisorRunState) finalStatus(err error) store.TaskStatus {
 		return store.StatusFailed
 	}
 	return store.StatusSucceeded
+}
+
+func (s *supervisorRunState) failureMessage(fallback string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.timedOut && s.timeoutMessage != "" {
+		return s.timeoutMessage
+	}
+	return fallback
 }
 
 type abortClient interface {
@@ -208,6 +232,30 @@ func scheduleForceKill(proc killProcess, grace time.Duration) {
 	time.AfterFunc(grace, func() { _ = proc.Kill() })
 }
 
+func startMaxDurationTimer(run store.Run, state *supervisorRunState, client abortClient, proc killProcess) func() {
+	if run.MaxDurationSeconds <= 0 {
+		return func() {}
+	}
+	maxDuration := time.Duration(run.MaxDurationSeconds) * time.Second
+	deadline := run.StartedAt.Add(maxDuration)
+	remaining := time.Until(deadline)
+	message := fmt.Sprintf("max duration exceeded: %s", maxDuration.String())
+	if remaining <= 0 {
+		applyMaxDurationTimeout(state, client, proc, message, stopGrace)
+		return func() {}
+	}
+	timer := time.AfterFunc(remaining, func() {
+		applyMaxDurationTimeout(state, client, proc, message, stopGrace)
+	})
+	return func() { timer.Stop() }
+}
+
+func applyMaxDurationTimeout(state *supervisorRunState, client abortClient, proc killProcess, message string, grace time.Duration) {
+	state.markTimedOut(message)
+	_ = client.Abort()
+	scheduleForceKill(proc, grace)
+}
+
 func finishSupervisor(ctx context.Context, db *store.Store, run store.Run, proc interface {
 	Stdin() io.WriteCloser
 	Wait() error
@@ -229,6 +277,9 @@ func finishSupervisor(ctx context.Context, db *store.Store, run store.Run, proc 
 	}
 	if message == "" {
 		message = "agent run completed"
+	}
+	if status == store.StatusFailed {
+		message = state.failureMessage(message)
 	}
 	exitCode := 0
 	errorMessage := ""

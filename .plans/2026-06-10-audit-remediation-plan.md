@@ -222,7 +222,9 @@ status dashboards. Cheap wins first:
 - `pd cleanup --all` for batch cleanup of terminal tasks — SKIPPED. `pd cleanup` already supports
   multiple explicit task IDs, which is sufficient; avoid adding broad cleanup affordances for now.
 - Optional max-runtime per task (`pd run --max-duration`) so a looping agent can't run
-  forever; ties into supervisor stop path.
+  forever; ties into supervisor stop path — RESOLVED. The per-run max duration is persisted
+  on the run row, enforced by the detached supervisor, and finalizes timed-out tasks as
+  `failed` with a `max duration exceeded` error.
 - Dashboard: token rotation currently strands running dashboards — have the dashboard reload
   the token or document restart requirement.
 - Completion gate hook (see new-tool 6.2 — could live inside pd): on task terminal-success,

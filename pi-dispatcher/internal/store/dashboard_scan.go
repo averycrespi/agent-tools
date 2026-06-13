@@ -24,6 +24,7 @@ func scanTaskSummary(row taskScanner) (TaskSummary, error) {
 	var agentOptionsJSON sql.NullString
 	var piArgvJSON sql.NullString
 	var envVarNamesJSON sql.NullString
+	var maxDurationSeconds sql.NullInt64
 	var controlSocketPath sql.NullString
 	var stdoutLogPath sql.NullString
 	var stderrLogPath sql.NullString
@@ -31,7 +32,7 @@ func scanTaskSummary(row taskScanner) (TaskSummary, error) {
 
 	if err := row.Scan(
 		&summary.Task.ID, &summary.Task.RepoPath, &summary.Task.RepoName, &summary.Task.Branch, &summary.Task.WorktreePath, &summary.Task.PromptSource, &summary.Task.Prompt, &summary.Task.PromptPreview, &taskStatus, &cleanupPolicy, &createdByPD, &cleanupStatus, &summary.Task.WorktreeCleanupError, &cleanupAttemptedAt, &removedAt, &created, &updated,
-		&runID, &runTaskID, &runAttempt, &supervisorPID, &piSessionFile, &runStatus, &started, &ended, &exitCode, &errorMessage, &agentOptionsJSON, &piArgvJSON, &envVarNamesJSON, &controlSocketPath, &stdoutLogPath, &stderrLogPath, &piEventsPath,
+		&runID, &runTaskID, &runAttempt, &supervisorPID, &piSessionFile, &runStatus, &started, &ended, &exitCode, &errorMessage, &agentOptionsJSON, &piArgvJSON, &envVarNamesJSON, &maxDurationSeconds, &controlSocketPath, &stdoutLogPath, &stderrLogPath, &piEventsPath,
 	); err != nil {
 		return TaskSummary{}, err
 	}
@@ -44,20 +45,21 @@ func scanTaskSummary(row taskScanner) (TaskSummary, error) {
 		return summary, nil
 	}
 	run := Run{
-		ID:                runID.String,
-		TaskID:            runTaskID.String,
-		Attempt:           int(runAttempt.Int64),
-		SupervisorPID:     int(supervisorPID.Int64),
-		PiSessionFile:     piSessionFile.String,
-		ExitCode:          exitCode,
-		ErrorMessage:      errorMessage.String,
-		AgentOptionsJSON:  agentOptionsJSON.String,
-		PiArgvJSON:        piArgvJSON.String,
-		EnvVarNamesJSON:   envVarNamesJSON.String,
-		ControlSocketPath: controlSocketPath.String,
-		StdoutLogPath:     stdoutLogPath.String,
-		StderrLogPath:     stderrLogPath.String,
-		PiEventsPath:      piEventsPath.String,
+		ID:                 runID.String,
+		TaskID:             runTaskID.String,
+		Attempt:            int(runAttempt.Int64),
+		SupervisorPID:      int(supervisorPID.Int64),
+		PiSessionFile:      piSessionFile.String,
+		ExitCode:           exitCode,
+		ErrorMessage:       errorMessage.String,
+		AgentOptionsJSON:   agentOptionsJSON.String,
+		PiArgvJSON:         piArgvJSON.String,
+		EnvVarNamesJSON:    envVarNamesJSON.String,
+		MaxDurationSeconds: maxDurationSeconds.Int64,
+		ControlSocketPath:  controlSocketPath.String,
+		StdoutLogPath:      stdoutLogPath.String,
+		StderrLogPath:      stderrLogPath.String,
+		PiEventsPath:       piEventsPath.String,
 	}
 	populateRunTimes(&run, runStatus.String, started.String, ended)
 	summary.LatestRun = OptionalRun{Run: run, Valid: true}

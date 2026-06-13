@@ -28,6 +28,7 @@ var (
 	runRepo           string
 	runEnvAssignments []string
 	runCleanupPolicy  string
+	runMaxDuration    time.Duration
 	runAgentOverrides pdconfig.AgentOptions
 )
 
@@ -60,6 +61,7 @@ func init() {
 	runCmd.Flags().StringVar(&runRepo, "repo", "", "main repository root")
 	runCmd.Flags().StringArrayVar(&runEnvAssignments, "env", nil, "environment variable for Pi process as KEY=VALUE")
 	runCmd.Flags().StringVar(&runCleanupPolicy, "cleanup-worktree", "", "worktree cleanup policy: never, on-success, or on-terminal")
+	runCmd.Flags().DurationVar(&runMaxDuration, "max-duration", 0, "maximum wall-clock run duration, e.g. 30m, 2h, or 1h30m; 0 disables")
 	runCmd.Flags().StringVar(&runAgentOverrides.Provider, "provider", "", "Pi provider override")
 	runCmd.Flags().StringVar(&runAgentOverrides.Model, "model", "", "Pi model override")
 	runCmd.Flags().StringVar(&runAgentOverrides.Thinking, "thinking", "", "Pi thinking level override")
@@ -81,6 +83,9 @@ func init() {
 
 func runTask(cmd *cobra.Command, args []string) error {
 	cmdCtx := cmd.Context()
+	if runMaxDuration < 0 {
+		return fmt.Errorf("--max-duration cannot be negative")
+	}
 	prompt, source, err := resolvePrompt(args)
 	if err != nil {
 		return err
@@ -136,7 +141,7 @@ func runTask(cmd *cobra.Command, args []string) error {
 		cleanupStatus = store.CleanupStatusPending
 	}
 	task := store.Task{ID: taskID, RepoPath: repo.Root, RepoName: repo.Name, Branch: branch, WorktreePath: worktreePath, PromptSource: source, Prompt: prompt, PromptPreview: preview(prompt), Status: store.StatusStarting, WorktreeCleanupPolicy: parsedCleanupPolicy, WorktreeCreatedByPD: worktreeCreatedByPD, WorktreeCleanupStatus: cleanupStatus, CreatedAt: now, UpdatedAt: now}
-	run := store.Run{ID: runID, TaskID: taskID, Attempt: 1, Status: store.StatusStarting, StartedAt: now, AgentOptionsJSON: agentOptionsJSON, PiArgvJSON: piArgvJSON, EnvVarNamesJSON: envVarNamesJSON, ControlSocketPath: filepath.Join(pdconfig.RuntimeDir(), "tasks", taskID+".sock"), StdoutLogPath: filepath.Join(taskDir, "stdout.log"), StderrLogPath: filepath.Join(taskDir, "stderr.log"), PiEventsPath: filepath.Join(taskDir, "pi-events.jsonl")}
+	run := store.Run{ID: runID, TaskID: taskID, Attempt: 1, Status: store.StatusStarting, StartedAt: now, AgentOptionsJSON: agentOptionsJSON, PiArgvJSON: piArgvJSON, EnvVarNamesJSON: envVarNamesJSON, MaxDurationSeconds: maxDurationSeconds(runMaxDuration), ControlSocketPath: filepath.Join(pdconfig.RuntimeDir(), "tasks", taskID+".sock"), StdoutLogPath: filepath.Join(taskDir, "stdout.log"), StderrLogPath: filepath.Join(taskDir, "stderr.log"), PiEventsPath: filepath.Join(taskDir, "pi-events.jsonl")}
 	if err := db.CreateTaskWithRun(cmdCtx, task, run); err != nil {
 		return err
 	}
@@ -178,6 +183,17 @@ func runTask(cmd *cobra.Command, args []string) error {
 
 func startedTaskMessage(taskID string) string {
 	return fmt.Sprintf("%s\n", taskID)
+}
+
+func maxDurationSeconds(duration time.Duration) int64 {
+	if duration <= 0 {
+		return 0
+	}
+	seconds := int64(duration / time.Second)
+	if duration%time.Second != 0 {
+		seconds++
+	}
+	return seconds
 }
 
 func failRunLaunch(ctx context.Context, db *store.Store, taskID string, err error) error {

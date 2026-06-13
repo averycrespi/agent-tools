@@ -18,6 +18,7 @@ cd pi-dispatcher && make install
 # From the main repository root, not an existing worktree
 pd run "fix the failing tests"
 pd run --cleanup-worktree on-success "fix the failing tests"
+pd run --max-duration 2h "fix the failing tests"
 
 pd ps
 pd status <task-id>
@@ -35,7 +36,7 @@ pd rm <task-id>...
 
 `pd run --json`, `pd ps --json`, `pd status --json <task-id>`, and `pd wait --json <task-id>` emit machine-readable JSON, including worktree cleanup policy/result fields. Mutation commands `pd stop --json`, `pd cleanup --json`, and `pd rm --json` emit a JSON array with one per-task result object (each carrying an `error` field when that task failed).
 
-`pd status` shows launch options and terminal run metadata when available, including ended time, exit code, error message, and Pi session file. `pd ps` stays compact for scanning task IDs. `pd wait <task-id>` blocks until a task reaches a terminal state, prints the final status, and returns immediately if the task is already done. It exits 0 only for `succeeded`; `failed`, `stopped`, `unknown`, and timeout return exit code 1. Use `pd wait --timeout 10m <task-id>` to bound the wait.
+`pd status` shows launch options and terminal run metadata when available, including max duration, ended time, exit code, error message, and Pi session file. `pd ps` stays compact for scanning task IDs. `pd wait <task-id>` blocks until a task reaches a terminal state, prints the final status, and returns immediately if the task is already done. It exits 0 only for `succeeded`; `failed`, `stopped`, `unknown`, and timeout return exit code 1. Use `pd wait --timeout 10m <task-id>` to bound the wait.
 
 `pd logs -f` follows stdout and stderr with `stdout:` / `stderr:` prefixes and prints task status, log path, and raw Pi event stream path before following. `pd status` shows the raw Pi event stream path for advanced debugging.
 
@@ -72,7 +73,7 @@ Config file: `~/.config/pd/config.json`.
 
 `default_worktree_cleanup_policy` accepts `never`, `on-success`, or `on-terminal`; `pd run --cleanup-worktree <policy>` overrides it per run and persists the launch-time policy for the detached supervisor.
 
-`pd run` supports direct Pi launch options including `--provider`, `--model`, `--thinking`, `--tools`, `--no-builtin-tools`, `--no-tools`, `--extension`, `--no-extensions`, `--skill`, `--no-skills`, `--no-context-files`, `--system-prompt`, `--append-system-prompt`, `--session-dir`, `--cleanup-worktree`, and repeatable `--env KEY=VALUE`. Each run stores the effective launch options, exact Pi argv, cleanup policy/result, and environment variable names in SQLite for debugging; environment values are passed to the run but are not persisted. `pd status` and Dashboard Overview show cleanup state, non-prompt launch fields, and environment variable names.
+`pd run` supports direct Pi launch options including `--provider`, `--model`, `--thinking`, `--tools`, `--no-builtin-tools`, `--no-tools`, `--extension`, `--no-extensions`, `--skill`, `--no-skills`, `--no-context-files`, `--system-prompt`, `--append-system-prompt`, `--session-dir`, `--cleanup-worktree`, `--max-duration`, and repeatable `--env KEY=VALUE`. `--max-duration` accepts Go duration strings such as `30m`, `2h`, or `1h30m`; `0` or omission leaves the run unlimited. When the limit expires, the supervisor aborts/kills Pi as needed and finalizes the run as `failed` with a `max duration exceeded` error. Each run stores the effective launch options, exact Pi argv, cleanup policy/result, max duration, and environment variable names in SQLite for debugging; environment values are passed to the run but are not persisted. `pd status` and Dashboard Overview show cleanup state, non-prompt launch fields, max duration, and environment variable names.
 
 ## Paths
 

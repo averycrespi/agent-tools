@@ -37,6 +37,21 @@ func TestOpenCreatesSchemaAndInsertTaskRun(t *testing.T) {
 	require.JSONEq(t, `["OPENAI_API_KEY","EMPTY"]`, got.EnvVarNamesJSON)
 }
 
+func TestRunMaxDurationPersists(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "pd.db"))
+	require.NoError(t, err)
+	defer st.Close() //nolint:errcheck
+
+	now := time.Now()
+	task := Task{ID: "pd-test", RepoPath: "/repo", RepoName: "repo", Branch: "pd/test", WorktreePath: "/wt", PromptSource: "arg", Prompt: "hello", PromptPreview: "hello", Status: StatusQueued, CreatedAt: now, UpdatedAt: now}
+	run := Run{ID: "run-test", TaskID: task.ID, Attempt: 1, Status: StatusQueued, StartedAt: now, MaxDurationSeconds: 7200, ControlSocketPath: "/sock", StdoutLogPath: "/stdout", StderrLogPath: "/stderr", PiEventsPath: "/events"}
+	require.NoError(t, st.CreateTaskWithRun(context.Background(), task, run))
+
+	got, err := st.LatestRun(context.Background(), task.ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(7200), got.MaxDurationSeconds)
+}
+
 func TestOpenMigratesRunMetadataColumns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pd.db")
 	db, err := sql.Open("sqlite3", path)
@@ -99,6 +114,11 @@ CREATE TABLE runs (
 	require.True(t, columns["agent_options_json"])
 	require.True(t, columns["pi_argv_json"])
 	require.True(t, columns["env_var_names_json"])
+	require.True(t, columns["max_duration_seconds"])
+
+	oldRun, err := st.LatestRun(context.Background(), "pd-old")
+	require.NoError(t, err)
+	require.Zero(t, oldRun.MaxDurationSeconds)
 }
 
 func TestOpenDoesNotCreateEventsTable(t *testing.T) {
