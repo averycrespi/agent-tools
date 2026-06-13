@@ -66,7 +66,7 @@ func NewHandler(db *store.Store, token string) http.Handler {
 func authMiddleware(token string, next http.Handler) http.Handler {
 	tokenBytes := []byte(token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if token == "" || !hasBearer(r, tokenBytes) {
+		if token == "" || (!hasBearer(r, tokenBytes) && !hasQueryToken(r, tokenBytes)) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
@@ -82,6 +82,14 @@ func hasBearer(r *http.Request, token []byte) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(auth, "Bearer ")), token) == 1
+}
+
+func hasQueryToken(r *http.Request, token []byte) bool {
+	value := r.URL.Query().Get("token")
+	if value == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(value), token) == 1
 }
 
 func writeJSON(w http.ResponseWriter, value any, err error) {

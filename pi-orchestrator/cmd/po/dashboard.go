@@ -48,19 +48,8 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 	}
 	defer db.Close() //nolint:errcheck
 
-	api := dashboard.NewHandler(db, token)
-	mux := http.NewServeMux()
-	mux.Handle("/api/", api)
-	mux.HandleFunc("/dashboard/", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte("<!doctype html><title>Pi Orchestrator</title><h1>Pi Orchestrator</h1>"))
-	})
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/dashboard/", http.StatusFound)
-	})
-
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: dashboardMux(db, token), ReadHeaderTimeout: 10 * time.Second}
 	url := dashboardURL(host, port, token)
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Pi Orchestrator Dashboard: %s\n", url)
 
@@ -70,6 +59,36 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(stop)
 	return waitForDashboardShutdown(signalEvents(stop), errCh, srv.Shutdown, srv.Close, dashboardShutdownTimeout, func() { os.Exit(1) })
+}
+
+func dashboardMux(db *store.Store, token string) http.Handler {
+	api := dashboard.NewHandler(db, token)
+	mux := http.NewServeMux()
+	mux.Handle("/api/", api)
+	mux.Handle("/events/", api)
+	mux.HandleFunc("/dashboard/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = fmt.Fprintf(w, `<!doctype html>
+<title>Pi Orchestrator</title>
+<h1>Pi Orchestrator</h1>
+<pre id="runs">Loading...</pre>
+<script>
+const token = new URLSearchParams(location.search).get('token') || '';
+async function refresh() {
+  const res = await fetch('/api/runs?token=' + encodeURIComponent(token));
+  document.getElementById('runs').textContent = JSON.stringify(await res.json(), null, 2);
+}
+refresh();
+const events = new EventSource('/events/runs?token=' + encodeURIComponent(token));
+events.addEventListener('snapshot', event => {
+  document.getElementById('runs').textContent = JSON.stringify(JSON.parse(event.data), null, 2);
+});
+</script>`)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/dashboard/", http.StatusFound)
+	})
+	return mux
 }
 
 func signalEvents(signals <-chan os.Signal) <-chan struct{} {

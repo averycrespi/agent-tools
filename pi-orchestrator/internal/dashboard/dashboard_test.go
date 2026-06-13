@@ -48,6 +48,20 @@ func TestRunsAPIReturnsReadOnlySummaries(t *testing.T) {
 	}
 }
 
+func TestAPIsAcceptTokenQueryForDashboardURL(t *testing.T) {
+	db := dashboardTestStore(t)
+	seedDashboardRun(t, db)
+	handler := NewHandler(db, "secret")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/runs?token=secret", nil)
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestEventsRunsReturnsReadOnlySSESnapshot(t *testing.T) {
 	db := dashboardTestStore(t)
 	seedDashboardRun(t, db)
