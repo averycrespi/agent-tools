@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,6 +45,28 @@ func TestRunsAPIReturnsReadOnlySummaries(t *testing.T) {
 	}
 	if len(summaries) != 1 || summaries[0].Run.ID != "run-1" || summaries[0].StepCounts[store.StateSucceeded] != 1 {
 		t.Fatalf("summaries = %+v", summaries)
+	}
+}
+
+func TestEventsRunsReturnsReadOnlySSESnapshot(t *testing.T) {
+	db := dashboardTestStore(t)
+	seedDashboardRun(t, db)
+	handler := NewHandler(db, "secret")
+
+	req := httptest.NewRequest(http.MethodGet, "/events/runs", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("Content-Type = %q, want text/event-stream", got)
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "event: snapshot") || !strings.Contains(body, "run-1") {
+		t.Fatalf("body = %q, want snapshot event with run id", body)
 	}
 }
 

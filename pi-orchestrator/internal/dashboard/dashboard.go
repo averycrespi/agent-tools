@@ -21,6 +21,28 @@ func NewHandler(db *store.Store, token string) http.Handler {
 		summaries, err := db.ListWorkflowRunSummaries(r.Context())
 		writeJSON(w, summaries, err)
 	})
+	mux.HandleFunc("/events/runs", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		summaries, err := db.ListWorkflowRunSummaries(r.Context())
+		if err != nil {
+			writeJSON(w, nil, err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		data, err := json.Marshal(summaries)
+		if err != nil {
+			writeJSON(w, nil, err)
+			return
+		}
+		_, _ = w.Write([]byte("event: snapshot\n"))
+		_, _ = w.Write([]byte("data: "))
+		_, _ = w.Write(data)
+		_, _ = w.Write([]byte("\n\n"))
+	})
 	mux.HandleFunc("/api/runs/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
