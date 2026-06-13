@@ -23,7 +23,7 @@ claims, concurrency/budget caps, retry/respawn policy, and routing outcomes to t
 
 Equally important — what `po` is **not**:
 
-- Not a merge bot. Agents may open draft PRs (via local-gh-mcp); only humans merge.
+- Not a merge bot. Agents may open draft PRs via broker-backed GitHub tooling; only humans merge.
   Every system surveyed keeps this line.
 - Not a multi-agent collaboration framework (no inter-agent messaging, no role hierarchies
   a la Gas Town). One template fire = one independent `pd` task.
@@ -68,7 +68,7 @@ prompt: |
 mode: fresh # fresh | resume (re-wake last session — vNext)
 agent:
   model: ... # passthrough to pd run flags
-  max_duration: 45m # hard cap (needs pd support — audit plan 5.3)
+  max_duration: 45m # hard cap passed through to pd run --max-duration
   max_turns: 50
 triggers:
   - schedule: "0 2 * * *" # cron; jitter derived from template name; no catch-up
@@ -94,7 +94,7 @@ philosophy.
    Claude Code local scheduling: deterministic per-template jitter, no catch-up for missed
    fires (laptop slept → fire once when able), TTL auto-expiry.
 2. **Events, by polling not webhooks** — local-first machines shouldn't run inbound HTTP
-   from the internet. Poll via existing credentialed paths: `gh` (or local-gh-mcp) for
+   from the internet. Poll via existing credentialed paths: GitHub MCP/broker tools for
    issues/PRs/CI runs, `git fetch` for branch changes. Baton proves polling is enough at
    personal scale. Each poller emits normalized events; filters (field + operator:
    equals/contains/regex/one-of — Routines' filter grammar) select them.
@@ -144,8 +144,7 @@ Layered, all cheap over SQLite:
   review queue is full, new fires queue instead of spawning. The unanimous lesson (Terragon,
   Osmani) is that human review is the bottleneck — the orchestrator should respect it,
   not bury it.
-- **Budget**: `max_duration`/`max_turns` per dispatch (needs the pd `--max-duration` item
-  from the audit plan); optionally a daily token/cost budget once pd captures usage.
+- **Budget**: `max_duration`/`max_turns` per dispatch; optionally a daily token/cost budget once pd captures usage.
 
 ### Output routing
 
@@ -175,8 +174,8 @@ po pause|resume <template>            # manual circuit breaker
 1. **Where does pd end and po begin on `mode: resume`?** Re-waking a previous Pi session
    (Codex thread automations) needs pd support for resuming from a recorded session file.
    Defer to vNext; `fresh` covers most templates.
-2. **Event source plumbing**: poll `gh` directly vs. through local-gh-mcp/broker (audited,
-   rate-limited, but adds a hop)? Leaning: direct `gh` for polling reads, broker for writes.
+2. **Event source plumbing**: poll GitHub directly vs. through broker-backed MCP tools (audited,
+   rate-limited, but adds a hop)? Leaning: direct reads when already authenticated, broker for writes.
 3. **Is `po` a new tool or a `pd` subsystem?** Separate tool fits the repo's
    one-tool-one-job pattern and keeps pd's scope honest; but they share SQLite idioms,
    auth-token plumbing, and the dashboard. Decide after prototyping `po tick` against the
@@ -204,9 +203,6 @@ po pause|resume <template>            # manual circuit breaker
 4. **vNext**: `po fire` as an MCP tool via broker; resume mode; review-backpressure
    queueing; dashboard tab; cost budgets (after pd usage capture).
 
-## Prerequisites from the audit plan
+## Prerequisites
 
-`po` leans on several already-planned items — sequence them first: pd `--max-duration`
-(5.3), pd launch-failure terminal state + stale-socket cleanup (1.3), `wt`/`pd` concurrency
-locks (1.3), ntfy approver (6.4), and ideally the sandbox egress allowlist (2.5) before any
-event-triggered autonomy, since event payloads are untrusted input.
+`po` leans on a few platform capabilities that should be in place first: reliable `pd` terminal-state handling, `wt`/`pd` concurrency locks, human approval/notification for risky actions, and ideally a sandbox egress allowlist before any event-triggered autonomy, since event payloads are untrusted input.

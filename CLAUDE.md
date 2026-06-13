@@ -11,25 +11,26 @@ sandbox-manager/     Lima VM sandbox manager for isolated agent environments —
 pi-dispatcher/       Background Pi coding-agent dispatcher — see pi-dispatcher/CLAUDE.md
 local-git-mcp/       Stdio MCP server for authenticated git remote operations — see local-git-mcp/CLAUDE.md
 local-gomod-proxy/  Host-side Go module proxy for sandboxed agents — see local-gomod-proxy/CLAUDE.md
+hindsight/          Auxiliary Docker Compose memory stack — see hindsight/README.md
 ```
 
-Each tool has its own `CLAUDE.md` with tool-specific instructions.
+Each Go tool has its own `CLAUDE.md` with tool-specific instructions. `hindsight/` is an auxiliary Docker Compose stack, not a Go tool.
 
 ## Development
 
 ```bash
 npm install    # install Husky/Prettier deps and Git hooks
-make install   # install all tools
-make build     # build all tools
-make test      # test all tools
-make audit     # tidy + fmt + lint + test + govulncheck for all tools
+make install   # install all Go tool binaries
+make build     # build all Go tools
+make test      # test all Go tools
+make audit     # tidy + fmt + lint + test + govulncheck for all Go tools
 ```
 
 Targets are forwarded to each tool's Makefile. Run from any subdirectory for a single tool. The pre-commit hook runs `lint-staged` for Go and docs formatting, then `make lint` for Go linting.
 
 ## Service Layout
 
-Each tool is a separate Go module under `go.work` and follows the same baseline so structure is predictable. When adding a new tool or looking for the expected shape, mirror an existing tool (e.g. `worktree-manager/`) as a template — file layout, Makefile targets, and package organization should match.
+Each Go tool is a separate Go module under `go.work` and follows the same baseline so structure is predictable. When adding a new Go tool or looking for the expected shape, mirror an existing tool (e.g. `worktree-manager/`) as a template — file layout, Makefile targets, and package organization should match. Auxiliary non-Go stacks such as `hindsight/` are documented separately and are not forwarded by the root Makefile.
 
 ## Go Conventions
 
@@ -51,7 +52,7 @@ Each doc has a distinct audience and scope — don't duplicate content between t
 - **`docs/*.md`** — standalone topic guides (e.g., `docs/launchd.md`). Use when a topic is too detailed for the README but isn't design-level context.
 - **`examples/`** — copy-pasteable artifacts referenced from `docs/` or the README.
 
-## Adding a New Tool
+## Adding a New Go Tool
 
 1. Create `<name>/` with `go.mod` (`module github.com/averycrespi/agent-tools/<name>`)
 2. Copy `Makefile` and `.golangci.yml` from an existing tool and update the binary name

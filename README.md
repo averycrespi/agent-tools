@@ -22,16 +22,17 @@ Requirements:
 - Node.js and npm for development hooks and document formatting
 - GNU Make
 - macOS for `sandbox-manager` (requires Lima)
+- Docker Compose for the auxiliary `hindsight/` stack
 
 ```bash
-# First-time setup on macOS: install Homebrew deps, dev deps/hooks, and all tools
+# First-time setup on macOS: install Homebrew deps, dev deps/hooks, and all Go tools
 # For Linux: install `tmux` from your preferred package manager first
 make setup
 
 # Or run the steps separately
 brew bundle       # macOS system dependencies
 make install-dev  # npm install for formatter deps and Git hooks
-make install      # install all tools
+make install      # install all Go tool binaries
 
 # Verify formatting, linting, and tests
 make check
@@ -122,11 +123,11 @@ See the [local-gomod-proxy README](local-gomod-proxy/README.md) for more informa
 
 ### Hindsight
 
-The `hindsight/` directory contains a local Docker Compose stack for [Hindsight](https://github.com/vectorize-io/hindsight), used as persistent memory for AI agents.
+The auxiliary `hindsight/` directory contains a local Docker Compose stack for [Hindsight](https://github.com/vectorize-io/hindsight), used as persistent memory for AI agents. It is not part of `go.work` or `make install`.
 
 It includes:
 
-- Hindsight API and Control Plane with OpenAI Codex OAuth auth
+- Hindsight API and Control Plane with Codex OAuth provider credentials mounted for model access
 - PostgreSQL with `pgvector` for persistent memory storage
 - Local compressed database backups under XDG state by default
 - Bearer API-key auth for the Hindsight API and localhost-only port bindings
