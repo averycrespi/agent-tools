@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/averycrespi/agent-tools/pi-orchestrator/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -11,6 +12,7 @@ var (
 	verbose bool
 	jsonOut bool
 	logger  *slog.Logger
+	cfg     config.Config
 )
 
 var rootCmd = &cobra.Command{
@@ -24,6 +26,14 @@ var rootCmd = &cobra.Command{
 			level = slog.LevelDebug
 		}
 		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+		loaded, err := config.Load()
+		if err != nil {
+			return err
+		}
+		if workflowDir != "" {
+			loaded.WorkflowDir = workflowDir
+		}
+		cfg = loaded
 		return nil
 	},
 }

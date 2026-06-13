@@ -101,15 +101,5 @@ func workflowNameFromFile(name string) (string, bool) {
 }
 
 func resolveWorkflowDir() string {
-	if workflowDir != "" {
-		return workflowDir
-	}
-	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
-		return filepath.Join(xdgConfig, "po", "workflows")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".", "workflows")
-	}
-	return filepath.Join(home, ".config", "po", "workflows")
+	return cfg.WorkflowDir
 }
