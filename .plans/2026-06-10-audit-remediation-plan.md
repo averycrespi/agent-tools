@@ -198,9 +198,11 @@ status dashboards. Cheap wins first:
 
 ### 5.1 worktree-manager [M]
 
-- `wt ls` (enumerate worktrees with branch + tmux-window liveness) and `wt status <branch>`.
+- `wt ls` (enumerate worktrees with branch + tmux-window liveness) and `wt status <branch>` —
+  SKIPPED. Native `git worktree list`, `git status`, and tmux commands cover this well enough
+  for current usage.
 - `wt add --force` to replace a broken/partial worktree.
-- Surface copy/setup failures as errors (ties into 1.3).
+- Surface copy/setup failures as errors (ties into 1.3) — RESOLVED.
 
 ### 5.2 sandbox-manager [M]
 
