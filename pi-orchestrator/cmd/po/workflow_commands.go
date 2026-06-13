@@ -36,7 +36,9 @@ var listCmd = &cobra.Command{
 			if _, err := workflow.LoadFile(workflowFilePath(name)); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), name)
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), name); err != nil {
+				return err
+			}
 		}
 		return nil
 	},
@@ -51,7 +53,7 @@ var showCmd = &cobra.Command{
 		if _, err := workflow.LoadFile(path); err != nil {
 			return err
 		}
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) // #nosec G304 -- path is resolved under the configured workflow definition directory.
 		if err != nil {
 			return fmt.Errorf("read workflow %s: %w", path, err)
 		}
@@ -68,8 +70,8 @@ var lintCmd = &cobra.Command{
 		if _, err := workflow.LoadFile(workflowFilePath(args[0])); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s ok\n", args[0])
-		return nil
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s ok\n", args[0])
+		return err
 	},
 }
 

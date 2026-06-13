@@ -10,8 +10,8 @@ import (
 
 func TestDispatcherRunnerStartsPDRunOnWorkflowWorktree(t *testing.T) {
 	t.Parallel()
-	starter := &recordingPDStarter{result: PDStartResult{TaskID: "pd-task-1", RunID: "pd-run-1"}}
-	runner := DispatcherRunner{Starter: starter}
+	starter := &recordingPDClient{startResult: PDStartResult{TaskID: "pd-task-1", RunID: "pd-run-1"}, waitResult: PDTaskRunInfo{TaskID: "pd-task-1", RunID: "pd-run-1", Status: "succeeded"}}
+	runner := DispatcherRunner{Client: starter}
 
 	result, err := runner.RunStep(context.Background(), StepRequest{
 		WorkflowRunID: "po-run-1",
@@ -29,7 +29,10 @@ func TestDispatcherRunnerStartsPDRunOnWorkflowWorktree(t *testing.T) {
 		t.Fatalf("RunStep() error = %v", err)
 	}
 	if result.PDTaskID != "pd-task-1" || result.PDRunID != "pd-run-1" || result.State != store.StateSucceeded {
-		t.Fatalf("result = %+v, want backing pd ids and succeeded admission", result)
+		t.Fatalf("result = %+v, want backing pd ids after succeeded run", result)
+	}
+	if starter.waitRequest.TaskID != "pd-task-1" || starter.waitRequest.RunID != "pd-run-1" {
+		t.Fatalf("wait request = %+v, want backing pd ids", starter.waitRequest)
 	}
 	if starter.request.RepoPath != "/repo" || starter.request.Branch != "po/review-abcd" || starter.request.WorktreePath != "/worktrees/review-abcd" {
 		t.Fatalf("request = %+v, want shared workflow repo/branch/worktree", starter.request)
@@ -42,12 +45,33 @@ func TestDispatcherRunnerStartsPDRunOnWorkflowWorktree(t *testing.T) {
 	}
 }
 
-type recordingPDStarter struct {
-	request PDStartRequest
-	result  PDStartResult
+func TestDispatcherRunnerMapsFailedPDRun(t *testing.T) {
+	t.Parallel()
+	client := &recordingPDClient{startResult: PDStartResult{TaskID: "pd-task-1", RunID: "pd-run-1"}, waitResult: PDTaskRunInfo{TaskID: "pd-task-1", RunID: "pd-run-1", Status: "failed", ErrorMessage: "agent failed"}}
+	runner := DispatcherRunner{Client: client}
+
+	result, err := runner.RunStep(context.Background(), StepRequest{WorkflowRunID: "po-run-1", StepID: "review", Prompt: "prompt", Repo: "/repo", Branch: "branch", WorktreePath: "/worktree"})
+	if err != nil {
+		t.Fatalf("RunStep() error = %v", err)
+	}
+	if result.State != store.StateFailed || result.Outcome != "agent failed" {
+		t.Fatalf("result = %+v, want failed pd outcome", result)
+	}
 }
 
-func (r *recordingPDStarter) StartTaskRun(_ context.Context, req PDStartRequest) (PDStartResult, error) {
+type recordingPDClient struct {
+	request     PDStartRequest
+	waitRequest PDWaitRequest
+	startResult PDStartResult
+	waitResult  PDTaskRunInfo
+}
+
+func (r *recordingPDClient) StartTaskRun(_ context.Context, req PDStartRequest) (PDStartResult, error) {
 	r.request = req
-	return r.result, nil
+	return r.startResult, nil
+}
+
+func (r *recordingPDClient) WaitTaskRun(_ context.Context, req PDWaitRequest) (PDTaskRunInfo, error) {
+	r.waitRequest = req
+	return r.waitResult, nil
 }

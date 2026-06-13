@@ -73,7 +73,7 @@ func MiddlewareWithLog(token string, next http.Handler, logf LogFunc) http.Handl
 
 		if strings.HasPrefix(r.URL.Path, "/dashboard/") || r.URL.Path == "/dashboard" {
 			if qToken := r.URL.Query().Get("token"); qToken != "" && subtle.ConstantTimeCompare([]byte(qToken), tokenBytes) == 1 {
-				http.SetCookie(w, &http.Cookie{
+				http.SetCookie(w, &http.Cookie{ //nolint:gosec // Local loopback dashboard may run over plain HTTP; cookie is HttpOnly and SameSite.
 					Name:     CookieName,
 					Value:    token,
 					Path:     "/dashboard/",
@@ -86,7 +86,7 @@ func MiddlewareWithLog(token string, next http.Handler, logf LogFunc) http.Handl
 				q.Del("token")
 				clean.RawQuery = q.Encode()
 				logAuth(logf, "auth granted path=%s reason=token-url redirect=%s", r.URL.Path, clean.RequestURI())
-				http.Redirect(w, r, clean.RequestURI(), http.StatusFound)
+				http.Redirect(w, r, clean.RequestURI(), http.StatusFound) //nolint:gosec // Redirect target is the same request path with only the token query removed.
 				return
 			}
 			logAuth(logf, "auth rejected path=%s reason=missing-or-invalid-token status=%d", r.URL.Path, http.StatusFound)

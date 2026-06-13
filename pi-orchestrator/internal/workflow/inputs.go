@@ -27,21 +27,22 @@ func (d *Definition) ValidateInputs(raw map[string]string) (InputValues, error) 
 		schema := d.Inputs[name]
 		rawValue, provided := raw[name]
 		var value any
-		if provided {
+		switch {
+		case provided:
 			coerced, err := coerceInput(name, schema.Type, rawValue)
 			if err != nil {
 				return nil, err
 			}
 			value = coerced
-		} else if schema.Default != nil {
+		case schema.Default != nil:
 			coerced, err := coerceDefault(name, schema.Type, schema.Default)
 			if err != nil {
 				return nil, err
 			}
 			value = coerced
-		} else if schema.Required {
+		case schema.Required:
 			return nil, fmt.Errorf("missing required input %s", name)
-		} else {
+		default:
 			continue
 		}
 

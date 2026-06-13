@@ -156,7 +156,7 @@ steps:
 `)
 
 	_, err := LoadFile(path)
-	assertErrorContains(t, err, "artifact out path must not contain ..")
+	assertErrorContains(t, err, "artifact out path must not contain parent directory references")
 }
 
 func TestValidateRejectsAbsoluteArtifactPath(t *testing.T) {

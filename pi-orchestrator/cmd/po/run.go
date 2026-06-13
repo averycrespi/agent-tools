@@ -147,7 +147,7 @@ func renderRepo(repoTemplate string, inputs workflow.InputValues) (string, error
 }
 
 func hashFile(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is resolved under the configured workflow definition directory.
 	if err != nil {
 		return "", fmt.Errorf("read workflow for hash: %w", err)
 	}

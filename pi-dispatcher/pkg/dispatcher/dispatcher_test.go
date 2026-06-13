@@ -74,6 +74,56 @@ func TestStartTaskRunRejectsMissingCallerOwnedWorktree(t *testing.T) {
 	}
 }
 
+func TestGetTaskRunReturnsStateAndMetadata(t *testing.T) {
+	t.Parallel()
+	client, result := startedTaskRun(t)
+
+	info, err := client.GetTaskRun(context.Background(), GetTaskRunRequest(result))
+	if err != nil {
+		t.Fatalf("GetTaskRun() error = %v", err)
+	}
+	if info.TaskID != result.TaskID || info.RunID != result.RunID || info.Status != TaskRunStatusStarting {
+		t.Fatalf("info = %+v, want starting task/run", info)
+	}
+	if info.StdoutLogPath == "" || info.StderrLogPath == "" || info.PiEventsPath == "" || info.ControlSocketPath == "" {
+		t.Fatalf("info = %+v, want log/event/control metadata", info)
+	}
+}
+
+func TestWaitTaskRunReturnsTerminalState(t *testing.T) {
+	t.Parallel()
+	client, result := startedTaskRun(t)
+	st, err := pdstore.Open(client.dbPath())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer st.Close() //nolint:errcheck
+	if err := st.CompleteRun(context.Background(), result.TaskID, pdstore.StatusFailed, 1, "agent failed", ""); err != nil {
+		t.Fatalf("CompleteRun() error = %v", err)
+	}
+
+	info, err := client.WaitTaskRun(context.Background(), WaitTaskRunRequest{TaskID: result.TaskID, RunID: result.RunID, PollInterval: time.Millisecond})
+	if err != nil {
+		t.Fatalf("WaitTaskRun() error = %v", err)
+	}
+	if info.Status != TaskRunStatusFailed || info.ErrorMessage != "agent failed" {
+		t.Fatalf("info = %+v, want failed terminal state", info)
+	}
+}
+
+func startedTaskRun(t *testing.T) (*Client, StartTaskRunResult) {
+	t.Helper()
+	client := NewClient(Config{DBPath: filepath.Join(t.TempDir(), "pd.db"), StateDir: filepath.Join(t.TempDir(), "state"), RuntimeDir: filepath.Join(t.TempDir(), "runtime")})
+	client.now = func() time.Time { return time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC) }
+	client.shortID = func() string { return "abcd" }
+	client.launcher = &recordingLauncher{pid: 1234}
+	result, err := client.StartTaskRun(context.Background(), StartTaskRunRequest{RepoPath: "/repo", Branch: "branch", WorktreePath: "/worktree", Prompt: "prompt"})
+	if err != nil {
+		t.Fatalf("StartTaskRun() error = %v", err)
+	}
+	return client, result
+}
+
 type recordingLauncher struct {
 	pid  int
 	env  []string

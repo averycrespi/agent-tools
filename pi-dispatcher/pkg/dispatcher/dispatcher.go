@@ -43,6 +43,40 @@ type StartTaskRunResult struct {
 	RunID  string
 }
 
+type TaskRunStatus string
+
+const (
+	TaskRunStatusStarting  TaskRunStatus = "starting"
+	TaskRunStatusRunning   TaskRunStatus = "running"
+	TaskRunStatusSucceeded TaskRunStatus = "succeeded"
+	TaskRunStatusFailed    TaskRunStatus = "failed"
+	TaskRunStatusStopping  TaskRunStatus = "stopping"
+	TaskRunStatusStopped   TaskRunStatus = "stopped"
+	TaskRunStatusUnknown   TaskRunStatus = "unknown"
+)
+
+type TaskRunInfo struct {
+	TaskID            string
+	RunID             string
+	Status            TaskRunStatus
+	ErrorMessage      string
+	StdoutLogPath     string
+	StderrLogPath     string
+	PiEventsPath      string
+	ControlSocketPath string
+}
+
+type GetTaskRunRequest struct {
+	TaskID string
+	RunID  string
+}
+
+type WaitTaskRunRequest struct {
+	TaskID       string
+	RunID        string
+	PollInterval time.Duration
+}
+
 type StopTaskRunRequest struct {
 	TaskID string
 	RunID  string
@@ -132,6 +166,51 @@ func (c *Client) StartTaskRun(ctx context.Context, req StartTaskRunRequest) (Sta
 	return StartTaskRunResult{TaskID: taskID, RunID: runID}, nil
 }
 
+func (c *Client) GetTaskRun(ctx context.Context, req GetTaskRunRequest) (TaskRunInfo, error) {
+	if req.TaskID == "" {
+		return TaskRunInfo{}, fmt.Errorf("task id is required")
+	}
+	db, err := store.Open(c.dbPath())
+	if err != nil {
+		return TaskRunInfo{}, err
+	}
+	defer db.Close() //nolint:errcheck
+	_, err = db.GetTask(ctx, req.TaskID)
+	if err != nil {
+		return TaskRunInfo{}, err
+	}
+	run, err := db.LatestRun(ctx, req.TaskID)
+	if err != nil {
+		return TaskRunInfo{}, err
+	}
+	if req.RunID != "" && run.ID != req.RunID {
+		return TaskRunInfo{}, fmt.Errorf("task %s latest run is %s, not %s", req.TaskID, run.ID, req.RunID)
+	}
+	return taskRunInfo(run), nil
+}
+
+func (c *Client) WaitTaskRun(ctx context.Context, req WaitTaskRunRequest) (TaskRunInfo, error) {
+	if req.PollInterval <= 0 {
+		req.PollInterval = time.Second
+	}
+	for {
+		info, err := c.GetTaskRun(ctx, GetTaskRunRequest{TaskID: req.TaskID, RunID: req.RunID})
+		if err != nil {
+			return TaskRunInfo{}, err
+		}
+		if isTerminal(info.Status) {
+			return info, nil
+		}
+		timer := time.NewTimer(req.PollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return TaskRunInfo{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
 func (c *Client) StopTaskRun(ctx context.Context, req StopTaskRunRequest) error {
 	if req.TaskID == "" {
 		return fmt.Errorf("task id is required")
@@ -152,7 +231,7 @@ func (c *Client) StopTaskRun(ctx context.Context, req StopTaskRunRequest) error 
 	if req.RunID != "" && run.ID != req.RunID {
 		return fmt.Errorf("task %s latest run is %s, not %s", req.TaskID, run.ID, req.RunID)
 	}
-	if task.Status != store.StatusRunning && !(req.Force && task.Status == store.StatusStopping) {
+	if task.Status != store.StatusRunning && (!req.Force || task.Status != store.StatusStopping) {
 		return fmt.Errorf("task is %s, not running", task.Status)
 	}
 	request := control.Request{Operation: control.OpStop, Force: req.Force}
@@ -181,6 +260,19 @@ func (c *Client) runtimeDir() string {
 		return c.cfg.RuntimeDir
 	}
 	return pdconfig.RuntimeDir()
+}
+
+func taskRunInfo(run store.Run) TaskRunInfo {
+	return TaskRunInfo{TaskID: run.TaskID, RunID: run.ID, Status: TaskRunStatus(run.Status), ErrorMessage: run.ErrorMessage, StdoutLogPath: run.StdoutLogPath, StderrLogPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath, ControlSocketPath: run.ControlSocketPath}
+}
+
+func isTerminal(status TaskRunStatus) bool {
+	switch status {
+	case TaskRunStatusSucceeded, TaskRunStatusFailed, TaskRunStatusStopped, TaskRunStatusUnknown:
+		return true
+	default:
+		return false
+	}
 }
 
 func launchMetadata(agent AgentOptions) (string, string, error) {

@@ -24,10 +24,12 @@ func TestStopTaskRunSendsStopToBackingRun(t *testing.T) {
 	}
 	defer server.Close() //nolint:errcheck
 	requests := make(chan control.Request, 1)
-	go server.Serve(func(req control.Request) control.Response {
-		requests <- req
-		return control.Response{OK: true}
-	}) //nolint:errcheck
+	go func() {
+		_ = server.Serve(func(req control.Request) control.Response {
+			requests <- req
+			return control.Response{OK: true}
+		})
+	}()
 
 	client := NewClient(Config{DBPath: dbPath, RuntimeDir: runtimeDir})
 	if err := client.StopTaskRun(context.Background(), StopTaskRunRequest{TaskID: taskID, RunID: taskID + "-run-1"}); err != nil {

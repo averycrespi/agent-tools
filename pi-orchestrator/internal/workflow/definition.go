@@ -51,7 +51,7 @@ type Artifact struct {
 }
 
 func LoadFile(path string) (*Definition, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- workflow paths are selected from the configured workflow definition directory.
 	if err != nil {
 		return nil, fmt.Errorf("read workflow %s: %w", path, err)
 	}
@@ -118,7 +118,7 @@ func (d *Definition) Validate(filenameStem string) error {
 				return fmt.Errorf("artifact %s path must be relative", artifact.Name)
 			}
 			if containsDotDot(artifact.Path) {
-				return fmt.Errorf("artifact %s path must not contain ..", artifact.Name)
+				return fmt.Errorf("artifact %s path must not contain parent directory references", artifact.Name)
 			}
 		}
 	}
