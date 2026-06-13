@@ -62,6 +62,10 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := validateArtifactParent(cfg.ArtifactParentDir); err != nil {
+		return err
+	}
+
 	now := nowFunc().UTC()
 	idPart := shortIDFunc()
 	runID := "po-" + now.Format("20060102-150405") + "-" + idPart

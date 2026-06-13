@@ -4,6 +4,7 @@ go 1.25.9
 
 require (
 	github.com/averycrespi/agent-tools/pi-dispatcher v0.0.0
+	github.com/averycrespi/agent-tools/sandbox-manager v0.0.0
 	github.com/averycrespi/agent-tools/worktree-manager v0.0.0
 	github.com/ncruces/go-sqlite3 v0.35.0
 	github.com/spf13/cobra v1.10.2
@@ -20,5 +21,7 @@ require (
 )
 
 replace github.com/averycrespi/agent-tools/pi-dispatcher => ../pi-dispatcher
+
+replace github.com/averycrespi/agent-tools/sandbox-manager => ../sandbox-manager
 
 replace github.com/averycrespi/agent-tools/worktree-manager => ../worktree-manager

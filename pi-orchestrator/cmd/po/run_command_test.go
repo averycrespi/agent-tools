@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,6 +17,7 @@ func TestRunCommandValidatesInputsBeforeCreatingWorktree(t *testing.T) {
 	writeWorkflow(t, dir, "review", runWorkflowYAML("review"))
 	stateDir := filepath.Join(t.TempDir(), "state")
 	cfg = testConfig(t, dir, stateDir)
+	validateArtifactParent = func(string) error { return nil }
 	calls := 0
 	newWorktreeClient = func() (worktreeClient, error) {
 		calls++
@@ -35,6 +37,33 @@ func TestRunCommandValidatesInputsBeforeCreatingWorktree(t *testing.T) {
 	}
 }
 
+func TestRunCommandRejectsInvisibleArtifactParentBeforeCreatingWorktree(t *testing.T) {
+	dir := t.TempDir()
+	writeWorkflow(t, dir, "review", runWorkflowYAML("review"))
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, dir, stateDir)
+	validateArtifactParent = func(path string) error {
+		if path != cfg.ArtifactParentDir {
+			t.Fatalf("artifact parent = %q, want %q", path, cfg.ArtifactParentDir)
+		}
+		return fmt.Errorf("not mounted")
+	}
+	calls := 0
+	newWorktreeClient = func() (worktreeClient, error) {
+		calls++
+		return fakeWorktreeClient{path: "/worktree/review"}, nil
+	}
+	t.Cleanup(resetRunTestHooks)
+
+	_, err := executeCommand("--workflow-dir", dir, "run", "review", "--input", "repo=/repo", "--input", "pr_number=42")
+	if err == nil || !strings.Contains(err.Error(), "not mounted") {
+		t.Fatalf("run error = %v, want artifact parent validation error", err)
+	}
+	if calls != 0 {
+		t.Fatalf("worktree calls = %d, want 0", calls)
+	}
+}
+
 func TestRunCommandCreatesWorkflowRunWithOneWorktree(t *testing.T) {
 	dir := t.TempDir()
 	writeWorkflow(t, dir, "review", runWorkflowYAML("review"))
@@ -43,6 +72,12 @@ func TestRunCommandCreatesWorkflowRunWithOneWorktree(t *testing.T) {
 	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
 	nowFunc = func() time.Time { return now }
 	shortIDFunc = func() string { return "abcd" }
+	validateArtifactParent = func(path string) error {
+		if path != cfg.ArtifactParentDir {
+			t.Fatalf("artifact parent = %q, want %q", path, cfg.ArtifactParentDir)
+		}
+		return nil
+	}
 	fakeWT := &recordingWorktreeClient{path: "/worktrees/po-review-abcd"}
 	newWorktreeClient = func() (worktreeClient, error) { return fakeWT, nil }
 	launcher := &recordingSupervisorLauncher{pid: 4321}
@@ -161,6 +196,7 @@ func (r *recordingSupervisorLauncher) Start(logPath string, args ...string) (int
 func resetRunTestHooks() {
 	newWorktreeClient = defaultNewWorktreeClient
 	startSupervisor = defaultStartSupervisor
+	validateArtifactParent = defaultValidateArtifactParent
 	nowFunc = time.Now
 	shortIDFunc = randomShortID
 }
