@@ -1,10 +1,13 @@
 package supervisor
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"text/template"
 	"time"
 
 	"github.com/averycrespi/agent-tools/pi-orchestrator/internal/store"
@@ -34,6 +37,12 @@ type StepRunner interface {
 
 func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workflow.Definition, run store.WorkflowRun) error {
 	stepStates := make(map[string]store.State, len(def.Steps))
+	inputs := map[string]any{}
+	if run.InputsJSON != "" {
+		if err := json.Unmarshal([]byte(run.InputsJSON), &inputs); err != nil {
+			return fmt.Errorf("decode workflow inputs: %w", err)
+		}
+	}
 	var firstErr error
 	for index, step := range def.Steps {
 		if firstErr != nil || hasFailedDependency(step, stepStates) {
@@ -43,7 +52,11 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 			stepStates[step.ID] = store.StateSkipped
 			continue
 		}
-		result, err := runner.RunStep(ctx, StepRequest{WorkflowRunID: run.ID, StepID: step.ID, Agent: def.Agents[step.Agent], Prompt: step.Prompt, Repo: run.Repo, Branch: run.Branch, WorktreePath: run.WorktreePath})
+		renderedPrompt, err := renderPrompt(run, step, inputs)
+		if err != nil {
+			return err
+		}
+		result, err := runner.RunStep(ctx, StepRequest{WorkflowRunID: run.ID, StepID: step.ID, Agent: def.Agents[step.Agent], Prompt: renderedPrompt, Repo: run.Repo, Branch: run.Branch, WorktreePath: run.WorktreePath})
 		artifacts := artifactsForStep(run, step)
 		if err != nil {
 			result.State = store.StateFailed
@@ -84,6 +97,31 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 		return err
 	}
 	return firstErr
+}
+
+func renderPrompt(run store.WorkflowRun, step workflow.Step, inputs map[string]any) (string, error) {
+	artifactPaths := make(map[string]string, len(step.Artifacts))
+	for _, artifact := range step.Artifacts {
+		artifactPaths[artifact.Name] = filepath.Join(run.ArtifactRoot, artifact.Path)
+	}
+	funcs := template.FuncMap{
+		"artifact_path": func(name string) (string, error) {
+			path, ok := artifactPaths[name]
+			if !ok {
+				return "", fmt.Errorf("unknown artifact %s", name)
+			}
+			return path, nil
+		},
+	}
+	tmpl, err := template.New("step-prompt").Funcs(funcs).Parse(step.Prompt)
+	if err != nil {
+		return "", fmt.Errorf("parse prompt for step %s: %w", step.ID, err)
+	}
+	var rendered bytes.Buffer
+	if err := tmpl.Execute(&rendered, map[string]any{"Inputs": inputs}); err != nil {
+		return "", fmt.Errorf("render prompt for step %s: %w", step.ID, err)
+	}
+	return rendered.String(), nil
 }
 
 func hasFailedDependency(step workflow.Step, stepStates map[string]store.State) bool {

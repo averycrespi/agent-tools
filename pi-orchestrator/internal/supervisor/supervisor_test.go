@@ -49,6 +49,29 @@ func TestExecuteRunsStepsSeriallyInWorkflowOrderWithSharedWorktree(t *testing.T)
 	}
 }
 
+func TestExecuteRendersPromptInputsAndArtifactPath(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, run := supervisorTestRun(t)
+	defer db.Close() //nolint:errcheck
+	runner := &recordingRunner{results: []StepResult{{PDTaskID: "pd-1", PDRunID: "pd-1-run-1", State: store.StateSucceeded}}}
+	def := &workflow.Definition{
+		Name:   "sample",
+		Inputs: map[string]workflow.InputSchema{"pr_number": {Type: workflow.InputInteger}},
+		Agents: map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Steps:  []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: `Review PR #{{ .Inputs.pr_number }} and write {{ artifact_path "out" }}`, Artifacts: []workflow.Artifact{{Name: "out", Path: "out.md"}}}},
+	}
+	run.InputsJSON = `{"pr_number":42}`
+
+	if err := Execute(ctx, db, runner, def, run); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	want := filepath.Join(run.ArtifactRoot, "out.md")
+	if len(runner.calls) != 1 || runner.calls[0].Prompt != "Review PR #42 and write "+want {
+		t.Fatalf("prompt = %q, want rendered artifact path %q", runner.calls[0].Prompt, want)
+	}
+}
+
 func TestExecuteFailsStepWhenRequiredArtifactMissingAndSkipsDependent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
