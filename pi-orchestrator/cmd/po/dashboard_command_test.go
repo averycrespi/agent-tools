@@ -32,3 +32,35 @@ func TestDashboardCommandDefinesLoopbackFlags(t *testing.T) {
 		t.Fatalf("dashboard flags missing")
 	}
 }
+
+func TestMaybeOpenDashboardOpensByDefault(t *testing.T) {
+	var opened string
+	old := openDashboardBrowser
+	openDashboardBrowser = func(url string) error {
+		opened = url
+		return nil
+	}
+	t.Cleanup(func() { openDashboardBrowser = old })
+
+	maybeOpenDashboard(false, "http://localhost:8400/dashboard/?token=secret")
+
+	if opened != "http://localhost:8400/dashboard/?token=secret" {
+		t.Fatalf("opened = %q, want dashboard URL", opened)
+	}
+}
+
+func TestMaybeOpenDashboardHonorsNoOpen(t *testing.T) {
+	called := false
+	old := openDashboardBrowser
+	openDashboardBrowser = func(string) error {
+		called = true
+		return nil
+	}
+	t.Cleanup(func() { openDashboardBrowser = old })
+
+	maybeOpenDashboard(true, "http://localhost:8400/dashboard/?token=secret")
+
+	if called {
+		t.Fatal("openDashboardBrowser called despite --no-open")
+	}
+}

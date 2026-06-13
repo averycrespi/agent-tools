@@ -7,7 +7,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	osExec "os/exec"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -18,6 +20,8 @@ import (
 )
 
 const dashboardShutdownTimeout = 10 * time.Second
+
+var openDashboardBrowser = defaultOpenDashboardBrowser
 
 var dashboardCmd = &cobra.Command{
 	Use:   "dashboard",
@@ -35,6 +39,7 @@ func init() {
 func runDashboard(cmd *cobra.Command, _ []string) error {
 	host, _ := cmd.Flags().GetString("host")
 	port, _ := cmd.Flags().GetInt("port")
+	noOpen, _ := cmd.Flags().GetBool("no-open")
 	if err := validateDashboardHost(host); err != nil {
 		return err
 	}
@@ -55,6 +60,7 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
+	maybeOpenDashboard(noOpen, url)
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(stop)
@@ -120,4 +126,19 @@ func dashboardURL(host string, port int, token string) string {
 		urlHost = "localhost"
 	}
 	return fmt.Sprintf("http://%s/dashboard/?token=%s", net.JoinHostPort(urlHost, fmt.Sprintf("%d", port)), token)
+}
+
+func maybeOpenDashboard(noOpen bool, url string) {
+	if noOpen {
+		return
+	}
+	_ = openDashboardBrowser(url)
+}
+
+func defaultOpenDashboardBrowser(url string) error {
+	cmd := "xdg-open"
+	if runtime.GOOS == "darwin" {
+		cmd = "open"
+	}
+	return osExec.Command(cmd, url).Start() //nolint:gosec
 }
