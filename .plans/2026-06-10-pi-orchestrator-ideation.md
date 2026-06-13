@@ -87,22 +87,23 @@ inputs:
   head_sha:
     type: string
     required: false
-defaults:
-  mode: fresh # fresh | resume (re-wake last session — vNext)
-  agent:
+agents:
+  reviewer:
     model: ... # passthrough to pd execution options
-    max_duration: 45m # hard cap passed through to pd
-    max_turns: 50
+    skills: [review]
+  implementer:
+    model: ...
+    skills: [test-driven-development]
 steps:
   - id: review
+    agent: reviewer
     prompt: |
       Review PR #{{ .Inputs.pr_number }} in {{ .Inputs.repo }}.
-      Focus on correctness, security, and test coverage.
-    success_check: "make -C {{ .Worktree }} test" # exit 0/1 after this step; optional
-on_success: { action: draft-pr, notify: quiet } # quiet = inbox only, no push notif
-on_failure: { action: keep-worktree, notify: push }
-on_empty: archive # workflow reports nothing actionable → silent
-state_key: "pr-review:{{ .Inputs.repo }}" # optional heartbeat watermark carried between runs
+      Write findings to {{ artifact_path "findings" }}.
+    artifacts:
+      - name: findings
+        path: findings.md
+        required: true
 ```
 
 Concrete workflow runs are created by `po run`, which supplies validated inputs:
@@ -138,10 +139,9 @@ steps:
     prompt: "Review the implement step diff against the original issue."
 ```
 
-Notable: a machine-checkable `success_check` exceeds every surveyed system (they all punt
-to "make the prompt explicit about success"); `pd` already decouples cleanup/exit-code
-state, so recording `infra_status` vs step/workflow `outcome` separately fits the existing
-schema philosophy.
+Named `agents` let one workflow use different `pd` execution configurations per step while
+keeping each step explicit about which agent shape it needs. The agent block is mostly
+passthrough to `pd` (model, skills, limits, tool policy as `pd` grows that surface).
 
 ### Run requests, not built-in scheduling
 
@@ -169,9 +169,9 @@ adapter needs justify them.
 No global daemon and no user-facing periodic advance loop. Each accepted workflow run has a
 workflow supervisor process, analogous to `pd`'s supervisor around one Pi task run. The
 workflow supervisor owns one workflow run: start ready step runs by creating `pd` task runs,
-wait for or watch task-run terminal state, run `success_check`, collect artifacts, evaluate
-dependencies and terminal outcomes, route final outcomes, and exit when the workflow reaches a
-terminal state. `pd` supervisors continue to own individual Pi task-run lifecycles.
+wait for or watch task-run terminal state, collect artifacts, evaluate dependencies and
+terminal outcomes, route final outcomes, and exit when the workflow reaches a terminal state.
+`pd` supervisors continue to own individual Pi task-run lifecycles.
 
 A crashed `po` supervisor loses no workflow state because every transition is persisted in
 SQLite. V1 does not need a user-facing recovery command; inspection and wait commands should
@@ -199,14 +199,15 @@ and each required step must completely succeed. A step run succeeds only when al
 completion gates pass:
 
 1. the backing `pd` task run reaches `succeeded`;
-2. all required declared artifacts for the step exist;
-3. the step `success_check`, if configured, exits 0.
+2. all required declared artifacts for the step exist.
 
 If any gate fails, the step run is `failed`. A clean `pd` task exit is necessary but not
-sufficient, because `pd` success means the agent process ended cleanly, not that the workflow
-objective was satisfied. Workflow success requires every required step on the executed path to
-succeed; if a required step fails, dependent steps are marked `skipped` and the workflow run
-fails.
+sufficient, because required artifacts are the step-to-step contract. Workflow success
+requires every required step on the executed path to succeed; if a required step fails,
+dependent steps are marked `skipped` and the workflow run fails.
+
+Defer `success_check` from v1. Machine-checkable commands are valuable, but they add another
+execution surface and can be introduced after the basic agent-step/artifact contract works.
 
 No optional steps, semantic auto-retries, or hidden fix loops in v1. Recovery is explicit:
 manual `respawn` or a workflow-authored later step once outcome/artifact contracts are solid.
@@ -220,8 +221,8 @@ failures should not be retried by default.
   dedup keys and raw payload pointers can be added when trigger adapter needs justify them)
 - `workflow_runs` (workflow + run request → typed inputs snapshot, workflow worktree/branch,
   attempt counter, claim/lease, aggregate outcome, routed-notification status)
-- `step_runs` (workflow_run + step ID → backing pd task run ID, dependencies, attempt counter,
-  success_check result, infra status, step outcome)
+- `step_runs` (workflow_run + step ID → selected agent, backing pd task run ID, dependencies,
+  attempt counter, infra status, step outcome)
 - `artifacts` (workflow_run + step ID + name → stored text/file/metadata handoff between steps)
 - `workflow_state` (optional per-workflow heartbeat/watermark state keyed by rendered `state_key`)
 
@@ -313,7 +314,7 @@ Layered, all cheap over SQLite:
   requests are rejected or deferred at the run-request layer instead of spawning. The unanimous
   lesson (Terragon, Osmani) is that human review is the bottleneck — the orchestrator should
   respect it, not bury it.
-- **Budget**: `max_duration`/`max_turns` per workflow step run; optionally a daily token/cost budget once pd captures usage.
+- **Budget**: defer richer budget controls. V1 can pass through only the `pd` agent options it already supports; daily token/cost budgets wait until `pd` captures usage.
 
 ### Output, logs, and control
 
@@ -355,9 +356,9 @@ user-facing `recover`.
 
 ## Open questions
 
-1. **Where does pd end and po begin on `mode: resume`?** Re-waking a previous Pi session
-   (Codex thread automations) needs pd support for resuming from a recorded session file.
-   Defer to vNext; `fresh` covers most workflow steps.
+1. **Where does pd end and po begin on resume?** Re-waking a previous Pi session (Codex
+   thread automations) needs pd support for resuming from a recorded session file. Defer to
+   vNext; V1 starts each step as a fresh backing `pd` task run.
 2. **Trigger adapters live where?** Core `po` should not own scheduling/polling, but examples
    or companion commands may be useful: launchd plist snippets, `po-github-poll`, or broker
    tools that normalize external events into `po run` inputs.
@@ -377,22 +378,18 @@ user-facing `recover`.
 
 ## MVP slicing
 
-1. **v0 — input-driven single-step workflows**: workflow files with typed inputs,
-   `po run` creating/adopting a workflow supervisor, one step run backed by one `pd` task run
-   per workflow run, run_requests/workflow_runs/step_runs tables, inspection via `po ps` /
-   `po status`. No built-in scheduler,
-   no success_check. (Strictly more useful than `cron + bash` because of validation, caps,
-   artifacts, and state.)
-2. **v0.5 — outcomes and linear workflows**: success_check, required artifact validation,
-   on_success/on_failure routing, artifact handoff, and `needs` dependencies for linear
-   multi-step workflows.
-3. **v1 — trigger adapters and bounded DAGs**: documented launchd/cron examples, optional
-   GitHub/CI poller wrappers that call `po run`, MCP run tool via broker, parallel read-only
-   steps, strict required-step success semantics.
-4. **vNext**: inbox/dashboard views; respawn; circuit breaker; recovery/adoption command;
-   push notifications; dedup/idempotency for trigger adapters; per-step worktree policies;
-   resume mode; review-backpressure deferred admission; cost budgets (after pd usage capture);
-   richer trigger adapter ecosystem if demand appears.
+1. **V1 core**: workflow files with flat typed inputs, named agents, agent-backed steps,
+   `po run` creating/adopting a workflow supervisor, one workflow worktree, one or more step
+   runs backed by `pd` task runs, required artifact validation, run_requests/workflow_runs/
+   step_runs/artifacts tables, and `pd`-aligned inspection/control (`ps/status/wait/logs/stop/rm`).
+2. **V1 explicitly excludes**: built-in scheduling/polling, `success_check`, optional steps,
+   semantic auto-retries, hidden fix loops, per-step worktrees, raw payload storage,
+   `--input-file`, structured run responses, inbox/dashboard, push notifications, recovery
+   command, respawn, circuit breaker, review backpressure, and cost budgets.
+3. **vNext**: `success_check`; trigger adapters and MCP run tool; bounded DAG conveniences;
+   inbox/dashboard views; respawn; circuit breaker; recovery/adoption command; push
+   notifications; dedup/idempotency for trigger adapters; per-step worktree policies; resume
+   mode; review-backpressure deferred admission; cost budgets after `pd` usage capture.
 
 ## Prerequisites
 
