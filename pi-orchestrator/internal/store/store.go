@@ -270,6 +270,32 @@ func (s *Store) UpdateWorkflowRunState(ctx context.Context, id string, state Sta
 	return nil
 }
 
+func (s *Store) DeleteWorkflowRun(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.ExecContext(ctx, `DELETE FROM artifacts WHERE workflow_run_id = ?`, id); err != nil {
+		return fmt.Errorf("delete artifacts: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM step_runs WHERE workflow_run_id = ?`, id); err != nil {
+		return fmt.Errorf("delete step runs: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM workflow_runs WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete workflow run: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return tx.Commit()
+}
+
 func (s *Store) listStepRuns(ctx context.Context, workflowRunID string) ([]StepRun, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT workflow_run_id, step_id, agent, execution_index, state, pd_task_id, pd_run_id, outcome, started_at, updated_at, ended_at FROM step_runs WHERE workflow_run_id = ? ORDER BY execution_index`, workflowRunID)
 	if err != nil {

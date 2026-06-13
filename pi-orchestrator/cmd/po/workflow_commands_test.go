@@ -61,6 +61,7 @@ func executeCommand(args ...string) (string, error) {
 		rootCmd.SetArgs(nil)
 		workflowDir = ""
 		runInputs = nil
+		cleanupDryRun = false
 	}()
 	err := Execute()
 	return stdout.String(), err
