@@ -58,7 +58,7 @@ func TestLogsCommandShowsSupervisorLogAndPDLogPointers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("logs error = %v", err)
 	}
-	for _, want := range []string{"supervisor started", "step complete", "Backing pd logs:", "review", "pd-task-1", "pd-run-1"} {
+	for _, want := range []string{"supervisor started", "step complete", "Backing pd logs:", "review", "pd-task-1", "pd-run-1", "pd logs pd-task-1"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout = %q, want substring %q", stdout, want)
 		}

@@ -116,7 +116,7 @@ func showWorkflowRunLogs(cmd *cobra.Command, args []string) error {
 			if step.PDTaskID == "" && step.PDRunID == "" {
 				continue
 			}
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\tpd_task=%s\tpd_run=%s\n", step.StepID, step.PDTaskID, step.PDRunID); err != nil {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\tpd_task=%s\tpd_run=%s\tpointer=\"pd logs %s\"\n", step.StepID, step.PDTaskID, step.PDRunID, step.PDTaskID); err != nil {
 				return err
 			}
 		}
