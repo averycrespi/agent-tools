@@ -167,12 +167,10 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
 - Add dependabot or renovate for Go module + action updates (6 Go modules, manual updating
   won't keep up).
 
-### 4.2 Lint config consistency [S]
+### 4.2 Lint config consistency [S] — RESOLVED
 
-- `.golangci.yml` exists in 4 of 6 Go tools (mcp-broker, sandbox-manager, pi-dispatcher,
-  worktree-manager) and is missing in local-git-mcp and local-gomod-proxy. Pick one shared
-  config (root-level with per-tool inclusion, or copy) and apply everywhere. Update "Adding a
-  New Tool" checklist in root CLAUDE.md.
+- Added matching `.golangci.yml` configs to local-git-mcp and local-gomod-proxy, so all 6 Go
+  tools now have lint config. Updated the "Adding a New Tool" checklist in root CLAUDE.md.
 
 ### 4.3 Doc drift fixes [S]
 
@@ -309,7 +307,7 @@ follow the standard new-tool checklist in root CLAUDE.md.
 
 ## Suggested sequencing
 
-1. **Week 1 (correctness):** 1.1 GID, 1.2 timeouts, 4.2 lint config, 4.3 doc drift.
+1. **Week 1 (correctness):** 1.1 GID, 1.2 timeouts, 4.3 doc drift.
 2. **Week 2 (infra + concurrency):** 4.1 CI, 1.3 worktree/pd partial-failure work.
 3. **Week 3-4 (security):** 2.1 tool pinning, 2.2 limits, 2.3 rules lint/test command;
    design spike for 2.5 egress allowlist.

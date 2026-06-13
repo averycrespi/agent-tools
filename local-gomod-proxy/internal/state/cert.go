@@ -39,7 +39,7 @@ func LoadOrGenerateCert(dir string) (certPath, keyPath string, err error) {
 }
 
 func reusable(certPath, keyPath string) bool {
-	certPEM, err := os.ReadFile(certPath)
+	certPEM, err := os.ReadFile(certPath) //nolint:gosec // certPath is derived from the proxy state dir
 	if err != nil {
 		return false
 	}
@@ -90,7 +90,7 @@ func generateCert(dir string, validFor time.Duration) (certPath, keyPath string,
 	}
 
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil {
+	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil { //nolint:gosec // the public certificate is intentionally world-readable
 		return "", "", fmt.Errorf("writing cert: %w", err)
 	}
 

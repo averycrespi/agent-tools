@@ -35,7 +35,7 @@ func EnsureDir(dir string) error {
 	}
 	// MkdirAll does not chmod if the dir already existed with looser perms.
 	// Tighten it defensively — these files are secrets.
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // state directory must be searchable by the owner
 		return fmt.Errorf("chmod state dir %s: %w", dir, err)
 	}
 	return nil

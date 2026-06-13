@@ -29,7 +29,7 @@ func New(r *router.Router, priv *private.Fetcher, pub *public.Fetcher, maxConcur
 
 		parsed, err := private.ParseRequest(req.URL.Path)
 		if err != nil {
-			slog.Info("bad request", "path", req.URL.Path, "err", err)
+			slog.Info("bad request", "path", req.URL.Path, "err", err) //nolint:gosec // structured logging keeps the untrusted path in a value field
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

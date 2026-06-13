@@ -162,7 +162,7 @@ var serveCmd = &cobra.Command{
 // leaf cert DER. Logged at startup so operators can confirm which cert was
 // loaded without touching the key material.
 func certFingerprint(certPath string) (string, error) {
-	raw, err := os.ReadFile(certPath)
+	raw, err := os.ReadFile(certPath) //nolint:gosec // certPath is resolved from the proxy state dir
 	if err != nil {
 		return "", err
 	}

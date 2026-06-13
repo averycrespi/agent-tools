@@ -24,7 +24,7 @@ func Middleware(next http.Handler, creds state.Credentials) http.Handler {
 		if !ok || !secureEqual([]byte(user), wantUser) || !secureEqual([]byte(pass), wantPass) {
 			// Log only the remote address — never the Authorization header or
 			// any user-supplied bytes, which could include the password.
-			slog.Warn("auth failed", "remote", r.RemoteAddr)
+			slog.Warn("auth failed", "remote", r.RemoteAddr) //nolint:gosec // RemoteAddr is server-supplied metadata
 			w.Header().Set("WWW-Authenticate", `Basic realm="`+realm+`"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

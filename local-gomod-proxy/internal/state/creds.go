@@ -30,7 +30,7 @@ type Credentials struct {
 func LoadOrGenerateCredentials(dir string) (Credentials, error) {
 	path := filepath.Join(dir, credsFile)
 
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // path is derived from the proxy state dir
 	if err == nil {
 		return parseCredentials(raw)
 	}
