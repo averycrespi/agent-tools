@@ -1897,6 +1897,104 @@
       // --- Tools ---
       var expandedToolName = null;
 
+      function renderToolsHTML(tools, backendStatuses) {
+        var groups = {};
+        backendStatuses.forEach(function (backend) {
+          if (!groups[backend.name]) groups[backend.name] = { tools: [] };
+          groups[backend.name].status = backend;
+        });
+        var backendNames = backendStatuses
+          .map(function (backend) {
+            return backend.name;
+          })
+          .sort(function (a, b) {
+            return b.length - a.length;
+          });
+        tools.forEach(function (tool) {
+          var provider = backendNames.find(function (backendName) {
+            return tool.name.indexOf(backendName + ".") === 0;
+          });
+          if (!provider) {
+            var parts = tool.name.split(".");
+            provider = parts.length > 1 ? parts[0] : "other";
+          }
+          if (!groups[provider]) groups[provider] = { tools: [] };
+          groups[provider].tools.push(tool);
+        });
+
+        var html = "";
+        var providers = Object.keys(groups).sort();
+        providers.forEach(function (provider) {
+          var group = groups[provider];
+          var items = group.tools || [];
+          var status = group.status || {
+            name: provider,
+            status: "connected",
+            tool_count: items.length,
+          };
+          html += '<div class="provider-group">';
+          html +=
+            '<button class="provider-header collapsed" onclick="toggleProvider(this)">';
+          html +=
+            '<div class="provider-header-left"><span class="chevron">&#9660;</span> ' +
+            esc(provider) +
+            '<span class="provider-status ' +
+            escAttr(status.status) +
+            '">' +
+            esc(status.status) +
+            "</span></div>";
+          html += '<span class="provider-count">' + items.length + " tools</span>";
+          html += "</button>";
+          html += '<div class="provider-capabilities hidden">';
+          if (status.status === "failed") {
+            html += '<div class="backend-failure">';
+            html +=
+              "<strong>Failed during startup</strong> after " +
+              esc(String(status.attempts || 0)) +
+              " attempts.";
+            if (status.phase) {
+              html += " Phase: <code>" + esc(status.phase) + "</code>.";
+            }
+            if (status.error) {
+              html += " Error: " + esc(status.error);
+            }
+            html +=
+              " Restart broker after fixing this backend to discover tools.";
+            html += "</div>";
+          } else if (items.length === 0) {
+            html += '<div class="backend-empty">No tools discovered</div>';
+          }
+          items.forEach(function (tool) {
+            var toolAttr = escAttr(JSON.stringify(tool));
+            html +=
+              '<button type="button" class="tool-item" aria-expanded="false"' +
+              ' data-tool-name="' +
+              escAttr(tool.name) +
+              '"' +
+              ' data-tool="' +
+              toolAttr +
+              '"' +
+              ' onclick="toggleTool(this)">';
+            html += '<div class="tool-item-row">';
+            html += '<span class="chevron">&#9660;</span>';
+            html += '<div class="tool-item-text">';
+            html += '<div class="tool-name">' + esc(tool.name) + "</div>";
+            var ann = tool.annotations || {};
+            if (ann.title)
+              html += '<div class="tool-title">' + esc(ann.title) + "</div>";
+            if (tool.description)
+              html +=
+                '<div class="tool-desc">' + esc(tool.description) + "</div>";
+            html += "</div>";
+            html += renderToolHints(ann);
+            html += "</div>";
+            html += "</button>";
+          });
+          html += "</div></div>";
+        });
+        return html;
+      }
+
       function loadTools() {
         var list = document.getElementById("tools-list");
         var emptyEl = document.getElementById("tools-empty");
@@ -1917,106 +2015,7 @@
               return;
             }
             emptyEl.style.display = "none";
-
-            var groups = {};
-            backendStatuses.forEach(function (backend) {
-              if (!groups[backend.name]) groups[backend.name] = { tools: [] };
-              groups[backend.name].status = backend;
-            });
-            var backendNames = backendStatuses
-              .map(function (backend) {
-                return backend.name;
-              })
-              .sort(function (a, b) {
-                return b.length - a.length;
-              });
-            tools.forEach(function (tool) {
-              var provider = backendNames.find(function (backendName) {
-                return tool.name.indexOf(backendName + ".") === 0;
-              });
-              if (!provider) {
-                var parts = tool.name.split(".");
-                provider = parts.length > 1 ? parts[0] : "other";
-              }
-              if (!groups[provider]) groups[provider] = { tools: [] };
-              groups[provider].tools.push(tool);
-            });
-
-            var html = "";
-            var providers = Object.keys(groups).sort();
-            providers.forEach(function (provider) {
-              var group = groups[provider];
-              var items = group.tools || [];
-              var status = group.status || {
-                name: provider,
-                status: "connected",
-                tool_count: items.length,
-              };
-              html += '<div class="provider-group">';
-              html +=
-                '<button class="provider-header collapsed" onclick="toggleProvider(this)">';
-              html +=
-                '<div class="provider-header-left"><span class="chevron">&#9660;</span> ' +
-                esc(provider) +
-                '<span class="provider-status ' +
-                escAttr(status.status) +
-                '">' +
-                esc(status.status) +
-                "</span></div>";
-              html +=
-                '<span class="provider-count">' + items.length + " tools</span>";
-              html += "</button>";
-              html += '<div class="provider-capabilities hidden">';
-              if (status.status === "failed") {
-                html += '<div class="backend-failure">';
-                html +=
-                  "<strong>Failed during startup</strong> after " +
-                  esc(String(status.attempts || 0)) +
-                  " attempts.";
-                if (status.phase) {
-                  html += " Phase: <code>" + esc(status.phase) + "</code>.";
-                }
-                if (status.error) {
-                  html += " Error: " + esc(status.error);
-                }
-                html +=
-                  " Restart broker after fixing this backend to discover tools.";
-                html += "</div>";
-              } else if (items.length === 0) {
-                html += '<div class="backend-empty">No tools discovered</div>';
-              }
-              items.forEach(function (tool) {
-                var toolAttr = escAttr(JSON.stringify(tool));
-                html +=
-                  '<button type="button" class="tool-item" aria-expanded="false"' +
-                  ' data-tool-name="' +
-                  escAttr(tool.name) +
-                  '"' +
-                  ' data-tool="' +
-                  toolAttr +
-                  '"' +
-                  ' onclick="toggleTool(this)">';
-                html += '<div class="tool-item-row">';
-                html += '<span class="chevron">&#9660;</span>';
-                html += '<div class="tool-item-text">';
-                html += '<div class="tool-name">' + esc(tool.name) + "</div>";
-                var ann = tool.annotations || {};
-                if (ann.title)
-                  html +=
-                    '<div class="tool-title">' + esc(ann.title) + "</div>";
-                if (tool.description)
-                  html +=
-                    '<div class="tool-desc">' +
-                    esc(tool.description) +
-                    "</div>";
-                html += "</div>";
-                html += renderToolHints(ann);
-                html += "</div>";
-                html += "</button>";
-              });
-              html += "</div></div>";
-            });
-            list.innerHTML = html;
+            list.innerHTML = renderToolsHTML(tools, backendStatuses);
           });
       }
 

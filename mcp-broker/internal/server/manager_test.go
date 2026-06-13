@@ -421,6 +421,7 @@ func TestNewManager_ListToolsExhaustionRemovesBackendAndRecordsStatus(t *testing
 	require.Equal(t, "list_tools", statuses[0].Phase)
 	require.Equal(t, 2, statuses[0].Attempts)
 	require.Equal(t, "backend startup failed; see broker logs", statuses[0].Error)
+	require.NotContains(t, m.backends, "github")
 	mb.AssertExpectations(t)
 }
 
@@ -447,6 +448,34 @@ func TestNewManager_OAuthFlowErrorsAreNotRetried(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, attempts)
 	require.Equal(t, 1, m.BackendStatuses()[0].Attempts)
+}
+
+func TestRetryStartup_AuthInteractiveErrorsAreNonRetryable(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "oauth flow", err: errors.New("OAuth flow cancelled: context canceled")},
+		{name: "authorization denied", err: errors.New("authorization denied by user")},
+		{name: "authorization required", err: errors.New("authorization required")},
+		{name: "oauth callback", err: errors.New("OAuth callback error: access_denied")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			retryCount := 3
+			backoffMS := 0
+			attemptsSeen := 0
+			attempts, err := retryStartup(context.Background(), config.ServerConfig{
+				StartupRetryCount:     &retryCount,
+				StartupRetryBackoffMS: &backoffMS,
+			}, func(_ context.Context, _ context.Context) error {
+				attemptsSeen++
+				return tc.err
+			})
+			require.ErrorIs(t, err, tc.err)
+			require.Equal(t, 1, attempts)
+			require.Equal(t, 1, attemptsSeen)
+		})
+	}
 }
 
 func TestRetryStartup_UsesStartupTimeoutInsteadOfHTTPTimeout(t *testing.T) {
