@@ -43,11 +43,15 @@ func runSupervisorCommand(cmd *cobra.Command, _ []string) error {
 	}
 	definition, err := workflow.LoadFile(workflowFilePath(run.Workflow))
 	if err != nil {
+		_ = db.UpdateWorkflowRunState(cmd.Context(), run.ID, store.StateFailed, err.Error(), nowFunc().UTC())
 		return err
 	}
 	if err := db.UpdateWorkflowRunState(cmd.Context(), run.ID, store.StateRunning, "", nowFunc().UTC()); err != nil {
 		return err
 	}
 	run.State = store.StateRunning
-	return posupervisor.Execute(cmd.Context(), db, newStepRunner(), definition, run)
+	if err := posupervisor.Execute(cmd.Context(), db, newStepRunner(), definition, run); err != nil {
+		return err
+	}
+	return nil
 }

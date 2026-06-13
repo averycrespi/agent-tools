@@ -38,6 +38,29 @@ func TestSupervisorCommandExecutesPersistedWorkflowRun(t *testing.T) {
 	}
 }
 
+func TestSupervisorCommandMarksRunFailedWhenWorkflowDefinitionMissing(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, t.TempDir(), stateDir)
+	seedSupervisorCommandRun(t, stateDir)
+
+	_, err := executeCommand("supervisor", "--run-id", "run-1")
+	if err == nil {
+		t.Fatal("supervisor error = nil, want missing workflow error")
+	}
+	db, openErr := store.Open(filepath.Join(stateDir, "po", "po.db"))
+	if openErr != nil {
+		t.Fatalf("open store: %v", openErr)
+	}
+	defer db.Close() //nolint:errcheck
+	run, getErr := db.GetWorkflowRun(context.Background(), "run-1")
+	if getErr != nil {
+		t.Fatalf("GetWorkflowRun() error = %v", getErr)
+	}
+	if run.State != store.StateFailed || run.Outcome == "" {
+		t.Fatalf("run = %+v, want failed state with outcome", run)
+	}
+}
+
 type supervisorCommandRunner struct{}
 
 func (supervisorCommandRunner) RunStep(context.Context, posupervisor.StepRequest) (posupervisor.StepResult, error) {
