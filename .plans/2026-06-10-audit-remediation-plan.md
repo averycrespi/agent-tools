@@ -160,14 +160,13 @@ Aligned to OWASP MCP Top 10 and the MCP spec security-best-practices page.
 
 ## Phase 4 — Repo infrastructure
 
-### 4.1 GitHub Actions CI [M]
+### 4.1 GitHub Actions CI [M] — SKIPPED
 
-- No `.github/workflows/` exists. Add one workflow: per-tool matrix running
-  `make tidy fmt lint test` + govulncheck on PR and main. Integration/e2e tags stay local
-  (they need `gh` auth, Lima, etc.) — run unit tests only in CI, and add a separate optional
-  workflow for integration tests that tolerates missing prerequisites.
-- Add dependabot or renovate for Go module + action updates (6 Go modules, manual updating
-  won't keep up).
+- Decision: do not add GitHub Actions CI for now.
+- Rationale: local pre-commit hooks and `make lint` currently provide the desired gate, and
+  externally hosted CI is not needed for this repository's current workflow.
+- Revisit if the repository starts accepting external PRs or needs unattended remote quality
+  gates.
 
 ### 4.2 Lint config consistency [S] — RESOLVED
 
