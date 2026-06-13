@@ -134,10 +134,14 @@ func (s *Service) AddHeadlessWithOwnership(repoRoot, branch string) (string, boo
 		}
 
 		for _, relPath := range s.config.CopyFiles {
-			s.copyFile(info.Root, worktreeDir, relPath)
+			if err := s.copyFile(info.Root, worktreeDir, relPath); err != nil {
+				return "", false, err
+			}
 		}
 
-		s.runSetupScripts(worktreeDir)
+		if err := s.runSetupScripts(worktreeDir); err != nil {
+			return "", false, err
+		}
 	} else {
 		s.logger.Debug("worktree already exists", "path", worktreeDir)
 	}
@@ -252,54 +256,62 @@ func (s *Service) Attach(path, branch string) error {
 }
 
 // runSetupScripts runs configured setup scripts in the worktree directory.
-func (s *Service) runSetupScripts(worktreeDir string) {
+func (s *Service) runSetupScripts(worktreeDir string) error {
 	if s.runner == nil {
-		return
+		return nil
 	}
 	for _, script := range s.config.SetupScripts {
 		scriptPath := filepath.Join(worktreeDir, script)
 		fi, err := os.Stat(scriptPath)
-		if err != nil || fi.IsDir() {
+		if os.IsNotExist(err) || (err == nil && fi.IsDir()) {
 			s.logger.Debug("setup script not found, skipping", "script", script)
 			continue
 		}
+		if err != nil {
+			return fmt.Errorf("stat setup script %s: %w", script, err)
+		}
 		s.logger.Info("running setup script", "script", script)
 		if _, err := s.runner.RunDir(worktreeDir, scriptPath); err != nil {
-			s.logger.Warn("setup script failed", "script", script, "error", err)
+			return fmt.Errorf("setup script %s failed: %w", script, err)
 		}
 	}
+	return nil
 }
 
 // copyFile copies a single file from the main repo to the worktree.
-// Paths are relative to the respective roots. Silently skips if source doesn't exist.
-func (s *Service) copyFile(repoRoot, worktreeDir, relPath string) {
+// Paths are relative to the respective roots. Missing sources are skipped.
+func (s *Service) copyFile(repoRoot, worktreeDir, relPath string) error {
 	src := filepath.Join(repoRoot, relPath)
 	dst := filepath.Join(worktreeDir, relPath)
 
 	srcFile, err := os.Open(src) //nolint:gosec // path is constructed from config, not user input
-	if err != nil {
+	if os.IsNotExist(err) {
 		s.logger.Debug("copy source not found, skipping", "path", relPath)
-		return
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("open configured file %s: %w", relPath, err)
 	}
 	defer srcFile.Close() //nolint:errcheck // best-effort close on read-only file
 
 	if _, err := os.Stat(dst); err == nil {
 		s.logger.Debug("copy destination already exists, skipping", "path", relPath)
-		return
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat copy destination %s: %w", relPath, err)
 	}
 
 	s.logger.Info("copying file to worktree", "path", relPath)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil { //nolint:gosec // 0755 is appropriate for worktree directories
-		s.logger.Warn("could not create directory for copy", "path", relPath, "error", err)
-		return
+		return fmt.Errorf("create directory for configured file %s: %w", relPath, err)
 	}
 	dstFile, err := os.Create(dst) //nolint:gosec // path is constructed from config, not user input
 	if err != nil {
-		s.logger.Warn("could not create destination file", "path", relPath, "error", err)
-		return
+		return fmt.Errorf("create configured file %s: %w", relPath, err)
 	}
 	defer dstFile.Close() //nolint:errcheck // best-effort close; errors caught by io.Copy
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		s.logger.Warn("copy failed", "path", relPath, "error", err)
+		return fmt.Errorf("copy configured file %s: %w", relPath, err)
 	}
+	return nil
 }

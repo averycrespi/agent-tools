@@ -56,11 +56,11 @@ indefinitely. One pattern, three tools:
   `wt add`/`pd run` on the same branch race. Add file locking (`flock` on a per-repo lock
   file under the worktree base dir) or treat "worktree already exists" from git as success
   (idempotent recovery) — prefer the latter plus a small lock for the copy/setup phase.
-- Partial worktrees: if file copy or setup script fails, the worktree is left half-configured
-  and DESIGN.md's idempotency claim is false. Decide semantics: either (a) rollback on error
-  (remove the worktree), or (b) make `wt add` truly idempotent/resumable and surface copy/
-  setup failures as errors instead of debug logs (`workspace.go:136-140`). Update DESIGN.md
-  to match the choice.
+- Partial worktrees: RESOLVED for failure visibility. Missing configured files/scripts remain
+  optional and are skipped, but failures while copying an existing configured file or running
+  an existing setup script now return errors instead of being logged and ignored. Worktrees
+  are intentionally left in place for inspection; a future `wt add --reconfigure` flag could
+  explicitly rerun copy/setup for existing worktrees.
 - pi-dispatcher launch failure path (`cmd/pd/run_impl.go:140-169`): RESOLVED after this plan
   was written. Current `failRunLaunch` transitions launch failures to terminal `failed` and
   runs cleanup for failures before a supervisor PID is returned; failures after a supervisor

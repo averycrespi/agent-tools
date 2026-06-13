@@ -245,6 +245,77 @@ func TestService_Add_NoLaunchCommand(t *testing.T) {
 	tm.AssertNotCalled(t, "SendKeys", mock.Anything, mock.Anything, mock.Anything)
 }
 
+func TestService_AddHeadless_SkipsMissingCopyFileAndSetupScript(t *testing.T) {
+	g := new(mockGitClient)
+	repoDir := t.TempDir()
+	g.On("RepoInfo", repoDir).Return(git.Info{Name: "myrepo", Root: repoDir}, nil)
+	g.On("AddWorktree", repoDir, mock.Anything, "feat").Return(nil)
+
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmpDir)
+
+	runner := new(mockRunner)
+	cfg := config.Config{
+		CopyFiles:    []string{".env.local"},
+		SetupScripts: []string{"scripts/setup.sh"},
+	}
+	svc := NewService(g, new(mockTmuxClient), cfg, nopLogger, runner)
+
+	_, err := svc.AddHeadless(repoDir, "feat")
+	require.NoError(t, err)
+	runner.AssertNotCalled(t, "RunDir", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestService_AddHeadless_ReturnsErrorWhenCopyFails(t *testing.T) {
+	g := new(mockGitClient)
+	repoDir := t.TempDir()
+	g.On("RepoInfo", repoDir).Return(git.Info{Name: "myrepo", Root: repoDir}, nil)
+
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmpDir)
+	worktreeDir := config.WorktreeDir("myrepo", "feat")
+	g.On("AddWorktree", repoDir, worktreeDir, "feat").Run(func(_ mock.Arguments) {
+		require.NoError(t, os.MkdirAll(worktreeDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(worktreeDir, ".claude"), []byte("not a dir"), 0o644))
+	}).Return(nil)
+
+	srcFile := filepath.Join(repoDir, ".claude", "settings.local.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(srcFile), 0o755))
+	require.NoError(t, os.WriteFile(srcFile, []byte(`{"key":"value"}`), 0o644))
+
+	cfg := config.Config{CopyFiles: []string{".claude/settings.local.json"}}
+	svc := NewService(g, new(mockTmuxClient), cfg, nopLogger, nil)
+
+	_, err := svc.AddHeadless(repoDir, "feat")
+	require.Error(t, err)
+	require.ErrorContains(t, err, ".claude/settings.local.json")
+}
+
+func TestService_AddHeadless_ReturnsErrorWhenSetupScriptFails(t *testing.T) {
+	g := new(mockGitClient)
+	repoDir := t.TempDir()
+	g.On("RepoInfo", repoDir).Return(git.Info{Name: "myrepo", Root: repoDir}, nil)
+
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmpDir)
+	worktreeDir := config.WorktreeDir("myrepo", "feat")
+	g.On("AddWorktree", repoDir, worktreeDir, "feat").Run(func(_ mock.Arguments) {
+		scriptPath := filepath.Join(worktreeDir, "scripts", "setup.sh")
+		require.NoError(t, os.MkdirAll(filepath.Dir(scriptPath), 0o755))
+		require.NoError(t, os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 1\n"), 0o755))
+	}).Return(nil)
+
+	runner := new(mockRunner)
+	runner.On("RunDir", worktreeDir, filepath.Join(worktreeDir, "scripts", "setup.sh"), []string(nil)).Return([]byte("failed"), assert.AnError)
+
+	cfg := config.Config{SetupScripts: []string{"scripts/setup.sh"}}
+	svc := NewService(g, new(mockTmuxClient), cfg, nopLogger, runner)
+
+	_, err := svc.AddHeadless(repoDir, "feat")
+	require.Error(t, err)
+	require.ErrorContains(t, err, "setup script scripts/setup.sh")
+}
+
 func TestService_Add_CopyFiles(t *testing.T) {
 	g := new(mockGitClient)
 	g.On("RepoInfo", "/repo").Return(git.Info{Name: "myrepo", Root: "/repo"}, nil)
