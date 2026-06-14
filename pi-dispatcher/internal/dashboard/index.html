@@ -10,11 +10,13 @@
         color-scheme: dark;
         --bg: #080b10;
         --panel: #101722;
-        --panel2: #151f2d;
+        --panel-strong: #151f2d;
+        --panel-sunken: #05070b;
         --text: #e6edf3;
         --muted: #8b98a8;
         --line: #263244;
-        --accent: #7dd3fc;
+        --product-accent: #7dd3fc;
+        --product-accent-2: #38bdf8;
         --good: #86efac;
         --bad: #fca5a5;
         --warn: #fde68a;
@@ -24,7 +26,10 @@
       }
       body {
         margin: 0;
-        background: var(--bg);
+        background:
+          radial-gradient(circle at 14% 10%, rgba(125, 211, 252, 0.12), transparent 32rem),
+          radial-gradient(circle at 84% 18%, rgba(56, 189, 248, 0.08), transparent 28rem),
+          var(--bg);
         color: var(--text);
         font:
           14px/1.4 ui-sans-serif,
@@ -39,18 +44,25 @@
         justify-content: space-between;
         padding: 16px 20px;
         border-bottom: 1px solid var(--line);
-        background: #0b111a;
+        background: rgba(11, 17, 26, 0.92);
+        backdrop-filter: blur(12px);
       }
       h1 {
         margin: 0;
         font-size: 20px;
+        font-weight: 700;
         letter-spacing: 0.04em;
       }
       h2,
       h3 {
         margin: 0 0 12px;
       }
-      .brand {
+      .brand,
+      .connection,
+      .row,
+      .toolbar,
+      .tabs,
+      .logbar {
         display: flex;
         align-items: center;
         gap: 10px;
@@ -60,21 +72,25 @@
         height: 28px;
       }
       .connection {
-        display: flex;
-        align-items: center;
-        gap: 8px;
+        color: var(--muted);
+        font-size: 12px;
       }
       .status-dot {
         width: 8px;
         height: 8px;
         border-radius: 50%;
         background: var(--bad);
+        box-shadow: 0 0 0 4px rgba(252, 165, 165, 0.08);
       }
       .status-dot.connected {
         background: var(--good);
+        box-shadow: 0 0 0 4px rgba(134, 239, 172, 0.08);
+      }
+      .hint,
+      .muted {
+        color: var(--muted);
       }
       .hint {
-        color: var(--muted);
         font-size: 12px;
       }
       .layout {
@@ -85,81 +101,94 @@
         height: calc(100vh - 61px);
       }
       section {
-        background: var(--panel);
+        overflow: hidden;
         border: 1px solid var(--line);
         border-radius: 12px;
-        overflow: hidden;
+        background: rgba(16, 23, 34, 0.92);
+        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.18);
       }
       .toolbar,
       .tabs,
       .logbar {
-        display: flex;
-        align-items: center;
-        gap: 8px;
         padding: 10px;
         border-bottom: 1px solid var(--line);
-        background: var(--panel2);
+        background: rgba(21, 31, 45, 0.94);
       }
       input,
       select,
       button {
-        background: #0b111a;
-        color: var(--text);
         border: 1px solid var(--line);
         border-radius: 8px;
-        padding: 8px;
+        background: var(--panel-sunken);
+        color: var(--text);
+        padding: 8px 10px;
+        font: inherit;
       }
       button {
         cursor: pointer;
       }
+      input:focus,
+      select:focus,
+      button:focus-visible {
+        outline: 2px solid rgba(125, 211, 252, 0.4);
+        outline-offset: 2px;
+      }
       .tabs button.active {
-        border-color: var(--accent);
-        color: var(--accent);
-        background: #0d1b2a;
+        border-color: var(--product-accent);
+        background: rgba(13, 27, 42, 0.92);
+        color: var(--product-accent);
       }
       .tasks {
+        min-height: 0;
         overflow: auto;
-        height: calc(100% - 52px);
       }
       .task {
         display: grid;
-        gap: 4px;
+        gap: 6px;
         width: 100%;
-        text-align: left;
+        padding: 13px 12px;
         border: 0;
         border-bottom: 1px solid var(--line);
         border-radius: 0;
         background: transparent;
-        padding: 12px;
+        color: var(--text);
+        text-align: left;
       }
       .task:hover {
-        background: #172033;
+        background: rgba(34, 49, 74, 0.58);
       }
       .task.selected {
-        background: #22314a;
-        box-shadow: inset 4px 0 0 var(--accent);
+        background: rgba(34, 49, 74, 0.84);
+        box-shadow: inset 4px 0 0 var(--product-accent);
       }
       .row {
-        display: flex;
-        align-items: center;
         justify-content: space-between;
-        gap: 8px;
+        min-width: 0;
       }
       .mono {
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         overflow-wrap: anywhere;
       }
-      .muted {
-        color: var(--muted);
-      }
       .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
         border: 1px solid var(--line);
         border-radius: 999px;
         padding: 2px 8px;
+        color: #cbd5e1;
         font-size: 12px;
+        white-space: nowrap;
+      }
+      .chip::before {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        content: "";
       }
       .running {
-        color: var(--accent);
+        color: var(--product-accent);
       }
       .succeeded {
         color: var(--good);
@@ -167,9 +196,13 @@
       .failed {
         color: var(--bad);
       }
+      .master,
       .detail {
         display: grid;
         grid-template-rows: auto 1fr;
+        min-height: 0;
+      }
+      .detail {
         height: 100%;
       }
       .tab-panel {
@@ -183,7 +216,7 @@
       .grid {
         display: grid;
         grid-template-columns: max-content minmax(0, 1fr);
-        gap: 6px 12px;
+        gap: 7px 12px;
       }
       .grid > div {
         min-width: 0;
@@ -209,12 +242,20 @@
       }
       pre {
         margin: 0;
-        padding: 12px;
-        overflow: auto;
-        background: #05070b;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel-sunken);
         color: #d1d5db;
+        overflow: auto;
+        padding: 12px;
+      }
+      .logs-panel pre {
+        border: 0;
+        border-radius: 0;
       }
       .empty {
+        display: grid;
+        place-items: center;
         padding: 28px;
         color: var(--muted);
         text-align: center;
@@ -242,7 +283,7 @@
       </div>
     </header>
     <main class="layout">
-      <section aria-label="Tasks">
+      <section class="master" aria-label="Tasks">
         <div class="toolbar">
           <input
             id="search"

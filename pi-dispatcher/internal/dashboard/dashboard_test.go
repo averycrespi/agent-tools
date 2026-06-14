@@ -45,7 +45,7 @@ func TestIndexIncludesExplorerUI(t *testing.T) {
 	require.NotContains(t, body, "events-panel")
 	require.Contains(t, compactBody, "grid-template-columns:max-contentminmax(0,1fr)")
 	require.Contains(t, compactBody, ".grid>.muted{white-space:nowrap}")
-	require.Contains(t, compactBody, "box-shadow:inset4px00var(--accent)")
+	require.Contains(t, compactBody, "box-shadow:inset4px00var(--product-accent)")
 	require.Contains(t, body, ".logbar #logstate")
 	require.Contains(t, body, "stdout")
 	require.Contains(t, body, "status-dot")

@@ -10,17 +10,21 @@
         color-scheme: dark;
         --bg: #080b10;
         --panel: #101722;
-        --panel2: #151f2d;
-        --panel3: #0b111a;
+        --panel-strong: #151f2d;
+        --panel-sunken: #05070b;
         --text: #e6edf3;
         --muted: #8b98a8;
         --line: #263244;
-        --accent: #c084fc;
-        --accent2: #7dd3fc;
+        --product-accent: #c084fc;
+        --product-accent-2: #7dd3fc;
         --good: #86efac;
         --bad: #fca5a5;
         --warn: #fde68a;
         --idle: #cbd5e1;
+        --panel2: var(--panel-strong);
+        --panel3: var(--panel-sunken);
+        --accent: var(--product-accent);
+        --accent2: var(--product-accent-2);
       }
       * {
         box-sizing: border-box;
@@ -56,6 +60,7 @@
       }
       h1 {
         font-size: 20px;
+        font-weight: 700;
         letter-spacing: 0.04em;
       }
       h2 {
@@ -100,7 +105,7 @@
       }
       .layout {
         display: grid;
-        grid-template-columns: minmax(340px, 38%) 1fr;
+        grid-template-columns: minmax(320px, 38%) 1fr;
         gap: 12px;
         height: calc(100vh - 61px);
         padding: 12px;
@@ -108,9 +113,9 @@
       section {
         overflow: hidden;
         border: 1px solid var(--line);
-        border-radius: 14px;
+        border-radius: 12px;
         background: rgba(16, 23, 34, 0.92);
-        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.22);
+        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.18);
       }
       .master,
       .detail {
@@ -144,7 +149,7 @@
       }
       .run {
         display: grid;
-        gap: 8px;
+        gap: 6px;
         width: 100%;
         padding: 13px 12px;
         border: 0;
@@ -159,7 +164,7 @@
         background: rgba(34, 49, 74, 0.58);
       }
       .run.selected {
-        background: rgba(49, 46, 84, 0.84);
+        background: rgba(34, 49, 74, 0.84);
         box-shadow: inset 4px 0 0 var(--accent);
       }
       .row {
@@ -230,7 +235,13 @@
         background: var(--panel3);
         color: var(--text);
         padding: 8px 10px;
+        font: inherit;
         cursor: pointer;
+      }
+      .tabs button:focus-visible,
+      .ghost:focus-visible {
+        outline: 2px solid rgba(192, 132, 252, 0.4);
+        outline-offset: 2px;
       }
       .tabs button.active,
       .ghost:hover {
@@ -319,7 +330,7 @@
         margin: 0;
         border: 1px solid var(--line);
         border-radius: 12px;
-        background: #05070b;
+        background: var(--panel-sunken);
         color: #d1d5db;
         overflow: auto;
         padding: 12px;
@@ -348,7 +359,7 @@
       .error {
         color: var(--bad);
       }
-      @media (max-width: 880px) {
+      @media (max-width: 900px) {
         .layout {
           grid-template-columns: 1fr;
           height: auto;
@@ -364,12 +375,9 @@
     <header>
       <div class="brand">
         <img class="brand-icon" src="favicon.svg" alt="" />
-        <div>
-          <h1>Pi Orchestrator</h1>
-          <div class="hint">Workflow supervisor dashboard</div>
-        </div>
+        <h1>Pi Orchestrator</h1>
       </div>
-      <div class="connection"><span id="conn-dot" class="status-dot"></span><span id="conn-text">Connecting</span></div>
+      <div class="connection"><span id="conn-dot" class="status-dot"></span><span id="conn-text">Disconnected</span></div>
     </header>
     <main class="layout">
       <section class="master">
@@ -688,10 +696,10 @@
 
       refresh();
       const events = new EventSource('/dashboard/events');
-      events.addEventListener('open', () => setConnection(true, 'Live'));
-      events.addEventListener('error', () => setConnection(false, 'Reconnecting'));
+      events.addEventListener('open', () => setConnection(true, 'Connected'));
+      events.addEventListener('error', () => setConnection(false, 'Disconnected'));
       events.addEventListener('snapshot', (event) => {
-        setConnection(true, 'Live');
+        setConnection(true, 'Connected');
         renderRuns(JSON.parse(event.data));
         if (state.selectedID && !terminalStates.has((state.detail && state.detail.Run && state.detail.Run.State) || '')) loadRun(state.selectedID, { logs: false });
       });

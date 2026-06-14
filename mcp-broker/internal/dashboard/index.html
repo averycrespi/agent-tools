@@ -5,12 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MCP Broker</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
     <style>
       * {
         margin: 0;
@@ -19,22 +13,38 @@
       }
 
       :root {
-        --bg-base: #111111;
-        --bg-panel: #1a1a1a;
-        --bg-hover: #242424;
-        --text-primary: #e5e5e5;
-        --text-secondary: #a3a3a3;
-        --border: #333333;
-        --green: #22c55e;
-        --red: #ef4444;
-        --amber: #f59e0b;
-        --font-mono: "JetBrains Mono", monospace;
-        --font-sans: "DM Sans", sans-serif;
+        color-scheme: dark;
+        --bg: #080b10;
+        --panel: #101722;
+        --panel-strong: #151f2d;
+        --panel-sunken: #05070b;
+        --text: #e6edf3;
+        --muted: #8b98a8;
+        --line: #263244;
+        --product-accent: #22c55e;
+        --product-accent-2: #f59e0b;
+        --good: #86efac;
+        --bad: #fca5a5;
+        --warn: #fde68a;
+        --bg-base: var(--bg);
+        --bg-panel: var(--panel);
+        --bg-hover: rgba(34, 49, 74, 0.58);
+        --text-primary: var(--text);
+        --text-secondary: var(--muted);
+        --border: var(--line);
+        --green: var(--good);
+        --red: var(--bad);
+        --amber: var(--product-accent-2);
+        --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        --font-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
       }
 
       body {
         font-family: var(--font-sans);
-        background: var(--bg-base);
+        background:
+          radial-gradient(circle at 14% 10%, rgba(34, 197, 94, 0.1), transparent 32rem),
+          radial-gradient(circle at 84% 18%, rgba(245, 158, 11, 0.08), transparent 28rem),
+          var(--bg-base);
         color: var(--text-primary);
         min-height: 100vh;
       }
@@ -44,9 +54,10 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 1rem 1.5rem;
+        padding: 1rem 1.25rem;
         border-bottom: 1px solid var(--border);
-        background: var(--bg-panel);
+        background: rgba(11, 17, 26, 0.92);
+        backdrop-filter: blur(12px);
       }
 
       .header-left {
@@ -55,12 +66,17 @@
         gap: 0.75rem;
       }
 
+      .header-logo {
+        width: 28px;
+        height: 28px;
+      }
+
       .header h1 {
         font-family: var(--font-sans);
-        font-size: 1.125rem;
-        font-weight: 600;
+        font-size: 1.25rem;
+        font-weight: 700;
         color: var(--text-primary);
-        letter-spacing: -0.01em;
+        letter-spacing: 0.04em;
       }
 
       .status-dot {
@@ -68,11 +84,13 @@
         height: 8px;
         border-radius: 50%;
         background: var(--red);
+        box-shadow: 0 0 0 4px rgba(252, 165, 165, 0.08);
         flex-shrink: 0;
       }
 
       .status-dot.connected {
         background: var(--green);
+        box-shadow: 0 0 0 4px rgba(134, 239, 172, 0.08);
       }
 
       .status-label {
@@ -101,7 +119,7 @@
         position: relative;
         width: 32px;
         height: 18px;
-        background: var(--bg-base);
+        background: var(--panel-sunken);
         border: 1px solid var(--border);
         border-radius: 9px;
         cursor: pointer;
@@ -143,8 +161,8 @@
         display: flex;
         gap: 0;
         border-bottom: 1px solid var(--border);
-        background: var(--bg-panel);
-        padding: 0 1.5rem;
+        background: rgba(16, 23, 34, 0.92);
+        padding: 0 1.25rem;
       }
 
       .tab {
@@ -170,8 +188,13 @@
       }
 
       .tab.active {
-        color: var(--text-primary);
-        border-bottom-color: var(--text-primary);
+        color: var(--product-accent);
+        border-bottom-color: var(--product-accent);
+      }
+
+      .tab:focus-visible {
+        outline: 2px solid rgba(34, 197, 94, 0.4);
+        outline-offset: -2px;
       }
 
       .tab-badge {
@@ -222,16 +245,17 @@
         padding: 2rem;
         text-align: center;
         border: 1px dashed var(--border);
-        border-radius: 8px;
-        background: var(--bg-panel);
+        border-radius: 12px;
+        background: rgba(16, 23, 34, 0.92);
       }
 
       .card {
-        background: var(--bg-panel);
+        background: rgba(16, 23, 34, 0.92);
         border: 1px solid var(--border);
-        border-radius: 8px;
+        border-radius: 12px;
         padding: 1rem 1.25rem;
         margin-bottom: 0.75rem;
+        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.18);
       }
 
       .card.pending {
@@ -270,9 +294,9 @@
       }
 
       .card pre {
-        background: var(--bg-base);
+        background: var(--panel-sunken);
         border: 1px solid var(--border);
-        border-radius: 6px;
+        border-radius: 8px;
         padding: 0.625rem 0.75rem;
         font-family: var(--font-mono);
         font-size: 0.8125rem;
@@ -294,8 +318,8 @@
         flex: 1;
         padding: 0.4rem 0.625rem;
         border: 1px solid var(--border);
-        border-radius: 6px;
-        background: var(--bg-base);
+        border-radius: 8px;
+        background: var(--panel-sunken);
         color: var(--text-primary);
         font-family: var(--font-sans);
         font-size: 0.8125rem;
@@ -308,11 +332,18 @@
       .actions button {
         padding: 0.4rem 1rem;
         border: none;
-        border-radius: 6px;
+        border-radius: 8px;
         cursor: pointer;
         font-family: var(--font-sans);
         font-size: 0.8125rem;
         font-weight: 600;
+      }
+
+      .actions button:focus-visible,
+      .pagination-btns button:focus-visible,
+      .audit-strip-btn:focus-visible {
+        outline: 2px solid rgba(34, 197, 94, 0.4);
+        outline-offset: 2px;
       }
 
       .btn-approve {
@@ -388,9 +419,9 @@
 
       /* Tools tab */
       .provider-group {
-        background: var(--bg-panel);
+        background: rgba(16, 23, 34, 0.92);
         border: 1px solid var(--border);
-        border-radius: 8px;
+        border-radius: 12px;
         margin-bottom: 0.75rem;
         overflow: hidden;
       }
@@ -435,7 +466,7 @@
         font-family: var(--font-mono);
         font-size: 0.6875rem;
         font-weight: 600;
-        background: var(--bg-base);
+        background: var(--panel-sunken);
         color: var(--text-secondary);
         padding: 0.1rem 0.5rem;
         border-radius: 9999px;
@@ -579,7 +610,7 @@
         border-radius: 999px;
         border: 1px solid var(--border);
         color: var(--text-secondary);
-        background: var(--bg-base);
+        background: var(--panel-sunken);
         white-space: nowrap;
         cursor: help;
       }
@@ -635,7 +666,7 @@
       /* Detail panel */
       .tool-detail {
         padding: 0.75rem 1rem 0.875rem 2.5rem;
-        background: var(--bg-base);
+        background: var(--panel-sunken);
         border-bottom: 1px solid var(--border);
         border-left: 2px solid var(--text-secondary);
       }
@@ -729,9 +760,9 @@
 
       .tool-schema-raw pre {
         margin-top: 0.5rem;
-        background: var(--bg-panel);
+        background: rgba(16, 23, 34, 0.92);
         border: 1px solid var(--border);
-        border-radius: 6px;
+        border-radius: 8px;
         padding: 0.5rem 0.625rem;
         font-family: var(--font-mono);
         font-size: 0.75rem;
@@ -744,9 +775,9 @@
 
       /* Rules tab */
       .rule-card {
-        background: var(--bg-panel);
+        background: rgba(16, 23, 34, 0.92);
         border: 1px solid var(--border);
-        border-radius: 8px;
+        border-radius: 12px;
         margin-bottom: 0.75rem;
         overflow: hidden;
       }
@@ -828,9 +859,9 @@
       .fallthrough-box {
         flex: 1;
         min-width: 240px;
-        background: var(--bg-panel);
+        background: rgba(16, 23, 34, 0.92);
         border: 1px solid var(--border);
-        border-radius: 8px;
+        border-radius: 12px;
         overflow: hidden;
       }
 
@@ -842,7 +873,7 @@
         letter-spacing: 0.05em;
         color: var(--text-secondary);
         border-bottom: 1px solid var(--border);
-        background: var(--bg-base);
+        background: var(--panel-sunken);
       }
 
       .fallthrough-box-caption {
@@ -887,9 +918,9 @@
 
       .filter-group input {
         padding: 0.4rem 0.625rem;
-        background: var(--bg-panel);
+        background: rgba(16, 23, 34, 0.92);
         border: 1px solid var(--border);
-        border-radius: 6px;
+        border-radius: 8px;
         color: var(--text-primary);
         font-family: var(--font-mono);
         font-size: 0.8125rem;
@@ -908,8 +939,8 @@
       .audit-table-wrap {
         overflow-x: auto;
         border: 1px solid var(--border);
-        border-radius: 8px;
-        background: var(--bg-panel);
+        border-radius: 12px;
+        background: rgba(16, 23, 34, 0.92);
       }
 
       .audit-table {
@@ -928,7 +959,7 @@
         letter-spacing: 0.05em;
         color: var(--text-secondary);
         border-bottom: 1px solid var(--border);
-        background: var(--bg-base);
+        background: var(--panel-sunken);
       }
 
       .audit-table td {
@@ -1017,9 +1048,9 @@
 
       .audit-detail-value pre {
         margin: 0;
-        background: var(--bg-base);
+        background: var(--panel-sunken);
         border: 1px solid var(--border);
-        border-radius: 6px;
+        border-radius: 8px;
         padding: 0.5rem 0.625rem;
         font-family: var(--font-mono);
         font-size: 0.8125rem;
@@ -1063,9 +1094,9 @@
 
       .pagination-btns button {
         padding: 0.35rem 0.875rem;
-        background: var(--bg-panel);
+        background: rgba(16, 23, 34, 0.92);
         border: 1px solid var(--border);
-        border-radius: 6px;
+        border-radius: 8px;
         color: var(--text-primary);
         cursor: pointer;
         font-family: var(--font-sans);
@@ -1111,7 +1142,7 @@
 
       .audit-strip-btn {
         padding: 0.2rem 0.625rem;
-        background: var(--bg-panel);
+        background: rgba(16, 23, 34, 0.92);
         border: 1px solid var(--border);
         border-radius: 5px;
         color: var(--text-secondary);
@@ -1133,7 +1164,7 @@
         padding: 0.25rem 0.75rem;
         background: rgba(245, 158, 11, 0.08);
         border: 1px solid rgba(245, 158, 11, 0.25);
-        border-radius: 6px;
+        border-radius: 8px;
         color: var(--amber);
         cursor: pointer;
         font-size: 0.8125rem;
