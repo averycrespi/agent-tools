@@ -139,8 +139,8 @@
         color: var(--product-accent);
       }
       .tasks {
+        min-height: 0;
         overflow: auto;
-        height: calc(100% - 52px);
       }
       .task {
         display: grid;
@@ -196,9 +196,13 @@
       .failed {
         color: var(--bad);
       }
+      .master,
       .detail {
         display: grid;
         grid-template-rows: auto 1fr;
+        min-height: 0;
+      }
+      .detail {
         height: 100%;
       }
       .tab-panel {
@@ -279,7 +283,7 @@
       </div>
     </header>
     <main class="layout">
-      <section aria-label="Tasks">
+      <section class="master" aria-label="Tasks">
         <div class="toolbar">
           <input
             id="search"

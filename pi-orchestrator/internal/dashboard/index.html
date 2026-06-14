@@ -60,6 +60,7 @@
       }
       h1 {
         font-size: 20px;
+        font-weight: 700;
         letter-spacing: 0.04em;
       }
       h2 {
@@ -104,7 +105,7 @@
       }
       .layout {
         display: grid;
-        grid-template-columns: minmax(340px, 38%) 1fr;
+        grid-template-columns: minmax(320px, 38%) 1fr;
         gap: 12px;
         height: calc(100vh - 61px);
         padding: 12px;
@@ -148,7 +149,7 @@
       }
       .run {
         display: grid;
-        gap: 8px;
+        gap: 6px;
         width: 100%;
         padding: 13px 12px;
         border: 0;
@@ -163,7 +164,7 @@
         background: rgba(34, 49, 74, 0.58);
       }
       .run.selected {
-        background: rgba(49, 46, 84, 0.84);
+        background: rgba(34, 49, 74, 0.84);
         box-shadow: inset 4px 0 0 var(--accent);
       }
       .row {
@@ -329,7 +330,7 @@
         margin: 0;
         border: 1px solid var(--line);
         border-radius: 12px;
-        background: #05070b;
+        background: var(--panel-sunken);
         color: #d1d5db;
         overflow: auto;
         padding: 12px;
@@ -358,7 +359,7 @@
       .error {
         color: var(--bad);
       }
-      @media (max-width: 880px) {
+      @media (max-width: 900px) {
         .layout {
           grid-template-columns: 1fr;
           height: auto;
@@ -374,12 +375,9 @@
     <header>
       <div class="brand">
         <img class="brand-icon" src="favicon.svg" alt="" />
-        <div>
-          <h1>Pi Orchestrator</h1>
-          <div class="hint">Workflow supervisor dashboard</div>
-        </div>
+        <h1>Pi Orchestrator</h1>
       </div>
-      <div class="connection"><span id="conn-dot" class="status-dot"></span><span id="conn-text">Connecting</span></div>
+      <div class="connection"><span id="conn-dot" class="status-dot"></span><span id="conn-text">Disconnected</span></div>
     </header>
     <main class="layout">
       <section class="master">
@@ -698,10 +696,10 @@
 
       refresh();
       const events = new EventSource('/dashboard/events');
-      events.addEventListener('open', () => setConnection(true, 'Live'));
-      events.addEventListener('error', () => setConnection(false, 'Reconnecting'));
+      events.addEventListener('open', () => setConnection(true, 'Connected'));
+      events.addEventListener('error', () => setConnection(false, 'Disconnected'));
       events.addEventListener('snapshot', (event) => {
-        setConnection(true, 'Live');
+        setConnection(true, 'Connected');
         renderRuns(JSON.parse(event.data));
         if (state.selectedID && !terminalStates.has((state.detail && state.detail.Run && state.detail.Run.State) || '')) loadRun(state.selectedID, { logs: false });
       });
