@@ -60,6 +60,8 @@ po token rotate
 
 `po run` validates inputs before side effects, verifies the configured artifact parent is visible inside the sandbox at the same absolute path, creates one workflow worktree, creates a workflow artifact root, persists the run in SQLite, and records workflow metadata. Workflow steps are executed serially by the supervisor core and each executable step is represented by a backing `pd` task/run.
 
+`po cleanup [--all|<run-id>...]` is best-effort and idempotent for terminal workflow runs. It delegates workflow worktree cleanup to each backing `pd` task so the dispatcher records cleanup state, then removes workflow artifacts and marks artifact metadata removed. If a run has no backing `pd` task IDs, `po` falls back to removing the workflow worktree directly.
+
 ## Configuration, state, and artifacts
 
 Config file: `~/.config/po/config.json`.

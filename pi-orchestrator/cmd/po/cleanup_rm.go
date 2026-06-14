@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	pddispatcher "github.com/averycrespi/agent-tools/pi-dispatcher/pkg/dispatcher"
 	"github.com/averycrespi/agent-tools/pi-orchestrator/internal/store"
 	wtworktree "github.com/averycrespi/agent-tools/worktree-manager/pkg/worktree"
 	"github.com/spf13/cobra"
@@ -24,8 +25,16 @@ type worktreeRemover interface {
 	Remove(repoRoot, branch string) error
 }
 
+type pdCleanupClient interface {
+	CleanupTaskRun(context.Context, pddispatcher.CleanupTaskRunRequest) (pddispatcher.CleanupTaskRunResult, error)
+}
+
 var newWorktreeRemover = func() (worktreeRemover, error) {
 	return wtworktree.New()
+}
+
+var newPDCleanupClient = func() pdCleanupClient {
+	return pddispatcher.NewClient(pddispatcher.Config{})
 }
 
 var cleanupCmd = &cobra.Command{
@@ -66,10 +75,11 @@ func cleanupWorkflowRun(cmd *cobra.Command, args []string) error {
 }
 
 func cleanupOneWorkflowRun(cmd *cobra.Command, runID string) error {
-	run, err := getWorkflowRun(cmd.Context(), runID)
+	detail, err := getWorkflowRunDetail(cmd.Context(), runID)
 	if err != nil {
 		return err
 	}
+	run := detail.Run
 	if !isTerminalState(run.State) {
 		return fmt.Errorf("workflow run %s is not terminal", run.ID)
 	}
@@ -83,17 +93,9 @@ func cleanupOneWorkflowRun(cmd *cobra.Command, runID string) error {
 			return err
 		}
 	}
-	if run.WorktreePath != "" {
-		remover, err := newWorktreeRemover()
-		if err != nil {
-			_ = recordWorkflowCleanup(cmd.Context(), run.ID, "failed", err.Error())
-			return err
-		}
-		if err := remover.Remove(run.Repo, run.Branch); err != nil {
-			wrapped := fmt.Errorf("remove workflow worktree %s: %w", run.WorktreePath, err)
-			_ = recordWorkflowCleanup(cmd.Context(), run.ID, "failed", wrapped.Error())
-			return wrapped
-		}
+	if err := cleanupWorkflowWorktree(cmd.Context(), run, detail.Steps); err != nil {
+		_ = recordWorkflowCleanup(cmd.Context(), run.ID, "failed", err.Error())
+		return err
 	}
 	if run.ArtifactRoot != "" {
 		if err := os.RemoveAll(run.ArtifactRoot); err != nil {
@@ -111,6 +113,53 @@ func cleanupOneWorkflowRun(cmd *cobra.Command, runID string) error {
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s cleaned up\n", run.ID)
 	return err
+}
+
+func cleanupWorkflowWorktree(ctx context.Context, run store.WorkflowRun, steps []store.StepRun) error {
+	if run.WorktreePath == "" {
+		return nil
+	}
+	pdTasks := uniquePDTaskRuns(steps)
+	if len(pdTasks) == 0 {
+		remover, err := newWorktreeRemover()
+		if err != nil {
+			return err
+		}
+		if err := remover.Remove(run.Repo, run.Branch); err != nil {
+			return fmt.Errorf("remove workflow worktree %s: %w", run.WorktreePath, err)
+		}
+		return nil
+	}
+	client := newPDCleanupClient()
+	var errs []error
+	for _, task := range pdTasks {
+		if _, err := client.CleanupTaskRun(ctx, pddispatcher.CleanupTaskRunRequest{TaskID: task.taskID, RunID: task.runID}); err != nil {
+			errs = append(errs, fmt.Errorf("cleanup backing pd task %s: %w", task.taskID, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+type pdTaskRunRef struct {
+	taskID string
+	runID  string
+}
+
+func uniquePDTaskRuns(steps []store.StepRun) []pdTaskRunRef {
+	seen := map[string]bool{}
+	refs := make([]pdTaskRunRef, 0, len(steps))
+	for _, step := range steps {
+		if step.PDTaskID == "" {
+			continue
+		}
+		key := step.PDTaskID + "\x00" + step.PDRunID
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		refs = append(refs, pdTaskRunRef{taskID: step.PDTaskID, runID: step.PDRunID})
+	}
+	return refs
 }
 
 func validateArtifactRootForCleanup(artifactRoot string) error {
@@ -139,6 +188,15 @@ func recordWorkflowCleanup(ctx context.Context, runID string, status string, cle
 	}
 	defer db.Close() //nolint:errcheck
 	return db.RecordWorkflowCleanup(ctx, runID, status, cleanupErr, nowFunc().UTC())
+}
+
+func getWorkflowRunDetail(ctx context.Context, runID string) (store.WorkflowRunDetail, error) {
+	db, err := store.Open(cfg.DBPath())
+	if err != nil {
+		return store.WorkflowRunDetail{}, err
+	}
+	defer db.Close() //nolint:errcheck
+	return db.GetWorkflowRunDetail(ctx, runID)
 }
 
 func markRunArtifactsRemoved(ctx context.Context, runID string) error {

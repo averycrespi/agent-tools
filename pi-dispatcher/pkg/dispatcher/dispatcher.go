@@ -17,6 +17,7 @@ import (
 	"github.com/averycrespi/agent-tools/pi-dispatcher/internal/process"
 	"github.com/averycrespi/agent-tools/pi-dispatcher/internal/store"
 	sbsandbox "github.com/averycrespi/agent-tools/sandbox-manager/pkg/sandbox"
+	wtworktree "github.com/averycrespi/agent-tools/worktree-manager/pkg/worktree"
 )
 
 type AgentOptions pdconfig.AgentOptions
@@ -90,6 +91,22 @@ type StopTaskRunRequest struct {
 	Force  bool
 }
 
+type CleanupTaskRunRequest struct {
+	TaskID string
+	RunID  string
+}
+
+type CleanupTaskRunResult struct {
+	TaskID          string
+	RunID           string
+	Status          string
+	WorktreePath    string
+	BranchPreserved bool
+	NonForced       bool
+	RemovedWorktree bool
+	AlreadyMissing  bool
+}
+
 type supervisorLauncher interface {
 	StartSupervisorWithEnv(env []string, args ...string) (int, error)
 }
@@ -99,16 +116,21 @@ type sandboxClient interface {
 	Exec(workdir string, args ...string) ([]byte, error)
 }
 
+type worktreeRemover interface {
+	Remove(repoRoot, branch string) error
+}
+
 type Client struct {
 	cfg      Config
 	launcher supervisorLauncher
 	sandbox  func() (sandboxClient, error)
+	worktree func() (worktreeRemover, error)
 	now      func() time.Time
 	shortID  func() string
 }
 
 func NewClient(cfg Config) *Client {
-	return &Client{cfg: cfg, launcher: process.NewLauncherForExecutable(pdexec.NewOSRunner(), cfg.SupervisorExecutable), sandbox: func() (sandboxClient, error) { return sbsandbox.New() }, now: time.Now, shortID: randomShortID}
+	return &Client{cfg: cfg, launcher: process.NewLauncherForExecutable(pdexec.NewOSRunner(), cfg.SupervisorExecutable), sandbox: func() (sandboxClient, error) { return sbsandbox.New() }, worktree: func() (worktreeRemover, error) { return wtworktree.New() }, now: time.Now, shortID: randomShortID}
 }
 
 func (c *Client) StartTaskRun(ctx context.Context, req StartTaskRunRequest) (StartTaskRunResult, error) {
@@ -266,6 +288,44 @@ func (c *Client) WaitTaskRun(ctx context.Context, req WaitTaskRunRequest) (TaskR
 		case <-timer.C:
 		}
 	}
+}
+
+func (c *Client) CleanupTaskRun(ctx context.Context, req CleanupTaskRunRequest) (CleanupTaskRunResult, error) {
+	if req.TaskID == "" {
+		return CleanupTaskRunResult{}, fmt.Errorf("task id is required")
+	}
+	db, err := store.Open(c.dbPath())
+	if err != nil {
+		return CleanupTaskRunResult{}, err
+	}
+	defer db.Close() //nolint:errcheck
+	task, err := db.GetTask(ctx, req.TaskID)
+	if err != nil {
+		return CleanupTaskRunResult{}, err
+	}
+	run, err := db.LatestRun(ctx, req.TaskID)
+	if err != nil {
+		return CleanupTaskRunResult{}, err
+	}
+	if req.RunID != "" && run.ID != req.RunID {
+		return CleanupTaskRunResult{}, fmt.Errorf("task %s latest run is %s, not %s", req.TaskID, run.ID, req.RunID)
+	}
+	if !isTerminal(TaskRunStatus(task.Status)) {
+		return CleanupTaskRunResult{}, fmt.Errorf("refusing to cleanup %s task", task.Status)
+	}
+	wt, err := c.worktree()
+	if err != nil {
+		_ = db.RecordWorktreeCleanup(ctx, task.ID, store.CleanupStatusFailed, err.Error(), false)
+		return CleanupTaskRunResult{}, err
+	}
+	if err := wt.Remove(task.RepoPath, task.Branch); err != nil {
+		_ = db.RecordWorktreeCleanup(ctx, task.ID, store.CleanupStatusFailed, err.Error(), false)
+		return CleanupTaskRunResult{}, err
+	}
+	if err := db.RecordWorktreeCleanup(ctx, task.ID, store.CleanupStatusRemoved, "", true); err != nil {
+		return CleanupTaskRunResult{}, err
+	}
+	return CleanupTaskRunResult{TaskID: task.ID, RunID: run.ID, Status: string(store.CleanupStatusRemoved), WorktreePath: task.WorktreePath, BranchPreserved: true, NonForced: true, RemovedWorktree: true}, nil
 }
 
 func (c *Client) StopTaskRun(ctx context.Context, req StopTaskRunRequest) error {

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	pddispatcher "github.com/averycrespi/agent-tools/pi-dispatcher/pkg/dispatcher"
 	"github.com/averycrespi/agent-tools/pi-orchestrator/internal/store"
 )
 
@@ -65,6 +66,27 @@ func TestCleanupRemovesTerminalRunWorktreeAndArtifacts(t *testing.T) {
 	}
 	if !fakeWT.called || fakeWT.repoRoot != "/repo" || fakeWT.branch != "po/run-1" {
 		t.Fatalf("worktree remover = %+v, want persisted repo and branch", fakeWT)
+	}
+}
+
+func TestCleanupDelegatesBackingPDTaskCleanup(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, t.TempDir(), stateDir)
+	fakeWT := installFakeWorktreeRemover(t)
+	fakePD := installFakePDCleanupClient(t)
+	paths := seedCleanupWorkflowRunWithPDTask(t, stateDir, "run-1", store.StateSucceeded, "pd-task-1", "pd-task-1-run-1")
+
+	if _, err := executeCommand("cleanup", "run-1"); err != nil {
+		t.Fatalf("cleanup error = %v", err)
+	}
+	if fakeWT.called {
+		t.Fatal("direct worktree remover called despite backing pd task")
+	}
+	if len(fakePD.calls) != 1 || fakePD.calls[0].TaskID != "pd-task-1" || fakePD.calls[0].RunID != "pd-task-1-run-1" {
+		t.Fatalf("pd cleanup calls = %+v, want backing task cleanup", fakePD.calls)
+	}
+	if _, err := os.Stat(paths.artifacts); !os.IsNotExist(err) {
+		t.Fatalf("artifacts stat error = %v, want not exist", err)
 	}
 }
 
@@ -302,6 +324,28 @@ type fakeWorktreeRemover struct {
 	remove   func(repoRoot, branch string) error
 }
 
+type fakePDCleanupClient struct {
+	calls []pddispatcher.CleanupTaskRunRequest
+	err   error
+}
+
+func installFakePDCleanupClient(t *testing.T) *fakePDCleanupClient {
+	t.Helper()
+	fake := &fakePDCleanupClient{}
+	old := newPDCleanupClient
+	newPDCleanupClient = func() pdCleanupClient { return fake }
+	t.Cleanup(func() { newPDCleanupClient = old })
+	return fake
+}
+
+func (f *fakePDCleanupClient) CleanupTaskRun(_ context.Context, req pddispatcher.CleanupTaskRunRequest) (pddispatcher.CleanupTaskRunResult, error) {
+	f.calls = append(f.calls, req)
+	if f.err != nil {
+		return pddispatcher.CleanupTaskRunResult{}, f.err
+	}
+	return pddispatcher.CleanupTaskRunResult{TaskID: req.TaskID, RunID: req.RunID, Status: "removed", RemovedWorktree: true}, nil
+}
+
 func installFakeWorktreeRemover(t *testing.T) *fakeWorktreeRemover {
 	t.Helper()
 	fake := &fakeWorktreeRemover{}
@@ -337,7 +381,17 @@ func seedCleanupWorkflowRunWithArtifactRoot(t *testing.T, stateDir string, state
 	return seedCleanupWorkflowRunWithIDAndArtifactRoot(t, stateDir, "run-1", state, artifacts)
 }
 
+func seedCleanupWorkflowRunWithPDTask(t *testing.T, stateDir string, runID string, state store.State, pdTaskID string, pdRunID string) cleanupPaths {
+	t.Helper()
+	return seedCleanupWorkflowRunWithIDAndArtifactRootAndPDTask(t, stateDir, runID, state, filepath.Join(cfg.ArtifactParentDir, runID), pdTaskID, pdRunID)
+}
+
 func seedCleanupWorkflowRunWithIDAndArtifactRoot(t *testing.T, stateDir string, runID string, state store.State, artifacts string) cleanupPaths {
+	t.Helper()
+	return seedCleanupWorkflowRunWithIDAndArtifactRootAndPDTask(t, stateDir, runID, state, artifacts, "", "")
+}
+
+func seedCleanupWorkflowRunWithIDAndArtifactRootAndPDTask(t *testing.T, stateDir string, runID string, state store.State, artifacts string, pdTaskID string, pdRunID string) cleanupPaths {
 	t.Helper()
 	db, err := store.Open(filepath.Join(stateDir, "po", "po.db"))
 	if err != nil {
@@ -362,7 +416,7 @@ func seedCleanupWorkflowRunWithIDAndArtifactRoot(t *testing.T, stateDir string, 
 	if err := os.WriteFile(artifactPath, []byte("out"), 0o600); err != nil {
 		t.Fatalf("write artifact: %v", err)
 	}
-	step := store.StepRun{WorkflowRunID: runID, StepID: "review", Agent: "reviewer", ExecutionIndex: 0, State: state, StartedAt: now, UpdatedAt: now}
+	step := store.StepRun{WorkflowRunID: runID, StepID: "review", Agent: "reviewer", ExecutionIndex: 0, State: state, PDTaskID: pdTaskID, PDRunID: pdRunID, StartedAt: now, UpdatedAt: now}
 	artifact := store.Artifact{WorkflowRunID: runID, StepID: "review", Name: "out", RelativePath: "out.md", AbsolutePath: artifactPath, Required: true, Exists: true, UpdatedAt: now}
 	if err := db.CreateStepRun(context.Background(), step, []store.Artifact{artifact}); err != nil {
 		t.Fatalf("create step: %v", err)

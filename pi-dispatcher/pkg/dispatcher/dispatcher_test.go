@@ -136,6 +136,55 @@ func TestWaitTaskRunReturnsTerminalState(t *testing.T) {
 	}
 }
 
+func TestCleanupTaskRunRemovesWorktreeAndRecordsCleanup(t *testing.T) {
+	t.Parallel()
+	client, result := startedTaskRun(t)
+	fakeWT := &recordingWorktreeRemover{}
+	client.worktree = func() (worktreeRemover, error) { return fakeWT, nil }
+	st, err := pdstore.Open(client.dbPath())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if err := st.CompleteRun(context.Background(), result.TaskID, pdstore.StatusSucceeded, 0, "", ""); err != nil {
+		t.Fatalf("CompleteRun() error = %v", err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	cleanup, err := client.CleanupTaskRun(context.Background(), CleanupTaskRunRequest{TaskID: result.TaskID, RunID: result.RunID})
+	if err != nil {
+		t.Fatalf("CleanupTaskRun() error = %v", err)
+	}
+	if cleanup.Status != string(pdstore.CleanupStatusRemoved) || !cleanup.RemovedWorktree || !cleanup.BranchPreserved || !cleanup.NonForced {
+		t.Fatalf("cleanup = %+v, want removed non-forced branch-preserving result", cleanup)
+	}
+	if fakeWT.repoRoot != "/repo" || fakeWT.branch != "branch" {
+		t.Fatalf("worktree remover = %+v, want task repo/branch", fakeWT)
+	}
+	st, err = pdstore.Open(client.dbPath())
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	defer st.Close() //nolint:errcheck
+	task, err := st.GetTask(context.Background(), result.TaskID)
+	if err != nil {
+		t.Fatalf("GetTask() error = %v", err)
+	}
+	if task.WorktreeCleanupStatus != pdstore.CleanupStatusRemoved || !task.WorktreeCleanupAttemptedAt.Valid || !task.WorktreeRemovedAt.Valid {
+		t.Fatalf("task cleanup = status %q attempted %v removed %v, want removed metadata", task.WorktreeCleanupStatus, task.WorktreeCleanupAttemptedAt, task.WorktreeRemovedAt)
+	}
+}
+
+func TestCleanupTaskRunRefusesNonTerminalTask(t *testing.T) {
+	t.Parallel()
+	client, result := startedTaskRun(t)
+	_, err := client.CleanupTaskRun(context.Background(), CleanupTaskRunRequest{TaskID: result.TaskID, RunID: result.RunID})
+	if err == nil || !strings.Contains(err.Error(), "refusing to cleanup starting task") {
+		t.Fatalf("CleanupTaskRun() error = %v, want non-terminal refusal", err)
+	}
+}
+
 func TestWaitTaskRunMarksMissingSupervisorUnknown(t *testing.T) {
 	t.Parallel()
 	dbPath := filepath.Join(t.TempDir(), "pd.db")
@@ -198,6 +247,17 @@ type fakeSandbox struct {
 func (f fakeSandbox) Create() error { return f.createErr }
 
 func (f fakeSandbox) Exec(string, ...string) ([]byte, error) { return nil, f.execErr }
+
+type recordingWorktreeRemover struct {
+	repoRoot string
+	branch   string
+}
+
+func (r *recordingWorktreeRemover) Remove(repoRoot, branch string) error {
+	r.repoRoot = repoRoot
+	r.branch = branch
+	return nil
+}
 
 type recordingLauncher struct {
 	pid  int
