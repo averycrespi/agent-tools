@@ -19,9 +19,9 @@ var psCmd = &cobra.Command{
 }
 
 var statusCmd = &cobra.Command{
-	Use:   "status <run>",
+	Use:   "status <run-id>",
 	Short: "Show workflow run status",
-	Args:  requireRunArg("po status <run>"),
+	Args:  requireRunArg("po status <run-id>"),
 	RunE:  showWorkflowRunStatus,
 }
 
@@ -106,10 +106,10 @@ func showWorkflowRunStatus(cmd *cobra.Command, args []string) error {
 func requireRunArg(usage string) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
-			return fmt.Errorf("run is required\nUsage: %s", usage)
+			return fmt.Errorf("run-id is required\nUsage: %s", usage)
 		}
 		if len(args) > 1 {
-			return fmt.Errorf("expected one run\nUsage: %s", usage)
+			return fmt.Errorf("expected one run-id\nUsage: %s", usage)
 		}
 		return nil
 	}

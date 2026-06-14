@@ -13,9 +13,9 @@ import (
 )
 
 var stopCmd = &cobra.Command{
-	Use:   "stop <run>",
+	Use:   "stop <run-id>",
 	Short: "Stop a workflow run",
-	Args:  requireRunArg("po stop <run>"),
+	Args:  requireRunArg("po stop <run-id>"),
 	RunE:  stopWorkflowRun,
 }
 

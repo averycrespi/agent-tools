@@ -45,12 +45,12 @@ po show <workflow>
 po lint <workflow>
 po run <workflow> --input key=value
 po ps
-po status <run>
-po wait <run> [--timeout 5m]
-po logs <run>
-po stop <run>
-po cleanup [--dry-run] <run>
-po rm <run>
+po status <run-id>
+po wait <run-id> [--timeout 5m]
+po logs <run-id>
+po stop <run-id>
+po cleanup [--dry-run] <run-id>
+po rm <run-id>
 po dashboard [--host 127.0.0.1] [--port 8400] [--no-open]
 po token rotate
 ```

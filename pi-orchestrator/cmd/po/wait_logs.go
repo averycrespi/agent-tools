@@ -16,16 +16,16 @@ import (
 var waitPollInterval = time.Second
 
 var waitCmd = &cobra.Command{
-	Use:   "wait <run>",
+	Use:   "wait <run-id>",
 	Short: "Wait for a workflow run to finish",
-	Args:  requireRunArg("po wait <run>"),
+	Args:  requireRunArg("po wait <run-id>"),
 	RunE:  waitForWorkflowRun,
 }
 
 var logsCmd = &cobra.Command{
-	Use:   "logs <run>",
+	Use:   "logs <run-id>",
 	Short: "Show workflow supervisor logs and backing pd log pointers",
-	Args:  requireRunArg("po logs <run>"),
+	Args:  requireRunArg("po logs <run-id>"),
 	RunE:  showWorkflowRunLogs,
 }
 
