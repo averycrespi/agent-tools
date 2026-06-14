@@ -1,9 +1,11 @@
 package supervisor
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,6 +49,35 @@ func TestExecuteRunsStepsSeriallyInWorkflowOrderWithSharedWorktree(t *testing.T)
 	}
 	if detail.Steps[0].PDTaskID != "pd-1" || detail.Steps[1].PDRunID != "pd-2-run-1" {
 		t.Fatalf("steps = %+v, want backing pd metadata", detail.Steps)
+	}
+}
+
+func TestExecuteLogsWorkflowAndStepLifecycle(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, run := supervisorTestRun(t)
+	defer db.Close() //nolint:errcheck
+	runner := &recordingRunner{results: []StepResult{{PDTaskID: "pd-review", PDRunID: "pd-review-run-1", State: store.StateSucceeded}}}
+	def := &workflow.Definition{
+		Name:   "sample",
+		Agents: map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Steps:  []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: "review"}},
+	}
+	var log bytes.Buffer
+
+	if err := ExecuteWithLogger(ctx, db, runner, def, run, Logger{Writer: &log}); err != nil {
+		t.Fatalf("ExecuteWithLogger() error = %v", err)
+	}
+	got := log.String()
+	for _, want := range []string{
+		"workflow run-1 started workflow=sample steps=1",
+		"step review starting agent=reviewer",
+		"step review completed state=succeeded",
+		"workflow run-1 completed state=succeeded",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("log = %q, want substring %q", got, want)
+		}
 	}
 }
 

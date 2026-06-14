@@ -50,7 +50,7 @@ func runSupervisorCommand(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	run.State = store.StateRunning
-	if err := posupervisor.Execute(cmd.Context(), db, newStepRunner(), definition, run); err != nil {
+	if err := posupervisor.ExecuteWithLogger(cmd.Context(), db, newStepRunner(), definition, run, posupervisor.Logger{Writer: cmd.OutOrStdout()}); err != nil {
 		latest, latestErr := db.GetWorkflowRun(cmd.Context(), run.ID)
 		if latestErr != nil || !isTerminalState(latest.State) {
 			_ = db.UpdateWorkflowRunState(cmd.Context(), run.ID, store.StateFailed, err.Error(), nowFunc().UTC())

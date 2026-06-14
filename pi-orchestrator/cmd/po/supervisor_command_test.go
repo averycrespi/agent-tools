@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,8 +22,12 @@ func TestSupervisorCommandExecutesPersistedWorkflowRun(t *testing.T) {
 	}
 	t.Cleanup(func() { newStepRunner = defaultNewStepRunner })
 
-	if _, err := executeCommand("--workflow-dir", dir, "supervisor", "--run-id", "run-1"); err != nil {
+	stdout, err := executeCommand("--workflow-dir", dir, "supervisor", "--run-id", "run-1")
+	if err != nil {
 		t.Fatalf("supervisor error = %v", err)
+	}
+	if !strings.Contains(stdout, "workflow run-1 started") || !strings.Contains(stdout, "step run completed state=succeeded") || !strings.Contains(stdout, "workflow run-1 completed state=succeeded") {
+		t.Fatalf("stdout = %q, want lifecycle log lines", stdout)
 	}
 	db, err := store.Open(filepath.Join(stateDir, "po", "po.db"))
 	if err != nil {

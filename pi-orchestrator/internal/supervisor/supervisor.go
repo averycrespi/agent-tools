@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"text/template"
@@ -53,7 +54,23 @@ type StoppableStepHandle interface {
 	Stop(context.Context) error
 }
 
+type Logger struct {
+	Writer io.Writer
+}
+
+func (l Logger) Printf(format string, args ...any) {
+	if l.Writer == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(l.Writer, time.Now().UTC().Format(time.RFC3339)+" "+format+"\n", args...)
+}
+
 func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workflow.Definition, run store.WorkflowRun) error {
+	return ExecuteWithLogger(ctx, db, runner, def, run, Logger{})
+}
+
+func ExecuteWithLogger(ctx context.Context, db *store.Store, runner StepRunner, def *workflow.Definition, run store.WorkflowRun, logger Logger) error {
+	logger.Printf("workflow %s started workflow=%s steps=%d", run.ID, def.Name, len(def.Steps))
 	stepStates := make(map[string]store.State, len(def.Steps))
 	inputs := map[string]any{}
 	if run.InputsJSON != "" {
@@ -74,6 +91,7 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 				continue
 			}
 			if hasFailedDependency(step, stepStates) {
+				logger.Printf("step %s skipped reason=dependency_not_succeeded", step.ID)
 				if err := createSkippedStep(ctx, db, run, step, executionIndex); err != nil {
 					return err
 				}
@@ -92,6 +110,7 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 			}
 			request := StepRequest{WorkflowRunID: run.ID, StepID: step.ID, Agent: def.Agents[step.Agent], Prompt: renderedPrompt, Repo: run.Repo, Branch: run.Branch, WorktreePath: run.WorktreePath, ArtifactParentPath: filepath.Dir(run.ArtifactRoot)}
 			artifacts := artifactsForStep(run, step)
+			logger.Printf("step %s starting agent=%s", step.ID, step.Agent)
 			result, err := startAndPersistStep(ctx, db, runner, request, run, step, executionIndex, artifacts)
 			executionIndex++
 			if err != nil {
@@ -115,7 +134,13 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 				}
 			}
 			if err := db.UpdateStepState(ctx, run.ID, step.ID, finalState, outcome, time.Now().UTC()); err != nil {
+				logger.Printf("step %s failed_to_record_state error=%q", step.ID, err.Error())
 				return err
+			}
+			if outcome != "" {
+				logger.Printf("step %s completed state=%s outcome=%q", step.ID, finalState, outcome)
+			} else {
+				logger.Printf("step %s completed state=%s", step.ID, finalState)
 			}
 			stepStates[step.ID] = finalState
 			delete(remaining, step.ID)
@@ -125,6 +150,7 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 			}
 		}
 		if !progressed {
+			logger.Printf("workflow %s failed outcome=%q", run.ID, "no executable workflow steps remain")
 			return fmt.Errorf("no executable workflow steps remain")
 		}
 	}
@@ -141,7 +167,13 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 		}
 	}
 	if err := db.UpdateWorkflowRunState(ctx, run.ID, terminal, outcome, time.Now().UTC()); err != nil {
+		logger.Printf("workflow %s failed_to_record_state error=%q", run.ID, err.Error())
 		return err
+	}
+	if outcome != "" {
+		logger.Printf("workflow %s completed state=%s outcome=%q", run.ID, terminal, outcome)
+	} else {
+		logger.Printf("workflow %s completed state=%s", run.ID, terminal)
 	}
 	return firstErr
 }
