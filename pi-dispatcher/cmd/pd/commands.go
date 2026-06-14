@@ -78,11 +78,11 @@ var runCmd = &cobra.Command{
 }
 
 var listCmd = &cobra.Command{
-	Use:     "list",
-	Aliases: []string{"ps"},
+	Use:     "ps",
+	Aliases: []string{"list"},
 	Short:   "List tasks",
 	Args:    cobra.NoArgs,
-	RunE:    notImplemented("list"),
+	RunE:    notImplemented("ps"),
 }
 
 var statusCmd = &cobra.Command{

@@ -34,6 +34,18 @@ func TestRootDoesNotExposeAttachCommand(t *testing.T) {
 	require.Contains(t, err.Error(), "unknown command")
 }
 
+func TestRootExposesPSAndListAlias(t *testing.T) {
+	cmd, _, err := rootCmd.Find([]string{"ps"})
+	require.NoError(t, err)
+	require.Same(t, listCmd, cmd)
+	require.Equal(t, "ps", listCmd.Use)
+	require.Contains(t, listCmd.Aliases, "list")
+
+	alias, _, err := rootCmd.Find([]string{"list"})
+	require.NoError(t, err)
+	require.Same(t, listCmd, alias)
+}
+
 func TestRootExposesMCPCommand(t *testing.T) {
 	cmd, _, err := rootCmd.Find([]string{"mcp"})
 
