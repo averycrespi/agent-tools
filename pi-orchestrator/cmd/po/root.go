@@ -50,7 +50,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable debug output")
 	rootCmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "emit machine-readable JSON where supported")
 	rootCmd.PersistentFlags().StringVar(&workflowDir, "workflow-dir", "", "workflow definition directory")
-	rootCmd.AddCommand(configCmd, listCmd, showCmd, lintCmd, runCmd, psCmd, statusCmd, waitCmd, logsCmd, stopCmd, cleanupCmd, rmCmd, dashboardCmd, tokenCmd, supervisorCmd)
+	rootCmd.AddCommand(configCmd, listCmd, showCmd, lintCmd, runCmd, psCmd, statusCmd, waitCmd, logsCmd, stopCmd, cleanupCmd, rmCmd, dashboardCmd, tokenCmd, supervisorCmd, mcpCmd)
 }
 
 func Execute() error {

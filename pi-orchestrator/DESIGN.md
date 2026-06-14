@@ -32,3 +32,11 @@ Each workflow run uses a per-run artifact root under the configured artifact par
 ## Dashboard
 
 The dashboard is loopback-only and uses `po`-owned local auth. The printed token URL sets an HttpOnly `po-auth` cookie, while bearer tokens remain available for scripted API calls. Its `/dashboard/api/...` JSON APIs and `/dashboard/events` SSE stream are read-only and expose workflow summaries, workflow details, step runs, artifacts, bounded supervisor log windows, supervisor log paths, and backing `pd` task/run IDs. Dashboard auth state is independent of `pd`.
+
+## MCP
+
+`po mcp` serves a stdio-only MCP server for trusted local clients. It has no network listener and inherits the launching user's filesystem permissions. Its tools are annotated read-only/local and must not mutate SQLite, start or stop workflows, reconcile stale supervisor state, clean up or remove resources, contact supervisors, or call external services.
+
+The v1 tools are `list_workflows`, `get_workflow`, `list_workflow_runs`, `get_workflow_run`, `get_workflow_run_logs`, and `get_step_logs`. Workflow-definition tools read only from the configured workflow directory. `list_workflows` reports validation status and summary metadata without prompt bodies; `get_workflow` may expose raw YAML and prompts only for the explicitly named definition under that directory.
+
+Run-oriented MCP responses use explicit view structs rather than raw store structs. They expose persisted state, progress, cleanup fields, backing `pd` IDs, artifacts, and local path metadata already used by inspection surfaces, while omitting full workflow YAML snapshots, full inputs JSON, raw prompt text, environment values, and unbounded event/log content. Supervisor and step logs are exposed only through offset/limit bounded log tools with size, next-offset, and truncation metadata.
