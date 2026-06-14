@@ -31,6 +31,7 @@ type TaskSummary struct {
 	WorktreeCleanupAttemptedAt *time.Time  `json:"worktree_cleanup_attempted_at,omitempty"`
 	WorktreeRemovedAt          *time.Time  `json:"worktree_removed_at,omitempty"`
 	PromptSource               string      `json:"prompt_source"`
+	Prompt                     string      `json:"prompt,omitempty"`
 	PromptPreview              string      `json:"prompt_preview"`
 	PromptTruncated            bool        `json:"prompt_truncated"`
 	Status                     string      `json:"status"`
@@ -98,7 +99,7 @@ func TaskSummaryView(summary store.TaskSummary) TaskSummary {
 }
 
 func TaskSummaryFromTask(task store.Task) TaskSummary {
-	view := TaskSummary{ID: task.ID, RepoPath: task.RepoPath, RepoName: task.RepoName, Branch: task.Branch, WorktreePath: task.WorktreePath, WorktreeCleanupPolicy: string(task.WorktreeCleanupPolicy), WorktreeCreatedByPD: task.WorktreeCreatedByPD, WorktreeCleanupStatus: string(task.WorktreeCleanupStatus), WorktreeCleanupError: task.WorktreeCleanupError, PromptSource: task.PromptSource, PromptPreview: task.PromptPreview, PromptTruncated: promptTruncated(task.Prompt, task.PromptPreview), Status: string(task.Status), CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt}
+	view := TaskSummary{ID: task.ID, RepoPath: task.RepoPath, RepoName: task.RepoName, Branch: task.Branch, WorktreePath: task.WorktreePath, WorktreeCleanupPolicy: string(task.WorktreeCleanupPolicy), WorktreeCreatedByPD: task.WorktreeCreatedByPD, WorktreeCleanupStatus: string(task.WorktreeCleanupStatus), WorktreeCleanupError: task.WorktreeCleanupError, PromptSource: task.PromptSource, Prompt: task.Prompt, PromptPreview: task.PromptPreview, PromptTruncated: promptTruncated(task.Prompt, task.PromptPreview), Status: string(task.Status), CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt}
 	if task.WorktreeCleanupAttemptedAt.Valid {
 		attemptedAt := task.WorktreeCleanupAttemptedAt.Time
 		view.WorktreeCleanupAttemptedAt = &attemptedAt

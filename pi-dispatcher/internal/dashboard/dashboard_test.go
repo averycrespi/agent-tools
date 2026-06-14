@@ -62,6 +62,7 @@ func TestIndexIncludesExplorerUI(t *testing.T) {
 	require.NotContains(t, body, `<h2 id="detail-title">Select a task</h2>`)
 	require.Contains(t, body, "promptText(d.task)")
 	require.Contains(t, body, "responseText(d)")
+	require.Contains(t, compactBody, "returntask.prompt||promptPreview(task)")
 	require.Contains(t, compactBody, "$('prompt').textContent=promptText(d.task)||'Nopromptrecorded.'")
 	require.Contains(t, compactBody, "$('response').textContent=response||'Noresponserecorded.'")
 	require.NotContains(t, compactBody, "['Prompt',promptText(d.task)]")
@@ -153,6 +154,7 @@ func TestAPITaskDetailReturnsTaskRunAndEvents(t *testing.T) {
 	var payload TaskDetail
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
 	require.Equal(t, task.ID, payload.Task.ID)
+	require.Equal(t, task.Prompt, payload.Task.Prompt)
 	require.False(t, payload.Task.PromptTruncated)
 	require.NotNil(t, payload.LatestRun)
 	require.Equal(t, "run-test", payload.LatestRun.ID)
@@ -235,6 +237,7 @@ func TestAPITaskDetailReportsTruncatedPrompt(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var payload TaskDetail
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Equal(t, task.Prompt, payload.Task.Prompt)
 	require.True(t, payload.Task.PromptTruncated)
 }
 

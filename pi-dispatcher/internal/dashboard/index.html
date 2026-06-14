@@ -401,15 +401,19 @@
           (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
         );
       }
-      function promptText(task) {
+      function promptPreview(task) {
         return (
           (task.prompt_preview || "") + (task.prompt_truncated ? " ..." : "")
         );
       }
+      function promptText(task) {
+        return task.prompt || promptPreview(task);
+      }
       function responseText(detail) {
+        const response = detail.response_preview || "";
+        if (!detail.response_truncated) return response;
         return (
-          (detail.response_preview || "") +
-          (detail.response_truncated ? " ..." : "")
+          response + "\n\n[Response truncated to available dashboard preview.]"
         );
       }
       function formatList(values) {
