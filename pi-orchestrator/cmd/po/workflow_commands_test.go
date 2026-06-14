@@ -8,6 +8,25 @@ import (
 	"testing"
 )
 
+func TestListCommandCreatesMissingWorkflowDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "workflows")
+
+	stdout, err := executeCommand("--workflow-dir", dir, "list")
+	if err != nil {
+		t.Fatalf("execute list: %v", err)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty list", stdout)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat workflow dir: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("workflow dir is not a directory")
+	}
+}
+
 func TestListCommandShowsYMLWorkflows(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "alpha.yml"), []byte(minimalCommandWorkflow("alpha")), 0o600); err != nil {

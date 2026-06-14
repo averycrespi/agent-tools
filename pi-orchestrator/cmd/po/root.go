@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/averycrespi/agent-tools/pi-orchestrator/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -25,6 +28,9 @@ var rootCmd = &cobra.Command{
 			loaded.WorkflowDir = workflowDir
 		}
 		cfg = loaded
+		if err := os.MkdirAll(cfg.WorkflowDir, 0o750); err != nil {
+			return fmt.Errorf("create workflow directory %s: %w", cfg.WorkflowDir, err)
+		}
 		return nil
 	},
 }
