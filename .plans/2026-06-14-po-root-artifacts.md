@@ -17,7 +17,7 @@ Redesign `po` workflow artifacts so artifacts are declared once at the workflow 
 ## Acceptance Criteria
 
 - AC-1: Workflow definitions support root-level `artifacts:` alongside existing root `inputs`, `agents`, and `steps`; artifact names are unique, template-safe identifiers, artifact paths are relative, non-traversing file paths, and step-scoped artifact declarations are rejected as unsupported.
-- AC-2: Step prompts can reference artifact paths with `{{ .Artifacts.<name> }}`; `{{ artifact_path "name" }}` is removed from the supported template API and workflows using it fail `po lint`/workflow validation before run admission, and supervisor parsing for persisted definitions reports a clear error.
+- AC-2: Step prompts can reference artifact paths with `{{ .Artifacts.<name> }}`; `{{ artifact_path "name" }}` is removed from the supported template API, unknown `.Artifacts.<name>` references fail clearly, and shared workflow validation used by both `po lint` and `po run` rejects invalid prompt templates before run admission side effects. Supervisor parsing for persisted definitions also reports a clear error.
 - AC-3: Steps support a concise `produces:` object for artifact postconditions, where each entry is `produces.<name>: exists` or `produces.<name>: non_empty`; checks run only after the backing `pd` step reports success.
 - AC-4: Artifact `produces` checks require regular files only. `exists` passes only when the artifact path exists and is a regular file; `non_empty` additionally requires file size greater than zero bytes and implies `exists`. Directories, missing files, and empty files fail the relevant check.
 - AC-5: Failed `produces` checks mark the step failed, mark the workflow failed, and cause dependent steps to be skipped under existing dependency semantics, with outcomes that name the artifact and failed check.
@@ -37,6 +37,7 @@ Redesign `po` workflow artifacts so artifacts are declared once at the workflow 
 ## Constraints
 
 - Artifact declarations move to workflow root as a clean breaking change.
+- Root artifact declarations support only the new schema fields; old artifact fields such as `name` and `required` are unsupported.
 - Artifact names must be template-safe identifiers, recommended validation pattern: `[A-Za-z_][A-Za-z0-9_]*`.
 - Artifact paths remain relative to the per-run workflow artifact root and must not escape it.
 - Artifacts are files only; runtime checks must reject directories.
@@ -92,16 +93,17 @@ steps:
 ## Implementation Notes
 
 - Workflow definition and validation:
-  - Modify `pi-orchestrator/internal/workflow/definition.go` so `Definition` has root `Artifacts map[string]Artifact` and `Step` no longer has `Artifacts`.
+  - Modify `pi-orchestrator/internal/workflow/definition.go` so `Definition` has root `Artifacts map[string]RootArtifact` or equivalent and `Step` no longer has `Artifacts`. Use a new root artifact type with only supported fields such as `path`; do not reuse the old `Artifact` struct because its `name` and `required` fields should be rejected in the new schema.
   - Add a `Produces map[string]ArtifactProduceCheck` or equivalent field under `Step`, where each value parses as `exists` or `non_empty`.
-  - Add `artifacts` to the top-level allowlist and let `KnownFields(true)` reject old step-scoped `artifacts` naturally.
+  - Add `artifacts` to the top-level allowlist and let `KnownFields(true)` reject old step-scoped `artifacts` naturally. Ensure root-level `required:` and `name:` fields are also rejected.
   - Validate artifact names with the template-safe identifier rule; consider applying the same helper to future root maps where dot-template access is expected.
   - Validate `produces` references point to declared root artifacts and each check value is one of `exists` or `non_empty`.
 - Prompt rendering:
   - Replace `artifactPathsForWorkflow` step iteration with root artifact catalog iteration.
   - Execute templates with data containing both `Inputs` and `Artifacts`.
-  - Add workflow-load or lint-time prompt template validation so unsupported functions such as `artifact_path` are caught by `po lint` before run admission; reuse the same template data shape as supervisor rendering so lint and run behavior match.
+  - Add shared workflow-load prompt template validation used by both `po lint` and `po run`, so unsupported functions such as `artifact_path` are caught before run admission creates worktrees, artifact roots, or store rows. Reuse the same template data shape as supervisor rendering so lint and run behavior match.
   - Remove the `artifact_path` FuncMap helper. Unknown helper usage should fail lint/workflow validation for current definitions and fail supervisor parsing with a clear wrapped step error for persisted definitions.
+  - Configure template rendering with `missingkey=error` or perform equivalent template AST validation so unknown `.Artifacts.<name>` references cannot silently render `<no value>`.
 - Supervisor artifact checks:
   - Replace `artifactsForStep` / `missingRequiredArtifacts` with root artifact status refresh plus per-step `produces` check evaluation.
   - Evaluate `produces` only after the backing step succeeds. If the backing step fails/stops, preserve current behavior and do not mask that result with artifact-check failures.
@@ -109,9 +111,10 @@ steps:
   - Error/outcome strings should include the step id, artifact name, relative path, and check, e.g. `artifact findings failed non_empty check: file is empty`.
 - Store/API/dashboard/status:
   - Replace or migrate the `artifacts` table so artifact rows are workflow-level, keyed by `(workflow_run_id, name)`, without `step_id` as ownership.
-  - Initialize workflow-level artifact rows for all declared root artifacts during run admission or at supervisor start before the first step executes, so `po status` and dashboard can display declared artifacts even before a `produces` check runs. Prefer run admission if the workflow run already has its artifact root and definition snapshot available there; otherwise make supervisor initialization idempotent.
+  - Initialize workflow-level artifact rows for all declared root artifacts during `po run` admission after the artifact root and definition snapshot are known, before launching the supervisor, so `po status` and dashboard can display declared artifacts immediately. Make initialization idempotent if supervisor-side repair is added later.
   - Add a table or fields for step-level check results, e.g. `(workflow_run_id, step_id, kind, target, check, passed, message, updated_at)`. Keep the schema generic enough to later represent command/test checks.
-  - Update `GetWorkflowRunDetail`, dashboard JSON, status output, cleanup/rm metadata removal, and tests that currently expect artifact `StepID` ownership.
+  - Update `GetWorkflowRunDetail`, dashboard JSON, status output, cleanup/rm metadata removal, `pi-orchestrator/internal/dashboard/index.html`, and tests that currently expect artifact `StepID` ownership.
+  - Ensure cleanup/rm/delete code removes or marks step check-result metadata in safe foreign-key order alongside workflow artifacts, step runs, and workflow runs.
   - For existing local SQLite databases, implement a forward migration that can drop/recreate or transform artifact metadata as appropriate for this development-stage tool. Do not preserve old workflow definitions as valid.
 - Documentation:
   - Update `pi-orchestrator/README.md` and `pi-orchestrator/DESIGN.md` examples and behavior text.
@@ -123,7 +126,7 @@ Update `pi-orchestrator/README.md` and `pi-orchestrator/DESIGN.md` because workf
 
 ## Testing / Verification
 
-- V1 for AC-1/AC-2: Run `go test ./internal/workflow ./internal/supervisor ./cmd/po` from `pi-orchestrator` and verify tests cover root artifact parsing, identifier validation, old step-scoped artifact rejection, `.Artifacts.<name>` rendering, and `artifact_path` rejection through `po lint`/workflow validation and persisted-definition supervisor parsing.
+- V1 for AC-1/AC-2: Run `go test ./internal/workflow ./internal/supervisor ./cmd/po` from `pi-orchestrator` and verify tests cover root artifact parsing, identifier validation, root `required`/`name` rejection, old step-scoped artifact rejection, `.Artifacts.<name>` rendering, unknown `.Artifacts.<name>` rejection, and `artifact_path` rejection through shared `po lint`/`po run` workflow validation plus persisted-definition supervisor parsing.
 - V2 for AC-3/AC-4/AC-5: Add supervisor tests where a fake runner succeeds while artifact files are missing, empty, directories, and non-empty regular files; verify step/workflow states and outcomes match expected `produces` results.
 - V3 for AC-6: Run store, dashboard, inspect, cleanup/rm tests and verify workflow detail JSON/status output expose workflow-level artifacts and per-step `produces` check results without step-owned artifact rows.
 - V4 for AC-7: Run `rg "artifact_path|artifacts:|required: true" pi-orchestrator` and inspect matches to ensure docs/examples/tests reflect the new model or intentionally test old-syntax rejection.
