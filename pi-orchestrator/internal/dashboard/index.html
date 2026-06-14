@@ -10,17 +10,21 @@
         color-scheme: dark;
         --bg: #080b10;
         --panel: #101722;
-        --panel2: #151f2d;
-        --panel3: #0b111a;
+        --panel-strong: #151f2d;
+        --panel-sunken: #05070b;
         --text: #e6edf3;
         --muted: #8b98a8;
         --line: #263244;
-        --accent: #c084fc;
-        --accent2: #7dd3fc;
+        --product-accent: #c084fc;
+        --product-accent-2: #7dd3fc;
         --good: #86efac;
         --bad: #fca5a5;
         --warn: #fde68a;
         --idle: #cbd5e1;
+        --panel2: var(--panel-strong);
+        --panel3: var(--panel-sunken);
+        --accent: var(--product-accent);
+        --accent2: var(--product-accent-2);
       }
       * {
         box-sizing: border-box;
@@ -108,9 +112,9 @@
       section {
         overflow: hidden;
         border: 1px solid var(--line);
-        border-radius: 14px;
+        border-radius: 12px;
         background: rgba(16, 23, 34, 0.92);
-        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.22);
+        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.18);
       }
       .master,
       .detail {
@@ -230,7 +234,13 @@
         background: var(--panel3);
         color: var(--text);
         padding: 8px 10px;
+        font: inherit;
         cursor: pointer;
+      }
+      .tabs button:focus-visible,
+      .ghost:focus-visible {
+        outline: 2px solid rgba(192, 132, 252, 0.4);
+        outline-offset: 2px;
       }
       .tabs button.active,
       .ghost:hover {
