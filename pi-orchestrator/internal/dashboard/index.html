@@ -455,6 +455,10 @@
             <div class="empty">Select a run.</div>
           </div>
           <div id="logs" class="tab-panel logs-panel">
+            <div class="logbar">
+              <span class="mono muted">Supervisor logs</span>
+              <button id="refresh-log" type="button">Refresh</button>
+            </div>
             <pre>Select a run.</pre>
           </div>
         </div>
@@ -903,11 +907,26 @@
           logs && logs.truncated ? "chip stopped" : "chip succeeded";
         status.textContent =
           logs && logs.truncated ? "tail window" : "complete window";
-        bar.append(title, status);
+        const refresh = document.createElement("button");
+        refresh.id = "refresh-log";
+        refresh.type = "button";
+        refresh.textContent = "Refresh";
+        refresh.addEventListener("click", refreshLogs);
+        bar.append(title, refresh, status);
         const pre = document.createElement("pre");
         pre.textContent =
           logs && logs.content ? logs.content : "No supervisor log content.";
         panel.append(bar, pre);
+      }
+
+      async function refreshLogs() {
+        if (!state.selectedID) return;
+        state.logs = await fetchJSON(
+          "/dashboard/api/runs/" +
+            encodeURIComponent(state.selectedID) +
+            "/logs",
+        );
+        renderLogs(state.logs);
       }
 
       function renderDetail() {
@@ -1021,6 +1040,7 @@
       byID("search").addEventListener("input", handleRunFilterChange);
       byID("status").addEventListener("change", handleRunFilterChange);
       byID("refresh").addEventListener("click", refresh);
+      byID("refresh-log").addEventListener("click", refreshLogs);
 
       refresh();
       const events = new EventSource("/dashboard/events");
