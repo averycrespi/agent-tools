@@ -14,7 +14,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var cleanupDryRun bool
+var (
+	cleanupDryRun bool
+	cleanupAll    bool
+	rmAll         bool
+)
 
 type worktreeRemover interface {
 	Remove(repoRoot, branch string) error
@@ -25,24 +29,33 @@ var newWorktreeRemover = func() (worktreeRemover, error) {
 }
 
 var cleanupCmd = &cobra.Command{
-	Use:   "cleanup <run-id>...",
+	Use:   "cleanup [--all|<run-id>...]",
 	Short: "Remove terminal workflow worktree and artifacts",
-	Args:  requireRunArgs("po cleanup <run-id>..."),
+	Args:  requireRunArgsOrAll("all", "po cleanup [--all|<run-id>...]"),
 	RunE:  cleanupWorkflowRun,
 }
 
 var rmCmd = &cobra.Command{
-	Use:   "rm <run-id>...",
+	Use:   "rm [--all|<run-id>...]",
 	Short: "Forget terminal workflow metadata",
-	Args:  requireRunArgs("po rm <run-id>..."),
+	Args:  requireRunArgsOrAll("all", "po rm [--all|<run-id>...]"),
 	RunE:  removeWorkflowRunMetadata,
 }
 
 func init() {
 	cleanupCmd.Flags().BoolVar(&cleanupDryRun, "dry-run", false, "show cleanup targets without removing them")
+	cleanupCmd.Flags().BoolVar(&cleanupAll, "all", false, "cleanup all terminal workflow runs")
+	rmCmd.Flags().BoolVar(&rmAll, "all", false, "remove metadata for all terminal workflow runs")
 }
 
 func cleanupWorkflowRun(cmd *cobra.Command, args []string) error {
+	if cleanupAll {
+		runIDs, err := terminalWorkflowRunIDs(cmd.Context())
+		if err != nil {
+			return err
+		}
+		args = runIDs
+	}
 	var errs []error
 	for _, runID := range args {
 		if err := cleanupOneWorkflowRun(cmd, runID); err != nil {
@@ -151,6 +164,13 @@ func removeWorkflowRunMetadata(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer db.Close() //nolint:errcheck
+	if rmAll {
+		runIDs, err := terminalWorkflowRunIDsFromStore(cmd.Context(), db)
+		if err != nil {
+			return err
+		}
+		args = runIDs
+	}
 	var errs []error
 	for _, runID := range args {
 		if err := removeOneWorkflowRunMetadata(cmd, db, runID); err != nil {
@@ -158,6 +178,29 @@ func removeWorkflowRunMetadata(cmd *cobra.Command, args []string) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func terminalWorkflowRunIDs(ctx context.Context) ([]string, error) {
+	db, err := store.Open(cfg.DBPath())
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close() //nolint:errcheck
+	return terminalWorkflowRunIDsFromStore(ctx, db)
+}
+
+func terminalWorkflowRunIDsFromStore(ctx context.Context, db *store.Store) ([]string, error) {
+	runs, err := db.ListWorkflowRuns(ctx)
+	if err != nil {
+		return nil, err
+	}
+	runIDs := make([]string, 0, len(runs))
+	for _, run := range runs {
+		if isTerminalState(run.State) {
+			runIDs = append(runIDs, run.ID)
+		}
+	}
+	return runIDs, nil
 }
 
 func removeOneWorkflowRunMetadata(cmd *cobra.Command, db *store.Store, runID string) error {

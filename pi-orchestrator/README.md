@@ -52,8 +52,8 @@ po status <run-id>
 po wait <run-id> [--timeout 5m]
 po logs <run-id>
 po stop <run-id>...
-po cleanup [--dry-run] <run-id>...
-po rm <run-id>...
+po cleanup [--dry-run] [--all|<run-id>...]
+po rm [--all|<run-id>...]
 po dashboard [--host 127.0.0.1] [--port 8400] [--no-open]
 po token rotate
 ```

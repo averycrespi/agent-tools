@@ -172,6 +172,8 @@ func executeCommand(args ...string) (string, error) {
 		lintAll = false
 		runInputs = nil
 		cleanupDryRun = false
+		cleanupAll = false
+		rmAll = false
 		supervisorRunID = ""
 		newStepRunner = defaultNewStepRunner
 		supervisorProcessAlive = defaultSupervisorProcessAlive

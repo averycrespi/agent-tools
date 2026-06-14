@@ -123,3 +123,19 @@ func requireRunArgs(usage string) cobra.PositionalArgs {
 		return nil
 	}
 }
+
+func requireRunArgsOrAll(allFlag string, usage string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		all, err := cmd.Flags().GetBool(allFlag)
+		if err != nil {
+			return err
+		}
+		if all {
+			if len(args) > 0 {
+				return fmt.Errorf("--all cannot be used with run IDs\nUsage: %s", usage)
+			}
+			return nil
+		}
+		return requireRunArgs(usage)(cmd, args)
+	}
+}

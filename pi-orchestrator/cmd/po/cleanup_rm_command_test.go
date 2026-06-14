@@ -94,6 +94,49 @@ func TestCleanupAcceptsMultipleRunIDs(t *testing.T) {
 	}
 }
 
+func TestCleanupAllCleansTerminalRunsOnly(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, t.TempDir(), stateDir)
+	fakeWT := installFakeWorktreeRemover(t)
+	first := seedCleanupWorkflowRunWithID(t, stateDir, "run-1", store.StateSucceeded)
+	second := seedCleanupWorkflowRunWithID(t, stateDir, "run-2", store.StateFailed)
+	active := seedCleanupWorkflowRunWithID(t, stateDir, "run-3", store.StateRunning)
+	worktrees := map[string]string{"po/run-1": first.worktree, "po/run-2": second.worktree}
+	fakeWT.remove = func(_, branch string) error { return os.RemoveAll(worktrees[branch]) }
+
+	stdout, err := executeCommand("cleanup", "--all")
+	if err != nil {
+		t.Fatalf("cleanup --all error = %v", err)
+	}
+	if !strings.Contains(stdout, "run-1 cleaned up") || !strings.Contains(stdout, "run-2 cleaned up") || strings.Contains(stdout, "run-3 cleaned up") {
+		t.Fatalf("stdout = %q, want terminal runs only", stdout)
+	}
+	if len(fakeWT.calls) != 2 {
+		t.Fatalf("worktree calls = %+v, want two terminal runs", fakeWT.calls)
+	}
+	for _, path := range []string{first.worktree, first.artifacts, second.worktree, second.artifacts} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("stat %s error = %v, want not exist", path, err)
+		}
+	}
+	for _, path := range []string{active.worktree, active.artifacts} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("stat active path %s after cleanup --all: %v", path, err)
+		}
+	}
+}
+
+func TestCleanupAllRejectsRunIDs(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, t.TempDir(), stateDir)
+	seedCleanupWorkflowRun(t, stateDir, store.StateSucceeded)
+
+	_, err := executeCommand("cleanup", "--all", "run-1")
+	if err == nil || !strings.Contains(err.Error(), "--all cannot be used with run IDs") {
+		t.Fatalf("cleanup --all run-1 error = %v, want mixed arg rejection", err)
+	}
+}
+
 func TestCleanupRejectsNonTerminalRun(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	cfg = testConfig(t, t.TempDir(), stateDir)
@@ -169,6 +212,51 @@ func TestRMAcceptsMultipleRunIDs(t *testing.T) {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("stat %s after rm: %v", path, err)
 		}
+	}
+}
+
+func TestRMAllDeletesTerminalRunMetadataOnly(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, t.TempDir(), stateDir)
+	first := seedCleanupWorkflowRunWithID(t, stateDir, "run-1", store.StateSucceeded)
+	second := seedCleanupWorkflowRunWithID(t, stateDir, "run-2", store.StateFailed)
+	active := seedCleanupWorkflowRunWithID(t, stateDir, "run-3", store.StateRunning)
+
+	stdout, err := executeCommand("rm", "--all")
+	if err != nil {
+		t.Fatalf("rm --all error = %v", err)
+	}
+	if !strings.Contains(stdout, "run-1 removed") || !strings.Contains(stdout, "run-2 removed") || strings.Contains(stdout, "run-3 removed") {
+		t.Fatalf("stdout = %q, want terminal runs only", stdout)
+	}
+	db, err := store.Open(filepath.Join(stateDir, "po", "po.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+	for _, runID := range []string{"run-1", "run-2"} {
+		if _, err := db.GetWorkflowRun(context.Background(), runID); err == nil {
+			t.Fatalf("GetWorkflowRun(%s) error = nil, want removed metadata", runID)
+		}
+	}
+	if _, err := db.GetWorkflowRun(context.Background(), "run-3"); err != nil {
+		t.Fatalf("GetWorkflowRun(run-3) error = %v, want active run preserved", err)
+	}
+	for _, path := range []string{first.worktree, first.artifacts, second.worktree, second.artifacts, active.worktree, active.artifacts} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("stat %s after rm --all: %v", path, err)
+		}
+	}
+}
+
+func TestRMAllRejectsRunIDs(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, t.TempDir(), stateDir)
+	seedCleanupWorkflowRun(t, stateDir, store.StateSucceeded)
+
+	_, err := executeCommand("rm", "--all", "run-1")
+	if err == nil || !strings.Contains(err.Error(), "--all cannot be used with run IDs") {
+		t.Fatalf("rm --all run-1 error = %v, want mixed arg rejection", err)
 	}
 }
 
