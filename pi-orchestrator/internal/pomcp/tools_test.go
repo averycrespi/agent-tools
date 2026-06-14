@@ -174,8 +174,12 @@ func TestLogValidationAndMissingIDsReturnToolErrors(t *testing.T) {
 		{name: "oversized limit", tool: "get_workflow_run_logs", args: map[string]any{"run_id": runID, "limit": float64(MaxLogLimit + 1)}, message: "limit must be less than or equal to 1048576"},
 		{name: "missing step", tool: "get_step_logs", args: map[string]any{"run_id": runID}, message: "step_id is required"},
 		{name: "bad stream", tool: "get_step_logs", args: map[string]any{"run_id": runID, "step_id": "plan", "stream": "events"}, message: "stream must be stdout or stderr"},
+		{name: "non string stream", tool: "get_step_logs", args: map[string]any{"run_id": runID, "step_id": "plan", "stream": float64(123)}, message: "stream must be stdout or stderr"},
+		{name: "missing run id for detail", tool: "get_workflow_run", args: map[string]any{}, message: "run_id is required"},
+		{name: "missing run id for step logs", tool: "get_step_logs", args: map[string]any{"step_id": "plan"}, message: "run_id is required"},
 		{name: "unknown step", tool: "get_step_logs", args: map[string]any{"run_id": runID, "step_id": "missing"}, message: "workflow step not found"},
 		{name: "unknown run", tool: "get_workflow_run", args: map[string]any{"run_id": "missing"}, message: "workflow run not found"},
+		{name: "unknown run for step logs", tool: "get_step_logs", args: map[string]any{"run_id": "missing", "step_id": "plan"}, message: "workflow run not found"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -187,6 +191,42 @@ func TestLogValidationAndMissingIDsReturnToolErrors(t *testing.T) {
 				t.Fatalf("result error = %v text = %q, want %q", result.IsError, toolText(t, result), tt.message)
 			}
 		})
+	}
+}
+
+func TestLogReadFailuresReturnToolErrors(t *testing.T) {
+	st, runID := testStore(t)
+	run, err := st.GetWorkflowRun(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(run.SupervisorLogPath); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(st, t.TempDir())
+	result, err := h.Handle(context.Background(), toolRequest("get_workflow_run_logs", map[string]any{"run_id": runID}))
+	if err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if !result.IsError || !strings.Contains(toolText(t, result), "no such file") {
+		t.Fatalf("supervisor log result error = %v text = %q", result.IsError, toolText(t, result))
+	}
+
+	st, runID = testStore(t)
+	step, err := st.GetWorkflowStepRun(context.Background(), runID, "plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(step.PDStdoutPath); err != nil {
+		t.Fatal(err)
+	}
+	h = NewHandler(st, t.TempDir())
+	result, err = h.Handle(context.Background(), toolRequest("get_step_logs", map[string]any{"run_id": runID, "step_id": "plan"}))
+	if err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if !result.IsError || !strings.Contains(toolText(t, result), "no such file") {
+		t.Fatalf("step log result error = %v text = %q", result.IsError, toolText(t, result))
 	}
 }
 
@@ -228,6 +268,10 @@ func (s failingStore) GetWorkflowRunDetail(context.Context, string) (store.Workf
 
 func (s failingStore) GetWorkflowRun(context.Context, string) (store.WorkflowRun, error) {
 	return store.WorkflowRun{}, s.err
+}
+
+func (s failingStore) GetWorkflowStepRun(context.Context, string, string) (store.StepRun, error) {
+	return store.StepRun{}, s.err
 }
 
 func toolRequest(name string, args map[string]any) gomcp.CallToolRequest {

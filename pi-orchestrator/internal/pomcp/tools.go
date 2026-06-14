@@ -32,6 +32,7 @@ type Store interface {
 	ListWorkflowRunSummaries(context.Context) ([]store.WorkflowRunSummary, error)
 	GetWorkflowRunDetail(context.Context, string) (store.WorkflowRunDetail, error)
 	GetWorkflowRun(context.Context, string) (store.WorkflowRun, error)
+	GetWorkflowStepRun(context.Context, string, string) (store.StepRun, error)
 }
 
 type Handler struct {
@@ -53,9 +54,17 @@ type WorkflowSummary struct {
 }
 
 type WorkflowDetail struct {
-	WorkflowSummary
-	RawYAML string              `json:"raw_yaml"`
-	Steps   []StepDetailSummary `json:"steps,omitempty"`
+	Name        string               `json:"name"`
+	Description string               `json:"description,omitempty"`
+	Repo        string               `json:"repo,omitempty"`
+	Inputs      []InputSummary       `json:"inputs,omitempty"`
+	Agents      []AgentSummary       `json:"agents,omitempty"`
+	Steps       []StepDetailSummary  `json:"steps,omitempty"`
+	Artifacts   []ArtifactDefinition `json:"artifacts,omitempty"`
+	SourcePath  string               `json:"source_path"`
+	Valid       bool                 `json:"valid"`
+	Error       string               `json:"error,omitempty"`
+	RawYAML     string               `json:"raw_yaml"`
 }
 
 type InputSummary struct {
@@ -250,12 +259,13 @@ func (h *Handler) getWorkflow(args map[string]any) (*gomcp.CallToolResult, error
 	if err != nil {
 		return gomcp.NewToolResultError(fmt.Sprintf("read workflow %s: %v", path, err)), nil
 	}
-	def, err := workflow.LoadFile(path)
+	stem := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	def, err := workflow.LoadBytes(data, stem, path)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
 	summary := workflowSummary(def, path, true, "")
-	return jsonResult(WorkflowDetail{WorkflowSummary: summary, RawYAML: string(data), Steps: workflowStepDetails(def)})
+	return jsonResult(workflowDetail(summary, string(data), workflowStepDetails(def)))
 }
 
 func (h *Handler) listWorkflowRuns(ctx context.Context) (*gomcp.CallToolResult, error) {
@@ -317,36 +327,36 @@ func (h *Handler) getStepLogs(ctx context.Context, args map[string]any) (*gomcp.
 	if stepID == "" {
 		return gomcp.NewToolResultError("step_id is required"), nil
 	}
-	stream := stringOrDefault(args, "stream", "stdout")
-	if stream != "stdout" && stream != "stderr" {
+	stream, err := stringArgOrDefault(args, "stream", "stdout")
+	if err != nil || (stream != "stdout" && stream != "stderr") {
 		return gomcp.NewToolResultError("stream must be stdout or stderr"), nil
 	}
 	offset, limit, result := parseLogWindowArgs(args)
 	if result != nil {
 		return result, nil
 	}
-	detail, err := h.store.GetWorkflowRunDetail(ctx, runID)
-	if err != nil {
+	if _, err := h.store.GetWorkflowRun(ctx, runID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return gomcp.NewToolResultError("workflow run not found"), nil
 		}
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	for _, step := range detail.Steps {
-		if step.StepID != stepID {
-			continue
+	step, err := h.store.GetWorkflowStepRun(ctx, runID, stepID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return gomcp.NewToolResultError("workflow step not found"), nil
 		}
-		path := step.PDStdoutPath
-		if stream == "stderr" {
-			path = step.PDStderrPath
-		}
-		window, err := readLogWindow(path, stream, offset, limit)
-		if err != nil {
-			return gomcp.NewToolResultError(err.Error()), nil
-		}
-		return jsonResult(window)
+		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	return gomcp.NewToolResultError("workflow step not found"), nil
+	path := step.PDStdoutPath
+	if stream == "stderr" {
+		path = step.PDStderrPath
+	}
+	window, err := readLogWindow(path, stream, offset, limit)
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	return jsonResult(window)
 }
 
 func workflowSummary(def *workflow.Definition, path string, valid bool, validationErr string) WorkflowSummary {
@@ -403,8 +413,12 @@ func stepArtifacts(step workflow.Step) []ArtifactDefinition {
 	return out
 }
 
+func workflowDetail(summary WorkflowSummary, rawYAML string, steps []StepDetailSummary) WorkflowDetail {
+	return WorkflowDetail{Name: summary.Name, Description: summary.Description, Repo: summary.Repo, Inputs: summary.Inputs, Agents: summary.Agents, Steps: steps, Artifacts: summary.Artifacts, SourcePath: summary.SourcePath, Valid: summary.Valid, Error: summary.Error, RawYAML: rawYAML}
+}
+
 func runSummaryView(summary store.WorkflowRunSummary) RunSummary {
-	return RunSummary{ID: summary.ID, Workflow: summary.Workflow, State: summary.State, Repo: summary.Repo, Branch: summary.Branch, WorktreePath: summary.WorktreePath, ArtifactRoot: summary.ArtifactRoot, Outcome: summary.Outcome, CreatedAt: summary.CreatedAt, UpdatedAt: summary.UpdatedAt, StepCounts: summary.StepCounts, StepTotal: summary.StepTotal, StepPending: summary.StepPending, Progress: map[string]interface{}{"total": summary.StepTotal, "pending": summary.StepPending, "counts": summary.StepCounts}}
+	return RunSummary{ID: summary.ID, Workflow: summary.Workflow, State: summary.State, Repo: summary.Repo, Branch: summary.Branch, WorktreePath: summary.WorktreePath, ArtifactRoot: summary.ArtifactRoot, Outcome: summary.Outcome, CreatedAt: summary.CreatedAt, UpdatedAt: summary.UpdatedAt, StepCounts: summary.StepCounts, StepTotal: summary.StepTotal, StepPending: summary.StepPending, Progress: map[string]any{"total": summary.StepTotal, "pending": summary.StepPending, "counts": summary.StepCounts}}
 }
 
 func runDetailSummaryView(detail store.WorkflowRunDetail) RunDetailSummary {
@@ -527,11 +541,19 @@ func jsonResult(payload any) (*gomcp.CallToolResult, error) {
 	return gomcp.NewToolResultText(string(out)), nil
 }
 
-func stringOrDefault(args map[string]any, key, defaultVal string) string {
-	if value, ok := args[key].(string); ok && value != "" {
-		return value
+func stringArgOrDefault(args map[string]any, key, defaultVal string) (string, error) {
+	value, ok := args[key]
+	if !ok || value == nil {
+		return defaultVal, nil
 	}
-	return defaultVal
+	text, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("%s must be a string", key)
+	}
+	if text == "" {
+		return defaultVal, nil
+	}
+	return text, nil
 }
 
 func intOrDefault(args map[string]any, key string, defaultVal int) (int, error) {
