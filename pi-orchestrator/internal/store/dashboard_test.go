@@ -6,6 +6,25 @@ import (
 	"time"
 )
 
+func TestListWorkflowRunSummariesUsesEmptyStepCountsForRunsWithoutSteps(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := openTestStore(t)
+	defer db.Close() //nolint:errcheck
+	createWorkflowRun(t, ctx, db, time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC))
+
+	summaries, err := db.ListWorkflowRunSummaries(ctx)
+	if err != nil {
+		t.Fatalf("ListWorkflowRunSummaries() error = %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("len(summaries) = %d, want 1", len(summaries))
+	}
+	if summaries[0].StepCounts == nil || len(summaries[0].StepCounts) != 0 {
+		t.Fatalf("StepCounts = %#v, want empty non-nil map", summaries[0].StepCounts)
+	}
+}
+
 func TestListWorkflowRunSummariesIncludesStepCounts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

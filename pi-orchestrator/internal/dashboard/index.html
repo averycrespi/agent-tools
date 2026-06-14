@@ -429,6 +429,7 @@
       }
 
       function countPills(counts = {}) {
+        counts = counts || {};
         const wrap = document.createElement('div');
         wrap.className = 'counts';
         for (const name of states) {
