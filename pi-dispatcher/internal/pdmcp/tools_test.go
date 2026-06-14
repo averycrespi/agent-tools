@@ -3,6 +3,7 @@ package pdmcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -107,16 +108,92 @@ func TestGetTaskErrorsAreToolErrors(t *testing.T) {
 
 func TestGetTaskLogsValidationErrorsAreToolErrors(t *testing.T) {
 	st, task := testStore(t)
+	tests := []struct {
+		name    string
+		args    map[string]any
+		message string
+	}{
+		{
+			name:    "invalid stream",
+			args:    map[string]any{"task_id": task.ID, "stream": "events"},
+			message: "stream must be stdout or stderr",
+		},
+		{
+			name:    "negative offset",
+			args:    map[string]any{"task_id": task.ID, "offset": float64(-1)},
+			message: "offset must be a non-negative integer",
+		},
+		{
+			name:    "fractional offset",
+			args:    map[string]any{"task_id": task.ID, "offset": 1.5},
+			message: "offset must be a non-negative integer",
+		},
+		{
+			name:    "negative limit",
+			args:    map[string]any{"task_id": task.ID, "limit": float64(-1)},
+			message: "limit must be a non-negative integer",
+		},
+		{
+			name:    "fractional limit",
+			args:    map[string]any{"task_id": task.ID, "limit": 1.5},
+			message: "limit must be a non-negative integer",
+		},
+		{
+			name:    "oversized limit",
+			args:    map[string]any{"task_id": task.ID, "limit": float64(1024*1024 + 1)},
+			message: "limit must be less than or equal to 1048576",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewHandler(st)
+			req := gomcp.CallToolRequest{}
+			req.Params.Name = "get_task_logs"
+			req.Params.Arguments = tt.args
+
+			result, err := h.Handle(context.Background(), req)
+
+			require.NoError(t, err)
+			require.True(t, result.IsError)
+			require.Contains(t, toolText(t, result), tt.message)
+		})
+	}
+}
+
+func TestGetTaskLogsReadFailureReturnsToolError(t *testing.T) {
+	st, task := testStore(t)
+	run, err := st.LatestRun(context.Background(), task.ID)
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(run.StdoutLogPath))
 	h := NewHandler(st)
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "get_task_logs"
-	req.Params.Arguments = map[string]any{"task_id": task.ID, "stream": "events"}
+	req.Params.Arguments = map[string]any{"task_id": task.ID}
 
 	result, err := h.Handle(context.Background(), req)
 
 	require.NoError(t, err)
 	require.True(t, result.IsError)
-	require.Contains(t, toolText(t, result), "stream must be stdout or stderr")
+	require.Contains(t, toolText(t, result), "no such file")
+}
+
+func TestStoreReadFailuresReturnToolErrors(t *testing.T) {
+	boom := errors.New("store unavailable")
+	h := NewHandler(failingStore{err: boom})
+	for _, name := range []string{"list_tasks", "get_task", "get_task_logs"} {
+		t.Run(name, func(t *testing.T) {
+			req := gomcp.CallToolRequest{}
+			req.Params.Name = name
+			req.Params.Arguments = map[string]any{"task_id": "task-test"}
+
+			result, err := h.Handle(context.Background(), req)
+
+			require.NoError(t, err)
+			require.True(t, result.IsError)
+			require.Contains(t, toolText(t, result), boom.Error())
+		})
+	}
 }
 
 func TestUnknownToolReturnsToolError(t *testing.T) {
@@ -129,6 +206,22 @@ func TestUnknownToolReturnsToolError(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.IsError)
 	require.Contains(t, toolText(t, result), "unknown tool")
+}
+
+type failingStore struct {
+	err error
+}
+
+func (s failingStore) ListTaskSummaries(context.Context) ([]store.TaskSummary, error) {
+	return nil, s.err
+}
+
+func (s failingStore) GetTask(context.Context, string) (store.Task, error) {
+	return store.Task{}, s.err
+}
+
+func (s failingStore) LatestRun(context.Context, string) (store.Run, error) {
+	return store.Run{}, s.err
 }
 
 func toolNames(tools []gomcp.Tool) []string {
