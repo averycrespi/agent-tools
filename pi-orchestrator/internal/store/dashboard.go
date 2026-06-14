@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 type WorkflowRunSummary struct {
@@ -19,6 +21,8 @@ type WorkflowRunSummary struct {
 	CreatedAt    string        `json:"created_at"`
 	UpdatedAt    string        `json:"updated_at"`
 	StepCounts   map[State]int `json:"step_counts"`
+	StepTotal    int           `json:"step_total"`
+	StepPending  int           `json:"step_pending"`
 }
 
 func (s *Store) ListWorkflowRunSummaries(ctx context.Context) ([]WorkflowRunSummary, error) {
@@ -36,9 +40,31 @@ func (s *Store) ListWorkflowRunSummaries(ctx context.Context) ([]WorkflowRunSumm
 		if stepCounts == nil {
 			stepCounts = map[State]int{}
 		}
-		summaries = append(summaries, WorkflowRunSummary{ID: run.ID, Workflow: run.Workflow, State: run.State, Repo: run.Repo, Branch: run.Branch, WorktreePath: run.WorktreePath, ArtifactRoot: run.ArtifactRoot, InputsJSON: run.InputsJSON, Outcome: run.Outcome, CreatedAt: run.CreatedAt.Format(time.RFC3339), UpdatedAt: run.UpdatedAt.Format(time.RFC3339), StepCounts: stepCounts})
+		stepTotal, stepPending := stepProgress(run.DefinitionYAML, stepCounts)
+		summaries = append(summaries, WorkflowRunSummary{ID: run.ID, Workflow: run.Workflow, State: run.State, Repo: run.Repo, Branch: run.Branch, WorktreePath: run.WorktreePath, ArtifactRoot: run.ArtifactRoot, InputsJSON: run.InputsJSON, Outcome: run.Outcome, CreatedAt: run.CreatedAt.Format(time.RFC3339), UpdatedAt: run.UpdatedAt.Format(time.RFC3339), StepCounts: stepCounts, StepTotal: stepTotal, StepPending: stepPending})
 	}
 	return summaries, nil
+}
+
+type workflowStepList struct {
+	Steps []struct{} `yaml:"steps"`
+}
+
+func stepProgress(definitionYAML string, counts map[State]int) (int, int) {
+	recorded := 0
+	for _, count := range counts {
+		recorded += count
+	}
+	total := recorded
+	var definition workflowStepList
+	if definitionYAML != "" && yaml.Unmarshal([]byte(definitionYAML), &definition) == nil && len(definition.Steps) > 0 {
+		total = len(definition.Steps)
+	}
+	pending := total - recorded
+	if pending < 0 {
+		pending = 0
+	}
+	return total, pending
 }
 
 func (s *Store) stepCountsByWorkflowRun(ctx context.Context) (map[string]map[State]int, error) {

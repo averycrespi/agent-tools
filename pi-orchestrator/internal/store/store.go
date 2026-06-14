@@ -84,9 +84,11 @@ type Artifact struct {
 }
 
 type WorkflowRunDetail struct {
-	Run       WorkflowRun
-	Steps     []StepRun
-	Artifacts []Artifact
+	Run         WorkflowRun
+	Steps       []StepRun
+	Artifacts   []Artifact
+	StepTotal   int
+	StepPending int
 }
 
 type Store struct {
@@ -369,7 +371,12 @@ func (s *Store) GetWorkflowRunDetail(ctx context.Context, id string) (WorkflowRu
 	if err != nil {
 		return WorkflowRunDetail{}, err
 	}
-	return WorkflowRunDetail{Run: run, Steps: steps, Artifacts: artifacts}, nil
+	stepCounts := map[State]int{}
+	for _, step := range steps {
+		stepCounts[step.State]++
+	}
+	stepTotal, stepPending := stepProgress(run.DefinitionYAML, stepCounts)
+	return WorkflowRunDetail{Run: run, Steps: steps, Artifacts: artifacts, StepTotal: stepTotal, StepPending: stepPending}, nil
 }
 
 func (s *Store) UpdateStepState(ctx context.Context, workflowRunID string, stepID string, state State, outcome string, updatedAt time.Time) error {

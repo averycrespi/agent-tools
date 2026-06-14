@@ -558,15 +558,17 @@
         return JSON.stringify(inputs, null, 2);
       }
 
-      function countPills(counts = {}) {
+      function countPills(counts = {}, pending = 0) {
         counts = counts || {};
+        const displayStates = pending > 0 ? [...states, "pending"] : states;
         const wrap = document.createElement("div");
         wrap.className = "counts";
-        for (const name of states) {
-          if (!counts[name]) continue;
+        for (const name of displayStates) {
+          const count = name === "pending" ? pending : counts[name];
+          if (!count) continue;
           const pill = document.createElement("span");
           pill.className = "count " + name;
-          pill.textContent = `${name} ${counts[name]}`;
+          pill.textContent = `${name} ${count}`;
           wrap.appendChild(pill);
         }
         if (!wrap.childElementCount) {
@@ -589,6 +591,8 @@
           repo: run.Repo || run.repo,
           updatedAt: run.UpdatedAt || run.updated_at,
           inputsJSON: run.InputsJSON || run.inputs_json,
+          stepTotal: run.StepTotal ?? run.step_total ?? 0,
+          stepPending: run.StepPending ?? run.step_pending ?? 0,
         };
       }
 
@@ -653,6 +657,7 @@
             repo,
             updatedAt,
             inputsJSON,
+            stepPending,
           } = runSummaryFields(summary);
           const button = document.createElement("button");
           button.type = "button";
@@ -687,7 +692,7 @@
           button.append(top, meta, branch);
           if (inputSummary) button.appendChild(inputs);
           button.appendChild(
-            countPills(summary.StepCounts || summary.step_counts),
+            countPills(summary.StepCounts || summary.step_counts, stepPending),
           );
           runs.appendChild(button);
         }
@@ -738,6 +743,12 @@
           stat("Status", run.State),
           stat("Workflow", run.Workflow),
           stat("Branch", run.Branch),
+          stat(
+            "Steps",
+            detail.StepTotal
+              ? `${detail.StepTotal - detail.StepPending}/${detail.StepTotal}`
+              : "",
+          ),
           stat("Updated", time(run.UpdatedAt)),
         );
         const inputs = prettyInputs(run.InputsJSON);

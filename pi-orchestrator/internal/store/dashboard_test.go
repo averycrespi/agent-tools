@@ -26,6 +26,9 @@ func TestListWorkflowRunSummariesUsesEmptyStepCountsForRunsWithoutSteps(t *testi
 	if summaries[0].StepCounts == nil || len(summaries[0].StepCounts) != 0 {
 		t.Fatalf("StepCounts = %#v, want empty non-nil map", summaries[0].StepCounts)
 	}
+	if summaries[0].StepTotal != 3 || summaries[0].StepPending != 3 {
+		t.Fatalf("step progress = %d/%d pending, want 3 total and 3 pending", summaries[0].StepTotal, summaries[0].StepPending)
+	}
 }
 
 func TestListWorkflowRunSummariesIncludesStepCounts(t *testing.T) {
@@ -54,7 +57,7 @@ func TestListWorkflowRunSummariesIncludesStepCounts(t *testing.T) {
 		t.Fatalf("len(summaries) = %d, want 1", len(summaries))
 	}
 	summary := summaries[0]
-	if summary.ID != "run-1" || summary.Workflow != "sample" || summary.StepCounts[StateSucceeded] != 1 || summary.StepCounts[StateFailed] != 1 || summary.StepCounts[StateSkipped] != 1 {
+	if summary.ID != "run-1" || summary.Workflow != "sample" || summary.StepCounts[StateSucceeded] != 1 || summary.StepCounts[StateFailed] != 1 || summary.StepCounts[StateSkipped] != 1 || summary.StepTotal != 3 || summary.StepPending != 0 {
 		t.Fatalf("summary = %+v, want run and step counts", summary)
 	}
 }

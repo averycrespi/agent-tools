@@ -95,6 +95,9 @@ func TestCreateStepRunAndArtifactsPersistsBackingPDMetadata(t *testing.T) {
 	if len(detail.Steps) != 1 || detail.Steps[0].PDTaskID != "pd-task-1" || detail.Steps[0].PDRunID != "pd-task-1-run-1" {
 		t.Fatalf("steps = %+v, want backing pd metadata", detail.Steps)
 	}
+	if detail.StepTotal != 3 || detail.StepPending != 2 {
+		t.Fatalf("detail step progress = %d total %d pending, want 3 total 2 pending", detail.StepTotal, detail.StepPending)
+	}
 	if len(detail.Artifacts) != 1 || !detail.Artifacts[0].Required || detail.Artifacts[0].Exists {
 		t.Fatalf("artifacts = %+v, want required missing artifact", detail.Artifacts)
 	}
@@ -204,7 +207,7 @@ func openTestStore(t *testing.T) *Store {
 func createWorkflowRun(t *testing.T, ctx context.Context, db *Store, now time.Time) {
 	t.Helper()
 	req := RunRequest{ID: "req-1", Workflow: "sample", InputsJSON: `{}`, Source: "test", CreatedAt: now}
-	run := WorkflowRun{ID: "run-1", RequestID: req.ID, Workflow: "sample", DefinitionHash: "hash", InputsJSON: `{}`, Repo: "/repo", Branch: "branch", WorktreePath: "/worktree", ArtifactRoot: "/artifacts/run-1", State: StateRunning, SupervisorLogPath: "/logs/run-1.log", CreatedAt: now, UpdatedAt: now}
+	run := WorkflowRun{ID: "run-1", RequestID: req.ID, Workflow: "sample", DefinitionHash: "hash", DefinitionYAML: "steps:\n  - id: first\n  - id: second\n  - id: third\n", InputsJSON: `{}`, Repo: "/repo", Branch: "branch", WorktreePath: "/worktree", ArtifactRoot: "/artifacts/run-1", State: StateRunning, SupervisorLogPath: "/logs/run-1.log", CreatedAt: now, UpdatedAt: now}
 	if err := db.CreateRunRequestWithWorkflowRun(ctx, req, run); err != nil {
 		t.Fatalf("CreateRunRequestWithWorkflowRun() error = %v", err)
 	}
