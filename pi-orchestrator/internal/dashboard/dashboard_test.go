@@ -46,7 +46,7 @@ func TestRunsAPIReturnsReadOnlySummaries(t *testing.T) {
 	if err := json.Unmarshal(resp.Body.Bytes(), &summaries); err != nil {
 		t.Fatalf("decode summaries: %v", err)
 	}
-	if len(summaries) != 1 || summaries[0].ID != "run-1" || summaries[0].StepCounts[store.StateSucceeded] != 1 {
+	if len(summaries) != 1 || summaries[0].ID != "run-1" || summaries[0].InputsJSON != `{"pr":123,"target":"main"}` || summaries[0].StepCounts[store.StateSucceeded] != 1 {
 		t.Fatalf("summaries = %+v", summaries)
 	}
 }
@@ -155,7 +155,7 @@ func TestDashboardUIExposesRunDetailAndLogsExplorer(t *testing.T) {
 		t.Fatalf("status = %d body = %s", resp.Code, resp.Body.String())
 	}
 	body := resp.Body.String()
-	for _, want := range []string{"/dashboard/api/runs/", "/logs", "Workflow Runs", "Search workflow runs", "Supervisor logs", "Pi Orchestrator", "favicon.svg"} {
+	for _, want := range []string{"/dashboard/api/runs/", "/logs", "Workflow Runs", "Search workflow runs", "inputs:", "Inputs", "Supervisor logs", "Pi Orchestrator", "favicon.svg"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body = %q, want substring %q", body, want)
 		}
@@ -237,8 +237,8 @@ func seedDashboardRun(t *testing.T, db *store.Store) string {
 	t.Helper()
 	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
 	logPath := filepath.Join(t.TempDir(), "supervisor.log")
-	req := store.RunRequest{ID: "req-1", Workflow: "sample", InputsJSON: `{}`, Source: "test", CreatedAt: now}
-	run := store.WorkflowRun{ID: "run-1", RequestID: "req-1", Workflow: "sample", DefinitionHash: "hash", InputsJSON: `{}`, Repo: "/repo", Branch: "po/sample", WorktreePath: "/worktree", ArtifactRoot: "/artifacts", State: store.StateSucceeded, SupervisorLogPath: logPath, CreatedAt: now, UpdatedAt: now}
+	req := store.RunRequest{ID: "req-1", Workflow: "sample", InputsJSON: `{"pr":123,"target":"main"}`, Source: "test", CreatedAt: now}
+	run := store.WorkflowRun{ID: "run-1", RequestID: "req-1", Workflow: "sample", DefinitionHash: "hash", InputsJSON: req.InputsJSON, Repo: "/repo", Branch: "po/sample", WorktreePath: "/worktree", ArtifactRoot: "/artifacts", State: store.StateSucceeded, SupervisorLogPath: logPath, CreatedAt: now, UpdatedAt: now}
 	if err := db.CreateRunRequestWithWorkflowRun(context.Background(), req, run); err != nil {
 		t.Fatalf("create run: %v", err)
 	}

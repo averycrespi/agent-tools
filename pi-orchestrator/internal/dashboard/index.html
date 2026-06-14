@@ -503,6 +503,51 @@
         return span;
       }
 
+      function parseInputs(raw) {
+        if (!raw) return null;
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      }
+
+      function inputValueSummary(value) {
+        if (value === null || value === undefined) return "null";
+        if (typeof value === "object")
+          return Array.isArray(value) ? "[…]" : "{…}";
+        const raw = String(value);
+        return raw.length > 32 ? raw.slice(0, 31) + "…" : raw;
+      }
+
+      function inputsSummary(raw) {
+        const inputs = parseInputs(raw);
+        if (!inputs || typeof inputs !== "object" || Array.isArray(inputs))
+          return "";
+        const entries = Object.entries(inputs).filter(
+          ([, value]) => value !== undefined,
+        );
+        if (!entries.length) return "";
+        const shown = entries
+          .slice(0, 3)
+          .map(([key, value]) => `${key}=${inputValueSummary(value)}`);
+        if (entries.length > shown.length)
+          shown.push(`+${entries.length - shown.length} more`);
+        return shown.join(", ");
+      }
+
+      function prettyInputs(raw) {
+        const inputs = parseInputs(raw);
+        if (
+          !inputs ||
+          (typeof inputs === "object" &&
+            !Array.isArray(inputs) &&
+            !Object.keys(inputs).length)
+        )
+          return "";
+        return JSON.stringify(inputs, null, 2);
+      }
+
       function countPills(counts = {}) {
         counts = counts || {};
         const wrap = document.createElement("div");
@@ -533,6 +578,7 @@
           branchName: run.Branch || run.branch,
           repo: run.Repo || run.repo,
           updatedAt: run.UpdatedAt || run.updated_at,
+          inputsJSON: run.InputsJSON || run.inputs_json,
         };
       }
 
@@ -589,8 +635,15 @@
           return;
         }
         for (const summary of rows) {
-          const { runID, workflow, runState, branchName, repo, updatedAt } =
-            runSummaryFields(summary);
+          const {
+            runID,
+            workflow,
+            runState,
+            branchName,
+            repo,
+            updatedAt,
+            inputsJSON,
+          } = runSummaryFields(summary);
           const button = document.createElement("button");
           button.type = "button";
           button.className = "run";
@@ -616,11 +669,14 @@
           const branch = document.createElement("div");
           branch.className = "hint mono";
           branch.textContent = `${text(branchName)} · ${text(repo)}`;
+          const inputSummary = inputsSummary(inputsJSON);
+          const inputs = document.createElement("div");
+          inputs.className = "hint mono";
+          inputs.textContent = inputSummary ? `inputs: ${inputSummary}` : "";
 
-          button.append(
-            top,
-            meta,
-            branch,
+          button.append(top, meta, branch);
+          if (inputSummary) button.appendChild(inputs);
+          button.appendChild(
             countPills(summary.StepCounts || summary.step_counts),
           );
           runs.appendChild(button);
@@ -674,6 +730,19 @@
           stat("Branch", run.Branch),
           stat("Updated", time(run.UpdatedAt)),
         );
+        const inputs = prettyInputs(run.InputsJSON);
+        if (inputs) {
+          const inputCard = document.createElement("div");
+          inputCard.className = "card";
+          const title = document.createElement("h3");
+          title.textContent = "Inputs";
+          const pre = document.createElement("pre");
+          pre.textContent = inputs;
+          inputCard.append(title, pre);
+          panel.append(strip, inputCard);
+        } else {
+          panel.appendChild(strip);
+        }
         const card = document.createElement("div");
         card.className = "card";
         card.appendChild(
@@ -694,7 +763,7 @@
             ["Status Detail", run.Outcome],
           ]),
         );
-        panel.append(strip, card);
+        panel.appendChild(card);
       }
 
       function renderSteps(detail) {

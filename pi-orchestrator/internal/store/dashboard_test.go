@@ -20,6 +20,9 @@ func TestListWorkflowRunSummariesUsesEmptyStepCountsForRunsWithoutSteps(t *testi
 	if len(summaries) != 1 {
 		t.Fatalf("len(summaries) = %d, want 1", len(summaries))
 	}
+	if summaries[0].InputsJSON != `{}` {
+		t.Fatalf("InputsJSON = %q, want {}", summaries[0].InputsJSON)
+	}
 	if summaries[0].StepCounts == nil || len(summaries[0].StepCounts) != 0 {
 		t.Fatalf("StepCounts = %#v, want empty non-nil map", summaries[0].StepCounts)
 	}

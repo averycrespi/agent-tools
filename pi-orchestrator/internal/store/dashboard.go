@@ -14,6 +14,7 @@ type WorkflowRunSummary struct {
 	Branch       string        `json:"branch"`
 	WorktreePath string        `json:"worktree_path"`
 	ArtifactRoot string        `json:"artifact_root"`
+	InputsJSON   string        `json:"inputs_json"`
 	Outcome      string        `json:"outcome"`
 	CreatedAt    string        `json:"created_at"`
 	UpdatedAt    string        `json:"updated_at"`
@@ -35,7 +36,7 @@ func (s *Store) ListWorkflowRunSummaries(ctx context.Context) ([]WorkflowRunSumm
 		if stepCounts == nil {
 			stepCounts = map[State]int{}
 		}
-		summaries = append(summaries, WorkflowRunSummary{ID: run.ID, Workflow: run.Workflow, State: run.State, Repo: run.Repo, Branch: run.Branch, WorktreePath: run.WorktreePath, ArtifactRoot: run.ArtifactRoot, Outcome: run.Outcome, CreatedAt: run.CreatedAt.Format(time.RFC3339), UpdatedAt: run.UpdatedAt.Format(time.RFC3339), StepCounts: stepCounts})
+		summaries = append(summaries, WorkflowRunSummary{ID: run.ID, Workflow: run.Workflow, State: run.State, Repo: run.Repo, Branch: run.Branch, WorktreePath: run.WorktreePath, ArtifactRoot: run.ArtifactRoot, InputsJSON: run.InputsJSON, Outcome: run.Outcome, CreatedAt: run.CreatedAt.Format(time.RFC3339), UpdatedAt: run.UpdatedAt.Format(time.RFC3339), StepCounts: stepCounts})
 	}
 	return summaries, nil
 }
