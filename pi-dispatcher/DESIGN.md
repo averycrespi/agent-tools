@@ -13,6 +13,7 @@ Pi Dispatcher (`pd`) is a local job runner for autonomous Pi coding-agent runs.
 - Inspection commands reconcile stale starting/running/stopping tasks to `unknown` when the supervisor PID is gone; stale control socket files are ignored.
 - `pd wait` polls persisted task state, applies the same stale-supervisor reconciliation as inspection commands, returns immediately for terminal tasks, and can bound the wait with `--timeout`.
 - `pd dashboard` starts Pi Dispatcher Dashboard, an on-demand loopback HTTP server for read-only task exploration. It is not a daemon and runs only while the command is active.
+- `pd mcp` starts an on-demand stdio MCP server for read-only task exploration by trusted local MCP clients. It is not a daemon and runs only while the command is active.
 
 ## State model
 
@@ -20,7 +21,7 @@ V1 uses two tables: `tasks` and `runs`. Launch-time agent options, exact Pi argv
 
 Worktree cleanup is task-level state. The task row records `worktree_cleanup_policy`, whether the worktree was created by this `pd run`, cleanup status/error, cleanup attempt time, and removal time. Cleanup is separate from task/run terminal status: cleanup failures do not alter exit code or `pd wait` success/failure behavior. Automatic cleanup is branch-preserving, non-forced, best-effort, and only targets worktrees created by the current task. Manual `pd cleanup <task-id>...` removes task-owned external resources while preserving task history; `pd rm <task-id>...` forgets pd metadata/logs/socket state only. `pd stop`, `pd cleanup`, and `pd rm` each accept one or more task IDs and apply the operation to every task independently, so a failure on one task does not prevent the rest from being processed.
 
-Dashboard APIs use read-only store queries over these same tables and read stdout/stderr log files from the run paths. The raw Pi RPC event stream remains a file artifact referenced by the latest run.
+Dashboard APIs and MCP tools use read-only store queries over these same tables and read stdout/stderr log files from the run paths. The raw Pi RPC event stream remains a file artifact referenced by the latest run.
 
 Artifacts such as summaries, diffs, PR URLs, test reports, screenshots, exported sessions, and dashboard result cards are a vNext concept and should be added later as an `artifacts` table if needed.
 
@@ -39,6 +40,18 @@ The public dashboard surface is:
 Dashboard auth uses the generic pd auth token at `$XDG_CONFIG_HOME/pd/auth-token` or `~/.config/pd/auth-token`. Requests without a valid token or dashboard cookie cannot access the UI, APIs, or SSE stream. `pd token rotate` replaces the token without printing the secret; running dashboard servers must be restarted to apply a rotated token.
 
 Pi Dispatcher Dashboard is strictly read-only in v1. It displays persisted cleanup policy/result/error fields but does not initiate, retry, or reconcile cleanup. It does not expose mutation routes or UI controls for stop, cleanup, remove, worktree changes, or control-socket operations. It also does not perform stale-status reconciliation, because CLI reconciliation writes `unknown` statuses to SQLite. Dashboard status displays raw persisted state; users can run `pd ps` or `pd status` when they want explicit CLI reconciliation.
+
+## Pi Dispatcher MCP server
+
+`pd mcp` lives inside pi-dispatcher and starts a stdio MCP server for trusted local clients. Stdout is reserved for MCP JSON-RPC messages; diagnostics and startup failures go to stderr. The server uses the launching user's filesystem permissions and does not have Dashboard's HTTP token/cookie layer because it does not listen on the network.
+
+The MCP tool surface is Dashboard-equivalent and read-only:
+
+- `list_tasks` returns task summaries with latest-run metadata.
+- `get_task` returns one task detail with latest-run metadata and a bounded latest assistant response preview extracted from the host-persisted Pi event stream.
+- `get_task_logs` returns a bounded stdout or stderr log window for the latest run, with offset, next offset, and file size metadata.
+
+MCP tools do not initiate stop, cleanup, remove, worktree changes, control-socket requests, supervisor commands, or stale-status reconciliation. They omit full prompt text, exact Pi argv, system prompt / append-system-prompt values, and environment variable values. They may expose prompt previews, non-prompt launch options, environment variable names, run metadata, local state paths, latest assistant response previews, and bounded log content.
 
 ## Boundaries
 

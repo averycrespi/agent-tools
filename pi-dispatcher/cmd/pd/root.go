@@ -38,7 +38,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable debug output")
 	rootCmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "emit machine-readable JSON where supported")
-	rootCmd.AddCommand(configCmd, runCmd, listCmd, statusCmd, waitCmd, logsCmd, stopCmd, cleanupCmd, rmCmd, tokenCmd, dashboardCmd, supervisorCmd)
+	rootCmd.AddCommand(configCmd, runCmd, listCmd, statusCmd, waitCmd, logsCmd, stopCmd, cleanupCmd, rmCmd, tokenCmd, dashboardCmd, mcpCmd, supervisorCmd)
 }
 
 func Execute() error {

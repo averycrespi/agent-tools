@@ -75,7 +75,10 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
     "internal": {
       "type": "streamable-http",
       "url": "http://localhost:3000/mcp",
-      "http_timeout_seconds": 120
+      "http_timeout_seconds": 120,
+      "startup_retry_count": 3,
+      "startup_retry_backoff_ms": 1000,
+      "startup_timeout_seconds": 10
     }
   },
   "rules": [
@@ -127,19 +130,28 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
 
 Servers is a map keyed by server name. Each name is used as a tool prefix (e.g. `github.search`).
 
-| Field                  | Description                                                                                     |
-| ---------------------- | ----------------------------------------------------------------------------------------------- |
-| `command`              | Command to spawn (stdio transport, default)                                                     |
-| `args`                 | Command arguments                                                                               |
-| `env`                  | Environment variables; `$VAR` and `${VAR}` references are expanded from the process environment |
-| `type`                 | Transport type: omit for stdio, `"streamable-http"` for Streamable HTTP, `"sse"` for SSE        |
-| `url`                  | URL for HTTP/SSE transport                                                                      |
-| `headers`              | HTTP headers; `$VAR` and `${VAR}` references are expanded from the process environment          |
-| `http_timeout_seconds` | Streamable HTTP backend request/stream timeout. Defaults to 120 seconds when omitted.           |
+| Field                      | Description                                                                                                                                                              |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `command`                  | Command to spawn (stdio transport, default)                                                                                                                              |
+| `args`                     | Command arguments                                                                                                                                                        |
+| `env`                      | Environment variables; `$VAR` and `${VAR}` references are expanded from the process environment                                                                          |
+| `type`                     | Transport type: omit for stdio, `"streamable-http"` for Streamable HTTP, `"sse"` for SSE                                                                                 |
+| `url`                      | URL for HTTP/SSE transport                                                                                                                                               |
+| `headers`                  | HTTP headers; `$VAR` and `${VAR}` references are expanded from the process environment                                                                                   |
+| `http_timeout_seconds`     | Streamable HTTP backend request/stream timeout. Defaults to 120 seconds when omitted.                                                                                    |
+| `startup_retry_count`      | Startup retries after the first connect or `tools/list` attempt. Defaults to 3. Set `0` for one attempt only. Negative values and values above 1000 are invalid.         |
+| `startup_retry_backoff_ms` | Fixed delay between startup attempts. Defaults to 1000 ms. Set `0` for no delay. Negative values are invalid.                                                            |
+| `startup_timeout_seconds`  | Per-attempt startup timeout for connect and initial `tools/list`. Defaults to 10 seconds. Set `0` to disable this startup-specific timeout. Negative values are invalid. |
+
+Startup retry settings are per backend and apply independently to the connect and initial `tools/list` phases. Worst-case serial startup delay is roughly the sum, across configured backends, of up to `2 * ((startup_retry_count + 1) * startup_timeout_seconds + startup_retry_count * startup_retry_backoff_ms)`, plus backend work that is not bounded when `startup_timeout_seconds` is `0`. `startup_timeout_seconds` is intentionally not a hard wall-clock cap for interactive OAuth: the browser authorization flow and immediate post-authorization handshake use the broker's parent startup context so a real user login is not interrupted. `http_timeout_seconds` still controls normal Streamable HTTP backend requests after startup; it is not the startup retry timeout.
+
+If a backend exhausts startup retries, mcp-broker logs the failure, continues serving MCP and dashboard endpoints with the remaining healthy backends, and shows the failed backend in the dashboard Tools tab with its failed phase, attempt count, and concise error. Runtime rediscovery is not implemented: after fixing an exhausted backend, restart mcp-broker to discover its tools.
 
 ### OAuth
 
 OAuth is handled automatically. When a server responds with HTTP 401, the broker runs an OAuth flow (dynamic client registration, PKCE, browser-based authorization). Tokens are stored in the OS keychain (macOS Keychain / Linux Secret Service) and refreshed automatically. No configuration is needed.
+
+Interactive OAuth is deliberately exempt from `startup_timeout_seconds` and from repeated startup retries. Once a backend reaches a user authorization flow, the broker lets that flow complete under the parent startup context rather than timing it out after the per-attempt startup timeout or reopening browser/callback flows repeatedly. If the OAuth flow is cancelled or denied, that backend is marked failed and shown in the dashboard.
 
 If a backend's cached login goes stale — for example after the upstream rotates its OAuth client registration and tool calls start failing with authorization errors — clear it with `mcp-broker logout <server>`. This removes the server's stored token and client registration from the keychain; the next call triggers a fresh OAuth flow.
 

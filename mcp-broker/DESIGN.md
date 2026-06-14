@@ -143,12 +143,13 @@ The `Query` method supports:
 
 Manages connections to backend MCP servers. At startup:
 
-1. Connects to each configured server (stdio subprocess, HTTP, SSE, or OAuth)
+1. Connects to each configured server (stdio subprocess, HTTP, SSE, or OAuth), retrying bounded startup failures according to that backend's retry config
 2. Sends MCP `initialize` handshake
-3. Calls `tools/list` to discover available tools
+3. Calls `tools/list` to discover available tools, also retrying bounded startup discovery failures
 4. Prefixes each tool name as `<server>.<tool>`
 5. Applies the first matching `tool_patches` entry, if any
 6. Builds a registry of `<server>.<tool>` → backend mapping
+7. Records backend startup status for the dashboard, including exhausted `connect` or `list_tools` failures
 
 Tool descriptors are passed through to clients with full fidelity: in addition to name and input schema, the broker preserves each tool's `outputSchema`, `annotations` (including `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), and `_meta` from the upstream backend. The broker rewrites the tool name with a `<server>.` prefix for routing, may merge configured annotation patches, and may remove configured disabled tools from the registry entirely. Disabled tools are not listed in MCP `tools/list`, the dashboard tools view, or rule debugging views, and cannot be routed through the broker.
 
@@ -160,11 +161,11 @@ The `Backend` interface abstracts transport:
 
 OAuth refresh tokens for HTTP/SSE backends are stored in OS keychain via `go-keyring` (service: `mcp-broker`, key: server name). OAuth callback port is deterministic per server name (FNV hash → ephemeral port range).
 
-Streamable HTTP backends use a finite HTTP request/stream timeout so a hung backend server does not block broker startup, tool discovery, or approved proxy calls forever. The timeout is configured per server with `http_timeout_seconds` and defaults to 120 seconds. This backend timeout is separate from the human approval timeout; it applies only while communicating with the backend.
+Streamable HTTP backends use a finite HTTP request/stream timeout so a hung backend server does not block normal backend requests forever. The timeout is configured per server with `http_timeout_seconds` and defaults to 120 seconds. Startup uses separate per-backend settings: `startup_retry_count` (default 3 retries after the first attempt, maximum 1000), `startup_retry_backoff_ms` (default 1000 ms fixed delay), and `startup_timeout_seconds` (default 10 seconds per connect or initial `tools/list` attempt). Explicit zero disables retries, backoff delay, or startup-specific timeout respectively; negative values are invalid config. Interactive OAuth is an intentional exception to the startup attempt timeout: the browser authorization flow and immediate post-authorization handshake use the broker's parent startup context so a real user login is not interrupted. The backend HTTP timeout, startup timeout, OAuth authorization window, and human approval timeout are separate.
 
 HTTP/SSE backends use a plain client first and auto-upgrade to OAuth on 401 — they do not proactively trigger OAuth flows.
 
-Failed backends are logged and skipped rather than failing the entire startup.
+Failed backends are retried during startup, then logged and skipped rather than failing the entire startup after retries are exhausted. OAuth/auth-interactive failures are treated as non-retryable so the broker does not repeatedly open browser or callback flows; when a user authorization flow starts, it is allowed to complete under the parent startup context instead of the per-attempt startup timeout. Exhausted `tools/list` failures close and remove that backend from the active registry. Runtime rediscovery is intentionally absent; users must restart the broker after fixing an exhausted backend.
 
 Environment variables in server config support `$VAR` expansion from the process environment, allowing secrets to be passed without hardcoding.
 
@@ -181,7 +182,7 @@ Optional Telegram Bot API-based approver. Uses long-polling (`getUpdates?timeout
 Embedded single-page web application serving:
 
 - **Approvals tab** — pending requests with approve/deny buttons, optional deny reason input, decided history
-- **Tools tab** — discovered tools grouped by server; click a tool to see its input schema
+- **Tools tab** — backend startup status and discovered tools grouped by server; failed backends with no tools remain visible with phase, attempt count, and concise error; click a tool to see its input schema
 - **Rules tab** — configured rules with the discovered tools matching each (read-only; for debugging verdicts)
 - **Audit tab** — paginated audit log with tool filter, plus a live feed of incoming records. New records are prepended in real time when the view is on page 1 with no active filter and not paused; otherwise an "N new" counter appears with a "return to live view" banner. A pause toggle freezes the live feed without affecting filter or pagination state.
 
@@ -228,7 +229,7 @@ Cobra-based CLI with commands:
 
 **Bearer token auth for agents, cookie auth for dashboard.** The `/mcp` endpoint requires a bearer token (32 random bytes, hex-encoded, stored with `0600` permissions). The dashboard uses a session cookie (`mcp-broker-auth`, `HttpOnly`, `SameSite=Strict`) so browsers don't need the raw token.
 
-**Failed backends don't block startup.** If one of several backend servers is unavailable, the broker starts with the remaining servers rather than failing entirely. The failed backend is logged.
+**Failed backends don't block startup.** If one of several backend servers is unavailable, the broker retries startup connect/discovery with bounded per-backend settings, then starts with the remaining servers rather than failing entirely. Exhausted failures are logged and shown in the dashboard Tools tab. Recovery after exhaustion requires restarting the broker because runtime rediscovery and dynamic MCP tool registration are out of scope.
 
 **Default verdict is require-approval.** Fail-closed by default — any tool not explicitly allowed requires human approval.
 

@@ -15,6 +15,10 @@ This repo is opinionated. It provides structured worktree management, sandboxed 
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
 - **[Hindsight](#hindsight)** — Local memory server stack for AI agents
 
+## How the Tools Fit Together
+
+![Diagram showing how the tools connect to each other](assets/tool-relationships.svg)
+
 ## Getting Started
 
 Requirements:

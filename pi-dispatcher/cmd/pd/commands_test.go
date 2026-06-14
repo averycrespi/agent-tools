@@ -34,6 +34,21 @@ func TestRootDoesNotExposeAttachCommand(t *testing.T) {
 	require.Contains(t, err.Error(), "unknown command")
 }
 
+func TestRootExposesMCPCommand(t *testing.T) {
+	cmd, _, err := rootCmd.Find([]string{"mcp"})
+
+	require.NoError(t, err)
+	require.Same(t, mcpCmd, cmd)
+	require.Equal(t, "mcp", mcpCmd.Use)
+	require.Equal(t, "Start read-only Pi Dispatcher MCP server", mcpCmd.Short)
+}
+
+func TestMCPCommandRejectsArgs(t *testing.T) {
+	err := mcpCmd.Args(mcpCmd, []string{"extra"})
+
+	require.Error(t, err)
+}
+
 func TestRunDoesNotExposeTemplateFlags(t *testing.T) {
 	require.Nil(t, runCmd.Flags().Lookup("template"))
 	require.Nil(t, runCmd.Flags().ShorthandLookup("t"))

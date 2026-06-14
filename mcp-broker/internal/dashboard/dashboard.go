@@ -45,6 +45,11 @@ type ToolLister interface {
 	Tools() []server.Tool
 }
 
+// BackendStatusLister provides backend startup status.
+type BackendStatusLister interface {
+	BackendStatuses() []server.BackendStatus
+}
+
 // RulesLister provides the configured policy rules in evaluation order.
 type RulesLister interface {
 	Rules() []config.RuleConfig
@@ -202,18 +207,28 @@ func (d *Dashboard) handlePending(w http.ResponseWriter, _ *http.Request) {
 
 func (d *Dashboard) handleTools(w http.ResponseWriter, _ *http.Request) {
 	var tools []server.Tool
+	var backends []server.BackendStatus
 	if d.tools != nil {
 		tools = d.tools.Tools()
 		sort.Slice(tools, func(i, j int) bool {
 			return tools[i].Name < tools[j].Name
 		})
+		if lister, ok := d.tools.(BackendStatusLister); ok {
+			backends = lister.BackendStatuses()
+			sort.Slice(backends, func(i, j int) bool {
+				return backends[i].Name < backends[j].Name
+			})
+		}
 	}
 	if tools == nil {
 		tools = []server.Tool{}
 	}
+	if backends == nil {
+		backends = []server.BackendStatus{}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"tools": tools})
+	_ = json.NewEncoder(w).Encode(map[string]any{"tools": tools, "backends": backends})
 }
 
 func (d *Dashboard) handleRules(w http.ResponseWriter, _ *http.Request) {

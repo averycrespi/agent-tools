@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,15 @@ import (
 type fakeToolLister struct{ tools []server.Tool }
 
 func (f *fakeToolLister) Tools() []server.Tool { return f.tools }
+
+type fakeToolAndBackendLister struct {
+	tools    []server.Tool
+	backends []server.BackendStatus
+}
+
+func (f *fakeToolAndBackendLister) Tools() []server.Tool { return f.tools }
+
+func (f *fakeToolAndBackendLister) BackendStatuses() []server.BackendStatus { return f.backends }
 
 type fakeRulesLister struct{ rules []config.RuleConfig }
 
@@ -286,6 +296,106 @@ func TestHandleTools_SerializesAnnotationsOutputSchemaAndMeta(t *testing.T) {
 	require.Nil(t, plain.Annotations)
 	require.Nil(t, plain.OutputSchema)
 	require.Nil(t, plain.Meta)
+}
+
+func TestHandleTools_IncludesBackendStatuses(t *testing.T) {
+	tools := &fakeToolAndBackendLister{
+		tools: []server.Tool{{Name: "github.search"}},
+		backends: []server.BackendStatus{
+			{Name: "zeta", Status: "failed", Phase: "connect", Attempts: 2, Error: "connection refused"},
+			{Name: "github", Status: "connected", Attempts: 1, ToolCount: 1},
+		},
+	}
+	d := New(tools, nil, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/tools")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Tools    []server.Tool          `json:"tools"`
+		Backends []server.BackendStatus `json:"backends"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Equal(t, []server.Tool{{Name: "github.search"}}, body.Tools)
+	require.Equal(t, []server.BackendStatus{
+		{Name: "github", Status: "connected", Attempts: 1, ToolCount: 1},
+		{Name: "zeta", Status: "failed", Phase: "connect", Attempts: 2, Error: "connection refused"},
+	}, body.Backends)
+}
+
+func TestDashboardIndex_RenderToolsHTMLHandlesBackendStatuses(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required to execute dashboard rendering JavaScript")
+	}
+
+	script := `
+const fs = require('fs');
+const html = fs.readFileSync('internal/dashboard/index.html', 'utf8');
+const start = html.indexOf('      function renderToolsHTML(');
+const end = html.indexOf('      function loadTools()', start);
+if (start < 0 || end < 0) throw new Error('renderToolsHTML not found');
+function esc(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function escAttr(s) {
+  return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function renderToolHints() { return ''; }
+eval(html.slice(start, end));
+const rendered = renderToolsHTML(
+  [{name: 'gh.enterprise.search', description: 'Search'}, {name: 'loose.tool'}],
+  [
+    {name: 'zeta', status: 'failed', phase: 'connect', attempts: 2, error: 'connection refused'},
+    {name: 'gh.enterprise', status: 'connected', attempts: 1, tool_count: 1},
+    {name: 'alpha', status: 'connected', attempts: 1, tool_count: 0}
+  ]
+);
+function assert(condition, message) {
+  if (!condition) throw new Error(message + '\n' + rendered);
+}
+const alpha = rendered.indexOf('> alpha<span class="provider-status connected">connected</span>');
+const enterprise = rendered.indexOf('> gh.enterprise<span class="provider-status connected">connected</span>');
+const loose = rendered.indexOf('> loose<span class="provider-status connected">connected</span>');
+const zeta = rendered.indexOf('> zeta<span class="provider-status failed">failed</span>');
+assert(alpha >= 0, 'connected zero-tool backend is rendered');
+assert(enterprise > alpha, 'providers are sorted by backend name');
+assert(loose > enterprise, 'tool-only provider falls back to first prefix');
+assert(zeta > loose, 'failed backend is sorted with providers');
+assert(rendered.includes('No tools discovered'), 'connected zero-tool backend shows empty state');
+assert(rendered.includes('Failed during startup'), 'failed backend shows startup failure');
+assert(rendered.includes('Phase: <code>connect</code>'), 'failed backend shows phase');
+assert(rendered.includes('Error: connection refused'), 'failed backend shows error summary');
+assert(rendered.includes('gh.enterprise.search'), 'dotted backend name keeps its tool');
+assert(!rendered.includes('> gh<span'), 'dotted backend name is not split at first dot');
+console.log('ok');
+`
+
+	cmd := exec.Command("node", "-e", script)
+	cmd.Dir = "../.."
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	require.Contains(t, string(out), "ok")
+}
+
+func TestDashboardIndex_IncludesBackendStatusRendering(t *testing.T) {
+	d := New(nil, nil, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	html := string(body)
+	require.Contains(t, html, "Failed during startup")
+	require.Contains(t, html, "No tools discovered")
+	require.Contains(t, html, "backendNames.find")
+	require.Contains(t, html, "backendName + \".\"")
 }
 
 func TestHandleRules_GroupsToolsByMatchingRule(t *testing.T) {

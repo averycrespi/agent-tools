@@ -38,7 +38,7 @@ type httpBackend struct {
 	client *client.Client
 }
 
-func newHTTPBackend(ctx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
+func newHTTPBackend(startupCtx context.Context, lifetimeCtx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
 	var opts []transport.StreamableHTTPCOption
 	opts = append(opts, transport.WithHTTPTimeout(httpBackendTimeout(srv)))
 	if headers := expandEnv(srv.Headers); len(headers) > 0 {
@@ -51,7 +51,7 @@ func newHTTPBackend(ctx context.Context, name string, srv config.ServerConfig) (
 		return nil, fmt.Errorf("create HTTP client for %q: %w", name, err)
 	}
 
-	if err := initializeClient(ctx, c, name); err == nil {
+	if err := initializeClient(startupCtx, c, name); err == nil {
 		return &httpBackend{client: c}, nil
 	} else if !isUnauthorized(err) {
 		return nil, err // initializeClient already closed c
@@ -63,14 +63,19 @@ func newHTTPBackend(ctx context.Context, name string, srv config.ServerConfig) (
 	if err != nil {
 		return nil, fmt.Errorf("create OAuth HTTP client for %q: %w", name, err)
 	}
-	if err := initializeOAuthClient(ctx, c, name); err != nil {
+	if err := initializeOAuthClient(startupCtx, lifetimeCtx, c, name); err != nil {
 		return nil, err
 	}
 	return &httpBackend{client: c}, nil
 }
 
-func newSSEBackend(ctx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
+func newSSEBackend(startupCtx context.Context, lifetimeCtx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
 	var opts []transport.ClientOption
+	if deadline, ok := startupCtx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining > 0 {
+			opts = append(opts, transport.WithEndpointTimeout(remaining))
+		}
+	}
 	if headers := expandEnv(srv.Headers); len(headers) > 0 {
 		opts = append(opts, transport.WithHeaders(headers))
 	}
@@ -82,7 +87,7 @@ func newSSEBackend(ctx context.Context, name string, srv config.ServerConfig) (*
 	}
 
 	needsOAuth := false
-	if err := c.Start(ctx); err != nil {
+	if err := c.Start(lifetimeCtx); err != nil {
 		_ = c.Close()
 		if !isUnauthorized(err) {
 			return nil, fmt.Errorf("start SSE client for %q: %w", name, err)
@@ -90,7 +95,7 @@ func newSSEBackend(ctx context.Context, name string, srv config.ServerConfig) (*
 		needsOAuth = true
 	}
 	if !needsOAuth {
-		if err := initializeClient(ctx, c, name); err == nil {
+		if err := initializeClient(startupCtx, c, name); err == nil {
 			return &httpBackend{client: c}, nil
 		} else if !isUnauthorized(err) {
 			return nil, err
@@ -104,21 +109,21 @@ func newSSEBackend(ctx context.Context, name string, srv config.ServerConfig) (*
 	if err != nil {
 		return nil, fmt.Errorf("create OAuth SSE client for %q: %w", name, err)
 	}
-	if err := c.Start(ctx); err != nil {
+	if err := c.Start(lifetimeCtx); err != nil {
 		if !isUnauthorized(err) {
 			_ = c.Close()
 			return nil, fmt.Errorf("start OAuth SSE client for %q: %w", name, err)
 		}
-		if err := runOAuthFlow(ctx, err, name); err != nil {
+		if err := runOAuthFlow(lifetimeCtx, err, name); err != nil {
 			_ = c.Close()
 			return nil, fmt.Errorf("OAuth flow for %q: %w", name, err)
 		}
-		if err := c.Start(ctx); err != nil {
+		if err := c.Start(lifetimeCtx); err != nil {
 			_ = c.Close()
 			return nil, fmt.Errorf("start OAuth SSE client for %q after auth: %w", name, err)
 		}
 	}
-	if err := initializeOAuthClient(ctx, c, name); err != nil {
+	if err := initializeOAuthClient(startupCtx, lifetimeCtx, c, name); err != nil {
 		return nil, err
 	}
 	return &httpBackend{client: c}, nil

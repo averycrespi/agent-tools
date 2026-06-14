@@ -276,7 +276,7 @@ func oauthConfig(serverName string) transport.OAuthConfig {
 }
 
 // initializeOAuthClient sends the MCP Initialize handshake, handling OAuth auth if needed.
-func initializeOAuthClient(ctx context.Context, c *client.Client, name string) error {
+func initializeOAuthClient(startupCtx context.Context, lifetimeCtx context.Context, c *client.Client, name string) error {
 	initReq := mcp.InitializeRequest{}
 	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initReq.Params.ClientInfo = mcp.Implementation{
@@ -284,7 +284,7 @@ func initializeOAuthClient(ctx context.Context, c *client.Client, name string) e
 		Version: "0.1.0",
 	}
 
-	_, err := c.Initialize(ctx, initReq)
+	_, err := c.Initialize(startupCtx, initReq)
 	if err == nil {
 		return nil
 	}
@@ -294,12 +294,12 @@ func initializeOAuthClient(ctx context.Context, c *client.Client, name string) e
 		return fmt.Errorf("initialize server %q: %w", name, err)
 	}
 
-	if err := runOAuthFlow(ctx, err, name); err != nil {
+	if err := runOAuthFlow(lifetimeCtx, err, name); err != nil {
 		_ = c.Close()
 		return fmt.Errorf("OAuth flow for %q: %w", name, err)
 	}
 
-	if _, err := c.Initialize(ctx, initReq); err != nil {
+	if _, err := c.Initialize(lifetimeCtx, initReq); err != nil {
 		_ = c.Close()
 		return fmt.Errorf("initialize server %q after auth: %w", name, err)
 	}
