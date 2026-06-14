@@ -40,6 +40,9 @@ Inputs are flat and typed as `string`, `integer`, or `boolean`, with `required`,
 ## Commands
 
 ```bash
+po config path
+po config refresh
+po config edit
 po list
 po show <workflow>
 po lint <workflow>
@@ -57,17 +60,27 @@ po token rotate
 
 `po run` validates inputs before side effects, verifies the configured artifact parent is visible inside the sandbox at the same absolute path, creates one workflow worktree, creates a workflow artifact root, persists the run in SQLite, and records workflow metadata. Workflow steps are executed serially by the supervisor core and each executable step is represented by a backing `pd` task/run.
 
-## State and artifacts
+## Configuration, state, and artifacts
 
-Defaults follow XDG paths:
+Config file: `~/.config/po/config.json`.
 
-- Config/workflows: `~/.config/po/workflows`
+```json
+{
+  "database_path": "~/.local/state/po/po.db",
+  "workflow_dir": "~/.config/po/workflows",
+  "artifact_parent_dir": "~/.local/state/po/artifacts"
+}
+```
+
+`po config refresh` creates the file with defaults filled in, writing paths resolved to their actual XDG defaults. Set `database_path`, `workflow_dir`, or `artifact_parent_dir` to move the SQLite database, workflow definitions, or per-run artifact parent directory. A leading `~` is expanded. `--workflow-dir` overrides the configured workflow directory for one invocation; `PO_WORKFLOW_DIR` and `PO_ARTIFACT_PARENT_DIR` override the corresponding config fields.
+
+Other state follows XDG paths by default:
+
 - Dashboard auth token: `~/.config/po/auth-token`
-- SQLite database: `~/.local/state/po/po.db`
 - Run logs: `~/.local/state/po/runs/<run-id>`
 - Artifacts: `~/.local/state/po/artifacts/<run-id>`
 
-`PO_WORKFLOW_DIR` and `PO_ARTIFACT_PARENT_DIR` can override workflow and artifact directories. The artifact parent must be outside the workflow worktree and already mounted writable into the sandbox at the same absolute path.
+The artifact parent must be outside the workflow worktree and already mounted writable into the sandbox at the same absolute path.
 
 ## Dashboard
 

@@ -28,18 +28,29 @@ var rootCmd = &cobra.Command{
 			loaded.WorkflowDir = workflowDir
 		}
 		cfg = loaded
-		if err := os.MkdirAll(cfg.WorkflowDir, 0o750); err != nil {
-			return fmt.Errorf("create workflow directory %s: %w", cfg.WorkflowDir, err)
+		if !isConfigCommand(cmd) {
+			if err := os.MkdirAll(cfg.WorkflowDir, 0o750); err != nil {
+				return fmt.Errorf("create workflow directory %s: %w", cfg.WorkflowDir, err)
+			}
 		}
 		return nil
 	},
+}
+
+func isConfigCommand(cmd *cobra.Command) bool {
+	for current := cmd; current != nil; current = current.Parent() {
+		if current == configCmd {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable debug output")
 	rootCmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "emit machine-readable JSON where supported")
 	rootCmd.PersistentFlags().StringVar(&workflowDir, "workflow-dir", "", "workflow definition directory")
-	rootCmd.AddCommand(listCmd, showCmd, lintCmd, runCmd, psCmd, statusCmd, waitCmd, logsCmd, stopCmd, cleanupCmd, rmCmd, dashboardCmd, tokenCmd, supervisorCmd)
+	rootCmd.AddCommand(configCmd, listCmd, showCmd, lintCmd, runCmd, psCmd, statusCmd, waitCmd, logsCmd, stopCmd, cleanupCmd, rmCmd, dashboardCmd, tokenCmd, supervisorCmd)
 }
 
 func Execute() error {

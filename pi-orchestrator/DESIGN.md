@@ -21,7 +21,9 @@ Prompts render validated inputs and the `artifact_path "name"` helper. Artifact 
 
 ## State
 
-`po` stores state in SQLite at `~/.local/state/po/po.db` by default. The schema tracks accepted run requests, workflow runs, step runs, and artifacts. Workflow run states are `starting`, `running`, `succeeded`, `failed`, `stopping`, `stopped`, and `unknown`. Step runs use the same states plus `skipped`. Inspection commands reconcile non-terminal workflow runs whose supervisor process is missing to `unknown` rather than leaving them indefinitely active.
+`po` stores configuration in `~/.config/po/config.json`. V1 config fields are `database_path`, `workflow_dir`, and `artifact_parent_dir`; `po config refresh` writes those fields with resolved XDG defaults. `--workflow-dir` overrides the configured workflow directory for one invocation, while `PO_WORKFLOW_DIR` and `PO_ARTIFACT_PARENT_DIR` override the corresponding config fields.
+
+`po` stores state in SQLite at the configured `database_path`, defaulting to `~/.local/state/po/po.db`. The schema tracks accepted run requests, workflow runs, step runs, and artifacts. Workflow run states are `starting`, `running`, `succeeded`, `failed`, `stopping`, `stopped`, and `unknown`. Step runs use the same states plus `skipped`. Inspection commands reconcile non-terminal workflow runs whose supervisor process is missing to `unknown` rather than leaving them indefinitely active.
 
 ## Artifacts
 
