@@ -155,10 +155,30 @@ func TestDashboardUIExposesRunDetailAndLogsExplorer(t *testing.T) {
 		t.Fatalf("status = %d body = %s", resp.Code, resp.Body.String())
 	}
 	body := resp.Body.String()
-	for _, want := range []string{"/dashboard/api/runs/", "/logs", "Run detail", "Supervisor logs"} {
+	for _, want := range []string{"/dashboard/api/runs/", "/logs", "Workflow runs", "Supervisor logs", "Pi Orchestrator", "favicon.svg"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body = %q, want substring %q", body, want)
 		}
+	}
+}
+
+func TestDashboardFaviconServesEmbeddedSVG(t *testing.T) {
+	db := dashboardTestStore(t)
+	handler := NewHandler(db, "secret")
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/favicon.svg", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Content-Type"); got != "image/svg+xml" {
+		t.Fatalf("Content-Type = %q, want image/svg+xml", got)
+	}
+	if body := resp.Body.String(); !strings.Contains(body, "Pi Orchestrator") || !strings.Contains(body, "#c084fc") {
+		t.Fatalf("body = %q, want orchestrator svg", body)
 	}
 }
 

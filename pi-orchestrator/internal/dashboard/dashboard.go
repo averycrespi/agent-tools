@@ -3,6 +3,7 @@ package dashboard
 import (
 	"crypto/subtle"
 	"database/sql"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,12 @@ import (
 )
 
 const maxLogBytes = 64 * 1024
+
+//go:embed index.html
+var indexHTML []byte
+
+//go:embed favicon.svg
+var faviconSVG []byte
 
 var eventPollInterval = time.Second
 
@@ -95,6 +102,7 @@ func NewHandler(db *store.Store, token string) http.Handler {
 		}
 		writeJSON(w, detail, err)
 	})
+	mux.HandleFunc("/dashboard/favicon.svg", dashboardFavicon)
 	mux.HandleFunc("/dashboard/", dashboardUI)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/dashboard/", http.StatusFound)
@@ -226,49 +234,16 @@ func dashboardUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = fmt.Fprintf(w, `<!doctype html>
-<title>Pi Orchestrator</title>
-<h1>Pi Orchestrator</h1>
-<section>
-  <h2>Workflow runs</h2>
-  <div id="runs">Loading...</div>
-</section>
-<section>
-  <h2>Run detail</h2>
-  <pre id="detail">Select a run.</pre>
-</section>
-<section>
-  <h2>Supervisor logs</h2>
-  <pre id="logs">Select a run.</pre>
-</section>
-<script>
-async function loadRun(id) {
-  const [detail, logs] = await Promise.all([
-    fetch('/dashboard/api/runs/' + encodeURIComponent(id)).then(r => r.json()),
-    fetch('/dashboard/api/runs/' + encodeURIComponent(id) + '/logs').then(r => r.json()),
-  ]);
-  document.getElementById('detail').textContent = JSON.stringify(detail, null, 2);
-  document.getElementById('logs').textContent = logs.content || JSON.stringify(logs, null, 2);
+	_, _ = w.Write(indexHTML)
 }
-function renderRuns(summaries) {
-  const runs = document.getElementById('runs');
-  runs.innerHTML = '';
-  for (const summary of summaries) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = summary.Run.ID + ' ' + summary.Run.State + ' ' + summary.Run.Workflow;
-    button.addEventListener('click', () => loadRun(summary.Run.ID));
-    runs.appendChild(button);
-    runs.appendChild(document.createElement('br'));
-  }
-}
-async function refresh() {
-  renderRuns(await fetch('/dashboard/api/runs').then(r => r.json()));
-}
-refresh();
-const events = new EventSource('/dashboard/events');
-events.addEventListener('snapshot', event => renderRuns(JSON.parse(event.data)));
-</script>`)
+
+func dashboardFavicon(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "image/svg+xml")
+	_, _ = w.Write(faviconSVG)
 }
 
 func writeJSON(w http.ResponseWriter, value any, err error) {

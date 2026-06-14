@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pi Orchestrator</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #080b10;
+        --panel: #101722;
+        --panel2: #151f2d;
+        --panel3: #0b111a;
+        --text: #e6edf3;
+        --muted: #8b98a8;
+        --line: #263244;
+        --accent: #c084fc;
+        --accent2: #7dd3fc;
+        --good: #86efac;
+        --bad: #fca5a5;
+        --warn: #fde68a;
+        --idle: #cbd5e1;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 14% 10%, rgba(192, 132, 252, 0.16), transparent 32rem),
+          radial-gradient(circle at 84% 18%, rgba(125, 211, 252, 0.12), transparent 28rem),
+          var(--bg);
+        color: var(--text);
+        font:
+          14px/1.4 ui-sans-serif,
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          sans-serif;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(11, 17, 26, 0.92);
+        backdrop-filter: blur(12px);
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font-size: 20px;
+        letter-spacing: 0.04em;
+      }
+      h2 {
+        font-size: 13px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      h3 {
+        margin-bottom: 10px;
+        font-size: 15px;
+      }
+      .brand,
+      .connection,
+      .row,
+      .tabs,
+      .toolbar,
+      .summary-strip,
+      .step-head,
+      .artifact-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .brand-icon {
+        width: 28px;
+        height: 28px;
+      }
+      .connection {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--bad);
+        box-shadow: 0 0 0 4px rgba(252, 165, 165, 0.08);
+      }
+      .status-dot.connected {
+        background: var(--good);
+        box-shadow: 0 0 0 4px rgba(134, 239, 172, 0.08);
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(340px, 38%) 1fr;
+        gap: 12px;
+        height: calc(100vh - 61px);
+        padding: 12px;
+      }
+      section {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: rgba(16, 23, 34, 0.92);
+        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.22);
+      }
+      .master,
+      .detail {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-height: 0;
+      }
+      .toolbar,
+      .tabs {
+        padding: 10px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(21, 31, 45, 0.94);
+      }
+      .toolbar {
+        justify-content: space-between;
+      }
+      .toolbar-title {
+        display: grid;
+        gap: 2px;
+      }
+      .hint,
+      .muted {
+        color: var(--muted);
+      }
+      .hint {
+        font-size: 12px;
+      }
+      .runs {
+        min-height: 0;
+        overflow: auto;
+      }
+      .run {
+        display: grid;
+        gap: 8px;
+        width: 100%;
+        padding: 13px 12px;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        border-radius: 0;
+        background: transparent;
+        color: var(--text);
+        text-align: left;
+        cursor: pointer;
+      }
+      .run:hover {
+        background: rgba(34, 49, 74, 0.58);
+      }
+      .run.selected {
+        background: rgba(49, 46, 84, 0.84);
+        box-shadow: inset 4px 0 0 var(--accent);
+      }
+      .row {
+        justify-content: space-between;
+        min-width: 0;
+      }
+      .run-title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 700;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        overflow-wrap: anywhere;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 2px 8px;
+        color: var(--idle);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .chip::before {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        content: "";
+      }
+      .starting,
+      .running,
+      .stopping {
+        color: var(--accent2);
+      }
+      .succeeded {
+        color: var(--good);
+      }
+      .failed,
+      .unknown {
+        color: var(--bad);
+      }
+      .stopped,
+      .skipped {
+        color: var(--warn);
+      }
+      .counts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .count {
+        border: 1px solid rgba(38, 50, 68, 0.9);
+        border-radius: 999px;
+        padding: 1px 7px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .tabs button,
+      .ghost {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel3);
+        color: var(--text);
+        padding: 8px 10px;
+        cursor: pointer;
+      }
+      .tabs button.active,
+      .ghost:hover {
+        border-color: var(--accent);
+        background: #1c1830;
+        color: #e9d5ff;
+      }
+      .tab-panel {
+        display: none;
+        min-height: 0;
+        overflow: auto;
+        padding: 14px;
+      }
+      .tab-panel.active {
+        display: block;
+      }
+      .detail-body {
+        min-height: 0;
+        overflow: hidden;
+      }
+      .empty {
+        display: grid;
+        place-items: center;
+        height: 100%;
+        padding: 28px;
+        color: var(--muted);
+        text-align: center;
+      }
+      .summary-strip {
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+      .stat {
+        min-width: 140px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(11, 17, 26, 0.68);
+        padding: 10px;
+      }
+      .stat .label {
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .stat .value {
+        margin-top: 4px;
+        font-weight: 700;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        gap: 7px 12px;
+      }
+      .grid > div {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .grid > .muted {
+        white-space: nowrap;
+      }
+      .card {
+        margin-top: 14px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(11, 17, 26, 0.58);
+        padding: 12px;
+      }
+      .step,
+      .artifact {
+        display: grid;
+        gap: 8px;
+        border-top: 1px solid var(--line);
+        padding: 12px 0;
+      }
+      .step:first-child,
+      .artifact:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+      .step-head,
+      .artifact-head {
+        justify-content: space-between;
+      }
+      pre {
+        margin: 0;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #05070b;
+        color: #d1d5db;
+        overflow: auto;
+        padding: 12px;
+        white-space: pre-wrap;
+      }
+      .logs-panel.active {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        height: 100%;
+        padding: 0;
+      }
+      .logbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(21, 31, 45, 0.94);
+        padding: 10px;
+      }
+      .logs-panel pre {
+        height: 100%;
+        border: 0;
+        border-radius: 0;
+      }
+      .error {
+        color: var(--bad);
+      }
+      @media (max-width: 880px) {
+        .layout {
+          grid-template-columns: 1fr;
+          height: auto;
+        }
+        .master,
+        .detail {
+          min-height: 420px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <img class="brand-icon" src="favicon.svg" alt="" />
+        <div>
+          <h1>Pi Orchestrator</h1>
+          <div class="hint">Workflow supervisor dashboard</div>
+        </div>
+      </div>
+      <div class="connection"><span id="conn-dot" class="status-dot"></span><span id="conn-text">Connecting</span></div>
+    </header>
+    <main class="layout">
+      <section class="master">
+        <div class="toolbar">
+          <div class="toolbar-title">
+            <h2>Workflow runs</h2>
+            <div id="run-count" class="hint">Loading...</div>
+          </div>
+          <button id="refresh" class="ghost" type="button">Refresh</button>
+        </div>
+        <div id="runs" class="runs"><div class="empty">Loading workflow runs...</div></div>
+      </section>
+      <section class="detail">
+        <div class="tabs" role="tablist" aria-label="Run detail tabs">
+          <button class="active" type="button" data-tab="overview">Overview</button>
+          <button type="button" data-tab="steps">Steps</button>
+          <button type="button" data-tab="artifacts">Artifacts</button>
+          <button type="button" data-tab="definition">Definition</button>
+          <button type="button" data-tab="logs">Supervisor logs</button>
+        </div>
+        <div class="detail-body">
+          <div id="overview" class="tab-panel active"><div class="empty">Select a run.</div></div>
+          <div id="steps" class="tab-panel"><div class="empty">Select a run.</div></div>
+          <div id="artifacts" class="tab-panel"><div class="empty">Select a run.</div></div>
+          <div id="definition" class="tab-panel"><div class="empty">Select a run.</div></div>
+          <div id="logs" class="tab-panel logs-panel"><pre>Select a run.</pre></div>
+        </div>
+      </section>
+    </main>
+    <script>
+      const state = { summaries: [], selectedID: '', detail: null, logs: null };
+      const states = ['starting', 'running', 'succeeded', 'failed', 'stopping', 'stopped', 'unknown', 'skipped'];
+      const terminalStates = new Set(['succeeded', 'failed', 'stopped', 'skipped', 'unknown']);
+
+      const byID = (id) => document.getElementById(id);
+      const text = (value, fallback = '—') => value === null || value === undefined || value === '' ? fallback : String(value);
+      const time = (value) => value ? new Date(value).toLocaleString() : '—';
+
+      function setConnection(connected, label) {
+        byID('conn-dot').classList.toggle('connected', connected);
+        byID('conn-text').textContent = label;
+      }
+
+      function chip(label, cls) {
+        const span = document.createElement('span');
+        span.className = 'chip ' + (cls || '');
+        span.textContent = label;
+        return span;
+      }
+
+      function countPills(counts = {}) {
+        const wrap = document.createElement('div');
+        wrap.className = 'counts';
+        for (const name of states) {
+          if (!counts[name]) continue;
+          const pill = document.createElement('span');
+          pill.className = 'count ' + name;
+          pill.textContent = `${name} ${counts[name]}`;
+          wrap.appendChild(pill);
+        }
+        if (!wrap.childElementCount) {
+          const pill = document.createElement('span');
+          pill.className = 'count';
+          pill.textContent = 'no steps';
+          wrap.appendChild(pill);
+        }
+        return wrap;
+      }
+
+      function renderRuns(summaries) {
+        state.summaries = summaries || [];
+        byID('run-count').textContent = `${state.summaries.length} run${state.summaries.length === 1 ? '' : 's'}`;
+        const runs = byID('runs');
+        runs.replaceChildren();
+        if (!state.summaries.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty';
+          empty.textContent = 'No workflow runs yet.';
+          runs.appendChild(empty);
+          return;
+        }
+        for (const summary of state.summaries) {
+          const run = summary.Run || {};
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'run';
+          if (run.ID === state.selectedID) button.classList.add('selected');
+          button.addEventListener('click', () => loadRun(run.ID));
+
+          const top = document.createElement('div');
+          top.className = 'row';
+          const title = document.createElement('div');
+          title.className = 'run-title';
+          title.textContent = run.Workflow || run.ID;
+          top.append(title, chip(run.State || 'unknown', run.State || 'unknown'));
+
+          const meta = document.createElement('div');
+          meta.className = 'row hint';
+          const id = document.createElement('span');
+          id.className = 'mono';
+          id.textContent = run.ID || '—';
+          const updated = document.createElement('span');
+          updated.textContent = time(run.UpdatedAt);
+          meta.append(id, updated);
+
+          const branch = document.createElement('div');
+          branch.className = 'hint mono';
+          branch.textContent = `${text(run.Branch)} · ${text(run.Repo)}`;
+
+          button.append(top, meta, branch, countPills(summary.StepCounts));
+          runs.appendChild(button);
+        }
+      }
+
+      function stat(label, value) {
+        const div = document.createElement('div');
+        div.className = 'stat';
+        const l = document.createElement('div');
+        l.className = 'label';
+        l.textContent = label;
+        const v = document.createElement('div');
+        v.className = 'value mono';
+        v.textContent = text(value);
+        div.append(l, v);
+        return div;
+      }
+
+      function grid(entries) {
+        const div = document.createElement('div');
+        div.className = 'grid';
+        for (const [label, value] of entries) {
+          const l = document.createElement('div');
+          l.className = 'muted';
+          l.textContent = label;
+          const v = document.createElement('div');
+          v.className = 'mono';
+          v.textContent = text(value);
+          div.append(l, v);
+        }
+        return div;
+      }
+
+      function renderOverview(detail) {
+        const run = detail.Run || {};
+        const panel = byID('overview');
+        panel.replaceChildren();
+        const strip = document.createElement('div');
+        strip.className = 'summary-strip';
+        strip.append(stat('State', run.State), stat('Workflow', run.Workflow), stat('Branch', run.Branch), stat('Updated', time(run.UpdatedAt)));
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.appendChild(grid([
+          ['Run ID', run.ID],
+          ['Request ID', run.RequestID],
+          ['Repository', run.Repo],
+          ['Worktree', run.WorktreePath],
+          ['Artifact root', run.ArtifactRoot],
+          ['Supervisor PID', run.SupervisorPID || '—'],
+          ['Supervisor log', run.SupervisorLogPath],
+          ['Cleanup status', run.CleanupStatus],
+          ['Cleanup error', run.CleanupError],
+          ['Created', time(run.CreatedAt)],
+          ['Ended', run.EndedAt && run.EndedAt.Valid ? time(run.EndedAt.Time) : '—'],
+          ['Outcome', run.Outcome],
+        ]));
+        panel.append(strip, card);
+      }
+
+      function renderSteps(detail) {
+        const panel = byID('steps');
+        panel.replaceChildren();
+        const steps = detail.Steps || [];
+        if (!steps.length) {
+          panel.innerHTML = '<div class="empty">No step runs recorded.</div>';
+          return;
+        }
+        const card = document.createElement('div');
+        card.className = 'card';
+        for (const step of steps) {
+          const item = document.createElement('div');
+          item.className = 'step';
+          const head = document.createElement('div');
+          head.className = 'step-head';
+          const name = document.createElement('strong');
+          name.textContent = `${step.ExecutionIndex}. ${step.StepID}`;
+          head.append(name, chip(step.State || 'unknown', step.State || 'unknown'));
+          item.append(head, grid([
+            ['Agent', step.Agent],
+            ['PD task', step.PDTaskID],
+            ['PD run', step.PDRunID],
+            ['Stdout', step.PDStdoutPath],
+            ['Stderr', step.PDStderrPath],
+            ['Events', step.PDEventsPath],
+            ['Started', time(step.StartedAt)],
+            ['Updated', time(step.UpdatedAt)],
+            ['Outcome', step.Outcome],
+          ]));
+          card.appendChild(item);
+        }
+        panel.appendChild(card);
+      }
+
+      function renderArtifacts(detail) {
+        const panel = byID('artifacts');
+        panel.replaceChildren();
+        const artifacts = detail.Artifacts || [];
+        if (!artifacts.length) {
+          panel.innerHTML = '<div class="empty">No artifacts declared.</div>';
+          return;
+        }
+        const card = document.createElement('div');
+        card.className = 'card';
+        for (const artifact of artifacts) {
+          const item = document.createElement('div');
+          item.className = 'artifact';
+          const head = document.createElement('div');
+          head.className = 'artifact-head';
+          const name = document.createElement('strong');
+          name.textContent = `${artifact.StepID} / ${artifact.Name}`;
+          head.append(name, chip(artifact.Exists ? 'exists' : artifact.Required ? 'missing required' : 'missing', artifact.Exists ? 'succeeded' : artifact.Required ? 'failed' : 'skipped'));
+          item.append(head, grid([
+            ['Relative path', artifact.RelativePath],
+            ['Absolute path', artifact.AbsolutePath],
+            ['Required', artifact.Required ? 'yes' : 'no'],
+            ['Updated', time(artifact.UpdatedAt)],
+          ]));
+          card.appendChild(item);
+        }
+        panel.appendChild(card);
+      }
+
+      function renderDefinition(detail) {
+        const panel = byID('definition');
+        panel.replaceChildren();
+        const run = detail.Run || {};
+        const inputs = document.createElement('pre');
+        inputs.textContent = `# Inputs\n${run.InputsJSON || '{}'}\n\n# Definition\n${run.DefinitionYAML || '(definition unavailable)'}`;
+        panel.appendChild(inputs);
+      }
+
+      function renderLogs(logs) {
+        const panel = byID('logs');
+        panel.replaceChildren();
+        const bar = document.createElement('div');
+        bar.className = 'logbar';
+        const title = document.createElement('span');
+        title.className = 'mono muted';
+        title.textContent = logs && logs.path ? logs.path : 'Supervisor logs';
+        const status = document.createElement('span');
+        status.className = logs && logs.truncated ? 'chip stopped' : 'chip succeeded';
+        status.textContent = logs && logs.truncated ? 'tail window' : 'complete window';
+        bar.append(title, status);
+        const pre = document.createElement('pre');
+        pre.textContent = logs && logs.content ? logs.content : 'No supervisor log content.';
+        panel.append(bar, pre);
+      }
+
+      function renderDetail() {
+        if (!state.detail) return;
+        renderOverview(state.detail);
+        renderSteps(state.detail);
+        renderArtifacts(state.detail);
+        renderDefinition(state.detail);
+        renderLogs(state.logs);
+      }
+
+      async function fetchJSON(url) {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        return response.json();
+      }
+
+      async function loadRun(id) {
+        if (!id) return;
+        state.selectedID = id;
+        renderRuns(state.summaries);
+        for (const panel of document.querySelectorAll('.tab-panel')) panel.classList.remove('error');
+        try {
+          const [detail, logs] = await Promise.all([
+            fetchJSON('/dashboard/api/runs/' + encodeURIComponent(id)),
+            fetchJSON('/dashboard/api/runs/' + encodeURIComponent(id) + '/logs'),
+          ]);
+          state.detail = detail;
+          state.logs = logs;
+          renderDetail();
+        } catch (err) {
+          byID('overview').replaceChildren();
+          byID('overview').classList.add('error');
+          byID('overview').textContent = 'Failed to load run detail: ' + err.message;
+        }
+      }
+
+      async function refresh() {
+        try {
+          const summaries = await fetchJSON('/dashboard/api/runs');
+          setConnection(true, 'Connected');
+          renderRuns(summaries);
+          if (state.selectedID) await loadRun(state.selectedID);
+          else if (summaries.length) await loadRun(summaries[0].Run.ID);
+        } catch (err) {
+          setConnection(false, 'Disconnected');
+          byID('runs').innerHTML = '<div class="empty error">Failed to load workflow runs.</div>';
+        }
+      }
+
+      for (const button of document.querySelectorAll('.tabs button')) {
+        button.addEventListener('click', () => {
+          for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('active', b === button);
+          for (const panel of document.querySelectorAll('.tab-panel')) panel.classList.toggle('active', panel.id === button.dataset.tab);
+        });
+      }
+      byID('refresh').addEventListener('click', refresh);
+
+      refresh();
+      const events = new EventSource('/dashboard/events');
+      events.addEventListener('open', () => setConnection(true, 'Live'));
+      events.addEventListener('error', () => setConnection(false, 'Reconnecting'));
+      events.addEventListener('snapshot', (event) => {
+        setConnection(true, 'Live');
+        renderRuns(JSON.parse(event.data));
+        if (state.selectedID && !terminalStates.has((state.detail && state.detail.Run && state.detail.Run.State) || '')) loadRun(state.selectedID);
+      });
+    </script>
+  </body>
+</html>

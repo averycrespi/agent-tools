@@ -78,5 +78,6 @@ Defaults follow XDG paths:
 - `GET /dashboard/api/runs/{id}`
 - `GET /dashboard/api/runs/{id}/logs`
 - `GET /dashboard/events`
+- `GET /dashboard/favicon.svg`
 
 Mutation methods are rejected. Rotate the `po` dashboard token with `po token rotate`. `po` token state is separate from `pd` token state.
