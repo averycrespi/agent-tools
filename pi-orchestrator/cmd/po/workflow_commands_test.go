@@ -86,6 +86,44 @@ func TestListCommandShowsValidWorkflows(t *testing.T) {
 	}
 }
 
+func TestLintAllCommandShowsValidWorkflows(t *testing.T) {
+	dir := t.TempDir()
+	writeWorkflow(t, dir, "alpha", minimalCommandWorkflow("alpha"))
+	writeWorkflow(t, dir, "beta", minimalCommandWorkflow("beta"))
+
+	stdout, err := executeCommand("--workflow-dir", dir, "lint", "--all")
+	if err != nil {
+		t.Fatalf("execute lint --all: %v", err)
+	}
+	if strings.TrimSpace(stdout) != "alpha ok\nbeta ok" {
+		t.Fatalf("stdout = %q, want sorted lint results", stdout)
+	}
+}
+
+func TestLintAllCommandReportsValidationError(t *testing.T) {
+	dir := t.TempDir()
+	writeWorkflow(t, dir, "alpha", minimalCommandWorkflow("alpha"))
+	writeWorkflow(t, dir, "broken", minimalCommandWorkflow("other"))
+
+	_, err := executeCommand("--workflow-dir", dir, "lint", "--all")
+	if err == nil {
+		t.Fatal("execute lint --all error = nil, want validation error")
+	}
+	if !strings.Contains(err.Error(), "workflow name other must match filename stem broken") {
+		t.Fatalf("error = %q, want filename mismatch", err.Error())
+	}
+}
+
+func TestLintAllCommandRejectsWorkflowArg(t *testing.T) {
+	dir := t.TempDir()
+	writeWorkflow(t, dir, "alpha", minimalCommandWorkflow("alpha"))
+
+	_, err := executeCommand("--workflow-dir", dir, "lint", "--all", "alpha")
+	if err == nil || !strings.Contains(err.Error(), "--all cannot be used with a workflow") {
+		t.Fatalf("execute lint --all alpha error = %v, want mixed arg rejection", err)
+	}
+}
+
 func TestLintCommandReportsValidationError(t *testing.T) {
 	dir := t.TempDir()
 	writeWorkflow(t, dir, "broken", minimalCommandWorkflow("other"))
@@ -131,6 +169,7 @@ func executeCommand(args ...string) (string, error) {
 		rootCmd.SetErr(os.Stderr)
 		rootCmd.SetArgs(nil)
 		workflowDir = ""
+		lintAll = false
 		runInputs = nil
 		cleanupDryRun = false
 		supervisorRunID = ""

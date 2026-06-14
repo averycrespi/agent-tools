@@ -45,7 +45,7 @@ po config refresh
 po config edit
 po list
 po show <workflow>
-po lint <workflow>
+po lint [--all|<workflow>]
 po run <workflow> --input key=value
 po ps
 po status <run-id>

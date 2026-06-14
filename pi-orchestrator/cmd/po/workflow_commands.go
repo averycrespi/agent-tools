@@ -11,7 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var workflowDir string
+var (
+	workflowDir string
+	lintAll     bool
+)
 
 var listCmd = &cobra.Command{
 	Use:   "list",
@@ -71,20 +74,58 @@ var showCmd = &cobra.Command{
 }
 
 var lintCmd = &cobra.Command{
-	Use:   "lint <workflow>",
-	Short: "Validate a workflow definition",
-	Args:  requireWorkflowArg("po lint <workflow>"),
+	Use:   "lint [--all|<workflow>]",
+	Short: "Validate workflow definitions",
+	Args:  requireLintArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		path, err := existingWorkflowFilePath(args[0])
-		if err != nil {
-			return err
+		if lintAll {
+			return lintAllWorkflows(cmd)
 		}
-		if _, err := workflow.LoadFile(path); err != nil {
-			return err
-		}
-		_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s ok\n", args[0])
-		return err
+		return lintOneWorkflow(cmd, args[0])
 	},
+}
+
+func init() {
+	lintCmd.Flags().BoolVar(&lintAll, "all", false, "lint all workflow definitions")
+}
+
+func lintAllWorkflows(cmd *cobra.Command) error {
+	names, err := workflowNames()
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := lintOneWorkflow(cmd, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func lintOneWorkflow(cmd *cobra.Command, name string) error {
+	path, err := existingWorkflowFilePath(name)
+	if err != nil {
+		return err
+	}
+	if _, err := workflow.LoadFile(path); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s ok\n", name)
+	return err
+}
+
+func requireLintArgs(cmd *cobra.Command, args []string) error {
+	all, err := cmd.Flags().GetBool("all")
+	if err != nil {
+		return err
+	}
+	if all {
+		if len(args) > 0 {
+			return fmt.Errorf("--all cannot be used with a workflow\nUsage: po lint [--all|<workflow>]")
+		}
+		return nil
+	}
+	return requireWorkflowArg("po lint <workflow>")(cmd, args)
 }
 
 func requireWorkflowArg(usage string) cobra.PositionalArgs {
@@ -126,6 +167,25 @@ func existingWorkflowFilePath(name string) (string, error) {
 		return ymlPath, nil
 	}
 	return path, nil
+}
+
+func workflowNames() ([]string, error) {
+	entries, err := os.ReadDir(resolveWorkflowDir())
+	if err != nil {
+		return nil, fmt.Errorf("list workflows: %w", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name, ok := workflowNameFromFile(entry.Name())
+		if ok {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 func workflowNameFromFile(name string) (string, bool) {
