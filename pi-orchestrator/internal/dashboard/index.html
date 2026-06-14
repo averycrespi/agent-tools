@@ -640,10 +640,17 @@
         return div;
       }
 
+      function present(value) {
+        return (
+          value !== null && value !== undefined && value !== "" && value !== "—"
+        );
+      }
+
       function grid(entries) {
         const div = document.createElement("div");
         div.className = "grid";
         for (const [label, value] of entries) {
+          if (!present(value)) continue;
           const l = document.createElement("div");
           l.className = "muted";
           l.textContent = label;
@@ -672,20 +679,19 @@
         card.appendChild(
           grid([
             ["Run ID", run.ID],
-            ["Request ID", run.RequestID],
             ["Repo", run.Repo],
             ["Worktree", run.WorktreePath],
             ["Artifact Root", run.ArtifactRoot],
-            ["Supervisor PID", run.SupervisorPID || "—"],
+            ["Supervisor PID", run.SupervisorPID || ""],
             ["Supervisor Log", run.SupervisorLogPath],
             ["Cleanup Status", run.CleanupStatus],
             ["Cleanup Error", run.CleanupError],
             ["Started", time(run.CreatedAt)],
             [
               "Ended",
-              run.EndedAt && run.EndedAt.Valid ? time(run.EndedAt.Time) : "—",
+              run.EndedAt && run.EndedAt.Valid ? time(run.EndedAt.Time) : "",
             ],
-            ["Outcome", run.Outcome],
+            ["Status Detail", run.Outcome],
           ]),
         );
         panel.append(strip, card);
@@ -723,7 +729,13 @@
               ["Events", step.PDEventsPath],
               ["Started", time(step.StartedAt)],
               ["Updated", time(step.UpdatedAt)],
-              ["Outcome", step.Outcome],
+              [
+                "Ended",
+                step.EndedAt && step.EndedAt.Valid
+                  ? time(step.EndedAt.Time)
+                  : "",
+              ],
+              ["Status Detail", step.Outcome],
             ]),
           );
           card.appendChild(item);
