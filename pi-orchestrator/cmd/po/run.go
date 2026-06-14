@@ -45,7 +45,7 @@ func init() {
 }
 
 func runWorkflow(cmd *cobra.Command, args []string) error {
-	definitionPath, err := workflowFilePath(args[0])
+	definitionPath, err := existingWorkflowFilePath(args[0])
 	if err != nil {
 		return err
 	}
@@ -127,6 +127,7 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 	}
 	pid, err := startSupervisor(run.SupervisorLogPath, "--workflow-dir", cfg.WorkflowDir, "--run-id", runID)
 	if err != nil {
+		_ = db.DeleteWorkflowRun(cmd.Context(), runID)
 		return err
 	}
 	admitted = true

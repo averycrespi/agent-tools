@@ -79,6 +79,15 @@ func TestStartTaskRunRejectsMissingCallerOwnedWorktree(t *testing.T) {
 	}
 }
 
+func TestStartTaskRunRejectsMissingArtifactParentPath(t *testing.T) {
+	t.Parallel()
+	client := NewClient(Config{DBPath: filepath.Join(t.TempDir(), "pd.db"), StateDir: t.TempDir(), RuntimeDir: t.TempDir()})
+	_, err := client.StartTaskRun(context.Background(), StartTaskRunRequest{RepoPath: "/repo", Branch: "branch", WorktreePath: "/worktree", ArtifactParentPath: filepath.Join(t.TempDir(), "missing"), Prompt: "prompt"})
+	if err == nil || !strings.Contains(err.Error(), "artifact parent path") {
+		t.Fatalf("StartTaskRun() error = %v, want artifact parent path validation", err)
+	}
+}
+
 func TestGetTaskRunReturnsStateAndMetadata(t *testing.T) {
 	t.Parallel()
 	client, result := startedTaskRun(t)

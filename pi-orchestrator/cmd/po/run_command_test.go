@@ -38,6 +38,43 @@ func TestRunCommandValidatesInputsBeforeCreatingWorktree(t *testing.T) {
 	}
 }
 
+func TestRunCommandRejectsInvalidAndUnknownInputsBeforeCreatingWorktree(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		inputs  []string
+		wantErr string
+	}{
+		{name: "invalid integer", inputs: []string{"repo=/repo", "pr_number=many"}, wantErr: "input pr_number must be an integer"},
+		{name: "unknown input", inputs: []string{"repo=/repo", "pr_number=42", "extra=value"}, wantErr: "unknown input extra"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeWorkflow(t, dir, "review", runWorkflowYAML("review"))
+			stateDir := filepath.Join(t.TempDir(), "state")
+			cfg = testConfig(t, dir, stateDir)
+			validateArtifactParent = func(string) error { return nil }
+			calls := 0
+			newWorktreeClient = func() (worktreeClient, error) {
+				calls++
+				return fakeWorktreeClient{path: "/worktree/review"}, nil
+			}
+			t.Cleanup(resetRunTestHooks)
+
+			args := []string{"--workflow-dir", dir, "run", "review"}
+			for _, input := range tc.inputs {
+				args = append(args, "--input", input)
+			}
+			_, err := executeCommand(args...)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("run error = %v, want %q", err, tc.wantErr)
+			}
+			if calls != 0 {
+				t.Fatalf("worktree calls = %d, want 0", calls)
+			}
+		})
+	}
+}
+
 func TestRunCommandRejectsWorkflowPathTraversalBeforeCreatingWorktree(t *testing.T) {
 	dir := t.TempDir()
 	stateDir := filepath.Join(t.TempDir(), "state")
@@ -114,6 +151,8 @@ func TestRunCommandRemovesWorkflowWorktreeWhenSupervisorLaunchFails(t *testing.T
 	writeWorkflow(t, dir, "review", runWorkflowYAML("review"))
 	stateDir := filepath.Join(t.TempDir(), "state")
 	cfg = testConfig(t, dir, stateDir)
+	nowFunc = func() time.Time { return time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC) }
+	shortIDFunc = func() string { return "fail" }
 	validateArtifactParent = func(string) error { return nil }
 	fakeWT := &recordingWorktreeClient{path: filepath.Join(t.TempDir(), "worktree")}
 	if err := os.MkdirAll(fakeWT.path, 0o750); err != nil {
@@ -129,6 +168,14 @@ func TestRunCommandRemovesWorkflowWorktreeWhenSupervisorLaunchFails(t *testing.T
 	}
 	if !fakeWT.removed || fakeWT.removeRepoRoot != "/repo" || fakeWT.removeBranch != "po/review-"+fakeWT.idPart {
 		t.Fatalf("fakeWT = %+v, want worktree removal after launch failure", fakeWT)
+	}
+	db, dbErr := store.Open(filepath.Join(stateDir, "po", "po.db"))
+	if dbErr != nil {
+		t.Fatalf("open store: %v", dbErr)
+	}
+	defer db.Close() //nolint:errcheck
+	if _, dbErr := db.GetWorkflowRun(context.Background(), "po-20260613-120000-fail"); dbErr == nil {
+		t.Fatal("GetWorkflowRun() error = nil, want failed admission to remove metadata")
 	}
 }
 
@@ -284,6 +331,7 @@ func resetRunTestHooks() {
 	newWorktreeClient = defaultNewWorktreeClient
 	startSupervisor = defaultStartSupervisor
 	validateArtifactParent = defaultValidateArtifactParent
+	newSandboxClient = defaultNewSandboxClient
 	nowFunc = time.Now
 	shortIDFunc = randomShortID
 }

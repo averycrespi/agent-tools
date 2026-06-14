@@ -133,6 +133,12 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 	if firstErr != nil {
 		terminal = store.StateFailed
 		outcome = firstErr.Error()
+		for _, state := range stepStates {
+			if state == store.StateStopped {
+				terminal = store.StateStopped
+				break
+			}
+		}
 	}
 	if err := db.UpdateWorkflowRunState(ctx, run.ID, terminal, outcome, time.Now().UTC()); err != nil {
 		return err

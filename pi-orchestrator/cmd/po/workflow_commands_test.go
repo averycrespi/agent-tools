@@ -23,6 +23,35 @@ func TestListCommandShowsYMLWorkflows(t *testing.T) {
 	}
 }
 
+func TestShowAndLintCommandsResolveListedYMLWorkflowByStem(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "alpha.yml"), []byte(minimalCommandWorkflow("alpha")), 0o600); err != nil {
+		t.Fatalf("write workflow: %v", err)
+	}
+
+	stdout, err := executeCommand("--workflow-dir", dir, "show", "alpha")
+	if err != nil {
+		t.Fatalf("execute show: %v", err)
+	}
+	if !strings.Contains(stdout, "name: alpha") {
+		t.Fatalf("stdout = %q, want yml workflow", stdout)
+	}
+	stdout, err = executeCommand("--workflow-dir", dir, "lint", "alpha")
+	if err != nil {
+		t.Fatalf("execute lint: %v", err)
+	}
+	if strings.TrimSpace(stdout) != "alpha ok" {
+		t.Fatalf("stdout = %q, want alpha ok", stdout)
+	}
+}
+
+func TestListCommandRejectsExtraArgs(t *testing.T) {
+	_, err := executeCommand("--workflow-dir", t.TempDir(), "list", "extra")
+	if err == nil {
+		t.Fatal("list error = nil, want extra argument rejection")
+	}
+}
+
 func TestListCommandShowsValidWorkflows(t *testing.T) {
 	dir := t.TempDir()
 	writeWorkflow(t, dir, "alpha", minimalCommandWorkflow("alpha"))

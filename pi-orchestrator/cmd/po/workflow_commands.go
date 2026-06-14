@@ -16,6 +16,7 @@ var workflowDir string
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List workflow definitions",
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		entries, err := os.ReadDir(resolveWorkflowDir())
 		if err != nil {
@@ -53,7 +54,7 @@ var showCmd = &cobra.Command{
 	Short: "Show a workflow definition",
 	Args:  requireWorkflowArg("po show <workflow>"),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		path, err := workflowFilePath(args[0])
+		path, err := existingWorkflowFilePath(args[0])
 		if err != nil {
 			return err
 		}
@@ -74,7 +75,7 @@ var lintCmd = &cobra.Command{
 	Short: "Validate a workflow definition",
 	Args:  requireWorkflowArg("po lint <workflow>"),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		path, err := workflowFilePath(args[0])
+		path, err := existingWorkflowFilePath(args[0])
 		if err != nil {
 			return err
 		}

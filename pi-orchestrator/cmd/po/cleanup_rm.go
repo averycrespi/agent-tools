@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/averycrespi/agent-tools/pi-orchestrator/internal/store"
 	wtworktree "github.com/averycrespi/agent-tools/worktree-manager/pkg/worktree"
@@ -65,6 +67,10 @@ func cleanupWorkflowRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if run.ArtifactRoot != "" {
+		if err := validateArtifactRootForCleanup(run.ArtifactRoot); err != nil {
+			_ = recordWorkflowCleanup(cmd.Context(), run.ID, "failed", err.Error())
+			return err
+		}
 		if err := os.RemoveAll(run.ArtifactRoot); err != nil {
 			wrapped := fmt.Errorf("remove artifacts %s: %w", run.ArtifactRoot, err)
 			_ = recordWorkflowCleanup(cmd.Context(), run.ID, "failed", wrapped.Error())
@@ -80,6 +86,25 @@ func cleanupWorkflowRun(cmd *cobra.Command, args []string) error {
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s cleaned up\n", run.ID)
 	return err
+}
+
+func validateArtifactRootForCleanup(artifactRoot string) error {
+	absParent, err := filepath.Abs(cfg.ArtifactParentDir)
+	if err != nil {
+		return fmt.Errorf("resolve artifact parent: %w", err)
+	}
+	absRoot, err := filepath.Abs(artifactRoot)
+	if err != nil {
+		return fmt.Errorf("resolve artifact root: %w", err)
+	}
+	rel, err := filepath.Rel(absParent, absRoot)
+	if err != nil {
+		return fmt.Errorf("compare artifact root and parent: %w", err)
+	}
+	if rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." || filepath.IsAbs(rel) {
+		return fmt.Errorf("artifact root %s is outside configured artifact parent %s", artifactRoot, cfg.ArtifactParentDir)
+	}
+	return nil
 }
 
 func recordWorkflowCleanup(ctx context.Context, runID string, status string, cleanupErr string) error {

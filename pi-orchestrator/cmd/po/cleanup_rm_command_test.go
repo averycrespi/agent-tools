@@ -82,6 +82,34 @@ func TestCleanupRejectsNonTerminalRun(t *testing.T) {
 	}
 }
 
+func TestCleanupRejectsArtifactRootOutsideConfiguredParent(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, t.TempDir(), stateDir)
+	installFakeWorktreeRemover(t)
+	paths := seedCleanupWorkflowRunWithArtifactRoot(t, stateDir, store.StateSucceeded, filepath.Join(t.TempDir(), "outside-artifacts"))
+
+	_, err := executeCommand("cleanup", "run-1")
+	if err == nil || !strings.Contains(err.Error(), "is outside configured artifact parent") {
+		t.Fatalf("cleanup error = %v, want artifact parent boundary error", err)
+	}
+	if _, statErr := os.Stat(paths.artifacts); statErr != nil {
+		t.Fatalf("artifacts stat after rejected cleanup: %v", statErr)
+	}
+}
+
+func TestRMRejectsNonTerminalRun(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, t.TempDir(), stateDir)
+	supervisorProcessAlive = func(int) bool { return true }
+	t.Cleanup(func() { supervisorProcessAlive = defaultSupervisorProcessAlive })
+	seedCleanupWorkflowRun(t, stateDir, store.StateRunning)
+
+	_, err := executeCommand("rm", "run-1")
+	if err == nil || !strings.Contains(err.Error(), "workflow run run-1 is not terminal") {
+		t.Fatalf("rm error = %v, want non-terminal error", err)
+	}
+}
+
 func TestRMDeletesTerminalRunMetadata(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	cfg = testConfig(t, t.TempDir(), stateDir)
@@ -139,6 +167,11 @@ func (f *fakeWorktreeRemover) Remove(repoRoot, branch string) error {
 
 func seedCleanupWorkflowRun(t *testing.T, stateDir string, state store.State) cleanupPaths {
 	t.Helper()
+	return seedCleanupWorkflowRunWithArtifactRoot(t, stateDir, state, filepath.Join(cfg.ArtifactParentDir, "run-1"))
+}
+
+func seedCleanupWorkflowRunWithArtifactRoot(t *testing.T, stateDir string, state store.State, artifacts string) cleanupPaths {
+	t.Helper()
 	db, err := store.Open(filepath.Join(stateDir, "po", "po.db"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
@@ -147,7 +180,6 @@ func seedCleanupWorkflowRun(t *testing.T, stateDir string, state store.State) cl
 	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
 	root := t.TempDir()
 	worktree := filepath.Join(root, "worktree")
-	artifacts := filepath.Join(root, "artifacts")
 	for _, path := range []string{worktree, artifacts} {
 		if err := os.MkdirAll(path, 0o750); err != nil {
 			t.Fatalf("mkdir %s: %v", path, err)

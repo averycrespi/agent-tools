@@ -113,6 +113,15 @@ func (c *Client) StartTaskRun(ctx context.Context, req StartTaskRunRequest) (Sta
 	if req.WorktreePath == "" {
 		return StartTaskRunResult{}, fmt.Errorf("worktree path is required")
 	}
+	if req.ArtifactParentPath != "" {
+		info, err := os.Stat(req.ArtifactParentPath)
+		if err != nil {
+			return StartTaskRunResult{}, fmt.Errorf("artifact parent path %s is not accessible: %w", req.ArtifactParentPath, err)
+		}
+		if !info.IsDir() {
+			return StartTaskRunResult{}, fmt.Errorf("artifact parent path %s is not a directory", req.ArtifactParentPath)
+		}
+	}
 	if req.Prompt == "" {
 		return StartTaskRunResult{}, fmt.Errorf("prompt is required")
 	}

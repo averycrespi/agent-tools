@@ -265,6 +265,26 @@ func TestExecuteFailsStepWhenRequiredArtifactMissingAndSkipsDependent(t *testing
 	}
 }
 
+func TestExecutePreservesStoppedStepAsStoppedWorkflow(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, run := supervisorTestRun(t)
+	defer db.Close() //nolint:errcheck
+	runner := &recordingRunner{results: []StepResult{{PDTaskID: "pd-1", PDRunID: "pd-1-run-1", State: store.StateStopped, Outcome: "stopped by user"}}}
+	def := &workflow.Definition{Name: "sample", Agents: map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}}, Steps: []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: "review"}}}
+
+	if err := Execute(ctx, db, runner, def, run); err == nil {
+		t.Fatal("Execute() error = nil, want stopped workflow error")
+	}
+	detail, err := db.GetWorkflowRunDetail(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunDetail() error = %v", err)
+	}
+	if detail.Run.State != store.StateStopped || detail.Steps[0].State != store.StateStopped {
+		t.Fatalf("detail = %+v, want stopped workflow and step", detail)
+	}
+}
+
 type recordingRunner struct {
 	results   []StepResult
 	calls     []StepRequest
