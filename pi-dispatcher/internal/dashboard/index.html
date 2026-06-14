@@ -528,9 +528,9 @@
             ["Agent Session Dir", agent.session_dir || ""],
             ["Max Duration", formatDuration(r.max_duration_seconds)],
             ["Env", formatList(r.env_var_names)],
-            ["Pi Output Logs", r.stdout_log_path || ""],
-            ["Pi Error Logs", r.stderr_log_path || ""],
-            ["Pi Events", r.pi_events_path || ""],
+            ["Stdout", r.stdout_log_path || ""],
+            ["Stderr", r.stderr_log_path || ""],
+            ["Events", r.pi_events_path || ""],
             ["Exit Code", r.exit_code ?? ""],
             ["Error", r.error_message || ""],
           ];
