@@ -459,7 +459,17 @@
       </section>
     </main>
     <script>
-      const state = { summaries: [], selectedID: "", detail: null, logs: null };
+      const tabs = ["overview", "steps", "artifacts", "definition", "logs"];
+      const initialTab = tabs.includes(location.hash.slice(1))
+        ? location.hash.slice(1)
+        : "overview";
+      const state = {
+        summaries: [],
+        selectedID: "",
+        detail: null,
+        logs: null,
+        tab: initialTab,
+      };
       const states = [
         "starting",
         "running",
@@ -926,6 +936,20 @@
         renderRuns(state.summaries);
       }
 
+      function setTab(tab) {
+        if (!tabs.includes(tab)) tab = "overview";
+        state.tab = tab;
+        if (location.hash.slice(1) !== tab) {
+          history.replaceState(null, "", "#" + tab);
+        }
+        for (const button of document.querySelectorAll(".tabs button")) {
+          button.classList.toggle("active", button.dataset.tab === tab);
+        }
+        for (const panel of document.querySelectorAll(".tab-panel")) {
+          panel.classList.toggle("active", panel.id === tab);
+        }
+      }
+
       async function fetchJSON(url) {
         const response = await fetch(url);
         if (!response.ok)
@@ -975,13 +999,12 @@
       }
 
       for (const button of document.querySelectorAll(".tabs button")) {
-        button.addEventListener("click", () => {
-          for (const b of document.querySelectorAll(".tabs button"))
-            b.classList.toggle("active", b === button);
-          for (const panel of document.querySelectorAll(".tab-panel"))
-            panel.classList.toggle("active", panel.id === button.dataset.tab);
-        });
+        button.addEventListener("click", () => setTab(button.dataset.tab));
       }
+      window.addEventListener("hashchange", () =>
+        setTab(location.hash.slice(1)),
+      );
+      setTab(state.tab);
       byID("search").addEventListener("input", handleRunFilterChange);
       byID("status").addEventListener("change", handleRunFilterChange);
       byID("refresh").addEventListener("click", refresh);
