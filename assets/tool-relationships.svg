@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1350" height="650" viewBox="0 0 1350 650" role="img" aria-labelledby="title desc">
   <title id="title">Agent Tools relationship diagram</title>
-  <desc id="desc">Diagram showing host tools around a Lima sandbox, with a host worktree mounted into the sandbox and MCP/proxy traffic routed through host-side services.</desc>
+  <desc id="desc">Diagram showing host tools around a Lima sandbox, with Pi Orchestrator delegating workflow steps to Pi Dispatcher, a host worktree mounted into the sandbox, and MCP/proxy traffic routed through host-side services.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569" />
@@ -34,66 +34,70 @@
   <rect class="group host" x="40" y="95" width="1270" height="466" />
   <text class="title" x="70" y="130">Host machine</text>
 
-  <rect class="group sandbox" x="490" y="155" width="310" height="265" />
-  <text class="title" x="610" y="188" text-anchor="middle">Lima sandbox</text>
+  <rect class="group sandbox" x="490" y="175" width="310" height="265" />
+  <text class="title" x="610" y="208" text-anchor="middle">Lima sandbox</text>
 
-  <rect class="node host-node" x="85" y="220" width="150" height="58" />
-  <text class="label" x="160" y="249">Pi Dispatcher</text>
+  <rect class="node host-node" x="85" y="145" width="150" height="58" />
+  <text class="label" x="160" y="174">Pi Orchestrator</text>
 
-  <rect class="node host-node" x="85" y="335" width="150" height="58" />
-  <text class="label" x="160" y="364">Worktree Manager</text>
+  <rect class="node host-node" x="85" y="250" width="150" height="58" />
+  <text class="label" x="160" y="279">Pi Dispatcher</text>
 
-  <rect class="node host-node" x="295" y="220" width="150" height="58" />
-  <text class="label" x="370" y="249">Sandbox Manager</text>
+  <rect class="node host-node" x="85" y="355" width="150" height="58" />
+  <text class="label" x="160" y="384">Worktree Manager</text>
 
-  <rect class="node workspace-node" x="295" y="335" width="150" height="58" />
-  <text class="label" x="370" y="364">Host worktree</text>
+  <rect class="node host-node" x="295" y="250" width="150" height="58" />
+  <text class="label" x="370" y="279">Sandbox Manager</text>
 
-  <rect class="node sandbox-node" x="570" y="220" width="150" height="58" />
-  <text class="label" x="645" y="249">Pi coding agent</text>
+  <rect class="node workspace-node" x="295" y="355" width="150" height="58" />
+  <text class="label" x="370" y="384">Host worktree</text>
 
-  <rect class="node workspace-node" x="570" y="335" width="150" height="58" />
-  <text class="label" x="645" y="364">Mounted worktree</text>
+  <rect class="node sandbox-node" x="570" y="250" width="150" height="58" />
+  <text class="label" x="645" y="279">Pi coding agent</text>
 
-  <rect class="node host-node" x="940" y="145" width="150" height="58" />
-  <text class="label" x="1015" y="174">MCP Broker</text>
+  <rect class="node workspace-node" x="570" y="355" width="150" height="58" />
+  <text class="label" x="645" y="384">Mounted worktree</text>
 
-  <rect class="node host-node" x="940" y="255" width="150" height="50" />
-  <text class="label" x="1015" y="280">Local Git MCP</text>
+  <rect class="node host-node" x="940" y="165" width="150" height="58" />
+  <text class="label" x="1015" y="194">MCP Broker</text>
 
-  <rect class="node host-node" x="1135" y="145" width="115" height="58" />
-  <text class="label" x="1192" y="174">Hindsight</text>
+  <rect class="node host-node" x="940" y="275" width="150" height="50" />
+  <text class="label" x="1015" y="300">Local Git MCP</text>
 
-  <rect class="node host-node" x="940" y="455" width="150" height="58" />
-  <text class="label" x="1015" y="484">Local Gomod Proxy</text>
+  <rect class="node host-node" x="1135" y="165" width="115" height="58" />
+  <text class="label" x="1192" y="194">Hindsight</text>
 
-  <rect class="node external-node" x="967" y="345" width="95" height="50" />
-  <text class="label" x="1015" y="370">Git remotes</text>
+  <rect class="node host-node" x="940" y="475" width="150" height="58" />
+  <text class="label" x="1015" y="504">Local Gomod Proxy</text>
 
-  <rect class="node external-node" x="1135" y="459" width="115" height="50" />
-  <text class="label" x="1192" y="484">Go modules</text>
+  <rect class="node external-node" x="967" y="365" width="95" height="50" />
+  <text class="label" x="1015" y="390">Git remotes</text>
 
-  <path class="edge" d="M160 278 L160 332" />
-  <path class="edge" d="M235 249 L292 249" />
-  <path class="edge" d="M235 364 L292 364" />
-  <path class="edge" d="M445 249 L567 249" />
+  <rect class="node external-node" x="1135" y="479" width="115" height="50" />
+  <text class="label" x="1192" y="504">Go modules</text>
 
-  <path class="mount" d="M445 364 L567 364" />
-  <rect class="label-bg" x="488" y="336" width="76" height="18" />
-  <text class="edge-label" x="526" y="349">Lima mount</text>
-  <path class="edge" d="M645 278 L645 332" />
+  <path class="edge" d="M160 203 L160 247" />
+  <path class="edge" d="M160 308 L160 352" />
+  <path class="edge" d="M235 279 L292 279" />
+  <path class="edge" d="M235 384 L292 384" />
+  <path class="edge" d="M445 279 L567 279" />
 
-  <path class="mcp" d="M720 249 L937 174" />
-  <rect class="label-bg" x="770" y="198" width="70" height="18" />
-  <text class="edge-label" x="805" y="211">MCP calls</text>
-  <path class="mcp" d="M1015 203 L1015 252" />
-  <path class="mcp" d="M1090 174 L1132 174" />
-  <path class="proxy" d="M720 264 L937 484" />
-  <rect class="label-bg" x="770" y="366" width="66" height="18" />
-  <text class="edge-label" x="803" y="379">GOPROXY</text>
+  <path class="mount" d="M445 384 L567 384" />
+  <rect class="label-bg" x="488" y="356" width="76" height="18" />
+  <text class="edge-label" x="526" y="369">Lima mount</text>
+  <path class="edge" d="M645 308 L645 352" />
 
-  <path class="edge" d="M1015 305 L1015 342" />
-  <path class="edge" d="M1090 484 L1132 484" />
+  <path class="mcp" d="M720 279 L937 194" />
+  <rect class="label-bg" x="770" y="218" width="70" height="18" />
+  <text class="edge-label" x="805" y="231">MCP calls</text>
+  <path class="mcp" d="M1015 223 L1015 272" />
+  <path class="mcp" d="M1090 194 L1132 194" />
+  <path class="proxy" d="M720 294 L937 504" />
+  <rect class="label-bg" x="770" y="386" width="66" height="18" />
+  <text class="edge-label" x="803" y="399">GOPROXY</text>
+
+  <path class="edge" d="M1015 325 L1015 362" />
+  <path class="edge" d="M1090 504 L1132 504" />
 
   <rect class="node host-node" x="40" y="615" width="14" height="14" />
   <text class="legend-text" x="62" y="627">Host tool</text>
