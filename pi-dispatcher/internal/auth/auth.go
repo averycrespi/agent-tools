@@ -73,6 +73,7 @@ func MiddlewareWithLog(token string, next http.Handler, logf LogFunc) http.Handl
 
 		if strings.HasPrefix(r.URL.Path, "/dashboard/") || r.URL.Path == "/dashboard" {
 			if qToken := r.URL.Query().Get("token"); qToken != "" && subtle.ConstantTimeCompare([]byte(qToken), tokenBytes) == 1 {
+				//nolint:gosec // Dashboard is loopback-only plain HTTP; Secure cookies would prevent local auth from working.
 				http.SetCookie(w, &http.Cookie{
 					Name:     CookieName,
 					Value:    token,
@@ -86,6 +87,7 @@ func MiddlewareWithLog(token string, next http.Handler, logf LogFunc) http.Handl
 				q.Del("token")
 				clean.RawQuery = q.Encode()
 				logAuth(logf, "auth granted path=%s reason=token-url redirect=%s", r.URL.Path, clean.RequestURI())
+				//nolint:gosec // RequestURI is a relative same-origin redirect, not an external target.
 				http.Redirect(w, r, clean.RequestURI(), http.StatusFound)
 				return
 			}
