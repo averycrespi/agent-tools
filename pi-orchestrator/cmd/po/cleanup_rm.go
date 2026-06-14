@@ -92,7 +92,7 @@ func cleanupOneWorkflowRun(cmd *cobra.Command, runID string) error {
 		return fmt.Errorf("workflow run %s is not terminal", run.ID)
 	}
 	if cleanupDryRun {
-		_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\nWorktree:\t%s\nArtifacts:\t%s\n", run.ID, run.WorktreePath, run.ArtifactRoot)
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "would cleanup run %s\tworktree=%s\tartifacts=%s\n", run.ID, run.WorktreePath, run.ArtifactRoot)
 		return err
 	}
 	if run.ArtifactRoot != "" {
@@ -119,7 +119,7 @@ func cleanupOneWorkflowRun(cmd *cobra.Command, runID string) error {
 	if err := recordWorkflowCleanup(cmd.Context(), run.ID, "removed", ""); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s cleaned up\n", run.ID)
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "cleaned run %s\tworktree=%s\tartifacts=%s\n", run.ID, run.WorktreePath, run.ArtifactRoot)
 	return err
 }
 
@@ -273,7 +273,7 @@ func removeOneWorkflowRunMetadata(cmd *cobra.Command, db *store.Store, runID str
 	detail, err := db.GetWorkflowRunDetail(cmd.Context(), runID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s removed\n", runID)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "removed run %s\talready_missing=true\n", runID)
 			return err
 		}
 		return err
@@ -286,7 +286,7 @@ func removeOneWorkflowRunMetadata(cmd *cobra.Command, db *store.Store, runID str
 	if err := db.DeleteWorkflowRun(cmd.Context(), run.ID); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s removed\n", run.ID); err != nil {
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "removed run %s\n", run.ID); err != nil {
 		return err
 	}
 	return removeErr

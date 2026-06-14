@@ -97,7 +97,7 @@ func cleanupOneTask(cmd *cobra.Command, taskID string) (cleanupResult, error) {
 	if dryRun {
 		result := cleanupDryRunResult(task)
 		if !jsonOut {
-			if _, err := fmt.Fprintf(os.Stdout, "Would remove worktree %s for task %s; branch %s would be preserved\n", task.WorktreePath, task.ID, task.Branch); err != nil {
+			if _, err := fmt.Fprintf(os.Stdout, "would cleanup task %s\tworktree=%s\tbranch=%s\tbranch_preserved=true\tnon_forced=true\n", task.ID, task.WorktreePath, task.Branch); err != nil {
 				return cleanupResult{}, err
 			}
 		}
@@ -114,7 +114,7 @@ func cleanupOneTask(cmd *cobra.Command, taskID string) (cleanupResult, error) {
 	}
 	if !jsonOut {
 		if result.Status == string(store.CleanupStatusRemoved) {
-			if _, err := fmt.Fprintf(os.Stdout, "Removed worktree %s for task %s; branch %s preserved\n", task.WorktreePath, task.ID, task.Branch); err != nil {
+			if _, err := fmt.Fprintf(os.Stdout, "cleaned task %s\tworktree=%s\tbranch=%s\tbranch_preserved=true\tnon_forced=true\n", task.ID, task.WorktreePath, task.Branch); err != nil {
 				return cleanupResult{}, err
 			}
 		} else {

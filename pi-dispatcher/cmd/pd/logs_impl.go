@@ -67,9 +67,10 @@ func showLogs(cmd *cobra.Command, args []string) error {
 }
 
 type removeResult struct {
-	TaskID  string `json:"task_id"`
-	Removed bool   `json:"removed"`
-	Error   string `json:"error,omitempty"`
+	TaskID         string `json:"task_id"`
+	Removed        bool   `json:"removed"`
+	AlreadyMissing bool   `json:"already_missing,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 
 func removeTask(cmd *cobra.Command, args []string) error {
@@ -91,7 +92,7 @@ func removeTask(cmd *cobra.Command, args []string) error {
 		}
 		results = append(results, res)
 		if !jsonOut {
-			if _, err := fmt.Fprintf(os.Stdout, "Removed task %s\n", res.TaskID); err != nil {
+			if err := printRemoveResult(res); err != nil {
 				return err
 			}
 		}
@@ -102,6 +103,15 @@ func removeTask(cmd *cobra.Command, args []string) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func printRemoveResult(res removeResult) error {
+	if res.AlreadyMissing {
+		_, err := fmt.Fprintf(os.Stdout, "removed task %s\talready_missing=true\n", res.TaskID)
+		return err
+	}
+	_, err := fmt.Fprintf(os.Stdout, "removed task %s\n", res.TaskID)
+	return err
 }
 
 func terminalTaskIDs(ctx context.Context) ([]string, error) {
@@ -138,7 +148,7 @@ func removeOneTask(cmd *cobra.Command, taskID string) (removeResult, error) {
 	if err != nil {
 		var notFound taskNotFoundError
 		if errors.As(err, &notFound) {
-			return removeResult{TaskID: taskID, Removed: true}, nil
+			return removeResult{TaskID: taskID, Removed: true, AlreadyMissing: true}, nil
 		}
 		return removeResult{}, err
 	}

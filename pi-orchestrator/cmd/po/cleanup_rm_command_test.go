@@ -103,7 +103,7 @@ func TestCleanupAcceptsMultipleRunIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cleanup error = %v", err)
 	}
-	if !strings.Contains(stdout, "run-1 cleaned up") || !strings.Contains(stdout, "run-2 cleaned up") {
+	if !strings.Contains(stdout, "cleaned run run-1") || !strings.Contains(stdout, "cleaned run run-2") {
 		t.Fatalf("stdout = %q, want both cleanup messages", stdout)
 	}
 	if len(fakeWT.calls) != 2 || fakeWT.calls[0].branch != "po/run-1" || fakeWT.calls[1].branch != "po/run-2" {
@@ -130,7 +130,7 @@ func TestCleanupAllCleansTerminalRunsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cleanup --all error = %v", err)
 	}
-	if !strings.Contains(stdout, "run-1 cleaned up") || !strings.Contains(stdout, "run-2 cleaned up") || strings.Contains(stdout, "run-3 cleaned up") {
+	if !strings.Contains(stdout, "cleaned run run-1") || !strings.Contains(stdout, "cleaned run run-2") || strings.Contains(stdout, "cleaned run run-3") {
 		t.Fatalf("stdout = %q, want terminal runs only", stdout)
 	}
 	if len(fakeWT.calls) != 2 {
@@ -217,7 +217,7 @@ func TestRMAcceptsMultipleRunIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rm error = %v", err)
 	}
-	if !strings.Contains(stdout, "run-1 removed") || !strings.Contains(stdout, "run-2 removed") {
+	if !strings.Contains(stdout, "removed run run-1") || !strings.Contains(stdout, "removed run run-2") {
 		t.Fatalf("stdout = %q, want both rm messages", stdout)
 	}
 	db, err := store.Open(filepath.Join(stateDir, "po", "po.db"))
@@ -248,7 +248,7 @@ func TestRMAllDeletesTerminalRunMetadataOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rm --all error = %v", err)
 	}
-	if !strings.Contains(stdout, "run-1 removed") || !strings.Contains(stdout, "run-2 removed") || strings.Contains(stdout, "run-3 removed") {
+	if !strings.Contains(stdout, "removed run run-1") || !strings.Contains(stdout, "removed run run-2") || strings.Contains(stdout, "removed run run-3") {
 		t.Fatalf("stdout = %q, want terminal runs only", stdout)
 	}
 	db, err := store.Open(filepath.Join(stateDir, "po", "po.db"))
@@ -304,7 +304,7 @@ func TestRMIsIdempotentForMissingRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rm missing run error = %v", err)
 	}
-	if !strings.Contains(stdout, "run-missing removed") {
+	if !strings.Contains(stdout, "removed run run-missing\talready_missing=true") {
 		t.Fatalf("stdout = %q, want idempotent removed message", stdout)
 	}
 }
