@@ -1,6 +1,6 @@
 # pi-orchestrator Design
 
-`po` owns workflow definitions, workflow runs, step runs, workflow artifacts, and workflow-run supervision. `pd` remains responsible for individual Pi agent task runs and task-run supervision.
+`po` is the workflow coordination layer above `pd`: it owns workflow definitions, runs, step state, artifacts, and workflow-run supervision. `pd` remains responsible for individual Pi tasks and task-run supervision.
 
 ## Layering
 

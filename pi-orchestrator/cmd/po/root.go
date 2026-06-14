@@ -16,7 +16,7 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:           "po",
-	Short:         "Run local Pi workflows through pi-dispatcher",
+	Short:         "Coordinate durable Pi workflows through pd",
 	SilenceUsage:  true,
 	SilenceErrors: false,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {

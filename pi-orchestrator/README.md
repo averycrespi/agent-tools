@@ -1,6 +1,6 @@
 # pi-orchestrator
 
-`po` is a local workflow layer above `pi-dispatcher` (`pd`). V1 runs explicit YAML workflow definitions, validates typed inputs, creates a durable workflow run, delegates executable steps to `pd`, validates required artifacts, and exposes `pd`-aligned inspection/control commands.
+`po` coordinates durable Pi workflows above `pi-dispatcher` (`pd`). It validates typed inputs, creates a shared workflow worktree, runs ordered steps through backing `pd` tasks, validates required artifacts, and preserves workflow-level state for inspection and control.
 
 ## Workflow definitions
 

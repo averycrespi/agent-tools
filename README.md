@@ -9,7 +9,7 @@ This repo is opinionated. It provides structured worktree management, sandboxed 
 - **[Worktree Manager](#worktree-manager-wt)** — Manage git worktrees with tmux integration
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
 - **[Pi Dispatcher](#pi-dispatcher-pd)** — Dispatch and inspect autonomous Pi tasks in worktrees and the sandbox
-- **[Pi Orchestrator](#pi-orchestrator-po)** — Run typed multi-step Pi workflows backed by `pd`
+- **[Pi Orchestrator](#pi-orchestrator-po)** — Coordinate typed, durable Pi workflows backed by `pd`
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
@@ -90,7 +90,7 @@ See the [pi-dispatcher README](pi-dispatcher/README.md) for more information.
 
 ### Pi Orchestrator (po)
 
-Explicit multi-step agent workflows need durable workflow state, typed inputs, shared worktrees, artifact handoffs, and a way to inspect the whole run without taking task-run ownership away from `pd`. `po` is a local workflow layer above `pd`.
+Durable Pi workflows need typed inputs, shared worktrees, artifact handoffs, ordered task execution, and a way to inspect the whole run without taking task ownership away from `pd`. `po` coordinates that workflow state above `pd`.
 
 - `po list`, `po show`, and `po lint` load and validate V1 workflow YAML definitions.
 - `po run <workflow> --input key=value` validates typed inputs, creates one workflow worktree, and executes steps serially through backing `pd` task runs.

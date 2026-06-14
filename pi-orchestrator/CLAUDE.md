@@ -1,6 +1,6 @@
 # pi-orchestrator
 
-Go CLI tool (`po`) for running typed, durable workflow definitions above `pi-dispatcher` task runs.
+Go CLI tool (`po`) for coordinating typed, durable Pi workflows through `pd` task runs.
 
 ## Development
 
