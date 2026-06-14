@@ -173,7 +173,9 @@ func executeCommand(args ...string) (string, error) {
 		runInputs = nil
 		cleanupDryRun = false
 		cleanupAll = false
+		cleanupIncludeUnknown = false
 		rmAll = false
+		rmIncludeUnknown = false
 		supervisorRunID = ""
 		newStepRunner = defaultNewStepRunner
 		supervisorProcessAlive = defaultSupervisorProcessAlive

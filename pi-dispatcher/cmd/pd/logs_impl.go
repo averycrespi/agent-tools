@@ -19,11 +19,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var rmAll bool
+var (
+	rmAll            bool
+	rmIncludeUnknown bool
+)
 
 func init() {
 	logsCmd.RunE = showLogs
 	rmCmd.Flags().BoolVar(&rmAll, "all", false, "remove metadata for all inactive tasks")
+	rmCmd.Flags().BoolVar(&rmIncludeUnknown, "include-unknown", false, "include unknown-state tasks when using --all")
 	rmCmd.RunE = removeTask
 	stopCmd.RunE = sendStop
 }
@@ -70,18 +74,29 @@ type removeResult struct {
 	TaskID         string `json:"task_id"`
 	Removed        bool   `json:"removed"`
 	AlreadyMissing bool   `json:"already_missing,omitempty"`
+	Skipped        bool   `json:"skipped,omitempty"`
 	Error          string `json:"error,omitempty"`
 }
 
 func removeTask(cmd *cobra.Command, args []string) error {
+	var skippedUnknown []string
 	if rmAll {
-		taskIDs, err := inactiveTaskIDs(cmd.Context())
+		var err error
+		args, skippedUnknown, err = inactiveTaskIDs(cmd.Context(), rmIncludeUnknown)
 		if err != nil {
 			return err
 		}
-		args = taskIDs
 	}
-	results := make([]removeResult, 0, len(args))
+	results := make([]removeResult, 0, len(args)+len(skippedUnknown))
+	for _, taskID := range skippedUnknown {
+		res := removeResult{TaskID: taskID, Skipped: true, Error: "requires --include-unknown"}
+		results = append(results, res)
+		if !jsonOut {
+			if _, err := fmt.Fprintf(os.Stdout, "skipped task %s\tstatus=unknown\treason=requires --include-unknown\n", taskID); err != nil {
+				return err
+			}
+		}
+	}
 	var errs []error
 	for _, taskID := range args {
 		res, err := removeOneTask(cmd, taskID)
@@ -114,33 +129,39 @@ func printRemoveResult(res removeResult) error {
 	return err
 }
 
-func terminalTaskIDs(ctx context.Context) ([]string, error) {
-	return taskIDsMatching(ctx, isTerminalStatus)
+func terminalTaskIDs(ctx context.Context, includeUnknown bool) ([]string, []string, error) {
+	return taskIDsMatching(ctx, includeUnknown, isTerminalStatus)
 }
 
-func inactiveTaskIDs(ctx context.Context) ([]string, error) {
-	return taskIDsMatching(ctx, func(status store.TaskStatus) bool {
+func inactiveTaskIDs(ctx context.Context, includeUnknown bool) ([]string, []string, error) {
+	return taskIDsMatching(ctx, includeUnknown, func(status store.TaskStatus) bool {
 		return status != store.StatusStarting && status != store.StatusRunning && status != store.StatusStopping
 	})
 }
 
-func taskIDsMatching(ctx context.Context, include func(store.TaskStatus) bool) ([]string, error) {
+func taskIDsMatching(ctx context.Context, includeUnknown bool, include func(store.TaskStatus) bool) ([]string, []string, error) {
 	db, err := store.Open(cfg.DBPath())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer db.Close() //nolint:errcheck
 	tasks, err := db.ListTasks(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	taskIDs := make([]string, 0, len(tasks))
+	skippedUnknown := []string{}
 	for _, task := range tasks {
-		if include(task.Status) {
-			taskIDs = append(taskIDs, task.ID)
+		if !include(task.Status) {
+			continue
 		}
+		if task.Status == store.StatusUnknown && !includeUnknown {
+			skippedUnknown = append(skippedUnknown, task.ID)
+			continue
+		}
+		taskIDs = append(taskIDs, task.ID)
 	}
-	return taskIDs, nil
+	return taskIDs, skippedUnknown, nil
 }
 
 func removeOneTask(cmd *cobra.Command, taskID string) (removeResult, error) {

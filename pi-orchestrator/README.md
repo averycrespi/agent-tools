@@ -52,17 +52,17 @@ po status <run-id>
 po wait <run-id> [--timeout 5m]
 po logs <run-id>
 po stop <run-id>...
-po cleanup [--dry-run] [--all|<run-id>...]
-po rm [--all|<run-id>...]
+po cleanup [--dry-run] [--include-unknown] [--all|<run-id>...]
+po rm [--include-unknown] [--all|<run-id>...]
 po dashboard [--host 127.0.0.1] [--port 8400] [--no-open]
 po token rotate
 ```
 
 `po run` validates inputs before side effects, verifies the configured artifact parent is visible inside the sandbox at the same absolute path, creates one workflow worktree, creates a workflow artifact root, persists the run in SQLite, and records workflow metadata. Workflow steps are executed serially by the supervisor core and each executable step is represented by a backing `pd` task/run.
 
-`po cleanup [--all|<run-id>...]` is best-effort and idempotent for terminal workflow runs. It delegates workflow worktree cleanup to each backing `pd` task so the dispatcher records cleanup state, then removes workflow artifacts and marks artifact metadata removed. If a run has no backing `pd` task IDs, `po` falls back to removing the workflow worktree directly.
+`po cleanup [--all|<run-id>...]` is best-effort and idempotent for terminal workflow runs. It delegates workflow worktree cleanup to each backing `pd` task so the dispatcher records cleanup state, then removes workflow artifacts and marks artifact metadata removed. If a run has no backing `pd` task IDs, `po` falls back to removing the workflow worktree directly. With `--all`, cleanup skips suspicious `unknown` runs by default; add `--include-unknown` to include them in bulk cleanup. Explicit run IDs may target `unknown` runs without the extra flag.
 
-`po rm [--all|<run-id>...]` is best-effort and idempotent for terminal workflow runs. It delegates metadata/log removal to each backing `pd` task before forgetting workflow metadata; already-missing workflow or dispatcher metadata is treated as removed.
+`po rm [--all|<run-id>...]` is best-effort and idempotent for terminal workflow runs. It delegates metadata/log removal to each backing `pd` task before forgetting workflow metadata; already-missing workflow or dispatcher metadata is treated as removed. With `--all`, rm skips suspicious `unknown` runs by default; add `--include-unknown` to include them in bulk removal. Explicit run IDs may target `unknown` runs without the extra flag.
 
 ## Configuration, state, and artifacts
 

@@ -122,6 +122,7 @@ func TestCleanupAllCleansTerminalRunsOnly(t *testing.T) {
 	fakeWT := installFakeWorktreeRemover(t)
 	first := seedCleanupWorkflowRunWithID(t, stateDir, "run-1", store.StateSucceeded)
 	second := seedCleanupWorkflowRunWithID(t, stateDir, "run-2", store.StateFailed)
+	unknown := seedCleanupWorkflowRunWithID(t, stateDir, "run-unknown", store.StateUnknown)
 	active := seedCleanupWorkflowRunWithID(t, stateDir, "run-3", store.StateRunning)
 	worktrees := map[string]string{"po/run-1": first.worktree, "po/run-2": second.worktree}
 	fakeWT.remove = func(_, branch string) error { return os.RemoveAll(worktrees[branch]) }
@@ -130,8 +131,8 @@ func TestCleanupAllCleansTerminalRunsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cleanup --all error = %v", err)
 	}
-	if !strings.Contains(stdout, "cleaned run run-1") || !strings.Contains(stdout, "cleaned run run-2") || strings.Contains(stdout, "cleaned run run-3") {
-		t.Fatalf("stdout = %q, want terminal runs only", stdout)
+	if !strings.Contains(stdout, "cleaned run run-1") || !strings.Contains(stdout, "cleaned run run-2") || !strings.Contains(stdout, "skipped run run-unknown") || strings.Contains(stdout, "cleaned run run-3") {
+		t.Fatalf("stdout = %q, want terminal runs only with unknown skipped", stdout)
 	}
 	if len(fakeWT.calls) != 2 {
 		t.Fatalf("worktree calls = %+v, want two terminal runs", fakeWT.calls)
@@ -141,10 +142,34 @@ func TestCleanupAllCleansTerminalRunsOnly(t *testing.T) {
 			t.Fatalf("stat %s error = %v, want not exist", path, err)
 		}
 	}
-	for _, path := range []string{active.worktree, active.artifacts} {
+	for _, path := range []string{unknown.worktree, unknown.artifacts, active.worktree, active.artifacts} {
 		if _, err := os.Stat(path); err != nil {
-			t.Fatalf("stat active path %s after cleanup --all: %v", path, err)
+			t.Fatalf("stat preserved path %s after cleanup --all: %v", path, err)
 		}
+	}
+}
+
+func TestCleanupAllIncludesUnknownWithFlag(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, t.TempDir(), stateDir)
+	fakeWT := installFakeWorktreeRemover(t)
+	unknown := seedCleanupWorkflowRunWithID(t, stateDir, "run-unknown", store.StateUnknown)
+	fakeWT.remove = func(_, branch string) error {
+		if branch == "po/run-unknown" {
+			return os.RemoveAll(unknown.worktree)
+		}
+		return nil
+	}
+
+	stdout, err := executeCommand("cleanup", "--all", "--include-unknown")
+	if err != nil {
+		t.Fatalf("cleanup --all --include-unknown error = %v", err)
+	}
+	if !strings.Contains(stdout, "cleaned run run-unknown") {
+		t.Fatalf("stdout = %q, want unknown run cleaned", stdout)
+	}
+	if len(fakeWT.calls) != 1 || fakeWT.calls[0].branch != "po/run-unknown" {
+		t.Fatalf("worktree calls = %+v, want unknown run", fakeWT.calls)
 	}
 }
 
@@ -242,14 +267,15 @@ func TestRMAllDeletesTerminalRunMetadataOnly(t *testing.T) {
 	cfg = testConfig(t, t.TempDir(), stateDir)
 	first := seedCleanupWorkflowRunWithID(t, stateDir, "run-1", store.StateSucceeded)
 	second := seedCleanupWorkflowRunWithID(t, stateDir, "run-2", store.StateFailed)
+	unknown := seedCleanupWorkflowRunWithID(t, stateDir, "run-unknown", store.StateUnknown)
 	active := seedCleanupWorkflowRunWithID(t, stateDir, "run-3", store.StateRunning)
 
 	stdout, err := executeCommand("rm", "--all")
 	if err != nil {
 		t.Fatalf("rm --all error = %v", err)
 	}
-	if !strings.Contains(stdout, "removed run run-1") || !strings.Contains(stdout, "removed run run-2") || strings.Contains(stdout, "removed run run-3") {
-		t.Fatalf("stdout = %q, want terminal runs only", stdout)
+	if !strings.Contains(stdout, "removed run run-1") || !strings.Contains(stdout, "removed run run-2") || !strings.Contains(stdout, "skipped run run-unknown") || strings.Contains(stdout, "removed run run-3") {
+		t.Fatalf("stdout = %q, want terminal runs only with unknown skipped", stdout)
 	}
 	db, err := store.Open(filepath.Join(stateDir, "po", "po.db"))
 	if err != nil {
@@ -261,13 +287,37 @@ func TestRMAllDeletesTerminalRunMetadataOnly(t *testing.T) {
 			t.Fatalf("GetWorkflowRun(%s) error = nil, want removed metadata", runID)
 		}
 	}
-	if _, err := db.GetWorkflowRun(context.Background(), "run-3"); err != nil {
-		t.Fatalf("GetWorkflowRun(run-3) error = %v, want active run preserved", err)
+	for _, runID := range []string{"run-unknown", "run-3"} {
+		if _, err := db.GetWorkflowRun(context.Background(), runID); err != nil {
+			t.Fatalf("GetWorkflowRun(%s) error = %v, want run preserved", runID, err)
+		}
 	}
-	for _, path := range []string{first.worktree, first.artifacts, second.worktree, second.artifacts, active.worktree, active.artifacts} {
+	for _, path := range []string{first.worktree, first.artifacts, second.worktree, second.artifacts, unknown.worktree, unknown.artifacts, active.worktree, active.artifacts} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("stat %s after rm --all: %v", path, err)
 		}
+	}
+}
+
+func TestRMAllIncludesUnknownWithFlag(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, t.TempDir(), stateDir)
+	seedCleanupWorkflowRunWithID(t, stateDir, "run-unknown", store.StateUnknown)
+
+	stdout, err := executeCommand("rm", "--all", "--include-unknown")
+	if err != nil {
+		t.Fatalf("rm --all --include-unknown error = %v", err)
+	}
+	if !strings.Contains(stdout, "removed run run-unknown") {
+		t.Fatalf("stdout = %q, want unknown run removed", stdout)
+	}
+	db, err := store.Open(filepath.Join(stateDir, "po", "po.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+	if _, err := db.GetWorkflowRun(context.Background(), "run-unknown"); err == nil {
+		t.Fatal("GetWorkflowRun(run-unknown) error = nil, want removed metadata")
 	}
 }
 

@@ -16,9 +16,11 @@ import (
 )
 
 var (
-	cleanupDryRun bool
-	cleanupAll    bool
-	rmAll         bool
+	cleanupDryRun         bool
+	cleanupAll            bool
+	cleanupIncludeUnknown bool
+	rmAll                 bool
+	rmIncludeUnknown      bool
 )
 
 type worktreeRemover interface {
@@ -62,16 +64,24 @@ var rmCmd = &cobra.Command{
 func init() {
 	cleanupCmd.Flags().BoolVar(&cleanupDryRun, "dry-run", false, "show cleanup targets without removing them")
 	cleanupCmd.Flags().BoolVar(&cleanupAll, "all", false, "cleanup all terminal workflow runs")
+	cleanupCmd.Flags().BoolVar(&cleanupIncludeUnknown, "include-unknown", false, "include unknown-state workflow runs when using --all")
 	rmCmd.Flags().BoolVar(&rmAll, "all", false, "remove metadata for all terminal workflow runs")
+	rmCmd.Flags().BoolVar(&rmIncludeUnknown, "include-unknown", false, "include unknown-state workflow runs when using --all")
 }
 
 func cleanupWorkflowRun(cmd *cobra.Command, args []string) error {
+	var skippedUnknown []string
 	if cleanupAll {
-		runIDs, err := terminalWorkflowRunIDs(cmd.Context())
+		var err error
+		args, skippedUnknown, err = terminalWorkflowRunIDs(cmd.Context(), cleanupIncludeUnknown)
 		if err != nil {
 			return err
 		}
-		args = runIDs
+	}
+	for _, runID := range skippedUnknown {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "skipped run %s\tstatus=unknown\treason=requires --include-unknown\n", runID); err != nil {
+			return err
+		}
 	}
 	var errs []error
 	for _, runID := range args {
@@ -231,11 +241,17 @@ func removeWorkflowRunMetadata(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close() //nolint:errcheck
 	if rmAll {
-		runIDs, err := terminalWorkflowRunIDsFromStore(cmd.Context(), db)
+		var skippedUnknown []string
+		var err error
+		args, skippedUnknown, err = terminalWorkflowRunIDsFromStore(cmd.Context(), db, rmIncludeUnknown)
 		if err != nil {
 			return err
 		}
-		args = runIDs
+		for _, runID := range skippedUnknown {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "skipped run %s\tstatus=unknown\treason=requires --include-unknown\n", runID); err != nil {
+				return err
+			}
+		}
 	}
 	var errs []error
 	for _, runID := range args {
@@ -246,27 +262,33 @@ func removeWorkflowRunMetadata(cmd *cobra.Command, args []string) error {
 	return errors.Join(errs...)
 }
 
-func terminalWorkflowRunIDs(ctx context.Context) ([]string, error) {
+func terminalWorkflowRunIDs(ctx context.Context, includeUnknown bool) ([]string, []string, error) {
 	db, err := store.Open(cfg.DBPath())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer db.Close() //nolint:errcheck
-	return terminalWorkflowRunIDsFromStore(ctx, db)
+	return terminalWorkflowRunIDsFromStore(ctx, db, includeUnknown)
 }
 
-func terminalWorkflowRunIDsFromStore(ctx context.Context, db *store.Store) ([]string, error) {
+func terminalWorkflowRunIDsFromStore(ctx context.Context, db *store.Store, includeUnknown bool) ([]string, []string, error) {
 	runs, err := db.ListWorkflowRuns(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	runIDs := make([]string, 0, len(runs))
+	skippedUnknown := []string{}
 	for _, run := range runs {
-		if isTerminalState(run.State) {
-			runIDs = append(runIDs, run.ID)
+		if !isTerminalState(run.State) {
+			continue
 		}
+		if run.State == store.StateUnknown && !includeUnknown {
+			skippedUnknown = append(skippedUnknown, run.ID)
+			continue
+		}
+		runIDs = append(runIDs, run.ID)
 	}
-	return runIDs, nil
+	return runIDs, skippedUnknown, nil
 }
 
 func removeOneWorkflowRunMetadata(cmd *cobra.Command, db *store.Store, runID string) error {

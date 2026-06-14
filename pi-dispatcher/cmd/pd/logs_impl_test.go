@@ -248,6 +248,7 @@ func TestRemoveTaskAllRemovesInactiveTasksOnly(t *testing.T) {
 	now := time.Now().Add(-time.Minute)
 	seedRemoveTaskRecord(t, db, "pd-done", store.StatusSucceeded, now)
 	seedRemoveTaskRecord(t, db, "pd-failed", store.StatusFailed, now)
+	seedRemoveTaskRecord(t, db, "pd-unknown", store.StatusUnknown, now)
 	seedRemoveTaskRecord(t, db, "pd-running", store.StatusRunning, now)
 	require.NoError(t, db.Close())
 	withProcessExists(t, func(int) bool { return true })
@@ -261,8 +262,33 @@ func TestRemoveTaskAllRemovesInactiveTasksOnly(t *testing.T) {
 		_, err := checkDB.GetTask(context.Background(), id)
 		require.Error(t, err, "task %s should be removed", id)
 	}
-	_, err = checkDB.GetTask(context.Background(), "pd-running")
-	require.NoError(t, err, "active task should be preserved")
+	for _, id := range []string{"pd-unknown", "pd-running"} {
+		_, err := checkDB.GetTask(context.Background(), id)
+		require.NoError(t, err, "task %s should be preserved", id)
+	}
+}
+
+func TestRemoveTaskAllIncludesUnknownWithFlag(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+	dbPath := filepath.Join(t.TempDir(), "pd.db")
+	oldCfg := cfg
+	cfg = pdconfig.Config{DatabasePath: dbPath}
+	t.Cleanup(func() { cfg = oldCfg })
+	db, err := store.Open(dbPath)
+	require.NoError(t, err)
+	now := time.Now().Add(-time.Minute)
+	seedRemoveTaskRecord(t, db, "pd-unknown", store.StatusUnknown, now)
+	require.NoError(t, db.Close())
+	withProcessExists(t, func(int) bool { return true })
+
+	require.NoError(t, removeTask(removeTestCommand(t, true, true), nil))
+
+	checkDB, err := store.Open(cfg.DBPath())
+	require.NoError(t, err)
+	defer checkDB.Close() //nolint:errcheck
+	_, err = checkDB.GetTask(context.Background(), "pd-unknown")
+	require.Error(t, err, "unknown task should be removed when included")
 }
 
 func TestRemoveTaskAllRejectsTaskIDs(t *testing.T) {
@@ -329,6 +355,7 @@ func TestCleanupTaskAllCleansTerminalTasksOnly(t *testing.T) {
 	now := time.Now().Add(-time.Minute)
 	seedRemoveTaskRecord(t, db, "pd-done", store.StatusSucceeded, now)
 	seedRemoveTaskRecord(t, db, "pd-failed", store.StatusFailed, now)
+	seedRemoveTaskRecord(t, db, "pd-unknown", store.StatusUnknown, now)
 	seedRemoveTaskRecord(t, db, "pd-running", store.StatusRunning, now)
 	require.NoError(t, db.Close())
 	fakeWT := &fakeRemoveWorktree{}
@@ -345,9 +372,31 @@ func TestCleanupTaskAllCleansTerminalTasksOnly(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, store.CleanupStatusRemoved, got.WorktreeCleanupStatus)
 	}
-	got, err := checkDB.GetTask(context.Background(), "pd-running")
+	for _, id := range []string{"pd-unknown", "pd-running"} {
+		got, err := checkDB.GetTask(context.Background(), id)
+		require.NoError(t, err)
+		require.Equal(t, store.CleanupStatusNotRequested, got.WorktreeCleanupStatus)
+	}
+}
+
+func TestCleanupTaskAllIncludesUnknownWithFlag(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+	dbPath := filepath.Join(t.TempDir(), "pd.db")
+	oldCfg := cfg
+	cfg = pdconfig.Config{DatabasePath: dbPath}
+	t.Cleanup(func() { cfg = oldCfg })
+	db, err := store.Open(dbPath)
 	require.NoError(t, err)
-	require.Equal(t, store.CleanupStatusNotRequested, got.WorktreeCleanupStatus)
+	now := time.Now().Add(-time.Minute)
+	seedRemoveTaskRecord(t, db, "pd-unknown", store.StatusUnknown, now)
+	require.NoError(t, db.Close())
+	fakeWT := &fakeRemoveWorktree{}
+	withWorktreeClient(t, fakeWT)
+
+	require.NoError(t, cleanupTask(cleanupTestCommand(t, false, true, true), nil))
+
+	require.ElementsMatch(t, []string{"pd/pd-unknown"}, fakeWT.branches)
 }
 
 func TestCleanupTaskAllRejectsTaskIDs(t *testing.T) {
@@ -477,11 +526,16 @@ func setupRemoveTask(t *testing.T, status store.TaskStatus, cleanup ...struct {
 	return db, task, run
 }
 
-func removeTestCommand(t *testing.T, all bool) *cobra.Command {
+func removeTestCommand(t *testing.T, all bool, includeUnknown ...bool) *cobra.Command {
 	t.Helper()
 	oldRMAll := rmAll
+	oldRMIncludeUnknown := rmIncludeUnknown
 	rmAll = all
-	t.Cleanup(func() { rmAll = oldRMAll })
+	rmIncludeUnknown = len(includeUnknown) > 0 && includeUnknown[0]
+	t.Cleanup(func() {
+		rmAll = oldRMAll
+		rmIncludeUnknown = oldRMIncludeUnknown
+	})
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 	return cmd
@@ -490,8 +544,13 @@ func removeTestCommand(t *testing.T, all bool) *cobra.Command {
 func cleanupTestCommand(t *testing.T, dryRun bool, all ...bool) *cobra.Command {
 	t.Helper()
 	oldCleanupAll := cleanupAll
+	oldCleanupIncludeUnknown := cleanupIncludeUnknown
 	cleanupAll = len(all) > 0 && all[0]
-	t.Cleanup(func() { cleanupAll = oldCleanupAll })
+	cleanupIncludeUnknown = len(all) > 1 && all[1]
+	t.Cleanup(func() {
+		cleanupAll = oldCleanupAll
+		cleanupIncludeUnknown = oldCleanupIncludeUnknown
+	})
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 	cmd.Flags().Bool("dry-run", false, "")

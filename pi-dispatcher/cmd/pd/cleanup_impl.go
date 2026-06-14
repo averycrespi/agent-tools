@@ -12,13 +12,15 @@ import (
 )
 
 var (
-	cleanupDryRun bool
-	cleanupAll    bool
+	cleanupDryRun         bool
+	cleanupAll            bool
+	cleanupIncludeUnknown bool
 )
 
 func init() {
 	cleanupCmd.Flags().BoolVar(&cleanupDryRun, "dry-run", false, "show what would be cleaned without mutating state")
 	cleanupCmd.Flags().BoolVar(&cleanupAll, "all", false, "cleanup all terminal tasks")
+	cleanupCmd.Flags().BoolVar(&cleanupIncludeUnknown, "include-unknown", false, "include unknown-state tasks when using --all")
 	cleanupCmd.RunE = cleanupTask
 }
 
@@ -59,14 +61,24 @@ func parseWorktreeCleanupPolicy(value string) (store.WorktreeCleanupPolicy, erro
 }
 
 func cleanupTask(cmd *cobra.Command, args []string) error {
+	var skippedUnknown []string
 	if cleanupAll {
-		taskIDs, err := terminalTaskIDs(cmd.Context())
+		var err error
+		args, skippedUnknown, err = terminalTaskIDs(cmd.Context(), cleanupIncludeUnknown)
 		if err != nil {
 			return err
 		}
-		args = taskIDs
 	}
-	results := make([]cleanupResult, 0, len(args))
+	results := make([]cleanupResult, 0, len(args)+len(skippedUnknown))
+	for _, taskID := range skippedUnknown {
+		res := cleanupResult{TaskID: taskID, Status: "skipped", Error: "requires --include-unknown"}
+		results = append(results, res)
+		if !jsonOut {
+			if _, err := fmt.Fprintf(os.Stdout, "skipped task %s\tstatus=unknown\treason=requires --include-unknown\n", taskID); err != nil {
+				return err
+			}
+		}
+	}
 	var errs []error
 	for _, taskID := range args {
 		res, err := cleanupOneTask(cmd, taskID)
