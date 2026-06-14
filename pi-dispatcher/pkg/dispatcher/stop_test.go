@@ -45,6 +45,24 @@ func TestStopTaskRunSendsStopToBackingRun(t *testing.T) {
 	}
 }
 
+func TestStopTaskRunMarksStartingTaskStopped(t *testing.T) {
+	t.Parallel()
+	dbPath := filepath.Join(t.TempDir(), "pd.db")
+	st := seedDispatcherStopTask(t, dbPath, "pd-task-1", "/tmp/missing.sock", pdstore.StatusStarting)
+	defer st.Close() //nolint:errcheck
+	client := NewClient(Config{DBPath: dbPath})
+	if err := client.StopTaskRun(context.Background(), StopTaskRunRequest{TaskID: "pd-task-1", RunID: "pd-task-1-run-1"}); err != nil {
+		t.Fatalf("StopTaskRun() error = %v", err)
+	}
+	task, err := st.GetTask(context.Background(), "pd-task-1")
+	if err != nil {
+		t.Fatalf("GetTask() error = %v", err)
+	}
+	if task.Status != pdstore.StatusStopped {
+		t.Fatalf("task status = %s, want stopped", task.Status)
+	}
+}
+
 func TestStopTaskRunRejectsTerminalTask(t *testing.T) {
 	t.Parallel()
 	dbPath := filepath.Join(t.TempDir(), "pd.db")

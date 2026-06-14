@@ -3,11 +3,21 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 type WorkflowRunSummary struct {
-	Run        WorkflowRun
-	StepCounts map[State]int
+	ID           string        `json:"id"`
+	Workflow     string        `json:"workflow"`
+	State        State         `json:"state"`
+	Repo         string        `json:"repo"`
+	Branch       string        `json:"branch"`
+	WorktreePath string        `json:"worktree_path"`
+	ArtifactRoot string        `json:"artifact_root"`
+	Outcome      string        `json:"outcome"`
+	CreatedAt    string        `json:"created_at"`
+	UpdatedAt    string        `json:"updated_at"`
+	StepCounts   map[State]int `json:"step_counts"`
 }
 
 func (s *Store) ListWorkflowRunSummaries(ctx context.Context) ([]WorkflowRunSummary, error) {
@@ -21,7 +31,7 @@ func (s *Store) ListWorkflowRunSummaries(ctx context.Context) ([]WorkflowRunSumm
 	}
 	summaries := make([]WorkflowRunSummary, 0, len(runs))
 	for _, run := range runs {
-		summaries = append(summaries, WorkflowRunSummary{Run: run, StepCounts: countsByRun[run.ID]})
+		summaries = append(summaries, WorkflowRunSummary{ID: run.ID, Workflow: run.Workflow, State: run.State, Repo: run.Repo, Branch: run.Branch, WorktreePath: run.WorktreePath, ArtifactRoot: run.ArtifactRoot, Outcome: run.Outcome, CreatedAt: run.CreatedAt.Format(time.RFC3339), UpdatedAt: run.UpdatedAt.Format(time.RFC3339), StepCounts: countsByRun[run.ID]})
 	}
 	return summaries, nil
 }
@@ -49,25 +59,4 @@ func (s *Store) stepCountsByWorkflowRun(ctx context.Context) (map[string]map[Sta
 		return nil, fmt.Errorf("query step counts: %w", err)
 	}
 	return countsByRun, nil
-}
-
-func (s *Store) stepCounts(ctx context.Context, workflowRunID string) (map[State]int, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT state, COUNT(*) FROM step_runs WHERE workflow_run_id = ? GROUP BY state`, workflowRunID)
-	if err != nil {
-		return nil, fmt.Errorf("query step counts: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck
-	counts := map[State]int{}
-	for rows.Next() {
-		var state string
-		var count int
-		if err := rows.Scan(&state, &count); err != nil {
-			return nil, fmt.Errorf("scan step count: %w", err)
-		}
-		counts[State(state)] = count
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("query step counts: %w", err)
-	}
-	return counts, nil
 }

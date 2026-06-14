@@ -32,7 +32,7 @@ func TestListWorkflowRunSummariesIncludesStepCounts(t *testing.T) {
 		t.Fatalf("len(summaries) = %d, want 1", len(summaries))
 	}
 	summary := summaries[0]
-	if summary.Run.ID != "run-1" || summary.StepCounts[StateSucceeded] != 1 || summary.StepCounts[StateFailed] != 1 || summary.StepCounts[StateSkipped] != 1 {
+	if summary.ID != "run-1" || summary.Workflow != "sample" || summary.StepCounts[StateSucceeded] != 1 || summary.StepCounts[StateFailed] != 1 || summary.StepCounts[StateSkipped] != 1 {
 		t.Fatalf("summary = %+v, want run and step counts", summary)
 	}
 }

@@ -46,7 +46,7 @@ func TestRunsAPIReturnsReadOnlySummaries(t *testing.T) {
 	if err := json.Unmarshal(resp.Body.Bytes(), &summaries); err != nil {
 		t.Fatalf("decode summaries: %v", err)
 	}
-	if len(summaries) != 1 || summaries[0].Run.ID != "run-1" || summaries[0].StepCounts[store.StateSucceeded] != 1 {
+	if len(summaries) != 1 || summaries[0].ID != "run-1" || summaries[0].StepCounts[store.StateSucceeded] != 1 {
 		t.Fatalf("summaries = %+v", summaries)
 	}
 }

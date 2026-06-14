@@ -21,6 +21,7 @@ func TestStartTaskRunUsesCallerOwnedWorktree(t *testing.T) {
 	client.now = func() time.Time { return now }
 	client.shortID = func() string { return "abcd" }
 	client.launcher = launcher
+	client.sandbox = func() (sandboxClient, error) { return fakeSandbox{}, nil }
 
 	result, err := client.StartTaskRun(context.Background(), StartTaskRunRequest{
 		RepoPath:     "/repo",
@@ -76,6 +77,16 @@ func TestStartTaskRunRejectsMissingCallerOwnedWorktree(t *testing.T) {
 	_, err := client.StartTaskRun(context.Background(), StartTaskRunRequest{RepoPath: "/repo", Branch: "branch", Prompt: "prompt"})
 	if err == nil {
 		t.Fatal("StartTaskRun() error = nil, want validation error")
+	}
+}
+
+func TestStartTaskRunRejectsWorktreeInvisibleInSandbox(t *testing.T) {
+	t.Parallel()
+	client := NewClient(Config{DBPath: filepath.Join(t.TempDir(), "pd.db"), StateDir: t.TempDir(), RuntimeDir: t.TempDir()})
+	client.sandbox = func() (sandboxClient, error) { return fakeSandbox{execErr: os.ErrNotExist}, nil }
+	_, err := client.StartTaskRun(context.Background(), StartTaskRunRequest{RepoPath: "/repo", Branch: "branch", WorktreePath: "/worktree", Prompt: "prompt"})
+	if err == nil || !strings.Contains(err.Error(), "worktree is not visible inside the sandbox") {
+		t.Fatalf("StartTaskRun() error = %v, want worktree visibility validation", err)
 	}
 }
 
@@ -171,12 +182,22 @@ func startedTaskRun(t *testing.T) (*Client, StartTaskRunResult) {
 	client.now = func() time.Time { return time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC) }
 	client.shortID = func() string { return "abcd" }
 	client.launcher = &recordingLauncher{pid: 1234}
+	client.sandbox = func() (sandboxClient, error) { return fakeSandbox{}, nil }
 	result, err := client.StartTaskRun(context.Background(), StartTaskRunRequest{RepoPath: "/repo", Branch: "branch", WorktreePath: "/worktree", Prompt: "prompt"})
 	if err != nil {
 		t.Fatalf("StartTaskRun() error = %v", err)
 	}
 	return client, result
 }
+
+type fakeSandbox struct {
+	createErr error
+	execErr   error
+}
+
+func (f fakeSandbox) Create() error { return f.createErr }
+
+func (f fakeSandbox) Exec(string, ...string) ([]byte, error) { return nil, f.execErr }
 
 type recordingLauncher struct {
 	pid  int

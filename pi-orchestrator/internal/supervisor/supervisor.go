@@ -120,7 +120,7 @@ func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workf
 			stepStates[step.ID] = finalState
 			delete(remaining, step.ID)
 			progressed = true
-			if finalState != store.StateSucceeded {
+			if finalState != store.StateSucceeded && firstErr == nil {
 				firstErr = fmt.Errorf("step %s failed: %s", step.ID, outcome)
 			}
 		}
@@ -193,10 +193,35 @@ func renderPrompt(run store.WorkflowRun, def *workflow.Definition, step workflow
 		return "", fmt.Errorf("parse prompt for step %s: %w", step.ID, err)
 	}
 	var rendered bytes.Buffer
-	if err := tmpl.Execute(&rendered, map[string]any{"Inputs": inputs}); err != nil {
+	if err := tmpl.Execute(&rendered, map[string]any{"Inputs": promptSafeInputs(inputs)}); err != nil {
 		return "", fmt.Errorf("render prompt for step %s: %w", step.ID, err)
 	}
 	return rendered.String(), nil
+}
+
+type promptSafeString struct {
+	Name  string
+	Value string
+}
+
+func (s promptSafeString) String() string {
+	encoded, err := json.Marshal(s.Value)
+	if err != nil {
+		encoded = []byte(fmt.Sprintf("%q", s.Value))
+	}
+	return fmt.Sprintf("<untrusted-workflow-input name=%q>%s</untrusted-workflow-input>", s.Name, string(encoded))
+}
+
+func promptSafeInputs(inputs map[string]any) map[string]any {
+	safe := make(map[string]any, len(inputs))
+	for name, value := range inputs {
+		if text, ok := value.(string); ok {
+			safe[name] = promptSafeString{Name: name, Value: text}
+			continue
+		}
+		safe[name] = value
+	}
+	return safe
 }
 
 func artifactPathsForWorkflow(run store.WorkflowRun, def *workflow.Definition) map[string]string {

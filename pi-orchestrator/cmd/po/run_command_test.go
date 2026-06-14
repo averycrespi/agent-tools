@@ -169,6 +169,12 @@ func TestRunCommandRemovesWorkflowWorktreeWhenSupervisorLaunchFails(t *testing.T
 	if !fakeWT.removed || fakeWT.removeRepoRoot != "/repo" || fakeWT.removeBranch != "po/review-"+fakeWT.idPart {
 		t.Fatalf("fakeWT = %+v, want worktree removal after launch failure", fakeWT)
 	}
+	if _, statErr := os.Stat(filepath.Join(cfg.ArtifactParentDir, "po-20260613-120000-fail")); !os.IsNotExist(statErr) {
+		t.Fatalf("artifact root stat error = %v, want removed", statErr)
+	}
+	if _, statErr := os.Stat(cfg.RunLogDir("po-20260613-120000-fail")); !os.IsNotExist(statErr) {
+		t.Fatalf("run log dir stat error = %v, want removed", statErr)
+	}
 	db, dbErr := store.Open(filepath.Join(stateDir, "po", "po.db"))
 	if dbErr != nil {
 		t.Fatalf("open store: %v", dbErr)

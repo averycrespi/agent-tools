@@ -16,9 +16,10 @@ import (
 	pdexec "github.com/averycrespi/agent-tools/pi-dispatcher/internal/exec"
 	"github.com/averycrespi/agent-tools/pi-dispatcher/internal/process"
 	"github.com/averycrespi/agent-tools/pi-dispatcher/internal/store"
+	sbsandbox "github.com/averycrespi/agent-tools/sandbox-manager/pkg/sandbox"
 )
 
-type AgentOptions = pdconfig.AgentOptions
+type AgentOptions pdconfig.AgentOptions
 
 type Config struct {
 	DBPath     string
@@ -92,15 +93,21 @@ type supervisorLauncher interface {
 	StartSupervisorWithEnv(env []string, args ...string) (int, error)
 }
 
+type sandboxClient interface {
+	Create() error
+	Exec(workdir string, args ...string) ([]byte, error)
+}
+
 type Client struct {
 	cfg      Config
 	launcher supervisorLauncher
+	sandbox  func() (sandboxClient, error)
 	now      func() time.Time
 	shortID  func() string
 }
 
 func NewClient(cfg Config) *Client {
-	return &Client{cfg: cfg, launcher: process.NewLauncher(pdexec.NewOSRunner()), now: time.Now, shortID: randomShortID}
+	return &Client{cfg: cfg, launcher: process.NewLauncher(pdexec.NewOSRunner()), sandbox: func() (sandboxClient, error) { return sbsandbox.New() }, now: time.Now, shortID: randomShortID}
 }
 
 func (c *Client) StartTaskRun(ctx context.Context, req StartTaskRunRequest) (StartTaskRunResult, error) {
@@ -165,19 +172,42 @@ func (c *Client) StartTaskRun(ctx context.Context, req StartTaskRunRequest) (Sta
 	if err := db.CreateTaskWithRun(ctx, task, run); err != nil {
 		return StartTaskRunResult{}, err
 	}
-	encodedArgv, err := encodeStringList(pdconfig.RenderPiArgv(req.Agent), "Pi argv")
+	sb, err := c.sandbox()
 	if err != nil {
-		return StartTaskRunResult{}, err
+		return StartTaskRunResult{}, c.failLaunch(ctx, db, taskID, err)
+	}
+	if err := sb.Create(); err != nil {
+		return StartTaskRunResult{}, c.failLaunch(ctx, db, taskID, err)
+	}
+	if err := checkWorktreeVisible(sb, req.WorktreePath); err != nil {
+		return StartTaskRunResult{}, c.failLaunch(ctx, db, taskID, err)
+	}
+	encodedArgv, err := encodeStringList(pdconfig.RenderPiArgv(pdconfig.AgentOptions(req.Agent)), "Pi argv")
+	if err != nil {
+		return StartTaskRunResult{}, c.failLaunch(ctx, db, taskID, err)
 	}
 	pid, err := c.launcher.StartSupervisorWithEnv(envValues, "--task-id", taskID, "--pi-argv", encodedArgv, "--env-names", envNamesJSON)
 	if err != nil {
-		_ = db.CompleteRun(ctx, taskID, store.StatusFailed, 1, err.Error(), "")
-		return StartTaskRunResult{}, err
+		return StartTaskRunResult{}, c.failLaunch(ctx, db, taskID, err)
 	}
 	if err := db.UpdateRunSupervisorPID(ctx, taskID, pid); err != nil {
-		return StartTaskRunResult{}, err
+		return StartTaskRunResult{}, c.failLaunch(ctx, db, taskID, err)
 	}
 	return StartTaskRunResult{TaskID: taskID, RunID: runID, StdoutPath: run.StdoutLogPath, StderrPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath}, nil
+}
+
+func (c *Client) failLaunch(ctx context.Context, db *store.Store, taskID string, err error) error {
+	if completeErr := db.CompleteRun(ctx, taskID, store.StatusFailed, 1, err.Error(), ""); completeErr != nil {
+		return completeErr
+	}
+	return err
+}
+
+func checkWorktreeVisible(sb sandboxClient, worktreePath string) error {
+	if _, err := sb.Exec("/", "test", "-d", worktreePath); err != nil {
+		return fmt.Errorf("worktree is not visible inside the sandbox: %s\n\nAdd the worktree base directory as a writable sb mount, then recreate the Lima VM so mount changes apply", worktreePath)
+	}
+	return nil
 }
 
 func (c *Client) GetTaskRun(ctx context.Context, req GetTaskRunRequest) (TaskRunInfo, error) {
@@ -257,6 +287,12 @@ func (c *Client) StopTaskRun(ctx context.Context, req StopTaskRunRequest) error 
 	if req.RunID != "" && run.ID != req.RunID {
 		return fmt.Errorf("task %s latest run is %s, not %s", req.TaskID, run.ID, req.RunID)
 	}
+	if task.Status == store.StatusStarting {
+		if err := db.CompleteRun(ctx, req.TaskID, store.StatusStopped, 0, "stop requested during startup", ""); err != nil {
+			return err
+		}
+		return nil
+	}
 	if task.Status != store.StatusRunning && (!req.Force || task.Status != store.StatusStopping) {
 		return fmt.Errorf("task is %s, not running", task.Status)
 	}
@@ -310,7 +346,7 @@ func launchMetadata(agent AgentOptions) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	piArgv, err := json.Marshal(pdconfig.RenderPiArgv(agent))
+	piArgv, err := json.Marshal(pdconfig.RenderPiArgv(pdconfig.AgentOptions(agent)))
 	if err != nil {
 		return "", "", err
 	}

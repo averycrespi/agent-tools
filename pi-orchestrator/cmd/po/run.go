@@ -89,17 +89,19 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	admitted := false
+	artifactRoot := filepath.Join(cfg.ArtifactParentDir, runID)
+	logDir := cfg.RunLogDir(runID)
 	defer func() {
 		if !admitted {
 			_ = wt.Remove(repo, branch)
+			_ = os.RemoveAll(artifactRoot)
+			_ = os.RemoveAll(logDir)
 		}
 	}()
 
-	artifactRoot := filepath.Join(cfg.ArtifactParentDir, runID)
 	if err := ensureArtifactRootOutsideWorktree(artifactRoot, worktreePath); err != nil {
 		return err
 	}
-	logDir := cfg.RunLogDir(runID)
 	if err := os.MkdirAll(artifactRoot, 0o750); err != nil {
 		return fmt.Errorf("create artifact root: %w", err)
 	}
@@ -130,10 +132,10 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 		_ = db.DeleteWorkflowRun(cmd.Context(), runID)
 		return err
 	}
-	admitted = true
 	if err := db.UpdateWorkflowRunSupervisorPID(cmd.Context(), runID, pid); err != nil {
 		return err
 	}
+	admitted = true
 	_, err = fmt.Fprintln(cmd.OutOrStdout(), runID)
 	return err
 }

@@ -452,34 +452,40 @@
           return;
         }
         for (const summary of state.summaries) {
-          const run = summary.Run || {};
+          const run = summary.Run || summary || {};
+          const runID = run.ID || run.id;
+          const workflow = run.Workflow || run.workflow;
+          const runState = run.State || run.state;
+          const branchName = run.Branch || run.branch;
+          const repo = run.Repo || run.repo;
+          const updatedAt = run.UpdatedAt || run.updated_at;
           const button = document.createElement('button');
           button.type = 'button';
           button.className = 'run';
-          if (run.ID === state.selectedID) button.classList.add('selected');
-          button.addEventListener('click', () => loadRun(run.ID));
+          if (runID === state.selectedID) button.classList.add('selected');
+          button.addEventListener('click', () => loadRun(runID));
 
           const top = document.createElement('div');
           top.className = 'row';
           const title = document.createElement('div');
           title.className = 'run-title';
-          title.textContent = run.Workflow || run.ID;
-          top.append(title, chip(run.State || 'unknown', run.State || 'unknown'));
+          title.textContent = workflow || runID;
+          top.append(title, chip(runState || 'unknown', runState || 'unknown'));
 
           const meta = document.createElement('div');
           meta.className = 'row hint';
           const id = document.createElement('span');
           id.className = 'mono';
-          id.textContent = run.ID || '—';
+          id.textContent = runID || '—';
           const updated = document.createElement('span');
-          updated.textContent = time(run.UpdatedAt);
+          updated.textContent = time(updatedAt);
           meta.append(id, updated);
 
           const branch = document.createElement('div');
           branch.className = 'hint mono';
-          branch.textContent = `${text(run.Branch)} · ${text(run.Repo)}`;
+          branch.textContent = `${text(branchName)} · ${text(repo)}`;
 
-          button.append(top, meta, branch, countPills(summary.StepCounts));
+          button.append(top, meta, branch, countPills(summary.StepCounts || summary.step_counts));
           runs.appendChild(button);
         }
       }
@@ -642,18 +648,15 @@
         return response.json();
       }
 
-      async function loadRun(id) {
+      async function loadRun(id, options = {}) {
         if (!id) return;
+        const includeLogs = options.logs !== false;
         state.selectedID = id;
         renderRuns(state.summaries);
         for (const panel of document.querySelectorAll('.tab-panel')) panel.classList.remove('error');
         try {
-          const [detail, logs] = await Promise.all([
-            fetchJSON('/dashboard/api/runs/' + encodeURIComponent(id)),
-            fetchJSON('/dashboard/api/runs/' + encodeURIComponent(id) + '/logs'),
-          ]);
-          state.detail = detail;
-          state.logs = logs;
+          state.detail = await fetchJSON('/dashboard/api/runs/' + encodeURIComponent(id));
+          if (includeLogs) state.logs = await fetchJSON('/dashboard/api/runs/' + encodeURIComponent(id) + '/logs');
           renderDetail();
         } catch (err) {
           byID('overview').replaceChildren();
@@ -668,7 +671,7 @@
           setConnection(true, 'Connected');
           renderRuns(summaries);
           if (state.selectedID) await loadRun(state.selectedID);
-          else if (summaries.length) await loadRun(summaries[0].Run.ID);
+          else if (summaries.length) await loadRun((summaries[0].Run && summaries[0].Run.ID) || summaries[0].id);
         } catch (err) {
           setConnection(false, 'Disconnected');
           byID('runs').innerHTML = '<div class="empty error">Failed to load workflow runs.</div>';
@@ -690,7 +693,7 @@
       events.addEventListener('snapshot', (event) => {
         setConnection(true, 'Live');
         renderRuns(JSON.parse(event.data));
-        if (state.selectedID && !terminalStates.has((state.detail && state.detail.Run && state.detail.Run.State) || '')) loadRun(state.selectedID);
+        if (state.selectedID && !terminalStates.has((state.detail && state.detail.Run && state.detail.Run.State) || '')) loadRun(state.selectedID, { logs: false });
       });
     </script>
   </body>

@@ -54,6 +54,12 @@ func cleanupWorkflowRun(cmd *cobra.Command, args []string) error {
 		_, err := fmt.Fprintf(cmd.OutOrStdout(), "Worktree:\t%s\nArtifacts:\t%s\n", run.WorktreePath, run.ArtifactRoot)
 		return err
 	}
+	if run.ArtifactRoot != "" {
+		if err := validateArtifactRootForCleanup(run.ArtifactRoot); err != nil {
+			_ = recordWorkflowCleanup(cmd.Context(), run.ID, "failed", err.Error())
+			return err
+		}
+	}
 	if run.WorktreePath != "" {
 		remover, err := newWorktreeRemover()
 		if err != nil {
@@ -67,10 +73,6 @@ func cleanupWorkflowRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if run.ArtifactRoot != "" {
-		if err := validateArtifactRootForCleanup(run.ArtifactRoot); err != nil {
-			_ = recordWorkflowCleanup(cmd.Context(), run.ID, "failed", err.Error())
-			return err
-		}
 		if err := os.RemoveAll(run.ArtifactRoot); err != nil {
 			wrapped := fmt.Errorf("remove artifacts %s: %w", run.ArtifactRoot, err)
 			_ = recordWorkflowCleanup(cmd.Context(), run.ID, "failed", wrapped.Error())

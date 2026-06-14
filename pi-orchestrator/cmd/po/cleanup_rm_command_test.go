@@ -85,12 +85,18 @@ func TestCleanupRejectsNonTerminalRun(t *testing.T) {
 func TestCleanupRejectsArtifactRootOutsideConfiguredParent(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	cfg = testConfig(t, t.TempDir(), stateDir)
-	installFakeWorktreeRemover(t)
+	fakeWT := installFakeWorktreeRemover(t)
 	paths := seedCleanupWorkflowRunWithArtifactRoot(t, stateDir, store.StateSucceeded, filepath.Join(t.TempDir(), "outside-artifacts"))
 
 	_, err := executeCommand("cleanup", "run-1")
 	if err == nil || !strings.Contains(err.Error(), "is outside configured artifact parent") {
 		t.Fatalf("cleanup error = %v, want artifact parent boundary error", err)
+	}
+	if fakeWT.called {
+		t.Fatal("worktree remover called before artifact root validation")
+	}
+	if _, statErr := os.Stat(paths.worktree); statErr != nil {
+		t.Fatalf("worktree stat after rejected cleanup: %v", statErr)
 	}
 	if _, statErr := os.Stat(paths.artifacts); statErr != nil {
 		t.Fatalf("artifacts stat after rejected cleanup: %v", statErr)
