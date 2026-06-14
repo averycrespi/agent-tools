@@ -236,6 +236,46 @@ func TestRemoveTaskRemovesMultipleTasks(t *testing.T) {
 	}
 }
 
+func TestRemoveTaskAllRemovesInactiveTasksOnly(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+	dbPath := filepath.Join(t.TempDir(), "pd.db")
+	oldCfg := cfg
+	cfg = pdconfig.Config{DatabasePath: dbPath}
+	t.Cleanup(func() { cfg = oldCfg })
+	db, err := store.Open(dbPath)
+	require.NoError(t, err)
+	now := time.Now().Add(-time.Minute)
+	seedRemoveTaskRecord(t, db, "pd-done", store.StatusSucceeded, now)
+	seedRemoveTaskRecord(t, db, "pd-failed", store.StatusFailed, now)
+	seedRemoveTaskRecord(t, db, "pd-running", store.StatusRunning, now)
+	require.NoError(t, db.Close())
+	withProcessExists(t, func(int) bool { return true })
+
+	require.NoError(t, removeTask(removeTestCommand(t, true), nil))
+
+	checkDB, err := store.Open(cfg.DBPath())
+	require.NoError(t, err)
+	defer checkDB.Close() //nolint:errcheck
+	for _, id := range []string{"pd-done", "pd-failed"} {
+		_, err := checkDB.GetTask(context.Background(), id)
+		require.Error(t, err, "task %s should be removed", id)
+	}
+	_, err = checkDB.GetTask(context.Background(), "pd-running")
+	require.NoError(t, err, "active task should be preserved")
+}
+
+func TestRemoveTaskAllRejectsTaskIDs(t *testing.T) {
+	cmd := rmCmd
+	err := cmd.Args(cmd, []string{"pd-test"})
+	require.NoError(t, err)
+	require.NoError(t, cmd.Flags().Set("all", "true"))
+	t.Cleanup(func() { require.NoError(t, cmd.Flags().Set("all", "false")) })
+
+	err = cmd.Args(cmd, []string{"pd-test"})
+	require.ErrorContains(t, err, "--all cannot be used with task-ids")
+}
+
 func TestRemoveTaskIsBestEffortAcrossTaskIDs(t *testing.T) {
 	db, task, _ := setupRemoveTask(t, store.StatusFailed)
 	require.NoError(t, db.Close())
@@ -269,6 +309,50 @@ func TestRemoveTaskRefusesActiveTask(t *testing.T) {
 	defer checkDB.Close() //nolint:errcheck
 	_, err = checkDB.GetTask(context.Background(), task.ID)
 	require.NoError(t, err)
+}
+
+func TestCleanupTaskAllCleansTerminalTasksOnly(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateDir)
+	dbPath := filepath.Join(t.TempDir(), "pd.db")
+	oldCfg := cfg
+	cfg = pdconfig.Config{DatabasePath: dbPath}
+	t.Cleanup(func() { cfg = oldCfg })
+	db, err := store.Open(dbPath)
+	require.NoError(t, err)
+	now := time.Now().Add(-time.Minute)
+	seedRemoveTaskRecord(t, db, "pd-done", store.StatusSucceeded, now)
+	seedRemoveTaskRecord(t, db, "pd-failed", store.StatusFailed, now)
+	seedRemoveTaskRecord(t, db, "pd-running", store.StatusRunning, now)
+	require.NoError(t, db.Close())
+	fakeWT := &fakeRemoveWorktree{}
+	withWorktreeClient(t, fakeWT)
+
+	require.NoError(t, cleanupTask(cleanupTestCommand(t, false, true), nil))
+
+	require.ElementsMatch(t, []string{"pd/pd-done", "pd/pd-failed"}, fakeWT.branches)
+	checkDB, err := store.Open(cfg.DBPath())
+	require.NoError(t, err)
+	defer checkDB.Close() //nolint:errcheck
+	for _, id := range []string{"pd-done", "pd-failed"} {
+		got, err := checkDB.GetTask(context.Background(), id)
+		require.NoError(t, err)
+		require.Equal(t, store.CleanupStatusRemoved, got.WorktreeCleanupStatus)
+	}
+	got, err := checkDB.GetTask(context.Background(), "pd-running")
+	require.NoError(t, err)
+	require.Equal(t, store.CleanupStatusNotRequested, got.WorktreeCleanupStatus)
+}
+
+func TestCleanupTaskAllRejectsTaskIDs(t *testing.T) {
+	cmd := cleanupCmd
+	err := cmd.Args(cmd, []string{"pd-test"})
+	require.NoError(t, err)
+	require.NoError(t, cmd.Flags().Set("all", "true"))
+	t.Cleanup(func() { require.NoError(t, cmd.Flags().Set("all", "false")) })
+
+	err = cmd.Args(cmd, []string{"pd-test"})
+	require.ErrorContains(t, err, "--all cannot be used with task-ids")
 }
 
 func TestCleanupTaskDryRunDoesNotRemoveOrMutate(t *testing.T) {
@@ -350,6 +434,13 @@ func TestCleanupTaskFailurePreservesDBAndLogsAndRecordsFailure(t *testing.T) {
 	require.Contains(t, got.WorktreeCleanupError, "remove failed")
 }
 
+func seedRemoveTaskRecord(t *testing.T, db *store.Store, id string, status store.TaskStatus, now time.Time) {
+	t.Helper()
+	task := store.Task{ID: id, RepoPath: "/repo", RepoName: "repo", Branch: "pd/" + id, WorktreePath: "/wt/" + id, PromptSource: "arg", Prompt: "hi", PromptPreview: "hi", Status: status, WorktreeCleanupPolicy: store.CleanupPolicyNever, WorktreeCleanupStatus: store.CleanupStatusNotRequested, CreatedAt: now, UpdatedAt: now}
+	run := store.Run{ID: "run-" + id, TaskID: id, Attempt: 1, Status: status, StartedAt: now, StdoutLogPath: filepath.Join(pdconfig.TaskDir(id), "stdout.log"), StderrLogPath: filepath.Join(pdconfig.TaskDir(id), "stderr.log"), PiEventsPath: filepath.Join(pdconfig.TaskDir(id), "pi-events.jsonl")}
+	require.NoError(t, db.CreateTaskWithRun(context.Background(), task, run))
+}
+
 func setupRemoveTask(t *testing.T, status store.TaskStatus, cleanup ...struct {
 	policy store.WorktreeCleanupPolicy
 	owned  bool
@@ -380,15 +471,21 @@ func setupRemoveTask(t *testing.T, status store.TaskStatus, cleanup ...struct {
 	return db, task, run
 }
 
-func removeTestCommand(t *testing.T, _ bool) *cobra.Command {
+func removeTestCommand(t *testing.T, all bool) *cobra.Command {
 	t.Helper()
+	oldRMAll := rmAll
+	rmAll = all
+	t.Cleanup(func() { rmAll = oldRMAll })
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 	return cmd
 }
 
-func cleanupTestCommand(t *testing.T, dryRun bool) *cobra.Command {
+func cleanupTestCommand(t *testing.T, dryRun bool, all ...bool) *cobra.Command {
 	t.Helper()
+	oldCleanupAll := cleanupAll
+	cleanupAll = len(all) > 0 && all[0]
+	t.Cleanup(func() { cleanupAll = oldCleanupAll })
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 	cmd.Flags().Bool("dry-run", false, "")
@@ -399,6 +496,7 @@ func cleanupTestCommand(t *testing.T, dryRun bool) *cobra.Command {
 type fakeRemoveWorktree struct {
 	repoRoot string
 	branch   string
+	branches []string
 	err      error
 }
 
@@ -410,6 +508,7 @@ func (w *fakeRemoveWorktree) Path(string, string) (string, error) { return "", n
 func (w *fakeRemoveWorktree) Remove(repoRoot, branch string) error {
 	w.repoRoot = repoRoot
 	w.branch = branch
+	w.branches = append(w.branches, branch)
 	return w.err
 }
 

@@ -19,8 +19,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var rmAll bool
+
 func init() {
 	logsCmd.RunE = showLogs
+	rmCmd.Flags().BoolVar(&rmAll, "all", false, "remove metadata for all inactive tasks")
 	rmCmd.RunE = removeTask
 	stopCmd.RunE = sendStop
 }
@@ -70,6 +73,13 @@ type removeResult struct {
 }
 
 func removeTask(cmd *cobra.Command, args []string) error {
+	if rmAll {
+		taskIDs, err := inactiveTaskIDs(cmd.Context())
+		if err != nil {
+			return err
+		}
+		args = taskIDs
+	}
 	results := make([]removeResult, 0, len(args))
 	var errs []error
 	for _, taskID := range args {
@@ -92,6 +102,35 @@ func removeTask(cmd *cobra.Command, args []string) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func terminalTaskIDs(ctx context.Context) ([]string, error) {
+	return taskIDsMatching(ctx, isTerminalStatus)
+}
+
+func inactiveTaskIDs(ctx context.Context) ([]string, error) {
+	return taskIDsMatching(ctx, func(status store.TaskStatus) bool {
+		return status != store.StatusStarting && status != store.StatusRunning && status != store.StatusStopping
+	})
+}
+
+func taskIDsMatching(ctx context.Context, include func(store.TaskStatus) bool) ([]string, error) {
+	db, err := store.Open(cfg.DBPath())
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close() //nolint:errcheck
+	tasks, err := db.ListTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	taskIDs := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		if include(task.Status) {
+			taskIDs = append(taskIDs, task.ID)
+		}
+	}
+	return taskIDs, nil
 }
 
 func removeOneTask(cmd *cobra.Command, taskID string) (removeResult, error) {

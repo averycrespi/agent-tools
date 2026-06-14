@@ -28,12 +28,12 @@ pd dashboard
 pd mcp
 pd stop <task-id>...
 pd stop --force <task-id>...
-pd cleanup <task-id>...
-pd cleanup --dry-run <task-id>...
-pd rm <task-id>...
+pd cleanup [--all|<task-id>...]
+pd cleanup --dry-run [--all|<task-id>...]
+pd rm [--all|<task-id>...]
 ```
 
-`pd stop`, `pd cleanup`, and `pd rm` accept one or more task IDs (at least one is required) and process each independently: a failure on one task does not stop the others, and the command exits non-zero if any task failed.
+`pd stop` accepts one or more task IDs. `pd cleanup` and `pd rm` accept one or more task IDs or `--all`. They process each selected task independently: a failure on one task does not stop the others, and the command exits non-zero if any task failed.
 
 `pd run --json`, `pd ps --json`, `pd status --json <task-id>`, and `pd wait --json <task-id>` emit machine-readable JSON, including worktree cleanup policy/result fields. Mutation commands `pd stop --json`, `pd cleanup --json`, and `pd rm --json` emit a JSON array with one per-task result object (each carrying an `error` field when that task failed).
 
@@ -53,9 +53,9 @@ If the generated worktree path is not visible inside `sb`, `pd run` fails before
 
 Automatic cleanup is disabled by default. Use `pd run --cleanup-worktree on-success` to remove a pd-created worktree after a successful run, or `pd run --cleanup-worktree on-terminal` after `succeeded`, `failed`, or `stopped` completion. Cleanup is best-effort, branch-preserving, and non-forced through worktree-manager; dirty or otherwise blocked worktrees are kept and the cleanup failure is recorded without changing task status, exit code, or `pd wait` semantics. Automatic cleanup only removes worktrees created by that `pd run`; reused/pre-existing worktrees are skipped.
 
-`pd cleanup <task-id>...` explicitly removes the associated task worktree for one or more terminal tasks while preserving task metadata, logs, Pi event streams, database rows, and branch. `pd cleanup --dry-run <task-id>...` reports the target and safety properties without mutating the worktree or cleanup state.
+`pd cleanup [--all|<task-id>...]` explicitly removes the associated task worktree for terminal tasks while preserving task metadata, logs, Pi event streams, database rows, and branch. `pd cleanup --dry-run [--all|<task-id>...]` reports the target and safety properties without mutating the worktree or cleanup state. With `--all`, cleanup selects terminal tasks only.
 
-`pd rm <task-id>...` removes inactive task metadata, logs, and stale control sockets only. It refuses `starting`, `running`, and `stopping` tasks; stop them first. It does not remove the worktree or branch.
+`pd rm [--all|<task-id>...]` removes inactive task metadata, logs, and stale control sockets only. It refuses `starting`, `running`, and `stopping` tasks; stop them first. It does not remove the worktree or branch. With `--all`, rm selects inactive tasks only.
 
 Pi Dispatcher Dashboard and `pd mcp` are read-only in v1. They do not expose stop, remove, worktree mutation, control-socket, or stale-status reconciliation actions. They show persisted SQLite state as-is; run `pd ps` or `pd status` when you want CLI inspection to reconcile stale supervisors to `unknown`.
 

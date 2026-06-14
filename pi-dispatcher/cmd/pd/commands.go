@@ -28,6 +28,22 @@ func atLeastOneArg(name string) cobra.PositionalArgs {
 	}
 }
 
+func atLeastOneArgOrAll(name string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		all, err := cmd.Flags().GetBool("all")
+		if err != nil {
+			return err
+		}
+		if all {
+			if len(args) > 0 {
+				return fmt.Errorf("--all cannot be used with %ss\nUsage: %s", name, cmd.UseLine())
+			}
+			return nil
+		}
+		return atLeastOneArg(name)(cmd, args)
+	}
+}
+
 func exactArgs(names ...string) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
 		if len(args) == len(names) {
@@ -98,16 +114,16 @@ var stopCmd = &cobra.Command{
 }
 
 var cleanupCmd = &cobra.Command{
-	Use:   "cleanup <task-id>...",
+	Use:   "cleanup [--all|<task-id>...]",
 	Short: "Remove task worktree resources",
-	Args:  atLeastOneArg("task-id"),
+	Args:  atLeastOneArgOrAll("task-id"),
 	RunE:  notImplemented("cleanup"),
 }
 
 var rmCmd = &cobra.Command{
-	Use:   "rm <task-id>...",
+	Use:   "rm [--all|<task-id>...]",
 	Short: "Forget inactive task metadata and logs",
-	Args:  atLeastOneArg("task-id"),
+	Args:  atLeastOneArgOrAll("task-id"),
 	RunE:  notImplemented("rm"),
 }
 

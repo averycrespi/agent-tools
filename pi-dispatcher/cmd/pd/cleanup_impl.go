@@ -11,10 +11,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var cleanupDryRun bool
+var (
+	cleanupDryRun bool
+	cleanupAll    bool
+)
 
 func init() {
 	cleanupCmd.Flags().BoolVar(&cleanupDryRun, "dry-run", false, "show what would be cleaned without mutating state")
+	cleanupCmd.Flags().BoolVar(&cleanupAll, "all", false, "cleanup all terminal tasks")
 	cleanupCmd.RunE = cleanupTask
 }
 
@@ -55,6 +59,13 @@ func parseWorktreeCleanupPolicy(value string) (store.WorktreeCleanupPolicy, erro
 }
 
 func cleanupTask(cmd *cobra.Command, args []string) error {
+	if cleanupAll {
+		taskIDs, err := terminalTaskIDs(cmd.Context())
+		if err != nil {
+			return err
+		}
+		args = taskIDs
+	}
 	results := make([]cleanupResult, 0, len(args))
 	var errs []error
 	for _, taskID := range args {
