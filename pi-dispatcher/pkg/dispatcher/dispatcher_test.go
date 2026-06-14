@@ -136,6 +136,81 @@ func TestWaitTaskRunReturnsTerminalState(t *testing.T) {
 	}
 }
 
+func TestRemoveTaskRunDeletesInactiveMetadataLogsAndSocket(t *testing.T) {
+	t.Parallel()
+	client, result := startedTaskRun(t)
+	st, err := pdstore.Open(client.dbPath())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if err := st.CompleteRun(context.Background(), result.TaskID, pdstore.StatusSucceeded, 0, "", ""); err != nil {
+		t.Fatalf("CompleteRun() error = %v", err)
+	}
+	run, err := st.LatestRun(context.Background(), result.TaskID)
+	if err != nil {
+		t.Fatalf("LatestRun() error = %v", err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	logPath := filepath.Join(client.taskDir(result.TaskID), "stdout.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o750); err != nil {
+		t.Fatalf("mkdir logs: %v", err)
+	}
+	if err := os.WriteFile(logPath, []byte("log"), 0o600); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(run.ControlSocketPath), 0o750); err != nil {
+		t.Fatalf("mkdir socket dir: %v", err)
+	}
+	if err := os.WriteFile(run.ControlSocketPath, []byte("socket"), 0o600); err != nil {
+		t.Fatalf("write socket: %v", err)
+	}
+
+	removed, err := client.RemoveTaskRun(context.Background(), RemoveTaskRunRequest{TaskID: result.TaskID, RunID: result.RunID})
+	if err != nil {
+		t.Fatalf("RemoveTaskRun() error = %v", err)
+	}
+	if !removed.Removed || removed.AlreadyMissing {
+		t.Fatalf("removed = %+v, want removed existing task", removed)
+	}
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatalf("log stat error = %v, want not exist", err)
+	}
+	if _, err := os.Stat(run.ControlSocketPath); !os.IsNotExist(err) {
+		t.Fatalf("socket stat error = %v, want not exist", err)
+	}
+	st, err = pdstore.Open(client.dbPath())
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	defer st.Close() //nolint:errcheck
+	if _, err := st.GetTask(context.Background(), result.TaskID); err == nil {
+		t.Fatal("GetTask() error = nil, want removed task")
+	}
+}
+
+func TestRemoveTaskRunIsIdempotentForMissingTask(t *testing.T) {
+	t.Parallel()
+	client := NewClient(Config{DBPath: filepath.Join(t.TempDir(), "pd.db"), StateDir: filepath.Join(t.TempDir(), "state"), RuntimeDir: filepath.Join(t.TempDir(), "runtime")})
+	removed, err := client.RemoveTaskRun(context.Background(), RemoveTaskRunRequest{TaskID: "pd-missing", RunID: "pd-missing-run-1"})
+	if err != nil {
+		t.Fatalf("RemoveTaskRun() error = %v", err)
+	}
+	if !removed.Removed || !removed.AlreadyMissing {
+		t.Fatalf("removed = %+v, want already-missing success", removed)
+	}
+}
+
+func TestRemoveTaskRunRefusesActiveTask(t *testing.T) {
+	t.Parallel()
+	client, result := startedTaskRun(t)
+	_, err := client.RemoveTaskRun(context.Background(), RemoveTaskRunRequest{TaskID: result.TaskID, RunID: result.RunID})
+	if err == nil || !strings.Contains(err.Error(), "refusing to remove starting task") {
+		t.Fatalf("RemoveTaskRun() error = %v, want active refusal", err)
+	}
+}
+
 func TestCleanupTaskRunRemovesWorktreeAndRecordsCleanup(t *testing.T) {
 	t.Parallel()
 	client, result := startedTaskRun(t)

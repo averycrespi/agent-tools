@@ -276,19 +276,25 @@ func TestRemoveTaskAllRejectsTaskIDs(t *testing.T) {
 	require.ErrorContains(t, err, "--all cannot be used with task-ids")
 }
 
+func TestRemoveTaskIsIdempotentForMissingTask(t *testing.T) {
+	db, _, _ := setupRemoveTask(t, store.StatusFailed)
+	require.NoError(t, db.Close())
+	withProcessExists(t, func(int) bool { return false })
+
+	require.NoError(t, removeTask(removeTestCommand(t, false), []string{"pd-missing"}))
+}
+
 func TestRemoveTaskIsBestEffortAcrossTaskIDs(t *testing.T) {
 	db, task, _ := setupRemoveTask(t, store.StatusFailed)
 	require.NoError(t, db.Close())
 	withProcessExists(t, func(int) bool { return false })
 
-	err := removeTask(removeTestCommand(t, false), []string{task.ID, "pd-missing"})
-
-	require.ErrorContains(t, err, "task pd-missing not found")
+	require.NoError(t, removeTask(removeTestCommand(t, false), []string{task.ID, "pd-missing"}))
 	checkDB, openErr := store.Open(cfg.DBPath())
 	require.NoError(t, openErr)
 	defer checkDB.Close() //nolint:errcheck
 	_, getErr := checkDB.GetTask(context.Background(), task.ID)
-	require.Error(t, getErr, "existing task should still be removed despite a missing sibling")
+	require.Error(t, getErr, "existing task should be removed despite a missing sibling")
 }
 
 func TestRemoveTaskRefusesActiveTask(t *testing.T) {

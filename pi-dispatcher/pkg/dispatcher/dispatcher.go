@@ -3,8 +3,10 @@ package dispatcher
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -105,6 +107,18 @@ type CleanupTaskRunResult struct {
 	NonForced       bool
 	RemovedWorktree bool
 	AlreadyMissing  bool
+}
+
+type RemoveTaskRunRequest struct {
+	TaskID string
+	RunID  string
+}
+
+type RemoveTaskRunResult struct {
+	TaskID         string
+	RunID          string
+	Removed        bool
+	AlreadyMissing bool
 }
 
 type supervisorLauncher interface {
@@ -328,6 +342,46 @@ func (c *Client) CleanupTaskRun(ctx context.Context, req CleanupTaskRunRequest) 
 	return CleanupTaskRunResult{TaskID: task.ID, RunID: run.ID, Status: string(store.CleanupStatusRemoved), WorktreePath: task.WorktreePath, BranchPreserved: true, NonForced: true, RemovedWorktree: true}, nil
 }
 
+func (c *Client) RemoveTaskRun(ctx context.Context, req RemoveTaskRunRequest) (RemoveTaskRunResult, error) {
+	if req.TaskID == "" {
+		return RemoveTaskRunResult{}, fmt.Errorf("task id is required")
+	}
+	db, err := store.Open(c.dbPath())
+	if err != nil {
+		return RemoveTaskRunResult{}, err
+	}
+	defer db.Close() //nolint:errcheck
+	task, err := db.GetTask(ctx, req.TaskID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return RemoveTaskRunResult{TaskID: req.TaskID, RunID: req.RunID, Removed: true, AlreadyMissing: true}, nil
+		}
+		return RemoveTaskRunResult{}, err
+	}
+	run, err := db.LatestRun(ctx, req.TaskID)
+	if err != nil {
+		return RemoveTaskRunResult{}, err
+	}
+	if req.RunID != "" && run.ID != req.RunID {
+		return RemoveTaskRunResult{}, fmt.Errorf("task %s latest run is %s, not %s", req.TaskID, run.ID, req.RunID)
+	}
+	if !isInactive(TaskRunStatus(task.Status)) {
+		return RemoveTaskRunResult{}, fmt.Errorf("refusing to remove %s task; stop it first", task.Status)
+	}
+	if err := os.RemoveAll(c.taskDir(task.ID)); err != nil {
+		return RemoveTaskRunResult{}, err
+	}
+	if run.ControlSocketPath != "" {
+		if err := os.Remove(run.ControlSocketPath); err != nil && !os.IsNotExist(err) {
+			return RemoveTaskRunResult{}, err
+		}
+	}
+	if err := db.DeleteTask(ctx, task.ID); err != nil {
+		return RemoveTaskRunResult{}, err
+	}
+	return RemoveTaskRunResult{TaskID: task.ID, RunID: run.ID, Removed: true}, nil
+}
+
 func (c *Client) StopTaskRun(ctx context.Context, req StopTaskRunRequest) error {
 	if req.TaskID == "" {
 		return fmt.Errorf("task id is required")
@@ -389,6 +443,13 @@ func (c *Client) runtimeDir() string {
 	return pdconfig.RuntimeDir()
 }
 
+func (c *Client) taskDir(taskID string) string {
+	if c.cfg.StateDir != "" {
+		return filepath.Join(c.cfg.StateDir, "tasks", taskID)
+	}
+	return pdconfig.TaskDir(taskID)
+}
+
 func taskRunInfo(run store.Run) TaskRunInfo {
 	return TaskRunInfo{TaskID: run.TaskID, RunID: run.ID, SupervisorPID: run.SupervisorPID, Status: TaskRunStatus(run.Status), ErrorMessage: run.ErrorMessage, StdoutLogPath: run.StdoutLogPath, StderrLogPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath, ControlSocketPath: run.ControlSocketPath}
 }
@@ -400,6 +461,10 @@ func isTerminal(status TaskRunStatus) bool {
 	default:
 		return false
 	}
+}
+
+func isInactive(status TaskRunStatus) bool {
+	return status != TaskRunStatusStarting && status != TaskRunStatusRunning && status != TaskRunStatusStopping
 }
 
 func launchMetadata(agent AgentOptions) (string, string, error) {

@@ -21,7 +21,6 @@ func TestTaskCommandsReportHelpfulNotFoundErrors(t *testing.T) {
 		{name: "status", run: func(cmd *cobra.Command) error { return showStatus(cmd, []string{"123"}) }},
 		{name: "wait", run: func(cmd *cobra.Command) error { return waitForTask(waitTestCommand(t, 0), []string{"123"}) }},
 		{name: "logs", run: func(cmd *cobra.Command) error { return showLogs(cmd, []string{"123"}) }},
-		{name: "rm", run: func(cmd *cobra.Command) error { return removeTask(removeTestCommand(t, false), []string{"123"}) }},
 		{name: "stop", run: func(cmd *cobra.Command) error { return sendStop(stopCommand(t), []string{"123"}) }},
 	}
 
@@ -35,6 +34,11 @@ func TestTaskCommandsReportHelpfulNotFoundErrors(t *testing.T) {
 			require.NotContains(t, err.Error(), "no rows")
 		})
 	}
+}
+
+func TestRMIsIdempotentForMissingTask(t *testing.T) {
+	setupEmptyTaskDB(t)
+	require.NoError(t, removeTask(removeTestCommand(t, false), []string{"123"}))
 }
 
 func setupEmptyTaskDB(t *testing.T) {

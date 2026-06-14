@@ -29,11 +29,19 @@ type pdCleanupClient interface {
 	CleanupTaskRun(context.Context, pddispatcher.CleanupTaskRunRequest) (pddispatcher.CleanupTaskRunResult, error)
 }
 
+type pdRemoveClient interface {
+	RemoveTaskRun(context.Context, pddispatcher.RemoveTaskRunRequest) (pddispatcher.RemoveTaskRunResult, error)
+}
+
 var newWorktreeRemover = func() (worktreeRemover, error) {
 	return wtworktree.New()
 }
 
 var newPDCleanupClient = func() pdCleanupClient {
+	return pddispatcher.NewClient(pddispatcher.Config{})
+}
+
+var newPDRemoveClient = func() pdRemoveClient {
 	return pddispatcher.NewClient(pddispatcher.Config{})
 }
 
@@ -262,19 +270,39 @@ func terminalWorkflowRunIDsFromStore(ctx context.Context, db *store.Store) ([]st
 }
 
 func removeOneWorkflowRunMetadata(cmd *cobra.Command, db *store.Store, runID string) error {
-	run, err := db.GetWorkflowRun(cmd.Context(), runID)
+	detail, err := db.GetWorkflowRunDetail(cmd.Context(), runID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("workflow run %s not found", runID)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s removed\n", runID)
+			return err
 		}
 		return err
 	}
+	run := detail.Run
 	if !isTerminalState(run.State) {
 		return fmt.Errorf("workflow run %s is not terminal", run.ID)
 	}
+	removeErr := removeBackingPDTaskMetadata(cmd.Context(), detail.Steps)
 	if err := db.DeleteWorkflowRun(cmd.Context(), run.ID); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s removed\n", run.ID)
-	return err
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s removed\n", run.ID); err != nil {
+		return err
+	}
+	return removeErr
+}
+
+func removeBackingPDTaskMetadata(ctx context.Context, steps []store.StepRun) error {
+	pdTasks := uniquePDTaskRuns(steps)
+	if len(pdTasks) == 0 {
+		return nil
+	}
+	client := newPDRemoveClient()
+	var errs []error
+	for _, task := range pdTasks {
+		if _, err := client.RemoveTaskRun(ctx, pddispatcher.RemoveTaskRunRequest{TaskID: task.taskID, RunID: task.runID}); err != nil {
+			errs = append(errs, fmt.Errorf("remove backing pd task %s: %w", task.taskID, err))
+		}
+	}
+	return errors.Join(errs...)
 }

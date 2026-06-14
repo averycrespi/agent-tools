@@ -282,6 +282,33 @@ func TestRMAllRejectsRunIDs(t *testing.T) {
 	}
 }
 
+func TestRMDelegatesBackingPDTaskRemoval(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, t.TempDir(), stateDir)
+	fakePD := installFakePDRemoveClient(t)
+	seedCleanupWorkflowRunWithPDTask(t, stateDir, "run-1", store.StateSucceeded, "pd-task-1", "pd-task-1-run-1")
+
+	if _, err := executeCommand("rm", "run-1"); err != nil {
+		t.Fatalf("rm error = %v", err)
+	}
+	if len(fakePD.calls) != 1 || fakePD.calls[0].TaskID != "pd-task-1" || fakePD.calls[0].RunID != "pd-task-1-run-1" {
+		t.Fatalf("pd remove calls = %+v, want backing task removal", fakePD.calls)
+	}
+}
+
+func TestRMIsIdempotentForMissingRun(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, t.TempDir(), stateDir)
+
+	stdout, err := executeCommand("rm", "run-missing")
+	if err != nil {
+		t.Fatalf("rm missing run error = %v", err)
+	}
+	if !strings.Contains(stdout, "run-missing removed") {
+		t.Fatalf("stdout = %q, want idempotent removed message", stdout)
+	}
+}
+
 func TestRMDeletesTerminalRunMetadata(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	cfg = testConfig(t, t.TempDir(), stateDir)
@@ -329,6 +356,11 @@ type fakePDCleanupClient struct {
 	err   error
 }
 
+type fakePDRemoveClient struct {
+	calls []pddispatcher.RemoveTaskRunRequest
+	err   error
+}
+
 func installFakePDCleanupClient(t *testing.T) *fakePDCleanupClient {
 	t.Helper()
 	fake := &fakePDCleanupClient{}
@@ -344,6 +376,23 @@ func (f *fakePDCleanupClient) CleanupTaskRun(_ context.Context, req pddispatcher
 		return pddispatcher.CleanupTaskRunResult{}, f.err
 	}
 	return pddispatcher.CleanupTaskRunResult{TaskID: req.TaskID, RunID: req.RunID, Status: "removed", RemovedWorktree: true}, nil
+}
+
+func installFakePDRemoveClient(t *testing.T) *fakePDRemoveClient {
+	t.Helper()
+	fake := &fakePDRemoveClient{}
+	old := newPDRemoveClient
+	newPDRemoveClient = func() pdRemoveClient { return fake }
+	t.Cleanup(func() { newPDRemoveClient = old })
+	return fake
+}
+
+func (f *fakePDRemoveClient) RemoveTaskRun(_ context.Context, req pddispatcher.RemoveTaskRunRequest) (pddispatcher.RemoveTaskRunResult, error) {
+	f.calls = append(f.calls, req)
+	if f.err != nil {
+		return pddispatcher.RemoveTaskRunResult{}, f.err
+	}
+	return pddispatcher.RemoveTaskRunResult{TaskID: req.TaskID, RunID: req.RunID, Removed: true}, nil
 }
 
 func installFakeWorktreeRemover(t *testing.T) *fakeWorktreeRemover {

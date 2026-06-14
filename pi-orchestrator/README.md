@@ -62,6 +62,8 @@ po token rotate
 
 `po cleanup [--all|<run-id>...]` is best-effort and idempotent for terminal workflow runs. It delegates workflow worktree cleanup to each backing `pd` task so the dispatcher records cleanup state, then removes workflow artifacts and marks artifact metadata removed. If a run has no backing `pd` task IDs, `po` falls back to removing the workflow worktree directly.
 
+`po rm [--all|<run-id>...]` is best-effort and idempotent for terminal workflow runs. It delegates metadata/log removal to each backing `pd` task before forgetting workflow metadata; already-missing workflow or dispatcher metadata is treated as removed.
+
 ## Configuration, state, and artifacts
 
 Config file: `~/.config/po/config.json`.

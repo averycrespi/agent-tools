@@ -136,6 +136,10 @@ func taskIDsMatching(ctx context.Context, include func(store.TaskStatus) bool) (
 func removeOneTask(cmd *cobra.Command, taskID string) (removeResult, error) {
 	task, run, err := taskAndRunReconciled(cmd, taskID, processExists)
 	if err != nil {
+		var notFound taskNotFoundError
+		if errors.As(err, &notFound) {
+			return removeResult{TaskID: taskID, Removed: true}, nil
+		}
 		return removeResult{}, err
 	}
 	if task.Status == store.StatusRunning || task.Status == store.StatusStopping || task.Status == store.StatusStarting {
