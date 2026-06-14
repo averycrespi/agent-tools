@@ -22,9 +22,10 @@ import (
 type AgentOptions pdconfig.AgentOptions
 
 type Config struct {
-	DBPath     string
-	StateDir   string
-	RuntimeDir string
+	DBPath               string
+	StateDir             string
+	RuntimeDir           string
+	SupervisorExecutable string
 }
 
 type StartTaskRunRequest struct {
@@ -107,7 +108,7 @@ type Client struct {
 }
 
 func NewClient(cfg Config) *Client {
-	return &Client{cfg: cfg, launcher: process.NewLauncher(pdexec.NewOSRunner()), sandbox: func() (sandboxClient, error) { return sbsandbox.New() }, now: time.Now, shortID: randomShortID}
+	return &Client{cfg: cfg, launcher: process.NewLauncherForExecutable(pdexec.NewOSRunner(), cfg.SupervisorExecutable), sandbox: func() (sandboxClient, error) { return sbsandbox.New() }, now: time.Now, shortID: randomShortID}
 }
 
 func (c *Client) StartTaskRun(ctx context.Context, req StartTaskRunRequest) (StartTaskRunResult, error) {

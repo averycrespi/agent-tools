@@ -9,12 +9,19 @@ import (
 	pdexec "github.com/averycrespi/agent-tools/pi-dispatcher/internal/exec"
 )
 
-type Launcher struct{ runner pdexec.Runner }
+type Launcher struct {
+	runner     pdexec.Runner
+	executable string
+}
 
 func NewLauncher(runner pdexec.Runner) *Launcher { return &Launcher{runner: runner} }
 
+func NewLauncherForExecutable(runner pdexec.Runner, executable string) *Launcher {
+	return &Launcher{runner: runner, executable: executable}
+}
+
 func (l *Launcher) StartSupervisor(args ...string) (int, error) {
-	exe, err := os.Executable()
+	exe, err := l.executablePath()
 	if err != nil {
 		return 0, err
 	}
@@ -22,7 +29,7 @@ func (l *Launcher) StartSupervisor(args ...string) (int, error) {
 }
 
 func (l *Launcher) StartSupervisorWithEnv(env []string, args ...string) (int, error) {
-	exe, err := os.Executable()
+	exe, err := l.executablePath()
 	if err != nil {
 		return 0, err
 	}
@@ -33,6 +40,13 @@ func (l *Launcher) StartSupervisorWithEnv(env []string, args ...string) (int, er
 		return 0, fmt.Errorf("runner does not support environment overrides")
 	}
 	return runner.StartEnv(env, exe, append([]string{"supervisor"}, args...)...)
+}
+
+func (l *Launcher) executablePath() (string, error) {
+	if l.executable != "" {
+		return l.executable, nil
+	}
+	return os.Executable()
 }
 
 func Exists(pid int) bool {

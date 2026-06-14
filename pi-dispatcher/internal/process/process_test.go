@@ -31,6 +31,15 @@ func TestStartSupervisorWithEnvPassesDetachedEnv(t *testing.T) {
 	require.Equal(t, []string{"supervisor", "--task-id", "pd-test"}, runner.args)
 }
 
+func TestStartSupervisorWithEnvUsesConfiguredExecutable(t *testing.T) {
+	runner := &fakeRunner{pid: 4242}
+	pid, err := NewLauncherForExecutable(runner, "pd").StartSupervisorWithEnv(nil, "--task-id", "pd-test")
+	require.NoError(t, err)
+	require.Equal(t, 4242, pid)
+	require.Equal(t, "pd", runner.name)
+	require.Equal(t, []string{"supervisor", "--task-id", "pd-test"}, runner.args)
+}
+
 type fakeRunner struct {
 	pid  int
 	name string

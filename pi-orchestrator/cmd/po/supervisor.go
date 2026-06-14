@@ -13,7 +13,7 @@ import (
 var supervisorRunID string
 
 var defaultNewStepRunner = func() posupervisor.StepRunner {
-	return posupervisor.NewDispatcherRunner(pddispatcher.NewClient(pddispatcher.Config{}))
+	return posupervisor.NewDispatcherRunner(pddispatcher.NewClient(pddispatcher.Config{SupervisorExecutable: "pd"}))
 }
 var newStepRunner = defaultNewStepRunner
 
