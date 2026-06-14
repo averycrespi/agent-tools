@@ -343,11 +343,19 @@
       <section class="detail" aria-label="Task detail">
         <nav class="tabs" aria-label="Task detail tabs">
           <button data-tab="overview" class="active">Overview</button>
+          <button data-tab="prompt">Prompt</button>
+          <button data-tab="response">Response</button>
           <button data-tab="logs">Logs</button>
         </nav>
         <div id="overview-panel" class="tab-panel active">
           <div id="empty-detail" class="empty">No task selected</div>
           <div id="meta" class="grid"></div>
+        </div>
+        <div id="prompt-panel" class="tab-panel">
+          <pre id="prompt">No task selected</pre>
+        </div>
+        <div id="response-panel" class="tab-panel">
+          <pre id="response">No task selected</pre>
         </div>
         <div id="logs-panel" class="logs-panel">
           <div class="logbar">
@@ -361,7 +369,7 @@
       </section>
     </main>
     <script>
-      const tabs = ["overview", "logs"];
+      const tabs = ["overview", "prompt", "response", "logs"];
       const initialTab = tabs.includes(location.hash.slice(1))
         ? location.hash.slice(1)
         : "overview";
@@ -438,6 +446,8 @@
         state.selected = null;
         $("empty-detail").style.display = "grid";
         $("meta").innerHTML = "";
+        $("prompt").textContent = "No task selected";
+        $("response").textContent = "No task selected";
         $("log").textContent = "";
         $("logstate").textContent = "";
       }
@@ -498,7 +508,6 @@
             ["Cleanup Error", d.task.worktree_cleanup_error || ""],
             ["Cleanup Attempted", fmt(d.task.worktree_cleanup_attempted_at)],
             ["Worktree Removed", fmt(d.task.worktree_removed_at)],
-            ["Prompt", promptText(d.task)],
             ["Run ID", r.id || ""],
             ["Attempt", r.attempt || ""],
             ["Started", fmt(r.started_at)],
@@ -534,12 +543,13 @@
             ["Exit Code", r.exit_code ?? ""],
             ["Error", r.error_message || ""],
           ];
-        if (response) meta.push(["Response", response]);
+        $("prompt").textContent = promptText(d.task) || "No prompt recorded.";
+        $("response").textContent = response || "No response recorded.";
         $("meta").innerHTML = meta
           .filter(([, v]) => v !== "" && v !== undefined && v !== null)
           .map(
             ([label, v]) =>
-              `<div class="muted">${esc(label)}</div><div class="${label === "Response" ? "response" : "mono"}">${esc(v)}</div>`,
+              `<div class="muted">${esc(label)}</div><div class="mono">${esc(v)}</div>`,
           )
           .join("");
       }
