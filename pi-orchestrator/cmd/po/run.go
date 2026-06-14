@@ -88,6 +88,12 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	admitted := false
+	defer func() {
+		if !admitted {
+			_ = wt.Remove(repo, branch)
+		}
+	}()
 
 	artifactRoot := filepath.Join(cfg.ArtifactParentDir, runID)
 	if err := ensureArtifactRootOutsideWorktree(artifactRoot, worktreePath); err != nil {
@@ -123,6 +129,7 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	admitted = true
 	if err := db.UpdateWorkflowRunSupervisorPID(cmd.Context(), runID, pid); err != nil {
 		return err
 	}

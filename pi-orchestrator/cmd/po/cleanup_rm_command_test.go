@@ -85,7 +85,7 @@ func TestCleanupRejectsNonTerminalRun(t *testing.T) {
 func TestRMDeletesTerminalRunMetadata(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	cfg = testConfig(t, t.TempDir(), stateDir)
-	seedCleanupWorkflowRun(t, stateDir, store.StateSucceeded)
+	paths := seedCleanupWorkflowRun(t, stateDir, store.StateSucceeded)
 
 	if _, err := executeCommand("rm", "run-1"); err != nil {
 		t.Fatalf("rm error = %v", err)
@@ -97,6 +97,12 @@ func TestRMDeletesTerminalRunMetadata(t *testing.T) {
 	defer db.Close() //nolint:errcheck
 	if _, err := db.GetWorkflowRun(context.Background(), "run-1"); err == nil {
 		t.Fatal("GetWorkflowRun() error = nil, want removed metadata")
+	}
+	if _, err := os.Stat(paths.worktree); err != nil {
+		t.Fatalf("worktree stat after rm: %v", err)
+	}
+	if _, err := os.Stat(paths.artifacts); err != nil {
+		t.Fatalf("artifacts stat after rm: %v", err)
 	}
 }
 

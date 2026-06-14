@@ -21,7 +21,10 @@ import (
 
 const dashboardShutdownTimeout = 10 * time.Second
 
-var openDashboardBrowser = defaultOpenDashboardBrowser
+var (
+	openDashboardBrowser  = defaultOpenDashboardBrowser
+	lookupDashboardHostIP = net.LookupIP
+)
 
 var dashboardCmd = &cobra.Command{
 	Use:   "dashboard",
@@ -108,16 +111,19 @@ func waitForDashboardShutdown(signals <-chan struct{}, errCh <-chan error, shutd
 }
 
 func validateDashboardHost(host string) error {
-	ips, err := net.LookupIP(host)
+	ips, err := lookupDashboardHostIP(host)
 	if err != nil {
 		return fmt.Errorf("resolving host: %w", err)
 	}
+	if len(ips) == 0 {
+		return fmt.Errorf("dashboard host must resolve to a loopback address: %s", host)
+	}
 	for _, ip := range ips {
-		if ip.IsLoopback() {
-			return nil
+		if !ip.IsLoopback() {
+			return fmt.Errorf("dashboard host must be loopback: %s", host)
 		}
 	}
-	return fmt.Errorf("dashboard host must be loopback: %s", host)
+	return nil
 }
 
 func dashboardURL(host string, port int, token string) string {

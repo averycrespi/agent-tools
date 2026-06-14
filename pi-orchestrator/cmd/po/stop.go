@@ -20,7 +20,18 @@ var stopCmd = &cobra.Command{
 }
 
 var defaultStopPDRun = func(ctx context.Context, taskID string, runID string) error {
-	return pddispatcher.NewClient(pddispatcher.Config{}).StopTaskRun(ctx, pddispatcher.StopTaskRunRequest{TaskID: taskID, RunID: runID})
+	client := pddispatcher.NewClient(pddispatcher.Config{})
+	if err := client.StopTaskRun(ctx, pddispatcher.StopTaskRunRequest{TaskID: taskID, RunID: runID}); err != nil {
+		return err
+	}
+	info, err := client.WaitTaskRun(ctx, pddispatcher.WaitTaskRunRequest{TaskID: taskID, RunID: runID})
+	if err != nil {
+		return err
+	}
+	if info.Status != pddispatcher.TaskRunStatusStopped {
+		return fmt.Errorf("pd task run %s/%s stopped as %s", taskID, runID, info.Status)
+	}
+	return nil
 }
 var stopPDRun = defaultStopPDRun
 

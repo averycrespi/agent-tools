@@ -26,9 +26,13 @@ func TestDashboardMuxExposesEventsRoute(t *testing.T) {
 	}
 
 	handler := dashboardMux(db, "secret")
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/events", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/events", nil).WithContext(ctx)
 	req.AddCookie(&http.Cookie{Name: "po-auth", Value: "secret"})
 	resp := httptest.NewRecorder()
+	timer := time.AfterFunc(5*time.Millisecond, cancel)
+	defer timer.Stop()
 	handler.ServeHTTP(resp, req)
 
 	if resp.Code != http.StatusOK {

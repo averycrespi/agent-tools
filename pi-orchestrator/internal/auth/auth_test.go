@@ -6,6 +6,18 @@ import (
 	"testing"
 )
 
+func TestEnsureTokenRejectsInsecureExistingTokenFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth-token")
+	if err := os.WriteFile(path, []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write token: %v", err)
+	}
+
+	_, err := EnsureToken(path)
+	if err == nil {
+		t.Fatal("EnsureToken() error = nil, want insecure token mode error")
+	}
+}
+
 func TestRotateTokenWritesPOTokenUnderConfigDir(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "config"))
 	path := TokenPath()

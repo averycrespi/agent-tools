@@ -48,6 +48,11 @@ type StepHandle interface {
 	Wait(context.Context) (StepResult, error)
 }
 
+type StoppableStepHandle interface {
+	StepHandle
+	Stop(context.Context) error
+}
+
 func Execute(ctx context.Context, db *store.Store, runner StepRunner, def *workflow.Definition, run store.WorkflowRun) error {
 	stepStates := make(map[string]store.State, len(def.Steps))
 	inputs := map[string]any{}
@@ -143,6 +148,9 @@ func startAndPersistStep(ctx context.Context, db *store.Store, runner StepRunner
 			result = handle.Started()
 		}
 		if createErr := createRunningStep(ctx, db, run, step, executionIndex, artifacts, result); createErr != nil {
+			if stopper, ok := handle.(StoppableStepHandle); ok {
+				_ = stopper.Stop(ctx)
+			}
 			return StepResult{}, createErr
 		}
 		if err != nil {

@@ -8,6 +8,21 @@ import (
 	"testing"
 )
 
+func TestListCommandShowsYMLWorkflows(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "alpha.yml"), []byte(minimalCommandWorkflow("alpha")), 0o600); err != nil {
+		t.Fatalf("write workflow: %v", err)
+	}
+
+	stdout, err := executeCommand("--workflow-dir", dir, "list")
+	if err != nil {
+		t.Fatalf("execute list: %v", err)
+	}
+	if strings.TrimSpace(stdout) != "alpha" {
+		t.Fatalf("stdout = %q, want alpha", stdout)
+	}
+}
+
 func TestListCommandShowsValidWorkflows(t *testing.T) {
 	dir := t.TempDir()
 	writeWorkflow(t, dir, "alpha", minimalCommandWorkflow("alpha"))

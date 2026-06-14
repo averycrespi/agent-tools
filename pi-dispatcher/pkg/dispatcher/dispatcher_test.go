@@ -2,8 +2,10 @@ package dispatcher
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,6 +114,46 @@ func TestWaitTaskRunReturnsTerminalState(t *testing.T) {
 	if info.Status != TaskRunStatusFailed || info.ErrorMessage != "agent failed" {
 		t.Fatalf("info = %+v, want failed terminal state", info)
 	}
+}
+
+func TestWaitTaskRunMarksMissingSupervisorUnknown(t *testing.T) {
+	t.Parallel()
+	dbPath := filepath.Join(t.TempDir(), "pd.db")
+	st := seedDispatcherStopTask(t, dbPath, "pd-task-1", filepath.Join(t.TempDir(), "missing.sock"), pdstore.StatusRunning)
+	defer st.Close() //nolint:errcheck
+
+	client := NewClient(Config{DBPath: dbPath})
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	info, err := client.WaitTaskRun(ctx, WaitTaskRunRequest{TaskID: "pd-task-1", RunID: "pd-task-1-run-1", PollInterval: time.Millisecond})
+	if err != nil {
+		t.Fatalf("WaitTaskRun() error = %v", err)
+	}
+	if info.Status != TaskRunStatusUnknown {
+		t.Fatalf("status = %s, want unknown", info.Status)
+	}
+}
+
+func TestEmptyConfigLoadsConfiguredDatabasePath(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	configuredDB := filepath.Join(t.TempDir(), "configured", "pd.db")
+	configPath := filepath.Join(configHome, "pd", "config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o750); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`{"database_path":`+strconvQuote(configuredDB)+`,"default_worktree_cleanup_policy":"never"}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	client := NewClient(Config{})
+	if got := client.dbPath(); got != configuredDB {
+		t.Fatalf("dbPath() = %q, want configured database path %q", got, configuredDB)
+	}
+}
+
+func strconvQuote(value string) string {
+	return `"` + strings.ReplaceAll(value, `\`, `\\`) + `"`
 }
 
 func startedTaskRun(t *testing.T) (*Client, StartTaskRunResult) {

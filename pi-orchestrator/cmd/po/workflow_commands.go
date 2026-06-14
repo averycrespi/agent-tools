@@ -33,7 +33,7 @@ var listCmd = &cobra.Command{
 		}
 		sort.Strings(names)
 		for _, name := range names {
-			path, err := workflowFilePath(name)
+			path, err := existingWorkflowFilePath(name)
 			if err != nil {
 				return err
 			}
@@ -110,6 +110,21 @@ func workflowFilePath(name string) (string, error) {
 		return filepath.Join(resolveWorkflowDir(), name), nil
 	}
 	return filepath.Join(resolveWorkflowDir(), name+".yaml"), nil
+}
+
+func existingWorkflowFilePath(name string) (string, error) {
+	path, err := workflowFilePath(name)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(path); err == nil || filepath.Ext(name) != "" {
+		return path, err
+	}
+	ymlPath := strings.TrimSuffix(path, ".yaml") + ".yml"
+	if _, err := os.Stat(ymlPath); err == nil {
+		return ymlPath, nil
+	}
+	return path, nil
 }
 
 func workflowNameFromFile(name string) (string, bool) {

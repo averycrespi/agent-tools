@@ -62,6 +62,7 @@ const (
 type TaskRunInfo struct {
 	TaskID            string
 	RunID             string
+	SupervisorPID     int
 	Status            TaskRunStatus
 	ErrorMessage      string
 	StdoutLogPath     string
@@ -205,6 +206,18 @@ func (c *Client) WaitTaskRun(ctx context.Context, req WaitTaskRunRequest) (TaskR
 		if isTerminal(info.Status) {
 			return info, nil
 		}
+		if !process.Exists(info.SupervisorPID) {
+			db, openErr := store.Open(c.dbPath())
+			if openErr != nil {
+				return TaskRunInfo{}, openErr
+			}
+			if markErr := db.MarkUnknown(ctx, req.TaskID); markErr != nil {
+				_ = db.Close()
+				return TaskRunInfo{}, markErr
+			}
+			_ = db.Close()
+			return c.GetTaskRun(ctx, GetTaskRunRequest{TaskID: req.TaskID, RunID: req.RunID})
+		}
 		timer := time.NewTimer(req.PollInterval)
 		select {
 		case <-ctx.Done():
@@ -249,6 +262,10 @@ func (c *Client) dbPath() string {
 	if c.cfg.DBPath != "" {
 		return c.cfg.DBPath
 	}
+	cfg, err := pdconfig.Load()
+	if err == nil && cfg.DatabasePath != "" {
+		return cfg.DBPath()
+	}
 	return pdconfig.DefaultDBPath()
 }
 
@@ -267,7 +284,7 @@ func (c *Client) runtimeDir() string {
 }
 
 func taskRunInfo(run store.Run) TaskRunInfo {
-	return TaskRunInfo{TaskID: run.TaskID, RunID: run.ID, Status: TaskRunStatus(run.Status), ErrorMessage: run.ErrorMessage, StdoutLogPath: run.StdoutLogPath, StderrLogPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath, ControlSocketPath: run.ControlSocketPath}
+	return TaskRunInfo{TaskID: run.TaskID, RunID: run.ID, SupervisorPID: run.SupervisorPID, Status: TaskRunStatus(run.Status), ErrorMessage: run.ErrorMessage, StdoutLogPath: run.StdoutLogPath, StderrLogPath: run.StderrLogPath, PiEventsPath: run.PiEventsPath, ControlSocketPath: run.ControlSocketPath}
 }
 
 func isTerminal(status TaskRunStatus) bool {

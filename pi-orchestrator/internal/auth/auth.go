@@ -21,6 +21,9 @@ func TokenPath() string {
 }
 
 func EnsureToken(path string) (string, error) {
+	if err := validateExistingTokenFile(path); err != nil {
+		return "", err
+	}
 	data, err := os.ReadFile(path) //nolint:gosec
 	if err == nil {
 		return string(data), nil
@@ -32,6 +35,9 @@ func EnsureToken(path string) (string, error) {
 }
 
 func LoadToken(path string) (string, error) {
+	if err := validateExistingTokenFile(path); err != nil {
+		return "", err
+	}
 	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
 		return "", fmt.Errorf("reading token file: %w", err)
@@ -44,6 +50,23 @@ func RotateToken(path string) (string, error) {
 		return "", fmt.Errorf("removing token file: %w", err)
 	}
 	return writeNewToken(path)
+}
+
+func validateExistingTokenFile(path string) error {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat token file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("token file must be a regular file")
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("token file permissions must not allow group or other access")
+	}
+	return nil
 }
 
 func writeNewToken(path string) (string, error) {

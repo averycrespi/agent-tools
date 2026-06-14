@@ -10,11 +10,16 @@ import (
 type PDStartRequest = pddispatcher.StartTaskRunRequest
 type PDStartResult = pddispatcher.StartTaskRunResult
 type PDWaitRequest = pddispatcher.WaitTaskRunRequest
+type PDStopRequest = pddispatcher.StopTaskRunRequest
 type PDTaskRunInfo = pddispatcher.TaskRunInfo
 
 type PDClient interface {
 	StartTaskRun(context.Context, PDStartRequest) (PDStartResult, error)
 	WaitTaskRun(context.Context, PDWaitRequest) (PDTaskRunInfo, error)
+}
+
+type pdStopClient interface {
+	StopTaskRun(context.Context, PDStopRequest) error
 }
 
 type DispatcherRunner struct {
@@ -59,6 +64,14 @@ type dispatcherStepHandle struct {
 }
 
 func (h dispatcherStepHandle) Started() StepResult { return h.started }
+
+func (h dispatcherStepHandle) Stop(ctx context.Context) error {
+	client, ok := h.client.(pdStopClient)
+	if !ok || h.started.PDTaskID == "" {
+		return nil
+	}
+	return client.StopTaskRun(ctx, pddispatcher.StopTaskRunRequest{TaskID: h.started.PDTaskID, RunID: h.started.PDRunID})
+}
 
 func (h dispatcherStepHandle) Wait(ctx context.Context) (StepResult, error) {
 	info, err := h.client.WaitTaskRun(ctx, pddispatcher.WaitTaskRunRequest{TaskID: h.started.PDTaskID, RunID: h.started.PDRunID})

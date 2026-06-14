@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -16,6 +17,8 @@ import (
 )
 
 const maxLogBytes = 64 * 1024
+
+var eventPollInterval = time.Second
 
 func NewHandler(db *store.Store, token string) http.Handler {
 	mux := http.NewServeMux()
@@ -32,22 +35,44 @@ func NewHandler(db *store.Store, token string) http.Handler {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		summaries, err := db.ListWorkflowRunSummaries(r.Context())
-		if err != nil {
-			writeJSON(w, nil, err)
-			return
-		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
-		data, err := json.Marshal(summaries)
-		if err != nil {
-			writeJSON(w, nil, err)
+		flusher, _ := w.(http.Flusher)
+		send := func() bool {
+			summaries, err := db.ListWorkflowRunSummaries(r.Context())
+			if err != nil {
+				_, _ = fmt.Fprintf(w, "event: error\ndata: %q\n\n", err.Error())
+				return false
+			}
+			data, err := json.Marshal(summaries)
+			if err != nil {
+				_, _ = fmt.Fprintf(w, "event: error\ndata: %q\n\n", err.Error())
+				return false
+			}
+			_, _ = w.Write([]byte("event: snapshot\n"))
+			_, _ = w.Write([]byte("data: "))
+			_, _ = w.Write(data)
+			_, _ = w.Write([]byte("\n\n"))
+			if flusher != nil {
+				flusher.Flush()
+			}
+			return true
+		}
+		if !send() {
 			return
 		}
-		_, _ = w.Write([]byte("event: snapshot\n"))
-		_, _ = w.Write([]byte("data: "))
-		_, _ = w.Write(data)
-		_, _ = w.Write([]byte("\n\n"))
+		ticker := time.NewTicker(eventPollInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-ticker.C:
+				if !send() {
+					return
+				}
+			}
+		}
 	})
 	mux.HandleFunc("/dashboard/api/runs/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -160,17 +185,35 @@ func readLogWindow(path string) (string, bool, error) {
 	if path == "" {
 		return "", false, nil
 	}
-	data, err := os.ReadFile(path) //nolint:gosec // Path is persisted po supervisor log metadata for a local dashboard.
+	file, err := os.Open(path) //nolint:gosec // Path is persisted po supervisor log metadata for a local dashboard.
 	if os.IsNotExist(err) {
 		return "", false, nil
 	}
 	if err != nil {
+		return "", false, fmt.Errorf("open supervisor log: %w", err)
+	}
+	defer file.Close() //nolint:errcheck
+	info, err := file.Stat()
+	if err != nil {
+		return "", false, fmt.Errorf("stat supervisor log: %w", err)
+	}
+	size := info.Size()
+	truncated := size > maxLogBytes
+	readSize := size
+	if truncated {
+		readSize = maxLogBytes
+		if _, err := file.Seek(size-maxLogBytes, 0); err != nil {
+			return "", false, fmt.Errorf("seek supervisor log: %w", err)
+		}
+	}
+	data := make([]byte, int(readSize))
+	if len(data) == 0 {
+		return "", truncated, nil
+	}
+	if _, err := io.ReadFull(file, data); err != nil {
 		return "", false, fmt.Errorf("read supervisor log: %w", err)
 	}
-	if len(data) <= maxLogBytes {
-		return string(data), false, nil
-	}
-	return string(data[len(data)-maxLogBytes:]), true, nil
+	return string(data), truncated, nil
 }
 
 func dashboardUI(w http.ResponseWriter, r *http.Request) {

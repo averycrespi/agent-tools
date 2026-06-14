@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,6 +25,18 @@ func TestDashboardURLUsesPOToken(t *testing.T) {
 func TestValidateDashboardHostRejectsNonLoopback(t *testing.T) {
 	if err := validateDashboardHost("example.com"); err == nil {
 		t.Fatal("validateDashboardHost(example.com) error = nil, want non-loopback error")
+	}
+}
+
+func TestValidateDashboardHostRejectsMixedLoopbackAndNonLoopbackResolution(t *testing.T) {
+	old := lookupDashboardHostIP
+	lookupDashboardHostIP = func(string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("192.0.2.10")}, nil
+	}
+	t.Cleanup(func() { lookupDashboardHostIP = old })
+
+	if err := validateDashboardHost("mixed.local"); err == nil {
+		t.Fatal("validateDashboardHost() error = nil, want mixed-address rejection")
 	}
 }
 

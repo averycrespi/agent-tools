@@ -94,6 +94,71 @@ steps:
 	assertErrorContains(t, err, "field secret not found")
 }
 
+func TestValidateRejectsEmptyStepPrompt(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+agents:
+  runner:
+    model: gpt-5.1-codex
+steps:
+  - id: run
+    agent: runner
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, "step run prompt is required")
+}
+
+func TestValidateRejectsInputDefaultThatDoesNotMatchType(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+inputs:
+  count:
+    type: integer
+    default: many
+agents:
+  runner:
+    model: gpt-5.1-codex
+steps:
+  - id: run
+    agent: runner
+    prompt: run
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, "input count must be an integer")
+}
+
+func TestValidateRejectsInputEnumDefaultOutsideAllowedValues(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+inputs:
+  priority:
+    type: string
+    default: medium
+    enum: [high, low]
+agents:
+  runner:
+    model: gpt-5.1-codex
+steps:
+  - id: run
+    agent: runner
+    prompt: run
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, "input priority must be one of high, low")
+}
+
 func TestValidateRejectsInvalidInputSchema(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

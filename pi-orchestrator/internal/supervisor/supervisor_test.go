@@ -50,6 +50,30 @@ func TestExecuteRunsStepsSeriallyInWorkflowOrderWithSharedWorktree(t *testing.T)
 	}
 }
 
+func TestExecuteRunsIndependentReadyStepsInWorkflowFileOrder(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, run := supervisorTestRun(t)
+	defer db.Close() //nolint:errcheck
+	runner := &recordingRunner{results: []StepResult{{State: store.StateSucceeded}, {State: store.StateSucceeded}, {State: store.StateSucceeded}}}
+	def := &workflow.Definition{
+		Name:   "sample",
+		Agents: map[string]workflow.Agent{"runner": {Model: "gpt-5.1-codex"}},
+		Steps: []workflow.Step{
+			{ID: "z-last-alphabetically", Agent: "runner", Prompt: "first in file"},
+			{ID: "a-first-alphabetically", Agent: "runner", Prompt: "second in file"},
+			{ID: "middle", Agent: "runner", Prompt: "third in file"},
+		},
+	}
+
+	if err := Execute(ctx, db, runner, def, run); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(runner.calls) != 3 || runner.calls[0].StepID != "z-last-alphabetically" || runner.calls[1].StepID != "a-first-alphabetically" || runner.calls[2].StepID != "middle" {
+		t.Fatalf("calls = %+v, want workflow-file order for independent ready steps", runner.calls)
+	}
+}
+
 func TestExecuteRunsReadyStepsInFileOrderWhenDependenciesAppearLater(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -77,6 +101,28 @@ func TestExecuteRunsReadyStepsInFileOrderWhenDependenciesAppearLater(t *testing.
 	}
 	if detail.Steps[0].StepID != "build" || detail.Steps[1].StepID != "deploy" {
 		t.Fatalf("steps = %+v, want execution order build then deploy", detail.Steps)
+	}
+}
+
+func TestExecuteStopsStartedStepWhenPersistenceFails(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, run := supervisorTestRun(t)
+	runner := &recordingStarter{started: StepResult{PDTaskID: "pd-active", PDRunID: "pd-active-run-1", State: store.StateRunning}, waitResult: StepResult{State: store.StateSucceeded}}
+	def := &workflow.Definition{
+		Name:   "sample",
+		Agents: map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Steps:  []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: "review"}},
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	if err := Execute(ctx, db, runner, def, run); err == nil {
+		t.Fatal("Execute() error = nil, want persistence failure")
+	}
+	if !runner.lastHandle.stopped {
+		t.Fatal("started step was not stopped after persistence failure")
 	}
 }
 
@@ -230,6 +276,7 @@ type recordingStarter struct {
 	waitResult StepResult
 	calls      []StepRequest
 	beforeWait func()
+	lastHandle *recordingHandle
 }
 
 func (r *recordingStarter) RunStep(context.Context, StepRequest) (StepResult, error) {
@@ -238,22 +285,29 @@ func (r *recordingStarter) RunStep(context.Context, StepRequest) (StepResult, er
 
 func (r *recordingStarter) StartStep(_ context.Context, req StepRequest) (StepHandle, error) {
 	r.calls = append(r.calls, req)
-	return recordingHandle{started: r.started, waitResult: r.waitResult, beforeWait: r.beforeWait}, nil
+	r.lastHandle = &recordingHandle{started: r.started, waitResult: r.waitResult, beforeWait: r.beforeWait}
+	return r.lastHandle, nil
 }
 
 type recordingHandle struct {
 	started    StepResult
 	waitResult StepResult
 	beforeWait func()
+	stopped    bool
 }
 
 func (h recordingHandle) Started() StepResult { return h.started }
 
-func (h recordingHandle) Wait(context.Context) (StepResult, error) {
+func (h *recordingHandle) Wait(context.Context) (StepResult, error) {
 	if h.beforeWait != nil {
 		h.beforeWait()
 	}
 	return h.waitResult, nil
+}
+
+func (h *recordingHandle) Stop(context.Context) error {
+	h.stopped = true
+	return nil
 }
 
 func (r *recordingRunner) RunStep(_ context.Context, req StepRequest) (StepResult, error) {

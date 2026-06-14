@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -98,25 +99,46 @@ func TestAPIsAcceptDashboardCookie(t *testing.T) {
 	}
 }
 
-func TestEventsReturnsReadOnlySSESnapshot(t *testing.T) {
+func TestEventsReturnsPollingSSESnapshotsUntilClientDisconnects(t *testing.T) {
 	db := dashboardTestStore(t)
 	seedDashboardRun(t, db)
-	handler := NewHandler(db, "secret")
+	oldInterval := eventPollInterval
+	eventPollInterval = time.Millisecond
+	t.Cleanup(func() { eventPollInterval = oldInterval })
+	server := httptest.NewServer(NewHandler(db, "secret"))
+	defer server.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/events", nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	resp := httptest.NewRecorder()
-	handler.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("status = %d body = %s", resp.Code, resp.Body.String())
+	req, err := http.NewRequest(http.MethodGet, server.URL+"/dashboard/events", nil)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
 	}
-	if got := resp.Header().Get("Content-Type"); got != "text/event-stream" {
+	req.Header.Set("Authorization", "Bearer secret")
+	resp, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("GET events: %v", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "text/event-stream" {
 		t.Fatalf("Content-Type = %q, want text/event-stream", got)
 	}
-	body := resp.Body.String()
-	if !strings.Contains(body, "event: snapshot") || !strings.Contains(body, "run-1") {
-		t.Fatalf("body = %q, want snapshot event with run id", body)
+	scanner := bufio.NewScanner(resp.Body)
+	snapshots := 0
+	deadline := time.After(time.Second)
+	for snapshots < 2 {
+		select {
+		case <-deadline:
+			t.Fatalf("saw %d snapshots, want at least 2", snapshots)
+		default:
+		}
+		if !scanner.Scan() {
+			t.Fatalf("events stream ended early after %d snapshots: %v", snapshots, scanner.Err())
+		}
+		if scanner.Text() == "event: snapshot" {
+			snapshots++
+		}
 	}
 }
 
@@ -140,18 +162,19 @@ func TestDashboardUIExposesRunDetailAndLogsExplorer(t *testing.T) {
 	}
 }
 
-func TestRunDetailAPIRejectsMutationMethods(t *testing.T) {
+func TestDashboardAPIsRejectMutationMethods(t *testing.T) {
 	db := dashboardTestStore(t)
 	seedDashboardRun(t, db)
 	handler := NewHandler(db, "secret")
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/api/runs/run-1", nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	resp := httptest.NewRecorder()
-	handler.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want 405", resp.Code)
+	for _, path := range []string{"/dashboard/api/runs", "/dashboard/api/runs/run-1", "/dashboard/api/runs/run-1/logs", "/dashboard/events"} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Authorization", "Bearer secret")
+		resp := httptest.NewRecorder()
+		handler.ServeHTTP(resp, req)
+		if resp.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("POST %s status = %d, want 405", path, resp.Code)
+		}
 	}
 }
 

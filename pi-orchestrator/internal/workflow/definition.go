@@ -100,6 +100,15 @@ func (d *Definition) Validate(filenameStem string) error {
 		if input.Type != InputString && input.Type != InputInteger && input.Type != InputBoolean {
 			return fmt.Errorf("input %s has unsupported type %s", name, input.Type)
 		}
+		if input.Default != nil {
+			value, err := coerceDefault(name, input.Type, input.Default)
+			if err != nil {
+				return err
+			}
+			if len(input.Enum) > 0 && !enumContains(input.Enum, value) {
+				return fmt.Errorf("input %s must be one of %s", name, strings.Join(input.Enum, ", "))
+			}
+		}
 	}
 
 	stepIDs := make(map[string]struct{}, len(d.Steps))
@@ -114,6 +123,9 @@ func (d *Definition) Validate(filenameStem string) error {
 		stepIDs[step.ID] = struct{}{}
 		if _, exists := d.Agents[step.Agent]; !exists {
 			return fmt.Errorf("step %s references unknown agent %s", step.ID, step.Agent)
+		}
+		if strings.TrimSpace(step.Prompt) == "" {
+			return fmt.Errorf("step %s prompt is required", step.ID)
 		}
 		for _, artifact := range step.Artifacts {
 			if artifact.Name == "" {

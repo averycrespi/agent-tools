@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -108,6 +109,29 @@ func TestRunCommandRejectsArtifactRootInsideWorktree(t *testing.T) {
 	}
 }
 
+func TestRunCommandRemovesWorkflowWorktreeWhenSupervisorLaunchFails(t *testing.T) {
+	dir := t.TempDir()
+	writeWorkflow(t, dir, "review", runWorkflowYAML("review"))
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, dir, stateDir)
+	validateArtifactParent = func(string) error { return nil }
+	fakeWT := &recordingWorktreeClient{path: filepath.Join(t.TempDir(), "worktree")}
+	if err := os.MkdirAll(fakeWT.path, 0o750); err != nil {
+		t.Fatalf("mkdir worktree: %v", err)
+	}
+	newWorktreeClient = func() (worktreeClient, error) { return fakeWT, nil }
+	startSupervisor = func(string, ...string) (int, error) { return 0, fmt.Errorf("launch failed") }
+	t.Cleanup(resetRunTestHooks)
+
+	_, err := executeCommand("--workflow-dir", dir, "run", "review", "--input", "repo=/repo", "--input", "pr_number=42")
+	if err == nil || !strings.Contains(err.Error(), "launch failed") {
+		t.Fatalf("run error = %v, want launch failure", err)
+	}
+	if !fakeWT.removed || fakeWT.removeRepoRoot != "/repo" || fakeWT.removeBranch != "po/review-"+fakeWT.idPart {
+		t.Fatalf("fakeWT = %+v, want worktree removal after launch failure", fakeWT)
+	}
+}
+
 func TestRunCommandCreatesWorkflowRunWithOneWorktree(t *testing.T) {
 	dir := t.TempDir()
 	writeWorkflow(t, dir, "review", runWorkflowYAML("review"))
@@ -206,20 +230,30 @@ func (f fakeWorktreeClient) AddHeadlessWithOwnership(string, string) (string, bo
 func (f fakeWorktreeClient) Remove(string, string) error { return nil }
 
 type recordingWorktreeClient struct {
-	path     string
-	repoRoot string
-	branch   string
-	calls    int
+	path           string
+	repoRoot       string
+	branch         string
+	calls          int
+	removed        bool
+	removeRepoRoot string
+	removeBranch   string
+	idPart         string
 }
 
 func (r *recordingWorktreeClient) AddHeadlessWithOwnership(repoRoot, branch string) (string, bool, error) {
 	r.calls++
 	r.repoRoot = repoRoot
 	r.branch = branch
+	_, r.idPart, _ = strings.Cut(branch, "po/review-")
 	return r.path, true, nil
 }
 
-func (r *recordingWorktreeClient) Remove(string, string) error { return nil }
+func (r *recordingWorktreeClient) Remove(repoRoot, branch string) error {
+	r.removed = true
+	r.removeRepoRoot = repoRoot
+	r.removeBranch = branch
+	return nil
+}
 
 func testConfig(t *testing.T, workflowDir string, stateDir string) config.Config {
 	t.Helper()
