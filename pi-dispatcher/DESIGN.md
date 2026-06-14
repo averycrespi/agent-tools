@@ -1,6 +1,6 @@
 # Pi Dispatcher Design
 
-Pi Dispatcher (`pd`) is a local job runner for autonomous Pi coding-agent runs.
+Pi Dispatcher (`pd`) is the local dispatch layer for autonomous Pi tasks.
 
 ## V1 architecture
 

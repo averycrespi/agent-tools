@@ -8,7 +8,7 @@ This repo is opinionated. It provides structured worktree management, sandboxed 
 
 - **[Worktree Manager](#worktree-manager-wt)** — Manage git worktrees with tmux integration
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
-- **[Pi Dispatcher](#pi-dispatcher-pd)** — Launch and inspect background Pi runs in worktrees and the sandbox
+- **[Pi Dispatcher](#pi-dispatcher-pd)** — Dispatch and inspect autonomous Pi tasks in worktrees and the sandbox
 - **[Pi Orchestrator](#pi-orchestrator-po)** — Run typed multi-step Pi workflows backed by `pd`
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
@@ -80,7 +80,7 @@ See the [sandbox-manager README](sandbox-manager/README.md) for more information
 
 ### Pi Dispatcher (pd)
 
-Autonomous coding-agent runs need more than a terminal: a clean worktree, sandboxed execution, durable status, logs, and a way to stop the task later. `pd` composes `wt`, `sb`, and Pi RPC into a local task runner with no central daemon.
+Autonomous Pi tasks need more than a terminal: an isolated worktree, sandboxed execution, durable status, logs, and a way to stop the task later. `pd` composes `wt`, `sb`, and Pi RPC into a local dispatch layer with no central daemon.
 
 - `pd run "prompt"` creates a headless `wt` worktree, verifies it is visible inside `sb`, starts a detached supervisor, and returns a task ID.
 - `pd ps`, `pd status`, `pd wait`, `pd logs`, and `pd dashboard` inspect or follow running and completed tasks from persisted state.

@@ -17,7 +17,7 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:           "pd",
-	Short:         "Launch and manage background Pi agent runs",
+	Short:         "Dispatch and monitor autonomous Pi tasks",
 	SilenceUsage:  true,
 	SilenceErrors: false,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {

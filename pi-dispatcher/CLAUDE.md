@@ -1,6 +1,6 @@
 # pi-dispatcher
 
-Go CLI tool (`pd`) for launching and managing background Pi coding-agent runs in worktrees and the shared sandbox.
+Go CLI tool (`pd`) for dispatching, supervising, and inspecting autonomous Pi tasks in managed worktrees and the shared sandbox.
 
 ## Development
 
