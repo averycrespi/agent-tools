@@ -155,7 +155,7 @@ func TestDashboardUIExposesRunDetailAndLogsExplorer(t *testing.T) {
 		t.Fatalf("status = %d body = %s", resp.Code, resp.Body.String())
 	}
 	body := resp.Body.String()
-	for _, want := range []string{"/dashboard/api/runs/", "/logs", "Workflow runs", "Supervisor logs", "Pi Orchestrator", "favicon.svg"} {
+	for _, want := range []string{"/dashboard/api/runs/", "/logs", "Workflow Runs", "Search workflow runs", "Supervisor logs", "Pi Orchestrator", "favicon.svg"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body = %q, want substring %q", body, want)
 		}
