@@ -40,7 +40,7 @@ func TestRootExposesMCPCommand(t *testing.T) {
 	require.NoError(t, err)
 	require.Same(t, mcpCmd, cmd)
 	require.Equal(t, "mcp", mcpCmd.Use)
-	require.Equal(t, "Start read-only Pi Dispatcher MCP server", mcpCmd.Short)
+	require.Equal(t, "Serve the read-only MCP server", mcpCmd.Short)
 }
 
 func TestMCPCommandRejectsArgs(t *testing.T) {

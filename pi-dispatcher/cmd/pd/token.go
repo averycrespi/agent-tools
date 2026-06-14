@@ -9,12 +9,12 @@ import (
 
 var tokenCmd = &cobra.Command{
 	Use:   "token",
-	Short: "Manage the pd auth token",
+	Short: "Manage dashboard auth token",
 }
 
 var tokenRotateCmd = &cobra.Command{
 	Use:   "rotate",
-	Short: "Rotate the pd auth token",
+	Short: "Rotate dashboard auth token",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		path := auth.TokenPath()

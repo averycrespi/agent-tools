@@ -11,7 +11,7 @@ import (
 
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
-	Short: "Start read-only Pi Dispatcher MCP server",
+	Short: "Serve the read-only MCP server",
 	Args:  cobra.NoArgs,
 	RunE:  runMCP,
 }

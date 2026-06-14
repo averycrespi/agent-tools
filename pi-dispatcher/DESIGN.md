@@ -12,8 +12,8 @@ Pi Dispatcher (`pd`) is the local dispatch layer for autonomous Pi tasks.
 - SQLite stores compact task and run metadata, including supervisor PID, launch options, exact Pi argv, environment variable names, per-run max duration, worktree cleanup policy/result, end time, exit code, error message, and Pi session file. Environment variable values are passed to the run but are not persisted. Raw stdout/stderr and Pi RPC JSONL records are stored as files under the task state directory.
 - Inspection commands reconcile stale starting/running/stopping tasks to `unknown` when the supervisor PID is gone; stale control socket files are ignored.
 - `pd wait` polls persisted task state, applies the same stale-supervisor reconciliation as inspection commands, returns immediately for terminal tasks, and can bound the wait with `--timeout`.
-- `pd dashboard` starts Pi Dispatcher Dashboard, an on-demand loopback HTTP server for read-only task exploration. It is not a daemon and runs only while the command is active.
-- `pd mcp` starts an on-demand stdio MCP server for read-only task exploration by trusted local MCP clients. It is not a daemon and runs only while the command is active.
+- `pd dashboard` serves an on-demand loopback HTTP dashboard for read-only task exploration. It is not a daemon and runs only while the command is active.
+- `pd mcp` serves an on-demand read-only stdio MCP server for task exploration by trusted local MCP clients. It is not a daemon and runs only while the command is active.
 
 ## State model
 
@@ -37,13 +37,13 @@ The public dashboard surface is:
 - `GET /dashboard/api/tasks/{id}/logs` for bounded stdout/stderr log windows, with `stream`, `offset`, and `limit` query parameters.
 - `GET /dashboard/events` for polling-backed SSE snapshots.
 
-Dashboard auth uses the generic pd auth token at `$XDG_CONFIG_HOME/pd/auth-token` or `~/.config/pd/auth-token`. Requests without a valid token or dashboard cookie cannot access the UI, APIs, or SSE stream. `pd token rotate` replaces the token without printing the secret; running dashboard servers must be restarted to apply a rotated token.
+Dashboard auth uses the dashboard auth token at `$XDG_CONFIG_HOME/pd/auth-token` or `~/.config/pd/auth-token`. Requests without a valid token or dashboard cookie cannot access the UI, APIs, or SSE stream. `pd token rotate` replaces the token without printing the secret; running dashboard servers must be restarted to apply a rotated token.
 
 Pi Dispatcher Dashboard is strictly read-only in v1. It displays persisted cleanup policy/result/error fields but does not initiate, retry, or reconcile cleanup. It does not expose mutation routes or UI controls for stop, cleanup, remove, worktree changes, or control-socket operations. It also does not perform stale-status reconciliation, because CLI reconciliation writes `unknown` statuses to SQLite. Dashboard status displays raw persisted state; users can run `pd ps` or `pd status` when they want explicit CLI reconciliation.
 
 ## Pi Dispatcher MCP server
 
-`pd mcp` lives inside pi-dispatcher and starts a stdio MCP server for trusted local clients. Stdout is reserved for MCP JSON-RPC messages; diagnostics and startup failures go to stderr. The server uses the launching user's filesystem permissions and does not have Dashboard's HTTP token/cookie layer because it does not listen on the network.
+`pd mcp` lives inside pi-dispatcher and serves a read-only stdio MCP server for trusted local clients. Stdout is reserved for MCP JSON-RPC messages; diagnostics and startup failures go to stderr. The server uses the launching user's filesystem permissions and does not have Dashboard's HTTP token/cookie layer because it does not listen on the network.
 
 The MCP tool surface is Dashboard-equivalent and read-only:
 

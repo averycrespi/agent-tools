@@ -56,7 +56,7 @@ func exactArgs(names ...string) cobra.PositionalArgs {
 
 var runCmd = &cobra.Command{
 	Use:   "run [prompt]",
-	Short: "Start a background agent task",
+	Short: "Dispatch an autonomous Pi task",
 	Args:  cobra.ArbitraryArgs,
 	RunE:  notImplemented("run"),
 }
@@ -85,7 +85,7 @@ var waitCmd = &cobra.Command{
 
 var logsCmd = &cobra.Command{
 	Use:   "logs <task-id>",
-	Short: "Show task logs",
+	Short: "Show task stdout and stderr",
 	Args:  exactArgs("task-id"),
 	RunE:  notImplemented("logs"),
 }
@@ -99,14 +99,14 @@ var stopCmd = &cobra.Command{
 
 var cleanupCmd = &cobra.Command{
 	Use:   "cleanup <task-id>...",
-	Short: "Remove task resources while preserving metadata and branch",
+	Short: "Remove task worktree resources",
 	Args:  atLeastOneArg("task-id"),
 	RunE:  notImplemented("cleanup"),
 }
 
 var rmCmd = &cobra.Command{
 	Use:   "rm <task-id>...",
-	Short: "Remove task metadata and logs",
+	Short: "Forget inactive task metadata and logs",
 	Args:  atLeastOneArg("task-id"),
 	RunE:  notImplemented("rm"),
 }

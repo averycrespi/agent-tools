@@ -29,7 +29,7 @@ func TestValidateDashboardHostAllowsLoopbackOnly(t *testing.T) {
 
 func TestDashboardCommandDefaults(t *testing.T) {
 	require.Equal(t, "dashboard", dashboardCmd.Use)
-	require.Equal(t, "Open Pi Dispatcher Dashboard", dashboardCmd.Short)
+	require.Equal(t, "Serve the HTTP dashboard", dashboardCmd.Short)
 
 	host, err := dashboardCmd.Flags().GetString("host")
 	require.NoError(t, err)
