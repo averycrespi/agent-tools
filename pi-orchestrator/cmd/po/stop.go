@@ -13,9 +13,9 @@ import (
 )
 
 var stopCmd = &cobra.Command{
-	Use:   "stop <run-id>",
-	Short: "Stop a workflow run",
-	Args:  requireRunArg("po stop <run-id>"),
+	Use:   "stop <run-id>...",
+	Short: "Stop one or more workflow runs",
+	Args:  requireRunArgs("po stop <run-id>..."),
 	RunE:  stopWorkflowRun,
 }
 
@@ -41,10 +41,20 @@ func stopWorkflowRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer db.Close() //nolint:errcheck
-	run, err := db.GetWorkflowRun(cmd.Context(), args[0])
+	var errs []error
+	for _, runID := range args {
+		if err := stopOneWorkflowRun(cmd, db, runID); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func stopOneWorkflowRun(cmd *cobra.Command, db *store.Store, runID string) error {
+	run, err := db.GetWorkflowRun(cmd.Context(), runID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("workflow run %s not found", args[0])
+			return fmt.Errorf("workflow run %s not found", runID)
 		}
 		return err
 	}

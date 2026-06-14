@@ -114,3 +114,12 @@ func requireRunArg(usage string) cobra.PositionalArgs {
 		return nil
 	}
 }
+
+func requireRunArgs(usage string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return fmt.Errorf("run-id is required\nUsage: %s", usage)
+		}
+		return nil
+	}
+}

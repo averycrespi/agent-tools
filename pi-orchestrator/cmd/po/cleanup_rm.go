@@ -25,16 +25,16 @@ var newWorktreeRemover = func() (worktreeRemover, error) {
 }
 
 var cleanupCmd = &cobra.Command{
-	Use:   "cleanup <run-id>",
+	Use:   "cleanup <run-id>...",
 	Short: "Remove terminal workflow worktree and artifacts",
-	Args:  requireRunArg("po cleanup <run-id>"),
+	Args:  requireRunArgs("po cleanup <run-id>..."),
 	RunE:  cleanupWorkflowRun,
 }
 
 var rmCmd = &cobra.Command{
-	Use:   "rm <run-id>",
+	Use:   "rm <run-id>...",
 	Short: "Forget terminal workflow metadata",
-	Args:  requireRunArg("po rm <run-id>"),
+	Args:  requireRunArgs("po rm <run-id>..."),
 	RunE:  removeWorkflowRunMetadata,
 }
 
@@ -43,7 +43,17 @@ func init() {
 }
 
 func cleanupWorkflowRun(cmd *cobra.Command, args []string) error {
-	run, err := getWorkflowRun(cmd.Context(), args[0])
+	var errs []error
+	for _, runID := range args {
+		if err := cleanupOneWorkflowRun(cmd, runID); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func cleanupOneWorkflowRun(cmd *cobra.Command, runID string) error {
+	run, err := getWorkflowRun(cmd.Context(), runID)
 	if err != nil {
 		return err
 	}
@@ -51,7 +61,7 @@ func cleanupWorkflowRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("workflow run %s is not terminal", run.ID)
 	}
 	if cleanupDryRun {
-		_, err := fmt.Fprintf(cmd.OutOrStdout(), "Worktree:\t%s\nArtifacts:\t%s\n", run.WorktreePath, run.ArtifactRoot)
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\nWorktree:\t%s\nArtifacts:\t%s\n", run.ID, run.WorktreePath, run.ArtifactRoot)
 		return err
 	}
 	if run.ArtifactRoot != "" {
@@ -141,10 +151,20 @@ func removeWorkflowRunMetadata(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer db.Close() //nolint:errcheck
-	run, err := db.GetWorkflowRun(cmd.Context(), args[0])
+	var errs []error
+	for _, runID := range args {
+		if err := removeOneWorkflowRunMetadata(cmd, db, runID); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func removeOneWorkflowRunMetadata(cmd *cobra.Command, db *store.Store, runID string) error {
+	run, err := db.GetWorkflowRun(cmd.Context(), runID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("workflow run %s not found", args[0])
+			return fmt.Errorf("workflow run %s not found", runID)
 		}
 		return err
 	}
