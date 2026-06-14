@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,21 +76,60 @@ func TestGetTaskReturnsDetailResponsePreviewAndOmitsSensitiveFields(t *testing.T
 
 func TestGetTaskLogsReturnsBoundedWindow(t *testing.T) {
 	st, task := testStore(t)
+	tests := []struct {
+		name       string
+		stream     string
+		offset     float64
+		limit      float64
+		wantNext   int64
+		wantSize   int64
+		wantOutput string
+	}{
+		{name: "stdout", stream: "stdout", offset: 2, limit: 4, wantNext: 6, wantSize: 10, wantOutput: "cdef"},
+		{name: "stderr", stream: "stderr", offset: 0, limit: 6, wantNext: 6, wantSize: 14, wantOutput: "stderr"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewHandler(st)
+			req := gomcp.CallToolRequest{}
+			req.Params.Name = "get_task_logs"
+			req.Params.Arguments = map[string]any{"task_id": task.ID, "stream": tt.stream, "offset": tt.offset, "limit": tt.limit}
+
+			result, err := h.Handle(context.Background(), req)
+
+			require.NoError(t, err)
+			require.False(t, result.IsError)
+			var window LogWindow
+			decodeToolText(t, result, &window)
+			require.Equal(t, tt.stream, window.Stream)
+			require.EqualValues(t, tt.offset, window.Offset)
+			require.EqualValues(t, tt.wantNext, window.NextOffset)
+			require.EqualValues(t, tt.wantSize, window.Size)
+			require.Equal(t, tt.wantOutput, window.Content)
+		})
+	}
+}
+
+func TestGetTaskResponsePreviewIsBounded(t *testing.T) {
+	st, task := testStore(t)
+	run, err := st.LatestRun(context.Background(), task.ID)
+	require.NoError(t, err)
+	longResponse := strings.Repeat("x", 4001)
+	require.NoError(t, os.WriteFile(run.PiEventsPath, []byte(`{"message":{"role":"assistant","content":"`+longResponse+`"}}`+"\n"), 0o600))
 	h := NewHandler(st)
 	req := gomcp.CallToolRequest{}
-	req.Params.Name = "get_task_logs"
-	req.Params.Arguments = map[string]any{"task_id": task.ID, "stream": "stdout", "offset": float64(2), "limit": float64(4)}
+	req.Params.Name = "get_task"
+	req.Params.Arguments = map[string]any{"task_id": task.ID}
 
 	result, err := h.Handle(context.Background(), req)
 
 	require.NoError(t, err)
 	require.False(t, result.IsError)
-	var window LogWindow
-	decodeToolText(t, result, &window)
-	require.Equal(t, "stdout", window.Stream)
-	require.EqualValues(t, 2, window.Offset)
-	require.EqualValues(t, 6, window.NextOffset)
-	require.Equal(t, "cdef", window.Content)
+	var detail TaskDetail
+	decodeToolText(t, result, &detail)
+	require.True(t, detail.ResponseTruncated)
+	require.Len(t, detail.ResponsePreview, 4000)
 }
 
 func TestGetTaskErrorsAreToolErrors(t *testing.T) {
@@ -196,6 +236,20 @@ func TestStoreReadFailuresReturnToolErrors(t *testing.T) {
 	}
 }
 
+func TestGetTaskLogsLatestRunFailureReturnsToolError(t *testing.T) {
+	boom := errors.New("latest run unavailable")
+	h := NewHandler(latestRunFailingStore{err: boom})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "get_task_logs"
+	req.Params.Arguments = map[string]any{"task_id": "task-test"}
+
+	result, err := h.Handle(context.Background(), req)
+
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	require.Contains(t, toolText(t, result), boom.Error())
+}
+
 func TestUnknownToolReturnsToolError(t *testing.T) {
 	h := NewHandler(nil)
 	req := gomcp.CallToolRequest{}
@@ -221,6 +275,22 @@ func (s failingStore) GetTask(context.Context, string) (store.Task, error) {
 }
 
 func (s failingStore) LatestRun(context.Context, string) (store.Run, error) {
+	return store.Run{}, s.err
+}
+
+type latestRunFailingStore struct {
+	err error
+}
+
+func (s latestRunFailingStore) ListTaskSummaries(context.Context) ([]store.TaskSummary, error) {
+	return nil, nil
+}
+
+func (s latestRunFailingStore) GetTask(context.Context, string) (store.Task, error) {
+	return store.Task{ID: "task-test"}, nil
+}
+
+func (s latestRunFailingStore) LatestRun(context.Context, string) (store.Run, error) {
 	return store.Run{}, s.err
 }
 

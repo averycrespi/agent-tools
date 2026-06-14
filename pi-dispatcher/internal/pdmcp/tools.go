@@ -148,12 +148,6 @@ func (h *Handler) getTaskLogs(ctx context.Context, args map[string]any) (*gomcp.
 	if limit > inspect.MaxLogLimit {
 		return gomcp.NewToolResultError(fmt.Sprintf("limit must be less than or equal to %d", inspect.MaxLogLimit)), nil
 	}
-	if _, err := h.store.GetTask(ctx, taskID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return gomcp.NewToolResultError("task not found"), nil
-		}
-		return gomcp.NewToolResultError(err.Error()), nil
-	}
 	run, err := h.store.LatestRun(ctx, taskID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
