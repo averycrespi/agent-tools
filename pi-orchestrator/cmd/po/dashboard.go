@@ -28,7 +28,7 @@ var (
 
 var dashboardCmd = &cobra.Command{
 	Use:   "dashboard",
-	Short: "Open Pi Orchestrator Dashboard",
+	Short: "Serve the HTTP dashboard",
 	Args:  cobra.NoArgs,
 	RunE:  runDashboard,
 }
@@ -36,7 +36,7 @@ var dashboardCmd = &cobra.Command{
 func init() {
 	dashboardCmd.Flags().String("host", "127.0.0.1", "host to bind; must be loopback")
 	dashboardCmd.Flags().Int("port", 8400, "port to bind")
-	dashboardCmd.Flags().Bool("no-open", false, "do not open Pi Orchestrator Dashboard in a browser")
+	dashboardCmd.Flags().Bool("no-open", false, "do not open the dashboard in a browser")
 }
 
 func runDashboard(cmd *cobra.Command, _ []string) error {

@@ -24,7 +24,7 @@ var waitCmd = &cobra.Command{
 
 var logsCmd = &cobra.Command{
 	Use:   "logs <run-id>",
-	Short: "Show workflow supervisor logs and backing pd log pointers",
+	Short: "Show workflow logs and pd log pointers",
 	Args:  requireRunArg("po logs <run-id>"),
 	RunE:  showWorkflowRunLogs,
 }

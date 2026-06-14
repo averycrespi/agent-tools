@@ -35,7 +35,7 @@ var (
 
 var runCmd = &cobra.Command{
 	Use:   "run <workflow>",
-	Short: "Run a workflow",
+	Short: "Start a Pi workflow run",
 	Args:  requireWorkflowArg("po run <workflow>"),
 	RunE:  runWorkflow,
 }

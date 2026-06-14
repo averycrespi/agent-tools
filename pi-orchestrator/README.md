@@ -71,7 +71,7 @@ Defaults follow XDG paths:
 
 ## Dashboard
 
-`po dashboard` starts a loopback-only HTTP server, prints an authenticated URL, and opens it by default unless `--no-open` is set. To keep the dashboard running in the background on macOS, see the [launchd guide](docs/launchd.md). Visiting the printed token URL sets an HttpOnly `po-auth` cookie for `/dashboard/`; APIs also accept a bearer token for scripts. Dashboard routes are read-only:
+`po dashboard` serves a loopback-only HTTP dashboard, prints an authenticated URL, and opens it by default unless `--no-open` is set. To keep the dashboard running in the background on macOS, see the [launchd guide](docs/launchd.md). Visiting the printed token URL sets an HttpOnly `po-auth` cookie for `/dashboard/`; APIs also accept a bearer token for scripts. Dashboard routes are read-only:
 
 - `GET /dashboard/`
 - `GET /dashboard/api/runs`
@@ -80,4 +80,4 @@ Defaults follow XDG paths:
 - `GET /dashboard/events`
 - `GET /dashboard/favicon.svg`
 
-Mutation methods are rejected. Rotate the `po` dashboard token with `po token rotate`. `po` token state is separate from `pd` token state.
+Mutation methods are rejected. Rotate the dashboard auth token with `po token rotate`. `po` token state is separate from `pd` token state.

@@ -26,14 +26,14 @@ var newWorktreeRemover = func() (worktreeRemover, error) {
 
 var cleanupCmd = &cobra.Command{
 	Use:   "cleanup <run-id>",
-	Short: "Remove terminal workflow run worktree and artifacts",
+	Short: "Remove terminal workflow worktree and artifacts",
 	Args:  requireRunArg("po cleanup <run-id>"),
 	RunE:  cleanupWorkflowRun,
 }
 
 var rmCmd = &cobra.Command{
 	Use:   "rm <run-id>",
-	Short: "Remove terminal workflow run metadata",
+	Short: "Forget terminal workflow metadata",
 	Args:  requireRunArg("po rm <run-id>"),
 	RunE:  removeWorkflowRunMetadata,
 }
