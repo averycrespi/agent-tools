@@ -206,17 +206,18 @@ func TestExecutePersistsBackingIDsBeforeWaiting(t *testing.T) {
 	}
 }
 
-func TestExecuteRendersPromptInputsAndArtifactPath(t *testing.T) {
+func TestExecuteRendersPromptInputsAndArtifacts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	db, run := supervisorTestRun(t)
 	defer db.Close() //nolint:errcheck
 	runner := &recordingRunner{results: []StepResult{{PDTaskID: "pd-1", PDRunID: "pd-1-run-1", State: store.StateSucceeded}}}
 	def := &workflow.Definition{
-		Name:   "sample",
-		Inputs: map[string]workflow.InputSchema{"pr_number": {Type: workflow.InputInteger}},
-		Agents: map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
-		Steps:  []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: `Review PR #{{ .Inputs.pr_number }} and write {{ artifact_path "out" }}`, Artifacts: []workflow.Artifact{{Name: "out", Path: "out.md"}}}},
+		Name:      "sample",
+		Inputs:    map[string]workflow.InputSchema{"pr_number": {Type: workflow.InputInteger}},
+		Agents:    map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Artifacts: map[string]workflow.RootArtifact{"out": {Path: "out.md"}},
+		Steps:     []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: `Review PR #{{ .Inputs.pr_number }} and write {{ .Artifacts.out }}`}},
 	}
 	run.InputsJSON = `{"pr_number":42}`
 
@@ -247,18 +248,19 @@ func TestExecuteRendersStringInputsAsDelimitedUntrustedContent(t *testing.T) {
 	}
 }
 
-func TestExecuteRendersPreviousStepArtifactPath(t *testing.T) {
+func TestExecuteRendersRootArtifactPathsAcrossSteps(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	db, run := supervisorTestRun(t)
 	defer db.Close() //nolint:errcheck
 	runner := &recordingRunner{results: []StepResult{{PDTaskID: "pd-1", PDRunID: "pd-1-run-1", State: store.StateSucceeded}, {PDTaskID: "pd-2", PDRunID: "pd-2-run-1", State: store.StateSucceeded}}}
 	def := &workflow.Definition{
-		Name:   "sample",
-		Agents: map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Name:      "sample",
+		Agents:    map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Artifacts: map[string]workflow.RootArtifact{"findings": {Path: "findings.md"}, "final": {Path: "final.md"}},
 		Steps: []workflow.Step{
-			{ID: "first", Agent: "reviewer", Prompt: `write {{ artifact_path "findings" }}`, Artifacts: []workflow.Artifact{{Name: "findings", Path: "findings.md"}}},
-			{ID: "second", Agent: "reviewer", Needs: []string{"first"}, Prompt: `read {{ artifact_path "findings" }} and write {{ artifact_path "final" }}`, Artifacts: []workflow.Artifact{{Name: "final", Path: "final.md"}}},
+			{ID: "first", Agent: "reviewer", Prompt: `write {{ .Artifacts.findings }}`},
+			{ID: "second", Agent: "reviewer", Needs: []string{"first"}, Prompt: `read {{ .Artifacts.findings }} and write {{ .Artifacts.final }}`},
 		},
 	}
 
@@ -272,16 +274,17 @@ func TestExecuteRendersPreviousStepArtifactPath(t *testing.T) {
 	}
 }
 
-func TestExecuteRefreshesRequiredArtifactAfterStepSucceeds(t *testing.T) {
+func TestExecutePassesNonEmptyProducesCheckAfterStepSucceeds(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	db, run := supervisorTestRun(t)
 	defer db.Close() //nolint:errcheck
 	runner := &recordingRunner{results: []StepResult{{PDTaskID: "pd-1", PDRunID: "pd-1-run-1", State: store.StateSucceeded}}}
 	def := &workflow.Definition{
-		Name:   "sample",
-		Agents: map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
-		Steps:  []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: "review", Artifacts: []workflow.Artifact{{Name: "out", Path: "out.md", Required: true}}}},
+		Name:      "sample",
+		Agents:    map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Artifacts: map[string]workflow.RootArtifact{"out": {Path: "out.md"}},
+		Steps:     []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: "review", Produces: map[string]workflow.ArtifactProduceCheck{"out": workflow.ProduceNonEmpty}}},
 	}
 	if err := os.MkdirAll(run.ArtifactRoot, 0o750); err != nil {
 		t.Fatalf("mkdir artifact root: %v", err)
@@ -302,19 +305,23 @@ func TestExecuteRefreshesRequiredArtifactAfterStepSucceeds(t *testing.T) {
 	if detail.Run.State != store.StateSucceeded || len(detail.Artifacts) != 1 || !detail.Artifacts[0].Exists {
 		t.Fatalf("detail = %+v, want succeeded run with existing artifact", detail)
 	}
+	if len(detail.CheckResults) != 1 || detail.CheckResults[0].StepID != "review" || detail.CheckResults[0].Target != "out" || detail.CheckResults[0].Check != "non_empty" || !detail.CheckResults[0].Passed {
+		t.Fatalf("check results = %+v, want passed review/out non_empty check", detail.CheckResults)
+	}
 }
 
-func TestExecuteFailsStepWhenRequiredArtifactMissingAndSkipsDependent(t *testing.T) {
+func TestExecuteFailsStepWhenProducedArtifactMissingAndSkipsDependent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	db, run := supervisorTestRun(t)
 	defer db.Close() //nolint:errcheck
 	runner := &recordingRunner{results: []StepResult{{PDTaskID: "pd-1", PDRunID: "pd-1-run-1", State: store.StateSucceeded}}}
 	def := &workflow.Definition{
-		Name:   "sample",
-		Agents: map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Name:      "sample",
+		Agents:    map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Artifacts: map[string]workflow.RootArtifact{"out": {Path: "out.md"}},
 		Steps: []workflow.Step{
-			{ID: "first", Agent: "reviewer", Prompt: "first", Artifacts: []workflow.Artifact{{Name: "out", Path: "out.md", Required: true}}},
+			{ID: "first", Agent: "reviewer", Prompt: "first", Produces: map[string]workflow.ArtifactProduceCheck{"out": workflow.ProduceExists}},
 			{ID: "second", Agent: "reviewer", Needs: []string{"first"}, Prompt: "second"},
 		},
 	}
@@ -334,6 +341,72 @@ func TestExecuteFailsStepWhenRequiredArtifactMissingAndSkipsDependent(t *testing
 	}
 	if len(detail.Artifacts) != 1 || detail.Artifacts[0].Exists {
 		t.Fatalf("artifacts = %+v, want missing recorded artifact", detail.Artifacts)
+	}
+	if len(detail.CheckResults) != 1 || detail.CheckResults[0].StepID != "first" || detail.CheckResults[0].Target != "out" || detail.CheckResults[0].Check != "exists" || detail.CheckResults[0].Passed || !strings.Contains(detail.CheckResults[0].Message, "missing") {
+		t.Fatalf("check results = %+v, want failed first/out exists check", detail.CheckResults)
+	}
+}
+
+func TestExecuteFailsProducesCheckForEmptyFileAndDirectory(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name       string
+		check      workflow.ArtifactProduceCheck
+		prepare    func(t *testing.T, path string)
+		wantReason string
+	}{
+		{
+			name:  "empty non_empty artifact",
+			check: workflow.ProduceNonEmpty,
+			prepare: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.WriteFile(path, nil, 0o600); err != nil {
+					t.Fatalf("write empty artifact: %v", err)
+				}
+			},
+			wantReason: "empty",
+		},
+		{
+			name:  "directory exists artifact",
+			check: workflow.ProduceExists,
+			prepare: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.Mkdir(path, 0o750); err != nil {
+					t.Fatalf("mkdir artifact path: %v", err)
+				}
+			},
+			wantReason: "not a regular file",
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			db, run := supervisorTestRun(t)
+			defer db.Close() //nolint:errcheck
+			runner := &recordingRunner{results: []StepResult{{State: store.StateSucceeded}}}
+			def := &workflow.Definition{
+				Name:      "sample",
+				Agents:    map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+				Artifacts: map[string]workflow.RootArtifact{"out": {Path: "out.md"}},
+				Steps:     []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: "review", Produces: map[string]workflow.ArtifactProduceCheck{"out": tc.check}}},
+			}
+			if err := os.MkdirAll(run.ArtifactRoot, 0o750); err != nil {
+				t.Fatalf("mkdir artifact root: %v", err)
+			}
+			runner.afterCall = func() { tc.prepare(t, filepath.Join(run.ArtifactRoot, "out.md")) }
+
+			if err := Execute(ctx, db, runner, def, run); err == nil {
+				t.Fatal("Execute() error = nil, want failed produces check")
+			}
+			detail, err := db.GetWorkflowRunDetail(ctx, run.ID)
+			if err != nil {
+				t.Fatalf("GetWorkflowRunDetail() error = %v", err)
+			}
+			if detail.Run.State != store.StateFailed || len(detail.CheckResults) != 1 || detail.CheckResults[0].Passed || !strings.Contains(detail.CheckResults[0].Message, tc.wantReason) {
+				t.Fatalf("detail = %+v, want failed check containing %q", detail, tc.wantReason)
+			}
+		})
 	}
 }
 

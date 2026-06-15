@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"text/template"
 
 	"gopkg.in/yaml.v3"
 )
@@ -14,15 +16,21 @@ const (
 	InputString  = "string"
 	InputInteger = "integer"
 	InputBoolean = "boolean"
+
+	ProduceExists   ArtifactProduceCheck = "exists"
+	ProduceNonEmpty ArtifactProduceCheck = "non_empty"
 )
 
+var templateSafeIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 type Definition struct {
-	Name        string                 `yaml:"name"`
-	Description string                 `yaml:"description"`
-	Repo        string                 `yaml:"repo"`
-	Inputs      map[string]InputSchema `yaml:"inputs"`
-	Agents      map[string]Agent       `yaml:"agents"`
-	Steps       []Step                 `yaml:"steps"`
+	Name        string                  `yaml:"name"`
+	Description string                  `yaml:"description"`
+	Repo        string                  `yaml:"repo"`
+	Inputs      map[string]InputSchema  `yaml:"inputs"`
+	Agents      map[string]Agent        `yaml:"agents"`
+	Artifacts   map[string]RootArtifact `yaml:"artifacts"`
+	Steps       []Step                  `yaml:"steps"`
 }
 
 type InputSchema struct {
@@ -38,18 +46,18 @@ type Agent struct {
 }
 
 type Step struct {
-	ID        string     `yaml:"id"`
-	Agent     string     `yaml:"agent"`
-	Needs     []string   `yaml:"needs"`
-	Prompt    string     `yaml:"prompt"`
-	Artifacts []Artifact `yaml:"artifacts"`
+	ID       string                          `yaml:"id"`
+	Agent    string                          `yaml:"agent"`
+	Needs    []string                        `yaml:"needs"`
+	Prompt   string                          `yaml:"prompt"`
+	Produces map[string]ArtifactProduceCheck `yaml:"produces"`
 }
 
-type Artifact struct {
-	Name     string `yaml:"name"`
-	Path     string `yaml:"path"`
-	Required bool   `yaml:"required"`
+type RootArtifact struct {
+	Path string `yaml:"path"`
 }
+
+type ArtifactProduceCheck string
 
 func LoadFile(path string) (*Definition, error) {
 	data, err := os.ReadFile(path) // #nosec G304 -- workflow paths are selected from the configured workflow definition directory.
@@ -111,8 +119,22 @@ func (d *Definition) Validate(filenameStem string) error {
 		}
 	}
 
+	for name, artifact := range d.Artifacts {
+		if !templateSafeIdentifier.MatchString(name) {
+			return fmt.Errorf("artifact %s name must match [A-Za-z_][A-Za-z0-9_]*", name)
+		}
+		if artifact.Path == "" {
+			return fmt.Errorf("artifact %s path is required", name)
+		}
+		if filepath.IsAbs(artifact.Path) {
+			return fmt.Errorf("artifact %s path must be relative", name)
+		}
+		if containsDotDot(artifact.Path) {
+			return fmt.Errorf("artifact %s path must not contain parent directory references", name)
+		}
+	}
+
 	stepIDs := make(map[string]struct{}, len(d.Steps))
-	artifactNames := make(map[string]string)
 	for _, step := range d.Steps {
 		if step.ID == "" {
 			return fmt.Errorf("step id is required")
@@ -127,23 +149,16 @@ func (d *Definition) Validate(filenameStem string) error {
 		if strings.TrimSpace(step.Prompt) == "" {
 			return fmt.Errorf("step %s prompt is required", step.ID)
 		}
-		for _, artifact := range step.Artifacts {
-			if artifact.Name == "" {
-				return fmt.Errorf("step %s artifact name is required", step.ID)
+		for name, check := range step.Produces {
+			if _, exists := d.Artifacts[name]; !exists {
+				return fmt.Errorf("step %s produces unknown artifact %s", step.ID, name)
 			}
-			if previousStep, exists := artifactNames[artifact.Name]; exists {
-				return fmt.Errorf("artifact %s is declared by both step %s and step %s", artifact.Name, previousStep, step.ID)
+			if check != ProduceExists && check != ProduceNonEmpty {
+				return fmt.Errorf("step %s produces artifact %s has unsupported check %s", step.ID, name, check)
 			}
-			artifactNames[artifact.Name] = step.ID
-			if artifact.Path == "" {
-				return fmt.Errorf("artifact %s path is required", artifact.Name)
-			}
-			if filepath.IsAbs(artifact.Path) {
-				return fmt.Errorf("artifact %s path must be relative", artifact.Name)
-			}
-			if containsDotDot(artifact.Path) {
-				return fmt.Errorf("artifact %s path must not contain parent directory references", artifact.Name)
-			}
+		}
+		if err := ValidatePromptTemplate(step.ID, step.Prompt, d.Inputs, d.Artifacts); err != nil {
+			return err
 		}
 	}
 
@@ -160,6 +175,31 @@ func (d *Definition) Validate(filenameStem string) error {
 	return nil
 }
 
+func ValidatePromptTemplate(stepID string, prompt string, inputs map[string]InputSchema, artifacts map[string]RootArtifact) error {
+	inputData := make(map[string]any, len(inputs))
+	for name := range inputs {
+		inputData[name] = ""
+	}
+	artifactData := make(map[string]string, len(artifacts))
+	for name := range artifacts {
+		artifactData[name] = ""
+	}
+	tmpl, err := template.New("step-prompt").Option("missingkey=error").Parse(prompt)
+	if err != nil {
+		return fmt.Errorf("parse prompt for step %s: %w", stepID, err)
+	}
+	if err := tmpl.Execute(ioDiscard{}, map[string]any{"Inputs": inputData, "Artifacts": artifactData}); err != nil {
+		return fmt.Errorf("validate prompt for step %s: %w", stepID, err)
+	}
+	return nil
+}
+
+type ioDiscard struct{}
+
+func (ioDiscard) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
 func rejectUnsupportedTopLevelFields(data []byte) error {
 	var node yaml.Node
 	if err := yaml.Unmarshal(data, &node); err != nil {
@@ -171,6 +211,7 @@ func rejectUnsupportedTopLevelFields(data []byte) error {
 		"repo":        {},
 		"inputs":      {},
 		"agents":      {},
+		"artifacts":   {},
 		"steps":       {},
 	}
 	if len(node.Content) == 0 || node.Content[0].Kind != yaml.MappingNode {

@@ -1,6 +1,6 @@
 # pi-orchestrator
 
-`po` coordinates durable Pi workflows above `pi-dispatcher` (`pd`). It validates typed inputs, creates a shared workflow worktree, runs ordered steps through backing `pd` tasks, validates required artifacts, and preserves workflow-level state for inspection and control.
+`po` coordinates durable Pi workflows above `pi-dispatcher` (`pd`). It validates typed inputs, creates a shared workflow worktree, runs ordered steps through backing `pd` tasks, validates declared artifact postconditions, and preserves workflow-level state for inspection and control.
 
 ## Workflow definitions
 
@@ -23,19 +23,20 @@ agents:
   reviewer:
     model: gpt-5.1-codex
     skills: [review]
+artifacts:
+  findings:
+    path: findings.md
 steps:
   - id: review
     agent: reviewer
     prompt: |
       Review PR #{{ .Inputs.pr_number }}.
-      Write findings to {{ artifact_path "findings" }}.
-    artifacts:
-      - name: findings
-        path: findings.md
-        required: true
+      Write findings to {{ .Artifacts.findings }}.
+    produces:
+      findings: non_empty
 ```
 
-Inputs are flat and typed as `string`, `integer`, or `boolean`, with `required`, `default`, and `enum` validation. Step prompts can render `.Inputs` and the `artifact_path "name"` helper for any uniquely named artifact declared by the workflow, including artifacts from previous steps.
+Inputs are flat and typed as `string`, `integer`, or `boolean`, with `required`, `default`, and `enum` validation. Root `artifacts` declare workflow-level file paths once. Artifact names must be template-safe identifiers, and paths must be relative non-traversing file paths under the run artifact root. Step prompts can render `.Inputs` and `.Artifacts.<name>` absolute paths for any declared artifact. Step `produces` postconditions validate artifacts after a backing step succeeds; supported checks are `exists` for a regular file and `non_empty` for a regular file with size greater than zero.
 
 ## Commands
 

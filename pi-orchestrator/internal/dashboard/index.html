@@ -855,31 +855,26 @@
           const head = document.createElement("div");
           head.className = "artifact-head";
           const name = document.createElement("strong");
-          name.textContent = `${artifact.StepID} / ${artifact.Name}`;
+          name.textContent = artifact.Name;
           head.append(
             name,
-            chip(
-              artifact.Exists
-                ? "exists"
-                : artifact.Required
-                  ? "missing required"
-                  : "missing",
-              artifact.Exists
-                ? "succeeded"
-                : artifact.Required
-                  ? "failed"
-                  : "skipped",
-            ),
+            chip(artifact.Exists ? "exists" : "missing", artifact.Exists ? "succeeded" : "skipped"),
           );
-          item.append(
-            head,
-            grid([
-              ["Relative Path", artifact.RelativePath],
-              ["Absolute Path", artifact.AbsolutePath],
-              ["Required", artifact.Required ? "yes" : "no"],
-              ["Updated", time(artifact.UpdatedAt)],
-            ]),
+          const checks = (detail.CheckResults || []).filter(
+            (result) => result.Kind === "artifact" && result.Target === artifact.Name,
           );
+          const rows = [
+            ["Relative Path", artifact.RelativePath],
+            ["Absolute Path", artifact.AbsolutePath],
+            ["Updated", time(artifact.UpdatedAt)],
+          ];
+          for (const result of checks) {
+            rows.push([
+              `Check ${result.StepID}`,
+              `${result.Check}: ${result.Passed ? "passed" : "failed"}${result.Message ? ` — ${result.Message}` : ""}`,
+            ]);
+          }
+          item.append(head, grid(rows));
           card.appendChild(item);
         }
         panel.appendChild(card);

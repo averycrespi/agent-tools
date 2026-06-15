@@ -74,21 +74,33 @@ type StepRun struct {
 
 type Artifact struct {
 	WorkflowRunID string
-	StepID        string
+	StepID        string `json:"-"`
 	Name          string
 	RelativePath  string
 	AbsolutePath  string
-	Required      bool
+	Required      bool `json:"-"`
 	Exists        bool
 	UpdatedAt     time.Time
 }
 
+type StepCheckResult struct {
+	WorkflowRunID string
+	StepID        string
+	Kind          string
+	Target        string
+	Check         string
+	Passed        bool
+	Message       string
+	UpdatedAt     time.Time
+}
+
 type WorkflowRunDetail struct {
-	Run         WorkflowRun
-	Steps       []StepRun
-	Artifacts   []Artifact
-	StepTotal   int
-	StepPending int
+	Run          WorkflowRun
+	Steps        []StepRun
+	Artifacts    []Artifact
+	CheckResults []StepCheckResult
+	StepTotal    int
+	StepPending  int
 }
 
 type Store struct {
@@ -151,16 +163,28 @@ CREATE INDEX IF NOT EXISTS idx_step_runs_workflow_order ON step_runs(workflow_ru
 
 CREATE TABLE IF NOT EXISTS artifacts (
     workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(id),
-    step_id         TEXT NOT NULL,
     name            TEXT NOT NULL,
     relative_path   TEXT NOT NULL,
     absolute_path   TEXT NOT NULL,
     required        INTEGER NOT NULL,
     artifact_exists INTEGER NOT NULL,
     updated_at      TEXT NOT NULL,
-    PRIMARY KEY (workflow_run_id, step_id, name)
+    PRIMARY KEY (workflow_run_id, name)
 );
 CREATE INDEX IF NOT EXISTS idx_artifacts_workflow_run_id ON artifacts(workflow_run_id);
+
+CREATE TABLE IF NOT EXISTS step_check_results (
+    workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(id),
+    step_id         TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    target          TEXT NOT NULL,
+    check_name      TEXT NOT NULL,
+    passed          INTEGER NOT NULL,
+    message         TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY (workflow_run_id, step_id, kind, target, check_name)
+);
+CREATE INDEX IF NOT EXISTS idx_step_check_results_workflow_run_id ON step_check_results(workflow_run_id);
 `
 
 func Open(path string) (*Store, error) {
@@ -192,6 +216,10 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	if err := ensureStepRunMetadataColumns(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := ensureWorkflowLevelArtifacts(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -258,6 +286,35 @@ func ensureStepRunMetadataColumns(db *sql.DB) error {
 		if err := add(name); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func ensureWorkflowLevelArtifacts(db *sql.DB) error {
+	columns, err := tableColumns(db, "artifacts")
+	if err != nil {
+		return fmt.Errorf("inspect artifacts schema: %w", err)
+	}
+	if !columns["step_id"] {
+		return nil
+	}
+	if _, err := db.Exec(`DROP TABLE artifacts`); err != nil {
+		return fmt.Errorf("drop step-scoped artifacts table: %w", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE artifacts (
+    workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(id),
+    name            TEXT NOT NULL,
+    relative_path   TEXT NOT NULL,
+    absolute_path   TEXT NOT NULL,
+    required        INTEGER NOT NULL,
+    artifact_exists INTEGER NOT NULL,
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY (workflow_run_id, name)
+)`); err != nil {
+		return fmt.Errorf("create workflow artifacts table: %w", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_artifacts_workflow_run_id ON artifacts(workflow_run_id)`); err != nil {
+		return fmt.Errorf("create artifacts index: %w", err)
 	}
 	return nil
 }
@@ -348,7 +405,7 @@ func (s *Store) CreateStepRun(ctx context.Context, step StepRun, artifacts []Art
 		return fmt.Errorf("insert step run: %w", err)
 	}
 	for _, artifact := range artifacts {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO artifacts (workflow_run_id, step_id, name, relative_path, absolute_path, required, artifact_exists, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, artifact.WorkflowRunID, artifact.StepID, artifact.Name, artifact.RelativePath, artifact.AbsolutePath, boolInt(artifact.Required), boolInt(artifact.Exists), formatTime(artifact.UpdatedAt)); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO artifacts (workflow_run_id, name, relative_path, absolute_path, required, artifact_exists, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workflow_run_id, name) DO UPDATE SET relative_path = excluded.relative_path, absolute_path = excluded.absolute_path, required = excluded.required, artifact_exists = excluded.artifact_exists, updated_at = excluded.updated_at`, artifact.WorkflowRunID, artifact.Name, artifact.RelativePath, artifact.AbsolutePath, boolInt(artifact.Required), boolInt(artifact.Exists), formatTime(artifact.UpdatedAt)); err != nil {
 			return fmt.Errorf("insert artifact: %w", err)
 		}
 	}
@@ -371,12 +428,16 @@ func (s *Store) GetWorkflowRunDetail(ctx context.Context, id string) (WorkflowRu
 	if err != nil {
 		return WorkflowRunDetail{}, err
 	}
+	checkResults, err := s.listStepCheckResults(ctx, id)
+	if err != nil {
+		return WorkflowRunDetail{}, err
+	}
 	stepCounts := map[State]int{}
 	for _, step := range steps {
 		stepCounts[step.State]++
 	}
 	stepTotal, stepPending := stepProgress(run.DefinitionYAML, stepCounts)
-	return WorkflowRunDetail{Run: run, Steps: steps, Artifacts: artifacts, StepTotal: stepTotal, StepPending: stepPending}, nil
+	return WorkflowRunDetail{Run: run, Steps: steps, Artifacts: artifacts, CheckResults: checkResults, StepTotal: stepTotal, StepPending: stepPending}, nil
 }
 
 func (s *Store) UpdateStepState(ctx context.Context, workflowRunID string, stepID string, state State, outcome string, updatedAt time.Time) error {
@@ -387,11 +448,31 @@ func (s *Store) UpdateStepState(ctx context.Context, workflowRunID string, stepI
 	return nil
 }
 
+func (s *Store) UpsertArtifacts(ctx context.Context, artifacts []Artifact) error {
+	for _, artifact := range artifacts {
+		_, err := s.db.ExecContext(ctx, `INSERT INTO artifacts (workflow_run_id, name, relative_path, absolute_path, required, artifact_exists, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workflow_run_id, name) DO UPDATE SET relative_path = excluded.relative_path, absolute_path = excluded.absolute_path, required = excluded.required, artifact_exists = excluded.artifact_exists, updated_at = excluded.updated_at`, artifact.WorkflowRunID, artifact.Name, artifact.RelativePath, artifact.AbsolutePath, boolInt(artifact.Required), boolInt(artifact.Exists), formatTime(artifact.UpdatedAt))
+		if err != nil {
+			return fmt.Errorf("upsert artifact %s: %w", artifact.Name, err)
+		}
+	}
+	return nil
+}
+
 func (s *Store) UpdateArtifactExistence(ctx context.Context, artifacts []Artifact) error {
 	for _, artifact := range artifacts {
-		_, err := s.db.ExecContext(ctx, `UPDATE artifacts SET artifact_exists = ?, updated_at = ? WHERE workflow_run_id = ? AND step_id = ? AND name = ?`, boolInt(artifact.Exists), formatTime(artifact.UpdatedAt), artifact.WorkflowRunID, artifact.StepID, artifact.Name)
+		_, err := s.db.ExecContext(ctx, `UPDATE artifacts SET artifact_exists = ?, updated_at = ? WHERE workflow_run_id = ? AND name = ?`, boolInt(artifact.Exists), formatTime(artifact.UpdatedAt), artifact.WorkflowRunID, artifact.Name)
 		if err != nil {
 			return fmt.Errorf("update artifact %s: %w", artifact.Name, err)
+		}
+	}
+	return nil
+}
+
+func (s *Store) UpsertStepCheckResults(ctx context.Context, results []StepCheckResult) error {
+	for _, result := range results {
+		_, err := s.db.ExecContext(ctx, `INSERT INTO step_check_results (workflow_run_id, step_id, kind, target, check_name, passed, message, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workflow_run_id, step_id, kind, target, check_name) DO UPDATE SET passed = excluded.passed, message = excluded.message, updated_at = excluded.updated_at`, result.WorkflowRunID, result.StepID, result.Kind, result.Target, result.Check, boolInt(result.Passed), result.Message, formatTime(result.UpdatedAt))
+		if err != nil {
+			return fmt.Errorf("upsert step check %s/%s: %w", result.Kind, result.Target, err)
 		}
 	}
 	return nil
@@ -432,6 +513,9 @@ func (s *Store) DeleteWorkflowRun(ctx context.Context, id string) error {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.ExecContext(ctx, `DELETE FROM step_check_results WHERE workflow_run_id = ?`, id); err != nil {
+		return fmt.Errorf("delete step check results: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM artifacts WHERE workflow_run_id = ?`, id); err != nil {
 		return fmt.Errorf("delete artifacts: %w", err)
 	}
@@ -480,7 +564,7 @@ func (s *Store) listStepRuns(ctx context.Context, workflowRunID string) ([]StepR
 }
 
 func (s *Store) listArtifacts(ctx context.Context, workflowRunID string) ([]Artifact, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT workflow_run_id, step_id, name, relative_path, absolute_path, required, artifact_exists, updated_at FROM artifacts WHERE workflow_run_id = ? ORDER BY step_id, name`, workflowRunID)
+	rows, err := s.db.QueryContext(ctx, `SELECT workflow_run_id, name, relative_path, absolute_path, required, artifact_exists, updated_at FROM artifacts WHERE workflow_run_id = ? ORDER BY name`, workflowRunID)
 	if err != nil {
 		return nil, fmt.Errorf("list artifacts: %w", err)
 	}
@@ -497,6 +581,30 @@ func (s *Store) listArtifacts(ctx context.Context, workflowRunID string) ([]Arti
 		return nil, fmt.Errorf("list artifacts: %w", err)
 	}
 	return artifacts, nil
+}
+
+func (s *Store) listStepCheckResults(ctx context.Context, workflowRunID string) ([]StepCheckResult, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT workflow_run_id, step_id, kind, target, check_name, passed, message, updated_at FROM step_check_results WHERE workflow_run_id = ? ORDER BY step_id, kind, target, check_name`, workflowRunID)
+	if err != nil {
+		return nil, fmt.Errorf("list step check results: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var results []StepCheckResult
+	for rows.Next() {
+		var result StepCheckResult
+		var passed int
+		var updatedAt string
+		if err := rows.Scan(&result.WorkflowRunID, &result.StepID, &result.Kind, &result.Target, &result.Check, &passed, &result.Message, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan step check result: %w", err)
+		}
+		result.Passed = passed != 0
+		result.UpdatedAt = parseStoredTime(updatedAt)
+		results = append(results, result)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list step check results: %w", err)
+	}
+	return results, nil
 }
 
 func scanRunRequest(row interface{ Scan(...any) error }) (RunRequest, error) {
@@ -548,7 +656,7 @@ func scanArtifact(row interface{ Scan(...any) error }) (Artifact, error) {
 	var required int
 	var exists int
 	var updatedAt string
-	if err := row.Scan(&artifact.WorkflowRunID, &artifact.StepID, &artifact.Name, &artifact.RelativePath, &artifact.AbsolutePath, &required, &exists, &updatedAt); err != nil {
+	if err := row.Scan(&artifact.WorkflowRunID, &artifact.Name, &artifact.RelativePath, &artifact.AbsolutePath, &required, &exists, &updatedAt); err != nil {
 		return Artifact{}, fmt.Errorf("scan artifact: %w", err)
 	}
 	artifact.Required = required != 0

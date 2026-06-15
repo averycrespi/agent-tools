@@ -13,21 +13,21 @@
 
 ## Workflow model
 
-V1 workflow definitions contain only `name`, `description`, `repo`, flat typed `inputs`, named `agents`, and ordered `steps` with `id`, `agent`, optional `needs`, `prompt`, and declared `artifacts`.
+V1 workflow definitions contain only `name`, `description`, `repo`, flat typed `inputs`, named `agents`, root `artifacts`, and ordered `steps` with `id`, `agent`, optional `needs`, `prompt`, and optional `produces` artifact postconditions.
 
 A workflow run creates exactly one worktree. All step runs use that same worktree. Step execution is serial and deterministic: ready steps are considered in workflow-file order, and V1 runs at most one backing `pd` task at a time.
 
-Prompts render validated inputs and the `artifact_path "name"` helper. Artifact names are unique across a workflow so any step can reference any declared artifact path, including artifacts from previous steps. Artifact paths are relative to the workflow run artifact root. After a backing step succeeds, missing required artifacts fail the step and the workflow; dependent steps are recorded as `skipped`.
+Prompts render validated inputs and declared artifact paths through `.Inputs.<name>` and `.Artifacts.<name>`. Artifact declarations live at the workflow root, names must be template-safe identifiers, and paths are relative to the workflow run artifact root. Step `produces` entries are postconditions that run only after the backing `pd` step succeeds. `exists` requires a regular file at the artifact path; `non_empty` additionally requires size greater than zero bytes. Failed postconditions fail the step and workflow, and dependent steps are recorded as `skipped`.
 
 ## State
 
 `po` stores configuration in `~/.config/po/config.json`. V1 config fields are `database_path`, `workflow_dir`, and `artifact_parent_dir`; `po config refresh` writes those fields with resolved XDG defaults. `--workflow-dir` overrides the configured workflow directory for one invocation, while `PO_WORKFLOW_DIR` and `PO_ARTIFACT_PARENT_DIR` override the corresponding config fields.
 
-`po` stores state in SQLite at the configured `database_path`, defaulting to `~/.local/state/po/po.db`. The schema tracks accepted run requests, workflow runs, step runs, and artifacts. Workflow run states are `starting`, `running`, `succeeded`, `failed`, `stopping`, `stopped`, and `unknown`. Step runs use the same states plus `skipped`. Inspection commands reconcile non-terminal workflow runs whose supervisor process is missing to `unknown` rather than leaving them indefinitely active.
+`po` stores state in SQLite at the configured `database_path`, defaulting to `~/.local/state/po/po.db`. The schema tracks accepted run requests, workflow runs, step runs, workflow-level artifacts, and step check results. Workflow run states are `starting`, `running`, `succeeded`, `failed`, `stopping`, `stopped`, and `unknown`. Step runs use the same states plus `skipped`. Inspection commands reconcile non-terminal workflow runs whose supervisor process is missing to `unknown` rather than leaving them indefinitely active.
 
 ## Artifacts
 
-Each workflow run uses a per-run artifact root under the configured artifact parent. `po run` verifies the artifact parent exists on the host and is visible inside the sandbox at the same absolute path before creating the workflow run. `po cleanup` removes terminal workflow worktrees through `wt` safety semantics and removes `po`-owned artifact directories directly.
+Each workflow run uses a per-run artifact root under the configured artifact parent. Root artifact rows are initialized as workflow-level metadata for declared artifacts and are not owned by a step. Step `produces` checks record provenance as step check results, showing which step validated an artifact and which check passed or failed. `po run` verifies the artifact parent exists on the host and is visible inside the sandbox at the same absolute path before creating the workflow run. `po cleanup` removes terminal workflow worktrees through `wt` safety semantics and removes `po`-owned artifact directories directly.
 
 ## Dashboard
 

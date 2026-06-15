@@ -75,6 +75,44 @@ func TestRunCommandRejectsInvalidAndUnknownInputsBeforeCreatingWorktree(t *testi
 	}
 }
 
+func TestRunCommandRejectsInvalidPromptTemplateBeforeCreatingWorktree(t *testing.T) {
+	dir := t.TempDir()
+	writeWorkflow(t, dir, "review", `name: review
+repo: "{{ .Inputs.repo }}"
+inputs:
+  repo:
+    type: string
+    required: true
+agents:
+  reviewer:
+    model: gpt-5.1-codex
+artifacts:
+  findings:
+    path: findings.md
+steps:
+  - id: review
+    agent: reviewer
+    prompt: '{{ artifact_path "findings" }}'
+`)
+	stateDir := filepath.Join(t.TempDir(), "state")
+	cfg = testConfig(t, dir, stateDir)
+	validateArtifactParent = func(string) error { return nil }
+	calls := 0
+	newWorktreeClient = func() (worktreeClient, error) {
+		calls++
+		return fakeWorktreeClient{path: "/worktree/review"}, nil
+	}
+	t.Cleanup(resetRunTestHooks)
+
+	_, err := executeCommand("--workflow-dir", dir, "run", "review", "--input", "repo=/repo")
+	if err == nil || !strings.Contains(err.Error(), `function "artifact_path" not defined`) {
+		t.Fatalf("run error = %v, want artifact_path rejection", err)
+	}
+	if calls != 0 {
+		t.Fatalf("worktree calls = %d, want 0", calls)
+	}
+}
+
 func TestRunCommandRejectsWorkflowPathTraversalBeforeCreatingWorktree(t *testing.T) {
 	dir := t.TempDir()
 	stateDir := filepath.Join(t.TempDir(), "state")
@@ -252,6 +290,13 @@ func TestRunCommandCreatesWorkflowRunWithOneWorktree(t *testing.T) {
 	if run.ArtifactRoot != filepath.Join(stateDir, "po", "artifacts", run.ID) {
 		t.Fatalf("ArtifactRoot = %q", run.ArtifactRoot)
 	}
+	detail, err := db.GetWorkflowRunDetail(context.Background(), run.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunDetail() error = %v", err)
+	}
+	if len(detail.Artifacts) != 1 || detail.Artifacts[0].Name != "findings" || detail.Artifacts[0].Exists {
+		t.Fatalf("artifacts = %+v, want initialized missing findings artifact", detail.Artifacts)
+	}
 }
 
 func runWorkflowYAML(name string) string {
@@ -267,10 +312,15 @@ inputs:
 agents:
   reviewer:
     model: gpt-5.1-codex
+artifacts:
+  findings:
+    path: findings.md
 steps:
   - id: review
     agent: reviewer
-    prompt: review
+    prompt: "write {{ .Artifacts.findings }}"
+    produces:
+      findings: non_empty
 `
 }
 

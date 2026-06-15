@@ -95,7 +95,17 @@ func showWorkflowRunStatus(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		for _, artifact := range detail.Artifacts {
-			if _, err := fmt.Fprintf(tw, "  %s\tstep=%s\trequired=%t\texists=%t\t%s\n", artifact.Name, artifact.StepID, artifact.Required, artifact.Exists, artifact.AbsolutePath); err != nil {
+			if _, err := fmt.Fprintf(tw, "  %s\texists=%t\t%s\n", artifact.Name, artifact.Exists, artifact.AbsolutePath); err != nil {
+				return err
+			}
+		}
+	}
+	if len(detail.CheckResults) > 0 {
+		if _, err := fmt.Fprintln(tw, "Checks:"); err != nil {
+			return err
+		}
+		for _, result := range detail.CheckResults {
+			if _, err := fmt.Fprintf(tw, "  %s\t%s\ttarget=%s\tcheck=%s\tpassed=%t\t%s\n", result.StepID, result.Kind, result.Target, result.Check, result.Passed, result.Message); err != nil {
 				return err
 			}
 		}
