@@ -108,7 +108,7 @@ Mutation methods are rejected. Rotate the dashboard auth token with `po token ro
 
 - `list_workflows` summarizes workflow definitions from the configured workflow directory, including validation status, inputs, agents, steps, artifact declarations, and source paths without prompt bodies.
 - `get_workflow` returns one named workflow definition under the workflow directory, including raw YAML and parsed prompts because that definition content was explicitly requested.
-- `list_workflow_runs` returns persisted run summaries and progress metadata without raw workflow YAML or inputs JSON.
+- `list_workflow_runs` returns a default-bounded, offset/limit-paginated page of persisted run summaries and progress metadata without raw workflow YAML or inputs JSON.
 - `get_workflow_run` returns persisted run, step, artifact, cleanup, backing `pd` ID, and local path metadata without raw workflow YAML, inputs JSON, prompt text, or unbounded event/log content.
 - `get_workflow_run_logs` and `get_step_logs` return bounded offset/limit windows for supervisor logs and backing `pd` stdout/stderr logs, with size, next offset, and truncation metadata.
 

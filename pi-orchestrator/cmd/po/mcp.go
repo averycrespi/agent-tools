@@ -12,12 +12,17 @@ import (
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
 	Short: "Serve the read-only MCP server",
-	Args:  cobra.NoArgs,
-	RunE:  runMCP,
+	Args: func(_ *cobra.Command, args []string) error {
+		if len(args) != 0 {
+			return fmt.Errorf("po mcp accepts no positional arguments")
+		}
+		return nil
+	},
+	RunE: runMCP,
 }
 
 func runMCP(_ *cobra.Command, _ []string) error {
-	st, err := store.Open(cfg.DBPath())
+	st, err := store.OpenReadOnly(cfg.DBPath())
 	if err != nil {
 		return fmt.Errorf("opening store: %w", err)
 	}

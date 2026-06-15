@@ -19,8 +19,10 @@ import (
 )
 
 const (
-	DefaultLogLimit = 64 * 1024
-	MaxLogLimit     = 1024 * 1024
+	DefaultLogLimit     = 64 * 1024
+	MaxLogLimit         = 1024 * 1024
+	DefaultRunListLimit = 100
+	MaxRunListLimit     = 1000
 )
 
 var annReadLocal = gomcp.ToolAnnotation{
@@ -29,7 +31,7 @@ var annReadLocal = gomcp.ToolAnnotation{
 }
 
 type Store interface {
-	ListWorkflowRunSummaries(context.Context) ([]store.WorkflowRunSummary, error)
+	ListWorkflowRunSummariesPage(context.Context, int, int) ([]store.WorkflowRunSummary, error)
 	GetWorkflowRunDetail(context.Context, string) (store.WorkflowRunDetail, error)
 	GetWorkflowRun(context.Context, string) (store.WorkflowRun, error)
 	GetWorkflowStepRun(context.Context, string, string) (store.StepRun, error)
@@ -119,6 +121,14 @@ type RunSummary struct {
 	Progress     map[string]any      `json:"progress"`
 }
 
+type RunList struct {
+	Runs       []RunSummary `json:"runs"`
+	Offset     int          `json:"offset"`
+	Limit      int          `json:"limit"`
+	NextOffset int          `json:"next_offset"`
+	HasMore    bool         `json:"has_more"`
+}
+
 type RunDetail struct {
 	Run       RunDetailSummary `json:"run"`
 	Steps     []StepRunView    `json:"steps"`
@@ -194,7 +204,7 @@ func (h *Handler) Tools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{Name: "list_workflows", Description: "List configured Pi Orchestrator workflow-definition summaries without prompt bodies", Annotations: annReadLocal, InputSchema: gomcp.ToolInputSchema{Type: "object", Properties: map[string]any{}}},
 		{Name: "get_workflow", Description: "Get one validated Pi Orchestrator workflow definition including raw YAML", Annotations: annReadLocal, InputSchema: gomcp.ToolInputSchema{Type: "object", Properties: map[string]any{"workflow": map[string]any{"type": "string", "description": "Workflow name"}}, Required: []string{"workflow"}}},
-		{Name: "list_workflow_runs", Description: "List Pi Orchestrator workflow-run summaries from persisted state", Annotations: annReadLocal, InputSchema: gomcp.ToolInputSchema{Type: "object", Properties: map[string]any{}}},
+		{Name: "list_workflow_runs", Description: "List Pi Orchestrator workflow-run summaries from persisted state", Annotations: annReadLocal, InputSchema: gomcp.ToolInputSchema{Type: "object", Properties: map[string]any{"offset": map[string]any{"type": "number", "description": "Run offset to start listing from (default: 0)"}, "limit": map[string]any{"type": "number", "description": "Maximum runs to return (default: 100)"}}}},
 		{Name: "get_workflow_run", Description: "Get one Pi Orchestrator workflow-run detail from persisted state", Annotations: annReadLocal, InputSchema: gomcp.ToolInputSchema{Type: "object", Properties: map[string]any{"run_id": map[string]any{"type": "string", "description": "Workflow run ID"}}, Required: []string{"run_id"}}},
 		{Name: "get_workflow_run_logs", Description: "Read a bounded supervisor log window for a Pi Orchestrator workflow run", Annotations: annReadLocal, InputSchema: gomcp.ToolInputSchema{Type: "object", Properties: map[string]any{"run_id": map[string]any{"type": "string", "description": "Workflow run ID"}, "offset": map[string]any{"type": "number", "description": "Byte offset to start reading from (default: 0)"}, "limit": map[string]any{"type": "number", "description": "Maximum bytes to read (default: 65536)"}}, Required: []string{"run_id"}}},
 		{Name: "get_step_logs", Description: "Read a bounded stdout or stderr log window for one workflow step's backing pd run", Annotations: annReadLocal, InputSchema: gomcp.ToolInputSchema{Type: "object", Properties: map[string]any{"run_id": map[string]any{"type": "string", "description": "Workflow run ID"}, "step_id": map[string]any{"type": "string", "description": "Workflow step ID"}, "stream": map[string]any{"type": "string", "description": "Log stream to read: stdout or stderr (default: stdout)"}, "offset": map[string]any{"type": "number", "description": "Byte offset to start reading from (default: 0)"}, "limit": map[string]any{"type": "number", "description": "Maximum bytes to read (default: 65536)"}}, Required: []string{"run_id", "step_id"}}},
@@ -208,7 +218,7 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 	case "get_workflow":
 		return h.getWorkflow(req.GetArguments())
 	case "list_workflow_runs":
-		return h.listWorkflowRuns(ctx)
+		return h.listWorkflowRuns(ctx, req.GetArguments())
 	case "get_workflow_run":
 		return h.getWorkflowRun(ctx, req.GetArguments())
 	case "get_workflow_run_logs":
@@ -268,16 +278,24 @@ func (h *Handler) getWorkflow(args map[string]any) (*gomcp.CallToolResult, error
 	return jsonResult(workflowDetail(summary, string(data), workflowStepDetails(def)))
 }
 
-func (h *Handler) listWorkflowRuns(ctx context.Context) (*gomcp.CallToolResult, error) {
-	summaries, err := h.store.ListWorkflowRunSummaries(ctx)
+func (h *Handler) listWorkflowRuns(ctx context.Context, args map[string]any) (*gomcp.CallToolResult, error) {
+	offset, limit, result := parseRunListArgs(args)
+	if result != nil {
+		return result, nil
+	}
+	summaries, err := h.store.ListWorkflowRunSummariesPage(ctx, limit+1, offset)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	hasMore := len(summaries) > limit
+	if hasMore {
+		summaries = summaries[:limit]
 	}
 	runs := make([]RunSummary, 0, len(summaries))
 	for _, summary := range summaries {
 		runs = append(runs, runSummaryView(summary))
 	}
-	return jsonResult(map[string]any{"runs": runs})
+	return jsonResult(RunList{Runs: runs, Offset: offset, Limit: limit, NextOffset: offset + len(runs), HasMore: hasMore})
 }
 
 func (h *Handler) getWorkflowRun(ctx context.Context, args map[string]any) (*gomcp.CallToolResult, error) {
@@ -451,6 +469,21 @@ func artifactViews(artifacts []store.Artifact) []ArtifactView {
 		out = append(out, ArtifactView{WorkflowRunID: artifact.WorkflowRunID, StepID: artifact.StepID, Name: artifact.Name, RelativePath: artifact.RelativePath, AbsolutePath: artifact.AbsolutePath, Required: artifact.Required, Exists: artifact.Exists, UpdatedAt: artifact.UpdatedAt})
 	}
 	return out
+}
+
+func parseRunListArgs(args map[string]any) (int, int, *gomcp.CallToolResult) {
+	offset, err := intOrDefault(args, "offset", 0)
+	if err != nil || offset < 0 {
+		return 0, 0, gomcp.NewToolResultError("offset must be a non-negative integer")
+	}
+	limit, err := intOrDefault(args, "limit", DefaultRunListLimit)
+	if err != nil || limit < 0 {
+		return 0, 0, gomcp.NewToolResultError("limit must be a non-negative integer")
+	}
+	if limit > MaxRunListLimit {
+		return 0, 0, gomcp.NewToolResultError(fmt.Sprintf("limit must be less than or equal to %d", MaxRunListLimit))
+	}
+	return offset, limit, nil
 }
 
 func parseLogWindowArgs(args map[string]any) (int64, int, *gomcp.CallToolResult) {

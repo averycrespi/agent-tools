@@ -24,7 +24,9 @@ func TestToolDefinitionsAreReadOnlyLocal(t *testing.T) {
 	if got := toolNames(tools); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tool names = %v, want %v", got, want)
 	}
+	byName := map[string]gomcp.Tool{}
 	for _, tool := range tools {
+		byName[tool.Name] = tool
 		if tool.Annotations.ReadOnlyHint == nil || !*tool.Annotations.ReadOnlyHint {
 			t.Fatalf("tool %s missing read-only hint", tool.Name)
 		}
@@ -32,6 +34,13 @@ func TestToolDefinitionsAreReadOnlyLocal(t *testing.T) {
 			t.Fatalf("tool %s missing local closed-world hint", tool.Name)
 		}
 	}
+	assertRequired(t, byName["get_workflow"], []string{"workflow"})
+	assertRequired(t, byName["get_workflow_run"], []string{"run_id"})
+	assertRequired(t, byName["get_workflow_run_logs"], []string{"run_id"})
+	assertRequired(t, byName["get_step_logs"], []string{"run_id", "step_id"})
+	assertProperties(t, byName["list_workflow_runs"], []string{"offset", "limit"})
+	assertProperties(t, byName["get_workflow_run_logs"], []string{"run_id", "offset", "limit"})
+	assertProperties(t, byName["get_step_logs"], []string{"run_id", "step_id", "stream", "offset", "limit"})
 }
 
 func TestListWorkflowsSummarizesDefinitionsAndInvalidFiles(t *testing.T) {
@@ -69,6 +78,12 @@ func TestListWorkflowsSummarizesDefinitionsAndInvalidFiles(t *testing.T) {
 	}
 	if payload.Workflows[1].Inputs[0].Name != "ticket" || payload.Workflows[1].Agents[0].Model != "gpt-5" || payload.Workflows[1].Steps[0].ID != "plan" {
 		t.Fatalf("summary = %+v, want parsed metadata", payload.Workflows[1])
+	}
+	if got := payload.Workflows[1].Steps[1].Needs; !reflect.DeepEqual(got, []string{"plan"}) {
+		t.Fatalf("needs = %v, want [plan]", got)
+	}
+	if payload.Workflows[1].Artifacts[0].Name != "plan" || payload.Workflows[1].Artifacts[0].StepID != "plan" || !payload.Workflows[1].Artifacts[0].Required {
+		t.Fatalf("artifacts = %+v, want plan artifact metadata", payload.Workflows[1].Artifacts)
 	}
 }
 
@@ -113,12 +128,10 @@ func TestListWorkflowRunsAndGetWorkflowRunOmitSensitiveFields(t *testing.T) {
 	}
 	listBody := toolText(t, listResult)
 	assertNotContainsSensitiveRunData(t, listBody)
-	var listPayload struct {
-		Runs []RunSummary `json:"runs"`
-	}
+	var listPayload RunList
 	decodeToolText(t, listResult, &listPayload)
-	if len(listPayload.Runs) != 1 || listPayload.Runs[0].StepTotal != 2 || listPayload.Runs[0].StepPending != 1 {
-		t.Fatalf("runs = %+v, want one run with progress", listPayload.Runs)
+	if len(listPayload.Runs) != 1 || listPayload.Runs[0].StepTotal != 2 || listPayload.Runs[0].StepPending != 1 || listPayload.Limit != DefaultRunListLimit || listPayload.NextOffset != 1 || listPayload.HasMore {
+		t.Fatalf("runs = %+v, page = %+v, want one run with progress and page metadata", listPayload.Runs, listPayload)
 	}
 
 	detailResult, err := h.Handle(context.Background(), toolRequest("get_workflow_run", map[string]any{"run_id": runID}))
@@ -159,6 +172,28 @@ func TestLogToolsReturnBoundedWindows(t *testing.T) {
 	}
 }
 
+func TestListWorkflowRunsReturnsBoundedPages(t *testing.T) {
+	st := pageStore{summaries: []store.WorkflowRunSummary{
+		{ID: "run-1", Workflow: "sample", State: store.StateRunning},
+		{ID: "run-2", Workflow: "sample", State: store.StateSucceeded},
+		{ID: "run-3", Workflow: "sample", State: store.StateFailed},
+	}}
+	h := NewHandler(&st, t.TempDir())
+
+	result, err := h.Handle(context.Background(), toolRequest("list_workflow_runs", map[string]any{"offset": float64(1), "limit": float64(1)}))
+	if err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	var payload RunList
+	decodeToolText(t, result, &payload)
+	if st.limit != 2 || st.offset != 1 {
+		t.Fatalf("store page = limit %d offset %d, want limit+1 2 and offset 1", st.limit, st.offset)
+	}
+	if len(payload.Runs) != 1 || payload.Runs[0].ID != "run-1" || payload.Offset != 1 || payload.Limit != 1 || payload.NextOffset != 2 || !payload.HasMore {
+		t.Fatalf("payload = %+v, want one-run bounded page with has_more", payload)
+	}
+}
+
 func TestLogValidationAndMissingIDsReturnToolErrors(t *testing.T) {
 	st, runID := testStore(t)
 	h := NewHandler(st, t.TempDir())
@@ -172,6 +207,8 @@ func TestLogValidationAndMissingIDsReturnToolErrors(t *testing.T) {
 		{name: "negative offset", tool: "get_workflow_run_logs", args: map[string]any{"run_id": runID, "offset": float64(-1)}, message: "offset must be a non-negative integer"},
 		{name: "fractional limit", tool: "get_workflow_run_logs", args: map[string]any{"run_id": runID, "limit": 1.5}, message: "limit must be a non-negative integer"},
 		{name: "oversized limit", tool: "get_workflow_run_logs", args: map[string]any{"run_id": runID, "limit": float64(MaxLogLimit + 1)}, message: "limit must be less than or equal to 1048576"},
+		{name: "run list negative offset", tool: "list_workflow_runs", args: map[string]any{"offset": float64(-1)}, message: "offset must be a non-negative integer"},
+		{name: "run list oversized limit", tool: "list_workflow_runs", args: map[string]any{"limit": float64(MaxRunListLimit + 1)}, message: "limit must be less than or equal to 1000"},
 		{name: "missing step", tool: "get_step_logs", args: map[string]any{"run_id": runID}, message: "step_id is required"},
 		{name: "bad stream", tool: "get_step_logs", args: map[string]any{"run_id": runID, "step_id": "plan", "stream": "events"}, message: "stream must be stdout or stderr"},
 		{name: "non string stream", tool: "get_step_logs", args: map[string]any{"run_id": runID, "step_id": "plan", "stream": float64(123)}, message: "stream must be stdout or stderr"},
@@ -258,7 +295,7 @@ type failingStore struct {
 	err error
 }
 
-func (s failingStore) ListWorkflowRunSummaries(context.Context) ([]store.WorkflowRunSummary, error) {
+func (s failingStore) ListWorkflowRunSummariesPage(context.Context, int, int) ([]store.WorkflowRunSummary, error) {
 	return nil, s.err
 }
 
@@ -289,6 +326,22 @@ func toolNames(tools []gomcp.Tool) []string {
 		names = append(names, tool.Name)
 	}
 	return names
+}
+
+func assertRequired(t *testing.T, tool gomcp.Tool, want []string) {
+	t.Helper()
+	if !reflect.DeepEqual(tool.InputSchema.Required, want) {
+		t.Fatalf("tool %s required = %v, want %v", tool.Name, tool.InputSchema.Required, want)
+	}
+}
+
+func assertProperties(t *testing.T, tool gomcp.Tool, want []string) {
+	t.Helper()
+	for _, name := range want {
+		if _, ok := tool.InputSchema.Properties[name]; !ok {
+			t.Fatalf("tool %s missing property %s", tool.Name, name)
+		}
+	}
 }
 
 func decodeToolText(t *testing.T, result *gomcp.CallToolResult, out any) {
@@ -331,6 +384,10 @@ steps:
       - name: plan
         path: plan.md
         required: true
+  - id: review
+    agent: planner
+    needs: [plan]
+    prompt: review
 `
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o600); err != nil {
 		t.Fatal(err)
@@ -376,6 +433,30 @@ func testStore(t *testing.T) (*store.Store, string) {
 		t.Fatal(err)
 	}
 	return st, run.ID
+}
+
+type pageStore struct {
+	summaries []store.WorkflowRunSummary
+	limit     int
+	offset    int
+}
+
+func (s *pageStore) ListWorkflowRunSummariesPage(_ context.Context, limit int, offset int) ([]store.WorkflowRunSummary, error) {
+	s.limit = limit
+	s.offset = offset
+	return s.summaries, nil
+}
+
+func (s *pageStore) GetWorkflowRunDetail(context.Context, string) (store.WorkflowRunDetail, error) {
+	return store.WorkflowRunDetail{}, sql.ErrNoRows
+}
+
+func (s *pageStore) GetWorkflowRun(context.Context, string) (store.WorkflowRun, error) {
+	return store.WorkflowRun{}, sql.ErrNoRows
+}
+
+func (s *pageStore) GetWorkflowStepRun(context.Context, string, string) (store.StepRun, error) {
+	return store.StepRun{}, sql.ErrNoRows
 }
 
 func assertNotContainsSensitiveRunData(t *testing.T, body string) {

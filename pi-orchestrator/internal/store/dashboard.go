@@ -34,6 +34,22 @@ func (s *Store) ListWorkflowRunSummaries(ctx context.Context) ([]WorkflowRunSumm
 	if err != nil {
 		return nil, err
 	}
+	return workflowRunSummaries(runs, countsByRun), nil
+}
+
+func (s *Store) ListWorkflowRunSummariesPage(ctx context.Context, limit int, offset int) ([]WorkflowRunSummary, error) {
+	runs, err := s.listWorkflowRunsPage(ctx, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	countsByRun, err := s.stepCountsForWorkflowRunPage(ctx, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	return workflowRunSummaries(runs, countsByRun), nil
+}
+
+func workflowRunSummaries(runs []WorkflowRun, countsByRun map[string]map[State]int) []WorkflowRunSummary {
 	summaries := make([]WorkflowRunSummary, 0, len(runs))
 	for _, run := range runs {
 		stepCounts := countsByRun[run.ID]
@@ -43,7 +59,7 @@ func (s *Store) ListWorkflowRunSummaries(ctx context.Context) ([]WorkflowRunSumm
 		stepTotal, stepPending := stepProgress(run.DefinitionYAML, stepCounts)
 		summaries = append(summaries, WorkflowRunSummary{ID: run.ID, Workflow: run.Workflow, State: run.State, Repo: run.Repo, Branch: run.Branch, WorktreePath: run.WorktreePath, ArtifactRoot: run.ArtifactRoot, InputsJSON: run.InputsJSON, Outcome: run.Outcome, CreatedAt: run.CreatedAt.Format(time.RFC3339), UpdatedAt: run.UpdatedAt.Format(time.RFC3339), StepCounts: stepCounts, StepTotal: stepTotal, StepPending: stepPending})
 	}
-	return summaries, nil
+	return summaries
 }
 
 type workflowStepList struct {
@@ -72,6 +88,23 @@ func (s *Store) stepCountsByWorkflowRun(ctx context.Context) (map[string]map[Sta
 	if err != nil {
 		return nil, fmt.Errorf("query step counts: %w", err)
 	}
+	return scanStepCounts(rows)
+}
+
+func (s *Store) stepCountsForWorkflowRunPage(ctx context.Context, limit int, offset int) (map[string]map[State]int, error) {
+	rows, err := s.db.QueryContext(ctx, `WITH selected_runs AS (SELECT id FROM workflow_runs ORDER BY created_at DESC LIMIT ? OFFSET ?) SELECT step_runs.workflow_run_id, step_runs.state, COUNT(*) FROM step_runs JOIN selected_runs ON selected_runs.id = step_runs.workflow_run_id GROUP BY step_runs.workflow_run_id, step_runs.state`, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("query step counts: %w", err)
+	}
+	return scanStepCounts(rows)
+}
+
+func scanStepCounts(rows interface {
+	Close() error
+	Next() bool
+	Scan(...any) error
+	Err() error
+}) (map[string]map[State]int, error) {
 	defer rows.Close() //nolint:errcheck
 	countsByRun := map[string]map[State]int{}
 	for rows.Next() {

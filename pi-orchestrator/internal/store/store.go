@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -198,6 +199,19 @@ func Open(path string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
+func OpenReadOnly(path string) (*Store, error) {
+	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro"}).String()
+	db, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open store read-only: %w", err)
+	}
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("open store read-only: %w", err)
+	}
+	return &Store{db: db}, nil
+}
+
 func ensureWorkflowDefinitionColumns(db *sql.DB) error {
 	columns, err := tableColumns(db, "workflow_runs")
 	if err != nil {
@@ -323,19 +337,15 @@ func (s *Store) ListWorkflowRuns(ctx context.Context) ([]WorkflowRun, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list workflow runs: %w", err)
 	}
-	defer rows.Close() //nolint:errcheck
-	var runs []WorkflowRun
-	for rows.Next() {
-		run, err := scanWorkflowRun(rows)
-		if err != nil {
-			return nil, err
-		}
-		runs = append(runs, run)
-	}
-	if err := rows.Err(); err != nil {
+	return scanWorkflowRuns(rows)
+}
+
+func (s *Store) listWorkflowRunsPage(ctx context.Context, limit int, offset int) ([]WorkflowRun, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, request_id, workflow, definition_hash, definition_yaml, inputs_json, repo, branch, worktree_path, artifact_root, state, supervisor_pid, supervisor_log_path, outcome, cleanup_status, cleanup_error, cleanup_attempted_at, created_at, updated_at, ended_at FROM workflow_runs ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset)
+	if err != nil {
 		return nil, fmt.Errorf("list workflow runs: %w", err)
 	}
-	return runs, nil
+	return scanWorkflowRuns(rows)
 }
 
 func (s *Store) CreateStepRun(ctx context.Context, step StepRun, artifacts []Artifact) error {
@@ -502,6 +512,22 @@ func (s *Store) listArtifacts(ctx context.Context, workflowRunID string) ([]Arti
 		return nil, fmt.Errorf("list artifacts: %w", err)
 	}
 	return artifacts, nil
+}
+
+func scanWorkflowRuns(rows *sql.Rows) ([]WorkflowRun, error) {
+	defer rows.Close() //nolint:errcheck
+	var runs []WorkflowRun
+	for rows.Next() {
+		run, err := scanWorkflowRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list workflow runs: %w", err)
+	}
+	return runs, nil
 }
 
 func scanRunRequest(row interface{ Scan(...any) error }) (RunRequest, error) {

@@ -31,6 +31,24 @@ func TestListWorkflowRunSummariesUsesEmptyStepCountsForRunsWithoutSteps(t *testi
 	}
 }
 
+func TestListWorkflowRunSummariesPageBoundsRuns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := openTestStore(t)
+	defer db.Close() //nolint:errcheck
+	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
+	createWorkflowRun(t, ctx, db, now)
+	createWorkflowRunWithID(t, ctx, db, "run-2", "req-2", now.Add(time.Minute))
+
+	summaries, err := db.ListWorkflowRunSummariesPage(ctx, 1, 1)
+	if err != nil {
+		t.Fatalf("ListWorkflowRunSummariesPage() error = %v", err)
+	}
+	if len(summaries) != 1 || summaries[0].ID != "run-1" {
+		t.Fatalf("summaries = %+v, want second page containing run-1", summaries)
+	}
+}
+
 func TestListWorkflowRunSummariesIncludesStepCounts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
