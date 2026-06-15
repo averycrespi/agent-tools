@@ -177,8 +177,15 @@ func (d *Definition) Validate(filenameStem string) error {
 
 func ValidatePromptTemplate(stepID string, prompt string, inputs map[string]InputSchema, artifacts map[string]RootArtifact) error {
 	inputData := make(map[string]any, len(inputs))
-	for name := range inputs {
-		inputData[name] = ""
+	for name, input := range inputs {
+		switch input.Type {
+		case InputInteger:
+			inputData[name] = 0
+		case InputBoolean:
+			inputData[name] = false
+		default:
+			inputData[name] = ""
+		}
 	}
 	artifactData := make(map[string]string, len(artifacts))
 	for name := range artifacts {

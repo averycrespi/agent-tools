@@ -58,6 +58,31 @@ steps:
 	}
 }
 
+func TestLoadFileValidatesPromptTemplatesWithTypedInputData(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+inputs:
+  count:
+    type: integer
+  draft:
+    type: boolean
+agents:
+  runner:
+    model: gpt-5.1-codex
+steps:
+  - id: run
+    agent: runner
+    prompt: '{{ if eq .Inputs.count 0 }}zero{{ end }} {{ if not .Inputs.draft }}not draft{{ end }}'
+`)
+
+	if _, err := LoadFile(path); err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+}
+
 func TestLoadFileRejectsFilenameNameMismatch(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
