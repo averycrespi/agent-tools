@@ -33,8 +33,9 @@ var annReadLocal = gomcp.ToolAnnotation{
 type Store interface {
 	ListWorkflowRunSummariesPage(context.Context, int, int) ([]store.WorkflowRunSummary, error)
 	GetWorkflowRunDetail(context.Context, string) (store.WorkflowRunDetail, error)
-	GetWorkflowRun(context.Context, string) (store.WorkflowRun, error)
-	GetWorkflowStepRun(context.Context, string, string) (store.StepRun, error)
+	WorkflowRunExists(context.Context, string) error
+	GetWorkflowRunSupervisorLogPath(context.Context, string) (string, error)
+	GetWorkflowStepLogPath(context.Context, string, string, string) (string, error)
 }
 
 type Handler struct {
@@ -322,14 +323,14 @@ func (h *Handler) getWorkflowRunLogs(ctx context.Context, args map[string]any) (
 	if result != nil {
 		return result, nil
 	}
-	run, err := h.store.GetWorkflowRun(ctx, runID)
+	path, err := h.store.GetWorkflowRunSupervisorLogPath(ctx, runID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return gomcp.NewToolResultError("workflow run not found"), nil
 		}
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	window, err := readLogWindow(run.SupervisorLogPath, "supervisor", offset, limit)
+	window, err := readLogWindow(path, "supervisor", offset, limit)
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
@@ -353,22 +354,18 @@ func (h *Handler) getStepLogs(ctx context.Context, args map[string]any) (*gomcp.
 	if result != nil {
 		return result, nil
 	}
-	if _, err := h.store.GetWorkflowRun(ctx, runID); err != nil {
+	if err := h.store.WorkflowRunExists(ctx, runID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return gomcp.NewToolResultError("workflow run not found"), nil
 		}
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	step, err := h.store.GetWorkflowStepRun(ctx, runID, stepID)
+	path, err := h.store.GetWorkflowStepLogPath(ctx, runID, stepID, stream)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return gomcp.NewToolResultError("workflow step not found"), nil
 		}
 		return gomcp.NewToolResultError(err.Error()), nil
-	}
-	path := step.PDStdoutPath
-	if stream == "stderr" {
-		path = step.PDStderrPath
 	}
 	window, err := readLogWindow(path, stream, offset, limit)
 	if err != nil {

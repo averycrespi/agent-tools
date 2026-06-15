@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -38,11 +39,15 @@ func (s *Store) ListWorkflowRunSummaries(ctx context.Context) ([]WorkflowRunSumm
 }
 
 func (s *Store) ListWorkflowRunSummariesPage(ctx context.Context, limit int, offset int) ([]WorkflowRunSummary, error) {
-	runs, err := s.listWorkflowRunsPage(ctx, limit, offset)
+	runs, err := s.listWorkflowRunSummariesPage(ctx, limit, offset)
 	if err != nil {
 		return nil, err
 	}
-	countsByRun, err := s.stepCountsForWorkflowRunPage(ctx, limit, offset)
+	return s.workflowRunSummariesForRuns(ctx, runs)
+}
+
+func (s *Store) workflowRunSummariesForRuns(ctx context.Context, runs []WorkflowRun) ([]WorkflowRunSummary, error) {
+	countsByRun, err := s.stepCountsForWorkflowRuns(ctx, runs)
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +96,17 @@ func (s *Store) stepCountsByWorkflowRun(ctx context.Context) (map[string]map[Sta
 	return scanStepCounts(rows)
 }
 
-func (s *Store) stepCountsForWorkflowRunPage(ctx context.Context, limit int, offset int) (map[string]map[State]int, error) {
-	rows, err := s.db.QueryContext(ctx, `WITH selected_runs AS (SELECT id FROM workflow_runs ORDER BY created_at DESC LIMIT ? OFFSET ?) SELECT step_runs.workflow_run_id, step_runs.state, COUNT(*) FROM step_runs JOIN selected_runs ON selected_runs.id = step_runs.workflow_run_id GROUP BY step_runs.workflow_run_id, step_runs.state`, limit, offset)
+func (s *Store) stepCountsForWorkflowRuns(ctx context.Context, runs []WorkflowRun) (map[string]map[State]int, error) {
+	if len(runs) == 0 {
+		return map[string]map[State]int{}, nil
+	}
+	placeholders := make([]string, len(runs))
+	args := make([]any, len(runs))
+	for i, run := range runs {
+		placeholders[i] = "?"
+		args[i] = run.ID
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT workflow_run_id, state, COUNT(*) FROM step_runs WHERE workflow_run_id IN (`+strings.Join(placeholders, ",")+`) GROUP BY workflow_run_id, state`, args...) //nolint:gosec // placeholders are generated constants; run IDs are passed as query parameters.
 	if err != nil {
 		return nil, fmt.Errorf("query step counts: %w", err)
 	}

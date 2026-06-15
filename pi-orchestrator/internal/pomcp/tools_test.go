@@ -189,7 +189,7 @@ func TestListWorkflowRunsReturnsBoundedPages(t *testing.T) {
 	if st.limit != 2 || st.offset != 1 {
 		t.Fatalf("store page = limit %d offset %d, want limit+1 2 and offset 1", st.limit, st.offset)
 	}
-	if len(payload.Runs) != 1 || payload.Runs[0].ID != "run-1" || payload.Offset != 1 || payload.Limit != 1 || payload.NextOffset != 2 || !payload.HasMore {
+	if len(payload.Runs) != 1 || payload.Runs[0].ID != "run-2" || payload.Offset != 1 || payload.Limit != 1 || payload.NextOffset != 2 || !payload.HasMore {
 		t.Fatalf("payload = %+v, want one-run bounded page with has_more", payload)
 	}
 }
@@ -216,6 +216,7 @@ func TestLogValidationAndMissingIDsReturnToolErrors(t *testing.T) {
 		{name: "missing run id for step logs", tool: "get_step_logs", args: map[string]any{"step_id": "plan"}, message: "run_id is required"},
 		{name: "unknown step", tool: "get_step_logs", args: map[string]any{"run_id": runID, "step_id": "missing"}, message: "workflow step not found"},
 		{name: "unknown run", tool: "get_workflow_run", args: map[string]any{"run_id": "missing"}, message: "workflow run not found"},
+		{name: "unknown run for workflow logs", tool: "get_workflow_run_logs", args: map[string]any{"run_id": "missing"}, message: "workflow run not found"},
 		{name: "unknown run for step logs", tool: "get_step_logs", args: map[string]any{"run_id": "missing", "step_id": "plan"}, message: "workflow run not found"},
 	}
 	for _, tt := range tests {
@@ -282,7 +283,17 @@ func TestStoreReadFailuresAndUnknownToolReturnToolErrors(t *testing.T) {
 		})
 	}
 
-	result, err := h.Handle(context.Background(), toolRequest("unknown", nil))
+	stepPathErr := errors.New("step log path unavailable")
+	h = NewHandler(stepPathFailingStore{err: stepPathErr}, t.TempDir())
+	result, err := h.Handle(context.Background(), toolRequest("get_step_logs", map[string]any{"run_id": "run-1", "step_id": "plan"}))
+	if err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if !result.IsError || !strings.Contains(toolText(t, result), stepPathErr.Error()) {
+		t.Fatalf("step path result error = %v text = %q", result.IsError, toolText(t, result))
+	}
+
+	result, err = h.Handle(context.Background(), toolRequest("unknown", nil))
 	if err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
@@ -295,6 +306,10 @@ type failingStore struct {
 	err error
 }
 
+type stepPathFailingStore struct {
+	err error
+}
+
 func (s failingStore) ListWorkflowRunSummariesPage(context.Context, int, int) ([]store.WorkflowRunSummary, error) {
 	return nil, s.err
 }
@@ -303,12 +318,36 @@ func (s failingStore) GetWorkflowRunDetail(context.Context, string) (store.Workf
 	return store.WorkflowRunDetail{}, s.err
 }
 
-func (s failingStore) GetWorkflowRun(context.Context, string) (store.WorkflowRun, error) {
-	return store.WorkflowRun{}, s.err
+func (s failingStore) WorkflowRunExists(context.Context, string) error {
+	return s.err
 }
 
-func (s failingStore) GetWorkflowStepRun(context.Context, string, string) (store.StepRun, error) {
-	return store.StepRun{}, s.err
+func (s failingStore) GetWorkflowRunSupervisorLogPath(context.Context, string) (string, error) {
+	return "", s.err
+}
+
+func (s failingStore) GetWorkflowStepLogPath(context.Context, string, string, string) (string, error) {
+	return "", s.err
+}
+
+func (s stepPathFailingStore) ListWorkflowRunSummariesPage(context.Context, int, int) ([]store.WorkflowRunSummary, error) {
+	return nil, sql.ErrNoRows
+}
+
+func (s stepPathFailingStore) GetWorkflowRunDetail(context.Context, string) (store.WorkflowRunDetail, error) {
+	return store.WorkflowRunDetail{}, sql.ErrNoRows
+}
+
+func (s stepPathFailingStore) WorkflowRunExists(context.Context, string) error {
+	return nil
+}
+
+func (s stepPathFailingStore) GetWorkflowRunSupervisorLogPath(context.Context, string) (string, error) {
+	return "", sql.ErrNoRows
+}
+
+func (s stepPathFailingStore) GetWorkflowStepLogPath(context.Context, string, string, string) (string, error) {
+	return "", s.err
 }
 
 func toolRequest(name string, args map[string]any) gomcp.CallToolRequest {
@@ -444,19 +483,30 @@ type pageStore struct {
 func (s *pageStore) ListWorkflowRunSummariesPage(_ context.Context, limit int, offset int) ([]store.WorkflowRunSummary, error) {
 	s.limit = limit
 	s.offset = offset
-	return s.summaries, nil
+	if offset >= len(s.summaries) {
+		return nil, nil
+	}
+	end := offset + limit
+	if end > len(s.summaries) {
+		end = len(s.summaries)
+	}
+	return s.summaries[offset:end], nil
 }
 
 func (s *pageStore) GetWorkflowRunDetail(context.Context, string) (store.WorkflowRunDetail, error) {
 	return store.WorkflowRunDetail{}, sql.ErrNoRows
 }
 
-func (s *pageStore) GetWorkflowRun(context.Context, string) (store.WorkflowRun, error) {
-	return store.WorkflowRun{}, sql.ErrNoRows
+func (s *pageStore) WorkflowRunExists(context.Context, string) error {
+	return sql.ErrNoRows
 }
 
-func (s *pageStore) GetWorkflowStepRun(context.Context, string, string) (store.StepRun, error) {
-	return store.StepRun{}, sql.ErrNoRows
+func (s *pageStore) GetWorkflowRunSupervisorLogPath(context.Context, string) (string, error) {
+	return "", sql.ErrNoRows
+}
+
+func (s *pageStore) GetWorkflowStepLogPath(context.Context, string, string, string) (string, error) {
+	return "", sql.ErrNoRows
 }
 
 func assertNotContainsSensitiveRunData(t *testing.T, body string) {
