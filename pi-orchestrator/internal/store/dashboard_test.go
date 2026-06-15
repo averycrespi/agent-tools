@@ -31,6 +31,46 @@ func TestListWorkflowRunSummariesUsesEmptyStepCountsForRunsWithoutSteps(t *testi
 	}
 }
 
+func TestListWorkflowRunSummariesPageBoundsRuns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := openTestStore(t)
+	defer db.Close() //nolint:errcheck
+	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
+	createWorkflowRun(t, ctx, db, now)
+	createWorkflowRunWithID(t, ctx, db, "run-2", "req-2", now.Add(time.Minute))
+
+	summaries, err := db.ListWorkflowRunSummariesPage(ctx, 1, 1)
+	if err != nil {
+		t.Fatalf("ListWorkflowRunSummariesPage() error = %v", err)
+	}
+	if len(summaries) != 1 || summaries[0].ID != "run-1" {
+		t.Fatalf("summaries = %+v, want second page containing run-1", summaries)
+	}
+}
+
+func TestListWorkflowRunSummariesPageCountsSelectedRuns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := openTestStore(t)
+	defer db.Close() //nolint:errcheck
+	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
+	createWorkflowRun(t, ctx, db, now)
+	createWorkflowRunWithID(t, ctx, db, "run-2", "req-2", now)
+	step := StepRun{WorkflowRunID: "run-2", StepID: "first", Agent: "reviewer", ExecutionIndex: 0, State: StateSucceeded, StartedAt: now, UpdatedAt: now}
+	if err := db.CreateStepRun(ctx, step); err != nil {
+		t.Fatalf("CreateStepRun() error = %v", err)
+	}
+
+	summaries, err := db.workflowRunSummariesForRuns(ctx, []WorkflowRun{{ID: "run-2", Workflow: "sample", DefinitionYAML: "steps:\n  - id: first\n", CreatedAt: now, UpdatedAt: now}})
+	if err != nil {
+		t.Fatalf("workflowRunSummariesForRuns() error = %v", err)
+	}
+	if len(summaries) != 1 || summaries[0].ID != "run-2" || summaries[0].StepCounts[StateSucceeded] != 1 || summaries[0].StepPending != 0 {
+		t.Fatalf("summaries = %+v, want counts for selected run-2", summaries)
+	}
+}
+
 func TestListWorkflowRunSummariesIncludesStepCounts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

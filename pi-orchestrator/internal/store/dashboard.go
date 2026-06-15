@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -34,6 +35,26 @@ func (s *Store) ListWorkflowRunSummaries(ctx context.Context) ([]WorkflowRunSumm
 	if err != nil {
 		return nil, err
 	}
+	return workflowRunSummaries(runs, countsByRun), nil
+}
+
+func (s *Store) ListWorkflowRunSummariesPage(ctx context.Context, limit int, offset int) ([]WorkflowRunSummary, error) {
+	runs, err := s.listWorkflowRunSummariesPage(ctx, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	return s.workflowRunSummariesForRuns(ctx, runs)
+}
+
+func (s *Store) workflowRunSummariesForRuns(ctx context.Context, runs []WorkflowRun) ([]WorkflowRunSummary, error) {
+	countsByRun, err := s.stepCountsForWorkflowRuns(ctx, runs)
+	if err != nil {
+		return nil, err
+	}
+	return workflowRunSummaries(runs, countsByRun), nil
+}
+
+func workflowRunSummaries(runs []WorkflowRun, countsByRun map[string]map[State]int) []WorkflowRunSummary {
 	summaries := make([]WorkflowRunSummary, 0, len(runs))
 	for _, run := range runs {
 		stepCounts := countsByRun[run.ID]
@@ -43,7 +64,7 @@ func (s *Store) ListWorkflowRunSummaries(ctx context.Context) ([]WorkflowRunSumm
 		stepTotal, stepPending := stepProgress(run.DefinitionYAML, stepCounts)
 		summaries = append(summaries, WorkflowRunSummary{ID: run.ID, Workflow: run.Workflow, State: run.State, Repo: run.Repo, Branch: run.Branch, WorktreePath: run.WorktreePath, ArtifactRoot: run.ArtifactRoot, InputsJSON: run.InputsJSON, Outcome: run.Outcome, CreatedAt: run.CreatedAt.Format(time.RFC3339), UpdatedAt: run.UpdatedAt.Format(time.RFC3339), StepCounts: stepCounts, StepTotal: stepTotal, StepPending: stepPending})
 	}
-	return summaries, nil
+	return summaries
 }
 
 type workflowStepList struct {
@@ -72,6 +93,32 @@ func (s *Store) stepCountsByWorkflowRun(ctx context.Context) (map[string]map[Sta
 	if err != nil {
 		return nil, fmt.Errorf("query step counts: %w", err)
 	}
+	return scanStepCounts(rows)
+}
+
+func (s *Store) stepCountsForWorkflowRuns(ctx context.Context, runs []WorkflowRun) (map[string]map[State]int, error) {
+	if len(runs) == 0 {
+		return map[string]map[State]int{}, nil
+	}
+	placeholders := make([]string, len(runs))
+	args := make([]any, len(runs))
+	for i, run := range runs {
+		placeholders[i] = "?"
+		args[i] = run.ID
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT workflow_run_id, state, COUNT(*) FROM step_runs WHERE workflow_run_id IN (`+strings.Join(placeholders, ",")+`) GROUP BY workflow_run_id, state`, args...) //nolint:gosec // placeholders are generated constants; run IDs are passed as query parameters.
+	if err != nil {
+		return nil, fmt.Errorf("query step counts: %w", err)
+	}
+	return scanStepCounts(rows)
+}
+
+func scanStepCounts(rows interface {
+	Close() error
+	Next() bool
+	Scan(...any) error
+	Err() error
+}) (map[string]map[State]int, error) {
 	defer rows.Close() //nolint:errcheck
 	countsByRun := map[string]map[State]int{}
 	for rows.Next() {

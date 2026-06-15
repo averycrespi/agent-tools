@@ -56,6 +56,7 @@ po stop <run-id>...
 po cleanup [--dry-run] [--include-unknown] [--all|<run-id>...]
 po rm [--include-unknown] [--all|<run-id>...]
 po dashboard [--host 127.0.0.1] [--port 8400] [--no-open]
+po mcp
 po token rotate
 ```
 
@@ -64,6 +65,8 @@ po token rotate
 `po cleanup [--all|<run-id>...]` is best-effort and idempotent for terminal workflow runs. It delegates workflow worktree cleanup to each backing `pd` task so the dispatcher records cleanup state, then removes workflow artifacts and marks artifact metadata removed. If a run has no backing `pd` task IDs, `po` falls back to removing the workflow worktree directly. With `--all`, cleanup skips suspicious `unknown` runs by default; add `--include-unknown` to include them in bulk cleanup. Explicit run IDs may target `unknown` runs without the extra flag.
 
 `po rm [--all|<run-id>...]` is best-effort and idempotent for terminal workflow runs. It delegates metadata/log removal to each backing `pd` task before forgetting workflow metadata; already-missing workflow or dispatcher metadata is treated as removed. With `--all`, rm skips suspicious `unknown` runs by default; add `--include-unknown` to include them in bulk removal. Explicit run IDs may target `unknown` runs without the extra flag.
+
+`po mcp` starts a stdio MCP server for trusted local clients. It accepts no positional arguments, uses stdout only for MCP JSON-RPC, and exposes read-only inspection tools; it does not start, stop, reconcile, clean up, remove, or contact workflow supervisors.
 
 ## Configuration, state, and artifacts
 
@@ -99,3 +102,15 @@ The artifact parent must be outside the workflow worktree and already mounted wr
 - `GET /dashboard/favicon.svg`
 
 Mutation methods are rejected. Rotate the dashboard auth token with `po token rotate`. `po` token state is separate from `pd` token state.
+
+## MCP
+
+`po mcp` is stdio-only and inherits the launching user's local filesystem permissions. Configure it only for trusted local MCP clients. The v1 tool surface is read-only/local (`ReadOnlyHint=true`, `OpenWorldHint=false`):
+
+- `list_workflows` summarizes workflow definitions from the configured workflow directory, including validation status, inputs, agents, steps, artifact declarations, and source paths without prompt bodies.
+- `get_workflow` returns one named workflow definition under the workflow directory, including raw YAML and parsed prompts because that definition content was explicitly requested.
+- `list_workflow_runs` returns a default-bounded, offset/limit-paginated page of persisted run summaries and progress metadata without raw workflow YAML or inputs JSON.
+- `get_workflow_run` returns persisted run, step, artifact, cleanup, backing `pd` ID, and local path metadata without raw workflow YAML, inputs JSON, prompt text, or unbounded event/log content.
+- `get_workflow_run_logs` and `get_step_logs` return bounded offset/limit windows for supervisor logs and backing `pd` stdout/stderr logs, with size, next offset, and truncation metadata.
+
+Unlike `po status` and `po logs`, MCP inspection displays persisted SQLite state as-is and does not reconcile stale supervisor process state.

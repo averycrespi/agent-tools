@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -253,6 +254,90 @@ func TestUpdateWorkflowAndStepState(t *testing.T) {
 	}
 }
 
+func TestOpenReadOnlyDoesNotCreateMissingDatabase(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "missing", "po.db")
+	if db, err := OpenReadOnly(dbPath); err == nil {
+		_ = db.Close()
+		t.Fatalf("OpenReadOnly() error = nil, want missing database error")
+	}
+	if _, err := os.Stat(filepath.Dir(dbPath)); !os.IsNotExist(err) {
+		t.Fatalf("state dir stat error = %v, want not exist", err)
+	}
+}
+
+func TestOpenReadOnlyCanReadExistingDatabaseWithoutWrites(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "po.db")
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	createWorkflowRun(t, ctx, db, time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC))
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	readOnly, err := OpenReadOnly(dbPath)
+	if err != nil {
+		t.Fatalf("OpenReadOnly() error = %v", err)
+	}
+	defer readOnly.Close() //nolint:errcheck
+	if _, err := readOnly.GetWorkflowRun(ctx, "run-1"); err != nil {
+		t.Fatalf("GetWorkflowRun() error = %v", err)
+	}
+	if err := readOnly.UpdateWorkflowRunState(ctx, "run-1", StateSucceeded, "", time.Now()); err == nil {
+		t.Fatalf("UpdateWorkflowRunState() error = nil, want read-only write failure")
+	}
+}
+
+func TestOpenReadOnlyRejectsOutdatedSchema(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "po.db")
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+	_, err = db.Exec(`CREATE TABLE workflow_runs (id TEXT PRIMARY KEY); CREATE TABLE step_runs (workflow_run_id TEXT, step_id TEXT);`)
+	if err != nil {
+		t.Fatalf("create outdated schema: %v", err)
+	}
+	if readOnly, err := OpenReadOnly(dbPath); err == nil {
+		_ = readOnly.Close()
+		t.Fatalf("OpenReadOnly() error = nil, want outdated schema error")
+	}
+}
+
+func TestReadOnlyPathHelpersAvoidLargeRunPayloads(t *testing.T) {
+	ctx := context.Background()
+	db := openTestStore(t)
+	defer db.Close() //nolint:errcheck
+	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
+	createWorkflowRun(t, ctx, db, now)
+	step := StepRun{WorkflowRunID: "run-1", StepID: "first", Agent: "reviewer", ExecutionIndex: 0, State: StateRunning, PDStdoutPath: "/tmp/stdout", PDStderrPath: "/tmp/stderr", StartedAt: now, UpdatedAt: now}
+	if err := db.CreateStepRun(ctx, step); err != nil {
+		t.Fatalf("CreateStepRun() error = %v", err)
+	}
+
+	path, err := db.GetWorkflowRunSupervisorLogPath(ctx, "run-1")
+	if err != nil {
+		t.Fatalf("GetWorkflowRunSupervisorLogPath() error = %v", err)
+	}
+	if path != "/logs/run-1.log" {
+		t.Fatalf("supervisor path = %q", path)
+	}
+	stdoutPath, err := db.GetWorkflowStepLogPath(ctx, "run-1", "first", "stdout")
+	if err != nil {
+		t.Fatalf("GetWorkflowStepLogPath(stdout) error = %v", err)
+	}
+	stderrPath, err := db.GetWorkflowStepLogPath(ctx, "run-1", "first", "stderr")
+	if err != nil {
+		t.Fatalf("GetWorkflowStepLogPath(stderr) error = %v", err)
+	}
+	if stdoutPath != "/tmp/stdout" || stderrPath != "/tmp/stderr" {
+		t.Fatalf("step paths = %q/%q", stdoutPath, stderrPath)
+	}
+}
+
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
 	db, err := Open(filepath.Join(t.TempDir(), "po.db"))
@@ -264,8 +349,13 @@ func openTestStore(t *testing.T) *Store {
 
 func createWorkflowRun(t *testing.T, ctx context.Context, db *Store, now time.Time) {
 	t.Helper()
-	req := RunRequest{ID: "req-1", Workflow: "sample", InputsJSON: `{}`, Source: "test", CreatedAt: now}
-	run := WorkflowRun{ID: "run-1", RequestID: req.ID, Workflow: "sample", DefinitionHash: "hash", DefinitionYAML: "steps:\n  - id: first\n  - id: second\n  - id: third\n", InputsJSON: `{}`, Repo: "/repo", Branch: "branch", WorktreePath: "/worktree", ArtifactRoot: "/artifacts/run-1", State: StateRunning, SupervisorLogPath: "/logs/run-1.log", CreatedAt: now, UpdatedAt: now}
+	createWorkflowRunWithID(t, ctx, db, "run-1", "req-1", now)
+}
+
+func createWorkflowRunWithID(t *testing.T, ctx context.Context, db *Store, runID string, requestID string, now time.Time) {
+	t.Helper()
+	req := RunRequest{ID: requestID, Workflow: "sample", InputsJSON: `{}`, Source: "test", CreatedAt: now}
+	run := WorkflowRun{ID: runID, RequestID: req.ID, Workflow: "sample", DefinitionHash: "hash", DefinitionYAML: "steps:\n  - id: first\n  - id: second\n  - id: third\n", InputsJSON: `{}`, Repo: "/repo", Branch: "branch", WorktreePath: "/worktree", ArtifactRoot: "/artifacts/" + runID, State: StateRunning, SupervisorLogPath: "/logs/" + runID + ".log", CreatedAt: now, UpdatedAt: now}
 	if err := db.CreateRunRequestWithWorkflowRun(ctx, req, run); err != nil {
 		t.Fatalf("CreateRunRequestWithWorkflowRun() error = %v", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -223,6 +224,45 @@ func Open(path string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
+func OpenReadOnly(path string) (*Store, error) {
+	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro"}).String()
+	db, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open store read-only: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("set busy timeout: %w", err)
+	}
+	if err := validateSchema(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return &Store{db: db}, nil
+}
+
+func validateSchema(db *sql.DB) error {
+	required := map[string][]string{
+		"run_requests":       {"id", "workflow", "inputs_json", "source", "created_at"},
+		"workflow_runs":      {"id", "request_id", "workflow", "definition_hash", "definition_yaml", "inputs_json", "repo", "branch", "worktree_path", "artifact_root", "state", "supervisor_pid", "supervisor_log_path", "outcome", "cleanup_status", "cleanup_error", "cleanup_attempted_at", "created_at", "updated_at", "ended_at"},
+		"step_runs":          {"workflow_run_id", "step_id", "agent", "execution_index", "state", "pd_task_id", "pd_run_id", "pd_stdout_path", "pd_stderr_path", "pd_events_path", "outcome", "started_at", "updated_at", "ended_at"},
+		"artifacts":          {"workflow_run_id", "name", "relative_path", "absolute_path", "artifact_exists", "updated_at"},
+		"step_check_results": {"workflow_run_id", "step_id", "kind", "target", "check_name", "passed", "message", "updated_at"},
+	}
+	for table, names := range required {
+		columns, err := tableColumns(db, table)
+		if err != nil {
+			return fmt.Errorf("inspect %s schema: %w", table, err)
+		}
+		for _, name := range names {
+			if !columns[name] {
+				return fmt.Errorf("store schema is missing %s.%s; run a mutating po command to migrate the database", table, name)
+			}
+		}
+	}
+	return nil
+}
+
 func ensureWorkflowDefinitionColumns(db *sql.DB) error {
 	columns, err := tableColumns(db, "workflow_runs")
 	if err != nil {
@@ -376,19 +416,15 @@ func (s *Store) ListWorkflowRuns(ctx context.Context) ([]WorkflowRun, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list workflow runs: %w", err)
 	}
-	defer rows.Close() //nolint:errcheck
-	var runs []WorkflowRun
-	for rows.Next() {
-		run, err := scanWorkflowRun(rows)
-		if err != nil {
-			return nil, err
-		}
-		runs = append(runs, run)
-	}
-	if err := rows.Err(); err != nil {
+	return scanWorkflowRuns(rows)
+}
+
+func (s *Store) listWorkflowRunSummariesPage(ctx context.Context, limit int, offset int) ([]WorkflowRun, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, request_id, workflow, definition_hash, definition_yaml, '' AS inputs_json, repo, branch, worktree_path, artifact_root, state, supervisor_pid, supervisor_log_path, outcome, cleanup_status, cleanup_error, cleanup_attempted_at, created_at, updated_at, ended_at FROM workflow_runs ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset)
+	if err != nil {
 		return nil, fmt.Errorf("list workflow runs: %w", err)
 	}
-	return runs, nil
+	return scanWorkflowRuns(rows)
 }
 
 func (s *Store) CreateStepRun(ctx context.Context, step StepRun) error {
@@ -513,6 +549,36 @@ func (s *Store) RunningStepRun(ctx context.Context, workflowRunID string) (StepR
 	return scanStepRun(row)
 }
 
+func (s *Store) GetWorkflowStepRun(ctx context.Context, workflowRunID string, stepID string) (StepRun, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT workflow_run_id, step_id, agent, execution_index, state, pd_task_id, pd_run_id, pd_stdout_path, pd_stderr_path, pd_events_path, outcome, started_at, updated_at, ended_at FROM step_runs WHERE workflow_run_id = ? AND step_id = ?`, workflowRunID, stepID)
+	return scanStepRun(row)
+}
+
+func (s *Store) WorkflowRunExists(ctx context.Context, id string) error {
+	var found int
+	return s.db.QueryRowContext(ctx, `SELECT 1 FROM workflow_runs WHERE id = ?`, id).Scan(&found)
+}
+
+func (s *Store) GetWorkflowRunSupervisorLogPath(ctx context.Context, id string) (string, error) {
+	var path string
+	if err := s.db.QueryRowContext(ctx, `SELECT supervisor_log_path FROM workflow_runs WHERE id = ?`, id).Scan(&path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func (s *Store) GetWorkflowStepLogPath(ctx context.Context, workflowRunID string, stepID string, stream string) (string, error) {
+	column := "pd_stdout_path"
+	if stream == "stderr" {
+		column = "pd_stderr_path"
+	}
+	var path string
+	if err := s.db.QueryRowContext(ctx, `SELECT `+column+` FROM step_runs WHERE workflow_run_id = ? AND step_id = ?`, workflowRunID, stepID).Scan(&path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 func (s *Store) DeleteWorkflowRun(ctx context.Context, id string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -611,6 +677,22 @@ func (s *Store) listStepCheckResults(ctx context.Context, workflowRunID string) 
 		return nil, fmt.Errorf("list step check results: %w", err)
 	}
 	return results, nil
+}
+
+func scanWorkflowRuns(rows *sql.Rows) ([]WorkflowRun, error) {
+	defer rows.Close() //nolint:errcheck
+	var runs []WorkflowRun
+	for rows.Next() {
+		run, err := scanWorkflowRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list workflow runs: %w", err)
+	}
+	return runs, nil
 }
 
 func scanRunRequest(row interface{ Scan(...any) error }) (RunRequest, error) {
