@@ -849,6 +849,13 @@
         }
         const card = document.createElement("div");
         card.className = "card";
+        const checksByTarget = new Map();
+        for (const result of detail.CheckResults || []) {
+          if (result.Kind !== "artifact") continue;
+          const checks = checksByTarget.get(result.Target) || [];
+          checks.push(result);
+          checksByTarget.set(result.Target, checks);
+        }
         for (const artifact of artifacts) {
           const item = document.createElement("div");
           item.className = "artifact";
@@ -860,9 +867,7 @@
             name,
             chip(artifact.Exists ? "exists" : "missing", artifact.Exists ? "succeeded" : "skipped"),
           );
-          const checks = (detail.CheckResults || []).filter(
-            (result) => result.Kind === "artifact" && result.Target === artifact.Name,
-          );
+          const checks = checksByTarget.get(artifact.Name) || [];
           const rows = [
             ["Relative Path", artifact.RelativePath],
             ["Absolute Path", artifact.AbsolutePath],

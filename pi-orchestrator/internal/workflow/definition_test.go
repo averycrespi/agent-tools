@@ -432,7 +432,32 @@ steps:
 `)
 
 	_, err := LoadFile(path)
-	assertErrorContains(t, err, `map has no entry for key "missing"`)
+	assertErrorContains(t, err, `unknown artifact reference missing`)
+}
+
+func TestValidateRejectsUnknownArtifactPromptReferenceInConditional(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+inputs:
+  draft:
+    type: boolean
+agents:
+  runner:
+    model: gpt-5.1-codex
+artifacts:
+  out:
+    path: out.txt
+steps:
+  - id: run
+    agent: runner
+    prompt: '{{ if .Inputs.draft }}write {{ .Artifacts.missing }}{{ end }}'
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, `unknown artifact reference missing`)
 }
 
 func TestValidateRejectsArtifactPathHelper(t *testing.T) {

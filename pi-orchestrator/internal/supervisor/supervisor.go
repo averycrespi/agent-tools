@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"text/template"
 	"time"
 
@@ -259,7 +260,7 @@ func workflowArtifacts(run store.WorkflowRun, def *workflow.Definition) []store.
 	now := time.Now().UTC()
 	for name, artifact := range def.Artifacts {
 		absolutePath := filepath.Join(run.ArtifactRoot, artifact.Path)
-		info, err := os.Stat(absolutePath)
+		info, err := os.Lstat(absolutePath)
 		artifacts = append(artifacts, store.Artifact{WorkflowRunID: run.ID, Name: name, RelativePath: artifact.Path, AbsolutePath: absolutePath, Exists: err == nil && info.Mode().IsRegular(), UpdatedAt: now})
 	}
 	return artifacts
@@ -296,12 +297,18 @@ func evaluateProducesChecks(ctx context.Context, db *store.Store, run store.Work
 	}
 	checked := make([]store.Artifact, 0, len(step.Produces))
 	checkResults := make([]store.StepCheckResult, 0, len(step.Produces))
-	for name, check := range step.Produces {
+	names := make([]string, 0, len(step.Produces))
+	for name := range step.Produces {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		check := step.Produces[name]
 		artifact := def.Artifacts[name]
 		absolutePath := filepath.Join(run.ArtifactRoot, artifact.Path)
-		info, err := os.Stat(absolutePath)
+		info, err := os.Lstat(absolutePath)
 		exists := err == nil && info.Mode().IsRegular()
-		checked = append(checked, store.Artifact{WorkflowRunID: run.ID, StepID: step.ID, Name: name, RelativePath: artifact.Path, AbsolutePath: absolutePath, Required: true, Exists: exists, UpdatedAt: time.Now().UTC()})
+		checked = append(checked, store.Artifact{WorkflowRunID: run.ID, StepID: step.ID, Name: name, RelativePath: artifact.Path, AbsolutePath: absolutePath, Exists: exists, UpdatedAt: time.Now().UTC()})
 		if !exists {
 			message := fmt.Sprintf("artifact %s failed %s check: %s is not a regular file", name, check, artifact.Path)
 			if err != nil && os.IsNotExist(err) {

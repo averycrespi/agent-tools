@@ -410,6 +410,96 @@ func TestExecuteFailsProducesCheckForEmptyFileAndDirectory(t *testing.T) {
 	}
 }
 
+func TestExecuteRejectsSymlinkArtifactProducesCheck(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, run := supervisorTestRun(t)
+	defer db.Close() //nolint:errcheck
+	runner := &recordingRunner{results: []StepResult{{State: store.StateSucceeded}}}
+	def := &workflow.Definition{
+		Name:      "sample",
+		Agents:    map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Artifacts: map[string]workflow.RootArtifact{"out": {Path: "out.md"}},
+		Steps:     []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: "review", Produces: map[string]workflow.ArtifactProduceCheck{"out": workflow.ProduceNonEmpty}}},
+	}
+	if err := os.MkdirAll(run.ArtifactRoot, 0o750); err != nil {
+		t.Fatalf("mkdir artifact root: %v", err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
+		t.Fatalf("write outside artifact: %v", err)
+	}
+	runner.afterCall = func() {
+		if err := os.Symlink(outside, filepath.Join(run.ArtifactRoot, "out.md")); err != nil {
+			t.Fatalf("symlink artifact: %v", err)
+		}
+	}
+
+	if err := Execute(ctx, db, runner, def, run); err == nil {
+		t.Fatal("Execute() error = nil, want symlink artifact failure")
+	}
+	detail, err := db.GetWorkflowRunDetail(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunDetail() error = %v", err)
+	}
+	if detail.Run.State != store.StateFailed || len(detail.CheckResults) != 1 || detail.CheckResults[0].Passed || !strings.Contains(detail.CheckResults[0].Message, "not a regular file") {
+		t.Fatalf("detail = %+v, want failed symlink regular-file check", detail)
+	}
+}
+
+func TestExecuteReportsProducesFailuresDeterministically(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, run := supervisorTestRun(t)
+	defer db.Close() //nolint:errcheck
+	runner := &recordingRunner{results: []StepResult{{State: store.StateSucceeded}}}
+	def := &workflow.Definition{
+		Name:   "sample",
+		Agents: map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Artifacts: map[string]workflow.RootArtifact{
+			"z_last":  {Path: "z.md"},
+			"a_first": {Path: "a.md"},
+		},
+		Steps: []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: "review", Produces: map[string]workflow.ArtifactProduceCheck{"z_last": workflow.ProduceExists, "a_first": workflow.ProduceExists}}},
+	}
+
+	if err := Execute(ctx, db, runner, def, run); err == nil {
+		t.Fatal("Execute() error = nil, want missing artifact failure")
+	}
+	detail, err := db.GetWorkflowRunDetail(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunDetail() error = %v", err)
+	}
+	if len(detail.CheckResults) != 1 || detail.CheckResults[0].Target != "a_first" || !strings.Contains(detail.Run.Outcome, "artifact a_first failed") {
+		t.Fatalf("detail = %+v, want deterministic first failing artifact", detail)
+	}
+}
+
+func TestExecuteDoesNotEvaluateProducesWhenBackingStepFails(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, run := supervisorTestRun(t)
+	defer db.Close() //nolint:errcheck
+	runner := &recordingRunner{results: []StepResult{{State: store.StateFailed, Outcome: "pd failed"}}}
+	def := &workflow.Definition{
+		Name:      "sample",
+		Agents:    map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Artifacts: map[string]workflow.RootArtifact{"out": {Path: "out.md"}},
+		Steps:     []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: "review", Produces: map[string]workflow.ArtifactProduceCheck{"out": workflow.ProduceExists}}},
+	}
+
+	if err := Execute(ctx, db, runner, def, run); err == nil {
+		t.Fatal("Execute() error = nil, want backing step failure")
+	}
+	detail, err := db.GetWorkflowRunDetail(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunDetail() error = %v", err)
+	}
+	if detail.Steps[0].Outcome != "pd failed" || len(detail.CheckResults) != 0 {
+		t.Fatalf("detail = %+v, want original outcome and no check results", detail)
+	}
+}
+
 func TestExecutePreservesRootFailureOutcomeWhenSkippingDependents(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

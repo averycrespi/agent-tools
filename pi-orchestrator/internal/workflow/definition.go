@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"text/template"
+	"text/template/parse"
 
 	"gopkg.in/yaml.v3"
 )
@@ -195,10 +196,112 @@ func ValidatePromptTemplate(stepID string, prompt string, inputs map[string]Inpu
 	if err != nil {
 		return fmt.Errorf("parse prompt for step %s: %w", stepID, err)
 	}
+	if err := validatePromptFieldReferences(stepID, tmpl.Root, inputs, artifacts); err != nil {
+		return err
+	}
 	if err := tmpl.Execute(ioDiscard{}, map[string]any{"Inputs": inputData, "Artifacts": artifactData}); err != nil {
 		return fmt.Errorf("validate prompt for step %s: %w", stepID, err)
 	}
 	return nil
+}
+
+func validatePromptFieldReferences(stepID string, node parse.Node, inputs map[string]InputSchema, artifacts map[string]RootArtifact) error {
+	if node == nil {
+		return nil
+	}
+	if field, ok := node.(*parse.FieldNode); ok && len(field.Ident) >= 2 {
+		switch field.Ident[0] {
+		case "Inputs":
+			if _, exists := inputs[field.Ident[1]]; !exists {
+				return fmt.Errorf("validate prompt for step %s: unknown input reference %s", stepID, field.Ident[1])
+			}
+		case "Artifacts":
+			if _, exists := artifacts[field.Ident[1]]; !exists {
+				return fmt.Errorf("validate prompt for step %s: unknown artifact reference %s", stepID, field.Ident[1])
+			}
+		}
+	}
+	for _, child := range childNodes(node) {
+		if err := validatePromptFieldReferences(stepID, child, inputs, artifacts); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func childNodes(node parse.Node) []parse.Node {
+	switch n := node.(type) {
+	case *parse.ActionNode:
+		if n == nil {
+			return nil
+		}
+		return appendPromptNode(nil, n.Pipe)
+	case *parse.CommandNode:
+		if n == nil {
+			return nil
+		}
+		return n.Args
+	case *parse.IfNode:
+		if n == nil {
+			return nil
+		}
+		return branchChildNodes(n.Pipe, n.List, n.ElseList)
+	case *parse.ListNode:
+		if n == nil {
+			return nil
+		}
+		return n.Nodes
+	case *parse.PipeNode:
+		if n == nil {
+			return nil
+		}
+		nodes := make([]parse.Node, 0, len(n.Decl)+len(n.Cmds))
+		for _, decl := range n.Decl {
+			nodes = append(nodes, decl)
+		}
+		for _, cmd := range n.Cmds {
+			nodes = append(nodes, cmd)
+		}
+		return nodes
+	case *parse.RangeNode:
+		if n == nil {
+			return nil
+		}
+		return branchChildNodes(n.Pipe, n.List, n.ElseList)
+	case *parse.TemplateNode:
+		if n == nil {
+			return nil
+		}
+		return appendPromptNode(nil, n.Pipe)
+	case *parse.WithNode:
+		if n == nil {
+			return nil
+		}
+		return branchChildNodes(n.Pipe, n.List, n.ElseList)
+	default:
+		return nil
+	}
+}
+
+func branchChildNodes(pipe *parse.PipeNode, list *parse.ListNode, elseList *parse.ListNode) []parse.Node {
+	var nodes []parse.Node
+	if pipe != nil {
+		nodes = append(nodes, pipe)
+	}
+	if list != nil {
+		nodes = append(nodes, list)
+	}
+	if elseList != nil {
+		nodes = append(nodes, elseList)
+	}
+	return nodes
+}
+
+func appendPromptNode(nodes []parse.Node, node parse.Node) []parse.Node {
+	if node == nil {
+		return nodes
+	}
+	return append(nodes, node)
 }
 
 type ioDiscard struct{}
