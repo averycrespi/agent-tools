@@ -209,11 +209,18 @@ func validatePromptFieldReferences(stepID string, node parse.Node, inputs map[st
 	if node == nil {
 		return nil
 	}
+	if identifier, ok := node.(*parse.IdentifierNode); ok && identifier.Ident == "index" {
+		return fmt.Errorf("validate prompt for step %s: index template function is unsupported; use dot references", stepID)
+	}
 	if field, ok := node.(*parse.FieldNode); ok && len(field.Ident) >= 2 {
 		switch field.Ident[0] {
 		case "Inputs":
-			if _, exists := inputs[field.Ident[1]]; !exists {
+			input, exists := inputs[field.Ident[1]]
+			if !exists {
 				return fmt.Errorf("validate prompt for step %s: unknown input reference %s", stepID, field.Ident[1])
+			}
+			if !input.Required && input.Default == nil {
+				return fmt.Errorf("validate prompt for step %s: optional input reference %s requires a default", stepID, field.Ident[1])
 			}
 		case "Artifacts":
 			if _, exists := artifacts[field.Ident[1]]; !exists {

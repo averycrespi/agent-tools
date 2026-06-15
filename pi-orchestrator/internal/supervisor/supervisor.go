@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"text/template"
 	"time"
 
@@ -114,7 +115,7 @@ func ExecuteWithLogger(ctx context.Context, db *store.Store, runner StepRunner, 
 			}
 			request := StepRequest{WorkflowRunID: run.ID, StepID: step.ID, Agent: def.Agents[step.Agent], Prompt: renderedPrompt, Repo: run.Repo, Branch: run.Branch, WorktreePath: run.WorktreePath, ArtifactParentPath: filepath.Dir(run.ArtifactRoot)}
 			logger.Printf("step %s starting agent=%s", step.ID, step.Agent)
-			result, err := startAndPersistStep(ctx, db, runner, request, run, step, executionIndex, nil)
+			result, err := startAndPersistStep(ctx, db, runner, request, run, step, executionIndex)
 			executionIndex++
 			if err != nil {
 				result.State = store.StateFailed
@@ -178,14 +179,14 @@ func ExecuteWithLogger(ctx context.Context, db *store.Store, runner StepRunner, 
 	return firstErr
 }
 
-func startAndPersistStep(ctx context.Context, db *store.Store, runner StepRunner, request StepRequest, run store.WorkflowRun, step workflow.Step, executionIndex int, artifacts []store.Artifact) (StepResult, error) {
+func startAndPersistStep(ctx context.Context, db *store.Store, runner StepRunner, request StepRequest, run store.WorkflowRun, step workflow.Step, executionIndex int) (StepResult, error) {
 	if starter, ok := runner.(StepStarter); ok {
 		handle, err := starter.StartStep(ctx, request)
 		result := StepResult{State: store.StateFailed}
 		if handle != nil {
 			result = handle.Started()
 		}
-		if createErr := createRunningStep(ctx, db, run, step, executionIndex, artifacts, result); createErr != nil {
+		if createErr := createRunningStep(ctx, db, run, step, executionIndex, result); createErr != nil {
 			if stopper, ok := handle.(StoppableStepHandle); ok {
 				_ = stopper.Stop(ctx)
 			}
@@ -197,16 +198,16 @@ func startAndPersistStep(ctx context.Context, db *store.Store, runner StepRunner
 		return handle.Wait(ctx)
 	}
 	result, err := runner.RunStep(ctx, request)
-	if createErr := createRunningStep(ctx, db, run, step, executionIndex, artifacts, result); createErr != nil {
+	if createErr := createRunningStep(ctx, db, run, step, executionIndex, result); createErr != nil {
 		return StepResult{}, createErr
 	}
 	return result, err
 }
 
-func createRunningStep(ctx context.Context, db *store.Store, run store.WorkflowRun, step workflow.Step, executionIndex int, artifacts []store.Artifact, result StepResult) error {
+func createRunningStep(ctx context.Context, db *store.Store, run store.WorkflowRun, step workflow.Step, executionIndex int, result StepResult) error {
 	now := time.Now().UTC()
 	stepRun := store.StepRun{WorkflowRunID: run.ID, StepID: step.ID, Agent: step.Agent, ExecutionIndex: executionIndex, State: store.StateRunning, PDTaskID: result.PDTaskID, PDRunID: result.PDRunID, PDStdoutPath: result.PDStdoutPath, PDStderrPath: result.PDStderrPath, PDEventsPath: result.PDEventsPath, StartedAt: now, UpdatedAt: now}
-	return db.CreateStepRun(ctx, stepRun, artifacts)
+	return db.CreateStepRun(ctx, stepRun)
 }
 
 func RenderPrompt(run store.WorkflowRun, def *workflow.Definition, step workflow.Step, inputs map[string]any) (string, error) {
@@ -260,7 +261,7 @@ func workflowArtifacts(run store.WorkflowRun, def *workflow.Definition) []store.
 	now := time.Now().UTC()
 	for name, artifact := range def.Artifacts {
 		absolutePath := filepath.Join(run.ArtifactRoot, artifact.Path)
-		info, err := os.Lstat(absolutePath)
+		info, err := statArtifactPath(run.ArtifactRoot, artifact.Path)
 		artifacts = append(artifacts, store.Artifact{WorkflowRunID: run.ID, Name: name, RelativePath: artifact.Path, AbsolutePath: absolutePath, Exists: err == nil && info.Mode().IsRegular(), UpdatedAt: now})
 	}
 	return artifacts
@@ -288,7 +289,7 @@ func dependenciesSucceeded(step workflow.Step, stepStates map[string]store.State
 func createSkippedStep(ctx context.Context, db *store.Store, run store.WorkflowRun, step workflow.Step, index int) error {
 	now := time.Now().UTC()
 	stepRun := store.StepRun{WorkflowRunID: run.ID, StepID: step.ID, Agent: step.Agent, ExecutionIndex: index, State: store.StateSkipped, Outcome: "dependency did not succeed", StartedAt: now, UpdatedAt: now}
-	return db.CreateStepRun(ctx, stepRun, nil)
+	return db.CreateStepRun(ctx, stepRun)
 }
 
 func evaluateProducesChecks(ctx context.Context, db *store.Store, run store.WorkflowRun, def *workflow.Definition, step workflow.Step) (string, error) {
@@ -306,9 +307,9 @@ func evaluateProducesChecks(ctx context.Context, db *store.Store, run store.Work
 		check := step.Produces[name]
 		artifact := def.Artifacts[name]
 		absolutePath := filepath.Join(run.ArtifactRoot, artifact.Path)
-		info, err := os.Lstat(absolutePath)
+		info, err := statArtifactPath(run.ArtifactRoot, artifact.Path)
 		exists := err == nil && info.Mode().IsRegular()
-		checked = append(checked, store.Artifact{WorkflowRunID: run.ID, StepID: step.ID, Name: name, RelativePath: artifact.Path, AbsolutePath: absolutePath, Exists: exists, UpdatedAt: time.Now().UTC()})
+		checked = append(checked, store.Artifact{WorkflowRunID: run.ID, Name: name, RelativePath: artifact.Path, AbsolutePath: absolutePath, Exists: exists, UpdatedAt: time.Now().UTC()})
 		if !exists {
 			message := fmt.Sprintf("artifact %s failed %s check: %s is not a regular file", name, check, artifact.Path)
 			if err != nil && os.IsNotExist(err) {
@@ -343,4 +344,20 @@ func evaluateProducesChecks(ctx context.Context, db *store.Store, run store.Work
 		return "", err
 	}
 	return "", nil
+}
+
+func statArtifactPath(root string, relativePath string) (os.FileInfo, error) {
+	cleaned := filepath.Clean(relativePath)
+	current := root
+	for _, part := range strings.Split(filepath.ToSlash(cleaned), "/") {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("%s is not a regular file", relativePath)
+		}
+	}
+	return os.Lstat(filepath.Join(root, cleaned))
 }

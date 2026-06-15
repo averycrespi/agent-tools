@@ -58,9 +58,12 @@ func seedInspectWorkflowRun(t *testing.T, stateDir string) {
 		t.Fatalf("create run: %v", err)
 	}
 	step := store.StepRun{WorkflowRunID: "run-1", StepID: "review", Agent: "reviewer", ExecutionIndex: 0, State: store.StateRunning, PDTaskID: "pd-task-1", PDRunID: "pd-run-1", StartedAt: now, UpdatedAt: now}
-	artifacts := []store.Artifact{{WorkflowRunID: "run-1", StepID: "review", Name: "out", RelativePath: "out.md", AbsolutePath: "/artifacts/run-1/out.md", Exists: true, UpdatedAt: now}}
-	if err := db.CreateStepRun(context.Background(), step, artifacts); err != nil {
+	artifacts := []store.Artifact{{WorkflowRunID: "run-1", Name: "out", RelativePath: "out.md", AbsolutePath: "/artifacts/run-1/out.md", Exists: true, UpdatedAt: now}}
+	if err := db.CreateStepRun(context.Background(), step); err != nil {
 		t.Fatalf("create step: %v", err)
+	}
+	if err := db.UpsertArtifacts(context.Background(), artifacts); err != nil {
+		t.Fatalf("create artifacts: %v", err)
 	}
 	checks := []store.StepCheckResult{{WorkflowRunID: "run-1", StepID: "review", Kind: "artifact", Target: "out", Check: "non_empty", Passed: true, UpdatedAt: now}}
 	if err := db.UpsertStepCheckResults(context.Background(), checks); err != nil {

@@ -310,6 +310,39 @@ func TestExecutePassesNonEmptyProducesCheckAfterStepSucceeds(t *testing.T) {
 	}
 }
 
+func TestExecutePassesExistsProducesCheckForEmptyRegularFile(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, run := supervisorTestRun(t)
+	defer db.Close() //nolint:errcheck
+	runner := &recordingRunner{results: []StepResult{{State: store.StateSucceeded}}}
+	def := &workflow.Definition{
+		Name:      "sample",
+		Agents:    map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Artifacts: map[string]workflow.RootArtifact{"out": {Path: "out.md"}},
+		Steps:     []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: "review", Produces: map[string]workflow.ArtifactProduceCheck{"out": workflow.ProduceExists}}},
+	}
+	if err := os.MkdirAll(run.ArtifactRoot, 0o750); err != nil {
+		t.Fatalf("mkdir artifact root: %v", err)
+	}
+	runner.afterCall = func() {
+		if err := os.WriteFile(filepath.Join(run.ArtifactRoot, "out.md"), nil, 0o600); err != nil {
+			t.Fatalf("write empty artifact: %v", err)
+		}
+	}
+
+	if err := Execute(ctx, db, runner, def, run); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	detail, err := db.GetWorkflowRunDetail(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunDetail() error = %v", err)
+	}
+	if detail.Run.State != store.StateSucceeded || len(detail.CheckResults) != 1 || !detail.CheckResults[0].Passed {
+		t.Fatalf("detail = %+v, want passed exists check for empty regular file", detail)
+	}
+}
+
 func TestExecuteFailsStepWhenProducedArtifactMissingAndSkipsDependent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -444,6 +477,44 @@ func TestExecuteRejectsSymlinkArtifactProducesCheck(t *testing.T) {
 	}
 	if detail.Run.State != store.StateFailed || len(detail.CheckResults) != 1 || detail.CheckResults[0].Passed || !strings.Contains(detail.CheckResults[0].Message, "not a regular file") {
 		t.Fatalf("detail = %+v, want failed symlink regular-file check", detail)
+	}
+}
+
+func TestExecuteRejectsSymlinkedParentArtifactProducesCheck(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, run := supervisorTestRun(t)
+	defer db.Close() //nolint:errcheck
+	runner := &recordingRunner{results: []StepResult{{State: store.StateSucceeded}}}
+	def := &workflow.Definition{
+		Name:      "sample",
+		Agents:    map[string]workflow.Agent{"reviewer": {Model: "gpt-5.1-codex"}},
+		Artifacts: map[string]workflow.RootArtifact{"out": {Path: "linked/out.md"}},
+		Steps:     []workflow.Step{{ID: "review", Agent: "reviewer", Prompt: "review", Produces: map[string]workflow.ArtifactProduceCheck{"out": workflow.ProduceNonEmpty}}},
+	}
+	if err := os.MkdirAll(run.ArtifactRoot, 0o750); err != nil {
+		t.Fatalf("mkdir artifact root: %v", err)
+	}
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "out.md")
+	if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
+		t.Fatalf("write outside artifact: %v", err)
+	}
+	runner.afterCall = func() {
+		if err := os.Symlink(outsideDir, filepath.Join(run.ArtifactRoot, "linked")); err != nil {
+			t.Fatalf("symlink artifact parent: %v", err)
+		}
+	}
+
+	if err := Execute(ctx, db, runner, def, run); err == nil {
+		t.Fatal("Execute() error = nil, want symlinked parent failure")
+	}
+	detail, err := db.GetWorkflowRunDetail(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunDetail() error = %v", err)
+	}
+	if detail.Run.State != store.StateFailed || len(detail.CheckResults) != 1 || detail.CheckResults[0].Passed || !strings.Contains(detail.CheckResults[0].Message, "not a regular file") {
+		t.Fatalf("detail = %+v, want failed symlinked parent regular-file check", detail)
 	}
 }
 

@@ -74,7 +74,6 @@ type StepRun struct {
 
 type Artifact struct {
 	WorkflowRunID string
-	StepID        string `json:"-"`
 	Name          string
 	RelativePath  string
 	AbsolutePath  string
@@ -392,22 +391,10 @@ func (s *Store) ListWorkflowRuns(ctx context.Context) ([]WorkflowRun, error) {
 	return runs, nil
 }
 
-func (s *Store) CreateStepRun(ctx context.Context, step StepRun, artifacts []Artifact) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+func (s *Store) CreateStepRun(ctx context.Context, step StepRun) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO step_runs (workflow_run_id, step_id, agent, execution_index, state, pd_task_id, pd_run_id, pd_stdout_path, pd_stderr_path, pd_events_path, outcome, started_at, updated_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, step.WorkflowRunID, step.StepID, step.Agent, step.ExecutionIndex, string(step.State), step.PDTaskID, step.PDRunID, step.PDStdoutPath, step.PDStderrPath, step.PDEventsPath, step.Outcome, formatTime(step.StartedAt), formatTime(step.UpdatedAt), nullTimeString(step.EndedAt))
 	if err != nil {
-		return fmt.Errorf("begin create step run: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-	if _, err := tx.ExecContext(ctx, `INSERT INTO step_runs (workflow_run_id, step_id, agent, execution_index, state, pd_task_id, pd_run_id, pd_stdout_path, pd_stderr_path, pd_events_path, outcome, started_at, updated_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, step.WorkflowRunID, step.StepID, step.Agent, step.ExecutionIndex, string(step.State), step.PDTaskID, step.PDRunID, step.PDStdoutPath, step.PDStderrPath, step.PDEventsPath, step.Outcome, formatTime(step.StartedAt), formatTime(step.UpdatedAt), nullTimeString(step.EndedAt)); err != nil {
 		return fmt.Errorf("insert step run: %w", err)
-	}
-	for _, artifact := range artifacts {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO artifacts (workflow_run_id, name, relative_path, absolute_path, artifact_exists, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(workflow_run_id, name) DO UPDATE SET relative_path = excluded.relative_path, absolute_path = excluded.absolute_path, artifact_exists = excluded.artifact_exists, updated_at = excluded.updated_at`, artifact.WorkflowRunID, artifact.Name, artifact.RelativePath, artifact.AbsolutePath, boolInt(artifact.Exists), formatTime(artifact.UpdatedAt)); err != nil {
-			return fmt.Errorf("insert artifact: %w", err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit create step run: %w", err)
 	}
 	return nil
 }
@@ -477,11 +464,22 @@ func (s *Store) UpdateArtifactExistence(ctx context.Context, artifacts []Artifac
 }
 
 func (s *Store) UpsertStepCheckResults(ctx context.Context, results []StepCheckResult) error {
+	if len(results) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin upsert step checks: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
 	for _, result := range results {
-		_, err := s.db.ExecContext(ctx, `INSERT INTO step_check_results (workflow_run_id, step_id, kind, target, check_name, passed, message, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workflow_run_id, step_id, kind, target, check_name) DO UPDATE SET passed = excluded.passed, message = excluded.message, updated_at = excluded.updated_at`, result.WorkflowRunID, result.StepID, result.Kind, result.Target, result.Check, boolInt(result.Passed), result.Message, formatTime(result.UpdatedAt))
+		_, err := tx.ExecContext(ctx, `INSERT INTO step_check_results (workflow_run_id, step_id, kind, target, check_name, passed, message, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workflow_run_id, step_id, kind, target, check_name) DO UPDATE SET passed = excluded.passed, message = excluded.message, updated_at = excluded.updated_at`, result.WorkflowRunID, result.StepID, result.Kind, result.Target, result.Check, boolInt(result.Passed), result.Message, formatTime(result.UpdatedAt))
 		if err != nil {
 			return fmt.Errorf("upsert step check %s/%s: %w", result.Kind, result.Target, err)
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit upsert step checks: %w", err)
 	}
 	return nil
 }

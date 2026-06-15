@@ -17,7 +17,7 @@ V1 workflow definitions contain only `name`, `description`, `repo`, flat typed `
 
 A workflow run creates exactly one worktree. All step runs use that same worktree. Step execution is serial and deterministic: ready steps are considered in workflow-file order, and V1 runs at most one backing `pd` task at a time.
 
-Prompts render validated inputs and declared artifact paths through `.Inputs.<name>` and `.Artifacts.<name>`. Artifact declarations live at the workflow root, names must be template-safe identifiers, and paths are relative to the workflow run artifact root. Step `produces` entries are postconditions that run only after the backing `pd` step succeeds. `exists` requires a regular file at the artifact path; `non_empty` additionally requires size greater than zero bytes. Failed postconditions fail the step and workflow, and dependent steps are recorded as `skipped`.
+Prompts render validated inputs and declared artifact paths through `.Inputs.<name>` and `.Artifacts.<name>`. Prompt input references must target required inputs or inputs with defaults, so optional omitted inputs do not fail after run admission. Artifact declarations live at the workflow root, names must be template-safe identifiers, and paths are relative to the workflow run artifact root. Step `produces` entries are postconditions that run only after the backing `pd` step succeeds. `exists` requires a regular file at the artifact path; `non_empty` additionally requires size greater than zero bytes. Failed postconditions fail the step and workflow, and dependent steps are recorded as `skipped`.
 
 ## State
 

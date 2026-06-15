@@ -67,8 +67,10 @@ repo: repo
 inputs:
   count:
     type: integer
+    required: true
   draft:
     type: boolean
+    default: false
 agents:
   runner:
     model: gpt-5.1-codex
@@ -435,6 +437,28 @@ steps:
 	assertErrorContains(t, err, `unknown artifact reference missing`)
 }
 
+func TestValidateRejectsOptionalInputPromptReferenceWithoutDefault(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+inputs:
+  maybe:
+    type: string
+agents:
+  runner:
+    model: gpt-5.1-codex
+steps:
+  - id: run
+    agent: runner
+    prompt: '{{ .Inputs.maybe }}'
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, `optional input reference maybe requires a default`)
+}
+
 func TestValidateRejectsUnknownArtifactPromptReferenceInConditional(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -444,6 +468,7 @@ repo: repo
 inputs:
   draft:
     type: boolean
+    required: true
 agents:
   runner:
     model: gpt-5.1-codex
@@ -458,6 +483,28 @@ steps:
 
 	_, err := LoadFile(path)
 	assertErrorContains(t, err, `unknown artifact reference missing`)
+}
+
+func TestValidateRejectsIndexedArtifactPromptReference(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+agents:
+  runner:
+    model: gpt-5.1-codex
+artifacts:
+  out:
+    path: out.txt
+steps:
+  - id: run
+    agent: runner
+    prompt: '{{ index .Artifacts "missing" }}'
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, `index template function is unsupported`)
 }
 
 func TestValidateRejectsArtifactPathHelper(t *testing.T) {

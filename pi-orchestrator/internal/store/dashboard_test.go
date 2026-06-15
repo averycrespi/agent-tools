@@ -44,7 +44,7 @@ func TestListWorkflowRunSummariesIncludesStepCounts(t *testing.T) {
 		{WorkflowRunID: "run-1", StepID: "third", Agent: "reviewer", ExecutionIndex: 2, State: StateSkipped, StartedAt: now, UpdatedAt: now},
 	}
 	for _, step := range steps {
-		if err := db.CreateStepRun(ctx, step, nil); err != nil {
+		if err := db.CreateStepRun(ctx, step); err != nil {
 			t.Fatalf("CreateStepRun(%s) error = %v", step.StepID, err)
 		}
 	}

@@ -268,7 +268,7 @@ func seedDashboardRun(t *testing.T, db *store.Store) string {
 		t.Fatalf("create run: %v", err)
 	}
 	step := store.StepRun{WorkflowRunID: "run-1", StepID: "review", Agent: "reviewer", ExecutionIndex: 0, State: store.StateSucceeded, StartedAt: now, UpdatedAt: now}
-	if err := db.CreateStepRun(context.Background(), step, nil); err != nil {
+	if err := db.CreateStepRun(context.Background(), step); err != nil {
 		t.Fatalf("create step: %v", err)
 	}
 	artifact := store.Artifact{WorkflowRunID: "run-1", Name: "findings", RelativePath: "findings.md", AbsolutePath: "/artifacts/findings.md", Exists: true, UpdatedAt: now}

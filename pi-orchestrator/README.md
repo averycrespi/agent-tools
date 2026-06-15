@@ -36,7 +36,7 @@ steps:
       findings: non_empty
 ```
 
-Inputs are flat and typed as `string`, `integer`, or `boolean`, with `required`, `default`, and `enum` validation. Root `artifacts` declare workflow-level file paths once. Artifact names must be template-safe identifiers, and paths must be relative non-traversing file paths under the run artifact root. Step prompts can render `.Inputs` and `.Artifacts.<name>` absolute paths for any declared artifact. Step `produces` postconditions validate artifacts after a backing step succeeds; supported checks are `exists` for a regular file and `non_empty` for a regular file with size greater than zero.
+Inputs are flat and typed as `string`, `integer`, or `boolean`, with `required`, `default`, and `enum` validation. Prompt references to `.Inputs.<name>` must target required inputs or inputs with defaults, so optional omitted inputs do not fail after run admission. Root `artifacts` declare workflow-level file paths once. Artifact names must be template-safe identifiers, and paths must be relative non-traversing file paths under the run artifact root. Step prompts can render `.Inputs` and `.Artifacts.<name>` absolute paths for any declared artifact. Step `produces` postconditions validate artifacts after a backing step succeeds; supported checks are `exists` for a regular file and `non_empty` for a regular file with size greater than zero.
 
 ## Commands
 
