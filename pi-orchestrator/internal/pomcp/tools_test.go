@@ -82,7 +82,7 @@ func TestListWorkflowsSummarizesDefinitionsAndInvalidFiles(t *testing.T) {
 	if got := payload.Workflows[1].Steps[1].Needs; !reflect.DeepEqual(got, []string{"plan"}) {
 		t.Fatalf("needs = %v, want [plan]", got)
 	}
-	if payload.Workflows[1].Artifacts[0].Name != "plan" || payload.Workflows[1].Artifacts[0].StepID != "plan" || !payload.Workflows[1].Artifacts[0].Required {
+	if payload.Workflows[1].Artifacts[0].Name != "plan" || payload.Workflows[1].Artifacts[0].Path != "plan.md" {
 		t.Fatalf("artifacts = %+v, want plan artifact metadata", payload.Workflows[1].Artifacts)
 	}
 }
@@ -415,14 +415,15 @@ agents:
   planner:
     model: gpt-5
     skills: [plan]
+artifacts:
+  plan:
+    path: plan.md
 steps:
   - id: plan
     agent: planner
     prompt: ` + quoteYAML(prompt) + `
-    artifacts:
-      - name: plan
-        path: plan.md
-        required: true
+    produces:
+      plan: non_empty
   - id: review
     agent: planner
     needs: [plan]
@@ -467,8 +468,11 @@ func testStore(t *testing.T) (*store.Store, string) {
 		t.Fatal(err)
 	}
 	step := store.StepRun{WorkflowRunID: run.ID, StepID: "plan", Agent: "planner", ExecutionIndex: 0, State: store.StateRunning, PDTaskID: "pd-task-1", PDRunID: "pd-run-1", PDStdoutPath: stdoutPath, PDStderrPath: stderrPath, PDEventsPath: filepath.Join(dir, "events.jsonl"), StartedAt: now, UpdatedAt: now}
-	artifact := store.Artifact{WorkflowRunID: run.ID, StepID: step.StepID, Name: "report", RelativePath: "report.md", AbsolutePath: "/artifacts/run-1/report.md", Required: true, Exists: false, UpdatedAt: now}
-	if err := st.CreateStepRun(context.Background(), step, []store.Artifact{artifact}); err != nil {
+	artifact := store.Artifact{WorkflowRunID: run.ID, Name: "report", RelativePath: "report.md", AbsolutePath: "/artifacts/run-1/report.md", Exists: false, UpdatedAt: now}
+	if err := st.CreateStepRun(context.Background(), step); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpsertArtifacts(context.Background(), []store.Artifact{artifact}); err != nil {
 		t.Fatal(err)
 	}
 	return st, run.ID

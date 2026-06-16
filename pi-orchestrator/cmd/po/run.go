@@ -127,6 +127,10 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 	if err := db.CreateRunRequestWithWorkflowRun(cmd.Context(), req, run); err != nil {
 		return err
 	}
+	if err := db.UpsertArtifacts(cmd.Context(), rootArtifactsForRun(run, definition)); err != nil {
+		_ = db.DeleteWorkflowRun(cmd.Context(), runID)
+		return err
+	}
 	pid, err := startSupervisor(run.SupervisorLogPath, "--workflow-dir", cfg.WorkflowDir, "--run-id", runID)
 	if err != nil {
 		_ = db.DeleteWorkflowRun(cmd.Context(), runID)
@@ -138,6 +142,15 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 	admitted = true
 	_, err = fmt.Fprintln(cmd.OutOrStdout(), runID)
 	return err
+}
+
+func rootArtifactsForRun(run store.WorkflowRun, definition *workflow.Definition) []store.Artifact {
+	artifacts := make([]store.Artifact, 0, len(definition.Artifacts))
+	now := nowFunc().UTC()
+	for name, artifact := range definition.Artifacts {
+		artifacts = append(artifacts, store.Artifact{WorkflowRunID: run.ID, Name: name, RelativePath: artifact.Path, AbsolutePath: filepath.Join(run.ArtifactRoot, artifact.Path), Exists: false, UpdatedAt: now})
+	}
+	return artifacts
 }
 
 func ensureArtifactRootOutsideWorktree(artifactRoot, worktreePath string) error {

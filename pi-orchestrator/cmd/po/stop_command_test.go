@@ -150,7 +150,7 @@ func seedStopWorkflowRunWithID(t *testing.T, stateDir string, runID string, runS
 		t.Fatalf("create run: %v", err)
 	}
 	step := store.StepRun{WorkflowRunID: runID, StepID: "review", Agent: "reviewer", ExecutionIndex: 0, State: stepState, PDTaskID: "pd-task-" + runID, PDRunID: "pd-run-" + runID, StartedAt: now, UpdatedAt: now}
-	if err := db.CreateStepRun(context.Background(), step, nil); err != nil {
+	if err := db.CreateStepRun(context.Background(), step); err != nil {
 		t.Fatalf("create step: %v", err)
 	}
 }

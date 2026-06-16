@@ -58,7 +58,7 @@ func TestListWorkflowRunSummariesPageCountsSelectedRuns(t *testing.T) {
 	createWorkflowRun(t, ctx, db, now)
 	createWorkflowRunWithID(t, ctx, db, "run-2", "req-2", now)
 	step := StepRun{WorkflowRunID: "run-2", StepID: "first", Agent: "reviewer", ExecutionIndex: 0, State: StateSucceeded, StartedAt: now, UpdatedAt: now}
-	if err := db.CreateStepRun(ctx, step, nil); err != nil {
+	if err := db.CreateStepRun(ctx, step); err != nil {
 		t.Fatalf("CreateStepRun() error = %v", err)
 	}
 
@@ -84,7 +84,7 @@ func TestListWorkflowRunSummariesIncludesStepCounts(t *testing.T) {
 		{WorkflowRunID: "run-1", StepID: "third", Agent: "reviewer", ExecutionIndex: 2, State: StateSkipped, StartedAt: now, UpdatedAt: now},
 	}
 	for _, step := range steps {
-		if err := db.CreateStepRun(ctx, step, nil); err != nil {
+		if err := db.CreateStepRun(ctx, step); err != nil {
 			t.Fatalf("CreateStepRun(%s) error = %v", step.StepID, err)
 		}
 	}

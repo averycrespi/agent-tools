@@ -29,6 +29,31 @@ func TestAPIsRequireBearerToken(t *testing.T) {
 	}
 }
 
+func TestRunDetailAPIReturnsArtifactCheckResults(t *testing.T) {
+	db := dashboardTestStore(t)
+	seedDashboardRun(t, db)
+	handler := NewHandler(db, "secret")
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/api/runs/run-1", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.Code, resp.Body.String())
+	}
+	var detail store.WorkflowRunDetail
+	if err := json.Unmarshal(resp.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode detail: %v", err)
+	}
+	if len(detail.Artifacts) != 1 || detail.Artifacts[0].Name != "findings" {
+		t.Fatalf("artifacts = %+v, want findings artifact", detail.Artifacts)
+	}
+	if len(detail.CheckResults) != 1 || detail.CheckResults[0].Target != "findings" || detail.CheckResults[0].Check != "non_empty" || !detail.CheckResults[0].Passed {
+		t.Fatalf("check results = %+v, want passed findings non_empty check", detail.CheckResults)
+	}
+}
+
 func TestRunsAPIReturnsReadOnlySummaries(t *testing.T) {
 	db := dashboardTestStore(t)
 	seedDashboardRun(t, db)
@@ -155,7 +180,7 @@ func TestDashboardUIExposesRunDetailAndLogsExplorer(t *testing.T) {
 		t.Fatalf("status = %d body = %s", resp.Code, resp.Body.String())
 	}
 	body := resp.Body.String()
-	for _, want := range []string{"/dashboard/api/runs/", "/logs", "Workflow Runs", "Search workflow runs", "inputs:", "Inputs", "pending", "Supervisor logs", "refresh-log", "Pi Orchestrator", "favicon.svg", "location.hash", "setTab(state.tab)", "grid-template-rows: minmax(0, 1fr)"} {
+	for _, want := range []string{"/dashboard/api/runs/", "/logs", "Workflow Runs", "Search workflow runs", "inputs:", "Inputs", "pending", "Supervisor logs", "refresh-log", "Pi Orchestrator", "favicon.svg", "location.hash", "setTab(state.tab)", "grid-template-rows: minmax(0, 1fr)", "checksByTarget"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body = %q, want substring %q", body, want)
 		}
@@ -243,8 +268,16 @@ func seedDashboardRun(t *testing.T, db *store.Store) string {
 		t.Fatalf("create run: %v", err)
 	}
 	step := store.StepRun{WorkflowRunID: "run-1", StepID: "review", Agent: "reviewer", ExecutionIndex: 0, State: store.StateSucceeded, StartedAt: now, UpdatedAt: now}
-	if err := db.CreateStepRun(context.Background(), step, nil); err != nil {
+	if err := db.CreateStepRun(context.Background(), step); err != nil {
 		t.Fatalf("create step: %v", err)
+	}
+	artifact := store.Artifact{WorkflowRunID: "run-1", Name: "findings", RelativePath: "findings.md", AbsolutePath: "/artifacts/findings.md", Exists: true, UpdatedAt: now}
+	if err := db.UpsertArtifacts(context.Background(), []store.Artifact{artifact}); err != nil {
+		t.Fatalf("create artifact: %v", err)
+	}
+	check := store.StepCheckResult{WorkflowRunID: "run-1", StepID: "review", Kind: "artifact", Target: "findings", Check: "non_empty", Passed: true, UpdatedAt: now}
+	if err := db.UpsertStepCheckResults(context.Background(), []store.StepCheckResult{check}); err != nil {
+		t.Fatalf("create check result: %v", err)
 	}
 	return logPath
 }

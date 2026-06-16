@@ -107,7 +107,7 @@ func seedWaitLogsWorkflowRun(t *testing.T, stateDir string, state store.State) s
 		t.Fatalf("create run: %v", err)
 	}
 	step := store.StepRun{WorkflowRunID: "run-1", StepID: "review", Agent: "reviewer", ExecutionIndex: 0, State: state, PDTaskID: "pd-task-1", PDRunID: "pd-run-1", StartedAt: now, UpdatedAt: now}
-	if err := db.CreateStepRun(context.Background(), step, nil); err != nil {
+	if err := db.CreateStepRun(context.Background(), step); err != nil {
 		t.Fatalf("create step: %v", err)
 	}
 	return logPath

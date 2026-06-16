@@ -516,9 +516,12 @@ func seedCleanupWorkflowRunWithIDAndArtifactRootAndPDTask(t *testing.T, stateDir
 		t.Fatalf("write artifact: %v", err)
 	}
 	step := store.StepRun{WorkflowRunID: runID, StepID: "review", Agent: "reviewer", ExecutionIndex: 0, State: state, PDTaskID: pdTaskID, PDRunID: pdRunID, StartedAt: now, UpdatedAt: now}
-	artifact := store.Artifact{WorkflowRunID: runID, StepID: "review", Name: "out", RelativePath: "out.md", AbsolutePath: artifactPath, Required: true, Exists: true, UpdatedAt: now}
-	if err := db.CreateStepRun(context.Background(), step, []store.Artifact{artifact}); err != nil {
+	artifact := store.Artifact{WorkflowRunID: runID, Name: "out", RelativePath: "out.md", AbsolutePath: artifactPath, Exists: true, UpdatedAt: now}
+	if err := db.CreateStepRun(context.Background(), step); err != nil {
 		t.Fatalf("create step: %v", err)
+	}
+	if err := db.UpsertArtifacts(context.Background(), []store.Artifact{artifact}); err != nil {
+		t.Fatalf("create artifact: %v", err)
 	}
 	return cleanupPaths{worktree: worktree, artifacts: artifacts}
 }

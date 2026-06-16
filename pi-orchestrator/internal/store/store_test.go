@@ -9,6 +9,59 @@ import (
 	"time"
 )
 
+func TestArtifactSchemaOmitsLegacyOwnershipColumns(t *testing.T) {
+	t.Parallel()
+	db := openTestStore(t)
+	defer db.Close() //nolint:errcheck
+
+	assertNoLegacyArtifactColumns(t, db.db)
+}
+
+func TestOpenMigratesLegacyStepScopedArtifacts(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "po.db")
+	legacy, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatalf("open legacy db: %v", err)
+	}
+	if _, err := legacy.Exec(`CREATE TABLE artifacts (
+    workflow_run_id TEXT NOT NULL,
+    step_id         TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    relative_path   TEXT NOT NULL,
+    absolute_path   TEXT NOT NULL,
+    required        INTEGER NOT NULL,
+    artifact_exists INTEGER NOT NULL,
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY (workflow_run_id, step_id, name)
+)`); err != nil {
+		t.Fatalf("create legacy artifacts table: %v", err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatalf("close legacy db: %v", err)
+	}
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+	assertNoLegacyArtifactColumns(t, db.db)
+}
+
+func assertNoLegacyArtifactColumns(t *testing.T, db *sql.DB) {
+	t.Helper()
+	columns, err := tableColumns(db, "artifacts")
+	if err != nil {
+		t.Fatalf("tableColumns() error = %v", err)
+	}
+	for _, column := range []string{"required", "step_id"} {
+		if columns[column] {
+			t.Fatalf("artifacts columns = %+v, want no legacy %s column", columns, column)
+		}
+	}
+}
+
 func TestCreateRunRequestWithWorkflowRunPersistsV1Metadata(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -77,17 +130,18 @@ func TestCreateStepRunAndArtifactsPersistsBackingPDMetadata(t *testing.T) {
 	}
 	artifacts := []Artifact{{
 		WorkflowRunID: "run-1",
-		StepID:        "review",
 		Name:          "findings",
 		RelativePath:  "findings.md",
 		AbsolutePath:  "/artifacts/run-1/findings.md",
-		Required:      true,
 		Exists:        false,
 		UpdatedAt:     now,
 	}}
 
-	if err := db.CreateStepRun(ctx, step, artifacts); err != nil {
+	if err := db.CreateStepRun(ctx, step); err != nil {
 		t.Fatalf("CreateStepRun() error = %v", err)
+	}
+	if err := db.UpsertArtifacts(ctx, artifacts); err != nil {
+		t.Fatalf("UpsertArtifacts() error = %v", err)
 	}
 
 	detail, err := db.GetWorkflowRunDetail(ctx, "run-1")
@@ -100,8 +154,8 @@ func TestCreateStepRunAndArtifactsPersistsBackingPDMetadata(t *testing.T) {
 	if detail.StepTotal != 3 || detail.StepPending != 2 {
 		t.Fatalf("detail step progress = %d total %d pending, want 3 total 2 pending", detail.StepTotal, detail.StepPending)
 	}
-	if len(detail.Artifacts) != 1 || !detail.Artifacts[0].Required || detail.Artifacts[0].Exists {
-		t.Fatalf("artifacts = %+v, want required missing artifact", detail.Artifacts)
+	if len(detail.Artifacts) != 1 || detail.Artifacts[0].Name != "findings" || detail.Artifacts[0].Exists {
+		t.Fatalf("artifacts = %+v, want missing findings artifact", detail.Artifacts)
 	}
 }
 
@@ -112,9 +166,12 @@ func TestUpdateArtifactExistence(t *testing.T) {
 	defer db.Close() //nolint:errcheck
 	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
 	createWorkflowRun(t, ctx, db, now)
-	artifact := Artifact{WorkflowRunID: "run-1", StepID: "review", Name: "findings", RelativePath: "findings.md", AbsolutePath: "/artifacts/run-1/findings.md", Required: true, Exists: false, UpdatedAt: now}
-	if err := db.CreateStepRun(ctx, StepRun{WorkflowRunID: "run-1", StepID: "review", Agent: "reviewer", ExecutionIndex: 0, State: StateRunning, StartedAt: now, UpdatedAt: now}, []Artifact{artifact}); err != nil {
+	artifact := Artifact{WorkflowRunID: "run-1", Name: "findings", RelativePath: "findings.md", AbsolutePath: "/artifacts/run-1/findings.md", Exists: false, UpdatedAt: now}
+	if err := db.CreateStepRun(ctx, StepRun{WorkflowRunID: "run-1", StepID: "review", Agent: "reviewer", ExecutionIndex: 0, State: StateRunning, StartedAt: now, UpdatedAt: now}); err != nil {
 		t.Fatalf("CreateStepRun() error = %v", err)
+	}
+	if err := db.UpsertArtifacts(ctx, []Artifact{artifact}); err != nil {
+		t.Fatalf("UpsertArtifacts() error = %v", err)
 	}
 	artifact.Exists = true
 	artifact.UpdatedAt = now.Add(time.Minute)
@@ -174,7 +231,7 @@ func TestUpdateWorkflowAndStepState(t *testing.T) {
 	defer db.Close() //nolint:errcheck
 	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
 	createWorkflowRun(t, ctx, db, now)
-	if err := db.CreateStepRun(ctx, StepRun{WorkflowRunID: "run-1", StepID: "review", Agent: "reviewer", ExecutionIndex: 0, State: StateRunning, StartedAt: now, UpdatedAt: now}, nil); err != nil {
+	if err := db.CreateStepRun(ctx, StepRun{WorkflowRunID: "run-1", StepID: "review", Agent: "reviewer", ExecutionIndex: 0, State: StateRunning, StartedAt: now, UpdatedAt: now}); err != nil {
 		t.Fatalf("CreateStepRun() error = %v", err)
 	}
 
@@ -257,7 +314,7 @@ func TestReadOnlyPathHelpersAvoidLargeRunPayloads(t *testing.T) {
 	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
 	createWorkflowRun(t, ctx, db, now)
 	step := StepRun{WorkflowRunID: "run-1", StepID: "first", Agent: "reviewer", ExecutionIndex: 0, State: StateRunning, PDStdoutPath: "/tmp/stdout", PDStderrPath: "/tmp/stderr", StartedAt: now, UpdatedAt: now}
-	if err := db.CreateStepRun(ctx, step, nil); err != nil {
+	if err := db.CreateStepRun(ctx, step); err != nil {
 		t.Fatalf("CreateStepRun() error = %v", err)
 	}
 

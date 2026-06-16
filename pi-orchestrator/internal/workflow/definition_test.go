@@ -28,14 +28,15 @@ agents:
   reviewer:
     model: gpt-5.1-codex
     skills: [review]
+artifacts:
+  findings:
+    path: findings.md
 steps:
   - id: review
     agent: reviewer
-    prompt: "Write findings to {{ artifact_path \"findings\" }}"
-    artifacts:
-      - name: findings
-        path: findings.md
-        required: true
+    prompt: "Write findings to {{ .Artifacts.findings }} for {{ .Inputs.pr_number }}"
+    produces:
+      findings: non_empty
 `)
 
 	def, err := LoadFile(path)
@@ -48,6 +49,39 @@ steps:
 	}
 	if got := len(def.Steps); got != 1 {
 		t.Fatalf("len(Steps) = %d, want 1", got)
+	}
+	if def.Artifacts["findings"].Path != "findings.md" {
+		t.Fatalf("Artifacts[findings] = %+v", def.Artifacts["findings"])
+	}
+	if def.Steps[0].Produces["findings"] != ProduceNonEmpty {
+		t.Fatalf("Produces[findings] = %q, want non_empty", def.Steps[0].Produces["findings"])
+	}
+}
+
+func TestLoadFileValidatesPromptTemplatesWithTypedInputData(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+inputs:
+  count:
+    type: integer
+    required: true
+  draft:
+    type: boolean
+    default: false
+agents:
+  runner:
+    model: gpt-5.1-codex
+steps:
+  - id: run
+    agent: runner
+    prompt: '{{ if eq .Inputs.count 0 }}zero{{ end }} {{ if not .Inputs.draft }}not draft{{ end }}'
+`)
+
+	if _, err := LoadFile(path); err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
 	}
 }
 
@@ -233,14 +267,13 @@ repo: repo
 agents:
   runner:
     model: gpt-5.1-codex
+artifacts:
+  out:
+    path: ../out.txt
 steps:
   - id: run
     agent: runner
     prompt: run
-    artifacts:
-      - name: out
-        path: ../out.txt
-        required: true
 `)
 
 	_, err := LoadFile(path)
@@ -256,21 +289,42 @@ repo: repo
 agents:
   runner:
     model: gpt-5.1-codex
+artifacts:
+  out:
+    path: /tmp/out.txt
 steps:
   - id: run
     agent: runner
     prompt: run
-    artifacts:
-      - name: out
-        path: /tmp/out.txt
-        required: true
 `)
 
 	_, err := LoadFile(path)
 	assertErrorContains(t, err, "artifact out path must be relative")
 }
 
-func TestValidateRejectsDuplicateArtifactNames(t *testing.T) {
+func TestValidateRejectsInvalidArtifactName(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+agents:
+  runner:
+    model: gpt-5.1-codex
+artifacts:
+  out-file:
+    path: out.txt
+steps:
+  - id: run
+    agent: runner
+    prompt: run
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, "artifact out-file name must match")
+}
+
+func TestLoadFileRejectsStepScopedArtifacts(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sample.yaml")
@@ -280,22 +334,199 @@ agents:
   runner:
     model: gpt-5.1-codex
 steps:
-  - id: first
+  - id: run
     agent: runner
-    prompt: first
+    prompt: run
     artifacts:
       - name: out
-        path: first.md
-  - id: second
-    agent: runner
-    prompt: second
-    artifacts:
-      - name: out
-        path: second.md
+        path: out.txt
 `)
 
 	_, err := LoadFile(path)
-	assertErrorContains(t, err, "artifact out is declared by both step first and step second")
+	assertErrorContains(t, err, "field artifacts not found")
+}
+
+func TestLoadFileRejectsUnsupportedRootArtifactFields(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+agents:
+  runner:
+    model: gpt-5.1-codex
+artifacts:
+  out:
+    name: out
+    path: out.txt
+    required: true
+steps:
+  - id: run
+    agent: runner
+    prompt: run
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, "field name not found")
+}
+
+func TestValidateRejectsUnknownProducedArtifact(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+agents:
+  runner:
+    model: gpt-5.1-codex
+steps:
+  - id: run
+    agent: runner
+    prompt: run
+    produces:
+      out: exists
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, "step run produces unknown artifact out")
+}
+
+func TestValidateRejectsUnsupportedProducesCheck(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+agents:
+  runner:
+    model: gpt-5.1-codex
+artifacts:
+  out:
+    path: out.txt
+steps:
+  - id: run
+    agent: runner
+    prompt: run
+    produces:
+      out: present
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, "step run produces artifact out has unsupported check present")
+}
+
+func TestValidateRejectsUnknownArtifactPromptReference(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+agents:
+  runner:
+    model: gpt-5.1-codex
+artifacts:
+  out:
+    path: out.txt
+steps:
+  - id: run
+    agent: runner
+    prompt: "write {{ .Artifacts.missing }}"
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, `unknown artifact reference missing`)
+}
+
+func TestValidateRejectsOptionalInputPromptReferenceWithoutDefault(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+inputs:
+  maybe:
+    type: string
+agents:
+  runner:
+    model: gpt-5.1-codex
+steps:
+  - id: run
+    agent: runner
+    prompt: '{{ .Inputs.maybe }}'
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, `optional input reference maybe requires a default`)
+}
+
+func TestValidateRejectsUnknownArtifactPromptReferenceInConditional(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+inputs:
+  draft:
+    type: boolean
+    required: true
+agents:
+  runner:
+    model: gpt-5.1-codex
+artifacts:
+  out:
+    path: out.txt
+steps:
+  - id: run
+    agent: runner
+    prompt: '{{ if .Inputs.draft }}write {{ .Artifacts.missing }}{{ end }}'
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, `unknown artifact reference missing`)
+}
+
+func TestValidateRejectsIndexedArtifactPromptReference(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+agents:
+  runner:
+    model: gpt-5.1-codex
+artifacts:
+  out:
+    path: out.txt
+steps:
+  - id: run
+    agent: runner
+    prompt: '{{ index .Artifacts "missing" }}'
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, `index template function is unsupported`)
+}
+
+func TestValidateRejectsArtifactPathHelper(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.yaml")
+	writeFile(t, path, `name: sample
+repo: repo
+agents:
+  runner:
+    model: gpt-5.1-codex
+artifacts:
+  out:
+    path: out.txt
+steps:
+  - id: run
+    agent: runner
+    prompt: '{{ artifact_path "out" }}'
+`)
+
+	_, err := LoadFile(path)
+	assertErrorContains(t, err, `function "artifact_path" not defined`)
 }
 
 func minimalWorkflow(name string) string {

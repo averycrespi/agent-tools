@@ -99,10 +99,8 @@ type StepDetailSummary struct {
 }
 
 type ArtifactDefinition struct {
-	StepID   string `json:"step_id,omitempty"`
-	Name     string `json:"name"`
-	Path     string `json:"path"`
-	Required bool   `json:"required"`
+	Name string `json:"name"`
+	Path string `json:"path"`
 }
 
 type RunSummary struct {
@@ -178,11 +176,9 @@ type StepRunView struct {
 
 type ArtifactView struct {
 	WorkflowRunID string    `json:"workflow_run_id"`
-	StepID        string    `json:"step_id"`
 	Name          string    `json:"name"`
 	RelativePath  string    `json:"relative_path"`
 	AbsolutePath  string    `json:"absolute_path"`
-	Required      bool      `json:"required"`
 	Exists        bool      `json:"exists"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -407,24 +403,17 @@ func workflowStepSummaries(def *workflow.Definition) []StepSummary {
 func workflowStepDetails(def *workflow.Definition) []StepDetailSummary {
 	out := make([]StepDetailSummary, 0, len(def.Steps))
 	for _, step := range def.Steps {
-		out = append(out, StepDetailSummary{ID: step.ID, Agent: step.Agent, Needs: step.Needs, Prompt: step.Prompt, Artifacts: stepArtifacts(step)})
+		out = append(out, StepDetailSummary{ID: step.ID, Agent: step.Agent, Needs: step.Needs, Prompt: step.Prompt})
 	}
 	return out
 }
 
 func workflowArtifacts(def *workflow.Definition) []ArtifactDefinition {
-	var out []ArtifactDefinition
-	for _, step := range def.Steps {
-		out = append(out, stepArtifacts(step)...)
+	out := make([]ArtifactDefinition, 0, len(def.Artifacts))
+	for name, artifact := range def.Artifacts {
+		out = append(out, ArtifactDefinition{Name: name, Path: artifact.Path})
 	}
-	return out
-}
-
-func stepArtifacts(step workflow.Step) []ArtifactDefinition {
-	out := make([]ArtifactDefinition, 0, len(step.Artifacts))
-	for _, artifact := range step.Artifacts {
-		out = append(out, ArtifactDefinition{StepID: step.ID, Name: artifact.Name, Path: artifact.Path, Required: artifact.Required})
-	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 
@@ -463,7 +452,7 @@ func stepRunViews(steps []store.StepRun) []StepRunView {
 func artifactViews(artifacts []store.Artifact) []ArtifactView {
 	out := make([]ArtifactView, 0, len(artifacts))
 	for _, artifact := range artifacts {
-		out = append(out, ArtifactView{WorkflowRunID: artifact.WorkflowRunID, StepID: artifact.StepID, Name: artifact.Name, RelativePath: artifact.RelativePath, AbsolutePath: artifact.AbsolutePath, Required: artifact.Required, Exists: artifact.Exists, UpdatedAt: artifact.UpdatedAt})
+		out = append(out, ArtifactView{WorkflowRunID: artifact.WorkflowRunID, Name: artifact.Name, RelativePath: artifact.RelativePath, AbsolutePath: artifact.AbsolutePath, Exists: artifact.Exists, UpdatedAt: artifact.UpdatedAt})
 	}
 	return out
 }
