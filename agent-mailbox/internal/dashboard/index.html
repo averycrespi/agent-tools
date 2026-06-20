@@ -7,28 +7,402 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <style>
 :root{--bg:#080b10;--panel:#101722;--panel-strong:#151f2d;--panel-sunken:#05070b;--text:#e6edf3;--muted:#8b98a8;--line:#263244;--product-accent:#a78bfa;--product-accent-2:#f472b6;--good:#34d399;--warn:#fbbf24;--bad:#fb7185}
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top left,rgba(167,139,250,.18),transparent 32rem),radial-gradient(circle at top right,rgba(244,114,182,.12),transparent 30rem),var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}button,input,select{font:inherit}header{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line);background:rgba(8,11,16,.86);backdrop-filter:blur(12px)}.brand{width:28px;height:28px}.title{font-weight:700}.subtitle{color:var(--muted);font-size:12px}.status{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}.status-dot{width:9px;height:9px;border-radius:999px;background:var(--bad);box-shadow:0 0 14px var(--bad)}.status.connected .status-dot{background:var(--good);box-shadow:0 0 14px var(--good)}main{display:grid;grid-template-columns:minmax(320px,430px) minmax(0,1fr);gap:14px;padding:14px}.panel{background:rgba(16,23,34,.88);border:1px solid var(--line);border-radius:12px;overflow:hidden}.panel h2{margin:0;padding:14px 14px 0;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}.filters{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:14px}.filters label{display:grid;gap:4px;color:var(--muted);font-size:12px}.filters select,.filters input{min-width:0;border:1px solid var(--line);border-radius:8px;background:var(--panel-sunken);color:var(--text);padding:7px 9px}.list{border-top:1px solid var(--line);max-height:calc(100vh - 206px);overflow:auto}.row{display:grid;gap:6px;padding:12px 14px;border-bottom:1px solid var(--line);cursor:pointer;background:transparent}.row:hover,.row.selected{background:var(--panel-strong);box-shadow:inset 4px 0 0 var(--product-accent)}.row-title{display:flex;gap:8px;align-items:center;justify-content:space-between}.subject{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.meta{color:var(--muted);font-size:12px;display:flex;gap:8px;flex-wrap:wrap}.badge{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:2px 7px;font-size:11px;color:var(--muted);background:rgba(5,7,11,.7)}.severity-error,.severity-action_required{color:#fecdd3;border-color:rgba(251,113,133,.5)}.severity-warning{color:#fde68a;border-color:rgba(251,191,36,.45)}.severity-success{color:#bbf7d0;border-color:rgba(52,211,153,.45)}.detail{min-height:calc(100vh - 92px);display:grid;grid-template-rows:auto 1fr}.detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px;border-bottom:1px solid var(--line)}.detail-title{font-size:20px;font-weight:750}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions button{border:1px solid var(--line);border-radius:8px;background:var(--panel-strong);color:var(--text);padding:8px 10px;cursor:pointer}.actions button.primary{border-color:rgba(167,139,250,.65);background:rgba(167,139,250,.18)}.content{padding:16px;display:grid;gap:14px}.body{white-space:pre-wrap;background:var(--panel-sunken);border:1px solid var(--line);border-radius:12px;padding:14px;min-height:140px}.grid{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:7px 12px}.grid .muted{white-space:nowrap;color:var(--muted)}.events{display:grid;gap:8px}.event{border:1px solid var(--line);border-radius:8px;padding:8px;background:rgba(5,7,11,.45)}.empty{color:var(--muted);padding:24px;text-align:center}@media (max-width:860px){main{grid-template-columns:1fr}.list{max-height:45vh}.detail{min-height:auto}.filters{grid-template-columns:1fr}}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(167,139,250,.18), transparent 32rem),
+    radial-gradient(circle at top right, rgba(244,114,182,.12), transparent 30rem),
+    var(--bg);
+  color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif;
+}
+button,
+input,
+select {
+  font: inherit;
+}
+header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(8,11,16,.86);
+  backdrop-filter: blur(12px);
+}
+.brand {
+  width: 28px;
+  height: 28px;
+}
+.title {
+  font-weight: 700;
+}
+.subtitle {
+  color: var(--muted);
+  font-size: 12px;
+}
+.status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--bad);
+  box-shadow: 0 0 14px var(--bad);
+}
+.status.connected .status-dot {
+  background: var(--good);
+  box-shadow: 0 0 14px var(--good);
+}
+main {
+  display: grid;
+  grid-template-columns:minmax(320px,430px) minmax(0,1fr);
+  gap: 14px;
+  padding: 14px;
+}
+.panel {
+  background: rgba(16,23,34,.88);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.panel h2 {
+  margin: 0;
+  padding: 14px 14px 0;
+  font-size: 13px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.filters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 14px;
+}
+.filters label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.filters select,
+.filters input {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-sunken);
+  color: var(--text);
+  padding: 7px 9px;
+}
+.list {
+  border-top: 1px solid var(--line);
+  max-height: calc(100vh - 206px);
+  overflow: auto;
+}
+.row {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  background: transparent;
+}
+.row:hover,
+.row.selected {
+  background: var(--panel-strong);
+  box-shadow: inset 4px 0 0 var(--product-accent);
+}
+.row-title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+.subject {
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meta {
+  color: var(--muted);
+  font-size: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(5,7,11,.7);
+}
+.severity-error,
+.severity-action_required {
+  color: #fecdd3;
+  border-color: rgba(251,113,133,.5);
+}
+.severity-warning {
+  color: #fde68a;
+  border-color: rgba(251,191,36,.45);
+}
+.severity-success {
+  color: #bbf7d0;
+  border-color: rgba(52,211,153,.45);
+}
+.detail {
+  min-height: calc(100vh - 92px);
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+.detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.detail-title {
+  font-size: 20px;
+  font-weight: 750;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.actions button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  color: var(--text);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.actions button.primary {
+  border-color: rgba(167,139,250,.65);
+  background: rgba(167,139,250,.18);
+}
+.content {
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+.body {
+  white-space: pre-wrap;
+  background: var(--panel-sunken);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  min-height: 140px;
+}
+.grid {
+  display: grid;
+  grid-template-columns: max-content minmax(0,1fr);
+  gap: 7px 12px;
+}
+.grid .muted {
+  white-space: nowrap;
+  color: var(--muted);
+}
+.events {
+  display: grid;
+  gap: 8px;
+}
+.event {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(5,7,11,.45);
+}
+.empty {
+  color: var(--muted);
+  padding: 24px;
+  text-align: center;
+}
+@media (max-width: 860px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+  .list {
+    max-height: 45vh;
+  }
+  .detail {
+    min-height: auto;
+  }
+  .filters {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
 </head>
 <body>
-<header><img class="brand" src="favicon.svg" alt=""><div><div class="title">Agent Mailbox</div><div class="subtitle">Durable local messages from coding agents</div></div><div id="conn" class="status"><span class="status-dot"></span><span>Disconnected</span></div></header>
+<header>
+  <img class="brand" src="favicon.svg" alt="">
+  <div>
+    <div class="title">Agent Mailbox</div>
+    <div class="subtitle">Durable local messages from coding agents</div>
+  </div>
+  <div id="conn" class="status"><span class="status-dot"></span><span>Disconnected</span></div>
+</header>
 <main>
-<section class="panel"><h2>Messages</h2><div class="filters"><label>Status<select id="status"><option value="">Any</option><option>new</option><option>acknowledged</option><option>resolved</option></select></label><label>Severity<select id="severity"><option value="">Any</option><option>info</option><option>success</option><option>warning</option><option>error</option><option>action_required</option></select></label><label>Channel<input id="channel" placeholder="inbox"></label><label>Sender<input id="sender" placeholder="agent"></label><label>Requires response<select id="requires"><option value="">Any</option><option value="true">Yes</option><option value="false">No</option></select></label></div><div id="list" class="list"><div class="empty">No messages loaded</div></div></section>
-<section class="panel detail"><div id="detail-head" class="detail-head"><div><div id="detail-title" class="detail-title">Select a message</div><div id="detail-meta" class="meta"></div></div><div class="actions"><button id="ack" class="primary">Acknowledge</button><button id="resolve">Resolve</button></div></div><div id="detail" class="content"><div class="empty">No message selected</div></div></section>
+  <section class="panel">
+    <h2>Messages</h2>
+    <div class="filters">
+      <label>Status<select id="status"><option value="">Any</option><option>new</option><option>acknowledged</option><option>resolved</option></select></label>
+      <label>Severity<select id="severity"><option value="">Any</option><option>info</option><option>success</option><option>warning</option><option>error</option><option>action_required</option></select></label>
+      <label>Channel<input id="channel" placeholder="inbox"></label>
+      <label>Sender<input id="sender" placeholder="agent"></label>
+      <label>Requires response<select id="requires"><option value="">Any</option><option value="true">Yes</option><option value="false">No</option></select></label>
+    </div>
+    <div id="list" class="list"><div class="empty">No messages loaded</div></div>
+  </section>
+  <section class="panel detail">
+    <div id="detail-head" class="detail-head">
+      <div>
+        <div id="detail-title" class="detail-title">Select a message</div>
+        <div id="detail-meta" class="meta"></div>
+      </div>
+      <div class="actions"><button id="ack" class="primary">Acknowledge</button><button id="resolve">Resolve</button></div>
+    </div>
+    <div id="detail" class="content"><div class="empty">No message selected</div></div>
+  </section>
 </main>
 <script>
-const $=id=>document.getElementById(id);const state={messages:[],selected:null};
-function api(path,opts){return fetch(path,{...opts,headers:{'content-type':'application/json',...(opts&&opts.headers||{})}}).then(async r=>{if(!r.ok)throw new Error((await r.json()).error||r.statusText);return r.json()})}
-function qs(){const p=new URLSearchParams({limit:'50'});['status','severity','channel','sender'].forEach(id=>{if($(id).value)p.set(id,$(id).value)});if($('requires').value)p.set('requires_response',$('requires').value);return p.toString()}
-async function refresh(){const data=await api('api/messages?'+qs());state.messages=data.messages||[];renderList();if(state.selected)await select(state.selected,true)}
-function renderList(){const list=$('list');if(!state.messages.length){list.innerHTML='<div class="empty">No messages match the structured filters</div>';return}list.innerHTML=state.messages.map(m=>`<div class="row ${m.id===state.selected?'selected':''}" data-id="${esc(m.id)}"><div class="row-title"><span class="subject">${esc(m.subject)}</span><span class="badge">${esc(m.status)}</span></div><div class="meta"><span>${esc(m.sender)}</span><span>${esc(m.channel)}</span><span class="badge severity-${esc(m.severity)}">${esc(m.severity)}</span>${m.requires_response?'<span class="badge">response needed</span>':''}</div></div>`).join('');list.querySelectorAll('.row').forEach(r=>r.onclick=()=>select(r.dataset.id))}
-async function select(id,quiet){state.selected=id;renderList();const d=await api('api/messages/'+encodeURIComponent(id));const m=d.message;$('detail-title').textContent=m.subject;$('detail-meta').innerHTML=`<span>${esc(m.status)}</span><span>${esc(m.sender)}</span><span>${esc(m.channel)}</span><span class="badge severity-${esc(m.severity)}">${esc(m.severity)}</span>`;$('detail').innerHTML=`<div class="body">${esc(m.body||'')}</div><div class="grid">${pairs([['ID',m.id],['Thread',m.thread_id||''],['Created',fmt(m.created_at)],['Updated',fmt(m.updated_at)],['Requires response',String(!!m.requires_response)],['Idempotency key',m.idempotency_key||'']])}</div><h2>Lifecycle events</h2><div class="events">${(d.events||[]).map(e=>`<div class="event"><strong>${esc(e.type)}</strong><div class="meta"><span>${esc(e.actor)}</span><span>${fmt(e.created_at)}</span></div></div>`).join('')}</div>`;if(!quiet)location.hash=id}
-function pairs(items){return items.filter(([,v])=>v).map(([k,v])=>`<div class="muted">${esc(k)}</div><div>${esc(v)}</div>`).join('')}
-async function lifecycle(kind){if(!state.selected)return;await api(`api/messages/${encodeURIComponent(state.selected)}/${kind}`,{method:'POST'});await select(state.selected,true);await refresh()}
-function connect(){const es=new EventSource('events');es.onopen=()=>{$('conn').classList.add('connected');$('conn').lastElementChild.textContent='Connected'};es.onerror=()=>{$('conn').classList.remove('connected');$('conn').lastElementChild.textContent='Disconnected'};es.addEventListener('snapshot',()=>refresh().catch(console.error))}
-function fmt(v){if(!v)return'';const d=new Date(v);const pad=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`}
-function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-['status','severity','channel','sender','requires'].forEach(id=>$(id).addEventListener('change',()=>refresh().catch(console.error)));$('ack').onclick=()=>lifecycle('ack').catch(console.error);$('resolve').onclick=()=>lifecycle('resolve').catch(console.error);refresh().then(()=>{if(location.hash)select(location.hash.slice(1),true)}).catch(console.error);connect();
+const $ = id => document.getElementById(id);
+const state = { messages: [], selected: null };
+
+function api(path, opts) {
+  return fetch(path, {
+    ...opts,
+    headers: { 'content-type': 'application/json', ...(opts && opts.headers || {}) },
+  }).then(async r => {
+    if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+    return r.json();
+  });
+}
+
+function qs() {
+  const p = new URLSearchParams({ limit: '50' });
+  ['status', 'severity', 'channel', 'sender'].forEach(id => {
+    if ($(id).value) p.set(id, $(id).value);
+  });
+  if ($('requires').value) p.set('requires_response', $('requires').value);
+  return p.toString();
+}
+
+async function refresh() {
+  const data = await api('api/messages?' + qs());
+  renderSnapshot(data);
+  if (state.selected) await select(state.selected, true);
+}
+
+function renderSnapshot(data) {
+  state.messages = data.messages || [];
+  renderList();
+}
+
+function renderList() {
+  const list = $('list');
+  if (!state.messages.length) {
+    list.innerHTML = '<div class="empty">No messages match the structured filters</div>';
+    return;
+  }
+  list.innerHTML = state.messages.map(m => `
+    <div class="row ${m.id === state.selected ? 'selected' : ''}" data-id="${esc(m.id)}">
+      <div class="row-title"><span class="subject">${esc(m.subject)}</span><span class="badge">${esc(m.status)}</span></div>
+      <div class="meta">
+        <span>${esc(m.sender)}</span><span>${esc(m.channel)}</span><span class="badge severity-${esc(m.severity)}">${esc(m.severity)}</span>${m.requires_response ? '<span class="badge">response needed</span>' : ''}
+      </div>
+    </div>`).join('');
+  list.querySelectorAll('.row').forEach(r => r.onclick = () => select(r.dataset.id));
+}
+
+async function select(id, quiet) {
+  state.selected = id;
+  renderList();
+  const d = await api('api/messages/' + encodeURIComponent(id));
+  const m = d.message;
+  $('detail-title').textContent = m.subject;
+  $('detail-meta').innerHTML = `<span>${esc(m.status)}</span><span>${esc(m.sender)}</span><span>${esc(m.channel)}</span><span class="badge severity-${esc(m.severity)}">${esc(m.severity)}</span>`;
+  $('detail').innerHTML = `
+    <div class="body">${esc(m.body || '')}</div>
+    <div class="grid">${pairs([
+      ['ID', m.id],
+      ['Thread', m.thread_id || ''],
+      ['Created', fmt(m.created_at)],
+      ['Updated', fmt(m.updated_at)],
+      ['Requires response', String(!!m.requires_response)],
+      ['Idempotency key', m.idempotency_key || ''],
+    ])}</div>
+    <h2>Lifecycle events</h2>
+    <div class="events">${(d.events || []).map(e => `<div class="event"><strong>${esc(e.type)}</strong><div class="meta"><span>${esc(e.actor)}</span><span>${fmt(e.created_at)}</span></div></div>`).join('')}</div>`;
+  if (!quiet) location.hash = id;
+}
+
+function pairs(items) {
+  return items.filter(([, v]) => v).map(([k, v]) => `<div class="muted">${esc(k)}</div><div>${esc(v)}</div>`).join('');
+}
+
+async function lifecycle(kind) {
+  if (!state.selected) return;
+  await api(`api/messages/${encodeURIComponent(state.selected)}/${kind}`, { method: 'POST' });
+  await select(state.selected, true);
+  await refresh();
+}
+
+function connect() {
+  const es = new EventSource('events');
+  es.onopen = () => {
+    $('conn').classList.add('connected');
+    $('conn').lastElementChild.textContent = 'Connected';
+  };
+  es.onerror = () => {
+    $('conn').classList.remove('connected');
+    $('conn').lastElementChild.textContent = 'Disconnected';
+  };
+  es.addEventListener('snapshot', async e => {
+    renderSnapshot(JSON.parse(e.data));
+    if (state.selected) await select(state.selected, true);
+  });
+}
+
+function fmt(v) {
+  if (!v) return '';
+  const d = new Date(v);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+['status', 'severity', 'channel', 'sender', 'requires'].forEach(id => $(id).addEventListener('change', () => refresh().catch(console.error)));
+$('ack').onclick = () => lifecycle('ack').catch(console.error);
+$('resolve').onclick = () => lifecycle('resolve').catch(console.error);
+refresh().then(() => {
+  if (location.hash) select(location.hash.slice(1), true);
+}).catch(console.error);
+connect();
 </script>
 </body>
 </html>

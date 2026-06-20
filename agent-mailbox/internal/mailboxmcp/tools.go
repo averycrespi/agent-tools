@@ -23,18 +23,96 @@ type Handler struct {
 	store Store
 }
 
+var (
+	readLocalAnnotation = gomcp.ToolAnnotation{
+		ReadOnlyHint:  gomcp.ToBoolPtr(true),
+		OpenWorldHint: gomcp.ToBoolPtr(false),
+	}
+	writeLocalAnnotation = gomcp.ToolAnnotation{
+		ReadOnlyHint:  gomcp.ToBoolPtr(false),
+		OpenWorldHint: gomcp.ToBoolPtr(false),
+	}
+)
+
 func NewHandler(st Store) *Handler { return &Handler{store: st} }
 
 func (h *Handler) Tools() []gomcp.Tool {
 	return []gomcp.Tool{
-		{Name: "send_message", Description: "Send a durable mailbox message", InputSchema: gomcp.ToolInputSchema{Type: "object", Properties: map[string]any{
-			"sender": map[string]any{"type": "string"}, "subject": map[string]any{"type": "string"}, "body": map[string]any{"type": "string"}, "channel": map[string]any{"type": "string", "default": "inbox"}, "thread_id": map[string]any{"type": "string"}, "severity": map[string]any{"type": "string", "enum": []string{"info", "success", "warning", "error", "action_required"}, "default": "info"}, "requires_response": map[string]any{"type": "boolean", "default": false}, "idempotency_key": map[string]any{"type": "string"}}, Required: []string{"sender", "subject", "body"}}},
-		{Name: "list_messages", Description: "List durable mailbox messages", InputSchema: gomcp.ToolInputSchema{Type: "object", Properties: map[string]any{
-			"status": map[string]any{"type": "string", "enum": []string{"new", "acknowledged", "resolved"}}, "channel": map[string]any{"type": "string"}, "sender": map[string]any{"type": "string"}, "severity": map[string]any{"type": "string", "enum": []string{"info", "success", "warning", "error", "action_required"}}, "requires_response": map[string]any{"type": "boolean"}, "limit": map[string]any{"type": "integer", "default": store.DefaultLimit, "maximum": store.MaxLimit}, "offset": map[string]any{"type": "integer", "default": 0}}}},
-		{Name: "get_message", Description: "Get a mailbox message and lifecycle events", InputSchema: gomcp.ToolInputSchema{Type: "object", Properties: map[string]any{"id": map[string]any{"type": "string"}}, Required: []string{"id"}}},
-		{Name: "ack_message", Description: "Acknowledge a mailbox message", InputSchema: gomcp.ToolInputSchema{Type: "object", Properties: map[string]any{"id": map[string]any{"type": "string"}, "actor": map[string]any{"type": "string", "default": "user"}}, Required: []string{"id"}}},
-		{Name: "resolve_message", Description: "Resolve a mailbox message", InputSchema: gomcp.ToolInputSchema{Type: "object", Properties: map[string]any{"id": map[string]any{"type": "string"}, "actor": map[string]any{"type": "string", "default": "user"}, "resolution": map[string]any{"type": "string"}}, Required: []string{"id"}}},
+		{
+			Name:        "send_message",
+			Description: "Send a durable mailbox message",
+			Annotations: writeLocalAnnotation,
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"sender":            map[string]any{"type": "string"},
+					"subject":           map[string]any{"type": "string"},
+					"body":              map[string]any{"type": "string"},
+					"channel":           map[string]any{"type": "string", "default": "inbox"},
+					"thread_id":         map[string]any{"type": "string"},
+					"severity":          severitySchema(true),
+					"requires_response": map[string]any{"type": "boolean", "default": false},
+					"idempotency_key":   map[string]any{"type": "string"},
+				},
+				Required: []string{"sender", "subject", "body"},
+			},
+		},
+		{
+			Name:        "list_messages",
+			Description: "List durable mailbox messages",
+			Annotations: readLocalAnnotation,
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"status":            map[string]any{"type": "string", "enum": []string{"new", "acknowledged", "resolved"}},
+					"channel":           map[string]any{"type": "string"},
+					"sender":            map[string]any{"type": "string"},
+					"severity":          severitySchema(false),
+					"requires_response": map[string]any{"type": "boolean"},
+					"limit":             map[string]any{"type": "integer", "default": store.DefaultLimit, "maximum": store.MaxLimit},
+					"offset":            map[string]any{"type": "integer", "default": 0},
+				},
+			},
+		},
+		{
+			Name:        "get_message",
+			Description: "Get a mailbox message and lifecycle events",
+			Annotations: readLocalAnnotation,
+			InputSchema: gomcp.ToolInputSchema{
+				Type:       "object",
+				Properties: map[string]any{"id": map[string]any{"type": "string"}},
+				Required:   []string{"id"},
+			},
+		},
+		{
+			Name:        "ack_message",
+			Description: "Acknowledge a mailbox message",
+			Annotations: writeLocalAnnotation,
+			InputSchema: gomcp.ToolInputSchema{
+				Type:       "object",
+				Properties: map[string]any{"id": map[string]any{"type": "string"}, "actor": map[string]any{"type": "string", "default": "user"}},
+				Required:   []string{"id"},
+			},
+		},
+		{
+			Name:        "resolve_message",
+			Description: "Resolve a mailbox message",
+			Annotations: writeLocalAnnotation,
+			InputSchema: gomcp.ToolInputSchema{
+				Type:       "object",
+				Properties: map[string]any{"id": map[string]any{"type": "string"}, "actor": map[string]any{"type": "string", "default": "user"}, "resolution": map[string]any{"type": "string"}},
+				Required:   []string{"id"},
+			},
+		},
 	}
+}
+
+func severitySchema(withDefault bool) map[string]any {
+	schema := map[string]any{"type": "string", "enum": []string{"info", "success", "warning", "error", "action_required"}}
+	if withDefault {
+		schema["default"] = "info"
+	}
+	return schema
 }
 
 func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
@@ -64,7 +142,15 @@ func (h *Handler) sendMessage(ctx context.Context, args map[string]any) (*gomcp.
 
 func (h *Handler) listMessages(ctx context.Context, args map[string]any) (*gomcp.CallToolResult, error) {
 	requiresResponse, hasRequiresResponse := optionalBoolArg(args, "requires_response")
-	p := store.ListMessagesParams{Status: store.Status(stringArg(args, "status")), Channel: stringArg(args, "channel"), Sender: stringArg(args, "sender"), Severity: store.Severity(stringArg(args, "severity")), Limit: intArg(args, "limit"), Offset: intArg(args, "offset")}
+	limit, err := intArg(args, "limit")
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	offset, err := intArg(args, "offset")
+	if err != nil {
+		return gomcp.NewToolResultError(err.Error()), nil
+	}
+	p := store.ListMessagesParams{Status: store.Status(stringArg(args, "status")), Channel: stringArg(args, "channel"), Sender: stringArg(args, "sender"), Severity: store.Severity(stringArg(args, "severity")), Limit: limit, Offset: offset}
 	if hasRequiresResponse {
 		p.RequiresResponse = &requiresResponse
 	}
@@ -151,19 +237,22 @@ func optionalBoolArg(args map[string]any, key string) (bool, bool) {
 	return v, ok
 }
 
-func intArg(args map[string]any, key string) int {
+func intArg(args map[string]any, key string) (int, error) {
 	value, ok := args[key]
 	if !ok || value == nil {
-		return 0
+		return 0, nil
 	}
 	switch v := value.(type) {
 	case int:
-		return v
+		return v, nil
 	case int64:
-		return int(v)
+		return int(v), nil
 	case float64:
-		return int(v)
+		if v != float64(int(v)) {
+			return 0, fmt.Errorf("%s must be an integer", key)
+		}
+		return int(v), nil
 	default:
-		return 0
+		return 0, fmt.Errorf("%s must be an integer", key)
 	}
 }

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -11,7 +12,8 @@ import (
 )
 
 func TestOpenCreatesSchemaWithWALAndBusyTimeout(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "mailbox.db"))
+	dbPath := filepath.Join(t.TempDir(), "mailbox.db")
+	st, err := Open(dbPath)
 	require.NoError(t, err)
 	defer st.Close() //nolint:errcheck
 
@@ -26,6 +28,11 @@ func TestOpenCreatesSchemaWithWALAndBusyTimeout(t *testing.T) {
 		var count int
 		require.NoError(t, st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&count))
 		require.Equal(t, 1, count, table)
+	}
+	for _, path := range []string{dbPath, dbPath + "-wal", dbPath + "-shm"} {
+		info, statErr := os.Stat(path)
+		require.NoError(t, statErr)
+		require.Zero(t, info.Mode().Perm()&0o077, "%s should not be group/world accessible", path)
 	}
 }
 
@@ -109,6 +116,9 @@ func TestAckAndResolveAppendEventsAndPersistTransitions(t *testing.T) {
 	_, changed, err = st.ResolveMessage(context.Background(), msg.ID, "avery")
 	require.NoError(t, err)
 	require.False(t, changed)
+	_, changed, err = st.AckMessage(context.Background(), msg.ID, "avery")
+	require.NoError(t, err)
+	require.False(t, changed)
 
 	detail, err := st.GetMessage(context.Background(), msg.ID)
 	require.NoError(t, err)
@@ -116,6 +126,21 @@ func TestAckAndResolveAppendEventsAndPersistTransitions(t *testing.T) {
 	require.Len(t, detail.Events, 3)
 	require.Equal(t, []EventType{EventMessageCreated, EventMessageAcknowledged, EventMessageResolved}, []EventType{detail.Events[0].Type, detail.Events[1].Type, detail.Events[2].Type})
 	require.JSONEq(t, `{"resolution":"done"}`, string(detail.Events[2].Payload))
+}
+
+func TestResolveFromNewAppendsResolvedEvent(t *testing.T) {
+	st := openTestStore(t)
+	msg, _, err := st.SendMessage(context.Background(), SendMessageParams{Sender: "agent", Subject: "Need input", Body: "body"})
+	require.NoError(t, err)
+
+	resolved, changed, err := st.ResolveMessage(context.Background(), msg.ID, "avery")
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, StatusResolved, resolved.Status)
+
+	detail, err := st.GetMessage(context.Background(), msg.ID)
+	require.NoError(t, err)
+	require.Equal(t, []EventType{EventMessageCreated, EventMessageResolved}, []EventType{detail.Events[0].Type, detail.Events[1].Type})
 }
 
 func TestValidationErrors(t *testing.T) {

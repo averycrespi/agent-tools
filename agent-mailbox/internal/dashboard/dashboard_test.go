@@ -31,6 +31,8 @@ func TestIndexMatchesMailboxDashboardConventions(t *testing.T) {
 	require.Contains(t, body, "Sender")
 	require.Contains(t, body, "'sender'")
 	require.Contains(t, body, "new EventSource('events')")
+	require.Contains(t, body, "JSON.parse(e.data)")
+	require.NotContains(t, body, "addEventListener('snapshot',()=>refresh()")
 	require.NotContains(t, body, "Search messages")
 	require.NotContains(t, body, "id=\"search\"")
 }
