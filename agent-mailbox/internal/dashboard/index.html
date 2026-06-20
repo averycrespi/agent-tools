@@ -98,6 +98,15 @@ main {
   color: var(--muted);
   font-size: 12px;
 }
+.filters .refresh {
+  align-self: end;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  color: var(--text);
+  padding: 7px 10px;
+  cursor: pointer;
+}
 .filters select,
 .filters input {
   min-width: 0;
@@ -297,6 +306,7 @@ main {
       <label>Channel<input id="channel" placeholder="inbox"></label>
       <label>Sender<input id="sender" placeholder="agent"></label>
       <label>Requires response<select id="requires"><option value="">Any</option><option value="true">Yes</option><option value="false">No</option></select></label>
+      <button id="refresh" class="refresh" type="button">Refresh</button>
     </div>
     <div id="list" class="list"><div class="empty">No messages loaded</div></div>
   </section>
@@ -424,6 +434,7 @@ function esc(v) {
 ['status', 'severity', 'channel', 'sender', 'requires'].forEach(id => $(id).addEventListener('change', () => refresh().catch(console.error)));
 $('ack').onclick = () => lifecycle('ack').catch(console.error);
 $('resolve').onclick = () => lifecycle('resolve').catch(console.error);
+$('refresh').onclick = () => refresh().catch(console.error);
 refresh().then(() => {
   if (location.hash) select(location.hash.slice(1), true);
 }).catch(console.error);

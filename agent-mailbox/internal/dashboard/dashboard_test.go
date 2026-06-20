@@ -28,6 +28,8 @@ func TestIndexMatchesMailboxDashboardConventions(t *testing.T) {
 	require.Contains(t, body, "status-dot")
 	require.Contains(t, body, "grid-template-columns:minmax(320px,430px) minmax(0,1fr)")
 	require.Contains(t, body, "Requires response")
+	require.Contains(t, body, "Refresh")
+	require.Contains(t, body, "$('refresh').onclick")
 	require.Contains(t, body, "Sender")
 	require.Contains(t, body, "'sender'")
 	require.Contains(t, body, "new EventSource('events')")
