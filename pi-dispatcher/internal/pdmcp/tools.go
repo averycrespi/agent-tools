@@ -95,7 +95,7 @@ func (h *Handler) listTasks(ctx context.Context) (*gomcp.CallToolResult, error) 
 	}
 	out := make([]TaskSummary, 0, len(summaries))
 	for _, summary := range summaries {
-		out = append(out, inspect.TaskSummaryView(summary))
+		out = append(out, safeTaskSummary(inspect.TaskSummaryView(summary)))
 	}
 	return jsonResult(map[string]any{"tasks": out})
 }
@@ -112,7 +112,7 @@ func (h *Handler) getTask(ctx context.Context, args map[string]any) (*gomcp.Call
 		}
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
-	view := inspect.TaskSummaryFromTask(task)
+	view := safeTaskSummary(inspect.TaskSummaryFromTask(task))
 	run, err := h.store.LatestRun(ctx, taskID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return gomcp.NewToolResultError(err.Error()), nil
@@ -164,6 +164,11 @@ func (h *Handler) getTaskLogs(ctx context.Context, args map[string]any) (*gomcp.
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
 	return jsonResult(window)
+}
+
+func safeTaskSummary(view TaskSummary) TaskSummary {
+	view.Prompt = ""
+	return view
 }
 
 func jsonResult(payload any) (*gomcp.CallToolResult, error) {

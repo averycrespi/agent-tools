@@ -1,6 +1,7 @@
 go 1.25.9
 
 use (
+	./agent-mailbox
 	./local-git-mcp
 	./local-gomod-proxy
 	./mcp-broker
