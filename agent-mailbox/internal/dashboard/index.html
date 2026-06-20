@@ -244,11 +244,13 @@ main {
 }
 .body {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: auto;
   background: var(--panel-sunken);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 14px;
-  min-height: 140px;
+  height: 32vh;
 }
 .grid {
   display: grid;
@@ -259,10 +261,15 @@ main {
   white-space: nowrap;
   color: var(--muted);
 }
+.grid div:nth-child(2n) {
+  overflow-wrap: anywhere;
+}
 .events {
   display: grid;
   gap: 8px;
   margin-top: -14px;
+  max-height: 18vh;
+  overflow: auto;
 }
 .event {
   border: 1px solid var(--line);
