@@ -274,7 +274,7 @@ On first run, mcp-broker generates a random auth token and saves it to `~/.confi
 }
 ```
 
-**Dashboard** opens automatically in your browser with the token. A cookie is set on first visit so you don't need to re-authenticate. If you need the URL again, it's printed to stderr every time the broker starts.
+**Dashboard** opens automatically in your browser with the token. On first visit, the broker stores the token in an `HttpOnly`, `SameSite=Strict` cookie, then redirects to the same dashboard URL with the `token` query parameter removed. If you need the URL again, it's printed to stderr every time the broker starts.
 
 **Token rotation:**
 

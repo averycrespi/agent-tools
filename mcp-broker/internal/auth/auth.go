@@ -74,21 +74,9 @@ func Middleware(token string, next http.Handler) http.Handler {
 			return
 		}
 
-		// 2. Check Authorization: Bearer <token> header.
-		if checkBearer(r, tokenBytes) {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// 3. Check cookie.
-		if checkCookie(r, tokenBytes) {
-			next.ServeHTTP(w, r)
-			return
-		}
-
 		isDashboard := strings.HasPrefix(path, "/dashboard")
 
-		// 4. Dashboard with ?token= query param: set cookie and redirect.
+		// 2. Dashboard with ?token= query param: set cookie and redirect before serving.
 		if isDashboard {
 			if qToken := r.URL.Query().Get("token"); qToken != "" {
 				if subtle.ConstantTimeCompare([]byte(qToken), tokenBytes) == 1 {
@@ -101,17 +89,25 @@ func Middleware(token string, next http.Handler) http.Handler {
 						SameSite: http.SameSiteStrictMode,
 						MaxAge:   int(365 * 24 * time.Hour / time.Second),
 					})
-					// Redirect to the same dashboard path without the token query param.
-					clean := *r.URL
-					q := clean.Query()
-					q.Del("token")
-					clean.RawQuery = q.Encode()
-					//nolint:gosec // RequestURI is a relative same-origin redirect, not an external target.
-					http.Redirect(w, r, clean.RequestURI(), http.StatusFound)
+					redirectWithoutToken(w, r)
 					return
 				}
 			}
+		}
 
+		// 3. Check Authorization: Bearer <token> header.
+		if checkBearer(r, tokenBytes) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 4. Check cookie.
+		if checkCookie(r, tokenBytes) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if isDashboard {
 			// 5. Dashboard, no valid auth: redirect to unauthorized page.
 			http.Redirect(w, r, "/dashboard/unauthorized", http.StatusFound)
 			return
@@ -120,6 +116,15 @@ func Middleware(token string, next http.Handler) http.Handler {
 		// 6. Non-dashboard (i.e., /mcp): 401.
 		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 	})
+}
+
+func redirectWithoutToken(w http.ResponseWriter, r *http.Request) {
+	clean := *r.URL
+	q := clean.Query()
+	q.Del("token")
+	clean.RawQuery = q.Encode()
+	//nolint:gosec // RequestURI is a relative same-origin redirect, not an external target.
+	http.Redirect(w, r, clean.RequestURI(), http.StatusFound)
 }
 
 func checkBearer(r *http.Request, token []byte) bool {

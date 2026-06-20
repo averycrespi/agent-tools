@@ -227,7 +227,7 @@ Cobra-based CLI with commands:
 
 **SQLite for audit, not a log file.** Enables querying, pagination, and filtering in the dashboard without external tools. WAL mode handles concurrent reads from the dashboard while the broker writes.
 
-**Bearer token auth for agents, cookie auth for dashboard.** The `/mcp` endpoint requires a bearer token (32 random bytes, hex-encoded, stored with `0600` permissions). The dashboard uses a session cookie (`mcp-broker-auth`, `HttpOnly`, `SameSite=Strict`) so browsers don't need the raw token.
+**Bearer token auth for agents, cookie auth for dashboard.** The `/mcp` endpoint requires a bearer token (32 random bytes, hex-encoded, stored with `0600` permissions). The dashboard accepts the token in the startup URL once, persists it to a session cookie (`mcp-broker-auth`, `HttpOnly`, `SameSite=Strict`), then redirects to the same dashboard path without the `token` query parameter so browsers don't keep showing the raw token.
 
 **Failed backends don't block startup.** If one of several backend servers is unavailable, the broker retries startup connect/discovery with bounded per-backend settings, then starts with the remaining servers rather than failing entirely. Exhausted failures are logged and shown in the dashboard Tools tab. Recovery after exhaustion requires restarting the broker because runtime rediscovery and dynamic MCP tool registration are out of scope.
 

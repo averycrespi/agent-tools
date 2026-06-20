@@ -147,6 +147,33 @@ func TestMiddleware_SetsTokenCookieAndRedirects(t *testing.T) {
 	require.True(t, cookies[0].HttpOnly)
 }
 
+func TestMiddleware_TokenQueryRedirectTakesPrecedenceOverCookie(t *testing.T) {
+	token := "abc123"
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := Middleware(token, inner)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	req, _ := http.NewRequest("GET", srv.URL+"/dashboard/?token="+token+"&foo=bar", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close() //nolint:errcheck // test cleanup
+	require.Equal(t, http.StatusFound, resp.StatusCode)
+	require.Equal(t, "/dashboard/?foo=bar", resp.Header.Get("Location"))
+
+	cookies := resp.Cookies()
+	require.Len(t, cookies, 1)
+	require.Equal(t, cookieName, cookies[0].Name)
+	require.Equal(t, token, cookies[0].Value)
+}
+
 func TestMiddleware_RedirectsUnauthDashboard(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
