@@ -154,18 +154,45 @@ main {
   color: var(--muted);
   background: rgba(5,7,11,.7);
 }
-.severity-error,
-.severity-action_required {
-  color: #fecdd3;
-  border-color: rgba(251,113,133,.5);
+.status-new {
+  color: #ddd6fe;
+  border-color: rgba(167,139,250,.55);
+  background: rgba(167,139,250,.12);
 }
-.severity-warning {
-  color: #fde68a;
-  border-color: rgba(251,191,36,.45);
+.status-acknowledged {
+  color: #cbd5e1;
+  border-color: rgba(148,163,184,.45);
+  background: rgba(148,163,184,.1);
+}
+.status-resolved {
+  color: #bbf7d0;
+  border-color: rgba(52,211,153,.45);
+  background: rgba(52,211,153,.1);
+}
+.severity-info {
+  color: #bfdbfe;
+  border-color: rgba(96,165,250,.45);
+  background: rgba(96,165,250,.1);
 }
 .severity-success {
   color: #bbf7d0;
   border-color: rgba(52,211,153,.45);
+  background: rgba(52,211,153,.1);
+}
+.severity-warning {
+  color: #fde68a;
+  border-color: rgba(251,191,36,.45);
+  background: rgba(251,191,36,.1);
+}
+.severity-error {
+  color: #fecdd3;
+  border-color: rgba(251,113,133,.5);
+  background: rgba(251,113,133,.12);
+}
+.severity-action_required {
+  color: #fbcfe8;
+  border-color: rgba(244,114,182,.55);
+  background: rgba(244,114,182,.12);
 }
 .detail {
   min-height: calc(100vh - 92px);
@@ -326,9 +353,9 @@ function renderList() {
   }
   list.innerHTML = state.messages.map(m => `
     <div class="row ${m.id === state.selected ? 'selected' : ''}" data-id="${esc(m.id)}">
-      <div class="row-title"><span class="subject">${esc(m.subject)}</span><span class="badge">${esc(m.status)}</span></div>
+      <div class="row-title"><span class="subject">${esc(m.subject)}</span><span class="badge status-${esc(m.status)}">${esc(m.status)}</span></div>
       <div class="meta">
-        <span>${esc(m.sender)}</span><span>${esc(m.channel)}</span><span class="badge severity-${esc(m.severity)}">${esc(m.severity)}</span>${m.requires_response ? '<span class="badge">response needed</span>' : ''}
+        <span>${esc(m.sender)}</span><span>${esc(m.channel)}</span><span class="badge severity-${esc(m.severity)}">${esc(m.severity)}</span>${m.requires_response ? '<span class="badge severity-action_required">response needed</span>' : ''}
       </div>
     </div>`).join('');
   list.querySelectorAll('.row').forEach(r => r.onclick = () => select(r.dataset.id));
@@ -340,7 +367,7 @@ async function select(id, quiet) {
   const d = await api('api/messages/' + encodeURIComponent(id));
   const m = d.message;
   $('detail-title').textContent = m.subject;
-  $('detail-meta').innerHTML = `<span>${esc(m.status)}</span><span>${esc(m.sender)}</span><span>${esc(m.channel)}</span><span class="badge severity-${esc(m.severity)}">${esc(m.severity)}</span>`;
+  $('detail-meta').innerHTML = `<span class="badge status-${esc(m.status)}">${esc(m.status)}</span><span>${esc(m.sender)}</span><span>${esc(m.channel)}</span><span class="badge severity-${esc(m.severity)}">${esc(m.severity)}</span>`;
   $('detail').innerHTML = `
     <div class="body">${esc(m.body || '')}</div>
     <div class="grid">${pairs([
