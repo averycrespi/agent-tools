@@ -9,6 +9,7 @@ worktree-manager/    Git worktree manager with tmux integration — see worktree
 mcp-broker/          MCP proxy for sandboxed agents — see mcp-broker/CLAUDE.md
 sandbox-manager/     Lima VM sandbox manager for isolated agent environments — see sandbox-manager/CLAUDE.md
 pi-dispatcher/       Background Pi coding-agent dispatcher — see pi-dispatcher/CLAUDE.md
+agent-mailbox/       Durable local mailbox for agent-to-user messages — see agent-mailbox/CLAUDE.md
 local-git-mcp/       Stdio MCP server for authenticated git remote operations — see local-git-mcp/CLAUDE.md
 local-gomod-proxy/  Host-side Go module proxy for sandboxed agents — see local-gomod-proxy/CLAUDE.md
 hindsight/          Auxiliary Docker Compose memory stack — see hindsight/README.md
