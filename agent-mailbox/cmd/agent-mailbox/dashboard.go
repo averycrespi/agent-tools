@@ -69,15 +69,35 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(stop)
+	return waitForDashboardShutdown(signalEvents(stop), errCh, srv.Shutdown, srv.Close, dashboardShutdownTimeout, func() { os.Exit(1) })
+}
+
+func signalEvents(signals <-chan os.Signal) <-chan struct{} {
+	events := make(chan struct{})
+	go func() {
+		for range signals {
+			events <- struct{}{}
+		}
+	}()
+	return events
+}
+
+func waitForDashboardShutdown(signals <-chan struct{}, errCh <-chan error, shutdown func(context.Context) error, forceClose func() error, timeout time.Duration, forceExit func()) error {
 	select {
-	case <-stop:
-		ctx, cancel := context.WithTimeout(context.Background(), dashboardShutdownTimeout)
+	case <-signals:
+		go func() {
+			<-signals
+			forceExit()
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		if err := srv.Shutdown(ctx); err != nil {
+		if err := shutdown(ctx); err != nil {
 			if !errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
-			return srv.Close()
+			if closeErr := forceClose(); closeErr != nil {
+				return fmt.Errorf("forcing shutdown: %w", closeErr)
+			}
 		}
 		return nil
 	case err := <-errCh:
