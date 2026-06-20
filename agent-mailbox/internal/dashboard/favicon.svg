@@ -1,6 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Agent Mailbox">
   <rect x="4" y="4" width="56" height="56" rx="14" fill="#101722" stroke="#263244" stroke-width="2"/>
-  <path d="M17 23h30v20H17z" fill="#05070b" stroke="#a78bfa" stroke-width="3" rx="4"/>
-  <path d="M18 24l14 11 14-11" fill="none" stroke="#f472b6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="47" cy="18" r="6" fill="#f472b6"/>
+  <path d="M17 23h30v20H17z" fill="#05070b" stroke="#a78bfa" stroke-width="3.75" rx="4"/>
+  <path d="M18 24l14 11 14-11" fill="none" stroke="#f472b6" stroke-width="3.75" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
