@@ -83,6 +83,8 @@ The token is stored at `$XDG_CONFIG_HOME/agent-mailbox/auth-token`, or `~/.confi
 
 The dashboard supports structured filters for status, severity, channel, and `requires_response`; viewing details; acknowledging; resolving; and SSE snapshot updates. Free-text search is intentionally not included in v1.
 
+On macOS, see [`docs/launchd.md`](docs/launchd.md) for running the dashboard as a per-user LaunchAgent.
+
 ## Security and privacy
 
 Agent Mailbox is local-first: the dashboard validates loopback hosts and does not provide a remote multi-user access model. Messages are stored in a local SQLite database. Agents should not send raw credentials, private keys, or sensitive logs unless the user intentionally chooses to store that data locally.
