@@ -82,6 +82,10 @@ main {
   text-transform: uppercase;
   color: var(--muted);
 }
+.content h2 {
+  padding: 0;
+  line-height: 1.1;
+}
 .filters {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -213,7 +217,7 @@ main {
 .grid {
   display: grid;
   grid-template-columns: max-content minmax(0,1fr);
-  gap: 7px 12px;
+  gap: 3px 12px;
 }
 .grid .muted {
   white-space: nowrap;
@@ -222,6 +226,7 @@ main {
 .events {
   display: grid;
   gap: 8px;
+  margin-top: -14px;
 }
 .event {
   border: 1px solid var(--line);
