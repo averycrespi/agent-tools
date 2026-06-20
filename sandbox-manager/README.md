@@ -34,7 +34,7 @@ sb stop
 # Start it again
 sb start
 
-# Restart (e.g. to pick up new group memberships from provisioning)
+# Restart and apply mount config changes
 sb restart
 
 # Re-provision (copy files and run scripts)
@@ -51,8 +51,8 @@ sb destroy
 Creates, starts, and provisions the sandbox VM. Handles all states:
 
 - **Not created** — renders the Lima template, creates and starts the VM, then provisions it
-- **Stopped** — starts the VM and re-provisions it
-- **Running** — re-provisions the VM
+- **Stopped** — syncs mount config, starts the VM, and re-provisions it
+- **Running** — restarts to sync mount config, then re-provisions it
 
 Safe to re-run at any time.
 
@@ -66,7 +66,9 @@ Stops a running sandbox. No-op if already stopped or not created.
 
 ### `sb restart`
 
-Stops a running sandbox and starts it again, forcing fresh login sessions so changes like new group memberships from provisioning take effect. Just starts the VM if it was stopped. Errors if the VM doesn't exist.
+Stops a running sandbox, syncs configured mounts into the Lima instance, and starts it again. Just syncs mounts and starts the VM if it was stopped. Errors if the VM doesn't exist.
+
+Use this after changing `mounts` in the config; the VM does not need to be destroyed and recreated.
 
 ### `sb destroy [--force]`
 
@@ -116,9 +118,11 @@ Config file: `~/.config/sb/config.json` (follows XDG)
 | `cpus`       | int      | `4`        | Number of CPUs allocated to the VM                                                     |
 | `memory`     | string   | `"4GiB"`   | Memory allocated to the VM                                                             |
 | `disk`       | string   | `"100GiB"` | Disk size for the VM                                                                   |
-| `mounts`     | string[] | `[]`       | Host directories to mount (writable) in the VM                                         |
+| `mounts`     | string[] | `[]`       | Host directories to mount at the same path, writable in the VM                         |
 | `copy_paths` | string[] | `[]`       | Files/directories to copy into the VM (format: `"src"` or `"src:dst"`, `~/` supported) |
 | `scripts`    | string[] | `[]`       | Provisioning scripts to run in the VM (paths on host, `~/` supported)                  |
+
+Mount changes are applied when the VM is created and are re-synced for existing VMs by `sb restart` or `sb create`.
 
 ### Copy paths
 

@@ -50,7 +50,7 @@ All external commands flow through `exec.Runner`, an interface with `Run`, `RunI
 
 **Config-driven provisioning.** What to copy in, which scripts to run, resource allocation — all driven by `~/.config/sb/config.json`. The tool has no hardcoded knowledge of any specific agent or development workflow. The repo ships example provisioning scripts under `examples/provision/` as reference material, but `sb` itself has no awareness of them — they're plain files referenced by absolute path from user configs.
 
-**Smart create.** `sb create` is the primary entry point and handles all states: if the VM doesn't exist, it creates and provisions it; if it's stopped, it starts and provisions it; if it's running, it re-provisions it. This makes it safe to re-run without thinking about current state.
+**Smart create.** `sb create` is the primary entry point and handles all states: if the VM doesn't exist, it creates and provisions it; if it's stopped, it syncs Lima mounts, starts, and provisions it; if it's running, it restarts to sync Lima mounts and then provisions it. This makes it safe to re-run without thinking about current state.
 
 **Template rendering.** The Lima YAML template is embedded in the binary via `//go:embed`. At create time, it's rendered with host user information (username, UID, home directory) and config values (CPUs, memory, disk, mounts). Lima's `user` template supports UID but not GID, so the VM user preserves the host UID only.
 
@@ -63,19 +63,29 @@ All external commands flow through `exec.Runner`, an interface with `Run`, `RunI
 **Create (`sb create`):**
 
 ```
-Render lima.yaml template with host user info + config
+If not created:
+  → Render lima.yaml template with host user info + config
   → limactl start --name=sb <template>
-  → Provision:
-    → For each copy_paths entry:
-      → Expand ~/ to home directory, detect directories with filesystem metadata
-      → mkdir -p <parent> (or <dst> for directories) in VM
-      → limactl cp [-r] <local> sb:<guest>
-    → For each script:
-      → limactl cp <script> sb:/tmp/sb-provision-script
-      → chmod +x
-      → execute
-      → clean up temp file
+If stopped:
+  → limactl edit --tty=false --mount-only <mount>:w ... sb
+  → limactl start sb
+If running:
+  → limactl stop sb
+  → limactl edit --tty=false --mount-only <mount>:w ... sb
+  → limactl start sb
+Provision:
+  → For each copy_paths entry:
+    → Expand ~/ to home directory, detect directories with filesystem metadata
+    → mkdir -p <parent> (or <dst> for directories) in VM
+    → limactl cp [-r] <local> sb:<guest>
+  → For each script:
+    → limactl cp <script> sb:/tmp/sb-provision-script
+    → chmod +x
+    → execute
+    → clean up temp file
 ```
+
+When no mounts are configured for an existing VM, `sb` uses `limactl edit --tty=false --mount-none sb`.
 
 **Start (`sb start`):**
 
@@ -93,10 +103,11 @@ limactl stop sb
 
 ```
 If running → limactl stop sb
+limactl edit --tty=false --mount-only <mount>:w ... sb
 limactl start sb
 ```
 
-Forces fresh login sessions so changes like new group memberships from provisioning take effect (Lima reuses the SSH ControlMaster socket, so a plain `sb shell` after `usermod -aG` would otherwise keep the old group set).
+When no mounts are configured, `sb restart` uses `limactl edit --tty=false --mount-none sb` before starting. Restart applies mount additions/removals from the config without destroying the VM and forces fresh login sessions so changes like new group memberships from provisioning take effect (Lima reuses the SSH ControlMaster socket, so a plain `sb shell` after `usermod -aG` would otherwise keep the old group set).
 
 **Destroy (`sb destroy`):**
 
@@ -137,7 +148,7 @@ Running    ──destroy─▶ NotCreated
 Stopped    ──destroy─▶ NotCreated
 ```
 
-`create` on a running VM re-provisions. `create` on a stopped VM starts and re-provisions. `stop` on a stopped/non-existent VM is a no-op. `destroy` on a non-existent VM is a no-op.
+`create` on a running VM restarts to sync mounts, then re-provisions. `create` on a stopped VM syncs mounts, starts, and re-provisions. `restart` syncs mounts before starting. `stop` on a stopped/non-existent VM is a no-op. `destroy` on a non-existent VM is a no-op.
 
 ### Error Handling
 

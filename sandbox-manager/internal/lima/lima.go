@@ -97,6 +97,24 @@ func (c *Client) Delete() error {
 	return nil
 }
 
+// UpdateMounts replaces the VM's configured writable mounts.
+func (c *Client) UpdateMounts(mounts []string) error {
+	args := []string{"edit", "--tty=false"}
+	if len(mounts) == 0 {
+		args = append(args, "--mount-none")
+	} else {
+		for _, mount := range mounts {
+			args = append(args, "--mount-only", mount+":w")
+		}
+	}
+	args = append(args, vmName)
+
+	if _, err := c.runner.Run("limactl", args...); err != nil {
+		return fmt.Errorf("failed to update VM mounts: %w", err)
+	}
+	return nil
+}
+
 // Copy copies a file or directory from the host to the VM.
 // If recursive is true, the -r flag is passed to limactl cp.
 func (c *Client) Copy(localPath, guestPath string, recursive bool) error {

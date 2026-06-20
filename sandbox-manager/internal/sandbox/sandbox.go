@@ -19,6 +19,7 @@ type LimaClient interface {
 	Start() error
 	Stop() error
 	Delete() error
+	UpdateMounts(mounts []string) error
 	Copy(localPath, guestPath string, recursive bool) error
 	Exec(workdir string, args ...string) ([]byte, error)
 	ExecPiped(workdir string, args ...string) (sbexec.Process, error)
@@ -51,12 +52,15 @@ func (s *Service) Create() error {
 
 	switch status {
 	case lima.StatusRunning:
-		s.logger.Debug("VM already running, re-provisioning")
+		s.logger.Debug("VM already running, restarting to sync mounts and re-provisioning")
+		if err := s.restartWithUpdatedMounts(true); err != nil {
+			return err
+		}
 		return s.Provision()
 
 	case lima.StatusStopped:
-		s.logger.Debug("VM stopped, starting and provisioning")
-		if err := s.lima.Start(); err != nil {
+		s.logger.Debug("VM stopped, syncing mounts, starting, and provisioning")
+		if err := s.restartWithUpdatedMounts(false); err != nil {
 			return err
 		}
 		return s.Provision()
@@ -123,11 +127,21 @@ func (s *Service) Restart() error {
 	case lima.StatusNotCreated:
 		return fmt.Errorf("VM not created: run \"sb create\" first")
 	case lima.StatusRunning:
+		return s.restartWithUpdatedMounts(true)
+	default:
+		return s.restartWithUpdatedMounts(false)
+	}
+}
+
+func (s *Service) restartWithUpdatedMounts(running bool) error {
+	if running {
 		if err := s.lima.Stop(); err != nil {
 			return err
 		}
 	}
-
+	if err := s.lima.UpdateMounts(s.config.Mounts); err != nil {
+		return err
+	}
 	return s.lima.Start()
 }
 

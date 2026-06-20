@@ -46,6 +46,10 @@ func (m *mockLima) Delete() error {
 	return m.Called().Error(0)
 }
 
+func (m *mockLima) UpdateMounts(mounts []string) error {
+	return m.Called(mounts).Error(0)
+}
+
 func (m *mockLima) Copy(localPath, guestPath string, recursive bool) error {
 	return m.Called(localPath, guestPath, recursive).Error(0)
 }
@@ -144,26 +148,36 @@ func TestService_Start_AlreadyRunning(t *testing.T) {
 	ml.AssertNotCalled(t, "Start")
 }
 
-func TestService_Restart_Running(t *testing.T) {
+func TestService_Restart_Running_SyncsMounts(t *testing.T) {
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusRunning, nil)
 	ml.On("Stop").Return(nil)
+	ml.On("UpdateMounts", []string{"/Users/test/work"}).Return(nil)
 	ml.On("Start").Return(nil)
 
-	svc := sandbox.NewService(ml, config.Default(), nopLogger)
+	cfg := config.Default()
+	cfg.Mounts = []string{"/Users/test/work"}
+
+	svc := sandbox.NewService(ml, cfg, nopLogger)
 	require.NoError(t, svc.Restart())
 	ml.AssertCalled(t, "Stop")
+	ml.AssertCalled(t, "UpdateMounts", []string{"/Users/test/work"})
 	ml.AssertCalled(t, "Start")
 }
 
-func TestService_Restart_Stopped(t *testing.T) {
+func TestService_Restart_Stopped_SyncsMounts(t *testing.T) {
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusStopped, nil)
+	ml.On("UpdateMounts", []string{"/Users/test/work"}).Return(nil)
 	ml.On("Start").Return(nil)
 
-	svc := sandbox.NewService(ml, config.Default(), nopLogger)
+	cfg := config.Default()
+	cfg.Mounts = []string{"/Users/test/work"}
+
+	svc := sandbox.NewService(ml, cfg, nopLogger)
 	require.NoError(t, svc.Restart())
 	ml.AssertNotCalled(t, "Stop")
+	ml.AssertCalled(t, "UpdateMounts", []string{"/Users/test/work"})
 	ml.AssertCalled(t, "Start")
 }
 
@@ -266,35 +280,45 @@ func TestService_Provision_NotRunning(t *testing.T) {
 	assert.ErrorContains(t, err, "not running")
 }
 
-func TestService_Create_AlreadyRunning(t *testing.T) {
+func TestService_Create_AlreadyRunning_SyncsMounts(t *testing.T) {
 	tmpFile := filepath.Join(t.TempDir(), ".zshrc")
 	require.NoError(t, os.WriteFile(tmpFile, []byte(""), 0o644))
 	resolvedFile, err := filepath.EvalSymlinks(tmpFile)
 	require.NoError(t, err)
 
 	ml := new(mockLima)
+	ml.On("Status").Return(lima.StatusRunning, nil).Once()
+	ml.On("Stop").Return(nil)
+	ml.On("UpdateMounts", []string{"/Users/test/work"}).Return(nil)
+	ml.On("Start").Return(nil)
 	ml.On("Status").Return(lima.StatusRunning, nil)
 	ml.On("Exec", "/", []string{"mkdir", "-p", filepath.Dir(tmpFile)}).Return([]byte(""), nil)
 	ml.On("Copy", resolvedFile, tmpFile, false).Return(nil)
 
 	cfg := config.Default()
+	cfg.Mounts = []string{"/Users/test/work"}
 	cfg.CopyPaths = []string{tmpFile}
 
 	svc := sandbox.NewService(ml, cfg, nopLogger)
 	require.NoError(t, svc.Create())
-	ml.AssertNotCalled(t, "Start")
+	ml.AssertCalled(t, "Stop")
+	ml.AssertCalled(t, "UpdateMounts", []string{"/Users/test/work"})
+	ml.AssertCalled(t, "Start")
 	ml.AssertCalled(t, "Copy", resolvedFile, tmpFile, false)
 }
 
-func TestService_Create_Stopped(t *testing.T) {
+func TestService_Create_Stopped_SyncsMounts(t *testing.T) {
 	ml := new(mockLima)
 	ml.On("Status").Return(lima.StatusStopped, nil).Once()
+	ml.On("UpdateMounts", []string{"/Users/test/work"}).Return(nil)
 	ml.On("Start").Return(nil)
 	ml.On("Status").Return(lima.StatusRunning, nil)
 
 	cfg := config.Default()
+	cfg.Mounts = []string{"/Users/test/work"}
 	svc := sandbox.NewService(ml, cfg, nopLogger)
 	require.NoError(t, svc.Create())
+	ml.AssertCalled(t, "UpdateMounts", []string{"/Users/test/work"})
 	ml.AssertCalled(t, "Start")
 }
 

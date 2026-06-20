@@ -111,6 +111,22 @@ func TestClient_Delete(t *testing.T) {
 	r.AssertExpectations(t)
 }
 
+func TestClient_UpdateMounts(t *testing.T) {
+	r := new(mockRunner)
+	r.On("Run", "limactl", "edit", "--tty=false", "--mount-only", "/Users/test/work:w", "--mount-only", "/Users/test/projects:w", "sb").Return([]byte(""), nil)
+	c := lima.NewClient(r)
+	require.NoError(t, c.UpdateMounts([]string{"/Users/test/work", "/Users/test/projects"}))
+	r.AssertExpectations(t)
+}
+
+func TestClient_UpdateMounts_None(t *testing.T) {
+	r := new(mockRunner)
+	r.On("Run", "limactl", "edit", "--tty=false", "--mount-none", "sb").Return([]byte(""), nil)
+	c := lima.NewClient(r)
+	require.NoError(t, c.UpdateMounts(nil))
+	r.AssertExpectations(t)
+}
+
 func TestClient_Copy(t *testing.T) {
 	r := new(mockRunner)
 	r.On("Run", "limactl", "cp", "/host/file", "sb:/guest/file").Return([]byte(""), nil)
