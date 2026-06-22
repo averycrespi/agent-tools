@@ -249,33 +249,8 @@ main {
   background: var(--panel-sunken);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 14px;
-  height: 32vh;
-}
-.grid {
-  display: grid;
-  grid-template-columns: max-content minmax(0,1fr);
-  gap: 3px 12px;
-}
-.grid .muted {
-  white-space: nowrap;
-  color: var(--muted);
-}
-.grid div:nth-child(2n) {
-  overflow-wrap: anywhere;
-}
-.events {
-  display: grid;
-  gap: 8px;
-  margin-top: -14px;
-  max-height: 18vh;
-  overflow: auto;
-}
-.event {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px;
-  background: rgba(5,7,11,.45);
+  padding: 18px;
+  min-height: 44vh;
 }
 .empty {
   color: var(--muted);
@@ -314,6 +289,7 @@ main {
       <label>Sender<input id="sender" placeholder="agent"></label>
       <label>Requires response<select id="requires"><option value="">Any</option><option value="true">Yes</option><option value="false">No</option></select></label>
       <button id="refresh" class="refresh" type="button">Refresh</button>
+      <button id="reset" class="refresh" type="button">Reset</button>
     </div>
     <div id="list" class="list"><div class="empty">No messages loaded</div></div>
   </section>
@@ -357,6 +333,11 @@ async function refresh() {
   if (state.selected) await select(state.selected, true);
 }
 
+async function resetFilters() {
+  ['status', 'severity', 'channel', 'sender', 'requires'].forEach(id => { $(id).value = ''; });
+  await refresh();
+}
+
 function renderSnapshot(data) {
   state.messages = data.messages || [];
   renderList();
@@ -370,9 +351,9 @@ function renderList() {
   }
   list.innerHTML = state.messages.map(m => `
     <div class="row ${m.id === state.selected ? 'selected' : ''}" data-id="${esc(m.id)}">
-      <div class="row-title"><span class="subject">${esc(m.subject)}</span><span class="badge status-${esc(m.status)}">${esc(m.status)}</span></div>
+      <div class="row-title"><span class="subject">${esc(m.subject)}</span><span class="meta">${fmt(m.created_at)}</span></div>
       <div class="meta">
-        <span>${esc(m.sender)}</span><span>${esc(m.channel)}</span><span class="badge severity-${esc(m.severity)}">${esc(m.severity)}</span>${m.requires_response ? '<span class="badge severity-action_required">response needed</span>' : ''}
+        <span class="badge severity-${esc(m.severity)}">severity:${esc(m.severity)}</span><span class="badge status-${esc(m.status)}">status:${esc(m.status)}</span><span class="badge">sender:${esc(m.sender)}</span><span class="badge">channel:${esc(m.channel)}</span>${m.requires_response ? '<span class="badge severity-action_required">requires-response:true</span>' : ''}
       </div>
     </div>`).join('');
   list.querySelectorAll('.row').forEach(r => r.onclick = () => select(r.dataset.id));
@@ -384,24 +365,9 @@ async function select(id, quiet) {
   const d = await api('api/messages/' + encodeURIComponent(id));
   const m = d.message;
   $('detail-title').textContent = m.subject;
-  $('detail-meta').innerHTML = `<span class="badge status-${esc(m.status)}">${esc(m.status)}</span><span>${esc(m.sender)}</span><span>${esc(m.channel)}</span><span class="badge severity-${esc(m.severity)}">${esc(m.severity)}</span>`;
-  $('detail').innerHTML = `
-    <div class="body">${esc(m.body || '')}</div>
-    <div class="grid">${pairs([
-      ['ID', m.id],
-      ['Thread', m.thread_id || ''],
-      ['Created', fmt(m.created_at)],
-      ['Updated', fmt(m.updated_at)],
-      ['Requires response', String(!!m.requires_response)],
-      ['Idempotency key', m.idempotency_key || ''],
-    ])}</div>
-    <h2>Lifecycle events</h2>
-    <div class="events">${(d.events || []).map(e => `<div class="event"><strong>${esc(e.type)}</strong><div class="meta"><span>${esc(e.actor)}</span><span>${fmt(e.created_at)}</span></div></div>`).join('')}</div>`;
+  $('detail-meta').innerHTML = `<span>id:${esc(m.id)}</span><span>created-at:${fmt(m.created_at)}</span><span>updated-at:${fmt(m.updated_at)}</span>`;
+  $('detail').innerHTML = `<div class="body">${esc(m.body || '')}</div>`;
   if (!quiet) location.hash = id;
-}
-
-function pairs(items) {
-  return items.filter(([, v]) => v).map(([k, v]) => `<div class="muted">${esc(k)}</div><div>${esc(v)}</div>`).join('');
 }
 
 async function lifecycle(kind) {
@@ -442,6 +408,7 @@ function esc(v) {
 $('ack').onclick = () => lifecycle('ack').catch(console.error);
 $('resolve').onclick = () => lifecycle('resolve').catch(console.error);
 $('refresh').onclick = () => refresh().catch(console.error);
+$('reset').onclick = () => resetFilters().catch(console.error);
 refresh().then(() => {
   if (location.hash) select(location.hash.slice(1), true);
 }).catch(console.error);
