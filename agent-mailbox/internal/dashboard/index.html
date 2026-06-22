@@ -82,33 +82,71 @@ main {
   text-transform: uppercase;
   color: var(--muted);
 }
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 14px 0;
+}
+.panel-head h2 {
+  padding: 0;
+}
+.panel-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 .content h2 {
   padding: 0;
   line-height: 1.1;
 }
 .filters {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 10px;
   padding: 14px;
 }
-.filters label {
+.quick-filters,
+.filter-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.filter-row label {
   display: grid;
+  flex: 1 1 120px;
   gap: 4px;
   color: var(--muted);
   font-size: 12px;
 }
-.filters .refresh {
-  align-self: end;
+.filter-actions {
+  display: flex;
+  align-items: end;
+}
+.filter-button {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 999px;
   background: var(--panel-strong);
   color: var(--text);
   padding: 7px 10px;
   cursor: pointer;
 }
-.filters select,
-.filters input {
+.filter-button.active,
+.filter-button.primary {
+  border-color: rgba(167,139,250,.65);
+  background: rgba(167,139,250,.18);
+}
+.filter-button.secondary {
+  border-radius: 8px;
+  color: var(--muted);
+}
+.filter-button.success {
+  border-color: rgba(52,211,153,.65);
+  background: rgba(52,211,153,.16);
+}
+.filter-row select,
+.filter-row input {
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -233,9 +271,17 @@ main {
   padding: 8px 10px;
   cursor: pointer;
 }
+.actions button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
 .actions button.primary {
   border-color: rgba(167,139,250,.65);
   background: rgba(167,139,250,.18);
+}
+.actions button.success {
+  border-color: rgba(52,211,153,.65);
+  background: rgba(52,211,153,.16);
 }
 .content {
   padding: 16px;
@@ -267,8 +313,12 @@ main {
   .detail {
     min-height: auto;
   }
-  .filters {
+  .filter-row {
+    display: grid;
     grid-template-columns: 1fr;
+  }
+  .filter-actions {
+    align-items: stretch;
   }
 }
 </style>
@@ -281,15 +331,26 @@ main {
 </header>
 <main>
   <section class="panel">
-    <h2>Messages</h2>
+    <div class="panel-head">
+      <h2>Messages</h2>
+      <div class="panel-actions">
+        <button id="ack-all" class="filter-button secondary primary" type="button">Ack all</button>
+        <button id="resolve-all" class="filter-button secondary success" type="button">Resolve all</button>
+        <button id="refresh" class="filter-button secondary" type="button">Refresh</button>
+      </div>
+    </div>
     <div class="filters">
-      <label>Status<select id="status"><option value="">Any</option><option>new</option><option>acknowledged</option><option>resolved</option></select></label>
-      <label>Severity<select id="severity"><option value="">Any</option><option>info</option><option>success</option><option>warning</option><option>error</option><option>action_required</option></select></label>
-      <label>Channel<input id="channel" placeholder="inbox"></label>
-      <label>Sender<input id="sender" placeholder="agent"></label>
-      <label>Requires response<select id="requires"><option value="">Any</option><option value="true">Yes</option><option value="false">No</option></select></label>
-      <button id="refresh" class="refresh" type="button">Refresh</button>
-      <button id="reset" class="refresh" type="button">Reset</button>
+      <div class="quick-filters" role="group" aria-label="Quick filters">
+        <button class="filter-button" type="button" data-quick="needs-response">Needs response</button>
+        <button class="filter-button" type="button" data-quick="new">New</button>
+        <button class="filter-button active" type="button" data-quick="all">All</button>
+      </div>
+      <div class="filter-row">
+        <label>Severity<select id="severity"><option value="">Any</option><option>info</option><option>success</option><option>warning</option><option>error</option><option>action_required</option></select></label>
+        <label>Channel<input id="channel" placeholder="inbox"></label>
+        <label>Sender<input id="sender" placeholder="agent"></label>
+        <div class="filter-actions"><button id="reset" class="filter-button secondary" type="button">Reset</button></div>
+      </div>
     </div>
     <div id="list" class="list"><div class="empty">No messages loaded</div></div>
   </section>
@@ -299,14 +360,14 @@ main {
         <div id="detail-title" class="detail-title">Select a message</div>
         <div id="detail-meta" class="meta"></div>
       </div>
-      <div class="actions"><button id="ack" class="primary">Acknowledge</button><button id="resolve">Resolve</button></div>
+      <div class="actions"><button id="ack" class="primary" disabled>Acknowledge</button><button id="resolve" class="success" disabled>Resolve</button></div>
     </div>
     <div id="detail" class="content"><div class="empty">No message selected</div></div>
   </section>
 </main>
 <script>
 const $ = id => document.getElementById(id);
-const state = { messages: [], selected: null };
+const state = { messages: [], selected: null, quick: 'all' };
 
 function api(path, opts) {
   return fetch(path, {
@@ -320,10 +381,11 @@ function api(path, opts) {
 
 function qs() {
   const p = new URLSearchParams({ limit: '50' });
-  ['status', 'severity', 'channel', 'sender'].forEach(id => {
+  if (state.quick === 'needs-response') p.set('requires_response', 'true');
+  if (state.quick === 'new') p.set('status', 'new');
+  ['severity', 'channel', 'sender'].forEach(id => {
     if ($(id).value) p.set(id, $(id).value);
   });
-  if ($('requires').value) p.set('requires_response', $('requires').value);
   return p.toString();
 }
 
@@ -334,8 +396,16 @@ async function refresh() {
 }
 
 async function resetFilters() {
-  ['status', 'severity', 'channel', 'sender', 'requires'].forEach(id => { $(id).value = ''; });
+  state.quick = 'all';
+  ['severity', 'channel', 'sender'].forEach(id => { $(id).value = ''; });
+  updateQuickFilters();
   await refresh();
+}
+
+function updateQuickFilters() {
+  document.querySelectorAll('[data-quick]').forEach(button => {
+    button.classList.toggle('active', button.dataset.quick === state.quick);
+  });
 }
 
 function renderSnapshot(data) {
@@ -366,6 +436,8 @@ async function select(id, quiet) {
   const m = d.message;
   $('detail-title').textContent = m.subject;
   $('detail-meta').innerHTML = `<span>id:${esc(m.id)}</span><span>created-at:${fmt(m.created_at)}</span><span>updated-at:${fmt(m.updated_at)}</span>`;
+  $('ack').disabled = m.status === 'acknowledged' || m.status === 'resolved';
+  $('resolve').disabled = m.status === 'resolved';
   $('detail').innerHTML = `<div class="body">${esc(m.body || '')}</div>`;
   if (!quiet) location.hash = id;
 }
@@ -374,6 +446,20 @@ async function lifecycle(kind) {
   if (!state.selected) return;
   await api(`api/messages/${encodeURIComponent(state.selected)}/${kind}`, { method: 'POST' });
   await select(state.selected, true);
+  await refresh();
+}
+
+async function bulkLifecycle(kind) {
+  const messages = state.messages.filter(m => kind === 'ack' ? m.status === 'new' : m.status !== 'resolved');
+  if (!messages.length) {
+    alert(`No visible messages can be ${kind === 'ack' ? 'acknowledged' : 'resolved'}.`);
+    return;
+  }
+  const label = kind === 'ack' ? 'acknowledge' : 'resolve';
+  if (!confirm(`${label.charAt(0).toUpperCase() + label.slice(1)} ${messages.length} visible message(s)?`)) return;
+  for (const message of messages) {
+    await api(`api/messages/${encodeURIComponent(message.id)}/${kind}`, { method: 'POST' });
+  }
   await refresh();
 }
 
@@ -387,9 +473,8 @@ function connect() {
     $('conn').classList.remove('connected');
     $('conn').lastElementChild.textContent = 'Disconnected';
   };
-  es.addEventListener('snapshot', async e => {
-    renderSnapshot(JSON.parse(e.data));
-    if (state.selected) await select(state.selected, true);
+  es.addEventListener('snapshot', () => {
+    refresh().catch(console.error);
   });
 }
 
@@ -404,9 +489,19 @@ function esc(v) {
   return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-['status', 'severity', 'channel', 'sender', 'requires'].forEach(id => $(id).addEventListener('change', () => refresh().catch(console.error)));
+['severity', 'channel', 'sender'].forEach(id => $(id).addEventListener('change', () => refresh().catch(console.error)));
+document.querySelectorAll('[data-quick]').forEach(button => {
+  button.onclick = () => {
+    state.quick = button.dataset.quick;
+    updateQuickFilters();
+    refresh().catch(console.error);
+  };
+});
+updateQuickFilters();
 $('ack').onclick = () => lifecycle('ack').catch(console.error);
 $('resolve').onclick = () => lifecycle('resolve').catch(console.error);
+$('ack-all').onclick = () => bulkLifecycle('ack').catch(console.error);
+$('resolve-all').onclick = () => bulkLifecycle('resolve').catch(console.error);
 $('refresh').onclick = () => refresh().catch(console.error);
 $('reset').onclick = () => resetFilters().catch(console.error);
 refresh().then(() => {
