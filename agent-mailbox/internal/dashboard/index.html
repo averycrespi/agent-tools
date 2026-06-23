@@ -341,9 +341,9 @@ main {
     </div>
     <div class="filters">
       <div class="quick-filters" role="group" aria-label="Quick filters">
-        <button class="filter-button" type="button" data-quick="needs-response">Needs response</button>
-        <button class="filter-button" type="button" data-quick="new">New</button>
         <button class="filter-button active" type="button" data-quick="all">All</button>
+        <button class="filter-button" type="button" data-quick="new">New</button>
+        <button class="filter-button" type="button" data-quick="needs-response">Needs response</button>
       </div>
       <div class="filter-row">
         <label>Severity<select id="severity"><option value="">Any</option><option>info</option><option>success</option><option>warning</option><option>error</option><option>action_required</option></select></label>
@@ -367,6 +367,8 @@ main {
 </main>
 <script>
 const $ = id => document.getElementById(id);
+const filterIds = ['severity', 'channel', 'sender'];
+const quickFilters = new Set(['needs-response', 'new', 'all']);
 const state = { messages: [], selected: null, quick: 'all' };
 
 function api(path, opts) {
@@ -383,10 +385,32 @@ function qs() {
   const p = new URLSearchParams({ limit: '50' });
   if (state.quick === 'needs-response') p.set('requires_response', 'true');
   if (state.quick === 'new') p.set('status', 'new');
-  ['severity', 'channel', 'sender'].forEach(id => {
+  filterIds.forEach(id => {
     if ($(id).value) p.set(id, $(id).value);
   });
   return p.toString();
+}
+
+function loadFiltersFromURL() {
+  const p = new URLSearchParams(location.search);
+  const quick = p.get('quick');
+  if (quickFilters.has(quick)) state.quick = quick;
+  filterIds.forEach(id => {
+    const value = p.get(id);
+    if (value !== null) $(id).value = value;
+  });
+}
+
+function syncFiltersToURL() {
+  const url = new URL(location.href);
+  if (state.quick === 'all') url.searchParams.delete('quick');
+  else url.searchParams.set('quick', state.quick);
+  filterIds.forEach(id => {
+    const value = $(id).value;
+    if (value) url.searchParams.set(id, value);
+    else url.searchParams.delete(id);
+  });
+  history.replaceState(null, '', url);
 }
 
 async function refresh() {
@@ -397,8 +421,9 @@ async function refresh() {
 
 async function resetFilters() {
   state.quick = 'all';
-  ['severity', 'channel', 'sender'].forEach(id => { $(id).value = ''; });
+  filterIds.forEach(id => { $(id).value = ''; });
   updateQuickFilters();
+  syncFiltersToURL();
   await refresh();
 }
 
@@ -489,14 +514,19 @@ function esc(v) {
   return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-['severity', 'channel', 'sender'].forEach(id => $(id).addEventListener('change', () => refresh().catch(console.error)));
+filterIds.forEach(id => $(id).addEventListener('change', () => {
+  syncFiltersToURL();
+  refresh().catch(console.error);
+}));
 document.querySelectorAll('[data-quick]').forEach(button => {
   button.onclick = () => {
     state.quick = button.dataset.quick;
     updateQuickFilters();
+    syncFiltersToURL();
     refresh().catch(console.error);
   };
 });
+loadFiltersFromURL();
 updateQuickFilters();
 $('ack').onclick = () => lifecycle('ack').catch(console.error);
 $('resolve').onclick = () => lifecycle('resolve').catch(console.error);
