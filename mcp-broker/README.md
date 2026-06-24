@@ -79,6 +79,15 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
       "startup_retry_count": 3,
       "startup_retry_backoff_ms": 1000,
       "startup_timeout_seconds": 10
+    },
+    "oauth-remote": {
+      "type": "streamable-http",
+      "url": "https://example.com/mcp",
+      "oauth": {
+        "client_id": "$MCP_OAUTH_CLIENT_ID",
+        "callback_port": 3118,
+        "auth_server_metadata_url": "https://example.com/.well-known/oauth-authorization-server"
+      }
     }
   },
   "rules": [
@@ -138,6 +147,7 @@ Servers is a map keyed by server name. Each name is used as a tool prefix (e.g. 
 | `type`                     | Transport type: omit for stdio, `"streamable-http"` for Streamable HTTP, `"sse"` for SSE                                                                                 |
 | `url`                      | URL for HTTP/SSE transport                                                                                                                                               |
 | `headers`                  | HTTP headers; `$VAR` and `${VAR}` references are expanded from the process environment                                                                                   |
+| `oauth`                    | Optional OAuth client settings for HTTP/SSE backends that require a fixed client ID, client secret, scopes, or callback port.                                             |
 | `http_timeout_seconds`     | Streamable HTTP backend request/stream timeout. Defaults to 120 seconds when omitted.                                                                                    |
 | `startup_retry_count`      | Startup retries after the first connect or `tools/list` attempt. Defaults to 3. Set `0` for one attempt only. Negative values and values above 1000 are invalid.         |
 | `startup_retry_backoff_ms` | Fixed delay between startup attempts. Defaults to 1000 ms. Set `0` for no delay. Negative values are invalid.                                                            |
@@ -149,7 +159,27 @@ If a backend exhausts startup retries, mcp-broker logs the failure, continues se
 
 ### OAuth
 
-OAuth is handled automatically. When a server responds with HTTP 401, the broker runs an OAuth flow (dynamic client registration, PKCE, browser-based authorization). Tokens are stored in the OS keychain (macOS Keychain / Linux Secret Service) and refreshed automatically. No configuration is needed.
+OAuth is handled automatically. When a server responds with HTTP 401, the broker runs an OAuth flow (PKCE, browser-based authorization). For servers that support dynamic client registration, no OAuth configuration is needed: the broker registers a client and stores that client registration plus tokens in the OS keychain (macOS Keychain / Linux Secret Service).
+
+Servers that do not support dynamic client registration can provide fixed OAuth client settings:
+
+```json
+{
+  "servers": {
+    "oauth-remote": {
+      "type": "streamable-http",
+      "url": "https://example.com/mcp",
+      "oauth": {
+        "client_id": "$MCP_OAUTH_CLIENT_ID",
+        "callback_port": 3118,
+        "auth_server_metadata_url": "https://example.com/.well-known/oauth-authorization-server"
+      }
+    }
+  }
+}
+```
+
+Supported `oauth` fields are `client_id`, `client_secret`, `callback_port`, `scopes`, and `auth_server_metadata_url`. `client_id`, `client_secret`, and `auth_server_metadata_url` support `$VAR` / `${VAR}` expansion from the process environment. `callback_port` controls the local redirect URI `http://localhost:<port>/callback`; when omitted, the broker uses a deterministic per-server port.
 
 Interactive OAuth is deliberately exempt from `startup_timeout_seconds` and from repeated startup retries. Once a backend reaches a user authorization flow, the broker lets that flow complete under the parent startup context rather than timing it out after the per-attempt startup timeout or reopening browser/callback flows repeatedly. If the OAuth flow is cancelled or denied, that backend is marked failed and shown in the dashboard.
 

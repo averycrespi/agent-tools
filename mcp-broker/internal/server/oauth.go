@@ -19,6 +19,8 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/zalando/go-keyring"
+
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 )
 
 const keychainService = "mcp-broker"
@@ -254,29 +256,44 @@ func callbackPort(serverName string) int {
 	return int(h.Sum32()%(65535-10000)) + 10000
 }
 
+func oauthCallbackPort(serverName string, srv config.ServerConfig) int {
+	if srv.OAuth != nil && srv.OAuth.CallbackPort > 0 {
+		return srv.OAuth.CallbackPort
+	}
+	return callbackPort(serverName)
+}
+
 // oauthConfig creates an OAuth config for mcp-go's transport.
 // It seeds ClientID/ClientSecret from stored creds if available, so that
 // refresh POSTs after restart carry the correct client_id. On keychain
 // error, it logs and returns an empty-creds config (graceful degradation:
 // mcp-go will re-register, which triggers a browser flow but is correct).
-func oauthConfig(serverName string) transport.OAuthConfig {
-	port := callbackPort(serverName)
+func oauthConfig(serverName string, srv config.ServerConfig) transport.OAuthConfig {
+	port := oauthCallbackPort(serverName, srv)
 	cfg := transport.OAuthConfig{
 		RedirectURI: fmt.Sprintf("http://localhost:%d/callback", port),
 		TokenStore:  &KeychainTokenStore{serverName: serverName},
 		PKCEEnabled: true,
 	}
-	if creds, err := getClientCreds(serverName); err != nil {
-		fmt.Fprintf(os.Stderr, "load client creds for %q: %v\n", serverName, err)
-	} else if creds != nil {
-		cfg.ClientID = creds.ClientID
-		cfg.ClientSecret = creds.ClientSecret
+	if srv.OAuth != nil {
+		cfg.ClientID = os.ExpandEnv(srv.OAuth.ClientID)
+		cfg.ClientSecret = os.ExpandEnv(srv.OAuth.ClientSecret)
+		cfg.Scopes = srv.OAuth.Scopes
+		cfg.AuthServerMetadataURL = os.ExpandEnv(srv.OAuth.AuthServerMetadataURL)
+	}
+	if cfg.ClientID == "" {
+		if creds, err := getClientCreds(serverName); err != nil {
+			fmt.Fprintf(os.Stderr, "load client creds for %q: %v\n", serverName, err)
+		} else if creds != nil {
+			cfg.ClientID = creds.ClientID
+			cfg.ClientSecret = creds.ClientSecret
+		}
 	}
 	return cfg
 }
 
 // initializeOAuthClient sends the MCP Initialize handshake, handling OAuth auth if needed.
-func initializeOAuthClient(startupCtx context.Context, lifetimeCtx context.Context, c *client.Client, name string) error {
+func initializeOAuthClient(startupCtx context.Context, lifetimeCtx context.Context, c *client.Client, name string, serverConfig config.ServerConfig) error {
 	initReq := mcp.InitializeRequest{}
 	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initReq.Params.ClientInfo = mcp.Implementation{
@@ -294,7 +311,7 @@ func initializeOAuthClient(startupCtx context.Context, lifetimeCtx context.Conte
 		return fmt.Errorf("initialize server %q: %w", name, err)
 	}
 
-	if err := runOAuthFlow(lifetimeCtx, err, name); err != nil {
+	if err := runOAuthFlow(lifetimeCtx, err, name, serverConfig); err != nil {
 		_ = c.Close()
 		return fmt.Errorf("OAuth flow for %q: %w", name, err)
 	}
@@ -307,8 +324,8 @@ func initializeOAuthClient(startupCtx context.Context, lifetimeCtx context.Conte
 }
 
 // runOAuthFlow runs the interactive browser-based OAuth flow.
-func runOAuthFlow(ctx context.Context, authErr error, serverName string) error {
-	port := callbackPort(serverName)
+func runOAuthFlow(ctx context.Context, authErr error, serverName string, serverConfig config.ServerConfig) error {
+	port := oauthCallbackPort(serverName, serverConfig)
 	handler := client.GetOAuthHandler(authErr)
 	if handler == nil {
 		return fmt.Errorf("no OAuth handler in error")

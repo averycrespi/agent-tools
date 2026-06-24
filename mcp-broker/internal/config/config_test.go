@@ -259,6 +259,48 @@ func TestConfigPath_ReturnsXDGPath(t *testing.T) {
 	require.Equal(t, filepath.Join(dir, "mcp-broker", "config.json"), path)
 }
 
+func TestLoad_ServerOAuthConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	data := `{
+		"servers": {
+			"remote": {
+				"type": "streamable-http",
+				"url": "https://example.com/mcp",
+				"oauth": {
+					"client_id": "test-client-id",
+					"callback_port": 3118,
+					"scopes": ["example:read"],
+					"auth_server_metadata_url": "https://example.com/.well-known/oauth-authorization-server"
+				}
+			}
+		}
+	}`
+	err := os.WriteFile(path, []byte(data), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	oauth := cfg.Servers["remote"].OAuth
+	require.NotNil(t, oauth)
+	require.Equal(t, "test-client-id", oauth.ClientID)
+	require.Equal(t, 3118, oauth.CallbackPort)
+	require.Equal(t, []string{"example:read"}, oauth.Scopes)
+	require.Equal(t, "https://example.com/.well-known/oauth-authorization-server", oauth.AuthServerMetadataURL)
+}
+
+func TestLoad_ServerOAuthConfigRejectsInvalidCallbackPort(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	data := `{"servers":{"bad":{"oauth":{"callback_port": 70000}}}}`
+	require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "servers.bad.oauth.callback_port")
+}
+
 func TestLoad_ServerHTTPTimeoutSeconds(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")

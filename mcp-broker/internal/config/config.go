@@ -37,10 +37,21 @@ type ServerConfig struct {
 	Type                  string            `json:"type,omitempty"`
 	URL                   string            `json:"url,omitempty"`
 	Headers               map[string]string `json:"headers,omitempty"`
+	OAuth                 *OAuthConfig      `json:"oauth,omitempty"`
 	HTTPTimeoutSeconds    int               `json:"http_timeout_seconds,omitempty"`
 	StartupRetryCount     *int              `json:"startup_retry_count,omitempty"`
 	StartupRetryBackoffMS *int              `json:"startup_retry_backoff_ms,omitempty"`
 	StartupTimeoutSeconds *int              `json:"startup_timeout_seconds,omitempty"`
+}
+
+// OAuthConfig configures an OAuth client for HTTP/SSE backends that do not
+// support dynamic client registration, or that require a fixed redirect port.
+type OAuthConfig struct {
+	ClientID              string   `json:"client_id,omitempty"`
+	ClientSecret          string   `json:"client_secret,omitempty"`
+	CallbackPort          int      `json:"callback_port,omitempty"`
+	Scopes                []string `json:"scopes,omitempty"`
+	AuthServerMetadataURL string   `json:"auth_server_metadata_url,omitempty"`
 }
 
 // RuleConfig defines a policy rule mapping a tool glob to a verdict.
@@ -199,6 +210,9 @@ func validate(cfg Config) error {
 		}
 		if srv.StartupTimeoutSeconds != nil && *srv.StartupTimeoutSeconds < 0 {
 			return fmt.Errorf("servers.%s.startup_timeout_seconds must be non-negative", name)
+		}
+		if srv.OAuth != nil && (srv.OAuth.CallbackPort < 0 || srv.OAuth.CallbackPort > 65535) {
+			return fmt.Errorf("servers.%s.oauth.callback_port must be between 0 and 65535", name)
 		}
 	}
 	return nil

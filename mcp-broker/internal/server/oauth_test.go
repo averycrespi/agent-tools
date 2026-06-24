@@ -8,6 +8,8 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/stretchr/testify/require"
 	"github.com/zalando/go-keyring"
+
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 )
 
 func init() {
@@ -71,7 +73,7 @@ func TestCallbackPort_DifferentServers(t *testing.T) {
 }
 
 func TestOAuthConfig_RedirectURIMatchesCallbackPort(t *testing.T) {
-	cfg := oauthConfig("github")
+	cfg := oauthConfig("github", config.ServerConfig{})
 
 	port := callbackPort("github")
 	expected := fmt.Sprintf("http://localhost:%d/callback", port)
@@ -107,13 +109,13 @@ func TestOAuthConfig_SeedsFromStoredCreds(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	cfg := oauthConfig("seeded-server")
+	cfg := oauthConfig("seeded-server", config.ServerConfig{})
 	require.Equal(t, "stored-cid", cfg.ClientID)
 	require.Equal(t, "stored-secret", cfg.ClientSecret)
 }
 
 func TestOAuthConfig_EmptyWhenNoStoredCreds(t *testing.T) {
-	cfg := oauthConfig("no-creds-server")
+	cfg := oauthConfig("no-creds-server", config.ServerConfig{})
 	require.Empty(t, cfg.ClientID)
 	require.Empty(t, cfg.ClientSecret)
 }
@@ -171,7 +173,54 @@ func TestOAuthConfig_KeychainErrorContinuesWithEmptyCreds(t *testing.T) {
 	err := keyring.Set(keychainService, "keychain-error-server.client", "not-valid-json")
 	require.NoError(t, err)
 
-	cfg := oauthConfig("keychain-error-server")
+	cfg := oauthConfig("keychain-error-server", config.ServerConfig{})
 	require.Empty(t, cfg.ClientID)
 	require.Empty(t, cfg.ClientSecret)
+}
+
+func TestOAuthConfig_UsesConfiguredClientAndCallbackPort(t *testing.T) {
+	cfg := oauthConfig("remote", config.ServerConfig{
+		OAuth: &config.OAuthConfig{
+			ClientID:     "test-client-id",
+			CallbackPort: 3118,
+		},
+	})
+
+	require.Equal(t, "test-client-id", cfg.ClientID)
+	require.Equal(t, "http://localhost:3118/callback", cfg.RedirectURI)
+	require.True(t, cfg.PKCEEnabled)
+	require.NotNil(t, cfg.TokenStore)
+}
+
+func TestOAuthConfig_ConfiguredClientOverridesStoredCreds(t *testing.T) {
+	require.NoError(t, saveClientCreds("configured-server", clientCreds{ClientID: "stored-cid", ClientSecret: "stored-secret"}))
+
+	cfg := oauthConfig("configured-server", config.ServerConfig{
+		OAuth: &config.OAuthConfig{ClientID: "configured-cid"},
+	})
+
+	require.Equal(t, "configured-cid", cfg.ClientID)
+	require.Empty(t, cfg.ClientSecret)
+}
+
+func TestOAuthConfig_ExpandsConfiguredClientSecret(t *testing.T) {
+	t.Setenv("OAUTH_CLIENT_SECRET", "expanded-secret")
+
+	cfg := oauthConfig("secret-server", config.ServerConfig{
+		OAuth: &config.OAuthConfig{ClientID: "cid", ClientSecret: "$OAUTH_CLIENT_SECRET"},
+	})
+
+	require.Equal(t, "cid", cfg.ClientID)
+	require.Equal(t, "expanded-secret", cfg.ClientSecret)
+}
+
+func TestOAuthConfig_UsesConfiguredAuthServerMetadataURL(t *testing.T) {
+	cfg := oauthConfig("metadata-server", config.ServerConfig{
+		OAuth: &config.OAuthConfig{
+			ClientID:              "cid",
+			AuthServerMetadataURL: "https://example.com/.well-known/oauth-authorization-server",
+		},
+	})
+
+	require.Equal(t, "https://example.com/.well-known/oauth-authorization-server", cfg.AuthServerMetadataURL)
 }

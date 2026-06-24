@@ -58,12 +58,12 @@ func newHTTPBackend(startupCtx context.Context, lifetimeCtx context.Context, nam
 	}
 
 	// Server requires OAuth — reconnect with OAuth support.
-	oauthCfg := oauthConfig(name)
+	oauthCfg := oauthConfig(name, srv)
 	c, err = client.NewOAuthStreamableHttpClient(srv.URL, oauthCfg, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create OAuth HTTP client for %q: %w", name, err)
 	}
-	if err := initializeOAuthClient(startupCtx, lifetimeCtx, c, name); err != nil {
+	if err := initializeOAuthClient(startupCtx, lifetimeCtx, c, name, srv); err != nil {
 		return nil, err
 	}
 	return &httpBackend{client: c}, nil
@@ -104,7 +104,7 @@ func newSSEBackend(startupCtx context.Context, lifetimeCtx context.Context, name
 	}
 
 	// Server requires OAuth — reconnect with OAuth support.
-	oauthCfg := oauthConfig(name)
+	oauthCfg := oauthConfig(name, srv)
 	c, err = client.NewOAuthSSEClient(srv.URL, oauthCfg, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create OAuth SSE client for %q: %w", name, err)
@@ -114,7 +114,7 @@ func newSSEBackend(startupCtx context.Context, lifetimeCtx context.Context, name
 			_ = c.Close()
 			return nil, fmt.Errorf("start OAuth SSE client for %q: %w", name, err)
 		}
-		if err := runOAuthFlow(lifetimeCtx, err, name); err != nil {
+		if err := runOAuthFlow(lifetimeCtx, err, name, srv); err != nil {
 			_ = c.Close()
 			return nil, fmt.Errorf("OAuth flow for %q: %w", name, err)
 		}
@@ -123,7 +123,7 @@ func newSSEBackend(startupCtx context.Context, lifetimeCtx context.Context, name
 			return nil, fmt.Errorf("start OAuth SSE client for %q after auth: %w", name, err)
 		}
 	}
-	if err := initializeOAuthClient(startupCtx, lifetimeCtx, c, name); err != nil {
+	if err := initializeOAuthClient(startupCtx, lifetimeCtx, c, name, srv); err != nil {
 		return nil, err
 	}
 	return &httpBackend{client: c}, nil
