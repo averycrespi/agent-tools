@@ -2,13 +2,12 @@
 
 My tools for working with AI coding agents. Pairs well with my [agent-config](https://github.com/averycrespi/agent-config).
 
-This repo is opinionated. It provides structured worktree management, sandboxed execution, broker-backed external access, and task orchestration that make coding agents safer and easier to run day to day. Use it as-is, fork it, or cherry-pick the tools that fit your setup.
+This repo is opinionated. It provides structured worktree management, sandboxed execution, and broker-backed external access that make coding agents safer and easier to run day to day. Use it as-is, fork it, or cherry-pick the tools that fit your setup.
 
 ## Overview
 
 - **[Worktree Manager](#worktree-manager-wt)** — Manage git worktrees with tmux integration
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
-- **[Pi Dispatcher](#pi-dispatcher-pd)** — Dispatch and inspect autonomous Pi tasks in worktrees and the sandbox
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
@@ -44,7 +43,6 @@ make check
 # Or, to install individual tools
 cd worktree-manager && make install
 cd sandbox-manager && make install
-cd pi-dispatcher && make install
 cd mcp-broker && make install
 cd local-git-mcp && make install
 cd local-gomod-proxy && make install
@@ -75,16 +73,6 @@ Running AI agents with full host access is risky — one bad command can trash y
 - `sb destroy` tears it down.
 
 See the [sandbox-manager README](sandbox-manager/README.md) for more information.
-
-### Pi Dispatcher (pd)
-
-Autonomous Pi tasks need more than a terminal: an isolated worktree, sandboxed execution, durable status, logs, and a way to stop the task later. `pd` composes `wt`, `sb`, and Pi RPC into a local dispatch layer with no central daemon.
-
-- `pd run "prompt"` creates a headless `wt` worktree, verifies it is visible inside `sb`, starts a detached supervisor, and returns a task ID.
-- `pd ps`, `pd status`, `pd wait`, `pd logs`, and `pd dashboard` inspect or follow running and completed tasks from persisted state.
-- `pd stop` communicates with the supervisor over a per-task Unix socket when the task is running.
-
-See the [pi-dispatcher README](pi-dispatcher/README.md) for more information.
 
 ### MCP Broker
 
