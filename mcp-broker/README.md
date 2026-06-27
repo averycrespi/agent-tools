@@ -147,7 +147,7 @@ Servers is a map keyed by server name. Each name is used as a tool prefix (e.g. 
 | `type`                     | Transport type: omit for stdio, `"streamable-http"` for Streamable HTTP, `"sse"` for SSE                                                                                 |
 | `url`                      | URL for HTTP/SSE transport                                                                                                                                               |
 | `headers`                  | HTTP headers; `$VAR` and `${VAR}` references are expanded from the process environment                                                                                   |
-| `oauth`                    | Optional OAuth client settings for HTTP/SSE backends that require a fixed client ID, client secret, scopes, or callback port.                                             |
+| `oauth`                    | Optional OAuth client settings for HTTP/SSE backends that require a fixed client ID, client secret, scopes, or callback port.                                            |
 | `http_timeout_seconds`     | Streamable HTTP backend request/stream timeout. Defaults to 120 seconds when omitted.                                                                                    |
 | `startup_retry_count`      | Startup retries after the first connect or `tools/list` attempt. Defaults to 3. Set `0` for one attempt only. Negative values and values above 1000 are invalid.         |
 | `startup_retry_backoff_ms` | Fixed delay between startup attempts. Defaults to 1000 ms. Set `0` for no delay. Negative values are invalid.                                                            |
