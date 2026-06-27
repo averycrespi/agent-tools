@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1350" height="650" viewBox="0 0 1350 650" role="img" aria-labelledby="title desc">
   <title id="title">Agent Tools relationship diagram</title>
-  <desc id="desc">Diagram showing host tools around a Lima sandbox, with Pi Orchestrator delegating workflow steps to Pi Dispatcher, a host worktree mounted into the sandbox, Agent Mailbox receiving brokered messages, and MCP/proxy traffic routed through host-side services.</desc>
+  <desc id="desc">Diagram showing host tools around a Lima sandbox, with Pi Orchestrator delegating workflow steps to Pi Dispatcher, a host worktree mounted into the sandbox, and MCP/proxy traffic routed through host-side services.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569" />
@@ -68,11 +68,6 @@
   <text class="label" x="1192" y="186">Hindsight</text>
   <text class="label" x="1192" y="204">MCP</text>
 
-  <rect class="node host-node" x="1135" y="262" width="115" height="74" />
-  <text class="label" x="1192" y="281">Agent</text>
-  <text class="label" x="1192" y="299">Mailbox</text>
-  <text class="label" x="1192" y="317">MCP</text>
-
   <rect class="node host-node" x="940" y="475" width="150" height="58" />
   <text class="label" x="1015" y="504">Local Gomod Proxy</text>
 
@@ -98,7 +93,6 @@
   <text class="edge-label" x="805" y="231">MCP calls</text>
   <path class="mcp" d="M1015 223 L1015 272" />
   <path class="mcp" d="M1090 194 L1132 194" />
-  <path class="mcp" d="M1090 208 L1132 285" />
   <path class="proxy" d="M720 294 L937 504" />
   <rect class="label-bg" x="770" y="386" width="66" height="18" />
   <text class="edge-label" x="803" y="399">GOPROXY</text>

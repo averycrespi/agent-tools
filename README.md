@@ -10,7 +10,6 @@ This repo is opinionated. It provides structured worktree management, sandboxed 
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
 - **[Pi Dispatcher](#pi-dispatcher-pd)** — Dispatch and inspect autonomous Pi tasks in worktrees and the sandbox
 - **[Pi Orchestrator](#pi-orchestrator-po)** — Coordinate typed, durable Pi workflows backed by `pd`
-- **[Agent Mailbox](#agent-mailbox)** — Durable local mailbox for agents to send messages to the user
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
@@ -48,7 +47,6 @@ cd worktree-manager && make install
 cd sandbox-manager && make install
 cd pi-dispatcher && make install
 cd pi-orchestrator && make install
-cd agent-mailbox && make install
 cd mcp-broker && make install
 cd local-git-mcp && make install
 cd local-gomod-proxy && make install
@@ -99,16 +97,6 @@ Durable Pi workflows need typed inputs, shared worktrees, artifact handoffs, ord
 - `po ps`, `po status`, `po wait`, `po logs`, `po stop`, `po cleanup`, `po rm`, and `po dashboard` inspect and control workflow runs while preserving `pd` task/run records.
 
 See the [pi-orchestrator README](pi-orchestrator/README.md) for more information.
-
-### Agent Mailbox
-
-Background agents need a durable way to send messages, requests, and status updates to the user without depending on a live dashboard or chat bridge. `agent-mailbox` stores those messages locally and exposes them through CLI, MCP, and a loopback dashboard.
-
-- `agent-mailbox send`, `agent-mailbox list`, `agent-mailbox read`, `agent-mailbox ack`, and `agent-mailbox resolve` provide direct local inspection and lifecycle updates.
-- `agent-mailbox mcp` exposes mailbox tools for use behind `mcp-broker`, so agents can send messages without direct access to the host database.
-- `agent-mailbox dashboard` serves a token-protected local dashboard for filtering, reading, acknowledging, and resolving messages.
-
-See the [agent-mailbox README](agent-mailbox/README.md) for more information.
 
 ### MCP Broker
 
