@@ -29,7 +29,7 @@ mcp-broker is designed for **local use only**. Startup refuses to bind anything 
 
 **What auth provides:**
 
-- A random bearer token required on every request (MCP and dashboard)
+- A random bearer token required on every MCP and dashboard request (`/healthz` is unauthenticated for local liveness checks)
 - Cookie-based session for the browser dashboard
 - Constant-time token comparison to prevent timing attacks
 
@@ -53,7 +53,12 @@ make build
 
 # Dashboard URL (with auth token) is printed to stderr on startup
 # MCP endpoint at http://localhost:8200/mcp (requires Bearer token)
+# Liveness endpoint at http://localhost:8200/healthz returns "ok" without auth
 ```
+
+## Health check
+
+`GET /healthz` is an unauthenticated liveness check for local supervisors. It returns `200 OK` with `ok\n` when the broker HTTP server is running. It does not check backend MCP servers; degraded or exhausted backends are shown in the dashboard Tools tab instead.
 
 ## Configuration
 

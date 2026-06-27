@@ -55,6 +55,21 @@ func TestLoadToken_FailsIfFileMissing(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestMiddleware_AllowsHealthzWithoutAuth(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/healthz", r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := Middleware("secret", inner)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/healthz")
+	require.NoError(t, err)
+	defer resp.Body.Close() //nolint:errcheck // test cleanup
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
 func TestMiddleware_AllowsValidBearerHeader(t *testing.T) {
 	token := "abc123"
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

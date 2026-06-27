@@ -151,6 +151,9 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Create combined HTTP server
 	mux := http.NewServeMux()
 
+	// Mount unauthenticated liveness check at /healthz
+	mux.HandleFunc("GET /healthz", handleHealthz)
+
 	// Mount MCP at /mcp
 	streamHandler := mcpserver.NewStreamableHTTPServer(mcpSrv)
 	mux.Handle("/mcp", limitRequestBody(cfg.MaxRequestBodyBytes, streamHandler))
@@ -206,6 +209,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		}
 		return nil
 	}
+}
+
+func handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte("ok\n"))
 }
 
 func limitRequestBody(maxBytes int64, next http.Handler) http.Handler {

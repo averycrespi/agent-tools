@@ -68,8 +68,8 @@ func Middleware(token string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
-		// 1. /dashboard/unauthorized is always allowed.
-		if path == "/dashboard/unauthorized" {
+		// 1. Public endpoints are always allowed.
+		if path == "/healthz" || path == "/dashboard/unauthorized" {
 			next.ServeHTTP(w, r)
 			return
 		}

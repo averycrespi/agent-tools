@@ -27,6 +27,17 @@ func (s *blockingShutdownServer) Close() error {
 	return nil
 }
 
+func TestHandleHealthz(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+
+	handleHealthz(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "text/plain; charset=utf-8", rec.Header().Get("Content-Type"))
+	require.Equal(t, "ok\n", rec.Body.String())
+}
+
 func TestLimitRequestBodyRejectsOversizedContentLength(t *testing.T) {
 	called := false
 	handler := limitRequestBody(4, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
