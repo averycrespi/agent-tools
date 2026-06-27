@@ -1585,6 +1585,7 @@
       }
 
       function addCard(pr) {
+        if (cards.has(pr.id)) return;
         var div = document.createElement("div");
         div.className = "card pending";
         div.dataset.id = pr.id;
@@ -1663,17 +1664,38 @@
         decisionsSection.style.display = "block";
       }
 
-      // Load pending requests
-      fetch("api/pending")
-        .then(function (r) {
-          return r.json();
-        })
-        .then(function (items) {
-          items.sort(function (a, b) {
-            return new Date(a.timestamp) - new Date(b.timestamp);
+      var pendingSyncInitialized = false;
+
+      function syncPending(notifyNew) {
+        var knownBeforeSync = new Set(cards.keys());
+        fetch("api/pending")
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (items) {
+            var shouldNotify = notifyNew && pendingSyncInitialized;
+            var liveIDs = new Set();
+            items.sort(function (a, b) {
+              return new Date(a.timestamp) - new Date(b.timestamp);
+            });
+            items.forEach(function (item) {
+              liveIDs.add(item.id);
+              var isNew = !cards.has(item.id);
+              addCard(item);
+              if (isNew && shouldNotify) showNotification(item.tool);
+            });
+            Array.from(knownBeforeSync.keys()).forEach(function (id) {
+              if (!liveIDs.has(id)) removeCard(id);
+            });
+            pendingSyncInitialized = true;
           });
-          items.forEach(addCard);
-        });
+      }
+
+      syncPending(false);
+
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "visible") syncPending(false);
+      });
 
       // SSE for real-time updates
       var es = new EventSource("events");
@@ -1694,6 +1716,7 @@
       es.onopen = function () {
         statusDot.classList.add("connected");
         statusLabel.textContent = "Connected";
+        syncPending(true);
       };
       es.onerror = function () {
         statusDot.classList.remove("connected");
