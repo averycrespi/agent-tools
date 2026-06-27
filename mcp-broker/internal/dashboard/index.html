@@ -99,62 +99,6 @@
         font-family: var(--font-mono);
       }
 
-      .notify-toggle {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin-left: 1rem;
-        padding-left: 1rem;
-        border-left: 1px solid var(--border);
-      }
-
-      .notify-label {
-        font-size: 0.75rem;
-        color: var(--text-secondary);
-        font-family: var(--font-mono);
-        user-select: none;
-      }
-
-      .toggle-switch {
-        position: relative;
-        width: 32px;
-        height: 18px;
-        background: var(--panel-sunken);
-        border: 1px solid var(--border);
-        border-radius: 9px;
-        cursor: pointer;
-        transition: background 0.2s;
-        flex-shrink: 0;
-      }
-
-      .toggle-switch.active {
-        background: var(--amber);
-        border-color: var(--amber);
-      }
-
-      .toggle-switch.denied {
-        opacity: 0.4;
-        cursor: not-allowed;
-      }
-
-      .toggle-switch::after {
-        content: "";
-        position: absolute;
-        top: 2px;
-        left: 2px;
-        width: 12px;
-        height: 12px;
-        background: var(--text-secondary);
-        border-radius: 50%;
-        transition:
-          transform 0.2s,
-          background 0.2s;
-      }
-
-      .toggle-switch.active::after {
-        transform: translateX(14px);
-        background: #000;
-      }
 
       /* Tab bar */
       .tab-bar {
@@ -1197,15 +1141,6 @@
       <div class="header-left">
         <div class="status-dot" id="status"></div>
         <span class="status-label" id="status-label">Disconnected</span>
-        <div class="notify-toggle">
-          <span class="notify-label">Notifications</span>
-          <div
-            class="toggle-switch"
-            id="notify-switch"
-            onclick="toggleNotifications()"
-            title="Enable desktop notifications"
-          ></div>
-        </div>
       </div>
     </div>
 
@@ -1407,7 +1342,7 @@
         return '<span class="badge badge-red">&#x274C; Denied</span>';
       }
 
-      // --- Notifications ---
+      // --- Approval chime ---
       var audioCtx = null;
 
       function initAudio() {
@@ -1454,75 +1389,6 @@
         osc2.stop(now + 0.3);
       }
 
-      var notifyEnabled = localStorage.getItem("mcp-broker-notify") === "true";
-
-      function updateToggleUI() {
-        var sw = document.getElementById("notify-switch");
-        if (!("Notification" in window)) {
-          sw.classList.add("denied");
-          sw.title = "Notifications not supported in this browser";
-          return;
-        }
-        if (Notification.permission === "denied") {
-          sw.classList.remove("active");
-          sw.classList.add("denied");
-          sw.title = "Notifications blocked — re-enable in browser settings";
-          notifyEnabled = false;
-          localStorage.setItem("mcp-broker-notify", "false");
-          return;
-        }
-        sw.classList.remove("denied");
-        if (notifyEnabled && Notification.permission === "granted") {
-          sw.classList.add("active");
-          sw.title = "Desktop notifications enabled";
-        } else {
-          sw.classList.remove("active");
-          sw.title = "Enable desktop notifications";
-          if (notifyEnabled && Notification.permission !== "granted") {
-            notifyEnabled = false;
-            localStorage.setItem("mcp-broker-notify", "false");
-          }
-        }
-      }
-
-      function toggleNotifications() {
-        if (!("Notification" in window) || Notification.permission === "denied")
-          return;
-        if (notifyEnabled) {
-          notifyEnabled = false;
-          localStorage.setItem("mcp-broker-notify", "false");
-          updateToggleUI();
-          return;
-        }
-        if (Notification.permission === "granted") {
-          notifyEnabled = true;
-          localStorage.setItem("mcp-broker-notify", "true");
-          updateToggleUI();
-          return;
-        }
-        Notification.requestPermission().then(function (result) {
-          if (result === "granted") {
-            notifyEnabled = true;
-            localStorage.setItem("mcp-broker-notify", "true");
-          }
-          updateToggleUI();
-        });
-      }
-
-      function showNotification(tool) {
-        if (!notifyEnabled || Notification.permission !== "granted") return;
-        if (document.visibilityState === "visible") return;
-        var n = new Notification("mcp-broker \u2014 Approval Required", {
-          body: tool,
-          tag: "mcp-broker-new",
-        });
-        n.onclick = function () {
-          window.focus();
-          n.close();
-        };
-      }
-
-      updateToggleUI();
 
       // --- Approvals ---
       var queue = document.getElementById("queue");
@@ -1666,14 +1532,14 @@
 
       var pendingSyncInitialized = false;
 
-      function syncPending(notifyNew) {
+      function syncPending(chimeNew) {
         var knownBeforeSync = new Set(cards.keys());
         fetch("api/pending")
           .then(function (r) {
             return r.json();
           })
           .then(function (items) {
-            var shouldNotify = notifyNew && pendingSyncInitialized;
+            var shouldChime = chimeNew && pendingSyncInitialized;
             var liveIDs = new Set();
             items.sort(function (a, b) {
               return new Date(a.timestamp) - new Date(b.timestamp);
@@ -1682,7 +1548,7 @@
               liveIDs.add(item.id);
               var isNew = !cards.has(item.id);
               addCard(item);
-              if (isNew && shouldNotify) showNotification(item.tool);
+              if (isNew && shouldChime) playChime();
             });
             Array.from(knownBeforeSync.keys()).forEach(function (id) {
               if (!liveIDs.has(id)) removeCard(id);
@@ -1704,7 +1570,6 @@
         if (msg.type === "new") {
           addCard(msg.data);
           playChime();
-          showNotification(msg.data.tool);
         }
         if (msg.type === "removed") removeCard(msg.data.id);
         if (msg.type === "decided") {
