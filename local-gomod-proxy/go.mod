@@ -1,6 +1,6 @@
 module github.com/averycrespi/agent-tools/local-gomod-proxy
 
-go 1.25.9
+go 1.25.11
 
 require (
 	github.com/spf13/cobra v1.10.2
