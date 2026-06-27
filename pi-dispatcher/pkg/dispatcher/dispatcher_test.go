@@ -26,7 +26,7 @@ func TestStartTaskRunUsesCallerOwnedWorktree(t *testing.T) {
 	result, err := client.StartTaskRun(context.Background(), StartTaskRunRequest{
 		RepoPath:     "/repo",
 		RepoName:     "repo",
-		Branch:       "po/workflow-abcd",
+		Branch:       "caller/workflow-abcd",
 		WorktreePath: "/worktrees/workflow-abcd",
 		Prompt:       "do the step",
 		Agent: AgentOptions{

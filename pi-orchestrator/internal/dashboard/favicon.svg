@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Pi Orchestrator">
-  <rect width="64" height="64" rx="14" fill="#0b111a"/>
-  <path d="M17 22h30M25 22v24M42 22c0 10 1 18 5 24" fill="none" stroke="#c084fc" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="25" cy="48" r="3" fill="#7dd3fc"/>
-  <circle cx="48" cy="48" r="3" fill="#7dd3fc"/>
-</svg>

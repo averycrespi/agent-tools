@@ -9,7 +9,6 @@ This repo is opinionated. It provides structured worktree management, sandboxed 
 - **[Worktree Manager](#worktree-manager-wt)** — Manage git worktrees with tmux integration
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
 - **[Pi Dispatcher](#pi-dispatcher-pd)** — Dispatch and inspect autonomous Pi tasks in worktrees and the sandbox
-- **[Pi Orchestrator](#pi-orchestrator-po)** — Coordinate typed, durable Pi workflows backed by `pd`
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
@@ -46,7 +45,6 @@ make check
 cd worktree-manager && make install
 cd sandbox-manager && make install
 cd pi-dispatcher && make install
-cd pi-orchestrator && make install
 cd mcp-broker && make install
 cd local-git-mcp && make install
 cd local-gomod-proxy && make install
@@ -87,16 +85,6 @@ Autonomous Pi tasks need more than a terminal: an isolated worktree, sandboxed e
 - `pd stop` communicates with the supervisor over a per-task Unix socket when the task is running.
 
 See the [pi-dispatcher README](pi-dispatcher/README.md) for more information.
-
-### Pi Orchestrator (po)
-
-Durable Pi workflows need typed inputs, shared worktrees, artifact handoffs, ordered task execution, and a way to inspect the whole run without taking task ownership away from `pd`. `po` coordinates that workflow state above `pd`.
-
-- `po list`, `po show`, and `po lint` load and validate V1 workflow YAML definitions.
-- `po run <workflow> --input key=value` validates typed inputs, creates one workflow worktree, and executes steps serially through backing `pd` task runs.
-- `po ps`, `po status`, `po wait`, `po logs`, `po stop`, `po cleanup`, `po rm`, and `po dashboard` inspect and control workflow runs while preserving `pd` task/run records.
-
-See the [pi-orchestrator README](pi-orchestrator/README.md) for more information.
 
 ### MCP Broker
 

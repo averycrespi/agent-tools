@@ -29,7 +29,7 @@ internal/control Unix socket protocol
 
 ## Dashboard UI
 
-The embedded dashboard in `internal/dashboard/index.html` should stay visually aligned with the MCP Broker and Pi Orchestrator dashboards. Preserve each dashboard's information architecture, but use the shared Agent Tools dashboard language:
+The embedded dashboard in `internal/dashboard/index.html` should stay visually aligned with the MCP Broker dashboard. Preserve each dashboard's information architecture, but use the shared Agent Tools dashboard language:
 
 - Dark blue-black base tokens: `--bg #080b10`, `--panel #101722`, `--panel-strong #151f2d`, `--panel-sunken #05070b`, `--text #e6edf3`, `--muted #8b98a8`, `--line #263244`.
 - Product identity comes from `--product-accent` and `--product-accent-2`; Pi Dispatcher uses cyan/blue (`#7dd3fc`, `#38bdf8`).
