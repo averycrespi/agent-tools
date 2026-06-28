@@ -17,7 +17,7 @@ Agent ──MCP──▶ mcp-broker ──MCP──▶ Backend servers
 An agent connects to mcp-broker as a single MCP server. mcp-broker connects to one or more backend MCP servers (via stdio or HTTP), discovers their tools, and re-exposes them with `<server>.<tool>` namespacing. Every tool call flows through the pipeline:
 
 1. **Rules check** — glob patterns match tool names to verdicts (`allow`, `deny`, `require-approval`)
-2. **Approval** — if the verdict is `require-approval`, the call blocks until a human approves or denies it via the web dashboard (and optionally Telegram). A configurable timeout (default 10 minutes) auto-denies if no response arrives.
+2. **Approval** — if the verdict is `require-approval`, the call blocks until a human approves or denies it via the web dashboard (and optionally Telegram). A configurable timeout (default 10 minutes) auto-denies if no response arrives. Requests can opt out of waiting with `Mcp-Broker-Approval-Mode: reject`.
 3. **Proxy** — the call is forwarded to the backend server
 4. **Audit** — the call, verdict, and result are recorded in SQLite
 
@@ -229,6 +229,17 @@ Default (no matching rule): `require-approval`. Denials are returned to agents a
 
 The approval timeout is separate from `http_timeout_seconds`: approval waiting can last up to `approval_timeout_seconds`, then approved Streamable HTTP backend calls are bounded by the backend's HTTP timeout.
 
+#### Request approval mode
+
+MCP tool call requests may include `Mcp-Broker-Approval-Mode` to control what happens when a rule returns `require-approval`:
+
+| Header value | Behavior                                                     |
+| ------------ | ------------------------------------------------------------ |
+| `wait`       | Default. Queue the call for dashboard/Telegram approval.     |
+| `reject`     | Do not queue approval. Return an MCP tool error immediately. |
+
+`reject` does not bypass rules. `allow` and `deny` verdicts behave normally; only `require-approval` changes. Rejected calls are audited with verdict `require-approval`, approval `false`, denial reason `approval-mode: reject`, and appear in the dashboard audit table as `rejected by request`.
+
 #### Argument matching
 
 Deny rules may include an optional `reason` field. When that rule rejects a call, the agent sees `denied by rule: <reason>` and the reason is recorded in audit.
@@ -308,6 +319,8 @@ On first run, mcp-broker generates a random auth token and saves it to `~/.confi
   }
 }
 ```
+
+Background clients that must not wait for human approval can add `Mcp-Broker-Approval-Mode: reject` to individual tool calls, or set it as a default HTTP header for that client.
 
 **Dashboard** opens automatically in your browser with the token. On first visit, the broker stores the token in an `HttpOnly`, `SameSite=Strict` cookie, then redirects to the same dashboard URL with the `token` query parameter removed. If you need the URL again, it's printed to stderr every time the broker starts.
 

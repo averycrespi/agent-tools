@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -299,6 +300,17 @@ func toolToMCPTool(t server.Tool) gomcp.Tool {
 	return out
 }
 
+func parseApprovalMode(raw string) (broker.ApprovalMode, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "wait":
+		return broker.ApprovalModeWait, nil
+	case string(broker.ApprovalModeReject):
+		return broker.ApprovalModeReject, nil
+	default:
+		return "", fmt.Errorf("unsupported Mcp-Broker-Approval-Mode %q (expected \"wait\" or \"reject\")", raw)
+	}
+}
+
 func makeMCPHandler(b *broker.Broker) func(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
 	return func(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
 		args, _ := req.Params.Arguments.(map[string]any)
@@ -306,7 +318,12 @@ func makeMCPHandler(b *broker.Broker) func(ctx context.Context, req gomcp.CallTo
 			args = make(map[string]any)
 		}
 
-		result, err := b.HandleToolResult(ctx, req.Params.Name, args)
+		approvalMode, err := parseApprovalMode(req.Header.Get("Mcp-Broker-Approval-Mode"))
+		if err != nil {
+			return gomcp.NewToolResultError(err.Error()), nil
+		}
+
+		result, err := b.HandleToolResultWithOptions(ctx, req.Params.Name, args, broker.HandleOptions{ApprovalMode: approvalMode})
 		if err != nil {
 			return gomcp.NewToolResultError(err.Error()), nil
 		}

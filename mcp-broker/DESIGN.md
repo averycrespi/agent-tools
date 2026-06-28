@@ -55,7 +55,7 @@ Every tool call flows through the same pipeline:
 
 1. **Rules engine** — Evaluates the tool name against an ordered list of glob rules. Each rule maps a pattern to a verdict: `allow`, `deny`, or `require-approval`. First match wins; default is `require-approval`. Deny rules may include an optional human-authored `reason`, returned to agents as `denied by rule: <reason>`.
 
-2. **Approval** — If the verdict is `require-approval`, the call blocks and appears in the web dashboard. A human approves or denies it. Dashboard denials can include an optional reason, returned as `denied by user: <reason>`; binary denials return `denied by user`. Approval timeouts return `denied by timeout`. If no approver is configured, the call is rejected.
+2. **Approval** — If the verdict is `require-approval`, the call blocks and appears in the web dashboard. A human approves or denies it. Dashboard denials can include an optional reason, returned as `denied by user: <reason>`; binary denials return `denied by user`. Approval timeouts return `denied by timeout`. If no approver is configured, the call is rejected. Per-request `Mcp-Broker-Approval-Mode: reject` skips approval fan-out and immediately rejects calls whose verdict is `require-approval`; `allow` and `deny` verdicts are unchanged.
 
 3. **Proxy** — The call is forwarded to the backend MCP server that owns the tool. The broker strips the namespace prefix before forwarding.
 

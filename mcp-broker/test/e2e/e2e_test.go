@@ -5,6 +5,7 @@ package e2e_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"testing"
 	"time"
 
@@ -99,6 +100,32 @@ func TestE2E_DenyToolCall(t *testing.T) {
 	require.Equal(t, 1, audit.Total)
 	require.NotNil(t, audit.Records[0].Approved)
 	require.False(t, *audit.Records[0].Approved)
+}
+
+func TestE2E_RejectApprovalModeDoesNotQueueApproval(t *testing.T) {
+	s := newTestStack(t, stackOpts{Tools: defaultTools})
+
+	result, err := s.callToolWithHeaders("echo.say_hello", map[string]any{}, http.Header{
+		"Mcp-Broker-Approval-Mode": []string{"reject"},
+	})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	require.NotEmpty(t, result.Content)
+	if tc, ok := result.Content[0].(gomcp.TextContent); ok {
+		require.Contains(t, tc.Text, "tool call blocked: approval is required for echo.say_hello")
+		require.Contains(t, tc.Text, "Mcp-Broker-Approval-Mode=reject")
+	} else {
+		t.Fatalf("expected text content, got %T", result.Content[0])
+	}
+
+	require.Empty(t, s.getPending())
+
+	audit := s.getAudit("", 10, 0)
+	require.Equal(t, 1, audit.Total)
+	require.Equal(t, "require-approval", audit.Records[0].Verdict)
+	require.NotNil(t, audit.Records[0].Approved)
+	require.False(t, *audit.Records[0].Approved)
+	require.Equal(t, "approval-mode: reject", audit.Records[0].DenialReason)
 }
 
 func TestE2E_AllowedToolCall(t *testing.T) {

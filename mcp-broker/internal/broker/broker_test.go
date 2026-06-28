@@ -192,6 +192,39 @@ func TestBroker_Handle_ApprovalRequired_DenialReasonPropagated(t *testing.T) {
 	al.AssertExpectations(t)
 }
 
+func TestBroker_Handle_ApprovalRequired_RejectModeDoesNotCallApprover(t *testing.T) {
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
+		return r.Tool == "fs.write" &&
+			r.Verdict == "require-approval" &&
+			r.Approved != nil &&
+			!*r.Approved &&
+			r.DenialReason == "approval-mode: reject" &&
+			r.Error == "tool call blocked: approval is required for fs.write, but this request uses Mcp-Broker-Approval-Mode=reject"
+	})).Return(nil)
+
+	ap := new(mockApprover)
+	sm := new(mockServerManager)
+
+	engine, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
+	require.NoError(t, err)
+
+	b := &Broker{
+		servers:  sm,
+		rules:    engine,
+		auditor:  al,
+		approver: ap,
+	}
+
+	_, err = b.HandleToolResultWithOptions(context.Background(), "fs.write", nil, HandleOptions{ApprovalMode: ApprovalModeReject})
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrDenied)
+	require.Equal(t, "denied by policy: tool call blocked: approval is required for fs.write, but this request uses Mcp-Broker-Approval-Mode=reject", err.Error())
+	ap.AssertNotCalled(t, "Review", mock.Anything, mock.Anything, mock.Anything)
+	sm.AssertNotCalled(t, "Call", mock.Anything, mock.Anything, mock.Anything)
+	al.AssertExpectations(t)
+}
+
 func TestBroker_Handle_ApprovalRequired_UserDenialReasonFormatted(t *testing.T) {
 	al := new(mockAuditLogger)
 	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {

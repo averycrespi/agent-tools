@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/broker"
 )
 
 type blockingShutdownServer struct {
@@ -91,4 +93,30 @@ func TestShutdownServerForcesCloseAfterTimeout(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, srv.closed)
 	require.Less(t, time.Since(start), time.Second)
+}
+
+func TestParseApprovalMode(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want broker.ApprovalMode
+	}{
+		{name: "empty defaults to wait"},
+		{name: "wait", raw: "wait"},
+		{name: "reject", raw: "reject", want: broker.ApprovalModeReject},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseApprovalMode(tt.raw)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestParseApprovalModeRejectsUnknownValue(t *testing.T) {
+	_, err := parseApprovalMode("never")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported Mcp-Broker-Approval-Mode")
 }

@@ -15,6 +15,21 @@ import (
 
 var ErrDenied = errors.New("denied by policy")
 
+// ApprovalMode controls what happens when a rule requires human approval.
+type ApprovalMode string
+
+const (
+	// ApprovalModeWait is the default behavior: wait for a human approver.
+	ApprovalModeWait ApprovalMode = ""
+	// ApprovalModeReject rejects immediately instead of requesting approval.
+	ApprovalModeReject ApprovalMode = "reject"
+)
+
+// HandleOptions contains per-call broker behavior options.
+type HandleOptions struct {
+	ApprovalMode ApprovalMode
+}
+
 // ServerManager proxies tool calls to backend MCP servers.
 type ServerManager interface {
 	Tools() []server.Tool
@@ -66,6 +81,11 @@ func (b *Broker) Handle(ctx context.Context, tool string, args map[string]any) (
 
 // HandleToolResult drives the full tool call pipeline: rules -> approval -> proxy -> audit.
 func (b *Broker) HandleToolResult(ctx context.Context, tool string, args map[string]any) (*server.ToolResult, error) {
+	return b.HandleToolResultWithOptions(ctx, tool, args, HandleOptions{})
+}
+
+// HandleToolResultWithOptions drives the full tool call pipeline with per-call options.
+func (b *Broker) HandleToolResultWithOptions(ctx context.Context, tool string, args map[string]any, opts HandleOptions) (*server.ToolResult, error) {
 	rec := audit.Record{
 		Timestamp: time.Now(),
 		Tool:      tool,
@@ -94,6 +114,15 @@ func (b *Broker) HandleToolResult(ctx context.Context, tool string, args map[str
 		return nil, fmt.Errorf("%w: %s", ErrDenied, rec.Error)
 
 	case rules.RequireApproval:
+		if opts.ApprovalMode == ApprovalModeReject {
+			approved := false
+			rec.Approved = &approved
+			rec.DenialReason = "approval-mode: reject"
+			rec.Error = formatApprovalModeRejectMessage(tool)
+			_ = b.auditor.Record(ctx, rec)
+			return nil, fmt.Errorf("%w: %s", ErrDenied, rec.Error)
+		}
+
 		if b.approver == nil {
 			rec.Error = "no approver configured"
 			_ = b.auditor.Record(ctx, rec)
@@ -146,6 +175,10 @@ func formatDenialMessage(reason string) string {
 		reason = "user"
 	}
 	return "denied by " + reason
+}
+
+func formatApprovalModeRejectMessage(tool string) string {
+	return fmt.Sprintf("tool call blocked: approval is required for %s, but this request uses Mcp-Broker-Approval-Mode=reject", tool)
 }
 
 // Tools returns all discovered tools (delegates to server manager).

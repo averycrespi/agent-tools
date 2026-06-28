@@ -2197,7 +2197,12 @@
         // Approval column
         var approval = "-";
         if (rec.approved === true) approval = "approved";
-        else if (rec.approved === false) approval = "denied";
+        else if (rec.approved === false) {
+          approval =
+            rec.denial_reason === "approval-mode: reject"
+              ? "rejected by request"
+              : "denied";
+        }
 
         // Row color based on final outcome (error > denied > approved)
         var rowClass = "";

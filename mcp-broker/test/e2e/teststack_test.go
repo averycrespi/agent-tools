@@ -405,10 +405,11 @@ func (s *TestStack) getTools() toolsResponse {
 
 // auditRecord matches the JSON shape of a single audit record from the API.
 type auditRecord struct {
-	Tool     string `json:"tool"`
-	Verdict  string `json:"verdict"`
-	Approved *bool  `json:"approved,omitempty"`
-	Error    string `json:"error,omitempty"`
+	Tool         string `json:"tool"`
+	Verdict      string `json:"verdict"`
+	Approved     *bool  `json:"approved,omitempty"`
+	DenialReason string `json:"denial_reason,omitempty"`
+	Error        string `json:"error,omitempty"`
 }
 
 type auditResponse struct {
@@ -438,7 +439,12 @@ func (s *TestStack) getAudit(tool string, limit, offset int) auditResponse {
 
 // callTool is a convenience wrapper for calling a tool via the MCP client.
 func (s *TestStack) callTool(name string, args map[string]any) (*gomcp.CallToolResult, error) {
+	return s.callToolWithHeaders(name, args, nil)
+}
+
+func (s *TestStack) callToolWithHeaders(name string, args map[string]any, headers http.Header) (*gomcp.CallToolResult, error) {
 	req := gomcp.CallToolRequest{}
+	req.Header = headers
 	req.Params.Name = name
 	req.Params.Arguments = args
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
