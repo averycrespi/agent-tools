@@ -11,6 +11,7 @@ This repo is opinionated. It provides structured worktree management, sandboxed 
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
+- **[Telegram MCP](#telegram-mcp)** — Minimal stdio MCP server for sending Telegram notifications
 - **[Hindsight](#hindsight)** — Local memory server stack for AI agents
 
 ## How the Tools Fit Together
@@ -46,6 +47,7 @@ cd sandbox-manager && make install
 cd mcp-broker && make install
 cd local-git-mcp && make install
 cd local-gomod-proxy && make install
+cd telegram-mcp && make install
 ```
 
 ## Tools
@@ -112,6 +114,19 @@ Sandboxed agents often work in Go projects that depend on private modules hosted
 - Git credentials stay on the host; the sandbox reaches the proxy over Lima's host-local bridge and carries none.
 
 See the [local-gomod-proxy README](local-gomod-proxy/README.md) for more information.
+
+### Telegram MCP
+
+Agents sometimes need a direct way to notify the human operator when work finishes or attention is needed. The broker's Telegram integration is for approval requests; `telegram-mcp` is a separate, minimal stdio MCP server for agent-to-human notifications.
+
+`telegram-mcp` sends text messages to one configured Telegram chat:
+
+- Exposes a single MCP tool, `send_message`, for notifications.
+- Uses its own Telegram bot token and chat ID; credentials stay on the host.
+- Designed to sit behind `mcp-broker`, so broker rules and audit logging still apply.
+- No general Telegram client features — no arbitrary recipients, media upload, receiving messages, or chat administration.
+
+See the [telegram-mcp README](telegram-mcp/README.md) for more information.
 
 ### Hindsight
 

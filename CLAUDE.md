@@ -10,6 +10,7 @@ mcp-broker/          MCP proxy for sandboxed agents — see mcp-broker/CLAUDE.md
 sandbox-manager/     Lima VM sandbox manager for isolated agent environments — see sandbox-manager/CLAUDE.md
 local-git-mcp/       Stdio MCP server for authenticated git remote operations — see local-git-mcp/CLAUDE.md
 local-gomod-proxy/  Host-side Go module proxy for sandboxed agents — see local-gomod-proxy/CLAUDE.md
+telegram-mcp/       Minimal stdio MCP server for sending Telegram notifications — see telegram-mcp/CLAUDE.md
 hindsight/          Auxiliary Docker Compose memory stack — see hindsight/README.md
 ```
 
@@ -66,11 +67,17 @@ When editing hand-authored SVG diagrams, verify both structure and appearance be
 
 Prefer SVG for diagrams that need precise layout or styling. Mermaid is fine for simple diagrams, but avoid claiming visual quality from source inspection alone.
 
-## Adding a New Go Tool
+## Changing the Go Tool Set
 
-1. Create `<name>/` with `go.mod` (`module github.com/averycrespi/agent-tools/<name>`)
-2. Copy `Makefile` and `.golangci.yml` from an existing tool and update the binary name
-3. Scaffold `cmd/<binary>/main.go` + `root.go` and `internal/` packages
-4. Write `README.md`, `DESIGN.md`, `CLAUDE.md` (see purposes above), and add an `AGENTS.md` symlink to `CLAUDE.md` (`ln -s CLAUDE.md AGENTS.md`)
-5. Add `<name>` to the `TOOLS` list in the root `Makefile`
-6. Run `go mod tidy`
+When adding or removing a Go tool, update every repo-level index that describes or operates on the tool set:
+
+1. Create or remove `<name>/` with `go.mod` (`module github.com/averycrespi/agent-tools/<name>`)
+2. For additions, copy `Makefile` and `.golangci.yml` from an existing tool and update the binary name
+3. For additions, scaffold `cmd/<binary>/main.go` + `root.go` and `internal/` packages
+4. For additions, write `README.md`, `DESIGN.md`, `CLAUDE.md` (see purposes above), and add an `AGENTS.md` symlink to `CLAUDE.md` (`ln -s CLAUDE.md AGENTS.md`)
+5. Update the root `TOOLS` list in `Makefile`
+6. Update `go.work`
+7. Update the root `README.md` overview, install examples, and tool section
+8. Update the root `CLAUDE.md` / `AGENTS.md` structure list
+9. Update `assets/tool-relationships.svg` so the architecture diagram matches the current tool set, then validate and render it using the Diagrams and SVGs checklist above
+10. Run `go mod tidy` for affected modules

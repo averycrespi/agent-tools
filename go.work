@@ -3,6 +3,7 @@ go 1.25.11
 use (
 	./local-git-mcp
 	./local-gomod-proxy
+	./telegram-mcp
 	./mcp-broker
 	./sandbox-manager
 	./worktree-manager

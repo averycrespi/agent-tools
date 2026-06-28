@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1350" height="650" viewBox="0 0 1350 650" role="img" aria-labelledby="title desc">
   <title id="title">Agent Tools relationship diagram</title>
-  <desc id="desc">Diagram showing host tools around a Lima sandbox, with a host worktree mounted into the sandbox, and MCP/proxy traffic routed through host-side services.</desc>
+  <desc id="desc">Diagram showing host tools around a Lima sandbox, with a host worktree mounted into the sandbox, and MCP/proxy/notification traffic routed through host-side services.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569" />
@@ -62,11 +62,17 @@
   <text class="label" x="1192" y="186">Hindsight</text>
   <text class="label" x="1192" y="204">MCP</text>
 
+  <rect class="node host-node" x="940" y="365" width="150" height="50" />
+  <text class="label" x="1015" y="390">Telegram MCP</text>
+
   <rect class="node host-node" x="940" y="475" width="150" height="58" />
   <text class="label" x="1015" y="504">Local Gomod Proxy</text>
 
-  <rect class="node external-node" x="967" y="365" width="95" height="50" />
-  <text class="label" x="1015" y="390">Git remotes</text>
+  <rect class="node external-node" x="1135" y="275" width="115" height="50" />
+  <text class="label" x="1192" y="300">Git remotes</text>
+
+  <rect class="node external-node" x="1135" y="365" width="115" height="50" />
+  <text class="label" x="1192" y="390">Telegram</text>
 
   <rect class="node external-node" x="1135" y="479" width="115" height="50" />
   <text class="label" x="1192" y="504">Go modules</text>
@@ -84,11 +90,13 @@
   <text class="edge-label" x="805" y="231">MCP calls</text>
   <path class="mcp" d="M1015 223 L1015 272" />
   <path class="mcp" d="M1090 194 L1132 194" />
+  <path class="mcp" d="M990 223 L900 223 L900 390 L937 390" />
   <path class="proxy" d="M720 294 L937 504" />
   <rect class="label-bg" x="770" y="386" width="66" height="18" />
   <text class="edge-label" x="803" y="399">GOPROXY</text>
 
-  <path class="edge" d="M1015 325 L1015 362" />
+  <path class="edge" d="M1090 300 L1132 300" />
+  <path class="edge" d="M1090 390 L1132 390" />
   <path class="edge" d="M1090 504 L1132 504" />
 
   <rect class="node host-node" x="40" y="615" width="14" height="14" />
