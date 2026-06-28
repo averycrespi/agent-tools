@@ -238,7 +238,7 @@ MCP tool call requests may include `Mcp-Broker-Approval-Mode` to control what ha
 | `wait`       | Default. Queue the call for dashboard/Telegram approval.     |
 | `reject`     | Do not queue approval. Return an MCP tool error immediately. |
 
-`reject` does not bypass rules. `allow` and `deny` verdicts behave normally; only `require-approval` changes. Rejected calls are audited with verdict `require-approval`, approval `false`, denial reason `approval-mode: reject`, and appear in the dashboard audit table as `rejected by request`.
+`reject` does not bypass rules. `allow` and `deny` verdicts behave normally; only `require-approval` changes. Rejected calls are audited with verdict `require-approval`, approval `false`, denial reason `approval-mode: reject`, and appear in the dashboard audit table as `rejected`.
 
 #### Argument matching
 
