@@ -48,6 +48,25 @@ func TestStoreReloadFailureLeavesPreviousRulesActive(t *testing.T) {
 	require.Equal(t, "old", result.Rule.Reason)
 }
 
+func TestStoreReloadInvalidRegexLeavesPreviousRulesActive(t *testing.T) {
+	store, err := NewStore([]config.RuleConfig{{Tool: "*", Verdict: "deny", Reason: "old"}})
+	require.NoError(t, err)
+
+	err = store.Reload([]config.RuleConfig{{
+		Tool:    "*",
+		Verdict: "allow",
+		Args: []config.ArgPattern{
+			{Path: "branch", Match: json.RawMessage(`{"regex": "[invalid"}`)},
+		},
+	}})
+	require.Error(t, err)
+
+	result := store.Evaluate("anything", nil)
+	require.Equal(t, Deny, result.Verdict)
+	require.True(t, result.Matched)
+	require.Equal(t, "old", result.Rule.Reason)
+}
+
 func TestStoreRulesReturnsDeepCopy(t *testing.T) {
 	store, err := NewStore([]config.RuleConfig{{
 		Tool:    "*",
