@@ -3,6 +3,8 @@ package git
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -31,6 +33,193 @@ func mustNewClient(t *testing.T, runner *mockRunner) *Client {
 	client, err := NewClient(runner, nil, true)
 	require.NoError(t, err)
 	return client
+}
+
+func TestCloneGitHubRepo_Success(t *testing.T) {
+	destinationDir := t.TempDir()
+	targetPath := filepath.Join(destinationDir, "repo")
+	type call struct {
+		dir  string
+		args []string
+	}
+	var calls []call
+	c, err := NewClient(&mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			require.Equal(t, "git", name)
+			calls = append(calls, call{dir: dir, args: args})
+			if len(calls) == 2 {
+				return []byte(".git\n"), nil
+			}
+			return []byte("cloned\n"), nil
+		},
+	}, []string{destinationDir}, false)
+	require.NoError(t, err)
+
+	repoPath, err := c.CloneGitHubRepo(context.Background(), "owner/repo", destinationDir)
+
+	require.NoError(t, err)
+	assert.Equal(t, targetPath, repoPath)
+	require.Len(t, calls, 2)
+	assert.Equal(t, destinationDir, calls[0].dir)
+	assert.Equal(t, []string{"clone", "--", "git@github.com:owner/repo.git", targetPath}, calls[0].args)
+	assert.Equal(t, targetPath, calls[1].dir)
+	assert.Equal(t, []string{"rev-parse", "--git-dir"}, calls[1].args)
+}
+
+func TestCloneGitHubRepo_RejectsMalformedRepositories(t *testing.T) {
+	c := mustNewClient(t, &mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			t.Fatal("git should not run for malformed repositories")
+			return nil, nil
+		},
+	})
+	for _, repository := range []string{
+		"",
+		"owner",
+		"owner/",
+		"/repo",
+		"owner/repo/extra",
+		"../repo",
+		"owner/..",
+		"owner/re po",
+		"https://github.com/owner/repo",
+		"git@github.com:owner/repo.git",
+		"owner/repo.git?ref=main",
+		"owner/🔥",
+	} {
+		t.Run(repository, func(t *testing.T) {
+			_, err := c.CloneGitHubRepo(context.Background(), repository, "/tmp")
+			require.Error(t, err)
+			if repository == "" {
+				assert.ErrorContains(t, err, "repository is required")
+			} else {
+				assert.ErrorContains(t, err, "repository must be in owner/repo form")
+			}
+		})
+	}
+}
+
+func TestCloneGitHubRepo_RejectsRelativeDestinationDir(t *testing.T) {
+	c := mustNewClient(t, &mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			t.Fatal("git should not run for invalid destination_dir")
+			return nil, nil
+		},
+	})
+
+	_, err := c.CloneGitHubRepo(context.Background(), "owner/repo", "relative/path")
+
+	assert.ErrorContains(t, err, "destination_dir must be an absolute path")
+}
+
+func TestCloneGitHubRepo_RejectsDestinationOutsideAllowedPaths(t *testing.T) {
+	allowedDir := t.TempDir()
+	destinationDir := t.TempDir()
+	c, err := NewClient(&mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			t.Fatal("git should not run for destination_dir outside allowed paths")
+			return nil, nil
+		},
+	}, []string{allowedDir}, false)
+	require.NoError(t, err)
+
+	_, err = c.CloneGitHubRepo(context.Background(), "owner/repo", destinationDir)
+
+	assert.ErrorContains(t, err, "outside allowed paths")
+}
+
+func TestCloneGitHubRepo_RejectsMissingDestinationDir(t *testing.T) {
+	destinationDir := filepath.Join(t.TempDir(), "missing")
+	c := mustNewClient(t, &mockRunner{})
+
+	_, err := c.CloneGitHubRepo(context.Background(), "owner/repo", destinationDir)
+
+	assert.ErrorContains(t, err, "destination_dir must be an existing directory")
+}
+
+func TestCloneGitHubRepo_RejectsDestinationFile(t *testing.T) {
+	destinationFile := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(destinationFile, []byte("not a dir"), 0o600))
+	c := mustNewClient(t, &mockRunner{})
+
+	_, err := c.CloneGitHubRepo(context.Background(), "owner/repo", destinationFile)
+
+	assert.ErrorContains(t, err, "destination_dir must be a directory")
+}
+
+func TestCloneGitHubRepo_RejectsSymlinkDestinationDir(t *testing.T) {
+	realDir := t.TempDir()
+	symlinkDir := filepath.Join(t.TempDir(), "link")
+	require.NoError(t, os.Symlink(realDir, symlinkDir))
+	c := mustNewClient(t, &mockRunner{})
+
+	_, err := c.CloneGitHubRepo(context.Background(), "owner/repo", symlinkDir)
+
+	assert.ErrorContains(t, err, "destination_dir must not be a symlink")
+}
+
+func TestCloneGitHubRepo_RejectsExistingTargetPath(t *testing.T) {
+	destinationDir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(destinationDir, "repo"), 0o700))
+	c := mustNewClient(t, &mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			t.Fatal("git should not run when target exists")
+			return nil, nil
+		},
+	})
+
+	_, err := c.CloneGitHubRepo(context.Background(), "owner/repo", destinationDir)
+
+	assert.ErrorContains(t, err, "target directory already exists")
+}
+
+func TestCloneGitHubRepo_Error(t *testing.T) {
+	destinationDir := t.TempDir()
+	c := mustNewClient(t, &mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			return []byte("fatal: could not read from remote repository"), fmt.Errorf("exit status 128")
+		},
+	})
+
+	_, err := c.CloneGitHubRepo(context.Background(), "owner/repo", destinationDir)
+
+	assert.ErrorContains(t, err, "git clone failed")
+	assert.ErrorContains(t, err, "could not read from remote repository")
+}
+
+func TestCloneGitHubRepo_PostCloneValidationError(t *testing.T) {
+	destinationDir := t.TempDir()
+	calls := 0
+	c := mustNewClient(t, &mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			calls++
+			if calls == 1 {
+				return []byte("cloned\n"), nil
+			}
+			return []byte("fatal: not a git repository"), fmt.Errorf("exit status 128")
+		},
+	})
+
+	_, err := c.CloneGitHubRepo(context.Background(), "owner/repo", destinationDir)
+
+	assert.ErrorContains(t, err, "validating cloned repository")
+	assert.ErrorContains(t, err, "not a git repository")
+}
+
+func TestCloneGitHubRepo_TimesOutBlockedCommand(t *testing.T) {
+	destinationDir := t.TempDir()
+	c, err := NewClientWithTimeout(&mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}, nil, true, time.Millisecond)
+	require.NoError(t, err)
+
+	_, err = c.CloneGitHubRepo(context.Background(), "owner/repo", destinationDir)
+
+	assert.ErrorContains(t, err, "git clone failed")
+	assert.ErrorContains(t, err, context.DeadlineExceeded.Error())
 }
 
 func TestPush_DefaultArgs(t *testing.T) {

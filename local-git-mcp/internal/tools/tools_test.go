@@ -15,6 +15,7 @@ import (
 
 type mockGitClient struct {
 	validateRepoFunc   func(ctx context.Context, repoPath string) (string, error)
+	cloneGitHubFunc    func(ctx context.Context, repository, destinationDir string) (string, error)
 	pushFunc           func(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error)
 	pullFunc           func(ctx context.Context, repoPath, remote, branch string, rebase bool) (string, error)
 	fetchFunc          func(ctx context.Context, repoPath, remote, refspec string) (string, error)
@@ -27,6 +28,13 @@ func (m *mockGitClient) ValidateRepo(ctx context.Context, repoPath string) (stri
 		return m.validateRepoFunc(ctx, repoPath)
 	}
 	return repoPath, nil
+}
+
+func (m *mockGitClient) CloneGitHubRepo(ctx context.Context, repository, destinationDir string) (string, error) {
+	if m.cloneGitHubFunc != nil {
+		return m.cloneGitHubFunc(ctx, repository, destinationDir)
+	}
+	return "", nil
 }
 
 func (m *mockGitClient) Push(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error) {
@@ -67,8 +75,24 @@ func (m *mockGitClient) ListRemotes(ctx context.Context, repoPath string) ([]git
 func TestToolDefinitions(t *testing.T) {
 	h := NewHandler(&mockGitClient{})
 	tools := h.Tools()
-	assert.Len(t, tools, 5)
-	assert.Equal(t, []string{"push", "pull", "fetch", "list_remote_refs", "list_remotes"}, toolNames(tools))
+	assert.Len(t, tools, 6)
+	assert.Equal(t, []string{"push", "pull", "fetch", "clone_github_repo", "list_remote_refs", "list_remotes"}, toolNames(tools))
+}
+
+func TestCloneGitHubRepoToolDefinition(t *testing.T) {
+	h := NewHandler(&mockGitClient{})
+	var cloneTool gomcp.Tool
+	for _, tool := range h.Tools() {
+		if tool.Name == "clone_github_repo" {
+			cloneTool = tool
+			break
+		}
+	}
+	require.Equal(t, "clone_github_repo", cloneTool.Name)
+	assert.Equal(t, []string{"repository", "destination_dir"}, cloneTool.InputSchema.Required)
+	assert.Contains(t, cloneTool.InputSchema.Properties, "repository")
+	assert.Contains(t, cloneTool.InputSchema.Properties, "destination_dir")
+	assert.Equal(t, annAdditive, cloneTool.Annotations)
 }
 
 func toolNames(tools []gomcp.Tool) []string {
@@ -77,6 +101,77 @@ func toolNames(tools []gomcp.Tool) []string {
 		names = append(names, tool.Name)
 	}
 	return names
+}
+
+func TestCloneGitHubRepoHandler_Success(t *testing.T) {
+	h := NewHandler(&mockGitClient{
+		validateRepoFunc: func(ctx context.Context, repoPath string) (string, error) {
+			t.Fatal("clone_github_repo should not require repo_path validation")
+			return "", nil
+		},
+		cloneGitHubFunc: func(ctx context.Context, repository, destinationDir string) (string, error) {
+			assert.Equal(t, "owner/repo", repository)
+			assert.Equal(t, "/work", destinationDir)
+			return "/work/repo", nil
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "clone_github_repo"
+	req.Params.Arguments = map[string]any{
+		"repository":      "owner/repo",
+		"destination_dir": "/work",
+	}
+
+	result, err := h.Handle(context.Background(), req)
+
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	var cloneResult git.CloneGitHubResult
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].(gomcp.TextContent).Text), &cloneResult))
+	assert.Equal(t, "/work/repo", cloneResult.RepoPath)
+}
+
+func TestCloneGitHubRepoHandler_MissingRepository(t *testing.T) {
+	h := NewHandler(&mockGitClient{})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "clone_github_repo"
+	req.Params.Arguments = map[string]any{"destination_dir": "/work"}
+
+	result, err := h.Handle(context.Background(), req)
+
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+func TestCloneGitHubRepoHandler_MissingDestinationDir(t *testing.T) {
+	h := NewHandler(&mockGitClient{})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "clone_github_repo"
+	req.Params.Arguments = map[string]any{"repository": "owner/repo"}
+
+	result, err := h.Handle(context.Background(), req)
+
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+}
+
+func TestCloneGitHubRepoHandler_Error(t *testing.T) {
+	h := NewHandler(&mockGitClient{
+		cloneGitHubFunc: func(ctx context.Context, repository, destinationDir string) (string, error) {
+			return "", fmt.Errorf("target directory already exists: /work/repo")
+		},
+	})
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "clone_github_repo"
+	req.Params.Arguments = map[string]any{
+		"repository":      "owner/repo",
+		"destination_dir": "/work",
+	}
+
+	result, err := h.Handle(context.Background(), req)
+
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
 }
 
 func TestPushHandler_Success(t *testing.T) {

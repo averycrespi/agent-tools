@@ -43,6 +43,7 @@ var (
 // GitClient defines the git operations needed by MCP tool handlers.
 type GitClient interface {
 	ValidateRepo(ctx context.Context, repoPath string) (string, error)
+	CloneGitHubRepo(ctx context.Context, repository, destinationDir string) (string, error)
 	Push(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error)
 	Pull(ctx context.Context, repoPath, remote, branch string, rebase bool) (string, error)
 	Fetch(ctx context.Context, repoPath, remote, refspec string) (string, error)
@@ -141,6 +142,25 @@ func (h *Handler) Tools() []gomcp.Tool {
 			},
 		},
 		{
+			Name:        "clone_github_repo",
+			Description: "Clone a GitHub repository over SSH into an allowed destination directory",
+			Annotations: annAdditive,
+			InputSchema: gomcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"repository": map[string]any{
+						"type":        "string",
+						"description": "GitHub repository in owner/repo form",
+					},
+					"destination_dir": map[string]any{
+						"type":        "string",
+						"description": "Absolute path to an allowed parent directory for the clone",
+					},
+				},
+				Required: []string{"repository", "destination_dir"},
+			},
+		},
+		{
 			Name:        "list_remote_refs",
 			Description: "List refs (branches, tags) on a remote",
 			Annotations: annRead,
@@ -180,6 +200,23 @@ func (h *Handler) Tools() []gomcp.Tool {
 // Handle dispatches an MCP tool call to the appropriate git operation.
 func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
 	args := req.GetArguments()
+
+	if req.Params.Name == "clone_github_repo" {
+		repository, _ := args["repository"].(string)
+		if repository == "" {
+			return gomcp.NewToolResultError("repository is required"), nil
+		}
+		destinationDir, _ := args["destination_dir"].(string)
+		if destinationDir == "" {
+			return gomcp.NewToolResultError("destination_dir is required"), nil
+		}
+		repoPath, err := h.git.CloneGitHubRepo(ctx, repository, destinationDir)
+		if err != nil {
+			return gomcp.NewToolResultError(err.Error()), nil
+		}
+		out, _ := json.Marshal(git.CloneGitHubResult{RepoPath: repoPath})
+		return gomcp.NewToolResultText(string(out)), nil
+	}
 
 	repoPath, _ := args["repo_path"].(string)
 	if repoPath == "" {

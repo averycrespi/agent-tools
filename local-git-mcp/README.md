@@ -2,7 +2,7 @@
 
 A stdio MCP server that executes authenticated git remote operations on behalf of sandboxed agents.
 
-Sandboxed agents can do most git operations locally — staging, committing, diffing, rebasing — because those don't need authentication. But pushing, pulling, and fetching require credentials that the sandbox intentionally doesn't have. local-git-mcp runs on the host where SSH keys and credential helpers are available, and exposes these operations over MCP.
+Sandboxed agents can do most git operations locally — staging, committing, diffing, rebasing — because those don't need authentication. But cloning private repositories and pushing, pulling, or fetching require credentials that the sandbox intentionally doesn't have. local-git-mcp runs on the host where SSH keys and credential helpers are available, and exposes these operations over MCP.
 
 ## How it works
 
@@ -11,25 +11,29 @@ Agent (in sandbox)                    Host
 ─────────────────                    ─────
 git add, commit,     ──MCP──▶    local-git-mcp
 diff, rebase, ...                    │
-(no auth needed)                 git push, pull, fetch
+(no auth needed)                 git clone, push,
+                                 pull, fetch
                                  (uses host credentials)
 ```
 
 local-git-mcp is a stdio MCP server — a caller spawns it as a subprocess and communicates over stdin/stdout. It shells out to the host's `git` binary, which picks up the user's existing credential configuration.
 
-At startup, callers must provide one or more allowed path prefixes. Tool calls can only access repositories at those paths or their descendants. Starting without allowed paths fails unless `--allow-all-paths` is provided.
+At startup, callers must provide one or more allowed path prefixes. Tool calls can only access repositories or clone destinations at those paths or their descendants. Starting without allowed paths fails unless `--allow-all-paths` is provided.
 
 ## Tools
 
-| Tool               | Description                                              |
-| ------------------ | -------------------------------------------------------- |
-| `push`             | Push commits to a remote (supports `--force-with-lease`) |
-| `pull`             | Pull from a remote (supports `--rebase`)                 |
-| `fetch`            | Fetch from a remote without merging                      |
-| `list_remote_refs` | List refs (branches, tags) on a remote                   |
-| `list_remotes`     | List configured remotes and their URLs                   |
+| Tool                | Description                                              |
+| ------------------- | -------------------------------------------------------- |
+| `push`              | Push commits to a remote (supports `--force-with-lease`) |
+| `pull`              | Pull from a remote (supports `--rebase`)                 |
+| `fetch`             | Fetch from a remote without merging                      |
+| `clone_github_repo` | Clone a GitHub repository over SSH                       |
+| `list_remote_refs`  | List refs (branches, tags) on a remote                   |
+| `list_remotes`      | List configured remotes and their URLs                   |
 
-All tools require a `repo_path` parameter — an absolute path to a git repository on the host. The path must be equal to or inside one of the allowed path prefixes provided when the server starts.
+Repo-scoped tools require a `repo_path` parameter — an absolute path to a git repository on the host. The path must be equal to or inside one of the allowed path prefixes provided when the server starts.
+
+`clone_github_repo` requires `repository` in `owner/repo` form and `destination_dir`, an absolute existing parent directory inside the allowed path prefixes. It always clones over SSH as `git@github.com:owner/repo.git`, derives the target path as `<destination_dir>/<repo>`, fails if that path already exists, and returns JSON text containing the cloned `repo_path`.
 
 ## Quick start
 
