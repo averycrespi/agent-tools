@@ -140,6 +140,24 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
 | `max_request_body_bytes`   | Maximum accepted request body size on `/mcp`. Defaults to 10 MiB; set to `0` to disable. |
 | `open_browser`             | Open the dashboard in a browser on startup. Defaults to `true`.                          |
 
+### Reloading rules
+
+Policy `rules` can be reloaded without restarting the broker or reconnecting backend MCP servers. After editing `~/.config/mcp-broker/config.json`, send `SIGHUP` to the running process:
+
+```bash
+kill -HUP $(pgrep -x mcp-broker)
+```
+
+For the launchd setup, use:
+
+```bash
+launchctl kill HUP gui/$UID/dev.agent-tools.mcp-broker
+```
+
+Only `rules` are reloaded. If the reload cannot read the config file, parse JSON, parse the `rules` shape, or compile rule argument paths/regexes, the broker logs `rules reload failed` and keeps the previously active rules. If `rules` is omitted from an otherwise valid config file, reload applies the startup default: `[{"tool":"*","verdict":"require-approval"}]`. New tool calls use successfully reloaded rules; calls that already reached a policy decision, including pending approval requests, keep that decision.
+
+Restart mcp-broker for changes to `servers`, `tool_patches`, `host`, `port`, `audit.path`, auth token, Telegram approver settings, approval timeout, log level, `open_browser`, or `max_request_body_bytes`, and after fixing a backend that exhausted startup retries.
+
 ### Servers
 
 Servers is a map keyed by server name. Each name is used as a tool prefix (e.g. `github.search`).

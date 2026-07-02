@@ -60,8 +60,9 @@ type Engine struct {
 // Tool-name glob errors are still tolerated at evaluation time (preserves
 // current behavior for malformed globs).
 func New(rs []config.RuleConfig) (*Engine, error) {
-	compiled := make([]compiledRule, len(rs))
-	for i, r := range rs {
+	ruleCopies := cloneRules(rs)
+	compiled := make([]compiledRule, len(ruleCopies))
+	for i, r := range ruleCopies {
 		cr := compiledRule{raw: r, verdict: ParseVerdict(r.Verdict)}
 		for j, ap := range r.Args {
 			segs, err := parsePath(ap.Path)
@@ -76,18 +77,31 @@ func New(rs []config.RuleConfig) (*Engine, error) {
 		}
 		compiled[i] = cr
 	}
-	return &Engine{rules: rs, compiled: compiled}, nil
+	return &Engine{rules: ruleCopies, compiled: compiled}, nil
 }
 
 // Rules returns the configured rules in evaluation order.
 func (e *Engine) Rules() []config.RuleConfig {
-	return e.rules
+	return cloneRules(e.rules)
+}
+
+func (e *Engine) rule(index int) config.RuleConfig {
+	return cloneRule(e.rules[index])
 }
 
 // Evaluate returns the verdict for the given tool name and arguments.
 func (e *Engine) Evaluate(tool string, args map[string]any) Verdict {
 	v, _ := e.EvaluateWithRule(tool, args)
 	return v
+}
+
+// EvaluateWithMetadata returns the verdict and matched rule metadata from one engine snapshot.
+func (e *Engine) EvaluateWithMetadata(tool string, args map[string]any) Evaluation {
+	verdict, idx := e.EvaluateWithRule(tool, args)
+	if idx < 0 {
+		return Evaluation{Verdict: verdict}
+	}
+	return Evaluation{Verdict: verdict, Rule: e.rule(idx), Matched: true}
 }
 
 // EvaluateWithRule returns the verdict and the zero-based index of the rule

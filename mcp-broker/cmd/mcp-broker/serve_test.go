@@ -6,17 +6,37 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/broker"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/rules"
 )
 
 type blockingShutdownServer struct {
 	closed bool
+}
+
+type recordingServer struct {
+	shutdowns int
+	closes    int
+}
+
+func (s *recordingServer) Shutdown(context.Context) error {
+	s.shutdowns++
+	return nil
+}
+
+func (s *recordingServer) Close() error {
+	s.closes++
+	return nil
 }
 
 func (s *blockingShutdownServer) Shutdown(ctx context.Context) error {
@@ -82,6 +102,77 @@ func TestLimitRequestBodyDisabledWhenZero(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestReloadRulesFromConfigSwapsRules(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"rules": [{"tool": "github.*", "verdict": "allow"}]}`), 0o600))
+
+	store, err := rules.NewStore([]config.RuleConfig{{Tool: "*", Verdict: "deny", Reason: "old"}})
+	require.NoError(t, err)
+
+	require.NoError(t, reloadRulesFromConfig(path, store, nil))
+
+	result := store.Evaluate("github.search", nil)
+	require.Equal(t, rules.Allow, result.Verdict)
+	require.Equal(t, []config.RuleConfig{{Tool: "github.*", Verdict: "allow"}}, store.Rules())
+}
+
+func TestReloadRulesFromConfigFailureLeavesRulesActive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"rules": [{"tool": "*", "verdict": "allow", "args": [{"path": "bad..path", "match": "value"}]}]}`), 0o600))
+
+	store, err := rules.NewStore([]config.RuleConfig{{Tool: "*", Verdict: "deny", Reason: "old"}})
+	require.NoError(t, err)
+
+	err = reloadRulesFromConfig(path, store, nil)
+	require.Error(t, err)
+
+	result := store.Evaluate("anything", nil)
+	require.Equal(t, rules.Deny, result.Verdict)
+	require.Equal(t, "old", result.Rule.Reason)
+}
+
+func TestReloadRulesFromConfigDefaultsWhenRulesOmitted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"port": 9000}`), 0o600))
+
+	store, err := rules.NewStore([]config.RuleConfig{{Tool: "*", Verdict: "deny"}})
+	require.NoError(t, err)
+
+	require.NoError(t, reloadRulesFromConfig(path, store, nil))
+
+	result := store.Evaluate("anything", nil)
+	require.Equal(t, rules.RequireApproval, result.Verdict)
+	require.Equal(t, config.DefaultConfig().Rules, store.Rules())
+}
+
+func TestServeEventLoopReloadSignalDoesNotShutdown(t *testing.T) {
+	stop := make(chan os.Signal, 1)
+	reload := make(chan os.Signal, 1)
+	errCh := make(chan error, 1)
+	srv := &recordingServer{}
+	reloaded := make(chan struct{}, 1)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- serveEventLoop(stop, reload, errCh, srv, nil, func() error {
+			reloaded <- struct{}{}
+			return nil
+		})
+	}()
+
+	reload <- syscall.SIGHUP
+	select {
+	case <-reloaded:
+	case <-time.After(time.Second):
+		t.Fatal("reload was not called")
+	}
+	require.Zero(t, srv.shutdowns)
+	require.Zero(t, srv.closes)
+
+	errCh <- http.ErrServerClosed
+	require.NoError(t, <-done)
 }
 
 func TestShutdownServerForcesCloseAfterTimeout(t *testing.T) {

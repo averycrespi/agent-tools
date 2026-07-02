@@ -478,6 +478,34 @@ func TestHandleRules_EmptyRules(t *testing.T) {
 	require.Equal(t, "require-approval", body.DefaultVerdict)
 }
 
+func TestHandleRules_ReflectsReloadedRulesStore(t *testing.T) {
+	tools := &fakeToolLister{tools: []server.Tool{{Name: "github.search"}}}
+	store, err := rules.NewStore([]config.RuleConfig{{Tool: "*", Verdict: "deny", Reason: "initial"}})
+	require.NoError(t, err)
+	d := New(tools, store, nil, nil)
+	srv := httptest.NewServer(d.Handler())
+	defer srv.Close()
+
+	require.NoError(t, store.Reload([]config.RuleConfig{{Tool: "github.*", Verdict: "allow", Reason: "reloaded"}}))
+
+	resp, err := http.Get(srv.URL + "/api/rules")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	var body struct {
+		Rules []struct {
+			Tool    string `json:"tool"`
+			Verdict string `json:"verdict"`
+			Reason  string `json:"reason"`
+		} `json:"rules"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Len(t, body.Rules, 1)
+	require.Equal(t, "github.*", body.Rules[0].Tool)
+	require.Equal(t, "allow", body.Rules[0].Verdict)
+	require.Equal(t, "reloaded", body.Rules[0].Reason)
+}
+
 func TestHandleRules_RuleWithNoMatches(t *testing.T) {
 	tools := &fakeToolLister{tools: []server.Tool{{Name: "fs.write"}}}
 	rules := &fakeRulesLister{rules: []config.RuleConfig{

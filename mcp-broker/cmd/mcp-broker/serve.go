@@ -63,7 +63,8 @@ func parseLogLevel(s string) slog.Level {
 }
 
 func runServe(cmd *cobra.Command, _ []string) error {
-	cfg, err := config.Load(configPath())
+	cfgPath := configPath()
+	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
@@ -82,7 +83,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	level := parseLogLevel(cfg.Log.Level)
 	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
 	logger := slog.New(handler)
-	logger.Info("config loaded", "path", configPath())
+	logger.Info("config loaded", "path", cfgPath)
 
 	// Load or generate auth token.
 	tokenPath := auth.TokenPath()
@@ -110,14 +111,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	tools := mgr.Tools()
 	logger.Info("tools discovered", "count", len(tools))
 
-	// Create rules engine
-	engine, err := rules.New(cfg.Rules)
+	// Create reloadable rules store
+	ruleStore, err := rules.NewStore(cfg.Rules)
 	if err != nil {
 		return fmt.Errorf("compiling rules: %w", err)
 	}
 
 	// Create dashboard
-	dash := dashboard.New(mgr, engine, auditor, logger.With("component", "dashboard"))
+	dash := dashboard.New(mgr, ruleStore, auditor, logger.With("component", "dashboard"))
 
 	// Wire audit subscriber so live records are broadcast over SSE.
 	unsubscribeAudit := auditor.Subscribe(dash.OnAuditRecord)
@@ -140,7 +141,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	multi := broker.NewMultiApprover(timeout, approvers...)
 
 	// Create broker
-	b := broker.New(mgr, engine, auditor, multi, logger.With("component", "broker"))
+	b := broker.New(mgr, ruleStore, auditor, multi, logger.With("component", "broker"))
 
 	// Create MCP server
 	mcpSrv := mcpserver.NewMCPServer("mcp-broker", "0.1.0")
@@ -174,9 +175,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	srv := &http.Server{Addr: addr, Handler: auth.Middleware(token, mux), ReadHeaderTimeout: 10 * time.Second}
 
-	// Handle shutdown
+	// Handle shutdown and rules reload.
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(stop)
+
+	reload := make(chan os.Signal, 1)
+	signal.Notify(reload, syscall.SIGHUP)
+	defer signal.Stop(reload)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -195,21 +201,51 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	select {
-	case <-stop:
-		logger.Info("shutting down, send again to force exit")
-		go func() {
-			<-stop
-			logger.Warn("forced shutdown")
-			os.Exit(1)
-		}()
-		return shutdownServer(srv, logger, shutdownTimeout)
-	case err := <-errCh:
-		if !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("server error: %w", err)
+	return serveEventLoop(stop, reload, errCh, srv, logger, func() error {
+		return reloadRulesFromConfig(cfgPath, ruleStore, logger)
+	})
+}
+
+func serveEventLoop(stop <-chan os.Signal, reload <-chan os.Signal, errCh <-chan error, srv stoppableServer, logger *slog.Logger, reloadRules func() error) error {
+	for {
+		select {
+		case <-reload:
+			if err := reloadRules(); err != nil && logger != nil {
+				logger.Warn("rules reload failed", "error", err)
+			}
+		case <-stop:
+			if logger != nil {
+				logger.Info("shutting down, send again to force exit")
+			}
+			go func() {
+				<-stop
+				if logger != nil {
+					logger.Warn("forced shutdown")
+				}
+				os.Exit(1)
+			}()
+			return shutdownServer(srv, logger, shutdownTimeout)
+		case err := <-errCh:
+			if !errors.Is(err, http.ErrServerClosed) {
+				return fmt.Errorf("server error: %w", err)
+			}
+			return nil
 		}
-		return nil
 	}
+}
+
+func reloadRulesFromConfig(path string, store *rules.Store, logger *slog.Logger) error {
+	ruleConfigs, err := config.LoadRules(path)
+	if err != nil {
+		return fmt.Errorf("loading rules from config: %w", err)
+	}
+	if err := store.Reload(ruleConfigs); err != nil {
+		return fmt.Errorf("compiling rules: %w", err)
+	}
+	if logger != nil {
+		logger.Info("rules reloaded", "path", path, "count", len(ruleConfigs))
+	}
+	return nil
 }
 
 func handleHealthz(w http.ResponseWriter, _ *http.Request) {

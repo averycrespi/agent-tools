@@ -62,9 +62,15 @@ tail -f ~/Library/Logs/mcp-broker.{out,err}.log
 ## Manage
 
 ```bash
-# Restart after upgrading the binary, editing the plist, editing
-# ~/.config/mcp-broker/config.json, or fixing a backend that exhausted
-# startup retries and needs its tools rediscovered.
+# Reload policy rules after editing only the `rules` field in
+# ~/.config/mcp-broker/config.json. Invalid reloads are logged and leave
+# the previous rules active.
+launchctl kill HUP gui/$UID/dev.agent-tools.mcp-broker
+
+# Restart after upgrading the binary, editing the plist, changing backend
+# servers, tool patches, host/port, audit path, auth token, Telegram settings,
+# approval timeout, log level, open_browser, request body limit, or fixing a
+# backend that exhausted startup retries and needs its tools rediscovered.
 launchctl kickstart -k gui/$UID/dev.agent-tools.mcp-broker
 
 # Stop and unload.

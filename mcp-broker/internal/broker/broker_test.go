@@ -40,9 +40,20 @@ func (m *mockAuditLogger) Query(ctx context.Context, opts audit.QueryOpts) ([]au
 
 type mockApprover struct{ mock.Mock }
 
+type blockingApprover struct {
+	started chan struct{}
+	release chan struct{}
+}
+
 func (m *mockApprover) Review(ctx context.Context, tool string, args map[string]any) (bool, string, error) {
 	a := m.Called(ctx, tool, args)
 	return a.Bool(0), a.String(1), a.Error(2)
+}
+
+func (a *blockingApprover) Review(context.Context, string, map[string]any) (bool, string, error) {
+	close(a.started)
+	<-a.release
+	return true, "", nil
 }
 
 func TestBroker_Handle_AllowedTool(t *testing.T) {
@@ -142,6 +153,38 @@ func TestBroker_Handle_ApprovalRequired_Approved(t *testing.T) {
 	result, err := b.Handle(context.Background(), "fs.write", map[string]any{"path": "/tmp"})
 	require.NoError(t, err)
 	require.Equal(t, "ok", result)
+}
+
+func TestBroker_Handle_ApprovalInProgressKeepsPreReloadDecision(t *testing.T) {
+	store, err := rules.NewStore([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
+	require.NoError(t, err)
+
+	sm := new(mockServerManager)
+	sm.On("Call", mock.Anything, "fs.write", map[string]any{"path": "/tmp/file"}).
+		Return(&server.ToolResult{Content: "ok"}, nil)
+
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
+		return r.Tool == "fs.write" && r.Verdict == "require-approval" && r.Approved != nil && *r.Approved
+	})).Return(nil)
+
+	ap := &blockingApprover{started: make(chan struct{}), release: make(chan struct{})}
+	b := New(sm, store, al, ap, nil)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := b.Handle(context.Background(), "fs.write", map[string]any{"path": "/tmp/file"})
+		done <- err
+	}()
+
+	<-ap.started
+	require.NoError(t, store.Reload([]config.RuleConfig{{Tool: "*", Verdict: "deny", Reason: "reloaded"}}))
+	close(ap.release)
+
+	require.NoError(t, <-done)
+	require.Equal(t, rules.Deny, store.Evaluate("fs.write", nil).Verdict)
+	sm.AssertExpectations(t)
+	al.AssertExpectations(t)
 }
 
 func TestBroker_Handle_ApprovalRequired_Denied(t *testing.T) {

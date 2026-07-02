@@ -9,6 +9,56 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestLoadRulesReadsOnlyRulesSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	err := os.WriteFile(path, []byte(`{
+		"servers": {"bad": {"startup_retry_count": -1}},
+		"rules": [{"tool": "github.*", "verdict": "allow", "reason": "safe"}]
+	}`), 0o600)
+	require.NoError(t, err)
+
+	rules, err := LoadRules(path)
+	require.NoError(t, err)
+	require.Equal(t, []RuleConfig{{Tool: "github.*", Verdict: "allow", Reason: "safe"}}, rules)
+}
+
+func TestLoadRulesDefaultsWhenRulesOmitted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	err := os.WriteFile(path, []byte(`{"port": 9000}`), 0o600)
+	require.NoError(t, err)
+
+	rules, err := LoadRules(path)
+	require.NoError(t, err)
+	require.Equal(t, DefaultConfig().Rules, rules)
+}
+
+func TestLoadRulesRejectsMissingInvalidJSONAndMalformedRulesShape(t *testing.T) {
+	t.Run("missing file", func(t *testing.T) {
+		_, err := LoadRules(filepath.Join(t.TempDir(), "missing.json"))
+		require.Error(t, err)
+	})
+
+	t.Run("invalid json", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.json")
+		require.NoError(t, os.WriteFile(path, []byte(`{"rules": [`), 0o600))
+
+		_, err := LoadRules(path)
+		require.Error(t, err)
+	})
+
+	t.Run("malformed rules shape", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.json")
+		require.NoError(t, os.WriteFile(path, []byte(`{"rules": {"tool": "*", "verdict": "allow"}}`), 0o600))
+
+		_, err := LoadRules(path)
+		require.Error(t, err)
+	})
+}
+
 func TestLoad_CreatesDefaultOnFirstRun(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")

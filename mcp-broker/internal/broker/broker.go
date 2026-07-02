@@ -50,17 +50,22 @@ type Approver interface {
 	Review(ctx context.Context, tool string, args map[string]any) (bool, string, error)
 }
 
+// RuleEvaluator evaluates policy and returns matched metadata from the same rules snapshot.
+type RuleEvaluator interface {
+	EvaluateWithMetadata(tool string, args map[string]any) rules.Evaluation
+}
+
 // Broker orchestrates the tool call pipeline.
 type Broker struct {
 	servers  ServerManager
-	rules    *rules.Engine
+	rules    RuleEvaluator
 	auditor  AuditLogger
 	approver Approver
 	logger   *slog.Logger
 }
 
 // New creates a Broker with the given components.
-func New(servers ServerManager, rulesEngine *rules.Engine, auditor AuditLogger, approver Approver, logger *slog.Logger) *Broker {
+func New(servers ServerManager, rulesEngine RuleEvaluator, auditor AuditLogger, approver Approver, logger *slog.Logger) *Broker {
 	return &Broker{
 		servers:  servers,
 		rules:    rulesEngine,
@@ -93,7 +98,8 @@ func (b *Broker) HandleToolResultWithOptions(ctx context.Context, tool string, a
 	}
 
 	// 1. Rules check
-	verdict, ruleIndex := b.rules.EvaluateWithRule(tool, args)
+	evaluation := b.rules.EvaluateWithMetadata(tool, args)
+	verdict := evaluation.Verdict
 	rec.Verdict = verdict.String()
 
 	if b.logger != nil {
@@ -103,8 +109,8 @@ func (b *Broker) HandleToolResultWithOptions(ctx context.Context, tool string, a
 	switch verdict {
 	case rules.Deny:
 		reason := "rule"
-		if ruleIndex >= 0 {
-			if configured := strings.TrimSpace(b.rules.Rules()[ruleIndex].Reason); configured != "" {
+		if evaluation.Matched {
+			if configured := strings.TrimSpace(evaluation.Rule.Reason); configured != "" {
 				reason = "rule: " + configured
 			}
 		}

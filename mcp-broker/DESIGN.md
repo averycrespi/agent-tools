@@ -71,7 +71,9 @@ Each backend server has a name (from config). When tools are discovered, they ar
 
 Single JSON file at `~/.config/mcp-broker/config.json`. On first run, a default config is written. The `Refresh` function loads, overlays defaults for new fields, and writes back — useful for upgrading config after new features are added.
 
-Config is loaded once at startup. In addition to backend server and rule policy, config may include `tool_patches`: ordered load-time transforms for discovered tools. Tool patch patterns match broker-prefixed tool names with `filepath.Match`; the first matching patch applies. `disabled: true` removes the tool from the broker registry, and `annotations` merges field-by-field into MCP tool annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). `_meta` is passed through unchanged and is not patched.
+Most config is loaded once at startup. Policy `rules` are the only hot-reloadable field: sending `SIGHUP` to the running process reads the existing config file, extracts only `rules`, compiles a complete rules snapshot, and atomically swaps it into the broker and dashboard after validation succeeds. Invalid reloads are non-fatal and leave the previous rules active. If `rules` is omitted during reload, the startup default catch-all `require-approval` rule is used.
+
+Backend servers, `tool_patches`, listener settings, audit path, auth token, Telegram settings, approval timeout, log level, browser opening, and request body limit remain startup-only and require restart. Tool patches are ordered load-time transforms for discovered tools. Tool patch patterns match broker-prefixed tool names with `filepath.Match`; the first matching patch applies. `disabled: true` removes the tool from the broker registry, and `annotations` merges field-by-field into MCP tool annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). `_meta` is passed through unchanged and is not patched.
 
 Defaults:
 
@@ -83,7 +85,7 @@ Defaults:
 
 ### Rules engine (`internal/rules`)
 
-Stateless evaluator. Takes a list of `RuleConfig` at construction time. `Evaluate(tool, args)` walks rules in order and returns the first matching verdict. Uses `filepath.Match` for glob matching, which supports `*` (single segment) and `?` wildcards.
+Stateless evaluator plus a reloadable store. The evaluator takes a list of `RuleConfig` at construction time. `Evaluate(tool, args)` walks rules in order and returns the first matching verdict. The store holds one immutable evaluator snapshot and atomically swaps in a new precompiled snapshot on successful reload. Broker evaluation returns both the verdict and matched rule metadata from the same snapshot so deny reasons and audit verdicts cannot cross a reload boundary. Uses `filepath.Match` for glob matching, which supports `*` (single segment) and `?` wildcards.
 
 **Default verdict, fail-closed, first-match-wins.** Any tool not fully matched by a rule falls through to `RequireApproval`. This is unchanged by argument matching.
 
@@ -183,7 +185,7 @@ Embedded single-page web application serving:
 
 - **Approvals tab** — pending requests with approve/deny buttons, optional deny reason input, decided history
 - **Tools tab** — backend startup status and discovered tools grouped by server; failed backends with no tools remain visible with phase, attempt count, and concise error; click a tool to see its input schema
-- **Rules tab** — configured rules with the discovered tools matching each (read-only; for debugging verdicts)
+- **Rules tab** — active rules with the discovered tools matching each (read-only; for debugging verdicts; reflects successful `SIGHUP` rules reloads)
 - **Audit tab** — paginated audit log with tool filter, plus a live feed of incoming records. New records are prepended in real time when the view is on page 1 with no active filter and not paused; otherwise an "N new" counter appears with a "return to live view" banner. A pause toggle freezes the live feed without affecting filter or pagination state.
 
 Real-time updates via Server-Sent Events (SSE) on a single `/events` channel. Event types are `new` (pending approval request), `removed` (request resolved), `decided` (decision applied), and `audit` (audit record written). The dashboard also implements the `Approver` interface — the `Review` method blocks until a human makes a decision via the `/api/decide` endpoint. `/api/decide` accepts an optional `reason` for denies; whitespace-only reasons are treated as no explicit reason.
@@ -202,7 +204,7 @@ The orchestrator. Wires together rules, approval, proxy, and audit. The `Handle`
 
 Cobra-based CLI with commands:
 
-- `serve` — starts the broker (loads config, connects backends, serves HTTP)
+- `serve` — starts the broker (loads config, connects backends, serves HTTP; handles `SIGHUP` for rules-only reload)
 - `config path` — prints config file location
 - `config refresh` — backfills new defaults
 - `config edit` — opens config in `$EDITOR`
@@ -230,6 +232,8 @@ Cobra-based CLI with commands:
 **Bearer token auth for agents, cookie auth for dashboard.** The `/mcp` endpoint requires a bearer token (32 random bytes, hex-encoded, stored with `0600` permissions). The dashboard accepts the token in the startup URL once, persists it to a session cookie (`mcp-broker-auth`, `HttpOnly`, `SameSite=Strict`), then redirects to the same dashboard path without the `token` query parameter so browsers don't keep showing the raw token.
 
 **Failed backends don't block startup.** If one of several backend servers is unavailable, the broker retries startup connect/discovery with bounded per-backend settings, then starts with the remaining servers rather than failing entirely. Exhausted failures are logged and shown in the dashboard Tools tab. Recovery after exhaustion requires restarting the broker because runtime rediscovery and dynamic MCP tool registration are out of scope.
+
+**Rules reload without backend churn.** Rules are frequent operational edits, so `SIGHUP` reloads only policy rules and keeps the HTTP server, backend connections, discovered tools, and listener address unchanged. Reload compiles before swapping and keeps the old snapshot on any error.
 
 **Default verdict is require-approval.** Fail-closed by default — any tool not explicitly allowed requires human approval.
 
