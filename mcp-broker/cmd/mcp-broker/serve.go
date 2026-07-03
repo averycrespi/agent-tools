@@ -38,6 +38,8 @@ func init() {
 
 const shutdownTimeout = 10 * time.Second
 
+var forceExit = os.Exit
+
 type stoppableServer interface {
 	Shutdown(context.Context) error
 	Close() error
@@ -222,7 +224,7 @@ func serveEventLoop(stop <-chan os.Signal, reload <-chan os.Signal, errCh <-chan
 				if logger != nil {
 					logger.Warn("forced shutdown")
 				}
-				os.Exit(1)
+				forceExit(1)
 			}()
 			return shutdownServer(srv, logger, shutdownTimeout)
 		case err := <-errCh:

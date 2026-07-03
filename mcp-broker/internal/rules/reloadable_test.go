@@ -14,18 +14,18 @@ func TestStoreReloadSwapsRulesAfterSuccessfulCompile(t *testing.T) {
 	store, err := NewStore([]config.RuleConfig{{Tool: "*", Verdict: "deny", Reason: "initial"}})
 	require.NoError(t, err)
 
-	result := store.Evaluate("github.search", nil)
+	result := store.EvaluateWithMetadata("github.search", nil)
 	require.Equal(t, Deny, result.Verdict)
 	require.True(t, result.Matched)
-	require.Equal(t, "initial", result.Rule.Reason)
+	require.Equal(t, "initial", result.RuleReason)
 
 	err = store.Reload([]config.RuleConfig{{Tool: "github.*", Verdict: "allow", Reason: "reloaded"}})
 	require.NoError(t, err)
 
-	result = store.Evaluate("github.search", nil)
+	result = store.EvaluateWithMetadata("github.search", nil)
 	require.Equal(t, Allow, result.Verdict)
 	require.True(t, result.Matched)
-	require.Equal(t, "reloaded", result.Rule.Reason)
+	require.Equal(t, "reloaded", result.RuleReason)
 	require.Equal(t, []config.RuleConfig{{Tool: "github.*", Verdict: "allow", Reason: "reloaded"}}, store.Rules())
 }
 
@@ -42,10 +42,10 @@ func TestStoreReloadFailureLeavesPreviousRulesActive(t *testing.T) {
 	}})
 	require.Error(t, err)
 
-	result := store.Evaluate("anything", nil)
+	result := store.EvaluateWithMetadata("anything", nil)
 	require.Equal(t, Deny, result.Verdict)
 	require.True(t, result.Matched)
-	require.Equal(t, "old", result.Rule.Reason)
+	require.Equal(t, "old", result.RuleReason)
 }
 
 func TestStoreReloadInvalidRegexLeavesPreviousRulesActive(t *testing.T) {
@@ -61,10 +61,10 @@ func TestStoreReloadInvalidRegexLeavesPreviousRulesActive(t *testing.T) {
 	}})
 	require.Error(t, err)
 
-	result := store.Evaluate("anything", nil)
+	result := store.EvaluateWithMetadata("anything", nil)
 	require.Equal(t, Deny, result.Verdict)
 	require.True(t, result.Matched)
-	require.Equal(t, "old", result.Rule.Reason)
+	require.Equal(t, "old", result.RuleReason)
 }
 
 func TestStoreRulesReturnsDeepCopy(t *testing.T) {
@@ -117,9 +117,9 @@ func TestStoreConcurrentReloadAndEvaluate(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 1000; j++ {
-				result := store.Evaluate("target", nil)
-				if result.Verdict != Deny || !result.Matched || (result.Rule.Reason != "a" && result.Rule.Reason != "b") {
-					t.Errorf("inconsistent evaluation: verdict=%s matched=%v reason=%q", result.Verdict, result.Matched, result.Rule.Reason)
+				result := store.EvaluateWithMetadata("target", nil)
+				if result.Verdict != Deny || !result.Matched || (result.RuleReason != "a" && result.RuleReason != "b") {
+					t.Errorf("inconsistent evaluation: verdict=%s matched=%v reason=%q", result.Verdict, result.Matched, result.RuleReason)
 				}
 			}
 		}()
@@ -128,15 +128,15 @@ func TestStoreConcurrentReloadAndEvaluate(t *testing.T) {
 	wg.Wait()
 }
 
-func TestStoreEvaluateReturnsSnapshotRuleCopy(t *testing.T) {
+func TestStoreEvaluateWithMetadataReturnsReasonValue(t *testing.T) {
 	store, err := NewStore([]config.RuleConfig{{Tool: "*", Verdict: "deny", Reason: "stable"}})
 	require.NoError(t, err)
 
-	result := store.Evaluate("anything", nil)
+	result := store.EvaluateWithMetadata("anything", nil)
 	require.Equal(t, Deny, result.Verdict)
 	require.True(t, result.Matched)
-	result.Rule.Reason = "mutated"
+	result.RuleReason = "mutated"
 
-	again := store.Evaluate("anything", nil)
-	require.Equal(t, "stable", again.Rule.Reason)
+	again := store.EvaluateWithMetadata("anything", nil)
+	require.Equal(t, "stable", again.RuleReason)
 }

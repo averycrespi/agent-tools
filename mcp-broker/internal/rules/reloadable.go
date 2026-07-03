@@ -8,9 +8,9 @@ import (
 
 // Evaluation is the result of evaluating one immutable rules snapshot.
 type Evaluation struct {
-	Verdict Verdict
-	Rule    config.RuleConfig
-	Matched bool
+	Verdict    Verdict
+	RuleReason string
+	Matched    bool
 }
 
 // Store holds the active rules engine and atomically swaps complete snapshots.
@@ -37,12 +37,6 @@ func (s *Store) Reload(rs []config.RuleConfig) error {
 	}
 	s.engine.Store(engine)
 	return nil
-}
-
-// Evaluate evaluates a tool call against one active rules snapshot and returns
-// any matched rule metadata from that same snapshot.
-func (s *Store) Evaluate(tool string, args map[string]any) Evaluation {
-	return s.EvaluateWithMetadata(tool, args)
 }
 
 // EvaluateWithMetadata evaluates a tool call against one active rules snapshot

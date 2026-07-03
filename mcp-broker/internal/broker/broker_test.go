@@ -182,7 +182,7 @@ func TestBroker_Handle_ApprovalInProgressKeepsPreReloadDecision(t *testing.T) {
 	close(ap.release)
 
 	require.NoError(t, <-done)
-	require.Equal(t, rules.Deny, store.Evaluate("fs.write", nil).Verdict)
+	require.Equal(t, rules.Deny, store.EvaluateWithMetadata("fs.write", nil).Verdict)
 	sm.AssertExpectations(t)
 	al.AssertExpectations(t)
 }

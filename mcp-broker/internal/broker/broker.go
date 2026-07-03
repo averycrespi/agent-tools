@@ -110,7 +110,7 @@ func (b *Broker) HandleToolResultWithOptions(ctx context.Context, tool string, a
 	case rules.Deny:
 		reason := "rule"
 		if evaluation.Matched {
-			if configured := strings.TrimSpace(evaluation.Rule.Reason); configured != "" {
+			if configured := strings.TrimSpace(evaluation.RuleReason); configured != "" {
 				reason = "rule: " + configured
 			}
 		}

@@ -85,10 +85,6 @@ func (e *Engine) Rules() []config.RuleConfig {
 	return cloneRules(e.rules)
 }
 
-func (e *Engine) rule(index int) config.RuleConfig {
-	return cloneRule(e.rules[index])
-}
-
 // Evaluate returns the verdict for the given tool name and arguments.
 func (e *Engine) Evaluate(tool string, args map[string]any) Verdict {
 	v, _ := e.EvaluateWithRule(tool, args)
@@ -101,7 +97,7 @@ func (e *Engine) EvaluateWithMetadata(tool string, args map[string]any) Evaluati
 	if idx < 0 {
 		return Evaluation{Verdict: verdict}
 	}
-	return Evaluation{Verdict: verdict, Rule: e.rule(idx), Matched: true}
+	return Evaluation{Verdict: verdict, RuleReason: e.rules[idx].Reason, Matched: true}
 }
 
 // EvaluateWithRule returns the verdict and the zero-based index of the rule
