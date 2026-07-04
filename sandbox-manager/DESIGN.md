@@ -8,6 +8,14 @@ Lima provides lightweight Linux VMs on macOS with near-native performance via Ap
 
 The key design goal: **the sandbox should feel like a fresh development machine, not a container.** Full systemd, a real user account with the host UID, writable mounts for shared directories, and provisioning scripts that install the same tools you'd install on a real box.
 
+## Threat Model
+
+`sb` is a host-integrity and credential-custody boundary for day-to-day agent work. It is designed to contain over-eager, buggy, or prompt-influenced agents that might otherwise read host credentials, mutate the host environment, or invoke host-authenticated tools directly.
+
+`sb` is not a data-loss-prevention boundary. Guest network egress is intentionally allowed by default so the VM behaves like a normal development machine: agents can fetch public packages, read public docs, and run ordinary development tools without routing every connection through a broker. A malicious agent or attacker with access to data inside the VM can transmit that data over the network.
+
+The intended pattern is to keep host credentials and sensitive host state outside the VM, then expose narrowly scoped host capabilities through brokered tools such as `mcp-broker`, `local-git-mcp`, and `local-gomod-proxy`. Mounts and `copy_paths` are explicit trust decisions: anything mounted or copied into the VM should be treated as readable by the agent and potentially sendable over the network.
+
 ## Architecture
 
 ```
