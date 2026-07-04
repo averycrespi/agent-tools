@@ -2,15 +2,24 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	gomcp "github.com/mark3labs/mcp-go/mcp"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/broker"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/grants"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/rules"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 )
 
 func TestGrantCLI_MintListRevokeOffline(t *testing.T) {
@@ -58,6 +67,59 @@ func TestGrantCLI_MintListRevokeOffline(t *testing.T) {
 	require.NoError(t, runGrantList(listAfterRevokeCmd, nil))
 	require.Contains(t, listAfterRevokeOut.String(), "revoked")
 	require.NotContains(t, listAfterRevokeOut.String(), token)
+}
+
+func TestMCPHandlerGrantHeaderChangesPolicy(t *testing.T) {
+	store, err := grants.Open(filepath.Join(t.TempDir(), "grants.db"))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close()) }()
+
+	minted, err := store.Mint(context.Background(), grants.MintOptions{
+		Name:   "allow-push",
+		TTL:    time.Hour,
+		MaxTTL: time.Hour,
+		Rules:  []config.RuleConfig{{Tool: "git.push", Verdict: "allow"}},
+	})
+	require.NoError(t, err)
+
+	baseRules, err := rules.New([]config.RuleConfig{{Tool: "git.*", Verdict: "deny", Reason: "base deny"}})
+	require.NoError(t, err)
+	mgr := &grantHeaderTestServerManager{}
+	b := broker.NewWithGrants(mgr, baseRules, grantHeaderTestAuditor{}, nil, store, nil)
+	handler := makeMCPHandler(b)
+
+	withoutGrant, err := handler(context.Background(), gomcp.CallToolRequest{
+		Header: http.Header{},
+		Params: gomcp.CallToolParams{Name: "git.push", Arguments: map[string]any{"branch": "main"}},
+	})
+	require.NoError(t, err)
+	require.True(t, withoutGrant.IsError)
+	require.False(t, mgr.called)
+
+	withGrant, err := handler(context.Background(), gomcp.CallToolRequest{
+		Header: http.Header{"Mcp-Broker-Grant": {minted.Token}},
+		Params: gomcp.CallToolParams{Name: "git.push", Arguments: map[string]any{"branch": "main"}},
+	})
+	require.NoError(t, err)
+	require.False(t, withGrant.IsError)
+	require.True(t, mgr.called)
+}
+
+type grantHeaderTestServerManager struct{ called bool }
+
+func (m *grantHeaderTestServerManager) Tools() []server.Tool { return nil }
+
+func (m *grantHeaderTestServerManager) Call(_ context.Context, tool string, args map[string]any) (*server.ToolResult, error) {
+	m.called = true
+	return &server.ToolResult{Content: map[string]any{"ok": true}}, nil
+}
+
+type grantHeaderTestAuditor struct{}
+
+func (grantHeaderTestAuditor) Record(context.Context, audit.Record) error { return nil }
+
+func (grantHeaderTestAuditor) Query(context.Context, audit.QueryOpts) ([]audit.Record, int, error) {
+	return []audit.Record{}, 0, nil
 }
 
 func TestGrantCLI_MintRejectsTTLAboveConfiguredMaximum(t *testing.T) {
