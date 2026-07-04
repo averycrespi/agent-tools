@@ -72,6 +72,9 @@ func NewLogger(path string) (*Logger, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("create audit dir: %w", err)
 	}
+	if err := ensurePrivateFile(path); err != nil {
+		return nil, fmt.Errorf("create audit db file: %w", err)
+	}
 
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
@@ -86,6 +89,10 @@ func NewLogger(path string) (*Logger, error) {
 	if _, err := db.Exec(createSQL); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("create audit table: %w", err)
+	}
+	if err := ensurePrivateSQLiteFiles(path); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("set audit db permissions: %w", err)
 	}
 
 	// Migrate: add denial_reason column if it doesn't exist yet.
@@ -253,6 +260,29 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 func (l *Logger) Close(_ context.Context) error {
 	_ = l.stmt.Close()
 	return l.db.Close()
+}
+
+func ensurePrivateFile(path string) error {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
+}
+
+func ensurePrivateSQLiteFiles(path string) error {
+	if err := os.Chmod(path, 0o600); err != nil {
+		return err
+	}
+	for _, sidecar := range []string{path + "-wal", path + "-shm"} {
+		if err := os.Chmod(sidecar, 0o600); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 func marshalNullable(v any) (any, error) {

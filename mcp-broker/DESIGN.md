@@ -18,7 +18,7 @@ mcp-broker is that broker:
 - **Secrets stay on the host** — the agent connects to mcp-broker as its only MCP server. mcp-broker runs outside the sandbox, holds API tokens, and spawns/connects to backend MCP servers. The agent never sees credentials.
 - **Policy controls access** — glob-based rules determine which tools are allowed, denied, or require human approval. Default is require-approval (fail-closed).
 - **Human in the loop** — sensitive operations appear in a web dashboard where a human can approve or deny them before they execute.
-- **Full audit trail** — every tool call is logged with arguments, verdict, approval status, and result.
+- **Full audit trail** — every tool call is logged with arguments, verdict, approval status, denial reason, and errors. Successful tool results are not stored, keeping returned data out of the audit database.
 
 ## Architecture
 
@@ -59,7 +59,7 @@ Every tool call flows through the same pipeline:
 
 3. **Proxy** — The call is forwarded to the backend MCP server that owns the tool. The broker strips the namespace prefix before forwarding.
 
-4. **Audit** — Every call is recorded in a SQLite database with: timestamp, tool name, arguments, verdict, approval status, denial reason, result, and any error.
+4. **Audit** — Every call is recorded in a SQLite database with: timestamp, tool name, arguments, verdict, approval status, denial reason, and any error. Successful tool results are deliberately not stored.
 
 ### Tool namespacing
 
@@ -131,7 +131,7 @@ Regex semantics use Go's `regexp` package (RE2). **Regexes are not auto-anchored
 
 ### Audit (`internal/audit`)
 
-SQLite database using `ncruces/go-sqlite3` (WASM-based, no CGO). WAL mode for concurrent read/write. Thread-safe via mutex. Records are inserted via prepared statement for performance.
+SQLite database using `ncruces/go-sqlite3` (WASM-based, no CGO). WAL mode for concurrent read/write. Thread-safe via mutex. Records are inserted via prepared statement for performance. The database stores request arguments and errors, but not successful tool results; this preserves auditability of broker decisions without retaining arbitrary data returned by backend tools.
 
 The `Query` method supports:
 
