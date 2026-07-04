@@ -11,7 +11,6 @@ import (
 
 // Config represents the sb configuration file.
 type Config struct {
-	Image     string   `json:"image"`
 	CPUs      int      `json:"cpus"`
 	Memory    string   `json:"memory"`
 	Disk      string   `json:"disk"`
@@ -23,7 +22,6 @@ type Config struct {
 // Default returns the default configuration.
 func Default() Config {
 	return Config{
-		Image:     "ubuntu-24.04",
 		CPUs:      4,
 		Memory:    "4GiB",
 		Disk:      "100GiB",
@@ -77,9 +75,6 @@ func Refresh(logger *slog.Logger) error {
 
 	// Backfill defaults for zero-value fields.
 	def := Default()
-	if cfg.Image == "" {
-		cfg.Image = def.Image
-	}
 	if cfg.CPUs == 0 {
 		cfg.CPUs = def.CPUs
 	}

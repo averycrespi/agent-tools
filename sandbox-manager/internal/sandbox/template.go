@@ -14,7 +14,6 @@ var limaTemplate embed.FS
 
 // TemplateParams are the parameters for rendering the Lima template.
 type TemplateParams struct {
-	Image    string
 	CPUs     int
 	Memory   string
 	Disk     string

@@ -28,12 +28,11 @@ func TestLoad_ValidJSON(t *testing.T) {
 	cfgDir := filepath.Join(dir, "sb")
 	require.NoError(t, os.MkdirAll(cfgDir, 0o755))
 
-	data := `{"image":"ubuntu-22.04","cpus":2,"memory":"2GiB","disk":"50GiB","mounts":["/tmp/test"],"copy_paths":["~/.zshrc"],"scripts":["setup.sh"]}`
+	data := `{"cpus":2,"memory":"2GiB","disk":"50GiB","mounts":["/tmp/test"],"copy_paths":["~/.zshrc"],"scripts":["setup.sh"]}`
 	require.NoError(t, os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(data), 0o644))
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
-	assert.Equal(t, "ubuntu-22.04", cfg.Image)
 	assert.Equal(t, 2, cfg.CPUs)
 	assert.Equal(t, "2GiB", cfg.Memory)
 	assert.Equal(t, "50GiB", cfg.Disk)

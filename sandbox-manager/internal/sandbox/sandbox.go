@@ -71,7 +71,6 @@ func (s *Service) Create() error {
 		if err != nil {
 			return err
 		}
-		params.Image = s.config.Image
 		params.CPUs = s.config.CPUs
 		params.Memory = s.config.Memory
 		params.Disk = s.config.Disk

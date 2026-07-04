@@ -9,9 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRenderTemplate_ContainsImage(t *testing.T) {
+func TestRenderTemplate_ContainsFixedUbuntuImages(t *testing.T) {
 	params := sandbox.TemplateParams{
-		Image:    "ubuntu-24.04",
 		CPUs:     4,
 		Memory:   "4GiB",
 		Disk:     "100GiB",
@@ -23,14 +22,14 @@ func TestRenderTemplate_ContainsImage(t *testing.T) {
 	}
 	out, err := sandbox.RenderTemplate(params)
 	require.NoError(t, err)
-	assert.Contains(t, out, "ubuntu-24.04")
+	assert.Contains(t, out, "ubuntu-24.04-server-cloudimg-amd64.img")
+	assert.Contains(t, out, "ubuntu-24.04-server-cloudimg-arm64.img")
 	assert.Contains(t, out, "testuser")
 	assert.Contains(t, out, "/Users/testuser/work")
 }
 
 func TestRenderTemplate_NoMounts(t *testing.T) {
 	params := sandbox.TemplateParams{
-		Image:    "ubuntu-24.04",
 		CPUs:     2,
 		Memory:   "2GiB",
 		Disk:     "50GiB",
@@ -47,7 +46,6 @@ func TestRenderTemplate_NoMounts(t *testing.T) {
 
 func TestRenderTemplate_MultipleMounts(t *testing.T) {
 	params := sandbox.TemplateParams{
-		Image:    "ubuntu-24.04",
 		CPUs:     4,
 		Memory:   "4GiB",
 		Disk:     "100GiB",
