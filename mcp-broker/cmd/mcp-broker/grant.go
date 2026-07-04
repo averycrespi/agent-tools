@@ -203,16 +203,3 @@ func readGrantRules(cmd *cobra.Command, path string) ([]byte, error) {
 	}
 	return data, nil
 }
-
-func grantStoreFromConfig(ctx context.Context) (*grants.Store, config.Config, error) {
-	_ = ctx
-	cfg, err := config.Load(configPath())
-	if err != nil {
-		return nil, cfg, fmt.Errorf("loading config: %w", err)
-	}
-	store, err := grants.Open(cfg.Grants.Path)
-	if err != nil {
-		return nil, cfg, fmt.Errorf("opening grants db: %w", err)
-	}
-	return store, cfg, nil
-}

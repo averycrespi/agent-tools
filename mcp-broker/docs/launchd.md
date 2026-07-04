@@ -21,7 +21,8 @@ The broker creates and reads from these on first launch, running as the same use
 | ------------------------------------ | --------------------------------------- |
 | `~/.config/mcp-broker/config.json`   | Backend servers, rules, port, log level |
 | `~/.config/mcp-broker/auth-token`    | 64-char hex bearer token (mode `0600`)  |
-| `~/.local/share/mcp-broker/audit.db` | SQLite audit log of every tool call     |
+| `~/.local/share/mcp-broker/audit.db`  | SQLite audit log of every tool call     |
+| `~/.local/share/mcp-broker/grants.db` | SQLite grant authorization state        |
 
 OAuth refresh tokens (for backends that use OAuth) are stored in the macOS Keychain via `go-keyring`, not on disk.
 
@@ -68,9 +69,11 @@ tail -f ~/Library/Logs/mcp-broker.{out,err}.log
 launchctl kill HUP gui/$UID/dev.agent-tools.mcp-broker
 
 # Restart after upgrading the binary, editing the plist, changing backend
-# servers, tool patches, host/port, audit path, auth token, Telegram settings,
-# approval timeout, log level, open_browser, request body limit, or fixing a
-# backend that exhausted startup retries and needs its tools rediscovered.
+# servers, tool patches, host/port, audit path, grants path/max TTL, auth token,
+# Telegram settings, approval timeout, log level, open_browser, request body
+# limit, or fixing a backend that exhausted startup retries and needs its tools
+# rediscovered. Grant mint/revoke changes are read from grants.db on the next
+# MCP request and do not need restart.
 launchctl kickstart -k gui/$UID/dev.agent-tools.mcp-broker
 
 # Stop and unload.

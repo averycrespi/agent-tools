@@ -17,8 +17,9 @@ mcp-broker is that broker:
 
 - **Secrets stay on the host** — the agent connects to mcp-broker as its only MCP server. mcp-broker runs outside the sandbox, holds API tokens, and spawns/connects to backend MCP servers. The agent never sees credentials.
 - **Policy controls access** — glob-based rules determine which tools are allowed, denied, or require human approval. Default is require-approval (fail-closed).
+- **Temporary grants** — users can mint mandatory-TTL bearer grants that prepend a temporary rule overlay for a request while preserving normal broker authentication.
 - **Human in the loop** — sensitive operations appear in a web dashboard where a human can approve or deny them before they execute.
-- **Full audit trail** — every tool call is logged with arguments, verdict, approval status, denial reason, and errors. Successful tool results are not stored, keeping returned data out of the audit database.
+- **Full audit trail** — every tool call is logged with arguments, verdict, approval status, denial reason, grant attribution, and errors. Successful tool results are not stored, keeping returned data out of the audit database.
 
 ## Architecture
 
@@ -53,13 +54,15 @@ mcp-broker is a single Go binary serving on a single port (default 8200):
 
 Every tool call flows through the same pipeline:
 
-1. **Rules engine** — Evaluates the tool name against an ordered list of glob rules. Each rule maps a pattern to a verdict: `allow`, `deny`, or `require-approval`. First match wins; default is `require-approval`. Deny rules may include an optional human-authored `reason`, returned to agents as `denied by rule: <reason>`.
+1. **Grant validation and overlay** — If the request includes `Mcp-Broker-Grant`, the broker validates exactly one grant token against the durable grants DB. Duplicate, malformed, unknown, expired, revoked, or unreadable grant state fails closed before approval/proxy. A valid grant's rules are evaluated first.
 
-2. **Approval** — If the verdict is `require-approval`, the call blocks and appears in the web dashboard. A human approves or denies it. Dashboard denials can include an optional reason, returned as `denied by user: <reason>`; binary denials return `denied by user`. Approval timeouts return `denied by timeout`. If no approver is configured, the call is rejected. Per-request `Mcp-Broker-Approval-Mode: reject` skips approval fan-out and immediately rejects calls whose verdict is `require-approval`; `allow` and `deny` verdicts are unchanged.
+2. **Rules engine** — If no grant rule matches, the broker evaluates the tool name against the ordered base rules. Each rule maps a pattern to a verdict: `allow`, `deny`, or `require-approval`. First match wins; default is `require-approval`. Deny rules may include an optional human-authored `reason`, returned to agents as `denied by rule: <reason>` or `denied by grant rule: <reason>`.
 
-3. **Proxy** — The call is forwarded to the backend MCP server that owns the tool. The broker strips the namespace prefix before forwarding.
+3. **Approval** — If the final verdict is `require-approval`, the call blocks and appears in the web dashboard. A human approves or denies it. Dashboard denials can include an optional reason, returned as `denied by user: <reason>`; binary denials return `denied by user`. Approval timeouts return `denied by timeout`. If no approver is configured, the call is rejected. Per-request `Mcp-Broker-Approval-Mode: reject` skips approval fan-out and immediately rejects calls whose final verdict is `require-approval`; `allow` and `deny` verdicts are unchanged.
 
-4. **Audit** — Every call is recorded in a SQLite database with: timestamp, tool name, arguments, verdict, approval status, denial reason, and any error. Successful tool results are deliberately not stored.
+4. **Proxy** — The call is forwarded to the backend MCP server that owns the tool. The broker strips the namespace prefix before forwarding.
+
+5. **Audit** — Every call is recorded in a SQLite database with: timestamp, tool name, arguments, verdict, approval status, denial reason, grant metadata/status, rule source, and any error. Successful tool results are deliberately not stored.
 
 ### Tool namespacing
 
@@ -73,7 +76,7 @@ Single JSON file at `~/.config/mcp-broker/config.json`. On first run, a default 
 
 Most config is loaded once at startup. Policy `rules` are the only hot-reloadable field: sending `SIGHUP` to the running process reads the existing config file, extracts only `rules`, compiles a complete rules snapshot, and atomically swaps it into the broker and dashboard after validation succeeds. Invalid reloads are non-fatal and leave the previous rules active. If `rules` is omitted during reload, the startup default catch-all `require-approval` rule is used.
 
-Backend servers, `tool_patches`, listener settings, audit path, auth token, Telegram settings, approval timeout, log level, browser opening, and request body limit remain startup-only and require restart. Tool patches are ordered load-time transforms for discovered tools. Tool patch patterns match broker-prefixed tool names with `filepath.Match`; the first matching patch applies. `disabled: true` removes the tool from the broker registry, and `annotations` merges field-by-field into MCP tool annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). `_meta` is passed through unchanged and is not patched.
+Backend servers, `tool_patches`, listener settings, audit path, grants path/max TTL, auth token, Telegram settings, approval timeout, log level, browser opening, and request body limit remain startup-only and require restart. Tool patches are ordered load-time transforms for discovered tools. Tool patch patterns match broker-prefixed tool names with `filepath.Match`; the first matching patch applies. `disabled: true` removes the tool from the broker registry, and `annotations` merges field-by-field into MCP tool annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). `_meta` is passed through unchanged and is not patched.
 
 Defaults:
 
@@ -81,6 +84,8 @@ Defaults:
 - Port: 8200
 - Rules: `[{"tool": "*", "verdict": "require-approval"}]`
 - Audit path: `~/.local/share/mcp-broker/audit.db`
+- Grants path: `~/.local/share/mcp-broker/grants.db`
+- Maximum grant TTL: 604800 seconds (7 days)
 - Log level: `info`
 
 ### Rules engine (`internal/rules`)
@@ -131,9 +136,15 @@ Regex semantics use Go's `regexp` package (RE2). **Regexes are not auto-anchored
 
 **Validation timing.** Paths and regexes are compiled at engine construction (`rules.New`). Invalid paths (empty segments) and invalid regex syntax surface as errors there, not at evaluation time. This keeps startup-time failure messages predictable and avoids surprising log noise during traffic.
 
+### Grants (`internal/grants`)
+
+Durable authorization overlay state stored in a separate SQLite database from audit. The CLI writes directly to this DB so `grant mint`, `grant list`, and `grant revoke` work while the broker is offline. The running broker opens the same DB and validates a supplied grant token on every MCP request, so new grants and revocations take effect without restart or `SIGHUP`.
+
+Grant tokens are high-entropy bearer secrets. Only a SHA-256 token hash and short fingerprint are stored; raw tokens are returned only by `grant mint` and cannot be recovered. Grant records contain stable ID, name, description, fingerprint, JSON rules, created/expires timestamps, and optional revoked timestamp. Expired and revoked grants are retained for auditability. Grant rules are normal `RuleConfig` objects and are compiled with the same rules engine used for base policy.
+
 ### Audit (`internal/audit`)
 
-SQLite database using `ncruces/go-sqlite3` (WASM-based, no CGO). WAL mode for concurrent read/write. Thread-safe via mutex. Records are inserted via prepared statement for performance. The database stores request arguments and errors, but not successful tool results; this preserves auditability of broker decisions without retaining arbitrary data returned by backend tools.
+SQLite database using `ncruces/go-sqlite3` (WASM-based, no CGO). WAL mode for concurrent read/write. Thread-safe via mutex. Records are inserted via prepared statement for performance. The database stores request arguments, decision attribution (`grant_id`, `grant_name`, `grant_fingerprint`, `grant_status`, `rule_source`), and errors, but not successful tool results; this preserves auditability of broker decisions without retaining arbitrary data returned by backend tools.
 
 The `Query` method supports:
 
@@ -186,7 +197,8 @@ Embedded single-page web application serving:
 - **Approvals tab** — pending requests with approve/deny buttons, optional deny reason input, decided history
 - **Tools tab** — backend startup status and discovered tools grouped by server; failed backends with no tools remain visible with phase, attempt count, and concise error; click a tool to see its input schema
 - **Rules tab** — active rules with the discovered tools matching each (read-only; for debugging verdicts; reflects successful `SIGHUP` rules reloads)
-- **Audit tab** — paginated audit log with tool filter, plus a live feed of incoming records. New records are prepended in real time when the view is on page 1 with no active filter and not paused; otherwise an "N new" counter appears with a "return to live view" banner. A pause toggle freezes the live feed without affecting filter or pagination state.
+- **Grants tab** — read-only active/expired/revoked grant metadata, timestamps, display fingerprint, and compact rules summary. It intentionally has no creation, editing, or revocation controls in v1.
+- **Audit tab** — paginated audit log with tool filter, grant/rule-source attribution, plus a live feed of incoming records. New records are prepended in real time when the view is on page 1 with no active filter and not paused; otherwise an "N new" counter appears with a "return to live view" banner. A pause toggle freezes the live feed without affecting filter or pagination state.
 
 Real-time updates via Server-Sent Events (SSE) on a single `/events` channel. Event types are `new` (pending approval request), `removed` (request resolved), `decided` (decision applied), and `audit` (audit record written). The dashboard also implements the `Approver` interface — the `Review` method blocks until a human makes a decision via the `/api/decide` endpoint. `/api/decide` accepts an optional `reason` for denies; whitespace-only reasons are treated as no explicit reason.
 
@@ -197,6 +209,7 @@ The orchestrator. Wires together rules, approval, proxy, and audit. The `Handle`
 - `ServerManager` — tool listing and call proxying
 - `AuditLogger` — recording and querying audit entries
 - `Approver` — human approval decisions
+- `GrantValidator` — per-request durable grant validation
 
 `MultiApprover` fans approval requests to all configured approvers (e.g., dashboard + Telegram) concurrently with a shared timeout. First response wins. Telegram denial is binary (`user`); timeout resolves as `timeout`.
 
@@ -209,6 +222,9 @@ Cobra-based CLI with commands:
 - `config refresh` — backfills new defaults
 - `config edit` — opens config in `$EDITOR`
 - `token rotate` — rotates the broker bearer token
+- `grant mint --name <name> --ttl <duration> --rules-file <path-or-> [--description <text>]` — creates a mandatory-TTL grant and prints the raw token once
+- `grant list` — lists retained grant metadata without tokens or hashes
+- `grant revoke <grant-id-or-fingerprint>` — durably revokes a grant by stable ID or unambiguous fingerprint
 - `logout <server>` — removes stored OAuth credentials for a backend server
 
 ## Tech stack
@@ -236,5 +252,9 @@ Cobra-based CLI with commands:
 **Rules reload without backend churn.** Rules are frequent operational edits, so `SIGHUP` reloads only policy rules and keeps the HTTP server, backend connections, discovered tools, and listener address unchanged. Reload compiles before swapping and keeps the old snapshot on any error.
 
 **Default verdict is require-approval.** Fail-closed by default — any tool not explicitly allowed requires human approval.
+
+**Grants are prepend-only overlays.** A supplied valid grant is evaluated before base rules, and base rules run only if no grant rule matches. Grant rules support `allow`, `deny`, and `require-approval`, so a grant can intentionally shadow a base deny for a bounded TTL. Invalid, expired, revoked, duplicate, or unreadable grant state fails closed and is audited; silent fallback to base rules is not allowed for bad grant headers.
+
+**Grant tokens are hash-only at rest.** The raw grant token is a bearer secret printed once by `grant mint`; the DB stores only a SHA-256 hash and display fingerprint. Dashboard, list/revoke CLI output, audit rows, and logs must not expose raw tokens or full hashes.
 
 **Loopback-only listener, enforced at startup.** `server.ValidateLoopbackAddr` rejects any bind host that isn't a loopback IP or `localhost`. The bearer token protects against unauthorized local processes; the network boundary protects against everything else. Making network-reachability a hard error instead of a doc-only intent removes the "oops, I configured `0.0.0.0`" failure mode. Sandboxed agents reach the broker via Lima's user-mode networking, which forwards `host.lima.internal:8200` from the guest to the host's loopback — no non-loopback bind required.

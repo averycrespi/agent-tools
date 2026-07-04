@@ -9,6 +9,7 @@ Agents run in sandboxes with no credentials and restricted network access — bu
 ```
 Agent ──MCP──▶ mcp-broker ──MCP──▶ Backend servers
                   │
+                  ├─ Optional grant overlay (Mcp-Broker-Grant)
                   ├─ Rules engine (glob-based allow/deny/require-approval)
                   ├─ Human approval via web dashboard + optional Telegram
                   └─ SQLite audit log
@@ -16,10 +17,11 @@ Agent ──MCP──▶ mcp-broker ──MCP──▶ Backend servers
 
 An agent connects to mcp-broker as a single MCP server. mcp-broker connects to one or more backend MCP servers (via stdio or HTTP), discovers their tools, and re-exposes them with `<server>.<tool>` namespacing. Every tool call flows through the pipeline:
 
-1. **Rules check** — glob patterns match tool names to verdicts (`allow`, `deny`, `require-approval`)
-2. **Approval** — if the verdict is `require-approval`, the call blocks until a human approves or denies it via the web dashboard (and optionally Telegram). A configurable timeout (default 10 minutes) auto-denies if no response arrives. Requests can opt out of waiting with `Mcp-Broker-Approval-Mode: reject`.
-3. **Proxy** — the call is forwarded to the backend server
-4. **Audit** — the call, verdict, and result are recorded in SQLite
+1. **Grant overlay** — if the request supplies `Mcp-Broker-Grant`, the broker validates that durable grant token and evaluates its rules first.
+2. **Base rules check** — if no grant rule matches, glob patterns match tool names to base verdicts (`allow`, `deny`, `require-approval`).
+3. **Approval** — if the final verdict is `require-approval`, the call blocks until a human approves or denies it via the web dashboard (and optionally Telegram). A configurable timeout (default 10 minutes) auto-denies if no response arrives. Requests can opt out of waiting with `Mcp-Broker-Approval-Mode: reject`.
+4. **Proxy** — the call is forwarded to the backend server.
+5. **Audit** — the call, verdict, grant attribution, and result are recorded in SQLite.
 
 ## Security
 
@@ -124,6 +126,10 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
   "audit": {
     "path": "/Users/alice/.local/share/mcp-broker/audit.db"
   },
+  "grants": {
+    "path": "/Users/alice/.local/share/mcp-broker/grants.db",
+    "max_ttl_seconds": 604800
+  },
   "log": {
     "level": "info"
   }
@@ -139,6 +145,8 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
 | `approval_timeout_seconds` | Human approval timeout. Defaults to 600 seconds.                                         |
 | `max_request_body_bytes`   | Maximum accepted request body size on `/mcp`. Defaults to 10 MiB; set to `0` to disable. |
 | `open_browser`             | Open the dashboard in a browser on startup. Defaults to `true`.                          |
+| `grants.path`              | SQLite grants DB path. Defaults to `$XDG_DATA_HOME/mcp-broker/grants.db`.                |
+| `grants.max_ttl_seconds`   | Maximum mintable grant TTL. Defaults to 604800 seconds (7 days); must be positive.       |
 
 ### Reloading rules
 
@@ -156,7 +164,7 @@ launchctl kill HUP gui/$UID/dev.agent-tools.mcp-broker
 
 Only `rules` are reloaded. If the reload cannot read the config file, parse JSON, parse the `rules` shape, or compile rule argument paths/regexes, the broker logs `rules reload failed` and keeps the previously active rules. If `rules` is omitted from an otherwise valid config file, reload applies the startup default: `[{"tool":"*","verdict":"require-approval"}]`. New tool calls use successfully reloaded rules; calls that already reached a policy decision, including pending approval requests, keep that decision.
 
-Restart mcp-broker for changes to `servers`, `tool_patches`, `host`, `port`, `audit.path`, auth token, Telegram approver settings, approval timeout, log level, `open_browser`, or `max_request_body_bytes`, and after fixing a backend that exhausted startup retries.
+Restart mcp-broker for changes to `servers`, `tool_patches`, `host`, `port`, `audit.path`, `grants.path`, `grants.max_ttl_seconds`, auth token, Telegram approver settings, approval timeout, log level, `open_browser`, or `max_request_body_bytes`, and after fixing a backend that exhausted startup retries. Minted and revoked grant records take effect on the next MCP request without restart because the broker checks the grants DB per request.
 
 ### Servers
 
@@ -257,6 +265,47 @@ MCP tool call requests may include `Mcp-Broker-Approval-Mode` to control what ha
 | `reject`     | Do not queue approval. Return an MCP tool error immediately. |
 
 `reject` does not bypass rules. `allow` and `deny` verdicts behave normally; only `require-approval` changes. Rejected calls are audited with verdict `require-approval`, approval `false`, denial reason `approval-mode: reject`, and appear in the dashboard audit table as `rejected`.
+
+### Grants
+
+Grants are temporary bearer tokens that prepend a small rule set to the normal policy for one request. They are useful when you want to intentionally allow or deny a narrow workflow for a bounded time without editing the base rules. Grants are authorization overlays, not authentication: clients must still send the normal `Authorization: Bearer <broker-token>` header.
+
+Mint a grant offline with a required name, TTL, and JSON rules file:
+
+```bash
+mcp-broker grant mint --name release-window --ttl 2h --rules-file grant-rules.json
+```
+
+The rules file may be either a bare array of normal rule objects or an object with a top-level `rules` array:
+
+```json
+{
+  "rules": [
+    { "tool": "github.create_pull_request", "verdict": "allow", "reason": "release window" },
+    { "tool": "git.push", "verdict": "require-approval" }
+  ]
+}
+```
+
+The full token is printed exactly once by `grant mint`; store it securely. The grants DB stores only a SHA-256 token hash plus a short display fingerprint, never the raw token. `grant list`, `grant revoke`, dashboard APIs, and audit rows show metadata such as grant ID, name, fingerprint, status, timestamps, and compact rules, but not the token or full hash.
+
+Use a grant on an MCP tool call by adding exactly one header:
+
+```text
+Authorization: Bearer <broker-token>
+Mcp-Broker-Grant: <grant-token>
+```
+
+Duplicate, empty, comma-combined, malformed, unknown, expired, and revoked grant headers fail closed before approval or proxying. Valid grants evaluate first. If a grant rule matches, its verdict is final and may intentionally shadow a base rule, including a base `deny`; if no grant rule matches, the broker falls through to base rules. `Mcp-Broker-Approval-Mode: reject` is applied only after this final verdict is selected, so it only changes final `require-approval` decisions whether they came from grant or base rules.
+
+List and revoke retained grants offline:
+
+```bash
+mcp-broker grant list
+mcp-broker grant revoke <grant-id-or-fingerprint>
+```
+
+Revocation is durable and idempotent, and a running broker observes it on the next MCP request. Expired and revoked grants are retained for visibility. The dashboard Grants tab is read-only in v1; grant creation and revocation remain CLI-only. Audit records include grant ID/name/fingerprint/status and rule source (`grant`, `base`, or `none/default`) so you can distinguish grant matches from grant fallthrough to base policy.
 
 #### Argument matching
 
@@ -384,6 +433,9 @@ mcp-broker serve              # Start the broker
 mcp-broker serve -v           # Enable debug logging
 mcp-broker serve --log-level debug  # Same, with explicit level
 mcp-broker token rotate        # Regenerate auth token
+mcp-broker grant mint --name NAME --ttl 1h --rules-file rules.json
+mcp-broker grant list          # List retained active/expired/revoked grants
+mcp-broker grant revoke ID     # Revoke by grant ID or fingerprint
 mcp-broker logout <server>     # Clear a backend's cached OAuth credentials
 mcp-broker config path        # Print config file path
 mcp-broker config refresh     # Backfill new defaults into config
@@ -415,7 +467,8 @@ flowchart TD
     Agent["MCP Client"] -->|"HTTP + Bearer token"| MCP["MCP Server"]
     CLI["Broker CLI"] -->|"HTTP + Bearer token"| MCP
 
-    MCP --> Rules["Rules Engine"]
+    MCP --> Grants["Grant Overlay (optional)"]
+    Grants --> Rules["Rules Engine"]
 
     Rules -->|allow| Proxy["Proxy"]
     Rules -->|deny| Error["Return Error"]
