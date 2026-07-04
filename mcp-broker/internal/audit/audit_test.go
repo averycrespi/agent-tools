@@ -124,6 +124,33 @@ func TestLogger_RecordWithDenialReason(t *testing.T) {
 	require.Equal(t, "timeout", records[0].DenialReason)
 }
 
+func TestLogger_RecordWithGrantAttribution(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	l, err := NewLogger(path)
+	require.NoError(t, err)
+	defer func() { _ = l.Close(context.Background()) }()
+
+	err = l.Record(context.Background(), Record{
+		Timestamp:        time.Now(),
+		Tool:             "git.push",
+		Verdict:          "allow",
+		GrantID:          "grant-1",
+		GrantName:        "release",
+		GrantFingerprint: "abc123def456",
+		GrantStatus:      "active",
+		RuleSource:       "grant",
+	})
+	require.NoError(t, err)
+
+	records, _, err := l.Query(context.Background(), QueryOpts{Limit: 10})
+	require.NoError(t, err)
+	require.Equal(t, "grant-1", records[0].GrantID)
+	require.Equal(t, "release", records[0].GrantName)
+	require.Equal(t, "abc123def456", records[0].GrantFingerprint)
+	require.Equal(t, "active", records[0].GrantStatus)
+	require.Equal(t, "grant", records[0].RuleSource)
+}
+
 func TestLogger_RecordWithApproval(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.db")
 	l, err := NewLogger(path)

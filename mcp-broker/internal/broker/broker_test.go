@@ -3,13 +3,16 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/grants"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/rules"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 )
@@ -39,6 +42,15 @@ func (m *mockAuditLogger) Query(ctx context.Context, opts audit.QueryOpts) ([]au
 }
 
 type mockApprover struct{ mock.Mock }
+
+type fakeGrantValidator struct {
+	grant grants.Grant
+	err   error
+}
+
+func (f fakeGrantValidator) ValidateToken(context.Context, string, time.Time) (grants.Grant, error) {
+	return f.grant, f.err
+}
 
 type blockingApprover struct {
 	started chan struct{}
@@ -265,6 +277,137 @@ func TestBroker_Handle_ApprovalRequired_RejectModeDoesNotCallApprover(t *testing
 	require.Equal(t, "denied by policy: tool call blocked: approval is required for fs.write, but this request uses Mcp-Broker-Approval-Mode=reject", err.Error())
 	ap.AssertNotCalled(t, "Review", mock.Anything, mock.Anything, mock.Anything)
 	sm.AssertNotCalled(t, "Call", mock.Anything, mock.Anything, mock.Anything)
+	al.AssertExpectations(t)
+}
+
+func TestBroker_Handle_GrantAllowShadowsBaseDeny(t *testing.T) {
+	grant := grants.Grant{
+		ID:          "grant-1",
+		Name:        "release",
+		Fingerprint: "abc123def456",
+		Status:      "active",
+		Rules:       []config.RuleConfig{{Tool: "git.push", Verdict: "allow", Reason: "release window"}},
+	}
+
+	sm := new(mockServerManager)
+	sm.On("Call", mock.Anything, "git.push", map[string]any{"branch": "main"}).Return(&server.ToolResult{Content: "pushed"}, nil)
+
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
+		return r.Tool == "git.push" &&
+			r.Verdict == "allow" &&
+			r.RuleSource == "grant" &&
+			r.GrantID == "grant-1" &&
+			r.GrantName == "release" &&
+			r.GrantFingerprint == "abc123def456" &&
+			r.GrantStatus == "active"
+	})).Return(nil)
+
+	base, err := rules.New([]config.RuleConfig{{Tool: "git.*", Verdict: "deny", Reason: "base deny"}})
+	require.NoError(t, err)
+
+	b := NewWithGrants(sm, base, al, nil, fakeGrantValidator{grant: grant}, nil)
+	result, err := b.HandleToolResultWithOptions(context.Background(), "git.push", map[string]any{"branch": "main"}, HandleOptions{GrantToken: "secret"})
+	require.NoError(t, err)
+	require.Equal(t, "pushed", result.Content)
+	sm.AssertExpectations(t)
+	al.AssertExpectations(t)
+}
+
+func TestBroker_Handle_GrantFallthroughUsesBaseRules(t *testing.T) {
+	grant := grants.Grant{
+		ID:          "grant-1",
+		Name:        "narrow",
+		Fingerprint: "abc123def456",
+		Status:      "active",
+		Rules:       []config.RuleConfig{{Tool: "github.*", Verdict: "allow"}},
+	}
+
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
+		return r.Tool == "git.push" &&
+			r.Verdict == "deny" &&
+			r.RuleSource == "base" &&
+			r.GrantID == "grant-1" &&
+			r.DenialReason == "rule: base deny"
+	})).Return(nil)
+
+	base, err := rules.New([]config.RuleConfig{{Tool: "git.*", Verdict: "deny", Reason: "base deny"}})
+	require.NoError(t, err)
+	b := NewWithGrants(new(mockServerManager), base, al, nil, fakeGrantValidator{grant: grant}, nil)
+
+	_, err = b.HandleToolResultWithOptions(context.Background(), "git.push", nil, HandleOptions{GrantToken: "secret"})
+	require.ErrorIs(t, err, ErrDenied)
+	al.AssertExpectations(t)
+}
+
+func TestBroker_Handle_GrantRequireApprovalRejectMode(t *testing.T) {
+	grant := grants.Grant{
+		ID:          "grant-1",
+		Name:        "review",
+		Fingerprint: "abc123def456",
+		Status:      "active",
+		Rules:       []config.RuleConfig{{Tool: "fs.write", Verdict: "require-approval"}},
+	}
+
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
+		return r.Verdict == "require-approval" &&
+			r.RuleSource == "grant" &&
+			r.Approved != nil &&
+			!*r.Approved &&
+			r.DenialReason == "approval-mode: reject"
+	})).Return(nil)
+
+	base, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "allow"}})
+	require.NoError(t, err)
+	ap := new(mockApprover)
+	sm := new(mockServerManager)
+	b := NewWithGrants(sm, base, al, ap, fakeGrantValidator{grant: grant}, nil)
+
+	_, err = b.HandleToolResultWithOptions(context.Background(), "fs.write", nil, HandleOptions{GrantToken: "secret", ApprovalMode: ApprovalModeReject})
+	require.ErrorIs(t, err, ErrDenied)
+	ap.AssertNotCalled(t, "Review", mock.Anything, mock.Anything, mock.Anything)
+	sm.AssertNotCalled(t, "Call", mock.Anything, mock.Anything, mock.Anything)
+	al.AssertExpectations(t)
+}
+
+func TestBroker_Handle_InvalidGrantFailsClosedBeforeApprovalOrBackend(t *testing.T) {
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
+		return r.Tool == "git.push" &&
+			r.Verdict == "deny" &&
+			r.RuleSource == "none/default" &&
+			r.GrantStatus == "invalid" &&
+			r.DenialReason == "grant: invalid" &&
+			r.Error == "invalid grant token"
+	})).Return(nil)
+
+	base, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "allow"}})
+	require.NoError(t, err)
+	ap := new(mockApprover)
+	sm := new(mockServerManager)
+	b := NewWithGrants(sm, base, al, ap, fakeGrantValidator{err: grants.ErrUnknown}, nil)
+
+	_, err = b.HandleToolResultWithOptions(context.Background(), "git.push", nil, HandleOptions{GrantToken: "bad"})
+	require.ErrorIs(t, err, ErrDenied)
+	ap.AssertNotCalled(t, "Review", mock.Anything, mock.Anything, mock.Anything)
+	sm.AssertNotCalled(t, "Call", mock.Anything, mock.Anything, mock.Anything)
+	al.AssertExpectations(t)
+}
+
+func TestBroker_Handle_GrantStoreErrorFailsClosed(t *testing.T) {
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
+		return r.Verdict == "deny" && r.GrantStatus == "store-error" && r.Error == "grant validation failed"
+	})).Return(nil)
+
+	base, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "allow"}})
+	require.NoError(t, err)
+	b := NewWithGrants(new(mockServerManager), base, al, nil, fakeGrantValidator{err: errors.New("db locked")}, nil)
+
+	_, err = b.HandleToolResultWithOptions(context.Background(), "git.push", nil, HandleOptions{GrantToken: "secret"})
+	require.ErrorIs(t, err, ErrDenied)
 	al.AssertExpectations(t)
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/grants"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/rules"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 )
@@ -27,7 +28,9 @@ const (
 
 // HandleOptions contains per-call broker behavior options.
 type HandleOptions struct {
-	ApprovalMode ApprovalMode
+	ApprovalMode     ApprovalMode
+	GrantToken       string
+	GrantHeaderError string
 }
 
 // ServerManager proxies tool calls to backend MCP servers.
@@ -55,22 +58,34 @@ type RuleEvaluator interface {
 	EvaluateWithMetadata(tool string, args map[string]any) rules.Evaluation
 }
 
+// GrantValidator validates request-supplied grant tokens against durable grant state.
+type GrantValidator interface {
+	ValidateToken(ctx context.Context, token string, now time.Time) (grants.Grant, error)
+}
+
 // Broker orchestrates the tool call pipeline.
 type Broker struct {
 	servers  ServerManager
 	rules    RuleEvaluator
 	auditor  AuditLogger
 	approver Approver
+	grants   GrantValidator
 	logger   *slog.Logger
 }
 
 // New creates a Broker with the given components.
 func New(servers ServerManager, rulesEngine RuleEvaluator, auditor AuditLogger, approver Approver, logger *slog.Logger) *Broker {
+	return NewWithGrants(servers, rulesEngine, auditor, approver, nil, logger)
+}
+
+// NewWithGrants creates a Broker with durable grant validation enabled.
+func NewWithGrants(servers ServerManager, rulesEngine RuleEvaluator, auditor AuditLogger, approver Approver, grantValidator GrantValidator, logger *slog.Logger) *Broker {
 	return &Broker{
 		servers:  servers,
 		rules:    rulesEngine,
 		auditor:  auditor,
 		approver: approver,
+		grants:   grantValidator,
 		logger:   logger,
 	}
 }
@@ -97,23 +112,21 @@ func (b *Broker) HandleToolResultWithOptions(ctx context.Context, tool string, a
 		Args:      args,
 	}
 
-	// 1. Rules check
-	evaluation := b.rules.EvaluateWithMetadata(tool, args)
-	verdict := evaluation.Verdict
+	// 1. Grants/rules check
+	evaluation, verdict, err := b.evaluatePolicy(ctx, tool, args, opts, &rec)
+	if err != nil {
+		_ = b.auditor.Record(ctx, rec)
+		return nil, fmt.Errorf("%w: %s", ErrDenied, rec.Error)
+	}
 	rec.Verdict = verdict.String()
 
 	if b.logger != nil {
-		b.logger.Debug("rules evaluated", "tool", tool, "verdict", verdict)
+		b.logger.Debug("rules evaluated", "tool", tool, "verdict", verdict, "rule_source", rec.RuleSource)
 	}
 
 	switch verdict {
 	case rules.Deny:
-		reason := "rule"
-		if evaluation.Matched {
-			if configured := strings.TrimSpace(evaluation.RuleReason); configured != "" {
-				reason = "rule: " + configured
-			}
-		}
+		reason := ruleDenialReason(rec.RuleSource, evaluation)
 		rec.DenialReason = reason
 		rec.Error = formatDenialMessage(reason)
 		_ = b.auditor.Record(ctx, rec)
@@ -173,6 +186,112 @@ func (b *Broker) HandleToolResultWithOptions(ctx context.Context, tool string, a
 	}
 
 	return result, nil
+}
+
+func (b *Broker) evaluatePolicy(ctx context.Context, tool string, args map[string]any, opts HandleOptions, rec *audit.Record) (rules.Evaluation, rules.Verdict, error) {
+	if opts.GrantHeaderError != "" {
+		rec.Verdict = rules.Deny.String()
+		rec.GrantStatus = "invalid"
+		rec.RuleSource = "none/default"
+		rec.DenialReason = "grant: invalid"
+		rec.Error = "invalid grant header: " + opts.GrantHeaderError
+		return rules.Evaluation{}, rules.Deny, ErrDenied
+	}
+
+	if opts.GrantToken != "" {
+		if b.grants == nil {
+			rec.Verdict = rules.Deny.String()
+			rec.GrantStatus = "store-error"
+			rec.RuleSource = "none/default"
+			rec.DenialReason = "grant: unavailable"
+			rec.Error = "grant validation unavailable"
+			return rules.Evaluation{}, rules.Deny, ErrDenied
+		}
+
+		grant, err := b.grants.ValidateToken(ctx, opts.GrantToken, time.Now())
+		if err != nil {
+			populateGrantRecord(rec, grant)
+			rec.Verdict = rules.Deny.String()
+			rec.GrantStatus = grantStatusForError(err)
+			rec.RuleSource = "none/default"
+			rec.DenialReason = "grant: " + rec.GrantStatus
+			rec.Error = grantErrorMessage(err)
+			return rules.Evaluation{}, rules.Deny, ErrDenied
+		}
+		populateGrantRecord(rec, grant)
+
+		grantEngine, err := grant.Engine()
+		if err != nil {
+			rec.Verdict = rules.Deny.String()
+			rec.RuleSource = "grant"
+			rec.GrantStatus = "invalid"
+			rec.DenialReason = "grant: invalid rules"
+			rec.Error = "grant rules invalid"
+			return rules.Evaluation{}, rules.Deny, ErrDenied
+		}
+		grantEvaluation := grantEngine.EvaluateWithMetadata(tool, args)
+		if grantEvaluation.Matched {
+			rec.RuleSource = "grant"
+			return grantEvaluation, grantEvaluation.Verdict, nil
+		}
+	}
+
+	baseEvaluation := b.rules.EvaluateWithMetadata(tool, args)
+	if baseEvaluation.Matched {
+		rec.RuleSource = "base"
+	} else {
+		rec.RuleSource = "none/default"
+	}
+	return baseEvaluation, baseEvaluation.Verdict, nil
+}
+
+func populateGrantRecord(rec *audit.Record, grant grants.Grant) {
+	if grant.ID == "" {
+		return
+	}
+	rec.GrantID = grant.ID
+	rec.GrantName = grant.Name
+	rec.GrantFingerprint = grant.Fingerprint
+	rec.GrantStatus = grant.Status
+}
+
+func grantStatusForError(err error) string {
+	switch {
+	case errors.Is(err, grants.ErrExpired):
+		return "expired"
+	case errors.Is(err, grants.ErrRevoked):
+		return "revoked"
+	case errors.Is(err, grants.ErrUnknown):
+		return "invalid"
+	default:
+		return "store-error"
+	}
+}
+
+func grantErrorMessage(err error) string {
+	switch {
+	case errors.Is(err, grants.ErrExpired):
+		return "grant expired"
+	case errors.Is(err, grants.ErrRevoked):
+		return "grant revoked"
+	case errors.Is(err, grants.ErrUnknown):
+		return "invalid grant token"
+	default:
+		return "grant validation failed"
+	}
+}
+
+func ruleDenialReason(source string, evaluation rules.Evaluation) string {
+	reason := "rule"
+	if source == "grant" {
+		reason = "grant rule"
+	}
+	if evaluation.Matched {
+		if configured := strings.TrimSpace(evaluation.RuleReason); configured != "" {
+			reason += ": " + configured
+		}
+	}
+	return reason
 }
 
 func formatDenialMessage(reason string) string {

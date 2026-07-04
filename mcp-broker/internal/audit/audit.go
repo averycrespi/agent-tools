@@ -15,13 +15,18 @@ import (
 
 // Record captures the full lifecycle of a tool call.
 type Record struct {
-	Timestamp    time.Time      `json:"timestamp"`
-	Tool         string         `json:"tool"`
-	Args         map[string]any `json:"args,omitempty"`
-	Verdict      string         `json:"verdict"`
-	Approved     *bool          `json:"approved,omitempty"`
-	DenialReason string         `json:"denial_reason,omitempty"`
-	Error        string         `json:"error,omitempty"`
+	Timestamp        time.Time      `json:"timestamp"`
+	Tool             string         `json:"tool"`
+	Args             map[string]any `json:"args,omitempty"`
+	Verdict          string         `json:"verdict"`
+	Approved         *bool          `json:"approved,omitempty"`
+	DenialReason     string         `json:"denial_reason,omitempty"`
+	Error            string         `json:"error,omitempty"`
+	GrantID          string         `json:"grant_id,omitempty"`
+	GrantName        string         `json:"grant_name,omitempty"`
+	GrantFingerprint string         `json:"grant_fingerprint,omitempty"`
+	GrantStatus      string         `json:"grant_status,omitempty"`
+	RuleSource       string         `json:"rule_source,omitempty"`
 }
 
 // QueryOpts controls filtering and pagination for audit queries.
@@ -40,16 +45,28 @@ CREATE TABLE IF NOT EXISTS audit_records (
     verdict       TEXT    NOT NULL,
     approved      INTEGER,
     denial_reason TEXT    NOT NULL DEFAULT '',
-    error         TEXT    NOT NULL DEFAULT ''
+    error         TEXT    NOT NULL DEFAULT '',
+    grant_id      TEXT    NOT NULL DEFAULT '',
+    grant_name    TEXT    NOT NULL DEFAULT '',
+    grant_fingerprint TEXT NOT NULL DEFAULT '',
+    grant_status  TEXT    NOT NULL DEFAULT '',
+    rule_source   TEXT    NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_records(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_tool ON audit_records(tool);
 `
 
-const migrateSQL = `ALTER TABLE audit_records ADD COLUMN denial_reason TEXT NOT NULL DEFAULT ''`
+var migrateSQL = []string{
+	`ALTER TABLE audit_records ADD COLUMN denial_reason TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE audit_records ADD COLUMN grant_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE audit_records ADD COLUMN grant_name TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE audit_records ADD COLUMN grant_fingerprint TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE audit_records ADD COLUMN grant_status TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE audit_records ADD COLUMN rule_source TEXT NOT NULL DEFAULT ''`,
+}
 
-const insertSQL = `INSERT INTO audit_records (timestamp, tool, args, verdict, approved, denial_reason, error)
-VALUES (?, ?, ?, ?, ?, ?, ?)`
+const insertSQL = `INSERT INTO audit_records (timestamp, tool, args, verdict, approved, denial_reason, error, grant_id, grant_name, grant_fingerprint, grant_status, rule_source)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // Subscriber is called once per successful audit record insert.
 // It must return quickly; hand off via channel for any real work.
@@ -95,8 +112,10 @@ func NewLogger(path string) (*Logger, error) {
 		return nil, fmt.Errorf("set audit db permissions: %w", err)
 	}
 
-	// Migrate: add denial_reason column if it doesn't exist yet.
-	_, _ = db.Exec(migrateSQL)
+	// Migrate: add additive columns if they do not exist yet.
+	for _, migration := range migrateSQL {
+		_, _ = db.Exec(migration)
+	}
 
 	stmt, err := db.Prepare(insertSQL)
 	if err != nil {
@@ -133,6 +152,11 @@ func (l *Logger) Record(_ context.Context, rec Record) error {
 		approved,
 		rec.DenialReason,
 		rec.Error,
+		rec.GrantID,
+		rec.GrantName,
+		rec.GrantFingerprint,
+		rec.GrantStatus,
+		rec.RuleSource,
 	)
 	if err != nil {
 		l.mu.Unlock()
@@ -201,7 +225,7 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 		limit = 50
 	}
 
-	selectSQL := "SELECT timestamp, tool, args, verdict, approved, denial_reason, error FROM audit_records" +
+	selectSQL := "SELECT timestamp, tool, args, verdict, approved, denial_reason, error, grant_id, grant_name, grant_fingerprint, grant_status, rule_source FROM audit_records" +
 		where + " ORDER BY id DESC LIMIT ? OFFSET ?"
 	selectArgs := make([]any, len(queryArgs), len(queryArgs)+2)
 	copy(selectArgs, queryArgs)
@@ -216,22 +240,29 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 	var records []Record
 	for rows.Next() {
 		var (
-			ts, tool, verdict, denialReason, errStr string
-			argsJSON                                sql.NullString
-			approved                                sql.NullInt64
+			ts, tool, verdict, denialReason, errStr           string
+			grantID, grantName, grantFingerprint, grantStatus string
+			ruleSource                                        string
+			argsJSON                                          sql.NullString
+			approved                                          sql.NullInt64
 		)
-		if err := rows.Scan(&ts, &tool, &argsJSON, &verdict, &approved, &denialReason, &errStr); err != nil {
+		if err := rows.Scan(&ts, &tool, &argsJSON, &verdict, &approved, &denialReason, &errStr, &grantID, &grantName, &grantFingerprint, &grantStatus, &ruleSource); err != nil {
 			return nil, 0, fmt.Errorf("scan audit record: %w", err)
 		}
 
 		timestamp, _ := time.Parse(time.RFC3339, ts)
 
 		rec := Record{
-			Timestamp:    timestamp,
-			Tool:         tool,
-			Verdict:      verdict,
-			DenialReason: denialReason,
-			Error:        errStr,
+			Timestamp:        timestamp,
+			Tool:             tool,
+			Verdict:          verdict,
+			DenialReason:     denialReason,
+			Error:            errStr,
+			GrantID:          grantID,
+			GrantName:        grantName,
+			GrantFingerprint: grantFingerprint,
+			GrantStatus:      grantStatus,
+			RuleSource:       ruleSource,
 		}
 
 		if argsJSON.Valid {
