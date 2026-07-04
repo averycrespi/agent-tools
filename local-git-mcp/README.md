@@ -17,7 +17,7 @@ diff, rebase, ...                    │
 
 local-git-mcp is a stdio MCP server — a caller spawns it as a subprocess and communicates over stdin/stdout. It shells out to the host's `git` binary, which picks up the user's existing credential configuration.
 
-At startup, callers must provide one or more allowed path prefixes. Tool calls can only access repositories at those paths or their descendants. Starting without allowed paths fails unless `--allow-all-paths` is provided.
+At startup, callers must provide one or more existing allowed path prefixes. Symlinks in those prefixes are resolved before serving requests. Tool calls can only access repositories at the resolved paths or their descendants. Starting without allowed paths fails unless `--allow-all-paths` is provided.
 
 ## Tools
 
@@ -29,7 +29,7 @@ At startup, callers must provide one or more allowed path prefixes. Tool calls c
 | `list_remote_refs` | List refs (branches, tags) on a remote                   |
 | `list_remotes`     | List configured remotes and their URLs                   |
 
-All tools require a `repo_path` parameter — an absolute path to a git repository on the host. The path must be equal to or inside one of the allowed path prefixes provided when the server starts. Tools that accept `remote` require a configured remote name such as `origin`; raw transport URLs such as `https://...`, `ssh://...`, and `file://...` are rejected.
+All tools require a `repo_path` parameter — an absolute path to a git repository on the host. The path must resolve to the same location as, or a descendant of, one of the allowed path prefixes provided when the server starts. Tools that accept `remote` require a configured remote name such as `origin`; raw transport URLs such as `https://...`, `ssh://...`, and `file://...` are rejected.
 
 ## Quick start
 

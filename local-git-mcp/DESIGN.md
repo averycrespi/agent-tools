@@ -12,7 +12,7 @@ local-git-mcp solves this by running a minimal stdio MCP server on the host that
 
 local-git-mcp is a stdio MCP server. No network listener, no config file, no state. A caller spawns it as a subprocess and communicates over stdin/stdout using the MCP protocol.
 
-The caller must provide one or more allowed host path prefixes at startup, for example `local-git-mcp /shared/worktrees /other/repo/root`. Tool calls can access only repositories at those prefixes or their descendants. For the old unrestricted behavior, the caller must explicitly pass `--allow-all-paths`.
+The caller must provide one or more existing allowed host path prefixes at startup, for example `local-git-mcp /shared/worktrees /other/repo/root`. Symlinks in those prefixes are resolved before serving requests. Tool calls can access only repositories at the resolved prefixes or their descendants. For the old unrestricted behavior, the caller must explicitly pass `--allow-all-paths`.
 
 Every git subprocess receives the MCP request context plus a per-command timeout. The default timeout is 5 minutes and can be changed with `--git-timeout`; `--git-timeout 0` disables the timeout.
 
@@ -42,7 +42,7 @@ Each tool declares MCP `ToolAnnotation` hints so callers can reason about safety
 
 ### Parameter details
 
-- **`repo_path`** (required, all tools) — absolute path to a git repository on the host. Must be absolute (relative paths are rejected) and must be equal to or inside one of the allowed path prefixes supplied at startup. Validated before every operation: must be allowed, must exist, and must contain a git repo (`git rev-parse --git-dir`).
+- **`repo_path`** (required, all tools) — absolute path to a git repository on the host. Must be absolute (relative paths are rejected) and must resolve to the same location as, or inside, one of the symlink-resolved allowed path prefixes supplied at startup. Validated before every operation: must be allowed, must exist, and must contain a git repo (`git rev-parse --git-dir`).
 - **`remote`** (optional, default: "origin") — the configured remote name to operate on. Raw transport URLs are rejected; callers must use a remote already configured in the repository.
 - **`refspec`** (optional) — git refspec for push/fetch (e.g., `refs/heads/main`). URL-shaped refspecs are rejected.
 - **`branch`** (optional) — branch name for pull.
@@ -80,14 +80,15 @@ Startup validates access policy before serving MCP:
 
 1. At least one allowed path prefix is required unless `--allow-all-paths` is provided.
 2. Allowed path prefixes must be absolute paths.
-3. `--allow-all-paths` cannot be combined with explicit allowed path prefixes.
+3. Allowed path prefixes must exist and are normalized by resolving symlinks.
+4. `--allow-all-paths` cannot be combined with explicit allowed path prefixes.
 
 Every tool call validates `repo_path` before executing:
 
 1. **Absolute path** — `repo_path` must be an absolute path. Relative paths are rejected.
-2. **Allowed path** — `repo_path` must equal or descend from an allowed prefix. Sibling prefixes are not accepted: `/repo2` is outside allowed prefix `/repo`.
-3. **Path exists** — directory must be present on the host.
-4. **Is a git repo** — `git -C <path> rev-parse --git-dir` must succeed.
+2. **Path exists and resolves** — directory must be present on the host, and symlinks are resolved before containment checks.
+3. **Allowed path** — the resolved `repo_path` must equal or descend from a resolved allowed prefix. Sibling prefixes are not accepted: `/repo2` is outside allowed prefix `/repo`. A symlink inside an allowed prefix that points outside the prefix is rejected.
+4. **Is a git repo** — `git -C <resolved-path> rev-parse --git-dir` must succeed.
 
 Remote operations also validate `remote` with `git remote get-url -- <name>` before running `push`, `pull`, `fetch`, or `ls-remote`. This keeps host credentials scoped to remotes the repository already declares instead of letting callers supply arbitrary git transport URLs.
 

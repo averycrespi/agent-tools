@@ -212,14 +212,18 @@ func (c *Client) ValidateRepo(ctx context.Context, repoPath string) (string, err
 		return "", fmt.Errorf("repo_path must be an absolute path: %s", repoPath)
 	}
 	cleanRepoPath := filepath.Clean(repoPath)
-	if !c.isAllowedPath(cleanRepoPath) {
-		return "", fmt.Errorf("repo_path %s is outside allowed paths; allowed prefixes: %s", cleanRepoPath, strings.Join(c.allowedPaths, ", "))
+	resolvedRepoPath, err := filepath.EvalSymlinks(cleanRepoPath)
+	if err != nil {
+		return "", fmt.Errorf("repo_path %s cannot be resolved: %w", cleanRepoPath, err)
 	}
-	out, err := c.runDir(ctx, cleanRepoPath, "git", "rev-parse", "--git-dir")
+	if !c.isAllowedPath(resolvedRepoPath) {
+		return "", fmt.Errorf("repo_path %s is outside allowed paths; allowed prefixes: %s", resolvedRepoPath, strings.Join(c.allowedPaths, ", "))
+	}
+	out, err := c.runDir(ctx, resolvedRepoPath, "git", "rev-parse", "--git-dir")
 	if err != nil {
 		return "", fmt.Errorf("not a git repository: %s", commandErrorMessage(out, err))
 	}
-	return cleanRepoPath, nil
+	return resolvedRepoPath, nil
 }
 
 func (c *Client) runDir(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
@@ -259,9 +263,13 @@ func normalizeAllowedPaths(allowedPaths []string, allowAllPaths bool) ([]string,
 			return nil, fmt.Errorf("allowed path must be absolute: %s", allowedPath)
 		}
 		cleanPath := filepath.Clean(allowedPath)
-		if !seen[cleanPath] {
-			seen[cleanPath] = true
-			normalizedPaths = append(normalizedPaths, cleanPath)
+		resolvedPath, err := filepath.EvalSymlinks(cleanPath)
+		if err != nil {
+			return nil, fmt.Errorf("allowed path must exist and resolve symlinks: %s: %w", cleanPath, err)
+		}
+		if !seen[resolvedPath] {
+			seen[resolvedPath] = true
+			normalizedPaths = append(normalizedPaths, resolvedPath)
 		}
 	}
 	return normalizedPaths, nil

@@ -3,6 +3,8 @@ package git
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -301,78 +303,144 @@ func TestValidateRepo_RelativePath(t *testing.T) {
 }
 
 func TestValidateRepo_NotAGitRepo(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
 	c := mustNewClient(t, &mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 			return []byte("fatal: not a git repository"), fmt.Errorf("exit status 128")
 		},
 	})
-	_, err := c.ValidateRepo(context.Background(), "/some/path")
+	_, err := c.ValidateRepo(context.Background(), repo)
 	assert.ErrorContains(t, err, "not a git repository")
 }
 
 func TestValidateRepo_AllowedExactPath(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
 	var capturedDir string
 	c, err := NewClient(&mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 			capturedDir = dir
 			return []byte(".git\n"), nil
 		},
-	}, []string{"/some/repo"}, false)
+	}, []string{repo}, false)
 	require.NoError(t, err)
-	validatedPath, err := c.ValidateRepo(context.Background(), "/some/repo")
+	validatedPath, err := c.ValidateRepo(context.Background(), repo)
 	require.NoError(t, err)
-	assert.Equal(t, "/some/repo", validatedPath)
-	assert.Equal(t, "/some/repo", capturedDir)
+	assert.Equal(t, repo, validatedPath)
+	assert.Equal(t, repo, capturedDir)
 }
 
 func TestValidateRepo_ReturnsCleanedPath(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
 	var capturedDir string
 	c, err := NewClient(&mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 			capturedDir = dir
 			return []byte(".git\n"), nil
 		},
-	}, []string{"/some/repo"}, false)
+	}, []string{repo}, false)
 	require.NoError(t, err)
-	validatedPath, err := c.ValidateRepo(context.Background(), "/some/repo/../repo")
+	validatedPath, err := c.ValidateRepo(context.Background(), filepath.Join(root, "other", "..", "repo"))
 	require.NoError(t, err)
-	assert.Equal(t, "/some/repo", validatedPath)
-	assert.Equal(t, "/some/repo", capturedDir)
+	assert.Equal(t, repo, validatedPath)
+	assert.Equal(t, repo, capturedDir)
 }
 
 func TestValidateRepo_AllowedDescendantPath(t *testing.T) {
+	allowed := t.TempDir()
+	repo := filepath.Join(allowed, "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
 	c, err := NewClient(&mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 			return []byte(".git\n"), nil
 		},
-	}, []string{"/some"}, false)
+	}, []string{allowed}, false)
 	require.NoError(t, err)
-	_, err = c.ValidateRepo(context.Background(), "/some/repo")
+	_, err = c.ValidateRepo(context.Background(), repo)
 	require.NoError(t, err)
 }
 
+func TestValidateRepo_RejectsSymlinkEscapeFromAllowedPath(t *testing.T) {
+	root := t.TempDir()
+	allowed := filepath.Join(root, "allowed")
+	outside := filepath.Join(root, "outside")
+	require.NoError(t, os.MkdirAll(allowed, 0o755))
+	require.NoError(t, os.MkdirAll(outside, 0o755))
+	escape := filepath.Join(allowed, "escape")
+	require.NoError(t, os.Symlink(outside, escape))
+
+	calledGit := false
+	c, err := NewClient(&mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			calledGit = true
+			return []byte(".git\n"), nil
+		},
+	}, []string{allowed}, false)
+	require.NoError(t, err)
+
+	_, err = c.ValidateRepo(context.Background(), escape)
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "outside allowed paths")
+	assert.False(t, calledGit)
+}
+
+func TestValidateRepo_ResolvesSymlinkedAllowedPath(t *testing.T) {
+	root := t.TempDir()
+	realAllowed := filepath.Join(root, "real-allowed")
+	repo := filepath.Join(realAllowed, "repo")
+	linkAllowed := filepath.Join(root, "allowed-link")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
+	require.NoError(t, os.Symlink(realAllowed, linkAllowed))
+
+	var capturedDir string
+	c, err := NewClient(&mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			capturedDir = dir
+			return []byte(".git\n"), nil
+		},
+	}, []string{linkAllowed}, false)
+	require.NoError(t, err)
+
+	validatedPath, err := c.ValidateRepo(context.Background(), filepath.Join(linkAllowed, "repo"))
+
+	require.NoError(t, err)
+	assert.Equal(t, repo, validatedPath)
+	assert.Equal(t, repo, capturedDir)
+}
+
 func TestValidateRepo_RejectsSiblingPrefix(t *testing.T) {
+	root := t.TempDir()
+	allowed := filepath.Join(root, "repo")
+	sibling := filepath.Join(root, "repo2")
+	require.NoError(t, os.MkdirAll(allowed, 0o755))
+	require.NoError(t, os.MkdirAll(sibling, 0o755))
 	calledGit := false
 	c, err := NewClient(&mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 			calledGit = true
 			return nil, nil
 		},
-	}, []string{"/repo"}, false)
+	}, []string{allowed}, false)
 	require.NoError(t, err)
-	_, err = c.ValidateRepo(context.Background(), "/repo2")
+	_, err = c.ValidateRepo(context.Background(), sibling)
 	assert.ErrorContains(t, err, "outside allowed paths")
-	assert.ErrorContains(t, err, "/repo")
+	assert.ErrorContains(t, err, allowed)
 	assert.False(t, calledGit)
 }
 
 func TestValidateRepo_Valid(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
 	c := mustNewClient(t, &mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 			return []byte(".git\n"), nil
 		},
 	})
-	_, err := c.ValidateRepo(context.Background(), "/some/repo")
+	_, err := c.ValidateRepo(context.Background(), repo)
 	require.NoError(t, err)
 }
 
@@ -391,13 +459,20 @@ func TestNewClient_RejectsAllowAllWithExplicitPaths(t *testing.T) {
 	assert.ErrorContains(t, err, "cannot be combined")
 }
 
+func TestNewClient_RejectsMissingAllowedPath(t *testing.T) {
+	_, err := NewClient(&mockRunner{}, []string{filepath.Join(t.TempDir(), "missing")}, false)
+	assert.ErrorContains(t, err, "allowed path must exist")
+}
+
 func TestNewClient_AllowAllPaths(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
 	c, err := NewClient(&mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 			return []byte(".git\n"), nil
 		},
 	}, nil, true)
 	require.NoError(t, err)
-	_, err = c.ValidateRepo(context.Background(), "/any/repo")
+	_, err = c.ValidateRepo(context.Background(), repo)
 	require.NoError(t, err)
 }
