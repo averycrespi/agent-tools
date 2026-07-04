@@ -18,7 +18,7 @@ diff, rebase, ...                    │
 
 local-git-mcp is a stdio MCP server — a caller spawns it as a subprocess and communicates over stdin/stdout. It shells out to the host's `git` binary, which picks up the user's existing credential configuration.
 
-At startup, callers must provide one or more allowed path prefixes. Tool calls can only access repositories or clone destinations at those paths or their descendants. Starting without allowed paths fails unless `--allow-all-paths` is provided.
+At startup, callers must provide one or more existing allowed path prefixes. Symlinks in those prefixes are resolved before serving requests. Tool calls can only access repositories or clone destinations at the resolved paths or their descendants. Starting without allowed paths fails unless `--allow-all-paths` is provided.
 
 ## Tools
 
@@ -31,9 +31,11 @@ At startup, callers must provide one or more allowed path prefixes. Tool calls c
 | `list_remote_refs`  | List refs (branches, tags) on a remote                   |
 | `list_remotes`      | List configured remotes and their URLs                   |
 
-Repo-scoped tools require a `repo_path` parameter — an absolute path to a git repository on the host. The path must be equal to or inside one of the allowed path prefixes provided when the server starts.
+Repo-scoped tools require a `repo_path` parameter — an absolute path to a git repository on the host. The path must resolve to the same location as, or a descendant of, one of the allowed path prefixes provided when the server starts.
 
-`clone_github_repo` requires `repository` in `owner/repo` form and `destination_dir`, an absolute existing parent directory inside the allowed path prefixes. It always clones over SSH as `git@github.com:owner/repo.git`, derives the target path as `<destination_dir>/<repo>`, fails if that path already exists, and returns JSON text containing the cloned `repo_path`.
+`clone_github_repo` requires `repository` in `owner/repo` form and `destination_dir`, an absolute existing parent directory inside the allowed path prefixes. It resolves symlinks before checking containment, rejects a destination that is itself a symlink, always clones over SSH as `git@github.com:owner/repo.git`, derives the target path as `<resolved-destination>/<repo>`, fails if that path already exists, and returns JSON text containing the cloned `repo_path`.
+
+Tools that accept `remote` require a configured remote name such as `origin`; raw transport URLs such as `https://...`, `ssh://...`, and `file://...` are rejected.
 
 ## Quick start
 

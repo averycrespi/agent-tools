@@ -35,22 +35,92 @@ func mustNewClient(t *testing.T, runner *mockRunner) *Client {
 	return client
 }
 
+type gitCall struct {
+	dir  string
+	name string
+	args []string
+}
+
+func TestRemoteOperations_RejectURLShapedRemoteBeforeRunningGit(t *testing.T) {
+	calledGit := false
+	c := mustNewClient(t, &mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			calledGit = true
+			return nil, nil
+		},
+	})
+
+	_, err := c.Fetch(context.Background(), "/repo", "https://example.com/repo.git", "")
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "remote must be a configured remote name")
+	assert.False(t, calledGit)
+}
+
+func TestRemoteOperations_RejectUnknownRemoteBeforeFetch(t *testing.T) {
+	var calls []gitCall
+	c := mustNewClient(t, &mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			calls = append(calls, gitCall{dir: dir, name: name, args: append([]string(nil), args...)})
+			if assert.Equal(t, []string{"remote", "get-url", "--", "missing"}, args) {
+				return []byte("error: No such remote 'missing'"), fmt.Errorf("exit status 2")
+			}
+			return nil, nil
+		},
+	})
+
+	_, err := c.Fetch(context.Background(), "/repo", "missing", "")
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "remote \"missing\" is not configured")
+	require.Len(t, calls, 1)
+}
+
+func TestRemoteOperations_ValidateConfiguredRemoteBeforeRunningGit(t *testing.T) {
+	var calls []gitCall
+	c := mustNewClient(t, &mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			calls = append(calls, gitCall{dir: dir, name: name, args: append([]string(nil), args...)})
+			return []byte("ok\n"), nil
+		},
+	})
+
+	_, err := c.Fetch(context.Background(), "/repo", "origin", "refs/heads/main")
+
+	require.NoError(t, err)
+	require.Len(t, calls, 2)
+	assert.Equal(t, gitCall{dir: "/repo", name: "git", args: []string{"remote", "get-url", "--", "origin"}}, calls[0])
+	assert.Equal(t, gitCall{dir: "/repo", name: "git", args: []string{"fetch", "--", "origin", "refs/heads/main"}}, calls[1])
+}
+
+func TestRemoteOperations_RejectURLShapedRefspec(t *testing.T) {
+	calledGit := false
+	c := mustNewClient(t, &mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			calledGit = true
+			return nil, nil
+		},
+	})
+
+	_, err := c.Push(context.Background(), "/repo", "origin", "https://example.com/repo.git", false)
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "refspec must not be a URL")
+	assert.False(t, calledGit)
+}
+
 func TestCloneGitHubRepo_Success(t *testing.T) {
 	destinationDir := t.TempDir()
 	targetPath := filepath.Join(destinationDir, "repo")
-	type call struct {
-		dir  string
-		args []string
-	}
-	var calls []call
+	var calls []gitCall
 	c, err := NewClient(&mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
-			require.Equal(t, "git", name)
-			calls = append(calls, call{dir: dir, args: args})
-			if len(calls) == 2 {
-				return []byte(".git\n"), nil
+			calls = append(calls, gitCall{dir: dir, name: name, args: append([]string(nil), args...)})
+			if len(calls) == 1 {
+				require.NoError(t, os.MkdirAll(targetPath, 0o755))
+				return []byte("cloned\n"), nil
 			}
-			return []byte("cloned\n"), nil
+			return []byte(".git\n"), nil
 		},
 	}, []string{destinationDir}, false)
 	require.NoError(t, err)
@@ -60,10 +130,8 @@ func TestCloneGitHubRepo_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, targetPath, repoPath)
 	require.Len(t, calls, 2)
-	assert.Equal(t, destinationDir, calls[0].dir)
-	assert.Equal(t, []string{"clone", "--", "git@github.com:owner/repo.git", targetPath}, calls[0].args)
-	assert.Equal(t, targetPath, calls[1].dir)
-	assert.Equal(t, []string{"rev-parse", "--git-dir"}, calls[1].args)
+	assert.Equal(t, gitCall{dir: destinationDir, name: "git", args: []string{"clone", "--", "git@github.com:owner/repo.git", targetPath}}, calls[0])
+	assert.Equal(t, gitCall{dir: targetPath, name: "git", args: []string{"rev-parse", "--git-dir"}}, calls[1])
 }
 
 func TestCloneGitHubRepo_RejectsMalformedRepositories(t *testing.T) {
@@ -158,6 +226,62 @@ func TestCloneGitHubRepo_RejectsSymlinkDestinationDir(t *testing.T) {
 	assert.ErrorContains(t, err, "destination_dir must not be a symlink")
 }
 
+func TestCloneGitHubRepo_RejectsSymlinkEscapeFromAllowedPath(t *testing.T) {
+	root := t.TempDir()
+	allowed := filepath.Join(root, "allowed")
+	outside := filepath.Join(root, "outside")
+	destinationDir := filepath.Join(allowed, "escape", "dest")
+	require.NoError(t, os.MkdirAll(allowed, 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(outside, "dest"), 0o755))
+	require.NoError(t, os.Symlink(outside, filepath.Join(allowed, "escape")))
+
+	calledGit := false
+	c, err := NewClient(&mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			calledGit = true
+			return nil, nil
+		},
+	}, []string{allowed}, false)
+	require.NoError(t, err)
+
+	_, err = c.CloneGitHubRepo(context.Background(), "owner/repo", destinationDir)
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "outside allowed paths")
+	assert.False(t, calledGit)
+}
+
+func TestCloneGitHubRepo_ResolvesSymlinkedAllowedPath(t *testing.T) {
+	root := t.TempDir()
+	realAllowed := filepath.Join(root, "real-allowed")
+	destinationDir := filepath.Join(realAllowed, "dest")
+	linkAllowed := filepath.Join(root, "allowed-link")
+	require.NoError(t, os.MkdirAll(destinationDir, 0o755))
+	require.NoError(t, os.Symlink(realAllowed, linkAllowed))
+
+	targetPath := filepath.Join(destinationDir, "repo")
+	var calls []gitCall
+	c, err := NewClient(&mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			calls = append(calls, gitCall{dir: dir, name: name, args: append([]string(nil), args...)})
+			if len(calls) == 1 {
+				require.NoError(t, os.MkdirAll(targetPath, 0o755))
+				return []byte("cloned\n"), nil
+			}
+			return []byte(".git\n"), nil
+		},
+	}, []string{linkAllowed}, false)
+	require.NoError(t, err)
+
+	repoPath, err := c.CloneGitHubRepo(context.Background(), "owner/repo", filepath.Join(linkAllowed, "dest"))
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(destinationDir, "repo"), repoPath)
+	require.Len(t, calls, 2)
+	assert.Equal(t, destinationDir, calls[0].dir)
+	assert.Equal(t, filepath.Join(destinationDir, "repo"), calls[1].dir)
+}
+
 func TestCloneGitHubRepo_RejectsExistingTargetPath(t *testing.T) {
 	destinationDir := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(destinationDir, "repo"), 0o700))
@@ -194,6 +318,7 @@ func TestCloneGitHubRepo_PostCloneValidationError(t *testing.T) {
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 			calls++
 			if calls == 1 {
+				require.NoError(t, os.MkdirAll(filepath.Join(destinationDir, "repo"), 0o755))
 				return []byte("cloned\n"), nil
 			}
 			return []byte("fatal: not a git repository"), fmt.Errorf("exit status 128")
@@ -265,6 +390,9 @@ func TestPush_ForceWithLease(t *testing.T) {
 func TestPush_Error(t *testing.T) {
 	c := mustNewClient(t, &mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			if len(args) >= 2 && args[0] == "remote" && args[1] == "get-url" {
+				return []byte("git@github.com:user/repo.git\n"), nil
+			}
 			return []byte("error: failed to push"), fmt.Errorf("exit status 1")
 		},
 	})
@@ -341,6 +469,9 @@ func TestFetch_WithRefspec(t *testing.T) {
 func TestFetch_TimesOutBlockedCommand(t *testing.T) {
 	c, err := NewClientWithTimeout(&mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			if len(args) >= 2 && args[0] == "remote" && args[1] == "get-url" {
+				return []byte("git@github.com:user/repo.git\n"), nil
+			}
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},
@@ -370,6 +501,9 @@ func TestListRemoteRefs_Success(t *testing.T) {
 func TestListRemoteRefs_Error(t *testing.T) {
 	c := mustNewClient(t, &mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			if len(args) >= 2 && args[0] == "remote" && args[1] == "get-url" {
+				return []byte("git@github.com:user/repo.git\n"), nil
+			}
 			return []byte("fatal: not a git repository"), fmt.Errorf("exit status 128")
 		},
 	})
@@ -407,78 +541,144 @@ func TestValidateRepo_RelativePath(t *testing.T) {
 }
 
 func TestValidateRepo_NotAGitRepo(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
 	c := mustNewClient(t, &mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 			return []byte("fatal: not a git repository"), fmt.Errorf("exit status 128")
 		},
 	})
-	_, err := c.ValidateRepo(context.Background(), "/some/path")
+	_, err := c.ValidateRepo(context.Background(), repo)
 	assert.ErrorContains(t, err, "not a git repository")
 }
 
 func TestValidateRepo_AllowedExactPath(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
 	var capturedDir string
 	c, err := NewClient(&mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 			capturedDir = dir
 			return []byte(".git\n"), nil
 		},
-	}, []string{"/some/repo"}, false)
+	}, []string{repo}, false)
 	require.NoError(t, err)
-	validatedPath, err := c.ValidateRepo(context.Background(), "/some/repo")
+	validatedPath, err := c.ValidateRepo(context.Background(), repo)
 	require.NoError(t, err)
-	assert.Equal(t, "/some/repo", validatedPath)
-	assert.Equal(t, "/some/repo", capturedDir)
+	assert.Equal(t, repo, validatedPath)
+	assert.Equal(t, repo, capturedDir)
 }
 
 func TestValidateRepo_ReturnsCleanedPath(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
 	var capturedDir string
 	c, err := NewClient(&mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 			capturedDir = dir
 			return []byte(".git\n"), nil
 		},
-	}, []string{"/some/repo"}, false)
+	}, []string{repo}, false)
 	require.NoError(t, err)
-	validatedPath, err := c.ValidateRepo(context.Background(), "/some/repo/../repo")
+	validatedPath, err := c.ValidateRepo(context.Background(), filepath.Join(root, "other", "..", "repo"))
 	require.NoError(t, err)
-	assert.Equal(t, "/some/repo", validatedPath)
-	assert.Equal(t, "/some/repo", capturedDir)
+	assert.Equal(t, repo, validatedPath)
+	assert.Equal(t, repo, capturedDir)
 }
 
 func TestValidateRepo_AllowedDescendantPath(t *testing.T) {
+	allowed := t.TempDir()
+	repo := filepath.Join(allowed, "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
 	c, err := NewClient(&mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 			return []byte(".git\n"), nil
 		},
-	}, []string{"/some"}, false)
+	}, []string{allowed}, false)
 	require.NoError(t, err)
-	_, err = c.ValidateRepo(context.Background(), "/some/repo")
+	_, err = c.ValidateRepo(context.Background(), repo)
 	require.NoError(t, err)
 }
 
+func TestValidateRepo_RejectsSymlinkEscapeFromAllowedPath(t *testing.T) {
+	root := t.TempDir()
+	allowed := filepath.Join(root, "allowed")
+	outside := filepath.Join(root, "outside")
+	require.NoError(t, os.MkdirAll(allowed, 0o755))
+	require.NoError(t, os.MkdirAll(outside, 0o755))
+	escape := filepath.Join(allowed, "escape")
+	require.NoError(t, os.Symlink(outside, escape))
+
+	calledGit := false
+	c, err := NewClient(&mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			calledGit = true
+			return []byte(".git\n"), nil
+		},
+	}, []string{allowed}, false)
+	require.NoError(t, err)
+
+	_, err = c.ValidateRepo(context.Background(), escape)
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "outside allowed paths")
+	assert.False(t, calledGit)
+}
+
+func TestValidateRepo_ResolvesSymlinkedAllowedPath(t *testing.T) {
+	root := t.TempDir()
+	realAllowed := filepath.Join(root, "real-allowed")
+	repo := filepath.Join(realAllowed, "repo")
+	linkAllowed := filepath.Join(root, "allowed-link")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
+	require.NoError(t, os.Symlink(realAllowed, linkAllowed))
+
+	var capturedDir string
+	c, err := NewClient(&mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			capturedDir = dir
+			return []byte(".git\n"), nil
+		},
+	}, []string{linkAllowed}, false)
+	require.NoError(t, err)
+
+	validatedPath, err := c.ValidateRepo(context.Background(), filepath.Join(linkAllowed, "repo"))
+
+	require.NoError(t, err)
+	assert.Equal(t, repo, validatedPath)
+	assert.Equal(t, repo, capturedDir)
+}
+
 func TestValidateRepo_RejectsSiblingPrefix(t *testing.T) {
+	root := t.TempDir()
+	allowed := filepath.Join(root, "repo")
+	sibling := filepath.Join(root, "repo2")
+	require.NoError(t, os.MkdirAll(allowed, 0o755))
+	require.NoError(t, os.MkdirAll(sibling, 0o755))
 	calledGit := false
 	c, err := NewClient(&mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 			calledGit = true
 			return nil, nil
 		},
-	}, []string{"/repo"}, false)
+	}, []string{allowed}, false)
 	require.NoError(t, err)
-	_, err = c.ValidateRepo(context.Background(), "/repo2")
+	_, err = c.ValidateRepo(context.Background(), sibling)
 	assert.ErrorContains(t, err, "outside allowed paths")
-	assert.ErrorContains(t, err, "/repo")
+	assert.ErrorContains(t, err, allowed)
 	assert.False(t, calledGit)
 }
 
 func TestValidateRepo_Valid(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
 	c := mustNewClient(t, &mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 			return []byte(".git\n"), nil
 		},
 	})
-	_, err := c.ValidateRepo(context.Background(), "/some/repo")
+	_, err := c.ValidateRepo(context.Background(), repo)
 	require.NoError(t, err)
 }
 
@@ -497,13 +697,20 @@ func TestNewClient_RejectsAllowAllWithExplicitPaths(t *testing.T) {
 	assert.ErrorContains(t, err, "cannot be combined")
 }
 
+func TestNewClient_RejectsMissingAllowedPath(t *testing.T) {
+	_, err := NewClient(&mockRunner{}, []string{filepath.Join(t.TempDir(), "missing")}, false)
+	assert.ErrorContains(t, err, "allowed path must exist")
+}
+
 func TestNewClient_AllowAllPaths(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
 	c, err := NewClient(&mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 			return []byte(".git\n"), nil
 		},
 	}, nil, true)
 	require.NoError(t, err)
-	_, err = c.ValidateRepo(context.Background(), "/any/repo")
+	_, err = c.ValidateRepo(context.Background(), repo)
 	require.NoError(t, err)
 }

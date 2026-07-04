@@ -2,6 +2,14 @@
 
 Manage a Lima VM sandbox for running AI coding agents in isolation. One command to create a provisioned VM, one command to tear it down.
 
+## Security Model
+
+`sb` protects the host from agent mistakes: local credential access, host environment mutation, and unaudited use of host-authenticated tools. It is not a data-loss-prevention boundary and is not designed to stop a malicious actor from exfiltrating data.
+
+Guest network egress is intentionally allowed by default so agents can fetch public resources and use normal development workflows. Do not mount or copy secrets, credentials, or sensitive private data into the sandbox unless you are comfortable with the agent being able to transmit them over the network.
+
+Host credentials should stay on the host behind tools such as `mcp-broker`, `local-git-mcp`, and `local-gomod-proxy`, where access can be mediated and audited.
+
 ## Install
 
 ```bash

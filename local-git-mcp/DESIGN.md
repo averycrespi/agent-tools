@@ -12,7 +12,7 @@ local-git-mcp solves this by running a minimal stdio MCP server on the host that
 
 local-git-mcp is a stdio MCP server. No network listener, no config file, no state. A caller spawns it as a subprocess and communicates over stdin/stdout using the MCP protocol.
 
-The caller must provide one or more allowed host path prefixes at startup, for example `local-git-mcp /shared/worktrees /other/repo/root`. Tool calls can access only repositories or clone destinations at those prefixes or their descendants. For the old unrestricted behavior, the caller must explicitly pass `--allow-all-paths`.
+The caller must provide one or more existing allowed host path prefixes at startup, for example `local-git-mcp /shared/worktrees /other/repo/root`. Symlinks in those prefixes are resolved before serving requests. Tool calls can access only repositories or clone destinations at the resolved prefixes or their descendants. For the old unrestricted behavior, the caller must explicitly pass `--allow-all-paths`.
 
 Every git subprocess receives the MCP request context plus a per-command timeout. The default timeout is 5 minutes and can be changed with `--git-timeout`; `--git-timeout 0` disables the timeout.
 
@@ -43,11 +43,11 @@ Each tool declares MCP `ToolAnnotation` hints so callers can reason about safety
 
 ### Parameter details
 
-- **`repo_path`** (required for repo-scoped tools) — absolute path to a git repository on the host. Must be absolute (relative paths are rejected) and must be equal to or inside one of the allowed path prefixes supplied at startup. Validated before every repo-scoped operation: must be allowed, must exist, and must contain a git repo (`git rev-parse --git-dir`).
+- **`repo_path`** (required for repo-scoped tools) — absolute path to a git repository on the host. Must be absolute (relative paths are rejected) and must resolve to the same location as, or inside, one of the symlink-resolved allowed path prefixes supplied at startup. Validated before every repo-scoped operation: must be allowed, must exist, and must contain a git repo (`git rev-parse --git-dir`).
 - **`repository`** (required for `clone_github_repo`) — GitHub repository slug in `owner/repo` form. Full URLs, HTTPS URLs, SSH URLs, path traversal, extra path components, whitespace, and malformed values are rejected. The tool derives the SSH URL as `git@github.com:owner/repo.git`.
-- **`destination_dir`** (required for `clone_github_repo`) — absolute existing parent directory on the host. Must be equal to or inside one of the allowed path prefixes, must not be a symlink, and must be a directory. The target path is derived as `<destination_dir>/<repo>` and the call fails if that path already exists.
-- **`remote`** (optional, default: "origin") — the remote name to operate on.
-- **`refspec`** (optional) — git refspec for push/fetch (e.g., `refs/heads/main`).
+- **`destination_dir`** (required for `clone_github_repo`) — absolute existing parent directory on the host. Must be a directory and must not itself be a symlink. Symlinks are resolved before containment checks, and the resolved destination must be equal to or inside a symlink-resolved allowed path prefix. The target path is derived as `<resolved-destination>/<repo>` and the call fails if that path already exists.
+- **`remote`** (optional, default: "origin") — the configured remote name to operate on. Raw transport URLs are rejected; callers must use a remote already configured in the repository.
+- **`refspec`** (optional) — git refspec for push/fetch (e.g., `refs/heads/main`). URL-shaped refspecs are rejected.
 - **`branch`** (optional) — branch name for pull.
 - **`force`** (optional, push only) — when true, uses `--force-with-lease` (never bare `--force`).
 - **`rebase`** (optional, pull only) — when true, uses `--rebase`.
@@ -83,22 +83,25 @@ Startup validates access policy before serving MCP:
 
 1. At least one allowed path prefix is required unless `--allow-all-paths` is provided.
 2. Allowed path prefixes must be absolute paths.
-3. `--allow-all-paths` cannot be combined with explicit allowed path prefixes.
+3. Allowed path prefixes must exist and are normalized by resolving symlinks.
+4. `--allow-all-paths` cannot be combined with explicit allowed path prefixes.
 
 Repo-scoped tool calls validate `repo_path` before executing:
 
 1. **Absolute path** — `repo_path` must be an absolute path. Relative paths are rejected.
-2. **Allowed path** — `repo_path` must equal or descend from an allowed prefix. Sibling prefixes are not accepted: `/repo2` is outside allowed prefix `/repo`.
-3. **Path exists** — directory must be present on the host.
-4. **Is a git repo** — `git -C <path> rev-parse --git-dir` must succeed.
+2. **Path exists and resolves** — directory must be present on the host, and symlinks are resolved before containment checks.
+3. **Allowed path** — the resolved `repo_path` must equal or descend from a resolved allowed prefix. Sibling prefixes are not accepted: `/repo2` is outside allowed prefix `/repo`. A symlink inside an allowed prefix that points outside the prefix is rejected.
+4. **Is a git repo** — `git -C <resolved-path> rev-parse --git-dir` must succeed.
+
+Remote operations also validate `remote` with `git remote get-url -- <name>` before running `push`, `pull`, `fetch`, or `ls-remote`. This keeps host credentials scoped to remotes the repository already declares instead of letting callers supply arbitrary git transport URLs.
 
 `clone_github_repo` validates clone-specific inputs before executing:
 
 1. **GitHub slug** — `repository` must be a strict `owner/repo` slug, not a URL or arbitrary remote.
 2. **Absolute destination** — `destination_dir` must be an absolute path.
-3. **Allowed destination** — `destination_dir` must equal or descend from an allowed prefix.
-4. **Existing non-symlink directory** — `destination_dir` must exist, must be a directory, and must not be a symlink.
-5. **Nonexistent target** — `<destination_dir>/<repo>` must not exist.
+3. **Existing non-symlink directory** — `destination_dir` must exist, must be a directory, and must not itself be a symlink.
+4. **Allowed destination** — symlinks are resolved before containment checks, and the resolved `destination_dir` must equal or descend from a resolved allowed prefix. A symlink inside an allowed prefix that points outside the prefix is rejected.
+5. **Nonexistent target** — `<resolved-destination>/<repo>` must not exist.
 6. **Post-clone repo validation** — after `git clone -- git@github.com:owner/repo.git <target>`, `git -C <target> rev-parse --git-dir` must succeed before the tool returns success.
 
 Errors are returned as MCP tool error responses. Git's stderr is included in the error message so agents get actionable feedback (e.g., "remote not found", "permission denied").

@@ -78,6 +78,12 @@ func (c *Client) CloneGitHubRepo(ctx context.Context, repository, destinationDir
 // Push pushes commits to a remote.
 // If force is true, uses --force-with-lease.
 func (c *Client) Push(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error) {
+	if err := validateRefspec(refspec); err != nil {
+		return "", err
+	}
+	if err := c.validateRemoteName(ctx, repoPath, remote); err != nil {
+		return "", err
+	}
 	args := []string{"push"}
 	if force {
 		args = append(args, "--force-with-lease")
@@ -96,6 +102,9 @@ func (c *Client) Push(ctx context.Context, repoPath, remote, refspec string, for
 // Pull pulls from a remote.
 // If rebase is true, uses --rebase.
 func (c *Client) Pull(ctx context.Context, repoPath, remote, branch string, rebase bool) (string, error) {
+	if err := c.validateRemoteName(ctx, repoPath, remote); err != nil {
+		return "", err
+	}
 	args := []string{"pull"}
 	if rebase {
 		args = append(args, "--rebase")
@@ -113,6 +122,12 @@ func (c *Client) Pull(ctx context.Context, repoPath, remote, branch string, reba
 
 // Fetch fetches from a remote without merging.
 func (c *Client) Fetch(ctx context.Context, repoPath, remote, refspec string) (string, error) {
+	if err := validateRefspec(refspec); err != nil {
+		return "", err
+	}
+	if err := c.validateRemoteName(ctx, repoPath, remote); err != nil {
+		return "", err
+	}
 	args := []string{"fetch", "--", remote}
 	if refspec != "" {
 		args = append(args, refspec)
@@ -126,6 +141,9 @@ func (c *Client) Fetch(ctx context.Context, repoPath, remote, refspec string) (s
 
 // ListRemoteRefs lists refs on a remote (branches, tags, etc.).
 func (c *Client) ListRemoteRefs(ctx context.Context, repoPath, remote string) ([]Ref, error) {
+	if err := c.validateRemoteName(ctx, repoPath, remote); err != nil {
+		return nil, err
+	}
 	out, err := c.runDir(ctx, repoPath, "git", "ls-remote", "--", remote)
 	if err != nil {
 		return nil, fmt.Errorf("git ls-remote failed: %s", commandErrorMessage(out, err))
@@ -142,6 +160,31 @@ func (c *Client) ListRemoteRefs(ctx context.Context, repoPath, remote string) ([
 		refs = append(refs, Ref{SHA: parts[0], Ref: parts[1]})
 	}
 	return refs, nil
+}
+
+func (c *Client) validateRemoteName(ctx context.Context, repoPath, remote string) error {
+	if remote == "" {
+		return fmt.Errorf("remote is required")
+	}
+	if isURLShaped(remote) {
+		return fmt.Errorf("remote must be a configured remote name, not a URL: %s", remote)
+	}
+	out, err := c.runDir(ctx, repoPath, "git", "remote", "get-url", "--", remote)
+	if err != nil {
+		return fmt.Errorf("remote %q is not configured: %s", remote, commandErrorMessage(out, err))
+	}
+	return nil
+}
+
+func validateRefspec(refspec string) error {
+	if isURLShaped(refspec) {
+		return fmt.Errorf("refspec must not be a URL: %s", refspec)
+	}
+	return nil
+}
+
+func isURLShaped(value string) bool {
+	return strings.Contains(value, "://") || strings.Contains(value, "::")
 }
 
 // ListRemotes lists configured remotes with their URLs.
@@ -197,14 +240,18 @@ func (c *Client) ValidateRepo(ctx context.Context, repoPath string) (string, err
 		return "", fmt.Errorf("repo_path must be an absolute path: %s", repoPath)
 	}
 	cleanRepoPath := filepath.Clean(repoPath)
-	if !c.isAllowedPath(cleanRepoPath) {
-		return "", fmt.Errorf("repo_path %s is outside allowed paths; allowed prefixes: %s", cleanRepoPath, strings.Join(c.allowedPaths, ", "))
+	resolvedRepoPath, err := filepath.EvalSymlinks(cleanRepoPath)
+	if err != nil {
+		return "", fmt.Errorf("repo_path %s cannot be resolved: %w", cleanRepoPath, err)
 	}
-	out, err := c.runDir(ctx, cleanRepoPath, "git", "rev-parse", "--git-dir")
+	if !c.isAllowedPath(resolvedRepoPath) {
+		return "", fmt.Errorf("repo_path %s is outside allowed paths; allowed prefixes: %s", resolvedRepoPath, strings.Join(c.allowedPaths, ", "))
+	}
+	out, err := c.runDir(ctx, resolvedRepoPath, "git", "rev-parse", "--git-dir")
 	if err != nil {
 		return "", fmt.Errorf("not a git repository: %s", commandErrorMessage(out, err))
 	}
-	return cleanRepoPath, nil
+	return resolvedRepoPath, nil
 }
 
 func parseGitHubRepository(repository string) (string, string, error) {
@@ -254,9 +301,6 @@ func (c *Client) validateCloneTarget(destinationDir, repo string) (string, strin
 		return "", "", fmt.Errorf("destination_dir must be an absolute path: %s", destinationDir)
 	}
 	cleanDestinationDir := filepath.Clean(destinationDir)
-	if !c.isAllowedPath(cleanDestinationDir) {
-		return "", "", fmt.Errorf("destination_dir %s is outside allowed paths; allowed prefixes: %s", cleanDestinationDir, strings.Join(c.allowedPaths, ", "))
-	}
 	info, err := os.Lstat(cleanDestinationDir)
 	if err != nil {
 		return "", "", fmt.Errorf("destination_dir must be an existing directory: %s", cleanDestinationDir)
@@ -267,13 +311,20 @@ func (c *Client) validateCloneTarget(destinationDir, repo string) (string, strin
 	if !info.IsDir() {
 		return "", "", fmt.Errorf("destination_dir must be a directory: %s", cleanDestinationDir)
 	}
-	targetPath := filepath.Join(cleanDestinationDir, repo)
+	resolvedDestinationDir, err := filepath.EvalSymlinks(cleanDestinationDir)
+	if err != nil {
+		return "", "", fmt.Errorf("destination_dir %s cannot be resolved: %w", cleanDestinationDir, err)
+	}
+	if !c.isAllowedPath(resolvedDestinationDir) {
+		return "", "", fmt.Errorf("destination_dir %s is outside allowed paths; allowed prefixes: %s", resolvedDestinationDir, strings.Join(c.allowedPaths, ", "))
+	}
+	targetPath := filepath.Join(resolvedDestinationDir, repo)
 	if _, err := os.Lstat(targetPath); err == nil {
 		return "", "", fmt.Errorf("target directory already exists: %s", targetPath)
 	} else if !os.IsNotExist(err) {
 		return "", "", fmt.Errorf("checking target directory: %w", err)
 	}
-	return cleanDestinationDir, targetPath, nil
+	return resolvedDestinationDir, targetPath, nil
 }
 
 func (c *Client) runDir(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
@@ -313,9 +364,13 @@ func normalizeAllowedPaths(allowedPaths []string, allowAllPaths bool) ([]string,
 			return nil, fmt.Errorf("allowed path must be absolute: %s", allowedPath)
 		}
 		cleanPath := filepath.Clean(allowedPath)
-		if !seen[cleanPath] {
-			seen[cleanPath] = true
-			normalizedPaths = append(normalizedPaths, cleanPath)
+		resolvedPath, err := filepath.EvalSymlinks(cleanPath)
+		if err != nil {
+			return nil, fmt.Errorf("allowed path must exist and resolve symlinks: %s: %w", cleanPath, err)
+		}
+		if !seen[resolvedPath] {
+			seen[resolvedPath] = true
+			normalizedPaths = append(normalizedPaths, resolvedPath)
 		}
 	}
 	return normalizedPaths, nil

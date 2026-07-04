@@ -2,12 +2,37 @@ package audit
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestNewLogger_CreatesAuditFilesWithPrivatePermissions(t *testing.T) {
+	oldUmask := syscall.Umask(0)
+	defer syscall.Umask(oldUmask)
+
+	path := filepath.Join(t.TempDir(), "audit.db")
+	l, err := NewLogger(path)
+	require.NoError(t, err)
+	defer func() { _ = l.Close(context.Background()) }()
+
+	require.NoError(t, l.Record(context.Background(), Record{
+		Timestamp: time.Now(),
+		Tool:      "github.get_pr",
+		Args:      map[string]any{"repo": "private"},
+		Verdict:   "allow",
+	}))
+
+	for _, file := range []string{path, path + "-wal", path + "-shm"} {
+		info, statErr := os.Stat(file)
+		require.NoError(t, statErr)
+		require.Equal(t, os.FileMode(0o600), info.Mode().Perm(), file)
+	}
+}
 
 func TestLogger_RecordAndQuery(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.db")

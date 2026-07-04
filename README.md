@@ -74,6 +74,8 @@ Running AI agents with full host access is risky — one bad command can trash y
 - `sb provision` re-provisions a running VM.
 - `sb destroy` tears it down.
 
+The sandbox protects host integrity and credential custody; it is not a data-loss-prevention boundary. Guest network egress is intentionally allowed by default, so keep secrets and sensitive private data out of the VM unless you accept that the agent can transmit them.
+
 See the [sandbox-manager README](sandbox-manager/README.md) for more information.
 
 ### MCP Broker
