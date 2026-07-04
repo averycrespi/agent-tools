@@ -128,7 +128,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Create dashboard
-	dash := dashboard.New(mgr, ruleStore, auditor, logger.With("component", "dashboard"))
+	dash := dashboard.NewWithGrants(mgr, ruleStore, auditor, grantStore, logger.With("component", "dashboard"))
 
 	// Wire audit subscriber so live records are broadcast over SSE.
 	unsubscribeAudit := auditor.Subscribe(dash.OnAuditRecord)

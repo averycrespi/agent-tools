@@ -1159,6 +1159,9 @@
       <button class="tab" onclick="switchTab('rules')" id="tab-rules">
         Rules
       </button>
+      <button class="tab" onclick="switchTab('grants')" id="tab-grants">
+        Grants
+      </button>
       <button class="tab" onclick="switchTab('audit')" id="tab-audit">
         Audit Log
       </button>
@@ -1221,6 +1224,15 @@
         </div>
       </div>
 
+      <!-- Grants Tab -->
+      <div class="tab-content" id="content-grants">
+        <div class="section-title">Grants (read-only)</div>
+        <div id="grants-list"></div>
+        <div id="grants-empty" class="empty-state" style="display: none">
+          No grants retained
+        </div>
+      </div>
+
       <!-- Audit Log Tab -->
       <div class="tab-content" id="content-audit">
         <div class="audit-filters">
@@ -1242,6 +1254,7 @@
                 <th>Time</th>
                 <th>Tool</th>
                 <th>Verdict</th>
+                <th>Source</th>
                 <th>Approval</th>
                 <th>Status</th>
               </tr>
@@ -1272,7 +1285,7 @@
 
     <script>
       // --- Tab switching ---
-      var TAB_NAMES = ["approvals", "tools", "rules", "audit"];
+      var TAB_NAMES = ["approvals", "tools", "rules", "grants", "audit"];
       var activeTab = "approvals";
 
       function switchTab(name) {
@@ -1292,6 +1305,7 @@
 
         if (name === "tools") loadTools();
         if (name === "rules") loadRules();
+        if (name === "grants") loadGrants();
         if (name === "audit") {
           auditOffset = 0;
           loadAudit();
@@ -2104,6 +2118,56 @@
           });
       }
 
+      // --- Grants ---
+      function renderGrantRulesSummary(rules) {
+        rules = rules || [];
+        if (rules.length === 0) return "no rules";
+        return rules
+          .slice(0, 3)
+          .map(function (rule) {
+            return (rule.verdict || "require-approval") + " " + (rule.tool || "*");
+          })
+          .join(", ") + (rules.length > 3 ? " +" + (rules.length - 3) + " more" : "");
+      }
+
+      function loadGrants() {
+        var listEl = document.getElementById("grants-list");
+        var emptyEl = document.getElementById("grants-empty");
+        fetch("api/grants")
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (data) {
+            var grants = data.grants || [];
+            if (grants.length === 0) {
+              listEl.innerHTML = "";
+              emptyEl.style.display = "block";
+              return;
+            }
+            emptyEl.style.display = "none";
+            var html = "";
+            grants.forEach(function (grant) {
+              html += '<div class="rule-card">';
+              html += '<div class="rule-headline">';
+              html += '<span class="rule-index">' + esc(grant.status || "unknown") + "</span>";
+              html += '<span class="rule-tool">' + esc(grant.name || grant.id || "-") + "</span>";
+              html += '<span class="rule-with">' + esc(grant.fingerprint || "-") + "</span>";
+              html += "</div>";
+              if (grant.description) {
+                html += '<div class="rule-note">' + esc(grant.description) + "</div>";
+              }
+              html += '<div class="rule-note">expires: ' + esc(grant.expires_at ? new Date(grant.expires_at).toLocaleString() : "-") + "</div>";
+              html += '<div class="rule-note">created: ' + esc(grant.created_at ? new Date(grant.created_at).toLocaleString() : "-") + "</div>";
+              if (grant.revoked_at) {
+                html += '<div class="rule-note">revoked: ' + esc(new Date(grant.revoked_at).toLocaleString()) + "</div>";
+              }
+              html += '<div class="rule-patterns"><div class="rule-pattern">' + esc(renderGrantRulesSummary(grant.rules)) + "</div></div>";
+              html += "</div>";
+            });
+            listEl.innerHTML = html;
+          });
+      }
+
       // --- Audit Log ---
       var auditLimit = 20;
       var auditOffset = 0;
@@ -2143,7 +2207,7 @@
         detailRow.className = rowClass + " audit-detail-row";
 
         var td = document.createElement("td");
-        td.colSpan = 5;
+        td.colSpan = 6;
 
         var content = '<div class="audit-detail-content">';
 
@@ -2156,6 +2220,19 @@
           esc(argsText) +
           "</pre></div>";
         content += "</div>";
+
+        if (rec.rule_source || rec.grant_fingerprint || rec.grant_status) {
+          content += '<div class="audit-detail-field">';
+          content += '<div class="audit-detail-label">Decision source</div>';
+          var source = rec.rule_source || "-";
+          if (rec.grant_fingerprint) {
+            source += " via grant " + (rec.grant_name || rec.grant_id || "-") + " (" + rec.grant_fingerprint + ", " + (rec.grant_status || "unknown") + ")";
+          } else if (rec.grant_status) {
+            source += "; grant " + rec.grant_status;
+          }
+          content += '<div class="audit-detail-value">' + esc(source) + "</div>";
+          content += "</div>";
+        }
 
         // Error (only shown when there's an error)
         if (rec.error) {
@@ -2229,6 +2306,13 @@
         html += "<td>" + esc(rec.tool || "-") + "</td>";
         html +=
           '<td class="' + verdictClass + '">' + esc(verdictText) + "</td>";
+        var source = rec.rule_source || "-";
+        if (rec.grant_fingerprint) {
+          source += " / " + rec.grant_fingerprint;
+        } else if (rec.grant_status) {
+          source += " / grant " + rec.grant_status;
+        }
+        html += "<td>" + esc(source) + "</td>";
         html += "<td>" + esc(approval) + "</td>";
         html += "<td>" + esc(result) + "</td>";
         html += "</tr>";

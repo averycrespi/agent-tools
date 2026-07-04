@@ -16,6 +16,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/grants"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/rules"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 )
@@ -36,6 +37,45 @@ func (f *fakeToolAndBackendLister) BackendStatuses() []server.BackendStatus { re
 type fakeRulesLister struct{ rules []config.RuleConfig }
 
 func (f *fakeRulesLister) Rules() []config.RuleConfig { return f.rules }
+
+type fakeGrantLister struct{ grants []grants.Grant }
+
+func (f *fakeGrantLister) List(context.Context, time.Time) ([]grants.Grant, error) {
+	return f.grants, nil
+}
+
+func TestDashboard_GrantsAPIReadOnlyMetadata(t *testing.T) {
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	d := NewWithGrants(nil, nil, nil, &fakeGrantLister{grants: []grants.Grant{{
+		ID:          "grant-1",
+		Name:        "release",
+		Description: "deploy",
+		Fingerprint: "abc123def456",
+		Status:      "active",
+		Rules:       []config.RuleConfig{{Tool: "git.push", Verdict: "allow", Reason: "release"}},
+		CreatedAt:   now,
+		ExpiresAt:   now.Add(time.Hour),
+	}}}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/grants", nil)
+	w := httptest.NewRecorder()
+	d.Handler().ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	body := w.Body.String()
+	require.NotContains(t, body, "token")
+	require.NotContains(t, body, "hash")
+
+	var payload struct {
+		Grants []grants.Grant `json:"grants"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	require.Len(t, payload.Grants, 1)
+	require.Equal(t, "grant-1", payload.Grants[0].ID)
+	require.Equal(t, "abc123def456", payload.Grants[0].Fingerprint)
+	require.Equal(t, "active", payload.Grants[0].Status)
+	require.Equal(t, "git.push", payload.Grants[0].Rules[0].Tool)
+}
 
 func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
 	d := New(nil, nil, nil, nil)

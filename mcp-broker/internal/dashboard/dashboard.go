@@ -18,6 +18,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/grants"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 )
 
@@ -60,6 +61,11 @@ type AuditQuerier interface {
 	Query(ctx context.Context, opts audit.QueryOpts) ([]audit.Record, int, error)
 }
 
+// GrantLister provides read-only grant metadata.
+type GrantLister interface {
+	List(ctx context.Context, now time.Time) ([]grants.Grant, error)
+}
+
 // Dashboard serves the web UI and manages the approval flow.
 type Dashboard struct {
 	mu      sync.Mutex
@@ -69,16 +75,23 @@ type Dashboard struct {
 	tools   ToolLister
 	rules   RulesLister
 	auditor AuditQuerier
+	grants  GrantLister
 	logger  *slog.Logger
 }
 
 // New creates a Dashboard.
 func New(tools ToolLister, rules RulesLister, auditor AuditQuerier, logger *slog.Logger) *Dashboard {
+	return NewWithGrants(tools, rules, auditor, nil, logger)
+}
+
+// NewWithGrants creates a Dashboard with read-only grant visibility.
+func NewWithGrants(tools ToolLister, rules RulesLister, auditor AuditQuerier, grantLister GrantLister, logger *slog.Logger) *Dashboard {
 	return &Dashboard{
 		pending: make(map[string]*pendingRequest),
 		tools:   tools,
 		rules:   rules,
 		auditor: auditor,
+		grants:  grantLister,
 		logger:  logger,
 	}
 }
@@ -91,6 +104,7 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("GET /api/pending", d.handlePending)
 	mux.HandleFunc("GET /api/tools", d.handleTools)
 	mux.HandleFunc("GET /api/rules", d.handleRules)
+	mux.HandleFunc("GET /api/grants", d.handleGrants)
 	mux.HandleFunc("GET /api/audit", d.handleAudit)
 	mux.HandleFunc("GET /unauthorized", d.handleUnauthorized)
 	mux.HandleFunc("GET /favicon.svg", d.handleFavicon)
@@ -302,6 +316,24 @@ func (d *Dashboard) handleRules(w http.ResponseWriter, _ *http.Request) {
 		"may_fall_through":    may,
 		"default_verdict":     "require-approval",
 	})
+}
+
+func (d *Dashboard) handleGrants(w http.ResponseWriter, r *http.Request) {
+	if d.grants == nil {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"grants": []grants.Grant{}})
+		return
+	}
+	items, err := d.grants.List(r.Context(), time.Now())
+	if err != nil {
+		if d.logger != nil {
+			d.logger.Error("grant query failed", "error", err)
+		}
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"grants": items})
 }
 
 func (d *Dashboard) handleAudit(w http.ResponseWriter, r *http.Request) {
