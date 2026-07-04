@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -32,6 +33,13 @@ type Approver struct {
 	client  *http.Client
 	logger  *slog.Logger
 	tools   ToolLister
+
+	mu         sync.Mutex
+	offset     int
+	waiters    map[int]chan telegramDecision
+	backlog    map[int]telegramDecision
+	polling    bool
+	pollCancel context.CancelFunc
 }
 
 // WithTools attaches a ToolLister so Review can include tool descriptions in messages.
@@ -78,7 +86,7 @@ func (a *Approver) Review(ctx context.Context, tool string, args map[string]any)
 		return false, "", fmt.Errorf("send telegram message: %w", err)
 	}
 
-	approved, denialReason, err := a.pollForDecision(ctx, msgID)
+	approved, denialReason, err := a.waitForDecision(ctx, msgID)
 
 	// Best-effort: update the message to show the outcome.
 	outcome := resolvedText(approved, denialReason, err, ctx, tool, argsStr)
@@ -90,17 +98,88 @@ func (a *Approver) Review(ctx context.Context, tool string, args map[string]any)
 	return approved, denialReason, nil
 }
 
-func (a *Approver) pollForDecision(ctx context.Context, messageID int) (bool, string, error) {
-	offset := 0
+type telegramDecision struct {
+	approved     bool
+	denialReason string
+}
+
+func (a *Approver) waitForDecision(ctx context.Context, messageID int) (bool, string, error) {
+	ch := a.registerWaiter(messageID)
+	defer a.unregisterWaiter(messageID)
+
+	select {
+	case decision := <-ch:
+		return decision.approved, decision.denialReason, nil
+	case <-ctx.Done():
+		return false, "", ctx.Err()
+	}
+}
+
+func (a *Approver) registerWaiter(messageID int) <-chan telegramDecision {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	ch := make(chan telegramDecision, 1)
+	if decision, ok := a.backlog[messageID]; ok {
+		delete(a.backlog, messageID)
+		ch <- decision
+		return ch
+	}
+	if a.waiters == nil {
+		a.waiters = make(map[int]chan telegramDecision)
+	}
+	a.waiters[messageID] = ch
+	a.ensurePollingLocked()
+	return ch
+}
+
+func (a *Approver) unregisterWaiter(messageID int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	delete(a.waiters, messageID)
+	if len(a.waiters) == 0 && a.pollCancel != nil {
+		a.pollCancel()
+	}
+}
+
+func (a *Approver) ensurePollingLocked() {
+	if a.polling {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.polling = true
+	a.pollCancel = cancel
+	go a.pollUpdates(ctx)
+}
+
+func (a *Approver) pollUpdates(ctx context.Context) {
+	defer func() {
+		a.mu.Lock()
+		a.polling = false
+		a.pollCancel = nil
+		shouldRestart := len(a.waiters) > 0
+		a.mu.Unlock()
+		if shouldRestart {
+			a.mu.Lock()
+			a.ensurePollingLocked()
+			a.mu.Unlock()
+		}
+	}()
+
 	for {
 		if ctx.Err() != nil {
-			return false, "", ctx.Err()
+			return
 		}
+
+		a.mu.Lock()
+		offset := a.offset
+		a.mu.Unlock()
 
 		updates, err := a.getUpdates(ctx, offset)
 		if err != nil {
 			if ctx.Err() != nil {
-				return false, "", ctx.Err()
+				return
 			}
 			if a.logger != nil {
 				a.logger.Warn("telegram poll error", "error", err)
@@ -108,28 +187,55 @@ func (a *Approver) pollForDecision(ctx context.Context, messageID int) (bool, st
 			select {
 			case <-time.After(2 * time.Second):
 			case <-ctx.Done():
-				return false, "", ctx.Err()
+				return
 			}
 			continue
 		}
 
+		maxOffset := offset
 		for _, update := range updates {
-			if update.UpdateID >= offset {
-				offset = update.UpdateID + 1
+			if update.UpdateID >= maxOffset {
+				maxOffset = update.UpdateID + 1
 			}
 			if update.CallbackQuery == nil {
 				continue
 			}
-			if update.CallbackQuery.Message.MessageID != messageID {
-				continue
-			}
 			_ = a.answerCallbackQuery(context.Background(), update.CallbackQuery.ID)
-			if update.CallbackQuery.Data == "approve" {
-				return true, "", nil
-			}
-			return false, "user", nil
+			a.dispatchDecision(update.CallbackQuery.Message.MessageID, decisionForCallback(update.CallbackQuery.Data))
 		}
+
+		a.mu.Lock()
+		if maxOffset > a.offset {
+			a.offset = maxOffset
+		}
+		if len(a.waiters) == 0 {
+			a.mu.Unlock()
+			return
+		}
+		a.mu.Unlock()
 	}
+}
+
+func (a *Approver) dispatchDecision(messageID int, decision telegramDecision) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if ch, ok := a.waiters[messageID]; ok {
+		delete(a.waiters, messageID)
+		ch <- decision
+		return
+	}
+	if a.backlog == nil {
+		a.backlog = make(map[int]telegramDecision)
+	}
+	a.backlog[messageID] = decision
+}
+
+func decisionForCallback(data string) telegramDecision {
+	if data == "approve" {
+		return telegramDecision{approved: true}
+	}
+	return telegramDecision{denialReason: "user"}
 }
 
 func (a *Approver) apiURL(method string) string {

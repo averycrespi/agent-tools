@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -28,6 +30,9 @@ func newStdioBackend(ctx context.Context, name string, srv config.ServerConfig, 
 	if err != nil {
 		return nil, fmt.Errorf("spawn stdio server %q: %w", name, err)
 	}
+	if stderr, ok := client.GetStderr(c); ok {
+		go drainStdioStderr(name, stderr, logger)
+	}
 
 	initReq := mcp.InitializeRequest{}
 	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
@@ -44,6 +49,19 @@ func newStdioBackend(ctx context.Context, name string, srv config.ServerConfig, 
 	logger.Debug("stdio backend initialized", "name", name, "command", srv.Command)
 
 	return &stdioBackend{client: c}, nil
+}
+
+func drainStdioStderr(name string, stderr io.Reader, logger *slog.Logger) {
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := stderr.Read(buf)
+		if n > 0 && logger != nil {
+			logger.Debug("stdio backend stderr", "name", name, "output", strings.TrimSpace(string(buf[:n])))
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 func (b *stdioBackend) ListTools(ctx context.Context) ([]Tool, error) {
