@@ -372,3 +372,38 @@ func TestParseApprovalModeRejectsUnknownValue(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported Mcp-Broker-Approval-Mode")
 }
+
+func TestParseGrantHeader(t *testing.T) {
+	tests := []struct {
+		name      string
+		headers   map[string][]string
+		wantToken string
+		wantErr   string
+	}{
+		{name: "absent"},
+		{name: "single token", headers: map[string][]string{"Mcp-Broker-Grant": {"abc123"}}, wantToken: "abc123"},
+		{name: "empty", headers: map[string][]string{"Mcp-Broker-Grant": {""}}, wantErr: "must not be empty"},
+		{name: "duplicate", headers: map[string][]string{"Mcp-Broker-Grant": {"one", "two"}}, wantErr: "multiple"},
+		{name: "comma combined", headers: map[string][]string{"Mcp-Broker-Grant": {"one,two"}}, wantErr: "comma-combined"},
+		{name: "space separated", headers: map[string][]string{"Mcp-Broker-Grant": {"one two"}}, wantErr: "single token"},
+		{name: "trimmed whitespace", headers: map[string][]string{"Mcp-Broker-Grant": {" abc123"}}, wantErr: "single token"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			header := make(http.Header)
+			for key, values := range tt.headers {
+				for _, value := range values {
+					header.Add(key, value)
+				}
+			}
+			token, errText := parseGrantHeader(header)
+			require.Equal(t, tt.wantToken, token)
+			if tt.wantErr == "" {
+				require.Empty(t, errText)
+			} else {
+				require.Contains(t, errText, tt.wantErr)
+			}
+		})
+	}
+}

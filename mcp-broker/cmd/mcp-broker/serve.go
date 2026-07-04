@@ -24,6 +24,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/broker"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/dashboard"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/grants"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/rules"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/telegram"
@@ -102,6 +103,13 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = auditor.Close(context.Background()) }()
 
+	// Create grant store. Grant lookup errors are authorization state failures, so startup fails if unavailable.
+	grantStore, err := grants.Open(cfg.Grants.Path)
+	if err != nil {
+		return fmt.Errorf("creating grants store: %w", err)
+	}
+	defer func() { _ = grantStore.Close() }()
+
 	// Connect to backend servers
 	ctx := context.Background()
 	mgr, err := server.NewManager(ctx, cfg.Servers, cfg.ToolPatches, logger.With("component", "server"))
@@ -143,7 +151,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	multi := broker.NewMultiApprover(timeout, approvers...)
 
 	// Create broker
-	b := broker.New(mgr, ruleStore, auditor, multi, logger.With("component", "broker"))
+	b := broker.NewWithGrants(mgr, ruleStore, auditor, multi, grantStore, logger.With("component", "broker"))
 
 	// Create MCP server
 	mcpSrv := mcpserver.NewMCPServer("mcp-broker", "0.1.0")
@@ -349,6 +357,28 @@ func parseApprovalMode(raw string) (broker.ApprovalMode, error) {
 	}
 }
 
+func parseGrantHeader(h http.Header) (string, string) {
+	values := h.Values("Mcp-Broker-Grant")
+	if len(values) == 0 {
+		return "", ""
+	}
+	if len(values) > 1 {
+		return "", "multiple Mcp-Broker-Grant headers are not allowed"
+	}
+	value := values[0]
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", "Mcp-Broker-Grant must not be empty"
+	}
+	if strings.Contains(value, ",") {
+		return "", "comma-combined Mcp-Broker-Grant values are not allowed"
+	}
+	if trimmed != value || strings.ContainsAny(value, " \t\r\n") {
+		return "", "Mcp-Broker-Grant must be a single token"
+	}
+	return value, ""
+}
+
 func makeMCPHandler(b *broker.Broker) func(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
 	return func(ctx context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
 		args, _ := req.Params.Arguments.(map[string]any)
@@ -361,7 +391,9 @@ func makeMCPHandler(b *broker.Broker) func(ctx context.Context, req gomcp.CallTo
 			return gomcp.NewToolResultError(err.Error()), nil
 		}
 
-		result, err := b.HandleToolResultWithOptions(ctx, req.Params.Name, args, broker.HandleOptions{ApprovalMode: approvalMode})
+		grantToken, grantHeaderError := parseGrantHeader(req.Header)
+
+		result, err := b.HandleToolResultWithOptions(ctx, req.Params.Name, args, broker.HandleOptions{ApprovalMode: approvalMode, GrantToken: grantToken, GrantHeaderError: grantHeaderError})
 		if err != nil {
 			return gomcp.NewToolResultError(err.Error()), nil
 		}
