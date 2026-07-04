@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -76,7 +78,7 @@ func (a *Approver) Review(ctx context.Context, tool string, args map[string]any)
 			desc = "\n" + truncate(d, 120)
 		}
 	}
-	text := fmt.Sprintf("🔧 <code>%s</code>%s\n\n<pre>%s</pre>\n\n⏳ %s", tool, desc, argsStr, timeout)
+	text := approvalText(tool, desc, argsStr, timeout)
 
 	msgID, err := a.sendMessage(ctx, text)
 	if err != nil {
@@ -377,6 +379,15 @@ func (a *Approver) editMessage(ctx context.Context, messageID int, text string) 
 	return resp.Body.Close()
 }
 
+func approvalText(tool, desc, argsStr, timeout string) string {
+	return fmt.Sprintf("🔧 <code>%s</code>%s\n\n<pre>%s</pre>\n\n⏳ %s",
+		escapeHTML(tool), escapeHTML(desc), escapeHTML(argsStr), timeout)
+}
+
+func escapeHTML(s string) string {
+	return html.EscapeString(s)
+}
+
 func timeoutLabel(ctx context.Context) string {
 	deadline, ok := ctx.Deadline()
 	if !ok {
@@ -409,11 +420,14 @@ func formatArgs(args map[string]any) string {
 	for k, v := range args {
 		truncated[k] = truncateValue(v)
 	}
-	b, err := json.MarshalIndent(truncated, "", "  ")
-	if err != nil {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(truncated); err != nil {
 		return "(error formatting args)"
 	}
-	return string(b)
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // truncateValue marshals a single argument value and truncates it if too long.
@@ -435,7 +449,7 @@ func truncateValue(v any) any {
 }
 
 func resolvedText(approved bool, denialReason string, err error, ctx context.Context, tool, argsStr string) string {
-	detail := fmt.Sprintf("\n\n🔧 <code>%s</code>\n<pre>%s</pre>", tool, argsStr)
+	detail := fmt.Sprintf("\n\n🔧 <code>%s</code>\n<pre>%s</pre>", escapeHTML(tool), escapeHTML(argsStr))
 	switch {
 	case err != nil && ctx.Err() == context.DeadlineExceeded:
 		return "⏱️ Timed out" + detail

@@ -166,6 +166,78 @@ func TestApprover_Review_ConcurrentCallbacksAreDispatchedByMessageID(t *testing.
 	}
 }
 
+type fakeToolLister map[string]string
+
+func (f fakeToolLister) ToolDescription(name string) string {
+	return f[name]
+}
+
+func TestApprover_Review_EscapesHTMLInApprovalMessage(t *testing.T) {
+	messageText := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
+			var req sendMessageReq
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+			messageText <- req.Text
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     true,
+				"result": map[string]any{"message_id": 1},
+			})
+		case strings.HasSuffix(r.URL.Path, "/getUpdates"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     true,
+				"result": []map[string]any{seqCallbackUpdate(1, 1, "cq1", "approve")},
+			})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		}
+	}))
+	defer srv.Close()
+
+	a := newWithBase("token", "123", srv.URL, &http.Client{Timeout: 5 * time.Second}, nil)
+	a.WithTools(fakeToolLister{"evil</code>": "desc & <b>spoof</b>"})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	approved, reason, err := a.Review(ctx, "evil</code>", map[string]any{
+		"body": "</pre><b>approved</b><pre>&",
+	})
+
+	require.NoError(t, err)
+	require.True(t, approved)
+	require.Empty(t, reason)
+	text := <-messageText
+	require.Contains(t, text, "<code>evil&lt;/code&gt;</code>")
+	require.Contains(t, text, "desc &amp; &lt;b&gt;spoof&lt;/b&gt;")
+	require.Contains(t, text, "&lt;/pre&gt;&lt;b&gt;approved&lt;/b&gt;&lt;pre&gt;&amp;")
+	require.NotContains(t, text, "evil</code>")
+	require.NotContains(t, text, "</pre><b>approved</b><pre>")
+}
+
+func TestResolvedText_EscapesHTMLInDetail(t *testing.T) {
+	text := resolvedText(true, "", nil, context.Background(), "evil</code>", `{"body":"</pre><b>approved</b><pre>&"}`)
+
+	require.Contains(t, text, "<code>evil&lt;/code&gt;</code>")
+	require.Contains(t, text, "&lt;/pre&gt;&lt;b&gt;approved&lt;/b&gt;&lt;pre&gt;&amp;")
+	require.NotContains(t, text, "evil</code>")
+	require.NotContains(t, text, "</pre><b>approved</b><pre>")
+}
+
+func seqCallbackUpdate(updateID, messageID int, callbackID, data string) map[string]any {
+	return map[string]any{
+		"update_id": updateID,
+		"callback_query": map[string]any{
+			"id":   callbackID,
+			"data": data,
+			"message": map[string]any{
+				"message_id": messageID,
+			},
+		},
+	}
+}
+
 func TestApprover_Review_ContextCancelled(t *testing.T) {
 	// Fake server that never returns a callback
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
