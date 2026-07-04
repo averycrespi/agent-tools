@@ -43,8 +43,8 @@ Each tool declares MCP `ToolAnnotation` hints so callers can reason about safety
 ### Parameter details
 
 - **`repo_path`** (required, all tools) — absolute path to a git repository on the host. Must be absolute (relative paths are rejected) and must be equal to or inside one of the allowed path prefixes supplied at startup. Validated before every operation: must be allowed, must exist, and must contain a git repo (`git rev-parse --git-dir`).
-- **`remote`** (optional, default: "origin") — the remote name to operate on.
-- **`refspec`** (optional) — git refspec for push/fetch (e.g., `refs/heads/main`).
+- **`remote`** (optional, default: "origin") — the configured remote name to operate on. Raw transport URLs are rejected; callers must use a remote already configured in the repository.
+- **`refspec`** (optional) — git refspec for push/fetch (e.g., `refs/heads/main`). URL-shaped refspecs are rejected.
 - **`branch`** (optional) — branch name for pull.
 - **`force`** (optional, push only) — when true, uses `--force-with-lease` (never bare `--force`).
 - **`rebase`** (optional, pull only) — when true, uses `--rebase`.
@@ -88,6 +88,8 @@ Every tool call validates `repo_path` before executing:
 2. **Allowed path** — `repo_path` must equal or descend from an allowed prefix. Sibling prefixes are not accepted: `/repo2` is outside allowed prefix `/repo`.
 3. **Path exists** — directory must be present on the host.
 4. **Is a git repo** — `git -C <path> rev-parse --git-dir` must succeed.
+
+Remote operations also validate `remote` with `git remote get-url -- <name>` before running `push`, `pull`, `fetch`, or `ls-remote`. This keeps host credentials scoped to remotes the repository already declares instead of letting callers supply arbitrary git transport URLs.
 
 Errors are returned as MCP tool error responses. Git's stderr is included in the error message so agents get actionable feedback (e.g., "remote not found", "permission denied").
 

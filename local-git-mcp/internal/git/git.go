@@ -50,6 +50,12 @@ func NewClientWithTimeout(runner exec.Runner, allowedPaths []string, allowAllPat
 // Push pushes commits to a remote.
 // If force is true, uses --force-with-lease.
 func (c *Client) Push(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error) {
+	if err := validateRefspec(refspec); err != nil {
+		return "", err
+	}
+	if err := c.validateRemoteName(ctx, repoPath, remote); err != nil {
+		return "", err
+	}
 	args := []string{"push"}
 	if force {
 		args = append(args, "--force-with-lease")
@@ -68,6 +74,9 @@ func (c *Client) Push(ctx context.Context, repoPath, remote, refspec string, for
 // Pull pulls from a remote.
 // If rebase is true, uses --rebase.
 func (c *Client) Pull(ctx context.Context, repoPath, remote, branch string, rebase bool) (string, error) {
+	if err := c.validateRemoteName(ctx, repoPath, remote); err != nil {
+		return "", err
+	}
 	args := []string{"pull"}
 	if rebase {
 		args = append(args, "--rebase")
@@ -85,6 +94,12 @@ func (c *Client) Pull(ctx context.Context, repoPath, remote, branch string, reba
 
 // Fetch fetches from a remote without merging.
 func (c *Client) Fetch(ctx context.Context, repoPath, remote, refspec string) (string, error) {
+	if err := validateRefspec(refspec); err != nil {
+		return "", err
+	}
+	if err := c.validateRemoteName(ctx, repoPath, remote); err != nil {
+		return "", err
+	}
 	args := []string{"fetch", "--", remote}
 	if refspec != "" {
 		args = append(args, refspec)
@@ -98,6 +113,9 @@ func (c *Client) Fetch(ctx context.Context, repoPath, remote, refspec string) (s
 
 // ListRemoteRefs lists refs on a remote (branches, tags, etc.).
 func (c *Client) ListRemoteRefs(ctx context.Context, repoPath, remote string) ([]Ref, error) {
+	if err := c.validateRemoteName(ctx, repoPath, remote); err != nil {
+		return nil, err
+	}
 	out, err := c.runDir(ctx, repoPath, "git", "ls-remote", "--", remote)
 	if err != nil {
 		return nil, fmt.Errorf("git ls-remote failed: %s", commandErrorMessage(out, err))
@@ -114,6 +132,31 @@ func (c *Client) ListRemoteRefs(ctx context.Context, repoPath, remote string) ([
 		refs = append(refs, Ref{SHA: parts[0], Ref: parts[1]})
 	}
 	return refs, nil
+}
+
+func (c *Client) validateRemoteName(ctx context.Context, repoPath, remote string) error {
+	if remote == "" {
+		return fmt.Errorf("remote is required")
+	}
+	if isURLShaped(remote) {
+		return fmt.Errorf("remote must be a configured remote name, not a URL: %s", remote)
+	}
+	out, err := c.runDir(ctx, repoPath, "git", "remote", "get-url", "--", remote)
+	if err != nil {
+		return fmt.Errorf("remote %q is not configured: %s", remote, commandErrorMessage(out, err))
+	}
+	return nil
+}
+
+func validateRefspec(refspec string) error {
+	if isURLShaped(refspec) {
+		return fmt.Errorf("refspec must not be a URL: %s", refspec)
+	}
+	return nil
+}
+
+func isURLShaped(value string) bool {
+	return strings.Contains(value, "://") || strings.Contains(value, "::")
 }
 
 // ListRemotes lists configured remotes with their URLs.

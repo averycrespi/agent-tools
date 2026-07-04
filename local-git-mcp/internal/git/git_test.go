@@ -33,6 +33,80 @@ func mustNewClient(t *testing.T, runner *mockRunner) *Client {
 	return client
 }
 
+type gitCall struct {
+	dir  string
+	name string
+	args []string
+}
+
+func TestRemoteOperations_RejectURLShapedRemoteBeforeRunningGit(t *testing.T) {
+	calledGit := false
+	c := mustNewClient(t, &mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			calledGit = true
+			return nil, nil
+		},
+	})
+
+	_, err := c.Fetch(context.Background(), "/repo", "https://example.com/repo.git", "")
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "remote must be a configured remote name")
+	assert.False(t, calledGit)
+}
+
+func TestRemoteOperations_RejectUnknownRemoteBeforeFetch(t *testing.T) {
+	var calls []gitCall
+	c := mustNewClient(t, &mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			calls = append(calls, gitCall{dir: dir, name: name, args: append([]string(nil), args...)})
+			if assert.Equal(t, []string{"remote", "get-url", "--", "missing"}, args) {
+				return []byte("error: No such remote 'missing'"), fmt.Errorf("exit status 2")
+			}
+			return nil, nil
+		},
+	})
+
+	_, err := c.Fetch(context.Background(), "/repo", "missing", "")
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "remote \"missing\" is not configured")
+	require.Len(t, calls, 1)
+}
+
+func TestRemoteOperations_ValidateConfiguredRemoteBeforeRunningGit(t *testing.T) {
+	var calls []gitCall
+	c := mustNewClient(t, &mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			calls = append(calls, gitCall{dir: dir, name: name, args: append([]string(nil), args...)})
+			return []byte("ok\n"), nil
+		},
+	})
+
+	_, err := c.Fetch(context.Background(), "/repo", "origin", "refs/heads/main")
+
+	require.NoError(t, err)
+	require.Len(t, calls, 2)
+	assert.Equal(t, gitCall{dir: "/repo", name: "git", args: []string{"remote", "get-url", "--", "origin"}}, calls[0])
+	assert.Equal(t, gitCall{dir: "/repo", name: "git", args: []string{"fetch", "--", "origin", "refs/heads/main"}}, calls[1])
+}
+
+func TestRemoteOperations_RejectURLShapedRefspec(t *testing.T) {
+	calledGit := false
+	c := mustNewClient(t, &mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			calledGit = true
+			return nil, nil
+		},
+	})
+
+	_, err := c.Push(context.Background(), "/repo", "origin", "https://example.com/repo.git", false)
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "refspec must not be a URL")
+	assert.False(t, calledGit)
+}
+
 func TestPush_DefaultArgs(t *testing.T) {
 	var capturedArgs []string
 	c := mustNewClient(t, &mockRunner{
@@ -76,6 +150,9 @@ func TestPush_ForceWithLease(t *testing.T) {
 func TestPush_Error(t *testing.T) {
 	c := mustNewClient(t, &mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			if len(args) >= 2 && args[0] == "remote" && args[1] == "get-url" {
+				return []byte("git@github.com:user/repo.git\n"), nil
+			}
 			return []byte("error: failed to push"), fmt.Errorf("exit status 1")
 		},
 	})
@@ -152,6 +229,9 @@ func TestFetch_WithRefspec(t *testing.T) {
 func TestFetch_TimesOutBlockedCommand(t *testing.T) {
 	c, err := NewClientWithTimeout(&mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			if len(args) >= 2 && args[0] == "remote" && args[1] == "get-url" {
+				return []byte("git@github.com:user/repo.git\n"), nil
+			}
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},
@@ -181,6 +261,9 @@ func TestListRemoteRefs_Success(t *testing.T) {
 func TestListRemoteRefs_Error(t *testing.T) {
 	c := mustNewClient(t, &mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			if len(args) >= 2 && args[0] == "remote" && args[1] == "get-url" {
+				return []byte("git@github.com:user/repo.git\n"), nil
+			}
 			return []byte("fatal: not a git repository"), fmt.Errorf("exit status 128")
 		},
 	})

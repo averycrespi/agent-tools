@@ -29,7 +29,7 @@ At startup, callers must provide one or more allowed path prefixes. Tool calls c
 | `list_remote_refs` | List refs (branches, tags) on a remote                   |
 | `list_remotes`     | List configured remotes and their URLs                   |
 
-All tools require a `repo_path` parameter — an absolute path to a git repository on the host. The path must be equal to or inside one of the allowed path prefixes provided when the server starts.
+All tools require a `repo_path` parameter — an absolute path to a git repository on the host. The path must be equal to or inside one of the allowed path prefixes provided when the server starts. Tools that accept `remote` require a configured remote name such as `origin`; raw transport URLs such as `https://...`, `ssh://...`, and `file://...` are rejected.
 
 ## Quick start
 
