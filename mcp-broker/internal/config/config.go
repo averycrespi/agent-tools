@@ -20,6 +20,7 @@ type Config struct {
 	Port                   int                     `json:"port"`
 	OpenBrowser            bool                    `json:"open_browser"`
 	Audit                  AuditConfig             `json:"audit"`
+	Grants                 GrantsConfig            `json:"grants"`
 	Log                    LogConfig               `json:"log"`
 	ApprovalTimeoutSeconds int                     `json:"approval_timeout_seconds"`
 	MaxRequestBodyBytes    int64                   `json:"max_request_body_bytes"`
@@ -118,6 +119,12 @@ type AuditConfig struct {
 	Path string `json:"path"`
 }
 
+// GrantsConfig controls durable grant authorization state.
+type GrantsConfig struct {
+	Path          string `json:"path"`
+	MaxTTLSeconds int64  `json:"max_ttl_seconds"`
+}
+
 // LogConfig controls logging behavior.
 type LogConfig struct {
 	Level string `json:"level"`
@@ -167,6 +174,10 @@ func DefaultConfig() Config {
 		Audit: AuditConfig{
 			Path: filepath.Join(xdgDataHome(), "mcp-broker", "audit.db"),
 		},
+		Grants: GrantsConfig{
+			Path:          filepath.Join(xdgDataHome(), "mcp-broker", "grants.db"),
+			MaxTTLSeconds: 7 * 24 * 60 * 60,
+		},
 		Log:      LogConfig{Level: "info"},
 		Telegram: TelegramConfig{Enabled: false},
 	}
@@ -198,6 +209,9 @@ func Load(path string) (Config, error) {
 }
 
 func validate(cfg Config) error {
+	if cfg.Grants.MaxTTLSeconds <= 0 {
+		return fmt.Errorf("grants.max_ttl_seconds must be positive")
+	}
 	for name, srv := range cfg.Servers {
 		if srv.StartupRetryCount != nil && *srv.StartupRetryCount < 0 {
 			return fmt.Errorf("servers.%s.startup_retry_count must be non-negative", name)
