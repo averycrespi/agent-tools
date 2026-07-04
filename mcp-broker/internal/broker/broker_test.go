@@ -314,6 +314,35 @@ func TestBroker_Handle_GrantAllowShadowsBaseDeny(t *testing.T) {
 	al.AssertExpectations(t)
 }
 
+func TestBroker_Handle_GrantDenyShadowsBaseAllow(t *testing.T) {
+	grant := grants.Grant{
+		ID:          "grant-1",
+		Name:        "blocker",
+		Fingerprint: "abc123def456",
+		Status:      "active",
+		Rules:       []config.RuleConfig{{Tool: "git.push", Verdict: "deny", Reason: "temporary block"}},
+	}
+
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
+		return r.Tool == "git.push" &&
+			r.Verdict == "deny" &&
+			r.RuleSource == "grant" &&
+			r.DenialReason == "grant rule: temporary block" &&
+			r.Error == "denied by grant rule: temporary block"
+	})).Return(nil)
+
+	base, err := rules.New([]config.RuleConfig{{Tool: "git.*", Verdict: "allow"}})
+	require.NoError(t, err)
+	sm := new(mockServerManager)
+	b := NewWithGrants(sm, base, al, nil, fakeGrantValidator{grant: grant}, nil)
+
+	_, err = b.HandleToolResultWithOptions(context.Background(), "git.push", nil, HandleOptions{GrantToken: "secret"})
+	require.ErrorIs(t, err, ErrDenied)
+	sm.AssertNotCalled(t, "Call", mock.Anything, mock.Anything, mock.Anything)
+	al.AssertExpectations(t)
+}
+
 func TestBroker_Handle_GrantFallthroughUsesBaseRules(t *testing.T) {
 	grant := grants.Grant{
 		ID:          "grant-1",
@@ -394,6 +423,41 @@ func TestBroker_Handle_InvalidGrantFailsClosedBeforeApprovalOrBackend(t *testing
 	ap.AssertNotCalled(t, "Review", mock.Anything, mock.Anything, mock.Anything)
 	sm.AssertNotCalled(t, "Call", mock.Anything, mock.Anything, mock.Anything)
 	al.AssertExpectations(t)
+}
+
+func TestBroker_Handle_ExpiredAndRevokedGrantsFailClosed(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		status     string
+		wantError  string
+		wantReason string
+	}{
+		{name: "expired", err: grants.ErrExpired, status: "expired", wantError: "grant expired", wantReason: "grant: expired"},
+		{name: "revoked", err: grants.ErrRevoked, status: "revoked", wantError: "grant revoked", wantReason: "grant: revoked"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			grant := grants.Grant{ID: "grant-1", Name: tt.name, Fingerprint: "abc123def456", Status: tt.status}
+			al := new(mockAuditLogger)
+			al.On("Record", mock.Anything, mock.MatchedBy(func(r audit.Record) bool {
+				return r.Verdict == "deny" &&
+					r.GrantID == "grant-1" &&
+					r.GrantStatus == tt.status &&
+					r.DenialReason == tt.wantReason &&
+					r.Error == tt.wantError
+			})).Return(nil)
+
+			base, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "allow"}})
+			require.NoError(t, err)
+			b := NewWithGrants(new(mockServerManager), base, al, nil, fakeGrantValidator{grant: grant, err: tt.err}, nil)
+
+			_, err = b.HandleToolResultWithOptions(context.Background(), "git.push", nil, HandleOptions{GrantToken: "secret"})
+			require.ErrorIs(t, err, ErrDenied)
+			al.AssertExpectations(t)
+		})
+	}
 }
 
 func TestBroker_Handle_GrantStoreErrorFailsClosed(t *testing.T) {

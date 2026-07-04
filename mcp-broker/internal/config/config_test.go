@@ -99,6 +99,23 @@ func TestRefresh_BackfillsNewDefaults(t *testing.T) {
 	require.Equal(t, "info", cfg.Log.Level)
 }
 
+func TestDefaultConfig_GrantsDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+	require.Contains(t, cfg.Grants.Path, filepath.Join("mcp-broker", "grants.db"))
+	require.EqualValues(t, 7*24*60*60, cfg.Grants.MaxTTLSeconds)
+}
+
+func TestLoad_RejectsInvalidGrantMaxTTL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	err := os.WriteFile(path, []byte(`{"grants":{"max_ttl_seconds":0}}`), 0o600)
+	require.NoError(t, err)
+
+	_, err = Load(path)
+	require.ErrorContains(t, err, "grants.max_ttl_seconds must be positive")
+}
+
 func TestConfig_ServerTypes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
