@@ -2,12 +2,14 @@ package audit
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
 
+	_ "github.com/ncruces/go-sqlite3/driver"
 	"github.com/stretchr/testify/require"
 )
 
@@ -148,6 +150,44 @@ func TestLogger_RecordWithGrantAttribution(t *testing.T) {
 	require.Equal(t, "release", records[0].GrantName)
 	require.Equal(t, "abc123def456", records[0].GrantFingerprint)
 	require.Equal(t, "active", records[0].GrantStatus)
+	require.Equal(t, "grant", records[0].RuleSource)
+}
+
+func TestLogger_MigratesPreGrantSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	db, err := sql.Open("sqlite3", path)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE audit_records (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		timestamp TEXT NOT NULL,
+		tool TEXT NOT NULL,
+		args TEXT,
+		verdict TEXT NOT NULL,
+		approved INTEGER,
+		denial_reason TEXT NOT NULL DEFAULT '',
+		error TEXT NOT NULL DEFAULT ''
+	)`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	l, err := NewLogger(path)
+	require.NoError(t, err)
+	defer func() { _ = l.Close(context.Background()) }()
+
+	require.NoError(t, l.Record(context.Background(), Record{
+		Timestamp:        time.Now(),
+		Tool:             "git.push",
+		Verdict:          "allow",
+		GrantID:          "grant-1",
+		GrantName:        "release",
+		GrantFingerprint: "abc123def456",
+		GrantStatus:      "active",
+		RuleSource:       "grant",
+	}))
+
+	records, _, err := l.Query(context.Background(), QueryOpts{Limit: 10})
+	require.NoError(t, err)
+	require.Equal(t, "grant-1", records[0].GrantID)
 	require.Equal(t, "grant", records[0].RuleSource)
 }
 

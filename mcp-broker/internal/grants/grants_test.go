@@ -40,6 +40,33 @@ func TestParseRulesFileValidatesArgumentMatchers(t *testing.T) {
 	require.Contains(t, err.Error(), "compile grant rules")
 }
 
+func TestParseRulesFileRejectsWrappedObjectWithoutRulesArray(t *testing.T) {
+	_, err := ParseRulesFile([]byte(`{"description":"missing rules"}`))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "rules array")
+}
+
+func TestStoreRevokeTreatsFingerprintLookupLiterally(t *testing.T) {
+	store := openTestStore(t)
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+
+	minted, err := store.Mint(context.Background(), MintOptions{
+		Name:   "deployment",
+		TTL:    time.Hour,
+		MaxTTL: time.Hour,
+		Now:    now,
+		Rules:  []config.RuleConfig{{Tool: "*", Verdict: "allow"}},
+	})
+	require.NoError(t, err)
+
+	_, err = store.Revoke(context.Background(), "%", now.Add(time.Minute))
+	require.ErrorIs(t, err, ErrUnknown)
+
+	valid, err := store.ValidateToken(context.Background(), minted.Token, now.Add(2*time.Minute))
+	require.NoError(t, err)
+	require.Equal(t, "active", valid.Status)
+}
+
 func TestStoreMintListValidateAndRevoke(t *testing.T) {
 	store := openTestStore(t)
 	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
@@ -161,6 +188,34 @@ func TestStoreValidateTokenRejectsUnknownExpiredAndMalformed(t *testing.T) {
 
 	_, err = store.ValidateToken(context.Background(), minted.Token, now.Add(time.Minute))
 	require.ErrorIs(t, err, ErrExpired)
+}
+
+func TestStoreValidateTokenCanProceedDuringConcurrentRead(t *testing.T) {
+	store := openTestStore(t)
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	minted, err := store.Mint(context.Background(), MintOptions{
+		Name:   "short",
+		TTL:    time.Hour,
+		MaxTTL: time.Hour,
+		Now:    now,
+		Rules:  []config.RuleConfig{{Tool: "*", Verdict: "allow"}},
+	})
+	require.NoError(t, err)
+
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	done := make(chan error, 1)
+	go func() {
+		_, validateErr := store.ValidateToken(context.Background(), minted.Token, now.Add(time.Minute))
+		done <- validateErr
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("ValidateToken blocked behind a concurrent read lock")
+	}
 }
 
 func TestNewStoreCreatesPrivateSQLiteFiles(t *testing.T) {

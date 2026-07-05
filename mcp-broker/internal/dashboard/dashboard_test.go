@@ -40,8 +40,17 @@ func (f *fakeRulesLister) Rules() []config.RuleConfig { return f.rules }
 
 type fakeGrantLister struct{ grants []grants.Grant }
 
+type fakeAuditQuerier struct {
+	records []audit.Record
+	total   int
+}
+
 func (f *fakeGrantLister) List(context.Context, time.Time) ([]grants.Grant, error) {
 	return f.grants, nil
+}
+
+func (f fakeAuditQuerier) Query(context.Context, audit.QueryOpts) ([]audit.Record, int, error) {
+	return f.records, f.total, nil
 }
 
 func TestDashboard_GrantsAPIReadOnlyMetadata(t *testing.T) {
@@ -75,6 +84,38 @@ func TestDashboard_GrantsAPIReadOnlyMetadata(t *testing.T) {
 	require.Equal(t, "abc123def456", payload.Grants[0].Fingerprint)
 	require.Equal(t, "active", payload.Grants[0].Status)
 	require.Equal(t, "git.push", payload.Grants[0].Rules[0].Tool)
+}
+
+func TestDashboard_AuditAPIIncludesGrantAttribution(t *testing.T) {
+	rec := audit.Record{
+		Timestamp:        time.Now().UTC(),
+		Tool:             "git.push",
+		Verdict:          "allow",
+		GrantID:          "grant-1",
+		GrantName:        "release",
+		GrantFingerprint: "abc123def456",
+		GrantStatus:      "active",
+		RuleSource:       "grant",
+	}
+	d := New(nil, nil, fakeAuditQuerier{records: []audit.Record{rec}, total: 1}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/audit", nil)
+	w := httptest.NewRecorder()
+	d.Handler().ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var payload struct {
+		Records []audit.Record `json:"records"`
+		Total   int            `json:"total"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	require.Equal(t, 1, payload.Total)
+	require.Len(t, payload.Records, 1)
+	require.Equal(t, "grant-1", payload.Records[0].GrantID)
+	require.Equal(t, "release", payload.Records[0].GrantName)
+	require.Equal(t, "abc123def456", payload.Records[0].GrantFingerprint)
+	require.Equal(t, "active", payload.Records[0].GrantStatus)
+	require.Equal(t, "grant", payload.Records[0].RuleSource)
 }
 
 func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
@@ -803,11 +844,16 @@ func TestDashboard_OnAuditRecord_BroadcastsSSEFrame(t *testing.T) {
 
 	approved := true
 	rec := audit.Record{
-		Timestamp: time.Now().UTC().Truncate(time.Second),
-		Tool:      "push",
-		Args:      map[string]any{"remote": "origin"},
-		Verdict:   "allow",
-		Approved:  &approved,
+		Timestamp:        time.Now().UTC().Truncate(time.Second),
+		Tool:             "push",
+		Args:             map[string]any{"remote": "origin"},
+		Verdict:          "allow",
+		Approved:         &approved,
+		GrantID:          "grant-1",
+		GrantName:        "release",
+		GrantFingerprint: "abc123def456",
+		GrantStatus:      "active",
+		RuleSource:       "grant",
 	}
 
 	d.OnAuditRecord(rec)
@@ -823,12 +869,20 @@ func TestDashboard_OnAuditRecord_BroadcastsSSEFrame(t *testing.T) {
 		require.Equal(t, "audit", env.Type)
 
 		var data struct {
-			Tool    string `json:"tool"`
-			Verdict string `json:"verdict"`
+			Tool             string `json:"tool"`
+			Verdict          string `json:"verdict"`
+			GrantID          string `json:"grant_id"`
+			GrantFingerprint string `json:"grant_fingerprint"`
+			GrantStatus      string `json:"grant_status"`
+			RuleSource       string `json:"rule_source"`
 		}
 		require.NoError(t, json.Unmarshal(env.Data, &data))
 		require.Equal(t, rec.Tool, data.Tool)
 		require.Equal(t, rec.Verdict, data.Verdict)
+		require.Equal(t, rec.GrantID, data.GrantID)
+		require.Equal(t, rec.GrantFingerprint, data.GrantFingerprint)
+		require.Equal(t, rec.GrantStatus, data.GrantStatus)
+		require.Equal(t, rec.RuleSource, data.RuleSource)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("no SSE frame received after OnAuditRecord")
 	}

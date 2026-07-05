@@ -105,6 +105,28 @@ func TestMCPHandlerGrantHeaderChangesPolicy(t *testing.T) {
 	require.True(t, mgr.called)
 }
 
+func TestMCPHandlerMalformedGrantHeaderAuditsAndBlocksProxy(t *testing.T) {
+	baseRules, err := rules.New([]config.RuleConfig{{Tool: "git.*", Verdict: "allow"}})
+	require.NoError(t, err)
+	mgr := &grantHeaderTestServerManager{}
+	auditor := &reloadTestAudit{}
+	b := broker.NewWithGrants(mgr, baseRules, auditor, nil, nil, nil)
+	handler := makeMCPHandler(b)
+
+	result, err := handler(context.Background(), gomcp.CallToolRequest{
+		Header: http.Header{"Mcp-Broker-Grant": {"one", "two"}},
+		Params: gomcp.CallToolParams{Name: "git.push", Arguments: map[string]any{"branch": "main"}},
+	})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	require.False(t, mgr.called)
+	require.Len(t, auditor.records, 1)
+	require.Equal(t, "deny", auditor.records[0].Verdict)
+	require.Equal(t, "invalid", auditor.records[0].GrantStatus)
+	require.Equal(t, "none/default", auditor.records[0].RuleSource)
+	require.Contains(t, auditor.records[0].Error, "invalid grant header")
+}
+
 type grantHeaderTestServerManager struct{ called bool }
 
 func (m *grantHeaderTestServerManager) Tools() []server.Tool { return nil }

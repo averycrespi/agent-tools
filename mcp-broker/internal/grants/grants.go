@@ -64,7 +64,7 @@ type MintedGrant struct {
 
 // Store is a durable SQLite grant store.
 type Store struct {
-	mu sync.Mutex
+	mu sync.RWMutex
 	db *sql.DB
 }
 
@@ -124,13 +124,19 @@ func ParseRulesFile(data []byte) ([]config.RuleConfig, error) {
 		return validateRules(rulesList)
 	}
 
-	var wrapped struct {
-		Rules []config.RuleConfig `json:"rules"`
-	}
+	var wrapped map[string]json.RawMessage
 	if err := json.Unmarshal(data, &wrapped); err != nil {
 		return nil, fmt.Errorf("parse grant rules: %w", err)
 	}
-	return validateRules(wrapped.Rules)
+	rawRules, ok := wrapped["rules"]
+	if !ok {
+		return nil, fmt.Errorf("parse grant rules: expected top-level rules array")
+	}
+	var rules []config.RuleConfig
+	if err := json.Unmarshal(rawRules, &rules); err != nil {
+		return nil, fmt.Errorf("parse grant rules: rules must be an array: %w", err)
+	}
+	return validateRules(rules)
 }
 
 // Mint creates a durable grant and returns the raw token exactly once to the caller.
@@ -193,8 +199,8 @@ func (s *Store) List(ctx context.Context, now time.Time) ([]Grant, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, description, fingerprint, rules_json, created_at, expires_at, revoked_at FROM grants ORDER BY created_at DESC, id DESC`)
 	if err != nil {
@@ -259,8 +265,8 @@ func (s *Store) ValidateToken(ctx context.Context, token string, now time.Time) 
 	now = now.UTC()
 
 	hash := hashToken(token)
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	row := s.db.QueryRowContext(ctx, `SELECT id, name, description, fingerprint, rules_json, created_at, expires_at, revoked_at FROM grants WHERE token_hash = ?`, hash)
 	g, err := scanGrant(row, now)
@@ -346,7 +352,7 @@ func statusFor(g Grant, now time.Time) string {
 }
 
 func (s *Store) matchingIDs(ctx context.Context, lookup string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM grants WHERE id = ? OR fingerprint = ? OR fingerprint LIKE ? ORDER BY id`, lookup, lookup, lookup+"%")
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM grants WHERE id = ? OR fingerprint = ? OR substr(fingerprint, 1, length(?)) = ? ORDER BY id`, lookup, lookup, lookup, lookup)
 	if err != nil {
 		return nil, fmt.Errorf("lookup grant: %w", err)
 	}
