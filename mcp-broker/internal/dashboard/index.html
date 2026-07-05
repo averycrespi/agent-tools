@@ -751,6 +751,37 @@
         min-width: 2rem;
       }
 
+      .grant-status {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 0.125rem 0.5rem;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .grant-status-active {
+        background: rgba(34, 197, 94, 0.14);
+        color: var(--green);
+      }
+
+      .grant-status-expired {
+        background: rgba(245, 158, 11, 0.14);
+        color: var(--amber);
+      }
+
+      .grant-status-revoked {
+        background: rgba(239, 68, 68, 0.14);
+        color: var(--red);
+      }
+
+      .grant-status-unknown {
+        background: rgba(148, 163, 184, 0.14);
+        color: var(--text-secondary);
+      }
+
       .rule-verdict {
         font-weight: 600;
       }
@@ -1226,7 +1257,7 @@
 
       <!-- Grants Tab -->
       <div class="tab-content" id="content-grants">
-        <div class="section-title">Grants (read-only)</div>
+        <div class="section-title">Grants</div>
         <div id="grants-list"></div>
         <div id="grants-empty" class="empty-state" style="display: none">
           No grants retained
@@ -2130,6 +2161,19 @@
           .join(", ") + (rules.length > 3 ? " +" + (rules.length - 3) + " more" : "");
       }
 
+      function grantStatusClass(status) {
+        switch (status) {
+          case "active":
+            return "grant-status-active";
+          case "expired":
+            return "grant-status-expired";
+          case "revoked":
+            return "grant-status-revoked";
+          default:
+            return "grant-status-unknown";
+        }
+      }
+
       function loadGrants() {
         var listEl = document.getElementById("grants-list");
         var emptyEl = document.getElementById("grants-empty");
@@ -2148,16 +2192,16 @@
             var html = "";
             grants.forEach(function (grant) {
               html += '<div class="rule-card">';
+              var status = grant.status || "unknown";
               html += '<div class="rule-headline">';
-              html += '<span class="rule-index">' + esc(grant.status || "unknown") + "</span>";
+              html += '<span class="grant-status ' + grantStatusClass(status) + '">' + esc(status) + "</span>";
               html += '<span class="rule-tool">' + esc(grant.name || grant.id || "-") + "</span>";
               html += '<span class="rule-with">' + esc(grant.fingerprint || "-") + "</span>";
+              html += '<span class="rule-with">expires ' + esc(grant.expires_at ? new Date(grant.expires_at).toLocaleString() : "-") + "</span>";
               html += "</div>";
               if (grant.description) {
                 html += '<div class="rule-note">' + esc(grant.description) + "</div>";
               }
-              html += '<div class="rule-note">expires: ' + esc(grant.expires_at ? new Date(grant.expires_at).toLocaleString() : "-") + "</div>";
-              html += '<div class="rule-note">created: ' + esc(grant.created_at ? new Date(grant.created_at).toLocaleString() : "-") + "</div>";
               if (grant.revoked_at) {
                 html += '<div class="rule-note">revoked: ' + esc(new Date(grant.revoked_at).toLocaleString()) + "</div>";
               }
