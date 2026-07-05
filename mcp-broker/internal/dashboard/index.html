@@ -1006,8 +1006,8 @@
 
       .audit-detail-field {
         display: flex;
-        gap: 0.75rem;
-        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.375rem;
       }
 
       .audit-detail-label {
@@ -1017,8 +1017,6 @@
         text-transform: uppercase;
         letter-spacing: 0.05em;
         color: var(--text-secondary);
-        min-width: 3.5rem;
-        padding-top: 0.125rem;
       }
 
       .audit-detail-value {
@@ -1290,8 +1288,8 @@
               <tr>
                 <th>Time</th>
                 <th>Tool</th>
-                <th>Verdict</th>
                 <th>Source</th>
+                <th>Verdict</th>
                 <th>Approval</th>
                 <th>Status</th>
               </tr>
@@ -2225,6 +2223,82 @@
       var auditPaused = false;
       var auditNewCount = 0;
 
+      function auditGrantProvided(rec) {
+        return !!(
+          rec.grant_fingerprint ||
+          rec.grant_status ||
+          rec.grant_name ||
+          rec.grant_id
+        );
+      }
+
+      function auditGrantErrored(rec) {
+        return !!rec.grant_status && rec.grant_status !== "active";
+      }
+
+      function compactAuditSource(rec) {
+        if (auditGrantErrored(rec)) return "grant-error";
+        if (rec.rule_source === "grant") return "grant";
+        if (rec.rule_source === "base") {
+          return auditGrantProvided(rec) ? "fall-through" : "base";
+        }
+        if (rec.rule_source === "none/default") return "fall-through";
+        return rec.rule_source || "-";
+      }
+
+      function auditDetailLine(label, value) {
+        if (value === undefined || value === null || value === "") return "";
+        return label + ": " + value;
+      }
+
+      function appendAuditDetailLine(lines, label, value) {
+        var line = auditDetailLine(label, value);
+        if (line) lines.push(line);
+      }
+
+      function renderAuditDecisionDetails(rec) {
+        if (!rec.rule_source && !auditGrantProvided(rec)) return "";
+
+        var source = compactAuditSource(rec);
+        var lines = [];
+        appendAuditDetailLine(lines, "Source", source);
+
+        if (auditGrantProvided(rec)) {
+          appendAuditDetailLine(lines, "Grant", rec.grant_name || rec.grant_id);
+          appendAuditDetailLine(lines, "Fingerprint", rec.grant_fingerprint);
+          appendAuditDetailLine(lines, "Grant status", rec.grant_status);
+
+          if (auditGrantErrored(rec)) {
+            appendAuditDetailLine(lines, "Fallback", "not evaluated");
+          } else if (rec.rule_source === "grant") {
+            appendAuditDetailLine(lines, "Matched", "grant rule");
+          } else {
+            appendAuditDetailLine(lines, "Grant matched", "no");
+            if (rec.rule_source === "base") {
+              appendAuditDetailLine(lines, "Fallback", "base policy");
+            } else if (rec.rule_source === "none/default") {
+              appendAuditDetailLine(lines, "Fallback", "default policy");
+            }
+          }
+        } else if (rec.rule_source === "base") {
+          appendAuditDetailLine(lines, "Matched", "base rule");
+        } else if (rec.rule_source === "none/default") {
+          appendAuditDetailLine(lines, "Matched", "none");
+          appendAuditDetailLine(lines, "Fallback", "default policy");
+        }
+
+        appendAuditDetailLine(lines, "Verdict", rec.verdict);
+
+        var html = '<div class="audit-detail-field">';
+        html += '<div class="audit-detail-label">Decision details</div>';
+        html +=
+          '<div class="audit-detail-value"><pre>' +
+          esc(lines.join("\n")) +
+          "</pre></div>";
+        html += "</div>";
+        return html;
+      }
+
       function toggleAuditDetail(idx) {
         var body = document.getElementById("audit-body");
         var existing = document.getElementById("audit-detail-" + idx);
@@ -2268,25 +2342,16 @@
           "</pre></div>";
         content += "</div>";
 
-        if (rec.rule_source || rec.grant_fingerprint || rec.grant_status) {
-          content += '<div class="audit-detail-field">';
-          content += '<div class="audit-detail-label">Decision source</div>';
-          var source = rec.rule_source || "-";
-          if (rec.grant_fingerprint) {
-            source += " via grant " + (rec.grant_name || rec.grant_id || "-") + " (" + rec.grant_fingerprint + ", " + (rec.grant_status || "unknown") + ")";
-          } else if (rec.grant_status) {
-            source += "; grant " + rec.grant_status;
-          }
-          content += '<div class="audit-detail-value">' + esc(source) + "</div>";
-          content += "</div>";
-        }
+        content += renderAuditDecisionDetails(rec);
 
         // Error (only shown when there's an error)
         if (rec.error) {
           content += '<div class="audit-detail-field">';
           content += '<div class="audit-detail-label">Error</div>';
           content +=
-            '<div class="audit-detail-value">' + esc(rec.error) + "</div>";
+            '<div class="audit-detail-value"><pre>' +
+            esc(rec.error) +
+            "</pre></div>";
           content += "</div>";
         }
 
@@ -2351,15 +2416,9 @@
           ')">';
         html += "<td>" + esc(ts) + "</td>";
         html += "<td>" + esc(rec.tool || "-") + "</td>";
+        html += "<td>" + esc(compactAuditSource(rec)) + "</td>";
         html +=
           '<td class="' + verdictClass + '">' + esc(verdictText) + "</td>";
-        var source = rec.rule_source || "-";
-        if (rec.grant_fingerprint) {
-          source += " / " + rec.grant_fingerprint;
-        } else if (rec.grant_status) {
-          source += " / grant " + rec.grant_status;
-        }
-        html += "<td>" + esc(source) + "</td>";
         html += "<td>" + esc(approval) + "</td>";
         html += "<td>" + esc(result) + "</td>";
         html += "</tr>";
