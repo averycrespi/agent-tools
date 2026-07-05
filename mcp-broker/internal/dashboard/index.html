@@ -782,6 +782,136 @@
         color: var(--text-secondary);
       }
 
+      .grant-card {
+        background: rgba(16, 23, 34, 0.92);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        margin-bottom: 0.75rem;
+        overflow: hidden;
+      }
+
+      .grant-card-expired,
+      .grant-card-revoked {
+        opacity: 0.82;
+      }
+
+      .grant-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .grant-card-title {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        min-width: 0;
+      }
+
+      .grant-name {
+        font-family: var(--font-mono);
+        font-size: 0.9375rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .grant-fingerprint {
+        flex-shrink: 0;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        background: var(--panel-sunken);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.125rem 0.5rem;
+      }
+
+      .grant-card-body {
+        padding: 0.75rem 1rem 0.875rem;
+      }
+
+      .grant-description {
+        color: var(--text-secondary);
+        font-size: 0.8125rem;
+        margin-bottom: 0.75rem;
+      }
+
+      .grant-meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+        gap: 0.5rem 1rem;
+        margin-bottom: 0.875rem;
+      }
+
+      .grant-meta-item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+      }
+
+      .grant-meta-label,
+      .grant-rules-label {
+        font-family: var(--font-sans);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+      }
+
+      .grant-meta-value {
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        color: var(--text-primary);
+        overflow-wrap: anywhere;
+      }
+
+      .grant-rules {
+        border-top: 1px solid var(--border);
+        padding-top: 0.75rem;
+      }
+
+      .grant-rules-label {
+        margin-bottom: 0.375rem;
+      }
+
+      .grant-rule-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      .grant-rule-row {
+        display: grid;
+        grid-template-columns: minmax(7rem, max-content) 1fr;
+        gap: 0.75rem;
+        align-items: baseline;
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+      }
+
+      .grant-rule-verdict {
+        font-weight: 600;
+      }
+
+      .grant-rule-tool {
+        color: var(--text-primary);
+        overflow-wrap: anywhere;
+      }
+
+      .grant-rule-more,
+      .grant-rule-empty {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        font-style: italic;
+      }
+
       .rule-verdict {
         font-weight: 600;
       }
@@ -792,12 +922,6 @@
 
       .rule-with {
         color: var(--text-secondary);
-      }
-
-      .grant-expires {
-        margin-left: auto;
-        text-align: right;
-        white-space: nowrap;
       }
 
       .rule-patterns {
@@ -2216,17 +2340,6 @@
       }
 
       // --- Grants ---
-      function renderGrantRulesSummary(rules) {
-        rules = rules || [];
-        if (rules.length === 0) return "no rules";
-        return rules
-          .slice(0, 3)
-          .map(function (rule) {
-            return (rule.verdict || "require-approval") + " " + (rule.tool || "*");
-          })
-          .join(", ") + (rules.length > 3 ? " +" + (rules.length - 3) + " more" : "");
-      }
-
       function grantStatusClass(status) {
         switch (status) {
           case "active":
@@ -2238,6 +2351,48 @@
           default:
             return "grant-status-unknown";
         }
+      }
+
+      function renderGrantRules(rules) {
+        rules = rules || [];
+        if (rules.length === 0) {
+          return '<div class="grant-rule-empty">no rules</div>';
+        }
+
+        var html = '<div class="grant-rule-list">';
+        rules.slice(0, 3).forEach(function (rule) {
+          var verdict = rule.verdict || "require-approval";
+          var verdictClass = "";
+          if (verdict === "allow") verdictClass = "verdict-allow";
+          else if (verdict === "deny") verdictClass = "verdict-deny";
+          else if (verdict === "require-approval")
+            verdictClass = "verdict-require-approval";
+
+          html += '<div class="grant-rule-row">';
+          html +=
+            '<span class="grant-rule-verdict ' +
+            verdictClass +
+            '">' +
+            esc(verdict) +
+            "</span>";
+          html +=
+            '<span class="grant-rule-tool">' +
+            esc(rule.tool || "*") +
+            "</span>";
+          html += "</div>";
+        });
+        if (rules.length > 3) {
+          html +=
+            '<div class="grant-rule-more">+' +
+            esc(String(rules.length - 3)) +
+            " more</div>";
+        }
+        html += "</div>";
+        return html;
+      }
+
+      function grantTime(value) {
+        return value ? new Date(value).toLocaleString() : "-";
       }
 
       function loadGrants() {
@@ -2257,18 +2412,47 @@
             emptyEl.style.display = "none";
             var html = "";
             grants.forEach(function (grant) {
-              html += '<div class="rule-card">';
               var status = grant.status || "unknown";
-              html += '<div class="rule-headline">';
-              html += '<span class="grant-status ' + grantStatusClass(status) + '">' + esc(status) + "</span>";
-              html += '<span class="rule-tool">' + esc(grant.name || grant.id || "-") + "</span>";
-              html += '<span class="rule-with">' + esc(grant.fingerprint || "-") + "</span>";
-              html += '<span class="rule-with grant-expires">expires ' + esc(grant.expires_at ? new Date(grant.expires_at).toLocaleString() : "-") + "</span>";
+              html += '<div class="grant-card grant-card-' + esc(status) + '">';
+              html += '<div class="grant-card-header">';
+              html += '<div class="grant-card-title">';
+              html +=
+                '<span class="grant-status ' +
+                grantStatusClass(status) +
+                '">' +
+                esc(status) +
+                "</span>";
+              html +=
+                '<span class="grant-name">' +
+                esc(grant.name || grant.id || "-") +
+                "</span>";
               html += "</div>";
+              html +=
+                '<span class="grant-fingerprint">' +
+                esc(grant.fingerprint || "-") +
+                "</span>";
+              html += "</div>";
+
+              html += '<div class="grant-card-body">';
               if (grant.description) {
-                html += '<div class="rule-note">' + esc(grant.description) + "</div>";
+                html +=
+                  '<div class="grant-description">' +
+                  esc(grant.description) +
+                  "</div>";
               }
-              html += '<div class="rule-patterns"><div class="rule-pattern">' + esc(renderGrantRulesSummary(grant.rules)) + "</div></div>";
+              html += '<div class="grant-meta">';
+              html += '<div class="grant-meta-item"><span class="grant-meta-label">Expires</span><span class="grant-meta-value">' + esc(grantTime(grant.expires_at)) + "</span></div>";
+              html += '<div class="grant-meta-item"><span class="grant-meta-label">Created</span><span class="grant-meta-value">' + esc(grantTime(grant.created_at)) + "</span></div>";
+              html += '<div class="grant-meta-item"><span class="grant-meta-label">ID</span><span class="grant-meta-value">' + esc(grant.id || "-") + "</span></div>";
+              if (grant.revoked_at) {
+                html += '<div class="grant-meta-item"><span class="grant-meta-label">Revoked</span><span class="grant-meta-value">' + esc(grantTime(grant.revoked_at)) + "</span></div>";
+              }
+              html += "</div>";
+              html += '<div class="grant-rules">';
+              html += '<div class="grant-rules-label">Rules</div>';
+              html += renderGrantRules(grant.rules);
+              html += "</div>";
+              html += "</div>";
               html += "</div>";
             });
             listEl.innerHTML = html;
