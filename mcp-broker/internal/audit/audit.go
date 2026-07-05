@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,9 +32,12 @@ type Record struct {
 
 // QueryOpts controls filtering and pagination for audit queries.
 type QueryOpts struct {
-	Tool   string
-	Limit  int
-	Offset int
+	Tool    string
+	Source  string
+	Status  string
+	Verdict string
+	Limit   int
+	Offset  int
 }
 
 const createSQL = `
@@ -201,17 +205,60 @@ func (l *Logger) Subscribe(fn Subscriber) (unsubscribe func()) {
 	}
 }
 
+func sourceCondition(source string) string {
+	grantProvided := "(grant_fingerprint <> '' OR grant_status <> '' OR grant_name <> '' OR grant_id <> '')"
+	grantErrored := "(grant_status <> '' AND grant_status <> 'active')"
+
+	switch source {
+	case "base":
+		return "rule_source = 'base' AND NOT " + grantProvided
+	case "grant":
+		return "rule_source = 'grant' AND NOT " + grantErrored
+	case "fall-through":
+		return "NOT " + grantErrored + " AND (rule_source = 'none/default' OR (rule_source = 'base' AND " + grantProvided + "))"
+	case "grant-error":
+		return grantErrored
+	default:
+		return ""
+	}
+}
+
 // Query returns audit records matching the given filters.
 func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	where := ""
+	var conditions []string
 	var queryArgs []any
 
 	if opts.Tool != "" {
-		where = " WHERE tool LIKE '%' || ? || '%'"
+		conditions = append(conditions, "tool LIKE '%' || ? || '%'")
 		queryArgs = append(queryArgs, opts.Tool)
+	}
+	if opts.Source != "" {
+		if condition := sourceCondition(opts.Source); condition != "" {
+			conditions = append(conditions, condition)
+		}
+	}
+	if opts.Status != "" {
+		switch opts.Status {
+		case "success":
+			conditions = append(conditions, "error = ''")
+		case "error":
+			conditions = append(conditions, "error <> ''")
+		}
+	}
+	if opts.Verdict != "" {
+		switch opts.Verdict {
+		case "allow", "deny", "require-approval":
+			conditions = append(conditions, "verdict = ?")
+			queryArgs = append(queryArgs, opts.Verdict)
+		}
+	}
+
+	where := ""
+	if len(conditions) > 0 {
+		where = " WHERE " + strings.Join(conditions, " AND ")
 	}
 
 	var total int

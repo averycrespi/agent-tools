@@ -80,6 +80,53 @@ func TestLogger_QueryWithFilter(t *testing.T) {
 	require.Len(t, records, 2)
 }
 
+func TestLogger_QueryWithDecisionFilters(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	l, err := NewLogger(path)
+	require.NoError(t, err)
+	defer func() { _ = l.Close(context.Background()) }()
+
+	approved := true
+	records := []Record{
+		{Timestamp: time.Now(), Tool: "github.get_pr", Verdict: "allow", RuleSource: "base"},
+		{Timestamp: time.Now(), Tool: "git.push", Verdict: "allow", RuleSource: "grant", GrantID: "grant-1", GrantName: "release", GrantFingerprint: "abc123def456", GrantStatus: "active"},
+		{Timestamp: time.Now(), Tool: "git.push", Verdict: "deny", RuleSource: "base", GrantID: "grant-2", GrantName: "narrow", GrantFingerprint: "def456abc123", GrantStatus: "active", Error: "denied by rule"},
+		{Timestamp: time.Now(), Tool: "fs.write", Verdict: "require-approval", RuleSource: "none/default", Approved: &approved},
+		{Timestamp: time.Now(), Tool: "git.push", Verdict: "deny", RuleSource: "none/default", GrantStatus: "expired", Error: "grant expired"},
+	}
+	for _, rec := range records {
+		require.NoError(t, l.Record(context.Background(), rec))
+	}
+
+	tests := []struct {
+		name string
+		opts QueryOpts
+		want []string
+	}{
+		{name: "source base", opts: QueryOpts{Source: "base", Limit: 10}, want: []string{"github.get_pr"}},
+		{name: "source grant", opts: QueryOpts{Source: "grant", Limit: 10}, want: []string{"git.push"}},
+		{name: "source fall-through", opts: QueryOpts{Source: "fall-through", Limit: 10}, want: []string{"fs.write", "git.push"}},
+		{name: "source grant-error", opts: QueryOpts{Source: "grant-error", Limit: 10}, want: []string{"git.push"}},
+		{name: "status error", opts: QueryOpts{Status: "error", Limit: 10}, want: []string{"git.push", "git.push"}},
+		{name: "verdict require approval", opts: QueryOpts{Verdict: "require-approval", Limit: 10}, want: []string{"fs.write"}},
+		{name: "combined", opts: QueryOpts{Source: "fall-through", Status: "success", Verdict: "require-approval", Limit: 10}, want: []string{"fs.write"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			records, total, err := l.Query(context.Background(), tt.opts)
+			require.NoError(t, err)
+			require.Equal(t, len(tt.want), total)
+			require.Len(t, records, len(tt.want))
+			var tools []string
+			for _, rec := range records {
+				tools = append(tools, rec.Tool)
+			}
+			require.Equal(t, tt.want, tools)
+		})
+	}
+}
+
 func TestLogger_QueryPagination(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.db")
 	l, err := NewLogger(path)

@@ -149,6 +149,9 @@ SQLite database using `ncruces/go-sqlite3` (WASM-based, no CGO). WAL mode for co
 The `Query` method supports:
 
 - Tool name filtering (substring match via SQL LIKE)
+- Decision-source filtering using the dashboard's compact source labels (`base`, `grant`, `fall-through`, `grant-error`)
+- Status filtering (`success` or `error`)
+- Verdict filtering (`allow`, `deny`, or `require-approval`)
 - Pagination (limit/offset)
 - Total count for pagination UI
 
@@ -198,7 +201,7 @@ Embedded single-page web application serving:
 - **Tools tab** — backend startup status and discovered tools grouped by server; failed backends with no tools remain visible with phase, attempt count, and concise error; click a tool to see its input schema
 - **Rules tab** — active rules with the discovered tools matching each (read-only; for debugging verdicts; reflects successful `SIGHUP` rules reloads)
 - **Grants tab** — read-only active/expired/revoked grant metadata, timestamps, display fingerprint, and compact rules summary. It intentionally has no creation, editing, or revocation controls in v1.
-- **Audit tab** — paginated audit log with tool filter, grant/rule-source attribution, plus a live feed of incoming records. New records are prepended in real time when the view is on page 1 with no active filter and not paused; otherwise an "N new" counter appears with a "return to live view" banner. A pause toggle freezes the live feed without affecting filter or pagination state.
+- **Audit tab** — paginated audit log with compact filters for tool substring, source (`base`, `grant`, `fall-through`, `grant-error`), status, and verdict. The table shows compact source labels while expanded rows show full grant/rule-source attribution. New matching records are prepended in real time when the view is on page 1 and not paused; otherwise an "N new" counter appears with a "return to live view" banner. A pause toggle freezes the live feed without affecting filter or pagination state.
 
 Real-time updates via Server-Sent Events (SSE) on a single `/events` channel. Event types are `new` (pending approval request), `removed` (request resolved), `decided` (decision applied), and `audit` (audit record written). The dashboard also implements the `Approver` interface — the `Review` method blocks until a human makes a decision via the `/api/decide` endpoint. `/api/decide` accepts an optional `reason` for denies; whitespace-only reasons are treated as no explicit reason.
 

@@ -347,6 +347,15 @@ func (d *Dashboard) handleAudit(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("tool"); v != "" {
 		opts.Tool = v
 	}
+	if v := r.URL.Query().Get("source"); v != "" {
+		opts.Source = v
+	}
+	if v := r.URL.Query().Get("status"); v != "" {
+		opts.Status = v
+	}
+	if v := r.URL.Query().Get("verdict"); v != "" {
+		opts.Verdict = v
+	}
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			opts.Limit = n

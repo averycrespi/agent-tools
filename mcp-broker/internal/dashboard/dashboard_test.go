@@ -45,12 +45,21 @@ type fakeAuditQuerier struct {
 	total   int
 }
 
+type captureAuditQuerier struct {
+	opts audit.QueryOpts
+}
+
 func (f *fakeGrantLister) List(context.Context, time.Time) ([]grants.Grant, error) {
 	return f.grants, nil
 }
 
 func (f fakeAuditQuerier) Query(context.Context, audit.QueryOpts) ([]audit.Record, int, error) {
 	return f.records, f.total, nil
+}
+
+func (f *captureAuditQuerier) Query(_ context.Context, opts audit.QueryOpts) ([]audit.Record, int, error) {
+	f.opts = opts
+	return []audit.Record{}, 0, nil
 }
 
 func TestDashboard_GrantsAPIReadOnlyMetadata(t *testing.T) {
@@ -116,6 +125,25 @@ func TestDashboard_AuditAPIIncludesGrantAttribution(t *testing.T) {
 	require.Equal(t, "abc123def456", payload.Records[0].GrantFingerprint)
 	require.Equal(t, "active", payload.Records[0].GrantStatus)
 	require.Equal(t, "grant", payload.Records[0].RuleSource)
+}
+
+func TestDashboard_AuditAPIForwardsFilters(t *testing.T) {
+	auditor := &captureAuditQuerier{}
+	d := New(nil, nil, auditor, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/audit?tool=git&source=fall-through&status=error&verdict=deny&limit=25&offset=50", nil)
+	w := httptest.NewRecorder()
+	d.Handler().ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	require.Equal(t, audit.QueryOpts{
+		Tool:    "git",
+		Source:  "fall-through",
+		Status:  "error",
+		Verdict: "deny",
+		Limit:   25,
+		Offset:  50,
+	}, auditor.opts)
 }
 
 func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {

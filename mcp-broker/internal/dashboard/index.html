@@ -877,10 +877,16 @@
       /* Audit tab */
       .audit-filters {
         display: flex;
-        gap: 0.75rem;
+        gap: 0.5rem;
         margin-bottom: 1rem;
         flex-wrap: wrap;
-        align-items: flex-end;
+        align-items: center;
+      }
+
+      .audit-filter-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-secondary);
       }
 
       .filter-group {
@@ -897,7 +903,9 @@
         color: var(--text-secondary);
       }
 
-      .filter-group input {
+      .filter-group input,
+      .audit-filters input,
+      .audit-filters select {
         padding: 0.4rem 0.625rem;
         background: rgba(16, 23, 34, 0.92);
         border: 1px solid var(--border);
@@ -905,16 +913,46 @@
         color: var(--text-primary);
         font-family: var(--font-mono);
         font-size: 0.8125rem;
+      }
+
+      .filter-group input,
+      .audit-filters input {
         width: 180px;
       }
 
-      .filter-group input::placeholder {
+      .audit-filters select {
+        cursor: pointer;
+      }
+
+      .filter-group input::placeholder,
+      .audit-filters input::placeholder {
         color: #555;
       }
 
-      .filter-group input:focus {
+      .filter-group input:focus,
+      .audit-filters input:focus,
+      .audit-filters select:focus {
         outline: none;
         border-color: var(--text-secondary);
+      }
+
+      .audit-filter-reset {
+        padding: 0.4rem 0.75rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: rgba(21, 31, 45, 0.95);
+        color: var(--text-primary);
+        font-size: 0.8125rem;
+        cursor: pointer;
+      }
+
+      .audit-filter-reset:hover:not(:disabled) {
+        border-color: var(--text-secondary);
+      }
+
+      .audit-filter-reset:disabled {
+        cursor: default;
+        opacity: 0.45;
       }
 
       .audit-table-wrap {
@@ -1271,15 +1309,39 @@
       <!-- Audit Log Tab -->
       <div class="tab-content" id="content-audit">
         <div class="audit-filters">
-          <div class="filter-group">
-            <label>Tool</label>
-            <input
-              type="text"
-              id="audit-tool"
-              placeholder="e.g. github.push"
-              oninput="debounceAudit()"
-            />
-          </div>
+          <span class="audit-filter-label">Filter:</span>
+          <input
+            type="text"
+            id="audit-tool"
+            placeholder="Tool contains..."
+            oninput="debounceAudit()"
+          />
+          <select id="audit-source" onchange="auditFilterChanged()">
+            <option value="">Source: any</option>
+            <option value="base">base</option>
+            <option value="grant">grant</option>
+            <option value="fall-through">fall-through</option>
+            <option value="grant-error">grant-error</option>
+          </select>
+          <select id="audit-status" onchange="auditFilterChanged()">
+            <option value="">Status: any</option>
+            <option value="success">success</option>
+            <option value="error">error</option>
+          </select>
+          <select id="audit-verdict" onchange="auditFilterChanged()">
+            <option value="">Verdict: any</option>
+            <option value="allow">allow</option>
+            <option value="deny">deny</option>
+            <option value="require-approval">require-approval</option>
+          </select>
+          <button
+            id="audit-reset-filters"
+            class="audit-filter-reset"
+            onclick="auditResetFilters()"
+            disabled
+          >
+            Reset
+          </button>
         </div>
         <div class="audit-strip" id="audit-strip"></div>
         <div class="audit-table-wrap">
@@ -2363,6 +2425,7 @@
 
       function debounceAudit() {
         clearTimeout(auditTimer);
+        updateAuditResetButton();
         auditTimer = setTimeout(function () {
           auditOffset = 0;
           loadAudit();
@@ -2425,10 +2488,72 @@
         return html;
       }
 
+      function auditFilters() {
+        return {
+          tool: document.getElementById("audit-tool").value.trim(),
+          source: document.getElementById("audit-source").value,
+          status: document.getElementById("audit-status").value,
+          verdict: document.getElementById("audit-verdict").value,
+        };
+      }
+
+      function auditFiltersActive() {
+        var filters = auditFilters();
+        return !!(
+          filters.tool ||
+          filters.source ||
+          filters.status ||
+          filters.verdict
+        );
+      }
+
+      function updateAuditResetButton() {
+        var button = document.getElementById("audit-reset-filters");
+        if (button) button.disabled = !auditFiltersActive();
+      }
+
+      function clearAuditFilters() {
+        document.getElementById("audit-tool").value = "";
+        document.getElementById("audit-source").value = "";
+        document.getElementById("audit-status").value = "";
+        document.getElementById("audit-verdict").value = "";
+        updateAuditResetButton();
+      }
+
+      function auditRecordMatchesFilters(rec) {
+        var filters = auditFilters();
+        if (
+          filters.tool &&
+          !(rec.tool || "").toLowerCase().includes(filters.tool.toLowerCase())
+        ) {
+          return false;
+        }
+        if (filters.source && compactAuditSource(rec) !== filters.source) {
+          return false;
+        }
+        if (filters.status) {
+          var status = rec.error ? "error" : "success";
+          if (status !== filters.status) return false;
+        }
+        if (filters.verdict && rec.verdict !== filters.verdict) {
+          return false;
+        }
+        return true;
+      }
+
+      function auditFilterChanged() {
+        auditOffset = 0;
+        updateAuditResetButton();
+        loadAudit();
+      }
+
       function loadAudit() {
-        var tool = document.getElementById("audit-tool").value.trim();
+        var filters = auditFilters();
         var params = new URLSearchParams();
-        if (tool) params.set("tool", tool);
+        if (filters.tool) params.set("tool", filters.tool);
+        if (filters.source) params.set("source", filters.source);
+        if (filters.status) params.set("status", filters.status);
+        if (filters.verdict) params.set("verdict", filters.verdict);
         params.set("limit", auditLimit);
         params.set("offset", auditOffset);
 
@@ -2440,6 +2565,7 @@
         // Any refetch clears the "new" counter and resets expansion.
         auditNewCount = 0;
         expandedAuditIdx = -1;
+        updateAuditResetButton();
 
         fetch("api/audit?" + params.toString())
           .then(function (r) {
@@ -2447,6 +2573,7 @@
           })
           .then(function (data) {
             var records = data.records || [];
+            auditRecords = records;
             auditTotal = data.total || 0;
 
             if (records.length === 0) {
@@ -2462,7 +2589,6 @@
             emptyEl.style.display = "none";
 
             var html = "";
-            auditRecords = records;
             records.forEach(function (rec, idx) {
               html += renderAuditRow(rec, idx);
             });
@@ -2479,6 +2605,13 @@
             pagination.style.display = "flex";
             updateAuditStrip();
           });
+      }
+
+      function auditResetFilters() {
+        clearAuditFilters();
+        auditOffset = 0;
+        auditPaused = false;
+        loadAudit();
       }
 
       function auditPrev() {
@@ -2506,8 +2639,7 @@
           return;
         }
 
-        var filterValue = document.getElementById("audit-tool").value.trim();
-        var isOutOfView = auditOffset > 0 || filterValue !== "";
+        var isOutOfView = auditOffset > 0 || auditFiltersActive();
 
         if (auditPaused) {
           // Paused state
@@ -2547,9 +2679,9 @@
         }
       }
 
-      // auditResetToLive clears the filter and pagination, then refetches.
+      // auditResetToLive clears filters and pagination, then refetches.
       function auditResetToLive() {
-        document.getElementById("audit-tool").value = "";
+        clearAuditFilters();
         auditOffset = 0;
         auditPaused = false;
         loadAudit(); // resets auditNewCount and calls updateAuditStrip
@@ -2562,12 +2694,8 @@
       function handleAuditEvent(rec) {
         if (activeTab !== "audit") return;
 
-        auditTotal++;
-
-        var filterValue = document.getElementById("audit-tool").value.trim();
-        var filterMatches =
-          filterValue === "" ||
-          (rec.tool || "").toLowerCase().includes(filterValue.toLowerCase());
+        var filterMatches = auditRecordMatchesFilters(rec);
+        if (filterMatches) auditTotal++;
         var livePrepend = auditOffset === 0 && filterMatches && !auditPaused;
 
         if (livePrepend) {
