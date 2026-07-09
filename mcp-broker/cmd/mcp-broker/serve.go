@@ -88,6 +88,18 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	logger := slog.New(handler)
 	logger.Info("config loaded", "path", cfgPath)
 
+	rulesResult, err := config.LoadRulesForConfig(cfgPath, cfg)
+	if err != nil {
+		return fmt.Errorf("loading rules: %w", err)
+	}
+	logger.Info("rules loaded", "path", rulesResult.Path, "count", len(rulesResult.Rules))
+	if rulesResult.MigratedLegacy {
+		logger.Warn("legacy config rules migrated", "config_path", cfgPath, "rules_path", rulesResult.Path)
+	}
+	if rulesResult.IgnoredLegacy {
+		logger.Warn("legacy config rules ignored because rules file exists", "config_path", cfgPath, "rules_path", rulesResult.Path)
+	}
+
 	// Load or generate auth token.
 	tokenPath := auth.TokenPath()
 	token, err := auth.EnsureToken(tokenPath)
@@ -122,7 +134,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	logger.Info("tools discovered", "count", len(tools))
 
 	// Create reloadable rules store
-	ruleStore, err := rules.NewStore(cfg.Rules)
+	ruleStore, err := rules.NewStore(rulesResult.Rules)
 	if err != nil {
 		return fmt.Errorf("compiling rules: %w", err)
 	}
@@ -212,7 +224,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	return serveEventLoop(stop, reload, errCh, srv, logger, func() error {
-		return reloadRulesFromConfig(cfgPath, ruleStore, logger)
+		return reloadRulesFromFile(rulesResult.Path, ruleStore, logger)
 	})
 }
 
@@ -244,10 +256,10 @@ func serveEventLoop(stop <-chan os.Signal, reload <-chan os.Signal, errCh <-chan
 	}
 }
 
-func reloadRulesFromConfig(path string, store *rules.Store, logger *slog.Logger) error {
-	ruleConfigs, err := config.LoadRules(path)
+func reloadRulesFromFile(path string, store *rules.Store, logger *slog.Logger) error {
+	ruleConfigs, err := config.LoadRulesFile(path)
 	if err != nil {
-		return fmt.Errorf("loading rules from config: %w", err)
+		return fmt.Errorf("loading rules file: %w", err)
 	}
 	if err := store.Reload(ruleConfigs); err != nil {
 		return fmt.Errorf("compiling rules: %w", err)

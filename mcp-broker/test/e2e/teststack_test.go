@@ -143,7 +143,7 @@ func startMockBackend(t *testing.T, tools []toolDef) string {
 
 type testConfig struct {
 	Servers     map[string]testServerConfig `json:"servers"`
-	Rules       []testRuleConfig            `json:"rules"`
+	RulesPath   string                      `json:"rules_path"`
 	ToolPatches []testToolPatchConfig       `json:"tool_patches,omitempty"`
 	Port        int                         `json:"port"`
 	OpenBrowser bool                        `json:"open_browser"`
@@ -154,6 +154,10 @@ type testConfig struct {
 type testServerConfig struct {
 	Type string `json:"type,omitempty"`
 	URL  string `json:"url"`
+}
+
+type testRulesConfig struct {
+	Rules []testRuleConfig `json:"rules"`
 }
 
 type testRuleConfig struct {
@@ -220,13 +224,14 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 	// Pick a free port for the broker.
 	brokerPort := freePort(t)
 
-	// Write temp config.
+	// Write temp config and separate rules file.
 	tmpDir := t.TempDir()
+	rulesPath := filepath.Join(tmpDir, "rules.json")
 	cfg := testConfig{
 		Servers: map[string]testServerConfig{
 			"echo": {Type: "streamable-http", URL: backendURL},
 		},
-		Rules:       rules,
+		RulesPath:   rulesPath,
 		ToolPatches: opts.ToolPatches,
 		Port:        brokerPort,
 		OpenBrowser: false,
@@ -240,6 +245,13 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 	cfgPath := filepath.Join(tmpDir, "config.json")
 	if err := os.WriteFile(cfgPath, cfgData, 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
+	}
+	rulesData, err := json.MarshalIndent(testRulesConfig{Rules: rules}, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal rules: %v", err)
+	}
+	if err := os.WriteFile(rulesPath, append(rulesData, '\n'), 0o600); err != nil {
+		t.Fatalf("write rules: %v", err)
 	}
 
 	// Start broker subprocess.

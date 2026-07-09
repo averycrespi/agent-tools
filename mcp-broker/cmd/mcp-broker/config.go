@@ -29,10 +29,11 @@ var configRefreshCmd = &cobra.Command{
 	Short: "Refresh config file with current defaults",
 	Args:  cobra.NoArgs,
 	RunE: func(_ *cobra.Command, _ []string) error {
-		path, err := config.Refresh(configPath())
+		path, rulesResult, err := config.RefreshWithResult(configPath())
 		if err != nil {
 			return err
 		}
+		warnRulesLoadResult(rulesResult)
 		fmt.Println(path)
 		return nil
 	},
@@ -43,10 +44,11 @@ var configEditCmd = &cobra.Command{
 	Short: "Open the config file in your editor",
 	Args:  cobra.NoArgs,
 	RunE: func(_ *cobra.Command, _ []string) error {
-		path, err := config.Refresh(configPath())
+		path, rulesResult, err := config.RefreshWithResult(configPath())
 		if err != nil {
 			return err
 		}
+		warnRulesLoadResult(rulesResult)
 		editor := os.Getenv("EDITOR")
 		if editor == "" {
 			editor = "vi"

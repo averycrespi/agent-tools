@@ -9,54 +9,106 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoadRulesReadsOnlyRulesSection(t *testing.T) {
+func TestLoadCreatesDefaultConfigAndRulesFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 
-	err := os.WriteFile(path, []byte(`{
-		"servers": {"bad": {"startup_retry_count": -1}},
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(dir, "rules.json"), cfg.RulesPath)
+	require.FileExists(t, path)
+
+	rulesResult, err := LoadRulesForConfig(path, cfg)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(dir, "rules.json"), rulesResult.Path)
+	require.Equal(t, DefaultRules(), rulesResult.Rules)
+	require.FileExists(t, rulesResult.Path)
+
+	rawConfig, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(rawConfig), `"rules_path"`)
+	require.NotContains(t, string(rawConfig), `"rules":`)
+
+	rawRules, err := os.ReadFile(rulesResult.Path)
+	require.NoError(t, err)
+	require.Contains(t, string(rawRules), `"rules":`)
+
+	info, err := os.Stat(rulesResult.Path)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}
+
+func TestRulesPathDefaultsBesideEffectiveConfigPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "profile", "custom-config.json")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(dir, "profile", "rules.json"), cfg.RulesPath)
+
+	result, err := LoadRulesForConfig(path, cfg)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(dir, "profile", "rules.json"), result.Path)
+}
+
+func TestLoadRulesForConfigMigratesLegacyEmbeddedRulesWhenRulesFileMissing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	legacyRules := []RuleConfig{{Tool: "github.*", Verdict: "allow", Reason: "safe"}}
+
+	require.NoError(t, os.WriteFile(path, []byte(`{
+		"rules_path": "`+filepath.Join(dir, "rules.json")+`",
 		"rules": [{"tool": "github.*", "verdict": "allow", "reason": "safe"}]
-	}`), 0o600)
-	require.NoError(t, err)
+	}`), 0o600))
 
-	rules, err := LoadRules(path)
+	cfg, err := Load(path)
 	require.NoError(t, err)
-	require.Equal(t, []RuleConfig{{Tool: "github.*", Verdict: "allow", Reason: "safe"}}, rules)
+	result, err := LoadRulesForConfig(path, cfg)
+	require.NoError(t, err)
+	require.True(t, result.MigratedLegacy)
+	require.Equal(t, legacyRules, result.Rules)
+
+	rawRules, err := os.ReadFile(result.Path)
+	require.NoError(t, err)
+	require.Contains(t, string(rawRules), `"rules":`)
+	require.Contains(t, string(rawRules), `"github.*"`)
 }
 
-func TestLoadRulesDefaultsWhenRulesOmitted(t *testing.T) {
+func TestLoadRulesForConfigUsesRulesFileWhenLegacyRulesAlsoExist(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
+	rulesPath := filepath.Join(dir, "rules.json")
 
-	err := os.WriteFile(path, []byte(`{"port": 9000}`), 0o600)
-	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, []byte(`{
+		"rules_path": "`+rulesPath+`",
+		"rules": {"tool": "*", "verdict": "allow"}
+	}`), 0o600))
+	require.NoError(t, SaveRulesFile(rulesPath, []RuleConfig{{Tool: "slack.*", Verdict: "deny", Reason: "external wins"}}))
 
-	rules, err := LoadRules(path)
+	cfg, err := Load(path)
 	require.NoError(t, err)
-	require.Equal(t, DefaultConfig().Rules, rules)
+	result, err := LoadRulesForConfig(path, cfg)
+	require.NoError(t, err)
+	require.True(t, result.IgnoredLegacy)
+	require.False(t, result.MigratedLegacy)
+	require.Equal(t, []RuleConfig{{Tool: "slack.*", Verdict: "deny", Reason: "external wins"}}, result.Rules)
 }
 
-func TestLoadRulesRejectsMissingInvalidJSONAndMalformedRulesShape(t *testing.T) {
-	t.Run("missing file", func(t *testing.T) {
-		_, err := LoadRules(filepath.Join(t.TempDir(), "missing.json"))
-		require.Error(t, err)
-	})
+func TestLoadRulesFileRejectsInvalidRulesDocuments(t *testing.T) {
+	for name, body := range map[string]string{
+		"invalid json":  `{"rules": [`,
+		"missing rules": `{"metadata": true}`,
+		"null rules":    `{"rules": null}`,
+		"object rules":  `{"rules": {"tool": "*", "verdict": "allow"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "rules.json")
+			require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
 
-	t.Run("invalid json", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "config.json")
-		require.NoError(t, os.WriteFile(path, []byte(`{"rules": [`), 0o600))
-
-		_, err := LoadRules(path)
-		require.Error(t, err)
-	})
-
-	t.Run("malformed rules shape", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "config.json")
-		require.NoError(t, os.WriteFile(path, []byte(`{"rules": {"tool": "*", "verdict": "allow"}}`), 0o600))
-
-		_, err := LoadRules(path)
-		require.Error(t, err)
-	})
+			_, err := LoadRulesFile(path)
+			require.Error(t, err)
+		})
+	}
 }
 
 func TestLoad_CreatesDefaultOnFirstRun(t *testing.T) {
@@ -97,6 +149,28 @@ func TestRefresh_BackfillsNewDefaults(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 9000, cfg.Port)
 	require.Equal(t, "info", cfg.Log.Level)
+	require.FileExists(t, filepath.Join(dir, "rules.json"))
+}
+
+func TestRefresh_MigratesLegacyRulesBeforeRemovingEmbeddedRules(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+		"port": 9000,
+		"rules": [{"tool": "github.*", "verdict": "allow", "reason": "legacy"}]
+	}`), 0o600))
+
+	_, err := Refresh(path)
+	require.NoError(t, err)
+
+	rules, err := LoadRulesFile(filepath.Join(dir, "rules.json"))
+	require.NoError(t, err)
+	require.Equal(t, []RuleConfig{{Tool: "github.*", Verdict: "allow", Reason: "legacy"}}, rules)
+
+	rawConfig, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NotContains(t, string(rawConfig), `"rules":`)
+	require.Contains(t, string(rawConfig), `"rules_path"`)
 }
 
 func TestDefaultConfig_GrantsDefaults(t *testing.T) {
@@ -489,23 +563,15 @@ func TestDefaultConfig_TelegramDisabledByDefault(t *testing.T) {
 }
 
 // TestRuleConfig_NoArgs verifies that a rule with no args field round-trips
-// through Load/Save with the "args" key absent in the serialized JSON.
+// through rules file Load/Save with the "args" key absent in the serialized JSON.
 func TestRuleConfig_NoArgs(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.json")
+	path := filepath.Join(t.TempDir(), "rules.json")
 
-	data := `{"rules": [{"tool": "*", "verdict": "require-approval"}]}`
-	err := os.WriteFile(path, []byte(data), 0o600)
+	require.NoError(t, SaveRulesFile(path, []RuleConfig{{Tool: "*", Verdict: "require-approval"}}))
+	rules, err := LoadRulesFile(path)
 	require.NoError(t, err)
-
-	cfg, err := Load(path)
-	require.NoError(t, err)
-	require.Len(t, cfg.Rules, 1)
-	require.Nil(t, cfg.Rules[0].Args)
-
-	// Save and re-read the raw JSON to confirm "args" key is absent.
-	_, err = Save(cfg, path)
-	require.NoError(t, err)
+	require.Len(t, rules, 1)
+	require.Nil(t, rules[0].Args)
 
 	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -513,76 +579,63 @@ func TestRuleConfig_NoArgs(t *testing.T) {
 	var decoded map[string]any
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 
-	rules, ok := decoded["rules"].([]any)
+	decodedRules, ok := decoded["rules"].([]any)
 	require.True(t, ok)
-	require.Len(t, rules, 1)
+	require.Len(t, decodedRules, 1)
 
-	rule, ok := rules[0].(map[string]any)
+	rule, ok := decodedRules[0].(map[string]any)
 	require.True(t, ok)
 	_, hasArgs := rule["args"]
 	require.False(t, hasArgs, "args key must be absent when rule has no args")
 }
 
 // TestRuleConfig_ExactArgRoundTrip verifies that a rule with one exact-string
-// arg pattern round-trips through Load/Save and back unchanged in semantics.
+// arg pattern round-trips through rules file Load/Save and back unchanged in semantics.
 func TestRuleConfig_ExactArgRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.json")
+	path := filepath.Join(t.TempDir(), "rules.json")
+	original := []RuleConfig{{Tool: "push", Verdict: "allow", Args: []ArgPattern{{Path: "remote", Match: json.RawMessage(`"origin"`)}}}}
 
-	data := `{"rules": [{"tool": "push", "verdict": "allow", "args": [{"path": "remote", "match": "origin"}]}]}`
-	err := os.WriteFile(path, []byte(data), 0o600)
+	require.NoError(t, SaveRulesFile(path, original))
+	rules, err := LoadRulesFile(path)
 	require.NoError(t, err)
+	require.Len(t, rules, 1)
 
-	cfg, err := Load(path)
-	require.NoError(t, err)
-	require.Len(t, cfg.Rules, 1)
-
-	rule := cfg.Rules[0]
+	rule := rules[0]
 	require.Equal(t, "push", rule.Tool)
 	require.Equal(t, "allow", rule.Verdict)
 	require.Len(t, rule.Args, 1)
 	require.Equal(t, "remote", rule.Args[0].Path)
 	require.Equal(t, json.RawMessage(`"origin"`), rule.Args[0].Match)
 
-	// Save and reload — semantics must be preserved.
-	_, err = Save(cfg, path)
+	require.NoError(t, SaveRulesFile(path, rules))
+	rules2, err := LoadRulesFile(path)
 	require.NoError(t, err)
-
-	cfg2, err := Load(path)
-	require.NoError(t, err)
-	require.Equal(t, cfg.Rules[0].Tool, cfg2.Rules[0].Tool)
-	require.Equal(t, cfg.Rules[0].Verdict, cfg2.Rules[0].Verdict)
-	require.Len(t, cfg2.Rules[0].Args, 1)
-	require.Equal(t, "remote", cfg2.Rules[0].Args[0].Path)
-	require.Equal(t, json.RawMessage(`"origin"`), cfg2.Rules[0].Args[0].Match)
+	require.Equal(t, rules[0].Tool, rules2[0].Tool)
+	require.Equal(t, rules[0].Verdict, rules2[0].Verdict)
+	require.Len(t, rules2[0].Args, 1)
+	require.Equal(t, "remote", rules2[0].Args[0].Path)
+	require.Equal(t, json.RawMessage(`"origin"`), rules2[0].Args[0].Match)
 }
 
 // TestRuleConfig_MixedArgsRoundTrip verifies a rule with mixed exact + regex
 // arg patterns round-trips correctly, keeping Match as raw JSON.
 func TestRuleConfig_MixedArgsRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.json")
+	path := filepath.Join(t.TempDir(), "rules.json")
+	original := []RuleConfig{{
+		Tool:    "push",
+		Verdict: "allow",
+		Args: []ArgPattern{
+			{Path: "remote", Match: json.RawMessage(`"origin"`)},
+			{Path: "commit.message", Match: json.RawMessage(`{"regex":"^feat:"}`)},
+		},
+	}}
 
-	data := `{
-  "rules": [
-    {
-      "tool": "push",
-      "verdict": "allow",
-      "args": [
-        {"path": "remote", "match": "origin"},
-        {"path": "commit.message", "match": {"regex": "^feat:"}}
-      ]
-    }
-  ]
-}`
-	err := os.WriteFile(path, []byte(data), 0o600)
+	require.NoError(t, SaveRulesFile(path, original))
+	rules, err := LoadRulesFile(path)
 	require.NoError(t, err)
+	require.Len(t, rules, 1)
 
-	cfg, err := Load(path)
-	require.NoError(t, err)
-	require.Len(t, cfg.Rules, 1)
-
-	rule := cfg.Rules[0]
+	rule := rules[0]
 	require.Len(t, rule.Args, 2)
 
 	// First pattern: exact string.
@@ -597,16 +650,13 @@ func TestRuleConfig_MixedArgsRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rule.Args[1].Match, &regexObj))
 	require.Equal(t, "^feat:", regexObj["regex"])
 
-	// Save and reload to confirm round-trip.
-	_, err = Save(cfg, path)
+	require.NoError(t, SaveRulesFile(path, rules))
+	rules2, err := LoadRulesFile(path)
 	require.NoError(t, err)
-
-	cfg2, err := Load(path)
-	require.NoError(t, err)
-	require.Len(t, cfg2.Rules[0].Args, 2)
+	require.Len(t, rules2[0].Args, 2)
 
 	// Regex RawMessage decodes to the same object after round-trip.
 	var regexObj2 map[string]string
-	require.NoError(t, json.Unmarshal(cfg2.Rules[0].Args[1].Match, &regexObj2))
+	require.NoError(t, json.Unmarshal(rules2[0].Args[1].Match, &regexObj2))
 	require.Equal(t, "^feat:", regexObj2["regex"])
 }

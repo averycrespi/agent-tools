@@ -150,9 +150,9 @@ func TestLimitRequestBodyDisabledWhenZero(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, rec.Code)
 }
 
-func TestReloadRulesFromConfigUpdatesSharedBrokerAndDashboard(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.json")
-	require.NoError(t, os.WriteFile(path, []byte(`{"rules": [{"tool": "github.*", "verdict": "allow", "reason": "reloaded"}]}`), 0o600))
+func TestReloadRulesFromFileUpdatesSharedBrokerAndDashboard(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rules.json")
+	require.NoError(t, config.SaveRulesFile(path, []config.RuleConfig{{Tool: "github.*", Verdict: "allow", Reason: "reloaded"}}))
 
 	store, err := rules.NewStore([]config.RuleConfig{{Tool: "*", Verdict: "deny", Reason: "old"}})
 	require.NoError(t, err)
@@ -163,7 +163,7 @@ func TestReloadRulesFromConfigUpdatesSharedBrokerAndDashboard(t *testing.T) {
 	defer dashServer.Close()
 	b := broker.New(mgr, store, auditor, nil, nil)
 
-	require.NoError(t, reloadRulesFromConfig(path, store, nil))
+	require.NoError(t, reloadRulesFromFile(path, store, nil))
 
 	result, err := b.Handle(context.Background(), "github.search", nil)
 	require.NoError(t, err)
@@ -188,41 +188,43 @@ func TestReloadRulesFromConfigUpdatesSharedBrokerAndDashboard(t *testing.T) {
 	require.Equal(t, "reloaded", body.Rules[0].Reason)
 }
 
-func TestReloadRulesFromConfigFailuresLeaveRulesActive(t *testing.T) {
+func TestReloadRulesFromFileFailuresLeaveRulesActive(t *testing.T) {
 	tests := []struct {
 		name string
 		path func(t *testing.T) string
 	}{
 		{
-			name: "missing config",
-			path: func(t *testing.T) string { return filepath.Join(t.TempDir(), "missing.json") },
+			name: "missing rules file",
+			path: func(t *testing.T) string { return filepath.Join(t.TempDir(), "rules.json") },
 		},
 		{
-			name: "unreadable config path",
+			name: "unreadable rules path",
 			path: func(t *testing.T) string {
-				path := filepath.Join(t.TempDir(), "config.json")
+				path := filepath.Join(t.TempDir(), "rules.json")
 				require.NoError(t, os.Mkdir(path, 0o750))
 				return path
 			},
 		},
 		{
 			name: "invalid json",
-			path: func(t *testing.T) string { return writeReloadConfig(t, `{"rules": [`) },
+			path: func(t *testing.T) string { return writeReloadRulesFile(t, `{"rules": [`) },
 		},
 		{
 			name: "malformed rules shape",
-			path: func(t *testing.T) string { return writeReloadConfig(t, `{"rules": {"tool": "*", "verdict": "allow"}}`) },
+			path: func(t *testing.T) string {
+				return writeReloadRulesFile(t, `{"rules": {"tool": "*", "verdict": "allow"}}`)
+			},
 		},
 		{
 			name: "malformed argument path",
 			path: func(t *testing.T) string {
-				return writeReloadConfig(t, `{"rules": [{"tool": "*", "verdict": "allow", "args": [{"path": "bad..path", "match": "value"}]}]}`)
+				return writeReloadRulesFile(t, `{"rules": [{"tool": "*", "verdict": "allow", "args": [{"path": "bad..path", "match": "value"}]}]}`)
 			},
 		},
 		{
 			name: "invalid regex",
 			path: func(t *testing.T) string {
-				return writeReloadConfig(t, `{"rules": [{"tool": "*", "verdict": "allow", "args": [{"path": "branch", "match": {"regex": "[invalid"}}]}]}`)
+				return writeReloadRulesFile(t, `{"rules": [{"tool": "*", "verdict": "allow", "args": [{"path": "branch", "match": {"regex": "[invalid"}}]}]}`)
 			},
 		},
 	}
@@ -232,7 +234,7 @@ func TestReloadRulesFromConfigFailuresLeaveRulesActive(t *testing.T) {
 			store, err := rules.NewStore([]config.RuleConfig{{Tool: "*", Verdict: "deny", Reason: "old"}})
 			require.NoError(t, err)
 
-			err = reloadRulesFromConfig(tt.path(t), store, nil)
+			err = reloadRulesFromFile(tt.path(t), store, nil)
 			require.Error(t, err)
 
 			result := store.EvaluateWithMetadata("anything", nil)
@@ -242,25 +244,25 @@ func TestReloadRulesFromConfigFailuresLeaveRulesActive(t *testing.T) {
 	}
 }
 
-func writeReloadConfig(t *testing.T, data string) string {
+func writeReloadRulesFile(t *testing.T, data string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "config.json")
+	path := filepath.Join(t.TempDir(), "rules.json")
 	require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
 	return path
 }
 
-func TestReloadRulesFromConfigDefaultsWhenRulesOmitted(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.json")
-	require.NoError(t, os.WriteFile(path, []byte(`{"port": 9000}`), 0o600))
+func TestReloadRulesFromFileLoadsDefaultRulesDocument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rules.json")
+	require.NoError(t, config.SaveRulesFile(path, config.DefaultRules()))
 
 	store, err := rules.NewStore([]config.RuleConfig{{Tool: "*", Verdict: "deny"}})
 	require.NoError(t, err)
 
-	require.NoError(t, reloadRulesFromConfig(path, store, nil))
+	require.NoError(t, reloadRulesFromFile(path, store, nil))
 
 	result := store.EvaluateWithMetadata("anything", nil)
 	require.Equal(t, rules.RequireApproval, result.Verdict)
-	require.Equal(t, config.DefaultConfig().Rules, store.Rules())
+	require.Equal(t, config.DefaultRules(), store.Rules())
 }
 
 func TestServeEventLoopReloadSignalDoesNotShutdown(t *testing.T) {

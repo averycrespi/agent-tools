@@ -72,9 +72,11 @@ Each backend server has a name (from config). When tools are discovered, they ar
 
 ### Config (`internal/config`)
 
-Single JSON file at `~/.config/mcp-broker/config.json`. On first run, a default config is written. The `Refresh` function loads, overlays defaults for new fields, and writes back — useful for upgrading config after new features are added.
+Primary config lives at `~/.config/mcp-broker/config.json`; base policy rules live in a separate `rules.json` document by default. `config.json` contains backend/server settings and `rules_path`, while `rules.json` contains `{ "rules": [...] }`. On first run, default config and rules files are written. The `Refresh` function loads, overlays defaults for new fields, writes config back, and ensures the companion rules file exists — useful for upgrading config after new features are added.
 
-Most config is loaded once at startup. Policy `rules` are the only hot-reloadable field: sending `SIGHUP` to the running process reads the existing config file, extracts only `rules`, compiles a complete rules snapshot, and atomically swaps it into the broker and dashboard after validation succeeds. Invalid reloads are non-fatal and leave the previous rules active. If `rules` is omitted during reload, the startup default catch-all `require-approval` rule is used.
+Most config is loaded once at startup. Policy rule content is the only hot-reloadable configuration: sending `SIGHUP` to the running process reads the effective rules file selected at startup, compiles a complete rules snapshot, and atomically swaps it into the broker and dashboard after validation succeeds. Invalid reloads are non-fatal and leave the previous rules active. Changing `rules_path` itself requires restart.
+
+Legacy top-level `config.json` `rules` are migration-only. If legacy embedded rules exist and the effective rules file is missing, they are written to `rules.json`. If both exist, the rules file is authoritative and legacy embedded rules are ignored with a warning.
 
 Backend servers, `tool_patches`, listener settings, audit path, grants path/max TTL, auth token, Telegram settings, approval timeout, log level, browser opening, and request body limit remain startup-only and require restart. Tool patches are ordered load-time transforms for discovered tools. Tool patch patterns match broker-prefixed tool names with `filepath.Match`; the first matching patch applies. `disabled: true` removes the tool from the broker registry, and `annotations` merges field-by-field into MCP tool annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). `_meta` is passed through unchanged and is not patched.
 
@@ -82,7 +84,8 @@ Defaults:
 
 - Host: `127.0.0.1` (must resolve to a loopback interface — validated at startup)
 - Port: 8200
-- Rules: `[{"tool": "*", "verdict": "require-approval"}]`
+- Rules path: `rules.json` alongside the effective config file
+- Rules: `[{"tool": "*", "verdict": "require-approval"}]` in the separate rules document
 - Audit path: `~/.local/share/mcp-broker/audit.db`
 - Grants path: `~/.local/share/mcp-broker/grants.db`
 - Maximum grant TTL: 604800 seconds (7 days)
@@ -222,8 +225,11 @@ Cobra-based CLI with commands:
 
 - `serve` — starts the broker (loads config, connects backends, serves HTTP; handles `SIGHUP` for rules-only reload)
 - `config path` — prints config file location
-- `config refresh` — backfills new defaults
+- `config refresh` — backfills new defaults and ensures the rules file exists
 - `config edit` — opens config in `$EDITOR`
+- `rules path` — prints the effective base rules file location
+- `rules refresh` — writes the base rules file in canonical form
+- `rules edit` — opens the base rules file in `$EDITOR`
 - `token rotate` — rotates the broker bearer token
 - `grant mint --name <name> --ttl <duration> --rules-file <path-or-> [--description <text>]` — creates a mandatory-TTL grant and prints the raw token once
 - `grant list` — lists retained grant metadata without tokens or hashes
@@ -252,7 +258,7 @@ Cobra-based CLI with commands:
 
 **Failed backends don't block startup.** If one of several backend servers is unavailable, the broker retries startup connect/discovery with bounded per-backend settings, then starts with the remaining servers rather than failing entirely. Exhausted failures are logged and shown in the dashboard Tools tab. Recovery after exhaustion requires restarting the broker because runtime rediscovery and dynamic MCP tool registration are out of scope.
 
-**Rules reload without backend churn.** Rules are frequent operational edits, so `SIGHUP` reloads only policy rules and keeps the HTTP server, backend connections, discovered tools, and listener address unchanged. Reload compiles before swapping and keeps the old snapshot on any error.
+**Rules reload without backend churn.** Rules are frequent operational edits, so `SIGHUP` reloads only the selected `rules.json` policy document and keeps the HTTP server, backend connections, discovered tools, and listener address unchanged. Reload compiles before swapping and keeps the old snapshot on any error. The `rules_path` setting itself is startup-only and requires restart.
 
 **Default verdict is require-approval.** Fail-closed by default — any tool not explicitly allowed requires human approval.
 

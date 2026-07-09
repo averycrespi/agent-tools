@@ -17,12 +17,13 @@ If you do need to inject a secret, uncomment the relevant block in `examples/lau
 
 The broker creates and reads from these on first launch, running as the same user as the launchd job — no extra plist wiring is needed to ensure the directories exist.
 
-| Path                                 | Contents                                |
-| ------------------------------------ | --------------------------------------- |
-| `~/.config/mcp-broker/config.json`   | Backend servers, rules, port, log level |
-| `~/.config/mcp-broker/auth-token`    | 64-char hex bearer token (mode `0600`)  |
-| `~/.local/share/mcp-broker/audit.db`  | SQLite audit log of every tool call     |
-| `~/.local/share/mcp-broker/grants.db` | SQLite grant authorization state        |
+| Path                                  | Contents                                     |
+| ------------------------------------- | -------------------------------------------- |
+| `~/.config/mcp-broker/config.json`    | Backend servers, rules_path, port, log level |
+| `~/.config/mcp-broker/rules.json`     | Base policy rules (mode `0600`)              |
+| `~/.config/mcp-broker/auth-token`     | 64-char hex bearer token (mode `0600`)       |
+| `~/.local/share/mcp-broker/audit.db`  | SQLite audit log of every tool call          |
+| `~/.local/share/mcp-broker/grants.db` | SQLite grant authorization state             |
 
 OAuth refresh tokens (for backends that use OAuth) are stored in the macOS Keychain via `go-keyring`, not on disk.
 
@@ -63,17 +64,16 @@ tail -f ~/Library/Logs/mcp-broker.{out,err}.log
 ## Manage
 
 ```bash
-# Reload policy rules after editing only the `rules` field in
-# ~/.config/mcp-broker/config.json. Invalid reloads are logged and leave
-# the previous rules active.
+# Reload policy rules after editing ~/.config/mcp-broker/rules.json.
+# Invalid reloads are logged and leave the previous rules active.
 launchctl kill HUP gui/$UID/dev.agent-tools.mcp-broker
 
 # Restart after upgrading the binary, editing the plist, changing backend
-# servers, tool patches, host/port, audit path, grants path/max TTL, auth token,
-# Telegram settings, approval timeout, log level, open_browser, request body
-# limit, or fixing a backend that exhausted startup retries and needs its tools
-# rediscovered. Grant mint/revoke changes are read from grants.db on the next
-# MCP request and do not need restart.
+# servers, tool patches, host/port, rules_path, audit path, grants path/max TTL,
+# auth token, Telegram settings, approval timeout, log level, open_browser,
+# request body limit, or fixing a backend that exhausted startup retries and
+# needs its tools rediscovered. Grant mint/revoke changes are read from grants.db
+# on the next MCP request and do not need restart.
 launchctl kickstart -k gui/$UID/dev.agent-tools.mcp-broker
 
 # Stop and unload.

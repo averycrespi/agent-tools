@@ -14,7 +14,7 @@ import (
 // security posture relies on not being network-reachable.
 type Config struct {
 	Servers                map[string]ServerConfig `json:"servers"`
-	Rules                  []RuleConfig            `json:"rules"`
+	RulesPath              string                  `json:"rules_path"`
 	ToolPatches            []ToolPatchConfig       `json:"tool_patches,omitempty"`
 	Host                   string                  `json:"host"`
 	Port                   int                     `json:"port"`
@@ -159,13 +159,21 @@ func ConfigPath() string {
 	return filepath.Join(xdgConfigHome(), "mcp-broker", "config.json")
 }
 
+// DefaultRules returns the default fail-closed policy rules.
+func DefaultRules() []RuleConfig {
+	return []RuleConfig{{Tool: "*", Verdict: "require-approval"}}
+}
+
 // DefaultConfig returns a Config with all default values.
 func DefaultConfig() Config {
+	return DefaultConfigAt(ConfigPath())
+}
+
+// DefaultConfigAt returns a Config with defaults resolved relative to path.
+func DefaultConfigAt(path string) Config {
 	return Config{
-		Servers: map[string]ServerConfig{},
-		Rules: []RuleConfig{
-			{Tool: "*", Verdict: "require-approval"},
-		},
+		Servers:                map[string]ServerConfig{},
+		RulesPath:              filepath.Join(filepath.Dir(path), "rules.json"),
 		Host:                   "127.0.0.1",
 		Port:                   8200,
 		OpenBrowser:            true,
@@ -186,7 +194,7 @@ func DefaultConfig() Config {
 // Load reads config from the given path.
 // If the file does not exist, it writes DefaultConfig() and returns it.
 func Load(path string) (Config, error) {
-	cfg := DefaultConfig()
+	cfg := DefaultConfigAt(path)
 
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -201,6 +209,9 @@ func Load(path string) (Config, error) {
 
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, err
+	}
+	if cfg.RulesPath == "" {
+		cfg.RulesPath = filepath.Join(filepath.Dir(path), "rules.json")
 	}
 	if err := validate(cfg); err != nil {
 		return cfg, err
@@ -254,9 +265,23 @@ func Save(cfg Config, path string) (string, error) {
 // Refresh loads the config (with defaults overlay), then writes it back.
 // This fills in any new default values. Returns the path written.
 func Refresh(path string) (string, error) {
+	written, _, err := RefreshWithResult(path)
+	return written, err
+}
+
+// RefreshWithResult refreshes config and rules and returns rules source metadata.
+func RefreshWithResult(path string) (string, RulesLoadResult, error) {
 	cfg, err := Load(path)
 	if err != nil {
-		return "", err
+		return "", RulesLoadResult{}, err
 	}
-	return Save(cfg, path)
+	result, err := LoadRulesForConfig(path, cfg)
+	if err != nil {
+		return "", result, err
+	}
+	written, err := Save(cfg, path)
+	if err != nil {
+		return "", result, err
+	}
+	return written, result, nil
 }
