@@ -188,6 +188,29 @@ func TestReloadRulesFromFileUpdatesSharedBrokerAndDashboard(t *testing.T) {
 	require.Equal(t, "reloaded", body.Rules[0].Reason)
 }
 
+func TestRunServeFailsClosedWhenStartupRulesDoNotCompile(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config-home"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data-home"))
+	oldCfgFile := cfgFile
+	cfgFile = filepath.Join(dir, "config.json")
+	t.Cleanup(func() { cfgFile = oldCfgFile })
+
+	rulesPath := filepath.Join(dir, "rules.json")
+	cfg := config.DefaultConfigAt(cfgFile)
+	cfg.RulesPath = rulesPath
+	cfg.OpenBrowser = false
+	cfg.Audit.Path = filepath.Join(dir, "audit.db")
+	cfg.Grants.Path = filepath.Join(dir, "grants.db")
+	_, err := config.Save(cfg, cfgFile)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(rulesPath, []byte(`{"rules":[{"tool":"*","verdict":"allow","args":[{"path":"bad..path","match":"value"}]}]}`), 0o600))
+
+	err = runServe(serveCmd, nil)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "compiling rules")
+}
+
 func TestReloadRulesFromFileFailuresLeaveRulesActive(t *testing.T) {
 	tests := []struct {
 		name string

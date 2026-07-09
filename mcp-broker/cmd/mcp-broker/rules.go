@@ -74,12 +74,7 @@ func init() {
 }
 
 func rulesFilePath() (string, error) {
-	cfgPath := configPath()
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return "", err
-	}
-	return config.EffectiveRulesPath(cfgPath, cfg), nil
+	return config.ResolveRulesPath(configPath())
 }
 
 func refreshRulesFile() (string, error) {

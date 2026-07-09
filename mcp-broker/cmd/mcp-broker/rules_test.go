@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,7 +18,7 @@ func TestRulesCommandIsRegistered(t *testing.T) {
 	require.Equal(t, "path", cmd.Name())
 }
 
-func TestRulesFilePathUsesEffectiveConfigPath(t *testing.T) {
+func TestRulesFilePathUsesEffectiveConfigPathWithoutCreatingConfig(t *testing.T) {
 	oldCfgFile := cfgFile
 	cfgFile = filepath.Join(t.TempDir(), "profile", "config.json")
 	t.Cleanup(func() { cfgFile = oldCfgFile })
@@ -25,6 +26,22 @@ func TestRulesFilePathUsesEffectiveConfigPath(t *testing.T) {
 	path, err := rulesFilePath()
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(filepath.Dir(cfgFile), "rules.json"), path)
+	require.NoFileExists(t, cfgFile)
+}
+
+func TestRulesFilePathReadsOnlyRulesPath(t *testing.T) {
+	oldCfgFile := cfgFile
+	cfgFile = filepath.Join(t.TempDir(), "config.json")
+	t.Cleanup(func() { cfgFile = oldCfgFile })
+	customRulesPath := filepath.Join(filepath.Dir(cfgFile), "custom-rules.json")
+	require.NoError(t, os.WriteFile(cfgFile, []byte(`{
+		"rules_path": "`+customRulesPath+`",
+		"grants": {"max_ttl_seconds": 0}
+	}`), 0o600))
+
+	path, err := rulesFilePath()
+	require.NoError(t, err)
+	require.Equal(t, customRulesPath, path)
 }
 
 func TestRefreshRulesFileCreatesCanonicalRulesDocument(t *testing.T) {
@@ -40,6 +57,29 @@ func TestRefreshRulesFileCreatesCanonicalRulesDocument(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(raw), `"rules"`)
 	require.Contains(t, string(raw), `"require-approval"`)
+}
+
+func TestRulesEditOpensEffectiveRulesFile(t *testing.T) {
+	oldCfgFile := cfgFile
+	cfgFile = filepath.Join(t.TempDir(), "config.json")
+	t.Cleanup(func() { cfgFile = oldCfgFile })
+
+	editorPath := filepath.Join(t.TempDir(), "editor")
+	recordPath := filepath.Join(t.TempDir(), "opened-path")
+	script := `#!/bin/sh
+echo "$1" > "$EDITOR_RECORD"
+`
+	require.NoError(t, os.WriteFile(editorPath, []byte(script), 0o700))
+	t.Setenv("EDITOR", editorPath)
+	t.Setenv("EDITOR_RECORD", recordPath)
+
+	require.NoError(t, rulesEditCmd.RunE(rulesEditCmd, nil))
+
+	opened, err := os.ReadFile(recordPath)
+	require.NoError(t, err)
+	rulesPath := filepath.Join(filepath.Dir(cfgFile), "rules.json")
+	require.Equal(t, rulesPath, strings.TrimSpace(string(opened)))
+	require.FileExists(t, rulesPath)
 }
 
 func TestWarnRulesLoadResultWritesIgnoredLegacyWarning(t *testing.T) {

@@ -173,6 +173,30 @@ func TestRefresh_MigratesLegacyRulesBeforeRemovingEmbeddedRules(t *testing.T) {
 	require.Contains(t, string(rawConfig), `"rules_path"`)
 }
 
+func TestRefresh_PreservesExistingRulesFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	rulesPath := filepath.Join(dir, "rules.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+		"port": 9000,
+		"rules_path": "`+rulesPath+`",
+		"rules": [{"tool": "github.*", "verdict": "allow", "reason": "legacy"}]
+	}`), 0o600))
+	require.NoError(t, SaveRulesFile(rulesPath, []RuleConfig{{Tool: "slack.*", Verdict: "deny", Reason: "external"}}))
+	before, err := os.ReadFile(rulesPath)
+	require.NoError(t, err)
+
+	_, err = Refresh(path)
+	require.NoError(t, err)
+
+	after, err := os.ReadFile(rulesPath)
+	require.NoError(t, err)
+	require.Equal(t, string(before), string(after))
+	rules, err := LoadRulesFile(rulesPath)
+	require.NoError(t, err)
+	require.Equal(t, []RuleConfig{{Tool: "slack.*", Verdict: "deny", Reason: "external"}}, rules)
+}
+
 func TestDefaultConfig_GrantsDefaults(t *testing.T) {
 	cfg := DefaultConfig()
 	require.Contains(t, cfg.Grants.Path, filepath.Join("mcp-broker", "grants.db"))

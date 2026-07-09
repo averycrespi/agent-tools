@@ -29,6 +29,27 @@ func EffectiveRulesPath(configPath string, cfg Config) string {
 	return filepath.Join(filepath.Dir(configPath), "rules.json")
 }
 
+// ResolveRulesPath reads only rules_path from configPath, defaulting to
+// rules.json alongside the effective config file when configPath is missing or
+// rules_path is omitted.
+func ResolveRulesPath(configPath string) (string, error) {
+	data, err := os.ReadFile(configPath)
+	if os.IsNotExist(err) {
+		return EffectiveRulesPath(configPath, Config{}), nil
+	}
+	if err != nil {
+		return "", err
+	}
+
+	var cfg struct {
+		RulesPath string `json:"rules_path"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return "", fmt.Errorf("parsing config JSON: %w", err)
+	}
+	return EffectiveRulesPath(configPath, Config{RulesPath: cfg.RulesPath}), nil
+}
+
 // LoadRulesForConfig loads or creates the base policy rules for cfg.
 // If legacy embedded config rules exist and the external rules file is missing,
 // they are migrated to the rules file. If both exist, the rules file wins.
@@ -122,11 +143,6 @@ func RefreshRulesWithResult(configPath string) (RulesLoadResult, error) {
 		return result, err
 	}
 	return result, nil
-}
-
-// LoadRules is retained for callers that already have a rules document path.
-func LoadRules(path string) ([]RuleConfig, error) {
-	return LoadRulesFile(path)
 }
 
 func parseRulesRaw(raw json.RawMessage) ([]RuleConfig, error) {
