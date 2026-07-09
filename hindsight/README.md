@@ -53,6 +53,30 @@ docker compose ps
 curl -fsS -H "Authorization: Bearer $HINDSIGHT_API_KEY" http://localhost:8888/health
 ```
 
+## Check LLM/Codex auth
+
+Hindsight exposes a bank-scoped LLM health endpoint that can verify the bank's LLM configuration and the host Codex auth mounted into the container. Enable it with `HINDSIGHT_API_ENABLE_BANK_LLM_HEALTH=true` in `.env`.
+
+Run it against an existing memory bank:
+
+```bash
+./check-llm-health.sh <bank_id>
+```
+
+Or call the endpoint directly:
+
+```bash
+set -a
+. ./.env
+set +a
+bank_id=my-assistant
+curl -fsS -X POST \
+  -H "Authorization: Bearer $HINDSIGHT_API_KEY" \
+  "http://localhost:8888/v1/default/banks/$bank_id/health/llm"
+```
+
+This endpoint makes a real provider/model call. Use it for deliberate troubleshooting, not as a polling healthcheck.
+
 ## Clients
 
 Configure local Hindsight clients with the same API URL and key:

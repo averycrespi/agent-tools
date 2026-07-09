@@ -34,6 +34,7 @@ services:
       HINDSIGHT_API_TENANT_EXTENSION: hindsight_api.extensions.builtin.tenant:ApiKeyTenantExtension
       HINDSIGHT_API_TENANT_API_KEY: ${HINDSIGHT_API_KEY:?Set HINDSIGHT_API_KEY in .env}
       HINDSIGHT_CP_DATAPLANE_API_KEY: ${HINDSIGHT_API_KEY:?Set HINDSIGHT_API_KEY in .env}
+      HINDSIGHT_API_ENABLE_BANK_LLM_HEALTH: ${HINDSIGHT_API_ENABLE_BANK_LLM_HEALTH:-false}
     volumes:
       - type: bind
         source: ${HOME}/.codex/auth.json
