@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/stretchr/testify/require"
@@ -14,6 +15,15 @@ import (
 
 func init() {
 	keyring.MockInit()
+}
+
+func TestOAuthFlowContextHasDedicatedTimeout(t *testing.T) {
+	ctx, cancel := oauthFlowContext(context.Background())
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	require.True(t, ok)
+	require.WithinDuration(t, time.Now().Add(5*time.Minute), deadline, time.Second)
 }
 
 func TestKeychainTokenStore_SaveAndGet(t *testing.T) {

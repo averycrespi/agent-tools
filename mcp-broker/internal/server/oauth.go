@@ -323,8 +323,17 @@ func initializeOAuthClient(startupCtx context.Context, lifetimeCtx context.Conte
 	return nil
 }
 
+const oauthFlowTimeout = 5 * time.Minute
+
+func oauthFlowContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(parent, oauthFlowTimeout)
+}
+
 // runOAuthFlow runs the interactive browser-based OAuth flow.
 func runOAuthFlow(ctx context.Context, authErr error, serverName string, serverConfig config.ServerConfig) error {
+	ctx, cancel := oauthFlowContext(ctx)
+	defer cancel()
+
 	port := oauthCallbackPort(serverName, serverConfig)
 	handler := client.GetOAuthHandler(authErr)
 	if handler == nil {
