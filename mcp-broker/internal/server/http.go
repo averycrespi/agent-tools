@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -24,6 +26,15 @@ func isUnauthorized(err error) bool {
 		errors.Is(err, transport.ErrUnauthorized)
 }
 
+// ErrSessionTerminated covers the standard stale-session response. Hindsight
+// may instead return a JSON-RPC error containing "Missing session ID"; mcp-go
+// exposes no typed sentinel for that response, so match its message as a
+// compatibility fallback.
+func isSessionInvalid(err error) bool {
+	return errors.Is(err, transport.ErrSessionTerminated) ||
+		strings.Contains(strings.ToLower(err.Error()), "missing session id")
+}
+
 func httpBackendTimeout(srv config.ServerConfig) time.Duration {
 	if srv.HTTPTimeoutSeconds > 0 {
 		return time.Duration(srv.HTTPTimeoutSeconds) * time.Second
@@ -35,10 +46,23 @@ const defaultHTTPBackendTimeout = 2 * time.Minute
 
 // httpBackend communicates with an MCP server via Streamable HTTP or SSE.
 type httpBackend struct {
-	client *client.Client
+	mu        sync.RWMutex
+	client    *client.Client
+	reconnect func(context.Context) (*client.Client, error)
 }
 
 func newHTTPBackend(startupCtx context.Context, lifetimeCtx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
+	reconnect := func(ctx context.Context) (*client.Client, error) {
+		return connectHTTPClient(ctx, lifetimeCtx, name, srv)
+	}
+	c, err := reconnect(startupCtx)
+	if err != nil {
+		return nil, err
+	}
+	return &httpBackend{client: c, reconnect: reconnect}, nil
+}
+
+func connectHTTPClient(startupCtx context.Context, lifetimeCtx context.Context, name string, srv config.ServerConfig) (*client.Client, error) {
 	var opts []transport.StreamableHTTPCOption
 	opts = append(opts, transport.WithHTTPTimeout(httpBackendTimeout(srv)))
 	if headers := expandEnv(srv.Headers); len(headers) > 0 {
@@ -52,7 +76,7 @@ func newHTTPBackend(startupCtx context.Context, lifetimeCtx context.Context, nam
 	}
 
 	if err := initializeClient(startupCtx, c, name); err == nil {
-		return &httpBackend{client: c}, nil
+		return c, nil
 	} else if !isUnauthorized(err) {
 		return nil, err // initializeClient already closed c
 	}
@@ -66,7 +90,7 @@ func newHTTPBackend(startupCtx context.Context, lifetimeCtx context.Context, nam
 	if err := initializeOAuthClient(startupCtx, lifetimeCtx, c, name, srv); err != nil {
 		return nil, err
 	}
-	return &httpBackend{client: c}, nil
+	return c, nil
 }
 
 func newSSEBackend(startupCtx context.Context, lifetimeCtx context.Context, name string, srv config.ServerConfig) (*httpBackend, error) {
@@ -148,9 +172,25 @@ func initializeClient(ctx context.Context, c *client.Client, name string) error 
 
 func (b *httpBackend) ListTools(ctx context.Context) ([]Tool, error) {
 	req := mcp.ListToolsRequest{}
-	resp, err := b.client.ListTools(ctx, req)
-	if err != nil && isUnauthorized(err) {
-		resp, err = b.client.ListTools(ctx, req) // single retry — see CallTool
+	call := func(c *client.Client) (*mcp.ListToolsResult, error) {
+		resp, err := c.ListTools(ctx, req)
+		if err != nil && isUnauthorized(err) {
+			resp, err = c.ListTools(ctx, req) // single retry — see CallTool
+		}
+		return resp, err
+	}
+
+	b.mu.RLock()
+	staleClient := b.client
+	resp, err := call(staleClient)
+	b.mu.RUnlock()
+	if err != nil && isSessionInvalid(err) && b.reconnect != nil {
+		if reconnectErr := b.reconnectClient(ctx, staleClient); reconnectErr != nil {
+			return nil, fmt.Errorf("reconnect after invalid MCP session: %w", reconnectErr)
+		}
+		b.mu.RLock()
+		resp, err = call(b.client)
+		b.mu.RUnlock()
 	}
 	if err != nil {
 		return nil, err
@@ -168,12 +208,27 @@ func (b *httpBackend) CallTool(ctx context.Context, name string, arguments map[s
 	req.Params.Name = name
 	req.Params.Arguments = arguments
 
-	resp, err := b.client.CallTool(ctx, req)
-	if err != nil && isUnauthorized(err) {
-		// Retry once: mcp-go's getValidToken re-runs refresh, which often
-		// succeeds after a transient Atlassian refresh failure. If the
-		// retry also fails, surface the error — user restarts the broker.
-		resp, err = b.client.CallTool(ctx, req)
+	call := func(c *client.Client) (*mcp.CallToolResult, error) {
+		resp, err := c.CallTool(ctx, req)
+		if err != nil && isUnauthorized(err) {
+			// Retry once: mcp-go's getValidToken re-runs refresh, which often
+			// succeeds after a transient Atlassian refresh failure.
+			resp, err = c.CallTool(ctx, req)
+		}
+		return resp, err
+	}
+
+	b.mu.RLock()
+	staleClient := b.client
+	resp, err := call(staleClient)
+	b.mu.RUnlock()
+	if err != nil && isSessionInvalid(err) && b.reconnect != nil {
+		if reconnectErr := b.reconnectClient(ctx, staleClient); reconnectErr != nil {
+			return nil, fmt.Errorf("reconnect after invalid MCP session: %w", reconnectErr)
+		}
+		b.mu.RLock()
+		resp, err = call(b.client)
+		b.mu.RUnlock()
 	}
 	if err != nil {
 		return nil, err
@@ -186,6 +241,23 @@ func (b *httpBackend) CallTool(ctx context.Context, name string, arguments map[s
 	}, nil
 }
 
+func (b *httpBackend) reconnectClient(ctx context.Context, staleClient *client.Client) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.client != staleClient {
+		return nil
+	}
+	freshClient, err := b.reconnect(ctx)
+	if err != nil {
+		return err
+	}
+	b.client = freshClient
+	return staleClient.Close()
+}
+
 func (b *httpBackend) Close() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	return b.client.Close()
 }
