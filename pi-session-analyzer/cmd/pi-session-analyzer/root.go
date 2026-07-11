@@ -8,7 +8,9 @@ import (
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/app"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/detect"
+	analyzermcp "github.com/averycrespi/agent-tools/pi-session-analyzer/internal/mcp"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/store"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
 )
 
@@ -19,7 +21,7 @@ func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "pi-session-analyzer", Short: "Analyze local Pi session logs", SilenceErrors: true, SilenceUsage: true}
 	cmd.PersistentFlags().StringVar(&opts.sessionsDir, "sessions-dir", defaultSessionsDir(), "Pi JSONL sessions directory")
 	cmd.PersistentFlags().StringVar(&opts.dbPath, "db", defaultDBPath(), "private analyzer SQLite database")
-	cmd.AddCommand(newIngestCommand(opts), newListCommand(opts), newSummaryCommand(opts), newDetectCommand(opts))
+	cmd.AddCommand(newIngestCommand(opts), newListCommand(opts), newSummaryCommand(opts), newDetectCommand(opts), newMCPCommand(opts))
 	return cmd
 }
 
@@ -112,6 +114,22 @@ func newDetectCommand(opts *options) *cobra.Command {
 		return err
 	}}
 }
+func newMCPCommand(opts *options) *cobra.Command {
+	return &cobra.Command{Use: "mcp", Short: "Serve bounded read-only MCP tools over stdio", Args: cobra.NoArgs, RunE: func(_ *cobra.Command, _ []string) error {
+		db, err := store.Open(opts.dbPath)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = db.Close() }()
+		handler := analyzermcp.NewHandler(db, opts.dbPath)
+		server := mcpserver.NewMCPServer("pi-session-analyzer", "0.1.0")
+		for _, tool := range handler.Tools() {
+			server.AddTool(tool, handler.Handle)
+		}
+		return mcpserver.ServeStdio(server)
+	}}
+}
+
 func exactlyOne(message string) cobra.PositionalArgs {
 	return func(_ *cobra.Command, args []string) error {
 		if len(args) != 1 {

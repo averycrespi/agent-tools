@@ -1,0 +1,59 @@
+package mcp
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/ingest"
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/store"
+	"github.com/stretchr/testify/require"
+)
+
+func testDatabase(t *testing.T) (string, *store.Store) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "data", "sessions.db")
+	db, err := store.Open(path)
+	require.NoError(t, err)
+	require.NoError(t, db.ReplaceSession(context.Background(), ingest.Session{ID: "s"}, store.SourceMeta{Path: "x", Size: 1, ModTimeNS: 1}))
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	return path, db
+}
+
+func TestRunSelectAcceptedAndRejectedQueries(t *testing.T) {
+	path, _ := testDatabase(t)
+	for _, query := range []string{"SELECT id FROM sessions", "WITH ids AS (SELECT id FROM sessions) SELECT * FROM ids"} {
+		result, err := RunSelect(context.Background(), path, query)
+		require.NoError(t, err, query)
+		require.Len(t, result.Rows, 1)
+	}
+	for _, query := range []string{"DELETE FROM sessions", "PRAGMA table_info(sessions)", "ATTACH DATABASE 'x' AS x", "SELECT 1; SELECT 2", "WITH gone AS (DELETE FROM sessions RETURNING *) SELECT * FROM gone"} {
+		_, err := RunSelect(context.Background(), path, query)
+		require.Error(t, err, query)
+	}
+}
+
+func TestReadOnlyBoundaryRejectsWriteWhenLexicalGuardBypassed(t *testing.T) {
+	path, db := testDatabase(t)
+	_, err := executeReadOnly(context.Background(), path, "DELETE FROM sessions")
+	require.Error(t, err)
+	sessions, listErr := db.ListSessions(context.Background(), 10, "")
+	require.NoError(t, listErr)
+	require.Len(t, sessions, 1)
+}
+
+func TestRunSelectHonorsCanceledContext(t *testing.T) {
+	path, _ := testDatabase(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := RunSelect(ctx, path, "SELECT id FROM sessions")
+	require.Error(t, err)
+}
+
+func TestRunSelectAppliesIndependentRowCap(t *testing.T) {
+	path, _ := testDatabase(t)
+	result, err := RunSelect(context.Background(), path, `WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<2000) SELECT x FROM n`)
+	require.NoError(t, err)
+	require.Len(t, result.Rows, 1024)
+	require.True(t, result.Truncated)
+}
