@@ -140,7 +140,7 @@ func (s *Store) repairPermissions() error {
 
 func (s *Store) SourceUnchanged(ctx context.Context, meta SourceMeta) (bool, error) {
 	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions WHERE source_path=? AND source_size=? AND source_mtime_ns=?`, meta.Path, meta.Size, meta.ModTimeNS).Scan(&count)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions WHERE source_path=? AND source_size=? AND source_mtime_ns=?`, scrub.Scrub(meta.Path), meta.Size, meta.ModTimeNS).Scan(&count)
 	return count == 1, err
 }
 
