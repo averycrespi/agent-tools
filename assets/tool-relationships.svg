@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1350" height="650" viewBox="0 0 1350 650" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1350" height="820" viewBox="0 0 1350 820" role="img" aria-labelledby="title desc">
   <title id="title">Agent Tools relationship diagram</title>
-  <desc id="desc">Diagram showing host tools around a Lima sandbox, with a host worktree mounted into the sandbox, and MCP/proxy/notification traffic routed through host-side services.</desc>
+  <desc id="desc">Diagram showing host tools around a Lima sandbox, a host worktree mounted into the sandbox, MCP and proxy traffic through host services, and Pi session logs flowing into a private analyzer database exposed read-only behind the MCP Broker.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569" />
@@ -28,10 +28,10 @@
     </style>
   </defs>
 
-  <rect class="canvas" width="1350" height="650" />
+  <rect class="canvas" width="1350" height="820" />
   <text class="title" x="40" y="42">How the tools fit together</text>
 
-  <rect class="group host" x="40" y="95" width="1270" height="466" />
+  <rect class="group host" x="40" y="95" width="1270" height="635" />
   <text class="title" x="70" y="130">Host machine</text>
 
   <rect class="group sandbox" x="490" y="175" width="310" height="265" />
@@ -77,6 +77,18 @@
   <rect class="node external-node" x="1135" y="479" width="115" height="50" />
   <text class="label" x="1192" y="504">Go modules</text>
 
+  <rect class="node workspace-node" x="730" y="600" width="150" height="58" />
+  <text class="label" x="805" y="621">Pi session</text>
+  <text class="label" x="805" y="641">JSONL logs</text>
+
+  <rect class="node host-node" x="940" y="600" width="150" height="58" />
+  <text class="label" x="1015" y="621">Pi Session</text>
+  <text class="label" x="1015" y="641">Analyzer</text>
+
+  <rect class="node workspace-node" x="1135" y="600" width="115" height="58" />
+  <text class="label" x="1192" y="621">Private</text>
+  <text class="label" x="1192" y="641">SQLite</text>
+
   <path class="edge" d="M235 384 L292 384" />
   <path class="edge" d="M445 279 L567 279" />
 
@@ -99,12 +111,18 @@
   <path class="edge" d="M1090 390 L1132 390" />
   <path class="edge" d="M1090 504 L1132 504" />
 
-  <rect class="node host-node" x="40" y="615" width="14" height="14" />
-  <text class="legend-text" x="62" y="627">Host tool</text>
-  <rect class="node sandbox-node" x="145" y="615" width="14" height="14" />
-  <text class="legend-text" x="167" y="627">Sandbox runtime</text>
-  <rect class="node workspace-node" x="295" y="615" width="14" height="14" />
-  <text class="legend-text" x="317" y="627">Shared workspace</text>
-  <rect class="node external-node" x="455" y="615" width="14" height="14" />
-  <text class="legend-text" x="477" y="627">External service</text>
+  <path class="edge" d="M880 629 L937 629" />
+  <path class="edge" d="M1090 629 L1132 629" />
+  <path class="mcp" d="M940 194 L875 194 L875 575 L1015 575 L1015 597" />
+  <rect class="label-bg" x="832" y="548" width="80" height="18" />
+  <text class="edge-label" x="872" y="561">read-only MCP</text>
+
+  <rect class="node host-node" x="40" y="780" width="14" height="14" />
+  <text class="legend-text" x="62" y="792">Host tool</text>
+  <rect class="node sandbox-node" x="145" y="780" width="14" height="14" />
+  <text class="legend-text" x="167" y="792">Sandbox runtime</text>
+  <rect class="node workspace-node" x="295" y="780" width="14" height="14" />
+  <text class="legend-text" x="317" y="792">Local data/workspace</text>
+  <rect class="node external-node" x="480" y="780" width="14" height="14" />
+  <text class="legend-text" x="502" y="792">External service</text>
 </svg>

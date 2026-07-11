@@ -54,6 +54,30 @@ func TestOpenAndReplaceSessionArePrivateScrubbedAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestReopenRepairsRecreatedSidecarsAndSchemaHasNoRawTier(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "leaf", "sessions.db")
+	db, err := Open(path)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	for _, sidecar := range []string{path + "-wal", path + "-shm"} {
+		_ = os.Remove(sidecar)
+	}
+	db, err = Open(path)
+	require.NoError(t, err)
+	require.NoError(t, db.ReplaceSession(context.Background(), ingest.Session{ID: "s"}, SourceMeta{Path: "x", Size: 1, ModTimeNS: 1}))
+	defer func() { require.NoError(t, db.Close()) }()
+	for _, file := range []string{path, path + "-wal", path + "-shm"} {
+		info, statErr := os.Stat(file)
+		require.NoError(t, statErr)
+		require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	}
+	var rawTables int
+	require.NoError(t, db.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND lower(name) LIKE '%raw%'`).Scan(&rawTables))
+	require.Zero(t, rawTables)
+}
+
 func TestSourceMetadataAndSessionRemainWithoutSource(t *testing.T) {
 	t.Parallel()
 
