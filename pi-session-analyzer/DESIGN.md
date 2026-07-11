@@ -41,7 +41,7 @@ Structural detectors cover:
 
 - broker guards grouped by kind;
 - compaction pressure and compaction/provider failure;
-- three-or-more structural tool errors per tool;
+- three-or-more trailing structural tool errors per tool without a later successful recovery;
 - MCP failure from `is_error`, with a narrow case-insensitive historical marker fallback that names its evidence source.
 
 Heuristic detectors cover:
@@ -52,7 +52,7 @@ Heuristic detectors cover:
 - edit of an existing path without a prior direct or conservative shell read (newly written paths are exempt);
 - provider errors and informational user cancellation.
 
-The code-change grammar excludes docs/config-only and unknown-extension edits. Shell reads are recognized only at command-segment starts for a small allowlist and require an exact normalized path or basename token. Findings are deterministic diagnostics, not precision/recall claims or calibrated anomaly scores.
+The code-change grammar excludes docs/config-only and unknown-extension edits. Shell reads are recognized only at command or conservative control-flow starts for a small allowlist, canonicalized against the session working directory, and require an exact normalized path or basename token. Findings are deterministic diagnostics, not precision/recall claims or calibrated anomaly scores.
 
 Each detector runs independently. Success atomically replaces only that detector's findings and advances its generation. Failure retains prior findings as stale, records a failed run, continues the registry, and causes the caller to return an aggregate error. Recovery replaces stale rows with fresh output.
 

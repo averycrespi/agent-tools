@@ -2,8 +2,11 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
-	"sort"
+
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/ingest"
 )
 
 type ConversationEntry struct {
@@ -17,53 +20,43 @@ func (s *Store) Conversation(ctx context.Context, prefix, anchor string, limit i
 	if err != nil {
 		return nil, err
 	}
-	session, err := s.LoadSession(ctx, id)
-	if err != nil {
-		return nil, err
-	}
 	if limit <= 0 || limit > 100 {
 		limit = 100
 	}
 	anchorLine := 0
 	if anchor != "" {
-		found := false
-		for _, m := range session.Messages {
-			if m.ID == anchor {
-				anchorLine = m.SourceLine
-				found = true
-				break
+		if err = s.db.QueryRowContext(ctx, `SELECT source_line FROM messages WHERE session_id=? AND id=?`, id, anchor).Scan(&anchorLine); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("message %q not found in session %s", anchor, id)
 			}
-		}
-		if !found {
-			return nil, fmt.Errorf("message %q not found in session %s", anchor, id)
+			return nil, err
 		}
 	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT kind,id,role,name,stop_reason,text,source_line,is_error FROM (
+ SELECT 'message' AS kind,id,role,'' AS name,stop_reason,text,source_line,NULL AS is_error FROM messages WHERE session_id=? AND source_line>=?
+ UNION ALL
+ SELECT 'tool_call',id,'',name,'',arguments,source_line,NULL FROM tool_calls WHERE session_id=? AND source_line>=?
+ UNION ALL
+ SELECT 'tool_result',id,'',name,'',content,source_line,is_error FROM tool_results WHERE session_id=? AND source_line>=?
+) ORDER BY source_line,kind LIMIT ?`, id, anchorLine, id, anchorLine, id, anchorLine, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
 	entries := []ConversationEntry{}
-	for _, m := range session.Messages {
-		if m.SourceLine >= anchorLine {
-			entries = append(entries, ConversationEntry{Kind: "message", ID: m.ID, Role: m.Role, StopReason: m.StopReason, Text: m.Text, SourceLine: m.SourceLine})
+	for rows.Next() {
+		var entry ConversationEntry
+		var isError sql.NullBool
+		if err = rows.Scan(&entry.Kind, &entry.ID, &entry.Role, &entry.Name, &entry.StopReason, &entry.Text, &entry.SourceLine, &isError); err != nil {
+			return nil, err
 		}
-	}
-	for _, c := range session.ToolCalls {
-		if c.SourceLine >= anchorLine {
-			entries = append(entries, ConversationEntry{Kind: "tool_call", ID: c.ID, Name: c.Name, Text: c.Arguments, SourceLine: c.SourceLine})
+		if isError.Valid {
+			entry.IsError = &isError.Bool
 		}
+		entries = append(entries, entry)
 	}
-	for _, r := range session.ToolResults {
-		if r.SourceLine >= anchorLine {
-			entries = append(entries, ConversationEntry{Kind: "tool_result", ID: r.ID, Name: r.Name, Text: r.Content, SourceLine: r.SourceLine, IsError: r.IsError})
-		}
-	}
-	sort.SliceStable(entries, func(i, j int) bool {
-		if entries[i].SourceLine == entries[j].SourceLine {
-			return entries[i].Kind < entries[j].Kind
-		}
-		return entries[i].SourceLine < entries[j].SourceLine
-	})
-	if len(entries) > limit {
-		entries = entries[:limit]
-	}
-	return entries, nil
+	return entries, rows.Err()
 }
 
 func (s *Store) Message(ctx context.Context, sessionPrefix, messageID string) (map[string]any, error) {
@@ -71,29 +64,64 @@ func (s *Store) Message(ctx context.Context, sessionPrefix, messageID string) (m
 	if err != nil {
 		return nil, err
 	}
-	session, err := s.LoadSession(ctx, id)
+	var message ingest.Message
+	err = s.db.QueryRowContext(ctx, `SELECT id,parent_id,source_line,timestamp,role,model,stop_reason,text,input_tokens,output_tokens,reasoning_tokens,cache_read_tokens,cache_write_tokens,cost FROM messages WHERE session_id=? AND id=?`, id, messageID).Scan(
+		&message.ID, &message.ParentID, &message.SourceLine, &message.Timestamp, &message.Role, &message.Model, &message.StopReason, &message.Text,
+		&message.InputTokens, &message.OutputTokens, &message.ReasoningTokens, &message.CacheReadTokens, &message.CacheWriteTokens, &message.Cost,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("message %q not found in session %s", messageID, id)
+		}
+		return nil, err
+	}
+	calls, err := s.messageToolCalls(ctx, id, messageID)
 	if err != nil {
 		return nil, err
 	}
-	for _, m := range session.Messages {
-		if m.ID != messageID {
-			continue
-		}
-		calls := []any{}
-		for _, c := range session.ToolCalls {
-			if c.MessageID == m.ID {
-				calls = append(calls, c)
-			}
-		}
-		results := []any{}
-		for _, r := range session.ToolResults {
-			if r.MessageID == m.ID {
-				results = append(results, r)
-			}
-		}
-		return map[string]any{"session_id": id, "message": m, "tool_calls": calls, "tool_results": results}, nil
+	results, err := s.messageToolResults(ctx, id, messageID)
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("message %q not found in session %s", messageID, id)
+	return map[string]any{"session_id": id, "message": message, "tool_calls": calls, "tool_results": results}, nil
+}
+
+func (s *Store) messageToolCalls(ctx context.Context, sessionID, messageID string) ([]ingest.ToolCall, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,message_id,source_line,name,arguments FROM tool_calls WHERE session_id=? AND message_id=? ORDER BY source_line,id`, sessionID, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	calls := []ingest.ToolCall{}
+	for rows.Next() {
+		var call ingest.ToolCall
+		if err = rows.Scan(&call.ID, &call.MessageID, &call.SourceLine, &call.Name, &call.Arguments); err != nil {
+			return nil, err
+		}
+		calls = append(calls, call)
+	}
+	return calls, rows.Err()
+}
+
+func (s *Store) messageToolResults(ctx context.Context, sessionID, messageID string) ([]ingest.ToolResult, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,message_id,call_id,source_line,name,content,is_error FROM tool_results WHERE session_id=? AND message_id=? ORDER BY source_line,id`, sessionID, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	results := []ingest.ToolResult{}
+	for rows.Next() {
+		var result ingest.ToolResult
+		var isError sql.NullBool
+		if err = rows.Scan(&result.ID, &result.MessageID, &result.CallID, &result.SourceLine, &result.Name, &result.Content, &isError); err != nil {
+			return nil, err
+		}
+		if isError.Valid {
+			result.IsError = &isError.Bool
+		}
+		results = append(results, result)
+	}
+	return results, rows.Err()
 }
 
 type FailureQuery struct {
@@ -108,40 +136,36 @@ func (s *Store) TopFailures(ctx context.Context, q FailureQuery) ([]FindingRow, 
 	if q.MinSeverity == "" {
 		q.MinSeverity = "warn"
 	}
-	rank := map[string]int{"info": 1, "warn": 2, "error": 3}[q.MinSeverity]
-	rows, err := s.Findings(ctx, "")
+	minRank := severityRank(q.MinSeverity)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT CAST(f.id AS TEXT),f.session_id,f.detector,f.classification,f.severity,f.summary,f.first_evidence_id,f.details,f.source_line,f.generation,f.stale,COALESCE(r.status,''),COALESCE(r.error_summary,'')
+FROM findings f LEFT JOIN detector_runs r ON r.session_id=f.session_id AND r.detector=f.detector
+WHERE (?='' OR f.detector=?) AND (?='' OR f.classification=?)
+ AND CASE f.severity WHEN 'error' THEN 3 WHEN 'warn' THEN 2 ELSE 1 END >= ?
+ORDER BY CASE f.severity WHEN 'error' THEN 3 WHEN 'warn' THEN 2 ELSE 1 END DESC,f.detector,f.session_id,f.first_evidence_id
+LIMIT ?`, q.Detector, q.Detector, q.Classification, q.Classification, minRank, q.Limit)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = rows.Close() }()
 	out := []FindingRow{}
-	for _, f := range rows {
-		if q.Detector != "" && f.Detector != q.Detector {
-			continue
+	for rows.Next() {
+		var finding FindingRow
+		if err = rows.Scan(&finding.ID, &finding.SessionID, &finding.Detector, &finding.Classification, &finding.Severity, &finding.Summary, &finding.EvidenceID, &finding.Details, &finding.SourceLine, &finding.Generation, &finding.Stale, &finding.RunStatus, &finding.RunError); err != nil {
+			return nil, err
 		}
-		if q.Classification != "" && f.Classification != q.Classification {
-			continue
-		}
-		if map[string]int{"info": 1, "warn": 2, "error": 3}[f.Severity] < rank {
-			continue
-		}
-		out = append(out, f)
+		out = append(out, finding)
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		ri := map[string]int{"info": 1, "warn": 2, "error": 3}[out[i].Severity]
-		rj := map[string]int{"info": 1, "warn": 2, "error": 3}[out[j].Severity]
-		if ri != rj {
-			return ri > rj
-		}
-		if out[i].Detector != out[j].Detector {
-			return out[i].Detector < out[j].Detector
-		}
-		if out[i].SessionID != out[j].SessionID {
-			return out[i].SessionID < out[j].SessionID
-		}
-		return out[i].EvidenceID < out[j].EvidenceID
-	})
-	if len(out) > q.Limit {
-		out = out[:q.Limit]
+	return out, rows.Err()
+}
+
+func severityRank(severity string) int {
+	switch severity {
+	case "error":
+		return 3
+	case "warn":
+		return 2
+	default:
+		return 1
 	}
-	return out, nil
 }

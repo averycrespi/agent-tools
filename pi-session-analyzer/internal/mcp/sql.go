@@ -40,7 +40,7 @@ func RunSelect(ctx context.Context, path, query string) (QueryResult, error) {
 	if forbiddenSQL.MatchString(code) {
 		return QueryResult{}, fmt.Errorf("query contains a forbidden operation")
 	}
-	result, err := executeReadOnly(ctx, path, `SELECT * FROM (`+query+`) LIMIT 1025`)
+	result, err := executeReadOnly(ctx, path, "SELECT * FROM (\n"+query+"\n) LIMIT 1025")
 	if err != nil {
 		return QueryResult{}, err
 	}
@@ -118,6 +118,7 @@ func sqlCode(query string) string {
 			for i < len(query) && query[i] != '\n' {
 				i++
 			}
+			out.WriteByte(' ')
 		case i+1 < len(query) && query[i:i+2] == "/*":
 			i += 2
 			for i+1 < len(query) && query[i:i+2] != "*/" {
@@ -126,6 +127,7 @@ func sqlCode(query string) string {
 			if i+1 < len(query) {
 				i += 2
 			}
+			out.WriteByte(' ')
 		case query[i] == '\'' || query[i] == '"' || query[i] == '`':
 			quote := query[i]
 			i++

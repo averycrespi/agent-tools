@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/ingest"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/store"
@@ -27,7 +28,7 @@ func testDatabase(t *testing.T) (string, *store.Store) {
 
 func TestRunSelectAcceptedAndRejectedQueries(t *testing.T) {
 	path, _ := testDatabase(t)
-	for _, query := range []string{"SELECT id FROM sessions", "SELECT 'delete' AS ordinary_text", "SELECT 1 /* delete is data here */", "WITH ids AS (SELECT id FROM sessions) SELECT * FROM ids"} {
+	for _, query := range []string{"SELECT id FROM sessions", "SELECT 'delete' AS ordinary_text", "SELECT 1 /* delete is data here */", "SELECT/* adjacent comment */1", "SELECT id FROM sessions -- trailing comment", "WITH ids AS (SELECT id FROM sessions) SELECT * FROM ids"} {
 		result, err := RunSelect(context.Background(), path, query)
 		require.NoError(t, err, query)
 		require.Len(t, result.Rows, 1)
@@ -59,6 +60,15 @@ func TestRunSelectHonorsCanceledContext(t *testing.T) {
 	cancel()
 	_, err := RunSelect(ctx, path, "SELECT id FROM sessions")
 	require.Error(t, err)
+}
+
+func TestRunSelectEnforcesInternalTimeout(t *testing.T) {
+	path, _ := testDatabase(t)
+	started := time.Now()
+	_, err := RunSelect(context.Background(), path, `WITH RECURSIVE infinite(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM infinite) SELECT sum(x) FROM infinite`)
+	require.Error(t, err)
+	require.GreaterOrEqual(t, time.Since(started), 4*time.Second)
+	require.Less(t, time.Since(started), 8*time.Second)
 }
 
 func TestRunSelectAppliesIndependentRowCap(t *testing.T) {

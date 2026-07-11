@@ -17,6 +17,7 @@ func TestScrubCredentialValues(t *testing.T) {
 		"openai=sk-abcdefghijklmnopqrstuvwxyz123456",
 		"jwt=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signaturevalue",
 		"Authorization: Bearer secret-value-123",
+		"Authorization: Token alternate-secret-456",
 		"password = hunter2",
 		`{"password":"abc","aws_secret_access_key":"short"}`,
 		`{"authorization":"Bearer quoted-secret"}`,
@@ -25,7 +26,7 @@ func TestScrubCredentialValues(t *testing.T) {
 	}, "\n")
 
 	got := Scrub(input)
-	for _, secret := range []string{"ghp_", "AKIAIOS", "xoxb-", "sk-abc", "eyJhbGci", "secret-value", "hunter2", `"abc"`, `"short"`, "quoted-secret", "two words", "\nsecret\n"} {
+	for _, secret := range []string{"ghp_", "AKIAIOS", "xoxb-", "sk-abc", "eyJhbGci", "secret-value", "alternate-secret", "hunter2", `"abc"`, `"short"`, "quoted-secret", "two words", "\nsecret\n"} {
 		require.NotContains(t, got, secret)
 	}
 	require.Equal(t, got, Scrub(got), "scrubbing must be idempotent")
@@ -34,10 +35,15 @@ func TestScrubCredentialValues(t *testing.T) {
 func TestJSONScrubsCredentialsAndRemovesThinking(t *testing.T) {
 	t.Parallel()
 
-	input := `{"password":"two words","nested":{"authorization":"Bearer secret","thinking":"private","thinkingSignature":"signature"},"text":"FAIL"}`
+	input := `{"password":"two words","client_secret":"oauth-secret","refresh_token":"refresh-secret","github-token":"github-secret","OPENAI_API_KEY":"openai-secret","X-API-Key":"header-secret","nested":{"authorization":"Bearer secret","thinking":"private","thinkingSignature":"signature"},"text":"FAIL"}`
 	got := JSON(input)
 	require.NotContains(t, got, "two words")
 	require.NotContains(t, got, "Bearer secret")
+	require.NotContains(t, got, "oauth-secret")
+	require.NotContains(t, got, "refresh-secret")
+	require.NotContains(t, got, "github-secret")
+	require.NotContains(t, got, "openai-secret")
+	require.NotContains(t, got, "header-secret")
 	require.NotContains(t, got, "private")
 	require.NotContains(t, got, "signature")
 	require.Contains(t, got, "FAIL")

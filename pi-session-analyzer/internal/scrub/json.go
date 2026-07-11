@@ -5,11 +5,11 @@ import (
 	"strings"
 )
 
+var keyNormalizer = strings.NewReplacer("_", "", "-", "")
+
 var credentialKeys = map[string]bool{
-	"apikey": true, "api_key": true, "api-key": true,
-	"accesstoken": true, "access_token": true, "access-token": true,
-	"authtoken": true, "auth_token": true, "auth-token": true,
-	"authorization": true, "aws_secret_access_key": true, "aws-secret-access-key": true,
+	"apikey": true, "accesstoken": true, "authtoken": true, "authorization": true,
+	"awssecretaccesskey": true, "clientsecret": true, "githubtoken": true, "refreshtoken": true,
 	"password": true, "passwd": true, "secret": true, "token": true,
 }
 
@@ -27,16 +27,28 @@ func JSON(value string) string {
 	return string(data)
 }
 
+func isCredentialKey(key string) bool {
+	if credentialKeys[key] {
+		return true
+	}
+	for _, suffix := range []string{"apikey", "accesstoken", "authtoken", "clientsecret", "refreshtoken", "githubtoken", "password"} {
+		if strings.HasSuffix(key, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 func scrubJSONValue(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
 		for key, child := range typed {
-			normalized := strings.ToLower(key)
+			normalized := keyNormalizer.Replace(strings.ToLower(key))
 			if normalized == "thinking" || normalized == "thinkingsignature" || normalized == "thinking_signature" {
 				delete(typed, key)
 				continue
 			}
-			if credentialKeys[normalized] {
+			if isCredentialKey(normalized) {
 				typed[key] = "[REDACTED:assignment]"
 				continue
 			}

@@ -133,7 +133,14 @@ func (s *Service) detectSession(ctx context.Context, session ingest.Session) err
 			runErrors = append(runErrors, fmt.Errorf("detector %s for %s: %w", detector.Name, session.ID, err))
 			continue
 		}
-		if err = s.store.SaveDetectorSuccess(ctx, session.ID, detector.Name, findings); err != nil {
+		storedFindings := make([]store.DetectorFinding, len(findings))
+		for i, finding := range findings {
+			storedFindings[i] = store.DetectorFinding{
+				Detector: finding.Detector, Classification: string(finding.Classification), Severity: string(finding.Severity),
+				Summary: finding.Summary, EvidenceID: finding.EvidenceID, Details: finding.Details, SourceLine: finding.SourceLine,
+			}
+		}
+		if err = s.store.SaveDetectorSuccess(ctx, session.ID, detector.Name, storedFindings); err != nil {
 			runErrors = append(runErrors, fmt.Errorf("save detector %s for %s: %w", detector.Name, session.ID, err))
 		}
 	}

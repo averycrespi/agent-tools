@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/detect"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/ingest"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/scrub"
 )
@@ -17,6 +16,13 @@ type FindingRow struct {
 	Summary, EvidenceID, Details, RunStatus, RunError string
 	SourceLine, Generation                            int
 	Stale                                             bool
+}
+
+// DetectorFinding is the persistence shape accepted from detector orchestration.
+type DetectorFinding struct {
+	Detector, Classification, Severity string
+	Summary, EvidenceID, Details       string
+	SourceLine                         int
 }
 
 // LoadSession reconstructs normalized detector input without requiring the source file.
@@ -38,7 +44,9 @@ func (s *Store) LoadSession(ctx context.Context, id string) (ingest.Session, err
 		}
 		out.Messages = append(out.Messages, v)
 	}
-	_ = rows.Close()
+	if err = finishRows(rows); err != nil {
+		return out, err
+	}
 	rows, err = s.db.QueryContext(ctx, `SELECT id,message_id,source_line,name,arguments FROM tool_calls WHERE session_id=? ORDER BY source_line,id`, id)
 	if err != nil {
 		return out, err
@@ -51,7 +59,9 @@ func (s *Store) LoadSession(ctx context.Context, id string) (ingest.Session, err
 		}
 		out.ToolCalls = append(out.ToolCalls, v)
 	}
-	_ = rows.Close()
+	if err = finishRows(rows); err != nil {
+		return out, err
+	}
 	rows, err = s.db.QueryContext(ctx, `SELECT id,message_id,call_id,source_line,name,content,is_error FROM tool_results WHERE session_id=? ORDER BY source_line,id`, id)
 	if err != nil {
 		return out, err
@@ -68,7 +78,9 @@ func (s *Store) LoadSession(ctx context.Context, id string) (ingest.Session, err
 		}
 		out.ToolResults = append(out.ToolResults, v)
 	}
-	_ = rows.Close()
+	if err = finishRows(rows); err != nil {
+		return out, err
+	}
 	rows, err = s.db.QueryContext(ctx, `SELECT id,source_line,type,value,details,tokens_before FROM events WHERE session_id=? ORDER BY source_line,id`, id)
 	if err != nil {
 		return out, err
@@ -81,7 +93,9 @@ func (s *Store) LoadSession(ctx context.Context, id string) (ingest.Session, err
 		}
 		out.Events = append(out.Events, v)
 	}
-	_ = rows.Close()
+	if err = finishRows(rows); err != nil {
+		return out, err
+	}
 	rows, err = s.db.QueryContext(ctx, `SELECT id,source_line,type,status,data FROM custom_state WHERE session_id=? ORDER BY source_line,id`, id)
 	if err != nil {
 		return out, err
@@ -94,7 +108,9 @@ func (s *Store) LoadSession(ctx context.Context, id string) (ingest.Session, err
 		}
 		out.CustomStates = append(out.CustomStates, v)
 	}
-	_ = rows.Close()
+	if err = finishRows(rows); err != nil {
+		return out, err
+	}
 	rows, err = s.db.QueryContext(ctx, `SELECT id,source_line,type,kind,content,details FROM custom_messages WHERE session_id=? ORDER BY source_line,id`, id)
 	if err != nil {
 		return out, err
@@ -107,8 +123,18 @@ func (s *Store) LoadSession(ctx context.Context, id string) (ingest.Session, err
 		}
 		out.CustomMessages = append(out.CustomMessages, v)
 	}
-	_ = rows.Close()
+	if err = finishRows(rows); err != nil {
+		return out, err
+	}
 	return out, nil
+}
+
+func finishRows(rows *sql.Rows) error {
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	return rows.Close()
 }
 
 // SessionIDs returns all IDs in stable order.
@@ -130,7 +156,7 @@ func (s *Store) SessionIDs(ctx context.Context) ([]string, error) {
 }
 
 // SaveDetectorSuccess atomically replaces only one detector's findings.
-func (s *Store) SaveDetectorSuccess(ctx context.Context, sessionID, detector string, findings []detect.Finding) error {
+func (s *Store) SaveDetectorSuccess(ctx context.Context, sessionID, detector string, findings []DetectorFinding) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -144,7 +170,7 @@ func (s *Store) SaveDetectorSuccess(ctx context.Context, sessionID, detector str
 		return err
 	}
 	for _, f := range findings {
-		_, err = tx.ExecContext(ctx, `INSERT INTO findings(session_id,detector,classification,severity,summary,first_evidence_id,source_line,details,generation,stale) VALUES(?,?,?,?,?,?,?,?,?,0)`, sessionID, detector, string(f.Classification), string(f.Severity), scrub.Scrub(f.Summary), scrub.Scrub(f.EvidenceID), f.SourceLine, scrub.JSON(f.Details), generation)
+		_, err = tx.ExecContext(ctx, `INSERT INTO findings(session_id,detector,classification,severity,summary,first_evidence_id,source_line,details,generation,stale) VALUES(?,?,?,?,?,?,?,?,?,0)`, sessionID, detector, f.Classification, f.Severity, scrub.Scrub(f.Summary), scrub.Scrub(f.EvidenceID), f.SourceLine, scrub.JSON(f.Details), generation)
 		if err != nil {
 			return fmt.Errorf("insert finding: %w", err)
 		}

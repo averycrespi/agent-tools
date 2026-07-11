@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,10 +39,15 @@ func TestCommandWorkflowAndDefaults(t *testing.T) {
 	sessions := filepath.Join(home, ".pi", "agent", "sessions")
 	require.NoError(t, os.MkdirAll(sessions, 0o700))
 	require.NoError(t, os.Mkdir(filepath.Join(home, "data"), 0o755))
-	fixture := `{"type":"session","version":3,"id":"session-command","cwd":"/repo"}` + "\n" + `{"type":"message","id":"a","message":{"role":"assistant","stopReason":"stop","content":"done","usage":{"output":2,"reasoning":3,"cacheRead":4,"cost":{"total":0.1}}}}`
+	fixture := `{"type":"session","version":99,"id":"session-command","cwd":"/repo"}` + "\n" +
+		`{"type":"message","id":"a","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"done"},{"type":"toolCall","id":"call","name":"bash","arguments":{"command":"false"}}],"usage":{"output":2,"reasoning":3,"cacheRead":4,"cost":{"total":0.1}}}}` + "\n" +
+		`{"type":"message","id":"result","message":{"role":"toolResult","toolCallId":"call","toolName":"bash","isError":true,"content":"failed"}}` + "\n" +
+		`{"type":"compaction","id":"compact","tokensBefore":12000}` + "\n" +
+		`{"type":"custom","id":"goal","customType":"goal-state","data":{"goal":{"status":"active"}}}` + "\n" +
+		`{"type":"custom_message","id":"guard","customType":"broker-guard","details":{"kind":"credential"}}`
 	require.NoError(t, os.WriteFile(filepath.Join(sessions, "s.jsonl"), []byte(fixture), 0o600))
 
-	for _, args := range [][]string{{"ingest"}, {"list-sessions"}, {"session-summary", "session-c"}, {"detect", "session-c"}} {
+	for _, args := range [][]string{{"ingest"}, {"list-sessions"}, {"detect", "session-c"}} {
 		cmd := newRootCommand()
 		var out bytes.Buffer
 		cmd.SetOut(&out)
@@ -49,5 +55,27 @@ func TestCommandWorkflowAndDefaults(t *testing.T) {
 		require.NoError(t, cmd.Execute(), args)
 		require.NotEmpty(t, out.String(), args)
 	}
+	cmd := newRootCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"session-summary", "session-c"})
+	require.NoError(t, cmd.Execute())
+	var summary map[string]any
+	require.NoError(t, json.Unmarshal(out.Bytes(), &summary))
+	require.Equal(t, float64(2), summary["OutputTokens"])
+	require.Equal(t, float64(3), summary["ReasoningTokens"])
+	require.Equal(t, float64(4), summary["CacheReadTokens"])
+	require.Equal(t, float64(0), summary["CacheWriteTokens"])
+	require.InDelta(t, 0.1, summary["Cost"], 0.0001)
+	tools := summary["Tools"].(map[string]any)
+	require.Equal(t, float64(1), tools["bash"].(map[string]any)["errors"])
+	require.Equal(t, "stop", summary["FinalStopReason"])
+	require.Equal(t, "active", summary["GoalState"])
+	require.Equal(t, float64(1), summary["Compactions"])
+	require.Equal(t, float64(1), summary["BrokerGuards"])
+	require.Equal(t, float64(1), summary["SchemaDrift"])
+	require.NotEmpty(t, summary["Tools"])
+	require.NotEmpty(t, summary["Findings"])
+	require.NotEmpty(t, summary["DetectorRuns"])
 	require.FileExists(t, filepath.Join(home, "data", "pi-session-analyzer", "sessions.db"))
 }

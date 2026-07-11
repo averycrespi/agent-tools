@@ -44,6 +44,15 @@ func TestAllHandlerResponsesUseValidJSONCap(t *testing.T) {
 	require.Contains(t, text, `"truncated":true`)
 }
 
+func TestResponseCapUsesBoundedAllocations(t *testing.T) {
+	large := strings.Repeat("x", 2<<20)
+	allocations := testing.AllocsPerRun(1, func() {
+		result := marshalCapped(large)
+		require.LessOrEqual(t, len(result), maxResponseBytes)
+	})
+	require.Less(t, allocations, float64(500))
+}
+
 func TestGetMessageProjectionAndArgumentErrors(t *testing.T) {
 	path, db := testDatabase(t)
 	handler := NewHandler(db, path)

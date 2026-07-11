@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -69,7 +70,7 @@ func TestDetectRetainsStaleFindingsAfterFailedRerunAndRecovers(t *testing.T) {
 	require.NoError(t, service.Detect(context.Background(), "s"))
 	// A changed-session replacement must preserve prior detector output until rerun succeeds.
 	require.NoError(t, db.ReplaceSession(context.Background(), syntheticSession(), store.SourceMeta{Path: "x", Size: 2, ModTimeNS: 2}))
-	bad := detect.Detector{Name: "test", Run: func(ingest.Session) ([]detect.Finding, error) { return nil, assertiveError("boom") }}
+	bad := detect.Detector{Name: "test", Run: func(ingest.Session) ([]detect.Finding, error) { return nil, errors.New("boom") }}
 	service = New(db, []detect.Detector{bad})
 	require.Error(t, service.Detect(context.Background(), "s"))
 	rows, err := db.Findings(context.Background(), "s")
@@ -85,7 +86,4 @@ func TestDetectRetainsStaleFindingsAfterFailedRerunAndRecovers(t *testing.T) {
 	require.Equal(t, "success", rows[0].RunStatus)
 }
 
-type assertiveError string
-
-func (e assertiveError) Error() string { return string(e) }
 func syntheticSession() ingest.Session { return ingest.Session{ID: "s"} }

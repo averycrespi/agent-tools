@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/detect"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/ingest"
 	"github.com/stretchr/testify/require"
 )
@@ -46,9 +45,9 @@ func TestOpenAndReplaceSessionArePrivateScrubbedAndIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(3), summary.OutputTokens)
 	require.InDelta(t, 0.2, summary.Cost, 0.0001)
-	finding := detect.Finding{Detector: "test", Classification: detect.Structural, Severity: detect.Warn, Summary: "test", EvidenceID: "e1", Details: `{}`}
-	require.NoError(t, s.SaveDetectorSuccess(context.Background(), "s1", "test", []detect.Finding{finding}))
-	require.NoError(t, s.SaveDetectorSuccess(context.Background(), "s1", "test", []detect.Finding{finding}))
+	finding := DetectorFinding{Detector: "test", Classification: "structural", Severity: "warn", Summary: "test", EvidenceID: "e1", Details: `{}`}
+	require.NoError(t, s.SaveDetectorSuccess(context.Background(), "s1", "test", []DetectorFinding{finding}))
+	require.NoError(t, s.SaveDetectorSuccess(context.Background(), "s1", "test", []DetectorFinding{finding}))
 	var findingCount int
 	require.NoError(t, s.db.QueryRow(`SELECT COUNT(*) FROM findings`).Scan(&findingCount))
 	require.Equal(t, 1, findingCount)
@@ -83,15 +82,21 @@ func TestOpenAndReplaceSessionArePrivateScrubbedAndIdempotent(t *testing.T) {
 	}
 }
 
-func TestOpenDoesNotCreateMissingAncestors(t *testing.T) {
+func TestOpenCreatesMissingAncestorsWithoutMakingThemPrivate(t *testing.T) {
 	t.Parallel()
 
 	base := t.TempDir()
 	ancestor := filepath.Join(base, "shared")
-	_, err := Open(filepath.Join(ancestor, "pi-session-analyzer", "sessions.db"))
-	require.Error(t, err)
-	_, statErr := os.Stat(ancestor)
-	require.True(t, os.IsNotExist(statErr))
+	leaf := filepath.Join(ancestor, "pi-session-analyzer")
+	db, err := Open(filepath.Join(leaf, "sessions.db"))
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	ancestorInfo, err := os.Stat(ancestor)
+	require.NoError(t, err)
+	require.NotEqual(t, os.FileMode(0o700), ancestorInfo.Mode().Perm())
+	leafInfo, err := os.Stat(leaf)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o700), leafInfo.Mode().Perm())
 }
 
 func TestOpenDoesNotChmodExistingSharedParent(t *testing.T) {
@@ -129,6 +134,25 @@ func TestReopenRepairsRecreatedSidecarsAndSchemaHasNoRawTier(t *testing.T) {
 	var rawTables int
 	require.NoError(t, db.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND lower(name) LIKE '%raw%'`).Scan(&rawTables))
 	require.Zero(t, rawTables)
+}
+
+func TestTopFailuresFiltersOrdersAndLimitsInQuery(t *testing.T) {
+	t.Parallel()
+
+	s, err := Open(filepath.Join(t.TempDir(), "leaf", "sessions.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	require.NoError(t, s.ReplaceSession(context.Background(), ingest.Session{ID: "s"}, SourceMeta{Path: "x", Size: 1, ModTimeNS: 1}))
+	findings := []DetectorFinding{
+		{Detector: "test", Classification: "structural", Severity: "info", Summary: "info", EvidenceID: "a", Details: `{}`},
+		{Detector: "test", Classification: "structural", Severity: "warn", Summary: "warn", EvidenceID: "b", Details: `{}`},
+		{Detector: "test", Classification: "structural", Severity: "error", Summary: "error", EvidenceID: "c", Details: `{}`},
+	}
+	require.NoError(t, s.SaveDetectorSuccess(context.Background(), "s", "test", findings))
+	rows, err := s.TopFailures(context.Background(), FailureQuery{Limit: 1, Classification: "structural", MinSeverity: "warn"})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "error", rows[0].Severity)
 }
 
 func TestSourceMetadataAndSessionRemainWithoutSource(t *testing.T) {

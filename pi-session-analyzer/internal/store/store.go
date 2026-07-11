@@ -99,6 +99,9 @@ func Open(path string) (*Store, error) {
 	info, statErr := os.Stat(leaf)
 	switch {
 	case os.IsNotExist(statErr):
+		if err := os.MkdirAll(filepath.Dir(leaf), 0o750); err != nil {
+			return nil, fmt.Errorf("create data directory ancestors: %w", err)
+		}
 		if err := os.Mkdir(leaf, 0o700); err != nil {
 			return nil, fmt.Errorf("create data directory: %w", err)
 		}

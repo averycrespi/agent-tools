@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/store"
 	gomcp "github.com/mark3labs/mcp-go/mcp"
@@ -164,23 +163,17 @@ func marshalCapped(value any) string {
 	if len(data) <= maxResponseBytes {
 		return string(data)
 	}
-	preview := data
-	for len(preview) > 0 && !utf8.Valid(preview) {
-		preview = preview[:len(preview)-1]
-	}
-	for len(preview) > 0 {
-		candidate, _ := json.Marshal(map[string]any{"truncated": true, "original_bytes": len(data), "preview": string(preview)})
+	low, high := 0, min(len(data), maxResponseBytes)
+	best := []byte(`{"truncated":true}`)
+	for low <= high {
+		mid := low + (high-low)/2
+		candidate, _ := json.Marshal(map[string]any{"truncated": true, "original_bytes": len(data), "preview": string(data[:mid])})
 		if len(candidate) <= maxResponseBytes {
-			return string(candidate)
-		}
-		cut := 1024
-		if len(preview) < cut {
-			cut = len(preview)
-		}
-		preview = preview[:len(preview)-cut]
-		for len(preview) > 0 && !utf8.Valid(preview) {
-			preview = preview[:len(preview)-1]
+			best = candidate
+			low = mid + 1
+		} else {
+			high = mid - 1
 		}
 	}
-	return `{"truncated":true}`
+	return string(best)
 }

@@ -123,20 +123,37 @@ func compactionPressure(s ingest.Session) []Finding {
 
 func toolErrorBurst(s ingest.Session) []Finding {
 	total := map[string]int{}
-	errors := map[string][]ingest.ToolResult{}
+	callNames := map[string]string{}
 	for _, call := range s.ToolCalls {
 		total[call.Name]++
+		callNames[call.ID] = call.Name
 	}
-	for _, result := range s.ToolResults {
-		if result.IsError != nil && *result.IsError {
-			errors[result.Name] = append(errors[result.Name], result)
+	type burst struct {
+		count int
+		first ingest.ToolResult
+	}
+	bursts := map[string]burst{}
+	for _, result := range sortedResults(s.ToolResults) {
+		name := result.Name
+		if name == "" {
+			name = callNames[result.CallID]
 		}
+		current := bursts[name]
+		if result.IsError != nil && *result.IsError {
+			if current.count == 0 {
+				current.first = result
+			}
+			current.count++
+		} else {
+			current = burst{}
+		}
+		bursts[name] = current
 	}
 	out := []Finding{}
-	for _, name := range sortedKeys(errors) {
-		rs := errors[name]
-		if len(rs) >= 3 {
-			out = append(out, finding("tool_error_burst", Structural, Warn, "tool returned at least three structural errors", rs[0].ID, rs[0].SourceLine, jsonDetails(map[string]any{"tool": name, "errors": len(rs), "calls": total[name]})))
+	for _, name := range sortedKeys(bursts) {
+		current := bursts[name]
+		if current.count >= 3 {
+			out = append(out, finding("tool_error_burst", Structural, Warn, "tool ended with at least three unrecovered structural errors", current.first.ID, current.first.SourceLine, jsonDetails(map[string]any{"tool": name, "errors": current.count, "calls": total[name]})))
 		}
 	}
 	return out
@@ -173,31 +190,38 @@ func retryLoop(s ingest.Session) []Finding {
 		results[r.CallID] = r
 	}
 	type joined struct {
+		key    string
 		call   ingest.ToolCall
 		result ingest.ToolResult
 		ok     bool
 	}
-	groups := map[string][]joined{}
+	entries := []joined{}
+	counts := map[string]int{}
 	for _, call := range sortedCalls(s.ToolCalls) {
-		target := normalizedTarget(call)
-		key := call.Name + "\x00" + target
+		key := call.Name + "\x00" + normalizedTarget(call)
 		r, ok := results[call.ID]
-		groups[key] = append(groups[key], joined{call, r, ok})
+		entries = append(entries, joined{key, call, r, ok})
+		counts[key]++
 	}
 	out := []Finding{}
-	for _, key := range sortedKeys(groups) {
-		entries := groups[key]
-		if len(entries) < 4 {
-			continue
-		}
-		last := entries[len(entries)-1]
-		if !last.ok || (last.result.IsError != nil && !*last.result.IsError) {
+	for _, key := range sortedKeys(counts) {
+		if counts[key] < 4 {
 			continue
 		}
 		run := 0
 		sameHash := 0
 		previous := ""
+		var first ingest.ToolCall
 		for _, e := range entries {
+			if e.key != key {
+				run = 0
+				sameHash = 0
+				previous = ""
+				continue
+			}
+			if first.ID == "" {
+				first = e.call
+			}
 			if e.ok && e.result.IsError != nil && *e.result.IsError {
 				run++
 			} else {
@@ -217,7 +241,7 @@ func retryLoop(s ingest.Session) []Finding {
 			}
 		}
 		if run >= 3 || sameHash >= 3 {
-			out = append(out, finding("retry_loop", Heuristic, Warn, "same tool target repeatedly failed", entries[0].call.ID, entries[0].call.SourceLine, jsonDetails(map[string]any{"invocation_key": key, "calls": len(entries)})))
+			out = append(out, finding("retry_loop", Heuristic, Warn, "same tool target repeatedly failed", first.ID, first.SourceLine, jsonDetails(map[string]any{"invocation_key": key, "calls": counts[key]})))
 		}
 	}
 	return out
@@ -262,7 +286,8 @@ func silentClose(s ingest.Session) []Finding {
 }
 
 var codeExtensions = map[string]bool{".go": true, ".js": true, ".jsx": true, ".ts": true, ".tsx": true, ".py": true, ".rb": true, ".rs": true, ".java": true, ".kt": true, ".kts": true, ".c": true, ".h": true, ".cc": true, ".cpp": true, ".hpp": true, ".cs": true, ".php": true, ".swift": true, ".scala": true, ".sh": true, ".bash": true, ".zsh": true, ".sql": true, ".proto": true}
-var verificationPattern = regexp.MustCompile(`^(?:go\s+(?:test|build|vet)\b|pytest\b|cargo\s+(?:test|check)\b|make\s+(?:test|check|build|lint)\b|npm\s+test\b|(?:npm|pnpm|yarn)\s+run\s+(?:test|check|build|lint|typecheck)\b)`)
+var verificationPattern = regexp.MustCompile(`^(?:go(?:\s+-C\s+\S+)?\s+(?:test|build|vet)\b|pytest\b|cargo\s+(?:test|check)\b|make(?:\s+-C\s+\S+)?\s+(?:test|check|build|lint)\b|(?:npm|pnpm|yarn)(?:\s+(?:--prefix|--dir|--cwd|-C)\s+\S+)*\s+(?:test\b|run\s+(?:test|check|build|lint|typecheck)\b)|(?:uv|poetry)\s+run\s+pytest\b|npx(?:\s+(?:(?:--prefix|--dir|--cwd|-C)\s+\S+|--yes))*\s+(?:vitest|jest|mocha)\b|npx(?:\s+(?:(?:--prefix|--dir|--cwd|-C)\s+\S+|--yes))*\s+tsx\s+--test\b|npx\s+tsc\b.*--noEmit\b|(?:bash|sh)\s+-n\b|shellcheck\b|golangci-lint\s+run\b)`)
+var leadingEnvPattern = regexp.MustCompile(`^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)+`)
 
 func unverifiedCodeChange(s ingest.Session) []Finding {
 	var last *ingest.ToolCall
@@ -302,28 +327,33 @@ func isCodePath(path string) bool {
 
 func editWithoutRead(s ingest.Session) []Finding {
 	seen := map[string]bool{}
-	var shellReadsBefore []string
+	shellReadTargets := map[string]bool{}
 	failed := map[string]bool{}
 	for _, result := range s.ToolResults {
 		failed[result.CallID] = result.IsError != nil && *result.IsError
 	}
 	out := []Finding{}
 	for _, call := range sortedCalls(s.ToolCalls) {
-		path := filepath.Clean(argument(call.Arguments, "path"))
+		rawPath := argument(call.Arguments, "path")
+		path := canonicalPath(s.CWD, rawPath)
 		switch call.Name {
-		case "read", "write":
+		case "read":
 			if path != "." && path != "" {
 				seen[path] = true
 			}
-		case "bash":
-			shellReadsBefore = append(shellReadsBefore, argument(call.Arguments, "command"))
-		case "edit":
-			read := seen[path]
-			for _, command := range shellReadsBefore {
-				read = read || shellReads(command, path)
+		case "write":
+			if path != "." && path != "" && !failed[call.ID] {
+				seen[path] = true
 			}
+		case "bash":
+			for _, target := range shellReadOperands(argument(call.Arguments, "command"), s.CWD) {
+				shellReadTargets[target] = true
+				shellReadTargets[filepath.Base(target)] = true
+			}
+		case "edit":
+			read := seen[path] || shellReadTargets[path] || shellReadTargets[filepath.Base(path)]
 			if path != "." && !read && !failed[call.ID] {
-				out = append(out, finding("edit_without_read", Heuristic, Warn, "existing path edited without a prior recognized read", call.ID, call.SourceLine, jsonDetails(map[string]any{"path": path})))
+				out = append(out, finding("edit_without_read", Heuristic, Warn, "existing path edited without a prior recognized read", call.ID, call.SourceLine, jsonDetails(map[string]any{"path": rawPath})))
 			}
 		}
 	}
@@ -334,32 +364,46 @@ var shellSplit = regexp.MustCompile(`\s*(?:&&|;|\|)\s*`)
 
 func isVerificationCommand(command string) bool {
 	for _, segment := range shellSplit.Split(command, -1) {
-		if verificationPattern.MatchString(strings.TrimSpace(segment)) {
+		segment = leadingEnvPattern.ReplaceAllString(strings.TrimSpace(segment), "")
+		if verificationPattern.MatchString(segment) {
 			return true
 		}
 	}
 	return false
 }
 
-func shellReads(command, path string) bool {
+func shellReadOperands(command, cwd string) []string {
+	var targets []string
 	for _, segment := range shellSplit.Split(command, -1) {
 		fields := shellFields(segment)
 		if len(fields) == 0 {
 			continue
 		}
-		name := filepath.Base(strings.Trim(fields[0], `"'`))
-		allowed := name == "cat" || name == "head" || name == "tail" || name == "less" || name == "grep" || name == "rg" || name == "awk" || (name == "sed" && len(fields) > 1 && strings.Trim(fields[1], `"'`) == "-n")
-		if !allowed {
+		reader := -1
+		for i, field := range fields {
+			name := filepath.Base(strings.Trim(field, `"'(){}`))
+			previous := ""
+			if i > 0 {
+				previous = strings.Trim(fields[i-1], `"'(){}`)
+			}
+			atCommandStart := i == 0 || previous == "then" || previous == "do"
+			allowed := name == "cat" || name == "head" || name == "tail" || name == "less" || name == "grep" || name == "rg" || name == "awk" || name == "nl" || (name == "sed" && len(fields) > i+1 && strings.Trim(fields[i+1], `"'`) == "-n")
+			if atCommandStart && allowed {
+				reader = i
+				break
+			}
+		}
+		if reader < 0 {
 			continue
 		}
-		for _, field := range fields[1:] {
+		for _, field := range fields[reader+1:] {
 			token := strings.Trim(field, `"',`)
-			if token == path || token == filepath.Base(path) {
-				return true
+			if token != "" && !strings.HasPrefix(token, "-") {
+				targets = append(targets, canonicalPath(cwd, token))
 			}
 		}
 	}
-	return false
+	return targets
 }
 
 func termination(s ingest.Session) []Finding {
@@ -385,6 +429,14 @@ func lastAssistant(messages []ingest.Message) *ingest.Message {
 	}
 	return last
 }
+func canonicalPath(cwd, path string) string {
+	clean := filepath.Clean(path)
+	if cwd != "" && clean != "." && !filepath.IsAbs(clean) {
+		return filepath.Join(cwd, clean)
+	}
+	return clean
+}
+
 func normalizedTarget(call ingest.ToolCall) string {
 	if call.Name == "bash" {
 		return strings.TrimSpace(argument(call.Arguments, "command"))
@@ -404,6 +456,12 @@ func argument(raw, key string) string {
 }
 func sortedCalls(calls []ingest.ToolCall) []ingest.ToolCall {
 	out := append([]ingest.ToolCall(nil), calls...)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].SourceLine < out[j].SourceLine })
+	return out
+}
+
+func sortedResults(results []ingest.ToolResult) []ingest.ToolResult {
+	out := append([]ingest.ToolResult(nil), results...)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].SourceLine < out[j].SourceLine })
 	return out
 }

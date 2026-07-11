@@ -37,6 +37,17 @@ func TestStructuralDetectorsDoNotFireOnHealthySession(t *testing.T) {
 	for _, detector := range []string{"broker_guard", "compaction_pressure", "tool_error_burst", "mcp_failure"} {
 		require.NotContains(t, findings, detector)
 	}
+	recovered := ingest.Session{
+		ID:        "recovered",
+		ToolCalls: []ingest.ToolCall{{ID: "c1", Name: "bash"}, {ID: "c2", Name: "bash"}, {ID: "c3", Name: "bash"}, {ID: "c4", Name: "bash"}},
+		ToolResults: []ingest.ToolResult{
+			{ID: "r1", CallID: "c1", Name: "bash", IsError: boolPtr(true), SourceLine: 1},
+			{ID: "r2", CallID: "c2", Name: "bash", IsError: boolPtr(true), SourceLine: 2},
+			{ID: "r3", CallID: "c3", Name: "bash", IsError: boolPtr(true), SourceLine: 3},
+			{ID: "r4", CallID: "c4", Name: "bash", IsError: boolPtr(false), SourceLine: 4},
+		},
+	}
+	require.NotContains(t, detectorNames(Analyze(recovered)), "tool_error_burst")
 }
 
 func TestMCPHistoricalFallbackIsNarrow(t *testing.T) {
@@ -81,6 +92,25 @@ func TestRetryLoopGuardsChangingOutputAndPass(t *testing.T) {
 	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: calls, ToolResults: failed})), "retry_loop")
 }
 
+func TestRetryLoopRequiresConsecutiveMatchingCalls(t *testing.T) {
+	t.Parallel()
+
+	calls := []ingest.ToolCall{
+		{ID: "a", Name: "read", Arguments: `{"path":"main.go"}`, SourceLine: 1},
+		{ID: "other-1", Name: "bash", Arguments: `{"command":"echo one"}`, SourceLine: 2},
+		{ID: "b", Name: "read", Arguments: `{"path":"main.go"}`, SourceLine: 3},
+		{ID: "other-2", Name: "bash", Arguments: `{"command":"echo two"}`, SourceLine: 4},
+		{ID: "c", Name: "read", Arguments: `{"path":"main.go"}`, SourceLine: 5},
+		{ID: "other-3", Name: "bash", Arguments: `{"command":"echo three"}`, SourceLine: 6},
+		{ID: "d", Name: "read", Arguments: `{"path":"main.go"}`, SourceLine: 7},
+	}
+	results := []ingest.ToolResult{}
+	for _, id := range []string{"a", "b", "c", "d"} {
+		results = append(results, ingest.ToolResult{ID: "result-" + id, CallID: id, IsError: boolPtr(true), Content: "same"})
+	}
+	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: calls, ToolResults: results})), "retry_loop")
+}
+
 func TestSilentCloseRequiresStartedGoal(t *testing.T) {
 	t.Parallel()
 
@@ -98,10 +128,26 @@ func TestUnverifiedCodeChangeGuards(t *testing.T) {
 
 	edit := ingest.ToolCall{ID: "e", Name: "edit", Arguments: `{"path":"main.go"}`, SourceLine: 2}
 	require.Contains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: []ingest.ToolCall{edit}})), "unverified_code_change")
-	verified := []ingest.ToolCall{edit, {ID: "v", Name: "bash", Arguments: `{"command":"go test ./..."}`, SourceLine: 3}}
-	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: verified})), "unverified_code_change")
-	compound := []ingest.ToolCall{edit, {ID: "v", Name: "bash", Arguments: `{"command":"cd src && go test ./..."}`, SourceLine: 3}}
-	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: compound})), "unverified_code_change")
+	for _, command := range []string{
+		"go test ./...",
+		"cd src && go test ./...",
+		"go -C src test ./...",
+		"CGO_ENABLED=0 go build ./cmd/tool",
+		"make -C src test",
+		"npm --prefix web test",
+		"pnpm --dir web run typecheck",
+		"uv run pytest",
+		"npx vitest run",
+		"npx --yes vitest run",
+		"npx --prefix web tsx --test",
+		"npx tsc --noEmit",
+		"bash -n script.sh",
+		"shellcheck script.sh",
+		"golangci-lint run",
+	} {
+		verified := []ingest.ToolCall{edit, {ID: "v", Name: "bash", Arguments: `{"command":"` + command + `"}`, SourceLine: 3}}
+		require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: verified})), "unverified_code_change", command)
+	}
 	for _, path := range []string{"docs/a.go", "config.yaml", "new.unknown"} {
 		call := edit
 		call.Arguments = `{"path":"` + path + `"}`
@@ -118,6 +164,7 @@ func TestEditWithoutReadRecognizesReadsAndNewFiles(t *testing.T) {
 		{{ID: "r", Name: "read", Arguments: `{"path":"src/main.go"}`, SourceLine: 1}, edit},
 		{{ID: "r", Name: "bash", Arguments: `{"command":"cat 'src/main.go'"}`, SourceLine: 1}, edit},
 		{{ID: "r", Name: "bash", Arguments: `{"command":"cat main.go"}`, SourceLine: 1}, edit},
+		{{ID: "r", Name: "bash", Arguments: `{"command":"nl -ba src/main.go"}`, SourceLine: 1}, edit},
 		{{ID: "w", Name: "write", Arguments: `{"path":"src/main.go"}`, SourceLine: 1}, edit},
 	}
 	for _, calls := range cases {
@@ -130,8 +177,21 @@ func TestEditWithoutReadRecognizesReadsAndNewFiles(t *testing.T) {
 	spaceEdit := ingest.ToolCall{ID: "space", Name: "edit", Arguments: `{"path":"src/my file.go"}`, SourceLine: 3}
 	quotedSpace := []ingest.ToolCall{{ID: "r", Name: "bash", Arguments: `{"command":"cat 'src/my file.go'"}`, SourceLine: 1}, spaceEdit}
 	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: quotedSpace})), "edit_without_read")
+	absoluteRead := []ingest.ToolCall{{ID: "r", Name: "bash", Arguments: `{"command":"cat /repo/src/main.go"}`, SourceLine: 1}, edit}
+	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", CWD: "/repo", ToolCalls: absoluteRead})), "edit_without_read")
+	nestedRead := []ingest.ToolCall{{ID: "r", Name: "bash", Arguments: `{"command":"if test -f src/main.go; then nl -ba src/main.go; fi"}`, SourceLine: 1}, edit}
+	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: nestedRead})), "edit_without_read")
 	failed := ingest.Session{ID: "s", ToolCalls: []ingest.ToolCall{edit}, ToolResults: []ingest.ToolResult{{ID: "result", CallID: "e", IsError: boolPtr(true)}}}
 	require.NotContains(t, detectorNames(Analyze(failed)), "edit_without_read")
+	failedWrite := ingest.Session{
+		ID: "s",
+		ToolCalls: []ingest.ToolCall{
+			{ID: "w", Name: "write", Arguments: `{"path":"src/main.go"}`, SourceLine: 1},
+			edit,
+		},
+		ToolResults: []ingest.ToolResult{{ID: "write-result", CallID: "w", IsError: boolPtr(true)}},
+	}
+	require.Contains(t, detectorNames(Analyze(failedWrite)), "edit_without_read")
 }
 
 func TestTerminationClassification(t *testing.T) {
