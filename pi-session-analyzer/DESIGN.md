@@ -60,7 +60,7 @@ Each detector runs independently. Success atomically replaces only that detector
 
 The stdio server exposes six closed-world read-only tools: `list_sessions`, `session_summary`, `top_failures`, `get_conversation`, `get_message`, and `run_select`. All registry entries explicitly advertise read-only, non-destructive, idempotent, closed-world annotations.
 
-One serializer caps every success and error response at approximately 50,000 bytes while preserving valid JSON. Lists and drill-downs have tool-specific maximums. SQL has an independent 1,024-row cap and five-second context timeout.
+One serializer caps every success and error response at approximately 50,000 bytes while preserving valid JSON. Lists and drill-downs have tool-specific maximums. SQL has an independent 1,024-row cap, a 64 KiB SQLite value limit, and a five-second context timeout.
 
 `run_select` validates a single `SELECT` or CTE and rejects statement separators and obvious write/schema/attachment operations. Those lexical checks are defense in depth. The write-safety boundary is a separate SQLite `mode=ro` connection with `PRAGMA query_only=ON`; caller SQL cannot make the analyzer connection writable.
 

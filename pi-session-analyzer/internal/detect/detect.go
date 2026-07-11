@@ -190,7 +190,7 @@ func retryLoop(s ingest.Session) []Finding {
 			continue
 		}
 		last := entries[len(entries)-1]
-		if !last.ok || last.result.IsError == nil || !*last.result.IsError {
+		if !last.ok || (last.result.IsError != nil && !*last.result.IsError) {
 			continue
 		}
 		run := 0
@@ -203,7 +203,7 @@ func retryLoop(s ingest.Session) []Finding {
 				run = 0
 			}
 			hash := contentHash(e.result.Content)
-			if e.ok && e.result.IsError != nil && *e.result.IsError {
+			if e.ok && e.result.IsError == nil {
 				if hash == previous {
 					sameHash++
 				} else {

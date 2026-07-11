@@ -76,7 +76,7 @@ Run the analyzer behind `mcp-broker` so calls are subject to broker policy and a
 
 The server exposes `list_sessions`, `session_summary`, `top_failures`, `get_conversation`, `get_message`, and `run_select`. Every tool is annotated read-only, non-destructive, and closed-world.
 
-Limits are enforced centrally: list/drill-down requests are bounded, SQL returns at most 1,024 rows, serialized responses are approximately 50,000 characters, and SQL has a five-second timeout. `run_select` accepts one `SELECT` or CTE and executes through a separate SQLite `mode=ro` connection with `query_only` enabled.
+Limits are enforced centrally: list/drill-down requests are bounded, SQL returns at most 1,024 rows, individual SQL values are limited to 64 KiB, serialized responses are approximately 50,000 characters, and SQL has a five-second timeout. `run_select` accepts one `SELECT` or CTE and executes through a separate SQLite `mode=ro` connection with `query_only` enabled.
 
 Broker discovery and policy are not authorization to share analyzer output. The same private/non-share-safe boundary applies to MCP responses.
 

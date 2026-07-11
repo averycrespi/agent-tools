@@ -30,6 +30,15 @@ func TestStructuralDetectors(t *testing.T) {
 	require.Contains(t, got["mcp_failure"].Details, "structural_flag")
 }
 
+func TestStructuralDetectorsDoNotFireOnHealthySession(t *testing.T) {
+	t.Parallel()
+
+	findings := detectorNames(Analyze(ingest.Session{ID: "healthy", ToolCalls: []ingest.ToolCall{{ID: "c1", Name: "bash"}, {ID: "c2", Name: "bash"}}, ToolResults: []ingest.ToolResult{{ID: "r1", CallID: "c1", Name: "bash", IsError: boolPtr(true)}, {ID: "r2", CallID: "c2", Name: "bash", IsError: boolPtr(true)}}}))
+	for _, detector := range []string{"broker_guard", "compaction_pressure", "tool_error_burst", "mcp_failure"} {
+		require.NotContains(t, findings, detector)
+	}
+}
+
 func TestMCPHistoricalFallbackIsNarrow(t *testing.T) {
 	t.Parallel()
 
@@ -52,6 +61,13 @@ func TestRetryLoopGuardsChangingOutputAndPass(t *testing.T) {
 		failed = append(failed, ingest.ToolResult{ID: "r" + id, CallID: id, IsError: boolPtr(true), Content: "same", SourceLine: i + 1})
 	}
 	require.Contains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: calls, ToolResults: failed})), "retry_loop")
+	for i := range failed {
+		failed[i].IsError = nil
+	}
+	require.Contains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: calls, ToolResults: failed})), "retry_loop")
+	for i := range failed {
+		failed[i].IsError = boolPtr(true)
+	}
 	failed[1].Content = "different"
 	failed[2].Content = "another"
 	failed[3].IsError = boolPtr(false)

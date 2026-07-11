@@ -144,7 +144,7 @@ func (s *Store) SaveDetectorSuccess(ctx context.Context, sessionID, detector str
 		return err
 	}
 	for _, f := range findings {
-		_, err = tx.ExecContext(ctx, `INSERT INTO findings(session_id,detector,classification,severity,summary,first_evidence_id,source_line,details,generation,stale) VALUES(?,?,?,?,?,?,?,?,?,0)`, sessionID, detector, string(f.Classification), string(f.Severity), scrub.Scrub(f.Summary), scrub.Scrub(f.EvidenceID), f.SourceLine, scrub.Scrub(f.Details), generation)
+		_, err = tx.ExecContext(ctx, `INSERT INTO findings(session_id,detector,classification,severity,summary,first_evidence_id,source_line,details,generation,stale) VALUES(?,?,?,?,?,?,?,?,?,0)`, sessionID, detector, string(f.Classification), string(f.Severity), scrub.Scrub(f.Summary), scrub.Scrub(f.EvidenceID), f.SourceLine, scrub.JSON(f.Details), generation)
 		if err != nil {
 			return fmt.Errorf("insert finding: %w", err)
 		}

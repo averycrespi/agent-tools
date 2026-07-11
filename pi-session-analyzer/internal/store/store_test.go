@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/detect"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/ingest"
 	"github.com/stretchr/testify/require"
 )
@@ -25,10 +26,10 @@ func TestOpenAndReplaceSessionArePrivateScrubbedAndIdempotent(t *testing.T) {
 	secret := "ghp_abcdefghijklmnopqrstuvwxyz1234567890"
 	session := ingest.Session{
 		ID: "s1", CWD: "/repo", Stats: ingest.ParseStats{Total: 2},
-		Messages:       []ingest.Message{{ID: "m1", Role: "user", Text: "token=" + secret, SourceLine: 2}},
+		Messages:       []ingest.Message{{ID: "m1", Role: "user", Text: "token=" + secret, SourceLine: 2, OutputTokens: 3, Cost: 0.2}},
 		ToolCalls:      []ingest.ToolCall{{ID: "c1", MessageID: "m1", Name: "bash", Arguments: `{"token":"` + secret + `"}`, SourceLine: 2}},
 		ToolResults:    []ingest.ToolResult{{ID: "r1", CallID: "c1", Content: "password=abc", SourceLine: 3}},
-		Events:         []ingest.Event{{ID: "e1", Type: "compaction", Value: "secret=" + secret, Details: `{"password":"abc"}`, SourceLine: 4}},
+		Events:         []ingest.Event{{ID: "e1", Type: "compaction", Value: "secret=" + secret, Details: `{"password":"abc","thinking":"private","thinkingSignature":"signature"}`, SourceLine: 4}},
 		CustomStates:   []ingest.CustomState{{ID: "s1", Type: "goal-state", Data: `{"token":"` + secret + `"}`, SourceLine: 5}},
 		CustomMessages: []ingest.CustomMessage{{ID: "cm1", Type: "broker-guard", Content: "password=abc", Details: `{"secret":"abc"}`, SourceLine: 6}},
 	}
@@ -36,9 +37,21 @@ func TestOpenAndReplaceSessionArePrivateScrubbedAndIdempotent(t *testing.T) {
 	require.NoError(t, s.ReplaceSession(context.Background(), session, meta))
 	require.NoError(t, s.ReplaceSession(context.Background(), session, meta))
 
-	var messages int
-	require.NoError(t, s.db.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&messages))
-	require.Equal(t, 1, messages)
+	for _, table := range []string{"messages", "tool_calls", "tool_results", "events", "custom_state", "custom_messages"} {
+		var count int
+		require.NoError(t, s.db.QueryRow(`SELECT COUNT(*) FROM `+table).Scan(&count)) //nolint:gosec // closed test table list
+		require.Equal(t, 1, count, table)
+	}
+	summary, err := s.SessionSummary(context.Background(), "s1")
+	require.NoError(t, err)
+	require.Equal(t, int64(3), summary.OutputTokens)
+	require.InDelta(t, 0.2, summary.Cost, 0.0001)
+	finding := detect.Finding{Detector: "test", Classification: detect.Structural, Severity: detect.Warn, Summary: "test", EvidenceID: "e1", Details: `{}`}
+	require.NoError(t, s.SaveDetectorSuccess(context.Background(), "s1", "test", []detect.Finding{finding}))
+	require.NoError(t, s.SaveDetectorSuccess(context.Background(), "s1", "test", []detect.Finding{finding}))
+	var findingCount int
+	require.NoError(t, s.db.QueryRow(`SELECT COUNT(*) FROM findings`).Scan(&findingCount))
+	require.Equal(t, 1, findingCount)
 	var text, args string
 	require.NoError(t, s.db.QueryRow(`SELECT text FROM messages`).Scan(&text))
 	require.NoError(t, s.db.QueryRow(`SELECT arguments FROM tool_calls`).Scan(&args))
@@ -52,6 +65,8 @@ func TestOpenAndReplaceSessionArePrivateScrubbedAndIdempotent(t *testing.T) {
 		require.NoError(t, s.db.QueryRow(query).Scan(&persisted))
 		require.NotContains(t, persisted, secret)
 		require.NotContains(t, persisted, "abc")
+		require.NotContains(t, persisted, "private")
+		require.NotContains(t, persisted, "signature")
 		require.Contains(t, persisted, "[REDACTED:")
 	}
 

@@ -9,10 +9,12 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/ncruces/go-sqlite3/driver"
+	"github.com/ncruces/go-sqlite3"
+	sqlite3driver "github.com/ncruces/go-sqlite3/driver"
 )
 
 const maxSQLRows = 1024
+const maxSQLValueBytes = 64 * 1024
 const sqlTimeout = 5 * time.Second
 
 var forbiddenSQL = regexp.MustCompile(`(?i)\b(?:insert|update|delete|replace|create|drop|alter|vacuum|attach|detach|pragma|reindex|analyze|transaction|begin|commit|rollback)\b`)
@@ -56,12 +58,27 @@ func executeReadOnly(ctx context.Context, path, query string) (QueryResult, erro
 		return QueryResult{}, fmt.Errorf("open read-only database: %w", err)
 	}
 	defer func() { _ = db.Close() }()
-	if _, err = db.ExecContext(ctx, "PRAGMA query_only=ON"); err != nil {
-		return QueryResult{}, fmt.Errorf("enable query-only mode: %w", err)
-	}
 	queryCtx, cancel := context.WithTimeout(ctx, sqlTimeout)
 	defer cancel()
-	rows, err := db.QueryContext(queryCtx, query)
+	conn, err := db.Conn(queryCtx)
+	if err != nil {
+		return QueryResult{}, fmt.Errorf("open read-only connection: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if err = conn.Raw(func(driverConn any) error {
+		raw, ok := driverConn.(sqlite3driver.Conn)
+		if !ok {
+			return fmt.Errorf("unexpected SQLite driver connection %T", driverConn)
+		}
+		raw.Raw().Limit(sqlite3.LIMIT_LENGTH, maxSQLValueBytes)
+		return nil
+	}); err != nil {
+		return QueryResult{}, fmt.Errorf("limit SQLite values: %w", err)
+	}
+	if _, err = conn.ExecContext(queryCtx, "PRAGMA query_only=ON"); err != nil {
+		return QueryResult{}, fmt.Errorf("enable query-only mode: %w", err)
+	}
+	rows, err := conn.QueryContext(queryCtx, query)
 	if err != nil {
 		return QueryResult{}, fmt.Errorf("execute query: %w", err)
 	}

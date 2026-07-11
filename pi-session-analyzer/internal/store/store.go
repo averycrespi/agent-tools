@@ -184,7 +184,7 @@ func (s *Store) ReplaceSession(ctx context.Context, in ingest.Session, meta Sour
 		}
 	}
 	for _, c := range in.ToolCalls {
-		_, err = tx.ExecContext(ctx, `INSERT INTO tool_calls(session_id,id,message_id,source_line,name,arguments) VALUES(?,?,?,?,?,?)`, sessionID, scrub.Scrub(c.ID), scrub.Scrub(c.MessageID), c.SourceLine, scrub.Scrub(c.Name), scrub.Scrub(c.Arguments))
+		_, err = tx.ExecContext(ctx, `INSERT INTO tool_calls(session_id,id,message_id,source_line,name,arguments) VALUES(?,?,?,?,?,?)`, sessionID, scrub.Scrub(c.ID), scrub.Scrub(c.MessageID), c.SourceLine, scrub.Scrub(c.Name), scrub.JSON(c.Arguments))
 		if err != nil {
 			return fmt.Errorf("insert tool call: %w", err)
 		}
@@ -205,19 +205,19 @@ func (s *Store) ReplaceSession(ctx context.Context, in ingest.Session, meta Sour
 		}
 	}
 	for _, e := range in.Events {
-		_, err = tx.ExecContext(ctx, `INSERT INTO events VALUES(?,?,?,?,?,?,?)`, sessionID, scrub.Scrub(e.ID), e.SourceLine, scrub.Scrub(e.Type), scrub.Scrub(e.Value), scrub.Scrub(e.Details), e.TokensBefore)
+		_, err = tx.ExecContext(ctx, `INSERT INTO events VALUES(?,?,?,?,?,?,?)`, sessionID, scrub.Scrub(e.ID), e.SourceLine, scrub.Scrub(e.Type), scrub.Scrub(e.Value), scrub.JSON(e.Details), e.TokensBefore)
 		if err != nil {
 			return fmt.Errorf("insert event: %w", err)
 		}
 	}
 	for _, c := range in.CustomStates {
-		_, err = tx.ExecContext(ctx, `INSERT INTO custom_state VALUES(?,?,?,?,?,?)`, sessionID, scrub.Scrub(c.ID), c.SourceLine, scrub.Scrub(c.Type), scrub.Scrub(c.Status), scrub.Scrub(c.Data))
+		_, err = tx.ExecContext(ctx, `INSERT INTO custom_state VALUES(?,?,?,?,?,?)`, sessionID, scrub.Scrub(c.ID), c.SourceLine, scrub.Scrub(c.Type), scrub.Scrub(c.Status), scrub.JSON(c.Data))
 		if err != nil {
 			return fmt.Errorf("insert custom state: %w", err)
 		}
 	}
 	for _, c := range in.CustomMessages {
-		_, err = tx.ExecContext(ctx, `INSERT INTO custom_messages VALUES(?,?,?,?,?,?,?)`, sessionID, scrub.Scrub(c.ID), c.SourceLine, scrub.Scrub(c.Type), scrub.Scrub(c.Kind), scrub.Scrub(c.Content), scrub.Scrub(c.Details))
+		_, err = tx.ExecContext(ctx, `INSERT INTO custom_messages VALUES(?,?,?,?,?,?,?)`, sessionID, scrub.Scrub(c.ID), c.SourceLine, scrub.Scrub(c.Type), scrub.Scrub(c.Kind), scrub.Scrub(c.Content), scrub.JSON(c.Details))
 		if err != nil {
 			return fmt.Errorf("insert custom message: %w", err)
 		}

@@ -47,6 +47,12 @@ func TestReadOnlyBoundaryRejectsWriteWhenLexicalGuardBypassed(t *testing.T) {
 	require.Len(t, sessions, 1)
 }
 
+func TestRunSelectRejectsOversizedCellBeforeResponseSerialization(t *testing.T) {
+	path, _ := testDatabase(t)
+	_, err := RunSelect(context.Background(), path, `SELECT printf('%.*c', 1000000, 'x')`)
+	require.Error(t, err)
+}
+
 func TestRunSelectHonorsCanceledContext(t *testing.T) {
 	path, _ := testDatabase(t)
 	ctx, cancel := context.WithCancel(context.Background())
