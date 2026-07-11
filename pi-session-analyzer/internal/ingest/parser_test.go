@@ -61,11 +61,15 @@ func TestParseDeduplicatesStreamedMessageIDs(t *testing.T) {
 
 	jsonl := `{"type":"session","version":3,"id":"s1"}` + "\n" +
 		`{"type":"message","id":"a1","message":{"role":"assistant","content":[{"type":"text","text":"partial"}],"usage":{"output":2}}}` + "\n" +
-		`{"type":"message","id":"a1","message":{"role":"assistant","content":[{"type":"text","text":"complete"}],"usage":{"output":3}}}`
+		`{"type":"message","id":"a1","message":{"role":"assistant","content":[{"type":"text","text":"complete"}],"usage":{"output":3}}}` + "\n" +
+		`{"type":"compaction","id":"e1","summary":"first"}` + "\n" +
+		`{"type":"compaction","id":"e1","summary":"latest"}`
 
 	s, err := Parse(strings.NewReader(jsonl))
 	require.NoError(t, err)
 	require.Len(t, s.Messages, 1)
 	require.Equal(t, int64(3), s.Messages[0].OutputTokens)
 	require.Equal(t, "complete", s.Messages[0].Text)
+	require.Len(t, s.Events, 1)
+	require.Equal(t, "latest", s.Events[0].Value)
 }

@@ -37,6 +37,8 @@ func TestMCPHistoricalFallbackIsNarrow(t *testing.T) {
 	require.Contains(t, detectorNames(Analyze(failing)), "mcp_failure")
 	benign := ingest.Session{ID: "s", ToolCalls: []ingest.ToolCall{{ID: "c", Name: "mcp_call"}}, ToolResults: []ingest.ToolResult{{ID: "r", CallID: "c", Name: "mcp_call", Content: "We discussed ordinary errors"}}}
 	require.NotContains(t, detectorNames(Analyze(benign)), "mcp_failure")
+	explicitSuccess := ingest.Session{ID: "s", ToolCalls: []ingest.ToolCall{{ID: "c", Name: "mcp_call"}}, ToolResults: []ingest.ToolResult{{ID: "r", CallID: "c", Name: "mcp_call", IsError: boolPtr(false), Content: "MCP error is a detector marker"}}}
+	require.NotContains(t, detectorNames(Analyze(explicitSuccess)), "mcp_failure")
 }
 
 func TestRetryLoopGuardsChangingOutputAndPass(t *testing.T) {
@@ -53,6 +55,12 @@ func TestRetryLoopGuardsChangingOutputAndPass(t *testing.T) {
 	failed[1].Content = "different"
 	failed[2].Content = "another"
 	failed[3].IsError = boolPtr(false)
+	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: calls, ToolResults: failed})), "retry_loop")
+	for i := range failed {
+		failed[i].IsError = boolPtr(false)
+		failed[i].Content = "same success"
+	}
+	failed[3].IsError = boolPtr(true)
 	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: calls, ToolResults: failed})), "retry_loop")
 }
 
@@ -92,6 +100,7 @@ func TestEditWithoutReadRecognizesReadsAndNewFiles(t *testing.T) {
 	cases := [][]ingest.ToolCall{
 		{{ID: "r", Name: "read", Arguments: `{"path":"src/main.go"}`, SourceLine: 1}, edit},
 		{{ID: "r", Name: "bash", Arguments: `{"command":"cat 'src/main.go'"}`, SourceLine: 1}, edit},
+		{{ID: "r", Name: "bash", Arguments: `{"command":"cat main.go"}`, SourceLine: 1}, edit},
 		{{ID: "w", Name: "write", Arguments: `{"path":"src/main.go"}`, SourceLine: 1}, edit},
 	}
 	for _, calls := range cases {
@@ -99,6 +108,11 @@ func TestEditWithoutReadRecognizesReadsAndNewFiles(t *testing.T) {
 	}
 	echo := []ingest.ToolCall{{ID: "r", Name: "bash", Arguments: `{"command":"echo src/main.go"}`, SourceLine: 1}, edit}
 	require.Contains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: echo})), "edit_without_read")
+	prefix := []ingest.ToolCall{{ID: "r", Name: "bash", Arguments: `{"command":"cat src/main.go.bak"}`, SourceLine: 1}, edit}
+	require.Contains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: prefix})), "edit_without_read")
+	spaceEdit := ingest.ToolCall{ID: "space", Name: "edit", Arguments: `{"path":"src/my file.go"}`, SourceLine: 3}
+	quotedSpace := []ingest.ToolCall{{ID: "r", Name: "bash", Arguments: `{"command":"cat 'src/my file.go'"}`, SourceLine: 1}, spaceEdit}
+	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: quotedSpace})), "edit_without_read")
 	failed := ingest.Session{ID: "s", ToolCalls: []ingest.ToolCall{edit}, ToolResults: []ingest.ToolResult{{ID: "result", CallID: "e", IsError: boolPtr(true)}}}
 	require.NotContains(t, detectorNames(Analyze(failed)), "edit_without_read")
 }

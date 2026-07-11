@@ -180,7 +180,10 @@ func (s *Store) SaveDetectorFailure(ctx context.Context, sessionID, detector str
 	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	return s.repairPermissions()
 }
 
 func nextGeneration(ctx context.Context, tx *sql.Tx, sessionID, detector string) (int, error) {

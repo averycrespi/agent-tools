@@ -17,6 +17,13 @@ func TestCommandsRequireSpecificArguments(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), name+" requires SESSION_ID")
 	}
+	for _, name := range []string{"ingest", "list-sessions", "mcp"} {
+		cmd := newRootCommand()
+		cmd.SetArgs([]string{name, "unexpected"})
+		err := cmd.Execute()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), name+" accepts no arguments")
+	}
 	cmd := newRootCommand()
 	cmd.SetArgs([]string{"detect", "a", "b"})
 	err := cmd.Execute()

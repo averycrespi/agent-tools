@@ -49,8 +49,16 @@ func TestGetMessageProjectionAndArgumentErrors(t *testing.T) {
 	handler := NewHandler(db, path)
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "get_message"
-	req.Params.Arguments = map[string]any{"session_id": "s", "message_id": "missing"}
+	req.Params.Arguments = map[string]any{"session_id": "s", "message_id": "m000", "path": "message.Text"}
 	result, err := handler.Handle(context.Background(), req)
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	var projection map[string]any
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].(gomcp.TextContent).Text), &projection))
+	require.Equal(t, "message", projection["value"])
+
+	req.Params.Arguments = map[string]any{"session_id": "s", "message_id": "missing"}
+	result, err = handler.Handle(context.Background(), req)
 	require.NoError(t, err)
 	require.True(t, result.IsError)
 	req.Params.Name = "unknown"
@@ -58,4 +66,18 @@ func TestGetMessageProjectionAndArgumentErrors(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.IsError)
 	require.True(t, strings.Contains(result.Content[0].(gomcp.TextContent).Text, "unknown tool"))
+}
+
+func TestConversationCountIsBounded(t *testing.T) {
+	path, db := testDatabase(t)
+	handler := NewHandler(db, path)
+	req := gomcp.CallToolRequest{}
+	req.Params.Name = "get_conversation"
+	req.Params.Arguments = map[string]any{"session_id": "s", "max_messages": 1000}
+	result, err := handler.Handle(context.Background(), req)
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	var entries []any
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].(gomcp.TextContent).Text), &entries))
+	require.Len(t, entries, 100)
 }

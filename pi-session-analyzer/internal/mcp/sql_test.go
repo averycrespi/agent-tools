@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -15,14 +16,18 @@ func testDatabase(t *testing.T) (string, *store.Store) {
 	path := filepath.Join(t.TempDir(), "data", "sessions.db")
 	db, err := store.Open(path)
 	require.NoError(t, err)
-	require.NoError(t, db.ReplaceSession(context.Background(), ingest.Session{ID: "s"}, store.SourceMeta{Path: "x", Size: 1, ModTimeNS: 1}))
+	messages := make([]ingest.Message, 150)
+	for i := range messages {
+		messages[i] = ingest.Message{ID: fmt.Sprintf("m%03d", i), Role: "user", Text: "message", SourceLine: i + 1}
+	}
+	require.NoError(t, db.ReplaceSession(context.Background(), ingest.Session{ID: "s", Messages: messages}, store.SourceMeta{Path: "x", Size: 1, ModTimeNS: 1}))
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return path, db
 }
 
 func TestRunSelectAcceptedAndRejectedQueries(t *testing.T) {
 	path, _ := testDatabase(t)
-	for _, query := range []string{"SELECT id FROM sessions", "WITH ids AS (SELECT id FROM sessions) SELECT * FROM ids"} {
+	for _, query := range []string{"SELECT id FROM sessions", "SELECT 'delete' AS ordinary_text", "SELECT 1 /* delete is data here */", "WITH ids AS (SELECT id FROM sessions) SELECT * FROM ids"} {
 		result, err := RunSelect(context.Background(), path, query)
 		require.NoError(t, err, query)
 		require.Len(t, result.Rows, 1)

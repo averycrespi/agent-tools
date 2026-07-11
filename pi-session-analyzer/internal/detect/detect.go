@@ -2,6 +2,7 @@
 package detect
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -155,7 +156,7 @@ func mcpFailure(s ingest.Session) []Finding {
 		source := ""
 		if result.IsError != nil && *result.IsError {
 			source = "structural_flag"
-		} else if mcpFailurePattern.MatchString(result.Content) {
+		} else if result.IsError == nil && mcpFailurePattern.MatchString(result.Content) {
 			source = "historical_text_fallback"
 		}
 		if source != "" {
@@ -202,12 +203,17 @@ func retryLoop(s ingest.Session) []Finding {
 				run = 0
 			}
 			hash := contentHash(e.result.Content)
-			if e.ok && hash == previous {
-				sameHash++
+			if e.ok && e.result.IsError != nil && *e.result.IsError {
+				if hash == previous {
+					sameHash++
+				} else {
+					sameHash = 1
+				}
+				previous = hash
 			} else {
-				sameHash = 1
+				sameHash = 0
+				previous = ""
 			}
-			previous = hash
 		}
 		if run >= 3 || sameHash >= 3 {
 			out = append(out, finding("retry_loop", Heuristic, Warn, "same tool target repeatedly failed", entries[0].call.ID, entries[0].call.SourceLine, jsonDetails(map[string]any{"invocation_key": key, "calls": len(entries)})))
@@ -295,6 +301,7 @@ func isCodePath(path string) bool {
 
 func editWithoutRead(s ingest.Session) []Finding {
 	seen := map[string]bool{}
+	var shellReadsBefore []string
 	failed := map[string]bool{}
 	for _, result := range s.ToolResults {
 		failed[result.CallID] = result.IsError != nil && *result.IsError
@@ -308,18 +315,13 @@ func editWithoutRead(s ingest.Session) []Finding {
 				seen[path] = true
 			}
 		case "bash":
-			for known := range seen {
-				_ = known
-			}
-			command := argument(call.Arguments, "command")
-			for _, later := range s.ToolCalls {
-				p := filepath.Clean(argument(later.Arguments, "path"))
-				if p != "." && shellReads(command, p) {
-					seen[p] = true
-				}
-			}
+			shellReadsBefore = append(shellReadsBefore, argument(call.Arguments, "command"))
 		case "edit":
-			if path != "." && !seen[path] && !failed[call.ID] {
+			read := seen[path]
+			for _, command := range shellReadsBefore {
+				read = read || shellReads(command, path)
+			}
+			if path != "." && !read && !failed[call.ID] {
 				out = append(out, finding("edit_without_read", Heuristic, Warn, "existing path edited without a prior recognized read", call.ID, call.SourceLine, jsonDetails(map[string]any{"path": path})))
 			}
 		}
@@ -340,7 +342,7 @@ func isVerificationCommand(command string) bool {
 
 func shellReads(command, path string) bool {
 	for _, segment := range shellSplit.Split(command, -1) {
-		fields := strings.Fields(segment)
+		fields := shellFields(segment)
 		if len(fields) == 0 {
 			continue
 		}
@@ -413,4 +415,47 @@ func sortedKeys[V any](values map[string]V) []string {
 	return keys
 }
 func jsonDetails(value any) string    { data, _ := json.Marshal(value); return string(data) }
-func contentHash(value string) string { return fmt.Sprintf("%x", []byte(value)) }
+func contentHash(value string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(value))) }
+
+func shellFields(command string) []string {
+	var fields []string
+	var current strings.Builder
+	var quote rune
+	escaped := false
+	flush := func() {
+		if current.Len() > 0 {
+			fields = append(fields, current.String())
+			current.Reset()
+		}
+	}
+	for _, r := range command {
+		if escaped {
+			current.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			} else {
+				current.WriteRune(r)
+			}
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		if r == ' ' || r == '\t' || r == '\n' {
+			flush()
+			continue
+		}
+		current.WriteRune(r)
+	}
+	flush()
+	return fields
+}

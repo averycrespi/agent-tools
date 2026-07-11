@@ -27,14 +27,15 @@ type QueryResult struct {
 func RunSelect(ctx context.Context, path, query string) (QueryResult, error) {
 	query = strings.TrimSpace(query)
 	query = strings.TrimSuffix(query, ";")
-	if query == "" || hasStatementSeparator(query) {
+	code := sqlCode(query)
+	if strings.TrimSpace(code) == "" || hasStatementSeparator(code) {
 		return QueryResult{}, fmt.Errorf("query must contain exactly one statement")
 	}
-	first := strings.ToLower(strings.Fields(query)[0])
+	first := strings.ToLower(strings.Fields(code)[0])
 	if first != "select" && first != "with" {
 		return QueryResult{}, fmt.Errorf("query must be a SELECT or CTE")
 	}
-	if forbiddenSQL.MatchString(query) {
+	if forbiddenSQL.MatchString(code) {
 		return QueryResult{}, fmt.Errorf("query contains a forbidden operation")
 	}
 	result, err := executeReadOnly(ctx, path, `SELECT * FROM (`+query+`) LIMIT 1025`)
@@ -90,6 +91,45 @@ func executeReadOnly(ctx context.Context, path, query string) (QueryResult, erro
 		result.Rows = append(result.Rows, row)
 	}
 	return result, rows.Err()
+}
+
+func sqlCode(query string) string {
+	var out strings.Builder
+	for i := 0; i < len(query); {
+		switch {
+		case i+1 < len(query) && query[i:i+2] == "--":
+			for i < len(query) && query[i] != '\n' {
+				i++
+			}
+		case i+1 < len(query) && query[i:i+2] == "/*":
+			i += 2
+			for i+1 < len(query) && query[i:i+2] != "*/" {
+				i++
+			}
+			if i+1 < len(query) {
+				i += 2
+			}
+		case query[i] == '\'' || query[i] == '"' || query[i] == '`':
+			quote := query[i]
+			i++
+			for i < len(query) {
+				if query[i] == quote {
+					if i+1 < len(query) && query[i+1] == quote {
+						i += 2
+						continue
+					}
+					i++
+					break
+				}
+				i++
+			}
+			out.WriteByte(' ')
+		default:
+			out.WriteByte(query[i])
+			i++
+		}
+	}
+	return out.String()
 }
 
 func hasStatementSeparator(query string) bool {

@@ -45,7 +45,7 @@ func defaultDBPath() string {
 }
 
 func newIngestCommand(opts *options) *cobra.Command {
-	return &cobra.Command{Use: "ingest", Short: "Ingest new or changed Pi sessions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	return &cobra.Command{Use: "ingest", Short: "Ingest new or changed Pi sessions", Args: noArgs("ingest"), RunE: func(cmd *cobra.Command, _ []string) error {
 		db, err := store.Open(opts.dbPath)
 		if err != nil {
 			return err
@@ -61,7 +61,7 @@ func newIngestCommand(opts *options) *cobra.Command {
 func newListCommand(opts *options) *cobra.Command {
 	var limit int
 	var cwd string
-	cmd := &cobra.Command{Use: "list-sessions", Short: "List indexed sessions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "list-sessions", Short: "List indexed sessions", Args: noArgs("list-sessions"), RunE: func(cmd *cobra.Command, _ []string) error {
 		db, err := store.Open(opts.dbPath)
 		if err != nil {
 			return err
@@ -115,7 +115,7 @@ func newDetectCommand(opts *options) *cobra.Command {
 	}}
 }
 func newMCPCommand(opts *options) *cobra.Command {
-	return &cobra.Command{Use: "mcp", Short: "Serve bounded read-only MCP tools over stdio", Args: cobra.NoArgs, RunE: func(_ *cobra.Command, _ []string) error {
+	return &cobra.Command{Use: "mcp", Short: "Serve bounded read-only MCP tools over stdio", Args: noArgs("mcp"), RunE: func(_ *cobra.Command, _ []string) error {
 		db, err := store.Open(opts.dbPath)
 		if err != nil {
 			return err
@@ -128,6 +128,15 @@ func newMCPCommand(opts *options) *cobra.Command {
 		}
 		return mcpserver.ServeStdio(server)
 	}}
+}
+
+func noArgs(name string) cobra.PositionalArgs {
+	return func(_ *cobra.Command, args []string) error {
+		if len(args) != 0 {
+			return fmt.Errorf("%s accepts no arguments; usage: pi-session-analyzer %s", name, name)
+		}
+		return nil
+	}
 }
 
 func exactlyOne(message string) cobra.PositionalArgs {

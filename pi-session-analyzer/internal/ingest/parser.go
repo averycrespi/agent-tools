@@ -122,11 +122,14 @@ type contentBlock struct {
 // Parse tolerantly reads a Pi session. Individual malformed and unknown records are counted and skipped.
 func Parse(r io.Reader) (Session, error) {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	scanner.Buffer(make([]byte, 64*1024), 64*1024*1024)
 	var result Session
 	messageIndex := map[string]int{}
 	callIndex := map[string]int{}
 	resultIndex := map[string]int{}
+	eventIndex := map[string]int{}
+	stateIndex := map[string]int{}
+	customMessageIndex := map[string]int{}
 	line := 0
 	for scanner.Scan() {
 		line++
@@ -153,15 +156,15 @@ func Parse(r io.Reader) (Session, error) {
 				result.Stats.Malformed++
 			}
 		case "model_change", "thinking_level_change", "compaction":
-			if err := parseEvent(data, env, line, &result); err != nil {
+			if err := parseEvent(data, env, line, &result, eventIndex); err != nil {
 				result.Stats.Malformed++
 			}
 		case "custom":
-			if err := parseCustom(data, env, line, &result); err != nil {
+			if err := parseCustom(data, env, line, &result, stateIndex); err != nil {
 				result.Stats.Malformed++
 			}
 		case "custom_message":
-			if err := parseCustomMessage(data, env, line, &result); err != nil {
+			if err := parseCustomMessage(data, env, line, &result, customMessageIndex); err != nil {
 				result.Stats.Malformed++
 			}
 		default:
@@ -227,7 +230,7 @@ func parseContent(raw json.RawMessage, messageID string, line int) (string, []To
 	return strings.Join(texts, "\n"), calls, nil
 }
 
-func parseEvent(data []byte, env envelope, line int, s *Session) error {
+func parseEvent(data []byte, env envelope, line int, s *Session, indexes map[string]int) error {
 	var rec struct {
 		Provider      string          `json:"provider"`
 		ModelID       string          `json:"modelId"`
@@ -246,11 +249,12 @@ func parseEvent(data []byte, env envelope, line int, s *Session) error {
 	case "compaction":
 		value = rec.Summary
 	}
-	s.Events = append(s.Events, Event{ID: env.ID, Type: env.Type, Value: value, Details: string(rec.Details), SourceLine: line, TokensBefore: rec.TokensBefore})
+	id := recordID(env.ID, env.Type, line)
+	upsert(&s.Events, indexes, id, Event{ID: id, Type: env.Type, Value: value, Details: string(rec.Details), SourceLine: line, TokensBefore: rec.TokensBefore})
 	return nil
 }
 
-func parseCustom(data []byte, env envelope, line int, s *Session) error {
+func parseCustom(data []byte, env envelope, line int, s *Session, indexes map[string]int) error {
 	var rec struct {
 		CustomType string          `json:"customType"`
 		Data       json.RawMessage `json:"data"`
@@ -264,11 +268,12 @@ func parseCustom(data []byte, env envelope, line int, s *Session) error {
 		} `json:"goal"`
 	}
 	_ = json.Unmarshal(rec.Data, &state)
-	s.CustomStates = append(s.CustomStates, CustomState{ID: env.ID, Type: rec.CustomType, Status: state.Goal.Status, Data: string(rec.Data), SourceLine: line})
+	id := recordID(env.ID, rec.CustomType, line)
+	upsert(&s.CustomStates, indexes, id, CustomState{ID: id, Type: rec.CustomType, Status: state.Goal.Status, Data: string(rec.Data), SourceLine: line})
 	return nil
 }
 
-func parseCustomMessage(data []byte, env envelope, line int, s *Session) error {
+func parseCustomMessage(data []byte, env envelope, line int, s *Session, indexes map[string]int) error {
 	var rec struct {
 		CustomType string          `json:"customType"`
 		Content    string          `json:"content"`
@@ -281,8 +286,16 @@ func parseCustomMessage(data []byte, env envelope, line int, s *Session) error {
 		Kind string `json:"kind"`
 	}
 	_ = json.Unmarshal(rec.Details, &details)
-	s.CustomMessages = append(s.CustomMessages, CustomMessage{ID: env.ID, Type: rec.CustomType, Kind: details.Kind, Content: rec.Content, Details: string(rec.Details), SourceLine: line})
+	id := recordID(env.ID, rec.CustomType, line)
+	upsert(&s.CustomMessages, indexes, id, CustomMessage{ID: id, Type: rec.CustomType, Kind: details.Kind, Content: rec.Content, Details: string(rec.Details), SourceLine: line})
 	return nil
+}
+
+func recordID(id, recordType string, line int) string {
+	if id != "" {
+		return id
+	}
+	return fmt.Sprintf("%s:line:%d", recordType, line)
 }
 
 func upsert[T any](values *[]T, indexes map[string]int, id string, value T) {

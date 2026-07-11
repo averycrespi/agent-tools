@@ -35,10 +35,21 @@ func TestIngestSkipsUnchangedAndRetainsDeletedSources(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, second.Changed)
 	require.Equal(t, 1, second.Unchanged)
-	require.NoError(t, os.Remove(path))
+	changedData := data + "\n" + `{"type":"custom_message","id":"guard","customType":"broker-guard","details":{"kind":"test"}}`
+	require.NoError(t, os.WriteFile(path, []byte(changedData), 0o600))
 	third, err := service.Ingest(context.Background(), dir)
 	require.NoError(t, err)
-	require.Equal(t, 0, third.Changed)
+	require.Equal(t, 1, third.Changed)
+	findings, err = db.Findings(context.Background(), "session-one")
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+	require.NoError(t, os.Remove(path))
+	fourth, err := service.Ingest(context.Background(), dir)
+	require.NoError(t, err)
+	require.Equal(t, 0, fourth.Changed)
+	findings, err = db.Findings(context.Background(), "session-one")
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
 	sessions, err := db.ListSessions(context.Background(), 10, "")
 	require.NoError(t, err)
 	require.Len(t, sessions, 1)
@@ -56,6 +67,8 @@ func TestDetectRetainsStaleFindingsAfterFailedRerunAndRecovers(t *testing.T) {
 	}}
 	service := New(db, []detect.Detector{good})
 	require.NoError(t, service.Detect(context.Background(), "s"))
+	// A changed-session replacement must preserve prior detector output until rerun succeeds.
+	require.NoError(t, db.ReplaceSession(context.Background(), syntheticSession(), store.SourceMeta{Path: "x", Size: 2, ModTimeNS: 2}))
 	bad := detect.Detector{Name: "test", Run: func(ingest.Session) ([]detect.Finding, error) { return nil, assertiveError("boom") }}
 	service = New(db, []detect.Detector{bad})
 	require.Error(t, service.Detect(context.Background(), "s"))

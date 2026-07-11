@@ -25,8 +25,12 @@ func TestOpenAndReplaceSessionArePrivateScrubbedAndIdempotent(t *testing.T) {
 	secret := "ghp_abcdefghijklmnopqrstuvwxyz1234567890"
 	session := ingest.Session{
 		ID: "s1", CWD: "/repo", Stats: ingest.ParseStats{Total: 2},
-		Messages:  []ingest.Message{{ID: "m1", Role: "user", Text: "token=" + secret, SourceLine: 2}},
-		ToolCalls: []ingest.ToolCall{{ID: "c1", MessageID: "m1", Name: "bash", Arguments: `{"token":"` + secret + `"}`, SourceLine: 2}},
+		Messages:       []ingest.Message{{ID: "m1", Role: "user", Text: "token=" + secret, SourceLine: 2}},
+		ToolCalls:      []ingest.ToolCall{{ID: "c1", MessageID: "m1", Name: "bash", Arguments: `{"token":"` + secret + `"}`, SourceLine: 2}},
+		ToolResults:    []ingest.ToolResult{{ID: "r1", CallID: "c1", Content: "password=abc", SourceLine: 3}},
+		Events:         []ingest.Event{{ID: "e1", Type: "compaction", Value: "secret=" + secret, Details: `{"password":"abc"}`, SourceLine: 4}},
+		CustomStates:   []ingest.CustomState{{ID: "s1", Type: "goal-state", Data: `{"token":"` + secret + `"}`, SourceLine: 5}},
+		CustomMessages: []ingest.CustomMessage{{ID: "cm1", Type: "broker-guard", Content: "password=abc", Details: `{"secret":"abc"}`, SourceLine: 6}},
 	}
 	meta := SourceMeta{Path: "/sessions/s1.jsonl", Size: 100, ModTimeNS: 200}
 	require.NoError(t, s.ReplaceSession(context.Background(), session, meta))
@@ -40,6 +44,16 @@ func TestOpenAndReplaceSessionArePrivateScrubbedAndIdempotent(t *testing.T) {
 	require.NoError(t, s.db.QueryRow(`SELECT arguments FROM tool_calls`).Scan(&args))
 	require.NotContains(t, text+args, secret)
 	require.Contains(t, text+args, "[REDACTED:")
+	for _, query := range []string{
+		`SELECT content FROM tool_results`, `SELECT value || details FROM events`,
+		`SELECT data FROM custom_state`, `SELECT content || details FROM custom_messages`,
+	} {
+		var persisted string
+		require.NoError(t, s.db.QueryRow(query).Scan(&persisted))
+		require.NotContains(t, persisted, secret)
+		require.NotContains(t, persisted, "abc")
+		require.Contains(t, persisted, "[REDACTED:")
+	}
 
 	leafInfo, err := os.Stat(leaf)
 	require.NoError(t, err)
@@ -52,6 +66,19 @@ func TestOpenAndReplaceSessionArePrivateScrubbedAndIdempotent(t *testing.T) {
 		require.NoError(t, statErr)
 		require.Equal(t, os.FileMode(0o600), info.Mode().Perm(), path)
 	}
+}
+
+func TestOpenDoesNotChmodExistingSharedParent(t *testing.T) {
+	t.Parallel()
+
+	parent := t.TempDir()
+	require.NoError(t, os.Chmod(parent, 0o755))
+	db, err := Open(filepath.Join(parent, "sessions.db"))
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	info, err := os.Stat(parent)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o755), info.Mode().Perm())
 }
 
 func TestReopenRepairsRecreatedSidecarsAndSchemaHasNoRawTier(t *testing.T) {

@@ -3,6 +3,7 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"os"
@@ -95,11 +96,23 @@ type Store struct {
 // Open opens the database, creates only its analyzer-owned leaf, and repairs private modes.
 func Open(path string) (*Store, error) {
 	leaf := filepath.Dir(path)
-	if err := os.MkdirAll(leaf, 0o700); err != nil {
-		return nil, fmt.Errorf("create data directory: %w", err)
-	}
-	if err := os.Chmod(leaf, 0o700); err != nil { //nolint:gosec // Analyzer data must be private to the current user.
-		return nil, fmt.Errorf("set data directory permissions: %w", err)
+	info, statErr := os.Stat(leaf)
+	switch {
+	case os.IsNotExist(statErr):
+		if err := os.MkdirAll(leaf, 0o700); err != nil {
+			return nil, fmt.Errorf("create data directory: %w", err)
+		}
+		if err := os.Chmod(leaf, 0o700); err != nil { //nolint:gosec // A newly created analyzer leaf must be private.
+			return nil, fmt.Errorf("set data directory permissions: %w", err)
+		}
+	case statErr != nil:
+		return nil, fmt.Errorf("inspect data directory: %w", statErr)
+	case !info.IsDir():
+		return nil, fmt.Errorf("database parent is not a directory: %s", leaf)
+	case filepath.Base(leaf) == "pi-session-analyzer":
+		if err := os.Chmod(leaf, 0o700); err != nil { //nolint:gosec // Only the named analyzer-owned leaf is repaired.
+			return nil, fmt.Errorf("set data directory permissions: %w", err)
+		}
 	}
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // The caller-selected local database path is the intended file.
 	if err != nil {
@@ -151,20 +164,27 @@ func (s *Store) ReplaceSession(ctx context.Context, in ingest.Session, meta Sour
 		return fmt.Errorf("begin session replacement: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err = tx.ExecContext(ctx, `DELETE FROM sessions WHERE id=? OR source_path=?`, in.ID, meta.Path); err != nil {
-		return fmt.Errorf("delete prior session: %w", err)
+	sessionID := scrub.Scrub(in.ID)
+	sourcePath := scrub.Scrub(meta.Path)
+	if _, err = tx.ExecContext(ctx, `DELETE FROM sessions WHERE source_path=? AND id<>?`, sourcePath, sessionID); err != nil {
+		return fmt.Errorf("delete replaced source session: %w", err)
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO sessions(id,source_path,source_size,source_mtime_ns,schema_version,schema_drift,timestamp,cwd,total_records,malformed_records,unknown_records) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, in.ID, scrub.Scrub(meta.Path), meta.Size, meta.ModTimeNS, in.Version, in.Stats.SchemaDrift, scrub.Scrub(in.Timestamp), scrub.Scrub(in.CWD), in.Stats.Total, in.Stats.Malformed, in.Stats.Unknown); err != nil {
-		return fmt.Errorf("insert session: %w", err)
+	if _, err = tx.ExecContext(ctx, `INSERT INTO sessions(id,source_path,source_size,source_mtime_ns,schema_version,schema_drift,timestamp,cwd,total_records,malformed_records,unknown_records) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET source_path=excluded.source_path,source_size=excluded.source_size,source_mtime_ns=excluded.source_mtime_ns,schema_version=excluded.schema_version,schema_drift=excluded.schema_drift,timestamp=excluded.timestamp,cwd=excluded.cwd,total_records=excluded.total_records,malformed_records=excluded.malformed_records,unknown_records=excluded.unknown_records,ingested_at=CURRENT_TIMESTAMP`, sessionID, sourcePath, meta.Size, meta.ModTimeNS, in.Version, in.Stats.SchemaDrift, scrub.Scrub(in.Timestamp), scrub.Scrub(in.CWD), in.Stats.Total, in.Stats.Malformed, in.Stats.Unknown); err != nil {
+		return fmt.Errorf("upsert session: %w", err)
+	}
+	for _, table := range []string{"messages", "tool_calls", "tool_results", "events", "custom_state", "custom_messages"} {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE session_id=?`, sessionID); err != nil { //nolint:gosec // table names are a closed internal list.
+			return fmt.Errorf("clear %s: %w", table, err)
+		}
 	}
 	for _, m := range in.Messages {
-		_, err = tx.ExecContext(ctx, `INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, in.ID, m.ID, scrub.Scrub(m.ParentID), m.SourceLine, scrub.Scrub(m.Timestamp), m.Role, scrub.Scrub(m.Model), m.StopReason, scrub.Scrub(m.Text), m.InputTokens, m.OutputTokens, m.ReasoningTokens, m.CacheReadTokens, m.CacheWriteTokens, m.Cost)
+		_, err = tx.ExecContext(ctx, `INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, sessionID, scrub.Scrub(m.ID), scrub.Scrub(m.ParentID), m.SourceLine, scrub.Scrub(m.Timestamp), scrub.Scrub(m.Role), scrub.Scrub(m.Model), scrub.Scrub(m.StopReason), scrub.Scrub(m.Text), m.InputTokens, m.OutputTokens, m.ReasoningTokens, m.CacheReadTokens, m.CacheWriteTokens, m.Cost)
 		if err != nil {
 			return fmt.Errorf("insert message: %w", err)
 		}
 	}
 	for _, c := range in.ToolCalls {
-		_, err = tx.ExecContext(ctx, `INSERT INTO tool_calls(session_id,id,message_id,source_line,name,arguments) VALUES(?,?,?,?,?,?)`, in.ID, c.ID, c.MessageID, c.SourceLine, c.Name, scrub.Scrub(c.Arguments))
+		_, err = tx.ExecContext(ctx, `INSERT INTO tool_calls(session_id,id,message_id,source_line,name,arguments) VALUES(?,?,?,?,?,?)`, sessionID, scrub.Scrub(c.ID), scrub.Scrub(c.MessageID), c.SourceLine, scrub.Scrub(c.Name), scrub.Scrub(c.Arguments))
 		if err != nil {
 			return fmt.Errorf("insert tool call: %w", err)
 		}
@@ -179,25 +199,25 @@ func (s *Store) ReplaceSession(ctx context.Context, in ingest.Session, meta Sour
 				isError = 0
 			}
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO tool_results(session_id,id,message_id,call_id,source_line,name,content,content_hash,is_error) VALUES(?,?,?,?,?,?,?,?,?)`, in.ID, r.ID, r.MessageID, r.CallID, r.SourceLine, r.Name, content, contentHash(content), isError)
+		_, err = tx.ExecContext(ctx, `INSERT INTO tool_results(session_id,id,message_id,call_id,source_line,name,content,content_hash,is_error) VALUES(?,?,?,?,?,?,?,?,?)`, sessionID, scrub.Scrub(r.ID), scrub.Scrub(r.MessageID), scrub.Scrub(r.CallID), r.SourceLine, scrub.Scrub(r.Name), content, contentHash(content), isError)
 		if err != nil {
 			return fmt.Errorf("insert tool result: %w", err)
 		}
 	}
 	for _, e := range in.Events {
-		_, err = tx.ExecContext(ctx, `INSERT INTO events VALUES(?,?,?,?,?,?,?)`, in.ID, e.ID, e.SourceLine, e.Type, scrub.Scrub(e.Value), scrub.Scrub(e.Details), e.TokensBefore)
+		_, err = tx.ExecContext(ctx, `INSERT INTO events VALUES(?,?,?,?,?,?,?)`, sessionID, scrub.Scrub(e.ID), e.SourceLine, scrub.Scrub(e.Type), scrub.Scrub(e.Value), scrub.Scrub(e.Details), e.TokensBefore)
 		if err != nil {
 			return fmt.Errorf("insert event: %w", err)
 		}
 	}
 	for _, c := range in.CustomStates {
-		_, err = tx.ExecContext(ctx, `INSERT INTO custom_state VALUES(?,?,?,?,?,?)`, in.ID, c.ID, c.SourceLine, c.Type, scrub.Scrub(c.Status), scrub.Scrub(c.Data))
+		_, err = tx.ExecContext(ctx, `INSERT INTO custom_state VALUES(?,?,?,?,?,?)`, sessionID, scrub.Scrub(c.ID), c.SourceLine, scrub.Scrub(c.Type), scrub.Scrub(c.Status), scrub.Scrub(c.Data))
 		if err != nil {
 			return fmt.Errorf("insert custom state: %w", err)
 		}
 	}
 	for _, c := range in.CustomMessages {
-		_, err = tx.ExecContext(ctx, `INSERT INTO custom_messages VALUES(?,?,?,?,?,?,?)`, in.ID, c.ID, c.SourceLine, c.Type, scrub.Scrub(c.Kind), scrub.Scrub(c.Content), scrub.Scrub(c.Details))
+		_, err = tx.ExecContext(ctx, `INSERT INTO custom_messages VALUES(?,?,?,?,?,?,?)`, sessionID, scrub.Scrub(c.ID), c.SourceLine, scrub.Scrub(c.Type), scrub.Scrub(c.Kind), scrub.Scrub(c.Content), scrub.Scrub(c.Details))
 		if err != nil {
 			return fmt.Errorf("insert custom message: %w", err)
 		}
@@ -258,11 +278,5 @@ func (s *Store) ResolveSession(ctx context.Context, prefix string) (string, erro
 }
 
 func contentHash(value string) string {
-	// This stable non-cryptographic representation is used only for equality grouping.
-	var h uint64 = 1469598103934665603
-	for i := range len(value) {
-		h ^= uint64(value[i])
-		h *= 1099511628211
-	}
-	return fmt.Sprintf("%016x", h)
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(value)))
 }
