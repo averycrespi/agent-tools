@@ -1,4 +1,4 @@
-TOOLS := worktree-manager mcp-broker sandbox-manager local-git-mcp local-gomod-proxy telegram-mcp
+TOOLS := worktree-manager mcp-broker sandbox-manager local-git-mcp local-gomod-proxy telegram-mcp pi-session-analyzer
 UNAME_S := $(shell uname -s)
 
 .PHONY: install install-dev setup build test lint fmt tidy check audit $(TOOLS)

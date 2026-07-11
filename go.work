@@ -5,6 +5,7 @@ use (
 	./local-gomod-proxy
 	./telegram-mcp
 	./mcp-broker
+	./pi-session-analyzer
 	./sandbox-manager
 	./worktree-manager
 )

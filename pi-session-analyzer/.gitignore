@@ -1,0 +1,4 @@
+/pi-session-analyzer
+*.db
+*.db-wal
+*.db-shm
