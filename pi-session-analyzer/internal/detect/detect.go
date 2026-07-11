@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/ingest"
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/scrub"
 )
 
 type Classification string
@@ -202,7 +203,7 @@ func retryLoop(s ingest.Session) []Finding {
 			} else {
 				run = 0
 			}
-			hash := contentHash(e.result.Content)
+			hash := contentHash(scrub.Scrub(e.result.Content))
 			if e.ok && e.result.IsError == nil {
 				if hash == previous {
 					sameHash++

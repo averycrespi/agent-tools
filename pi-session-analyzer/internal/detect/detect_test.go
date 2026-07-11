@@ -63,6 +63,7 @@ func TestRetryLoopGuardsChangingOutputAndPass(t *testing.T) {
 	require.Contains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: calls, ToolResults: failed})), "retry_loop")
 	for i := range failed {
 		failed[i].IsError = nil
+		failed[i].Content = "password=secret" + string(rune('a'+i))
 	}
 	require.Contains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: calls, ToolResults: failed})), "retry_loop")
 	for i := range failed {

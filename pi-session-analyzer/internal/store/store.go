@@ -99,7 +99,7 @@ func Open(path string) (*Store, error) {
 	info, statErr := os.Stat(leaf)
 	switch {
 	case os.IsNotExist(statErr):
-		if err := os.MkdirAll(leaf, 0o700); err != nil {
+		if err := os.Mkdir(leaf, 0o700); err != nil {
 			return nil, fmt.Errorf("create data directory: %w", err)
 		}
 		if err := os.Chmod(leaf, 0o700); err != nil { //nolint:gosec // A newly created analyzer leaf must be private.

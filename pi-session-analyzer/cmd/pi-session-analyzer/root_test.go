@@ -37,6 +37,7 @@ func TestCommandWorkflowAndDefaults(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
 	sessions := filepath.Join(home, ".pi", "agent", "sessions")
 	require.NoError(t, os.MkdirAll(sessions, 0o700))
+	require.NoError(t, os.Mkdir(filepath.Join(home, "data"), 0o755))
 	fixture := `{"type":"session","version":3,"id":"session-command","cwd":"/repo"}` + "\n" + `{"type":"message","id":"a","message":{"role":"assistant","stopReason":"stop","content":"done","usage":{"output":2,"reasoning":3,"cacheRead":4,"cost":{"total":0.1}}}}`
 	require.NoError(t, os.WriteFile(filepath.Join(sessions, "s.jsonl"), []byte(fixture), 0o600))
 

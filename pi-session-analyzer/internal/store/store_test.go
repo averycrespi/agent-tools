@@ -83,6 +83,17 @@ func TestOpenAndReplaceSessionArePrivateScrubbedAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestOpenDoesNotCreateMissingAncestors(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	ancestor := filepath.Join(base, "shared")
+	_, err := Open(filepath.Join(ancestor, "pi-session-analyzer", "sessions.db"))
+	require.Error(t, err)
+	_, statErr := os.Stat(ancestor)
+	require.True(t, os.IsNotExist(statErr))
+}
+
 func TestOpenDoesNotChmodExistingSharedParent(t *testing.T) {
 	t.Parallel()
 
