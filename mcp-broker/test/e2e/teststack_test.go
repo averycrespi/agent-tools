@@ -84,6 +84,8 @@ type toolDef struct {
 	Description        string
 	Response           string // JSON text returned by CallTool
 	StructuredResponse any
+	ResultIsError      bool
+	CallFailure        bool
 	Annotations        *gomcp.ToolAnnotation
 	OutputSchema       *gomcp.ToolOutputSchema
 	Meta               *gomcp.Meta
@@ -113,10 +115,17 @@ func startMockBackend(t *testing.T, tools []toolDef) string {
 		srv.AddTool(
 			tool,
 			func(_ context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
-				if td.StructuredResponse != nil {
-					return gomcp.NewToolResultStructured(td.StructuredResponse, td.Response), nil
+				if td.CallFailure {
+					return nil, fmt.Errorf("synthetic backend call failure")
 				}
-				return gomcp.NewToolResultText(td.Response), nil
+				var result *gomcp.CallToolResult
+				if td.StructuredResponse != nil {
+					result = gomcp.NewToolResultStructured(td.StructuredResponse, td.Response)
+				} else {
+					result = gomcp.NewToolResultText(td.Response)
+				}
+				result.IsError = td.ResultIsError
+				return result, nil
 			},
 		)
 	}

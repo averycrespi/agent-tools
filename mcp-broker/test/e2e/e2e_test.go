@@ -146,6 +146,28 @@ func TestE2E_AllowedToolCall(t *testing.T) {
 	require.Nil(t, audit.Records[0].Approved)
 }
 
+func TestE2E_UpstreamErrorResultReachesClient(t *testing.T) {
+	s := newTestStack(t, stackOpts{
+		Tools: []toolDef{{Name: "fails", Response: "upstream rejected request", ResultIsError: true}},
+		Rules: []testRuleConfig{{Tool: "echo.*", Verdict: "allow"}},
+	})
+
+	result, err := s.callTool("echo.fails", map[string]any{})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+}
+
+func TestE2E_BackendCallFailureReachesClient(t *testing.T) {
+	s := newTestStack(t, stackOpts{
+		Tools: []toolDef{{Name: "fails", CallFailure: true}},
+		Rules: []testRuleConfig{{Tool: "echo.*", Verdict: "allow"}},
+	})
+
+	result, err := s.callTool("echo.fails", map[string]any{})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+}
+
 func TestE2E_DeniedByRules(t *testing.T) {
 	s := newTestStack(t, stackOpts{
 		Tools: defaultTools,
