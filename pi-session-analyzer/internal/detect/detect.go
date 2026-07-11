@@ -229,7 +229,7 @@ func silentClose(s ingest.Session) []Finding {
 			line = state.SourceLine
 		}
 	}
-	if !started || terminal == "complete" {
+	if !started || terminal == "" || terminal == "complete" {
 		return nil
 	}
 	last := lastAssistant(s.Messages)
@@ -238,13 +238,18 @@ func silentClose(s ingest.Session) []Finding {
 	}
 	severity := Error
 	summary := "session stopped normally with an incomplete goal"
-	for _, result := range s.ToolResults {
-		if result.SourceLine > line && result.IsError != nil && *result.IsError {
-			severity = Warn
-			summary = "failed tool result preceded normal stop"
-			evidence = result.ID
-			line = result.SourceLine
+	var finalResult *ingest.ToolResult
+	for i := range s.ToolResults {
+		result := &s.ToolResults[i]
+		if result.SourceLine > line && (finalResult == nil || result.SourceLine > finalResult.SourceLine) {
+			finalResult = result
 		}
+	}
+	if finalResult != nil && finalResult.IsError != nil && *finalResult.IsError {
+		severity = Warn
+		summary = "final failed tool result preceded normal stop"
+		evidence = finalResult.ID
+		line = finalResult.SourceLine
 	}
 	return []Finding{finding("silent_close", Heuristic, severity, summary, evidence, line, jsonDetails(map[string]any{"goal_status": terminal}))}
 }
@@ -270,7 +275,7 @@ func unverifiedCodeChange(s ingest.Session) []Finding {
 		return nil
 	}
 	for _, call := range s.ToolCalls {
-		if call.SourceLine > last.SourceLine && call.Name == "bash" && verificationPattern.MatchString(strings.TrimSpace(argument(call.Arguments, "command"))) {
+		if call.SourceLine > last.SourceLine && call.Name == "bash" && isVerificationCommand(argument(call.Arguments, "command")) {
 			return nil
 		}
 	}
@@ -290,6 +295,10 @@ func isCodePath(path string) bool {
 
 func editWithoutRead(s ingest.Session) []Finding {
 	seen := map[string]bool{}
+	failed := map[string]bool{}
+	for _, result := range s.ToolResults {
+		failed[result.CallID] = result.IsError != nil && *result.IsError
+	}
 	out := []Finding{}
 	for _, call := range sortedCalls(s.ToolCalls) {
 		path := filepath.Clean(argument(call.Arguments, "path"))
@@ -310,7 +319,7 @@ func editWithoutRead(s ingest.Session) []Finding {
 				}
 			}
 		case "edit":
-			if path != "." && !seen[path] {
+			if path != "." && !seen[path] && !failed[call.ID] {
 				out = append(out, finding("edit_without_read", Heuristic, Warn, "existing path edited without a prior recognized read", call.ID, call.SourceLine, jsonDetails(map[string]any{"path": path})))
 			}
 		}
@@ -319,6 +328,15 @@ func editWithoutRead(s ingest.Session) []Finding {
 }
 
 var shellSplit = regexp.MustCompile(`\s*(?:&&|;|\|)\s*`)
+
+func isVerificationCommand(command string) bool {
+	for _, segment := range shellSplit.Split(command, -1) {
+		if verificationPattern.MatchString(strings.TrimSpace(segment)) {
+			return true
+		}
+	}
+	return false
+}
 
 func shellReads(command, path string) bool {
 	for _, segment := range shellSplit.Split(command, -1) {

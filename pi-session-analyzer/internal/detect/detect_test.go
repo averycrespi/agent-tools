@@ -63,6 +63,9 @@ func TestSilentCloseRequiresStartedGoal(t *testing.T) {
 	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", Messages: messages})), "silent_close")
 	started := ingest.Session{ID: "s", Messages: messages, CustomStates: []ingest.CustomState{{ID: "g", Type: "goal-state", Status: "active", SourceLine: 2}}}
 	require.Contains(t, detectorNames(Analyze(started)), "silent_close")
+	cleared := started
+	cleared.CustomStates = append(cleared.CustomStates, ingest.CustomState{ID: "clear", Type: "goal-state", Status: "", SourceLine: 4})
+	require.NotContains(t, detectorNames(Analyze(cleared)), "silent_close")
 }
 
 func TestUnverifiedCodeChangeGuards(t *testing.T) {
@@ -72,6 +75,8 @@ func TestUnverifiedCodeChangeGuards(t *testing.T) {
 	require.Contains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: []ingest.ToolCall{edit}})), "unverified_code_change")
 	verified := []ingest.ToolCall{edit, {ID: "v", Name: "bash", Arguments: `{"command":"go test ./..."}`, SourceLine: 3}}
 	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: verified})), "unverified_code_change")
+	compound := []ingest.ToolCall{edit, {ID: "v", Name: "bash", Arguments: `{"command":"cd src && go test ./..."}`, SourceLine: 3}}
+	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: compound})), "unverified_code_change")
 	for _, path := range []string{"docs/a.go", "config.yaml", "new.unknown"} {
 		call := edit
 		call.Arguments = `{"path":"` + path + `"}`
@@ -94,6 +99,8 @@ func TestEditWithoutReadRecognizesReadsAndNewFiles(t *testing.T) {
 	}
 	echo := []ingest.ToolCall{{ID: "r", Name: "bash", Arguments: `{"command":"echo src/main.go"}`, SourceLine: 1}, edit}
 	require.Contains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: echo})), "edit_without_read")
+	failed := ingest.Session{ID: "s", ToolCalls: []ingest.ToolCall{edit}, ToolResults: []ingest.ToolResult{{ID: "result", CallID: "e", IsError: boolPtr(true)}}}
+	require.NotContains(t, detectorNames(Analyze(failed)), "edit_without_read")
 }
 
 func TestTerminationClassification(t *testing.T) {
