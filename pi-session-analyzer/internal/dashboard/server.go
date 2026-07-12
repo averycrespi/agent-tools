@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/detect"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/robound"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/store"
 )
@@ -19,13 +20,17 @@ import (
 var assets embed.FS
 
 type Handler struct {
-	boundary *robound.Conn
-	reader   *store.Reader
-	now      func() time.Time
+	boundary      *robound.Conn
+	reader        *store.Reader
+	now           func() time.Time
+	detectorNames []string
 }
 
 func NewHandler(boundary *robound.Conn) *Handler {
 	handler := &Handler{boundary: boundary, now: time.Now}
+	for _, detector := range detect.Registry() {
+		handler.detectorNames = append(handler.detectorNames, detector.Name)
+	}
 	if boundary != nil {
 		handler.reader = store.NewReader(
 			func(ctx context.Context, query string, args ...any) (store.Rows, error) {
@@ -69,6 +74,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			case strings.HasSuffix(r.URL.Path, "/todo"):
 				h.serveTodoDiagnostics(w, r)
+				return
+			case strings.HasSuffix(r.URL.Path, "/diagnostics"):
+				h.serveSessionDiagnostics(w, r)
 				return
 			}
 		}
