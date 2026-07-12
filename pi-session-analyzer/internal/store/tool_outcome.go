@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/outcome"
 )
@@ -53,9 +54,10 @@ type outcomeCall struct {
 }
 
 const (
-	maxAnalyzedCalls        = 5000
-	maxAnalyzedResults      = 20000
-	toolOutcomeContentBytes = 32768
+	maxAnalyzedCalls            = 5000
+	maxAnalyzedResults          = 20000
+	toolOutcomeContentBytes     = 32768
+	maxToolAnalysisContentBytes = 8 * 1024 * 1024
 )
 
 func (s *Reader) ToolOutcomeReport(ctx context.Context, prefix string) (ToolOutcomeReport, error) {
@@ -63,51 +65,111 @@ func (s *Reader) ToolOutcomeReport(ctx context.Context, prefix string) (ToolOutc
 	if err != nil {
 		return ToolOutcomeReport{}, err
 	}
-	report := ToolOutcomeReport{Tools: []ToolOutcomeRow{}}
-	if err = s.query.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM tool_calls WHERE session_id=?),(SELECT COUNT(*) FROM tool_results WHERE session_id=?)`, id, id).Scan(&report.TotalCalls, &report.TotalResults); err != nil {
-		return ToolOutcomeReport{}, fmt.Errorf("count tool outcomes: %w", err)
-	}
-	report.AnalysisTruncated = report.TotalCalls > maxAnalyzedCalls || report.TotalResults > maxAnalyzedResults
-	if report.AnalysisTruncated {
-		return report, nil
-	}
-	calls := map[string]*outcomeCall{}
-	rows, err := s.query.QueryContext(ctx, `SELECT id,name FROM tool_calls WHERE session_id=? ORDER BY id`, id)
+	reports, err := s.toolOutcomeReports(ctx, []string{id})
 	if err != nil {
-		return ToolOutcomeReport{}, fmt.Errorf("query tool calls: %w", err)
+		return ToolOutcomeReport{}, err
 	}
+	return reports[id], nil
+}
+
+func (s *Reader) toolOutcomeReports(ctx context.Context, sessionIDs []string) (map[string]ToolOutcomeReport, error) {
+	reports := make(map[string]ToolOutcomeReport, len(sessionIDs))
+	if len(sessionIDs) == 0 {
+		return reports, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(sessionIDs)), ",")
+	args := make([]any, len(sessionIDs))
+	for i, id := range sessionIDs {
+		args[i] = id
+		reports[id] = ToolOutcomeReport{Tools: []ToolOutcomeRow{}}
+	}
+	countArgs := []any{toolOutcomeContentBytes}
+	countArgs = append(countArgs, args...)
+	rows, err := s.query.QueryContext(ctx, `SELECT s.id,
+ (SELECT COUNT(*) FROM tool_calls c WHERE c.session_id=s.id),
+ (SELECT COUNT(*) FROM tool_results r WHERE r.session_id=s.id),
+ (SELECT COALESCE(SUM(MIN(length(CAST(r.content AS BLOB)),?)),0) FROM tool_results r WHERE r.session_id=s.id)
+ FROM sessions s WHERE s.id IN (`+placeholders+`) ORDER BY s.id`, countArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("count tool outcomes: %w", err)
+	}
+	eligible := make([]string, 0, len(sessionIDs))
 	for rows.Next() {
-		var callID, name string
-		if err = rows.Scan(&callID, &name); err != nil {
+		var id string
+		var analysisContentBytes int64
+		report := ToolOutcomeReport{Tools: []ToolOutcomeRow{}}
+		if err = rows.Scan(&id, &report.TotalCalls, &report.TotalResults, &analysisContentBytes); err != nil {
 			_ = rows.Close()
-			return ToolOutcomeReport{}, fmt.Errorf("scan tool call: %w", err)
+			return nil, fmt.Errorf("scan tool outcome counts: %w", err)
 		}
-		calls[callID] = &outcomeCall{name: name}
+		report.AnalysisTruncated = report.TotalCalls > maxAnalyzedCalls || report.TotalResults > maxAnalyzedResults || analysisContentBytes > maxToolAnalysisContentBytes
+		if !report.AnalysisTruncated {
+			eligible = append(eligible, id)
+		}
+		reports[id] = report
 	}
 	if err = rows.Err(); err != nil {
 		_ = rows.Close()
-		return ToolOutcomeReport{}, fmt.Errorf("read tool calls: %w", err)
+		return nil, fmt.Errorf("read tool outcome counts: %w", err)
 	}
 	if err = rows.Close(); err != nil {
-		return ToolOutcomeReport{}, fmt.Errorf("close tool calls: %w", err)
+		return nil, fmt.Errorf("close tool outcome counts: %w", err)
 	}
-	report.AnalyzedCalls = len(calls)
-	rows, err = s.query.QueryContext(ctx, `SELECT call_id,name,COALESCE(substr(CAST(content AS BLOB),1,?),X''),is_error,length(CAST(content AS BLOB))>? FROM tool_results WHERE session_id=? ORDER BY id`, toolOutcomeContentBytes, toolOutcomeContentBytes, id)
+	if len(eligible) == 0 {
+		return reports, nil
+	}
+	eligiblePlaceholders := strings.TrimSuffix(strings.Repeat("?,", len(eligible)), ",")
+	eligibleArgs := make([]any, len(eligible))
+	calls := make(map[string]map[string]*outcomeCall, len(eligible))
+	for i, id := range eligible {
+		eligibleArgs[i] = id
+		calls[id] = map[string]*outcomeCall{}
+	}
+	rows, err = s.query.QueryContext(ctx, `SELECT session_id,id,name FROM tool_calls WHERE session_id IN (`+eligiblePlaceholders+`) ORDER BY session_id,id`, eligibleArgs...)
 	if err != nil {
-		return ToolOutcomeReport{}, fmt.Errorf("query tool results: %w", err)
+		return nil, fmt.Errorf("query tool calls: %w", err)
 	}
 	for rows.Next() {
-		var callID, name, content string
+		var sessionID, callID, name string
+		if err = rows.Scan(&sessionID, &callID, &name); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("scan tool call: %w", err)
+		}
+		calls[sessionID][callID] = &outcomeCall{name: name}
+	}
+	if err = rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, fmt.Errorf("read tool calls: %w", err)
+	}
+	if err = rows.Close(); err != nil {
+		return nil, fmt.Errorf("close tool calls: %w", err)
+	}
+	for id, sessionCalls := range calls {
+		report := reports[id]
+		report.AnalyzedCalls = len(sessionCalls)
+		reports[id] = report
+	}
+	resultArgs := []any{toolOutcomeContentBytes, toolOutcomeContentBytes}
+	resultArgs = append(resultArgs, eligibleArgs...)
+	rows, err = s.query.QueryContext(ctx, `SELECT session_id,call_id,name,COALESCE(substr(CAST(content AS BLOB),1,?),X''),is_error,length(CAST(content AS BLOB))>? FROM tool_results WHERE session_id IN (`+eligiblePlaceholders+`) ORDER BY session_id,id`, resultArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("query tool results: %w", err)
+	}
+	for rows.Next() {
+		var sessionID, callID, name, content string
 		var flag sql.NullBool
 		var contentTruncated bool
-		if err = rows.Scan(&callID, &name, &content, &flag, &contentTruncated); err != nil {
+		if err = rows.Scan(&sessionID, &callID, &name, &content, &flag, &contentTruncated); err != nil {
 			_ = rows.Close()
-			return ToolOutcomeReport{}, fmt.Errorf("scan tool result: %w", err)
+			return nil, fmt.Errorf("scan tool result: %w", err)
 		}
+		report := reports[sessionID]
+		report.AnalyzedResults++
 		report.AnalysisContentTruncated = report.AnalysisContentTruncated || contentTruncated
-		call, exists := calls[callID]
+		call, exists := calls[sessionID][callID]
 		if !exists {
 			report.DataQuality.OrphanResults++
+			reports[sessionID] = report
 			continue
 		}
 		var isError *bool
@@ -119,15 +181,24 @@ func (s *Reader) ToolOutcomeReport(ctx context.Context, prefix string) (ToolOutc
 		if name != "" && name != call.name {
 			report.DataQuality.NameMismatches++
 		}
+		reports[sessionID] = report
 	}
 	if err = rows.Err(); err != nil {
 		_ = rows.Close()
-		return ToolOutcomeReport{}, fmt.Errorf("read tool results: %w", err)
+		return nil, fmt.Errorf("read tool results: %w", err)
 	}
 	if err = rows.Close(); err != nil {
-		return ToolOutcomeReport{}, fmt.Errorf("close tool results: %w", err)
+		return nil, fmt.Errorf("close tool results: %w", err)
 	}
-	report.AnalyzedResults = report.TotalResults
+	for id, sessionCalls := range calls {
+		report := reports[id]
+		finalizeToolOutcomeReport(&report, sessionCalls)
+		reports[id] = report
+	}
+	return reports, nil
+}
+
+func finalizeToolOutcomeReport(report *ToolOutcomeReport, calls map[string]*outcomeCall) {
 	byTool := map[string]ToolOutcomeTotals{}
 	for _, call := range calls {
 		if call.results > 1 {
@@ -160,7 +231,6 @@ func (s *Reader) ToolOutcomeReport(ctx context.Context, prefix string) (ToolOutc
 		}
 		report.Tools = append(report.Tools, row)
 	}
-	return report, nil
 }
 
 func addOutcome(totals *ToolOutcomeTotals, classification outcome.Classification) {

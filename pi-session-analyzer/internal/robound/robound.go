@@ -150,7 +150,7 @@ func MarshalCapped(value any) string {
 		return `{"error":"response serialization failed"}`
 	}
 	if len(data) > MaxResponseBytes {
-		return `{"truncated":true}`
+		return `{"truncated":true,"value":null}`
 	}
 	return string(data)
 }

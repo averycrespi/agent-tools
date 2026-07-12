@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/ingest"
@@ -28,6 +29,27 @@ func TestToolOutcomeReportReturnsNoMisleadingPartialRatesPastAnalysisBound(t *te
 	require.Zero(t, report.AnalyzedCalls)
 	require.Zero(t, report.Totals.Calls)
 	require.Empty(t, report.Tools)
+}
+
+func TestToolOutcomeReportStopsBeforeOversizedContentAnalysis(t *testing.T) {
+	t.Parallel()
+
+	s, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	calls := make([]ingest.ToolCall, 257)
+	results := make([]ingest.ToolResult, len(calls))
+	for i := range calls {
+		id := fmt.Sprintf("c%03d", i)
+		calls[i] = ingest.ToolCall{ID: id, Name: "bash"}
+		results[i] = ingest.ToolResult{ID: "r" + id, CallID: id, Name: "bash", Content: strings.Repeat("x", toolOutcomeContentBytes)}
+	}
+	require.NoError(t, s.ReplaceSession(context.Background(), ingest.Session{ID: "large-content", ToolCalls: calls, ToolResults: results}, SourceMeta{Path: "large-content", Size: 1}))
+	report, err := s.ToolOutcomeReport(context.Background(), "large-content")
+	require.NoError(t, err)
+	require.True(t, report.AnalysisTruncated)
+	require.Zero(t, report.AnalyzedCalls)
+	require.Zero(t, report.AnalyzedResults)
 }
 
 func TestToolOutcomeReportClassifiesEachExactCallOnceWithCoverage(t *testing.T) {

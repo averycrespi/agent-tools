@@ -13,11 +13,11 @@ type TokenSequenceEntry struct {
 	SourceLine       int     `json:"source_line"`
 	Role             string  `json:"role,omitempty"`
 	Model            string  `json:"model,omitempty"`
-	InputTokens      int64   `json:"input_tokens,omitempty"`
-	OutputTokens     int64   `json:"output_tokens,omitempty"`
-	ReasoningTokens  int64   `json:"reasoning_tokens,omitempty"`
-	CacheReadTokens  int64   `json:"cache_read_tokens,omitempty"`
-	CacheWriteTokens int64   `json:"cache_write_tokens,omitempty"`
+	InputTokens      int64   `json:"input_tokens"`
+	OutputTokens     int64   `json:"output_tokens"`
+	ReasoningTokens  int64   `json:"reasoning_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	CacheWriteTokens int64   `json:"cache_write_tokens"`
 	Cost             float64 `json:"cost_as_logged,omitempty"`
 	TokensBefore     int64   `json:"tokens_before,omitempty"`
 }

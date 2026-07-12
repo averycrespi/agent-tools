@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +27,21 @@ func TestCalendarBucketsUseTimezoneCalendarBoundariesAcrossDST(t *testing.T) {
 	require.False(t, buckets[0].Partial)
 	require.False(t, buckets[1].Partial)
 	require.True(t, buckets[2].Partial)
+}
+
+func TestCalendarBucketsUseTimezoneCalendarBoundariesAcrossFallDST(t *testing.T) {
+	t.Parallel()
+
+	location, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+	from := time.Date(2026, 10, 31, 0, 0, 0, 0, location)
+	to := time.Date(2026, 11, 3, 0, 0, 0, 0, location)
+	buckets, err := CalendarBuckets(from, to, from, location, BucketDay)
+	require.NoError(t, err)
+	require.Len(t, buckets, 3)
+	require.Equal(t, int64(24*60*60), buckets[0].EndUnix-buckets[0].StartUnix)
+	require.Equal(t, int64(25*60*60), buckets[1].EndUnix-buckets[1].StartUnix)
+	require.Equal(t, int64(24*60*60), buckets[2].EndUnix-buckets[2].StartUnix)
 }
 
 func TestCalendarWeekBucketsUseMondayBoundaries(t *testing.T) {
@@ -53,6 +69,34 @@ func TestCalendarBucketsValidateRangeUnitAndBound(t *testing.T) {
 	require.ErrorContains(t, err, "bucket")
 	_, err = CalendarBuckets(from, from.AddDate(0, 0, MaxOverviewBuckets+1), from, time.UTC, BucketDay)
 	require.ErrorContains(t, err, "too many")
+}
+
+func TestOverviewRestrictsFactAggregatesToCandidateSessions(t *testing.T) {
+	t.Parallel()
+
+	s, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	start := int64(100)
+	require.NoError(t, s.ReplaceSession(context.Background(), ingest.Session{ID: "in-range", StartedAtUnix: &start}, SourceMeta{Path: "in", Size: 1}))
+	var overviewSQL string
+	reader := NewReader(
+		func(ctx context.Context, query string, args ...any) (Rows, error) {
+			if strings.Contains(query, "message_facts AS") {
+				overviewSQL = query
+			}
+			return s.db.QueryContext(ctx, query, args...)
+		},
+		func(ctx context.Context, query string, args ...any) Row {
+			return s.db.QueryRowContext(ctx, query, args...)
+		},
+	)
+	buckets, err := CalendarBuckets(time.Unix(100, 0).UTC(), time.Unix(101, 0).UTC(), time.Unix(100, 0).UTC(), time.UTC, BucketDay)
+	require.NoError(t, err)
+	_, err = reader.Overview(context.Background(), OverviewQuery{Timezone: "UTC", Unit: BucketDay, Buckets: buckets})
+	require.NoError(t, err)
+	require.Contains(t, overviewSQL, "candidate_sessions AS")
+	require.GreaterOrEqual(t, strings.Count(overviewSQL, "JOIN candidate_sessions"), 6)
 }
 
 func TestOverviewReturnsEmptyBucketsAndDedupeSafeSplitMetrics(t *testing.T) {

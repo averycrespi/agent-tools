@@ -56,10 +56,16 @@ func TestHandlerAppliesPrivateHeadersAndServesEmbeddedAssets(t *testing.T) {
 		require.Empty(t, response.Cookies())
 		if path == "/" {
 			require.Contains(t, string(body), "Private — not safe to share or screenshot")
+			require.Contains(t, string(body), `id="cwd"`)
+			require.Contains(t, string(body), `id="untimed"`)
 			require.NotContains(t, string(body), "http://")
 			require.NotContains(t, string(body), "https://")
 		}
 	}
+	response, err := http.Get(server.URL + "/favicon.ico")
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, http.StatusNoContent, response.StatusCode)
 }
 
 func TestAllHistoryAutoCoarsensBeyondMonthlyBucketBound(t *testing.T) {

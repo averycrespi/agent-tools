@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,6 +23,29 @@ func TestToolOutcomeRangeBoundsMultibyteResultContentByBytes(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, report.AnalysisContentTruncated)
 	require.Equal(t, 1, report.Totals.Unknown)
+}
+
+func TestToolOutcomeRangeStopsBeforeReadingAnOversizedContentSet(t *testing.T) {
+	t.Parallel()
+
+	s, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	start := int64(100)
+	calls := make([]ingest.ToolCall, 257)
+	results := make([]ingest.ToolResult, len(calls))
+	for i := range calls {
+		id := fmt.Sprintf("c%03d", i)
+		calls[i] = ingest.ToolCall{ID: id, Name: "bash"}
+		results[i] = ingest.ToolResult{ID: "r" + id, CallID: id, Name: "bash", Content: strings.Repeat("x", toolOutcomeContentBytes)}
+	}
+	require.NoError(t, s.ReplaceSession(context.Background(), ingest.Session{ID: "large-range", StartedAtUnix: &start, ToolCalls: calls, ToolResults: results}, SourceMeta{Path: "large-range", Size: 1}))
+	report, err := s.ToolOutcomeRange(context.Background(), 100, 101)
+	require.NoError(t, err)
+	require.True(t, report.AnalysisTruncated)
+	require.Zero(t, report.AnalyzedResults)
+	require.Equal(t, len(calls), report.TotalCalls)
+	require.Equal(t, ToolOutcomeTotals{Calls: len(calls), Unknown: len(calls)}, report.Totals)
 }
 
 func TestToolOutcomeRangeUsesTimedHalfOpenSessionsAndExactAssociation(t *testing.T) {

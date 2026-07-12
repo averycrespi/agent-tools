@@ -235,11 +235,16 @@ ORDER BY ` + order
 	if hasMore {
 		page.Rows = page.Rows[:q.Limit]
 	}
+	sessionIDs := make([]string, len(page.Rows))
 	for i := range page.Rows {
-		report, reportErr := s.ToolOutcomeReport(ctx, page.Rows[i].ID)
-		if reportErr != nil {
-			return SessionMatrixPage{}, fmt.Errorf("query tool outcomes for matrix: %w", reportErr)
-		}
+		sessionIDs[i] = page.Rows[i].ID
+	}
+	reports, reportErr := s.toolOutcomeReports(ctx, sessionIDs)
+	if reportErr != nil {
+		return SessionMatrixPage{}, fmt.Errorf("query tool outcomes for matrix: %w", reportErr)
+	}
+	for i := range page.Rows {
+		report := reports[page.Rows[i].ID]
 		page.Rows[i].ToolOutcomes = report.Totals
 		page.Rows[i].ToolTotalCalls = report.TotalCalls
 		page.Rows[i].ToolAnalysisTruncated = report.AnalysisTruncated

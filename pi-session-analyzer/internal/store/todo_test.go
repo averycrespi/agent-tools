@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/ingest"
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/robound"
 	"github.com/stretchr/testify/require"
 )
 
@@ -50,20 +52,67 @@ func TestTodoDiagnosticsHandlesProgressionClearReopenRemoveAndMalformedTail(t *t
 	require.Equal(t, TodoCounts{}, diagnostics.Snapshots[1].Counts)
 	require.Equal(t, TodoCounts{InProgress: 1, Unknown: 1}, diagnostics.Snapshots[2].Counts)
 	require.False(t, diagnostics.Snapshots[3].Valid)
-	require.Len(t, diagnostics.FinalItems, 2)
-	require.Equal(t, "1", diagnostics.FinalItems[0].ID)
-	require.Equal(t, "future", diagnostics.FinalItems[1].ID)
-	require.Equal(t, "unknown", diagnostics.FinalItems[1].Status)
-	require.Equal(t, "paused", diagnostics.FinalItems[1].RawStatus)
+	require.Empty(t, diagnostics.FinalItems)
 
 	paged, err := s.TodoDiagnosticsPage(context.Background(), "todo-session", TodoQuery{SnapshotOffset: 1, SnapshotLimit: 1, ItemOffset: 1, ItemLimit: 1})
 	require.NoError(t, err)
 	require.Equal(t, 4, paged.SnapshotTotal)
 	require.Len(t, paged.Snapshots, 1)
 	require.True(t, paged.SnapshotsTruncated)
-	require.Equal(t, 2, paged.FinalItemTotal)
-	require.Len(t, paged.FinalItems, 1)
+	require.Zero(t, paged.FinalItemTotal)
+	require.Empty(t, paged.FinalItems)
 	require.False(t, paged.FinalItemsTruncated)
+}
+
+func TestTodoDiagnosticsKeepsOversizedValidFinalItemValid(t *testing.T) {
+	t.Parallel()
+
+	s, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	data, err := json.Marshal(map[string]any{"items": []map[string]any{{"id": 1, "text": strings.Repeat("😀", 10000), "status": "todo"}}})
+	require.NoError(t, err)
+	require.NoError(t, s.ReplaceSession(context.Background(), ingest.Session{ID: "large-valid", CustomStates: []ingest.CustomState{{ID: "todo", Type: "todo-state", SourceLine: 2, Data: string(data)}}}, SourceMeta{Path: "large-valid", Size: 1}))
+	diagnostics, err := s.TodoDiagnostics(context.Background(), "large-valid")
+	require.NoError(t, err)
+	require.Equal(t, "valid", diagnostics.FinalState)
+	require.True(t, diagnostics.Snapshots[0].ContentTruncated)
+	require.Len(t, diagnostics.FinalItems, 1)
+	require.True(t, diagnostics.FinalItems[0].ContentTruncated)
+}
+
+func TestTodoDiagnosticsPagesOversizedFinalItemThroughSerializedReadBoundary(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	s, err := Open(path)
+	require.NoError(t, err)
+	data, err := json.Marshal(map[string]any{"items": []map[string]any{{"id": 1, "text": strings.Repeat("x", todoSnapshotBytes+1), "status": "todo"}}})
+	require.NoError(t, err)
+	require.NoError(t, s.ReplaceSession(context.Background(), ingest.Session{ID: "serialized", CustomStates: []ingest.CustomState{{ID: "todo", Type: "todo-state", SourceLine: 2, Data: string(data)}}}, SourceMeta{Path: "serialized", Size: 1}))
+	require.NoError(t, s.Close())
+	boundary, err := robound.Open(context.Background(), path)
+	require.NoError(t, err)
+	reader := NewReader(
+		func(ctx context.Context, query string, args ...any) (Rows, error) {
+			return boundary.QueryContext(ctx, query, args...)
+		},
+		func(ctx context.Context, query string, args ...any) Row {
+			return boundary.QueryRowContext(ctx, query, args...)
+		},
+	)
+	done := make(chan error, 1)
+	go func() {
+		_, queryErr := reader.TodoDiagnostics(context.Background(), "serialized")
+		done <- queryErr
+	}()
+	select {
+	case err = <-done:
+		require.NoError(t, err)
+		require.NoError(t, boundary.Close())
+	case <-time.After(time.Second):
+		t.Fatal("todo diagnostics deadlocked on the serialized read boundary")
+	}
 }
 
 func TestTodoDiagnosticsBoundsEscapedFinalItemsWithoutLosingPagination(t *testing.T) {

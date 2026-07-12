@@ -1,5 +1,5 @@
 import { matrixSearch, overviewSearch, parseState, stateSearch, withBucket } from "./state.js";
-import { bucketLabel, formatCost, formatInteger, rateLabel, severityLabel, statusClass, unwrapResponse } from "./view-model.js";
+import { bucketLabel, collapsedStreamText, formatCost, formatInteger, rateLabel, severityLabel, statusClass, tokenValues, unwrapResponse } from "./view-model.js";
 
 const $ = (selector) => document.querySelector(selector);
 const node = (tag, className = "", text = "") => {
@@ -49,6 +49,8 @@ function syncControls() {
   $("#bucket").value = state.bucket;
   $("#timezone").value = state.timezone;
   $("#direction").value = state.direction;
+  $("#cwd").value = state.cwd;
+  $("#untimed").checked = state.untimed;
   $("#date-from").value = state.dateFrom;
   $("#date-to").value = state.dateTo;
 }
@@ -236,7 +238,7 @@ function renderTokens(page, append = false) {
   for (const entry of page.entries || []) {
     const row = node("div", "token-mark"); row.append(node("span", "", `L${entry.source_line} ${entry.kind}`));
     if (entry.kind === "compaction") row.append(node("strong", "danger-text", `COMPACTION · ${formatInteger(entry.tokens_before)} tokens before`));
-    else { const bars = node("div", "token-bars"); for (const [kind, value] of [["input", entry.input_tokens], ["output", entry.output_tokens], ["reasoning", entry.reasoning_tokens], ["cache-read", entry.cache_read_tokens], ["cache-write", entry.cache_write_tokens]]) { const bar = node("span", kind); bar.style.width = `${Math.max(3, (value / maxima[kind]) * 100)}%`; bar.title = `${kind}: ${value}`; bars.append(bar); } bars.setAttribute("aria-label", `Input ${entry.input_tokens}, output ${entry.output_tokens}, reasoning ${entry.reasoning_tokens}, cache read ${entry.cache_read_tokens}, cache write ${entry.cache_write_tokens}`); row.append(bars); }
+    else { const bars = node("div", "token-bars"); const values = tokenValues(entry); for (const [kind, value] of values) { const bar = node("span", kind); bar.style.width = `${Math.max(3, (value / maxima[kind]) * 100)}%`; bar.title = `${kind}: ${value}`; bars.append(bar); } bars.setAttribute("aria-label", values.map(([kind, value]) => `${kind} ${value}`).join(", ")); row.append(bars); }
     host.append(row);
   }
   tokenCursor = page.next_cursor || ""; $("#tokens-more").hidden = !tokenCursor;
@@ -250,7 +252,7 @@ function renderStream(page, append = false) {
   for (const entry of page.entries || []) {
     const row = node("div", "evidence"); row.dataset.sourceLine = String(entry.source_line); row.dataset.entryId = entry.id;
     row.append(node("span", "line", `L${entry.source_line}`), tag(entry.kind, entry.is_error ? "error" : "neutral"));
-    const details = node("details"); const content = node("p", "", entry.preview || "Open to request bounded detail from the local index."); let loaded = false;
+    const details = node("details"); const content = node("p", "", collapsedStreamText(entry)); let loaded = false;
     details.append(node("summary", "", [entry.role, entry.name, entry.type, entry.status].filter(Boolean).join(" · ") || entry.id), content);
     details.addEventListener("toggle", async () => {
       if (!details.open || loaded) return;
@@ -264,8 +266,13 @@ function renderStream(page, append = false) {
 async function loadDetail(sessionID, signal) {
   $("#detail").hidden = false;
   const base = `/api/sessions/${encodeURIComponent(sessionID)}`;
-  const [header, tools, findings, tokens, goal, todo, stream] = await Promise.all([request(base, signal), request(`${base}/tools`, signal), request(`${base}/diagnostics`, signal), request(`${base}/tokens?limit=50`, signal), request(`${base}/goal?limit=50`, signal), request(`${base}/todo?snapshot_limit=50&item_limit=20`, signal), request(`${base}/stream?limit=50`, signal)]);
-  renderHeader(header); renderDetailTools(tools); renderFindings(findings); renderTokens(tokens); renderGoal(goal); renderTodo(todo); renderStream(stream);
+  const header = await request(base, signal); renderHeader(header);
+  const tools = await request(`${base}/tools`, signal); renderDetailTools(tools);
+  const findings = await request(`${base}/diagnostics`, signal); renderFindings(findings);
+  const tokens = await request(`${base}/tokens?limit=50`, signal); renderTokens(tokens);
+  const goal = await request(`${base}/goal?limit=50`, signal); renderGoal(goal);
+  const todo = await request(`${base}/todo?snapshot_limit=50&item_limit=20`, signal); renderTodo(todo);
+  const stream = await request(`${base}/stream?limit=50`, signal); renderStream(stream);
   $("#detail-title").focus?.();
 }
 
@@ -282,8 +289,7 @@ async function loadDashboard() {
   announce("Reading the local scrubbed index…");
   try {
     const query = overviewSearch(state);
-    const [summary, series] = await Promise.all([request(`/api/overview?${query}`, signal), request(`/api/overview/signals?${query}`, signal)]);
-    overview = { ...summary, ...series };
+    overview = await request(`/api/overview?${query}`, signal);
     renderOverview(overview);
     await loadMatrix(signal);
     if (state.session) await loadDetail(state.session, signal); else $("#detail").hidden = true;
@@ -296,6 +302,8 @@ async function loadDashboard() {
 $("#range").addEventListener("change", (event) => navigate({ ...state, range: event.target.value, dateFrom: "", dateTo: "", session: "", from: "", to: "", untimed: false }));
 $("#bucket").addEventListener("change", (event) => navigate({ ...state, bucket: event.target.value, session: "", from: "", to: "", untimed: false }));
 $("#direction").addEventListener("change", (event) => navigate({ ...state, direction: event.target.value, session: "" }));
+$("#cwd").addEventListener("change", (event) => navigate({ ...state, cwd: event.target.value, session: "" }));
+$("#untimed").addEventListener("change", (event) => navigate({ ...state, untimed: event.target.checked, session: "", from: "", to: "" }));
 for (const id of ["date-from", "date-to"]) $(`#${id}`).addEventListener("change", () => {
   const dateFrom = $("#date-from").value; const dateTo = $("#date-to").value;
   if (dateFrom && dateTo) navigate({ ...state, dateFrom, dateTo, session: "", from: "", to: "", untimed: false });

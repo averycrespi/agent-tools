@@ -25,15 +25,18 @@ func (s *Reader) ToolOutcomeRange(ctx context.Context, fromUnix, toUnix int64) (
 		return ToolOutcomeReport{}, fmt.Errorf("range start must be before range end")
 	}
 	report := ToolOutcomeReport{Tools: []ToolOutcomeRow{}}
+	var analysisContentBytes int64
 	if err := s.query.QueryRowContext(ctx, `
 SELECT
  (SELECT COUNT(*) FROM tool_calls c JOIN sessions s ON s.id=c.session_id WHERE s.started_at_unix>=? AND s.started_at_unix<?),
- (SELECT COUNT(*) FROM tool_results r JOIN sessions s ON s.id=r.session_id WHERE s.started_at_unix>=? AND s.started_at_unix<?)`,
-		fromUnix, toUnix, fromUnix, toUnix).Scan(&report.TotalCalls, &report.TotalResults); err != nil {
+ (SELECT COUNT(*) FROM tool_results r JOIN sessions s ON s.id=r.session_id WHERE s.started_at_unix>=? AND s.started_at_unix<?),
+ (SELECT COALESCE(SUM(MIN(length(CAST(r.content AS BLOB)),?)),0) FROM tool_results r JOIN sessions s ON s.id=r.session_id WHERE s.started_at_unix>=? AND s.started_at_unix<?)`,
+		fromUnix, toUnix, fromUnix, toUnix, toolOutcomeContentBytes, fromUnix, toUnix).Scan(&report.TotalCalls, &report.TotalResults, &analysisContentBytes); err != nil {
 		return ToolOutcomeReport{}, fmt.Errorf("count ranged tool outcomes: %w", err)
 	}
-	report.AnalysisTruncated = report.TotalCalls > maxRangeAnalyzedCalls || report.TotalResults > maxRangeAnalyzedResults
+	report.AnalysisTruncated = report.TotalCalls > maxRangeAnalyzedCalls || report.TotalResults > maxRangeAnalyzedResults || analysisContentBytes > maxToolAnalysisContentBytes
 	if report.AnalysisTruncated {
+		report.Totals = ToolOutcomeTotals{Calls: report.TotalCalls, Unknown: report.TotalCalls}
 		return report, nil
 	}
 	calls := make(map[rangeCallKey]*outcomeCall, report.TotalCalls)

@@ -1,6 +1,20 @@
 export function unwrapResponse(value) {
-  if (value?.truncated === true) return { value: "value" in value ? value.value : null, truncated: true };
+  if (value?.truncated === true && Object.hasOwn(value, "value")) return { value: value.value, truncated: true };
   return { value, truncated: false };
+}
+
+export function tokenValues(entry) {
+  return [
+    ["input", entry.input_tokens || 0],
+    ["output", entry.output_tokens || 0],
+    ["reasoning", entry.reasoning_tokens || 0],
+    ["cache-read", entry.cache_read_tokens || 0],
+    ["cache-write", entry.cache_write_tokens || 0],
+  ];
+}
+
+export function collapsedStreamText() {
+  return "Open to request bounded detail from the local index.";
 }
 
 export function formatInteger(value) {

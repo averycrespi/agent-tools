@@ -209,29 +209,32 @@ func (s *Reader) Overview(ctx context.Context, q OverviewQuery) (Overview, error
 	}
 	query := `
 WITH buckets(key,start_unix,end_unix,partial) AS (VALUES ` + strings.Join(placeholders, ",") + `),
-message_facts AS (
- SELECT session_id,COALESCE(SUM(cost),0) cost,COALESCE(SUM(output_tokens),0) output_tokens,
-  COALESCE(SUM(reasoning_tokens),0) reasoning_tokens,COALESCE(SUM(cache_read_tokens),0) cache_read_tokens,
-  COALESCE(SUM(cache_write_tokens),0) cache_write_tokens
- FROM messages GROUP BY session_id
+candidate_sessions AS (
+ SELECT DISTINCT s.id FROM sessions s JOIN buckets b ON s.started_at_unix>=b.start_unix AND s.started_at_unix<b.end_unix
 ),
-call_facts AS (SELECT session_id,COUNT(*) calls FROM tool_calls GROUP BY session_id),
-event_facts AS (SELECT session_id,COUNT(*) compactions FROM events WHERE type='compaction' GROUP BY session_id),
-guard_facts AS (SELECT session_id,COUNT(*) guards FROM custom_messages WHERE type='broker-guard' GROUP BY session_id),
+message_facts AS (
+ SELECT m.session_id,COALESCE(SUM(m.cost),0) cost,COALESCE(SUM(m.output_tokens),0) output_tokens,
+  COALESCE(SUM(m.reasoning_tokens),0) reasoning_tokens,COALESCE(SUM(m.cache_read_tokens),0) cache_read_tokens,
+  COALESCE(SUM(m.cache_write_tokens),0) cache_write_tokens
+ FROM messages m JOIN candidate_sessions cs ON cs.id=m.session_id GROUP BY m.session_id
+),
+call_facts AS (SELECT c.session_id,COUNT(*) calls FROM tool_calls c JOIN candidate_sessions cs ON cs.id=c.session_id GROUP BY c.session_id),
+event_facts AS (SELECT e.session_id,COUNT(*) compactions FROM events e JOIN candidate_sessions cs ON cs.id=e.session_id WHERE e.type='compaction' GROUP BY e.session_id),
+guard_facts AS (SELECT g.session_id,COUNT(*) guards FROM custom_messages g JOIN candidate_sessions cs ON cs.id=g.session_id WHERE g.type='broker-guard' GROUP BY g.session_id),
 fresh_facts AS (
  SELECT f.session_id,SUM(f.severity='error') errors,SUM(f.severity='warn') warns,SUM(f.severity='info') infos,
   SUM(f.classification='structural') structural,SUM(f.classification='heuristic') heuristic
- FROM findings f JOIN detector_runs r ON r.session_id=f.session_id AND r.detector=f.detector
+ FROM findings f JOIN candidate_sessions cs ON cs.id=f.session_id JOIN detector_runs r ON r.session_id=f.session_id AND r.detector=f.detector
  WHERE f.stale=0 AND r.status='success' AND f.generation=r.generation AND ` + freshDetectorFilter + ` GROUP BY f.session_id
 ), run_facts AS (
- SELECT session_id,SUM(status='success') successes,SUM(status='failed') failures FROM detector_runs
- WHERE ` + detectorFilter + ` GROUP BY session_id
+ SELECT r.session_id,SUM(r.status='success') successes,SUM(r.status='failed') failures FROM detector_runs r
+ JOIN candidate_sessions cs ON cs.id=r.session_id WHERE ` + detectorFilter + ` GROUP BY r.session_id
 ), goal_facts AS (
- SELECT s.id session_id,CASE
-  WHEN NOT EXISTS(SELECT 1 FROM custom_state x WHERE x.session_id=s.id AND x.type='goal-state') THEN 'absent'
-  WHEN COALESCE((SELECT status FROM custom_state x WHERE x.session_id=s.id AND x.type='goal-state' ORDER BY source_line DESC,id DESC LIMIT 1),'')='' THEN 'cleared'
-  ELSE (SELECT status FROM custom_state x WHERE x.session_id=s.id AND x.type='goal-state' ORDER BY source_line DESC,id DESC LIMIT 1) END outcome
- FROM sessions s
+ SELECT cs.id session_id,CASE
+  WHEN NOT EXISTS(SELECT 1 FROM custom_state x WHERE x.session_id=cs.id AND x.type='goal-state') THEN 'absent'
+  WHEN COALESCE((SELECT status FROM custom_state x WHERE x.session_id=cs.id AND x.type='goal-state' ORDER BY source_line DESC,id DESC LIMIT 1),'')='' THEN 'cleared'
+  ELSE (SELECT status FROM custom_state x WHERE x.session_id=cs.id AND x.type='goal-state' ORDER BY source_line DESC,id DESC LIMIT 1) END outcome
+ FROM candidate_sessions cs
 )
 SELECT b.key,b.start_unix,b.end_unix,b.partial,COUNT(s.id),
  COALESCE(SUM(m.cost),0),COALESCE(SUM(m.output_tokens),0),COALESCE(SUM(m.reasoning_tokens),0),

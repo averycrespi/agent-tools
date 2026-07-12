@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -32,6 +33,11 @@ func TestMessageTokenSequencePaginatesMessagesAndCompactionsWithoutCombiningToke
 	second, err := s.MessageTokenSequence(context.Background(), "tokens", first.NextCursor, 1)
 	require.NoError(t, err)
 	require.Equal(t, "m1b", second.Entries[0].ID)
+	encoded, err := json.Marshal(second.Entries[0])
+	require.NoError(t, err)
+	for _, field := range []string{`"input_tokens":0`, `"reasoning_tokens":0`, `"cache_read_tokens":0`, `"cache_write_tokens":0`} {
+		require.Contains(t, string(encoded), field)
+	}
 	third, err := s.MessageTokenSequence(context.Background(), "tokens", second.NextCursor, 1)
 	require.NoError(t, err)
 	require.Equal(t, "compaction", third.Entries[0].Kind)

@@ -67,6 +67,45 @@ func TestSessionMatrixUsesHalfOpenRangeAndStableKeysetCursor(t *testing.T) {
 	require.Equal(t, []string{"untimed"}, []string{untimed.Rows[0].ID})
 }
 
+func TestSessionMatrixBatchesToolOutcomeQueriesAcrossRows(t *testing.T) {
+	t.Parallel()
+
+	s, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	start := int64(100)
+	flag := true
+	for _, id := range []string{"a", "b", "c"} {
+		require.NoError(t, s.ReplaceSession(context.Background(), ingest.Session{
+			ID: id, StartedAtUnix: &start,
+			ToolCalls:   []ingest.ToolCall{{ID: "call", Name: "bash"}},
+			ToolResults: []ingest.ToolResult{{ID: "result", CallID: "call", Name: "bash", IsError: &flag}},
+		}, SourceMeta{Path: id, Size: 1}))
+	}
+	toolQueries := 0
+	reader := NewReader(
+		func(ctx context.Context, query string, args ...any) (Rows, error) {
+			if strings.Contains(query, "tool_results") {
+				toolQueries++
+			}
+			return s.db.QueryContext(ctx, query, args...)
+		},
+		func(ctx context.Context, query string, args ...any) Row {
+			if strings.Contains(query, "tool_results") {
+				toolQueries++
+			}
+			return s.db.QueryRowContext(ctx, query, args...)
+		},
+	)
+	page, err := reader.SessionMatrix(context.Background(), MatrixQuery{FromUnix: 100, ToUnix: 101, Limit: 10}, nil)
+	require.NoError(t, err)
+	require.Len(t, page.Rows, 3)
+	require.LessOrEqual(t, toolQueries, 2)
+	for _, row := range page.Rows {
+		require.Equal(t, ToolOutcomeTotals{Calls: 1, ConfirmedErrors: 1, Classifiable: 1}, row.ToolOutcomes)
+	}
+}
+
 func TestSessionMatrixRejectsCursorFromDifferentFilter(t *testing.T) {
 	t.Parallel()
 

@@ -70,4 +70,14 @@ func TestMarshalCappedAlwaysReturnsBoundedValidJSON(t *testing.T) {
 	var decoded map[string]any
 	require.NoError(t, json.Unmarshal([]byte(result), &decoded))
 	require.Equal(t, true, decoded["truncated"])
+	_, hasValue := decoded["value"]
+	require.True(t, hasValue)
+
+	result = MarshalCapped(map[string]any{"value": strings.Repeat("\x01", MaxResponseBytes)})
+	require.LessOrEqual(t, len(result), MaxResponseBytes)
+	decoded = nil
+	require.NoError(t, json.Unmarshal([]byte(result), &decoded))
+	require.Equal(t, true, decoded["truncated"])
+	_, hasValue = decoded["value"]
+	require.True(t, hasValue)
 }

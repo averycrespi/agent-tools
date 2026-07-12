@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	todoItemTextBytes = 32
-	todoSnapshotBytes = 32768
+	todoItemTextBytes     = 32
+	todoSnapshotBytes     = 32768
+	todoItemAnalysisBytes = 65535
 )
 
 type TodoItem struct {
@@ -72,7 +73,7 @@ func (s *Reader) TodoDiagnosticsPage(ctx context.Context, prefix string, q TodoQ
 	if err = s.query.QueryRowContext(ctx, `SELECT COUNT(*) FROM custom_state WHERE session_id=? AND type='todo-state'`, id).Scan(&out.SnapshotTotal); err != nil {
 		return TodoDiagnostics{}, fmt.Errorf("count todo snapshots: %w", err)
 	}
-	rows, err := s.query.QueryContext(ctx, `SELECT id,source_line,substr(data,1,?),length(data)>? FROM custom_state WHERE session_id=? AND type='todo-state' ORDER BY source_line,id LIMIT ? OFFSET ?`, todoSnapshotBytes, todoSnapshotBytes, id, q.SnapshotLimit, q.SnapshotOffset)
+	rows, err := s.query.QueryContext(ctx, `SELECT id,source_line,substr(CAST(data AS BLOB),1,?),length(CAST(data AS BLOB))>? FROM custom_state WHERE session_id=? AND type='todo-state' ORDER BY source_line,id LIMIT ? OFFSET ?`, todoSnapshotBytes, todoSnapshotBytes, id, q.SnapshotLimit, q.SnapshotOffset)
 	if err != nil {
 		return TodoDiagnostics{}, fmt.Errorf("query todo snapshots: %w", err)
 	}
@@ -108,28 +109,17 @@ func (s *Reader) TodoDiagnosticsPage(ctx context.Context, prefix string, q TodoQ
 	out.DataQualityTruncated = len(out.Snapshots) < out.SnapshotTotal
 	var finalItems []TodoItem
 	finalItemsPaged := false
-	finalRows, err := s.query.QueryContext(ctx, `SELECT id,substr(data,1,?),length(data)>? FROM custom_state WHERE session_id=? AND type='todo-state' ORDER BY source_line DESC,id DESC LIMIT 101`, todoSnapshotBytes, todoSnapshotBytes, id)
-	if err != nil {
-		return TodoDiagnostics{}, fmt.Errorf("query final todo snapshots: %w", err)
-	}
-	checked := 0
-	for finalRows.Next() {
+	if out.SnapshotTotal > 0 {
 		var snapshotID, finalData string
 		var contentTruncated bool
-		if err = finalRows.Scan(&snapshotID, &finalData, &contentTruncated); err != nil {
-			_ = finalRows.Close()
-			return TodoDiagnostics{}, fmt.Errorf("scan final todo snapshot: %w", err)
-		}
-		if checked == 100 {
-			out.FinalListTruncated = finalItems == nil
-			break
+		if err = s.query.QueryRowContext(ctx, `SELECT id,substr(CAST(data AS BLOB),1,?),length(CAST(data AS BLOB))>? FROM custom_state WHERE session_id=? AND type='todo-state' ORDER BY source_line DESC,id DESC LIMIT 1`, todoSnapshotBytes, todoSnapshotBytes, id).Scan(&snapshotID, &finalData, &contentTruncated); err != nil {
+			return TodoDiagnostics{}, fmt.Errorf("query final todo snapshot: %w", err)
 		}
 		items, _, parseErr := parseTodoItems(finalData)
 		if contentTruncated {
 			var valid bool
 			items, out.FinalItemTotal, valid, err = s.pagedTodoItems(ctx, id, snapshotID, q.ItemOffset, q.ItemLimit)
 			if err != nil {
-				_ = finalRows.Close()
 				return TodoDiagnostics{}, err
 			}
 			if valid {
@@ -140,25 +130,12 @@ func (s *Reader) TodoDiagnosticsPage(ctx context.Context, prefix string, q TodoQ
 				out.FinalListTruncated = true
 			}
 		}
-		if checked == 0 {
-			if parseErr != nil {
-				out.FinalState = "malformed"
-			} else {
-				out.FinalState = "valid"
-			}
-		}
-		checked++
-		if parseErr == nil {
+		if parseErr != nil {
+			out.FinalState = "malformed"
+		} else {
+			out.FinalState = "valid"
 			finalItems = items
-			break
 		}
-	}
-	if err = finalRows.Err(); err != nil {
-		_ = finalRows.Close()
-		return TodoDiagnostics{}, fmt.Errorf("read final todo snapshots: %w", err)
-	}
-	if err = finalRows.Close(); err != nil {
-		return TodoDiagnostics{}, fmt.Errorf("close final todo snapshots: %w", err)
 	}
 	if finalItemsPaged {
 		out.FinalItems = append(out.FinalItems, finalItems...)
@@ -191,7 +168,7 @@ func (s *Reader) pagedTodoItems(ctx context.Context, sessionID, snapshotID strin
 	if err := s.query.QueryRowContext(ctx, `SELECT json_array_length(data,'$.items') FROM custom_state WHERE session_id=? AND id=?`, sessionID, snapshotID).Scan(&total); err != nil {
 		return nil, 0, false, fmt.Errorf("count large todo items: %w", err)
 	}
-	rows, err := s.query.QueryContext(ctx, `SELECT substr(j.value,1,?),length(j.value)>? FROM custom_state c,json_each(c.data,'$.items') j WHERE c.session_id=? AND c.id=? ORDER BY CAST(j.key AS INTEGER) LIMIT ? OFFSET ?`, todoSnapshotBytes, todoSnapshotBytes, sessionID, snapshotID, limit, offset)
+	rows, err := s.query.QueryContext(ctx, `SELECT substr(CAST(j.value AS BLOB),1,?),length(CAST(j.value AS BLOB))>? FROM custom_state c,json_each(c.data,'$.items') j WHERE c.session_id=? AND c.id=? ORDER BY CAST(j.key AS INTEGER) LIMIT ? OFFSET ?`, todoItemAnalysisBytes, todoItemAnalysisBytes, sessionID, snapshotID, limit, offset)
 	if err != nil {
 		return nil, 0, false, fmt.Errorf("query large todo items: %w", err)
 	}

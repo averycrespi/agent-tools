@@ -9,10 +9,7 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	streamCursorVersion = 1
-	streamPreviewBytes  = 32
-)
+const streamCursorVersion = 1
 
 type StreamEntry struct {
 	SourceLine   int    `json:"source_line"`
@@ -39,14 +36,6 @@ type streamCursor struct {
 	SourceLine int    `json:"l"`
 	KindRank   int    `json:"k"`
 	ID         string `json:"i"`
-}
-
-func (s *Reader) SessionStream(ctx context.Context, prefix, encodedCursor string, limit int) (SessionStreamPage, error) {
-	return s.SessionStreamFromLine(ctx, prefix, encodedCursor, limit, 0)
-}
-
-func (s *Reader) SessionStreamFromLine(ctx context.Context, prefix, encodedCursor string, limit, anchorLine int) (SessionStreamPage, error) {
-	return s.SessionStreamFromEvidence(ctx, prefix, encodedCursor, limit, anchorLine, "")
 }
 
 func (s *Reader) SessionStreamFromEvidence(ctx context.Context, prefix, encodedCursor string, limit, anchorLine int, evidenceID string) (SessionStreamPage, error) {
@@ -88,14 +77,14 @@ func (s *Reader) SessionStreamFromEvidence(ctx context.Context, prefix, encodedC
 	rows, err := s.query.QueryContext(ctx, `
 WITH stream AS (
  SELECT source_line,10 kind_rank,id,'message' kind,role,'' name,'' type,'' status,
-  substr(replace(replace(text,char(13),' '),char(10),' '),1,160) preview,NULL is_error,0 tokens_before
+  '' preview,NULL is_error,0 tokens_before
  FROM messages WHERE session_id=? AND role<>'toolResult'
  UNION ALL
  SELECT source_line,20,id,'tool_call','',name,'','', '',NULL,0 FROM tool_calls WHERE session_id=?
  UNION ALL
  SELECT source_line,30,id,'tool_result','',name,'','', '',is_error,0 FROM tool_results WHERE session_id=?
  UNION ALL
- SELECT source_line,40,id,'event','','',type,'',substr(replace(replace(value,char(13),' '),char(10),' '),1,160),NULL,tokens_before FROM events WHERE session_id=?
+ SELECT source_line,40,id,'event','','',type,'','',NULL,tokens_before FROM events WHERE session_id=?
  UNION ALL
  SELECT source_line,50,id,'custom_state','','',type,status,'',NULL,0 FROM custom_state WHERE session_id=?
  UNION ALL
@@ -121,7 +110,6 @@ LIMIT ?`, id, id, id, id, id, id, cursor.SourceLine, cursor.SourceLine, cursor.K
 		if isError.Valid {
 			entry.IsError = &isError.Bool
 		}
-		entry.Preview = truncateUTF8Bytes(entry.Preview, streamPreviewBytes)
 		entries = append(entries, entry)
 	}
 	if err = rows.Err(); err != nil {
