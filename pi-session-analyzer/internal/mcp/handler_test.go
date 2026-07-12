@@ -44,13 +44,15 @@ func TestAllHandlerResponsesUseValidJSONCap(t *testing.T) {
 	require.Contains(t, text, `"truncated":true`)
 }
 
-func TestResponseCapUsesBoundedAllocations(t *testing.T) {
+func TestResponseCapBoundsBeforeSerialization(t *testing.T) {
 	large := strings.Repeat("x", 2<<20)
-	allocations := testing.AllocsPerRun(1, func() {
-		result := marshalCapped(large)
-		require.LessOrEqual(t, len(result), maxResponseBytes)
-	})
-	require.Less(t, allocations, float64(500))
+	result := marshalCapped(map[string]any{"huge": large})
+	require.LessOrEqual(t, len(result), maxResponseBytes)
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal([]byte(result), &decoded))
+	require.Equal(t, true, decoded["truncated"])
+	require.Contains(t, decoded, "value")
+	require.NotContains(t, decoded, "preview")
 }
 
 func TestGetMessageProjectionAndArgumentErrors(t *testing.T) {

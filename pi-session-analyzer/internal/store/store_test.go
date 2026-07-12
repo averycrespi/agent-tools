@@ -27,7 +27,7 @@ func TestOpenAndReplaceSessionArePrivateScrubbedAndIdempotent(t *testing.T) {
 		ID: "s1", CWD: "/repo", Stats: ingest.ParseStats{Total: 2},
 		Messages:       []ingest.Message{{ID: "m1", Role: "user", Text: "token=" + secret, SourceLine: 2, OutputTokens: 3, Cost: 0.2}},
 		ToolCalls:      []ingest.ToolCall{{ID: "c1", MessageID: "m1", Name: "bash", Arguments: `{"token":"` + secret + `"}`, SourceLine: 2}},
-		ToolResults:    []ingest.ToolResult{{ID: "r1", CallID: "c1", Content: "password=abc", SourceLine: 3}},
+		ToolResults:    []ingest.ToolResult{{ID: "r1", CallID: "c1", Content: `{"refreshToken":"abc"}`, SourceLine: 3}},
 		Events:         []ingest.Event{{ID: "e1", Type: "compaction", Value: "secret=" + secret, Details: `{"password":"abc","thinking":"private","thinkingSignature":"signature"}`, SourceLine: 4}},
 		CustomStates:   []ingest.CustomState{{ID: "s1", Type: "goal-state", Data: `{"token":"` + secret + `"}`, SourceLine: 5}},
 		CustomMessages: []ingest.CustomMessage{{ID: "cm1", Type: "broker-guard", Content: "password=abc", Details: `{"secret":"abc"}`, SourceLine: 6}},

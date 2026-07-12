@@ -22,11 +22,13 @@ func TestScrubCredentialValues(t *testing.T) {
 		`{"password":"abc","aws_secret_access_key":"short"}`,
 		`{"authorization":"Bearer quoted-secret"}`,
 		`password="two words"`,
+		`OPENAI_API_KEY=environment-secret`,
+		`password="secret\"suffix"`,
 		"-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----",
 	}, "\n")
 
 	got := Scrub(input)
-	for _, secret := range []string{"ghp_", "AKIAIOS", "xoxb-", "sk-abc", "eyJhbGci", "secret-value", "alternate-secret", "hunter2", `"abc"`, `"short"`, "quoted-secret", "two words", "\nsecret\n"} {
+	for _, secret := range []string{"ghp_", "AKIAIOS", "xoxb-", "sk-abc", "eyJhbGci", "secret-value", "alternate-secret", "hunter2", `"abc"`, `"short"`, "quoted-secret", "two words", "environment-secret", `secret\"suffix`, "\nsecret\n"} {
 		require.NotContains(t, got, secret)
 	}
 	require.Equal(t, got, Scrub(got), "scrubbing must be idempotent")

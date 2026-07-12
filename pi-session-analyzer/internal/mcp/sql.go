@@ -30,7 +30,7 @@ func RunSelect(ctx context.Context, path, query string) (QueryResult, error) {
 	query = strings.TrimSpace(query)
 	query = strings.TrimSuffix(query, ";")
 	code := sqlCode(query)
-	if strings.TrimSpace(code) == "" || hasStatementSeparator(code) {
+	if strings.TrimSpace(code) == "" || strings.Contains(code, ";") {
 		return QueryResult{}, fmt.Errorf("query must contain exactly one statement")
 	}
 	first := strings.ToLower(strings.Fields(code)[0])
@@ -149,33 +149,4 @@ func sqlCode(query string) string {
 		}
 	}
 	return out.String()
-}
-
-func hasStatementSeparator(query string) bool {
-	var quote rune
-	escaped := false
-	for _, r := range query {
-		if escaped {
-			escaped = false
-			continue
-		}
-		if r == '\\' && quote != 0 {
-			escaped = true
-			continue
-		}
-		if quote != 0 {
-			if r == quote {
-				quote = 0
-			}
-			continue
-		}
-		if r == '\'' || r == '"' || r == '`' {
-			quote = r
-			continue
-		}
-		if r == ';' {
-			return true
-		}
-	}
-	return false
 }

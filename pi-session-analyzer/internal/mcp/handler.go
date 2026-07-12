@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/store"
@@ -156,24 +157,113 @@ func cappedResult(value any, resultErr error) *gomcp.CallToolResult {
 	return gomcp.NewToolResultText(marshalCapped(value))
 }
 func marshalCapped(value any) string {
-	data, err := json.Marshal(value)
+	budget := maxResponseBytes / 2
+	bounded, truncated := boundedJSONValue(reflect.ValueOf(value), &budget)
+	if truncated {
+		bounded = map[string]any{"truncated": true, "value": bounded}
+	}
+	data, err := json.Marshal(bounded)
 	if err != nil {
-		data = []byte(`{"error":"response serialization failed"}`)
+		return `{"error":"response serialization failed"}`
 	}
-	if len(data) <= maxResponseBytes {
-		return string(data)
+	if len(data) > maxResponseBytes {
+		return `{"truncated":true}`
 	}
-	low, high := 0, min(len(data), maxResponseBytes)
-	best := []byte(`{"truncated":true}`)
-	for low <= high {
-		mid := low + (high-low)/2
-		candidate, _ := json.Marshal(map[string]any{"truncated": true, "original_bytes": len(data), "preview": string(data[:mid])})
-		if len(candidate) <= maxResponseBytes {
-			best = candidate
-			low = mid + 1
-		} else {
-			high = mid - 1
+	return string(data)
+}
+
+func boundedJSONValue(value reflect.Value, budget *int) (any, bool) {
+	if !value.IsValid() || ((value.Kind() == reflect.Interface || value.Kind() == reflect.Pointer) && value.IsNil()) {
+		return nil, false
+	}
+	if value.Kind() == reflect.Interface || value.Kind() == reflect.Pointer {
+		return boundedJSONValue(value.Elem(), budget)
+	}
+	if *budget <= 0 {
+		return nil, true
+	}
+	switch value.Kind() {
+	case reflect.String:
+		text := value.String()
+		if len(text) > *budget {
+			text = text[:*budget]
+			*budget = 0
+			return text, true
 		}
+		*budget -= len(text)
+		return text, false
+	case reflect.Bool:
+		*budget -= 5
+		return value.Bool(), false
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		*budget -= 20
+		return value.Int(), false
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		*budget -= 20
+		return value.Uint(), false
+	case reflect.Float32, reflect.Float64:
+		*budget -= 24
+		return value.Float(), false
+	case reflect.Slice, reflect.Array:
+		if value.Kind() == reflect.Slice && value.Type().Elem().Kind() == reflect.Uint8 {
+			return boundedJSONValue(reflect.ValueOf(string(value.Bytes())), budget)
+		}
+		out := make([]any, 0, min(value.Len(), *budget/8+1))
+		truncated := false
+		for i := 0; i < value.Len(); i++ {
+			if *budget <= 0 {
+				truncated = true
+				break
+			}
+			*budget -= 2
+			item, cut := boundedJSONValue(value.Index(i), budget)
+			out = append(out, item)
+			truncated = truncated || cut
+		}
+		return out, truncated
+	case reflect.Map:
+		out := map[string]any{}
+		truncated := false
+		for _, key := range value.MapKeys() {
+			if key.Kind() != reflect.String || *budget <= 0 {
+				truncated = true
+				break
+			}
+			name := key.String()
+			*budget -= len(name) + 4
+			item, cut := boundedJSONValue(value.MapIndex(key), budget)
+			out[name] = item
+			truncated = truncated || cut
+		}
+		return out, truncated
+	case reflect.Struct:
+		out := map[string]any{}
+		truncated := false
+		typeInfo := value.Type()
+		for i := 0; i < value.NumField(); i++ {
+			field := typeInfo.Field(i)
+			if !field.IsExported() {
+				continue
+			}
+			name := strings.Split(field.Tag.Get("json"), ",")[0]
+			if name == "-" {
+				continue
+			}
+			if name == "" {
+				name = field.Name
+			}
+			if *budget <= 0 {
+				truncated = true
+				break
+			}
+			*budget -= len(name) + 4
+			item, cut := boundedJSONValue(value.Field(i), budget)
+			out[name] = item
+			truncated = truncated || cut
+		}
+		return out, truncated
+	default:
+		*budget -= 16
+		return fmt.Sprint(value.Interface()), false
 	}
-	return string(best)
 }

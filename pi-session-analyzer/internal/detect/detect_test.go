@@ -48,6 +48,8 @@ func TestStructuralDetectorsDoNotFireOnHealthySession(t *testing.T) {
 		},
 	}
 	require.NotContains(t, detectorNames(Analyze(recovered)), "tool_error_burst")
+	recovered.ToolResults[3].IsError = nil
+	require.Contains(t, detectorNames(Analyze(recovered)), "tool_error_burst")
 }
 
 func TestMCPHistoricalFallbackIsNarrow(t *testing.T) {
@@ -74,7 +76,7 @@ func TestRetryLoopGuardsChangingOutputAndPass(t *testing.T) {
 	require.Contains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: calls, ToolResults: failed})), "retry_loop")
 	for i := range failed {
 		failed[i].IsError = nil
-		failed[i].Content = "password=secret" + string(rune('a'+i))
+		failed[i].Content = "command failed: password=secret" + string(rune('a'+i))
 	}
 	require.Contains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: calls, ToolResults: failed})), "retry_loop")
 	for i := range failed {
@@ -85,9 +87,10 @@ func TestRetryLoopGuardsChangingOutputAndPass(t *testing.T) {
 	failed[3].IsError = boolPtr(false)
 	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: calls, ToolResults: failed})), "retry_loop")
 	for i := range failed {
-		failed[i].IsError = boolPtr(false)
+		failed[i].IsError = nil
 		failed[i].Content = "same success"
 	}
+	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: calls, ToolResults: failed})), "retry_loop")
 	failed[3].IsError = boolPtr(true)
 	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: calls, ToolResults: failed})), "retry_loop")
 }
@@ -140,14 +143,21 @@ func TestUnverifiedCodeChangeGuards(t *testing.T) {
 		"npx vitest run",
 		"npx --yes vitest run",
 		"npx --prefix web tsx --test",
+		"npx tsx script.ts",
 		"npx tsc --noEmit",
 		"bash -n script.sh",
 		"shellcheck script.sh",
 		"golangci-lint run",
+		"gofmt -w main.go",
+		"go fmt ./...",
+		"go run main.go",
+		"env -u GOFLAGS -- go run main.go",
 	} {
 		verified := []ingest.ToolCall{edit, {ID: "v", Name: "bash", Arguments: `{"command":"` + command + `"}`, SourceLine: 3}}
 		require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: verified})), "unverified_code_change", command)
 	}
+	failedEdit := ingest.Session{ID: "s", ToolCalls: []ingest.ToolCall{edit}, ToolResults: []ingest.ToolResult{{ID: "result", CallID: "e", IsError: boolPtr(true)}}}
+	require.NotContains(t, detectorNames(Analyze(failedEdit)), "unverified_code_change")
 	for _, path := range []string{"docs/a.go", "config.yaml", "new.unknown"} {
 		call := edit
 		call.Arguments = `{"path":"` + path + `"}`
@@ -174,11 +184,29 @@ func TestEditWithoutReadRecognizesReadsAndNewFiles(t *testing.T) {
 	require.Contains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: echo})), "edit_without_read")
 	prefix := []ingest.ToolCall{{ID: "r", Name: "bash", Arguments: `{"command":"cat src/main.go.bak"}`, SourceLine: 1}, edit}
 	require.Contains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: prefix})), "edit_without_read")
+	grepPattern := []ingest.ToolCall{{ID: "r", Name: "bash", Arguments: `{"command":"grep src/main.go unrelated.txt"}`, SourceLine: 1}, edit}
+	require.Contains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: grepPattern})), "edit_without_read")
+	grepFile := []ingest.ToolCall{{ID: "r", Name: "bash", Arguments: `{"command":"grep needle src/main.go"}`, SourceLine: 1}, edit}
+	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: grepFile})), "edit_without_read")
 	spaceEdit := ingest.ToolCall{ID: "space", Name: "edit", Arguments: `{"path":"src/my file.go"}`, SourceLine: 3}
 	quotedSpace := []ingest.ToolCall{{ID: "r", Name: "bash", Arguments: `{"command":"cat 'src/my file.go'"}`, SourceLine: 1}, spaceEdit}
 	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: quotedSpace})), "edit_without_read")
 	absoluteRead := []ingest.ToolCall{{ID: "r", Name: "bash", Arguments: `{"command":"cat /repo/src/main.go"}`, SourceLine: 1}, edit}
 	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", CWD: "/repo", ToolCalls: absoluteRead})), "edit_without_read")
+	gitDiffRead := []ingest.ToolCall{{ID: "r", Name: "bash", Arguments: `{"command":"git diff -- src/main.go"}`, SourceLine: 1}, edit}
+	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: gitDiffRead})), "edit_without_read")
+	movedEdit := edit
+	movedEdit.Arguments = `{"path":"src/renamed.go"}`
+	moveAfterRead := []ingest.ToolCall{{ID: "r", Name: "read", Arguments: `{"path":"src/main.go"}`, SourceLine: 1}, {ID: "m", Name: "bash", Arguments: `{"command":"mv src/main.go src/renamed.go"}`, SourceLine: 2}, movedEdit}
+	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: moveAfterRead})), "edit_without_read")
+	directoryMove := []ingest.ToolCall{{ID: "r", Name: "read", Arguments: `{"path":"old/main.go"}`, SourceLine: 1}, {ID: "m", Name: "bash", Arguments: `{"command":"mv old new"}`, SourceLine: 2}, {ID: "e", Name: "edit", Arguments: `{"path":"new/main.go"}`, SourceLine: 3}}
+	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: directoryMove})), "edit_without_read")
+	globRead := []ingest.ToolCall{{ID: "r", Name: "bash", Arguments: `{"command":"cat src/*.go"}`, SourceLine: 1}, edit}
+	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: globRead})), "edit_without_read")
+	taskEdit := edit
+	taskEdit.Arguments = `{"path":"scheduled/tasks/nightly.md"}`
+	taskRead := []ingest.ToolCall{{ID: "r", Name: "scheduled_tasks", Arguments: `{"action":"read","task_id":"nightly"}`, SourceLine: 1}, taskEdit}
+	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: taskRead})), "edit_without_read")
 	nestedRead := []ingest.ToolCall{{ID: "r", Name: "bash", Arguments: `{"command":"if test -f src/main.go; then nl -ba src/main.go; fi"}`, SourceLine: 1}, edit}
 	require.NotContains(t, detectorNames(Analyze(ingest.Session{ID: "s", ToolCalls: nestedRead})), "edit_without_read")
 	failed := ingest.Session{ID: "s", ToolCalls: []ingest.ToolCall{edit}, ToolResults: []ingest.ToolResult{{ID: "result", CallID: "e", IsError: boolPtr(true)}}}

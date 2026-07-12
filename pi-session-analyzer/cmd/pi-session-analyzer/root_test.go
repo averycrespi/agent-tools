@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -77,5 +78,20 @@ func TestCommandWorkflowAndDefaults(t *testing.T) {
 	require.NotEmpty(t, summary["Tools"])
 	require.NotEmpty(t, summary["Findings"])
 	require.NotEmpty(t, summary["DetectorRuns"])
-	require.FileExists(t, filepath.Join(home, "data", "pi-session-analyzer", "sessions.db"))
+	dbPath := filepath.Join(home, "data", "pi-session-analyzer", "sessions.db")
+	require.FileExists(t, dbPath)
+
+	second := strings.Replace(fixture, "session-command", "session-companion", 1)
+	require.NoError(t, os.WriteFile(filepath.Join(sessions, "second.jsonl"), []byte(second), 0o600))
+	cmd = newRootCommand()
+	cmd.SetArgs([]string{"ingest"})
+	require.NoError(t, cmd.Execute())
+	for _, tc := range []struct {
+		id, message string
+	}{{"session-com", "ambiguous"}, {"missing", "not found"}} {
+		cmd = newRootCommand()
+		cmd.SetArgs([]string{"session-summary", tc.id})
+		execErr := cmd.Execute()
+		require.ErrorContains(t, execErr, tc.message)
+	}
 }

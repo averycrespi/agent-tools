@@ -193,7 +193,7 @@ func (s *Store) ReplaceSession(ctx context.Context, in ingest.Session, meta Sour
 		}
 	}
 	for _, r := range in.ToolResults {
-		content := scrub.Scrub(r.Content)
+		content := scrub.JSON(r.Content)
 		var isError any
 		if r.IsError != nil {
 			if *r.IsError {

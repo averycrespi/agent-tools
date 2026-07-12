@@ -139,13 +139,15 @@ func toolErrorBurst(s ingest.Session) []Finding {
 			name = callNames[result.CallID]
 		}
 		current := bursts[name]
-		if result.IsError != nil && *result.IsError {
-			if current.count == 0 {
-				current.first = result
+		if result.IsError != nil {
+			if *result.IsError {
+				if current.count == 0 {
+					current.first = result
+				}
+				current.count++
+			} else {
+				current = burst{}
 			}
-			current.count++
-		} else {
-			current = burst{}
 		}
 		bursts[name] = current
 	}
@@ -184,65 +186,60 @@ func mcpFailure(s ingest.Session) []Finding {
 	return out
 }
 
+var historicalFailurePattern = regexp.MustCompile(`(?i)\b(?:error|fail(?:ed|ure)?|denied|timeout|timed out|not found)\b`)
+
 func retryLoop(s ingest.Session) []Finding {
 	results := map[string]ingest.ToolResult{}
-	for _, r := range s.ToolResults {
-		results[r.CallID] = r
+	for _, result := range s.ToolResults {
+		results[result.CallID] = result
 	}
-	type joined struct {
-		key    string
-		call   ingest.ToolCall
-		result ingest.ToolResult
-		ok     bool
-	}
-	entries := []joined{}
+	calls := sortedCalls(s.ToolCalls)
 	counts := map[string]int{}
-	for _, call := range sortedCalls(s.ToolCalls) {
-		key := call.Name + "\x00" + normalizedTarget(call)
-		r, ok := results[call.ID]
-		entries = append(entries, joined{key, call, r, ok})
-		counts[key]++
+	for _, call := range calls {
+		counts[call.Name+"\x00"+normalizedTarget(call)]++
 	}
+	found := map[string]ingest.ToolCall{}
+	currentKey, previousHash := "", ""
+	structuralErrors, matchingFailures := 0, 0
+	var first ingest.ToolCall
+	flush := func() {
+		if currentKey != "" && counts[currentKey] >= 4 && (structuralErrors >= 3 || matchingFailures >= 3) {
+			if _, exists := found[currentKey]; !exists {
+				found[currentKey] = first
+			}
+		}
+	}
+	for _, call := range calls {
+		key := call.Name + "\x00" + normalizedTarget(call)
+		if key != currentKey {
+			flush()
+			currentKey, previousHash = key, ""
+			structuralErrors, matchingFailures = 0, 0
+			first = call
+		}
+		result, ok := results[call.ID]
+		if ok && result.IsError != nil && *result.IsError {
+			structuralErrors++
+		} else {
+			structuralErrors = 0
+		}
+		if ok && result.IsError == nil && historicalFailurePattern.MatchString(result.Content) {
+			hash := contentHash(scrub.Scrub(result.Content))
+			if hash == previousHash {
+				matchingFailures++
+			} else {
+				matchingFailures = 1
+			}
+			previousHash = hash
+		} else {
+			matchingFailures, previousHash = 0, ""
+		}
+	}
+	flush()
 	out := []Finding{}
-	for _, key := range sortedKeys(counts) {
-		if counts[key] < 4 {
-			continue
-		}
-		run := 0
-		sameHash := 0
-		previous := ""
-		var first ingest.ToolCall
-		for _, e := range entries {
-			if e.key != key {
-				run = 0
-				sameHash = 0
-				previous = ""
-				continue
-			}
-			if first.ID == "" {
-				first = e.call
-			}
-			if e.ok && e.result.IsError != nil && *e.result.IsError {
-				run++
-			} else {
-				run = 0
-			}
-			hash := contentHash(scrub.Scrub(e.result.Content))
-			if e.ok && e.result.IsError == nil {
-				if hash == previous {
-					sameHash++
-				} else {
-					sameHash = 1
-				}
-				previous = hash
-			} else {
-				sameHash = 0
-				previous = ""
-			}
-		}
-		if run >= 3 || sameHash >= 3 {
-			out = append(out, finding("retry_loop", Heuristic, Warn, "same tool target repeatedly failed", first.ID, first.SourceLine, jsonDetails(map[string]any{"invocation_key": key, "calls": counts[key]})))
-		}
+	for _, key := range sortedKeys(found) {
+		evidence := found[key]
+		out = append(out, finding("retry_loop", Heuristic, Warn, "same tool target repeatedly failed", evidence.ID, evidence.SourceLine, jsonDetails(map[string]any{"invocation_key": key, "calls": counts[key]})))
 	}
 	return out
 }
@@ -286,15 +283,19 @@ func silentClose(s ingest.Session) []Finding {
 }
 
 var codeExtensions = map[string]bool{".go": true, ".js": true, ".jsx": true, ".ts": true, ".tsx": true, ".py": true, ".rb": true, ".rs": true, ".java": true, ".kt": true, ".kts": true, ".c": true, ".h": true, ".cc": true, ".cpp": true, ".hpp": true, ".cs": true, ".php": true, ".swift": true, ".scala": true, ".sh": true, ".bash": true, ".zsh": true, ".sql": true, ".proto": true}
-var verificationPattern = regexp.MustCompile(`^(?:go(?:\s+-C\s+\S+)?\s+(?:test|build|vet)\b|pytest\b|cargo\s+(?:test|check)\b|make(?:\s+-C\s+\S+)?\s+(?:test|check|build|lint)\b|(?:npm|pnpm|yarn)(?:\s+(?:--prefix|--dir|--cwd|-C)\s+\S+)*\s+(?:test\b|run\s+(?:test|check|build|lint|typecheck)\b)|(?:uv|poetry)\s+run\s+pytest\b|npx(?:\s+(?:(?:--prefix|--dir|--cwd|-C)\s+\S+|--yes))*\s+(?:vitest|jest|mocha)\b|npx(?:\s+(?:(?:--prefix|--dir|--cwd|-C)\s+\S+|--yes))*\s+tsx\s+--test\b|npx\s+tsc\b.*--noEmit\b|(?:bash|sh)\s+-n\b|shellcheck\b|golangci-lint\s+run\b)`)
+var verificationPattern = regexp.MustCompile(`^(?:go(?:\s+-C\s+\S+)?\s+(?:test|build|vet|fmt|run)\b|gofmt\b|pytest\b|cargo\s+(?:test|check)\b|make(?:\s+-C\s+\S+)?\s+(?:test|check|build|lint)\b|(?:npm|pnpm|yarn)(?:\s+(?:--prefix|--dir|--cwd|-C)\s+\S+)*\s+(?:test\b|run\s+(?:test|check|build|lint|typecheck)\b)|(?:uv|poetry)\s+run\s+pytest\b|npx(?:\s+(?:(?:--prefix|--dir|--cwd|-C)\s+\S+|--yes))*\s+(?:vitest|jest|mocha)\b|npx(?:\s+(?:(?:--prefix|--dir|--cwd|-C)\s+\S+|--yes))*\s+tsx\s+(?:--test\b|\S+\.tsx?\b)|npx\s+tsc\b.*--noEmit\b|(?:bash|sh)\s+-n\b|shellcheck\b|golangci-lint\s+run\b)`)
 var leadingEnvPattern = regexp.MustCompile(`^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)+`)
 
 func unverifiedCodeChange(s ingest.Session) []Finding {
+	failed := map[string]bool{}
+	for _, result := range s.ToolResults {
+		failed[result.CallID] = result.IsError != nil && *result.IsError
+	}
 	var last *ingest.ToolCall
 	path := ""
 	for i := range s.ToolCalls {
 		call := &s.ToolCalls[i]
-		if call.Name != "edit" && call.Name != "write" {
+		if (call.Name != "edit" && call.Name != "write") || failed[call.ID] {
 			continue
 		}
 		p := argument(call.Arguments, "path")
@@ -328,6 +329,8 @@ func isCodePath(path string) bool {
 func editWithoutRead(s ingest.Session) []Finding {
 	seen := map[string]bool{}
 	shellReadTargets := map[string]bool{}
+	shellReadPatterns := map[string]bool{}
+	readTaskIDs := map[string]bool{}
 	failed := map[string]bool{}
 	for _, result := range s.ToolResults {
 		failed[result.CallID] = result.IsError != nil && *result.IsError
@@ -345,15 +348,33 @@ func editWithoutRead(s ingest.Session) []Finding {
 			if path != "." && path != "" && !failed[call.ID] {
 				seen[path] = true
 			}
+		case "scheduled_tasks":
+			if argument(call.Arguments, "action") == "read" {
+				readTaskIDs[argument(call.Arguments, "task_id")] = true
+			}
 		case "bash":
-			for _, target := range shellReadOperands(argument(call.Arguments, "command"), s.CWD) {
-				shellReadTargets[target] = true
-				shellReadTargets[filepath.Base(target)] = true
+			command := argument(call.Arguments, "command")
+			for _, target := range shellReadOperands(command, s.CWD) {
+				if strings.ContainsAny(target, "*?[") {
+					shellReadPatterns[target] = true
+				} else {
+					shellReadTargets[target] = true
+					shellReadTargets[filepath.Base(target)] = true
+				}
+			}
+			for _, moved := range shellMoves(command, s.CWD) {
+				rebaseReadPaths(seen, moved[0], moved[1])
+				rebaseReadPaths(shellReadTargets, moved[0], moved[1])
+				rebaseReadPaths(shellReadPatterns, moved[0], moved[1])
 			}
 		case "edit":
-			read := seen[path] || shellReadTargets[path] || shellReadTargets[filepath.Base(path)]
+			taskRead := filepath.Base(filepath.Dir(path)) == "tasks" && readTaskIDs[strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))]
+			read := seen[path] || shellReadTargets[path] || shellReadTargets[filepath.Base(path)] || matchesReadPattern(shellReadPatterns, path) || taskRead
 			if path != "." && !read && !failed[call.ID] {
 				out = append(out, finding("edit_without_read", Heuristic, Warn, "existing path edited without a prior recognized read", call.ID, call.SourceLine, jsonDetails(map[string]any{"path": rawPath})))
+			}
+			if path != "." && !failed[call.ID] {
+				seen[path] = true
 			}
 		}
 	}
@@ -364,12 +385,35 @@ var shellSplit = regexp.MustCompile(`\s*(?:&&|;|\|)\s*`)
 
 func isVerificationCommand(command string) bool {
 	for _, segment := range shellSplit.Split(command, -1) {
-		segment = leadingEnvPattern.ReplaceAllString(strings.TrimSpace(segment), "")
+		segment = normalizeVerificationSegment(segment)
 		if verificationPattern.MatchString(segment) {
 			return true
 		}
 	}
 	return false
+}
+
+func normalizeVerificationSegment(segment string) string {
+	segment = leadingEnvPattern.ReplaceAllString(strings.TrimSpace(segment), "")
+	fields := shellFields(segment)
+	if len(fields) == 0 || fields[0] != "env" {
+		return segment
+	}
+	i := 1
+	for i < len(fields) {
+		switch {
+		case fields[i] == "--":
+			i++
+			return strings.Join(fields[i:], " ")
+		case fields[i] == "-u" || fields[i] == "--unset":
+			i += 2
+		case strings.HasPrefix(fields[i], "-") || strings.Contains(fields[i], "="):
+			i++
+		default:
+			return strings.Join(fields[i:], " ")
+		}
+	}
+	return ""
 }
 
 func shellReadOperands(command, cwd string) []string {
@@ -393,17 +437,62 @@ func shellReadOperands(command, cwd string) []string {
 				break
 			}
 		}
+		if reader < 0 && len(fields) >= 2 && filepath.Base(fields[0]) == "git" && (fields[1] == "diff" || fields[1] == "show") {
+			for i, field := range fields {
+				if field == "--" {
+					reader = i
+					break
+				}
+			}
+		}
 		if reader < 0 {
 			continue
 		}
+		operands := make([]string, 0, len(fields)-reader-1)
 		for _, field := range fields[reader+1:] {
 			token := strings.Trim(field, `"',`)
 			if token != "" && !strings.HasPrefix(token, "-") {
-				targets = append(targets, canonicalPath(cwd, token))
+				operands = append(operands, token)
 			}
+		}
+		readerName := filepath.Base(strings.Trim(fields[reader], `"'(){}`))
+		if (readerName == "grep" || readerName == "rg" || readerName == "awk" || readerName == "sed") && len(operands) > 0 {
+			operands = operands[1:]
+		}
+		for _, operand := range operands {
+			targets = append(targets, canonicalPath(cwd, operand))
 		}
 	}
 	return targets
+}
+
+func rebaseReadPaths(paths map[string]bool, source, destination string) {
+	for path := range paths {
+		relative, err := filepath.Rel(source, path)
+		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			paths[filepath.Join(destination, relative)] = true
+		}
+	}
+}
+
+func matchesReadPattern(patterns map[string]bool, path string) bool {
+	for pattern := range patterns {
+		if matched, err := filepath.Match(pattern, path); err == nil && matched {
+			return true
+		}
+	}
+	return false
+}
+
+func shellMoves(command, cwd string) [][2]string {
+	var moves [][2]string
+	for _, segment := range shellSplit.Split(command, -1) {
+		fields := shellFields(segment)
+		if len(fields) == 3 && filepath.Base(fields[0]) == "mv" {
+			moves = append(moves, [2]string{canonicalPath(cwd, fields[1]), canonicalPath(cwd, fields[2])})
+		}
+	}
+	return moves
 }
 
 func termination(s ingest.Session) []Finding {

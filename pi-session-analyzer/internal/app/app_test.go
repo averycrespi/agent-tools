@@ -43,7 +43,7 @@ func TestIngestSkipsUnchangedAndRetainsDeletedSources(t *testing.T) {
 	require.Equal(t, 1, third.Changed)
 	findings, err = db.Findings(context.Background(), "session-one")
 	require.NoError(t, err)
-	require.NotEmpty(t, findings)
+	require.Contains(t, detectorNames(findings), "broker_guard")
 	require.NoError(t, os.Remove(path))
 	fourth, err := service.Ingest(context.Background(), dir)
 	require.NoError(t, err)
@@ -84,6 +84,43 @@ func TestDetectRetainsStaleFindingsAfterFailedRerunAndRecovers(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, rows[0].Stale)
 	require.Equal(t, "success", rows[0].RunStatus)
+}
+
+func TestDetectRecordsFirstFailureAndContinues(t *testing.T) {
+	t.Parallel()
+
+	db, err := store.Open(filepath.Join(t.TempDir(), "data", "sessions.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	require.NoError(t, db.ReplaceSession(context.Background(), syntheticSession(), store.SourceMeta{Path: "x", Size: 1, ModTimeNS: 1}))
+	bad := detect.Detector{Name: "bad", Run: func(ingest.Session) ([]detect.Finding, error) { return nil, errors.New("boom") }}
+	good := detect.Detector{Name: "good", Run: func(ingest.Session) ([]detect.Finding, error) {
+		return []detect.Finding{{Detector: "good", Classification: detect.Structural, Severity: detect.Warn, Summary: "found", EvidenceID: "e"}}, nil
+	}}
+
+	require.Error(t, New(db, []detect.Detector{bad, good}).Detect(context.Background(), "s"))
+	summary, err := db.SessionSummary(context.Background(), "s")
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"bad": "failed", "good": "success"}, detectorStatuses(summary.DetectorRuns))
+	findings, err := db.Findings(context.Background(), "s")
+	require.NoError(t, err)
+	require.Contains(t, detectorNames(findings), "good")
+}
+
+func detectorNames(findings []store.FindingRow) map[string]bool {
+	out := map[string]bool{}
+	for _, finding := range findings {
+		out[finding.Detector] = true
+	}
+	return out
+}
+
+func detectorStatuses(runs []store.DetectorRun) map[string]string {
+	out := map[string]string{}
+	for _, run := range runs {
+		out[run.Detector] = run.Status
+	}
+	return out
 }
 
 func syntheticSession() ingest.Session { return ingest.Session{ID: "s"} }
