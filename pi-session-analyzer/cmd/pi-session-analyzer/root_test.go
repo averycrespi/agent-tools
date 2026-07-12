@@ -33,13 +33,6 @@ func TestCommandsRequireSpecificArguments(t *testing.T) {
 	require.Contains(t, err.Error(), "detect accepts at most one SESSION_ID")
 }
 
-func TestDashboardRejectsExplicitEphemeralPort(t *testing.T) {
-	cmd := newRootCommand()
-	cmd.SetArgs([]string{"dashboard", "--port=0", "--no-open"})
-	err := cmd.Execute()
-	require.ErrorContains(t, err, "--port must be between 1 and 65535")
-}
-
 func TestReadOnlyServersDoNotCreateMissingDatabase(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

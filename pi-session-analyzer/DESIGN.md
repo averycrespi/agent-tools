@@ -12,8 +12,9 @@ Pi JSONL files
   -> normalized in-memory session (no thinking/signatures)
   -> sole scrub-at-write SQLite boundary
   -> deterministic detector registry
+  -> CLI summaries
   -> shared bounded read-only capability
-     -> CLI summaries and stdio MCP
+     -> stdio MCP
      -> loopback-only embedded dashboard
 ```
 
@@ -62,7 +63,7 @@ Each detector runs independently. Success atomically replaces only that detector
 
 `dashboard` serves one embedded, dependency-free HTML/CSS/ES-module application on literal `127.0.0.1`; port `0` is ephemeral and there is no host override. The printed local URL is authoritative. Browser opening is optional convenience and launch failure is non-fatal. The dashboard never initializes, migrates, chmods, or writes the database.
 
-The browser receives only typed, parameterized, bounded view models. The default range is 30 calendar days in a validated labeled IANA timezone; 7/30/90/all-history and explicit half-open dates are supported. `auto` resolves to day through 90 days, week through 18 months, then month, with a 90-bucket safety bound. Go computes Monday-based calendar boundaries with IANA timezone rules; invalid starts are counted as untimed. Empty and current partial buckets remain explicit.
+The browser receives only typed, parameterized, bounded view models. The default range is 30 calendar days in a validated labeled IANA timezone; 7/30/90/all-history and explicit half-open dates are supported. `auto` resolves to day through 90 days, week through 18 months, month while within the 90-bucket bound, then year for longer histories. Go computes Monday-based calendar boundaries with IANA timezone rules; invalid starts are counted as untimed. Empty and current partial buckets remain explicit.
 
 Overview panels cover sessions, logged cost, call volume and classifiable per-tool errors, separate token categories, compactions, broker guards, current findings, detector gaps, goals, final stop reasons, and record/turn distributions. A sortable, keyset-paged session signal matrix bridges selected buckets to drilldown. The linear drilldown pages every record kind by `(source_line, kind_rank, id)`, lazily retrieves bounded collapsed text, anchors finding evidence exactly, and separately presents token sequence/compactions, tool coverage, current findings, stale retained evidence, detector status, goal progression, and tolerant TODO progression/final state.
 

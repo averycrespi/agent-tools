@@ -268,8 +268,25 @@ func (h *Handler) serveSessionDiagnostics(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
 		return
 	}
-	if len(r.URL.Query()) != 0 {
-		writeError(w, http.StatusBadRequest, "diagnostics do not accept parameters")
+	for name := range r.URL.Query() {
+		if name != "fresh_offset" && name != "stale_offset" && name != "limit" {
+			writeError(w, http.StatusBadRequest, "unsupported diagnostics parameter")
+			return
+		}
+	}
+	freshOffset, err := queryInteger(r, "fresh_offset", 0, 0, 1_000_000)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	staleOffset, err := queryInteger(r, "stale_offset", 0, 0, 1_000_000)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	limit, err := queryInteger(r, "limit", 25, 1, 25)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/sessions/"), "/diagnostics")
@@ -279,7 +296,7 @@ func (h *Handler) serveSessionDiagnostics(w http.ResponseWriter, r *http.Request
 	}
 	ctx, cancel := robound.WithTimeout(r.Context())
 	defer cancel()
-	diagnostics, err := h.reader.SessionDiagnostics(ctx, id, h.detectorNames)
+	diagnostics, err := h.reader.SessionDiagnosticsPage(ctx, id, h.detectorNames, store.DiagnosticQuery{FreshOffset: freshOffset, StaleOffset: staleOffset, Limit: limit})
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrSessionNotFound):
@@ -503,15 +520,21 @@ func parseOverviewQuery(r *http.Request, now time.Time, allBounds ...store.Canon
 			to = today.AddDate(0, 0, 1)
 		}
 	}
-	unit := store.BucketUnit(r.URL.Query().Get("bucket"))
+	bucketText := r.URL.Query().Get("bucket")
+	if bucketText != "" && bucketText != "auto" && bucketText != "day" && bucketText != "week" && bucketText != "month" {
+		return store.OverviewQuery{}, fmt.Errorf("bucket must be auto, day, week, or month")
+	}
+	unit := store.BucketUnit(bucketText)
 	if unit == "" || unit == "auto" {
 		switch {
 		case !to.After(from.AddDate(0, 0, 90)):
 			unit = store.BucketDay
 		case !to.After(from.AddDate(0, 18, 0)):
 			unit = store.BucketWeek
-		default:
+		case !to.After(from.AddDate(0, store.MaxOverviewBuckets, 0)):
 			unit = store.BucketMonth
+		default:
+			unit = store.BucketYear
 		}
 	}
 	buckets, err := store.CalendarBuckets(from, to, localNow, location, unit)

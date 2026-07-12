@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 type DetectorStatus struct {
@@ -13,27 +14,68 @@ type DetectorStatus struct {
 	Error      string `json:"error,omitempty"`
 }
 
+type DiagnosticQuery struct {
+	FreshOffset int
+	StaleOffset int
+	Limit       int
+}
+
 type SessionDiagnosticState struct {
 	FreshFindings    []FindingRow     `json:"fresh_findings"`
+	FreshTotal       int              `json:"fresh_total"`
+	FreshOffset      int              `json:"fresh_offset"`
 	FreshTruncated   bool             `json:"fresh_truncated"`
 	ContentTruncated bool             `json:"content_truncated"`
 	StaleEvidence    []FindingRow     `json:"stale_evidence"`
+	StaleTotal       int              `json:"stale_total"`
+	StaleOffset      int              `json:"stale_offset"`
 	StaleTruncated   bool             `json:"stale_truncated"`
 	Detectors        []DetectorStatus `json:"detectors"`
 }
 
 func (s *Reader) SessionDiagnostics(ctx context.Context, prefix string, detectorNames []string) (SessionDiagnosticState, error) {
+	return s.SessionDiagnosticsPage(ctx, prefix, detectorNames, DiagnosticQuery{})
+}
+
+func (s *Reader) SessionDiagnosticsPage(ctx context.Context, prefix string, detectorNames []string, q DiagnosticQuery) (SessionDiagnosticState, error) {
 	id, err := s.ResolveSession(ctx, prefix)
 	if err != nil {
 		return SessionDiagnosticState{}, err
 	}
-	out := SessionDiagnosticState{FreshFindings: []FindingRow{}, StaleEvidence: []FindingRow{}, Detectors: []DetectorStatus{}}
+	if q.FreshOffset < 0 {
+		q.FreshOffset = 0
+	}
+	if q.StaleOffset < 0 {
+		q.StaleOffset = 0
+	}
+	if q.Limit <= 0 || q.Limit > 25 {
+		q.Limit = 25
+	}
+	placeholders := make([]string, len(detectorNames))
+	registryArgs := make([]any, len(detectorNames))
+	for i, name := range detectorNames {
+		placeholders[i], registryArgs[i] = "?", name
+	}
+	freshRegistry, retiredCondition := "0", "1"
+	if len(placeholders) > 0 {
+		list := strings.Join(placeholders, ",")
+		freshRegistry = "f.detector IN (" + list + ")"
+		retiredCondition = "f.detector NOT IN (" + list + ")"
+	}
+	freshCondition := freshRegistry + " AND f.stale=0 AND r.status='success' AND f.generation=r.generation"
+	staleCondition := retiredCondition + " OR NOT (f.stale=0 AND COALESCE(r.status,'')='success' AND f.generation=r.generation)"
+	out := SessionDiagnosticState{FreshOffset: q.FreshOffset, StaleOffset: q.StaleOffset, FreshFindings: []FindingRow{}, StaleEvidence: []FindingRow{}, Detectors: []DetectorStatus{}}
+	freshCountArgs := append([]any{id}, registryArgs...)
+	if err = s.query.QueryRowContext(ctx, `SELECT COUNT(*) FROM findings f JOIN detector_runs r ON r.session_id=f.session_id AND r.detector=f.detector WHERE f.session_id=? AND `+freshCondition, freshCountArgs...).Scan(&out.FreshTotal); err != nil { //nolint:gosec // Dynamic fragments contain only bounded placeholders and fixed predicates.
+		return SessionDiagnosticState{}, fmt.Errorf("count fresh findings: %w", err)
+	}
+	freshArgs := append(append([]any{id}, registryArgs...), q.Limit, q.FreshOffset)
 	rows, err := s.query.QueryContext(ctx, `
 SELECT CAST(f.id AS TEXT),f.session_id,f.detector,f.classification,f.severity,f.summary,
  f.first_evidence_id,f.details,f.source_line,f.generation,f.stale,r.status,r.error_summary
 FROM findings f JOIN detector_runs r ON r.session_id=f.session_id AND r.detector=f.detector
-WHERE f.session_id=? AND f.stale=0 AND r.status='success' AND f.generation=r.generation
-ORDER BY f.detector,f.first_evidence_id LIMIT 26`, id)
+WHERE f.session_id=? AND `+freshCondition+`
+ORDER BY f.detector,f.first_evidence_id LIMIT ? OFFSET ?`, freshArgs...) //nolint:gosec // Dynamic fragments contain only bounded placeholders and fixed predicates.
 	if err != nil {
 		return SessionDiagnosticState{}, fmt.Errorf("query fresh findings: %w", err)
 	}
@@ -41,16 +83,18 @@ ORDER BY f.detector,f.first_evidence_id LIMIT 26`, id)
 	if err != nil {
 		return SessionDiagnosticState{}, err
 	}
-	if len(out.FreshFindings) > 25 {
-		out.FreshFindings = out.FreshFindings[:25]
-		out.FreshTruncated = true
+	out.FreshTruncated = q.FreshOffset+len(out.FreshFindings) < out.FreshTotal
+	staleCountArgs := append([]any{id}, registryArgs...)
+	if err = s.query.QueryRowContext(ctx, `SELECT COUNT(*) FROM findings f LEFT JOIN detector_runs r ON r.session_id=f.session_id AND r.detector=f.detector WHERE f.session_id=? AND (`+staleCondition+`)`, staleCountArgs...).Scan(&out.StaleTotal); err != nil { //nolint:gosec // Dynamic fragments contain only bounded placeholders and fixed predicates.
+		return SessionDiagnosticState{}, fmt.Errorf("count stale findings: %w", err)
 	}
+	staleArgs := append(append([]any{id}, registryArgs...), q.Limit, q.StaleOffset)
 	rows, err = s.query.QueryContext(ctx, `
 SELECT CAST(f.id AS TEXT),f.session_id,f.detector,f.classification,f.severity,f.summary,
  f.first_evidence_id,f.details,f.source_line,f.generation,f.stale,COALESCE(r.status,''),COALESCE(r.error_summary,'')
 FROM findings f LEFT JOIN detector_runs r ON r.session_id=f.session_id AND r.detector=f.detector
-WHERE f.session_id=? AND NOT (f.stale=0 AND COALESCE(r.status,'')='success' AND f.generation=r.generation)
-ORDER BY f.detector,f.first_evidence_id LIMIT 26`, id)
+WHERE f.session_id=? AND (`+staleCondition+`)
+ORDER BY f.detector,f.first_evidence_id LIMIT ? OFFSET ?`, staleArgs...) //nolint:gosec // Dynamic fragments contain only bounded placeholders and fixed predicates.
 	if err != nil {
 		return SessionDiagnosticState{}, fmt.Errorf("query stale evidence: %w", err)
 	}
@@ -58,11 +102,7 @@ ORDER BY f.detector,f.first_evidence_id LIMIT 26`, id)
 	if err != nil {
 		return SessionDiagnosticState{}, err
 	}
-	if len(out.StaleEvidence) > 25 {
-		out.StaleEvidence = out.StaleEvidence[:25]
-		out.StaleTruncated = true
-	}
-	runs := map[string]DetectorStatus{}
+	out.StaleTruncated = q.StaleOffset+len(out.StaleEvidence) < out.StaleTotal
 	for _, findings := range [][]FindingRow{out.FreshFindings, out.StaleEvidence} {
 		for i := range findings {
 			boundedSummary := truncateUTF8Bytes(findings[i].Summary, 64)
@@ -72,20 +112,28 @@ ORDER BY f.detector,f.first_evidence_id LIMIT 26`, id)
 			findings[i].Summary, findings[i].Details, findings[i].RunError = boundedSummary, boundedDetails, boundedError
 		}
 	}
-	rows, err = s.query.QueryContext(ctx, `SELECT detector,status,generation,error_summary FROM detector_runs WHERE session_id=? ORDER BY detector`, id)
-	if err != nil {
-		return SessionDiagnosticState{}, fmt.Errorf("query detector status: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var status DetectorStatus
-		if err = rows.Scan(&status.Detector, &status.Status, &status.Generation, &status.Error); err != nil {
-			return SessionDiagnosticState{}, fmt.Errorf("scan detector status: %w", err)
+	runs := map[string]DetectorStatus{}
+	if len(detectorNames) > 0 {
+		runArgs := append([]any{id}, registryArgs...)
+		rows, err = s.query.QueryContext(ctx, `SELECT detector,status,generation,error_summary FROM detector_runs WHERE session_id=? AND detector IN (`+strings.Join(placeholders, ",")+`) ORDER BY detector`, runArgs...) //nolint:gosec // Dynamic fragment is a bounded placeholder list.
+		if err != nil {
+			return SessionDiagnosticState{}, fmt.Errorf("query detector status: %w", err)
 		}
-		runs[status.Detector] = status
-	}
-	if err = rows.Err(); err != nil {
-		return SessionDiagnosticState{}, fmt.Errorf("read detector status: %w", err)
+		for rows.Next() {
+			var status DetectorStatus
+			if err = rows.Scan(&status.Detector, &status.Status, &status.Generation, &status.Error); err != nil {
+				_ = rows.Close()
+				return SessionDiagnosticState{}, fmt.Errorf("scan detector status: %w", err)
+			}
+			runs[status.Detector] = status
+		}
+		if err = rows.Err(); err != nil {
+			_ = rows.Close()
+			return SessionDiagnosticState{}, fmt.Errorf("read detector status: %w", err)
+		}
+		if err = rows.Close(); err != nil {
+			return SessionDiagnosticState{}, fmt.Errorf("close detector status: %w", err)
+		}
 	}
 	for _, name := range detectorNames {
 		if _, exists := runs[name]; !exists {

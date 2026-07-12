@@ -62,6 +62,18 @@ func TestHandlerAppliesPrivateHeadersAndServesEmbeddedAssets(t *testing.T) {
 	}
 }
 
+func TestAllHistoryAutoCoarsensBeyondMonthlyBucketBound(t *testing.T) {
+	t.Parallel()
+
+	minimum := time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
+	maximum := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC).Unix()
+	request := httptest.NewRequest(http.MethodGet, "/api/overview?timezone=UTC&range=all&bucket=auto", nil)
+	query, err := parseOverviewQuery(request, time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC), store.CanonicalTimeRange{Minimum: &minimum, Maximum: &maximum})
+	require.NoError(t, err)
+	require.Equal(t, store.BucketYear, query.Unit)
+	require.LessOrEqual(t, len(query.Buckets), store.MaxOverviewBuckets)
+}
+
 func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 	t.Parallel()
 

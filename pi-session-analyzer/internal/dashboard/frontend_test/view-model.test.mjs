@@ -19,4 +19,5 @@ test("bucket labels are usable without color", () => {
   assert.match(label, /2 sessions/);
   assert.match(label, /\$1.50 logged cost/);
   assert.match(label, /UTC/);
+  assert.match(bucketLabel({ key: "today", partial: true, sessions: 1 }, "UTC"), /current partial bucket/);
 });

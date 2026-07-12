@@ -15,6 +15,7 @@ const (
 	BucketDay   BucketUnit = "day"
 	BucketWeek  BucketUnit = "week"
 	BucketMonth BucketUnit = "month"
+	BucketYear  BucketUnit = "year"
 )
 
 type CalendarBucket struct {
@@ -111,8 +112,8 @@ func CalendarBuckets(from, to, now time.Time, location *time.Location, unit Buck
 	if !from.Before(to) {
 		return nil, fmt.Errorf("range start must be before range end")
 	}
-	if unit != BucketDay && unit != BucketWeek && unit != BucketMonth {
-		return nil, fmt.Errorf("bucket must be day, week, or month")
+	if unit != BucketDay && unit != BucketWeek && unit != BucketMonth && unit != BucketYear {
+		return nil, fmt.Errorf("bucket must be day, week, month, or auto-resolved year")
 	}
 	cursor := from.In(location)
 	end := to.In(location)
@@ -127,6 +128,8 @@ func CalendarBuckets(from, to, now time.Time, location *time.Location, unit Buck
 			next = bucketStart.AddDate(0, 0, 7)
 		case BucketMonth:
 			next = bucketStart.AddDate(0, 1, 0)
+		case BucketYear:
+			next = bucketStart.AddDate(1, 0, 0)
 		}
 		if next.After(end) {
 			next = end
@@ -154,6 +157,8 @@ func calendarBucketStart(value time.Time, location *time.Location, unit BucketUn
 		return start.AddDate(0, 0, -daysSinceMonday)
 	case BucketMonth:
 		return time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, location)
+	case BucketYear:
+		return time.Date(local.Year(), 1, 1, 0, 0, 0, 0, location)
 	default:
 		return start
 	}
@@ -166,6 +171,8 @@ func bucketKey(start time.Time, unit BucketUnit) string {
 		return fmt.Sprintf("%04d-W%02d", year, week)
 	case BucketMonth:
 		return start.Format("2006-01")
+	case BucketYear:
+		return start.Format("2006")
 	default:
 		return start.Format("2006-01-02")
 	}

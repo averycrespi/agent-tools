@@ -136,9 +136,6 @@ func newDashboardCommand(opts *options) *cobra.Command {
 	var port int
 	var noOpen bool
 	cmd := &cobra.Command{Use: "dashboard", Short: "Serve the private loopback-only visual dashboard", Args: noArgs("dashboard"), RunE: func(cmd *cobra.Command, _ []string) error {
-		if cmd.Flags().Changed("port") && port == 0 {
-			return fmt.Errorf("--port must be between 1 and 65535 when specified")
-		}
 		return dashboard.Run(cmd.Context(), opts.dbPath, dashboard.Options{Port: port, NoOpen: noOpen, Output: cmd.OutOrStdout()})
 	}}
 	cmd.Flags().IntVar(&port, "port", 0, "loopback port (omitted chooses an ephemeral port)")

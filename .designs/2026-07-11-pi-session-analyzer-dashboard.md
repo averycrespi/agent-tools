@@ -1,8 +1,7 @@
 # Design: read-only visual dashboard for pi-session-analyzer
 
-Status: proposed design (no implementation). Companion to `pi-session-analyzer/DESIGN.md`; if
-accepted, this document drives a deliberate edit to that file's Non-Goals (§3.3) and a later
-implementation plan.
+Status: implemented and reconciled on 2026-07-12. Companion rationale for
+`pi-session-analyzer/DESIGN.md`; the authoritative operational contract lives there.
 
 ## 1. Problem and scope
 
@@ -204,13 +203,12 @@ restates the private/not-share-safe warning; `CLAUDE.md` gains the package-flow 
 
 ### 4.1 Serving architecture: embedded-asset Go HTTP server (option b)
 
-`pi-session-analyzer dashboard [--addr 127.0.0.1:0] [--db PATH]` starts a `net/http` server that
+`pi-session-analyzer dashboard [--port PORT] [--no-open] [--db PATH]` starts a `net/http` server that
 serves a small embedded frontend and a closed set of JSON endpoints, prints the bound URL, and
 runs until interrupted.
 
-- **Loopback is enforced, not defaulted.** The listener address is resolved before binding; if the
-  host is not a loopback IP (`127.0.0.0/8`, `::1`), the command hard-errors. There is no flag to
-  disable this.
+- **Loopback is fixed, not configurable.** The listener binds literal `127.0.0.1`; port `0` is
+  ephemeral, valid explicit ports are `1..65535`, and there is no host/address escape hatch.
 - **Read boundary reuse.** The dashboard process opens the database exclusively through the same
   construction the MCP's `run_select` uses today: a `mode=ro` DSN with `PRAGMA query_only=ON`, the
   64 KiB SQLite value limit, and a per-query context timeout. The `executeReadOnly` helper and the
@@ -321,7 +319,7 @@ wrong regardless of how it looks.
 
 - x-axis: canonical nullable `sessions.started_at_unix`, preserving raw timestamp text only for
   provenance. The default range is 30 days; 7/30/90/all and explicit dates are available. `auto`
-  visibly resolves to day through 90 days, week through 18 months, then month. Go computes explicit
+  visibly resolves to day through 90 days, week through 18 months, month while bounded, then year for longer histories. Go computes explicit
   half-open IANA-calendar boundaries (Monday weeks, DST-aware); SQLite only compares instants.
 - Every aggregate endpoint returns at most a few hundred bucket rows (a bounded date range and a
   fixed series list keep results far under the caps); responses still pass through the central

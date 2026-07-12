@@ -18,12 +18,18 @@ let tokenCursor = "";
 let goalOffset = 0;
 let todoSnapshotOffset = 0;
 let todoItemOffset = 0;
+let freshFindingOffset = 0;
+let staleFindingOffset = 0;
 let activeController;
 
 function announce(message, kind = "") {
   const notice = $("#notice");
   notice.className = `notice ${kind}`.trim();
   notice.textContent = message;
+}
+
+async function runAction(action) {
+  try { await action(); } catch (error) { if (error.name !== "AbortError") announce(`${error.message}. Retry or narrow the page.`, "error"); }
 }
 
 async function request(path, signal) {
@@ -108,7 +114,7 @@ function renderChart(buckets, timezone) {
     const bar = document.createElementNS(svg.namespaceURI, "rect");
     const slot = width / Math.max(1, buckets.length);
     const height = (bucket.sessions / max) * 150;
-    bar.setAttribute("x", String(index * slot + 1)); bar.setAttribute("y", String(165 - height)); bar.setAttribute("width", String(Math.max(2, slot - 2))); bar.setAttribute("height", String(Math.max(1, height))); bar.setAttribute("class", "bar"); bar.setAttribute("tabindex", "0"); bar.setAttribute("role", "button"); bar.setAttribute("aria-label", bucketLabel(bucket, timezone));
+    bar.setAttribute("x", String(index * slot + 1)); bar.setAttribute("y", String(165 - height)); bar.setAttribute("width", String(Math.max(2, slot - 2))); bar.setAttribute("height", String(Math.max(1, height))); bar.setAttribute("class", bucket.partial ? "bar partial" : "bar"); bar.setAttribute("tabindex", "0"); bar.setAttribute("role", "button"); bar.setAttribute("aria-label", bucketLabel(bucket, timezone));
     const select = () => navigate(withBucket(state, bucket));
     bar.addEventListener("click", select); bar.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); } });
     svg.append(bar);
@@ -118,7 +124,7 @@ function renderChart(buckets, timezone) {
   const tbody = $("#bucket-table tbody"); clear(tbody);
   for (const bucket of buckets) {
     const row = node("tr");
-    const select = node("button", "matrix-session", bucket.key); select.type = "button"; select.addEventListener("click", () => navigate(withBucket(state, bucket)));
+    const select = node("button", "matrix-session", `${bucket.key}${bucket.partial ? " · partial" : ""}`); select.type = "button"; select.addEventListener("click", () => navigate(withBucket(state, bucket)));
     const first = node("td"); first.append(select);
     for (const value of [first, node("td", "", bucket.sessions), node("td", "", formatCost(bucket.cost_as_logged)), node("td", "", bucket.tool_calls), node("td", "", bucket.compactions)]) row.append(value);
     tbody.append(row);
@@ -153,7 +159,7 @@ function renderDetectorOverview(detectors) {
   if (!detectors.length) { host.append(node("p", "muted", "No detector registry metadata returned.")); return; }
   for (const detector of detectors) {
     const row = node("div", "metric-row");
-    row.append(node("span", "", detector.detector), node("span", "", `${detector.fresh.error}E ${detector.fresh.warn}W ${detector.fresh.info}I · ${detector.coverage.success} ok / ${detector.coverage.failed} failed / ${detector.coverage.not_run} not run`)); host.append(row);
+    row.append(node("span", "", detector.detector), node("span", "", `${detector.fresh.error}E ${detector.fresh.warn}W ${detector.fresh.info}I · ${detector.fresh.structural} structural / ${detector.fresh.heuristic} heuristic · ${detector.coverage.success} ok / ${detector.coverage.failed} failed / ${detector.coverage.not_run} not run`)); host.append(row);
   }
 }
 
@@ -207,15 +213,21 @@ async function navigateEvidence(sourceLine, evidenceID) {
   if (!match) announce(`Showing source line ${sourceLine}; the exact evidence ID is not a stream record.`, "warning");
 }
 
+function appendFreshFindings(host, findings) {
+  for (const finding of findings || []) { const sourceLine = finding.source_line ?? finding.SourceLine; const evidenceID = finding.evidence_id ?? finding.EvidenceID; const details = node("details"); const provenance = node("p", "", `${finding.summary ?? finding.Summary}\nEvidence ${evidenceID} · source line ${sourceLine}`); const jump = node("button", "", "Navigate to evidence"); jump.type = "button"; jump.addEventListener("click", () => navigateEvidence(sourceLine, evidenceID)); provenance.append(node("br"), jump); details.append(node("summary", "", `${finding.detector ?? finding.Detector} · ${finding.severity ?? finding.Severity} · line ${sourceLine}`), provenance); host.append(details); }
+}
+function appendStaleFindings(host, findings) {
+  for (const finding of findings || []) { const details = node("details"); details.append(node("summary", "", `${finding.detector ?? finding.Detector} generation ${finding.generation ?? finding.Generation} · ${finding.run_status ?? finding.RunStatus ?? "retired"}`), node("p", "", `${finding.summary ?? finding.Summary}\n${finding.run_error ?? finding.RunError ?? ""}`)); host.append(details); }
+}
 function renderFindings(data) {
   const host = $("#detail-findings"); clear(host);
-  if (data.fresh_truncated || data.stale_truncated || data.content_truncated) host.append(node("p", "danger-text", "Finding evidence is truncated. Narrow or page the diagnostic view."));
+  if (data.content_truncated) host.append(node("p", "danger-text", "Some finding text reached its safety bound."));
   host.append(node("p", "eyebrow", "DETECTOR COVERAGE"));
   for (const detector of data.detectors || []) { const row = node("div", "metric-row"); row.append(node("span", "", detector.detector), tag(detector.status, detector.status)); host.append(row); }
-  host.append(node("p", "eyebrow", "CURRENT FINDINGS"));
-  for (const finding of data.fresh_findings || []) { const sourceLine = finding.source_line ?? finding.SourceLine; const evidenceID = finding.evidence_id ?? finding.EvidenceID; const details = node("details"); const provenance = node("p", "", `${finding.summary ?? finding.Summary}\nEvidence ${evidenceID} · source line ${sourceLine}`); const jump = node("button", "", "Navigate to evidence"); jump.type = "button"; jump.addEventListener("click", () => navigateEvidence(sourceLine, evidenceID)); provenance.append(node("br"), jump); details.append(node("summary", "", `${finding.detector ?? finding.Detector} · ${finding.severity ?? finding.Severity} · line ${sourceLine}`), provenance); host.append(details); }
-  host.append(node("p", "eyebrow", "STALE RETAINED EVIDENCE — NOT CURRENT"));
-  for (const finding of data.stale_evidence || []) { const details = node("details"); details.append(node("summary", "", `${finding.detector ?? finding.Detector} generation ${finding.generation ?? finding.Generation} · ${finding.run_status ?? finding.RunStatus}`), node("p", "", `${finding.summary ?? finding.Summary}\n${finding.run_error ?? finding.RunError ?? ""}`)); host.append(details); }
+  host.append(node("p", "eyebrow", "CURRENT FINDINGS")); const freshHost = node("div"); freshHost.id = "fresh-finding-list"; appendFreshFindings(freshHost, data.fresh_findings); host.append(freshHost);
+  host.append(node("p", "eyebrow", "STALE RETAINED EVIDENCE — NOT CURRENT")); const staleHost = node("div"); staleHost.id = "stale-finding-list"; appendStaleFindings(staleHost, data.stale_evidence); host.append(staleHost);
+  freshFindingOffset = data.fresh_offset + (data.fresh_findings || []).length; staleFindingOffset = data.stale_offset + (data.stale_evidence || []).length;
+  $("#findings-more").hidden = !data.fresh_truncated; $("#stale-more").hidden = !data.stale_truncated;
 }
 
 function renderTokens(page, append = false) {
@@ -291,10 +303,12 @@ for (const id of ["date-from", "date-to"]) $(`#${id}`).addEventListener("change"
 $("#timezone").addEventListener("change", (event) => navigate({ ...state, timezone: event.target.value || "UTC", session: "", from: "", to: "" }));
 $("#refresh").addEventListener("click", loadDashboard);
 $("#matrix-more").addEventListener("click", () => loadMatrix(activeController?.signal, true).catch((error) => announce(error.message, "error")));
-$("#stream-more").addEventListener("click", async () => { const page = await request(`/api/sessions/${encodeURIComponent(state.session)}/stream?limit=50&cursor=${encodeURIComponent(streamCursor)}`, activeController?.signal); renderStream(page, true); });
-$("#tokens-more").addEventListener("click", async () => { const page = await request(`/api/sessions/${encodeURIComponent(state.session)}/tokens?limit=50&cursor=${encodeURIComponent(tokenCursor)}`, activeController?.signal); renderTokens(page, true); });
-$("#goal-more").addEventListener("click", async () => { const page = await request(`/api/sessions/${encodeURIComponent(state.session)}/goal?limit=50&offset=${goalOffset}`, activeController?.signal); renderGoal(page, true); });
-$("#todo-more").addEventListener("click", async () => { const page = await request(`/api/sessions/${encodeURIComponent(state.session)}/todo?snapshot_limit=50&item_limit=20&snapshot_offset=${todoSnapshotOffset}&item_offset=${todoItemOffset}`, activeController?.signal); renderTodo(page, true); });
+$("#stream-more").addEventListener("click", () => runAction(async () => { const page = await request(`/api/sessions/${encodeURIComponent(state.session)}/stream?limit=50&cursor=${encodeURIComponent(streamCursor)}`, activeController?.signal); renderStream(page, true); }));
+$("#tokens-more").addEventListener("click", () => runAction(async () => { const page = await request(`/api/sessions/${encodeURIComponent(state.session)}/tokens?limit=50&cursor=${encodeURIComponent(tokenCursor)}`, activeController?.signal); renderTokens(page, true); }));
+$("#goal-more").addEventListener("click", () => runAction(async () => { const page = await request(`/api/sessions/${encodeURIComponent(state.session)}/goal?limit=50&offset=${goalOffset}`, activeController?.signal); renderGoal(page, true); }));
+$("#todo-more").addEventListener("click", () => runAction(async () => { const page = await request(`/api/sessions/${encodeURIComponent(state.session)}/todo?snapshot_limit=50&item_limit=20&snapshot_offset=${todoSnapshotOffset}&item_offset=${todoItemOffset}`, activeController?.signal); renderTodo(page, true); }));
+$("#findings-more").addEventListener("click", () => runAction(async () => { const data = await request(`/api/sessions/${encodeURIComponent(state.session)}/diagnostics?limit=25&fresh_offset=${freshFindingOffset}`, activeController?.signal); appendFreshFindings($("#fresh-finding-list"), data.fresh_findings); freshFindingOffset += (data.fresh_findings || []).length; $("#findings-more").hidden = !data.fresh_truncated; }));
+$("#stale-more").addEventListener("click", () => runAction(async () => { const data = await request(`/api/sessions/${encodeURIComponent(state.session)}/diagnostics?limit=25&stale_offset=${staleFindingOffset}`, activeController?.signal); appendStaleFindings($("#stale-finding-list"), data.stale_evidence); staleFindingOffset += (data.stale_evidence || []).length; $("#stale-more").hidden = !data.stale_truncated; }));
 $("#close-detail").addEventListener("click", () => navigate({ ...state, session: "" }));
 addEventListener("popstate", () => { state = parseState(location.search, browserTimezone); syncControls(); loadDashboard(); });
 syncControls(); loadDashboard();

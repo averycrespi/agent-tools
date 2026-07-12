@@ -18,7 +18,7 @@ export function rateLabel(rate, totals) {
 }
 
 export function bucketLabel(bucket, timezone) {
-  return `${bucket.key}: ${bucket.sessions} sessions, ${formatCost(bucket.cost_as_logged)} logged cost, ${formatInteger(bucket.tool_calls)} tool calls; ${timezone}`;
+  return `${bucket.key}${bucket.partial ? " (current partial bucket)" : ""}: ${bucket.sessions} sessions, ${formatCost(bucket.cost_as_logged)} logged cost, ${formatInteger(bucket.tool_calls)} tool calls; ${timezone}`;
 }
 
 export function severityLabel(value) {
