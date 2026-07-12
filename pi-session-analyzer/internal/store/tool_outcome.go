@@ -33,16 +33,17 @@ type ToolOutcomeRow struct {
 }
 
 type ToolOutcomeReport struct {
-	Totals            ToolOutcomeTotals      `json:"totals"`
-	Tools             []ToolOutcomeRow       `json:"tools"`
-	ToolsTruncated    bool                   `json:"tools_truncated"`
-	ContentTruncated  bool                   `json:"content_truncated"`
-	DataQuality       ToolOutcomeDataQuality `json:"data_quality"`
-	TotalCalls        int                    `json:"total_calls"`
-	AnalyzedCalls     int                    `json:"analyzed_calls"`
-	TotalResults      int                    `json:"total_results"`
-	AnalyzedResults   int                    `json:"analyzed_results"`
-	AnalysisTruncated bool                   `json:"analysis_truncated"`
+	Totals                   ToolOutcomeTotals      `json:"totals"`
+	Tools                    []ToolOutcomeRow       `json:"tools"`
+	ToolsTruncated           bool                   `json:"tools_truncated"`
+	ContentTruncated         bool                   `json:"content_truncated"`
+	AnalysisContentTruncated bool                   `json:"analysis_content_truncated"`
+	DataQuality              ToolOutcomeDataQuality `json:"data_quality"`
+	TotalCalls               int                    `json:"total_calls"`
+	AnalyzedCalls            int                    `json:"analyzed_calls"`
+	TotalResults             int                    `json:"total_results"`
+	AnalyzedResults          int                    `json:"analyzed_results"`
+	AnalysisTruncated        bool                   `json:"analysis_truncated"`
 }
 
 type outcomeCall struct {
@@ -52,8 +53,9 @@ type outcomeCall struct {
 }
 
 const (
-	maxAnalyzedCalls   = 5000
-	maxAnalyzedResults = 20000
+	maxAnalyzedCalls        = 5000
+	maxAnalyzedResults      = 20000
+	toolOutcomeContentBytes = 32768
 )
 
 func (s *Reader) ToolOutcomeReport(ctx context.Context, prefix string) (ToolOutcomeReport, error) {
@@ -90,17 +92,19 @@ func (s *Reader) ToolOutcomeReport(ctx context.Context, prefix string) (ToolOutc
 		return ToolOutcomeReport{}, fmt.Errorf("close tool calls: %w", err)
 	}
 	report.AnalyzedCalls = len(calls)
-	rows, err = s.query.QueryContext(ctx, `SELECT call_id,name,content,is_error FROM tool_results WHERE session_id=? ORDER BY id`, id)
+	rows, err = s.query.QueryContext(ctx, `SELECT call_id,name,COALESCE(substr(CAST(content AS BLOB),1,?),X''),is_error,length(CAST(content AS BLOB))>? FROM tool_results WHERE session_id=? ORDER BY id`, toolOutcomeContentBytes, toolOutcomeContentBytes, id)
 	if err != nil {
 		return ToolOutcomeReport{}, fmt.Errorf("query tool results: %w", err)
 	}
 	for rows.Next() {
 		var callID, name, content string
 		var flag sql.NullBool
-		if err = rows.Scan(&callID, &name, &content, &flag); err != nil {
+		var contentTruncated bool
+		if err = rows.Scan(&callID, &name, &content, &flag, &contentTruncated); err != nil {
 			_ = rows.Close()
 			return ToolOutcomeReport{}, fmt.Errorf("scan tool result: %w", err)
 		}
+		report.AnalysisContentTruncated = report.AnalysisContentTruncated || contentTruncated
 		call, exists := calls[callID]
 		if !exists {
 			report.DataQuality.OrphanResults++

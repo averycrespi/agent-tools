@@ -22,6 +22,7 @@ func (h *Handler) serveOverview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	query.DetectorNames = h.detectorNames
 	ctx, cancel := robound.WithTimeout(r.Context())
 	defer cancel()
 	overview, err := h.reader.Overview(ctx, query)

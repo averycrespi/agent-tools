@@ -25,9 +25,10 @@ type CalendarBucket struct {
 }
 
 type OverviewQuery struct {
-	Timezone string
-	Unit     BucketUnit
-	Buckets  []CalendarBucket
+	Timezone      string
+	Unit          BucketUnit
+	Buckets       []CalendarBucket
+	DetectorNames []string
 }
 
 type OverviewBucket struct {
@@ -47,10 +48,13 @@ type OverviewBucket struct {
 }
 
 type Overview struct {
-	Timezone        string           `json:"timezone"`
-	Unit            BucketUnit       `json:"bucket"`
-	UntimedSessions int              `json:"untimed_sessions"`
-	Buckets         []OverviewBucket `json:"buckets"`
+	Timezone        string                `json:"timezone"`
+	Unit            BucketUnit            `json:"bucket"`
+	UntimedSessions int                   `json:"untimed_sessions"`
+	Buckets         []OverviewBucket      `json:"buckets"`
+	ToolOutcomes    ToolOutcomeReport     `json:"tool_outcomes"`
+	Detectors       []DetectorOverviewRow `json:"detectors"`
+	Signals         OverviewSignals       `json:"signals"`
 }
 
 func CalendarBuckets(from, to, now time.Time, location *time.Location, unit BucketUnit) ([]CalendarBucket, error) {
@@ -178,6 +182,19 @@ ORDER BY b.start_unix`
 	}
 	if err = s.query.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions WHERE started_at_unix IS NULL`).Scan(&overview.UntimedSessions); err != nil {
 		return Overview{}, fmt.Errorf("count untimed sessions: %w", err)
+	}
+	fromUnix, toUnix := q.Buckets[0].StartUnix, q.Buckets[len(q.Buckets)-1].EndUnix
+	overview.ToolOutcomes, err = s.ToolOutcomeRange(ctx, fromUnix, toUnix)
+	if err != nil {
+		return Overview{}, fmt.Errorf("query overview tool outcomes: %w", err)
+	}
+	overview.Detectors, err = s.DetectorOverview(ctx, fromUnix, toUnix, q.DetectorNames)
+	if err != nil {
+		return Overview{}, fmt.Errorf("query overview detectors: %w", err)
+	}
+	overview.Signals, err = s.OverviewSignalSummary(ctx, fromUnix, toUnix)
+	if err != nil {
+		return Overview{}, fmt.Errorf("query overview signals: %w", err)
 	}
 	return overview, nil
 }

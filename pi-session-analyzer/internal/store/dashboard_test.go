@@ -95,6 +95,9 @@ func TestOverviewReturnsEmptyBucketsAndDedupeSafeSplitMetrics(t *testing.T) {
 	require.Equal(t, 2, overview.Buckets[0].ToolCalls)
 	require.Equal(t, 1, overview.Buckets[0].Compactions)
 	require.Equal(t, 1, overview.Buckets[0].BrokerGuards)
+	require.Equal(t, 2, overview.ToolOutcomes.TotalCalls)
+	require.Equal(t, 2, overview.ToolOutcomes.Totals.Unknown)
+	require.Nil(t, overview.ToolOutcomes.Tools[0].ErrorRate)
 	require.Equal(t, 1, overview.Buckets[1].Sessions)
 	require.Zero(t, overview.Buckets[2].Sessions)
 }
