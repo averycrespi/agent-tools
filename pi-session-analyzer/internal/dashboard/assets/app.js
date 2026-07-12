@@ -213,9 +213,9 @@ function renderFindings(data) {
   host.append(node("p", "eyebrow", "DETECTOR COVERAGE"));
   for (const detector of data.detectors || []) { const row = node("div", "metric-row"); row.append(node("span", "", detector.detector), tag(detector.status, detector.status)); host.append(row); }
   host.append(node("p", "eyebrow", "CURRENT FINDINGS"));
-  for (const finding of data.fresh_findings || []) { const details = node("details"); const provenance = node("p", "", `${finding.summary}\nEvidence ${finding.evidence_id} · source line ${finding.source_line}`); const jump = node("button", "", "Navigate to evidence"); jump.type = "button"; jump.addEventListener("click", () => navigateEvidence(finding.source_line, finding.evidence_id)); provenance.append(node("br"), jump); details.append(node("summary", "", `${finding.detector} · ${finding.severity} · line ${finding.source_line}`), provenance); host.append(details); }
+  for (const finding of data.fresh_findings || []) { const sourceLine = finding.source_line ?? finding.SourceLine; const evidenceID = finding.evidence_id ?? finding.EvidenceID; const details = node("details"); const provenance = node("p", "", `${finding.summary ?? finding.Summary}\nEvidence ${evidenceID} · source line ${sourceLine}`); const jump = node("button", "", "Navigate to evidence"); jump.type = "button"; jump.addEventListener("click", () => navigateEvidence(sourceLine, evidenceID)); provenance.append(node("br"), jump); details.append(node("summary", "", `${finding.detector ?? finding.Detector} · ${finding.severity ?? finding.Severity} · line ${sourceLine}`), provenance); host.append(details); }
   host.append(node("p", "eyebrow", "STALE RETAINED EVIDENCE — NOT CURRENT"));
-  for (const finding of data.stale_evidence || []) { const details = node("details"); details.append(node("summary", "", `${finding.detector} generation ${finding.generation} · ${finding.run_status}`), node("p", "", `${finding.summary}\n${finding.run_error || ""}`)); host.append(details); }
+  for (const finding of data.stale_evidence || []) { const details = node("details"); details.append(node("summary", "", `${finding.detector ?? finding.Detector} generation ${finding.generation ?? finding.Generation} · ${finding.run_status ?? finding.RunStatus}`), node("p", "", `${finding.summary ?? finding.Summary}\n${finding.run_error ?? finding.RunError ?? ""}`)); host.append(details); }
 }
 
 function renderTokens(page, append = false) {
@@ -275,7 +275,7 @@ async function loadDashboard() {
     renderOverview(overview);
     await loadMatrix(signal);
     if (state.session) await loadDetail(state.session, signal); else $("#detail").hidden = true;
-    announce(`Index ready · ${overview.buckets?.length || 0} ${overview.bucket} buckets · ${overview.timezone}`);
+    announce(`Index ready · indexed ${overview.indexed_at || "time unavailable"} · ${overview.buckets?.length || 0} ${overview.bucket} buckets · ${overview.timezone}. Run ingest to refresh.`);
   } catch (error) {
     if (error.name !== "AbortError") announce(`${error.message}. Run ingest if the index is missing or stale, then refresh.`, "error");
   }

@@ -94,6 +94,7 @@ type Overview struct {
 	Timezone        string                 `json:"timezone"`
 	Unit            BucketUnit             `json:"bucket"`
 	UntimedSessions int                    `json:"untimed_sessions"`
+	IndexedAt       string                 `json:"indexed_at"`
 	Buckets         []OverviewBucket       `json:"buckets"`
 	Timeline        OverviewTimeline       `json:"-"`
 	ToolOutcomes    ToolOutcomeReport      `json:"tool_outcomes"`
@@ -296,8 +297,8 @@ ORDER BY b.start_unix`
 		overview.BucketSignals.GoalComplete = append(overview.BucketSignals.GoalComplete, bucket.GoalOutcomes.Complete)
 		overview.BucketSignals.GoalOther = append(overview.BucketSignals.GoalOther, bucket.GoalOutcomes.Other)
 	}
-	if err = s.query.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions WHERE started_at_unix IS NULL`).Scan(&overview.UntimedSessions); err != nil {
-		return Overview{}, fmt.Errorf("count untimed sessions: %w", err)
+	if err = s.query.QueryRowContext(ctx, `SELECT COUNT(*) FILTER (WHERE started_at_unix IS NULL),COALESCE(MAX(ingested_at),'') FROM sessions`).Scan(&overview.UntimedSessions, &overview.IndexedAt); err != nil {
+		return Overview{}, fmt.Errorf("query index status: %w", err)
 	}
 	fromUnix, toUnix := q.Buckets[0].StartUnix, q.Buckets[len(q.Buckets)-1].EndUnix
 	overview.ToolOutcomes, err = s.ToolOutcomeRange(ctx, fromUnix, toUnix)

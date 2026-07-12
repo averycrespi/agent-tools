@@ -28,6 +28,11 @@ pi-session-analyzer ingest
 pi-session-analyzer list-sessions
 pi-session-analyzer session-summary SESSION_ID
 
+# Open the private, view-only dashboard
+pi-session-analyzer dashboard
+# Headless/deterministic launch; prints the loopback URL
+pi-session-analyzer dashboard --no-open --port 0
+
 # Recompute every detector, or only one exact/unique session ID prefix
 pi-session-analyzer detect
 pi-session-analyzer detect SESSION_ID
@@ -47,6 +52,9 @@ The analyzer-owned database directory is mode `0700`. The database and SQLite si
 - `session-summary SESSION_ID` reports cost; output, reasoning, cache-read, and cache-write usage; tool calls/errors; stop and goal state; compactions; broker guards; schema drift; findings; and detector freshness. It intentionally does not present `totalTokens` as generated work.
 - `detect [SESSION_ID]` independently and idempotently reruns all detectors. A failed detector retains prior findings as stale while other detectors continue.
 - `mcp` serves read-only stdio MCP tools.
+- `dashboard [--port 0..65535] [--no-open]` serves an embedded view-only dashboard on literal IPv4 loopback. Port `0` chooses an ephemeral port. The command prints the URL before attempting to open a browser; browser-launch failure is non-fatal. Run `ingest` first so the canonical timestamp migration and index are current.
+
+The dashboard uses the same scrubbed index and shared read-only limits as MCP. It makes prompts, responses, code, paths, hosts, and other retained identifiers easy to view, so it is **private and not safe to share or screenshot**. It has no export, download, print/share, redaction, remote-bind, authentication, telemetry, cookie, external-asset, write, polling, or live-tail mode. Collapsing text is a viewing convenience, not sanitization.
 
 Session IDs may be exact or unambiguous prefixes.
 
@@ -88,4 +96,4 @@ The original Pi JSONL logs remain the raw source of record. The SQLite index rem
 
 ## Non-Goals
 
-This release is not a live proxy, file watcher, browser dashboard, shareable export/report format, remote or multi-user service, authentication layer, cost analytics product, probabilistic ranking system, configuration cohort system, or autonomous configuration-editing loop. It does not fix Pi's external MCP-response-to-transcript serialization.
+This release is not a live proxy, file watcher, shareable export/report format, remote or multi-user service, authentication layer, redaction/presentation-safe mode, cost analytics product, probabilistic ranking system, configuration cohort system, or autonomous configuration-editing loop. The dashboard is a local renderer only: it does not add raw storage, writes, arbitrary SQL, saved/custom dashboards, duration/latency views, branch trees, or live updates. It does not fix Pi's external MCP-response-to-transcript serialization.

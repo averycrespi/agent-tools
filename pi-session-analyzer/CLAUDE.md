@@ -16,20 +16,22 @@ Focused packages:
 ```bash
 go test ./internal/ingest ./internal/scrub ./internal/store
 go test ./internal/detect ./internal/app
-go test ./internal/mcp
+go test ./internal/mcp ./internal/robound
+make test-frontend
 ```
 
 ## Package Flow
 
 ```text
-cmd/pi-session-analyzer -> internal/app, internal/mcp
+cmd/pi-session-analyzer -> internal/app, internal/mcp, internal/dashboard
 internal/app            -> internal/detect, internal/store, internal/ingest
-internal/mcp            -> internal/store
-internal/store          -> internal/ingest, internal/scrub
-internal/detect         -> internal/ingest
+internal/dashboard      -> internal/store, internal/robound, internal/detect (registry metadata only)
+internal/mcp            -> internal/store, internal/robound
+internal/store          -> internal/ingest, internal/scrub, internal/outcome
+internal/detect         -> internal/ingest, internal/outcome
 ```
 
-Keep Cobra and MCP registration thin. Parsing belongs in `internal/ingest`, all persistence/query behavior in `internal/store`, detector logic in `internal/detect`, lifecycle orchestration in `internal/app`, and protocol bounds in `internal/mcp`.
+Keep Cobra, MCP registration, and HTTP handlers thin. Parsing belongs in `internal/ingest`, persistence and typed query semantics in `internal/store`, detector logic in `internal/detect`, lifecycle orchestration in `internal/app`, protocol-neutral read/cap limits in `internal/robound`, and rendering/state in `internal/dashboard`. Dashboard assets are embedded, dependency-free ES modules; frontend tests live outside the asset glob in `internal/dashboard/frontend_test`.
 
 ## Invariants
 
@@ -40,7 +42,10 @@ Keep Cobra and MCP registration thin. Parsing belongs in `internal/ingest`, all 
 - Ingest is update/additive only. Missing source files do not imply deletion.
 - Keep detector classification (`structural|heuristic`) independent from severity (`error|warn|info`) and retain evidence IDs/details.
 - A detector failure retains stale prior findings and must not prevent other detectors from running.
-- MCP tools remain read-only and closed-world. Route every response through the central cap; keep SQL row/time limits and the separate `mode=ro` plus `query_only` boundary.
-- Report output, reasoning, and cache usage separately. Do not describe `totalTokens` as generated work.
+- MCP tools and dashboard endpoints remain read-only and closed-world. Route every response through the shared cap and dedicated `mode=ro` + `query_only` connection; keep row/value/time limits finite. Dashboard code must never call writable `store.Open`, expose SQL, create/chmod/migrate a database, or accept a non-loopback host.
+- Dashboard APIs are typed, allow-listed, bounded, and parameterized. Keep fresh findings and stale evidence in separate response fields; preserve exact call-result outcome semantics and explicit unknown coverage.
+- Render stored strings only with `textContent`/text nodes, never `innerHTML`. Keep assets same-origin with no cookies, storage, telemetry, external requests, or share/export affordances. Collapsed content must load bounded detail explicitly.
+- Preserve URL/history state only for non-sensitive filters and selection. Maintain keyboard operation, visible focus, textual chart equivalents, explicit loading/empty/error/truncated states, and responsive layouts.
+- Report output, reasoning, cache-read, and cache-write usage separately in every view. Provider input is separately labeled and never folded into generated work.
 
 The `//nolint:gosec` directives on the caller-selected database/source paths are intentional: these are the explicit local paths the CLI is designed to open. The directory-mode directive preserves the stricter `0700` trust boundary.

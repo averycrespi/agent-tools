@@ -12,10 +12,12 @@ Pi JSONL files
   -> normalized in-memory session (no thinking/signatures)
   -> sole scrub-at-write SQLite boundary
   -> deterministic detector registry
-  -> CLI summaries and bounded read-only stdio MCP
+  -> shared bounded read-only capability
+     -> CLI summaries and stdio MCP
+     -> loopback-only embedded dashboard
 ```
 
-The module is cgo-free and uses `github.com/ncruces/go-sqlite3`. Package flow is `cmd -> app/mcp/detect -> store -> ingest/scrub`. The source logs remain the raw source of record; there is no parallel raw database tier.
+The module is cgo-free and uses `github.com/ncruces/go-sqlite3`. Command flow is `cmd -> app/mcp/dashboard`; MCP and dashboard use typed store readers over `internal/robound`, while writable ingest/detection remains in `app -> store`. The source logs remain the raw source of record; there is no parallel raw database tier.
 
 ## Trust Boundary
 
@@ -31,7 +33,7 @@ The scanner accepts large records and dispatches the seven known top-level Pi ty
 
 The normalized tables are `sessions`, `messages`, `tool_calls`, `tool_results`, `events`, `custom_state`, `custom_messages`, `findings`, and `detector_runs`. Session/message/call/result IDs enforce deduplication. A changed source is transactionally replaced; unchanged `(path, size, mtime)` input is skipped. Ingest never reconciles absent files, so indexed data remains available after source deletion.
 
-Token reporting keeps output, reasoning, cache-read, and cache-write categories separate. Aggregate `totalTokens` is not persisted or presented as generated work because cache replay can dominate it.
+Token reporting keeps output, reasoning, cache-read, and cache-write categories separate. Provider-reported input may appear separately in message drilldown. Aggregate `totalTokens` is not persisted or presented as generated work because cache replay can dominate it. Parseable session-start text is also stored as an indexed nullable canonical Unix instant; the idempotent writable migration backfills existing parseable rows, while invalid timestamps remain explicit untimed sessions.
 
 ## Detector Semantics
 
@@ -56,11 +58,23 @@ The code-change grammar excludes docs/config-only and unknown-extension edits. S
 
 Each detector runs independently. Success atomically replaces only that detector's findings and advances its generation. Failure retains prior findings as stale, records a failed run, continues the registry, and causes the caller to return an aggregate error. Recovery replaces stale rows with fresh output.
 
-## MCP Safety and Bounds
+## Dashboard
+
+`dashboard` serves one embedded, dependency-free HTML/CSS/ES-module application on literal `127.0.0.1`; port `0` is ephemeral and there is no host override. The printed local URL is authoritative. Browser opening is optional convenience and launch failure is non-fatal. The dashboard never initializes, migrates, chmods, or writes the database.
+
+The browser receives only typed, parameterized, bounded view models. The default range is 30 calendar days in a validated labeled IANA timezone; 7/30/90/all-history and explicit half-open dates are supported. `auto` resolves to day through 90 days, week through 18 months, then month, with a 90-bucket safety bound. Go computes Monday-based calendar boundaries with IANA timezone rules; invalid starts are counted as untimed. Empty and current partial buckets remain explicit.
+
+Overview panels cover sessions, logged cost, call volume and classifiable per-tool errors, separate token categories, compactions, broker guards, current findings, detector gaps, goals, final stop reasons, and record/turn distributions. A sortable, keyset-paged session signal matrix bridges selected buckets to drilldown. The linear drilldown pages every record kind by `(source_line, kind_rank, id)`, lazily retrieves bounded collapsed text, anchors finding evidence exactly, and separately presents token sequence/compactions, tool coverage, current findings, stale retained evidence, detector status, goal progression, and tolerant TODO progression/final state.
+
+Tool calls are classified once by exact `(session_id, call_id)`: confirmed error wins, then the narrow detector-approved inferred MCP fallback, then explicit success, otherwise unknown. Rates are `(confirmed + inferred) / classifiable` and remain null without coverage. Orphans, multiple results, and name mismatches are data quality. Current findings require a successful current detector run at the same generation; failed/not-run coverage is explicit and stale evidence is never placed in a current collection.
+
+All assets and requests are same-origin. CSP, frame/referrer/type protections and `Cache-Control: no-store` apply to every response. There are no cookies, browser persistence, external assets, telemetry, export/share/download/print controls, redaction claims, raw tier, arbitrary SQL, polling, or live tailing. Stored values are inserted only as text nodes. A persistent warning states that retained scrubbed content is private and not safe to share or screenshot.
+
+## Shared Read Safety and MCP
 
 The stdio server exposes six closed-world read-only tools: `list_sessions`, `session_summary`, `top_failures`, `get_conversation`, `get_message`, and `run_select`. All registry entries explicitly advertise read-only, non-destructive, idempotent, closed-world annotations.
 
-One serializer caps every success and error response at approximately 50,000 bytes while preserving valid JSON. Lists and drill-downs have tool-specific maximums. SQL has an independent 1,024-row cap, a 64 KiB SQLite value limit, and a five-second context timeout.
+One protocol-neutral serializer in `internal/robound` caps every MCP and dashboard success/error response at approximately 50,000 bytes while preserving valid JSON. Lists and drill-downs have tool-specific maximums. SQL has an independent 1,024-row cap, a 64 KiB SQLite value limit, and a five-second context timeout.
 
 `run_select` validates a single `SELECT` or CTE and rejects statement separators and obvious write/schema/attachment operations. Those lexical checks are defense in depth. The write-safety boundary is a separate SQLite `mode=ro` connection with `PRAGMA query_only=ON`; caller SQL cannot make the analyzer connection writable.
 
@@ -70,4 +84,4 @@ The broker preserves upstream `CallToolResult.IsError`, and turns broker denials
 
 ## Non-Goals
 
-V1 excludes browser visualization, transcript timelines, export/share formats, live tailing, remote/multi-user operation, authentication, identifier redaction, autonomous pruning, cost-product analytics, statistical rankings, configuration fingerprints/cohorts, configuration proposals or edits, OpenInference export, and any self-modifying reflection loop.
+V1 excludes export/share/download formats, present-safe redaction, live tailing or polling, remote/multi-user operation, authentication/TLS, telemetry, external assets, autonomous pruning, cost-product analytics, budgets/forecasts, statistical rankings, configuration fingerprints/cohorts, configuration proposals or edits, OpenInference/Phoenix export, arbitrary/custom dashboards, browser SQL, duration/latency waterfalls, branch/tree views, and any self-modifying reflection loop.

@@ -118,7 +118,7 @@ Adopted:
 | **Small-multiples token panels**                                   | Langfuse usage buckets + small-multiples idiom | Output / reasoning / cache-read / cache-write as four aligned panels, one x-axis, independent labeled y-axes   |
 | **Session event stream**                                           | PostHog replay stream, Amplitude activity feed | The drilldown spine: source-line-ordered, expandable, filterable rows with error/compaction/guard/goal markers |
 | **Chart-point → filtered list → entity drill chain, URL as state** | LangSmith, Braintrust, Grafana                 | The only navigation model; every view is a bookmarkable URL                                                    |
-| **Calendar heatmap**                                               | GitHub/Grafana                                 | Compact months-scale session-density entry point (broadened view, §8)                                          |
+| **Session signal matrix**                                          | Grafana/PostHog tables                         | Sortable, paged aggregate-to-session bridge exposing Pi-specific signals (§8)                                  |
 | **Distribution strip/histogram**                                   | classic                                        | Session size distribution; at local N, show every session as a clickable point                                 |
 
 Rejected, with reasons:
@@ -272,9 +272,7 @@ text (all rendered strings are text-node-inserted, never `innerHTML`).
 The chart inventory is deliberately simple — stacked/grouped bars, line/sparkline, dot strip,
 calendar grid, and a vertical event stream — all straightforward SVG with hover tooltips and
 click handlers; a charting framework earns its weight only for brushes, zooming, and animation,
-none of which are in scope. If implementation shows hand-rolled charts ballooning, the fallback is
-vendoring a single small dependency-free library (uPlot, ~50 KB, MIT) into the embedded assets —
-flagged as open question §11.3 rather than decided against evidence we don't have yet.
+none of which are in scope. V1 is bespoke-only: no chart library fallback is vendored.
 
 Rendering is client-side from JSON endpoints (server-side SVG was considered and rejected: the
 drill-chain interactivity — tooltips, click-to-filter, URL state — is the core of the design, and
@@ -303,13 +301,12 @@ wrong regardless of how it looks.
    trusted time anchor. Buckets are labeled "sessions started per day/week." No session-duration
    metric, no wall-clock waterfall, no events-per-hour rate appears anywhere. Within a session,
    order is `source_line`, not timestamps.
-5. **`is_error` undercounts, and the dashboard says so.** Structural error counts
-   (`tool_results.is_error = 1`, with the same name-fallback join the summary uses) are labeled
-   "structural errors." Historical MCP failures that Pi never flagged are _not_ re-derived in
-   dashboard SQL; they surface through the `mcp-failure` detector's findings (which already encode
-   the labeled text fallback and its evidence source) and render as findings, never merged into the
-   structural counts. Error panels carry a persistent footnote: "structural `is_error` only;
-   historical MCP failures appear as detector findings."
+5. **Tool rates expose classifiable coverage.** Results associate to calls only by exact
+   `(session_id, call_id)`. Per call, confirmed `is_error=true` wins, then the detector-approved
+   narrow unlabeled MCP text fallback, then explicit `is_error=false`; otherwise the call is
+   unknown. Rates are `(confirmed + inferred) / classifiable`, null without a denominator, and
+   always show confirmed/inferred/unknown plus classifiable/total coverage. Orphans, multiple
+   linked results, and inconsistent result names are data-quality counts, never rate inputs.
 6. **Stale is never current.** Findings from a detector whose latest run failed render only with a
    prominent stale badge and the run's error summary, and are excluded from all aggregate finding
    counts (§9). Heuristic findings are always labeled `heuristic` and never presented as
@@ -322,10 +319,10 @@ wrong regardless of how it looks.
 
 ### 6.1 Time model and query shape
 
-- x-axis: `sessions.timestamp` (session start), bucketed by day / week / month; user-selectable,
-  default **week** (open question §11.4). Bucketing happens in SQL
-  (`strftime` over the ISO timestamp) via new parameterized store methods, e.g.
-  `TimelineSeries(ctx, bucket, from, to, cwdFilter)`.
+- x-axis: canonical nullable `sessions.started_at_unix`, preserving raw timestamp text only for
+  provenance. The default range is 30 days; 7/30/90/all and explicit dates are available. `auto`
+  visibly resolves to day through 90 days, week through 18 months, then month. Go computes explicit
+  half-open IANA-calendar boundaries (Monday weeks, DST-aware); SQLite only compares instants.
 - Every aggregate endpoint returns at most a few hundred bucket rows (a bounded date range and a
   fixed series list keep results far under the caps); responses still pass through the central
   capped serializer, and queries run under the standard timeout on the read-only connection.
@@ -367,10 +364,10 @@ wrong regardless of how it looks.
 
 ### 6.3 Linking into the drilldown
 
-Every bar segment, dot, table row, and heatmap cell is a filter mutation: clicking appends its
-bucket/category to the URL filter state and routes to the **session list** — a sortable table
-(start time, cwd, records, cost, findings by severity, goal state, stop reason, schema drift)
-scoped to those filters, reusing the bounded list semantics of `ListSessions` with paging. Clicking
+Every selectable chart bucket mutates local URL/history state and filters the bounded, sortable
+**session signal matrix** (start, cwd, records/turns, split tokens, error/unknown coverage,
+compactions, broker guards, fresh severity, detector coverage, goal/TODO outcome, stop reason, and
+schema quality). A one-session bucket may open directly. Clicking
 a row opens the drilldown at `?session=<id>`. Aggregate → list → entity, with the filter chips
 visible and individually removable at every step.
 
@@ -395,12 +392,10 @@ panels derive from queries the store already answers (`SessionSummary`, `Convers
    chips (messages / tools / errors / events). Paged by anchor + limit exactly like
    `get_conversation` (100 per page), with the page window in the URL. The x-dimension is sequence
    — no wall-clock spacing.
-4. **Per-tool table**: calls, structural errors, error share for this session, with the §5.5
-   footnote; rows filter the stream to that tool.
-5. **Token-by-message panel**: two vertically aligned mini-panels sharing the sequence axis —
-   "generated" (output + reasoning bars per assistant message) and "context" (input, cache-read,
-   cache-write per assistant message) — with compaction markers as vertical rules carrying
-   `tokens_before`. This shows context growth and the compaction sawtooth honestly, from
+4. **Per-tool table**: calls; confirmed, inferred, success, and unknown outcomes; nullable error
+   rate; classifiable/total coverage; and orphan/multiple/name-mismatch quality counts.
+5. **Token-by-message panel**: independently scaled and labeled input, output, reasoning,
+   cache-read, and cache-write marks per message, with compaction markers carrying `tokens_before`. This shows context growth and the compaction sawtooth honestly, from
    per-message provider-reported numbers, without claiming a continuous context-size series.
 6. **Findings panel**: grouped by detector; each finding shows severity chip, classification
    label, summary, evidence ID, and source line; clicking scrolls/pages the stream to that line
@@ -419,12 +414,11 @@ In scope — data already exists:
   the column is populated; rendered as a categorical stacked bar.
 - **Data-quality panel**: `malformed_records`, `unknown_records`, `schema_drift` per bucket — an
   early-warning view for Pi schema evolution that nothing else in the ecosystem shows.
-- **Calendar heatmap**: sessions-started density (weeks × weekday grid, quantized scale), as a
-  compact long-range entry point; each cell click-filters the session list.
-- **Detector-freshness board**: all `detector_runs` with `status='failed'` across sessions, with
-  error summaries — the operational "is my index trustworthy" view (§9).
-- **Top-failures board**: the `TopFailures` query rendered as a filterable table (severity,
-  detector, classification), linking into drilldowns — the MCP tool's visual twin.
+- **Session signal matrix**: the one broadened V1 view and the required aggregate-to-entity bridge.
+  It exposes project, split usage, classifiable outcome coverage, compactions/guards, detector
+  freshness, goal/TODO/stop outcomes, and schema quality without inventing duration or branching.
+- Detector status and current/stale evidence remain integrated into overview and drilldown rather
+  than becoming separate generic boards.
 
 Explicitly out, because the data can't support them: anything duration/latency-based; percentile
 panels; branch/tree views; correction-rate metrics; cache _hit-ratio efficiency_ claims (the store
@@ -462,25 +456,20 @@ Posture, stated plainly:
 no-store` on every response so session content doesn't persist in browser caches.
 - Data on the wire is the same scrubbed, capped data the MCP serves — the dashboard adds a
   renderer, not a new disclosure tier; nothing new lands on disk.
-- An optional identifier-redaction / "present-safe" mode (blur paths/usernames/hosts for
-  screen-sharing) is **not in V1** — it would be a new scrub tier with its own failure modes, and
-  V1's non-goal explicitly excludes identifier redaction. Open question §11.1.
+- Identifier-redaction / "present-safe" mode is excluded. It would be a new scrub tier with its
+  own failure modes and false-confidence risk; this is settled, not a deferred toggle.
 
-## 11. Open questions (for the user — deliberately not resolved here)
+## 11. Resolved V1 decisions
 
-1. **Present-safe mode**: is a best-effort identifier-blur toggle (CSS/DOM-level, clearly labeled
-   as cosmetic, not a security boundary) worth having for screen-sharing, or does its existence
-   invite false confidence? V1 ships without it.
-2. **Phoenix-export hybrid**: should a follow-up design revisit `export openinference` (feeding a
-   local Phoenix for span-tree browsing), which requires deliberately reversing the export
-   non-goal and answering the second-copy privacy problem? Nothing in this design depends on it.
-3. **Chart rendering fallback**: hand-rolled SVG is the plan; if implementation shows it
-   ballooning, vendor uPlot (~50 KB, MIT, dependency-free) into the embedded assets. Acceptable?
-4. **Default time bucket**: week (smoother at ~150-session scale) vs day (matches ccusage habit).
-   Design assumes week; both are one click away regardless.
-5. **MCP parity for aggregates**: the new timeline aggregate queries could later back an MCP tool
-   (e.g. `metrics_timeline`) so agents get the same trends the dashboard shows. In scope for a
-   later increment, not V1?
+1. There is no present-safe/redaction mode; retained identifiers make every view non-share-safe.
+2. Phoenix/OpenInference export remains out of scope because it creates a second private copy and
+   does not model Pi's differentiating goal/TODO/guard/compaction semantics.
+3. Charts are bespoke vanilla SVG only; no uPlot or other runtime/frontend dependency is vendored.
+4. The default is a 30-day range with visible adaptive day/week/month bucketing, not fixed week.
+5. Browser-local IANA timezone is labeled and server-validated; UTC is always available recovery.
+6. TODO progression and final-list state are typed; stale findings are physically separate from
+   current findings; the session signal matrix replaces the proposed calendar heatmap.
+7. No new MCP aggregate tools ship in V1.
 
 ## 12. Testing and verification sketch
 
@@ -491,20 +480,21 @@ no-store` on every response so session content doesn't persist in browser caches
   headers on every route, cap enforcement (oversized synthetic payload truncates to valid JSON),
   read-only behavior (endpoints function against a read-only database file; no file is created or
   chmodded by the dashboard command), and 404/error shapes.
-- Frontend: keep logic thin enough that Go-side view-model tests carry the semantics (fresh/stale
-  separation, token categories never summed); a small set of golden JSON view-model fixtures.
-- Manual verification per repo convention: run against a real local corpus, confirm no network
-  requests leave loopback (browser devtools), and confirm the stale/fresh rendering against a
-  forced detector failure.
+- Frontend: Node's built-in test runner covers URL-state round trips, bucket/matrix transitions,
+  truncation/error transforms, accessible labels, and history-safe state. Browser smoke uses only
+  generated synthetic data to verify keyboard bucket selection, matrix/drilldown navigation,
+  collapsed expansion, responsive layout, focus, and zero outbound/storage/cookie behavior.
+- Privacy verification hashes the database and sidecars before/after dashboard use and confirms
+  the browser makes only loopback requests. Real Pi transcripts never enter tests or screenshots.
 
 ## 13. Summary of decisions
 
-| #   | Decision                                                                                                                                                                                                                           |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Build a narrow bespoke dashboard; no Phoenix/OpenInference export in V1 (hybrid deferred). `DESIGN.md` Non-Goals edited accordingly, with the implementation.                                                                      |
-| 2   | Loopback-only embedded-asset Go HTTP server behind a `dashboard` subcommand; static-generator and run_select-viewer options rejected (export-artifact and weak-boundary risks).                                                    |
-| 3   | Subcommand + `internal/dashboard` package in the existing module; read path shared with MCP via an intra-module `internal/robound` refactor; no new Go tool.                                                                       |
-| 4   | Client-rendered hand-rolled SVG, vanilla JS, no build step, strict same-origin CSP; uPlot vendoring as fallback.                                                                                                                   |
-| 5   | Two linked modes — bucketed timeline (x = session start) and linear source-line drilldown — joined by URL-state filter chips.                                                                                                      |
-| 6   | Metric honesty invariants (§5): four-way token split never summed, linear streams only, dedupe preserved, no invented durations, structural-error labeling with detector-finding overlay, stale-never-current, small-N discipline. |
-| 7   | Privacy: loopback hard-fail, zero share/export affordances, zero telemetry, no-store, self-contained assets; redaction mode explicitly deferred.                                                                                   |
+| #   | Decision                                                                                                                                                                                                            |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Build a narrow bespoke dashboard; no Phoenix/OpenInference export in V1 (hybrid deferred). `DESIGN.md` Non-Goals edited accordingly, with the implementation.                                                       |
+| 2   | Loopback-only embedded-asset Go HTTP server behind a `dashboard` subcommand; static-generator and run_select-viewer options rejected (export-artifact and weak-boundary risks).                                     |
+| 3   | Subcommand + `internal/dashboard` package in the existing module; read path shared with MCP via an intra-module `internal/robound` refactor; no new Go tool.                                                        |
+| 4   | Client-rendered hand-rolled SVG, vanilla JS, no build step or frontend dependency, strict same-origin CSP.                                                                                                          |
+| 5   | Overview → session signal matrix → linear source-line drilldown, joined by non-sensitive local URL/history state.                                                                                                   |
+| 6   | Metric honesty invariants (§5): separate token categories, classifiable outcome rates with coverage, linear streams only, dedupe preserved, no invented durations, stale-never-current, and typed TODO progression. |
+| 7   | Privacy: loopback hard-fail, zero share/export affordances, zero telemetry, no-store, self-contained assets; redaction mode explicitly deferred.                                                                    |
