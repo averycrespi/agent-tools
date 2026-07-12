@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,6 +70,24 @@ func TestRunSelectEnforcesInternalTimeout(t *testing.T) {
 	require.Error(t, err)
 	require.GreaterOrEqual(t, time.Since(started), 4*time.Second)
 	require.Less(t, time.Since(started), 8*time.Second)
+}
+
+func TestRunSelectRejectsRowsWiderThanSharedColumnLimit(t *testing.T) {
+	path, _ := testDatabase(t)
+	columns := make([]string, 33)
+	for i := range columns {
+		columns[i] = fmt.Sprintf("printf('%%.*c', 60000, 'x') AS c%d", i)
+	}
+	_, err := RunSelect(context.Background(), path, "SELECT "+strings.Join(columns, ","))
+	require.Error(t, err)
+}
+
+func TestRunSelectBoundsCumulativeRowsBeforeSerialization(t *testing.T) {
+	path, _ := testDatabase(t)
+	result, err := RunSelect(context.Background(), path, `WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1025) SELECT printf('%.*c', 60000, 'x') AS value FROM n`)
+	require.NoError(t, err)
+	require.Empty(t, result.Rows)
+	require.True(t, result.Truncated)
 }
 
 func TestRunSelectAppliesIndependentRowCap(t *testing.T) {

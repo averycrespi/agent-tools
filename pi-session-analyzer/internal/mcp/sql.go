@@ -2,20 +2,14 @@ package mcp
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
-	"net/url"
 	"regexp"
 	"strings"
-	"time"
 
-	"github.com/ncruces/go-sqlite3"
-	sqlite3driver "github.com/ncruces/go-sqlite3/driver"
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/robound"
 )
 
 const maxSQLRows = 1024
-const maxSQLValueBytes = 64 * 1024
-const sqlTimeout = 5 * time.Second
 
 var forbiddenSQL = regexp.MustCompile(`(?i)\b(?:insert|update|delete|replace|create|drop|alter|vacuum|attach|detach|pragma|reindex|analyze|transaction|begin|commit|rollback)\b`)
 
@@ -52,32 +46,13 @@ func RunSelect(ctx context.Context, path, query string) (QueryResult, error) {
 }
 
 func executeReadOnly(ctx context.Context, path, query string) (QueryResult, error) {
-	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro"}).String()
-	db, err := sql.Open("sqlite3", dsn)
+	conn, err := robound.Open(ctx, path)
 	if err != nil {
-		return QueryResult{}, fmt.Errorf("open read-only database: %w", err)
-	}
-	defer func() { _ = db.Close() }()
-	queryCtx, cancel := context.WithTimeout(ctx, sqlTimeout)
-	defer cancel()
-	conn, err := db.Conn(queryCtx)
-	if err != nil {
-		return QueryResult{}, fmt.Errorf("open read-only connection: %w", err)
+		return QueryResult{}, err
 	}
 	defer func() { _ = conn.Close() }()
-	if err = conn.Raw(func(driverConn any) error {
-		raw, ok := driverConn.(sqlite3driver.Conn)
-		if !ok {
-			return fmt.Errorf("unexpected SQLite driver connection %T", driverConn)
-		}
-		raw.Raw().Limit(sqlite3.LIMIT_LENGTH, maxSQLValueBytes)
-		return nil
-	}); err != nil {
-		return QueryResult{}, fmt.Errorf("limit SQLite values: %w", err)
-	}
-	if _, err = conn.ExecContext(queryCtx, "PRAGMA query_only=ON"); err != nil {
-		return QueryResult{}, fmt.Errorf("enable query-only mode: %w", err)
-	}
+	queryCtx, cancel := robound.WithTimeout(ctx)
+	defer cancel()
 	rows, err := conn.QueryContext(queryCtx, query)
 	if err != nil {
 		return QueryResult{}, fmt.Errorf("execute query: %w", err)
@@ -88,6 +63,7 @@ func executeReadOnly(ctx context.Context, path, query string) (QueryResult, erro
 		return QueryResult{}, err
 	}
 	result := QueryResult{Columns: columns, Rows: []map[string]any{}}
+	resultBytes := 0
 	for rows.Next() {
 		values := make([]any, len(columns))
 		dest := make([]any, len(columns))
@@ -105,6 +81,23 @@ func executeReadOnly(ctx context.Context, path, query string) (QueryResult, erro
 				row[column] = values[i]
 			}
 		}
+		rowBytes := 2
+		for key, value := range row {
+			rowBytes += len(key) + 4
+			switch typed := value.(type) {
+			case string:
+				rowBytes += len(typed) + 2
+			case []byte:
+				rowBytes += len(typed) + 2
+			default:
+				rowBytes += 32
+			}
+		}
+		if resultBytes+rowBytes > robound.MaxResponseBytes {
+			result.Truncated = true
+			break
+		}
+		resultBytes += rowBytes
 		result.Rows = append(result.Rows, row)
 	}
 	return result, rows.Err()
