@@ -96,6 +96,19 @@ func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &overview))
 	require.Len(t, overview.Buckets, 90)
 
+	request = httptest.NewRequest(http.MethodGet, "/api/sessions?from=1783814400&to=1783987200&limit=1", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var matrix store.SessionMatrixPage
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &matrix))
+	require.Equal(t, []string{"s"}, []string{matrix.Rows[0].ID})
+
+	request = httptest.NewRequest(http.MethodGet, "/api/sessions?unknown=x", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+
 	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/stream?limit=1", nil)
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)

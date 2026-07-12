@@ -12,6 +12,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestTodoDiagnosticsTreatsOversizedMissingItemsAsMalformed(t *testing.T) {
+	t.Parallel()
+
+	s, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	data := `{"padding":"` + strings.Repeat("x", todoSnapshotBytes+1) + `"}`
+	require.NoError(t, s.ReplaceSession(context.Background(), ingest.Session{ID: "large-malformed", CustomStates: []ingest.CustomState{{ID: "todo", Type: "todo-state", Data: data}}}, SourceMeta{Path: "large.jsonl", Size: 1}))
+	diagnostics, err := s.TodoDiagnostics(context.Background(), "large-malformed")
+	require.NoError(t, err)
+	require.Equal(t, "malformed", diagnostics.FinalState)
+	require.True(t, diagnostics.FinalListTruncated)
+}
+
 func TestTodoDiagnosticsHandlesProgressionClearReopenRemoveAndMalformedTail(t *testing.T) {
 	t.Parallel()
 

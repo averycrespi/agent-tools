@@ -7,7 +7,10 @@ import (
 	"fmt"
 )
 
-const todoItemTextBytes = 32
+const (
+	todoItemTextBytes = 32
+	todoSnapshotBytes = 32768
+)
 
 type TodoItem struct {
 	ID               string `json:"id"`
@@ -27,24 +30,27 @@ type TodoCounts struct {
 }
 
 type TodoSnapshot struct {
-	ID         string     `json:"id"`
-	SourceLine int        `json:"source_line"`
-	Valid      bool       `json:"valid"`
-	Error      string     `json:"error,omitempty"`
-	Counts     TodoCounts `json:"counts"`
+	ID               string     `json:"id"`
+	SourceLine       int        `json:"source_line"`
+	Valid            bool       `json:"valid"`
+	Error            string     `json:"error,omitempty"`
+	ContentTruncated bool       `json:"content_truncated,omitempty"`
+	Counts           TodoCounts `json:"counts"`
 }
 
 type TodoDiagnostics struct {
-	FinalState          string         `json:"final_state"`
-	MalformedSnapshots  int            `json:"malformed_snapshots"`
-	SnapshotTotal       int            `json:"snapshot_total"`
-	SnapshotOffset      int            `json:"snapshot_offset"`
-	SnapshotsTruncated  bool           `json:"snapshots_truncated"`
-	Snapshots           []TodoSnapshot `json:"snapshots"`
-	FinalItemTotal      int            `json:"final_item_total"`
-	FinalItemOffset     int            `json:"final_item_offset"`
-	FinalItemsTruncated bool           `json:"final_items_truncated"`
-	FinalItems          []TodoItem     `json:"final_items"`
+	FinalState           string         `json:"final_state"`
+	MalformedSnapshots   int            `json:"page_malformed_snapshots"`
+	DataQualityTruncated bool           `json:"data_quality_truncated"`
+	SnapshotTotal        int            `json:"snapshot_total"`
+	SnapshotOffset       int            `json:"snapshot_offset"`
+	SnapshotsTruncated   bool           `json:"snapshots_truncated"`
+	Snapshots            []TodoSnapshot `json:"snapshots"`
+	FinalItemTotal       int            `json:"final_item_total"`
+	FinalListTruncated   bool           `json:"final_list_truncated"`
+	FinalItemOffset      int            `json:"final_item_offset"`
+	FinalItemsTruncated  bool           `json:"final_items_truncated"`
+	FinalItems           []TodoItem     `json:"final_items"`
 }
 
 type TodoQuery struct {
@@ -61,44 +67,107 @@ func (s *Reader) TodoDiagnosticsPage(ctx context.Context, prefix string, q TodoQ
 	if err != nil {
 		return TodoDiagnostics{}, err
 	}
-	rows, err := s.query.QueryContext(ctx, `SELECT id,source_line,data FROM custom_state WHERE session_id=? AND type='todo-state' ORDER BY source_line,id`, id)
+	q = boundTodoQuery(q)
+	out := TodoDiagnostics{FinalState: "absent", SnapshotOffset: q.SnapshotOffset, FinalItemOffset: q.ItemOffset, Snapshots: []TodoSnapshot{}, FinalItems: []TodoItem{}}
+	if err = s.query.QueryRowContext(ctx, `SELECT COUNT(*) FROM custom_state WHERE session_id=? AND type='todo-state'`, id).Scan(&out.SnapshotTotal); err != nil {
+		return TodoDiagnostics{}, fmt.Errorf("count todo snapshots: %w", err)
+	}
+	rows, err := s.query.QueryContext(ctx, `SELECT id,source_line,substr(data,1,?),length(data)>? FROM custom_state WHERE session_id=? AND type='todo-state' ORDER BY source_line,id LIMIT ? OFFSET ?`, todoSnapshotBytes, todoSnapshotBytes, id, q.SnapshotLimit, q.SnapshotOffset)
 	if err != nil {
 		return TodoDiagnostics{}, fmt.Errorf("query todo snapshots: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-	q = boundTodoQuery(q)
-	out := TodoDiagnostics{FinalState: "absent", SnapshotOffset: q.SnapshotOffset, FinalItemOffset: q.ItemOffset, Snapshots: []TodoSnapshot{}, FinalItems: []TodoItem{}}
-	var finalItems []TodoItem
 	for rows.Next() {
 		var snapshot TodoSnapshot
 		var data string
-		if err = rows.Scan(&snapshot.ID, &snapshot.SourceLine, &data); err != nil {
+		if err = rows.Scan(&snapshot.ID, &snapshot.SourceLine, &data, &snapshot.ContentTruncated); err != nil {
+			_ = rows.Close()
 			return TodoDiagnostics{}, fmt.Errorf("scan todo snapshot: %w", err)
 		}
-		items, counts, parseErr := parseTodoItems(data)
+		_, counts, parseErr := parseTodoItems(data)
 		snapshot.Counts = counts
-		if parseErr != nil {
+		switch {
+		case snapshot.ContentTruncated:
+			snapshot.Error = "todo snapshot exceeds analysis limit"
+			out.MalformedSnapshots++
+		case parseErr != nil:
 			snapshot.Error = "malformed todo snapshot"
 			out.MalformedSnapshots++
-			out.FinalState = "malformed"
-		} else {
+		default:
 			snapshot.Valid = true
-			out.FinalState = "valid"
-			finalItems = items
 		}
-		if out.SnapshotTotal >= q.SnapshotOffset && out.SnapshotTotal < q.SnapshotOffset+q.SnapshotLimit {
-			out.Snapshots = append(out.Snapshots, snapshot)
-		}
-		out.SnapshotTotal++
+		out.Snapshots = append(out.Snapshots, snapshot)
 	}
 	if err = rows.Err(); err != nil {
+		_ = rows.Close()
 		return TodoDiagnostics{}, fmt.Errorf("read todo snapshots: %w", err)
 	}
+	if err = rows.Close(); err != nil {
+		return TodoDiagnostics{}, fmt.Errorf("close todo snapshots: %w", err)
+	}
 	out.SnapshotsTruncated = q.SnapshotOffset+len(out.Snapshots) < out.SnapshotTotal
-	out.FinalItemTotal = len(finalItems)
-	if q.ItemOffset < len(finalItems) {
-		end := min(len(finalItems), q.ItemOffset+q.ItemLimit)
-		out.FinalItems = append(out.FinalItems, finalItems[q.ItemOffset:end]...)
+	out.DataQualityTruncated = len(out.Snapshots) < out.SnapshotTotal
+	var finalItems []TodoItem
+	finalItemsPaged := false
+	finalRows, err := s.query.QueryContext(ctx, `SELECT id,substr(data,1,?),length(data)>? FROM custom_state WHERE session_id=? AND type='todo-state' ORDER BY source_line DESC,id DESC LIMIT 101`, todoSnapshotBytes, todoSnapshotBytes, id)
+	if err != nil {
+		return TodoDiagnostics{}, fmt.Errorf("query final todo snapshots: %w", err)
+	}
+	checked := 0
+	for finalRows.Next() {
+		var snapshotID, finalData string
+		var contentTruncated bool
+		if err = finalRows.Scan(&snapshotID, &finalData, &contentTruncated); err != nil {
+			_ = finalRows.Close()
+			return TodoDiagnostics{}, fmt.Errorf("scan final todo snapshot: %w", err)
+		}
+		if checked == 100 {
+			out.FinalListTruncated = finalItems == nil
+			break
+		}
+		items, _, parseErr := parseTodoItems(finalData)
+		if contentTruncated {
+			var valid bool
+			items, out.FinalItemTotal, valid, err = s.pagedTodoItems(ctx, id, snapshotID, q.ItemOffset, q.ItemLimit)
+			if err != nil {
+				_ = finalRows.Close()
+				return TodoDiagnostics{}, err
+			}
+			if valid {
+				parseErr = nil
+				finalItemsPaged = true
+			} else {
+				parseErr = fmt.Errorf("todo snapshot exceeds analysis limit")
+				out.FinalListTruncated = true
+			}
+		}
+		if checked == 0 {
+			if parseErr != nil {
+				out.FinalState = "malformed"
+			} else {
+				out.FinalState = "valid"
+			}
+		}
+		checked++
+		if parseErr == nil {
+			finalItems = items
+			break
+		}
+	}
+	if err = finalRows.Err(); err != nil {
+		_ = finalRows.Close()
+		return TodoDiagnostics{}, fmt.Errorf("read final todo snapshots: %w", err)
+	}
+	if err = finalRows.Close(); err != nil {
+		return TodoDiagnostics{}, fmt.Errorf("close final todo snapshots: %w", err)
+	}
+	if finalItemsPaged {
+		out.FinalItems = append(out.FinalItems, finalItems...)
+	} else {
+		out.FinalItemTotal = len(finalItems)
+		if q.ItemOffset < len(finalItems) {
+			end := min(len(finalItems), q.ItemOffset+q.ItemLimit)
+			out.FinalItems = append(out.FinalItems, finalItems[q.ItemOffset:end]...)
+		}
 	}
 	for i := range out.FinalItems {
 		text := truncateUTF8Bytes(out.FinalItems[i].Text, todoItemTextBytes)
@@ -108,6 +177,47 @@ func (s *Reader) TodoDiagnosticsPage(ctx context.Context, prefix string, q TodoQ
 	}
 	out.FinalItemsTruncated = q.ItemOffset+len(out.FinalItems) < out.FinalItemTotal
 	return out, nil
+}
+
+func (s *Reader) pagedTodoItems(ctx context.Context, sessionID, snapshotID string, offset, limit int) ([]TodoItem, int, bool, error) {
+	var valid bool
+	if err := s.query.QueryRowContext(ctx, `SELECT COALESCE(CASE WHEN json_valid(data) THEN json_type(data,'$.items')='array' ELSE 0 END,0) FROM custom_state WHERE session_id=? AND id=?`, sessionID, snapshotID).Scan(&valid); err != nil {
+		return nil, 0, false, fmt.Errorf("validate large todo snapshot: %w", err)
+	}
+	if !valid {
+		return nil, 0, false, nil
+	}
+	var total int
+	if err := s.query.QueryRowContext(ctx, `SELECT json_array_length(data,'$.items') FROM custom_state WHERE session_id=? AND id=?`, sessionID, snapshotID).Scan(&total); err != nil {
+		return nil, 0, false, fmt.Errorf("count large todo items: %w", err)
+	}
+	rows, err := s.query.QueryContext(ctx, `SELECT substr(j.value,1,?),length(j.value)>? FROM custom_state c,json_each(c.data,'$.items') j WHERE c.session_id=? AND c.id=? ORDER BY CAST(j.key AS INTEGER) LIMIT ? OFFSET ?`, todoSnapshotBytes, todoSnapshotBytes, sessionID, snapshotID, limit, offset)
+	if err != nil {
+		return nil, 0, false, fmt.Errorf("query large todo items: %w", err)
+	}
+	items := []TodoItem{}
+	for rows.Next() {
+		var value string
+		var truncated bool
+		if err = rows.Scan(&value, &truncated); err != nil {
+			_ = rows.Close()
+			return nil, 0, false, fmt.Errorf("scan large todo item: %w", err)
+		}
+		parsed, _, parseErr := parseTodoItems(`{"items":[` + value + `]}`)
+		if parseErr != nil || truncated || len(parsed) != 1 {
+			_ = rows.Close()
+			return nil, 0, false, nil
+		}
+		items = append(items, parsed[0])
+	}
+	if err = rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, 0, false, fmt.Errorf("read large todo items: %w", err)
+	}
+	if err = rows.Close(); err != nil {
+		return nil, 0, false, fmt.Errorf("close large todo items: %w", err)
+	}
+	return items, total, true, nil
 }
 
 func boundTodoQuery(q TodoQuery) TodoQuery {

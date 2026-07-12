@@ -66,6 +66,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveAsset(w, "assets/app.js", "text/javascript; charset=utf-8")
 	case "/api/overview":
 		h.serveOverview(w, r)
+	case "/api/sessions":
+		h.serveSessionMatrix(w, r)
 	default:
 		if strings.HasPrefix(r.URL.Path, "/api/sessions/") {
 			switch {

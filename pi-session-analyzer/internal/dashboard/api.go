@@ -32,6 +32,60 @@ func (h *Handler) serveOverview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, overview)
 }
 
+func (h *Handler) serveSessionMatrix(w http.ResponseWriter, r *http.Request) {
+	if h.reader == nil {
+		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
+		return
+	}
+	allowed := map[string]bool{"from": true, "to": true, "untimed": true, "cwd": true, "limit": true, "cursor": true}
+	for name := range r.URL.Query() {
+		if !allowed[name] {
+			writeError(w, http.StatusBadRequest, "unsupported matrix parameter")
+			return
+		}
+	}
+	limit, err := queryInteger(r, "limit", store.MaxMatrixPageSize, 1, store.MaxMatrixPageSize)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	untimed := false
+	if value := r.URL.Query().Get("untimed"); value != "" {
+		if value != "true" && value != "false" {
+			writeError(w, http.StatusBadRequest, "untimed must be true or false")
+			return
+		}
+		untimed = value == "true"
+	}
+	from, to := h.now().AddDate(0, 0, -30).Unix(), h.now().Unix()
+	if value := r.URL.Query().Get("from"); value != "" {
+		from, err = strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "from must be a Unix timestamp")
+			return
+		}
+	}
+	if value := r.URL.Query().Get("to"); value != "" {
+		to, err = strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "to must be a Unix timestamp")
+			return
+		}
+	}
+	ctx, cancel := robound.WithTimeout(r.Context())
+	defer cancel()
+	page, err := h.reader.SessionMatrix(ctx, store.MatrixQuery{FromUnix: from, ToUnix: to, Untimed: untimed, CWD: r.URL.Query().Get("cwd"), Limit: limit, Cursor: r.URL.Query().Get("cursor")}, h.detectorNames)
+	if err != nil {
+		if errors.Is(err, store.ErrInvalidMatrixQuery) {
+			writeError(w, http.StatusBadRequest, err.Error())
+		} else {
+			writeError(w, http.StatusInternalServerError, "session matrix query failed")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
 func (h *Handler) serveSessionStream(w http.ResponseWriter, r *http.Request) {
 	if h.reader == nil {
 		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
@@ -126,6 +180,13 @@ func (h *Handler) serveTodoDiagnostics(w http.ResponseWriter, r *http.Request) {
 	if h.reader == nil {
 		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
 		return
+	}
+	allowed := map[string]bool{"snapshot_offset": true, "snapshot_limit": true, "item_offset": true, "item_limit": true}
+	for name := range r.URL.Query() {
+		if !allowed[name] {
+			writeError(w, http.StatusBadRequest, "unsupported todo parameter")
+			return
+		}
 	}
 	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/sessions/"), "/todo")
 	if id == "" || strings.Contains(id, "/") {
