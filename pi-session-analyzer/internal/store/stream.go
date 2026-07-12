@@ -46,6 +46,10 @@ func (s *Reader) SessionStream(ctx context.Context, prefix, encodedCursor string
 }
 
 func (s *Reader) SessionStreamFromLine(ctx context.Context, prefix, encodedCursor string, limit, anchorLine int) (SessionStreamPage, error) {
+	return s.SessionStreamFromEvidence(ctx, prefix, encodedCursor, limit, anchorLine, "")
+}
+
+func (s *Reader) SessionStreamFromEvidence(ctx context.Context, prefix, encodedCursor string, limit, anchorLine int, evidenceID string) (SessionStreamPage, error) {
 	id, err := s.ResolveSession(ctx, prefix)
 	if err != nil {
 		return SessionStreamPage{}, err
@@ -54,9 +58,26 @@ func (s *Reader) SessionStreamFromLine(ctx context.Context, prefix, encodedCurso
 		limit = 100
 	}
 	cursor := streamCursor{Version: streamCursorVersion, SessionID: id, SourceLine: -1}
+	exactAnchorID := ""
 	if anchorLine > 0 {
 		cursor.SourceLine = anchorLine
 		cursor.KindRank = 9
+		if evidenceID != "" {
+			var rank sql.NullInt64
+			err = s.query.QueryRowContext(ctx, `SELECT MIN(kind_rank) FROM (
+ SELECT 10 kind_rank FROM messages WHERE session_id=? AND source_line=? AND id=?
+ UNION ALL SELECT 20 FROM tool_calls WHERE session_id=? AND source_line=? AND id=?
+ UNION ALL SELECT 30 FROM tool_results WHERE session_id=? AND source_line=? AND id=?
+ UNION ALL SELECT 40 FROM events WHERE session_id=? AND source_line=? AND id=?
+ UNION ALL SELECT 50 FROM custom_state WHERE session_id=? AND source_line=? AND id=?
+ UNION ALL SELECT 60 FROM custom_messages WHERE session_id=? AND source_line=? AND id=?)`, id, anchorLine, evidenceID, id, anchorLine, evidenceID, id, anchorLine, evidenceID, id, anchorLine, evidenceID, id, anchorLine, evidenceID, id, anchorLine, evidenceID).Scan(&rank)
+			if err != nil {
+				return SessionStreamPage{}, fmt.Errorf("locate stream evidence: %w", err)
+			}
+			if rank.Valid {
+				cursor.KindRank, cursor.ID, exactAnchorID = int(rank.Int64), evidenceID, evidenceID
+			}
+		}
 	}
 	if encodedCursor != "" {
 		cursor, err = decodeStreamCursor(encodedCursor)
@@ -83,8 +104,9 @@ WITH stream AS (
 SELECT source_line,kind_rank,id,kind,role,name,type,status,preview,is_error,tokens_before
 FROM stream
 WHERE source_line>? OR (source_line=? AND kind_rank>?) OR (source_line=? AND kind_rank=? AND id>?)
+ OR (?<>'' AND source_line=? AND kind_rank=? AND id=?)
 ORDER BY source_line,kind_rank,id
-LIMIT ?`, id, id, id, id, id, id, cursor.SourceLine, cursor.SourceLine, cursor.KindRank, cursor.SourceLine, cursor.KindRank, cursor.ID, limit+1)
+LIMIT ?`, id, id, id, id, id, id, cursor.SourceLine, cursor.SourceLine, cursor.KindRank, cursor.SourceLine, cursor.KindRank, cursor.ID, exactAnchorID, cursor.SourceLine, cursor.KindRank, exactAnchorID, limit+1)
 	if err != nil {
 		return SessionStreamPage{}, fmt.Errorf("query session stream: %w", err)
 	}

@@ -33,4 +33,9 @@ func TestDetectorOverviewScopesFreshnessAndCoverageToCurrentRegistry(t *testing.
 		{Detector: "d1", Fresh: FreshFindingCounts{Warn: 1, Structural: 1}, Coverage: DetectorCoverage{Success: 1, NotRun: 1}},
 		{Detector: "d2", Coverage: DetectorCoverage{Failed: 1, NotRun: 1}},
 	}, rows)
+	overview, err := s.Overview(context.Background(), OverviewQuery{Timezone: "UTC", Unit: BucketDay, DetectorNames: []string{"d1", "d2"}, Buckets: []CalendarBucket{{Key: "bucket", StartUnix: 100, EndUnix: 101}}})
+	require.NoError(t, err)
+	require.Equal(t, FreshFindingCounts{Warn: 1, Structural: 1}, overview.Buckets[0].FreshFindings)
+	require.Equal(t, DetectorCoverage{Success: 1, Failed: 1, NotRun: 2}, overview.Buckets[0].DetectorCoverage)
+	require.Equal(t, GoalOutcomeCounts{Absent: 2}, overview.Buckets[0].GoalOutcomes)
 }

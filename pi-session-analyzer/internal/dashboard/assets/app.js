@@ -85,13 +85,13 @@ function localDate(unix) {
 }
 
 function renderOverview(data) {
-  overview = data;
   const buckets = data.buckets || [];
+  overview = data;
   const totals = buckets.reduce((sum, bucket) => ({ sessions: sum.sessions + bucket.sessions, cost: sum.cost + bucket.cost_as_logged, calls: sum.calls + bucket.tool_calls, output: sum.output + bucket.output_tokens, reasoning: sum.reasoning + bucket.reasoning_tokens, read: sum.read + bucket.cache_read_tokens, write: sum.write + bucket.cache_write_tokens, compact: sum.compact + bucket.compactions, guards: sum.guards + bucket.broker_guards }), { sessions: 0, cost: 0, calls: 0, output: 0, reasoning: 0, read: 0, write: 0, compact: 0, guards: 0 });
   const kpis = $("#kpis"); clear(kpis);
   kpis.append(kpi("Sessions started", formatInteger(totals.sessions), `${data.bucket} buckets · ${data.timezone}`), kpi("Cost as logged by Pi", formatCost(totals.cost)), kpi("Tool calls", formatInteger(totals.calls)), kpi("Compactions / broker guards", `${totals.compact} / ${totals.guards}`), kpi("Output tokens", formatInteger(totals.output)), kpi("Reasoning tokens", formatInteger(totals.reasoning)), kpi("Cache-read tokens", formatInteger(totals.read)), kpi("Cache-write tokens", formatInteger(totals.write)), kpi("Untimed sessions", formatInteger(data.untimed_sessions), "Excluded from temporal charts"));
   renderChart(buckets, data.timezone);
-  renderTrends(buckets);
+  renderTrends(buckets, data.stop_reasons || [], data.bucket_signals || {});
   renderToolOverview(data.tool_outcomes || {});
   renderDetectorOverview(data.detectors || []);
   renderOutcomeOverview(data.signals || {});
@@ -125,15 +125,17 @@ function renderChart(buckets, timezone) {
   }
 }
 
-function renderTrends(buckets) {
+function renderTrends(buckets, stopReasons, signals) {
   const host = $("#trend-grid"); clear(host);
-  const metrics = [["Cost as logged", "cost_as_logged", (value) => formatCost(value)], ["Tool-call volume", "tool_calls", formatInteger], ["Output tokens", "output_tokens", formatInteger], ["Reasoning tokens", "reasoning_tokens", formatInteger], ["Cache-read tokens", "cache_read_tokens", formatInteger], ["Cache-write tokens", "cache_write_tokens", formatInteger], ["Compactions", "compactions", formatInteger], ["Broker guards", "broker_guards", formatInteger]];
-  for (const [label, key, format] of metrics) {
+  const value = (key) => (bucket) => bucket[key] || 0;
+  const metrics = [["Cost as logged", value("cost_as_logged"), formatCost], ["Tool-call volume", value("tool_calls"), formatInteger], ["Output tokens", value("output_tokens"), formatInteger], ["Reasoning tokens", value("reasoning_tokens"), formatInteger], ["Cache-read tokens", value("cache_read_tokens"), formatInteger], ["Cache-write tokens", value("cache_write_tokens"), formatInteger], ["Compactions", value("compactions"), formatInteger], ["Broker guards", value("broker_guards"), formatInteger], ["Fresh error findings", (_bucket, index) => signals.fresh_error?.[index] || 0, formatInteger], ["Fresh warning findings", (_bucket, index) => signals.fresh_warn?.[index] || 0, formatInteger], ["Fresh info findings", (_bucket, index) => signals.fresh_info?.[index] || 0, formatInteger], ["Fresh structural findings", (_bucket, index) => signals.fresh_structural?.[index] || 0, formatInteger], ["Fresh heuristic findings", (_bucket, index) => signals.fresh_heuristic?.[index] || 0, formatInteger], ["Detector coverage gaps", (_bucket, index) => (signals.detector_failed?.[index] || 0) + (signals.detector_not_run?.[index] || 0), formatInteger], ["Active goals", (_bucket, index) => signals.goal_active?.[index] || 0, formatInteger], ["Completed goals", (_bucket, index) => signals.goal_complete?.[index] || 0, formatInteger]];
+  for (const series of stopReasons) metrics.push([`Stop: ${series.value}`, (_bucket, index) => series.counts[index] || 0, formatInteger]);
+  for (const [label, getValue, format] of metrics) {
     const panel = node("section", "panel"); panel.append(node("h3", "", label));
-    const max = Math.max(1, ...buckets.map((bucket) => bucket[key] || 0));
+    const max = Math.max(1, ...buckets.map(getValue));
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svg.setAttribute("class", "mini-chart"); svg.setAttribute("viewBox", "0 0 300 74"); svg.setAttribute("role", "img"); svg.setAttribute("aria-label", `${label} trend across ${buckets.length} buckets`);
-    buckets.forEach((bucket, index) => { const rect = document.createElementNS(svg.namespaceURI, "rect"); const width = 300 / Math.max(1, buckets.length); const height = ((bucket[key] || 0) / max) * 68; rect.setAttribute("x", String(index * width)); rect.setAttribute("y", String(72 - height)); rect.setAttribute("width", String(Math.max(1, width - 1))); rect.setAttribute("height", String(Math.max(1, height))); svg.append(rect); }); panel.append(svg);
-    const details = node("details"); details.append(node("summary", "trend-summary", `Accessible values · total ${format(buckets.reduce((sum, bucket) => sum + (bucket[key] || 0), 0))}`)); const list = node("dl", "metric-list"); for (const bucket of buckets) { const row = node("div", "metric-row"); row.append(node("dt", "", bucket.key), node("dd", "", format(bucket[key] || 0))); list.append(row); } details.append(list); panel.append(details); host.append(panel);
+    buckets.forEach((bucket, index) => { const rect = document.createElementNS(svg.namespaceURI, "rect"); const width = 300 / Math.max(1, buckets.length); const height = (getValue(bucket, index) / max) * 68; rect.setAttribute("x", String(index * width)); rect.setAttribute("y", String(72 - height)); rect.setAttribute("width", String(Math.max(1, width - 1))); rect.setAttribute("height", String(Math.max(1, height))); svg.append(rect); }); panel.append(svg);
+    const details = node("details"); details.append(node("summary", "trend-summary", `Accessible values · total ${format(buckets.reduce((sum, bucket, index) => sum + getValue(bucket, index), 0))}`)); const list = node("dl", "metric-list"); for (const [index, bucket] of buckets.entries()) { const row = node("div", "metric-row"); row.append(node("dt", "", bucket.key), node("dd", "", format(getValue(bucket, index)))); list.append(row); } details.append(list); panel.append(details); host.append(panel);
   }
 }
 
@@ -197,7 +199,7 @@ function renderDetailTools(report) { const host = $("#detail-tools"); clear(host
 function renderToolOverviewInto(host, report) { if (report.analysis_truncated || report.analysis_content_truncated || report.tools_truncated || report.content_truncated) host.append(node("p", "danger-text", "Tool analysis is bounded or truncated; coverage metadata remains explicit.")); for (const tool of report.tools || []) { const row = node("div", "metric-row"); row.append(node("span", "", tool.tool), node("span", "", rateLabel(tool.error_rate, tool.totals))); host.append(row); } if (!(report.tools || []).length) host.append(node("p", "muted", "No tool calls.")); }
 
 async function navigateEvidence(sourceLine, evidenceID) {
-  const page = await request(`/api/sessions/${encodeURIComponent(state.session)}/stream?limit=50&anchor_line=${sourceLine}`, activeController?.signal);
+  const page = await request(`/api/sessions/${encodeURIComponent(state.session)}/stream?limit=50&anchor_line=${sourceLine}&anchor_id=${encodeURIComponent(evidenceID || "")}`, activeController?.signal);
   renderStream(page);
   const match = [...document.querySelectorAll("#detail-stream .evidence")].find((entry) => Number(entry.dataset.sourceLine) === sourceLine && (!evidenceID || entry.dataset.entryId === evidenceID));
   const target = match || document.querySelector("#detail-stream .evidence");
@@ -218,11 +220,11 @@ function renderFindings(data) {
 
 function renderTokens(page, append = false) {
   const host = $("#detail-tokens"); if (!append) clear(host);
-  const max = Math.max(1, ...(page.entries || []).flatMap((entry) => [entry.input_tokens, entry.output_tokens, entry.reasoning_tokens, entry.cache_read_tokens, entry.cache_write_tokens]));
+  const maxima = Object.fromEntries([["input", "input_tokens"], ["output", "output_tokens"], ["reasoning", "reasoning_tokens"], ["cache-read", "cache_read_tokens"], ["cache-write", "cache_write_tokens"]].map(([kind, field]) => [kind, Math.max(1, ...(page.entries || []).map((entry) => entry[field] || 0))]));
   for (const entry of page.entries || []) {
     const row = node("div", "token-mark"); row.append(node("span", "", `L${entry.source_line} ${entry.kind}`));
     if (entry.kind === "compaction") row.append(node("strong", "danger-text", `COMPACTION · ${formatInteger(entry.tokens_before)} tokens before`));
-    else { const bars = node("div", "token-bars"); for (const [kind, value] of [["input", entry.input_tokens], ["output", entry.output_tokens], ["reasoning", entry.reasoning_tokens], ["cache-read", entry.cache_read_tokens], ["cache-write", entry.cache_write_tokens]]) { const bar = node("span", kind); bar.style.width = `${Math.max(3, (value / max) * 100)}%`; bar.title = `${kind}: ${value}`; bars.append(bar); } bars.setAttribute("aria-label", `Input ${entry.input_tokens}, output ${entry.output_tokens}, reasoning ${entry.reasoning_tokens}, cache read ${entry.cache_read_tokens}, cache write ${entry.cache_write_tokens}`); row.append(bars); }
+    else { const bars = node("div", "token-bars"); for (const [kind, value] of [["input", entry.input_tokens], ["output", entry.output_tokens], ["reasoning", entry.reasoning_tokens], ["cache-read", entry.cache_read_tokens], ["cache-write", entry.cache_write_tokens]]) { const bar = node("span", kind); bar.style.width = `${Math.max(3, (value / maxima[kind]) * 100)}%`; bar.title = `${kind}: ${value}`; bars.append(bar); } bars.setAttribute("aria-label", `Input ${entry.input_tokens}, output ${entry.output_tokens}, reasoning ${entry.reasoning_tokens}, cache read ${entry.cache_read_tokens}, cache write ${entry.cache_write_tokens}`); row.append(bars); }
     host.append(row);
   }
   tokenCursor = page.next_cursor || ""; $("#tokens-more").hidden = !tokenCursor;
@@ -267,7 +269,9 @@ async function loadDashboard() {
   activeController?.abort(); activeController = new AbortController(); const { signal } = activeController;
   announce("Reading the local scrubbed index…");
   try {
-    overview = await request(`/api/overview?${overviewSearch(state)}`, signal);
+    const query = overviewSearch(state);
+    const [summary, series] = await Promise.all([request(`/api/overview?${query}`, signal), request(`/api/overview/signals?${query}`, signal)]);
+    overview = { ...summary, ...series };
     renderOverview(overview);
     await loadMatrix(signal);
     if (state.session) await loadDetail(state.session, signal); else $("#detail").hidden = true;

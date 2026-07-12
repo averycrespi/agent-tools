@@ -33,4 +33,15 @@ func TestOverviewSignalSummaryPreservesGoalStopAndDistributionStates(t *testing.
 	require.Equal(t, 1, summary.Records[4].Count)
 	require.Equal(t, 2, summary.Turns[0].Count)
 	require.Equal(t, 1, summary.Turns[1].Count)
+	overview, err := s.Overview(context.Background(), OverviewQuery{Timezone: "UTC", Unit: BucketDay, Buckets: []CalendarBucket{{Key: "one", StartUnix: 100, EndUnix: 101}}})
+	require.NoError(t, err)
+	require.Len(t, overview.StopReasons, 2)
+	for _, series := range overview.StopReasons {
+		if series.Value == "absent" {
+			require.Equal(t, []int{2}, series.Counts)
+		}
+		if series.Value == "tool_use" {
+			require.Equal(t, []int{1}, series.Counts)
+		}
+	}
 }

@@ -70,6 +70,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveAsset(w, "assets/view-model.js", "text/javascript; charset=utf-8")
 	case "/api/overview":
 		h.serveOverview(w, r)
+	case "/api/overview/signals":
+		h.serveOverviewSignals(w, r)
 	case "/api/sessions":
 		h.serveSessionMatrix(w, r)
 	default:

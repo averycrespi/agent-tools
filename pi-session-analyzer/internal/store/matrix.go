@@ -171,17 +171,21 @@ WITH candidates AS (
   SELECT r.session_id,SUM(r.status='success') successes,SUM(r.status='failed') failures
   FROM detector_runs r JOIN candidates c ON c.id=r.session_id WHERE ` + runFilter + ` GROUP BY r.session_id
  )
-SELECT s.id,s.started_at_unix,s.cwd,s.total_records,s.schema_drift,s.malformed_records,s.unknown_records,
+SELECT s.id,s.started_at_unix,COALESCE(substr(CAST(s.cwd AS BLOB),1,64),X''),length(CAST(s.cwd AS BLOB))>64,s.total_records,s.schema_drift,s.malformed_records,s.unknown_records,
  COALESCE(m.turns,0),COALESCE(m.cost,0),COALESCE(m.output_tokens,0),COALESCE(m.reasoning_tokens,0),
  COALESCE(m.cache_read_tokens,0),COALESCE(m.cache_write_tokens,0),COALESCE(e.compactions,0),COALESCE(g.guards,0),
  COALESCE(f.severity,0),COALESCE(r.successes,0),COALESCE(r.failures,0),
- CASE WHEN EXISTS(SELECT 1 FROM custom_state x WHERE x.session_id=s.id AND x.type='goal-state')
+ COALESCE(substr(CAST(CASE WHEN EXISTS(SELECT 1 FROM custom_state x WHERE x.session_id=s.id AND x.type='goal-state')
   THEN (SELECT status FROM custom_state x WHERE x.session_id=s.id AND x.type='goal-state' ORDER BY source_line DESC,id DESC LIMIT 1)
-  ELSE '__absent__' END,
+  ELSE '__absent__' END AS BLOB),1,64),X''),
+ length(CAST(CASE WHEN EXISTS(SELECT 1 FROM custom_state x WHERE x.session_id=s.id AND x.type='goal-state')
+  THEN (SELECT status FROM custom_state x WHERE x.session_id=s.id AND x.type='goal-state' ORDER BY source_line DESC,id DESC LIMIT 1)
+  ELSE '__absent__' END AS BLOB))>64,
  CASE WHEN EXISTS(SELECT 1 FROM custom_state x WHERE x.session_id=s.id AND x.type='todo-state') THEN 1 ELSE 0 END,
- COALESCE((SELECT substr(data,1,` + fmt.Sprint(todoSnapshotBytes) + `) FROM custom_state x WHERE x.session_id=s.id AND x.type='todo-state' ORDER BY source_line DESC,id DESC LIMIT 1),''),
- COALESCE((SELECT length(data)>` + fmt.Sprint(todoSnapshotBytes) + ` FROM custom_state x WHERE x.session_id=s.id AND x.type='todo-state' ORDER BY source_line DESC,id DESC LIMIT 1),0),
- COALESCE((SELECT stop_reason FROM messages x WHERE x.session_id=s.id AND x.role='assistant' AND x.stop_reason<>'' ORDER BY source_line DESC,id DESC LIMIT 1),'')
+ COALESCE((SELECT substr(CAST(data AS BLOB),1,` + fmt.Sprint(todoSnapshotBytes) + `) FROM custom_state x WHERE x.session_id=s.id AND x.type='todo-state' ORDER BY source_line DESC,id DESC LIMIT 1),''),
+ COALESCE((SELECT length(CAST(data AS BLOB))>` + fmt.Sprint(todoSnapshotBytes) + ` FROM custom_state x WHERE x.session_id=s.id AND x.type='todo-state' ORDER BY source_line DESC,id DESC LIMIT 1),0),
+ COALESCE(substr(CAST(COALESCE((SELECT stop_reason FROM messages x WHERE x.session_id=s.id AND x.role='assistant' AND x.stop_reason<>'' ORDER BY source_line DESC,id DESC LIMIT 1),'') AS BLOB),1,64),X''),
+ length(CAST(COALESCE((SELECT stop_reason FROM messages x WHERE x.session_id=s.id AND x.role='assistant' AND x.stop_reason<>'' ORDER BY source_line DESC,id DESC LIMIT 1),'') AS BLOB))>64
 FROM candidates s
 LEFT JOIN message_facts m ON m.session_id=s.id LEFT JOIN event_facts e ON e.session_id=s.id
 LEFT JOIN guard_facts g ON g.session_id=s.id LEFT JOIN fresh_facts f ON f.session_id=s.id LEFT JOIN run_facts r ON r.session_id=s.id
@@ -195,10 +199,11 @@ ORDER BY ` + order
 		var row MatrixRow
 		var started sql.NullInt64
 		var severity, successes, failures, todoPresent, todoTruncated int
+		var cwdTruncated, goalTruncated, stopTruncated bool
 		var goal, todoData string
-		if err = rows.Scan(&row.ID, &started, &row.CWD, &row.Records, &row.SchemaDrift, &row.MalformedRecords, &row.UnknownRecords,
+		if err = rows.Scan(&row.ID, &started, &row.CWD, &cwdTruncated, &row.Records, &row.SchemaDrift, &row.MalformedRecords, &row.UnknownRecords,
 			&row.Turns, &row.Cost, &row.OutputTokens, &row.ReasoningTokens, &row.CacheReadTokens, &row.CacheWriteTokens,
-			&row.Compactions, &row.BrokerGuards, &severity, &successes, &failures, &goal, &todoPresent, &todoData, &todoTruncated, &row.StopReason); err != nil {
+			&row.Compactions, &row.BrokerGuards, &severity, &successes, &failures, &goal, &goalTruncated, &todoPresent, &todoData, &todoTruncated, &row.StopReason, &stopTruncated); err != nil {
 			_ = rows.Close()
 			return SessionMatrixPage{}, fmt.Errorf("scan session matrix: %w", err)
 		}
@@ -215,7 +220,7 @@ ORDER BY ` + order
 			row.TodoOutcome = matrixTodoOutcome(todoPresent != 0, todoData)
 		}
 		boundedCWD := truncateUTF8Bytes(row.CWD, 64)
-		row.ContentTruncated = boundedCWD != row.CWD
+		row.ContentTruncated = cwdTruncated || goalTruncated || stopTruncated || boundedCWD != row.CWD
 		row.CWD = boundedCWD
 		page.Rows = append(page.Rows, row)
 	}

@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const MaxEntryDetailBytes = 32768
+const MaxEntryDetailBytes = 2048
 
 var (
 	ErrInvalidEntryKind = errors.New("invalid entry kind")

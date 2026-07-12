@@ -13,40 +13,56 @@ import (
 )
 
 func (h *Handler) serveOverview(w http.ResponseWriter, r *http.Request) {
-	if h.reader == nil {
-		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
+	overview, status, err := h.overviewForRequest(r)
+	if err != nil {
+		writeError(w, status, err.Error())
 		return
+	}
+	writeJSON(w, http.StatusOK, overview)
+}
+
+func (h *Handler) serveOverviewSignals(w http.ResponseWriter, r *http.Request) {
+	overview, status, err := h.overviewForRequest(r)
+	if err != nil {
+		writeError(w, status, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		BucketSignals store.OverviewBucketSignals  `json:"bucket_signals"`
+		StopReasons   []store.CategoryBucketSeries `json:"stop_reasons"`
+	}{overview.BucketSignals, overview.StopReasons})
+}
+
+func (h *Handler) overviewForRequest(r *http.Request) (store.Overview, int, error) {
+	if h.reader == nil {
+		return store.Overview{}, http.StatusServiceUnavailable, fmt.Errorf("database is unavailable")
 	}
 	allowed := map[string]bool{"timezone": true, "range": true, "bucket": true, "from": true, "to": true}
 	for name := range r.URL.Query() {
 		if !allowed[name] {
-			writeError(w, http.StatusBadRequest, "unsupported overview parameter")
-			return
+			return store.Overview{}, http.StatusBadRequest, fmt.Errorf("unsupported overview parameter")
 		}
 	}
 	ctx, cancel := robound.WithTimeout(r.Context())
 	defer cancel()
 	var bounds []store.CanonicalTimeRange
 	if r.URL.Query().Get("range") == "all" && r.URL.Query().Get("from") == "" && r.URL.Query().Get("to") == "" {
-		value, boundsErr := h.reader.CanonicalTimeBounds(ctx)
-		if boundsErr != nil {
-			writeError(w, http.StatusInternalServerError, "overview bounds query failed")
-			return
+		value, err := h.reader.CanonicalTimeBounds(ctx)
+		if err != nil {
+			return store.Overview{}, http.StatusInternalServerError, fmt.Errorf("overview bounds query failed")
 		}
 		bounds = append(bounds, value)
 	}
 	query, err := parseOverviewQuery(r, h.now(), bounds...)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return store.Overview{}, http.StatusBadRequest, err
 	}
 	query.DetectorNames = h.detectorNames
 	overview, err := h.reader.Overview(ctx, query)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "overview query failed")
-		return
+		return store.Overview{}, http.StatusInternalServerError, fmt.Errorf("overview query failed")
 	}
-	writeJSON(w, http.StatusOK, overview)
+	return overview, http.StatusOK, nil
 }
 
 func (h *Handler) serveSessionMatrix(w http.ResponseWriter, r *http.Request) {
@@ -174,14 +190,15 @@ func (h *Handler) serveSessionStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for name := range r.URL.Query() {
-		if name != "limit" && name != "cursor" && name != "anchor_line" {
+		if name != "limit" && name != "cursor" && name != "anchor_line" && name != "anchor_id" {
 			writeError(w, http.StatusBadRequest, "unsupported stream parameter")
 			return
 		}
 	}
 	anchorLine, anchorErr := queryInteger(r, "anchor_line", 0, 0, 10_000_000)
-	if anchorErr != nil || (anchorLine > 0 && r.URL.Query().Get("cursor") != "") {
-		writeError(w, http.StatusBadRequest, "anchor_line must be bounded and cannot be combined with cursor")
+	anchorID := r.URL.Query().Get("anchor_id")
+	if anchorErr != nil || len(anchorID) > 256 || (anchorLine > 0 && r.URL.Query().Get("cursor") != "") || (anchorID != "" && anchorLine == 0) {
+		writeError(w, http.StatusBadRequest, "bounded anchor_line/anchor_id cannot be combined with cursor")
 		return
 	}
 	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/sessions/"), "/stream")
@@ -200,7 +217,7 @@ func (h *Handler) serveSessionStream(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := robound.WithTimeout(r.Context())
 	defer cancel()
-	page, err := h.reader.SessionStreamFromLine(ctx, id, r.URL.Query().Get("cursor"), limit, anchorLine)
+	page, err := h.reader.SessionStreamFromEvidence(ctx, id, r.URL.Query().Get("cursor"), limit, anchorLine, anchorID)
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrSessionNotFound):

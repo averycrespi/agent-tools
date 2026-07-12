@@ -3,11 +3,27 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/ingest"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSessionMatrixBoundsLargeGoalStopAndCWDLabels(t *testing.T) {
+	t.Parallel()
+
+	s, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	start := int64(100)
+	large := strings.Repeat("😀", 20000)
+	require.NoError(t, s.ReplaceSession(context.Background(), ingest.Session{ID: "large", StartedAtUnix: &start, CWD: large, Messages: []ingest.Message{{ID: "m", Role: "assistant", StopReason: large}}, CustomStates: []ingest.CustomState{{ID: "g", Type: "goal-state", Status: large}}}, SourceMeta{Path: "large", Size: 1}))
+	page, err := s.SessionMatrix(context.Background(), MatrixQuery{FromUnix: 100, ToUnix: 101}, nil)
+	require.NoError(t, err)
+	require.True(t, page.Rows[0].ContentTruncated)
+	require.LessOrEqual(t, len(page.Rows[0].CWD), 64)
+}
 
 func TestSessionMatrixUsesHalfOpenRangeAndStableKeysetCursor(t *testing.T) {
 	t.Parallel()

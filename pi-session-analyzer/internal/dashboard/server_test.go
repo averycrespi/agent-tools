@@ -103,6 +103,12 @@ func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &overview))
 	require.Len(t, overview.Buckets, 90)
 
+	request = httptest.NewRequest(http.MethodGet, "/api/overview/signals?timezone=UTC&range=90d&bucket=day", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.NotContains(t, recorder.Body.String(), `"truncated":true`)
+
 	request = httptest.NewRequest(http.MethodGet, "/api/sessions?from=1783814400&to=1783987200&limit=1", nil)
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)

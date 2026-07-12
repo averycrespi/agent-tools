@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const MaxOverviewBuckets = 400
+const MaxOverviewBuckets = 90
 
 type BucketUnit string
 
@@ -31,30 +31,76 @@ type OverviewQuery struct {
 	DetectorNames []string
 }
 
+type GoalOutcomeCounts struct {
+	Absent   int `json:"absent"`
+	Cleared  int `json:"cleared"`
+	Active   int `json:"active"`
+	Complete int `json:"complete"`
+	Other    int `json:"other"`
+}
+
+type OverviewTimeline struct {
+	Keys      []string `json:"keys"`
+	StartUnix []int64  `json:"start_unix"`
+	EndUnix   []int64  `json:"end_unix"`
+	Partial   []bool   `json:"partial"`
+	Sessions  []int    `json:"sessions"`
+}
+
+type OverviewBucketSignals struct {
+	Cost             []float64 `json:"cost_as_logged"`
+	ToolCalls        []int     `json:"tool_calls"`
+	Compactions      []int     `json:"compactions"`
+	BrokerGuards     []int     `json:"broker_guards"`
+	OutputTokens     []int64   `json:"output_tokens"`
+	ReasoningTokens  []int64   `json:"reasoning_tokens"`
+	CacheReadTokens  []int64   `json:"cache_read_tokens"`
+	CacheWriteTokens []int64   `json:"cache_write_tokens"`
+	FreshError       []int     `json:"fresh_error"`
+	FreshWarn        []int     `json:"fresh_warn"`
+	FreshInfo        []int     `json:"fresh_info"`
+	FreshStructural  []int     `json:"fresh_structural"`
+	FreshHeuristic   []int     `json:"fresh_heuristic"`
+	DetectorSuccess  []int     `json:"detector_success"`
+	DetectorFailed   []int     `json:"detector_failed"`
+	DetectorNotRun   []int     `json:"detector_not_run"`
+	GoalAbsent       []int     `json:"goal_absent"`
+	GoalCleared      []int     `json:"goal_cleared"`
+	GoalActive       []int     `json:"goal_active"`
+	GoalComplete     []int     `json:"goal_complete"`
+	GoalOther        []int     `json:"goal_other"`
+}
+
 type OverviewBucket struct {
-	Key              string  `json:"key"`
-	StartUnix        int64   `json:"start_unix"`
-	EndUnix          int64   `json:"end_unix"`
-	Partial          bool    `json:"partial"`
-	Sessions         int     `json:"sessions"`
-	Cost             float64 `json:"cost_as_logged"`
-	ToolCalls        int     `json:"tool_calls"`
-	Compactions      int     `json:"compactions"`
-	BrokerGuards     int     `json:"broker_guards"`
-	OutputTokens     int64   `json:"output_tokens"`
-	ReasoningTokens  int64   `json:"reasoning_tokens"`
-	CacheReadTokens  int64   `json:"cache_read_tokens"`
-	CacheWriteTokens int64   `json:"cache_write_tokens"`
+	Key              string             `json:"key"`
+	StartUnix        int64              `json:"start_unix"`
+	EndUnix          int64              `json:"end_unix"`
+	Partial          bool               `json:"partial"`
+	Sessions         int                `json:"sessions"`
+	Cost             float64            `json:"cost_as_logged"`
+	ToolCalls        int                `json:"tool_calls"`
+	Compactions      int                `json:"compactions"`
+	BrokerGuards     int                `json:"broker_guards"`
+	OutputTokens     int64              `json:"output_tokens"`
+	ReasoningTokens  int64              `json:"reasoning_tokens"`
+	CacheReadTokens  int64              `json:"cache_read_tokens"`
+	CacheWriteTokens int64              `json:"cache_write_tokens"`
+	FreshFindings    FreshFindingCounts `json:"-"`
+	DetectorCoverage DetectorCoverage   `json:"-"`
+	GoalOutcomes     GoalOutcomeCounts  `json:"-"`
 }
 
 type Overview struct {
-	Timezone        string                `json:"timezone"`
-	Unit            BucketUnit            `json:"bucket"`
-	UntimedSessions int                   `json:"untimed_sessions"`
-	Buckets         []OverviewBucket      `json:"buckets"`
-	ToolOutcomes    ToolOutcomeReport     `json:"tool_outcomes"`
-	Detectors       []DetectorOverviewRow `json:"detectors"`
-	Signals         OverviewSignals       `json:"signals"`
+	Timezone        string                 `json:"timezone"`
+	Unit            BucketUnit             `json:"bucket"`
+	UntimedSessions int                    `json:"untimed_sessions"`
+	Buckets         []OverviewBucket       `json:"buckets"`
+	Timeline        OverviewTimeline       `json:"-"`
+	ToolOutcomes    ToolOutcomeReport      `json:"tool_outcomes"`
+	Detectors       []DetectorOverviewRow  `json:"detectors"`
+	Signals         OverviewSignals        `json:"signals"`
+	StopReasons     []CategoryBucketSeries `json:"-"`
+	BucketSignals   OverviewBucketSignals  `json:"-"`
 }
 
 func CalendarBuckets(from, to, now time.Time, location *time.Location, unit BucketUnit) ([]CalendarBucket, error) {
@@ -137,6 +183,22 @@ func (s *Reader) Overview(ctx context.Context, q OverviewQuery) (Overview, error
 		placeholders[i] = "(?,?,?,?)"
 		args = append(args, bucket.Key, bucket.StartUnix, bucket.EndUnix, bucket.Partial)
 	}
+	detectorFilter, freshDetectorFilter := "0", "0"
+	if len(q.DetectorNames) > 0 {
+		if len(q.DetectorNames) > 50 {
+			return Overview{}, fmt.Errorf("too many detector names")
+		}
+		detectorPlaceholders := make([]string, len(q.DetectorNames))
+		for i, name := range q.DetectorNames {
+			detectorPlaceholders[i] = "?"
+			args = append(args, name)
+		}
+		detectorFilter = "detector IN (" + strings.Join(detectorPlaceholders, ",") + ")"
+		freshDetectorFilter = "f.detector IN (" + strings.Join(detectorPlaceholders, ",") + ")"
+		for _, name := range q.DetectorNames {
+			args = append(args, name)
+		}
+	}
 	query := `
 WITH buckets(key,start_unix,end_unix,partial) AS (VALUES ` + strings.Join(placeholders, ",") + `),
 message_facts AS (
@@ -147,17 +209,40 @@ message_facts AS (
 ),
 call_facts AS (SELECT session_id,COUNT(*) calls FROM tool_calls GROUP BY session_id),
 event_facts AS (SELECT session_id,COUNT(*) compactions FROM events WHERE type='compaction' GROUP BY session_id),
-guard_facts AS (SELECT session_id,COUNT(*) guards FROM custom_messages WHERE type='broker-guard' GROUP BY session_id)
+guard_facts AS (SELECT session_id,COUNT(*) guards FROM custom_messages WHERE type='broker-guard' GROUP BY session_id),
+fresh_facts AS (
+ SELECT f.session_id,SUM(f.severity='error') errors,SUM(f.severity='warn') warns,SUM(f.severity='info') infos,
+  SUM(f.classification='structural') structural,SUM(f.classification='heuristic') heuristic
+ FROM findings f JOIN detector_runs r ON r.session_id=f.session_id AND r.detector=f.detector
+ WHERE f.stale=0 AND r.status='success' AND f.generation=r.generation AND ` + freshDetectorFilter + ` GROUP BY f.session_id
+), run_facts AS (
+ SELECT session_id,SUM(status='success') successes,SUM(status='failed') failures FROM detector_runs
+ WHERE ` + detectorFilter + ` GROUP BY session_id
+), goal_facts AS (
+ SELECT s.id session_id,CASE
+  WHEN NOT EXISTS(SELECT 1 FROM custom_state x WHERE x.session_id=s.id AND x.type='goal-state') THEN 'absent'
+  WHEN COALESCE((SELECT status FROM custom_state x WHERE x.session_id=s.id AND x.type='goal-state' ORDER BY source_line DESC,id DESC LIMIT 1),'')='' THEN 'cleared'
+  ELSE (SELECT status FROM custom_state x WHERE x.session_id=s.id AND x.type='goal-state' ORDER BY source_line DESC,id DESC LIMIT 1) END outcome
+ FROM sessions s
+)
 SELECT b.key,b.start_unix,b.end_unix,b.partial,COUNT(s.id),
  COALESCE(SUM(m.cost),0),COALESCE(SUM(m.output_tokens),0),COALESCE(SUM(m.reasoning_tokens),0),
  COALESCE(SUM(m.cache_read_tokens),0),COALESCE(SUM(m.cache_write_tokens),0),
- COALESCE(SUM(c.calls),0),COALESCE(SUM(e.compactions),0),COALESCE(SUM(g.guards),0)
+ COALESCE(SUM(c.calls),0),COALESCE(SUM(e.compactions),0),COALESCE(SUM(g.guards),0),
+ COALESCE(SUM(f.errors),0),COALESCE(SUM(f.warns),0),COALESCE(SUM(f.infos),0),COALESCE(SUM(f.structural),0),COALESCE(SUM(f.heuristic),0),
+ COALESCE(SUM(r.successes),0),COALESCE(SUM(r.failures),0),MAX(0,COUNT(s.id)*` + fmt.Sprint(len(q.DetectorNames)) + `-COALESCE(SUM(r.successes),0)-COALESCE(SUM(r.failures),0)),
+ SUM(CASE WHEN goal.outcome='absent' THEN 1 ELSE 0 END),SUM(CASE WHEN goal.outcome='cleared' THEN 1 ELSE 0 END),
+ SUM(CASE WHEN goal.outcome='active' THEN 1 ELSE 0 END),SUM(CASE WHEN goal.outcome IN ('complete','completed','done') THEN 1 ELSE 0 END),
+ SUM(CASE WHEN goal.outcome NOT IN ('absent','cleared','active','complete','completed','done') THEN 1 ELSE 0 END)
 FROM buckets b
 LEFT JOIN sessions s ON s.started_at_unix>=b.start_unix AND s.started_at_unix<b.end_unix
 LEFT JOIN message_facts m ON m.session_id=s.id
 LEFT JOIN call_facts c ON c.session_id=s.id
 LEFT JOIN event_facts e ON e.session_id=s.id
 LEFT JOIN guard_facts g ON g.session_id=s.id
+LEFT JOIN fresh_facts f ON f.session_id=s.id
+LEFT JOIN run_facts r ON r.session_id=s.id
+LEFT JOIN goal_facts goal ON goal.session_id=s.id
 GROUP BY b.key,b.start_unix,b.end_unix,b.partial
 ORDER BY b.start_unix`
 	rows, err := s.query.QueryContext(ctx, query, args...) //nolint:gosec // Only a bounded internal VALUES placeholder list is dynamic.
@@ -172,6 +257,9 @@ ORDER BY b.start_unix`
 			&bucket.Key, &bucket.StartUnix, &bucket.EndUnix, &bucket.Partial, &bucket.Sessions,
 			&bucket.Cost, &bucket.OutputTokens, &bucket.ReasoningTokens, &bucket.CacheReadTokens,
 			&bucket.CacheWriteTokens, &bucket.ToolCalls, &bucket.Compactions, &bucket.BrokerGuards,
+			&bucket.FreshFindings.Error, &bucket.FreshFindings.Warn, &bucket.FreshFindings.Info, &bucket.FreshFindings.Structural, &bucket.FreshFindings.Heuristic,
+			&bucket.DetectorCoverage.Success, &bucket.DetectorCoverage.Failed, &bucket.DetectorCoverage.NotRun,
+			&bucket.GoalOutcomes.Absent, &bucket.GoalOutcomes.Cleared, &bucket.GoalOutcomes.Active, &bucket.GoalOutcomes.Complete, &bucket.GoalOutcomes.Other,
 		); err != nil {
 			return Overview{}, fmt.Errorf("scan overview: %w", err)
 		}
@@ -179,6 +267,34 @@ ORDER BY b.start_unix`
 	}
 	if err = rows.Err(); err != nil {
 		return Overview{}, fmt.Errorf("read overview: %w", err)
+	}
+	for _, bucket := range overview.Buckets {
+		overview.Timeline.Keys = append(overview.Timeline.Keys, bucket.Key)
+		overview.Timeline.StartUnix = append(overview.Timeline.StartUnix, bucket.StartUnix)
+		overview.Timeline.EndUnix = append(overview.Timeline.EndUnix, bucket.EndUnix)
+		overview.Timeline.Partial = append(overview.Timeline.Partial, bucket.Partial)
+		overview.Timeline.Sessions = append(overview.Timeline.Sessions, bucket.Sessions)
+		overview.BucketSignals.Cost = append(overview.BucketSignals.Cost, bucket.Cost)
+		overview.BucketSignals.ToolCalls = append(overview.BucketSignals.ToolCalls, bucket.ToolCalls)
+		overview.BucketSignals.Compactions = append(overview.BucketSignals.Compactions, bucket.Compactions)
+		overview.BucketSignals.BrokerGuards = append(overview.BucketSignals.BrokerGuards, bucket.BrokerGuards)
+		overview.BucketSignals.OutputTokens = append(overview.BucketSignals.OutputTokens, bucket.OutputTokens)
+		overview.BucketSignals.ReasoningTokens = append(overview.BucketSignals.ReasoningTokens, bucket.ReasoningTokens)
+		overview.BucketSignals.CacheReadTokens = append(overview.BucketSignals.CacheReadTokens, bucket.CacheReadTokens)
+		overview.BucketSignals.CacheWriteTokens = append(overview.BucketSignals.CacheWriteTokens, bucket.CacheWriteTokens)
+		overview.BucketSignals.FreshError = append(overview.BucketSignals.FreshError, bucket.FreshFindings.Error)
+		overview.BucketSignals.FreshWarn = append(overview.BucketSignals.FreshWarn, bucket.FreshFindings.Warn)
+		overview.BucketSignals.FreshInfo = append(overview.BucketSignals.FreshInfo, bucket.FreshFindings.Info)
+		overview.BucketSignals.FreshStructural = append(overview.BucketSignals.FreshStructural, bucket.FreshFindings.Structural)
+		overview.BucketSignals.FreshHeuristic = append(overview.BucketSignals.FreshHeuristic, bucket.FreshFindings.Heuristic)
+		overview.BucketSignals.DetectorSuccess = append(overview.BucketSignals.DetectorSuccess, bucket.DetectorCoverage.Success)
+		overview.BucketSignals.DetectorFailed = append(overview.BucketSignals.DetectorFailed, bucket.DetectorCoverage.Failed)
+		overview.BucketSignals.DetectorNotRun = append(overview.BucketSignals.DetectorNotRun, bucket.DetectorCoverage.NotRun)
+		overview.BucketSignals.GoalAbsent = append(overview.BucketSignals.GoalAbsent, bucket.GoalOutcomes.Absent)
+		overview.BucketSignals.GoalCleared = append(overview.BucketSignals.GoalCleared, bucket.GoalOutcomes.Cleared)
+		overview.BucketSignals.GoalActive = append(overview.BucketSignals.GoalActive, bucket.GoalOutcomes.Active)
+		overview.BucketSignals.GoalComplete = append(overview.BucketSignals.GoalComplete, bucket.GoalOutcomes.Complete)
+		overview.BucketSignals.GoalOther = append(overview.BucketSignals.GoalOther, bucket.GoalOutcomes.Other)
 	}
 	if err = s.query.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions WHERE started_at_unix IS NULL`).Scan(&overview.UntimedSessions); err != nil {
 		return Overview{}, fmt.Errorf("count untimed sessions: %w", err)
@@ -195,6 +311,14 @@ ORDER BY b.start_unix`
 	overview.Signals, err = s.OverviewSignalSummary(ctx, fromUnix, toUnix)
 	if err != nil {
 		return Overview{}, fmt.Errorf("query overview signals: %w", err)
+	}
+	stopCategories := make([]string, 0, min(10, len(overview.Signals.Stops)))
+	for i := 0; i < len(overview.Signals.Stops) && i < 10; i++ {
+		stopCategories = append(stopCategories, overview.Signals.Stops[i].Value)
+	}
+	overview.StopReasons, err = s.StopReasonBucketSeries(ctx, q.Buckets, stopCategories)
+	if err != nil {
+		return Overview{}, fmt.Errorf("query overview stop series: %w", err)
 	}
 	return overview, nil
 }
