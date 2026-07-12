@@ -118,6 +118,14 @@ func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 	require.Len(t, page.Entries, 1)
 	require.Equal(t, "message", page.Entries[0].Kind)
 
+	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/tokens?limit=1", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var tokens store.TokenSequencePage
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &tokens))
+	require.Equal(t, "m", tokens.Entries[0].ID)
+
 	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/tools", nil)
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)

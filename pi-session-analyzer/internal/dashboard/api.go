@@ -87,6 +87,44 @@ func (h *Handler) serveSessionMatrix(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, page)
 }
 
+func (h *Handler) serveTokenSequence(w http.ResponseWriter, r *http.Request) {
+	if h.reader == nil {
+		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
+		return
+	}
+	for name := range r.URL.Query() {
+		if name != "limit" && name != "cursor" {
+			writeError(w, http.StatusBadRequest, "unsupported token parameter")
+			return
+		}
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/sessions/"), "/tokens")
+	if id == "" || strings.Contains(id, "/") {
+		writeError(w, http.StatusNotFound, "route not found")
+		return
+	}
+	limit, err := queryInteger(r, "limit", store.MaxTokenSequencePageSize, 1, store.MaxTokenSequencePageSize)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ctx, cancel := robound.WithTimeout(r.Context())
+	defer cancel()
+	page, err := h.reader.MessageTokenSequence(ctx, id, r.URL.Query().Get("cursor"), limit)
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrSessionNotFound):
+			writeError(w, http.StatusNotFound, "session not found")
+		case errors.Is(err, store.ErrAmbiguousSession), errors.Is(err, store.ErrInvalidStreamCursor):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, "token sequence query failed")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
 func (h *Handler) serveSessionStream(w http.ResponseWriter, r *http.Request) {
 	if h.reader == nil {
 		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
