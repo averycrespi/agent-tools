@@ -105,6 +105,14 @@ func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 	require.Len(t, page.Entries, 1)
 	require.Equal(t, "message", page.Entries[0].Kind)
 
+	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/tools", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var tools store.ToolOutcomeReport
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &tools))
+	require.Zero(t, tools.Totals.Calls)
+
 	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/diagnostics", nil)
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)

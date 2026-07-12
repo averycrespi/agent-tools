@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/ingest"
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/outcome"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/scrub"
 )
 
@@ -32,8 +33,6 @@ type Finding struct {
 	Severity                               Severity
 	SourceLine                             int
 }
-
-var mcpFailurePattern = regexp.MustCompile(`(?i)\b(?:mcp_call failed|mcp error|fetch failed)\b`)
 
 // Detector is one independently persisted detector.
 type Detector struct {
@@ -162,21 +161,20 @@ func toolErrorBurst(s ingest.Session) []Finding {
 }
 
 func mcpFailure(s ingest.Session) []Finding {
-	calls := map[string]bool{}
+	calls := map[string]string{}
 	for _, call := range s.ToolCalls {
-		if call.Name == "mcp_call" {
-			calls[call.ID] = true
-		}
+		calls[call.ID] = call.Name
 	}
 	out := []Finding{}
 	for _, result := range s.ToolResults {
-		if result.Name != "mcp_call" && !calls[result.CallID] {
+		callName := calls[result.CallID]
+		if result.Name != "mcp_call" && callName != "mcp_call" {
 			continue
 		}
 		source := ""
 		if result.IsError != nil && *result.IsError {
 			source = "structural_flag"
-		} else if result.IsError == nil && mcpFailurePattern.MatchString(result.Content) {
+		} else if outcome.IsInferredMCPFailure(callName, result.Name, result.IsError, result.Content) {
 			source = "historical_text_fallback"
 		}
 		if source != "" {

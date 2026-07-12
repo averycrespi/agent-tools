@@ -78,6 +78,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			case strings.HasSuffix(r.URL.Path, "/diagnostics"):
 				h.serveSessionDiagnostics(w, r)
 				return
+			case strings.HasSuffix(r.URL.Path, "/tools"):
+				h.serveToolOutcomes(w, r)
+				return
 			}
 		}
 		writeError(w, http.StatusNotFound, "route not found")

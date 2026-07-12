@@ -68,6 +68,33 @@ func (h *Handler) serveSessionStream(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, page)
 }
 
+func (h *Handler) serveToolOutcomes(w http.ResponseWriter, r *http.Request) {
+	if h.reader == nil {
+		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
+		return
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/sessions/"), "/tools")
+	if id == "" || strings.Contains(id, "/") {
+		writeError(w, http.StatusNotFound, "route not found")
+		return
+	}
+	ctx, cancel := robound.WithTimeout(r.Context())
+	defer cancel()
+	report, err := h.reader.ToolOutcomeReport(ctx, id)
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrSessionNotFound):
+			writeError(w, http.StatusNotFound, "session not found")
+		case errors.Is(err, store.ErrAmbiguousSession):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, "tool outcome query failed")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
 func (h *Handler) serveSessionDiagnostics(w http.ResponseWriter, r *http.Request) {
 	if h.reader == nil {
 		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
