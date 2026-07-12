@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/ingest"
@@ -134,6 +136,102 @@ func TestReopenRepairsRecreatedSidecarsAndSchemaHasNoRawTier(t *testing.T) {
 	var rawTables int
 	require.NoError(t, db.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND lower(name) LIKE '%raw%'`).Scan(&rawTables))
 	require.Zero(t, rawTables)
+}
+
+func TestOpenMigratesAndBackfillsCanonicalSessionStarts(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	legacy, err := sql.Open("sqlite3", path)
+	require.NoError(t, err)
+	_, err = legacy.Exec(`CREATE TABLE sessions (
+		id TEXT PRIMARY KEY, source_path TEXT NOT NULL UNIQUE, source_size INTEGER NOT NULL,
+		source_mtime_ns INTEGER NOT NULL, schema_version INTEGER NOT NULL, schema_drift INTEGER NOT NULL,
+		timestamp TEXT NOT NULL, cwd TEXT NOT NULL, total_records INTEGER NOT NULL,
+		malformed_records INTEGER NOT NULL, unknown_records INTEGER NOT NULL, ingested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`)
+	require.NoError(t, err)
+	_, err = legacy.Exec(`INSERT INTO sessions(id,source_path,source_size,source_mtime_ns,schema_version,schema_drift,timestamp,cwd,total_records,malformed_records,unknown_records) VALUES
+		('valid','valid.jsonl',1,1,3,0,'2026-01-01T02:30:00+02:30','',1,0,0),
+		('invalid','invalid.jsonl',1,1,3,0,'not-a-time','',1,0,0)`)
+	require.NoError(t, err)
+	require.NoError(t, legacy.Close())
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	var valid sql.NullInt64
+	require.NoError(t, s.db.QueryRow(`SELECT started_at_unix FROM sessions WHERE id='valid'`).Scan(&valid))
+	require.Equal(t, sql.NullInt64{Int64: 1767225600, Valid: true}, valid)
+	var invalid sql.NullInt64
+	require.NoError(t, s.db.QueryRow(`SELECT started_at_unix FROM sessions WHERE id='invalid'`).Scan(&invalid))
+	require.False(t, invalid.Valid)
+	var indexCount int
+	require.NoError(t, s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_sessions_started_at_unix'`).Scan(&indexCount))
+	require.Equal(t, 1, indexCount)
+	require.NoError(t, s.Close())
+
+	s, err = Open(path)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+}
+
+func TestConcurrentOpenSerializesCanonicalSessionStartMigration(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	legacy, err := sql.Open("sqlite3", path)
+	require.NoError(t, err)
+	_, err = legacy.Exec(`CREATE TABLE sessions (
+		id TEXT PRIMARY KEY, source_path TEXT NOT NULL UNIQUE, source_size INTEGER NOT NULL,
+		source_mtime_ns INTEGER NOT NULL, schema_version INTEGER NOT NULL, schema_drift INTEGER NOT NULL,
+		timestamp TEXT NOT NULL, cwd TEXT NOT NULL, total_records INTEGER NOT NULL,
+		malformed_records INTEGER NOT NULL, unknown_records INTEGER NOT NULL, ingested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`)
+	require.NoError(t, err)
+	require.NoError(t, legacy.Close())
+
+	start := make(chan struct{})
+	errs := make(chan error, 4)
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			s, openErr := Open(path)
+			if openErr == nil {
+				openErr = s.Close()
+			}
+			errs <- openErr
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for openErr := range errs {
+		require.NoError(t, openErr)
+	}
+}
+
+func TestReplaceSessionUpdatesAndClearsCanonicalSessionStart(t *testing.T) {
+	t.Parallel()
+
+	s, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	meta := SourceMeta{Path: "s.jsonl", Size: 1, ModTimeNS: 1}
+	start := int64(1767225600)
+	require.NoError(t, s.ReplaceSession(context.Background(), ingest.Session{ID: "s", Timestamp: "2026-01-01T00:00:00Z", StartedAtUnix: &start}, meta))
+	loaded, err := s.LoadSession(context.Background(), "s")
+	require.NoError(t, err)
+	require.Equal(t, "2026-01-01T00:00:00Z", loaded.Timestamp)
+	require.Equal(t, &start, loaded.StartedAtUnix)
+
+	require.NoError(t, s.ReplaceSession(context.Background(), ingest.Session{ID: "s", Timestamp: "invalid"}, meta))
+	loaded, err = s.LoadSession(context.Background(), "s")
+	require.NoError(t, err)
+	require.Equal(t, "invalid", loaded.Timestamp)
+	require.Nil(t, loaded.StartedAtUnix)
 }
 
 func TestTopFailuresFiltersOrdersAndLimitsInQuery(t *testing.T) {

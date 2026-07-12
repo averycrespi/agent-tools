@@ -3,6 +3,7 @@ package ingest
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -39,6 +40,33 @@ func TestParseDispatchesAllRecordTypesWithoutThinking(t *testing.T) {
 	require.NotContains(t, s.Messages[1].Text, "SECRET")
 	require.Equal(t, 3, s.Messages[1].SourceLine)
 }
+
+func TestParseCanonicalizesSessionStartWithoutDiscardingRawTimestamp(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		timestamp string
+		wantUnix  *int64
+	}{
+		{name: "UTC", timestamp: "2026-01-01T00:00:00Z", wantUnix: unixPtr(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Unix())},
+		{name: "offset and fractional", timestamp: "2026-01-01T02:30:00.500+02:30", wantUnix: unixPtr(time.Date(2026, 1, 1, 0, 0, 0, 500_000_000, time.UTC).Unix())},
+		{name: "missing"},
+		{name: "invalid", timestamp: "yesterday"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			jsonl := `{"type":"session","version":3,"id":"s1","timestamp":"` + tt.timestamp + `"}`
+			s, err := Parse(strings.NewReader(jsonl))
+			require.NoError(t, err)
+			require.Equal(t, tt.timestamp, s.Timestamp)
+			require.Equal(t, tt.wantUnix, s.StartedAtUnix)
+		})
+	}
+}
+
+func unixPtr(value int64) *int64 { return &value }
 
 func TestParseToleratesDriftDamageAndTornFinalLine(t *testing.T) {
 	t.Parallel()

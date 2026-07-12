@@ -28,7 +28,11 @@ type DetectorFinding struct {
 // LoadSession reconstructs normalized detector input without requiring the source file.
 func (s *Store) LoadSession(ctx context.Context, id string) (ingest.Session, error) {
 	var out ingest.Session
-	err := s.db.QueryRowContext(ctx, `SELECT id,schema_version,timestamp,cwd,total_records,malformed_records,unknown_records,schema_drift FROM sessions WHERE id=?`, id).Scan(&out.ID, &out.Version, &out.Timestamp, &out.CWD, &out.Stats.Total, &out.Stats.Malformed, &out.Stats.Unknown, &out.Stats.SchemaDrift)
+	var startedAt sql.NullInt64
+	err := s.db.QueryRowContext(ctx, `SELECT id,schema_version,timestamp,started_at_unix,cwd,total_records,malformed_records,unknown_records,schema_drift FROM sessions WHERE id=?`, id).Scan(&out.ID, &out.Version, &out.Timestamp, &startedAt, &out.CWD, &out.Stats.Total, &out.Stats.Malformed, &out.Stats.Unknown, &out.Stats.SchemaDrift)
+	if startedAt.Valid {
+		out.StartedAtUnix = &startedAt.Int64
+	}
 	if err != nil {
 		return out, fmt.Errorf("load session: %w", err)
 	}

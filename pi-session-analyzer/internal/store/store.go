@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/ingest"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/scrub"
@@ -19,7 +20,7 @@ PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS sessions (
  id TEXT PRIMARY KEY, source_path TEXT NOT NULL UNIQUE, source_size INTEGER NOT NULL,
  source_mtime_ns INTEGER NOT NULL, schema_version INTEGER NOT NULL, schema_drift INTEGER NOT NULL,
- timestamp TEXT NOT NULL, cwd TEXT NOT NULL, total_records INTEGER NOT NULL,
+ timestamp TEXT NOT NULL, started_at_unix INTEGER, cwd TEXT NOT NULL, total_records INTEGER NOT NULL,
  malformed_records INTEGER NOT NULL, unknown_records INTEGER NOT NULL, ingested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS messages (
@@ -135,6 +136,10 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize database: %w", err)
 	}
+	if err = migrateCanonicalSessionStarts(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate database: %w", err)
+	}
 	s := &Store{db: db, path: path}
 	if err := s.repairPermissions(); err != nil {
 		_ = db.Close()
@@ -172,7 +177,7 @@ func (s *Store) ReplaceSession(ctx context.Context, in ingest.Session, meta Sour
 	if _, err = tx.ExecContext(ctx, `DELETE FROM sessions WHERE source_path=? AND id<>?`, sourcePath, sessionID); err != nil {
 		return fmt.Errorf("delete replaced source session: %w", err)
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO sessions(id,source_path,source_size,source_mtime_ns,schema_version,schema_drift,timestamp,cwd,total_records,malformed_records,unknown_records) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET source_path=excluded.source_path,source_size=excluded.source_size,source_mtime_ns=excluded.source_mtime_ns,schema_version=excluded.schema_version,schema_drift=excluded.schema_drift,timestamp=excluded.timestamp,cwd=excluded.cwd,total_records=excluded.total_records,malformed_records=excluded.malformed_records,unknown_records=excluded.unknown_records,ingested_at=CURRENT_TIMESTAMP`, sessionID, sourcePath, meta.Size, meta.ModTimeNS, in.Version, in.Stats.SchemaDrift, scrub.Scrub(in.Timestamp), scrub.Scrub(in.CWD), in.Stats.Total, in.Stats.Malformed, in.Stats.Unknown); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO sessions(id,source_path,source_size,source_mtime_ns,schema_version,schema_drift,timestamp,started_at_unix,cwd,total_records,malformed_records,unknown_records) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET source_path=excluded.source_path,source_size=excluded.source_size,source_mtime_ns=excluded.source_mtime_ns,schema_version=excluded.schema_version,schema_drift=excluded.schema_drift,timestamp=excluded.timestamp,started_at_unix=excluded.started_at_unix,cwd=excluded.cwd,total_records=excluded.total_records,malformed_records=excluded.malformed_records,unknown_records=excluded.unknown_records,ingested_at=CURRENT_TIMESTAMP`, sessionID, sourcePath, meta.Size, meta.ModTimeNS, in.Version, in.Stats.SchemaDrift, scrub.Scrub(in.Timestamp), in.StartedAtUnix, scrub.Scrub(in.CWD), in.Stats.Total, in.Stats.Malformed, in.Stats.Unknown); err != nil {
 		return fmt.Errorf("upsert session: %w", err)
 	}
 	for _, table := range []string{"messages", "tool_calls", "tool_results", "events", "custom_state", "custom_messages"} {
@@ -278,6 +283,78 @@ func (s *Store) ResolveSession(ctx context.Context, prefix string) (string, erro
 		return "", fmt.Errorf("session prefix %q is ambiguous", prefix)
 	}
 	return ids[0], nil
+}
+
+func migrateCanonicalSessionStarts(db *sql.DB) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err = conn.ExecContext(ctx, `PRAGMA busy_timeout=5000; BEGIN IMMEDIATE`); err != nil {
+		return err
+	}
+	defer func() { _, _ = conn.ExecContext(context.Background(), `ROLLBACK`) }()
+
+	rows, err := conn.QueryContext(ctx, `PRAGMA table_info(sessions)`)
+	if err != nil {
+		return err
+	}
+	hasColumn := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err = rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if name == "started_at_unix" {
+			hasColumn = true
+		}
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	if !hasColumn {
+		if _, err = conn.ExecContext(ctx, `ALTER TABLE sessions ADD COLUMN started_at_unix INTEGER`); err != nil {
+			return err
+		}
+	}
+	if _, err = conn.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_sessions_started_at_unix ON sessions(started_at_unix)`); err != nil {
+		return err
+	}
+	rows, err = conn.QueryContext(ctx, `SELECT id,timestamp FROM sessions WHERE started_at_unix IS NULL AND timestamp<>''`)
+	if err != nil {
+		return err
+	}
+	type backfill struct {
+		id   string
+		unix int64
+	}
+	var updates []backfill
+	for rows.Next() {
+		var id, timestamp string
+		if err = rows.Scan(&id, &timestamp); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if parsed, parseErr := time.Parse(time.RFC3339Nano, timestamp); parseErr == nil {
+			updates = append(updates, backfill{id: id, unix: parsed.Unix()})
+		}
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	for _, update := range updates {
+		if _, err = conn.ExecContext(ctx, `UPDATE sessions SET started_at_unix=? WHERE id=?`, update.unix, update.id); err != nil {
+			return err
+		}
+	}
+	_, err = conn.ExecContext(ctx, `COMMIT`)
+	return err
 }
 
 func contentHash(value string) string {

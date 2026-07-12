@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 )
 
 const currentSchemaVersion = 3
@@ -24,6 +25,7 @@ type Session struct {
 	ID             string
 	Version        int
 	Timestamp      string
+	StartedAtUnix  *int64
 	CWD            string
 	Stats          ParseStats
 	Messages       []Message
@@ -148,6 +150,12 @@ func Parse(r io.Reader) (Session, error) {
 				continue
 			}
 			result.ID, result.Version, result.Timestamp, result.CWD = rec.ID, rec.Version, rec.Timestamp, rec.CWD
+			if startedAt, err := time.Parse(time.RFC3339Nano, rec.Timestamp); err == nil {
+				unix := startedAt.Unix()
+				result.StartedAtUnix = &unix
+			} else {
+				result.StartedAtUnix = nil
+			}
 			if rec.Version != currentSchemaVersion {
 				result.Stats.SchemaDrift++
 			}
