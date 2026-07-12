@@ -1,15 +1,20 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/ingest"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/robound"
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -54,6 +59,49 @@ func TestHandlerAppliesPrivateHeadersAndServesEmbeddedAssets(t *testing.T) {
 			require.NotContains(t, string(body), "http://")
 			require.NotContains(t, string(body), "https://")
 		}
+	}
+}
+
+func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	db, err := store.Open(path)
+	require.NoError(t, err)
+	started := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC).Unix()
+	require.NoError(t, db.ReplaceSession(context.Background(), ingest.Session{ID: "s", StartedAtUnix: &started}, store.SourceMeta{Path: "s.jsonl", Size: 1, ModTimeNS: 1}))
+	require.NoError(t, db.Close())
+	boundary, err := robound.Open(context.Background(), path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, boundary.Close()) })
+	handler := NewHandler(boundary)
+	handler.now = func() time.Time { return time.Date(2026, 7, 12, 15, 0, 0, 0, time.UTC) }
+
+	request := httptest.NewRequest(http.MethodGet, "/api/overview?timezone=UTC&range=7d&bucket=auto", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var overview store.Overview
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &overview))
+	require.Equal(t, store.BucketDay, overview.Unit)
+	require.Len(t, overview.Buckets, 7)
+	require.Equal(t, 1, overview.Buckets[6].Sessions)
+	require.True(t, overview.Buckets[6].Partial)
+
+	request = httptest.NewRequest(http.MethodGet, "/api/overview?timezone=UTC&range=90d&bucket=day", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.NotContains(t, recorder.Body.String(), `"truncated":true`)
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &overview))
+	require.Len(t, overview.Buckets, 90)
+
+	for _, timezone := range []string{"Not%2FAZone", "Local"} {
+		request = httptest.NewRequest(http.MethodGet, "/api/overview?timezone="+timezone, nil)
+		recorder = httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		require.Equal(t, http.StatusBadRequest, recorder.Code)
+		require.Contains(t, recorder.Body.String(), "timezone")
 	}
 }
 

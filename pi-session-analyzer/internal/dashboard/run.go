@@ -35,6 +35,9 @@ func Run(ctx context.Context, databasePath string, opts Options) error {
 		return err
 	}
 	defer func() { _ = boundary.Close() }()
+	if err = validateSchema(runCtx, boundary); err != nil {
+		return err
+	}
 	listener, err := Listen(opts.Port)
 	if err != nil {
 		return err
@@ -81,6 +84,19 @@ func Run(ctx context.Context, databasePath string, opts Options) error {
 	}
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("serve dashboard: %w", err)
+	}
+	return nil
+}
+
+func validateSchema(ctx context.Context, boundary *robound.Conn) error {
+	queryCtx, cancel := robound.WithTimeout(ctx)
+	defer cancel()
+	rows, err := boundary.QueryContext(queryCtx, `SELECT started_at_unix FROM sessions LIMIT 0`)
+	if err != nil {
+		return fmt.Errorf("dashboard database schema is out of date; run pi-session-analyzer ingest: %w", err)
+	}
+	if err = rows.Close(); err != nil {
+		return fmt.Errorf("validate dashboard database schema: %w", err)
 	}
 	return nil
 }

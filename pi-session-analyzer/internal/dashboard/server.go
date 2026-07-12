@@ -2,13 +2,16 @@
 package dashboard
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"net"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/robound"
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/store"
 )
 
 //go:embed assets/*
@@ -16,10 +19,23 @@ var assets embed.FS
 
 type Handler struct {
 	boundary *robound.Conn
+	reader   *store.Reader
+	now      func() time.Time
 }
 
 func NewHandler(boundary *robound.Conn) *Handler {
-	return &Handler{boundary: boundary}
+	handler := &Handler{boundary: boundary, now: time.Now}
+	if boundary != nil {
+		handler.reader = store.NewReader(
+			func(ctx context.Context, query string, args ...any) (store.Rows, error) {
+				return boundary.QueryContext(ctx, query, args...)
+			},
+			func(ctx context.Context, query string, args ...any) store.Row {
+				return boundary.QueryRowContext(ctx, query, args...)
+			},
+		)
+	}
+	return handler
 }
 
 func Listen(port int) (net.Listener, error) {
@@ -42,6 +58,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveAsset(w, "assets/app.css", "text/css; charset=utf-8")
 	case "/assets/app.js":
 		h.serveAsset(w, "assets/app.js", "text/javascript; charset=utf-8")
+	case "/api/overview":
+		h.serveOverview(w, r)
 	default:
 		writeError(w, http.StatusNotFound, "route not found")
 	}
@@ -67,7 +85,11 @@ func setPrivateHeaders(header http.Header) {
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, map[string]any{"error": message})
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_, _ = w.Write([]byte(robound.MarshalCapped(map[string]any{"error": message})))
+	_, _ = w.Write([]byte(robound.MarshalCapped(value)))
 }

@@ -140,7 +140,7 @@ func (c *Conn) ExecContext(ctx context.Context, query string, args ...any) (sql.
 }
 
 func MarshalCapped(value any) string {
-	budget := MaxResponseBytes / 2
+	budget := MaxResponseBytes - 1024
 	bounded, truncated := boundedJSONValue(reflect.ValueOf(value), &budget)
 	if truncated {
 		bounded = map[string]any{"truncated": true, "value": bounded}

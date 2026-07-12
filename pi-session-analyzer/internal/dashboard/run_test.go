@@ -3,10 +3,12 @@ package dashboard
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/store"
 	"github.com/stretchr/testify/require"
@@ -57,6 +59,21 @@ func TestRunBrowserFailureIsNonfatalAfterPrintingURL(t *testing.T) {
 	require.NoError(t, <-done)
 	require.Contains(t, output.String(), url)
 	require.Contains(t, output.String(), "browser open failed")
+}
+
+func TestRunRejectsPreDashboardSchemaWithIngestHint(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	db, err := sql.Open("sqlite3", path)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, timestamp TEXT NOT NULL)`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err = Run(ctx, path, Options{NoOpen: true})
+	require.ErrorContains(t, err, "run pi-session-analyzer ingest")
 }
 
 func TestRunRejectsInvalidPortBeforeOpeningDatabase(t *testing.T) {
