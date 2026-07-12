@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bucketLabel, collapsedStreamText, rateLabel, tokenValues, unwrapResponse } from "../assets/view-model.js";
+import { axisTickIndexes, bucketLabel, collapsedStreamText, flatTrendNote, rateLabel, tokenRowTotal, tokenValues, unwrapResponse } from "../assets/view-model.js";
 
 test("truncation wrappers are explicit", () => {
   assert.deepEqual(unwrapResponse({ truncated: true, value: { rows: [] } }), { value: { rows: [] }, truncated: true });
@@ -29,6 +29,30 @@ test("omitted token categories render as explicit zeroes", () => {
 
 test("collapsed stream entries do not include stored previews", () => {
   assert.equal(collapsedStreamText({ preview: "private transcript" }), "Open to request bounded detail from the local index.");
+});
+
+test("token row totals sum every reported category", () => {
+  assert.equal(tokenRowTotal({}), 0);
+  assert.equal(
+    tokenRowTotal({ input_tokens: 1, output_tokens: 2, reasoning_tokens: 3, cache_read_tokens: 4, cache_write_tokens: 5 }),
+    15,
+  );
+});
+
+test("axis ticks stay within bounds and include both ends", () => {
+  assert.deepEqual(axisTickIndexes(0), []);
+  assert.deepEqual(axisTickIndexes(1), [0]);
+  assert.deepEqual(axisTickIndexes(2), [0, 1]);
+  const ticks = axisTickIndexes(30);
+  assert.equal(ticks[0], 0);
+  assert.equal(ticks.at(-1), 29);
+  assert.ok(ticks.length <= 5);
+  assert.deepEqual([...ticks].sort((a, b) => a - b), ticks);
+});
+
+test("flat trend note lists hidden series and stays empty otherwise", () => {
+  assert.equal(flatTrendNote([]), "");
+  assert.match(flatTrendNote(["Compactions", "Broker guards"]), /Flat at zero in this range: Compactions · Broker guards/);
 });
 
 test("bucket labels are usable without color", () => {

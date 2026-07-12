@@ -14,44 +14,220 @@
         <p class="eyebrow">LOCAL DIAGNOSTIC INSTRUMENT / VIEW ONLY</p>
         <h1>Session<br />Analyzer</h1>
       </div>
-      <p class="privacy" role="note">Private — not safe to share or screenshot</p>
+      <p class="privacy" role="note">
+        Private — not safe to share or screenshot
+      </p>
     </header>
     <nav class="controls" aria-label="Dashboard filters">
-      <label>Range<select id="range"><option value="7d">7 days</option><option value="30d">30 days</option><option value="90d">90 days</option><option value="all">All history</option></select></label>
-      <label>Bucket<select id="bucket"><option value="auto">Adaptive</option><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option></select></label>
+      <label
+        >Range<select id="range">
+          <option value="7d">7 days</option>
+          <option value="30d">30 days</option>
+          <option value="90d">90 days</option>
+          <option value="all">All history</option>
+        </select></label
+      >
+      <label
+        >Bucket<select id="bucket">
+          <option value="auto">Adaptive</option>
+          <option value="day">Day</option>
+          <option value="week">Week</option>
+          <option value="month">Month</option>
+        </select></label
+      >
       <label>From date<input id="date-from" type="date" /></label>
       <label>To date (exclusive)<input id="date-to" type="date" /></label>
       <label>Project / CWD<input id="cwd" size="22" /></label>
-      <label class="checkbox-control"><input id="untimed" type="checkbox" /> Show untimed sessions</label>
-      <label>Matrix order<select id="direction"><option value="desc">Newest first</option><option value="asc">Oldest first</option></select></label>
-      <label>Timezone<input id="timezone" size="22" aria-describedby="timezone-note" /></label>
-      <span id="timezone-note" class="control-note">IANA timezone · browser-local by default</span>
+      <label class="checkbox-control"
+        ><input id="untimed" type="checkbox" /> Show untimed sessions</label
+      >
+      <label
+        >Matrix order<select id="direction">
+          <option value="desc">Newest first</option>
+          <option value="asc">Oldest first</option>
+        </select></label
+      >
+      <label
+        >Timezone<input
+          id="timezone"
+          size="22"
+          aria-describedby="timezone-note"
+      /></label>
+      <span id="timezone-note" class="control-note"
+        >IANA timezone · browser-local by default</span
+      >
       <button id="refresh" type="button">Refresh index view</button>
     </nav>
     <main id="content">
-      <div id="notice" class="notice" role="status" aria-live="polite">Connecting to the local scrubbed index…</div>
+      <div id="notice" class="notice" role="status" aria-live="polite">
+        Connecting to the local scrubbed index…
+      </div>
       <section id="overview" aria-labelledby="overview-title">
-        <div class="section-heading"><p class="eyebrow">01 / TIME RANGE</p><h2 id="overview-title">Operational overview</h2></div>
+        <div class="section-heading">
+          <p class="eyebrow">01 / TIME RANGE</p>
+          <h2 id="overview-title">Operational overview</h2>
+        </div>
         <div id="kpis" class="kpi-grid"></div>
-        <div class="panel chart-panel"><div><h3>Sessions started</h3><p id="chart-summary" class="muted"></p></div><div id="session-chart"></div><div class="table-scroll"><table id="bucket-table"><caption>Accessible session bucket values</caption><thead><tr><th>Bucket</th><th>Sessions</th><th>Cost</th><th>Tool calls</th><th>Compactions</th></tr></thead><tbody></tbody></table></div></div>
-        <div id="trend-grid" class="trend-grid" aria-label="Additional per-bucket trends"></div>
-        <div class="split-grid"><section class="panel"><h3>Classifiable tool outcomes</h3><div id="tool-overview"></div></section><section class="panel"><h3>Detector freshness</h3><div id="detector-overview"></div></section></div>
-        <div class="split-grid"><section class="panel"><h3>Goal and stop mix</h3><div id="outcome-overview"></div></section><section class="panel"><h3>Session shape</h3><div id="distribution-overview"></div></section></div>
+        <div class="panel chart-panel">
+          <div>
+            <h3>Sessions started</h3>
+            <p id="chart-summary" class="muted"></p>
+          </div>
+          <div id="session-chart"></div>
+          <details>
+            <summary class="trend-summary">
+              Accessible per-bucket values and bucket selection table
+            </summary>
+            <div class="table-scroll">
+              <table id="bucket-table">
+                <caption>
+                  Accessible session bucket values
+                </caption>
+                <thead>
+                  <tr>
+                    <th>Bucket</th>
+                    <th>Sessions</th>
+                    <th>Cost</th>
+                    <th>Tool calls</th>
+                    <th>Compactions</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+        <div
+          id="trend-grid"
+          class="trend-grid"
+          aria-label="Additional per-bucket trends"
+        ></div>
+        <div class="split-grid">
+          <section class="panel">
+            <h3>Classifiable tool outcomes</h3>
+            <div id="tool-overview"></div>
+          </section>
+          <section class="panel">
+            <h3>Detector freshness</h3>
+            <div id="detector-overview"></div>
+          </section>
+        </div>
+        <div class="split-grid">
+          <section class="panel">
+            <h3>Goal and stop mix</h3>
+            <div id="outcome-overview"></div>
+          </section>
+          <section class="panel">
+            <h3>Session shape</h3>
+            <div id="distribution-overview"></div>
+          </section>
+        </div>
       </section>
       <section id="matrix" aria-labelledby="matrix-title">
-        <div class="section-heading"><p class="eyebrow">02 / SELECTION BRIDGE</p><h2 id="matrix-title">Session signal matrix</h2></div>
-        <p class="muted">Select a chart bucket to narrow this table. Select a session to inspect source-ordered evidence.</p>
-        <div class="table-scroll panel"><table id="matrix-table"><caption>Sessions and diagnostic signals</caption><thead><tr><th>Session</th><th>Start / project</th><th>Records / turns</th><th>Split tokens</th><th>Tool coverage</th><th>Compactions / guards</th><th>Findings / detectors</th><th>Goal / TODO / stop</th><th>Schema</th></tr></thead><tbody></tbody></table><button id="matrix-more" class="more" type="button" hidden>Load next page</button></div>
+        <div class="section-heading">
+          <p class="eyebrow">02 / SELECTION BRIDGE</p>
+          <h2 id="matrix-title">Session signal matrix</h2>
+          <button id="clear-bucket" type="button" hidden>
+            Clear bucket filter
+          </button>
+        </div>
+        <p class="muted">
+          Select a chart bucket to narrow this table. Select a session to
+          inspect source-ordered evidence.
+        </p>
+        <div class="table-scroll panel">
+          <table id="matrix-table">
+            <caption>
+              Sessions and diagnostic signals
+            </caption>
+            <thead>
+              <tr>
+                <th>Session</th>
+                <th>Start / project</th>
+                <th>Records / turns</th>
+                <th>Split tokens</th>
+                <th>Tool coverage</th>
+                <th>Compactions / guards</th>
+                <th>Findings / detectors</th>
+                <th>Goal / TODO / stop</th>
+                <th>Schema</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <button id="matrix-more" class="more" type="button" hidden>
+            Load next page
+          </button>
+        </div>
       </section>
       <section id="detail" aria-labelledby="detail-title" hidden>
-        <div class="section-heading"><p class="eyebrow">03 / LINEAR EVIDENCE</p><h2 id="detail-title" tabindex="-1">Session drilldown</h2><button id="close-detail" type="button">Back to matrix</button></div>
+        <div class="section-heading">
+          <p class="eyebrow">03 / LINEAR EVIDENCE</p>
+          <h2 id="detail-title" tabindex="-1">Session drilldown</h2>
+          <button id="close-detail" type="button">Back to matrix</button>
+        </div>
         <div id="session-header" class="kpi-grid"></div>
-        <div class="split-grid"><section class="panel"><h3>Per-tool outcomes</h3><div id="detail-tools"></div></section><section class="panel"><h3>Detector status and findings</h3><div id="detail-findings"></div><button id="findings-more" class="more" type="button" hidden>Load more current findings</button><button id="stale-more" class="more" type="button" hidden>Load more stale evidence</button></section></div>
-        <section class="panel"><h3>Split-token sequence and compactions</h3><div id="detail-tokens"></div><button id="tokens-more" class="more" type="button" hidden>Load more token entries</button></section>
-        <div class="split-grid"><section class="panel"><h3>Goal progression</h3><div id="detail-goal"></div><button id="goal-more" class="more" type="button" hidden>Load more goal states</button></section><section class="panel"><h3>TODO progression and final list</h3><div id="detail-todo"></div><button id="todo-more" class="more" type="button" hidden>Load more TODO history/items</button></section></div>
-        <section class="panel"><h3>Source-ordered session stream</h3><p class="muted">Stored text remains collapsed until explicitly opened.</p><div id="detail-stream"></div><button id="stream-more" class="more" type="button" hidden>Load more evidence</button></section>
+        <div class="split-grid">
+          <section class="panel">
+            <h3>Per-tool outcomes</h3>
+            <div id="detail-tools"></div>
+          </section>
+          <section class="panel">
+            <h3>Detector status and findings</h3>
+            <div id="detail-findings"></div>
+            <button id="findings-more" class="more" type="button" hidden>
+              Load more current findings</button
+            ><button id="stale-more" class="more" type="button" hidden>
+              Load more stale evidence
+            </button>
+          </section>
+        </div>
+        <section class="panel">
+          <h3>Split-token sequence and compactions</h3>
+          <p class="token-legend">
+            Bar width is the message total relative to the largest message.
+            <span><span class="swatch input"></span>Provider input</span>
+            <span><span class="swatch output"></span>Output</span>
+            <span><span class="swatch reasoning"></span>Reasoning</span>
+            <span><span class="swatch cache-read"></span>Cache read</span>
+            <span><span class="swatch cache-write"></span>Cache write</span>
+          </p>
+          <div id="detail-tokens"></div>
+          <button id="tokens-more" class="more" type="button" hidden>
+            Load more token entries
+          </button>
+        </section>
+        <div class="split-grid">
+          <section class="panel">
+            <h3>Goal progression</h3>
+            <div id="detail-goal"></div>
+            <button id="goal-more" class="more" type="button" hidden>
+              Load more goal states
+            </button>
+          </section>
+          <section class="panel">
+            <h3>TODO progression and final list</h3>
+            <div id="detail-todo"></div>
+            <button id="todo-more" class="more" type="button" hidden>
+              Load more TODO history/items
+            </button>
+          </section>
+        </div>
+        <section class="panel">
+          <h3>Source-ordered session stream</h3>
+          <p class="muted">
+            Stored text remains collapsed until explicitly opened.
+          </p>
+          <div id="detail-stream"></div>
+          <button id="stream-more" class="more" type="button" hidden>
+            Load more evidence
+          </button>
+        </section>
       </section>
     </main>
-    <footer>Scrubbed local index · no writes, exports, telemetry, or external assets · refresh data with <code>pi-session-analyzer ingest</code></footer>
+    <footer>
+      Scrubbed local index · no writes, exports, telemetry, or external assets ·
+      refresh data with <code>pi-session-analyzer ingest</code>
+    </footer>
   </body>
 </html>
