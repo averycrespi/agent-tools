@@ -88,7 +88,7 @@ func (s *Reader) toolOutcomeReports(ctx context.Context, sessionIDs []string) (m
 	rows, err := s.query.QueryContext(ctx, `SELECT s.id,
  (SELECT COUNT(*) FROM tool_calls c WHERE c.session_id=s.id),
  (SELECT COUNT(*) FROM tool_results r WHERE r.session_id=s.id),
- (SELECT COALESCE(SUM(MIN(length(CAST(r.content AS BLOB)),?)),0) FROM tool_results r WHERE r.session_id=s.id)
+ (SELECT COALESCE(SUM(MIN(length(CAST(r.content AS BLOB)),?)),0) FROM tool_results r WHERE r.session_id=s.id AND r.is_error IS NULL)
  FROM sessions s WHERE s.id IN (`+placeholders+`) ORDER BY s.id`, countArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("count tool outcomes: %w", err)
@@ -151,7 +151,10 @@ func (s *Reader) toolOutcomeReports(ctx context.Context, sessionIDs []string) (m
 	}
 	resultArgs := []any{toolOutcomeContentBytes, toolOutcomeContentBytes}
 	resultArgs = append(resultArgs, eligibleArgs...)
-	rows, err = s.query.QueryContext(ctx, `SELECT session_id,call_id,name,COALESCE(substr(CAST(content AS BLOB),1,?),X''),is_error,length(CAST(content AS BLOB))>? FROM tool_results WHERE session_id IN (`+eligiblePlaceholders+`) ORDER BY session_id,id`, resultArgs...)
+	rows, err = s.query.QueryContext(ctx, `SELECT session_id,call_id,name,
+ CASE WHEN is_error IS NULL THEN COALESCE(substr(CAST(content AS BLOB),1,?),X'') ELSE X'' END,
+ is_error,
+ is_error IS NULL AND length(CAST(content AS BLOB))>? FROM tool_results WHERE session_id IN (`+eligiblePlaceholders+`) ORDER BY session_id,id`, resultArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("query tool results: %w", err)
 	}

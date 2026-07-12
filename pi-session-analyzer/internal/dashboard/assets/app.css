@@ -187,14 +187,14 @@ main {
 }
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
   gap: 1px;
-  background: var(--line);
-  border: 1px solid var(--line);
+  padding: 1px;
   margin-bottom: 1rem;
 }
 .kpi {
   background: var(--panel);
+  box-shadow: 0 0 0 1px var(--line);
   padding: 1.1rem;
   min-height: 7rem;
   min-width: 0;
@@ -202,7 +202,7 @@ main {
 .kpi .value {
   display: block;
   color: var(--signal);
-  font-size: clamp(1.5rem, 3vw, 2.6rem);
+  font-size: clamp(1.4rem, 2.2vw, 2.2rem);
   letter-spacing: -0.06em;
   margin-top: 0.5rem;
   overflow-wrap: anywhere;
@@ -317,6 +317,12 @@ tbody tr:hover {
   padding: 0;
   color: var(--signal);
   min-height: 0;
+}
+a.matrix-session {
+  text-decoration: none;
+}
+a.matrix-session:hover {
+  text-decoration: underline;
 }
 .matrix-session small {
   color: var(--muted);
@@ -447,6 +453,48 @@ details p {
   border: 1px dashed var(--line);
   padding: 1rem;
   font-size: 0.75rem;
+}
+.bar-list {
+  display: grid;
+  gap: 0.45rem;
+  margin-bottom: 1.2rem;
+}
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(6rem, 10rem) 1fr 3.5rem;
+  gap: 0.7rem;
+  align-items: center;
+  font-size: 0.78rem;
+}
+.bar-label {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.bar-track {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  height: 0.85rem;
+}
+.bar-fill {
+  background: var(--cyan);
+  height: 100%;
+}
+.bar-count {
+  text-align: right;
+}
+.panel-table th,
+.panel-table td {
+  padding: 0.45rem 0.6rem;
+}
+.panel-table td:first-child {
+  overflow-wrap: anywhere;
+}
+body.drilldown .controls {
+  display: none;
+}
+#matrix-note {
+  margin-bottom: 1.5rem;
 }
 .output {
   background: var(--signal);

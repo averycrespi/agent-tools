@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	maxRangeAnalyzedCalls   = 50000
-	maxRangeAnalyzedResults = 100000
+	maxRangeAnalyzedCalls   = 200000
+	maxRangeAnalyzedResults = 400000
 )
 
 type rangeCallKey struct {
@@ -30,7 +30,7 @@ func (s *Reader) ToolOutcomeRange(ctx context.Context, fromUnix, toUnix int64) (
 SELECT
  (SELECT COUNT(*) FROM tool_calls c JOIN sessions s ON s.id=c.session_id WHERE s.started_at_unix>=? AND s.started_at_unix<?),
  (SELECT COUNT(*) FROM tool_results r JOIN sessions s ON s.id=r.session_id WHERE s.started_at_unix>=? AND s.started_at_unix<?),
- (SELECT COALESCE(SUM(MIN(length(CAST(r.content AS BLOB)),?)),0) FROM tool_results r JOIN sessions s ON s.id=r.session_id WHERE s.started_at_unix>=? AND s.started_at_unix<?)`,
+ (SELECT COALESCE(SUM(MIN(length(CAST(r.content AS BLOB)),?)),0) FROM tool_results r JOIN sessions s ON s.id=r.session_id WHERE r.is_error IS NULL AND s.started_at_unix>=? AND s.started_at_unix<?)`,
 		fromUnix, toUnix, fromUnix, toUnix, toolOutcomeContentBytes, fromUnix, toUnix).Scan(&report.TotalCalls, &report.TotalResults, &analysisContentBytes); err != nil {
 		return ToolOutcomeReport{}, fmt.Errorf("count ranged tool outcomes: %w", err)
 	}
@@ -63,7 +63,10 @@ WHERE s.started_at_unix>=? AND s.started_at_unix<? ORDER BY c.session_id,c.id`, 
 	}
 	report.AnalyzedCalls = len(calls)
 	rows, err = s.query.QueryContext(ctx, `
-SELECT r.session_id,r.call_id,r.name,COALESCE(substr(CAST(r.content AS BLOB),1,?),X''),r.is_error,length(CAST(r.content AS BLOB))>? FROM tool_results r JOIN sessions s ON s.id=r.session_id
+SELECT r.session_id,r.call_id,r.name,
+ CASE WHEN r.is_error IS NULL THEN COALESCE(substr(CAST(r.content AS BLOB),1,?),X'') ELSE X'' END,
+ r.is_error,
+ r.is_error IS NULL AND length(CAST(r.content AS BLOB))>? FROM tool_results r JOIN sessions s ON s.id=r.session_id
 WHERE s.started_at_unix>=? AND s.started_at_unix<? ORDER BY r.session_id,r.id`, toolOutcomeContentBytes, toolOutcomeContentBytes, fromUnix, toUnix)
 	if err != nil {
 		return ToolOutcomeReport{}, fmt.Errorf("query ranged tool results: %w", err)

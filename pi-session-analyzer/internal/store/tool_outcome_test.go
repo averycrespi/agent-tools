@@ -52,6 +52,28 @@ func TestToolOutcomeReportStopsBeforeOversizedContentAnalysis(t *testing.T) {
 	require.Zero(t, report.AnalyzedResults)
 }
 
+func TestToolOutcomeReportIgnoresClassifiedContentForTheAnalysisGate(t *testing.T) {
+	t.Parallel()
+
+	s, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	falsity := false
+	calls := make([]ingest.ToolCall, 257)
+	results := make([]ingest.ToolResult, len(calls))
+	for i := range calls {
+		id := fmt.Sprintf("c%03d", i)
+		calls[i] = ingest.ToolCall{ID: id, Name: "bash"}
+		results[i] = ingest.ToolResult{ID: "r" + id, CallID: id, Name: "bash", IsError: &falsity, Content: strings.Repeat("x", toolOutcomeContentBytes)}
+	}
+	require.NoError(t, s.ReplaceSession(context.Background(), ingest.Session{ID: "classified-content", ToolCalls: calls, ToolResults: results}, SourceMeta{Path: "classified-content", Size: 1}))
+	report, err := s.ToolOutcomeReport(context.Background(), "classified-content")
+	require.NoError(t, err)
+	require.False(t, report.AnalysisTruncated)
+	require.Equal(t, len(calls), report.AnalyzedCalls)
+	require.Equal(t, len(calls), report.Totals.Successes)
+}
+
 func TestToolOutcomeReportClassifiesEachExactCallOnceWithCoverage(t *testing.T) {
 	t.Parallel()
 

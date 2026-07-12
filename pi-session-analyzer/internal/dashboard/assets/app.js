@@ -119,6 +119,48 @@ function metricList(rows) {
   return list;
 }
 
+function tableFrom(headers, rows) {
+  const scroll = node("div", "table-scroll");
+  const table = node("table", "panel-table");
+  const head = node("thead");
+  const headRow = node("tr");
+  for (const header of headers) headRow.append(node("th", "", header));
+  head.append(headRow);
+  const body = node("tbody");
+  for (const cells of rows) {
+    const tr = node("tr");
+    for (const cell of cells) tr.append(node("td", "", String(cell)));
+    body.append(tr);
+  }
+  table.append(head, body);
+  scroll.append(table);
+  return scroll;
+}
+
+function barList(host, title, items, getLabel, getCount) {
+  if (title) host.append(node("p", "eyebrow", title));
+  if (!items.length) {
+    host.append(node("p", "muted", "No data in range."));
+    return;
+  }
+  const list = node("div", "bar-list");
+  const max = Math.max(1, ...items.map(getCount));
+  for (const item of items) {
+    const row = node("div", "bar-row");
+    const track = node("div", "bar-track");
+    const fill = node("div", "bar-fill");
+    fill.style.width = `${(getCount(item) / max) * 100}%`;
+    track.append(fill);
+    row.append(
+      node("span", "bar-label", getLabel(item)),
+      track,
+      node("span", "bar-count", formatInteger(getCount(item))),
+    );
+    list.append(row);
+  }
+  host.append(list);
+}
+
 function localDate(unix) {
   if (unix === null || unix === undefined) return "Untimed";
   try {
@@ -167,9 +209,10 @@ function renderOverview(data) {
       formatInteger(totals.sessions),
       `${data.bucket} buckets · ${data.timezone}`,
     ),
-    kpi("Cost as logged by Pi", formatCost(totals.cost)),
+    kpi("Cost", formatCost(totals.cost), "As logged by Pi"),
     kpi("Tool calls", formatInteger(totals.calls)),
-    kpi("Compactions / broker guards", `${totals.compact} / ${totals.guards}`),
+    kpi("Compactions", formatInteger(totals.compact)),
+    kpi("Broker guards", formatInteger(totals.guards)),
     kpi("Output tokens", formatInteger(totals.output)),
     kpi("Reasoning tokens", formatInteger(totals.reasoning)),
     kpi("Cache-read tokens", formatInteger(totals.read)),
@@ -215,7 +258,10 @@ function renderChart(buckets, timezone) {
     bar.setAttribute("tabindex", "0");
     bar.setAttribute("role", "button");
     bar.setAttribute("aria-label", bucketLabel(bucket, timezone));
-    const select = () => navigate(withBucket(state, bucket));
+    const select = () => {
+      navigate(withBucket(state, bucket));
+      $("#matrix").scrollIntoView({ behavior: "smooth" });
+    };
     bar.addEventListener("click", select);
     bar.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
@@ -269,7 +315,10 @@ function renderChart(buckets, timezone) {
       `${bucket.key}${bucket.partial ? " · partial" : ""}`,
     );
     select.type = "button";
-    select.addEventListener("click", () => navigate(withBucket(state, bucket)));
+    select.addEventListener("click", () => {
+      navigate(withBucket(state, bucket));
+      $("#matrix").scrollIntoView({ behavior: "smooth" });
+    });
     const first = node("td");
     first.append(select);
     for (const value of [
@@ -424,6 +473,20 @@ function renderTrends(buckets, stopReasons, signals, unavailable = false) {
     );
 }
 
+function toolOutcomeTable(tools) {
+  return tableFrom(
+    ["Tool", "Error rate", "Confirmed / inferred", "Classifiable / calls"],
+    tools.map((tool) => [
+      tool.tool,
+      tool.error_rate === null || tool.error_rate === undefined
+        ? "Unknown"
+        : `${(tool.error_rate * 100).toFixed(1)}%`,
+      `${tool.totals.confirmed_errors} / ${tool.totals.inferred_errors}`,
+      `${formatInteger(tool.totals.classifiable)} / ${formatInteger(tool.totals.calls)}`,
+    ]),
+  );
+}
+
 function renderToolOverview(report) {
   const host = $("#tool-overview");
   clear(host);
@@ -432,34 +495,25 @@ function renderToolOverview(report) {
       node(
         "p",
         "danger-text",
-        `${report.total_calls} calls exceed the analysis bound; rates are unavailable.`,
+        `${formatInteger(report.total_calls)} calls exceed the analysis bound; rates are unavailable.`,
       ),
     );
   host.append(
     metricList([
-      ["All calls", report.total_calls || 0],
-      ["Classifiable", report.totals?.classifiable || 0],
-      ["Unknown", report.totals?.unknown || 0],
-      ["Orphan results", report.data_quality?.orphan_results || 0],
-      ["Multiple results", report.data_quality?.multiple_results || 0],
+      ["All calls", formatInteger(report.total_calls || 0)],
+      ["Classifiable", formatInteger(report.totals?.classifiable || 0)],
+      ["Unknown", formatInteger(report.totals?.unknown || 0)],
+      [
+        "Orphan results",
+        formatInteger(report.data_quality?.orphan_results || 0),
+      ],
+      [
+        "Multiple results",
+        formatInteger(report.data_quality?.multiple_results || 0),
+      ],
     ]),
   );
-  for (const tool of report.tools || []) {
-    const details = node("details");
-    details.append(
-      node(
-        "summary",
-        "",
-        `${tool.tool} · ${rateLabel(tool.error_rate, tool.totals)}`,
-      ),
-      metricList([
-        ["Calls", tool.totals.calls],
-        ["Successes", tool.totals.successes],
-        ["Unknown", tool.totals.unknown],
-      ]),
-    );
-    host.append(details);
-  }
+  if ((report.tools || []).length) host.append(toolOutcomeTable(report.tools));
 }
 
 function renderDetectorOverview(detectors) {
@@ -469,48 +523,60 @@ function renderDetectorOverview(detectors) {
     host.append(node("p", "muted", "No detector registry metadata returned."));
     return;
   }
-  for (const detector of detectors) {
-    const row = node("div", "metric-row");
-    row.append(
-      node("span", "", detector.detector),
-      node(
-        "span",
-        "",
-        `${detector.fresh.error}E ${detector.fresh.warn}W ${detector.fresh.info}I · ${detector.fresh.structural} structural / ${detector.fresh.heuristic} heuristic · ${detector.coverage.success} ok / ${detector.coverage.failed} failed / ${detector.coverage.not_run} not run`,
-      ),
-    );
-    host.append(row);
-  }
+  host.append(
+    tableFrom(
+      [
+        "Detector",
+        "Fresh E / W / I",
+        "Structural / heuristic",
+        "OK / failed / not run",
+      ],
+      detectors.map((detector) => [
+        detector.detector,
+        `${detector.fresh.error} / ${detector.fresh.warn} / ${detector.fresh.info}`,
+        `${detector.fresh.structural} / ${detector.fresh.heuristic}`,
+        `${detector.coverage.success} / ${detector.coverage.failed} / ${detector.coverage.not_run}`,
+      ]),
+    ),
+  );
 }
 
 function renderOutcomeOverview(signals) {
   const host = $("#outcome-overview");
   clear(host);
-  const group = (title, values) => {
-    host.append(node("p", "eyebrow", title));
-    for (const item of values || []) {
-      const row = node("div", "metric-row");
-      row.append(node("span", "", item.value), node("span", "", item.count));
-      host.append(row);
-    }
-  };
-  group("GOAL OUTCOME", signals.goals);
-  group("FINAL STOP REASON", signals.stops);
+  barList(
+    host,
+    "GOAL OUTCOME",
+    signals.goals || [],
+    (item) => item.value,
+    (item) => item.count,
+  );
+  barList(
+    host,
+    "FINAL STOP REASON",
+    signals.stops || [],
+    (item) => item.value,
+    (item) => item.count,
+  );
 }
 
 function renderDistributions(signals) {
   const host = $("#distribution-overview");
   clear(host);
-  const group = (title, values) => {
-    host.append(node("p", "eyebrow", title));
-    for (const item of values || []) {
-      const row = node("div", "metric-row");
-      row.append(node("span", "", item.label), node("span", "", item.count));
-      host.append(row);
-    }
-  };
-  group("RECORDS", signals.records);
-  group("MESSAGE TURNS", signals.turns);
+  barList(
+    host,
+    "RECORDS PER SESSION",
+    signals.records || [],
+    (item) => item.label,
+    (item) => item.count,
+  );
+  barList(
+    host,
+    "MESSAGE TURNS PER SESSION",
+    signals.turns || [],
+    (item) => item.label,
+    (item) => item.count,
+  );
 }
 
 function renderMatrix(page, append = false) {
@@ -518,14 +584,13 @@ function renderMatrix(page, append = false) {
   if (!append) clear(tbody);
   for (const row of page.rows || []) {
     const tr = node("tr");
-    const button = node("button", "matrix-session", row.id.slice(0, 12));
-    button.type = "button";
-    button.append(node("small", "", "Open drilldown"));
-    button.addEventListener("click", () =>
-      navigate({ ...state, session: row.id }),
-    );
+    const link = node("a", "matrix-session", row.id.slice(0, 12));
+    link.href = stateSearch({ ...state, session: row.id });
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.append(node("small", "", "Open drilldown in a new tab"));
     const session = node("td");
-    session.append(button);
+    session.append(link);
     const start = node("td");
     start.append(
       node("span", "", localDate(row.started_at_unix)),
@@ -607,21 +672,15 @@ function renderHeader(header) {
   host.append(
     kpi("Session", header.id.slice(0, 12), localDate(header.started_at_unix)),
     kpi("Records / turns", `${header.records} / ${header.turns}`),
-    kpi("Cost as logged", formatCost(header.cost_as_logged)),
+    kpi("Cost", formatCost(header.cost_as_logged), "As logged by Pi"),
     kpi("Output", formatInteger(header.output_tokens)),
     kpi("Reasoning", formatInteger(header.reasoning_tokens)),
-    kpi(
-      "Cache read / write",
-      `${formatInteger(header.cache_read_tokens)} / ${formatInteger(header.cache_write_tokens)}`,
-    ),
-    kpi(
-      "Compactions / guards",
-      `${header.compactions} / ${header.broker_guards}`,
-    ),
-    kpi(
-      "Goal / stop",
-      `${header.goal_outcome} / ${header.stop_reason || "absent"}`,
-    ),
+    kpi("Cache read", formatInteger(header.cache_read_tokens)),
+    kpi("Cache write", formatInteger(header.cache_write_tokens)),
+    kpi("Compactions", formatInteger(header.compactions)),
+    kpi("Broker guards", formatInteger(header.broker_guards)),
+    kpi("Goal", header.goal_outcome),
+    kpi("Stop reason", header.stop_reason || "absent"),
   );
 }
 
@@ -644,16 +703,8 @@ function renderToolOverviewInto(host, report) {
         "Tool analysis is bounded or truncated; coverage metadata remains explicit.",
       ),
     );
-  for (const tool of report.tools || []) {
-    const row = node("div", "metric-row");
-    row.append(
-      node("span", "", tool.tool),
-      node("span", "", rateLabel(tool.error_rate, tool.totals)),
-    );
-    host.append(row);
-  }
-  if (!(report.tools || []).length)
-    host.append(node("p", "muted", "No tool calls."));
+  if ((report.tools || []).length) host.append(toolOutcomeTable(report.tools));
+  else host.append(node("p", "muted", "No tool calls."));
 }
 
 async function navigateEvidence(sourceLine, evidenceID) {
@@ -926,22 +977,22 @@ function renderStream(page, append = false) {
 async function loadDetail(sessionID, signal) {
   $("#detail").hidden = false;
   const base = `/api/sessions/${encodeURIComponent(sessionID)}`;
-  const header = await request(base, signal);
+  const [header, tools, findings, tokens, goal, todo, stream] =
+    await Promise.all([
+      request(base, signal),
+      request(`${base}/tools`, signal),
+      request(`${base}/diagnostics`, signal),
+      request(`${base}/tokens?limit=50`, signal),
+      request(`${base}/goal?limit=50`, signal),
+      request(`${base}/todo?snapshot_limit=50&item_limit=20`, signal),
+      request(`${base}/stream?limit=50`, signal),
+    ]);
   renderHeader(header);
-  const tools = await request(`${base}/tools`, signal);
   renderDetailTools(tools);
-  const findings = await request(`${base}/diagnostics`, signal);
   renderFindings(findings);
-  const tokens = await request(`${base}/tokens?limit=50`, signal);
   renderTokens(tokens);
-  const goal = await request(`${base}/goal?limit=50`, signal);
   renderGoal(goal);
-  const todo = await request(
-    `${base}/todo?snapshot_limit=50&item_limit=20`,
-    signal,
-  );
   renderTodo(todo);
-  const stream = await request(`${base}/stream?limit=50`, signal);
   renderStream(stream);
   $("#detail-title").focus?.();
 }
@@ -952,22 +1003,33 @@ async function loadMatrix(signal, append = false) {
     query += `&cursor=${encodeURIComponent(matrixCursor)}`;
   const page = await request(`/api/sessions?${query}`, signal);
   renderMatrix(page, append);
-  if (
-    !append &&
-    page.rows?.length === 1 &&
-    state.from &&
-    state.to &&
-    !state.session
-  )
-    navigate({ ...state, session: page.rows[0].id }, true);
+  const note = $("#matrix-note");
+  if (state.from && state.to) {
+    note.textContent = `Narrowed to the selected chart bucket starting ${localDate(Number(state.from))}.`;
+    note.hidden = false;
+  } else {
+    note.hidden = true;
+  }
 }
 
 async function loadDashboard() {
   activeController?.abort();
   activeController = new AbortController();
   const { signal } = activeController;
+  const drilldown = Boolean(state.session);
+  document.body.classList.toggle("drilldown", drilldown);
+  $("#overview").hidden = drilldown;
+  $("#matrix").hidden = drilldown;
+  $("#detail").hidden = !drilldown;
   announce("Reading the local scrubbed index…");
   try {
+    if (drilldown) {
+      await loadDetail(state.session, signal);
+      announce(
+        `Session ${state.session.slice(0, 12)} loaded from the local scrubbed index. Times shown in ${state.timezone}.`,
+      );
+      return;
+    }
     const query = overviewSearch(state);
     overview = await request(`/api/overview?${query}`, signal);
     renderOverview(overview);
@@ -985,8 +1047,6 @@ async function loadDashboard() {
       signals === null,
     );
     await loadMatrix(signal);
-    if (state.session) await loadDetail(state.session, signal);
-    else $("#detail").hidden = true;
     announce(
       `Index ready · indexed ${overview.indexed_at || "time unavailable"} · ${overview.buckets?.length || 0} ${overview.bucket} buckets · ${overview.timezone}. Run ingest to refresh.`,
     );
