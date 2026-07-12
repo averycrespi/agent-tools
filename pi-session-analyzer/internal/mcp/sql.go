@@ -20,7 +20,7 @@ type QueryResult struct {
 }
 
 // RunSelect validates and executes one bounded SELECT or CTE.
-func RunSelect(ctx context.Context, path, query string) (QueryResult, error) {
+func RunSelect(ctx context.Context, conn *robound.Conn, query string) (QueryResult, error) {
 	query = strings.TrimSpace(query)
 	query = strings.TrimSuffix(query, ";")
 	code := sqlCode(query)
@@ -34,7 +34,7 @@ func RunSelect(ctx context.Context, path, query string) (QueryResult, error) {
 	if forbiddenSQL.MatchString(code) {
 		return QueryResult{}, fmt.Errorf("query contains a forbidden operation")
 	}
-	result, err := executeReadOnly(ctx, path, "SELECT * FROM (\n"+query+"\n) LIMIT 1025")
+	result, err := executeReadOnly(ctx, conn, "SELECT * FROM (\n"+query+"\n) LIMIT 1025")
 	if err != nil {
 		return QueryResult{}, err
 	}
@@ -45,12 +45,7 @@ func RunSelect(ctx context.Context, path, query string) (QueryResult, error) {
 	return result, nil
 }
 
-func executeReadOnly(ctx context.Context, path, query string) (QueryResult, error) {
-	conn, err := robound.Open(ctx, path)
-	if err != nil {
-		return QueryResult{}, err
-	}
-	defer func() { _ = conn.Close() }()
+func executeReadOnly(ctx context.Context, conn *robound.Conn, query string) (QueryResult, error) {
 	queryCtx, cancel := robound.WithTimeout(ctx)
 	defer cancel()
 	rows, err := conn.QueryContext(queryCtx, query)

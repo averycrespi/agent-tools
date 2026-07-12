@@ -90,6 +90,7 @@ type SessionRow struct {
 
 // Store owns analyzer SQLite state.
 type Store struct {
+	*Reader
 	db   *sql.DB
 	path string
 }
@@ -140,7 +141,7 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate database: %w", err)
 	}
-	s := &Store{db: db, path: path}
+	s := &Store{Reader: newSQLReader(db), db: db, path: path}
 	if err := s.repairPermissions(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -236,11 +237,11 @@ func (s *Store) ReplaceSession(ctx context.Context, in ingest.Session, meta Sour
 	return s.repairPermissions()
 }
 
-func (s *Store) ListSessions(ctx context.Context, limit int, cwdFilter string) ([]SessionRow, error) {
+func (s *Reader) ListSessions(ctx context.Context, limit int, cwdFilter string) ([]SessionRow, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id,timestamp,cwd,source_path,schema_drift,total_records FROM sessions WHERE cwd LIKE '%' || ? || '%' ORDER BY timestamp DESC,id LIMIT ?`, cwdFilter, limit)
+	rows, err := s.query.QueryContext(ctx, `SELECT id,timestamp,cwd,source_path,schema_drift,total_records FROM sessions WHERE cwd LIKE '%' || ? || '%' ORDER BY timestamp DESC,id LIMIT ?`, cwdFilter, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
@@ -257,8 +258,8 @@ func (s *Store) ListSessions(ctx context.Context, limit int, cwdFilter string) (
 }
 
 // ResolveSession resolves an exact ID or unique prefix.
-func (s *Store) ResolveSession(ctx context.Context, prefix string) (string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM sessions WHERE id=? OR id LIKE ? ORDER BY id LIMIT 2`, prefix, prefix+"%")
+func (s *Reader) ResolveSession(ctx context.Context, prefix string) (string, error) {
+	rows, err := s.query.QueryContext(ctx, `SELECT id FROM sessions WHERE id=? OR id LIKE ? ORDER BY id LIMIT 2`, prefix, prefix+"%")
 	if err != nil {
 		return "", err
 	}

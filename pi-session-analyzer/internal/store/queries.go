@@ -222,8 +222,8 @@ func nextGeneration(ctx context.Context, tx *sql.Tx, sessionID, detector string)
 	return generation, err
 }
 
-func (s *Store) Findings(ctx context.Context, sessionID string) ([]FindingRow, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT CAST(f.id AS TEXT),f.session_id,f.detector,f.classification,f.severity,f.summary,f.first_evidence_id,f.details,f.source_line,f.generation,f.stale,COALESCE(r.status,''),COALESCE(r.error_summary,'') FROM findings f LEFT JOIN detector_runs r ON r.session_id=f.session_id AND r.detector=f.detector WHERE (?='' OR f.session_id=?) ORDER BY f.detector,f.session_id,f.first_evidence_id`, sessionID, sessionID)
+func (s *Reader) Findings(ctx context.Context, sessionID string) ([]FindingRow, error) {
+	rows, err := s.query.QueryContext(ctx, `SELECT CAST(f.id AS TEXT),f.session_id,f.detector,f.classification,f.severity,f.summary,f.first_evidence_id,f.details,f.source_line,f.generation,f.stale,COALESCE(r.status,''),COALESCE(r.error_summary,'') FROM findings f LEFT JOIN detector_runs r ON r.session_id=f.session_id AND r.detector=f.detector WHERE (?='' OR f.session_id=?) ORDER BY f.detector,f.session_id,f.first_evidence_id`, sessionID, sessionID)
 	if err != nil {
 		return nil, err
 	}

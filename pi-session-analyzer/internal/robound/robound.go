@@ -11,6 +11,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ncruces/go-sqlite3"
@@ -27,6 +28,44 @@ const (
 type Conn struct {
 	db   *sql.DB
 	conn *sql.Conn
+	mu   sync.Mutex
+}
+
+type Rows struct {
+	rows    *sql.Rows
+	release sync.Once
+	unlock  func()
+}
+
+func (r *Rows) Next() bool {
+	next := r.rows.Next()
+	if !next {
+		r.release.Do(r.unlock)
+	}
+	return next
+}
+
+func (r *Rows) Scan(dest ...any) error { return r.rows.Scan(dest...) }
+
+func (r *Rows) Columns() ([]string, error) { return r.rows.Columns() }
+
+func (r *Rows) Close() error {
+	err := r.rows.Close()
+	r.release.Do(r.unlock)
+	return err
+}
+
+func (r *Rows) Err() error { return r.rows.Err() }
+
+type Row struct {
+	row     *sql.Row
+	release sync.Once
+	unlock  func()
+}
+
+func (r *Row) Scan(dest ...any) error {
+	defer r.release.Do(r.unlock)
+	return r.row.Scan(dest...)
 }
 
 func Open(ctx context.Context, path string) (*Conn, error) {
@@ -74,18 +113,29 @@ func WithTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 }
 
 func (c *Conn) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return errors.Join(c.conn.Close(), c.db.Close())
 }
 
-func (c *Conn) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	return c.conn.QueryContext(ctx, query, args...)
+func (c *Conn) QueryContext(ctx context.Context, query string, args ...any) (*Rows, error) {
+	c.mu.Lock()
+	rows, err := c.conn.QueryContext(ctx, query, args...)
+	if err != nil {
+		c.mu.Unlock()
+		return nil, err
+	}
+	return &Rows{rows: rows, unlock: c.mu.Unlock}, nil
 }
 
-func (c *Conn) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	return c.conn.QueryRowContext(ctx, query, args...)
+func (c *Conn) QueryRowContext(ctx context.Context, query string, args ...any) *Row {
+	c.mu.Lock()
+	return &Row{row: c.conn.QueryRowContext(ctx, query, args...), unlock: c.mu.Unlock}
 }
 
 func (c *Conn) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.conn.ExecContext(ctx, query, args...)
 }
 

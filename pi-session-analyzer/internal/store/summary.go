@@ -28,20 +28,20 @@ type Summary struct {
 	DetectorRuns                                                     []DetectorRun
 }
 
-func (s *Store) SessionSummary(ctx context.Context, prefix string) (Summary, error) {
+func (s *Reader) SessionSummary(ctx context.Context, prefix string) (Summary, error) {
 	id, err := s.ResolveSession(ctx, prefix)
 	if err != nil {
 		return Summary{}, err
 	}
 	summary := Summary{Session: SessionRow{ID: id}, Tools: map[string]ToolStats{}, GoalState: "no goal started"}
-	if err = s.db.QueryRowContext(ctx, `SELECT timestamp,cwd,source_path,schema_drift,total_records FROM sessions WHERE id=?`, id).Scan(&summary.Session.Timestamp, &summary.Session.CWD, &summary.Session.SourcePath, &summary.Session.SchemaDrift, &summary.Session.TotalRecords); err != nil {
+	if err = s.query.QueryRowContext(ctx, `SELECT timestamp,cwd,source_path,schema_drift,total_records FROM sessions WHERE id=?`, id).Scan(&summary.Session.Timestamp, &summary.Session.CWD, &summary.Session.SourcePath, &summary.Session.SchemaDrift, &summary.Session.TotalRecords); err != nil {
 		return Summary{}, err
 	}
 	summary.SchemaDrift = summary.Session.SchemaDrift
-	if err = s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(cost),0),COALESCE(SUM(output_tokens),0),COALESCE(SUM(reasoning_tokens),0),COALESCE(SUM(cache_read_tokens),0),COALESCE(SUM(cache_write_tokens),0),COALESCE((SELECT stop_reason FROM messages WHERE session_id=? AND role='assistant' AND stop_reason<>'' ORDER BY source_line DESC,id DESC LIMIT 1),'') FROM messages WHERE session_id=?`, id, id).Scan(&summary.Cost, &summary.OutputTokens, &summary.ReasoningTokens, &summary.CacheReadTokens, &summary.CacheWriteTokens, &summary.FinalStopReason); err != nil {
+	if err = s.query.QueryRowContext(ctx, `SELECT COALESCE(SUM(cost),0),COALESCE(SUM(output_tokens),0),COALESCE(SUM(reasoning_tokens),0),COALESCE(SUM(cache_read_tokens),0),COALESCE(SUM(cache_write_tokens),0),COALESCE((SELECT stop_reason FROM messages WHERE session_id=? AND role='assistant' AND stop_reason<>'' ORDER BY source_line DESC,id DESC LIMIT 1),'') FROM messages WHERE session_id=?`, id, id).Scan(&summary.Cost, &summary.OutputTokens, &summary.ReasoningTokens, &summary.CacheReadTokens, &summary.CacheWriteTokens, &summary.FinalStopReason); err != nil {
 		return Summary{}, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT name,COUNT(*) FROM tool_calls WHERE session_id=? GROUP BY name`, id)
+	rows, err := s.query.QueryContext(ctx, `SELECT name,COUNT(*) FROM tool_calls WHERE session_id=? GROUP BY name`, id)
 	if err != nil {
 		return Summary{}, err
 	}
@@ -57,7 +57,7 @@ func (s *Store) SessionSummary(ctx context.Context, prefix string) (Summary, err
 	if err = rows.Close(); err != nil {
 		return Summary{}, err
 	}
-	rows, err = s.db.QueryContext(ctx, `SELECT COALESCE(NULLIF(r.name,''),c.name,''),COUNT(*) FROM tool_results r LEFT JOIN tool_calls c ON c.session_id=r.session_id AND c.id=r.call_id WHERE r.session_id=? AND r.is_error=1 GROUP BY COALESCE(NULLIF(r.name,''),c.name,'')`, id)
+	rows, err = s.query.QueryContext(ctx, `SELECT COALESCE(NULLIF(r.name,''),c.name,''),COUNT(*) FROM tool_results r LEFT JOIN tool_calls c ON c.session_id=r.session_id AND c.id=r.call_id WHERE r.session_id=? AND r.is_error=1 GROUP BY COALESCE(NULLIF(r.name,''),c.name,'')`, id)
 	if err != nil {
 		return Summary{}, err
 	}
@@ -75,14 +75,14 @@ func (s *Store) SessionSummary(ctx context.Context, prefix string) (Summary, err
 	if err = rows.Close(); err != nil {
 		return Summary{}, err
 	}
-	if err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE session_id=? AND type='compaction'`, id).Scan(&summary.Compactions); err != nil {
+	if err = s.query.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE session_id=? AND type='compaction'`, id).Scan(&summary.Compactions); err != nil {
 		return Summary{}, err
 	}
-	if err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM custom_messages WHERE session_id=? AND type='broker-guard'`, id).Scan(&summary.BrokerGuards); err != nil {
+	if err = s.query.QueryRowContext(ctx, `SELECT COUNT(*) FROM custom_messages WHERE session_id=? AND type='broker-guard'`, id).Scan(&summary.BrokerGuards); err != nil {
 		return Summary{}, err
 	}
 	var goalStatus string
-	err = s.db.QueryRowContext(ctx, `SELECT status FROM custom_state WHERE session_id=? AND type='goal-state' ORDER BY source_line DESC,id DESC LIMIT 1`, id).Scan(&goalStatus)
+	err = s.query.QueryRowContext(ctx, `SELECT status FROM custom_state WHERE session_id=? AND type='goal-state' ORDER BY source_line DESC,id DESC LIMIT 1`, id).Scan(&goalStatus)
 	switch {
 	case err == nil && goalStatus == "":
 		summary.GoalState = "started (status unavailable)"
@@ -95,7 +95,7 @@ func (s *Store) SessionSummary(ctx context.Context, prefix string) (Summary, err
 	if err != nil {
 		return Summary{}, err
 	}
-	rows, err = s.db.QueryContext(ctx, `SELECT detector,status,error_summary,generation FROM detector_runs WHERE session_id=? ORDER BY detector`, id)
+	rows, err = s.query.QueryContext(ctx, `SELECT detector,status,error_summary,generation FROM detector_runs WHERE session_id=? ORDER BY detector`, id)
 	if err != nil {
 		return Summary{}, err
 	}

@@ -33,6 +33,20 @@ func TestCommandsRequireSpecificArguments(t *testing.T) {
 	require.Contains(t, err.Error(), "detect accepts at most one SESSION_ID")
 }
 
+func TestMCPMissingDatabaseDoesNotCreateIt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	dbPath := filepath.Join(home, "data", "pi-session-analyzer", "sessions.db")
+
+	cmd := newRootCommand()
+	cmd.SetArgs([]string{"mcp"})
+	err := cmd.Execute()
+	require.ErrorContains(t, err, "run pi-session-analyzer ingest first")
+	_, statErr := os.Stat(dbPath)
+	require.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
 func TestCommandWorkflowAndDefaults(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

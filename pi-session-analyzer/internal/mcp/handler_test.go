@@ -3,16 +3,24 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	gomcp "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/require"
 )
 
+func newTestHandler(t *testing.T) *Handler {
+	t.Helper()
+	path, _ := testDatabase(t)
+	boundary := testBoundary(t, path)
+	return NewHandler(boundary)
+}
+
 func TestCompleteRegistryIsClosedWorldReadOnly(t *testing.T) {
-	path, db := testDatabase(t)
-	handler := NewHandler(db, path)
+	handler := newTestHandler(t)
 	tools := handler.Tools()
 	require.Len(t, tools, 6)
 	names := []string{}
@@ -29,8 +37,7 @@ func TestCompleteRegistryIsClosedWorldReadOnly(t *testing.T) {
 }
 
 func TestAllHandlerResponsesUseValidJSONCap(t *testing.T) {
-	path, db := testDatabase(t)
-	handler := NewHandler(db, path)
+	handler := newTestHandler(t)
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "run_select"
 	req.Params.Arguments = map[string]any{"query": `SELECT printf('%.*c', 60000, 'x') AS huge`}
@@ -56,8 +63,7 @@ func TestResponseCapBoundsBeforeSerialization(t *testing.T) {
 }
 
 func TestGetMessageProjectionAndArgumentErrors(t *testing.T) {
-	path, db := testDatabase(t)
-	handler := NewHandler(db, path)
+	handler := newTestHandler(t)
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "get_message"
 	req.Params.Arguments = map[string]any{"session_id": "s", "message_id": "m000", "path": "message.Text"}
@@ -79,9 +85,40 @@ func TestGetMessageProjectionAndArgumentErrors(t *testing.T) {
 	require.True(t, strings.Contains(result.Content[0].(gomcp.TextContent).Text, "unknown tool"))
 }
 
+func TestConcurrentHandlerReadsShareBoundarySafely(t *testing.T) {
+	handler := newTestHandler(t)
+	start := make(chan struct{})
+	errs := make(chan error, 20)
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			req := gomcp.CallToolRequest{}
+			if i%2 == 0 {
+				req.Params.Name = "list_sessions"
+			} else {
+				req.Params.Name = "run_select"
+				req.Params.Arguments = map[string]any{"query": "SELECT id FROM sessions"}
+			}
+			result, err := handler.Handle(context.Background(), req)
+			if err == nil && result.IsError {
+				err = fmt.Errorf("tool returned error: %v", result.Content)
+			}
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+}
+
 func TestConversationCountIsBounded(t *testing.T) {
-	path, db := testDatabase(t)
-	handler := NewHandler(db, path)
+	handler := newTestHandler(t)
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "get_conversation"
 	req.Params.Arguments = map[string]any{"session_id": "s", "max_messages": 1000}

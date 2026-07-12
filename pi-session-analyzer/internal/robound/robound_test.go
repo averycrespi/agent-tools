@@ -33,6 +33,25 @@ func TestOpenUsesExistingDatabaseAndRejectsWrites(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestQueryRowReleasesBoundaryOnlyOnce(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	db, err := sql.Open("sqlite3", path)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE sample (value TEXT); INSERT INTO sample VALUES ('kept')`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	conn, err := Open(context.Background(), path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, conn.Close()) })
+
+	row := conn.QueryRowContext(context.Background(), `SELECT value FROM sample`)
+	var value string
+	require.NoError(t, row.Scan(&value))
+	require.Error(t, row.Scan(&value))
+}
+
 func TestOpenMissingDatabaseDoesNotCreateIt(t *testing.T) {
 	t.Parallel()
 

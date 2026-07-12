@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/ingest"
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/robound"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -27,22 +28,32 @@ func testDatabase(t *testing.T) (string, *store.Store) {
 	return path, db
 }
 
+func testBoundary(t *testing.T, path string) *robound.Conn {
+	t.Helper()
+	boundary, err := robound.Open(context.Background(), path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, boundary.Close()) })
+	return boundary
+}
+
 func TestRunSelectAcceptedAndRejectedQueries(t *testing.T) {
 	path, _ := testDatabase(t)
+	boundary := testBoundary(t, path)
 	for _, query := range []string{"SELECT id FROM sessions", "SELECT 'delete' AS ordinary_text", "SELECT 1 /* delete is data here */", "SELECT/* adjacent comment */1", "SELECT id FROM sessions -- trailing comment", "WITH ids AS (SELECT id FROM sessions) SELECT * FROM ids"} {
-		result, err := RunSelect(context.Background(), path, query)
+		result, err := RunSelect(context.Background(), boundary, query)
 		require.NoError(t, err, query)
 		require.Len(t, result.Rows, 1)
 	}
 	for _, query := range []string{"DELETE FROM sessions", "PRAGMA table_info(sessions)", "ATTACH DATABASE 'x' AS x", "SELECT 1; SELECT 2", "WITH gone AS (DELETE FROM sessions RETURNING *) SELECT * FROM gone"} {
-		_, err := RunSelect(context.Background(), path, query)
+		_, err := RunSelect(context.Background(), boundary, query)
 		require.Error(t, err, query)
 	}
 }
 
 func TestReadOnlyBoundaryRejectsWriteWhenLexicalGuardBypassed(t *testing.T) {
 	path, db := testDatabase(t)
-	_, err := executeReadOnly(context.Background(), path, "DELETE FROM sessions")
+	boundary := testBoundary(t, path)
+	_, err := executeReadOnly(context.Background(), boundary, "DELETE FROM sessions")
 	require.Error(t, err)
 	sessions, listErr := db.ListSessions(context.Background(), 10, "")
 	require.NoError(t, listErr)
@@ -51,22 +62,25 @@ func TestReadOnlyBoundaryRejectsWriteWhenLexicalGuardBypassed(t *testing.T) {
 
 func TestRunSelectRejectsOversizedCellBeforeResponseSerialization(t *testing.T) {
 	path, _ := testDatabase(t)
-	_, err := RunSelect(context.Background(), path, `SELECT printf('%.*c', 1000000, 'x')`)
+	boundary := testBoundary(t, path)
+	_, err := RunSelect(context.Background(), boundary, `SELECT printf('%.*c', 1000000, 'x')`)
 	require.Error(t, err)
 }
 
 func TestRunSelectHonorsCanceledContext(t *testing.T) {
 	path, _ := testDatabase(t)
+	boundary := testBoundary(t, path)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := RunSelect(ctx, path, "SELECT id FROM sessions")
+	_, err := RunSelect(ctx, boundary, "SELECT id FROM sessions")
 	require.Error(t, err)
 }
 
 func TestRunSelectEnforcesInternalTimeout(t *testing.T) {
 	path, _ := testDatabase(t)
+	boundary := testBoundary(t, path)
 	started := time.Now()
-	_, err := RunSelect(context.Background(), path, `WITH RECURSIVE infinite(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM infinite) SELECT sum(x) FROM infinite`)
+	_, err := RunSelect(context.Background(), boundary, `WITH RECURSIVE infinite(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM infinite) SELECT sum(x) FROM infinite`)
 	require.Error(t, err)
 	require.GreaterOrEqual(t, time.Since(started), 4*time.Second)
 	require.Less(t, time.Since(started), 8*time.Second)
@@ -74,17 +88,19 @@ func TestRunSelectEnforcesInternalTimeout(t *testing.T) {
 
 func TestRunSelectRejectsRowsWiderThanSharedColumnLimit(t *testing.T) {
 	path, _ := testDatabase(t)
+	boundary := testBoundary(t, path)
 	columns := make([]string, 33)
 	for i := range columns {
 		columns[i] = fmt.Sprintf("printf('%%.*c', 60000, 'x') AS c%d", i)
 	}
-	_, err := RunSelect(context.Background(), path, "SELECT "+strings.Join(columns, ","))
+	_, err := RunSelect(context.Background(), boundary, "SELECT "+strings.Join(columns, ","))
 	require.Error(t, err)
 }
 
 func TestRunSelectBoundsCumulativeRowsBeforeSerialization(t *testing.T) {
 	path, _ := testDatabase(t)
-	result, err := RunSelect(context.Background(), path, `WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1025) SELECT printf('%.*c', 60000, 'x') AS value FROM n`)
+	boundary := testBoundary(t, path)
+	result, err := RunSelect(context.Background(), boundary, `WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1025) SELECT printf('%.*c', 60000, 'x') AS value FROM n`)
 	require.NoError(t, err)
 	require.Empty(t, result.Rows)
 	require.True(t, result.Truncated)
@@ -92,7 +108,8 @@ func TestRunSelectBoundsCumulativeRowsBeforeSerialization(t *testing.T) {
 
 func TestRunSelectAppliesIndependentRowCap(t *testing.T) {
 	path, _ := testDatabase(t)
-	result, err := RunSelect(context.Background(), path, `WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<2000) SELECT x FROM n`)
+	boundary := testBoundary(t, path)
+	result, err := RunSelect(context.Background(), boundary, `WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<2000) SELECT x FROM n`)
 	require.NoError(t, err)
 	require.Len(t, result.Rows, 1024)
 	require.True(t, result.Truncated)

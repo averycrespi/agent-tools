@@ -9,6 +9,7 @@ import (
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/app"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/detect"
 	analyzermcp "github.com/averycrespi/agent-tools/pi-session-analyzer/internal/mcp"
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/robound"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/store"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
@@ -115,13 +116,13 @@ func newDetectCommand(opts *options) *cobra.Command {
 	}}
 }
 func newMCPCommand(opts *options) *cobra.Command {
-	return &cobra.Command{Use: "mcp", Short: "Serve bounded read-only MCP tools over stdio", Args: noArgs("mcp"), RunE: func(_ *cobra.Command, _ []string) error {
-		db, err := store.Open(opts.dbPath)
+	return &cobra.Command{Use: "mcp", Short: "Serve bounded read-only MCP tools over stdio", Args: noArgs("mcp"), RunE: func(cmd *cobra.Command, _ []string) error {
+		boundary, err := robound.Open(cmd.Context(), opts.dbPath)
 		if err != nil {
 			return err
 		}
-		defer func() { _ = db.Close() }()
-		handler := analyzermcp.NewHandler(db, opts.dbPath)
+		defer func() { _ = boundary.Close() }()
+		handler := analyzermcp.NewHandler(boundary)
 		server := mcpserver.NewMCPServer("pi-session-analyzer", "0.1.0")
 		for _, tool := range handler.Tools() {
 			server.AddTool(tool, handler.Handle)

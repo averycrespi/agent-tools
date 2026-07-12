@@ -15,7 +15,7 @@ type ConversationEntry struct {
 	IsError                                *bool
 }
 
-func (s *Store) Conversation(ctx context.Context, prefix, anchor string, limit int) ([]ConversationEntry, error) {
+func (s *Reader) Conversation(ctx context.Context, prefix, anchor string, limit int) ([]ConversationEntry, error) {
 	id, err := s.ResolveSession(ctx, prefix)
 	if err != nil {
 		return nil, err
@@ -25,14 +25,14 @@ func (s *Store) Conversation(ctx context.Context, prefix, anchor string, limit i
 	}
 	anchorLine := 0
 	if anchor != "" {
-		if err = s.db.QueryRowContext(ctx, `SELECT source_line FROM messages WHERE session_id=? AND id=?`, id, anchor).Scan(&anchorLine); err != nil {
+		if err = s.query.QueryRowContext(ctx, `SELECT source_line FROM messages WHERE session_id=? AND id=?`, id, anchor).Scan(&anchorLine); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return nil, fmt.Errorf("message %q not found in session %s", anchor, id)
 			}
 			return nil, err
 		}
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.query.QueryContext(ctx, `
 SELECT kind,id,role,name,stop_reason,text,source_line,is_error FROM (
  SELECT 'message' AS kind,id,role,'' AS name,stop_reason,text,source_line,NULL AS is_error FROM messages WHERE session_id=? AND source_line>=?
  UNION ALL
@@ -59,13 +59,13 @@ SELECT kind,id,role,name,stop_reason,text,source_line,is_error FROM (
 	return entries, rows.Err()
 }
 
-func (s *Store) Message(ctx context.Context, sessionPrefix, messageID string) (map[string]any, error) {
+func (s *Reader) Message(ctx context.Context, sessionPrefix, messageID string) (map[string]any, error) {
 	id, err := s.ResolveSession(ctx, sessionPrefix)
 	if err != nil {
 		return nil, err
 	}
 	var message ingest.Message
-	err = s.db.QueryRowContext(ctx, `SELECT id,parent_id,source_line,timestamp,role,model,stop_reason,text,input_tokens,output_tokens,reasoning_tokens,cache_read_tokens,cache_write_tokens,cost FROM messages WHERE session_id=? AND id=?`, id, messageID).Scan(
+	err = s.query.QueryRowContext(ctx, `SELECT id,parent_id,source_line,timestamp,role,model,stop_reason,text,input_tokens,output_tokens,reasoning_tokens,cache_read_tokens,cache_write_tokens,cost FROM messages WHERE session_id=? AND id=?`, id, messageID).Scan(
 		&message.ID, &message.ParentID, &message.SourceLine, &message.Timestamp, &message.Role, &message.Model, &message.StopReason, &message.Text,
 		&message.InputTokens, &message.OutputTokens, &message.ReasoningTokens, &message.CacheReadTokens, &message.CacheWriteTokens, &message.Cost,
 	)
@@ -86,8 +86,8 @@ func (s *Store) Message(ctx context.Context, sessionPrefix, messageID string) (m
 	return map[string]any{"session_id": id, "message": message, "tool_calls": calls, "tool_results": results}, nil
 }
 
-func (s *Store) messageToolCalls(ctx context.Context, sessionID, messageID string) ([]ingest.ToolCall, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,message_id,source_line,name,arguments FROM tool_calls WHERE session_id=? AND message_id=? ORDER BY source_line,id`, sessionID, messageID)
+func (s *Reader) messageToolCalls(ctx context.Context, sessionID, messageID string) ([]ingest.ToolCall, error) {
+	rows, err := s.query.QueryContext(ctx, `SELECT id,message_id,source_line,name,arguments FROM tool_calls WHERE session_id=? AND message_id=? ORDER BY source_line,id`, sessionID, messageID)
 	if err != nil {
 		return nil, err
 	}
@@ -103,8 +103,8 @@ func (s *Store) messageToolCalls(ctx context.Context, sessionID, messageID strin
 	return calls, rows.Err()
 }
 
-func (s *Store) messageToolResults(ctx context.Context, sessionID, messageID string) ([]ingest.ToolResult, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,message_id,call_id,source_line,name,content,is_error FROM tool_results WHERE session_id=? AND message_id=? ORDER BY source_line,id`, sessionID, messageID)
+func (s *Reader) messageToolResults(ctx context.Context, sessionID, messageID string) ([]ingest.ToolResult, error) {
+	rows, err := s.query.QueryContext(ctx, `SELECT id,message_id,call_id,source_line,name,content,is_error FROM tool_results WHERE session_id=? AND message_id=? ORDER BY source_line,id`, sessionID, messageID)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ type FailureQuery struct {
 	Detector, Classification, MinSeverity string
 }
 
-func (s *Store) TopFailures(ctx context.Context, q FailureQuery) ([]FindingRow, error) {
+func (s *Reader) TopFailures(ctx context.Context, q FailureQuery) ([]FindingRow, error) {
 	if q.Limit <= 0 || q.Limit > 50 {
 		q.Limit = 50
 	}
@@ -137,7 +137,7 @@ func (s *Store) TopFailures(ctx context.Context, q FailureQuery) ([]FindingRow, 
 		q.MinSeverity = "warn"
 	}
 	minRank := severityRank(q.MinSeverity)
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.query.QueryContext(ctx, `
 SELECT CAST(f.id AS TEXT),f.session_id,f.detector,f.classification,f.severity,f.summary,f.first_evidence_id,f.details,f.source_line,f.generation,f.stale,COALESCE(r.status,''),COALESCE(r.error_summary,'')
 FROM findings f LEFT JOIN detector_runs r ON r.session_id=f.session_id AND r.detector=f.detector
 WHERE (?='' OR f.detector=?) AND (?='' OR f.classification=?)
