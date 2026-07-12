@@ -8,23 +8,48 @@
     <script type="module" src="/assets/app.js"></script>
   </head>
   <body>
+    <a class="skip" href="#content">Skip to dashboard</a>
     <header class="masthead">
       <div>
-        <p class="eyebrow">LOCAL DIAGNOSTIC INSTRUMENT</p>
-        <h1>Session Analyzer</h1>
+        <p class="eyebrow">LOCAL DIAGNOSTIC INSTRUMENT / VIEW ONLY</p>
+        <h1>Session<br />Analyzer</h1>
       </div>
       <p class="privacy" role="note">Private — not safe to share or screenshot</p>
     </header>
-    <main>
-      <section class="empty" aria-labelledby="status-title">
-        <p class="index-mark" aria-hidden="true">π</p>
-        <div>
-          <p class="eyebrow">INDEX CONNECTION</p>
-          <h2 id="status-title">Dashboard initializing</h2>
-          <p>Reading the local scrubbed index. No session data leaves this machine.</p>
-        </div>
+    <nav class="controls" aria-label="Dashboard filters">
+      <label>Range<select id="range"><option value="7d">7 days</option><option value="30d">30 days</option><option value="90d">90 days</option><option value="all">All history</option></select></label>
+      <label>Bucket<select id="bucket"><option value="auto">Adaptive</option><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option></select></label>
+      <label>From date<input id="date-from" type="date" /></label>
+      <label>To date (exclusive)<input id="date-to" type="date" /></label>
+      <label>Matrix order<select id="direction"><option value="desc">Newest first</option><option value="asc">Oldest first</option></select></label>
+      <label>Timezone<input id="timezone" size="22" aria-describedby="timezone-note" /></label>
+      <span id="timezone-note" class="control-note">IANA timezone · browser-local by default</span>
+      <button id="refresh" type="button">Refresh index view</button>
+    </nav>
+    <main id="content">
+      <div id="notice" class="notice" role="status" aria-live="polite">Connecting to the local scrubbed index…</div>
+      <section id="overview" aria-labelledby="overview-title">
+        <div class="section-heading"><p class="eyebrow">01 / TIME RANGE</p><h2 id="overview-title">Operational overview</h2></div>
+        <div id="kpis" class="kpi-grid"></div>
+        <div class="panel chart-panel"><div><h3>Sessions started</h3><p id="chart-summary" class="muted"></p></div><div id="session-chart"></div><div class="table-scroll"><table id="bucket-table"><caption>Accessible session bucket values</caption><thead><tr><th>Bucket</th><th>Sessions</th><th>Cost</th><th>Tool calls</th><th>Compactions</th></tr></thead><tbody></tbody></table></div></div>
+        <div id="trend-grid" class="trend-grid" aria-label="Additional per-bucket trends"></div>
+        <div class="split-grid"><section class="panel"><h3>Classifiable tool outcomes</h3><div id="tool-overview"></div></section><section class="panel"><h3>Detector freshness</h3><div id="detector-overview"></div></section></div>
+        <div class="split-grid"><section class="panel"><h3>Goal and stop mix</h3><div id="outcome-overview"></div></section><section class="panel"><h3>Session shape</h3><div id="distribution-overview"></div></section></div>
+      </section>
+      <section id="matrix" aria-labelledby="matrix-title">
+        <div class="section-heading"><p class="eyebrow">02 / SELECTION BRIDGE</p><h2 id="matrix-title">Session signal matrix</h2></div>
+        <p class="muted">Select a chart bucket to narrow this table. Select a session to inspect source-ordered evidence.</p>
+        <div class="table-scroll panel"><table id="matrix-table"><caption>Sessions and diagnostic signals</caption><thead><tr><th>Session</th><th>Start / project</th><th>Records / turns</th><th>Split tokens</th><th>Tool coverage</th><th>Compactions / guards</th><th>Findings / detectors</th><th>Goal / TODO / stop</th><th>Schema</th></tr></thead><tbody></tbody></table><button id="matrix-more" class="more" type="button" hidden>Load next page</button></div>
+      </section>
+      <section id="detail" aria-labelledby="detail-title" hidden>
+        <div class="section-heading"><p class="eyebrow">03 / LINEAR EVIDENCE</p><h2 id="detail-title">Session drilldown</h2><button id="close-detail" type="button">Back to matrix</button></div>
+        <div id="session-header" class="kpi-grid"></div>
+        <div class="split-grid"><section class="panel"><h3>Per-tool outcomes</h3><div id="detail-tools"></div></section><section class="panel"><h3>Detector status and findings</h3><div id="detail-findings"></div></section></div>
+        <section class="panel"><h3>Split-token sequence and compactions</h3><div id="detail-tokens"></div><button id="tokens-more" class="more" type="button" hidden>Load more token entries</button></section>
+        <div class="split-grid"><section class="panel"><h3>Goal progression</h3><div id="detail-goal"></div><button id="goal-more" class="more" type="button" hidden>Load more goal states</button></section><section class="panel"><h3>TODO progression and final list</h3><div id="detail-todo"></div><button id="todo-more" class="more" type="button" hidden>Load more TODO history/items</button></section></div>
+        <section class="panel"><h3>Source-ordered session stream</h3><p class="muted">Stored text remains collapsed until explicitly opened.</p><div id="detail-stream"></div><button id="stream-more" class="more" type="button" hidden>Load more evidence</button></section>
       </section>
     </main>
-    <footer>Index is view-only · refresh with <code>pi-session-analyzer ingest</code></footer>
+    <footer>Scrubbed local index · no writes, exports, telemetry, or external assets · refresh data with <code>pi-session-analyzer ingest</code></footer>
   </body>
 </html>

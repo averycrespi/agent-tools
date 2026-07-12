@@ -64,6 +64,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveAsset(w, "assets/app.css", "text/css; charset=utf-8")
 	case "/assets/app.js":
 		h.serveAsset(w, "assets/app.js", "text/javascript; charset=utf-8")
+	case "/assets/state.js":
+		h.serveAsset(w, "assets/state.js", "text/javascript; charset=utf-8")
+	case "/assets/view-model.js":
+		h.serveAsset(w, "assets/view-model.js", "text/javascript; charset=utf-8")
 	case "/api/overview":
 		h.serveOverview(w, r)
 	case "/api/sessions":
@@ -92,6 +96,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			case strings.HasSuffix(r.URL.Path, "/goal"):
 				h.serveGoalDiagnostics(w, r)
+				return
+			case strings.HasSuffix(r.URL.Path, "/detail"):
+				h.serveEntryDetail(w, r)
 				return
 			}
 		}

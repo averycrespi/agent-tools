@@ -17,14 +17,30 @@ func (h *Handler) serveOverview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
 		return
 	}
-	query, err := parseOverviewQuery(r, h.now())
+	allowed := map[string]bool{"timezone": true, "range": true, "bucket": true, "from": true, "to": true}
+	for name := range r.URL.Query() {
+		if !allowed[name] {
+			writeError(w, http.StatusBadRequest, "unsupported overview parameter")
+			return
+		}
+	}
+	ctx, cancel := robound.WithTimeout(r.Context())
+	defer cancel()
+	var bounds []store.CanonicalTimeRange
+	if r.URL.Query().Get("range") == "all" && r.URL.Query().Get("from") == "" && r.URL.Query().Get("to") == "" {
+		value, boundsErr := h.reader.CanonicalTimeBounds(ctx)
+		if boundsErr != nil {
+			writeError(w, http.StatusInternalServerError, "overview bounds query failed")
+			return
+		}
+		bounds = append(bounds, value)
+	}
+	query, err := parseOverviewQuery(r, h.now(), bounds...)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	query.DetectorNames = h.detectorNames
-	ctx, cancel := robound.WithTimeout(r.Context())
-	defer cancel()
 	overview, err := h.reader.Overview(ctx, query)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "overview query failed")
@@ -38,7 +54,7 @@ func (h *Handler) serveSessionMatrix(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
 		return
 	}
-	allowed := map[string]bool{"from": true, "to": true, "untimed": true, "cwd": true, "limit": true, "cursor": true}
+	allowed := map[string]bool{"from": true, "to": true, "untimed": true, "cwd": true, "limit": true, "cursor": true, "direction": true}
 	for name := range r.URL.Query() {
 		if !allowed[name] {
 			writeError(w, http.StatusBadRequest, "unsupported matrix parameter")
@@ -75,7 +91,7 @@ func (h *Handler) serveSessionMatrix(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := robound.WithTimeout(r.Context())
 	defer cancel()
-	page, err := h.reader.SessionMatrix(ctx, store.MatrixQuery{FromUnix: from, ToUnix: to, Untimed: untimed, CWD: r.URL.Query().Get("cwd"), Limit: limit, Cursor: r.URL.Query().Get("cursor")}, h.detectorNames)
+	page, err := h.reader.SessionMatrix(ctx, store.MatrixQuery{FromUnix: from, ToUnix: to, Untimed: untimed, CWD: r.URL.Query().Get("cwd"), Limit: limit, Cursor: r.URL.Query().Get("cursor"), Direction: r.URL.Query().Get("direction")}, h.detectorNames)
 	if err != nil {
 		if errors.Is(err, store.ErrInvalidMatrixQuery) {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -157,6 +173,17 @@ func (h *Handler) serveSessionStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
 		return
 	}
+	for name := range r.URL.Query() {
+		if name != "limit" && name != "cursor" && name != "anchor_line" {
+			writeError(w, http.StatusBadRequest, "unsupported stream parameter")
+			return
+		}
+	}
+	anchorLine, anchorErr := queryInteger(r, "anchor_line", 0, 0, 10_000_000)
+	if anchorErr != nil || (anchorLine > 0 && r.URL.Query().Get("cursor") != "") {
+		writeError(w, http.StatusBadRequest, "anchor_line must be bounded and cannot be combined with cursor")
+		return
+	}
 	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/sessions/"), "/stream")
 	if id == "" || strings.Contains(id, "/") {
 		writeError(w, http.StatusNotFound, "route not found")
@@ -173,7 +200,7 @@ func (h *Handler) serveSessionStream(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := robound.WithTimeout(r.Context())
 	defer cancel()
-	page, err := h.reader.SessionStream(ctx, id, r.URL.Query().Get("cursor"), limit)
+	page, err := h.reader.SessionStreamFromLine(ctx, id, r.URL.Query().Get("cursor"), limit, anchorLine)
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrSessionNotFound):
@@ -191,6 +218,10 @@ func (h *Handler) serveSessionStream(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) serveToolOutcomes(w http.ResponseWriter, r *http.Request) {
 	if h.reader == nil {
 		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
+		return
+	}
+	if len(r.URL.Query()) != 0 {
+		writeError(w, http.StatusBadRequest, "tool outcomes do not accept parameters")
 		return
 	}
 	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/sessions/"), "/tools")
@@ -220,6 +251,10 @@ func (h *Handler) serveSessionDiagnostics(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
 		return
 	}
+	if len(r.URL.Query()) != 0 {
+		writeError(w, http.StatusBadRequest, "diagnostics do not accept parameters")
+		return
+	}
 	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/sessions/"), "/diagnostics")
 	if id == "" || strings.Contains(id, "/") {
 		writeError(w, http.StatusNotFound, "route not found")
@@ -240,6 +275,46 @@ func (h *Handler) serveSessionDiagnostics(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, diagnostics)
+}
+
+func (h *Handler) serveEntryDetail(w http.ResponseWriter, r *http.Request) {
+	if h.reader == nil {
+		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
+		return
+	}
+	for name := range r.URL.Query() {
+		if name != "kind" && name != "id" {
+			writeError(w, http.StatusBadRequest, "unsupported detail parameter")
+			return
+		}
+	}
+	entryID, kind := r.URL.Query().Get("id"), r.URL.Query().Get("kind")
+	if entryID == "" || len(entryID) > 256 || kind == "" {
+		writeError(w, http.StatusBadRequest, "detail kind and bounded id are required")
+		return
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/sessions/"), "/detail")
+	if id == "" || strings.Contains(id, "/") {
+		writeError(w, http.StatusNotFound, "route not found")
+		return
+	}
+	ctx, cancel := robound.WithTimeout(r.Context())
+	defer cancel()
+	detail, err := h.reader.SessionEntryDetail(ctx, id, kind, entryID)
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrInvalidEntryKind):
+			writeError(w, http.StatusBadRequest, "invalid detail kind")
+		case errors.Is(err, store.ErrSessionNotFound), errors.Is(err, store.ErrEntryNotFound):
+			writeError(w, http.StatusNotFound, "entry not found")
+		case errors.Is(err, store.ErrAmbiguousSession):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, "entry detail query failed")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
 }
 
 func (h *Handler) serveGoalDiagnostics(w http.ResponseWriter, r *http.Request) {
@@ -351,7 +426,7 @@ func queryInteger(r *http.Request, name string, fallback, minimum, maximum int) 
 	return parsed, nil
 }
 
-func parseOverviewQuery(r *http.Request, now time.Time) (store.OverviewQuery, error) {
+func parseOverviewQuery(r *http.Request, now time.Time, allBounds ...store.CanonicalTimeRange) (store.OverviewQuery, error) {
 	timezone := r.URL.Query().Get("timezone")
 	if timezone == "" {
 		timezone = "UTC"
@@ -387,11 +462,29 @@ func parseOverviewQuery(r *http.Request, now time.Time) (store.OverviewQuery, er
 			days = 7
 		case "90d":
 			days = 90
+		case "all":
+			if len(allBounds) != 1 {
+				return store.OverviewQuery{}, fmt.Errorf("all-history bounds are unavailable")
+			}
+			if allBounds[0].Minimum == nil {
+				from, to = today, today.AddDate(0, 0, 1)
+			} else {
+				minimum := time.Unix(*allBounds[0].Minimum, 0).In(location)
+				from = time.Date(minimum.Year(), minimum.Month(), minimum.Day(), 0, 0, 0, 0, location)
+				to = today.AddDate(0, 0, 1)
+				maximum := time.Unix(*allBounds[0].Maximum, 0).In(location)
+				maximumEnd := time.Date(maximum.Year(), maximum.Month(), maximum.Day(), 0, 0, 0, 0, location).AddDate(0, 0, 1)
+				if maximumEnd.After(to) {
+					to = maximumEnd
+				}
+			}
 		default:
-			return store.OverviewQuery{}, fmt.Errorf("range must be 7d, 30d, or 90d")
+			return store.OverviewQuery{}, fmt.Errorf("range must be 7d, 30d, 90d, or all")
 		}
-		from = today.AddDate(0, 0, -(days - 1))
-		to = today.AddDate(0, 0, 1)
+		if from.IsZero() {
+			from = today.AddDate(0, 0, -(days - 1))
+			to = today.AddDate(0, 0, 1)
+		}
 	}
 	unit := store.BucketUnit(r.URL.Query().Get("bucket"))
 	if unit == "" || unit == "auto" {

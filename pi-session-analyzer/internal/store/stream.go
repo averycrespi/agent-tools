@@ -42,6 +42,10 @@ type streamCursor struct {
 }
 
 func (s *Reader) SessionStream(ctx context.Context, prefix, encodedCursor string, limit int) (SessionStreamPage, error) {
+	return s.SessionStreamFromLine(ctx, prefix, encodedCursor, limit, 0)
+}
+
+func (s *Reader) SessionStreamFromLine(ctx context.Context, prefix, encodedCursor string, limit, anchorLine int) (SessionStreamPage, error) {
 	id, err := s.ResolveSession(ctx, prefix)
 	if err != nil {
 		return SessionStreamPage{}, err
@@ -50,6 +54,10 @@ func (s *Reader) SessionStream(ctx context.Context, prefix, encodedCursor string
 		limit = 100
 	}
 	cursor := streamCursor{Version: streamCursorVersion, SessionID: id, SourceLine: -1}
+	if anchorLine > 0 {
+		cursor.SourceLine = anchorLine
+		cursor.KindRank = 9
+	}
 	if encodedCursor != "" {
 		cursor, err = decodeStreamCursor(encodedCursor)
 		if err != nil || cursor.SessionID != id {

@@ -1,2 +1,296 @@
-const status = document.querySelector("#status-title");
-if (status) status.textContent = "Local index ready";
+import { matrixSearch, overviewSearch, parseState, stateSearch, withBucket } from "./state.js";
+import { bucketLabel, formatCost, formatInteger, rateLabel, severityLabel, statusClass, unwrapResponse } from "./view-model.js";
+
+const $ = (selector) => document.querySelector(selector);
+const node = (tag, className = "", text = "") => {
+  const value = document.createElement(tag);
+  if (className) value.className = className;
+  if (text !== "") value.textContent = text;
+  return value;
+};
+const clear = (target) => target.replaceChildren();
+const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+let state = parseState(location.search, browserTimezone);
+let overview;
+let matrixCursor = "";
+let streamCursor = "";
+let tokenCursor = "";
+let goalOffset = 0;
+let todoSnapshotOffset = 0;
+let todoItemOffset = 0;
+let activeController;
+
+function announce(message, kind = "") {
+  const notice = $("#notice");
+  notice.className = `notice ${kind}`.trim();
+  notice.textContent = message;
+}
+
+async function request(path, signal) {
+  const response = await fetch(path, { signal, headers: { Accept: "application/json" } });
+  const body = await response.json().catch(() => ({ error: "Invalid local response" }));
+  if (!response.ok) throw new Error(body.error || `Local query failed (${response.status})`);
+  const unwrapped = unwrapResponse(body);
+  if (unwrapped.truncated) {
+    announce("A response reached the safety cap. Narrow the range or load a smaller page.", "warning");
+    if (unwrapped.value === null) throw new Error("The local response exceeded the safety cap");
+  }
+  return unwrapped.value;
+}
+
+function syncControls() {
+  $("#range").value = state.range;
+  $("#bucket").value = state.bucket;
+  $("#timezone").value = state.timezone;
+  $("#direction").value = state.direction;
+  $("#date-from").value = state.dateFrom;
+  $("#date-to").value = state.dateTo;
+}
+
+function navigate(next, replace = false) {
+  state = next;
+  history[replace ? "replaceState" : "pushState"](null, "", stateSearch(state));
+  syncControls();
+  loadDashboard();
+}
+
+function kpi(label, value, note = "") {
+  const box = node("div", "kpi");
+  box.append(node("span", "label", label), node("strong", "value", value));
+  if (note) box.append(node("p", "muted", note));
+  return box;
+}
+
+function tag(text, status = "neutral") {
+  return node("span", `tag ${statusClass(status)}`, text);
+}
+
+function metricList(rows) {
+  const list = node("dl", "metric-list");
+  for (const [label, value] of rows) {
+    const row = node("div", "metric-row");
+    row.append(node("dt", "", label), node("dd", "", String(value)));
+    list.append(row);
+  }
+  return list;
+}
+
+function localDate(unix) {
+  if (unix === null || unix === undefined) return "Untimed";
+  try {
+    return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short", timeZone: state.timezone }).format(new Date(unix * 1000));
+  } catch {
+    return new Date(unix * 1000).toISOString();
+  }
+}
+
+function renderOverview(data) {
+  overview = data;
+  const buckets = data.buckets || [];
+  const totals = buckets.reduce((sum, bucket) => ({ sessions: sum.sessions + bucket.sessions, cost: sum.cost + bucket.cost_as_logged, calls: sum.calls + bucket.tool_calls, output: sum.output + bucket.output_tokens, reasoning: sum.reasoning + bucket.reasoning_tokens, read: sum.read + bucket.cache_read_tokens, write: sum.write + bucket.cache_write_tokens, compact: sum.compact + bucket.compactions, guards: sum.guards + bucket.broker_guards }), { sessions: 0, cost: 0, calls: 0, output: 0, reasoning: 0, read: 0, write: 0, compact: 0, guards: 0 });
+  const kpis = $("#kpis"); clear(kpis);
+  kpis.append(kpi("Sessions started", formatInteger(totals.sessions), `${data.bucket} buckets · ${data.timezone}`), kpi("Cost as logged by Pi", formatCost(totals.cost)), kpi("Tool calls", formatInteger(totals.calls)), kpi("Compactions / broker guards", `${totals.compact} / ${totals.guards}`), kpi("Output tokens", formatInteger(totals.output)), kpi("Reasoning tokens", formatInteger(totals.reasoning)), kpi("Cache-read tokens", formatInteger(totals.read)), kpi("Cache-write tokens", formatInteger(totals.write)), kpi("Untimed sessions", formatInteger(data.untimed_sessions), "Excluded from temporal charts"));
+  renderChart(buckets, data.timezone);
+  renderTrends(buckets);
+  renderToolOverview(data.tool_outcomes || {});
+  renderDetectorOverview(data.detectors || []);
+  renderOutcomeOverview(data.signals || {});
+  renderDistributions(data.signals || {});
+}
+
+function renderChart(buckets, timezone) {
+  const host = $("#session-chart"); clear(host);
+  const max = Math.max(1, ...buckets.map((bucket) => bucket.sessions));
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "chart"); svg.setAttribute("viewBox", `0 0 ${Math.max(600, buckets.length * 12)} 190`); svg.setAttribute("role", "group"); svg.setAttribute("aria-label", "Sessions started by calendar bucket");
+  const width = Math.max(600, buckets.length * 12);
+  buckets.forEach((bucket, index) => {
+    const bar = document.createElementNS(svg.namespaceURI, "rect");
+    const slot = width / Math.max(1, buckets.length);
+    const height = (bucket.sessions / max) * 150;
+    bar.setAttribute("x", String(index * slot + 1)); bar.setAttribute("y", String(165 - height)); bar.setAttribute("width", String(Math.max(2, slot - 2))); bar.setAttribute("height", String(Math.max(1, height))); bar.setAttribute("class", "bar"); bar.setAttribute("tabindex", "0"); bar.setAttribute("role", "button"); bar.setAttribute("aria-label", bucketLabel(bucket, timezone));
+    const select = () => navigate(withBucket(state, bucket));
+    bar.addEventListener("click", select); bar.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); } });
+    svg.append(bar);
+  });
+  host.append(svg);
+  $("#chart-summary").textContent = buckets.length ? `${buckets.length} ${overview.bucket} buckets. Bars are keyboard selectable.` : "No timed sessions in this range.";
+  const tbody = $("#bucket-table tbody"); clear(tbody);
+  for (const bucket of buckets) {
+    const row = node("tr");
+    const select = node("button", "matrix-session", bucket.key); select.type = "button"; select.addEventListener("click", () => navigate(withBucket(state, bucket)));
+    const first = node("td"); first.append(select);
+    for (const value of [first, node("td", "", bucket.sessions), node("td", "", formatCost(bucket.cost_as_logged)), node("td", "", bucket.tool_calls), node("td", "", bucket.compactions)]) row.append(value);
+    tbody.append(row);
+  }
+}
+
+function renderTrends(buckets) {
+  const host = $("#trend-grid"); clear(host);
+  const metrics = [["Cost as logged", "cost_as_logged", (value) => formatCost(value)], ["Tool-call volume", "tool_calls", formatInteger], ["Output tokens", "output_tokens", formatInteger], ["Reasoning tokens", "reasoning_tokens", formatInteger], ["Cache-read tokens", "cache_read_tokens", formatInteger], ["Cache-write tokens", "cache_write_tokens", formatInteger], ["Compactions", "compactions", formatInteger], ["Broker guards", "broker_guards", formatInteger]];
+  for (const [label, key, format] of metrics) {
+    const panel = node("section", "panel"); panel.append(node("h3", "", label));
+    const max = Math.max(1, ...buckets.map((bucket) => bucket[key] || 0));
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svg.setAttribute("class", "mini-chart"); svg.setAttribute("viewBox", "0 0 300 74"); svg.setAttribute("role", "img"); svg.setAttribute("aria-label", `${label} trend across ${buckets.length} buckets`);
+    buckets.forEach((bucket, index) => { const rect = document.createElementNS(svg.namespaceURI, "rect"); const width = 300 / Math.max(1, buckets.length); const height = ((bucket[key] || 0) / max) * 68; rect.setAttribute("x", String(index * width)); rect.setAttribute("y", String(72 - height)); rect.setAttribute("width", String(Math.max(1, width - 1))); rect.setAttribute("height", String(Math.max(1, height))); svg.append(rect); }); panel.append(svg);
+    const details = node("details"); details.append(node("summary", "trend-summary", `Accessible values · total ${format(buckets.reduce((sum, bucket) => sum + (bucket[key] || 0), 0))}`)); const list = node("dl", "metric-list"); for (const bucket of buckets) { const row = node("div", "metric-row"); row.append(node("dt", "", bucket.key), node("dd", "", format(bucket[key] || 0))); list.append(row); } details.append(list); panel.append(details); host.append(panel);
+  }
+}
+
+function renderToolOverview(report) {
+  const host = $("#tool-overview"); clear(host);
+  if (report.analysis_truncated) host.append(node("p", "danger-text", `${report.total_calls} calls exceed the analysis bound; rates are unavailable.`));
+  host.append(metricList([["All calls", report.total_calls || 0], ["Classifiable", report.totals?.classifiable || 0], ["Unknown", report.totals?.unknown || 0], ["Orphan results", report.data_quality?.orphan_results || 0], ["Multiple results", report.data_quality?.multiple_results || 0]]));
+  for (const tool of report.tools || []) {
+    const details = node("details"); details.append(node("summary", "", `${tool.tool} · ${rateLabel(tool.error_rate, tool.totals)}`), metricList([["Calls", tool.totals.calls], ["Successes", tool.totals.successes], ["Unknown", tool.totals.unknown]])); host.append(details);
+  }
+}
+
+function renderDetectorOverview(detectors) {
+  const host = $("#detector-overview"); clear(host);
+  if (!detectors.length) { host.append(node("p", "muted", "No detector registry metadata returned.")); return; }
+  for (const detector of detectors) {
+    const row = node("div", "metric-row");
+    row.append(node("span", "", detector.detector), node("span", "", `${detector.fresh.error}E ${detector.fresh.warn}W ${detector.fresh.info}I · ${detector.coverage.success} ok / ${detector.coverage.failed} failed / ${detector.coverage.not_run} not run`)); host.append(row);
+  }
+}
+
+function renderOutcomeOverview(signals) {
+  const host = $("#outcome-overview"); clear(host);
+  const group = (title, values) => { host.append(node("p", "eyebrow", title)); for (const item of values || []) { const row = node("div", "metric-row"); row.append(node("span", "", item.value), node("span", "", item.count)); host.append(row); } };
+  group("GOAL OUTCOME", signals.goals); group("FINAL STOP REASON", signals.stops);
+}
+
+function renderDistributions(signals) {
+  const host = $("#distribution-overview"); clear(host);
+  const group = (title, values) => { host.append(node("p", "eyebrow", title)); for (const item of values || []) { const row = node("div", "metric-row"); row.append(node("span", "", item.label), node("span", "", item.count)); host.append(row); } };
+  group("RECORDS", signals.records); group("MESSAGE TURNS", signals.turns);
+}
+
+function renderMatrix(page, append = false) {
+  const tbody = $("#matrix-table tbody"); if (!append) clear(tbody);
+  for (const row of page.rows || []) {
+    const tr = node("tr");
+    const button = node("button", "matrix-session", row.id.slice(0, 12)); button.type = "button"; button.append(node("small", "", "Open drilldown")); button.addEventListener("click", () => navigate({ ...state, session: row.id }));
+    const session = node("td"); session.append(button);
+    const start = node("td"); start.append(node("span", "", localDate(row.started_at_unix)), node("small", "muted", ` ${row.cwd || "No cwd"}`));
+    const splitTokens = `O ${formatInteger(row.output_tokens)} · R ${formatInteger(row.reasoning_tokens)} · CR ${formatInteger(row.cache_read_tokens)} · CW ${formatInteger(row.cache_write_tokens)}`;
+    const toolCoverage = row.tool_analysis_truncated ? `Unavailable · 0/${row.tool_total_calls}` : rateLabel(row.tool_error_rate, row.tool_outcomes);
+    const findings = node("td"); findings.append(tag(severityLabel(row.fresh_severity), row.fresh_severity), node("div", "muted", `${row.detector_coverage.success} ok / ${row.detector_coverage.failed} failed / ${row.detector_coverage.not_run} not run`));
+    const outcomes = node("td"); outcomes.append(tag(`Goal ${row.goal_outcome}`, row.goal_outcome), tag(`TODO ${row.todo_outcome}`, row.todo_outcome), tag(row.stop_reason || "No stop", row.stop_reason ? "neutral" : "unknown"));
+    const schema = node("td"); schema.append(tag(`${row.malformed_records} malformed`, row.malformed_records ? "error" : "success"), tag(`${row.unknown_records} unknown`, row.unknown_records ? "warn" : "success"));
+    for (const cell of [session, start, node("td", "", `${row.records} / ${row.turns}`), node("td", "", splitTokens), node("td", "", toolCoverage), node("td", "", `${row.compactions} / ${row.broker_guards}`), findings, outcomes, schema]) tr.append(cell);
+    tbody.append(tr);
+  }
+  matrixCursor = page.next_cursor || "";
+  $("#matrix-more").hidden = !matrixCursor;
+  if (!(page.rows || []).length && !append) { const tr = node("tr"); const td = node("td", "muted", state.untimed ? "No untimed sessions." : "No sessions in this range."); td.colSpan = 9; tr.append(td); tbody.append(tr); }
+}
+
+function renderHeader(header) {
+  const host = $("#session-header"); clear(host);
+  if (header.content_truncated) host.append(kpi("Safety state", "TRUNCATED", "One or more header labels reached its bound."));
+  host.append(kpi("Session", header.id.slice(0, 12), localDate(header.started_at_unix)), kpi("Records / turns", `${header.records} / ${header.turns}`), kpi("Cost as logged", formatCost(header.cost_as_logged)), kpi("Output", formatInteger(header.output_tokens)), kpi("Reasoning", formatInteger(header.reasoning_tokens)), kpi("Cache read / write", `${formatInteger(header.cache_read_tokens)} / ${formatInteger(header.cache_write_tokens)}`), kpi("Compactions / guards", `${header.compactions} / ${header.broker_guards}`), kpi("Goal / stop", `${header.goal_outcome} / ${header.stop_reason || "absent"}`));
+}
+
+function renderDetailTools(report) { const host = $("#detail-tools"); clear(host); renderToolOverviewInto(host, report); }
+function renderToolOverviewInto(host, report) { if (report.analysis_truncated || report.analysis_content_truncated || report.tools_truncated || report.content_truncated) host.append(node("p", "danger-text", "Tool analysis is bounded or truncated; coverage metadata remains explicit.")); for (const tool of report.tools || []) { const row = node("div", "metric-row"); row.append(node("span", "", tool.tool), node("span", "", rateLabel(tool.error_rate, tool.totals))); host.append(row); } if (!(report.tools || []).length) host.append(node("p", "muted", "No tool calls.")); }
+
+async function navigateEvidence(sourceLine, evidenceID) {
+  const page = await request(`/api/sessions/${encodeURIComponent(state.session)}/stream?limit=50&anchor_line=${sourceLine}`, activeController?.signal);
+  renderStream(page);
+  const match = [...document.querySelectorAll("#detail-stream .evidence")].find((entry) => Number(entry.dataset.sourceLine) === sourceLine && (!evidenceID || entry.dataset.entryId === evidenceID));
+  const target = match || document.querySelector("#detail-stream .evidence");
+  if (target) { target.setAttribute("tabindex", "-1"); target.focus(); target.scrollIntoView({ behavior: "smooth", block: "center" }); }
+  if (!match) announce(`Showing source line ${sourceLine}; the exact evidence ID is not a stream record.`, "warning");
+}
+
+function renderFindings(data) {
+  const host = $("#detail-findings"); clear(host);
+  if (data.fresh_truncated || data.stale_truncated || data.content_truncated) host.append(node("p", "danger-text", "Finding evidence is truncated. Narrow or page the diagnostic view."));
+  host.append(node("p", "eyebrow", "DETECTOR COVERAGE"));
+  for (const detector of data.detectors || []) { const row = node("div", "metric-row"); row.append(node("span", "", detector.detector), tag(detector.status, detector.status)); host.append(row); }
+  host.append(node("p", "eyebrow", "CURRENT FINDINGS"));
+  for (const finding of data.fresh_findings || []) { const details = node("details"); const provenance = node("p", "", `${finding.summary}\nEvidence ${finding.evidence_id} · source line ${finding.source_line}`); const jump = node("button", "", "Navigate to evidence"); jump.type = "button"; jump.addEventListener("click", () => navigateEvidence(finding.source_line, finding.evidence_id)); provenance.append(node("br"), jump); details.append(node("summary", "", `${finding.detector} · ${finding.severity} · line ${finding.source_line}`), provenance); host.append(details); }
+  host.append(node("p", "eyebrow", "STALE RETAINED EVIDENCE — NOT CURRENT"));
+  for (const finding of data.stale_evidence || []) { const details = node("details"); details.append(node("summary", "", `${finding.detector} generation ${finding.generation} · ${finding.run_status}`), node("p", "", `${finding.summary}\n${finding.run_error || ""}`)); host.append(details); }
+}
+
+function renderTokens(page, append = false) {
+  const host = $("#detail-tokens"); if (!append) clear(host);
+  const max = Math.max(1, ...(page.entries || []).flatMap((entry) => [entry.input_tokens, entry.output_tokens, entry.reasoning_tokens, entry.cache_read_tokens, entry.cache_write_tokens]));
+  for (const entry of page.entries || []) {
+    const row = node("div", "token-mark"); row.append(node("span", "", `L${entry.source_line} ${entry.kind}`));
+    if (entry.kind === "compaction") row.append(node("strong", "danger-text", `COMPACTION · ${formatInteger(entry.tokens_before)} tokens before`));
+    else { const bars = node("div", "token-bars"); for (const [kind, value] of [["input", entry.input_tokens], ["output", entry.output_tokens], ["reasoning", entry.reasoning_tokens], ["cache-read", entry.cache_read_tokens], ["cache-write", entry.cache_write_tokens]]) { const bar = node("span", kind); bar.style.width = `${Math.max(3, (value / max) * 100)}%`; bar.title = `${kind}: ${value}`; bars.append(bar); } bars.setAttribute("aria-label", `Input ${entry.input_tokens}, output ${entry.output_tokens}, reasoning ${entry.reasoning_tokens}, cache read ${entry.cache_read_tokens}, cache write ${entry.cache_write_tokens}`); row.append(bars); }
+    host.append(row);
+  }
+  tokenCursor = page.next_cursor || ""; $("#tokens-more").hidden = !tokenCursor;
+}
+
+function renderGoal(data, append = false) { const host = $("#detail-goal"); if (!append) { clear(host); host.append(tag(`Final: ${data.final_state}`, data.final_state)); } for (const item of data.snapshots || []) { const row = node("div", "metric-row"); const stateTag = tag(item.state, item.state); if (item.content_truncated) stateTag.append(document.createTextNode(" · truncated")); row.append(node("span", "", `Line ${item.source_line}`), stateTag); host.append(row); } goalOffset = data.offset + (data.snapshots || []).length; $("#goal-more").hidden = !data.truncated; }
+function renderTodo(data, append = false) { const host = $("#detail-todo"); if (!append) { clear(host); host.append(tag(`Final: ${data.final_state}`, data.final_state)); if (data.data_quality_truncated || data.final_list_truncated) host.append(node("p", "danger-text", "TODO history or final-list analysis is truncated.")); } for (const snapshot of data.snapshots || []) { const row = node("div", "metric-row"); row.append(node("span", "", `Line ${snapshot.source_line}`), node("span", "", snapshot.valid ? `${snapshot.counts.todo} todo / ${snapshot.counts.in_progress} active / ${snapshot.counts.done} done / ${snapshot.counts.blocked} blocked` : snapshot.error)); host.append(row); } for (const item of data.final_items || []) { const details = node("details"); details.append(node("summary", "", `${item.status} · item ${item.id}${item.content_truncated ? " · truncated" : ""}`), node("p", "", `${item.text}${item.notes ? `\n${item.notes}` : ""}`)); host.append(details); } todoSnapshotOffset = data.snapshot_offset + (data.snapshots || []).length; todoItemOffset = data.final_item_offset + (data.final_items || []).length; $("#todo-more").hidden = !(data.snapshots_truncated || data.final_items_truncated); }
+
+function renderStream(page, append = false) {
+  const host = $("#detail-stream"); if (!append) clear(host);
+  for (const entry of page.entries || []) {
+    const row = node("div", "evidence"); row.dataset.sourceLine = String(entry.source_line); row.dataset.entryId = entry.id;
+    row.append(node("span", "line", `L${entry.source_line}`), tag(entry.kind, entry.is_error ? "error" : "neutral"));
+    const details = node("details"); const content = node("p", "", entry.preview || "Open to request bounded detail from the local index."); let loaded = false;
+    details.append(node("summary", "", [entry.role, entry.name, entry.type, entry.status].filter(Boolean).join(" · ") || entry.id), content);
+    details.addEventListener("toggle", async () => {
+      if (!details.open || loaded) return;
+      try { const value = await request(`/api/sessions/${encodeURIComponent(state.session)}/detail?kind=${encodeURIComponent(entry.kind)}&id=${encodeURIComponent(entry.id)}`, activeController?.signal); content.textContent = [value.content, value.details].filter(Boolean).join("\n"); if (value.content_truncated) content.append(node("span", "danger-text", "\nDetail reached its per-entry safety limit.")); loaded = true; } catch (error) { content.textContent = error.message; }
+    });
+    row.append(details); host.append(row);
+  }
+  streamCursor = page.next_cursor || ""; $("#stream-more").hidden = !streamCursor;
+}
+
+async function loadDetail(sessionID, signal) {
+  $("#detail").hidden = false;
+  const base = `/api/sessions/${encodeURIComponent(sessionID)}`;
+  const [header, tools, findings, tokens, goal, todo, stream] = await Promise.all([request(base, signal), request(`${base}/tools`, signal), request(`${base}/diagnostics`, signal), request(`${base}/tokens?limit=50`, signal), request(`${base}/goal?limit=50`, signal), request(`${base}/todo?snapshot_limit=50&item_limit=20`, signal), request(`${base}/stream?limit=50`, signal)]);
+  renderHeader(header); renderDetailTools(tools); renderFindings(findings); renderTokens(tokens); renderGoal(goal); renderTodo(todo); renderStream(stream);
+  $("#detail-title").focus?.();
+}
+
+async function loadMatrix(signal, append = false) {
+  let query = matrixSearch(state, overview);
+  if (append && matrixCursor) query += `&cursor=${encodeURIComponent(matrixCursor)}`;
+  const page = await request(`/api/sessions?${query}`, signal);
+  renderMatrix(page, append);
+  if (!append && page.rows?.length === 1 && state.from && state.to && !state.session) navigate({ ...state, session: page.rows[0].id }, true);
+}
+
+async function loadDashboard() {
+  activeController?.abort(); activeController = new AbortController(); const { signal } = activeController;
+  announce("Reading the local scrubbed index…");
+  try {
+    overview = await request(`/api/overview?${overviewSearch(state)}`, signal);
+    renderOverview(overview);
+    await loadMatrix(signal);
+    if (state.session) await loadDetail(state.session, signal); else $("#detail").hidden = true;
+    announce(`Index ready · ${overview.buckets?.length || 0} ${overview.bucket} buckets · ${overview.timezone}`);
+  } catch (error) {
+    if (error.name !== "AbortError") announce(`${error.message}. Run ingest if the index is missing or stale, then refresh.`, "error");
+  }
+}
+
+$("#range").addEventListener("change", (event) => navigate({ ...state, range: event.target.value, dateFrom: "", dateTo: "", session: "", from: "", to: "", untimed: false }));
+$("#bucket").addEventListener("change", (event) => navigate({ ...state, bucket: event.target.value, session: "", from: "", to: "", untimed: false }));
+$("#direction").addEventListener("change", (event) => navigate({ ...state, direction: event.target.value, session: "" }));
+for (const id of ["date-from", "date-to"]) $(`#${id}`).addEventListener("change", () => {
+  const dateFrom = $("#date-from").value; const dateTo = $("#date-to").value;
+  if (dateFrom && dateTo) navigate({ ...state, dateFrom, dateTo, session: "", from: "", to: "", untimed: false });
+});
+$("#timezone").addEventListener("change", (event) => navigate({ ...state, timezone: event.target.value || "UTC", session: "", from: "", to: "" }));
+$("#refresh").addEventListener("click", loadDashboard);
+$("#matrix-more").addEventListener("click", () => loadMatrix(activeController?.signal, true).catch((error) => announce(error.message, "error")));
+$("#stream-more").addEventListener("click", async () => { const page = await request(`/api/sessions/${encodeURIComponent(state.session)}/stream?limit=50&cursor=${encodeURIComponent(streamCursor)}`, activeController?.signal); renderStream(page, true); });
+$("#tokens-more").addEventListener("click", async () => { const page = await request(`/api/sessions/${encodeURIComponent(state.session)}/tokens?limit=50&cursor=${encodeURIComponent(tokenCursor)}`, activeController?.signal); renderTokens(page, true); });
+$("#goal-more").addEventListener("click", async () => { const page = await request(`/api/sessions/${encodeURIComponent(state.session)}/goal?limit=50&offset=${goalOffset}`, activeController?.signal); renderGoal(page, true); });
+$("#todo-more").addEventListener("click", async () => { const page = await request(`/api/sessions/${encodeURIComponent(state.session)}/todo?snapshot_limit=50&item_limit=20&snapshot_offset=${todoSnapshotOffset}&item_offset=${todoItemOffset}`, activeController?.signal); renderTodo(page, true); });
+$("#close-detail").addEventListener("click", () => navigate({ ...state, session: "" }));
+addEventListener("popstate", () => { state = parseState(location.search, browserTimezone); syncControls(); loadDashboard(); });
+syncControls(); loadDashboard();

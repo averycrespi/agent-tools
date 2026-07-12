@@ -40,7 +40,7 @@ func TestHandlerAppliesPrivateHeadersAndServesEmbeddedAssets(t *testing.T) {
 
 	server := httptest.NewServer(NewHandler(nil))
 	t.Cleanup(server.Close)
-	for _, path := range []string{"/", "/assets/app.css", "/assets/app.js"} {
+	for _, path := range []string{"/", "/assets/app.css", "/assets/app.js", "/assets/state.js", "/assets/view-model.js"} {
 		response, err := http.Get(server.URL + path)
 		require.NoError(t, err)
 		body, readErr := io.ReadAll(response.Body)
@@ -88,6 +88,13 @@ func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 	require.Equal(t, 1, overview.Buckets[6].Sessions)
 	require.True(t, overview.Buckets[6].Partial)
 
+	request = httptest.NewRequest(http.MethodGet, "/api/overview?timezone=UTC&range=all&bucket=auto", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &overview))
+	require.Equal(t, 1, overview.Buckets[len(overview.Buckets)-1].Sessions)
+
 	request = httptest.NewRequest(http.MethodGet, "/api/overview?timezone=UTC&range=90d&bucket=day", nil)
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
@@ -125,6 +132,14 @@ func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &page))
 	require.Len(t, page.Entries, 1)
 	require.Equal(t, "message", page.Entries[0].Kind)
+
+	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/detail?kind=message&id=m", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var detail store.EntryDetail
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &detail))
+	require.Equal(t, "hello", detail.Content)
 
 	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/tokens?limit=1", nil)
 	recorder = httptest.NewRecorder()

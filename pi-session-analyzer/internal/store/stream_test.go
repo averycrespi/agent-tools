@@ -51,6 +51,9 @@ func TestSessionStreamPagesAllRecordKindsByStableSourceKey(t *testing.T) {
 	require.Equal(t, []string{"message", "tool_call", "tool_call", "tool_result", "event", "custom_state", "custom_message"}, streamKinds(entries))
 	require.Equal(t, []string{"c", "d"}, []string{entries[1].ID, entries[2].ID})
 	require.Equal(t, "preview text", entries[0].Preview)
+	anchored, err := s.SessionStreamFromLine(context.Background(), "session-str", "", 2, 4)
+	require.NoError(t, err)
+	require.Equal(t, "e", anchored.Entries[0].ID)
 	for _, entry := range entries[1:] {
 		if entry.Kind != "event" {
 			require.Empty(t, entry.Preview)

@@ -1,4 +1,4 @@
-.PHONY: build install test lint fmt tidy audit
+.PHONY: build install test test-frontend lint fmt tidy audit
 
 build:
 	go build -o pi-session-analyzer ./cmd/pi-session-analyzer
@@ -8,6 +8,10 @@ install:
 
 test:
 	go test -race ./...
+	$(MAKE) test-frontend
+
+test-frontend:
+	node --test internal/dashboard/frontend_test/*.test.mjs
 
 lint:
 	go tool golangci-lint run
