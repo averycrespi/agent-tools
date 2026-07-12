@@ -86,6 +86,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			case strings.HasSuffix(r.URL.Path, "/tokens"):
 				h.serveTokenSequence(w, r)
 				return
+			case strings.HasSuffix(r.URL.Path, "/goal"):
+				h.serveGoalDiagnostics(w, r)
+				return
 			}
 		}
 		writeError(w, http.StatusNotFound, "route not found")

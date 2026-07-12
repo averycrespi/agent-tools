@@ -147,6 +147,14 @@ func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 		require.Equal(t, "not_run", detector.Status)
 	}
 
+	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/goal", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var goals store.GoalDiagnostics
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &goals))
+	require.Equal(t, "absent", goals.FinalState)
+
 	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/todo", nil)
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
