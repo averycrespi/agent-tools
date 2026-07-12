@@ -19,7 +19,7 @@ func TestCommandsRequireSpecificArguments(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), name+" requires SESSION_ID")
 	}
-	for _, name := range []string{"ingest", "list-sessions", "mcp"} {
+	for _, name := range []string{"ingest", "list-sessions", "mcp", "dashboard"} {
 		cmd := newRootCommand()
 		cmd.SetArgs([]string{name, "unexpected"})
 		err := cmd.Execute()
@@ -33,18 +33,27 @@ func TestCommandsRequireSpecificArguments(t *testing.T) {
 	require.Contains(t, err.Error(), "detect accepts at most one SESSION_ID")
 }
 
-func TestMCPMissingDatabaseDoesNotCreateIt(t *testing.T) {
+func TestDashboardRejectsExplicitEphemeralPort(t *testing.T) {
+	cmd := newRootCommand()
+	cmd.SetArgs([]string{"dashboard", "--port=0", "--no-open"})
+	err := cmd.Execute()
+	require.ErrorContains(t, err, "--port must be between 1 and 65535")
+}
+
+func TestReadOnlyServersDoNotCreateMissingDatabase(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
 	dbPath := filepath.Join(home, "data", "pi-session-analyzer", "sessions.db")
 
-	cmd := newRootCommand()
-	cmd.SetArgs([]string{"mcp"})
-	err := cmd.Execute()
-	require.ErrorContains(t, err, "run pi-session-analyzer ingest first")
-	_, statErr := os.Stat(dbPath)
-	require.ErrorIs(t, statErr, os.ErrNotExist)
+	for _, args := range [][]string{{"mcp"}, {"dashboard", "--no-open"}} {
+		cmd := newRootCommand()
+		cmd.SetArgs(args)
+		err := cmd.Execute()
+		require.ErrorContains(t, err, "run pi-session-analyzer ingest first")
+		_, statErr := os.Stat(dbPath)
+		require.ErrorIs(t, statErr, os.ErrNotExist)
+	}
 }
 
 func TestCommandWorkflowAndDefaults(t *testing.T) {

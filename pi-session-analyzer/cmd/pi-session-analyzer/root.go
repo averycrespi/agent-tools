@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/app"
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/dashboard"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/detect"
 	analyzermcp "github.com/averycrespi/agent-tools/pi-session-analyzer/internal/mcp"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/robound"
@@ -22,7 +23,7 @@ func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "pi-session-analyzer", Short: "Analyze local Pi session logs", SilenceErrors: true, SilenceUsage: true}
 	cmd.PersistentFlags().StringVar(&opts.sessionsDir, "sessions-dir", defaultSessionsDir(), "Pi JSONL sessions directory")
 	cmd.PersistentFlags().StringVar(&opts.dbPath, "db", defaultDBPath(), "private analyzer SQLite database")
-	cmd.AddCommand(newIngestCommand(opts), newListCommand(opts), newSummaryCommand(opts), newDetectCommand(opts), newMCPCommand(opts))
+	cmd.AddCommand(newIngestCommand(opts), newListCommand(opts), newSummaryCommand(opts), newDetectCommand(opts), newMCPCommand(opts), newDashboardCommand(opts))
 	return cmd
 }
 
@@ -129,6 +130,20 @@ func newMCPCommand(opts *options) *cobra.Command {
 		}
 		return mcpserver.ServeStdio(server)
 	}}
+}
+
+func newDashboardCommand(opts *options) *cobra.Command {
+	var port int
+	var noOpen bool
+	cmd := &cobra.Command{Use: "dashboard", Short: "Serve the private loopback-only visual dashboard", Args: noArgs("dashboard"), RunE: func(cmd *cobra.Command, _ []string) error {
+		if cmd.Flags().Changed("port") && port == 0 {
+			return fmt.Errorf("--port must be between 1 and 65535 when specified")
+		}
+		return dashboard.Run(cmd.Context(), opts.dbPath, dashboard.Options{Port: port, NoOpen: noOpen, Output: cmd.OutOrStdout()})
+	}}
+	cmd.Flags().IntVar(&port, "port", 0, "loopback port (omitted chooses an ephemeral port)")
+	cmd.Flags().BoolVar(&noOpen, "no-open", false, "do not open the default browser")
+	return cmd
 }
 
 func noArgs(name string) cobra.PositionalArgs {

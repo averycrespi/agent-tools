@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pi Session Analyzer</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+    <script type="module" src="/assets/app.js"></script>
+  </head>
+  <body>
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">LOCAL DIAGNOSTIC INSTRUMENT</p>
+        <h1>Session Analyzer</h1>
+      </div>
+      <p class="privacy" role="note">Private — not safe to share or screenshot</p>
+    </header>
+    <main>
+      <section class="empty" aria-labelledby="status-title">
+        <p class="index-mark" aria-hidden="true">π</p>
+        <div>
+          <p class="eyebrow">INDEX CONNECTION</p>
+          <h2 id="status-title">Dashboard initializing</h2>
+          <p>Reading the local scrubbed index. No session data leaves this machine.</p>
+        </div>
+      </section>
+    </main>
+    <footer>Index is view-only · refresh with <code>pi-session-analyzer ingest</code></footer>
+  </body>
+</html>

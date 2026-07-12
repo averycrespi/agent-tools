@@ -1,0 +1,31 @@
+:root {
+  color-scheme: dark;
+  --ink: #e8eadf;
+  --muted: #9ca397;
+  --panel: #151a18;
+  --line: #3a433d;
+  --signal: #d7ff45;
+  --warning: #ffb84a;
+  background: #0b0e0d;
+  color: var(--ink);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: linear-gradient(90deg, transparent 49px, #202722 50px, transparent 51px) 0 0 / 50px 50px, #0b0e0d; }
+.masthead { display: flex; align-items: end; justify-content: space-between; gap: 2rem; padding: 2rem clamp(1rem, 5vw, 5rem); border-bottom: 1px solid var(--line); background: rgb(11 14 13 / 92%); }
+h1, h2, p { margin: 0; }
+h1 { font-size: clamp(2rem, 5vw, 4.5rem); letter-spacing: -.08em; line-height: .9; }
+.eyebrow { color: var(--signal); font-size: .72rem; letter-spacing: .18em; margin-bottom: .7rem; }
+.privacy { max-width: 23rem; padding: .7rem 1rem; border: 1px solid var(--warning); color: var(--warning); font-size: .76rem; text-transform: uppercase; }
+main { padding: clamp(2rem, 8vw, 8rem) clamp(1rem, 5vw, 5rem); }
+.empty { display: grid; grid-template-columns: minmax(5rem, 12rem) 1fr; align-items: center; max-width: 70rem; min-height: 20rem; border: 1px solid var(--line); background: var(--panel); box-shadow: 12px 12px 0 #050706; }
+.index-mark { display: grid; place-items: center; align-self: stretch; border-right: 1px solid var(--line); color: var(--signal); font: 7rem/1 Georgia, serif; }
+.empty > div { padding: clamp(1.5rem, 5vw, 4rem); }
+h2 { font-size: clamp(1.5rem, 4vw, 3rem); margin-bottom: 1rem; }
+.empty div > p:last-child, footer { color: var(--muted); line-height: 1.7; }
+footer { padding: 1.25rem clamp(1rem, 5vw, 5rem); border-top: 1px solid var(--line); font-size: .75rem; }
+code { color: var(--signal); }
+:focus-visible { outline: 3px solid var(--signal); outline-offset: 3px; }
+@media (max-width: 650px) { .masthead { align-items: start; flex-direction: column; } .empty { grid-template-columns: 1fr; } .index-mark { min-height: 8rem; border-right: 0; border-bottom: 1px solid var(--line); } }
+@media (prefers-reduced-motion: no-preference) { .empty { animation: arrive 360ms ease-out both; } @keyframes arrive { from { opacity: 0; transform: translateY(10px); } } }
