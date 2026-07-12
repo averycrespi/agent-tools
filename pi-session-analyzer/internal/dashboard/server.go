@@ -68,6 +68,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveAsset(w, "assets/state.js", "text/javascript; charset=utf-8")
 	case "/assets/view-model.js":
 		h.serveAsset(w, "assets/view-model.js", "text/javascript; charset=utf-8")
+	case "/assets/favicon.svg":
+		h.serveAsset(w, "assets/favicon.svg", "image/svg+xml")
 	case "/favicon.ico":
 		w.WriteHeader(http.StatusNoContent)
 	case "/api/overview":

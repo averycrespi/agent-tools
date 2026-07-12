@@ -49,10 +49,9 @@ select {
 }
 .masthead {
   display: flex;
-  align-items: end;
-  justify-content: space-between;
+  align-items: center;
   gap: 2rem;
-  padding: 2rem clamp(1rem, 5vw, 5rem);
+  padding: 1.2rem clamp(1rem, 5vw, 5rem);
   border-bottom: 1px solid var(--line);
   background: rgb(9 12 11/94%);
 }
@@ -63,9 +62,17 @@ p {
   margin: 0;
 }
 h1 {
-  font-size: clamp(2.8rem, 7vw, 6.5rem);
-  letter-spacing: -0.09em;
-  line-height: 0.72;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  font-size: clamp(1.6rem, 3.2vw, 2.6rem);
+  letter-spacing: -0.05em;
+  line-height: 1;
+  white-space: nowrap;
+}
+h1 .mark {
+  width: clamp(2rem, 3.4vw, 2.75rem);
+  height: auto;
 }
 h2 {
   font-size: clamp(1.7rem, 4vw, 3.3rem);
@@ -82,14 +89,6 @@ h3 {
   font-size: 0.7rem;
   letter-spacing: 0.18em;
   margin-bottom: 0.7rem;
-}
-.privacy {
-  max-width: 23rem;
-  padding: 0.7rem 1rem;
-  border: 1px solid var(--warning);
-  color: var(--warning);
-  font-size: 0.76rem;
-  text-transform: uppercase;
 }
 .controls {
   position: sticky;
@@ -169,15 +168,19 @@ main {
 }
 .section-heading {
   display: flex;
-  justify-content: space-between;
-  align-items: end;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 1rem;
   margin: 4rem 0 1.5rem;
   padding-bottom: 1rem;
   border-bottom: 1px solid var(--line);
 }
 .section-heading .eyebrow {
-  margin-right: auto;
+  flex-basis: 100%;
+  margin-bottom: 0;
+}
+.section-heading button {
+  margin-left: auto;
 }
 .panel {
   border: 1px solid var(--line);
@@ -244,10 +247,70 @@ main {
 .chart-panel {
   margin-top: 1.2rem;
 }
-.chart-panel > div:first-child {
+.panel-head {
   display: flex;
-  justify-content: space-between;
-  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 1.25rem;
+}
+.panel-head h3 {
+  margin-bottom: 0;
+}
+.panel-head > .muted {
+  margin-left: auto;
+  text-align: right;
+}
+.trend-head {
+  margin: 2rem 0 0;
+}
+details.help {
+  position: relative;
+  display: inline-block;
+  border: 0;
+  background: none;
+  padding: 0;
+}
+details.help summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border: 1px solid var(--muted);
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: normal;
+}
+details.help summary::-webkit-details-marker {
+  display: none;
+}
+details.help summary:hover,
+details.help[open] summary {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+details.help .help-pop {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 0.5rem);
+  z-index: 6;
+  width: min(24rem, 80vw);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  box-shadow: 7px 7px 0 #050706;
+  padding: 0.8rem 0.9rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: normal;
 }
 .chart {
   width: 100%;

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Pi Session Analyzer">
+  <rect x="1" y="1" width="62" height="62" rx="12" fill="#0d1210" stroke="#39463f" stroke-width="2" />
+  <rect x="12" y="15" width="40" height="8" fill="#d7ff45" />
+  <rect x="18" y="23" width="8" height="26" fill="#d7ff45" />
+  <rect x="38" y="23" width="8" height="20" fill="#d7ff45" />
+  <rect x="38" y="43" width="12" height="6" fill="#73e6d2" />
+  <rect x="12" y="51" width="40" height="2" fill="#39463f" />
+</svg>

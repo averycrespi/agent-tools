@@ -40,7 +40,7 @@ func TestHandlerAppliesPrivateHeadersAndServesEmbeddedAssets(t *testing.T) {
 
 	server := httptest.NewServer(NewHandler(nil))
 	t.Cleanup(server.Close)
-	for _, path := range []string{"/", "/assets/app.css", "/assets/app.js", "/assets/state.js", "/assets/view-model.js"} {
+	for _, path := range []string{"/", "/assets/app.css", "/assets/app.js", "/assets/state.js", "/assets/view-model.js", "/assets/favicon.svg"} {
 		response, err := http.Get(server.URL + path)
 		require.NoError(t, err)
 		body, readErr := io.ReadAll(response.Body)
@@ -55,7 +55,7 @@ func TestHandlerAppliesPrivateHeadersAndServesEmbeddedAssets(t *testing.T) {
 		require.Empty(t, response.Header.Get("Access-Control-Allow-Origin"))
 		require.Empty(t, response.Cookies())
 		if path == "/" {
-			require.Contains(t, string(body), "Private — not safe to share or screenshot")
+			require.Contains(t, string(body), "/assets/favicon.svg")
 			require.Contains(t, string(body), `id="cwd"`)
 			require.Contains(t, string(body), `id="untimed"`)
 			require.NotContains(t, string(body), "http://")
