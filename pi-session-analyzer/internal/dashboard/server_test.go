@@ -109,6 +109,14 @@ func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 	handler.ServeHTTP(recorder, request)
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
 
+	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var header store.SessionHeaderView
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &header))
+	require.Equal(t, "s", header.ID)
+
 	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/stream?limit=1", nil)
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)

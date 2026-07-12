@@ -87,6 +87,33 @@ func (h *Handler) serveSessionMatrix(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, page)
 }
 
+func (h *Handler) serveSessionHeader(w http.ResponseWriter, r *http.Request) {
+	if h.reader == nil {
+		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
+		return
+	}
+	if len(r.URL.Query()) != 0 {
+		writeError(w, http.StatusBadRequest, "session header does not accept parameters")
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
+	ctx, cancel := robound.WithTimeout(r.Context())
+	defer cancel()
+	header, err := h.reader.SessionHeader(ctx, id)
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrSessionNotFound):
+			writeError(w, http.StatusNotFound, "session not found")
+		case errors.Is(err, store.ErrAmbiguousSession):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, "session header query failed")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, header)
+}
+
 func (h *Handler) serveTokenSequence(w http.ResponseWriter, r *http.Request) {
 	if h.reader == nil {
 		writeError(w, http.StatusServiceUnavailable, "database is unavailable")

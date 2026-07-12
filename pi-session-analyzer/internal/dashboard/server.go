@@ -70,7 +70,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveSessionMatrix(w, r)
 	default:
 		if strings.HasPrefix(r.URL.Path, "/api/sessions/") {
+			remainder := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
 			switch {
+			case remainder != "" && !strings.Contains(remainder, "/"):
+				h.serveSessionHeader(w, r)
+				return
 			case strings.HasSuffix(r.URL.Path, "/stream"):
 				h.serveSessionStream(w, r)
 				return
