@@ -88,16 +88,23 @@ func TestParseDeduplicatesStreamedMessageIDs(t *testing.T) {
 	t.Parallel()
 
 	jsonl := `{"type":"session","version":3,"id":"s1"}` + "\n" +
-		`{"type":"message","id":"a1","message":{"role":"assistant","content":[{"type":"text","text":"partial"}],"usage":{"output":2}}}` + "\n" +
+		`{"type":"message","id":"a1","message":{"role":"assistant","content":[{"type":"text","text":"partial"},{"type":"toolCall","id":"stale-call","name":"bash","arguments":{"command":"false"}}],"usage":{"output":2}}}` + "\n" +
 		`{"type":"message","id":"a1","message":{"role":"assistant","content":[{"type":"text","text":"complete"}],"usage":{"output":3}}}` + "\n" +
 		`{"type":"compaction","id":"e1","summary":"first"}` + "\n" +
-		`{"type":"compaction","id":"e1","summary":"latest"}`
+		`{"type":"compaction","id":"e1","summary":"latest"}` + "\n" +
+		`{"type":"custom","id":"t1","customType":"todo-state","data":{"items":[{"id":1,"text":"partial","status":"todo"}]}}` + "\n" +
+		`{"type":"custom","id":"t1","customType":"todo-state","data":{"items":[{"id":1,"text":"complete","status":"done"}]}}`
 
 	s, err := Parse(strings.NewReader(jsonl))
 	require.NoError(t, err)
 	require.Len(t, s.Messages, 1)
 	require.Equal(t, int64(3), s.Messages[0].OutputTokens)
 	require.Equal(t, "complete", s.Messages[0].Text)
+	require.Empty(t, s.ToolCalls)
 	require.Len(t, s.Events, 1)
 	require.Equal(t, "latest", s.Events[0].Value)
+	require.Len(t, s.CustomStates, 1)
+	require.Equal(t, 7, s.CustomStates[0].SourceLine)
+	require.Contains(t, s.CustomStates[0].Data, "complete")
+	require.NotContains(t, s.CustomStates[0].Data, "partial")
 }

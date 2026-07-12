@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 )
@@ -200,6 +201,18 @@ func parseMessage(data []byte, line int, s *Session, messageIndex, callIndex, re
 	text, calls, err := parseContent(body.Content, rec.ID, line)
 	if err != nil {
 		return err
+	}
+	if _, replacing := messageIndex[rec.ID]; replacing {
+		s.ToolCalls = slices.DeleteFunc(s.ToolCalls, func(call ToolCall) bool { return call.MessageID == rec.ID })
+		clear(callIndex)
+		for i, call := range s.ToolCalls {
+			callIndex[call.ID] = i
+		}
+		s.ToolResults = slices.DeleteFunc(s.ToolResults, func(result ToolResult) bool { return result.MessageID == rec.ID })
+		clear(resultIndex)
+		for i, result := range s.ToolResults {
+			resultIndex[result.ID] = i
+		}
 	}
 	msg := Message{ID: rec.ID, ParentID: rec.ParentID, Timestamp: rec.Timestamp, Role: body.Role, Model: body.Model, StopReason: body.StopReason, Text: text, SourceLine: line, InputTokens: body.Usage.Input, OutputTokens: body.Usage.Output, ReasoningTokens: body.Usage.Reasoning, CacheReadTokens: body.Usage.CacheRead, CacheWriteTokens: body.Usage.CacheWrite, Cost: body.Usage.Cost.Total}
 	upsert(&s.Messages, messageIndex, rec.ID, msg)

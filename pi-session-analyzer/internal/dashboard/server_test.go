@@ -105,6 +105,14 @@ func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 	require.Len(t, page.Entries, 1)
 	require.Equal(t, "message", page.Entries[0].Kind)
 
+	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/todo", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var todos store.TodoDiagnostics
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &todos))
+	require.Equal(t, "absent", todos.FinalState)
+
 	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/stream?limit=101", nil)
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)

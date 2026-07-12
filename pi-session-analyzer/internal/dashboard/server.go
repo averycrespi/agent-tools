@@ -62,9 +62,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/api/overview":
 		h.serveOverview(w, r)
 	default:
-		if strings.HasPrefix(r.URL.Path, "/api/sessions/") && strings.HasSuffix(r.URL.Path, "/stream") {
-			h.serveSessionStream(w, r)
-			return
+		if strings.HasPrefix(r.URL.Path, "/api/sessions/") {
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/stream"):
+				h.serveSessionStream(w, r)
+				return
+			case strings.HasSuffix(r.URL.Path, "/todo"):
+				h.serveTodoDiagnostics(w, r)
+				return
+			}
 		}
 		writeError(w, http.StatusNotFound, "route not found")
 	}

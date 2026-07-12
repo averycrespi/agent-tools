@@ -68,6 +68,65 @@ func (h *Handler) serveSessionStream(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, page)
 }
 
+func (h *Handler) serveTodoDiagnostics(w http.ResponseWriter, r *http.Request) {
+	if h.reader == nil {
+		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
+		return
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/sessions/"), "/todo")
+	if id == "" || strings.Contains(id, "/") {
+		writeError(w, http.StatusNotFound, "route not found")
+		return
+	}
+	snapshotOffset, err := queryInteger(r, "snapshot_offset", 0, 0, 1_000_000)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	snapshotLimit, err := queryInteger(r, "snapshot_limit", 50, 1, 100)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	itemOffset, err := queryInteger(r, "item_offset", 0, 0, 1_000_000)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	itemLimit, err := queryInteger(r, "item_limit", 20, 1, 50)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ctx, cancel := robound.WithTimeout(r.Context())
+	defer cancel()
+	diagnostics, err := h.reader.TodoDiagnosticsPage(ctx, id, store.TodoQuery{SnapshotOffset: snapshotOffset, SnapshotLimit: snapshotLimit, ItemOffset: itemOffset, ItemLimit: itemLimit})
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrSessionNotFound):
+			writeError(w, http.StatusNotFound, "session not found")
+		case errors.Is(err, store.ErrAmbiguousSession):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, "todo query failed")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, diagnostics)
+}
+
+func queryInteger(r *http.Request, name string, fallback, minimum, maximum int) (int, error) {
+	value := r.URL.Query().Get(name)
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < minimum || parsed > maximum {
+		return 0, fmt.Errorf("%s must be between %d and %d", name, minimum, maximum)
+	}
+	return parsed, nil
+}
+
 func parseOverviewQuery(r *http.Request, now time.Time) (store.OverviewQuery, error) {
 	timezone := r.URL.Query().Get("timezone")
 	if timezone == "" {
