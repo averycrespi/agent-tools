@@ -3,6 +3,13 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
+)
+
+var (
+	ErrSessionNotFound     = errors.New("session not found")
+	ErrAmbiguousSession    = errors.New("session prefix is ambiguous")
+	ErrInvalidStreamCursor = errors.New("invalid stream cursor")
 )
 
 type Rows interface {

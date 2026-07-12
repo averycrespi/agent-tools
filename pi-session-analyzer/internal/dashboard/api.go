@@ -1,8 +1,11 @@
 package dashboard
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/robound"
@@ -27,6 +30,42 @@ func (h *Handler) serveOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, overview)
+}
+
+func (h *Handler) serveSessionStream(w http.ResponseWriter, r *http.Request) {
+	if h.reader == nil {
+		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
+		return
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/sessions/"), "/stream")
+	if id == "" || strings.Contains(id, "/") {
+		writeError(w, http.StatusNotFound, "route not found")
+		return
+	}
+	limit := 100
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 100 {
+			writeError(w, http.StatusBadRequest, "limit must be between 1 and 100")
+			return
+		}
+		limit = parsed
+	}
+	ctx, cancel := robound.WithTimeout(r.Context())
+	defer cancel()
+	page, err := h.reader.SessionStream(ctx, id, r.URL.Query().Get("cursor"), limit)
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrSessionNotFound):
+			writeError(w, http.StatusNotFound, "session not found")
+		case errors.Is(err, store.ErrAmbiguousSession), errors.Is(err, store.ErrInvalidStreamCursor):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, "session stream query failed")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
 }
 
 func parseOverviewQuery(r *http.Request, now time.Time) (store.OverviewQuery, error) {

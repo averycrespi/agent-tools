@@ -273,7 +273,7 @@ func (s *Reader) ResolveSession(ctx context.Context, prefix string) (string, err
 		ids = append(ids, id)
 	}
 	if len(ids) == 0 {
-		return "", fmt.Errorf("session %q not found", prefix)
+		return "", fmt.Errorf("%w: %q", ErrSessionNotFound, prefix)
 	}
 	for _, id := range ids {
 		if id == prefix {
@@ -281,7 +281,7 @@ func (s *Reader) ResolveSession(ctx context.Context, prefix string) (string, err
 		}
 	}
 	if len(ids) > 1 {
-		return "", fmt.Errorf("session prefix %q is ambiguous", prefix)
+		return "", fmt.Errorf("%w: %q", ErrAmbiguousSession, prefix)
 	}
 	return ids[0], nil
 }

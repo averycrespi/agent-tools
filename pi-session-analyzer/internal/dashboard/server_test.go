@@ -69,7 +69,7 @@ func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 	db, err := store.Open(path)
 	require.NoError(t, err)
 	started := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC).Unix()
-	require.NoError(t, db.ReplaceSession(context.Background(), ingest.Session{ID: "s", StartedAtUnix: &started}, store.SourceMeta{Path: "s.jsonl", Size: 1, ModTimeNS: 1}))
+	require.NoError(t, db.ReplaceSession(context.Background(), ingest.Session{ID: "s", StartedAtUnix: &started, Messages: []ingest.Message{{ID: "m", Role: "user", Text: "hello", SourceLine: 2}}}, store.SourceMeta{Path: "s.jsonl", Size: 1, ModTimeNS: 1}))
 	require.NoError(t, db.Close())
 	boundary, err := robound.Open(context.Background(), path)
 	require.NoError(t, err)
@@ -95,6 +95,30 @@ func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 	require.NotContains(t, recorder.Body.String(), `"truncated":true`)
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &overview))
 	require.Len(t, overview.Buckets, 90)
+
+	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/stream?limit=1", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var page store.SessionStreamPage
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &page))
+	require.Len(t, page.Entries, 1)
+	require.Equal(t, "message", page.Entries[0].Kind)
+
+	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/stream?limit=101", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+
+	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/stream?cursor=invalid", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+
+	request = httptest.NewRequest(http.MethodGet, "/api/sessions/missing/stream", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusNotFound, recorder.Code)
 
 	for _, timezone := range []string{"Not%2FAZone", "Local"} {
 		request = httptest.NewRequest(http.MethodGet, "/api/overview?timezone="+timezone, nil)

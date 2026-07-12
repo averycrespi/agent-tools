@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/robound"
@@ -61,6 +62,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/api/overview":
 		h.serveOverview(w, r)
 	default:
+		if strings.HasPrefix(r.URL.Path, "/api/sessions/") && strings.HasSuffix(r.URL.Path, "/stream") {
+			h.serveSessionStream(w, r)
+			return
+		}
 		writeError(w, http.StatusNotFound, "route not found")
 	}
 }
@@ -91,5 +96,5 @@ func writeError(w http.ResponseWriter, status int, message string) {
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_, _ = w.Write([]byte(robound.MarshalCapped(value)))
+	_, _ = w.Write([]byte(robound.MarshalCapped(value))) //nolint:gosec // Values are JSON-encoded and served with a non-HTML content type.
 }
