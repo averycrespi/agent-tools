@@ -56,7 +56,7 @@ func TestHandlerAppliesPrivateHeadersAndServesEmbeddedAssets(t *testing.T) {
 		require.Empty(t, response.Cookies())
 		if path == "/" {
 			require.Contains(t, string(body), "/assets/favicon.svg")
-			require.Contains(t, string(body), `id="cwd"`)
+			require.Contains(t, string(body), `id="cwd-filter"`)
 			require.Contains(t, string(body), `id="untimed"`)
 			require.NotContains(t, string(body), "http://")
 			require.NotContains(t, string(body), "https://")

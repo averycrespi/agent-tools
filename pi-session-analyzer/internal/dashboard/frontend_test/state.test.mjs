@@ -3,11 +3,19 @@ import assert from "node:assert/strict";
 import { matrixSearch, overviewSearch, parseState, stateSearch, withBucket } from "../assets/state.js";
 
 test("URL state round trips only non-sensitive navigation state", () => {
-  const state = parseState("?range=7d&bucket=week&timezone=America%2FLos_Angeles&cwd=%2Fwork&session=abc&from=1&to=2", "UTC");
+  const state = parseState("?range=7d&bucket=week&timezone=America%2FLos_Angeles&cwd=%2Fwork&cwd=%2Fhome&session=abc&from=1&to=2", "UTC");
   assert.equal(state.range, "7d");
   assert.equal(state.timezone, "America/Los_Angeles");
+  assert.deepEqual(state.cwds, ["/work", "/home"]);
   assert.deepEqual(parseState(stateSearch(state), "UTC"), state);
   assert.equal(stateSearch({ ...state, transcript: "private" }).includes("private"), false);
+});
+
+test("cwd filters repeat in matrix queries and are capped", () => {
+  const state = parseState(`?${Array.from({ length: 20 }, (_, i) => `cwd=%2Fp${i}`).join("&")}`, "UTC");
+  assert.equal(state.cwds.length, 16);
+  const query = new URLSearchParams(matrixSearch({ ...state, cwds: ["/a", "/b"] }, { buckets: [{ start_unix: 1, end_unix: 2 }] }));
+  assert.deepEqual(query.getAll("cwd"), ["/a", "/b"]);
 });
 
 test("invalid URL choices fall back and bucket selection clears session", () => {

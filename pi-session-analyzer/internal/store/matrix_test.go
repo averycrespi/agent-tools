@@ -65,6 +65,21 @@ func TestSessionMatrixUsesHalfOpenRangeAndStableKeysetCursor(t *testing.T) {
 	untimed, err := s.SessionMatrix(context.Background(), MatrixQuery{Untimed: true, Limit: 10}, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{"untimed"}, []string{untimed.Rows[0].ID})
+
+	filtered, err := s.SessionMatrix(context.Background(), MatrixQuery{FromUnix: 100, ToUnix: 101, Limit: 10, CWDs: []string{"/work/a", "/work/b"}}, nil)
+	require.NoError(t, err)
+	require.Len(t, filtered.Rows, 2)
+	single, err := s.SessionMatrix(context.Background(), MatrixQuery{FromUnix: 100, ToUnix: 101, Limit: 10, CWDs: []string{"/work/b"}}, nil)
+	require.NoError(t, err)
+	require.Equal(t, "b", single.Rows[0].ID)
+	require.Len(t, single.Rows, 1)
+	_, err = s.SessionMatrix(context.Background(), MatrixQuery{FromUnix: 100, ToUnix: 101, Limit: 10, CWDs: make([]string, MaxMatrixCWDFilters+1)}, nil)
+	require.ErrorIs(t, err, ErrInvalidMatrixQuery)
+
+	options, err := s.DistinctCWDs(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []CWDOption{{CWD: "/work/a", Sessions: 1}, {CWD: "/work/b", Sessions: 1}, {CWD: "/work/u", Sessions: 1}}, options.Values)
+	require.False(t, options.Truncated)
 }
 
 func TestSessionMatrixBatchesToolOutcomeQueriesAcrossRows(t *testing.T) {

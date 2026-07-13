@@ -2,7 +2,19 @@ const ranges = new Set(["7d", "30d", "90d", "all"]);
 const buckets = new Set(["auto", "day", "week", "month"]);
 
 export function defaultState(timezone = "UTC") {
-  return { range: "30d", bucket: "auto", timezone, cwd: "", untimed: false, session: "", from: "", to: "", dateFrom: "", dateTo: "", direction: "desc" };
+  return {
+    range: "30d",
+    bucket: "auto",
+    timezone,
+    cwds: [],
+    untimed: false,
+    session: "",
+    from: "",
+    to: "",
+    dateFrom: "",
+    dateTo: "",
+    direction: "desc",
+  };
 }
 
 export function parseState(search, timezone = "UTC") {
@@ -11,15 +23,21 @@ export function parseState(search, timezone = "UTC") {
   if (ranges.has(params.get("range"))) state.range = params.get("range");
   if (buckets.has(params.get("bucket"))) state.bucket = params.get("bucket");
   if (params.get("timezone")) state.timezone = params.get("timezone");
-  state.cwd = params.get("cwd") || "";
+  state.cwds = params.getAll("cwd").filter(Boolean).slice(0, 16);
   state.untimed = params.get("untimed") === "true";
   state.session = params.get("session") || "";
   if (params.get("direction") === "asc") state.direction = "asc";
-  if (/^-?\d+$/.test(params.get("from") || "") && /^-?\d+$/.test(params.get("to") || "")) {
+  if (
+    /^-?\d+$/.test(params.get("from") || "") &&
+    /^-?\d+$/.test(params.get("to") || "")
+  ) {
     state.from = params.get("from");
     state.to = params.get("to");
   }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(params.get("date_from") || "") && /^\d{4}-\d{2}-\d{2}$/.test(params.get("date_to") || "")) {
+  if (
+    /^\d{4}-\d{2}-\d{2}$/.test(params.get("date_from") || "") &&
+    /^\d{4}-\d{2}-\d{2}$/.test(params.get("date_to") || "")
+  ) {
     state.dateFrom = params.get("date_from");
     state.dateTo = params.get("date_to");
   }
@@ -31,7 +49,7 @@ export function stateSearch(state) {
   params.set("range", state.range);
   params.set("bucket", state.bucket);
   params.set("timezone", state.timezone);
-  if (state.cwd) params.set("cwd", state.cwd);
+  for (const cwd of state.cwds || []) params.append("cwd", cwd);
   if (state.untimed) params.set("untimed", "true");
   if (state.session) params.set("session", state.session);
   if (state.direction === "asc") params.set("direction", "asc");
@@ -47,7 +65,11 @@ export function stateSearch(state) {
 }
 
 export function overviewSearch(state) {
-  const params = new URLSearchParams({ timezone: state.timezone, range: state.range, bucket: state.bucket });
+  const params = new URLSearchParams({
+    timezone: state.timezone,
+    range: state.range,
+    bucket: state.bucket,
+  });
   if (state.dateFrom && state.dateTo) {
     params.set("from", state.dateFrom);
     params.set("to", state.dateTo);
@@ -56,7 +78,10 @@ export function overviewSearch(state) {
 }
 
 export function matrixSearch(state, overview) {
-  const params = new URLSearchParams({ limit: "10", direction: state.direction });
+  const params = new URLSearchParams({
+    limit: "10",
+    direction: state.direction,
+  });
   if (state.untimed) {
     params.set("untimed", "true");
   } else {
@@ -66,10 +91,16 @@ export function matrixSearch(state, overview) {
     if (from) params.set("from", from);
     if (to) params.set("to", to);
   }
-  if (state.cwd) params.set("cwd", state.cwd);
+  for (const cwd of state.cwds || []) params.append("cwd", cwd);
   return params.toString();
 }
 
 export function withBucket(state, bucket) {
-  return { ...state, untimed: false, session: "", from: String(bucket.start_unix), to: String(bucket.end_unix) };
+  return {
+    ...state,
+    untimed: false,
+    session: "",
+    from: String(bucket.start_unix),
+    to: String(bucket.end_unix),
+  };
 }

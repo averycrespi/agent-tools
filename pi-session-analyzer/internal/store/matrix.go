@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -14,11 +15,13 @@ const MaxMatrixPageSize = 10
 
 var ErrInvalidMatrixQuery = errors.New("invalid matrix query")
 
+const MaxMatrixCWDFilters = 16
+
 type MatrixQuery struct {
 	FromUnix  int64
 	ToUnix    int64
 	Untimed   bool
-	CWD       string
+	CWDs      []string
 	Limit     int
 	Cursor    string
 	Direction string
@@ -64,13 +67,13 @@ type SessionMatrixPage struct {
 }
 
 type matrixCursor struct {
-	FromUnix  int64  `json:"from"`
-	ToUnix    int64  `json:"to"`
-	Untimed   bool   `json:"untimed"`
-	CWD       string `json:"cwd"`
-	Start     *int64 `json:"start,omitempty"`
-	ID        string `json:"id"`
-	Direction string `json:"direction"`
+	FromUnix  int64    `json:"from"`
+	ToUnix    int64    `json:"to"`
+	Untimed   bool     `json:"untimed"`
+	CWDs      []string `json:"cwds,omitempty"`
+	Start     *int64   `json:"start,omitempty"`
+	ID        string   `json:"id"`
+	Direction string   `json:"direction"`
 }
 
 func (s *Reader) SessionMatrix(ctx context.Context, q MatrixQuery, detectorNames []string) (SessionMatrixPage, error) {
@@ -89,8 +92,13 @@ func (s *Reader) SessionMatrix(ctx context.Context, q MatrixQuery, detectorNames
 	if !q.Untimed && q.FromUnix >= q.ToUnix {
 		return SessionMatrixPage{}, fmt.Errorf("%w: range start must be before range end", ErrInvalidMatrixQuery)
 	}
-	if len(q.CWD) > 256 {
-		return SessionMatrixPage{}, fmt.Errorf("%w: cwd filter is too long", ErrInvalidMatrixQuery)
+	if len(q.CWDs) > MaxMatrixCWDFilters {
+		return SessionMatrixPage{}, fmt.Errorf("%w: at most %d cwd filters are allowed", ErrInvalidMatrixQuery, MaxMatrixCWDFilters)
+	}
+	for _, cwd := range q.CWDs {
+		if cwd == "" || len(cwd) > 256 {
+			return SessionMatrixPage{}, fmt.Errorf("%w: each cwd filter must be 1-256 bytes", ErrInvalidMatrixQuery)
+		}
 	}
 	var cursor matrixCursor
 	if q.Cursor != "" {
@@ -98,7 +106,7 @@ func (s *Reader) SessionMatrix(ctx context.Context, q MatrixQuery, detectorNames
 		if err != nil || json.Unmarshal(decoded, &cursor) != nil || cursor.ID == "" {
 			return SessionMatrixPage{}, fmt.Errorf("%w: invalid cursor", ErrInvalidMatrixQuery)
 		}
-		if cursor.FromUnix != q.FromUnix || cursor.ToUnix != q.ToUnix || cursor.Untimed != q.Untimed || cursor.CWD != q.CWD || cursor.Direction != q.Direction {
+		if cursor.FromUnix != q.FromUnix || cursor.ToUnix != q.ToUnix || cursor.Untimed != q.Untimed || !slices.Equal(cursor.CWDs, q.CWDs) || cursor.Direction != q.Direction {
 			return SessionMatrixPage{}, fmt.Errorf("%w: cursor does not match current filters", ErrInvalidMatrixQuery)
 		}
 	}
@@ -133,9 +141,12 @@ func (s *Reader) SessionMatrix(ctx context.Context, q MatrixQuery, detectorNames
 			args = append(args, *cursor.Start, *cursor.Start, cursor.ID)
 		}
 	}
-	if q.CWD != "" {
-		conditions = append(conditions, "s.cwd=?")
-		args = append(args, q.CWD)
+	if len(q.CWDs) > 0 {
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(q.CWDs)), ",")
+		conditions = append(conditions, "s.cwd IN ("+placeholders+")")
+		for _, cwd := range q.CWDs {
+			args = append(args, cwd)
+		}
 	}
 	args = append(args, q.Limit+1)
 	runFilter, freshFilter := "0", "0"
@@ -255,7 +266,7 @@ ORDER BY ` + order
 	}
 	if hasMore {
 		last := page.Rows[len(page.Rows)-1]
-		encoded, marshalErr := json.Marshal(matrixCursor{FromUnix: q.FromUnix, ToUnix: q.ToUnix, Untimed: q.Untimed, CWD: q.CWD, Start: last.StartedAtUnix, ID: last.ID, Direction: q.Direction})
+		encoded, marshalErr := json.Marshal(matrixCursor{FromUnix: q.FromUnix, ToUnix: q.ToUnix, Untimed: q.Untimed, CWDs: q.CWDs, Start: last.StartedAtUnix, ID: last.ID, Direction: q.Direction})
 		if marshalErr != nil {
 			return SessionMatrixPage{}, fmt.Errorf("encode matrix cursor: %w", marshalErr)
 		}

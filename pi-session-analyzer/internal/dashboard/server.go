@@ -78,6 +78,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveOverviewSignals(w, r)
 	case "/api/sessions":
 		h.serveSessionMatrix(w, r)
+	case "/api/cwds":
+		h.serveCWDOptions(w, r)
 	default:
 		if strings.HasPrefix(r.URL.Path, "/api/sessions/") {
 			remainder := strings.TrimPrefix(r.URL.Path, "/api/sessions/")

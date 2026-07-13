@@ -107,7 +107,7 @@ func (h *Handler) serveSessionMatrix(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := robound.WithTimeout(r.Context())
 	defer cancel()
-	page, err := h.reader.SessionMatrix(ctx, store.MatrixQuery{FromUnix: from, ToUnix: to, Untimed: untimed, CWD: r.URL.Query().Get("cwd"), Limit: limit, Cursor: r.URL.Query().Get("cursor"), Direction: r.URL.Query().Get("direction")}, h.detectorNames)
+	page, err := h.reader.SessionMatrix(ctx, store.MatrixQuery{FromUnix: from, ToUnix: to, Untimed: untimed, CWDs: r.URL.Query()["cwd"], Limit: limit, Cursor: r.URL.Query().Get("cursor"), Direction: r.URL.Query().Get("direction")}, h.detectorNames)
 	if err != nil {
 		if errors.Is(err, store.ErrInvalidMatrixQuery) {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -117,6 +117,25 @@ func (h *Handler) serveSessionMatrix(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
+}
+
+func (h *Handler) serveCWDOptions(w http.ResponseWriter, r *http.Request) {
+	if h.reader == nil {
+		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
+		return
+	}
+	if len(r.URL.Query()) != 0 {
+		writeError(w, http.StatusBadRequest, "cwd options do not accept parameters")
+		return
+	}
+	ctx, cancel := robound.WithTimeout(r.Context())
+	defer cancel()
+	options, err := h.reader.DistinctCWDs(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "cwd options query failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, options)
 }
 
 func (h *Handler) serveSessionHeader(w http.ResponseWriter, r *http.Request) {

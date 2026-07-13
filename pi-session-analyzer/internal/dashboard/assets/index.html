@@ -40,7 +40,20 @@
       >
       <label>From date<input id="date-from" type="date" /></label>
       <label>To date (exclusive)<input id="date-to" type="date" /></label>
-      <label>Project / CWD<input id="cwd" size="22" /></label>
+      <div class="dropdown-control">
+        <span class="control-label" id="cwd-label">Project / CWD</span>
+        <details class="dropdown" id="cwd-filter">
+          <summary aria-labelledby="cwd-label" id="cwd-summary">
+            All projects
+          </summary>
+          <div
+            class="dropdown-pop"
+            id="cwd-options"
+            role="group"
+            aria-labelledby="cwd-label"
+          ></div>
+        </details>
+      </div>
       <label class="checkbox-control"
         ><input id="untimed" type="checkbox" /> Show untimed sessions</label
       >
