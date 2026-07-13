@@ -53,8 +53,11 @@ The analyzer-owned database directory is mode `0700`. The database and SQLite si
 - `detect [SESSION_ID]` independently and idempotently reruns all detectors. A failed detector retains prior findings as stale while other detectors continue.
 - `mcp` serves read-only stdio MCP tools.
 - `dashboard [--port 0..65535] [--no-open]` serves an embedded view-only dashboard on literal IPv4 loopback. Port `0` chooses an ephemeral port. The command prints the URL before attempting to open a browser; browser-launch failure is non-fatal. Run `ingest` first so the canonical timestamp migration and index are current.
+- `token rotate` generates a new dashboard auth token, invalidating existing dashboard sessions. Restart the dashboard to apply. The token value is never printed — read the file if you need it.
 
-The dashboard uses the same scrubbed index and shared read-only limits as MCP. It makes prompts, responses, code, paths, hosts, and other retained identifiers easy to view, so it is **private and not safe to share or screenshot**. It has no export, download, print/share, redaction, remote-bind, authentication, telemetry, cookie, external-asset, write, polling, or live-tail mode. Collapsing text is a viewing convenience, not sanitization.
+The dashboard uses the same scrubbed index and shared read-only limits as MCP. It makes prompts, responses, code, paths, hosts, and other retained identifiers easy to view, so it is **private and not safe to share or screenshot**. It has no export, download, print/share, redaction, remote-bind, telemetry, external-asset, write, polling, or live-tail mode. Collapsing text is a viewing convenience, not sanitization.
+
+Every dashboard request requires a bearer token, mirroring `mcp-broker`: a 64-char hex token generated on first run at `${XDG_CONFIG_HOME:-~/.config}/pi-session-analyzer/auth-token` (mode `0600`). The printed startup URL carries the token once as a `?token=` query parameter; the server exchanges it for an `HttpOnly` session cookie and redirects the token out of the address bar. `curl` and scripts can send `Authorization: Bearer $(cat ~/.config/pi-session-analyzer/auth-token)` instead. The token is defense-in-depth — the loopback-only bind remains the load-bearing security boundary, and the token does not protect against other processes reading the token file or the database directly.
 
 Session IDs may be exact or unambiguous prefixes.
 

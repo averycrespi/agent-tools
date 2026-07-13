@@ -10,11 +10,13 @@ Until the first ingest completes, launchd restart-throttles the dashboard agent;
 
 ## Privacy
 
-The dashboard binds literal `127.0.0.1` only and has no authentication, TLS, or remote-bind option. It renders scrubbed-but-identifying session content (prompts, responses, code, paths, hosts) and is **private and not safe to share, screenshot, or port-forward**. Keeping it resident does not change that boundary — anything on the machine that can reach loopback can read it.
+The dashboard binds literal `127.0.0.1` only and has no TLS or remote-bind option. Every request additionally requires the auth token at `~/.config/pi-session-analyzer/auth-token` (created on first run, mode `0600`; rotate with `pi-session-analyzer token rotate` and kickstart the dashboard agent to apply). The dashboard renders scrubbed-but-identifying session content (prompts, responses, code, paths, hosts) and is **private and not safe to share, screenshot, or port-forward**. The token is defense-in-depth; the loopback bind remains the load-bearing boundary.
+
+Note that the dashboard prints its tokened startup URL to stdout on every launch, so `~/Library/Logs/pi-session-analyzer-dashboard.out.log` contains the current token — treat that log like the token file.
 
 ## State paths
 
-Both agents run as your user with launchd's minimal environment. `XDG_DATA_HOME` is usually unset under launchd (launchd does not source your shell profile), so the database lands at the fallback path `~/.local/share/pi-session-analyzer/sessions.db`, and sessions are read from `~/.pi/agent/sessions`. If you override either path on the command line in one plist, override it identically in the other so both agents use the same database.
+Both agents run as your user with launchd's minimal environment. `XDG_DATA_HOME` and `XDG_CONFIG_HOME` are usually unset under launchd (launchd does not source your shell profile), so the database lands at the fallback path `~/.local/share/pi-session-analyzer/sessions.db`, the auth token at `~/.config/pi-session-analyzer/auth-token` (64-char hex bearer token, mode `0600`), and sessions are read from `~/.pi/agent/sessions`. If you override the database path on the command line in one plist, override it identically in the other so both agents use the same database.
 
 ## Install
 
@@ -46,12 +48,15 @@ The dashboard plist pins `--port 31415` so the URL stays stable across restarts 
 launchctl print gui/$UID/dev.agent-tools.pi-session-analyzer-dashboard | grep -E '^\s+state'
 
 # The dashboard should answer on the pinned port — expect 200. (Use GET:
-# the dashboard rejects every other method, including HEAD, with 405.)
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:31415/
+# the dashboard rejects every other method, including HEAD, with 405.
+# Without the bearer token you get a 302 to /unauthorized instead.)
+token=$(cat ~/.config/pi-session-analyzer/auth-token)
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $token" http://127.0.0.1:31415/
 
-# Tail logs. The dashboard prints its URL to stdout (.out.log); startup
-# errors such as a missing database go to stderr (.err.log). Ingest writes
-# a JSON summary of each run to stdout.
+# Tail logs. The dashboard prints its tokened URL to stdout (.out.log) —
+# open that URL to authenticate a browser; startup errors such as a
+# missing database go to stderr (.err.log). Ingest writes a JSON summary
+# of each run to stdout.
 tail -f ~/Library/Logs/pi-session-analyzer-{dashboard,ingest}.{out,err}.log
 ```
 
