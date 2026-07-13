@@ -234,6 +234,79 @@ func TestReplaceSessionUpdatesAndClearsCanonicalSessionStart(t *testing.T) {
 	require.Nil(t, loaded.StartedAtUnix)
 }
 
+func TestReplaceSessionPopulatesNormalizedTargets(t *testing.T) {
+	t.Parallel()
+
+	s, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	session := ingest.Session{ID: "s", ToolCalls: []ingest.ToolCall{
+		{ID: "c1", Name: "read", Arguments: `{"path":"/repo/skills/tdd/SKILL.md"}`, SourceLine: 1},
+		{ID: "c2", Name: "bash", Arguments: `{"command":"CI=1 go test ./..."}`, SourceLine: 2},
+		{ID: "c3", Name: "todo", Arguments: `{"action":"list"}`, SourceLine: 3},
+	}}
+	require.NoError(t, s.ReplaceSession(context.Background(), session, SourceMeta{Path: "s.jsonl", Size: 1, ModTimeNS: 1}))
+	targets := map[string]string{}
+	rows, err := s.db.Query(`SELECT id,normalized_target FROM tool_calls`)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, rows.Close()) }()
+	for rows.Next() {
+		var id, target string
+		require.NoError(t, rows.Scan(&id, &target))
+		targets[id] = target
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, map[string]string{"c1": "/repo/skills/tdd/SKILL.md", "c2": "go", "c3": ""}, targets)
+}
+
+func TestOpenBackfillsNormalizedTargetsOnce(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	legacy, err := sql.Open("sqlite3", path)
+	require.NoError(t, err)
+	_, err = legacy.Exec(`CREATE TABLE sessions (
+		id TEXT PRIMARY KEY, source_path TEXT NOT NULL UNIQUE, source_size INTEGER NOT NULL,
+		source_mtime_ns INTEGER NOT NULL, schema_version INTEGER NOT NULL, schema_drift INTEGER NOT NULL,
+		timestamp TEXT NOT NULL, cwd TEXT NOT NULL, total_records INTEGER NOT NULL,
+		malformed_records INTEGER NOT NULL, unknown_records INTEGER NOT NULL, ingested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE TABLE tool_calls (
+		session_id TEXT NOT NULL, id TEXT NOT NULL, message_id TEXT NOT NULL,
+		source_line INTEGER NOT NULL, name TEXT NOT NULL, arguments TEXT NOT NULL,
+		PRIMARY KEY(session_id,id)
+	)`)
+	require.NoError(t, err)
+	_, err = legacy.Exec(`INSERT INTO sessions(id,source_path,source_size,source_mtime_ns,schema_version,schema_drift,timestamp,cwd,total_records,malformed_records,unknown_records) VALUES ('s','s.jsonl',1,1,3,0,'','',1,0,0)`)
+	require.NoError(t, err)
+	_, err = legacy.Exec(`INSERT INTO tool_calls(session_id,id,message_id,source_line,name,arguments) VALUES
+		('s','c1','m1',1,'read','{"path":"/repo/skills/tdd/SKILL.md"}'),
+		('s','c2','m1',2,'todo','{}')`)
+	require.NoError(t, err)
+	require.NoError(t, legacy.Close())
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	var target string
+	require.NoError(t, s.db.QueryRow(`SELECT normalized_target FROM tool_calls WHERE id='c1'`).Scan(&target))
+	require.Equal(t, "/repo/skills/tdd/SKILL.md", target)
+	require.NoError(t, s.db.QueryRow(`SELECT normalized_target FROM tool_calls WHERE id='c2'`).Scan(&target))
+	require.Empty(t, target)
+	var version int
+	require.NoError(t, s.db.QueryRow(`PRAGMA user_version`).Scan(&version))
+	require.Equal(t, normalizedTargetSchemaVersion, version)
+
+	// A later manual clear must survive reopen: the backfill runs only once.
+	_, err = s.db.Exec(`UPDATE tool_calls SET normalized_target='' WHERE id='c1'`)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+	s, err = Open(path)
+	require.NoError(t, err)
+	require.NoError(t, s.db.QueryRow(`SELECT normalized_target FROM tool_calls WHERE id='c1'`).Scan(&target))
+	require.Empty(t, target)
+	require.NoError(t, s.Close())
+}
+
 func TestTopFailuresFiltersOrdersAndLimitsInQuery(t *testing.T) {
 	t.Parallel()
 

@@ -141,6 +141,10 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate database: %w", err)
 	}
+	if err = migrateNormalizedTargets(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate database: %w", err)
+	}
 	s := &Store{Reader: newSQLReader(db), db: db, path: path}
 	if err := s.repairPermissions(); err != nil {
 		_ = db.Close()
@@ -193,7 +197,8 @@ func (s *Store) ReplaceSession(ctx context.Context, in ingest.Session, meta Sour
 		}
 	}
 	for _, c := range in.ToolCalls {
-		_, err = tx.ExecContext(ctx, `INSERT INTO tool_calls(session_id,id,message_id,source_line,name,arguments) VALUES(?,?,?,?,?,?)`, sessionID, scrub.Scrub(c.ID), scrub.Scrub(c.MessageID), c.SourceLine, scrub.Scrub(c.Name), scrub.JSON(c.Arguments))
+		name, arguments := scrub.Scrub(c.Name), scrub.JSON(c.Arguments)
+		_, err = tx.ExecContext(ctx, `INSERT INTO tool_calls(session_id,id,message_id,source_line,name,arguments,normalized_target) VALUES(?,?,?,?,?,?,?)`, sessionID, scrub.Scrub(c.ID), scrub.Scrub(c.MessageID), c.SourceLine, name, arguments, normalizeCallTarget(name, arguments))
 		if err != nil {
 			return fmt.Errorf("insert tool call: %w", err)
 		}
@@ -351,6 +356,86 @@ func migrateCanonicalSessionStarts(db *sql.DB) error {
 	}
 	for _, update := range updates {
 		if _, err = conn.ExecContext(ctx, `UPDATE sessions SET started_at_unix=? WHERE id=?`, update.unix, update.id); err != nil {
+			return err
+		}
+	}
+	_, err = conn.ExecContext(ctx, `COMMIT`)
+	return err
+}
+
+// normalizedTargetSchemaVersion marks the one-time normalized_target backfill in PRAGMA user_version.
+const normalizedTargetSchemaVersion = 1
+
+func migrateNormalizedTargets(db *sql.DB) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err = conn.ExecContext(ctx, `PRAGMA busy_timeout=5000; BEGIN IMMEDIATE`); err != nil {
+		return err
+	}
+	defer func() { _, _ = conn.ExecContext(context.Background(), `ROLLBACK`) }()
+
+	rows, err := conn.QueryContext(ctx, `PRAGMA table_info(tool_calls)`)
+	if err != nil {
+		return err
+	}
+	hasColumn := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err = rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if name == "normalized_target" {
+			hasColumn = true
+		}
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	if !hasColumn {
+		if _, err = conn.ExecContext(ctx, `ALTER TABLE tool_calls ADD COLUMN normalized_target TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	var version int
+	if err = conn.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
+		return err
+	}
+	if version < normalizedTargetSchemaVersion {
+		rows, err = conn.QueryContext(ctx, `SELECT session_id,id,name,arguments FROM tool_calls`)
+		if err != nil {
+			return err
+		}
+		type backfill struct {
+			sessionID, id, target string
+		}
+		var updates []backfill
+		for rows.Next() {
+			var sessionID, id, name, arguments string
+			if err = rows.Scan(&sessionID, &id, &name, &arguments); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			if target := normalizeCallTarget(name, arguments); target != "" {
+				updates = append(updates, backfill{sessionID: sessionID, id: id, target: target})
+			}
+		}
+		if err = rows.Close(); err != nil {
+			return err
+		}
+		for _, update := range updates {
+			if _, err = conn.ExecContext(ctx, `UPDATE tool_calls SET normalized_target=? WHERE session_id=? AND id=?`, update.target, update.sessionID, update.id); err != nil {
+				return err
+			}
+		}
+		if _, err = conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version=%d`, normalizedTargetSchemaVersion)); err != nil {
 			return err
 		}
 	}

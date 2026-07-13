@@ -34,6 +34,8 @@ The scanner accepts large records and dispatches the seven known top-level Pi ty
 
 The normalized tables are `sessions`, `messages`, `tool_calls`, `tool_results`, `events`, `custom_state`, `custom_messages`, `findings`, and `detector_runs`. Session/message/call/result IDs enforce deduplication. A changed source is transactionally replaced; unchanged `(path, size, mtime)` input is skipped. Ingest never reconciles absent files, so indexed data remains available after source deletion.
 
+Each tool call persists a bounded derived `normalized_target` computed from the scrubbed arguments at the store write boundary: the cleaned `path` argument for `read`/`edit`/`write`, the leading command word after environment assignments for `bash`, and empty otherwise. A one-time idempotent migration (tracked in `PRAGMA user_version`) backfills existing rows. A `read` call whose target ends in `/SKILL.md` is a skill invocation; the parent directory name is the skill identity.
+
 Token reporting keeps output, reasoning, cache-read, and cache-write categories separate. Provider-reported input may appear separately in message drilldown. Aggregate `totalTokens` is not persisted or presented as generated work because cache replay can dominate it. Parseable session-start text is also stored as an indexed nullable canonical Unix instant; the idempotent writable migration backfills existing parseable rows, while invalid timestamps remain explicit untimed sessions.
 
 ## Detector Semantics
