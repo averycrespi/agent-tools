@@ -865,6 +865,37 @@ function renderDetailTools(report) {
   clear(host);
   renderToolOverviewInto(host, report);
 }
+
+function renderDetailSkills(report) {
+  const host = $("#detail-skills");
+  clear(host);
+  if (report.truncated)
+    host.append(
+      node(
+        "p",
+        "danger-text",
+        "Only the first 100 skill invocations are listed.",
+      ),
+    );
+  const invocations = report.invocations || [];
+  if (!invocations.length) {
+    host.append(node("p", "muted", "No skill reads in this session."));
+    return;
+  }
+  for (const invocation of invocations) {
+    const row = node("div", "metric-row");
+    const label = node("span", "", `L${invocation.source_line} · `);
+    label.append(node("strong", "", invocation.skill));
+    label.append(node("small", "muted", ` ${invocation.target}`));
+    const jump = node("button", "", "Navigate to call");
+    jump.type = "button";
+    jump.addEventListener("click", () =>
+      navigateEvidence(invocation.source_line, invocation.call_id),
+    );
+    row.append(label, jump);
+    host.append(row);
+  }
+}
 function renderToolOverviewInto(host, report) {
   if (
     report.analysis_truncated ||
@@ -1153,10 +1184,11 @@ function renderStream(page, append = false) {
 async function loadDetail(sessionID, signal) {
   $("#detail").hidden = false;
   const base = `/api/sessions/${encodeURIComponent(sessionID)}`;
-  const [header, tools, findings, tokens, goal, todo, stream] =
+  const [header, tools, skills, findings, tokens, goal, todo, stream] =
     await Promise.all([
       request(base, signal),
       request(`${base}/tools`, signal),
+      request(`${base}/skills`, signal),
       request(`${base}/diagnostics`, signal),
       request(`${base}/tokens?limit=50`, signal),
       request(`${base}/goal?limit=50`, signal),
@@ -1165,6 +1197,7 @@ async function loadDetail(sessionID, signal) {
     ]);
   renderHeader(header);
   renderDetailTools(tools);
+  renderDetailSkills(skills);
   renderFindings(findings);
   renderTokens(tokens);
   renderGoal(goal);

@@ -188,6 +188,19 @@ func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &tools))
 	require.Equal(t, 1, tools.Totals.Calls)
 
+	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/skills", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var skills store.SessionSkillReport
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &skills))
+	require.Equal(t, []store.SessionSkillInvocation{{CallID: "c", Skill: "tdd", Target: "/skills/tdd/SKILL.md", SourceLine: 3}}, skills.Invocations)
+
+	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/skills?limit=1", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+
 	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/diagnostics", nil)
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)

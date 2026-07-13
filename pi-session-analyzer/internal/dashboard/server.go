@@ -99,6 +99,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			case strings.HasSuffix(r.URL.Path, "/tools"):
 				h.serveToolOutcomes(w, r)
 				return
+			case strings.HasSuffix(r.URL.Path, "/skills"):
+				h.serveSessionSkills(w, r)
+				return
 			case strings.HasSuffix(r.URL.Path, "/tokens"):
 				h.serveTokenSequence(w, r)
 				return
