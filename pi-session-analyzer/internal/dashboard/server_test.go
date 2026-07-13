@@ -87,7 +87,11 @@ func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 	db, err := store.Open(path)
 	require.NoError(t, err)
 	started := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC).Unix()
-	require.NoError(t, db.ReplaceSession(context.Background(), ingest.Session{ID: "s", StartedAtUnix: &started, Messages: []ingest.Message{{ID: "m", Role: "user", Text: "hello", SourceLine: 2}}}, store.SourceMeta{Path: "s.jsonl", Size: 1, ModTimeNS: 1}))
+	require.NoError(t, db.ReplaceSession(context.Background(), ingest.Session{
+		ID: "s", StartedAtUnix: &started,
+		Messages:  []ingest.Message{{ID: "m", Role: "user", Text: "hello", SourceLine: 2}},
+		ToolCalls: []ingest.ToolCall{{ID: "c", MessageID: "m", Name: "read", Arguments: `{"path":"/skills/tdd/SKILL.md"}`, SourceLine: 3}},
+	}, store.SourceMeta{Path: "s.jsonl", Size: 1, ModTimeNS: 1}))
 	require.NoError(t, db.Close())
 	boundary, err := robound.Open(context.Background(), path)
 	require.NoError(t, err)
@@ -105,6 +109,9 @@ func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 	require.Len(t, overview.Buckets, 7)
 	require.Equal(t, 1, overview.Buckets[6].Sessions)
 	require.True(t, overview.Buckets[6].Partial)
+	require.Equal(t, 1, overview.Buckets[6].SkillInvocations)
+	require.Equal(t, 1, overview.Skills.Invocations)
+	require.Equal(t, []store.SkillUsageRow{{Skill: "tdd", Target: "/skills/tdd/SKILL.md", Invocations: 1, Sessions: 1, LastUsedUnix: started}}, overview.Skills.Rows)
 
 	request = httptest.NewRequest(http.MethodGet, "/api/overview?timezone=UTC&range=all&bucket=auto", nil)
 	recorder = httptest.NewRecorder()
@@ -179,7 +186,7 @@ func TestOverviewEndpointUsesValidatedCalendarParameters(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var tools store.ToolOutcomeReport
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &tools))
-	require.Zero(t, tools.Totals.Calls)
+	require.Equal(t, 1, tools.Totals.Calls)
 
 	request = httptest.NewRequest(http.MethodGet, "/api/sessions/s/diagnostics", nil)
 	recorder = httptest.NewRecorder()

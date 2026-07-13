@@ -284,6 +284,65 @@ function renderOverview(data) {
   renderDetectorOverview(data.detectors || []);
   renderOutcomeOverview(data.signals || {});
   renderDistributions(data.signals || {});
+  renderSkillOverview(data.skills || {});
+}
+
+function renderSkillOverview(skills) {
+  const host = $("#skill-overview");
+  clear(host);
+  const rows = skills.rows || [];
+  host.append(
+    metricList([
+      ["Distinct skills", formatInteger(skills.distinct_skills || 0)],
+      ["Invocations", formatInteger(skills.invocations || 0)],
+      [
+        "Sessions using ≥1 skill",
+        formatInteger(skills.sessions_with_skills || 0),
+      ],
+    ]),
+  );
+  if (skills.truncated)
+    host.append(
+      node(
+        "p",
+        "danger-text",
+        `Only the ${rows.length} most-invoked skills are listed.`,
+      ),
+    );
+  if (skills.content_truncated)
+    host.append(
+      node("p", "danger-text", "Some skill names reached their bound."),
+    );
+  if (!rows.length) {
+    host.append(node("p", "muted", "No skill reads in range."));
+    return;
+  }
+  barList(
+    host,
+    "INVOCATIONS BY SKILL",
+    rows,
+    (row) => row.skill,
+    (row) => row.invocations,
+  );
+  const details = node("details");
+  details.append(
+    node(
+      "summary",
+      "trend-summary",
+      "Accessible skill table with sessions, recency, and paths",
+    ),
+    tableFrom(
+      ["Skill", "Invocations", "Sessions", "Last used", "SKILL.md path"],
+      rows.map((row) => [
+        row.skill,
+        formatInteger(row.invocations),
+        formatInteger(row.sessions),
+        localDate(row.last_used_unix),
+        row.target,
+      ]),
+    ),
+  );
+  host.append(details);
 }
 
 function renderChart(buckets, timezone) {
@@ -415,6 +474,12 @@ function renderTrends(buckets, stopReasons, signals, unavailable = false) {
       value("tool_calls"),
       formatInteger,
       "Tool calls issued by sessions started in each bucket.",
+    ],
+    [
+      "Skill invocations",
+      value("skill_invocations"),
+      formatInteger,
+      "Read tool calls on SKILL.md instruction files by sessions started in each bucket.",
     ],
     [
       "Output tokens",

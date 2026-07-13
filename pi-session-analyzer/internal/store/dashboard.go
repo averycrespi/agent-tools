@@ -70,6 +70,7 @@ type OverviewBucketSignals struct {
 	GoalActive       []int     `json:"goal_active"`
 	GoalComplete     []int     `json:"goal_complete"`
 	GoalOther        []int     `json:"goal_other"`
+	SkillInvocations []int     `json:"skill_invocations"`
 }
 
 type OverviewBucket struct {
@@ -80,6 +81,7 @@ type OverviewBucket struct {
 	Sessions         int                `json:"sessions"`
 	Cost             float64            `json:"cost_as_logged"`
 	ToolCalls        int                `json:"tool_calls"`
+	SkillInvocations int                `json:"skill_invocations"`
 	Compactions      int                `json:"compactions"`
 	BrokerGuards     int                `json:"broker_guards"`
 	OutputTokens     int64              `json:"output_tokens"`
@@ -101,6 +103,7 @@ type Overview struct {
 	ToolOutcomes    ToolOutcomeReport      `json:"tool_outcomes"`
 	Detectors       []DetectorOverviewRow  `json:"detectors"`
 	Signals         OverviewSignals        `json:"signals"`
+	Skills          SkillUsage             `json:"skills"`
 	StopReasons     []CategoryBucketSeries `json:"-"`
 	BucketSignals   OverviewBucketSignals  `json:"-"`
 }
@@ -219,6 +222,7 @@ message_facts AS (
  FROM messages m JOIN candidate_sessions cs ON cs.id=m.session_id GROUP BY m.session_id
 ),
 call_facts AS (SELECT c.session_id,COUNT(*) calls FROM tool_calls c JOIN candidate_sessions cs ON cs.id=c.session_id GROUP BY c.session_id),
+skill_facts AS (SELECT c.session_id,COUNT(*) skills FROM tool_calls c JOIN candidate_sessions cs ON cs.id=c.session_id WHERE c.name='read' AND c.normalized_target LIKE '%/' || '` + SkillFileBasename + `' GROUP BY c.session_id),
 event_facts AS (SELECT e.session_id,COUNT(*) compactions FROM events e JOIN candidate_sessions cs ON cs.id=e.session_id WHERE e.type='compaction' GROUP BY e.session_id),
 guard_facts AS (SELECT g.session_id,COUNT(*) guards FROM custom_messages g JOIN candidate_sessions cs ON cs.id=g.session_id WHERE g.type='broker-guard' GROUP BY g.session_id),
 fresh_facts AS (
@@ -239,7 +243,7 @@ fresh_facts AS (
 SELECT b.key,b.start_unix,b.end_unix,b.partial,COUNT(s.id),
  COALESCE(SUM(m.cost),0),COALESCE(SUM(m.output_tokens),0),COALESCE(SUM(m.reasoning_tokens),0),
  COALESCE(SUM(m.cache_read_tokens),0),COALESCE(SUM(m.cache_write_tokens),0),
- COALESCE(SUM(c.calls),0),COALESCE(SUM(e.compactions),0),COALESCE(SUM(g.guards),0),
+ COALESCE(SUM(c.calls),0),COALESCE(SUM(sk.skills),0),COALESCE(SUM(e.compactions),0),COALESCE(SUM(g.guards),0),
  COALESCE(SUM(f.errors),0),COALESCE(SUM(f.warns),0),COALESCE(SUM(f.infos),0),COALESCE(SUM(f.structural),0),COALESCE(SUM(f.heuristic),0),
  COALESCE(SUM(r.successes),0),COALESCE(SUM(r.failures),0),MAX(0,COUNT(s.id)*` + fmt.Sprint(len(q.DetectorNames)) + `-COALESCE(SUM(r.successes),0)-COALESCE(SUM(r.failures),0)),
  SUM(CASE WHEN goal.outcome='absent' THEN 1 ELSE 0 END),SUM(CASE WHEN goal.outcome='cleared' THEN 1 ELSE 0 END),
@@ -249,6 +253,7 @@ FROM buckets b
 LEFT JOIN sessions s ON s.started_at_unix>=b.start_unix AND s.started_at_unix<b.end_unix
 LEFT JOIN message_facts m ON m.session_id=s.id
 LEFT JOIN call_facts c ON c.session_id=s.id
+LEFT JOIN skill_facts sk ON sk.session_id=s.id
 LEFT JOIN event_facts e ON e.session_id=s.id
 LEFT JOIN guard_facts g ON g.session_id=s.id
 LEFT JOIN fresh_facts f ON f.session_id=s.id
@@ -267,7 +272,7 @@ ORDER BY b.start_unix`
 		if err = rows.Scan(
 			&bucket.Key, &bucket.StartUnix, &bucket.EndUnix, &bucket.Partial, &bucket.Sessions,
 			&bucket.Cost, &bucket.OutputTokens, &bucket.ReasoningTokens, &bucket.CacheReadTokens,
-			&bucket.CacheWriteTokens, &bucket.ToolCalls, &bucket.Compactions, &bucket.BrokerGuards,
+			&bucket.CacheWriteTokens, &bucket.ToolCalls, &bucket.SkillInvocations, &bucket.Compactions, &bucket.BrokerGuards,
 			&bucket.FreshFindings.Error, &bucket.FreshFindings.Warn, &bucket.FreshFindings.Info, &bucket.FreshFindings.Structural, &bucket.FreshFindings.Heuristic,
 			&bucket.DetectorCoverage.Success, &bucket.DetectorCoverage.Failed, &bucket.DetectorCoverage.NotRun,
 			&bucket.GoalOutcomes.Absent, &bucket.GoalOutcomes.Cleared, &bucket.GoalOutcomes.Active, &bucket.GoalOutcomes.Complete, &bucket.GoalOutcomes.Other,
@@ -287,6 +292,7 @@ ORDER BY b.start_unix`
 		overview.Timeline.Sessions = append(overview.Timeline.Sessions, bucket.Sessions)
 		overview.BucketSignals.Cost = append(overview.BucketSignals.Cost, bucket.Cost)
 		overview.BucketSignals.ToolCalls = append(overview.BucketSignals.ToolCalls, bucket.ToolCalls)
+		overview.BucketSignals.SkillInvocations = append(overview.BucketSignals.SkillInvocations, bucket.SkillInvocations)
 		overview.BucketSignals.Compactions = append(overview.BucketSignals.Compactions, bucket.Compactions)
 		overview.BucketSignals.BrokerGuards = append(overview.BucketSignals.BrokerGuards, bucket.BrokerGuards)
 		overview.BucketSignals.OutputTokens = append(overview.BucketSignals.OutputTokens, bucket.OutputTokens)
@@ -322,6 +328,10 @@ ORDER BY b.start_unix`
 	overview.Signals, err = s.OverviewSignalSummary(ctx, fromUnix, toUnix)
 	if err != nil {
 		return Overview{}, fmt.Errorf("query overview signals: %w", err)
+	}
+	overview.Skills, err = s.SkillUsageSummary(ctx, fromUnix, toUnix)
+	if err != nil {
+		return Overview{}, fmt.Errorf("query overview skill usage: %w", err)
 	}
 	stopCategories := make([]string, 0, min(10, len(overview.Signals.Stops)))
 	for i := 0; i < len(overview.Signals.Stops) && i < 10; i++ {
