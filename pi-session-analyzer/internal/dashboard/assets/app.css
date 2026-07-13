@@ -709,7 +709,7 @@ section {
 }
 @media (prefers-reduced-motion: no-preference) {
   section {
-    animation: arrive 300ms ease-out both;
+    animation: arrive 300ms ease-out backwards;
   }
   @keyframes arrive {
     from {
