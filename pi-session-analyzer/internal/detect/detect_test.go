@@ -230,3 +230,50 @@ func TestTerminationClassification(t *testing.T) {
 	user := detectorNames(Analyze(ingest.Session{ID: "s", Messages: []ingest.Message{{ID: "a", Role: "assistant", StopReason: "aborted"}}}))
 	require.Equal(t, Info, user["termination"].Severity)
 }
+
+func TestSkillCompactionRereadRequiresCompactionBetweenReads(t *testing.T) {
+	t.Parallel()
+
+	skillRead := func(id string, line int) ingest.ToolCall {
+		return ingest.ToolCall{ID: id, Name: "read", Arguments: `{"path":"/skills/tdd/SKILL.md"}`, SourceLine: line}
+	}
+	compaction := ingest.Event{ID: "e1", Type: "compaction", SourceLine: 5}
+
+	fired := detectorNames(Analyze(ingest.Session{ID: "s",
+		ToolCalls: []ingest.ToolCall{skillRead("c1", 2), skillRead("c2", 8)},
+		Events:    []ingest.Event{compaction},
+	}))
+	require.Contains(t, fired, "skill_compaction_reread")
+	found := fired["skill_compaction_reread"]
+	require.Equal(t, Heuristic, found.Classification)
+	require.Equal(t, Info, found.Severity)
+	require.Equal(t, "c2", found.EvidenceID)
+	require.Equal(t, 8, found.SourceLine)
+	require.Contains(t, found.Details, `"skill":"tdd"`)
+	require.Contains(t, found.Details, `"compactions_between":1`)
+
+	for name, session := range map[string]ingest.Session{
+		"no compaction": {ID: "s", ToolCalls: []ingest.ToolCall{skillRead("c1", 2), skillRead("c2", 8)}},
+		"single read":   {ID: "s", ToolCalls: []ingest.ToolCall{skillRead("c1", 2)}, Events: []ingest.Event{compaction}},
+		"compaction outside reads": {ID: "s",
+			ToolCalls: []ingest.ToolCall{skillRead("c1", 6), skillRead("c2", 8)},
+			Events:    []ingest.Event{compaction},
+		},
+		"non-skill file": {ID: "s",
+			ToolCalls: []ingest.ToolCall{
+				{ID: "c1", Name: "read", Arguments: `{"path":"/repo/README.md"}`, SourceLine: 2},
+				{ID: "c2", Name: "read", Arguments: `{"path":"/repo/README.md"}`, SourceLine: 8},
+			},
+			Events: []ingest.Event{compaction},
+		},
+		"rootless skill file": {ID: "s",
+			ToolCalls: []ingest.ToolCall{
+				{ID: "c1", Name: "read", Arguments: `{"path":"SKILL.md"}`, SourceLine: 2},
+				{ID: "c2", Name: "read", Arguments: `{"path":"SKILL.md"}`, SourceLine: 8},
+			},
+			Events: []ingest.Event{compaction},
+		},
+	} {
+		require.NotContains(t, detectorNames(Analyze(session)), "skill_compaction_reread", name)
+	}
+}

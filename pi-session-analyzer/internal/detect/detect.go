@@ -51,6 +51,7 @@ func Registry() []Detector {
 		wrap("silent_close", silentClose),
 		wrap("unverified_code_change", unverifiedCodeChange),
 		wrap("edit_without_read", editWithoutRead),
+		wrap("skill_compaction_reread", skillCompactionReread),
 		wrap("termination", termination),
 	}
 }
@@ -491,6 +492,63 @@ func shellMoves(command, cwd string) [][2]string {
 		}
 	}
 	return moves
+}
+
+// skillCompactionReread flags a SKILL.md read repeated after an intervening
+// compaction: direct evidence that compaction displaced skill instructions.
+func skillCompactionReread(s ingest.Session) []Finding {
+	var compactions []int
+	for _, event := range s.Events {
+		if event.Type == "compaction" {
+			compactions = append(compactions, event.SourceLine)
+		}
+	}
+	if len(compactions) == 0 {
+		return nil
+	}
+	sort.Ints(compactions)
+	previousRead := map[string]int{}
+	evidence := map[string]ingest.ToolCall{}
+	between := map[string]int{}
+	for _, call := range sortedCalls(s.ToolCalls) {
+		if call.Name != "read" {
+			continue
+		}
+		path := filepath.Clean(argument(call.Arguments, "path"))
+		if filepath.Base(path) != "SKILL.md" {
+			continue
+		}
+		skill := filepath.Base(filepath.Dir(path))
+		if skill == "." || skill == string(filepath.Separator) {
+			continue
+		}
+		if previous, seen := previousRead[path]; seen {
+			count := compactionsBetween(compactions, previous, call.SourceLine)
+			if count > 0 {
+				if _, exists := evidence[path]; !exists {
+					evidence[path] = call
+					between[path] = count
+				}
+			}
+		}
+		previousRead[path] = call.SourceLine
+	}
+	out := []Finding{}
+	for _, path := range sortedKeys(evidence) {
+		call := evidence[path]
+		out = append(out, finding("skill_compaction_reread", Heuristic, Info, "skill instructions re-read after compaction", call.ID, call.SourceLine, jsonDetails(map[string]any{"skill": filepath.Base(filepath.Dir(path)), "path": path, "compactions_between": between[path]})))
+	}
+	return out
+}
+
+func compactionsBetween(sortedLines []int, after, before int) int {
+	count := 0
+	for _, line := range sortedLines {
+		if line > after && line < before {
+			count++
+		}
+	}
+	return count
 }
 
 func termination(s ingest.Session) []Finding {

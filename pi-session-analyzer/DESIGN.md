@@ -55,6 +55,7 @@ Heuristic detectors cover:
 - normal closure after a started but incomplete goal (goalless sessions are exempt);
 - a final recognized code edit without a later explicit test/build/check/lint command;
 - edit of an existing path without a prior direct or conservative shell read (newly written paths are exempt);
+- a SKILL.md skill-instruction re-read with an intervening compaction between reads, informational evidence that compaction displaced skill instructions;
 - provider errors and informational user cancellation.
 
 The code-change grammar excludes docs/config-only and unknown-extension edits. Shell reads are recognized only at command or conservative control-flow starts for a small allowlist, canonicalized against the session working directory, and require an exact normalized path or basename token. Findings are deterministic diagnostics, not precision/recall claims or calibrated anomaly scores.
