@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/auth"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/detect"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/robound"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/store"
@@ -115,6 +116,46 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusNotFound, "route not found")
 	}
+}
+
+const unauthorizedPage = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Pi Session Analyzer — unauthorized</title></head>
+<body><h1>Unauthorized</h1>
+<p>Open the dashboard with the URL printed by <code>pi-session-analyzer dashboard</code>.
+It includes a one-time <code>token</code> query parameter that is exchanged for a private
+session cookie and then cleared from the address bar.</p>
+<p>Rotate the token with <code>pi-session-analyzer token rotate</code> and restart the dashboard.</p>
+</body></html>`
+
+// WithAuth wraps the dashboard behind the persisted bearer token, mirroring
+// mcp-broker's flow: a valid ?token= query is exchanged for an HttpOnly
+// strict-same-site cookie and redirected away so the secret leaves the URL,
+// Authorization: Bearer and the cookie authenticate everything else, API
+// requests fail closed with 401, and page loads land on /unauthorized.
+func WithAuth(token string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		setPrivateHeaders(w.Header())
+		if r.URL.Path == "/unauthorized" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(unauthorizedPage))
+			return
+		}
+		if query := r.URL.Query().Get("token"); query != "" && auth.Equal(query, token) {
+			auth.SetCookie(w, token)
+			auth.RedirectWithoutToken(w, r)
+			return
+		}
+		if auth.CheckBearer(r, token) || auth.CheckCookie(r, token) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		http.Redirect(w, r, "/unauthorized", http.StatusFound)
+	})
 }
 
 func (h *Handler) serveAsset(w http.ResponseWriter, name, contentType string) {

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/auth"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/robound"
 )
 
@@ -22,6 +23,9 @@ type Options struct {
 	Output      io.Writer
 	Ready       func(string)
 	OpenBrowser func(context.Context, string) error
+	// TokenPath overrides the persisted auth-token file; empty selects the
+	// default XDG config location.
+	TokenPath string
 }
 
 func Run(ctx context.Context, databasePath string, opts Options) error {
@@ -38,6 +42,14 @@ func Run(ctx context.Context, databasePath string, opts Options) error {
 	if err = validateSchema(runCtx, boundary); err != nil {
 		return err
 	}
+	tokenPath := opts.TokenPath
+	if tokenPath == "" {
+		tokenPath = auth.TokenPath()
+	}
+	token, err := auth.EnsureToken(tokenPath)
+	if err != nil {
+		return err
+	}
 	listener, err := Listen(opts.Port)
 	if err != nil {
 		return err
@@ -47,14 +59,15 @@ func Run(ctx context.Context, databasePath string, opts Options) error {
 	if output == nil {
 		output = io.Discard
 	}
-	url := "http://" + listener.Addr().String()
+	url := "http://" + listener.Addr().String() + "/?token=" + token
 	_, _ = fmt.Fprintln(output, url)
+	_, _ = fmt.Fprintf(output, "auth token: %s (rotate with pi-session-analyzer token rotate)\n", tokenPath)
 	if opts.Ready != nil {
 		opts.Ready(url)
 	}
 
 	server := &http.Server{
-		Handler:           NewHandler(boundary),
+		Handler:           WithAuth(token, NewHandler(boundary)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,

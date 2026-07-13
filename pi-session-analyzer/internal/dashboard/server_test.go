@@ -271,3 +271,77 @@ func TestHandlerRejectsUnknownRoutesAndMethodsWithCappedJSON(t *testing.T) {
 		require.Equal(t, "no-store", recorder.Header().Get("Cache-Control"))
 	}
 }
+
+func TestWithAuthMirrorsBrokerTokenFlow(t *testing.T) {
+	t.Parallel()
+
+	const token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	handler := WithAuth(token, next)
+
+	// A valid query token is exchanged for an HttpOnly strict cookie and
+	// redirected away, preserving the other query parameters.
+	request := httptest.NewRequest(http.MethodGet, "/?range=7d&token="+token, nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusFound, recorder.Code)
+	location := recorder.Header().Get("Location")
+	require.NotContains(t, location, token)
+	require.Contains(t, location, "range=7d")
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	require.True(t, cookies[0].HttpOnly)
+	require.Equal(t, http.SameSiteStrictMode, cookies[0].SameSite)
+	require.Equal(t, "no-store", recorder.Header().Get("Cache-Control"))
+	require.Equal(t, "no-referrer", recorder.Header().Get("Referrer-Policy"))
+
+	// A valid query token wins over an existing cookie.
+	request = httptest.NewRequest(http.MethodGet, "/?token="+token, nil)
+	request.AddCookie(cookies[0])
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusFound, recorder.Code)
+
+	// An invalid query token falls through to the unauthorized redirect.
+	request = httptest.NewRequest(http.MethodGet, "/?token=wrong", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, "/unauthorized", recorder.Header().Get("Location"))
+	require.Empty(t, recorder.Result().Cookies())
+
+	// The cookie authenticates subsequent requests.
+	request = httptest.NewRequest(http.MethodGet, "/api/overview", nil)
+	request.AddCookie(cookies[0])
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+
+	// So does an Authorization: Bearer header.
+	request = httptest.NewRequest(http.MethodGet, "/api/overview", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+
+	// Unauthenticated API requests fail closed with capped JSON.
+	request = httptest.NewRequest(http.MethodGet, "/api/overview", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusUnauthorized, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "unauthorized")
+
+	// Unauthenticated page loads land on the public unauthorized page.
+	request = httptest.NewRequest(http.MethodGet, "/", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, "/unauthorized", recorder.Header().Get("Location"))
+
+	request = httptest.NewRequest(http.MethodGet, "/unauthorized", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "Unauthorized")
+	require.Equal(t, "no-store", recorder.Header().Get("Cache-Control"))
+}

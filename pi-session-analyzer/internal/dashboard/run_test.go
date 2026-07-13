@@ -29,17 +29,20 @@ func TestRunCanceledContextPrintsLoopbackURLAndStops(t *testing.T) {
 	go func() {
 		done <- Run(ctx, path, Options{
 			Port: 0, NoOpen: true, Output: &output,
-			Ready: func(url string) { ready <- url },
+			TokenPath: filepath.Join(t.TempDir(), "auth-token"),
+			Ready:     func(url string) { ready <- url },
 			OpenBrowser: func(context.Context, string) error {
 				opened <- struct{}{}
 				return nil
 			},
 		})
 	}()
-	<-ready
+	url := <-ready
 	cancel()
 	require.NoError(t, <-done)
 	require.True(t, strings.HasPrefix(output.String(), "http://127.0.0.1:"))
+	require.Regexp(t, `\?token=[0-9a-f]{64}$`, url)
+	require.Contains(t, output.String(), "rotate with pi-session-analyzer token rotate")
 	select {
 	case <-opened:
 		t.Fatal("browser opener called with --no-open")
@@ -60,7 +63,8 @@ func TestRunOpensBrowserWithPrintedURL(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- Run(ctx, path, Options{
-			Output: &output,
+			Output:    &output,
+			TokenPath: filepath.Join(t.TempDir(), "auth-token"),
 			OpenBrowser: func(_ context.Context, url string) error {
 				opened <- url
 				return nil
@@ -87,7 +91,8 @@ func TestRunBrowserFailureIsNonfatalAfterPrintingURL(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- Run(ctx, path, Options{
-			Output: &output,
+			Output:    &output,
+			TokenPath: filepath.Join(t.TempDir(), "auth-token"),
 			OpenBrowser: func(_ context.Context, url string) error {
 				opened <- url
 				return errors.New("no browser")

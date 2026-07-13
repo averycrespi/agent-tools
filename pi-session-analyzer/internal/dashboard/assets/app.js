@@ -65,6 +65,10 @@ async function request(path, signal) {
   const body = await response
     .json()
     .catch(() => ({ error: "Invalid local response" }));
+  if (response.status === 401)
+    throw new Error(
+      "Unauthorized. Reopen the URL printed by pi-session-analyzer dashboard",
+    );
   if (!response.ok)
     throw new Error(body.error || `Local query failed (${response.status})`);
   const unwrapped = unwrapResponse(body);

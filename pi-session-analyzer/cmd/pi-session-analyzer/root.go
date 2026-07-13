@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/app"
+	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/auth"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/dashboard"
 	"github.com/averycrespi/agent-tools/pi-session-analyzer/internal/detect"
 	analyzermcp "github.com/averycrespi/agent-tools/pi-session-analyzer/internal/mcp"
@@ -23,7 +24,7 @@ func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "pi-session-analyzer", Short: "Analyze local Pi session logs", SilenceErrors: true, SilenceUsage: true}
 	cmd.PersistentFlags().StringVar(&opts.sessionsDir, "sessions-dir", defaultSessionsDir(), "Pi JSONL sessions directory")
 	cmd.PersistentFlags().StringVar(&opts.dbPath, "db", defaultDBPath(), "private analyzer SQLite database")
-	cmd.AddCommand(newIngestCommand(opts), newListCommand(opts), newSummaryCommand(opts), newDetectCommand(opts), newMCPCommand(opts), newDashboardCommand(opts))
+	cmd.AddCommand(newIngestCommand(opts), newListCommand(opts), newSummaryCommand(opts), newDetectCommand(opts), newMCPCommand(opts), newDashboardCommand(opts), newTokenCommand())
 	return cmd
 }
 
@@ -140,6 +141,26 @@ func newDashboardCommand(opts *options) *cobra.Command {
 	}}
 	cmd.Flags().IntVar(&port, "port", 0, "loopback port (omitted chooses an ephemeral port)")
 	cmd.Flags().BoolVar(&noOpen, "no-open", false, "do not open the default browser")
+	return cmd
+}
+
+func newTokenCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "token", Short: "Manage the dashboard auth token"}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "rotate",
+		Short: "Generate a new dashboard auth token (invalidates existing dashboard sessions)",
+		Args:  noArgs("token rotate"),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			path := auth.TokenPath()
+			if _, err := auth.Rotate(path); err != nil {
+				return err
+			}
+			// Deliberately not printed: read the file if you need the value.
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "New token written to %s\n", path)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Restart the dashboard to apply.")
+			return nil
+		},
+	})
 	return cmd
 }
 
