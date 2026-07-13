@@ -83,7 +83,7 @@ function syncControls() {
   $("#range").value = state.range;
   $("#bucket").value = state.bucket;
   $("#timezone").value = state.timezone;
-  $("#direction").value = state.direction;
+  $("#order").value = `${state.sort}-${state.direction}`;
   $("#untimed").checked = state.untimed;
   $("#date-from").value = state.dateFrom;
   $("#date-to").value = state.dateTo;
@@ -706,7 +706,7 @@ function renderMatrix(page, append = false) {
       node("span", "", localDate(row.started_at_unix)),
       node("small", "muted", ` ${row.cwd || "No cwd"}`),
     );
-    const splitTokens = `O ${formatInteger(row.output_tokens)} · R ${formatInteger(row.reasoning_tokens)} · CR ${formatInteger(row.cache_read_tokens)} · CW ${formatInteger(row.cache_write_tokens)}`;
+    const splitTokens = `O ${formatInteger(row.output_tokens)} / R ${formatInteger(row.reasoning_tokens)} / CR ${formatInteger(row.cache_read_tokens)} / CW ${formatInteger(row.cache_write_tokens)}`;
     const toolCoverage = row.tool_analysis_truncated
       ? `Unavailable · 0/${row.tool_total_calls}`
       : rateLabel(row.tool_error_rate, row.tool_outcomes);
@@ -743,6 +743,7 @@ function renderMatrix(page, append = false) {
       session,
       start,
       node("td", "", `${row.records} / ${row.turns}`),
+      node("td", "", formatCost(row.cost_as_logged)),
       node("td", "", splitTokens),
       node("td", "", toolCoverage),
       node("td", "", `${row.compactions} / ${row.broker_guards}`),
@@ -762,7 +763,7 @@ function renderMatrix(page, append = false) {
       "muted",
       state.untimed ? "No untimed sessions." : "No sessions in this range.",
     );
-    td.colSpan = 9;
+    td.colSpan = 10;
     tr.append(td);
     tbody.append(tr);
   }
@@ -1200,9 +1201,10 @@ $("#bucket").addEventListener("change", (event) =>
     untimed: false,
   }),
 );
-$("#direction").addEventListener("change", (event) =>
-  navigate({ ...state, direction: event.target.value, session: "" }),
-);
+$("#order").addEventListener("change", (event) => {
+  const [sort, direction] = event.target.value.split("-");
+  navigate({ ...state, sort, direction, session: "" });
+});
 $("#untimed").addEventListener("change", (event) =>
   navigate({
     ...state,

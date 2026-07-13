@@ -25,6 +25,7 @@ type MatrixQuery struct {
 	Limit     int
 	Cursor    string
 	Direction string
+	Sort      string
 }
 
 type DetectorCoverage struct {
@@ -72,8 +73,10 @@ type matrixCursor struct {
 	Untimed   bool     `json:"untimed"`
 	CWDs      []string `json:"cwds,omitempty"`
 	Start     *int64   `json:"start,omitempty"`
+	Metric    *float64 `json:"metric,omitempty"`
 	ID        string   `json:"id"`
 	Direction string   `json:"direction"`
+	Sort      string   `json:"sort,omitempty"`
 }
 
 func (s *Reader) SessionMatrix(ctx context.Context, q MatrixQuery, detectorNames []string) (SessionMatrixPage, error) {
@@ -100,46 +103,84 @@ func (s *Reader) SessionMatrix(ctx context.Context, q MatrixQuery, detectorNames
 			return SessionMatrixPage{}, fmt.Errorf("%w: each cwd filter must be 1-256 bytes", ErrInvalidMatrixQuery)
 		}
 	}
+	sortKey := q.Sort
+	if sortKey == "" {
+		sortKey = "start"
+	}
+	metricExpr := ""
+	switch sortKey {
+	case "start":
+	case "turns":
+		metricExpr = "(SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id)"
+	case "cost":
+		metricExpr = "(SELECT COALESCE(SUM(m.cost),0) FROM messages m WHERE m.session_id=s.id)"
+	default:
+		return SessionMatrixPage{}, fmt.Errorf("%w: sort must be start, turns, or cost", ErrInvalidMatrixQuery)
+	}
 	var cursor matrixCursor
 	if q.Cursor != "" {
 		decoded, err := base64.RawURLEncoding.DecodeString(q.Cursor)
 		if err != nil || json.Unmarshal(decoded, &cursor) != nil || cursor.ID == "" {
 			return SessionMatrixPage{}, fmt.Errorf("%w: invalid cursor", ErrInvalidMatrixQuery)
 		}
-		if cursor.FromUnix != q.FromUnix || cursor.ToUnix != q.ToUnix || cursor.Untimed != q.Untimed || !slices.Equal(cursor.CWDs, q.CWDs) || cursor.Direction != q.Direction {
+		cursorSort := cursor.Sort
+		if cursorSort == "" {
+			cursorSort = "start"
+		}
+		if cursor.FromUnix != q.FromUnix || cursor.ToUnix != q.ToUnix || cursor.Untimed != q.Untimed || !slices.Equal(cursor.CWDs, q.CWDs) || cursor.Direction != q.Direction || cursorSort != sortKey {
 			return SessionMatrixPage{}, fmt.Errorf("%w: cursor does not match current filters", ErrInvalidMatrixQuery)
 		}
 	}
 	args := make([]any, 0, len(detectorNames)*2+8)
 	conditions := []string{}
+	selectExtra := ""
 	order := "s.started_at_unix DESC,s.id"
+	outerOrder := ""
 	comparison := "<"
 	idComparison := ">"
 	if q.Direction == "asc" {
 		order = "s.started_at_unix ASC,s.id"
 		comparison = ">"
 	}
+	if metricExpr != "" {
+		metricDirection := "DESC"
+		if q.Direction == "asc" {
+			metricDirection = "ASC"
+		}
+		selectExtra = "," + metricExpr + " AS sort_metric"
+		order = "sort_metric " + metricDirection + ",s.id"
+		outerOrder = "s.sort_metric " + metricDirection + ",s.id"
+	}
 	if q.Untimed {
 		conditions = append(conditions, "s.started_at_unix IS NULL")
-		order = "s.id"
-		if q.Direction == "desc" {
-			order = "s.id DESC"
-			idComparison = "<"
-		}
-		if q.Cursor != "" {
-			conditions = append(conditions, "s.id"+idComparison+"?")
-			args = append(args, cursor.ID)
+		if metricExpr == "" {
+			order = "s.id"
+			if q.Direction == "desc" {
+				order = "s.id DESC"
+				idComparison = "<"
+			}
+			if q.Cursor != "" {
+				conditions = append(conditions, "s.id"+idComparison+"?")
+				args = append(args, cursor.ID)
+			}
 		}
 	} else {
 		conditions = append(conditions, "s.started_at_unix>=?", "s.started_at_unix<?")
 		args = append(args, q.FromUnix, q.ToUnix)
-		if q.Cursor != "" {
+		if metricExpr == "" && q.Cursor != "" {
 			if cursor.Start == nil {
 				return SessionMatrixPage{}, fmt.Errorf("%w: cursor does not match timed filter", ErrInvalidMatrixQuery)
 			}
 			conditions = append(conditions, "(s.started_at_unix"+comparison+"? OR (s.started_at_unix=? AND s.id>?))")
 			args = append(args, *cursor.Start, *cursor.Start, cursor.ID)
 		}
+	}
+	if metricExpr != "" && q.Cursor != "" {
+		if cursor.Metric == nil {
+			return SessionMatrixPage{}, fmt.Errorf("%w: cursor does not match metric sort", ErrInvalidMatrixQuery)
+		}
+		conditions = append(conditions, "("+metricExpr+comparison+"? OR ("+metricExpr+"=? AND s.id>?))")
+		args = append(args, *cursor.Metric, *cursor.Metric, cursor.ID)
 	}
 	if len(q.CWDs) > 0 {
 		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(q.CWDs)), ",")
@@ -164,9 +205,12 @@ func (s *Reader) SessionMatrix(ctx context.Context, q MatrixQuery, detectorNames
 			args = append(args, name)
 		}
 	}
+	if outerOrder == "" {
+		outerOrder = order
+	}
 	query := `
 WITH candidates AS (
- SELECT s.* FROM sessions s WHERE ` + strings.Join(conditions, " AND ") + ` ORDER BY ` + order + ` LIMIT ?
+ SELECT s.*` + selectExtra + ` FROM sessions s WHERE ` + strings.Join(conditions, " AND ") + ` ORDER BY ` + order + ` LIMIT ?
 ), message_facts AS (
  SELECT m.session_id,COUNT(*) turns,COALESCE(SUM(m.cost),0) cost,COALESCE(SUM(m.output_tokens),0) output_tokens,
   COALESCE(SUM(m.reasoning_tokens),0) reasoning_tokens,COALESCE(SUM(m.cache_read_tokens),0) cache_read_tokens,
@@ -200,7 +244,7 @@ SELECT s.id,s.started_at_unix,COALESCE(substr(CAST(s.cwd AS BLOB),1,64),X''),len
 FROM candidates s
 LEFT JOIN message_facts m ON m.session_id=s.id LEFT JOIN event_facts e ON e.session_id=s.id
 LEFT JOIN guard_facts g ON g.session_id=s.id LEFT JOIN fresh_facts f ON f.session_id=s.id LEFT JOIN run_facts r ON r.session_id=s.id
-ORDER BY ` + order
+ORDER BY ` + outerOrder
 	rows, err := s.query.QueryContext(ctx, query, args...) //nolint:gosec // Dynamic fragments are fixed clauses and detector placeholders only.
 	if err != nil {
 		return SessionMatrixPage{}, fmt.Errorf("query session matrix: %w", err)
@@ -266,7 +310,16 @@ ORDER BY ` + order
 	}
 	if hasMore {
 		last := page.Rows[len(page.Rows)-1]
-		encoded, marshalErr := json.Marshal(matrixCursor{FromUnix: q.FromUnix, ToUnix: q.ToUnix, Untimed: q.Untimed, CWDs: q.CWDs, Start: last.StartedAtUnix, ID: last.ID, Direction: q.Direction})
+		next := matrixCursor{FromUnix: q.FromUnix, ToUnix: q.ToUnix, Untimed: q.Untimed, CWDs: q.CWDs, Start: last.StartedAtUnix, ID: last.ID, Direction: q.Direction, Sort: sortKey}
+		switch sortKey {
+		case "turns":
+			metric := float64(last.Turns)
+			next.Metric = &metric
+		case "cost":
+			metric := last.Cost
+			next.Metric = &metric
+		}
+		encoded, marshalErr := json.Marshal(next)
 		if marshalErr != nil {
 			return SessionMatrixPage{}, fmt.Errorf("encode matrix cursor: %w", marshalErr)
 		}

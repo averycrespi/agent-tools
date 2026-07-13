@@ -70,7 +70,7 @@ func (h *Handler) serveSessionMatrix(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "database is unavailable")
 		return
 	}
-	allowed := map[string]bool{"from": true, "to": true, "untimed": true, "cwd": true, "limit": true, "cursor": true, "direction": true}
+	allowed := map[string]bool{"from": true, "to": true, "untimed": true, "cwd": true, "limit": true, "cursor": true, "direction": true, "sort": true}
 	for name := range r.URL.Query() {
 		if !allowed[name] {
 			writeError(w, http.StatusBadRequest, "unsupported matrix parameter")
@@ -107,7 +107,7 @@ func (h *Handler) serveSessionMatrix(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := robound.WithTimeout(r.Context())
 	defer cancel()
-	page, err := h.reader.SessionMatrix(ctx, store.MatrixQuery{FromUnix: from, ToUnix: to, Untimed: untimed, CWDs: r.URL.Query()["cwd"], Limit: limit, Cursor: r.URL.Query().Get("cursor"), Direction: r.URL.Query().Get("direction")}, h.detectorNames)
+	page, err := h.reader.SessionMatrix(ctx, store.MatrixQuery{FromUnix: from, ToUnix: to, Untimed: untimed, CWDs: r.URL.Query()["cwd"], Limit: limit, Cursor: r.URL.Query().Get("cursor"), Direction: r.URL.Query().Get("direction"), Sort: r.URL.Query().Get("sort")}, h.detectorNames)
 	if err != nil {
 		if errors.Is(err, store.ErrInvalidMatrixQuery) {
 			writeError(w, http.StatusBadRequest, err.Error())

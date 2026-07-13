@@ -82,6 +82,48 @@ func TestSessionMatrixUsesHalfOpenRangeAndStableKeysetCursor(t *testing.T) {
 	require.False(t, options.Truncated)
 }
 
+func TestSessionMatrixSortsByTurnsAndCostWithStableCursor(t *testing.T) {
+	t.Parallel()
+
+	s, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	start := int64(100)
+	sessions := []ingest.Session{
+		{ID: "cheap", StartedAtUnix: &start, Messages: []ingest.Message{{ID: "m1", Role: "assistant", Cost: 0.5}}},
+		{ID: "busy", StartedAtUnix: &start, Messages: []ingest.Message{{ID: "m1", Role: "user"}, {ID: "m2", Role: "assistant", Cost: 2}, {ID: "m3", Role: "assistant", Cost: 2}}},
+		{ID: "quiet", StartedAtUnix: &start},
+	}
+	for _, session := range sessions {
+		require.NoError(t, s.ReplaceSession(context.Background(), session, SourceMeta{Path: session.ID + ".jsonl", Size: 1, ModTimeNS: 1}))
+	}
+
+	byTurns, err := s.SessionMatrix(context.Background(), MatrixQuery{FromUnix: 100, ToUnix: 101, Limit: 10, Sort: "turns"}, nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"busy", "cheap", "quiet"}, []string{byTurns.Rows[0].ID, byTurns.Rows[1].ID, byTurns.Rows[2].ID})
+
+	byCostAsc, err := s.SessionMatrix(context.Background(), MatrixQuery{FromUnix: 100, ToUnix: 101, Limit: 10, Sort: "cost", Direction: "asc"}, nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"quiet", "cheap", "busy"}, []string{byCostAsc.Rows[0].ID, byCostAsc.Rows[1].ID, byCostAsc.Rows[2].ID})
+
+	first, err := s.SessionMatrix(context.Background(), MatrixQuery{FromUnix: 100, ToUnix: 101, Limit: 1, Sort: "cost"}, nil)
+	require.NoError(t, err)
+	require.Equal(t, "busy", first.Rows[0].ID)
+	require.NotEmpty(t, first.NextCursor)
+	second, err := s.SessionMatrix(context.Background(), MatrixQuery{FromUnix: 100, ToUnix: 101, Limit: 1, Sort: "cost", Cursor: first.NextCursor}, nil)
+	require.NoError(t, err)
+	require.Equal(t, "cheap", second.Rows[0].ID)
+
+	_, err = s.SessionMatrix(context.Background(), MatrixQuery{FromUnix: 100, ToUnix: 101, Limit: 1, Sort: "turns", Cursor: first.NextCursor}, nil)
+	require.ErrorIs(t, err, ErrInvalidMatrixQuery)
+	_, err = s.SessionMatrix(context.Background(), MatrixQuery{FromUnix: 100, ToUnix: 101, Limit: 10, Sort: "records"}, nil)
+	require.ErrorIs(t, err, ErrInvalidMatrixQuery)
+
+	untimedByTurns, err := s.SessionMatrix(context.Background(), MatrixQuery{Untimed: true, Limit: 10, Sort: "turns"}, nil)
+	require.NoError(t, err)
+	require.Empty(t, untimedByTurns.Rows)
+}
+
 func TestSessionMatrixBatchesToolOutcomeQueriesAcrossRows(t *testing.T) {
 	t.Parallel()
 

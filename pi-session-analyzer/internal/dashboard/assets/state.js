@@ -1,5 +1,6 @@
 const ranges = new Set(["7d", "30d", "90d", "all"]);
 const buckets = new Set(["auto", "day", "week", "month"]);
+const sorts = new Set(["start", "turns", "cost"]);
 
 export function defaultState(timezone = "UTC") {
   return {
@@ -14,6 +15,7 @@ export function defaultState(timezone = "UTC") {
     dateFrom: "",
     dateTo: "",
     direction: "desc",
+    sort: "start",
   };
 }
 
@@ -27,6 +29,7 @@ export function parseState(search, timezone = "UTC") {
   state.untimed = params.get("untimed") === "true";
   state.session = params.get("session") || "";
   if (params.get("direction") === "asc") state.direction = "asc";
+  if (sorts.has(params.get("sort"))) state.sort = params.get("sort");
   if (
     /^-?\d+$/.test(params.get("from") || "") &&
     /^-?\d+$/.test(params.get("to") || "")
@@ -53,6 +56,7 @@ export function stateSearch(state) {
   if (state.untimed) params.set("untimed", "true");
   if (state.session) params.set("session", state.session);
   if (state.direction === "asc") params.set("direction", "asc");
+  if (state.sort && state.sort !== "start") params.set("sort", state.sort);
   if (state.from && state.to) {
     params.set("from", state.from);
     params.set("to", state.to);
@@ -82,6 +86,7 @@ export function matrixSearch(state, overview) {
     limit: "10",
     direction: state.direction,
   });
+  if (state.sort && state.sort !== "start") params.set("sort", state.sort);
   if (state.untimed) {
     params.set("untimed", "true");
   } else {

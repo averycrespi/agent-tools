@@ -11,6 +11,17 @@ test("URL state round trips only non-sensitive navigation state", () => {
   assert.equal(stateSearch({ ...state, transcript: "private" }).includes("private"), false);
 });
 
+test("matrix sort round trips and reaches the matrix query", () => {
+  const state = parseState("?sort=cost&direction=asc", "UTC");
+  assert.equal(state.sort, "cost");
+  assert.deepEqual(parseState(stateSearch(state), "UTC"), state);
+  const query = new URLSearchParams(matrixSearch(state, { buckets: [{ start_unix: 1, end_unix: 2 }] }));
+  assert.equal(query.get("sort"), "cost");
+  assert.equal(query.get("direction"), "asc");
+  assert.equal(parseState("?sort=records", "UTC").sort, "start");
+  assert.equal(new URLSearchParams(matrixSearch(parseState("", "UTC"), { buckets: [] })).get("sort"), null);
+});
+
 test("cwd filters repeat in matrix queries and are capped", () => {
   const state = parseState(`?${Array.from({ length: 20 }, (_, i) => `cwd=%2Fp${i}`).join("&")}`, "UTC");
   assert.equal(state.cwds.length, 16);

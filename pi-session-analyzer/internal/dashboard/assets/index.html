@@ -58,9 +58,13 @@
         ><input id="untimed" type="checkbox" /> Show untimed sessions</label
       >
       <label
-        >Matrix order<select id="direction">
-          <option value="desc">Newest first</option>
-          <option value="asc">Oldest first</option>
+        >Matrix order<select id="order">
+          <option value="start-desc">Newest first</option>
+          <option value="start-asc">Oldest first</option>
+          <option value="turns-desc">Most turns</option>
+          <option value="turns-asc">Fewest turns</option>
+          <option value="cost-desc">Highest cost</option>
+          <option value="cost-asc">Lowest cost</option>
         </select></label
       >
       <label
@@ -247,6 +251,7 @@
                 <th>Session</th>
                 <th>Start / project</th>
                 <th>Records / turns</th>
+                <th>Cost</th>
                 <th>Split tokens</th>
                 <th>Tool coverage</th>
                 <th>Compactions / guards</th>
