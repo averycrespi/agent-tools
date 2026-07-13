@@ -88,6 +88,10 @@ Limits are enforced centrally: list/drill-down requests are bounded, SQL returns
 
 Broker discovery and policy are not authorization to share analyzer output. The same private/non-share-safe boundary applies to MCP responses.
 
+## Run as a launchd agent (macOS)
+
+To keep the dashboard available in the background whenever you're logged in, install it as a pair of per-user LaunchAgents: a resident dashboard on a fixed loopback port plus a periodic ingest that keeps the index current. See [docs/launchd.md](docs/launchd.md) for install, verify, and manage steps, including why ingest must run before the dashboard and the privacy boundary that still applies.
+
 ## Scrubbing and Retention
 
 The credential scrubber covers known token/API-key formats, authorization values, explicit password/secret/token assignments, JWTs, and private-key blocks. It deliberately preserves diagnostic markers and does not redact identifiers. Raw records, assistant thinking content, and `thinkingSignature` are never stored. Reasoning token counts remain available.
