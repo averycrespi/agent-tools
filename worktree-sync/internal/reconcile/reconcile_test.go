@@ -78,14 +78,34 @@ func TestPlanRepairsManagedStateRemovesDuplicatesAndStaleOnlyWhenComplete(t *tes
 	require.Equal(t, []reconcile.Operation{
 		{Type: reconcile.RepairWindow, TargetID: "@1", Identity: "repo-identity", Name: "base", Path: repo.PrimaryRoot, Role: "base"},
 		{Type: reconcile.RepairWindow, TargetID: "@2", Identity: "worktree-one", Name: "feature-a", Path: gitSnapshot.Worktrees[1].Path, Role: "worktree"},
-		{Type: reconcile.KillWindow, TargetID: "@3", Identity: "worktree-one"},
-		{Type: reconcile.KillWindow, TargetID: "@4", Identity: "gone"},
+		{Type: reconcile.KillWindow, TargetID: "@3", Identity: "worktree-one", Role: "worktree"},
+		{Type: reconcile.KillWindow, TargetID: "@4", Identity: "gone", Role: "worktree"},
 	}, plan.Operations)
 
 	gitSnapshot.Complete = false
 	plan = reconcile.Build(repo, gitSnapshot, actual)
 	for _, operation := range plan.Operations {
 		require.False(t, operation.Type == reconcile.KillWindow && operation.TargetID == "@4")
+	}
+}
+
+func TestPlanIgnoresMalformedMetadataAndRemovesOwnedWindowOutsideSession(t *testing.T) {
+	repo, snapshot := fixture(t)
+	meta := func(role, identity string) tmux.Metadata {
+		return tmux.Metadata{Schema: 1, Repository: repo.RepositoryIdentity, Role: role, Identity: identity}
+	}
+	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{
+		{ID: "$owned", Name: "wts-repo", Metadata: meta("session", repo.RepositoryIdentity), Windows: []tmux.Window{
+			{ID: "@base", Name: "base", Path: repo.PrimaryRoot, Metadata: meta("base", repo.RepositoryIdentity)},
+			{ID: "@one", Name: "feature-a", Path: snapshot.Worktrees[1].Path, Metadata: meta("worktree", "worktree-one")},
+			{ID: "@malformed", Name: "manual", Path: "/manual", Metadata: meta("base", "not-repository")},
+		}},
+		{ID: "$scratch", Name: "scratch", Windows: []tmux.Window{{ID: "@moved", Name: "moved", Path: "/gone", Metadata: meta("worktree", "moved")}}},
+	}}
+	plan := reconcile.Build(repo, snapshot, actual)
+	require.Contains(t, plan.Operations, reconcile.Operation{Type: reconcile.KillWindow, TargetID: "@moved", Identity: "moved", Role: "worktree"})
+	for _, operation := range plan.Operations {
+		require.NotEqual(t, "@malformed", operation.TargetID)
 	}
 }
 

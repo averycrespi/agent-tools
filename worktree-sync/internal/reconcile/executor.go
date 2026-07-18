@@ -17,6 +17,8 @@ type tmuxClient interface {
 	Snapshot(context.Context) (tmux.Snapshot, error)
 	CreateSession(context.Context, string, tmux.Window) (string, error)
 	RenameSession(context.Context, string, string) error
+	OwnsSession(context.Context, string, tmux.Metadata) (bool, error)
+	OwnsWindow(context.Context, string, tmux.Metadata) (bool, error)
 	CreateWindow(context.Context, string, tmux.Window) (string, error)
 	RepairWindow(context.Context, string, tmux.Window) error
 	KillWindow(context.Context, string) error
@@ -97,7 +99,16 @@ func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, tr
 				sessionTarget, sessionReady = id, true
 			}
 		case RepairSession:
-			err = e.tmux.RenameSession(ctx, operation.TargetID, operation.Name)
+			expected := tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.RepositoryIdentity, Role: "session", Identity: repo.RepositoryIdentity}
+			owned, ownershipErr := e.tmux.OwnsSession(ctx, operation.TargetID, expected)
+			switch {
+			case ownershipErr != nil:
+				err = ownershipErr
+			case !owned:
+				err = fmt.Errorf("ownership changed; refusing session mutation")
+			default:
+				err = e.tmux.RenameSession(ctx, operation.TargetID, operation.Name)
+			}
 		case CreateWindow:
 			if !sessionReady {
 				err = fmt.Errorf("managed session is unavailable")
@@ -110,9 +121,26 @@ func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, tr
 				projected[operation.Identity] = true
 			}
 		case RepairWindow:
-			err = e.tmux.RepairWindow(ctx, operation.TargetID, window)
+			owned, ownershipErr := e.tmux.OwnsWindow(ctx, operation.TargetID, window.Metadata)
+			switch {
+			case ownershipErr != nil:
+				err = ownershipErr
+			case !owned:
+				err = fmt.Errorf("ownership changed; refusing window repair")
+			default:
+				err = e.tmux.RepairWindow(ctx, operation.TargetID, window)
+			}
 		case KillWindow:
-			err = e.tmux.KillWindow(ctx, operation.TargetID)
+			expected := tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.RepositoryIdentity, Role: operation.Role, Identity: operation.Identity}
+			owned, ownershipErr := e.tmux.OwnsWindow(ctx, operation.TargetID, expected)
+			switch {
+			case ownershipErr != nil:
+				err = ownershipErr
+			case !owned:
+				err = fmt.Errorf("ownership changed; refusing window removal")
+			default:
+				err = e.tmux.KillWindow(ctx, operation.TargetID)
+			}
 		}
 		if err != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("%s %s: %v", operation.Type, operation.Identity, err))

@@ -39,6 +39,19 @@ func TestManagerRejectsNonDarwinWithoutRunningCommands(t *testing.T) {
 	require.Empty(t, r.calls)
 }
 
+type blockingRunner struct{}
+
+func (blockingRunner) Run(ctx context.Context, _ string, _ string, _ ...string) ([]byte, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestLaunchctlCommandsHonorConfiguredTimeout(t *testing.T) {
+	manager := launchd.New(blockingRunner{}, "darwin", t.TempDir(), 5*time.Millisecond)
+	err := manager.Install(context.Background(), "/opt/wtsd")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
 func TestInstallAndUninstallAffectOnlyOwnLabel(t *testing.T) {
 	home := t.TempDir()
 	r := &runner{}

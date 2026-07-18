@@ -30,3 +30,13 @@ type Snapshot struct {
 	Complete bool      `json:"complete"`
 	Sessions []Session `json:"sessions"`
 }
+
+func ValidOwnedWindow(metadata Metadata, repository string) bool {
+	if metadata.Schema != MetadataSchema || metadata.Repository != repository {
+		return false
+	}
+	if metadata.Role == "base" {
+		return metadata.Identity == repository
+	}
+	return metadata.Role == "worktree" && metadata.Identity != "" && metadata.Identity != repository
+}

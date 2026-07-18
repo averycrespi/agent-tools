@@ -273,24 +273,17 @@ func (s *Service) removeRepo(ctx context.Context, id string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("tmux cleanup failed; repository remains registered: %w", err)
 	}
-	if session := matchingSession(snapshot, repo); session != nil {
-		managed, unmanaged := make([]tmux.Window, 0), make([]tmux.Window, 0)
+	for _, session := range snapshot.Sessions {
 		for _, window := range session.Windows {
-			if window.Metadata.Schema == tmux.MetadataSchema && window.Metadata.Repository == repo.RepositoryIdentity && (window.Metadata.Role == "base" || window.Metadata.Role == "worktree") {
-				managed = append(managed, window)
-			} else {
-				unmanaged = append(unmanaged, window)
+			if !tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) {
+				continue
 			}
-		}
-		if len(unmanaged) == 0 {
-			if err := tmuxClient.KillSession(ctx, session.ID); err != nil {
+			owned, ownershipErr := tmuxClient.OwnsWindow(ctx, window.ID, window.Metadata)
+			if ownershipErr != nil || !owned {
+				return "", fmt.Errorf("tmux ownership changed; repository remains registered")
+			}
+			if err := tmuxClient.KillWindow(ctx, window.ID); err != nil {
 				return "", fmt.Errorf("tmux cleanup failed; repository remains registered: %w", err)
-			}
-		} else {
-			for _, window := range managed {
-				if err := tmuxClient.KillWindow(ctx, window.ID); err != nil {
-					return "", fmt.Errorf("tmux cleanup failed; repository remains registered: %w", err)
-				}
 			}
 		}
 	}
@@ -559,16 +552,26 @@ func (s *Service) explicitAction(ctx context.Context, request app.Request, launc
 		return "", fmt.Errorf("managed session is not present")
 	}
 	windowID := ""
+	expected := tmux.Metadata{}
 	for _, window := range session.Windows {
-		if window.Metadata.Identity == worktree.Identity && window.Metadata.Repository == repo.RepositoryIdentity {
-			windowID = window.ID
+		if tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) && window.Metadata.Role == "worktree" && window.Metadata.Identity == worktree.Identity {
+			windowID, expected = window.ID, window.Metadata
 			break
 		}
 	}
 	if windowID == "" {
 		return "", fmt.Errorf("managed worktree window is not present")
 	}
-	result := manager.Launch(ctx, repo, actionWorktree, actions.Explicit, rerun, func() error { return tmuxClient.Launch(ctx, windowID, repo.LaunchCommand) })
+	result := manager.Launch(ctx, repo, actionWorktree, actions.Explicit, rerun, func() error {
+		owned, ownershipErr := tmuxClient.OwnsWindow(ctx, windowID, expected)
+		if ownershipErr != nil {
+			return ownershipErr
+		}
+		if !owned {
+			return fmt.Errorf("ownership changed; refusing launch")
+		}
+		return tmuxClient.Launch(ctx, windowID, repo.LaunchCommand)
+	})
 	return "launch evaluated", result.Error
 }
 func (s *Service) runSetup(ctx context.Context, request app.Request) (string, error) {
@@ -702,9 +705,9 @@ func (s *Service) status(ctx context.Context, args []string, jsonOutput bool) (s
 			health = "conflict"
 		}
 		entry := repoStatus{ID: repo.ID, Health: health, Desired: planDesiredWorktrees(gitSnapshot, plan), Conflicts: plan.Conflicts, Reported: plan.Report}
-		if session := matchingSession(tmuxSnapshot, repo); session != nil {
+		for _, session := range tmuxSnapshot.Sessions {
 			for _, window := range session.Windows {
-				if window.Metadata.Schema == tmux.MetadataSchema && window.Metadata.Repository == repo.RepositoryIdentity {
+				if tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) {
 					entry.Actual = append(entry.Actual, window)
 				}
 			}
@@ -824,15 +827,21 @@ func (s *Service) cleanup(ctx context.Context, pruneID, orphanID string) (string
 			desired[window.Metadata.Identity] = true
 		}
 		removed := 0
-		if session := matchingSession(actual, repo); session != nil {
+		managedSession := matchingSession(actual, repo)
+		for _, session := range actual.Sessions {
+			outsideManagedSession := managedSession == nil || session.ID != managedSession.ID
 			for _, window := range session.Windows {
-				owned := window.Metadata.Schema == tmux.MetadataSchema && window.Metadata.Repository == repo.RepositoryIdentity && (window.Metadata.Role == "base" || window.Metadata.Role == "worktree")
-				if owned && !desired[window.Metadata.Identity] {
-					if err := tmuxClient.KillWindow(ctx, window.ID); err != nil {
-						return "", err
-					}
-					removed++
+				if !tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) || (!outsideManagedSession && desired[window.Metadata.Identity]) {
+					continue
 				}
+				owned, ownershipErr := tmuxClient.OwnsWindow(ctx, window.ID, window.Metadata)
+				if ownershipErr != nil || !owned {
+					return "", fmt.Errorf("tmux ownership changed; refusing orphan removal")
+				}
+				if err := tmuxClient.KillWindow(ctx, window.ID); err != nil {
+					return "", err
+				}
+				removed++
 			}
 		}
 		lines = append(lines, fmt.Sprintf("%s orphaned tmux: before=%d after=0", repo.ID, removed))

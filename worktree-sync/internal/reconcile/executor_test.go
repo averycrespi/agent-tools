@@ -25,15 +25,16 @@ func (g gitSnapshotter) Snapshot(context.Context, gitclient.Repository) (gitclie
 }
 
 type tmuxFake struct {
-	snapshot       tmux.Snapshot
-	snapshotErr    error
-	createdSession bool
-	createTargets  []string
-	created        []tmux.Window
-	repaired       []string
-	killed         []string
-	launched       []string
-	createErr      error
+	snapshot         tmux.Snapshot
+	snapshotErr      error
+	createdSession   bool
+	createTargets    []string
+	created          []tmux.Window
+	repaired         []string
+	killed           []string
+	launched         []string
+	createErr        error
+	ownershipChanged map[string]bool
 }
 
 func (f *tmuxFake) Snapshot(context.Context) (tmux.Snapshot, error) { return f.snapshot, f.snapshotErr }
@@ -42,6 +43,12 @@ func (f *tmuxFake) CreateSession(_ context.Context, _ string, _ tmux.Window) (st
 	return "$new", nil
 }
 func (f *tmuxFake) RenameSession(context.Context, string, string) error { return nil }
+func (f *tmuxFake) OwnsSession(_ context.Context, id string, _ tmux.Metadata) (bool, error) {
+	return !f.ownershipChanged[id], nil
+}
+func (f *tmuxFake) OwnsWindow(_ context.Context, id string, _ tmux.Metadata) (bool, error) {
+	return !f.ownershipChanged[id], nil
+}
 func (f *tmuxFake) CreateWindow(_ context.Context, target string, w tmux.Window) (string, error) {
 	f.createTargets = append(f.createTargets, target)
 	f.created = append(f.created, w)
@@ -105,6 +112,22 @@ func TestExecutorDoesNotRunSetupWithoutInspectionWindow(t *testing.T) {
 	executor := reconcile.NewExecutor(gitSnapshotter{snapshot: snapshot}, tmuxClient, actionManager)
 	report := executor.ReconcileRepo(context.Background(), repo, func(string, string) actions.Trigger { return actions.Passive })
 	require.Zero(t, actionManager.runs)
+	require.NotEmpty(t, report.Errors)
+}
+
+func TestExecutorRechecksOwnershipBeforeRemoval(t *testing.T) {
+	repo, snapshot := fixture(t)
+	meta := func(role, identity string) tmux.Metadata {
+		return tmux.Metadata{Schema: 1, Repository: repo.RepositoryIdentity, Role: role, Identity: identity}
+	}
+	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: "wts-repo", Metadata: meta("session", repo.RepositoryIdentity), Windows: []tmux.Window{
+		{ID: "@base", Name: "base", Path: repo.PrimaryRoot, Metadata: meta("base", repo.RepositoryIdentity)},
+		{ID: "@one", Name: "feature-a", Path: snapshot.Worktrees[1].Path, Metadata: meta("worktree", "worktree-one")},
+		{ID: "@stale", Name: "stale", Path: "/gone", Metadata: meta("worktree", "stale")},
+	}}}}
+	tmuxClient := &tmuxFake{snapshot: actual, ownershipChanged: map[string]bool{"@stale": true}}
+	report := reconcile.NewExecutor(gitSnapshotter{snapshot: snapshot}, tmuxClient, &actionFake{}).ReconcileRepo(context.Background(), repo, func(string, string) actions.Trigger { return actions.Passive })
+	require.Empty(t, tmuxClient.killed)
 	require.NotEmpty(t, report.Errors)
 }
 

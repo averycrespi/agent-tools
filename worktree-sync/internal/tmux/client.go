@@ -136,6 +136,16 @@ func (c *Client) Snapshot(ctx context.Context) (Snapshot, error) {
 	return snapshot, nil
 }
 
+func (c *Client) OwnsSession(ctx context.Context, id string, expected Metadata) (bool, error) {
+	metadata, err := c.metadata(ctx, id, false)
+	return err == nil && metadata == expected, err
+}
+
+func (c *Client) OwnsWindow(ctx context.Context, id string, expected Metadata) (bool, error) {
+	metadata, err := c.metadata(ctx, id, true)
+	return err == nil && metadata == expected, err
+}
+
 func (c *Client) setMetadata(ctx context.Context, target string, window bool, metadata Metadata) error {
 	pairs := [][2]string{{"@wts-schema", strconv.Itoa(metadata.Schema)}, {"@wts-repository", metadata.Repository}, {"@wts-role", metadata.Role}, {"@wts-identity", metadata.Identity}}
 	for _, pair := range pairs {

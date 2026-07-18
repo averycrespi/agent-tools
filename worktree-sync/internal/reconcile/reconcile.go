@@ -139,12 +139,21 @@ func Build(repo config.Repository, gitSnapshot gitclient.Snapshot, actual tmux.S
 		for _, window := range desired.Windows[1:] {
 			plan.Operations = append(plan.Operations, Operation{Type: CreateWindow, Identity: window.Metadata.Identity, Name: window.Name, Path: window.Path, Role: "worktree"})
 		}
+		if gitSnapshot.Complete && actual.Complete {
+			for _, otherSession := range actual.Sessions {
+				for _, window := range otherSession.Windows {
+					if tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) {
+						plan.Operations = append(plan.Operations, Operation{Type: KillWindow, TargetID: window.ID, Identity: window.Metadata.Identity, Role: window.Metadata.Role})
+					}
+				}
+			}
+		}
 		return plan
 	}
 	manualNames := make(map[string]bool)
 	managed := make(map[string][]tmux.Window)
 	for _, window := range session.Windows {
-		if window.Metadata.Schema == tmux.MetadataSchema && window.Metadata.Repository == repo.RepositoryIdentity && (window.Metadata.Role == "base" || window.Metadata.Role == "worktree") {
+		if tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) {
 			managed[window.Metadata.Identity] = append(managed[window.Metadata.Identity], window)
 		} else {
 			manualNames[window.Name] = true
@@ -176,7 +185,7 @@ func Build(repo config.Repository, gitSnapshot gitclient.Snapshot, actual tmux.S
 			plan.Operations = append(plan.Operations, Operation{Type: RepairWindow, TargetID: keep.ID, Identity: identity, Name: window.Name, Path: window.Path, Role: role})
 		}
 		for _, duplicate := range matches[1:] {
-			duplicates = append(duplicates, Operation{Type: KillWindow, TargetID: duplicate.ID, Identity: identity})
+			duplicates = append(duplicates, Operation{Type: KillWindow, TargetID: duplicate.ID, Identity: identity, Role: duplicate.Metadata.Role})
 		}
 	}
 	plan.Operations = append(plan.Operations, duplicates...)
@@ -189,7 +198,17 @@ func Build(repo config.Repository, gitSnapshot gitclient.Snapshot, actual tmux.S
 		}
 		sort.Slice(stale, func(i, j int) bool { return stale[i].ID < stale[j].ID })
 		for _, window := range stale {
-			plan.Operations = append(plan.Operations, Operation{Type: KillWindow, TargetID: window.ID, Identity: window.Metadata.Identity})
+			plan.Operations = append(plan.Operations, Operation{Type: KillWindow, TargetID: window.ID, Identity: window.Metadata.Identity, Role: window.Metadata.Role})
+		}
+		for _, otherSession := range actual.Sessions {
+			if otherSession.ID == session.ID {
+				continue
+			}
+			for _, window := range otherSession.Windows {
+				if tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) {
+					plan.Operations = append(plan.Operations, Operation{Type: KillWindow, TargetID: window.ID, Identity: window.Metadata.Identity, Role: window.Metadata.Role})
+				}
+			}
 		}
 	}
 	return plan
