@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1350" height="820" viewBox="0 0 1350 820" role="img" aria-labelledby="title desc">
   <title id="title">Agent Tools relationship diagram</title>
-  <desc id="desc">Diagram showing host tools around a Lima sandbox, a host worktree mounted into the sandbox, MCP and proxy traffic through host services, and the Pi coding agent writing session logs that flow into an analyzer exposed behind the MCP Broker.</desc>
+  <desc id="desc">Diagram showing host tools around a Lima sandbox, Worktree Sync observing host-visible Git worktrees and controlling isolated tmux resources, a host worktree mounted into the sandbox, MCP and proxy traffic through host services, and Pi session logs flowing into an analyzer behind the MCP Broker.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569" />
@@ -39,6 +39,13 @@
 
   <rect class="node host-node" x="85" y="465" width="150" height="58" />
   <text class="label" x="160" y="494">Worktree Manager</text>
+
+  <rect class="node host-node" x="85" y="570" width="150" height="58" />
+  <text class="label" x="160" y="599">Worktree Sync</text>
+
+  <rect class="node workspace-node" x="295" y="570" width="150" height="58" />
+  <text class="label" x="370" y="590">Managed wts</text>
+  <text class="label" x="370" y="608">tmux resources</text>
 
   <rect class="node host-node" x="295" y="360" width="150" height="58" />
   <text class="label" x="370" y="389">Sandbox Manager</text>
@@ -85,6 +92,10 @@
   <text class="label" x="1192" y="614">Go modules</text>
 
   <path class="edge" d="M235 494 L292 494" />
+  <path class="edge" d="M330 523 L235 570" />
+  <rect class="label-bg" x="244" y="534" width="65" height="18" />
+  <text class="edge-label" x="276" y="547">observes</text>
+  <path class="edge" d="M235 599 L292 599" />
   <path class="edge" d="M445 389 L567 389" />
 
   <path class="mount" d="M445 494 L567 494" />

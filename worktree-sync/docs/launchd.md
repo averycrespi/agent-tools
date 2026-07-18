@@ -1,5 +1,48 @@
-# LaunchAgent
+# macOS LaunchAgent
 
-`wts daemon install` installs the per-user `dev.agent-tools.worktree-sync` LaunchAgent. The generated plist embeds the absolute sibling `wtsd` path, an explicit minimal `PATH`, `RunAtLoad`, `KeepAlive`, and separate files under `~/Library/Logs`. launchd does not load shell profiles or rotate these logs.
+`wts daemon` manages one per-user LaunchAgent with label `dev.agent-tools.worktree-sync`. It never manages another label and does not modify Git or tmux during install/uninstall.
 
-Use `wts daemon start|status|stop|uninstall`. These commands affect only this label; uninstall does not modify Git or tmux. On Linux, run `wtsd` directly in the foreground; launchd commands return an unsupported-platform error.
+## Install and lifecycle
+
+Install both binaries in the same directory, then install the agent:
+
+```bash
+make install
+wts daemon install
+wts daemon status
+wts daemon stop
+wts daemon start
+wts daemon uninstall
+```
+
+Installation resolves the absolute `wtsd` sibling of the running `wts` executable, atomically writes `~/Library/LaunchAgents/dev.agent-tools.worktree-sync.plist`, and bootstraps the current GUI user domain. Repeating install replaces only this plist and converges on one loaded service.
+
+The generated service uses:
+
+- `RunAtLoad` and `KeepAlive`;
+- an explicit `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin` PATH;
+- `~/Library/Logs/worktree-sync.log` for stdout; and
+- `~/Library/Logs/worktree-sync.error.log` for stderr.
+
+launchd does not load shell profiles. Install Git and tmux into the explicit PATH or run `wtsd` in a terminal to compare environments. launchd does not rotate logs; configure a separate rotation policy if needed.
+
+## Direct diagnostics
+
+```bash
+launchctl print gui/$(id -u)/dev.agent-tools.worktree-sync
+
+tail -f ~/Library/Logs/worktree-sync.log \
+        ~/Library/Logs/worktree-sync.error.log
+
+wts config validate
+wts status --json
+wtsd # foreground startup/reconcile diagnostics
+```
+
+`wts daemon start` uses `kickstart -k`; stop sends `SIGTERM`; uninstall boots out only this label and removes only its plist. The state/config registry, Git worktrees, and tmux resources are preserved.
+
+The reviewed [example plist](../examples/launchd/dev.agent-tools.worktree-sync.plist) shows the generated shape with placeholder paths. Use `wts daemon install` rather than copying it verbatim.
+
+## Other platforms
+
+LaunchAgent commands return a clear unsupported-platform error on Linux. Run `wtsd` directly under the foreground process supervisor of your choice; systemd packaging is intentionally out of scope.

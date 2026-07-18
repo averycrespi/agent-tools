@@ -7,6 +7,7 @@ This repo is opinionated. It provides structured worktree management, sandboxed 
 ## Overview
 
 - **[Worktree Manager](#worktree-manager-wt)** — Manage git worktrees with tmux integration
+- **[Worktree Sync](#worktree-sync-wts-and-wtsd)** — Continuously project registered Git worktrees into isolated tmux sessions
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
@@ -44,6 +45,7 @@ make check
 
 # Or, to install individual tools
 cd worktree-manager && make install
+cd worktree-sync && make install
 cd sandbox-manager && make install
 cd mcp-broker && make install
 cd local-git-mcp && make install
@@ -64,6 +66,17 @@ Running multiple AI agents across different branches means a lot of repetitive s
 - `wt rm <branch>` tears it down, optionally deleting the branch as well.
 
 See the [worktree-manager README](worktree-manager/README.md) for more information.
+
+### Worktree Sync (wts and wtsd)
+
+`worktree-sync` is the continuous counterpart to `wt`: it observes registered repositories through ordinary Git, projects each eligible linked worktree into a metadata-owned window on an isolated tmux socket, and repairs drift without adopting or deleting manual tmux state.
+
+- `wts repo add` registers a primary repository and its allowed worktree roots.
+- `wts worktree create|remove` provides explicit lifecycle helpers with conservative branch safety.
+- `wts status`, `wts reconcile`, and `wts cleanup` expose drift and narrowly scoped maintenance.
+- `wtsd` performs startup and periodic full reconciliation; filesystem events only nudge an earlier scan.
+
+See the [worktree-sync README](worktree-sync/README.md) for setup, commands, policy, and safety boundaries.
 
 ### Sandbox Manager (sb)
 
