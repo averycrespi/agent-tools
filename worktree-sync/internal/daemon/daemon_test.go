@@ -11,6 +11,7 @@ import (
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/app"
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/config"
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/daemon"
+	"github.com/averycrespi/agent-tools/worktree-sync/internal/state"
 )
 
 type controller struct{ calls chan string }
@@ -18,6 +19,17 @@ type controller struct{ calls chan string }
 func (c controller) Execute(_ context.Context, request app.Request) (string, error) {
 	c.calls <- request.Action
 	return "ok", nil
+}
+
+func TestRunRejectsSecondDaemonForStateDirectory(t *testing.T) {
+	base := t.TempDir()
+	paths := config.Paths{Config: filepath.Join(base, "config", "config.json"), State: filepath.Join(base, "state"), Worktrees: filepath.Join(base, "data", "worktrees")}
+	require.NoError(t, config.Save(paths.Config, config.Default()))
+	lock, err := state.Acquire(context.Background(), filepath.Join(paths.State, "daemon.lock"))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, lock.Unlock()) }()
+	err = daemon.Run(context.Background(), paths, controller{calls: make(chan string, 1)}, nil)
+	require.ErrorContains(t, err, "another wtsd")
 }
 
 func TestRunPerformsStartupReconcileAndStopsWithContext(t *testing.T) {

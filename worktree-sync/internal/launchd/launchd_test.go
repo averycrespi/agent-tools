@@ -44,6 +44,11 @@ func TestInstallAndUninstallAffectOnlyOwnLabel(t *testing.T) {
 	r := &runner{}
 	manager := launchd.New(r, "darwin", home, time.Second)
 	require.NoError(t, manager.Install(context.Background(), "/opt/wtsd"))
+	require.NoError(t, manager.Install(context.Background(), "/opt/wtsd"))
+	require.NoError(t, manager.Start(context.Background()))
+	require.NoError(t, manager.Stop(context.Background()))
+	_, err := manager.Status(context.Background())
+	require.NoError(t, err)
 	plist := filepath.Join(home, "Library", "LaunchAgents", "dev.agent-tools.worktree-sync.plist")
 	require.FileExists(t, plist)
 	require.NoError(t, manager.Uninstall(context.Background()))

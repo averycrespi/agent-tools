@@ -16,6 +16,7 @@ type snapshotter interface {
 type tmuxClient interface {
 	Snapshot(context.Context) (tmux.Snapshot, error)
 	CreateSession(context.Context, string, tmux.Window) (string, error)
+	RenameSession(context.Context, string, string) error
 	CreateWindow(context.Context, string, tmux.Window) (string, error)
 	RepairWindow(context.Context, string, tmux.Window) error
 	KillWindow(context.Context, string) error
@@ -66,10 +67,20 @@ func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, tr
 		windowByIdentity[window.Metadata.Identity] = window
 	}
 	created := make(map[string]string)
+	projected := make(map[string]bool)
+	for _, session := range actual.Sessions {
+		if session.Metadata.Repository == repo.RepositoryIdentity {
+			for _, window := range session.Windows {
+				if window.Metadata.Schema == tmux.MetadataSchema && window.Metadata.Repository == repo.RepositoryIdentity && window.Metadata.Role == "worktree" {
+					projected[window.Metadata.Identity] = true
+				}
+			}
+		}
+	}
 	sessionTarget := report.Plan.Desired.SessionName
 	sessionReady := false
 	for _, session := range actual.Sessions {
-		if session.Name == sessionTarget {
+		if session.Metadata.Schema == tmux.MetadataSchema && session.Metadata.Repository == repo.RepositoryIdentity && session.Metadata.Role == "session" && session.Metadata.Identity == repo.RepositoryIdentity {
 			sessionTarget = session.ID
 			sessionReady = true
 			break
@@ -85,6 +96,8 @@ func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, tr
 			if err == nil {
 				sessionTarget, sessionReady = id, true
 			}
+		case RepairSession:
+			err = e.tmux.RenameSession(ctx, operation.TargetID, operation.Name)
 		case CreateWindow:
 			if !sessionReady {
 				err = fmt.Errorf("managed session is unavailable")
@@ -94,6 +107,7 @@ func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, tr
 			id, err = e.tmux.CreateWindow(ctx, sessionTarget, window)
 			if err == nil {
 				created[operation.Identity] = id
+				projected[operation.Identity] = true
 			}
 		case RepairWindow:
 			err = e.tmux.RepairWindow(ctx, operation.TargetID, window)
@@ -108,7 +122,7 @@ func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, tr
 		return report
 	}
 	for _, worktree := range gitSnapshot.Worktrees {
-		if _, desired := windowByIdentity[worktree.Identity]; !desired || worktree.Identity == repo.RepositoryIdentity {
+		if _, desired := windowByIdentity[worktree.Identity]; !desired || worktree.Identity == repo.RepositoryIdentity || !projected[worktree.Identity] {
 			continue
 		}
 		worktreeTrigger := trigger(worktree.Path, worktree.Identity)

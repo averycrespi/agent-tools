@@ -497,11 +497,11 @@ func (s *Service) removeWorktree(ctx context.Context, request app.Request) (stri
 		return "", err
 	}
 	provenance.Remove(repo.RepositoryIdentity, worktree.Path, worktree.Identity)
-	if err := provenance.Save(provenancePath); err != nil {
-		return "", err
-	}
 	if err := git.Remove(ctx, repo.PrimaryRoot, worktree.Path, optionBool(request.Options, "force")); err != nil {
 		return "", err
+	}
+	if err := provenance.Save(provenancePath); err != nil {
+		return "worktree removed", fmt.Errorf("worktree removed but provenance update failed: %w", err)
 	}
 	if optionBool(request.Options, "delete_branch") || optionBool(request.Options, "force_delete_branch") {
 		if worktree.Branch == "" {
@@ -715,9 +715,10 @@ func (s *Service) status(ctx context.Context, args []string, jsonOutput bool) (s
 			}
 		}
 		if ledger != nil {
-			for key, result := range ledger.Attempts {
-				if strings.Contains(key, `"repository":"`+repo.RepositoryIdentity+`"`) && !result.Success {
-					entry.ActionFailures = append(entry.ActionFailures, actionFailure{Key: key, Result: result})
+			for encodedKey, result := range ledger.Attempts {
+				key, keyErr := state.DecodeActionKey(encodedKey)
+				if keyErr == nil && key.Repository == repo.RepositoryIdentity && !result.Success {
+					entry.ActionFailures = append(entry.ActionFailures, actionFailure{Key: encodedKey, Result: result})
 				}
 			}
 		}
@@ -840,8 +841,14 @@ func (s *Service) cleanup(ctx context.Context, pruneID, orphanID string) (string
 }
 
 func (s *Service) daemon(ctx context.Context, action string) (string, error) {
-	cfg := config.Default()
-	timeout, _ := time.ParseDuration(cfg.Global.CommandTimeout)
+	cfg, err := config.Load(s.paths.Config)
+	if err != nil {
+		return "", err
+	}
+	timeout, err := time.ParseDuration(cfg.Global.CommandTimeout)
+	if err != nil {
+		return "", err
+	}
 	manager := launchd.New(s.runner, runtime.GOOS, userHome(), timeout)
 	switch action {
 	case "install":

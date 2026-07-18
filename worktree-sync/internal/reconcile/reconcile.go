@@ -15,6 +15,7 @@ type OperationType string
 
 const (
 	CreateSession OperationType = "create_session"
+	RepairSession OperationType = "repair_session"
 	CreateWindow  OperationType = "create_window"
 	RepairWindow  OperationType = "repair_window"
 	KillWindow    OperationType = "kill_window"
@@ -113,6 +114,24 @@ func Build(repo config.Repository, gitSnapshot gitclient.Snapshot, actual tmux.S
 		}
 		session = candidate
 		break
+	}
+	if session == nil {
+		ownedSessions := make([]*tmux.Session, 0)
+		for i := range actual.Sessions {
+			candidate := &actual.Sessions[i]
+			if ownedMetadata(candidate.Metadata, repo, "session", repo.RepositoryIdentity) {
+				ownedSessions = append(ownedSessions, candidate)
+			}
+		}
+		sort.Slice(ownedSessions, func(i, j int) bool { return ownedSessions[i].ID < ownedSessions[j].ID })
+		if len(ownedSessions) > 0 {
+			session = ownedSessions[0]
+			plan.Operations = append(plan.Operations, Operation{Type: RepairSession, TargetID: session.ID, Identity: repo.RepositoryIdentity, Name: desired.SessionName})
+		}
+		if len(ownedSessions) > 1 {
+			plan.Conflicts = append(plan.Conflicts, "multiple owned sessions require manual consolidation")
+			return plan
+		}
 	}
 	if session == nil {
 		base := desired.Windows[0]

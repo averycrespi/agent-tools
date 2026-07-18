@@ -175,6 +175,11 @@ func (c *Client) CreateSession(ctx context.Context, name string, base Window) (s
 	return parts[0], nil
 }
 
+func (c *Client) RenameSession(ctx context.Context, id, name string) error {
+	_, err := c.run(ctx, "rename-session", "-t", id, name)
+	return err
+}
+
 func (c *Client) CreateWindow(ctx context.Context, sessionID string, window Window) (string, error) {
 	output, err := c.run(ctx, "new-window", "-d", "-P", "-F", "#{window_id}", "-t", sessionID, "-n", window.Name, "-c", window.Path)
 	if err != nil {

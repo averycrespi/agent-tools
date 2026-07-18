@@ -154,10 +154,10 @@ func (c Config) Validate() error {
 			return fmt.Errorf("duplicate repository ID %q", repo.ID)
 		}
 		ids[repo.ID] = true
-		identity := repo.RepositoryIdentity
-		if identity == "" {
-			identity = repo.CommonGitDir
+		if repo.RepositoryIdentity == "" || repo.RepositoryIdentity != repo.CommonGitDir {
+			return fmt.Errorf("repository %q identity must equal its canonical common Git directory", repo.ID)
 		}
+		identity := repo.RepositoryIdentity
 		if identities[identity] {
 			return fmt.Errorf("duplicate repository identity %q", identity)
 		}

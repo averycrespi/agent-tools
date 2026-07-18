@@ -36,6 +36,19 @@ func TestPlanCreatesSessionBaseAndEligibleWorktree(t *testing.T) {
 	require.Equal(t, []reconcile.Operation{{Type: reconcile.CreateSession, Identity: "repo-identity", Name: "base", Path: repo.PrimaryRoot, Role: "base"}, {Type: reconcile.CreateWindow, Identity: "worktree-one", Name: "feature-a", Path: gitSnapshot.Worktrees[1].Path, Role: "worktree"}}, plan.Operations)
 }
 
+func TestPlanRepairsRenamedOwnedSession(t *testing.T) {
+	repo, gitSnapshot := fixture(t)
+	meta := func(role, identity string) tmux.Metadata {
+		return tmux.Metadata{Schema: 1, Repository: repo.RepositoryIdentity, Role: role, Identity: identity}
+	}
+	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: "renamed", Metadata: meta("session", repo.RepositoryIdentity), Windows: []tmux.Window{
+		{ID: "@1", Name: "base", Path: repo.PrimaryRoot, Metadata: meta("base", repo.RepositoryIdentity)},
+		{ID: "@2", Name: "feature-a", Path: gitSnapshot.Worktrees[1].Path, Metadata: meta("worktree", "worktree-one")},
+	}}}}
+	plan := reconcile.Build(repo, gitSnapshot, actual)
+	require.Equal(t, []reconcile.Operation{{Type: reconcile.RepairSession, TargetID: "$1", Identity: repo.RepositoryIdentity, Name: "wts-repo"}}, plan.Operations)
+}
+
 func TestPlanPreservesManualAndRejectsForeignSessionCollision(t *testing.T) {
 	repo, gitSnapshot := fixture(t)
 	foreign := tmux.Session{ID: "$1", Name: "wts-repo", Metadata: tmux.Metadata{Schema: 1, Repository: "other", Role: "session", Identity: "other"}}

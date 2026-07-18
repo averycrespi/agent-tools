@@ -16,6 +16,21 @@ const retryDelay = 10 * time.Millisecond
 
 type Lock struct{ lock *flock.Flock }
 
+func TryAcquire(path string) (*Lock, bool, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, false, fmt.Errorf("creating lock directory: %w", err)
+	}
+	fileLock := flock.New(path)
+	locked, err := fileLock.TryLock()
+	if err != nil {
+		return nil, false, fmt.Errorf("locking %s: %w", path, err)
+	}
+	if !locked {
+		return nil, false, nil
+	}
+	return &Lock{lock: fileLock}, true, nil
+}
+
 func Acquire(ctx context.Context, path string) (*Lock, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("creating lock directory: %w", err)
@@ -123,6 +138,14 @@ func LoadLedger(path string) (*Ledger, error) {
 func actionKey(key ActionKey) string {
 	data, _ := json.Marshal(key)
 	return string(data)
+}
+
+func DecodeActionKey(value string) (ActionKey, error) {
+	var key ActionKey
+	if err := json.Unmarshal([]byte(value), &key); err != nil {
+		return ActionKey{}, fmt.Errorf("decoding action key: %w", err)
+	}
+	return key, nil
 }
 
 func (l *Ledger) Eligible(key ActionKey) bool {

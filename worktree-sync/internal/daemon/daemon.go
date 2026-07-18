@@ -23,9 +23,12 @@ func Run(ctx context.Context, paths config.Paths, service controller, logger *sl
 	if logger == nil {
 		logger = slog.Default()
 	}
-	lock, err := state.Acquire(ctx, filepath.Join(paths.State, "daemon.lock"))
+	lock, locked, err := state.TryAcquire(filepath.Join(paths.State, "daemon.lock"))
 	if err != nil {
-		return fmt.Errorf("another wtsd instance is running or daemon lock failed: %w", err)
+		return fmt.Errorf("daemon lock failed: %w", err)
+	}
+	if !locked {
+		return fmt.Errorf("another wtsd instance is running for %s", paths.State)
 	}
 	defer func() { _ = lock.Unlock() }()
 	watcher, err := fsnotify.NewWatcher()

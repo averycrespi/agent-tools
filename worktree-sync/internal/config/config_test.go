@@ -39,12 +39,27 @@ func TestCanonicalContainmentIsComponentAware(t *testing.T) {
 	require.False(t, config.Contains(canonicalRoot, canonicalOutside))
 }
 
+func TestCanonicalContainmentRejectsSymlinkEscape(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "root")
+	outside := filepath.Join(base, "outside")
+	require.NoError(t, os.Mkdir(root, 0o700))
+	require.NoError(t, os.Mkdir(outside, 0o700))
+	require.NoError(t, os.Mkdir(filepath.Join(outside, "child"), 0o700))
+	require.NoError(t, os.Symlink(outside, filepath.Join(root, "escape")))
+	canonicalRoot, err := config.CanonicalExisting(root)
+	require.NoError(t, err)
+	escaped, err := config.CanonicalExisting(filepath.Join(root, "escape", "child"))
+	require.NoError(t, err)
+	require.False(t, config.Contains(canonicalRoot, escaped))
+}
+
 func TestValidateRejectsDuplicateIdentityAndUnsafeID(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Default()
 	cfg.Repositories = []config.Repository{
-		{ID: "safe", PrimaryRoot: root, CommonGitDir: filepath.Join(root, ".git"), AllowedRoots: []string{root}},
-		{ID: "unsafe:name", PrimaryRoot: root, CommonGitDir: filepath.Join(root, ".git"), AllowedRoots: []string{root}},
+		{ID: "safe", PrimaryRoot: root, CommonGitDir: filepath.Join(root, ".git"), RepositoryIdentity: filepath.Join(root, ".git"), AllowedRoots: []string{root}},
+		{ID: "unsafe:name", PrimaryRoot: root, CommonGitDir: filepath.Join(root, ".git"), RepositoryIdentity: filepath.Join(root, ".git"), AllowedRoots: []string{root}},
 	}
 
 	err := cfg.Validate()
@@ -53,6 +68,15 @@ func TestValidateRejectsDuplicateIdentityAndUnsafeID(t *testing.T) {
 	cfg.Repositories[1].ID = "other"
 	err = cfg.Validate()
 	require.ErrorContains(t, err, "duplicate repository identity")
+}
+
+func TestValidateRequiresCanonicalRepositoryIdentity(t *testing.T) {
+	root := t.TempDir()
+	common := filepath.Join(root, ".git")
+	require.NoError(t, os.Mkdir(common, 0o700))
+	cfg := config.Default()
+	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: root, CommonGitDir: common, AllowedRoots: []string{root}}}
+	require.ErrorContains(t, cfg.Validate(), "identity")
 }
 
 func TestSaveAtomicPreservesValidConfigOnValidationFailure(t *testing.T) {

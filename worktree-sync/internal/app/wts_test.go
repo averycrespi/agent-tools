@@ -35,6 +35,25 @@ func TestWTSCommandSurface(t *testing.T) {
 	require.Equal(t, "remove", remove.Name())
 }
 
+func TestEveryCommandUsesSpecificArgumentValidation(t *testing.T) {
+	tests := [][]string{
+		{"config", "path", "extra"}, {"config", "edit", "extra"}, {"config", "validate", "extra"}, {"config", "refresh", "extra"},
+		{"repo", "add", "one", "two"}, {"repo", "list", "extra"}, {"repo", "remove"},
+		{"worktree", "path"}, {"worktree", "create"}, {"worktree", "remove"}, {"worktree", "setup"}, {"worktree", "launch"},
+		{"attach", "one", "two"}, {"status", "one", "two"}, {"reconcile", "one", "two"}, {"cleanup", "extra"},
+		{"daemon", "install", "extra"}, {"daemon", "uninstall", "extra"}, {"daemon", "start", "extra"}, {"daemon", "stop", "extra"}, {"daemon", "status", "extra"},
+	}
+	for _, args := range tests {
+		root := app.NewWTS(nil)
+		root.SetArgs(args)
+		root.SilenceUsage = true
+		root.SilenceErrors = true
+		err := root.Execute()
+		require.Error(t, err, args)
+		require.NotRegexp(t, `accepts \d+ arg`, err.Error(), args)
+	}
+}
+
 func TestRequiredRepoArgumentUsesCommandSpecificError(t *testing.T) {
 	root := app.NewWTS(nil)
 	root.SetArgs([]string{"repo", "remove"})
