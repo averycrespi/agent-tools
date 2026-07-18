@@ -2,6 +2,7 @@ package tmux_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -28,10 +29,11 @@ func (r *runner) Run(_ context.Context, dir, name string, args ...string) ([]byt
 func (*runner) Interactive(context.Context, string, string, ...string) error { return nil }
 
 func TestSnapshotParsesMetadataAndUsesDedicatedSocket(t *testing.T) {
-	sep := "\x1f"
 	r := &runner{results: []result{
-		{out: []byte("$1" + sep + "wts-repo" + sep + "1" + sep + "identity" + sep + "session" + sep + "identity\n")},
-		{out: []byte("$1" + sep + "@1" + sep + "base" + sep + "/repo" + sep + "1" + sep + "identity" + sep + "base" + sep + "identity\n")},
+		{out: []byte("$1\n")}, {out: []byte("wts-repo\n")},
+		{out: []byte("1\n")}, {out: []byte("identity\n")}, {out: []byte("session\n")}, {out: []byte("identity\n")},
+		{out: []byte("@1\n")}, {out: []byte("base\n")}, {out: []byte("/repo\n")},
+		{out: []byte("1\n")}, {out: []byte("identity\n")}, {out: []byte("base\n")}, {out: []byte("identity\n")},
 	}}
 	client := tmux.New(r, "test-socket", time.Second)
 	snapshot, err := client.Snapshot(context.Background())
@@ -43,12 +45,21 @@ func TestSnapshotParsesMetadataAndUsesDedicatedSocket(t *testing.T) {
 	}
 }
 
+func TestCreateSessionCleansUpWhenTaggingFails(t *testing.T) {
+	r := &runner{results: []result{{out: []byte("$1|@1\n")}, {err: errors.New("tag failed")}, {}}}
+	client := tmux.New(r, "test-socket", time.Second)
+	_, err := client.CreateSession(context.Background(), "wts-r", tmux.Window{Name: "base", Path: "/repo", Metadata: tmux.Metadata{Schema: 1, Repository: "repo", Role: "base", Identity: "repo"}})
+	require.Error(t, err)
+	require.Contains(t, r.calls[len(r.calls)-1], "kill-session")
+	require.Contains(t, r.calls[len(r.calls)-1], "$1")
+}
+
 func TestApplyTagsCreatedObjectsAndKillsOnlyTargetID(t *testing.T) {
 	r := &runner{results: make([]result, 11)}
-	r.results[0].out = []byte("$1\x1f@1\n")
+	r.results[0].out = []byte("$1|@1\n")
 	client := tmux.New(r, "test-socket", time.Second)
 	meta := tmux.Metadata{Schema: 1, Repository: "repo", Role: "base", Identity: "repo"}
-	err := client.CreateSession(context.Background(), "wts-r", tmux.Window{Name: "base", Path: "/repo", Metadata: meta})
+	_, err := client.CreateSession(context.Background(), "wts-r", tmux.Window{Name: "base", Path: "/repo", Metadata: meta})
 	require.NoError(t, err)
 	require.Contains(t, r.calls[0], "new-session")
 	require.Contains(t, r.calls[0], "-c")

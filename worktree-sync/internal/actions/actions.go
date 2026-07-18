@@ -66,6 +66,11 @@ func (m *Manager) Run(ctx context.Context, repo config.Repository, worktree Work
 	if !enabled || (len(repo.CopyActions) == 0 && len(repo.SetupActions) == 0) {
 		return Result{Skipped: true}
 	}
+	lock, err := state.Acquire(ctx, m.ledgerPath+".lock")
+	if err != nil {
+		return Result{Error: err}
+	}
+	defer func() { _ = lock.Unlock() }()
 	ledger, err := state.LoadLedger(m.ledgerPath)
 	if err != nil {
 		return Result{Error: err}
@@ -89,11 +94,16 @@ func (m *Manager) Run(ctx context.Context, repo config.Repository, worktree Work
 	return Result{Error: err}
 }
 
-func (m *Manager) Launch(repo config.Repository, worktree Worktree, trigger Trigger, rerun bool, launch func() error) Result {
+func (m *Manager) Launch(ctx context.Context, repo config.Repository, worktree Worktree, trigger Trigger, rerun bool, launch func() error) Result {
 	enabled := (trigger == Explicit && repo.Policy.LaunchExplicit) || (trigger == Passive && repo.Policy.LaunchPassive)
 	if !enabled || repo.LaunchCommand == "" {
 		return Result{Skipped: true}
 	}
+	lock, err := state.Acquire(ctx, m.ledgerPath+".lock")
+	if err != nil {
+		return Result{Error: err}
+	}
+	defer func() { _ = lock.Unlock() }()
 	ledger, err := state.LoadLedger(m.ledgerPath)
 	if err != nil {
 		return Result{Error: err}
@@ -181,45 +191,6 @@ func safeRelative(value string) (string, error) {
 	return clean, nil
 }
 
-func ensureParent(root, relative string) (string, error) {
-	canonicalRoot, err := config.CanonicalExisting(root)
-	if err != nil {
-		return "", err
-	}
-	current := canonicalRoot
-	parts := strings.Split(filepath.Dir(relative), string(filepath.Separator))
-	for _, part := range parts {
-		if part == "." || part == "" {
-			continue
-		}
-		next := filepath.Join(current, part)
-		info, statErr := os.Lstat(next)
-		if errors.Is(statErr, os.ErrNotExist) {
-			if err := os.Mkdir(next, 0o700); err != nil {
-				return "", fmt.Errorf("creating copy destination directory: %w", err)
-			}
-			current = next
-			continue
-		}
-		if statErr != nil {
-			return "", statErr
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			resolved, resolveErr := config.CanonicalExisting(next)
-			if resolveErr != nil || !config.Contains(canonicalRoot, resolved) {
-				return "", fmt.Errorf("copy destination symlink %q escapes worktree", next)
-			}
-			current = resolved
-			continue
-		}
-		if !info.IsDir() {
-			return "", fmt.Errorf("copy destination parent %q is not a directory", next)
-		}
-		current = next
-	}
-	return filepath.Join(canonicalRoot, relative), nil
-}
-
 func copyFile(primary, worktree string, action config.CopyAction) error {
 	sourceRelative, err := safeRelative(action.Source)
 	if err != nil {
@@ -229,18 +200,12 @@ func copyFile(primary, worktree string, action config.CopyAction) error {
 	if err != nil {
 		return err
 	}
-	canonicalPrimary, err := config.CanonicalExisting(primary)
+	sourceRoot, err := os.OpenRoot(primary)
 	if err != nil {
-		return err
+		return fmt.Errorf("opening registered primary root: %w", err)
 	}
-	source, err := filepath.EvalSymlinks(filepath.Join(canonicalPrimary, sourceRelative))
-	if err != nil {
-		return fmt.Errorf("resolving copy source: %w", err)
-	}
-	if !config.Contains(canonicalPrimary, source) {
-		return fmt.Errorf("copy source %q escapes registered primary root", action.Source)
-	}
-	input, err := os.Open(source) //nolint:gosec // path is constrained to registered primary root
+	defer func() { _ = sourceRoot.Close() }()
+	input, err := sourceRoot.Open(sourceRelative)
 	if err != nil {
 		return fmt.Errorf("opening copy source: %w", err)
 	}
@@ -252,11 +217,17 @@ func copyFile(primary, worktree string, action config.CopyAction) error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("copy source %q is not a regular file", action.Source)
 	}
-	destination, err := ensureParent(worktree, destinationRelative)
+	destinationRoot, err := os.OpenRoot(worktree)
 	if err != nil {
-		return err
+		return fmt.Errorf("opening worktree root: %w", err)
 	}
-	output, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm()) //nolint:gosec // permissions intentionally follow trusted configured source
+	defer func() { _ = destinationRoot.Close() }()
+	if parent := filepath.Dir(destinationRelative); parent != "." {
+		if err := destinationRoot.MkdirAll(parent, 0o700); err != nil {
+			return fmt.Errorf("creating copy destination directory: %w", err)
+		}
+	}
+	output, err := destinationRoot.OpenFile(destinationRelative, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm()) //nolint:gosec // permissions intentionally follow trusted configured source
 	if errors.Is(err, os.ErrExist) {
 		return nil
 	}
@@ -265,7 +236,7 @@ func copyFile(primary, worktree string, action config.CopyAction) error {
 	}
 	if _, err := io.Copy(output, input); err != nil {
 		_ = output.Close()
-		_ = os.Remove(destination)
+		_ = destinationRoot.Remove(destinationRelative)
 		return fmt.Errorf("copying file: %w", err)
 	}
 	if err := output.Sync(); err != nil {

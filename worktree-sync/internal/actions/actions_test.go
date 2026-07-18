@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -71,6 +72,39 @@ type failingRunner struct{ calls int }
 func (r *failingRunner) RunEnv(context.Context, string, []string, string, ...string) ([]byte, error) {
 	r.calls++
 	return []byte("boom"), context.Canceled
+}
+
+func TestLedgerLockPreventsConcurrentDuplicateExecution(t *testing.T) {
+	ledger := filepath.Join(t.TempDir(), "ledger.json")
+	r := &blockingActionRunner{started: make(chan struct{}), release: make(chan struct{})}
+	repo := config.Repository{RepositoryIdentity: "r", PrimaryRoot: t.TempDir(), SetupActions: []config.SetupAction{{Argv: []string{"tool"}}}, Policy: config.Policy{SetupPassive: true}}
+	worktree := actions.Worktree{Path: t.TempDir(), Identity: "w"}
+	results := make(chan actions.Result, 2)
+	for range 2 {
+		go func() {
+			results <- actions.New(r, ledger, time.Second).Run(context.Background(), repo, worktree, actions.Passive, false)
+		}()
+	}
+	<-r.started
+	close(r.release)
+	first, second := <-results, <-results
+	require.NoError(t, first.Error)
+	require.NoError(t, second.Error)
+	require.Equal(t, int32(1), r.calls.Load())
+}
+
+type blockingActionRunner struct {
+	started chan struct{}
+	release chan struct{}
+	calls   atomic.Int32
+}
+
+func (r *blockingActionRunner) RunEnv(context.Context, string, []string, string, ...string) ([]byte, error) {
+	if r.calls.Add(1) == 1 {
+		close(r.started)
+		<-r.release
+	}
+	return nil, nil
 }
 
 func TestPassivePolicyDefaultsDisabledAndEnvironmentOverridesAreExplicit(t *testing.T) {

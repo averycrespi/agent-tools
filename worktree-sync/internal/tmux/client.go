@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const separator = "\x1f"
+const separator = "|"
 
 type runner interface {
 	Run(context.Context, string, string, ...string) ([]byte, error)
@@ -58,58 +58,78 @@ func parseMetadata(fields []string) (Metadata, error) {
 	return metadata, nil
 }
 
-func records(output []byte, fields int) ([][]string, error) {
+func (c *Client) value(ctx context.Context, target, format string) (string, error) {
+	output, err := c.run(ctx, "display-message", "-p", "-t", target, "-F", format)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(string(output), "\n"), nil
+}
+
+func ids(output []byte) []string {
 	text := strings.TrimSuffix(string(output), "\n")
 	if text == "" {
-		return nil, nil
+		return nil
 	}
-	lines := strings.Split(text, "\n")
-	result := make([][]string, 0, len(lines))
-	for _, line := range lines {
-		parts := strings.Split(line, separator)
-		if len(parts) != fields {
-			return nil, fmt.Errorf("tmux snapshot record has %d fields, want %d", len(parts), fields)
+	return strings.Split(text, "\n")
+}
+
+func (c *Client) metadata(ctx context.Context, target string, window bool) (Metadata, error) {
+	options := []string{"@wts-schema", "@wts-repository", "@wts-role", "@wts-identity"}
+	values := make([]string, len(options))
+	for i, option := range options {
+		args := []string{"show-options"}
+		if window {
+			args = append(args, "-w")
 		}
-		result = append(result, parts)
+		args = append(args, "-qv", "-t", target, option)
+		output, err := c.run(ctx, args...)
+		if err != nil {
+			return Metadata{}, err
+		}
+		values[i] = strings.TrimSuffix(string(output), "\n")
 	}
-	return result, nil
+	return parseMetadata(values)
 }
 
 func (c *Client) Snapshot(ctx context.Context) (Snapshot, error) {
-	sessionFormat := strings.Join([]string{"#{session_id}", "#{session_name}", "#{@wts-schema}", "#{@wts-repository}", "#{@wts-role}", "#{@wts-identity}"}, separator)
-	output, err := c.run(ctx, "list-sessions", "-F", sessionFormat)
+	output, err := c.run(ctx, "list-sessions", "-F", "#{session_id}")
 	if err != nil {
-		if strings.Contains(string(output), "no server running") || strings.Contains(string(output), "failed to connect") {
+		if strings.Contains(string(output), "no server running") || strings.Contains(string(output), "failed to connect") || strings.Contains(string(output), "error connecting") {
 			return Snapshot{Complete: true, Sessions: []Session{}}, nil
 		}
 		return Snapshot{Complete: false}, err
 	}
-	sessionRecords, err := records(output, 6)
-	if err != nil {
-		return Snapshot{Complete: false}, err
-	}
-	snapshot := Snapshot{Complete: true, Sessions: make([]Session, 0, len(sessionRecords))}
-	windowFormat := strings.Join([]string{"#{session_id}", "#{window_id}", "#{window_name}", "#{pane_current_path}", "#{@wts-schema}", "#{@wts-repository}", "#{@wts-role}", "#{@wts-identity}"}, separator)
-	for _, record := range sessionRecords {
-		metadata, metadataErr := parseMetadata(record[2:])
+	sessionIDs := ids(output)
+	snapshot := Snapshot{Complete: true, Sessions: make([]Session, 0, len(sessionIDs))}
+	for _, sessionID := range sessionIDs {
+		name, valueErr := c.value(ctx, sessionID, "#{session_name}")
+		if valueErr != nil {
+			return Snapshot{Complete: false}, valueErr
+		}
+		metadata, metadataErr := c.metadata(ctx, sessionID, false)
 		if metadataErr != nil {
 			return Snapshot{Complete: false}, metadataErr
 		}
-		session := Session{ID: record[0], Name: record[1], Metadata: metadata}
-		windowsOut, windowsErr := c.run(ctx, "list-windows", "-t", session.ID, "-F", windowFormat)
+		session := Session{ID: sessionID, Name: name, Metadata: metadata}
+		windowsOut, windowsErr := c.run(ctx, "list-windows", "-t", sessionID, "-F", "#{window_id}")
 		if windowsErr != nil {
 			return Snapshot{Complete: false}, windowsErr
 		}
-		windowRecords, parseErr := records(windowsOut, 8)
-		if parseErr != nil {
-			return Snapshot{Complete: false}, parseErr
-		}
-		for _, windowRecord := range windowRecords {
-			windowMetadata, windowMetadataErr := parseMetadata(windowRecord[4:])
+		for _, windowID := range ids(windowsOut) {
+			windowName, nameErr := c.value(ctx, windowID, "#{window_name}")
+			if nameErr != nil {
+				return Snapshot{Complete: false}, nameErr
+			}
+			path, pathErr := c.value(ctx, windowID, "#{pane_current_path}")
+			if pathErr != nil {
+				return Snapshot{Complete: false}, pathErr
+			}
+			windowMetadata, windowMetadataErr := c.metadata(ctx, windowID, true)
 			if windowMetadataErr != nil {
 				return Snapshot{Complete: false}, windowMetadataErr
 			}
-			session.Windows = append(session.Windows, Window{ID: windowRecord[1], Name: windowRecord[2], Path: windowRecord[3], Metadata: windowMetadata})
+			session.Windows = append(session.Windows, Window{ID: windowID, Name: windowName, Path: path, Metadata: windowMetadata})
 		}
 		snapshot.Sessions = append(snapshot.Sessions, session)
 	}
@@ -131,23 +151,28 @@ func (c *Client) setMetadata(ctx context.Context, target string, window bool, me
 	return nil
 }
 
-func (c *Client) CreateSession(ctx context.Context, name string, base Window) error {
+func (c *Client) CreateSession(ctx context.Context, name string, base Window) (string, error) {
 	format := "#{session_id}" + separator + "#{window_id}"
 	output, err := c.run(ctx, "new-session", "-d", "-P", "-F", format, "-s", name, "-n", base.Name, "-c", base.Path)
 	if err != nil {
-		return err
+		return "", err
 	}
 	parts := strings.Split(strings.TrimSpace(string(output)), separator)
 	if len(parts) != 2 {
-		return fmt.Errorf("tmux new-session returned malformed IDs")
+		return "", fmt.Errorf("tmux new-session returned malformed IDs")
 	}
 	sessionMetadata := base.Metadata
 	sessionMetadata.Role = "session"
 	sessionMetadata.Identity = base.Metadata.Repository
 	if err := c.setMetadata(ctx, parts[0], false, sessionMetadata); err != nil {
-		return err
+		_, _ = c.run(ctx, "kill-session", "-t", parts[0])
+		return "", err
 	}
-	return c.setMetadata(ctx, parts[1], true, base.Metadata)
+	if err := c.setMetadata(ctx, parts[1], true, base.Metadata); err != nil {
+		_, _ = c.run(ctx, "kill-session", "-t", parts[0])
+		return "", err
+	}
+	return parts[0], nil
 }
 
 func (c *Client) CreateWindow(ctx context.Context, sessionID string, window Window) (string, error) {
@@ -160,7 +185,8 @@ func (c *Client) CreateWindow(ctx context.Context, sessionID string, window Wind
 		return "", fmt.Errorf("tmux new-window returned no ID")
 	}
 	if err := c.setMetadata(ctx, id, true, window.Metadata); err != nil {
-		return id, err
+		_, _ = c.run(ctx, "kill-window", "-t", id)
+		return "", err
 	}
 	return id, nil
 }

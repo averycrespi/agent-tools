@@ -147,8 +147,8 @@ func (c Config) Validate() error {
 	ids := make(map[string]bool)
 	identities := make(map[string]bool)
 	for _, repo := range c.Repositories {
-		if !ValidID(repo.ID) {
-			return fmt.Errorf("repository ID %q must match %s", repo.ID, validID)
+		if !ValidID(repo.ID) || len(repo.ID) > 64 {
+			return fmt.Errorf("repository ID %q must match %s and be at most 64 characters", repo.ID, validID)
 		}
 		if ids[repo.ID] {
 			return fmt.Errorf("duplicate repository ID %q", repo.ID)
@@ -176,6 +176,14 @@ func (c Config) Validate() error {
 				return fmt.Errorf("repository %q path %q is not canonical", repo.ID, path)
 			}
 		}
+		for _, action := range repo.CopyActions {
+			for _, path := range []string{action.Source, action.Destination} {
+				clean := filepath.Clean(path)
+				if path == "" || filepath.IsAbs(path) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+					return fmt.Errorf("repository %q copy paths must be non-empty, relative, and contained", repo.ID)
+				}
+			}
+		}
 		for _, action := range repo.SetupActions {
 			if len(action.Argv) == 0 || action.Argv[0] == "" {
 				return fmt.Errorf("repository %q setup argv must not be empty", repo.ID)
@@ -185,12 +193,17 @@ func (c Config) Validate() error {
 					return err
 				}
 			}
+			for key := range action.Env {
+				if key == "" || strings.Contains(key, "=") {
+					return fmt.Errorf("repository %q setup environment key %q is invalid", repo.ID, key)
+				}
+			}
 		}
 	}
 	return nil
 }
 
-func Load(path string) (Config, error) {
+func decode(path string) (Config, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // caller supplies the XDG configuration path
 	if errors.Is(err, os.ErrNotExist) {
 		return Default(), nil
@@ -202,12 +215,22 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("decoding config: %w", err)
 	}
+	return cfg, nil
+}
+
+func Load(path string) (Config, error) {
+	cfg, err := decode(path)
+	if err != nil {
+		return Config{}, err
+	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
 	sort.Slice(cfg.Repositories, func(i, j int) bool { return cfg.Repositories[i].ID < cfg.Repositories[j].ID })
 	return cfg, nil
 }
+
+func LoadForRefresh(path string) (Config, error) { return decode(path) }
 
 func Save(path string, cfg Config) error {
 	if err := cfg.Validate(); err != nil {

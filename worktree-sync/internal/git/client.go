@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -138,9 +140,34 @@ func (c *Client) Snapshot(ctx context.Context, repo Repository) (Snapshot, error
 			errs = append(errs, identityErr)
 			continue
 		}
-		worktrees[i].Identity = identity
+		if identity == repo.CommonGitDir {
+			worktrees[i].Identity = repo.Identity
+		} else {
+			worktrees[i].Identity, identityErr = worktreeIdentity(identity)
+			if identityErr != nil {
+				worktrees[i].Exclusion = "git-identity-unavailable"
+				complete = false
+				errs = append(errs, identityErr)
+			}
+		}
 	}
 	return Snapshot{Complete: complete, Worktrees: worktrees}, errors.Join(errs...)
+}
+
+func worktreeIdentity(gitDir string) (string, error) {
+	info, err := os.Stat(gitDir)
+	if err != nil {
+		return "", fmt.Errorf("stating Git administrative directory: %w", err)
+	}
+	value := reflect.Indirect(reflect.ValueOf(info.Sys()))
+	if !value.IsValid() {
+		return "", fmt.Errorf("git administrative identity is unavailable for %s", gitDir)
+	}
+	device, inode := value.FieldByName("Dev"), value.FieldByName("Ino")
+	if !device.IsValid() || !inode.IsValid() {
+		return "", fmt.Errorf("git administrative identity is unavailable for %s", gitDir)
+	}
+	return fmt.Sprintf("%s#%v:%v", gitDir, device.Interface(), inode.Interface()), nil
 }
 
 func (c *Client) Add(ctx context.Context, root, path, branch, start string, existing bool) error {
@@ -161,10 +188,11 @@ func (c *Client) Add(ctx context.Context, root, path, branch, start string, exis
 func (c *Client) BranchExists(ctx context.Context, root, branch string) (bool, error) {
 	_, err := c.run(ctx, root, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return false, err
+		var exitError interface{ ExitCode() int }
+		if errors.As(err, &exitError) && exitError.ExitCode() == 1 {
+			return false, nil
 		}
-		return false, nil
+		return false, err
 	}
 	return true, nil
 }

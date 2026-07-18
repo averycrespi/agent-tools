@@ -84,5 +84,10 @@ func Path(root, repoID, branch, identity string, occupied func(string) bool) str
 	if !occupied(base) {
 		return base
 	}
-	return base + "-" + short(identity)
+	for collision := 0; ; collision++ {
+		candidate := base + "-" + short(fmt.Sprintf("%s:%d", identity, collision))
+		if !occupied(candidate) {
+			return candidate
+		}
+	}
 }

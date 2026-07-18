@@ -32,7 +32,11 @@ type Service struct {
 }
 
 func New(runner execclient.Runner, paths config.Paths) *Service {
-	return &Service{runner: runner, paths: paths, socket: tmux.SocketName}
+	return NewWithSocket(runner, paths, tmux.SocketName)
+}
+
+func NewWithSocket(runner execclient.Runner, paths config.Paths, socket string) *Service {
+	return &Service{runner: runner, paths: paths, socket: socket}
 }
 func NewFromEnv() (*Service, error) {
 	paths, err := config.PathsFromEnv()
@@ -87,7 +91,7 @@ func (s *Service) Execute(ctx context.Context, request app.Request) (string, err
 	case "repo.remove":
 		return s.removeRepo(ctx, request.Args[0])
 	case "worktree.path":
-		return s.worktreePath(request.Args)
+		return s.worktreePath(ctx, request.Args)
 	case "worktree.create":
 		return s.createWorktree(ctx, request)
 	case "worktree.remove":
@@ -116,12 +120,12 @@ func (s *Service) acquire(ctx context.Context, name string) (*state.Lock, error)
 }
 
 func (s *Service) refreshConfig(ctx context.Context) (string, error) {
-	lock, err := s.acquire(ctx, "config")
+	lock, err := s.acquire(ctx, "operation")
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = lock.Unlock() }()
-	cfg, err := config.Load(s.paths.Config)
+	cfg, err := config.LoadForRefresh(s.paths.Config)
 	if err != nil {
 		return "", err
 	}
@@ -145,7 +149,7 @@ func (s *Service) refreshConfig(ctx context.Context) (string, error) {
 }
 
 func (s *Service) editConfig(ctx context.Context) (string, error) {
-	lock, err := s.acquire(ctx, "config")
+	lock, err := s.acquire(ctx, "operation")
 	if err != nil {
 		return "", err
 	}
@@ -261,39 +265,37 @@ func (s *Service) removeRepo(ctx context.Context, id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := config.Save(s.paths.Config, updated); err != nil {
-		return "", err
-	}
 	_, tmuxClient, _, _, _, err := s.runtime(cfg)
 	if err != nil {
 		return "", err
 	}
 	snapshot, err := tmuxClient.Snapshot(ctx)
 	if err != nil {
-		return "repository unregistered", fmt.Errorf("repository unregistered but tmux cleanup failed: %w", err)
+		return "", fmt.Errorf("tmux cleanup failed; repository remains registered: %w", err)
 	}
-	session := matchingSession(snapshot, repo)
-	if session == nil {
-		return "repository unregistered", nil
-	}
-	managed, unmanaged := make([]tmux.Window, 0), make([]tmux.Window, 0)
-	for _, window := range session.Windows {
-		if window.Metadata.Schema == tmux.MetadataSchema && window.Metadata.Repository == repo.RepositoryIdentity && (window.Metadata.Role == "base" || window.Metadata.Role == "worktree") {
-			managed = append(managed, window)
-		} else {
-			unmanaged = append(unmanaged, window)
-		}
-	}
-	if len(unmanaged) == 0 {
-		if err := tmuxClient.KillSession(ctx, session.ID); err != nil {
-			return "repository unregistered", err
-		}
-	} else {
-		for _, window := range managed {
-			if err := tmuxClient.KillWindow(ctx, window.ID); err != nil {
-				return "repository unregistered", err
+	if session := matchingSession(snapshot, repo); session != nil {
+		managed, unmanaged := make([]tmux.Window, 0), make([]tmux.Window, 0)
+		for _, window := range session.Windows {
+			if window.Metadata.Schema == tmux.MetadataSchema && window.Metadata.Repository == repo.RepositoryIdentity && (window.Metadata.Role == "base" || window.Metadata.Role == "worktree") {
+				managed = append(managed, window)
+			} else {
+				unmanaged = append(unmanaged, window)
 			}
 		}
+		if len(unmanaged) == 0 {
+			if err := tmuxClient.KillSession(ctx, session.ID); err != nil {
+				return "", fmt.Errorf("tmux cleanup failed; repository remains registered: %w", err)
+			}
+		} else {
+			for _, window := range managed {
+				if err := tmuxClient.KillWindow(ctx, window.ID); err != nil {
+					return "", fmt.Errorf("tmux cleanup failed; repository remains registered: %w", err)
+				}
+			}
+		}
+	}
+	if err := config.Save(s.paths.Config, updated); err != nil {
+		return "", fmt.Errorf("tmux resources removed but config update failed: %w", err)
 	}
 	return fmt.Sprintf("unregistered %s; Git worktrees and branches unchanged", id), nil
 }
@@ -333,12 +335,11 @@ func (s *Service) resolveRepo(cfg config.Config, id string) (config.Repository, 
 }
 
 func (s *Service) pathFor(repo config.Repository, branch string) string {
-	root := filepath.Join(repo.AllowedRoots[0], repo.ID)
 	occupied := func(path string) bool { _, err := os.Lstat(path); return err == nil }
-	return naming.Path(root, repo.ID, branch, repo.RepositoryIdentity+"\x00"+branch, occupied)
+	return naming.Path(repo.AllowedRoots[0], repo.ID, branch, repo.RepositoryIdentity+"\x00"+branch, occupied)
 }
 
-func (s *Service) worktreePath(args []string) (string, error) {
+func (s *Service) worktreePath(ctx context.Context, args []string) (string, error) {
 	cfg, err := config.Load(s.paths.Config)
 	if err != nil {
 		return "", err
@@ -350,6 +351,15 @@ func (s *Service) worktreePath(args []string) (string, error) {
 	repo, err := s.resolveRepo(cfg, id)
 	if err != nil {
 		return "", err
+	}
+	_, snapshot, err := s.snapshotRepo(ctx, cfg, repo)
+	if err != nil {
+		return "", err
+	}
+	for _, worktree := range snapshot.Worktrees {
+		if worktree.Branch == args[0] && worktree.Exclusion == "" {
+			return worktree.Path, nil
+		}
 	}
 	return s.pathFor(repo, args[0]), nil
 }
@@ -378,8 +388,18 @@ func (s *Service) createWorktree(ctx context.Context, request app.Request) (stri
 	}
 	branch := request.Args[0]
 	path := s.pathFor(repo, branch)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", err
+	allowedRoot, err := os.OpenRoot(repo.AllowedRoots[0])
+	if err != nil {
+		return "", fmt.Errorf("opening allowed worktree root: %w", err)
+	}
+	if err := allowedRoot.Mkdir(repo.ID, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		_ = allowedRoot.Close()
+		return "", fmt.Errorf("creating repository worktree root: %w", err)
+	}
+	_ = allowedRoot.Close()
+	parent, err := config.CanonicalExisting(filepath.Dir(path))
+	if err != nil || !config.Contains(repo.AllowedRoots[0], parent) {
+		return "", fmt.Errorf("worktree path parent is not safely contained by the allowed root")
 	}
 	exists, err := git.BranchExists(ctx, repo.PrimaryRoot, branch)
 	if err != nil {
@@ -392,17 +412,25 @@ func (s *Service) createWorktree(ctx context.Context, request app.Request) (stri
 	if err != nil {
 		return "", err
 	}
+	snapshot, err := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
+	if err != nil {
+		return path, fmt.Errorf("worktree created but explicit provenance could not be established: %w", err)
+	}
+	createdWorktree, err := findWorktree(snapshot, canonical)
+	if err != nil || createdWorktree.Identity == "" {
+		return path, fmt.Errorf("worktree created but its Git identity is unavailable")
+	}
 	provenancePath := filepath.Join(s.paths.State, "provenance.json")
 	provenance, err := state.LoadProvenance(provenancePath)
 	if err != nil {
 		return "", err
 	}
-	provenance.RecordExplicit(canonical)
+	provenance.RecordExplicit(repo.RepositoryIdentity, canonical, createdWorktree.Identity)
 	if err := provenance.Save(provenancePath); err != nil {
 		return "", err
 	}
-	report := executor.ReconcileRepo(ctx, repo, func(path string) actions.Trigger {
-		if provenance.Explicit(path) {
+	report := executor.ReconcileRepo(ctx, repo, func(path, identity string) actions.Trigger {
+		if provenance.Explicit(repo.RepositoryIdentity, path, identity) {
 			return actions.Explicit
 		}
 		return actions.Passive
@@ -463,6 +491,15 @@ func (s *Service) removeWorktree(ctx context.Context, request app.Request) (stri
 	if worktree.Path == repo.PrimaryRoot {
 		return "", fmt.Errorf("primary worktree cannot be removed")
 	}
+	provenancePath := filepath.Join(s.paths.State, "provenance.json")
+	provenance, err := state.LoadProvenance(provenancePath)
+	if err != nil {
+		return "", err
+	}
+	provenance.Remove(repo.RepositoryIdentity, worktree.Path, worktree.Identity)
+	if err := provenance.Save(provenancePath); err != nil {
+		return "", err
+	}
 	if err := git.Remove(ctx, repo.PrimaryRoot, worktree.Path, optionBool(request.Options, "force")); err != nil {
 		return "", err
 	}
@@ -478,6 +515,11 @@ func (s *Service) removeWorktree(ctx context.Context, request app.Request) (stri
 }
 
 func (s *Service) explicitAction(ctx context.Context, request app.Request, launch bool) (string, error) {
+	lock, err := s.acquire(ctx, "operation")
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = lock.Unlock() }()
 	cfg, err := config.Load(s.paths.Config)
 	if err != nil {
 		return "", err
@@ -526,7 +568,7 @@ func (s *Service) explicitAction(ctx context.Context, request app.Request, launc
 	if windowID == "" {
 		return "", fmt.Errorf("managed worktree window is not present")
 	}
-	result := manager.Launch(repo, actionWorktree, actions.Explicit, rerun, func() error { return tmuxClient.Launch(ctx, windowID, repo.LaunchCommand) })
+	result := manager.Launch(ctx, repo, actionWorktree, actions.Explicit, rerun, func() error { return tmuxClient.Launch(ctx, windowID, repo.LaunchCommand) })
 	return "launch evaluated", result.Error
 }
 func (s *Service) runSetup(ctx context.Context, request app.Request) (string, error) {
@@ -585,13 +627,17 @@ func (s *Service) reconcile(ctx context.Context, args []string) (string, error) 
 	summaries := make([]string, 0, len(repositories))
 	var errs []error
 	for _, repo := range repositories {
-		report := executor.ReconcileRepo(ctx, repo, func(path string) actions.Trigger {
-			if provenance.Explicit(path) {
+		report := executor.ReconcileRepo(ctx, repo, func(path, identity string) actions.Trigger {
+			if provenance.Explicit(repo.RepositoryIdentity, path, identity) {
 				return actions.Explicit
 			}
 			return actions.Passive
 		})
-		summaries = append(summaries, fmt.Sprintf("%s: %d operations, %d conflicts, %d errors", repo.ID, len(report.Plan.Operations), len(report.Plan.Conflicts), len(report.Errors)))
+		summary := fmt.Sprintf("%s: %d operations, %d conflicts, %d errors", repo.ID, len(report.Plan.Operations), len(report.Plan.Conflicts), len(report.Errors))
+		if len(report.Plan.Report) > 0 {
+			summary += "\n  " + strings.Join(report.Plan.Report, "\n  ")
+		}
+		summaries = append(summaries, summary)
 		if len(report.Errors) > 0 {
 			errs = append(errs, fmt.Errorf("%s: %s", repo.ID, strings.Join(report.Errors, "; ")))
 		}
@@ -612,21 +658,33 @@ func (s *Service) status(ctx context.Context, args []string, jsonOutput bool) (s
 		}
 		repos = []config.Repository{repo}
 	}
+	type actionFailure struct {
+		Key    string             `json:"key"`
+		Result state.ActionResult `json:"result"`
+	}
 	type repoStatus struct {
 		ID             string               `json:"id"`
 		Health         string               `json:"health"`
 		Desired        []gitclient.Worktree `json:"desired_worktrees"`
 		Actual         []tmux.Window        `json:"actual_managed_windows"`
 		Conflicts      []string             `json:"conflicts"`
+		Reported       []string             `json:"reported_worktrees"`
 		Prunable       []gitclient.Worktree `json:"prunable"`
-		ActionFailures []state.ActionResult `json:"action_failures"`
+		ActionFailures []actionFailure      `json:"action_failures"`
 	}
 	type statusDocument struct {
 		Version      int          `json:"version"`
 		Repositories []repoStatus `json:"repositories"`
 		Daemon       string       `json:"daemon"`
 	}
-	document := statusDocument{Version: 1, Repositories: make([]repoStatus, 0, len(repos)), Daemon: "unknown"}
+	document := statusDocument{Version: 1, Repositories: make([]repoStatus, 0, len(repos)), Daemon: "unsupported"}
+	if runtime.GOOS == "darwin" {
+		if daemonStatus, daemonErr := s.daemon(ctx, "status"); daemonErr == nil {
+			document.Daemon = strings.TrimSpace(daemonStatus)
+		} else {
+			document.Daemon = "unavailable"
+		}
+	}
 	ledger, _ := state.LoadLedger(filepath.Join(s.paths.State, "actions.json"))
 	for _, repo := range repos {
 		git, tmuxClient, _, _, _, runtimeErr := s.runtime(cfg)
@@ -636,11 +694,14 @@ func (s *Service) status(ctx context.Context, args []string, jsonOutput bool) (s
 		gitSnapshot, gitErr := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
 		tmuxSnapshot, tmuxErr := tmuxClient.Snapshot(ctx)
 		health := "healthy"
-		if gitErr != nil || tmuxErr != nil {
+		if gitErr != nil || tmuxErr != nil || !gitSnapshot.Complete || !tmuxSnapshot.Complete {
 			health = "degraded"
 		}
 		plan := reconcile.Build(repo, gitSnapshot, tmuxSnapshot)
-		entry := repoStatus{ID: repo.ID, Health: health, Desired: planDesiredWorktrees(gitSnapshot, plan), Conflicts: plan.Conflicts}
+		if len(plan.Conflicts) > 0 {
+			health = "conflict"
+		}
+		entry := repoStatus{ID: repo.ID, Health: health, Desired: planDesiredWorktrees(gitSnapshot, plan), Conflicts: plan.Conflicts, Reported: plan.Report}
 		if session := matchingSession(tmuxSnapshot, repo); session != nil {
 			for _, window := range session.Windows {
 				if window.Metadata.Schema == tmux.MetadataSchema && window.Metadata.Repository == repo.RepositoryIdentity {
@@ -656,11 +717,12 @@ func (s *Service) status(ctx context.Context, args []string, jsonOutput bool) (s
 		if ledger != nil {
 			for key, result := range ledger.Attempts {
 				if strings.Contains(key, `"repository":"`+repo.RepositoryIdentity+`"`) && !result.Success {
-					entry.ActionFailures = append(entry.ActionFailures, result)
+					entry.ActionFailures = append(entry.ActionFailures, actionFailure{Key: key, Result: result})
 				}
 			}
 		}
 		sort.Slice(entry.Actual, func(i, j int) bool { return entry.Actual[i].ID < entry.Actual[j].ID })
+		sort.Slice(entry.ActionFailures, func(i, j int) bool { return entry.ActionFailures[i].Key < entry.ActionFailures[j].Key })
 		document.Repositories = append(document.Repositories, entry)
 	}
 	if jsonOutput {
@@ -669,7 +731,7 @@ func (s *Service) status(ctx context.Context, args []string, jsonOutput bool) (s
 	}
 	lines := make([]string, 0, len(document.Repositories))
 	for _, repo := range document.Repositories {
-		lines = append(lines, fmt.Sprintf("%s\t%s\tdesired=%d actual=%d conflicts=%d", repo.ID, repo.Health, len(repo.Desired), len(repo.Actual), len(repo.Conflicts)))
+		lines = append(lines, fmt.Sprintf("%s\t%s\tdesired=%d actual=%d conflicts=%d reported=%d", repo.ID, repo.Health, len(repo.Desired), len(repo.Actual), len(repo.Conflicts), len(repo.Reported)))
 	}
 	if len(lines) == 0 {
 		return "no repositories registered", nil
@@ -743,7 +805,6 @@ func (s *Service) cleanup(ctx context.Context, pruneID, orphanID string) (string
 		if !ok {
 			return "", fmt.Errorf("repository %q is not registered", orphanID)
 		}
-		gitSnapshotErr := error(nil)
 		_, gitSnapshot, gitSnapshotErr := s.snapshotRepo(ctx, cfg, repo)
 		if gitSnapshotErr != nil {
 			return "", gitSnapshotErr
@@ -757,13 +818,20 @@ func (s *Service) cleanup(ctx context.Context, pruneID, orphanID string) (string
 			return "", snapshotErr
 		}
 		plan := reconcile.Build(repo, gitSnapshot, actual)
+		desired := make(map[string]bool)
+		for _, window := range plan.Desired.Windows {
+			desired[window.Metadata.Identity] = true
+		}
 		removed := 0
-		for _, operation := range plan.Operations {
-			if operation.Type == reconcile.KillWindow {
-				if err := tmuxClient.KillWindow(ctx, operation.TargetID); err != nil {
-					return "", err
+		if session := matchingSession(actual, repo); session != nil {
+			for _, window := range session.Windows {
+				owned := window.Metadata.Schema == tmux.MetadataSchema && window.Metadata.Repository == repo.RepositoryIdentity && (window.Metadata.Role == "base" || window.Metadata.Role == "worktree")
+				if owned && !desired[window.Metadata.Identity] {
+					if err := tmuxClient.KillWindow(ctx, window.ID); err != nil {
+						return "", err
+					}
+					removed++
 				}
-				removed++
 			}
 		}
 		lines = append(lines, fmt.Sprintf("%s orphaned tmux: before=%d after=0", repo.ID, removed))

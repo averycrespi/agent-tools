@@ -51,10 +51,29 @@ func Run(ctx context.Context, paths config.Paths, service controller, logger *sl
 			logger.Warn("config invalid; mutations paused", "error", loadErr)
 			return config.Config{}, loadErr
 		}
+		desiredWatches := map[string]bool{filepath.Dir(paths.Config): true}
 		for _, repo := range cfg.Repositories {
-			_ = watcher.Add(repo.CommonGitDir)
+			desiredWatches[repo.CommonGitDir] = true
 			for _, root := range repo.AllowedRoots {
-				_ = watcher.Add(root)
+				desiredWatches[root] = true
+			}
+		}
+		for _, watched := range watcher.WatchList() {
+			if !desiredWatches[watched] {
+				if removeErr := watcher.Remove(watched); removeErr != nil {
+					logger.Warn("removing filesystem watch", "path", watched, "error", removeErr)
+				}
+			}
+		}
+		currentWatches := make(map[string]bool)
+		for _, watched := range watcher.WatchList() {
+			currentWatches[watched] = true
+		}
+		for path := range desiredWatches {
+			if !currentWatches[path] {
+				if addErr := watcher.Add(path); addErr != nil {
+					logger.Warn("adding filesystem watch", "path", path, "error", addErr)
+				}
 			}
 		}
 		return cfg, reconcileErr

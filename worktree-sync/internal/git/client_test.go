@@ -65,6 +65,21 @@ func TestSnapshotReportsPrunableAndFailsIncompleteCanonicalization(t *testing.T)
 	require.Equal(t, "prunable", snapshot.Worktrees[2].Exclusion)
 }
 
+func TestBranchExistsDistinguishesMissingBranchFromCommandFailure(t *testing.T) {
+	runner := &fakeRunner{responses: []response{{err: exitError{code: 1}}, {err: errors.New("git unavailable")}}}
+	client := gitclient.New(runner, time.Second)
+	exists, err := client.BranchExists(context.Background(), "/repo", "missing")
+	require.NoError(t, err)
+	require.False(t, exists)
+	_, err = client.BranchExists(context.Background(), "/repo", "unknown")
+	require.Error(t, err)
+}
+
+type exitError struct{ code int }
+
+func (e exitError) Error() string { return "exit" }
+func (e exitError) ExitCode() int { return e.code }
+
 func TestClientDeadlineCancelsRunner(t *testing.T) {
 	runner := &blockingRunner{}
 	client := gitclient.New(runner, 5*time.Millisecond)

@@ -22,6 +22,15 @@ func TestWindowNamesAddStableSuffixOnlyForCollisions(t *testing.T) {
 	require.Equal(t, got, naming.Windows([]naming.Item{items[2], items[1], items[0]}))
 }
 
+func TestPathChecksEveryCollisionCandidate(t *testing.T) {
+	occupied := map[string]bool{"/root/repo/feature": true}
+	first := naming.Path("/root", "repo", "feature", "identity", func(path string) bool { return occupied[path] })
+	occupied[first] = true
+	second := naming.Path("/root", "repo", "feature", "identity", func(path string) bool { return occupied[path] })
+	require.NotEqual(t, first, second)
+	require.False(t, occupied[second])
+}
+
 func TestDetachedNameIsReadableAndDeterministic(t *testing.T) {
 	name := naming.Detached("0123456789abcdef", "/tmp/worktree")
 	require.Equal(t, "detached-01234567", name)

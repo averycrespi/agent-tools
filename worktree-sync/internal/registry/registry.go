@@ -41,8 +41,8 @@ func (s *Service) Add(ctx context.Context, cfg config.Config, options AddOptions
 	if id == "" {
 		id = filepath.Base(info.PrimaryRoot)
 	}
-	if !config.ValidID(id) {
-		return cfg, config.Repository{}, fmt.Errorf("repository ID %q is unsafe; supply --id using letters, numbers, hyphens, or underscores", id)
+	if !config.ValidID(id) || len(id) > 64 {
+		return cfg, config.Repository{}, fmt.Errorf("repository ID %q is unsafe; supply --id using at most 64 letters, numbers, hyphens, or underscores", id)
 	}
 	for _, existing := range cfg.Repositories {
 		if existing.ID == id {

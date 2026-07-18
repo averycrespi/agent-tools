@@ -15,7 +15,7 @@ type snapshotter interface {
 }
 type tmuxClient interface {
 	Snapshot(context.Context) (tmux.Snapshot, error)
-	CreateSession(context.Context, string, tmux.Window) error
+	CreateSession(context.Context, string, tmux.Window) (string, error)
 	CreateWindow(context.Context, string, tmux.Window) (string, error)
 	RepairWindow(context.Context, string, tmux.Window) error
 	KillWindow(context.Context, string) error
@@ -23,7 +23,7 @@ type tmuxClient interface {
 }
 type actionManager interface {
 	Run(context.Context, config.Repository, actions.Worktree, actions.Trigger, bool) actions.Result
-	Launch(config.Repository, actions.Worktree, actions.Trigger, bool, func() error) actions.Result
+	Launch(context.Context, config.Repository, actions.Worktree, actions.Trigger, bool, func() error) actions.Result
 }
 
 type Executor struct {
@@ -41,7 +41,7 @@ type Report struct {
 	Errors []string `json:"errors"`
 }
 
-func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, trigger func(string) actions.Trigger) Report {
+func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, trigger func(string, string) actions.Trigger) Report {
 	gitSnapshot, gitErr := e.git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
 	actual, tmuxErr := e.tmux.Snapshot(ctx)
 	report := Report{}
@@ -67,9 +67,11 @@ func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, tr
 	}
 	created := make(map[string]string)
 	sessionTarget := report.Plan.Desired.SessionName
+	sessionReady := false
 	for _, session := range actual.Sessions {
 		if session.Name == sessionTarget {
 			sessionTarget = session.ID
+			sessionReady = true
 			break
 		}
 	}
@@ -78,8 +80,16 @@ func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, tr
 		var err error
 		switch operation.Type {
 		case CreateSession:
-			err = e.tmux.CreateSession(ctx, report.Plan.Desired.SessionName, window)
+			var id string
+			id, err = e.tmux.CreateSession(ctx, report.Plan.Desired.SessionName, window)
+			if err == nil {
+				sessionTarget, sessionReady = id, true
+			}
 		case CreateWindow:
+			if !sessionReady {
+				err = fmt.Errorf("managed session is unavailable")
+				break
+			}
 			var id string
 			id, err = e.tmux.CreateWindow(ctx, sessionTarget, window)
 			if err == nil {
@@ -101,14 +111,14 @@ func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, tr
 		if _, desired := windowByIdentity[worktree.Identity]; !desired || worktree.Identity == repo.RepositoryIdentity {
 			continue
 		}
-		worktreeTrigger := trigger(worktree.Path)
+		worktreeTrigger := trigger(worktree.Path, worktree.Identity)
 		actionWorktree := actions.Worktree{Path: worktree.Path, Identity: worktree.Identity}
 		result := e.actions.Run(ctx, repo, actionWorktree, worktreeTrigger, false)
 		if result.Error != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("setup %s: %v", worktree.Path, result.Error))
 		}
 		if windowID, wasCreated := created[worktree.Identity]; wasCreated {
-			launchResult := e.actions.Launch(repo, actionWorktree, worktreeTrigger, false, func() error { return e.tmux.Launch(ctx, windowID, repo.LaunchCommand) })
+			launchResult := e.actions.Launch(ctx, repo, actionWorktree, worktreeTrigger, false, func() error { return e.tmux.Launch(ctx, windowID, repo.LaunchCommand) })
 			if launchResult.Error != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("launch %s: %v", worktree.Path, launchResult.Error))
 			}
