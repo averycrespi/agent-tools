@@ -84,4 +84,4 @@ Unregister snapshots tmux before changing config. It removes only correctly owne
 
 ## LaunchAgent
 
-The macOS adapter owns only `dev.agent-tools.worktree-sync`. Installation atomically writes a per-user plist containing the absolute sibling `wtsd`, explicit PATH, `RunAtLoad`, `KeepAlive`, and separate logs, then bootstraps the user domain. Start, stop, status, and uninstall target only that label. Unsupported platforms return a clear error; `wtsd` remains the portable execution mode.
+The macOS adapter owns only `dev.agent-tools.worktree-sync`. Installation atomically writes a per-user plist containing the absolute sibling `wtsd`, explicit PATH, `RunAtLoad`, `KeepAlive`, and separate logs, then bootstraps the user domain. Start, stop, status, and uninstall target only that label. Log inspection reads bounded history from only the fixed stdout and stderr paths; follow mode streams existing logs until caller cancellation. Unsupported platforms return a clear error; `wtsd` remains the portable execution mode.

@@ -19,6 +19,7 @@ const daemonPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 
 type runner interface {
 	Run(context.Context, string, string, ...string) ([]byte, error)
+	Interactive(context.Context, string, string, ...string) error
 }
 type Manager struct {
 	runner  runner
@@ -69,13 +70,22 @@ func (m *Manager) target() string { return "gui/" + strconv.Itoa(m.uid) + "/" + 
 func (m *Manager) plist() string {
 	return filepath.Join(m.home, "Library", "LaunchAgents", Label+".plist")
 }
-func (m *Manager) run(ctx context.Context, args ...string) ([]byte, error) {
+func (m *Manager) logPaths() []string {
+	return []string{
+		filepath.Join(m.home, "Library", "Logs", "worktree-sync.log"),
+		filepath.Join(m.home, "Library", "Logs", "worktree-sync.error.log"),
+	}
+}
+func (m *Manager) runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
 	if m.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, m.timeout)
 		defer cancel()
 	}
-	return m.runner.Run(ctx, "", "launchctl", args...)
+	return m.runner.Run(ctx, "", name, args...)
+}
+func (m *Manager) run(ctx context.Context, args ...string) ([]byte, error) {
+	return m.runCommand(ctx, "launchctl", args...)
 }
 
 func (m *Manager) Install(ctx context.Context, binary string) error {
@@ -130,4 +140,56 @@ func (m *Manager) Status(ctx context.Context) (string, error) {
 	}
 	output, err := m.run(ctx, "print", m.target())
 	return string(output), err
+}
+
+func (m *Manager) Logs(ctx context.Context, lines int, follow bool) (string, error) {
+	if err := m.supported(); err != nil {
+		return "", err
+	}
+	if lines < 1 {
+		return "", fmt.Errorf("log line count must be positive")
+	}
+	paths := m.logPaths()
+	if follow {
+		existing := make([]string, 0, len(paths))
+		for _, path := range paths {
+			if _, err := os.Stat(path); err == nil {
+				existing = append(existing, path)
+			} else if !os.IsNotExist(err) {
+				return "", fmt.Errorf("checking daemon log %s: %w", filepath.Base(path), err)
+			}
+		}
+		if len(existing) == 0 {
+			return "", fmt.Errorf("LaunchAgent logs have not been created; install or start the daemon first")
+		}
+		args := append([]string{"-n", strconv.Itoa(lines), "-F"}, existing...)
+		err := m.runner.Interactive(ctx, "", "/usr/bin/tail", args...)
+		if ctx.Err() != nil {
+			return "", nil
+		}
+		return "", err
+	}
+	var output strings.Builder
+	for i, path := range paths {
+		if i > 0 {
+			output.WriteByte('\n')
+		}
+		fmt.Fprintf(&output, "==> %s <==\n", path)
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				output.WriteString("log has not been created\n")
+				continue
+			}
+			return "", fmt.Errorf("checking daemon log %s: %w", filepath.Base(path), err)
+		}
+		content, err := m.runCommand(ctx, "/usr/bin/tail", "-n", strconv.Itoa(lines), path)
+		if err != nil {
+			return "", fmt.Errorf("reading daemon log %s: %w", filepath.Base(path), err)
+		}
+		output.Write(content)
+		if len(content) > 0 && content[len(content)-1] != '\n' {
+			output.WriteByte('\n')
+		}
+	}
+	return strings.TrimSuffix(output.String(), "\n"), nil
 }

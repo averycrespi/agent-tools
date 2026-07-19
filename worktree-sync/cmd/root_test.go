@@ -33,7 +33,7 @@ func TestWTSCommandSurface(t *testing.T) {
 		"config":   {"path", "edit", "validate", "refresh"},
 		"repo":     {"add", "list", "remove"},
 		"worktree": {"path", "create", "remove", "setup", "launch"},
-		"daemon":   {"install", "uninstall", "start", "stop", "status"},
+		"daemon":   {"install", "uninstall", "start", "stop", "status", "logs"},
 	}
 	for parent, children := range expected {
 		command, _, err := root.Find([]string{parent})
@@ -61,7 +61,7 @@ func TestEveryUserCommandHasDescription(t *testing.T) {
 		{"config", "path"}, {"config", "edit"}, {"config", "validate"}, {"config", "refresh"},
 		{"repo", "add"}, {"repo", "list"}, {"repo", "remove"},
 		{"worktree", "path"}, {"worktree", "create"}, {"worktree", "remove"}, {"worktree", "setup"}, {"worktree", "launch"},
-		{"daemon", "install"}, {"daemon", "uninstall"}, {"daemon", "start"}, {"daemon", "stop"}, {"daemon", "status"},
+		{"daemon", "install"}, {"daemon", "uninstall"}, {"daemon", "start"}, {"daemon", "stop"}, {"daemon", "status"}, {"daemon", "logs"},
 	}
 	for _, path := range paths {
 		command, _, err := root.Find(path)
@@ -76,7 +76,7 @@ func TestEveryCommandUsesSpecificArgumentValidation(t *testing.T) {
 		{"repo", "add", "one", "two"}, {"repo", "list", "extra"}, {"repo", "remove"},
 		{"worktree", "path"}, {"worktree", "create"}, {"worktree", "remove"}, {"worktree", "setup"}, {"worktree", "launch"},
 		{"attach", "one", "two"}, {"status", "one", "two"}, {"reconcile", "one", "two"}, {"cleanup", "extra"},
-		{"daemon", "install", "extra"}, {"daemon", "uninstall", "extra"}, {"daemon", "start", "extra"}, {"daemon", "stop", "extra"}, {"daemon", "status", "extra"},
+		{"daemon", "install", "extra"}, {"daemon", "uninstall", "extra"}, {"daemon", "start", "extra"}, {"daemon", "stop", "extra"}, {"daemon", "status", "extra"}, {"daemon", "logs", "extra"},
 	}
 	for _, args := range tests {
 		root := cmd.NewWTS(nil)
@@ -87,6 +87,22 @@ func TestEveryCommandUsesSpecificArgumentValidation(t *testing.T) {
 		require.Error(t, err, args)
 		require.NotRegexp(t, `accepts \d+ arg`, err.Error(), args)
 	}
+}
+
+type recordingController struct{ request app.Request }
+
+func (c *recordingController) Execute(_ context.Context, request app.Request) (string, error) {
+	c.request = request
+	return "", nil
+}
+
+func TestDaemonLogsForwardsHistoryAndFollowOptions(t *testing.T) {
+	controller := &recordingController{}
+	err := cmd.ExecuteWTS(context.Background(), controller, &bytes.Buffer{}, &bytes.Buffer{}, []string{"daemon", "logs", "--lines", "25", "--follow"})
+	require.NoError(t, err)
+	require.Equal(t, "daemon.logs", controller.request.Action)
+	require.Equal(t, 25, controller.request.Options["lines"])
+	require.Equal(t, true, controller.request.Options["follow"])
 }
 
 func TestRequiredRepoArgumentUsesCommandSpecificError(t *testing.T) {

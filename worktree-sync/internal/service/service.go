@@ -58,6 +58,10 @@ func optionStrings(options map[string]any, key string) []string {
 	value, _ := options[key].([]string)
 	return value
 }
+func optionInt(options map[string]any, key string) int {
+	value, _ := options[key].(int)
+	return value
+}
 
 func (s *Service) runtime(cfg config.Config) (*gitclient.Client, *tmux.Client, *actions.Manager, *reconcile.Executor, time.Duration, error) {
 	timeout, err := time.ParseDuration(cfg.Global.CommandTimeout)
@@ -108,8 +112,8 @@ func (s *Service) Execute(ctx context.Context, request app.Request) (string, err
 		return s.reconcile(ctx, request.Args)
 	case "cleanup":
 		return s.cleanup(ctx, optionString(request.Options, "prune_git"), optionString(request.Options, "remove_orphaned_tmux"))
-	case "daemon.install", "daemon.uninstall", "daemon.start", "daemon.stop", "daemon.status":
-		return s.daemon(ctx, strings.TrimPrefix(request.Action, "daemon."))
+	case "daemon.install", "daemon.uninstall", "daemon.start", "daemon.stop", "daemon.status", "daemon.logs":
+		return s.daemon(ctx, strings.TrimPrefix(request.Action, "daemon."), request.Options)
 	default:
 		return "", fmt.Errorf("unsupported action %q", request.Action)
 	}
@@ -711,7 +715,7 @@ func (s *Service) status(ctx context.Context, args []string, jsonOutput bool) (s
 	}
 	document := statusDocument{Version: 1, Repositories: make([]repoStatus, 0, len(repos)), Daemon: "unsupported"}
 	if runtime.GOOS == "darwin" {
-		if daemonStatus, daemonErr := s.daemon(ctx, "status"); daemonErr == nil {
+		if daemonStatus, daemonErr := s.daemon(ctx, "status", nil); daemonErr == nil {
 			document.Daemon = strings.TrimSpace(daemonStatus)
 		} else {
 			document.Daemon = "unavailable"
@@ -876,7 +880,7 @@ func (s *Service) cleanup(ctx context.Context, pruneID, orphanID string) (string
 	return strings.Join(lines, "\n"), nil
 }
 
-func (s *Service) daemon(ctx context.Context, action string) (string, error) {
+func (s *Service) daemon(ctx context.Context, action string, options map[string]any) (string, error) {
 	cfg, err := config.Load(s.paths.Config)
 	if err != nil {
 		return "", err
@@ -909,6 +913,8 @@ func (s *Service) daemon(ctx context.Context, action string) (string, error) {
 		return "LaunchAgent stopped", manager.Stop(ctx)
 	case "status":
 		return manager.Status(ctx)
+	case "logs":
+		return manager.Logs(ctx, optionInt(options, "lines"), optionBool(options, "follow"))
 	default:
 		return "", fmt.Errorf("unknown daemon action")
 	}

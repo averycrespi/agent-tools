@@ -53,7 +53,7 @@ wts attach [repository-id]
 wts status [repository-id] [--json]
 wts reconcile [repository-id]
 wts cleanup [--prune-git repository-id] [--remove-orphaned-tmux repository-id]
-wts daemon install|uninstall|start|stop|status
+wts daemon install|uninstall|start|stop|status|logs
 ```
 
 Commands infer a repository from the current primary/worktree path only when the result is unambiguous. Otherwise supply its ID.
@@ -125,7 +125,7 @@ Detached and locked live worktrees are projected. Missing/prunable worktrees and
 
 ## LaunchAgent and portability
 
-`wts daemon install` idempotently installs `~/Library/LaunchAgents/dev.agent-tools.worktree-sync.plist` with the absolute sibling `wtsd` path, an explicit `PATH`, `RunAtLoad`, `KeepAlive`, and separate logs under `~/Library/Logs`. launchd does not load shell profiles or rotate logs. See [docs/launchd.md](docs/launchd.md) and the reviewed [example plist](examples/launchd/dev.agent-tools.worktree-sync.plist).
+`wts daemon install` idempotently installs `~/Library/LaunchAgents/dev.agent-tools.worktree-sync.plist` with the absolute sibling `wtsd` path, an explicit `PATH`, `RunAtLoad`, `KeepAlive`, and separate logs under `~/Library/Logs`. `wts daemon logs` shows the last 100 stdout and stderr lines by default; use `--lines` to change the history or `--follow` to stream updates. launchd does not load shell profiles or rotate logs. See [docs/launchd.md](docs/launchd.md) and the reviewed [example plist](examples/launchd/dev.agent-tools.worktree-sync.plist).
 
 On Linux, LaunchAgent commands return an unsupported-platform error; run `wtsd` directly. The core has no Lima integration or path translation. A transparently mounted sandbox needs no special configuration when Git and the host observe consistent registered paths.
 
@@ -135,4 +135,4 @@ On Linux, LaunchAgent commands return an unsupported-platform error; run `wtsd` 
 - Use `wts status --json` for deterministic versioned health, desired/actual resources, conflicts, prunable/report-only worktrees, action failures, and daemon state.
 - A foreign or untagged `wts-<repo-id>` session must be renamed or removed manually; it is never adopted.
 - If launchd cannot find Git or tmux, install them in one of the generated plist's explicit PATH locations or run `wtsd` in a shell to diagnose.
-- Logs are `~/Library/Logs/worktree-sync.log` and `~/Library/Logs/worktree-sync.error.log`.
+- Use `wts daemon logs --follow` to stream diagnostics. The files are `~/Library/Logs/worktree-sync.log` and `~/Library/Logs/worktree-sync.error.log`.

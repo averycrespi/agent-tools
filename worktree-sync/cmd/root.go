@@ -136,6 +136,27 @@ windows, or foreign tmux resources. Incomplete snapshots fail closed.`,
 	} {
 		daemonCmd.AddCommand(&cobra.Command{Use: spec.name, Short: spec.short, Args: exactArgs("daemon "+spec.name+" does not accept arguments", 0), RunE: run(controller, "daemon."+spec.name, nil)})
 	}
+	var logLines int
+	var followLogs bool
+	logs := &cobra.Command{
+		Use:   "logs",
+		Short: "Show recent LaunchAgent logs",
+		Long: `Show stdout and stderr logs for the worktree-sync LaunchAgent.
+
+By default, the last 100 lines are shown. Use --follow to stream new
+entries until interrupted. launchd does not rotate these files.`,
+		Args: exactArgs("daemon logs does not accept arguments", 0),
+		PreRunE: func(*cobra.Command, []string) error {
+			if logLines < 1 {
+				return fmt.Errorf("--lines must be positive")
+			}
+			return nil
+		},
+	}
+	logs.Flags().IntVarP(&logLines, "lines", "n", 100, "number of recent lines to show")
+	logs.Flags().BoolVarP(&followLogs, "follow", "f", false, "stream new log entries until interrupted")
+	logs.RunE = run(controller, "daemon.logs", func(*cobra.Command) map[string]any { return map[string]any{"lines": logLines, "follow": followLogs} })
+	daemonCmd.AddCommand(logs)
 	root.AddCommand(configCmd, repoCmd, worktreeCmd, attach, status, reconcile, cleanup, daemonCmd)
 	return root
 }

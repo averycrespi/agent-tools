@@ -10,6 +10,7 @@ Install both binaries in the same directory, then install the agent:
 make install
 wts daemon install
 wts daemon status
+wts daemon logs
 wts daemon stop
 wts daemon start
 wts daemon uninstall
@@ -31,13 +32,16 @@ launchd does not load shell profiles. Install Git and tmux into the explicit PAT
 ```bash
 launchctl print gui/$(id -u)/dev.agent-tools.worktree-sync
 
-tail -f ~/Library/Logs/worktree-sync.log \
-        ~/Library/Logs/worktree-sync.error.log
+wts daemon logs
+wts daemon logs --lines 500
+wts daemon logs --follow
 
 wts config validate
 wts status --json
 wtsd # foreground startup/reconcile diagnostics
 ```
+
+`wts daemon logs` reads only the two fixed LaunchAgent files, shows the last 100 lines from each by default, and reports files that have not been created yet. `--lines` changes the initial history and `--follow` runs until interrupted. Operational `slog` records are written to stderr, so `worktree-sync.error.log` normally contains most activity. launchd does not rotate either file.
 
 `wts daemon start` uses `kickstart -k`; stop sends `SIGTERM`; uninstall boots out only this label and removes only its plist. The state/config registry, Git worktrees, and tmux resources are preserved.
 
