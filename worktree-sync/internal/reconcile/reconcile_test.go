@@ -89,7 +89,7 @@ func TestPlanRepairsManagedStateRemovesDuplicatesAndStaleOnlyWhenComplete(t *tes
 	}}}}
 	plan := reconcile.Build(repo, gitSnapshot, actual)
 	require.Equal(t, []reconcile.Operation{
-		{Type: reconcile.RepairWindow, TargetID: "@1", Identity: "repo-identity", Name: "base", Path: repo.PrimaryRoot, Role: "base"},
+		{Type: reconcile.RepairWindow, TargetID: "@1", Identity: "repo-identity", Name: "base", Path: repo.PrimaryRoot, Role: "base", RespawnsPane: true},
 		{Type: reconcile.RepairWindow, TargetID: "@2", Identity: "worktree-one", Name: "feature-a", Path: gitSnapshot.Worktrees[1].Path, Role: "worktree"},
 		{Type: reconcile.KillWindow, TargetID: "@3", Identity: "worktree-one", Role: "worktree"},
 		{Type: reconcile.KillWindow, TargetID: "@4", Identity: "gone", Role: "worktree"},
@@ -120,6 +120,20 @@ func TestPlanIgnoresMalformedMetadataAndRemovesOwnedWindowOutsideSession(t *test
 	for _, operation := range plan.Operations {
 		require.NotEqual(t, "@malformed", operation.TargetID)
 	}
+}
+
+func TestPlanOperationsAreSortedAcrossSnapshotOrder(t *testing.T) {
+	repo, snapshot := fixture(t)
+	meta := func(identity string) tmux.Metadata {
+		return tmux.Metadata{Schema: 1, Repository: repo.Identity(), Role: "worktree", Identity: identity}
+	}
+	left := tmux.Session{ID: "$z", Name: "scratch-z", Windows: []tmux.Window{{ID: "@z", Metadata: meta("z")}}}
+	right := tmux.Session{ID: "$a", Name: "scratch-a", Windows: []tmux.Window{{ID: "@a", Metadata: meta("a")}}}
+	first := reconcile.Build(repo, snapshot, tmux.Snapshot{Complete: true, Sessions: []tmux.Session{left, right}})
+	second := reconcile.Build(repo, snapshot, tmux.Snapshot{Complete: true, Sessions: []tmux.Session{right, left}})
+	require.Equal(t, first.Operations, second.Operations)
+	require.Equal(t, "@a", first.Operations[len(first.Operations)-2].TargetID)
+	require.Equal(t, "@z", first.Operations[len(first.Operations)-1].TargetID)
 }
 
 func TestDesiredSupportsDetachedLockedAndExcludesOutsideAndPrunable(t *testing.T) {

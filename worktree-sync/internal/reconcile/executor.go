@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/actions"
@@ -20,7 +21,7 @@ type tmuxClient interface {
 	OwnsSession(context.Context, string, tmux.Metadata) (bool, error)
 	OwnsWindow(context.Context, string, tmux.Metadata) (bool, error)
 	CreateWindow(context.Context, string, tmux.Window) (string, error)
-	RepairWindow(context.Context, string, tmux.Window, tmux.Window) error
+	RepairWindow(context.Context, string, tmux.Window, tmux.Window) (tmux.RepairResult, error)
 	KillWindow(context.Context, string) error
 	Launch(context.Context, string, tmux.Metadata, string) error
 }
@@ -40,9 +41,92 @@ func NewExecutor(git snapshotter, tmux tmuxClient, actions actionManager) *Execu
 	return &Executor{git: git, tmux: tmux, actions: actions}
 }
 
+type OutcomeStatus string
+
+const (
+	OutcomeApplied OutcomeStatus = "applied"
+	OutcomePartial OutcomeStatus = "partial"
+	OutcomeFailed  OutcomeStatus = "failed"
+)
+
+type Outcome struct {
+	Operation Operation     `json:"operation"`
+	Status    OutcomeStatus `json:"status"`
+	Effects   []string      `json:"effects"`
+	Error     string        `json:"error,omitempty"`
+}
+
+type ActionOutcome struct {
+	Action             string        `json:"action"`
+	Path               string        `json:"path"`
+	Status             OutcomeStatus `json:"status"`
+	OperationCompleted string        `json:"operation_completed"`
+	AttemptRecorded    string        `json:"attempt_recorded"`
+	TextSent           string        `json:"text_sent,omitempty"`
+	EnterSent          string        `json:"enter_sent,omitempty"`
+	Error              string        `json:"error,omitempty"`
+	Recovery           string        `json:"recovery,omitempty"`
+}
+
 type Report struct {
-	Plan   Plan     `json:"plan"`
-	Errors []string `json:"errors"`
+	Plan           Plan            `json:"plan"`
+	Outcomes       []Outcome       `json:"outcomes"`
+	ActionOutcomes []ActionOutcome `json:"action_outcomes"`
+	Errors         []string        `json:"errors"`
+}
+
+func attemptState(result actions.Result) string {
+	if result.AttemptRecorded {
+		return "yes"
+	}
+	if result.AttemptRecordUncertain {
+		return "unknown"
+	}
+	return "no"
+}
+
+func completedState(result actions.Result) string {
+	if result.OperationCompleted {
+		return "yes"
+	}
+	return "no"
+}
+
+func actionOutcome(action string, repo config.Repository, worktree actions.Worktree, result actions.Result) ActionOutcome {
+	outcome := ActionOutcome{Action: action, Path: worktree.Path, Status: OutcomeApplied, OperationCompleted: completedState(result), AttemptRecorded: attemptState(result)}
+	if result.Error == nil {
+		return outcome
+	}
+	outcome.Status = OutcomeFailed
+	outcome.Error = result.Error.Error()
+	if action == "setup" {
+		outcome.Status = OutcomePartial
+		switch {
+		case result.OperationCompleted && !result.AttemptRecorded:
+			outcome.Recovery = "setup completed but ledger persistence failed or is uncertain; do not rerun until state and side effects are inspected"
+		case result.AttemptRecordUncertain:
+			outcome.Recovery = "inspect the action ledger and side effects before deciding whether --rerun is safe"
+		case result.AttemptRecorded:
+			outcome.Recovery = fmt.Sprintf("inspect earlier side effects, correct the cause, then run wts worktree setup %q --repo-id %s --rerun if safe", worktree.Path, repo.ID)
+		default:
+			outcome.Recovery = fmt.Sprintf("earlier side effects may remain; inspect them before retrying wts worktree setup %q --repo-id %s", worktree.Path, repo.ID)
+		}
+		return outcome
+	}
+	outcome.TextSent, outcome.EnterSent = "no", "no"
+	if result.OperationCompleted {
+		outcome.TextSent, outcome.EnterSent = "yes", "yes"
+	} else {
+		var delivery *tmux.LaunchError
+		if errors.As(result.Error, &delivery) {
+			outcome.TextSent, outcome.EnterSent = delivery.TextSent, delivery.EnterSent
+		}
+	}
+	if outcome.TextSent != "no" || outcome.EnterSent != "no" || result.AttemptRecorded || result.AttemptRecordUncertain {
+		outcome.Status = OutcomePartial
+	}
+	outcome.Recovery = fmt.Sprintf("inspect the managed window and action ledger, then run wts worktree launch %q --repo-id %s --rerun if safe", worktree.Path, repo.ID)
+	return outcome
 }
 
 func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, trigger func(string, string) actions.Trigger) Report {
@@ -54,7 +138,11 @@ func (e *Executor) ReconcileRepoWithSnapshot(ctx context.Context, repo config.Re
 	return e.reconcileRepo(ctx, repo, actual, nil, trigger)
 }
 
-func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, actual tmux.Snapshot, tmuxErr error, trigger func(string, string) actions.Trigger) Report {
+func (e *Executor) PreviewRepoWithSnapshot(ctx context.Context, repo config.Repository, actual tmux.Snapshot) Report {
+	return e.planRepo(ctx, repo, actual, nil)
+}
+
+func (e *Executor) planRepo(ctx context.Context, repo config.Repository, actual tmux.Snapshot, tmuxErr error) Report {
 	report := Report{}
 	if tmuxErr != nil || !actual.Complete {
 		if tmuxErr != nil {
@@ -75,7 +163,12 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 	}
 	report.Plan = Build(repo, gitSnapshot, actual)
 	report.Errors = append(report.Errors, report.Plan.Conflicts...)
-	if len(report.Plan.Conflicts) > 0 {
+	return report
+}
+
+func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, actual tmux.Snapshot, tmuxErr error, trigger func(string, string) actions.Trigger) Report {
+	report := e.planRepo(ctx, repo, actual, tmuxErr)
+	if len(report.Errors) > 0 {
 		return report
 	}
 	windowByIdentity := make(map[string]tmux.Window)
@@ -89,12 +182,15 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 		}
 	}
 	created := make(map[string]string)
-	projected := make(map[string]bool)
+	projected := make(map[string]string)
 	for _, session := range actual.Sessions {
 		if session.Metadata.Repository == repo.Identity() {
 			for _, window := range session.Windows {
 				if window.Metadata.Schema == tmux.MetadataSchema && window.Metadata.Repository == repo.Identity() && window.Metadata.Role == "worktree" {
-					projected[window.Metadata.Identity] = true
+					currentID := projected[window.Metadata.Identity]
+					if currentID == "" || window.ID < currentID {
+						projected[window.Metadata.Identity] = window.ID
+					}
 				}
 			}
 		}
@@ -111,12 +207,14 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 	for _, operation := range report.Plan.Operations {
 		window := windowByIdentity[operation.Identity]
 		var err error
+		effects := make([]string, 0, 3)
 		switch operation.Type {
 		case CreateSession:
 			var id string
 			id, err = e.tmux.CreateSession(ctx, report.Plan.Desired.SessionName, window)
 			if err == nil {
 				sessionTarget, sessionReady = id, true
+				effects = append(effects, "created session "+id)
 			}
 		case RepairSession:
 			expected := tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.Identity(), Role: "session", Identity: repo.Identity()}
@@ -128,6 +226,9 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 				err = fmt.Errorf("ownership changed; refusing session mutation")
 			default:
 				err = e.tmux.RenameSession(ctx, operation.TargetID, operation.Name)
+				if err == nil {
+					effects = append(effects, "renamed session")
+				}
 			}
 		case CreateWindow:
 			if !sessionReady {
@@ -148,17 +249,33 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 			id, err = e.tmux.CreateWindow(ctx, sessionTarget, window)
 			if err == nil {
 				created[operation.Identity] = id
-				projected[operation.Identity] = true
+				projected[operation.Identity] = id
+				effects = append(effects, "created window "+id)
 			}
 		case RepairWindow:
-			owned, ownershipErr := e.tmux.OwnsWindow(ctx, operation.TargetID, window.Metadata)
+			current, exists := actualByID[operation.TargetID]
+			if !exists {
+				err = fmt.Errorf("target window disappeared")
+				break
+			}
+			owned, ownershipErr := e.tmux.OwnsWindow(ctx, operation.TargetID, current.Metadata)
 			switch {
 			case ownershipErr != nil:
 				err = ownershipErr
 			case !owned:
 				err = fmt.Errorf("ownership changed; refusing window repair")
 			default:
-				err = e.tmux.RepairWindow(ctx, operation.TargetID, actualByID[operation.TargetID], window)
+				var repaired tmux.RepairResult
+				repaired, err = e.tmux.RepairWindow(ctx, operation.TargetID, current, window)
+				if repaired.Renamed {
+					effects = append(effects, "renamed window")
+				}
+				if repaired.Respawned {
+					effects = append(effects, "respawned pane")
+				}
+				if repaired.MetadataOptions > 0 {
+					effects = append(effects, fmt.Sprintf("wrote %d metadata options", repaired.MetadataOptions))
+				}
 			}
 		case KillWindow:
 			expected := tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.Identity(), Role: operation.Role, Identity: operation.Identity}
@@ -170,11 +287,24 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 				err = fmt.Errorf("ownership changed; refusing window removal")
 			default:
 				err = e.tmux.KillWindow(ctx, operation.TargetID)
+				if err == nil {
+					effects = append(effects, "removed window")
+				}
 			}
 		}
+		outcome := Outcome{Operation: operation, Status: OutcomeApplied, Effects: effects}
 		if err != nil {
+			if operation.Type == RepairWindow {
+				delete(projected, operation.Identity)
+			}
+			outcome.Status = OutcomeFailed
+			if len(effects) > 0 {
+				outcome.Status = OutcomePartial
+			}
+			outcome.Error = err.Error()
 			report.Errors = append(report.Errors, fmt.Sprintf("%s %s: %v", operation.Type, operation.Identity, err))
 		}
+		report.Outcomes = append(report.Outcomes, outcome)
 	}
 	actionSnapshot, actionSnapshotErr := e.git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir})
 	if actionSnapshotErr != nil || !actionSnapshot.Complete {
@@ -196,7 +326,17 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 	}
 	for _, worktree := range actionSnapshot.Worktrees {
 		desiredWindow, desired := windowByIdentity[worktree.Identity]
-		if !desired || worktree.Identity == repo.Identity() || !projected[worktree.Identity] {
+		windowID, isProjected := projected[worktree.Identity]
+		if !desired || worktree.Identity == repo.Identity() || !isProjected {
+			continue
+		}
+		owned, ownershipErr := e.tmux.OwnsWindow(ctx, windowID, desiredWindow.Metadata)
+		if ownershipErr != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("action window revalidation %s: %v", worktree.Path, ownershipErr))
+			continue
+		}
+		if !owned {
+			report.Errors = append(report.Errors, fmt.Sprintf("action window ownership changed for %s", worktree.Path))
 			continue
 		}
 		if desiredWindow.Path != worktree.Path {
@@ -206,6 +346,9 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 		worktreeTrigger := trigger(worktree.Path, worktree.Identity)
 		actionWorktree := actions.Worktree{Path: worktree.Path, Identity: worktree.Identity}
 		result := e.actions.Run(ctx, repo, actionWorktree, worktreeTrigger, false)
+		if !result.Skipped {
+			report.ActionOutcomes = append(report.ActionOutcomes, actionOutcome("setup", repo, actionWorktree, result))
+		}
 		if result.Error != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("setup %s: %v", worktree.Path, result.Error))
 		}
@@ -220,6 +363,9 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 				}
 				return e.tmux.Launch(ctx, windowID, desiredWindow.Metadata, repo.LaunchCommand)
 			})
+			if !launchResult.Skipped {
+				report.ActionOutcomes = append(report.ActionOutcomes, actionOutcome("launch", repo, actionWorktree, launchResult))
+			}
 			if launchResult.Error != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("launch %s: %v", worktree.Path, launchResult.Error))
 			}

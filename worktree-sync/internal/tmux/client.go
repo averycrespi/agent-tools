@@ -236,8 +236,12 @@ func (c *Client) OwnsWindow(ctx context.Context, id string, expected Metadata) (
 	return err == nil && metadata == expected, err
 }
 
+func metadataPairs(metadata Metadata) [][2]string {
+	return [][2]string{{"@wts-schema", strconv.Itoa(metadata.Schema)}, {"@wts-repository", metadata.Repository}, {"@wts-role", metadata.Role}, {"@wts-identity", metadata.Identity}}
+}
+
 func (c *Client) setMetadata(ctx context.Context, target string, window bool, metadata Metadata) error {
-	pairs := [][2]string{{"@wts-schema", strconv.Itoa(metadata.Schema)}, {"@wts-repository", metadata.Repository}, {"@wts-role", metadata.Role}, {"@wts-identity", metadata.Identity}}
+	pairs := metadataPairs(metadata)
 	args := make([]string, 0, len(pairs)*7)
 	for i, pair := range pairs {
 		if i > 0 {
@@ -298,21 +302,70 @@ func (c *Client) CreateWindow(ctx context.Context, sessionID string, window Wind
 	return id, nil
 }
 
-func (c *Client) RepairWindow(ctx context.Context, id string, current, desired Window) error {
-	if current.Name != desired.Name {
-		if _, err := c.run(ctx, "rename-window", "-t", id, desired.Name); err != nil {
-			return err
-		}
+type RepairResult struct {
+	Renamed         bool
+	Respawned       bool
+	MetadataOptions int
+}
+
+func (r RepairResult) Changed() bool {
+	return r.Renamed || r.Respawned || r.MetadataOptions > 0
+}
+
+func (c *Client) ensureWindowOwnership(ctx context.Context, id string, expected Metadata) error {
+	owned, err := c.OwnsWindow(ctx, id, expected)
+	if err != nil {
+		return err
 	}
-	if current.Path != desired.Path {
-		if _, err := c.run(ctx, "respawn-window", "-k", "-t", id, "-c", desired.Path); err != nil {
-			return err
-		}
-	}
-	if current.Metadata != desired.Metadata {
-		return c.setMetadata(ctx, id, true, desired.Metadata)
+	if !owned {
+		return fmt.Errorf("ownership changed; refusing window mutation")
 	}
 	return nil
+}
+
+func (c *Client) RepairWindow(ctx context.Context, id string, current, desired Window) (RepairResult, error) {
+	result := RepairResult{}
+	expected := current.Metadata
+	if current.Name != desired.Name {
+		if err := c.ensureWindowOwnership(ctx, id, expected); err != nil {
+			return result, err
+		}
+		if _, err := c.run(ctx, "rename-window", "-t", id, desired.Name); err != nil {
+			return result, err
+		}
+		result.Renamed = true
+	}
+	if current.Path != desired.Path {
+		if err := c.ensureWindowOwnership(ctx, id, expected); err != nil {
+			return result, err
+		}
+		if _, err := c.run(ctx, "respawn-window", "-k", "-t", id, "-c", desired.Path); err != nil {
+			return result, err
+		}
+		result.Respawned = true
+	}
+	if current.Metadata != desired.Metadata {
+		for _, pair := range metadataPairs(desired.Metadata) {
+			if err := c.ensureWindowOwnership(ctx, id, expected); err != nil {
+				return result, err
+			}
+			if _, err := c.run(ctx, "set-option", "-w", "-t", id, pair[0], pair[1]); err != nil {
+				return result, err
+			}
+			switch pair[0] {
+			case "@wts-schema":
+				expected.Schema = desired.Metadata.Schema
+			case "@wts-repository":
+				expected.Repository = desired.Metadata.Repository
+			case "@wts-role":
+				expected.Role = desired.Metadata.Role
+			case "@wts-identity":
+				expected.Identity = desired.Metadata.Identity
+			}
+			result.MetadataOptions++
+		}
+	}
+	return result, nil
 }
 
 func (c *Client) KillWindow(ctx context.Context, id string) error {

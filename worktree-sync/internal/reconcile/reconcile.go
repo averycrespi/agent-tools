@@ -22,12 +22,13 @@ const (
 )
 
 type Operation struct {
-	Type     OperationType `json:"type"`
-	TargetID string        `json:"target_id,omitempty"`
-	Identity string        `json:"identity"`
-	Name     string        `json:"name,omitempty"`
-	Path     string        `json:"path,omitempty"`
-	Role     string        `json:"role,omitempty"`
+	Type         OperationType `json:"type"`
+	TargetID     string        `json:"target_id,omitempty"`
+	Identity     string        `json:"identity"`
+	Name         string        `json:"name,omitempty"`
+	Path         string        `json:"path,omitempty"`
+	Role         string        `json:"role,omitempty"`
+	RespawnsPane bool          `json:"respawns_pane,omitempty"`
 }
 
 type Desired struct {
@@ -128,14 +129,14 @@ func Build(repo config.Repository, gitSnapshot gitclient.Snapshot, actual tmux.S
 			}
 			plan.Conflicts = append(plan.Conflicts, fmt.Sprintf("%s session %q conflicts with registered repository", kind, candidate.Name))
 			plan.ConflictCodes = append(plan.ConflictCodes, "session_name_conflict")
-			return plan
+			return finalizePlan(plan)
 		}
 	}
 	sort.Slice(ownedSessions, func(i, j int) bool { return ownedSessions[i].ID < ownedSessions[j].ID })
 	if len(ownedSessions) > 1 {
 		plan.Conflicts = append(plan.Conflicts, "multiple owned sessions require manual consolidation")
 		plan.ConflictCodes = append(plan.ConflictCodes, "multiple_owned_sessions")
-		return plan
+		return finalizePlan(plan)
 	}
 	if len(ownedSessions) == 1 {
 		session = ownedSessions[0]
@@ -158,7 +159,7 @@ func Build(repo config.Repository, gitSnapshot gitclient.Snapshot, actual tmux.S
 				}
 			}
 		}
-		return plan
+		return finalizePlan(plan)
 	}
 	manualNames := make(map[string]bool)
 	managed := make(map[string][]tmux.Window)
@@ -192,7 +193,7 @@ func Build(repo config.Repository, gitSnapshot gitclient.Snapshot, actual tmux.S
 		}
 		keep := matches[0]
 		if keep.Name != window.Name || keep.Path != window.Path || !ownedMetadata(keep.Metadata, repo, role, identity) {
-			plan.Operations = append(plan.Operations, Operation{Type: RepairWindow, TargetID: keep.ID, Identity: identity, Name: window.Name, Path: window.Path, Role: role})
+			plan.Operations = append(plan.Operations, Operation{Type: RepairWindow, TargetID: keep.ID, Identity: identity, Name: window.Name, Path: window.Path, Role: role, RespawnsPane: keep.Path != window.Path})
 		}
 		for _, duplicate := range matches[1:] {
 			duplicates = append(duplicates, Operation{Type: KillWindow, TargetID: duplicate.ID, Identity: identity, Role: duplicate.Metadata.Role})
@@ -221,6 +222,17 @@ func Build(repo config.Repository, gitSnapshot gitclient.Snapshot, actual tmux.S
 			}
 		}
 	}
+	return finalizePlan(plan)
+}
+
+func finalizePlan(plan Plan) Plan {
+	rank := map[OperationType]int{CreateSession: 0, RepairSession: 0, CreateWindow: 1, RepairWindow: 2, KillWindow: 3}
+	sort.SliceStable(plan.Operations, func(i, j int) bool {
+		left, right := plan.Operations[i], plan.Operations[j]
+		leftKey := fmt.Sprintf("%02d\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s", rank[left.Type], left.TargetID, left.Role, left.Identity, left.Name, left.Path, left.Type)
+		rightKey := fmt.Sprintf("%02d\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s", rank[right.Type], right.TargetID, right.Role, right.Identity, right.Name, right.Path, right.Type)
+		return leftKey < rightKey
+	})
 	return plan
 }
 

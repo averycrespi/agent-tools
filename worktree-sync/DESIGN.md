@@ -54,15 +54,17 @@ The reconciler separates snapshot, pure plan, and apply. For a complete Git and 
 
 Creation precedes stale deletion. If tagging a newly created object fails, that just-created object is removed by its captured ID so it cannot become an unmanageable name collision. An absent-session creation returns the captured session ID; subsequent windows never target a raced name.
 
+`reconcile --dry-run` acquires the operation lock and renders the sorted pure plan, but does not invoke tmux mutators, actions, provenance/ledger writes, or cleanup. It does not reserve a later apply; apply takes fresh snapshots. Normal apply renders a sorted outcome for every planned operation, including committed sub-effects before a later failure. Path repairs alone are marked as pane-respawning because they invoke `respawn-window -k`; name-only repair does not.
+
 Incomplete Git state permits no repair, duplicate removal, stale removal, setup, or launch. An incomplete tmux snapshot permits no apply. Invalid configuration permits no snapshot/apply. These rules fail closed for destructive behavior while retaining convergent retry on a later scan.
 
-The daemon and human lifecycle operations acquire one cross-process operation lock. A separate state-directory lock permits only one daemon. Locks are context-aware, and every non-interactive subprocess receives caller cancellation, bounded captured output, a killable Unix process group, and a finite configured timeout. Failed Git/tmux operations render at most a 4 KiB UTF-8-safe diagnostic tail after central credential/token redaction; argv, setup output, executable names, and launch commands remain undisclosed. Multi-repository scans reuse one complete tmux socket snapshot while stable-ID ownership is still rechecked immediately before mutation. Reconciliation is convergent rather than transactional across Git and tmux.
+The daemon and human lifecycle operations acquire one cross-process operation lock. A separate state-directory lock permits only one daemon. Locks are context-aware, and every non-interactive subprocess receives caller cancellation, bounded captured output, a killable Unix process group, and a finite configured timeout. Failed Git/tmux operations render at most a 4 KiB UTF-8-safe diagnostic tail after central credential/token redaction; argv, setup output, executable names, and launch commands remain undisclosed. Multi-repository scans reuse one complete tmux socket snapshot. Before each subprocess-level mutation of an existing target—session/window rename, pane respawn, option write, kill, creation in a session, and each launch send—the complete expected metadata is re-read by stable ID; newly captured IDs are the only initialization exception. Reconciliation is convergent rather than transactional across Git and tmux.
 
 ## Scheduling and recovery
 
 `wtsd` performs a full reconciliation at startup and on the configured interval. It watches the config directory, registered common Git directories, and allowed worktree roots with `fsnotify`. Valid config reload rebuilds the watch set. Events, watcher errors, and event overflow only reset one debounce timer and enqueue an early full scan. Correctness never relies on event delivery, so periodic scans recover from coalescing, unavailable mounts, downtime, and restarts.
 
-SIGINT and SIGTERM cancel in-flight work and stop the foreground loop. Structured `slog` records cover startup, trigger reason, reconcile summaries/degradation, watcher errors, and shutdown without logging copied contents, environments, or configured command secrets.
+SIGINT and SIGTERM cancel in-flight work and stop the foreground loop. Structured `slog` records cover startup, trigger reason, bounded reconcile summaries/degradation, watcher errors, and shutdown without logging copied contents, environments, or configured command secrets.
 
 ## Explicit lifecycle and provenance
 

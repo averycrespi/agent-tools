@@ -175,10 +175,24 @@ print the report but exit nonzero when attention is required.`,
 		return map[string]any{"json": jsonOutput, "repo_id": statusRepoID, "all": statusAll, "verbose": statusVerbose, "check": statusCheck}
 	})
 	var reconcileRepoID string
-	var reconcileAll bool
-	reconcile := &cobra.Command{Use: "reconcile", Short: "Synchronize Git worktrees with managed tmux windows", Args: exactArgs("reconcile does not accept arguments", 0)}
+	var reconcileAll, reconcileDryRun bool
+	reconcile := &cobra.Command{
+		Use:   "reconcile",
+		Short: "Synchronize Git worktrees with managed tmux windows",
+		Long: `Synchronize Git worktrees with managed tmux windows.
+
+WARNING: repairing path drift uses "tmux respawn-window -k" and can terminate
+the process currently running in that pane. Use --dry-run to inspect the same
+pure plan without tmux mutations, actions, provenance or ledger writes, or cleanup.
+A dry-run does not reserve or approve a later apply.`,
+		Example: `  wts reconcile --dry-run
+  wts reconcile --repo-id my-repo --dry-run
+  wts reconcile --all`,
+		Args: exactArgs("reconcile does not accept arguments", 0),
+	}
 	reconcile.Flags().StringVar(&reconcileRepoID, "repo-id", "", "registered repository ID (defaults to current directory)")
 	reconcile.Flags().BoolVar(&reconcileAll, "all", false, "reconcile all registered repositories")
+	reconcile.Flags().BoolVar(&reconcileDryRun, "dry-run", false, "show the sorted plan without mutations or action/state writes")
 	reconcile.PreRunE = func(*cobra.Command, []string) error {
 		if reconcileRepoID != "" && reconcileAll {
 			return fmt.Errorf("choose only one of --repo-id or --all")
@@ -186,7 +200,7 @@ print the report but exit nonzero when attention is required.`,
 		return nil
 	}
 	reconcile.RunE = run(controller, "reconcile", func(*cobra.Command) map[string]any {
-		return map[string]any{"repo_id": reconcileRepoID, "all": reconcileAll}
+		return map[string]any{"repo_id": reconcileRepoID, "all": reconcileAll, "dry_run": reconcileDryRun}
 	})
 	var pruneID, orphanID string
 	cleanup := &cobra.Command{

@@ -69,15 +69,50 @@ func TestCreateSessionCleansUpWhenTaggingFails(t *testing.T) {
 }
 
 func TestNameRepairDoesNotRespawnWindow(t *testing.T) {
-	r := &runner{results: make([]result, 1)}
+	metadata := []byte("@wts-schema 1\n@wts-repository repo\n@wts-role base\n@wts-identity repo\n")
+	r := &runner{results: []result{{out: metadata}, {}}}
 	client := tmux.New(r, "test-socket", time.Second)
 	current := tmux.Window{Name: "old-name", Path: "/repo", Metadata: tmux.Metadata{Schema: 1, Repository: "repo", Role: "base", Identity: "repo"}}
 	desired := current
 	desired.Name = "new-name"
-	require.NoError(t, client.RepairWindow(context.Background(), "@1", current, desired))
+	repairResult, err := client.RepairWindow(context.Background(), "@1", current, desired)
+	require.NoError(t, err)
+	require.True(t, repairResult.Renamed)
+	require.False(t, repairResult.Respawned)
 	for _, call := range r.calls {
 		require.NotContains(t, call, "respawn-window")
 	}
+}
+
+func TestRepairWindowRechecksOwnershipBetweenEveryMutation(t *testing.T) {
+	metadata := []byte("@wts-schema 1\n@wts-repository repo\n@wts-role base\n@wts-identity repo\n")
+	changed := []byte("@wts-schema 1\n@wts-repository other\n@wts-role base\n@wts-identity repo\n")
+	current := tmux.Window{Name: "old", Path: "/old", Metadata: tmux.Metadata{Schema: 1, Repository: "repo", Role: "base", Identity: "repo"}}
+	desired := current
+	desired.Name, desired.Path = "new", "/new"
+
+	r := &runner{results: []result{{out: metadata}, {}, {out: changed}}}
+	repairResult, err := tmux.New(r, "test-socket", time.Second).RepairWindow(context.Background(), "@1", current, desired)
+	require.ErrorContains(t, err, "ownership changed")
+	require.True(t, repairResult.Renamed)
+	require.False(t, repairResult.Respawned)
+	require.Len(t, r.calls, 3)
+
+	desired.Name = current.Name
+	desired.Metadata.Repository = "new-repo"
+	r = &runner{results: []result{{out: metadata}, {}, {out: changed}}}
+	repairResult, err = tmux.New(r, "test-socket", time.Second).RepairWindow(context.Background(), "@1", current, desired)
+	require.ErrorContains(t, err, "ownership changed")
+	require.True(t, repairResult.Respawned)
+	require.Zero(t, repairResult.MetadataOptions)
+	require.Len(t, r.calls, 3)
+
+	desired.Path = current.Path
+	r = &runner{results: []result{{out: metadata}, {}, {out: changed}}}
+	repairResult, err = tmux.New(r, "test-socket", time.Second).RepairWindow(context.Background(), "@1", current, desired)
+	require.ErrorContains(t, err, "ownership changed")
+	require.Equal(t, 1, repairResult.MetadataOptions)
+	require.Len(t, r.calls, 3)
 }
 
 func TestTmuxErrorIncludesDiagnosticWithoutLaunchCommand(t *testing.T) {

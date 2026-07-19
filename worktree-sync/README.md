@@ -307,6 +307,16 @@ Doctor evaluates whether the installation can operate; `wts status` describes ma
 
 A full scan runs at daemon startup and on `reconcile_interval`. Configuration, Git administration, and allowed-root filesystem events debounce an earlier full scan. Periodic scans recover from missed events, unavailable mounts, daemon downtime, and restarts.
 
+Preview the same sorted pure plan used by apply without tmux mutation, actions, provenance/ledger writes, or cleanup:
+
+```bash
+wts reconcile --dry-run
+wts reconcile --repo-id api --dry-run
+wts reconcile --all --dry-run
+```
+
+Dry-run takes the operation lock for a coherent snapshot but does not reserve or approve a later apply. A normal `wts reconcile` takes fresh snapshots and lists every applied, partial, or failed operation plus completed effects and safe retry guidance.
+
 Ownership comes only from tmux metadata containing the schema, derived repository identity, role, and object identity. Names never confer ownership. Reconciliation can:
 
 - create missing managed sessions and windows;
@@ -322,7 +332,7 @@ Automatic reconciliation never:
 - adopts or removes manual, untagged, malformed, or foreign tmux resources; or
 - touches the default tmux socket.
 
-A managed window whose pane changes directory is considered drifted. Reconciliation restores its configured worktree directory with `respawn-window -k`, which terminates the pane's current shell or process. Use an untagged scratch window for work that should not be reset.
+A managed window whose pane changes directory is considered drifted. Reconciliation restores its configured worktree directory with `respawn-window -k`, which terminates the pane's current shell or process. Dry-run and apply label only path repairs as pane-respawning; name-only repairs do not terminate a process. Use an untagged scratch window for work that should not be reset.
 
 Detached and locked live worktrees remain eligible. Invalid configuration or incomplete Git/tmux snapshots fail closed.
 
@@ -386,24 +396,24 @@ LaunchAgent commands are unsupported on Linux; run `wtsd` directly under your pr
 
 ## Command reference
 
-| Command                                                             | Purpose                                                            |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `wts config path\|edit\|validate\|refresh`                          | Inspect, edit, validate, or migrate configuration                  |
-| `wts repo add [path]`                                               | Register a primary worktree                                        |
-| `wts repo list`                                                     | List registered repositories                                       |
-| `wts repo remove <repository-id>`                                   | Stop managing a repository without deleting Git worktrees          |
-| `wts repo roots show\|set-creation\|add-allowed\|remove-allowed`    | Inspect or update one repository's worktree roots                  |
-| `wts worktree path <branch>`                                        | Print an existing or planned worktree path                         |
-| `wts worktree create <branch>`                                      | Create a worktree and reconcile its tmux window                    |
-| `wts worktree remove\|rm <path-or-branch>`                          | Remove a worktree with explicit branch safety                      |
-| `wts worktree setup <worktree>`                                     | Run configured copy and setup actions                              |
-| `wts worktree launch <worktree>`                                    | Run the configured command in its managed tmux window              |
-| `wts attach`                                                        | Attach to the current repository's managed session                 |
-| `wts status`                                                        | Show progressive status; use `--verbose`, `--json`, or `--check`   |
-| `wts reconcile`                                                     | Reconcile the current repository; use `--all` for every repository |
-| `wts cleanup`                                                       | Inspect or explicitly remove stale Git and tmux state              |
-| `wts doctor`                                                        | Diagnose tools, paths, config, state, tmux, and LaunchAgent        |
-| `wts daemon install\|uninstall\|start\|stop\|restart\|status\|logs` | Manage the macOS LaunchAgent                                       |
+| Command                                                             | Purpose                                                                           |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `wts config path\|edit\|validate\|refresh`                          | Inspect, edit, validate, or migrate configuration                                 |
+| `wts repo add [path]`                                               | Register a primary worktree                                                       |
+| `wts repo list`                                                     | List registered repositories                                                      |
+| `wts repo remove <repository-id>`                                   | Stop managing a repository without deleting Git worktrees                         |
+| `wts repo roots show\|set-creation\|add-allowed\|remove-allowed`    | Inspect or update one repository's worktree roots                                 |
+| `wts worktree path <branch>`                                        | Print an existing or planned worktree path                                        |
+| `wts worktree create <branch>`                                      | Create a worktree and reconcile its tmux window                                   |
+| `wts worktree remove\|rm <path-or-branch>`                          | Remove a worktree with explicit branch safety                                     |
+| `wts worktree setup <worktree>`                                     | Run configured copy and setup actions                                             |
+| `wts worktree launch <worktree>`                                    | Run the configured command in its managed tmux window                             |
+| `wts attach`                                                        | Attach to the current repository's managed session                                |
+| `wts status`                                                        | Show progressive status; use `--verbose`, `--json`, or `--check`                  |
+| `wts reconcile [--dry-run]`                                         | Preview or apply sorted reconciliation outcomes; use `--all` for every repository |
+| `wts cleanup`                                                       | Inspect or explicitly remove stale Git and tmux state                             |
+| `wts doctor`                                                        | Diagnose tools, paths, config, state, tmux, and LaunchAgent                       |
+| `wts daemon install\|uninstall\|start\|stop\|restart\|status\|logs` | Manage the macOS LaunchAgent                                                      |
 
 Repository-selecting commands accept `--repo-id <id>` when current-directory inference is not appropriate. Run `wts <command> --help` for flags, safety details, and examples.
 

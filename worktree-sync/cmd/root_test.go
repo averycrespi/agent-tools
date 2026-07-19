@@ -174,6 +174,22 @@ func TestWorktreeCreateForwardsBranchOrigin(t *testing.T) {
 	require.Equal(t, "origin/main", controller.request.Options["from"])
 }
 
+func TestReconcileDryRunHelpAndForwarding(t *testing.T) {
+	root := cmd.NewWTS(nil)
+	reconcileCommand, _, err := root.Find([]string{"reconcile"})
+	require.NoError(t, err)
+	require.Contains(t, reconcileCommand.Long, "respawn-window -k")
+	require.Contains(t, reconcileCommand.Long, "terminate")
+	require.Contains(t, reconcileCommand.Long, "does not reserve")
+
+	controller := &recordingController{}
+	err = cmd.ExecuteWTS(context.Background(), controller, &bytes.Buffer{}, &bytes.Buffer{}, []string{"reconcile", "--repo-id", "repo", "--dry-run"})
+	require.NoError(t, err)
+	require.Equal(t, "reconcile", controller.request.Action)
+	require.Equal(t, "repo", controller.request.Options["repo_id"])
+	require.Equal(t, true, controller.request.Options["dry_run"])
+}
+
 func TestStatusHelpExplainsProgressiveAndCheckOutput(t *testing.T) {
 	root := cmd.NewWTS(nil)
 	status, _, err := root.Find([]string{"status"})

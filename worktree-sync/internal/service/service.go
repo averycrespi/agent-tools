@@ -111,7 +111,7 @@ func (s *Service) Execute(ctx context.Context, request app.Request) (string, err
 	case "status":
 		return s.status(ctx, optionString(request.Options, "repo_id"), optionBool(request.Options, "all"), optionBool(request.Options, "json"), optionBool(request.Options, "verbose"), optionBool(request.Options, "check"))
 	case "reconcile":
-		return s.reconcile(ctx, optionString(request.Options, "repo_id"), optionBool(request.Options, "all"))
+		return s.reconcile(ctx, optionString(request.Options, "repo_id"), optionBool(request.Options, "all"), optionBool(request.Options, "dry_run"))
 	case "cleanup":
 		return s.cleanup(ctx, optionString(request.Options, "prune_git"), optionString(request.Options, "remove_orphaned_tmux"))
 	case "doctor":
@@ -607,7 +607,7 @@ func formatSetupResult(path, repoID string, result actions.Result) (string, erro
 		case result.AttemptRecordUncertain:
 			output += "\nnext: inspect the action ledger and setup side effects before deciding whether an explicit --rerun is safe"
 		case result.AttemptRecorded:
-			output += fmt.Sprintf("\nnext: correct the cause, then run wts worktree setup %q --repo-id %s --rerun", path, repoID)
+			output += fmt.Sprintf("\nnext: inspect earlier side effects, correct the cause, then run wts worktree setup %q --repo-id %s --rerun if safe", path, repoID)
 		default:
 			output += fmt.Sprintf("\nnext: no attempt was recorded; correct the cause, then retry wts worktree setup %q --repo-id %s", path, repoID)
 		}
@@ -760,7 +760,92 @@ func (s *Service) attach(ctx context.Context, repoID string) error {
 	return tmuxClient.Attach(ctx, session.ID)
 }
 
-func (s *Service) reconcile(ctx context.Context, repoID string, all bool) (string, error) {
+func describeReconcileOperation(operation reconcile.Operation) string {
+	switch operation.Type {
+	case reconcile.CreateSession:
+		return fmt.Sprintf("create session %q at %s", operation.Name, operation.Path)
+	case reconcile.RepairSession:
+		return fmt.Sprintf("repair session %s name to %q", operation.TargetID, operation.Name)
+	case reconcile.CreateWindow:
+		return fmt.Sprintf("create %s window %q at %s", operation.Role, operation.Name, operation.Path)
+	case reconcile.RepairWindow:
+		description := fmt.Sprintf("repair %s window %s to %q at %s", operation.Role, operation.TargetID, operation.Name, operation.Path)
+		if operation.RespawnsPane {
+			description += " (respawns pane with respawn-window -k)"
+		}
+		return description
+	case reconcile.KillWindow:
+		return fmt.Sprintf("remove %s window %s", operation.Role, operation.TargetID)
+	default:
+		return string(operation.Type)
+	}
+}
+
+func renderReconcileReport(repoID string, report reconcile.Report, dryRun bool) string {
+	lines := []string{repoID + ":"}
+	applied, partial, failed := 0, 0, 0
+	if dryRun {
+		for _, operation := range report.Plan.Operations {
+			lines = append(lines, "  planned: "+describeReconcileOperation(operation))
+		}
+		if len(report.Plan.Operations) == 0 && len(report.Errors) == 0 {
+			lines = append(lines, "  planned: no changes")
+		}
+	} else {
+		for _, outcome := range report.Outcomes {
+			line := fmt.Sprintf("  %s: %s", outcome.Status, describeReconcileOperation(outcome.Operation))
+			if len(outcome.Effects) > 0 {
+				line += " [" + strings.Join(outcome.Effects, ", ") + "]"
+			}
+			if outcome.Error != "" {
+				line += ": " + outcome.Error
+			}
+			lines = append(lines, line)
+			switch outcome.Status {
+			case reconcile.OutcomeApplied:
+				applied++
+			case reconcile.OutcomePartial:
+				partial++
+			case reconcile.OutcomeFailed:
+				failed++
+			}
+		}
+		if len(report.Outcomes) == 0 && len(report.Errors) == 0 {
+			lines = append(lines, "  applied: no changes")
+		}
+	}
+	for _, outcome := range report.ActionOutcomes {
+		line := fmt.Sprintf("  %s action: %s %s operation_completed=%s attempt_recorded=%s", outcome.Status, outcome.Action, outcome.Path, outcome.OperationCompleted, outcome.AttemptRecorded)
+		if outcome.TextSent != "" {
+			line += fmt.Sprintf(" text_sent=%s enter_sent=%s", outcome.TextSent, outcome.EnterSent)
+		}
+		if outcome.Error != "" {
+			line += ": " + outcome.Error
+		}
+		lines = append(lines, line)
+		if outcome.Recovery != "" {
+			lines = append(lines, "  action recovery: "+outcome.Recovery)
+		}
+	}
+	for _, note := range report.Plan.Report {
+		lines = append(lines, "  note: "+note)
+	}
+	for _, diagnostic := range report.Errors {
+		lines = append(lines, "  error: "+diagnostic)
+	}
+	if dryRun {
+		lines = append(lines, fmt.Sprintf("  summary: %d planned, %d conflicts, %d errors", len(report.Plan.Operations), len(report.Plan.Conflicts), len(report.Errors)))
+		lines = append(lines, "  note: dry-run does not reserve or approve a future apply")
+	} else {
+		lines = append(lines, fmt.Sprintf("  summary: %d applied, %d partial, %d failed, %d action outcomes, %d errors", applied, partial, failed, len(report.ActionOutcomes), len(report.Errors)))
+	}
+	if len(report.Errors) > 0 {
+		lines = append(lines, fmt.Sprintf("  next: follow any action recovery above; otherwise inspect completed effects, then run wts reconcile --repo-id %q when safe", repoID))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (s *Service) reconcile(ctx context.Context, repoID string, all, dryRun bool) (string, error) {
 	lock, err := s.acquire(ctx, "operation")
 	if err != nil {
 		return "", err
@@ -778,9 +863,12 @@ func (s *Service) reconcile(ctx context.Context, repoID string, all bool) (strin
 		}
 		repositories = []config.Repository{repo}
 	}
-	provenance, err := state.LoadProvenance(filepath.Join(s.paths.State, "provenance.json"))
-	if err != nil {
-		return "", err
+	var provenance *state.Provenance
+	if !dryRun {
+		provenance, err = state.LoadProvenance(filepath.Join(s.paths.State, "provenance.json"))
+		if err != nil {
+			return "", err
+		}
 	}
 	_, tmuxClient, _, executor, _, err := s.runtime(cfg)
 	if err != nil {
@@ -793,17 +881,18 @@ func (s *Service) reconcile(ctx context.Context, repoID string, all bool) (strin
 	summaries := make([]string, 0, len(repositories))
 	var errs []error
 	for _, repo := range repositories {
-		report := executor.ReconcileRepoWithSnapshot(ctx, repo, actual, func(path, identity string) actions.Trigger {
-			if provenance.Explicit(repo.Identity(), path, identity) {
-				return actions.Explicit
-			}
-			return actions.Passive
-		})
-		summary := fmt.Sprintf("%s: %d operations, %d conflicts, %d errors", repo.ID, len(report.Plan.Operations), len(report.Plan.Conflicts), len(report.Errors))
-		if len(report.Plan.Report) > 0 {
-			summary += "\n  " + strings.Join(report.Plan.Report, "\n  ")
+		var report reconcile.Report
+		if dryRun {
+			report = executor.PreviewRepoWithSnapshot(ctx, repo, actual)
+		} else {
+			report = executor.ReconcileRepoWithSnapshot(ctx, repo, actual, func(path, identity string) actions.Trigger {
+				if provenance.Explicit(repo.Identity(), path, identity) {
+					return actions.Explicit
+				}
+				return actions.Passive
+			})
 		}
-		summaries = append(summaries, summary)
+		summaries = append(summaries, renderReconcileReport(repo.ID, report, dryRun))
 		if len(report.Errors) > 0 {
 			errs = append(errs, fmt.Errorf("%s: %s", repo.ID, strings.Join(report.Errors, "; ")))
 		}

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -14,6 +15,15 @@ import (
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/config"
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/state"
 )
+
+const maxReconcileLogBytes = 8 << 10
+
+func boundedReconcileLog(value string) string {
+	if len(value) <= maxReconcileLogBytes {
+		return value
+	}
+	return strings.ToValidUTF8(value[:maxReconcileLogBytes], "�") + "\n[reconcile log truncated]"
+}
 
 type controller interface {
 	Execute(context.Context, app.Request) (string, error)
@@ -45,9 +55,9 @@ func Run(ctx context.Context, paths config.Paths, service controller, logger *sl
 		logger.Info("reconciling", "reason", reason)
 		output, reconcileErr := service.Execute(ctx, app.Request{Action: "reconcile", Options: map[string]any{"all": true}})
 		if reconcileErr != nil {
-			logger.Warn("reconciliation degraded", "reason", reason, "error", reconcileErr)
+			logger.Warn("reconciliation degraded", "reason", reason, "summary", boundedReconcileLog(output), "error", boundedReconcileLog(reconcileErr.Error()))
 		} else {
-			logger.Info("reconciliation complete", "summary", output)
+			logger.Info("reconciliation complete", "summary", boundedReconcileLog(output))
 		}
 		cfg, loadErr := config.Load(paths.Config)
 		if loadErr != nil {
