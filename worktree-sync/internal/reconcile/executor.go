@@ -64,7 +64,7 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 		}
 		return report
 	}
-	gitSnapshot, gitErr := e.git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
+	gitSnapshot, gitErr := e.git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir})
 	if gitErr != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("git snapshot: %v", gitErr))
 		return report
@@ -91,9 +91,9 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 	created := make(map[string]string)
 	projected := make(map[string]bool)
 	for _, session := range actual.Sessions {
-		if session.Metadata.Repository == repo.RepositoryIdentity {
+		if session.Metadata.Repository == repo.Identity() {
 			for _, window := range session.Windows {
-				if window.Metadata.Schema == tmux.MetadataSchema && window.Metadata.Repository == repo.RepositoryIdentity && window.Metadata.Role == "worktree" {
+				if window.Metadata.Schema == tmux.MetadataSchema && window.Metadata.Repository == repo.Identity() && window.Metadata.Role == "worktree" {
 					projected[window.Metadata.Identity] = true
 				}
 			}
@@ -102,7 +102,7 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 	sessionTarget := report.Plan.Desired.SessionName
 	sessionReady := false
 	for _, session := range actual.Sessions {
-		if session.Metadata.Schema == tmux.MetadataSchema && session.Metadata.Repository == repo.RepositoryIdentity && session.Metadata.Role == "session" && session.Metadata.Identity == repo.RepositoryIdentity {
+		if session.Metadata.Schema == tmux.MetadataSchema && session.Metadata.Repository == repo.Identity() && session.Metadata.Role == "session" && session.Metadata.Identity == repo.Identity() {
 			sessionTarget = session.ID
 			sessionReady = true
 			break
@@ -119,7 +119,7 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 				sessionTarget, sessionReady = id, true
 			}
 		case RepairSession:
-			expected := tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.RepositoryIdentity, Role: "session", Identity: repo.RepositoryIdentity}
+			expected := tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.Identity(), Role: "session", Identity: repo.Identity()}
 			owned, ownershipErr := e.tmux.OwnsSession(ctx, operation.TargetID, expected)
 			switch {
 			case ownershipErr != nil:
@@ -134,7 +134,7 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 				err = fmt.Errorf("managed session is unavailable")
 				break
 			}
-			expectedSession := tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.RepositoryIdentity, Role: "session", Identity: repo.RepositoryIdentity}
+			expectedSession := tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.Identity(), Role: "session", Identity: repo.Identity()}
 			owned, ownershipErr := e.tmux.OwnsSession(ctx, sessionTarget, expectedSession)
 			if ownershipErr != nil {
 				err = ownershipErr
@@ -161,7 +161,7 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 				err = e.tmux.RepairWindow(ctx, operation.TargetID, actualByID[operation.TargetID], window)
 			}
 		case KillWindow:
-			expected := tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.RepositoryIdentity, Role: operation.Role, Identity: operation.Identity}
+			expected := tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.Identity(), Role: operation.Role, Identity: operation.Identity}
 			owned, ownershipErr := e.tmux.OwnsWindow(ctx, operation.TargetID, expected)
 			switch {
 			case ownershipErr != nil:
@@ -176,7 +176,7 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 			report.Errors = append(report.Errors, fmt.Sprintf("%s %s: %v", operation.Type, operation.Identity, err))
 		}
 	}
-	actionSnapshot, actionSnapshotErr := e.git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
+	actionSnapshot, actionSnapshotErr := e.git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir})
 	if actionSnapshotErr != nil || !actionSnapshot.Complete {
 		if actionSnapshotErr != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("action revalidation: %v", actionSnapshotErr))
@@ -196,7 +196,7 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 	}
 	for _, worktree := range actionSnapshot.Worktrees {
 		desiredWindow, desired := windowByIdentity[worktree.Identity]
-		if !desired || worktree.Identity == repo.RepositoryIdentity || !projected[worktree.Identity] {
+		if !desired || worktree.Identity == repo.Identity() || !projected[worktree.Identity] {
 			continue
 		}
 		if desiredWindow.Path != worktree.Path {

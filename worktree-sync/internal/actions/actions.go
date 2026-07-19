@@ -89,7 +89,7 @@ func (m *Manager) Run(ctx context.Context, repo config.Repository, worktree Work
 	if !enabled || (len(repo.CopyActions) == 0 && len(repo.SetupActions) == 0) {
 		return Result{Skipped: true}
 	}
-	key := state.ActionKey{Repository: repo.RepositoryIdentity, Worktree: worktree.Identity, Trigger: ledgerTrigger(trigger), Digest: digest(repo)}
+	key := state.ActionKey{Repository: repo.Identity(), Worktree: worktree.Identity, Trigger: ledgerTrigger(trigger), Digest: digest(repo)}
 	return m.attempt(ctx, key, rerun, func() error { return m.execute(ctx, repo, worktree) })
 }
 
@@ -101,7 +101,7 @@ func (m *Manager) Launch(ctx context.Context, repo config.Repository, worktree W
 	if repo.LaunchCommand == "" {
 		return Result{Skipped: true, Reason: "no launch command is configured"}
 	}
-	key := state.ActionKey{Repository: repo.RepositoryIdentity, Worktree: worktree.Identity, Trigger: ledgerTrigger(trigger), Digest: digestValue(struct{ Launch string }{repo.LaunchCommand})}
+	key := state.ActionKey{Repository: repo.Identity(), Worktree: worktree.Identity, Trigger: ledgerTrigger(trigger), Digest: digestValue(struct{ Launch string }{repo.LaunchCommand})}
 	return m.attempt(ctx, key, rerun, launch)
 }
 
@@ -150,7 +150,7 @@ func (m *Manager) Prune(ctx context.Context, repo config.Repository, live map[st
 		if decodeErr != nil {
 			return decodeErr
 		}
-		if key.Repository == repo.RepositoryIdentity && (!live[key.Worktree] || !validDigests[key.Digest]) {
+		if key.Repository == repo.Identity() && (!live[key.Worktree] || !validDigests[key.Digest]) {
 			delete(ledger.Attempts, encoded)
 			changed = true
 		}

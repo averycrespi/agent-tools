@@ -79,7 +79,6 @@ The default path is `${XDG_CONFIG_HOME:-~/.config}/worktree-sync/config.json`. S
       "id": "example",
       "primary_root": "/Users/me/src/example",
       "common_git_dir": "/Users/me/src/example/.git",
-      "repository_identity": "/Users/me/src/example/.git",
       "allowed_worktree_roots": [
         "/Users/me/.local/share/worktree-sync/worktrees"
       ],
@@ -99,7 +98,7 @@ The default path is `${XDG_CONFIG_HOME:-~/.config}/worktree-sync/config.json`. S
 }
 ```
 
-Registration writes canonical path and identity fields. Treat the config as trusted host configuration. Setup commands are explicit argv arrays run in the worktree with inherited environment plus overrides and bounded cancellation. Copy sources and destinations are root-relative, cannot escape through symlinks, and are atomically published without overwriting existing destinations. `launch_command` is sent literally to the existing managed worktree window's interactive shell, which interprets it; `wts worktree launch` does not create a window or attach to the session. Do not configure untrusted text.
+Registration writes canonical path fields; internal repository identity is derived from `common_git_dir`. Treat the config as trusted host configuration. Setup commands are explicit argv arrays run in the worktree with inherited environment plus overrides and bounded cancellation. Copy sources and destinations are root-relative, cannot escape through symlinks, and are atomically published without overwriting existing destinations. `launch_command` is sent literally to the existing managed worktree window's interactive shell, which interprets it; `wts worktree launch` does not create a window or attach to the session. Do not configure untrusted text.
 
 `setup_policy` and `launch_policy` accept `none`, `manual`, `wts-created`, or `all`; modes are cumulative and default to `manual`. `wts-created` adds automation for worktrees created by `wts`, while `all` also automates externally discovered worktrees. An atomic action ledger records success and failure by repository, worktree identity, trigger, and action-definition digest; complete scans prune vanished identities and obsolete definitions. Failed actions remain visible in status and do not retry indefinitely; use `wts worktree setup|launch --rerun` or change the definition to make an attempt eligible again. Inspection windows are created even when setup fails.
 

@@ -55,7 +55,7 @@ func TestCleanupDryRunNeverInvokesGitPrune(t *testing.T) {
 	require.NoError(t, os.Mkdir(allowed, 0o700))
 	paths := config.Paths{Config: filepath.Join(base, "config.json"), State: filepath.Join(base, "state"), Worktrees: filepath.Join(base, "worktrees")}
 	cfg := config.Default()
-	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: primary, CommonGitDir: common, RepositoryIdentity: common, AllowedRoots: []string{allowed}}}
+	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: primary, CommonGitDir: common, AllowedRoots: []string{allowed}}}
 	require.NoError(t, config.Save(paths.Config, cfg))
 	runner := &safetyRunner{primary: primary}
 	output, err := service.New(runner, paths).Execute(context.Background(), app.Request{Action: "cleanup", Options: map[string]any{}})
@@ -117,6 +117,7 @@ func TestConfigRefreshMigratesPoliciesWithoutReplacingRepositories(t *testing.T)
 	data, err := os.ReadFile(paths.Config)
 	require.NoError(t, err)
 	require.NotContains(t, string(data), `"policy"`)
+	require.NotContains(t, string(data), "repository_identity")
 }
 
 func TestConfigEditLeavesLiveFileUnchangedWhenEditedCopyIsInvalid(t *testing.T) {

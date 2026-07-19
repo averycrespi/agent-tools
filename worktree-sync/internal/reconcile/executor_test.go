@@ -131,7 +131,7 @@ func TestExecutorCreatesInspectionWindowDespiteSetupFailureAndLaunchesOnlyCreate
 func TestExecutorRevalidatesWorktreeIdentityBeforeActions(t *testing.T) {
 	repo, initial := fixture(t)
 	desired := reconcile.Build(repo, initial, tmux.Snapshot{Complete: true}).Desired
-	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: desired.SessionName, Metadata: tmux.Metadata{Schema: 1, Repository: repo.RepositoryIdentity, Role: "session", Identity: repo.RepositoryIdentity}, Windows: desired.Windows}}}
+	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: desired.SessionName, Metadata: tmux.Metadata{Schema: 1, Repository: repo.Identity(), Role: "session", Identity: repo.Identity()}, Windows: desired.Windows}}}
 	replacement := initial
 	replacement.Worktrees = append([]gitclient.Worktree(nil), initial.Worktrees...)
 	replacement.Worktrees[1].Identity = "replacement"
@@ -144,7 +144,7 @@ func TestExecutorRevalidatesWorktreeIdentityBeforeActions(t *testing.T) {
 func TestExecutorSkipsActionsWhenWorktreeMovesWithSameIdentity(t *testing.T) {
 	repo, initial := fixture(t)
 	desired := reconcile.Build(repo, initial, tmux.Snapshot{Complete: true}).Desired
-	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: desired.SessionName, Metadata: tmux.Metadata{Schema: 1, Repository: repo.RepositoryIdentity, Role: "session", Identity: repo.RepositoryIdentity}, Windows: desired.Windows}}}
+	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: desired.SessionName, Metadata: tmux.Metadata{Schema: 1, Repository: repo.Identity(), Role: "session", Identity: repo.Identity()}, Windows: desired.Windows}}}
 	moved := initial
 	moved.Worktrees = append([]gitclient.Worktree(nil), initial.Worktrees...)
 	moved.Worktrees[1].Path = filepath.Join(t.TempDir(), "moved")
@@ -157,7 +157,7 @@ func TestExecutorSkipsActionsWhenWorktreeMovesWithSameIdentity(t *testing.T) {
 func TestExecutorRechecksSessionBeforeCreatingWindow(t *testing.T) {
 	repo, snapshot := fixture(t)
 	desired := reconcile.Build(repo, snapshot, tmux.Snapshot{Complete: true}).Desired
-	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: desired.SessionName, Metadata: tmux.Metadata{Schema: 1, Repository: repo.RepositoryIdentity, Role: "session", Identity: repo.RepositoryIdentity}, Windows: desired.Windows[:1]}}}
+	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: desired.SessionName, Metadata: tmux.Metadata{Schema: 1, Repository: repo.Identity(), Role: "session", Identity: repo.Identity()}, Windows: desired.Windows[:1]}}}
 	tmuxClient := &tmuxFake{snapshot: actual, ownershipChanged: map[string]bool{"$1": true}}
 	reconcile.NewExecutor(gitSnapshotter{snapshot: snapshot}, tmuxClient, &actionFake{}).ReconcileRepo(context.Background(), repo, func(string, string) actions.Trigger { return actions.Passive })
 	require.Empty(t, tmuxClient.created)
@@ -186,10 +186,10 @@ func TestExecutorDoesNotRunSetupWithoutInspectionWindow(t *testing.T) {
 func TestExecutorRechecksOwnershipBeforeRemoval(t *testing.T) {
 	repo, snapshot := fixture(t)
 	meta := func(role, identity string) tmux.Metadata {
-		return tmux.Metadata{Schema: 1, Repository: repo.RepositoryIdentity, Role: role, Identity: identity}
+		return tmux.Metadata{Schema: 1, Repository: repo.Identity(), Role: role, Identity: identity}
 	}
-	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: "wts-repo", Metadata: meta("session", repo.RepositoryIdentity), Windows: []tmux.Window{
-		{ID: "@base", Name: "base", Path: repo.PrimaryRoot, Metadata: meta("base", repo.RepositoryIdentity)},
+	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: "wts-repo", Metadata: meta("session", repo.Identity()), Windows: []tmux.Window{
+		{ID: "@base", Name: "base", Path: repo.PrimaryRoot, Metadata: meta("base", repo.Identity())},
 		{ID: "@one", Name: "feature-a", Path: snapshot.Worktrees[1].Path, Metadata: meta("worktree", "worktree-one")},
 		{ID: "@stale", Name: "stale", Path: "/gone", Metadata: meta("worktree", "stale")},
 	}}}}
@@ -214,10 +214,10 @@ func TestIncompleteTmuxSnapshotPerformsNoMutation(t *testing.T) {
 func TestIncompleteGitSnapshotNeverRepairsOrDeletes(t *testing.T) {
 	repo, snapshot := fixture(t)
 	snapshot.Complete = false
-	meta := tmux.Metadata{Schema: 1, Repository: repo.RepositoryIdentity, Role: "session", Identity: repo.RepositoryIdentity}
+	meta := tmux.Metadata{Schema: 1, Repository: repo.Identity(), Role: "session", Identity: repo.Identity()}
 	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{
 		{ID: "$1", Name: "wts-" + repo.ID, Metadata: meta, Windows: []tmux.Window{
-			{ID: "@stale", Name: "stale", Path: filepath.Join(repo.PrimaryRoot, "gone"), Metadata: tmux.Metadata{Schema: 1, Repository: repo.RepositoryIdentity, Role: "worktree", Identity: "stale"}},
+			{ID: "@stale", Name: "stale", Path: filepath.Join(repo.PrimaryRoot, "gone"), Metadata: tmux.Metadata{Schema: 1, Repository: repo.Identity(), Role: "worktree", Identity: "stale"}},
 		}},
 	}}
 	tmuxClient := &tmuxFake{snapshot: actual}

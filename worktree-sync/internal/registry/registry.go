@@ -33,7 +33,7 @@ func (s *Service) Add(ctx context.Context, cfg config.Config, options AddOptions
 		return cfg, config.Repository{}, err
 	}
 	for _, existing := range cfg.Repositories {
-		if existing.RepositoryIdentity == info.Identity || existing.CommonGitDir == info.CommonGitDir {
+		if existing.Identity() == info.CommonGitDir {
 			return cfg, config.Repository{}, fmt.Errorf("repository identity is already registered as %q", existing.ID)
 		}
 	}
@@ -74,7 +74,7 @@ func (s *Service) Add(ctx context.Context, cfg config.Config, options AddOptions
 			roots = append(roots, canonical)
 		}
 	}
-	repo := config.Repository{ID: id, PrimaryRoot: info.PrimaryRoot, CommonGitDir: info.CommonGitDir, RepositoryIdentity: info.Identity, AllowedRoots: roots, SetupPolicy: config.ActionManual, LaunchPolicy: config.ActionManual}
+	repo := config.Repository{ID: id, PrimaryRoot: info.PrimaryRoot, CommonGitDir: info.CommonGitDir, AllowedRoots: roots, SetupPolicy: config.ActionManual, LaunchPolicy: config.ActionManual}
 	cfg.Repositories = append(cfg.Repositories, repo)
 	if err := cfg.Validate(); err != nil {
 		return cfg, config.Repository{}, err

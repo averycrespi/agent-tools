@@ -124,11 +124,11 @@ func TestExplicitLifecycleStatusBranchSafetyCleanupAndUnregister(t *testing.T) {
 	require.NoError(t, err)
 	repo := cfg.Repositories[0]
 	duplicateID := strings.TrimSpace(command(t, "", "tmux", "-L", socket, "new-session", "-d", "-P", "-F", "#{window_id}", "-s", "duplicate", "-n", "duplicate", "-c", primary))
-	for key, value := range map[string]string{"@wts-schema": "1", "@wts-repository": repo.RepositoryIdentity, "@wts-role": "base", "@wts-identity": repo.RepositoryIdentity} {
+	for key, value := range map[string]string{"@wts-schema": "1", "@wts-repository": repo.Identity(), "@wts-role": "base", "@wts-identity": repo.Identity()} {
 		command(t, "", "tmux", "-L", socket, "set-option", "-w", "-t", duplicateID, key, value)
 	}
 	staleID := strings.TrimSpace(command(t, "", "tmux", "-L", socket, "new-window", "-d", "-P", "-F", "#{window_id}", "-t", "duplicate:1", "-n", "stale", "-c", primary))
-	for key, value := range map[string]string{"@wts-schema": "1", "@wts-repository": repo.RepositoryIdentity, "@wts-role": "worktree", "@wts-identity": "stale"} {
+	for key, value := range map[string]string{"@wts-schema": "1", "@wts-repository": repo.Identity(), "@wts-role": "worktree", "@wts-identity": "stale"} {
 		command(t, "", "tmux", "-L", socket, "set-option", "-w", "-t", staleID, key, value)
 	}
 	_, err = controller.Execute(context.Background(), app.Request{Action: "cleanup", Options: map[string]any{"remove_orphaned_tmux": "repo"}})

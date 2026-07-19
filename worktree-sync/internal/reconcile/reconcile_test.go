@@ -21,7 +21,7 @@ func fixture(t *testing.T) (config.Repository, gitclient.Snapshot) {
 	require.NoError(t, mkdir(allowed))
 	one := filepath.Join(allowed, "one")
 	require.NoError(t, mkdir(one))
-	return config.Repository{ID: "repo", PrimaryRoot: root, CommonGitDir: filepath.Join(root, ".git"), RepositoryIdentity: "repo-identity", AllowedRoots: []string{allowed}}, gitclient.Snapshot{Complete: true, Worktrees: []gitclient.Worktree{
+	return config.Repository{ID: "repo", PrimaryRoot: root, CommonGitDir: "repo-identity", AllowedRoots: []string{allowed}}, gitclient.Snapshot{Complete: true, Worktrees: []gitclient.Worktree{
 		{Path: root, Branch: "main", Identity: "repo-identity"},
 		{Path: one, Branch: "feature/a", Identity: "worktree-one"},
 	}}
@@ -39,14 +39,14 @@ func TestPlanCreatesSessionBaseAndEligibleWorktree(t *testing.T) {
 func TestPlanRepairsRenamedOwnedSession(t *testing.T) {
 	repo, gitSnapshot := fixture(t)
 	meta := func(role, identity string) tmux.Metadata {
-		return tmux.Metadata{Schema: 1, Repository: repo.RepositoryIdentity, Role: role, Identity: identity}
+		return tmux.Metadata{Schema: 1, Repository: repo.Identity(), Role: role, Identity: identity}
 	}
-	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: "renamed", Metadata: meta("session", repo.RepositoryIdentity), Windows: []tmux.Window{
-		{ID: "@1", Name: "base", Path: repo.PrimaryRoot, Metadata: meta("base", repo.RepositoryIdentity)},
+	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: "renamed", Metadata: meta("session", repo.Identity()), Windows: []tmux.Window{
+		{ID: "@1", Name: "base", Path: repo.PrimaryRoot, Metadata: meta("base", repo.Identity())},
 		{ID: "@2", Name: "feature-a", Path: gitSnapshot.Worktrees[1].Path, Metadata: meta("worktree", "worktree-one")},
 	}}}}
 	plan := reconcile.Build(repo, gitSnapshot, actual)
-	require.Equal(t, []reconcile.Operation{{Type: reconcile.RepairSession, TargetID: "$1", Identity: repo.RepositoryIdentity, Name: "wts-repo"}}, plan.Operations)
+	require.Equal(t, []reconcile.Operation{{Type: reconcile.RepairSession, TargetID: "$1", Identity: repo.Identity(), Name: "wts-repo"}}, plan.Operations)
 }
 
 func TestPlanPreservesManualAndRejectsForeignSessionCollision(t *testing.T) {
@@ -92,11 +92,11 @@ func TestPlanRepairsManagedStateRemovesDuplicatesAndStaleOnlyWhenComplete(t *tes
 func TestPlanIgnoresMalformedMetadataAndRemovesOwnedWindowOutsideSession(t *testing.T) {
 	repo, snapshot := fixture(t)
 	meta := func(role, identity string) tmux.Metadata {
-		return tmux.Metadata{Schema: 1, Repository: repo.RepositoryIdentity, Role: role, Identity: identity}
+		return tmux.Metadata{Schema: 1, Repository: repo.Identity(), Role: role, Identity: identity}
 	}
 	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{
-		{ID: "$owned", Name: "wts-repo", Metadata: meta("session", repo.RepositoryIdentity), Windows: []tmux.Window{
-			{ID: "@base", Name: "base", Path: repo.PrimaryRoot, Metadata: meta("base", repo.RepositoryIdentity)},
+		{ID: "$owned", Name: "wts-repo", Metadata: meta("session", repo.Identity()), Windows: []tmux.Window{
+			{ID: "@base", Name: "base", Path: repo.PrimaryRoot, Metadata: meta("base", repo.Identity())},
 			{ID: "@one", Name: "feature-a", Path: snapshot.Worktrees[1].Path, Metadata: meta("worktree", "worktree-one")},
 			{ID: "@malformed", Name: "manual", Path: "/manual", Metadata: meta("base", "not-repository")},
 		}},

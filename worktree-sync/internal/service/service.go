@@ -248,7 +248,7 @@ func (s *Service) listRepos() (string, error) {
 func matchingSession(snapshot tmux.Snapshot, repo config.Repository) *tmux.Session {
 	for i := range snapshot.Sessions {
 		session := &snapshot.Sessions[i]
-		if session.Metadata == (tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.RepositoryIdentity, Role: "session", Identity: repo.RepositoryIdentity}) {
+		if session.Metadata == (tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.Identity(), Role: "session", Identity: repo.Identity()}) {
 			return session
 		}
 	}
@@ -279,7 +279,7 @@ func (s *Service) removeRepo(ctx context.Context, id string) (string, error) {
 	}
 	for _, session := range snapshot.Sessions {
 		for _, window := range session.Windows {
-			if !tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) {
+			if !tmux.ValidOwnedWindow(window.Metadata, repo.Identity()) {
 				continue
 			}
 			owned, ownershipErr := tmuxClient.OwnsWindow(ctx, window.ID, window.Metadata)
@@ -315,7 +315,7 @@ func (s *Service) resolveRepo(ctx context.Context, cfg config.Config, id string)
 	}
 	matches := make([]config.Repository, 0)
 	for _, repo := range cfg.Repositories {
-		snapshot, snapshotErr := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
+		snapshot, snapshotErr := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir})
 		if snapshotErr != nil || !snapshot.Complete {
 			continue
 		}
@@ -337,7 +337,7 @@ func (s *Service) resolveRepo(ctx context.Context, cfg config.Config, id string)
 
 func (s *Service) pathFor(repo config.Repository, branch string) string {
 	occupied := func(path string) bool { _, err := os.Lstat(path); return err == nil }
-	return naming.Path(repo.AllowedRoots[0], repo.ID, branch, repo.RepositoryIdentity+"\x00"+branch, occupied)
+	return naming.Path(repo.AllowedRoots[0], repo.ID, branch, repo.Identity()+"\x00"+branch, occupied)
 }
 
 func (s *Service) worktreePath(ctx context.Context, branch, repoID string) (string, error) {
@@ -405,7 +405,7 @@ func (s *Service) createWorktree(ctx context.Context, request app.Request) (stri
 	if err != nil {
 		return "", err
 	}
-	snapshot, err := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
+	snapshot, err := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir})
 	if err != nil {
 		return path, fmt.Errorf("worktree created but explicit provenance could not be established: %w", err)
 	}
@@ -418,12 +418,12 @@ func (s *Service) createWorktree(ctx context.Context, request app.Request) (stri
 	if err != nil {
 		return "", err
 	}
-	provenance.RecordExplicit(repo.RepositoryIdentity, canonical, createdWorktree.Identity)
+	provenance.RecordExplicit(repo.Identity(), canonical, createdWorktree.Identity)
 	if err := provenance.Save(provenancePath); err != nil {
 		return "", err
 	}
 	report := executor.ReconcileRepo(ctx, repo, func(path, identity string) actions.Trigger {
-		if provenance.Explicit(repo.RepositoryIdentity, path, identity) {
+		if provenance.Explicit(repo.Identity(), path, identity) {
 			return actions.Explicit
 		}
 		return actions.Passive
@@ -439,7 +439,7 @@ func (s *Service) snapshotRepo(ctx context.Context, cfg config.Config, repo conf
 	if err != nil {
 		return nil, gitclient.Snapshot{}, err
 	}
-	snapshot, err := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
+	snapshot, err := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir})
 	return git, snapshot, err
 }
 func findWorktree(snapshot gitclient.Snapshot, value string) (gitclient.Worktree, error) {
@@ -485,7 +485,7 @@ func (s *Service) removeWorktree(ctx context.Context, request app.Request) (stri
 	if err != nil {
 		return "", err
 	}
-	provenance.Remove(repo.RepositoryIdentity, worktree.Path, worktree.Identity)
+	provenance.Remove(repo.Identity(), worktree.Path, worktree.Identity)
 	if err := git.Remove(ctx, repo.PrimaryRoot, worktree.Path, optionBool(request.Options, "force")); err != nil {
 		return "", err
 	}
@@ -530,7 +530,7 @@ func (s *Service) explicitAction(ctx context.Context, request app.Request, launc
 		return "", err
 	}
 	revalidate := func() error {
-		fresh, snapshotErr := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
+		fresh, snapshotErr := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir})
 		if snapshotErr != nil {
 			return snapshotErr
 		}
@@ -564,7 +564,7 @@ func (s *Service) explicitAction(ctx context.Context, request app.Request, launc
 	windowID := ""
 	expected := tmux.Metadata{}
 	for _, window := range session.Windows {
-		if tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) && window.Metadata.Role == "worktree" && window.Metadata.Identity == worktree.Identity {
+		if tmux.ValidOwnedWindow(window.Metadata, repo.Identity()) && window.Metadata.Role == "worktree" && window.Metadata.Identity == worktree.Identity {
 			windowID, expected = window.ID, window.Metadata
 			break
 		}
@@ -650,7 +650,7 @@ func (s *Service) reconcile(ctx context.Context, repoID string, all bool) (strin
 	var errs []error
 	for _, repo := range repositories {
 		report := executor.ReconcileRepoWithSnapshot(ctx, repo, actual, func(path, identity string) actions.Trigger {
-			if provenance.Explicit(repo.RepositoryIdentity, path, identity) {
+			if provenance.Explicit(repo.Identity(), path, identity) {
 				return actions.Explicit
 			}
 			return actions.Passive
@@ -714,7 +714,7 @@ func (s *Service) status(ctx context.Context, repoID string, all, jsonOutput boo
 	}
 	tmuxSnapshot, tmuxErr := tmuxClient.Snapshot(ctx)
 	for _, repo := range repos {
-		gitSnapshot, gitErr := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
+		gitSnapshot, gitErr := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir})
 		health := "healthy"
 		if gitErr != nil || tmuxErr != nil || !gitSnapshot.Complete || !tmuxSnapshot.Complete {
 			health = "degraded"
@@ -726,7 +726,7 @@ func (s *Service) status(ctx context.Context, repoID string, all, jsonOutput boo
 		entry := repoStatus{ID: repo.ID, Health: health, Desired: planDesiredWorktrees(gitSnapshot, plan), Conflicts: plan.Conflicts, Reported: plan.Report}
 		for _, session := range tmuxSnapshot.Sessions {
 			for _, window := range session.Windows {
-				if tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) {
+				if tmux.ValidOwnedWindow(window.Metadata, repo.Identity()) {
 					entry.Actual = append(entry.Actual, window)
 				}
 			}
@@ -739,7 +739,7 @@ func (s *Service) status(ctx context.Context, repoID string, all, jsonOutput boo
 		if ledger != nil {
 			for encodedKey, result := range ledger.Attempts {
 				key, keyErr := state.DecodeActionKey(encodedKey)
-				if keyErr == nil && key.Repository == repo.RepositoryIdentity && !result.Success {
+				if keyErr == nil && key.Repository == repo.Identity() && !result.Success {
 					entry.ActionFailures = append(entry.ActionFailures, actionFailure{Key: encodedKey, Result: result})
 				}
 			}
@@ -811,7 +811,7 @@ func (s *Service) cleanup(ctx context.Context, pruneID, orphanID string) (string
 				return "", err
 			}
 		}
-		afterSnapshot, afterErr := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
+		afterSnapshot, afterErr := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir})
 		if afterErr != nil {
 			return "", afterErr
 		}
@@ -848,7 +848,7 @@ func (s *Service) cleanup(ctx context.Context, pruneID, orphanID string) (string
 		removed := 0
 		for _, session := range actual.Sessions {
 			for _, window := range session.Windows {
-				if !tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) || desired[window.Metadata.Identity] {
+				if !tmux.ValidOwnedWindow(window.Metadata, repo.Identity()) || desired[window.Metadata.Identity] {
 					continue
 				}
 				owned, ownershipErr := tmuxClient.OwnsWindow(ctx, window.ID, window.Metadata)

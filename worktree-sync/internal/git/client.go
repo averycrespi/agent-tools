@@ -21,7 +21,6 @@ type runner interface {
 type Repository struct {
 	PrimaryRoot  string
 	CommonGitDir string
-	Identity     string
 }
 
 type Snapshot struct {
@@ -89,7 +88,7 @@ func (c *Client) InspectPrimary(ctx context.Context, path string) (Repository, e
 	if canonicalGit != common {
 		return Repository{}, fmt.Errorf("linked worktree registration is not allowed; register the primary worktree")
 	}
-	return Repository{PrimaryRoot: root, CommonGitDir: common, Identity: common}, nil
+	return Repository{PrimaryRoot: root, CommonGitDir: common}, nil
 }
 
 func canonicalGitPath(root, path string) (string, error) {
@@ -128,7 +127,7 @@ func (c *Client) Snapshot(ctx context.Context, repo Repository) (Snapshot, error
 		}
 		worktrees[i].Path = canonical
 		if canonical == repo.PrimaryRoot {
-			worktrees[i].Identity = repo.Identity
+			worktrees[i].Identity = repo.CommonGitDir
 			continue
 		}
 		identity, identityErr := linkedGitDir(canonical)

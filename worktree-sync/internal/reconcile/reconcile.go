@@ -43,17 +43,17 @@ type Plan struct {
 }
 
 func ownedMetadata(metadata tmux.Metadata, repo config.Repository, role, identity string) bool {
-	return metadata.Schema == tmux.MetadataSchema && metadata.Repository == repo.RepositoryIdentity && metadata.Role == role && metadata.Identity == identity
+	return metadata.Schema == tmux.MetadataSchema && metadata.Repository == repo.Identity() && metadata.Role == role && metadata.Identity == identity
 }
 
 func desiredState(repo config.Repository, snapshot gitclient.Snapshot) (Desired, []string) {
 	desired := Desired{SessionName: "wts-" + repo.ID}
-	desired.Windows = append(desired.Windows, tmux.Window{Name: "base", Path: repo.PrimaryRoot, Metadata: tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.RepositoryIdentity, Role: "base", Identity: repo.RepositoryIdentity}})
+	desired.Windows = append(desired.Windows, tmux.Window{Name: "base", Path: repo.PrimaryRoot, Metadata: tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.Identity(), Role: "base", Identity: repo.Identity()}})
 	items := make([]naming.Item, 0)
 	worktrees := make(map[string]gitclient.Worktree)
 	report := make([]string, 0)
 	for _, worktree := range snapshot.Worktrees {
-		if worktree.Path == repo.PrimaryRoot || worktree.Identity == repo.RepositoryIdentity {
+		if worktree.Path == repo.PrimaryRoot || worktree.Identity == repo.Identity() {
 			continue
 		}
 		if worktree.Prunable != "" || worktree.Exclusion == "prunable" {
@@ -90,7 +90,7 @@ func desiredState(repo config.Repository, snapshot gitclient.Snapshot) (Desired,
 	sort.Strings(ids)
 	for _, id := range ids {
 		worktree := worktrees[id]
-		desired.Windows = append(desired.Windows, tmux.Window{Name: names[id], Path: worktree.Path, Metadata: tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.RepositoryIdentity, Role: "worktree", Identity: id}})
+		desired.Windows = append(desired.Windows, tmux.Window{Name: names[id], Path: worktree.Path, Metadata: tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.Identity(), Role: "worktree", Identity: id}})
 	}
 	return desired, report
 }
@@ -104,7 +104,7 @@ func Build(repo config.Repository, gitSnapshot gitclient.Snapshot, actual tmux.S
 		if candidate.Name != desired.SessionName {
 			continue
 		}
-		if !ownedMetadata(candidate.Metadata, repo, "session", repo.RepositoryIdentity) {
+		if !ownedMetadata(candidate.Metadata, repo, "session", repo.Identity()) {
 			kind := "foreign-owned"
 			if candidate.Metadata.Schema == 0 {
 				kind = "untagged"
@@ -119,14 +119,14 @@ func Build(repo config.Repository, gitSnapshot gitclient.Snapshot, actual tmux.S
 		ownedSessions := make([]*tmux.Session, 0)
 		for i := range actual.Sessions {
 			candidate := &actual.Sessions[i]
-			if ownedMetadata(candidate.Metadata, repo, "session", repo.RepositoryIdentity) {
+			if ownedMetadata(candidate.Metadata, repo, "session", repo.Identity()) {
 				ownedSessions = append(ownedSessions, candidate)
 			}
 		}
 		sort.Slice(ownedSessions, func(i, j int) bool { return ownedSessions[i].ID < ownedSessions[j].ID })
 		if len(ownedSessions) > 0 {
 			session = ownedSessions[0]
-			plan.Operations = append(plan.Operations, Operation{Type: RepairSession, TargetID: session.ID, Identity: repo.RepositoryIdentity, Name: desired.SessionName})
+			plan.Operations = append(plan.Operations, Operation{Type: RepairSession, TargetID: session.ID, Identity: repo.Identity(), Name: desired.SessionName})
 		}
 		if len(ownedSessions) > 1 {
 			plan.Conflicts = append(plan.Conflicts, "multiple owned sessions require manual consolidation")
@@ -142,7 +142,7 @@ func Build(repo config.Repository, gitSnapshot gitclient.Snapshot, actual tmux.S
 		if gitSnapshot.Complete && actual.Complete {
 			for _, otherSession := range actual.Sessions {
 				for _, window := range otherSession.Windows {
-					if tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) {
+					if tmux.ValidOwnedWindow(window.Metadata, repo.Identity()) {
 						plan.Operations = append(plan.Operations, Operation{Type: KillWindow, TargetID: window.ID, Identity: window.Metadata.Identity, Role: window.Metadata.Role})
 					}
 				}
@@ -153,7 +153,7 @@ func Build(repo config.Repository, gitSnapshot gitclient.Snapshot, actual tmux.S
 	manualNames := make(map[string]bool)
 	managed := make(map[string][]tmux.Window)
 	for _, window := range session.Windows {
-		if tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) {
+		if tmux.ValidOwnedWindow(window.Metadata, repo.Identity()) {
 			managed[window.Metadata.Identity] = append(managed[window.Metadata.Identity], window)
 		} else {
 			manualNames[window.Name] = true
@@ -205,7 +205,7 @@ func Build(repo config.Repository, gitSnapshot gitclient.Snapshot, actual tmux.S
 				continue
 			}
 			for _, window := range otherSession.Windows {
-				if tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) {
+				if tmux.ValidOwnedWindow(window.Metadata, repo.Identity()) {
 					plan.Operations = append(plan.Operations, Operation{Type: KillWindow, TargetID: window.ID, Identity: window.Metadata.Identity, Role: window.Metadata.Role})
 				}
 			}

@@ -59,8 +59,8 @@ func TestValidateRejectsDuplicateIdentityAndUnsafeID(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Default()
 	cfg.Repositories = []config.Repository{
-		{ID: "safe", PrimaryRoot: root, CommonGitDir: filepath.Join(root, ".git"), RepositoryIdentity: filepath.Join(root, ".git"), AllowedRoots: []string{root}},
-		{ID: "unsafe:name", PrimaryRoot: root, CommonGitDir: filepath.Join(root, ".git"), RepositoryIdentity: filepath.Join(root, ".git"), AllowedRoots: []string{root}},
+		{ID: "safe", PrimaryRoot: root, CommonGitDir: filepath.Join(root, ".git"), AllowedRoots: []string{root}},
+		{ID: "unsafe:name", PrimaryRoot: root, CommonGitDir: filepath.Join(root, ".git"), AllowedRoots: []string{root}},
 	}
 
 	err := cfg.Validate()
@@ -71,13 +71,20 @@ func TestValidateRejectsDuplicateIdentityAndUnsafeID(t *testing.T) {
 	require.ErrorContains(t, err, "duplicate repository identity")
 }
 
-func TestValidateRequiresCanonicalRepositoryIdentity(t *testing.T) {
+func TestRepositoryIdentityIsDerivedFromCommonGitDirectory(t *testing.T) {
 	root := t.TempDir()
 	common := filepath.Join(root, ".git")
 	require.NoError(t, os.Mkdir(common, 0o700))
 	cfg := config.Default()
 	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: root, CommonGitDir: common, AllowedRoots: []string{root}}}
-	require.ErrorContains(t, cfg.Validate(), "identity")
+	path := filepath.Join(root, "config.json")
+	require.NoError(t, config.Save(path, cfg))
+	loaded, err := config.Load(path)
+	require.NoError(t, err)
+	require.Equal(t, common, loaded.Repositories[0].Identity())
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "repository_identity")
 }
 
 func TestLoadRequiresExplicitRefreshForVersionOne(t *testing.T) {
@@ -131,7 +138,7 @@ func TestActionPolicyValidationAndDefaults(t *testing.T) {
 	common := filepath.Join(root, ".git")
 	require.NoError(t, os.Mkdir(common, 0o700))
 	cfg := config.Default()
-	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: root, CommonGitDir: common, RepositoryIdentity: common, AllowedRoots: []string{root}}}
+	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: root, CommonGitDir: common, AllowedRoots: []string{root}}}
 	path := filepath.Join(root, "config.json")
 	require.NoError(t, config.Save(path, cfg))
 	loaded, err := config.Load(path)

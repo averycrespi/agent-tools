@@ -80,7 +80,7 @@ func TestSnapshotReadsLinkedGitFileWithoutPerWorktreeSubprocess(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(linked, ".git"), []byte("gitdir: "+admin+"\n"), 0o600))
 	output := "worktree " + primary + "\x00HEAD abc\x00branch refs/heads/main\x00\x00" + "worktree " + linked + "\x00HEAD def\x00branch refs/heads/linked\x00\x00"
 	runner := &fakeRunner{responses: []response{{output: []byte(output)}}}
-	snapshot, err := gitclient.New(runner, time.Second).Snapshot(context.Background(), gitclient.Repository{PrimaryRoot: primary, CommonGitDir: common, Identity: common})
+	snapshot, err := gitclient.New(runner, time.Second).Snapshot(context.Background(), gitclient.Repository{PrimaryRoot: primary, CommonGitDir: common})
 	require.NoError(t, err)
 	require.True(t, snapshot.Complete)
 	require.Len(t, runner.calls, 1)

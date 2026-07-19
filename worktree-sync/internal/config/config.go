@@ -57,16 +57,15 @@ type SetupAction struct {
 }
 
 type Repository struct {
-	ID                 string        `json:"id"`
-	PrimaryRoot        string        `json:"primary_root"`
-	CommonGitDir       string        `json:"common_git_dir"`
-	AllowedRoots       []string      `json:"allowed_worktree_roots"`
-	LaunchCommand      string        `json:"launch_command,omitempty"`
-	CopyActions        []CopyAction  `json:"copy_actions,omitempty"`
-	SetupActions       []SetupAction `json:"setup_actions,omitempty"`
-	SetupPolicy        ActionPolicy  `json:"setup_policy"`
-	LaunchPolicy       ActionPolicy  `json:"launch_policy"`
-	RepositoryIdentity string        `json:"repository_identity,omitempty"`
+	ID            string        `json:"id"`
+	PrimaryRoot   string        `json:"primary_root"`
+	CommonGitDir  string        `json:"common_git_dir"`
+	AllowedRoots  []string      `json:"allowed_worktree_roots"`
+	LaunchCommand string        `json:"launch_command,omitempty"`
+	CopyActions   []CopyAction  `json:"copy_actions,omitempty"`
+	SetupActions  []SetupAction `json:"setup_actions,omitempty"`
+	SetupPolicy   ActionPolicy  `json:"setup_policy"`
+	LaunchPolicy  ActionPolicy  `json:"launch_policy"`
 }
 
 type Config struct {
@@ -99,7 +98,8 @@ type legacyPolicy struct {
 }
 type legacyRepository struct {
 	Repository
-	Policy legacyPolicy `json:"policy"`
+	RepositoryIdentity string       `json:"repository_identity"`
+	Policy             legacyPolicy `json:"policy"`
 }
 type legacyConfig struct {
 	Version      int                `json:"version"`
@@ -132,6 +132,9 @@ func migrateLegacy(legacy legacyConfig) (Config, error) {
 			return Config{}, fmt.Errorf("repository %q launch policy cannot migrate: %w", old.ID, err)
 		}
 		repo := old.Repository
+		if old.Identity() != "" && old.Identity() != repo.CommonGitDir {
+			return Config{}, fmt.Errorf("repository %q identity does not match common_git_dir", old.ID)
+		}
 		repo.SetupPolicy, repo.LaunchPolicy = setup, launch
 		cfg.Repositories = append(cfg.Repositories, repo)
 	}
@@ -199,6 +202,8 @@ func parsePositive(name, value string) error {
 	return nil
 }
 
+func (r Repository) Identity() string { return r.CommonGitDir }
+
 func (c Config) Validate() error {
 	if c.Version == 1 {
 		return fmt.Errorf("config version 1 requires migration; run wts config refresh")
@@ -226,10 +231,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("duplicate repository ID %q", repo.ID)
 		}
 		ids[repo.ID] = true
-		if repo.RepositoryIdentity == "" || repo.RepositoryIdentity != repo.CommonGitDir {
-			return fmt.Errorf("repository %q identity must equal its canonical common Git directory", repo.ID)
-		}
-		identity := repo.RepositoryIdentity
+		identity := repo.Identity()
 		if identities[identity] {
 			return fmt.Errorf("duplicate repository identity %q", identity)
 		}
