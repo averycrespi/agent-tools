@@ -62,7 +62,7 @@ func NewWTS(controller app.Controller) *cobra.Command {
 	var roots []string
 	repoAdd := &cobra.Command{Use: "add [path]", Short: "Register an existing primary Git worktree", Args: rangeArgs("repo add accepts at most one repository path", 0, 1)}
 	repoAdd.Flags().StringVar(&repoID, "id", "", "stable tmux-safe repository ID")
-	repoAdd.Flags().StringSliceVar(&roots, "worktree-root", nil, "existing allowed worktree root (repeatable)")
+	repoAdd.Flags().StringSliceVar(&roots, "worktree-root", nil, "existing allowed root; repeatable and overrides configured defaults")
 	repoAdd.RunE = run(controller, "repo.add", func(*cobra.Command) map[string]any { return map[string]any{"id": repoID, "roots": roots} })
 	repoList := &cobra.Command{Use: "list", Short: "List registered Git repositories", Args: exactArgs("repo list does not accept arguments", 0), RunE: run(controller, "repo.list", nil)}
 	repoRemove := &cobra.Command{Use: "remove <repository-id>", Short: "Unregister a repository without deleting Git worktrees", Args: exactArgs("repo remove requires exactly one repository ID", 1), RunE: run(controller, "repo.remove", nil)}

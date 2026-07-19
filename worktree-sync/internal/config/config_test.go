@@ -55,6 +55,20 @@ func TestCanonicalContainmentRejectsSymlinkEscape(t *testing.T) {
 	require.False(t, config.Contains(canonicalRoot, escaped))
 }
 
+func TestValidateRejectsNoncanonicalDefaultWorktreeRoot(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	require.NoError(t, os.Mkdir(target, 0o700))
+	link := filepath.Join(base, "link")
+	require.NoError(t, os.Symlink(target, link))
+	cfg := config.Default()
+	cfg.Global.DefaultAllowedRoots = []string{link}
+	require.ErrorContains(t, cfg.Validate(), "default allowed worktree root")
+
+	cfg.Global.DefaultAllowedRoots = []string{target, target}
+	require.ErrorContains(t, cfg.Validate(), "duplicate default allowed worktree root")
+}
+
 func TestValidateRejectsDuplicateIdentityAndUnsafeID(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Default()

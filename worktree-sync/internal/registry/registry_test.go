@@ -2,6 +2,7 @@ package registry_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,6 +21,50 @@ type inspector struct {
 
 func (i inspector) InspectPrimary(context.Context, string) (gitclient.Repository, error) {
 	return i.info, i.err
+}
+
+func TestAddUsesConfiguredDefaultWorktreeRoots(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "repo")
+	common := filepath.Join(primary, ".git")
+	first := filepath.Join(base, "worktrees-one")
+	second := filepath.Join(base, "worktrees-two")
+	for _, path := range []string{common, first, second} {
+		require.NoError(t, os.MkdirAll(path, 0o700))
+	}
+	configPath := filepath.Join(base, "config.json")
+	data := fmt.Sprintf(`{"version":2,"global":{"reconcile_interval":"30s","debounce":"250ms","command_timeout":"20s","default_allowed_worktree_roots":[%q,%q]},"repositories":[]}`, first, second)
+	require.NoError(t, os.WriteFile(configPath, []byte(data), 0o600))
+	cfg, err := config.Load(configPath)
+	require.NoError(t, err)
+
+	fallback := filepath.Join(base, "fallback")
+	service := registry.New(inspector{info: gitclient.Repository{PrimaryRoot: primary, CommonGitDir: common}}, config.Paths{Worktrees: fallback})
+	_, repo, err := service.Add(context.Background(), cfg, registry.AddOptions{Path: primary})
+	require.NoError(t, err)
+	require.Equal(t, []string{first, second}, repo.AllowedRoots)
+	_, err = os.Stat(fallback)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestAddExplicitRootsOverrideConfiguredDefaultsAndDeduplicate(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "repo")
+	common := filepath.Join(primary, ".git")
+	configured := filepath.Join(base, "configured")
+	explicit := filepath.Join(base, "explicit")
+	for _, path := range []string{common, configured, explicit} {
+		require.NoError(t, os.MkdirAll(path, 0o700))
+	}
+	alias := filepath.Join(base, "explicit-alias")
+	require.NoError(t, os.Symlink(explicit, alias))
+	cfg := config.Default()
+	cfg.Global.DefaultAllowedRoots = []string{configured}
+	service := registry.New(inspector{info: gitclient.Repository{PrimaryRoot: primary, CommonGitDir: common}}, config.Paths{Worktrees: filepath.Join(base, "fallback")})
+
+	_, repo, err := service.Add(context.Background(), cfg, registry.AddOptions{Path: primary, AllowedRoots: []string{explicit, alias}})
+	require.NoError(t, err)
+	require.Equal(t, []string{explicit}, repo.AllowedRoots)
 }
 
 func TestAddCreatesPrivateDefaultRootAndRequiresExplicitIDCollision(t *testing.T) {

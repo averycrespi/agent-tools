@@ -27,9 +27,10 @@ type Paths struct {
 }
 
 type Global struct {
-	ReconcileInterval string `json:"reconcile_interval"`
-	Debounce          string `json:"debounce"`
-	CommandTimeout    string `json:"command_timeout"`
+	ReconcileInterval   string   `json:"reconcile_interval"`
+	Debounce            string   `json:"debounce"`
+	CommandTimeout      string   `json:"command_timeout"`
+	DefaultAllowedRoots []string `json:"default_allowed_worktree_roots,omitempty"`
 }
 
 type ActionPolicy string
@@ -220,6 +221,20 @@ func (c Config) Validate() error {
 	}
 	if err := parsePositive("command_timeout", c.Global.CommandTimeout); err != nil {
 		return err
+	}
+	defaultRoots := make(map[string]bool)
+	for _, path := range c.Global.DefaultAllowedRoots {
+		canonical, err := CanonicalExisting(path)
+		if err != nil {
+			return fmt.Errorf("default allowed worktree root: %w", err)
+		}
+		if canonical != filepath.Clean(path) {
+			return fmt.Errorf("default allowed worktree root %q is not canonical", path)
+		}
+		if defaultRoots[canonical] {
+			return fmt.Errorf("duplicate default allowed worktree root %q", canonical)
+		}
+		defaultRoots[canonical] = true
 	}
 	ids := make(map[string]bool)
 	identities := make(map[string]bool)

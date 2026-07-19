@@ -8,7 +8,7 @@ The core supports macOS and Linux and has no Lima dependency or path translation
 
 ## Configuration and identity
 
-Configuration is versioned JSON under the XDG `worktree-sync` namespace. The registry stores canonical primary roots, canonical common Git directories, stable user-selected repository IDs, and canonical allowed worktree roots. Registration accepts only a primary non-bare worktree; a linked worktree is not a valid base.
+Configuration is versioned JSON under the XDG `worktree-sync` namespace. The registry stores canonical primary roots, canonical common Git directories, stable user-selected repository IDs, and canonical allowed worktree roots. Global `default_allowed_worktree_roots` are validated as existing, canonical, unique directories and copied into newly registered repositories. Repeated `--worktree-root` flags replace those defaults for one registration; when neither is present, registration creates and uses the private XDG data root. Default changes never alter existing repositories. Root order is significant: managed creation uses the first root, while reconciliation accepts worktrees beneath any root. Registration accepts only a primary non-bare worktree; a linked worktree is not a valid base.
 
 Repository IDs are a deliberately constrained, non-lossy tmux-safe identity rather than sanitized display text. Repository identity is derived from the canonical common Git directory rather than persisted separately. A linked worktree identity combines its canonical Git administrative directory with its filesystem administrative identity, so removing and recreating a worktree at the same path produces a new action/projection identity. Branch and path labels are display data only.
 

@@ -55,7 +55,7 @@ wts status
 wts attach
 ```
 
-Managed creation defaults to:
+Without configured or command-line roots, managed creation defaults to:
 
 ```text
 ${XDG_DATA_HOME:-~/.local/share}/worktree-sync/worktrees/
@@ -93,6 +93,22 @@ wts repo add \
 ```
 
 Registration accepts only a primary, non-bare worktree. Repository IDs contain at most 64 letters, numbers, hyphens, or underscores. Supply `--id` when the basename is unsafe or collides with another repository.
+
+To configure roots for future registrations, add them to the existing `global` object with `wts config edit`. The resulting object can look like:
+
+```json
+{
+  "reconcile_interval": "30s",
+  "debounce": "250ms",
+  "command_timeout": "20s",
+  "default_allowed_worktree_roots": [
+    "/Users/me/.local/share/wt/worktrees",
+    "/Volumes/worktrees"
+  ]
+}
+```
+
+Configured roots must already exist and be absolute, canonical paths. Registration copies them into the new repository; changing the global list does not alter existing repositories. The first root is used for worktrees created by `wts`, while every root is eligible for externally created worktrees. Repeated `--worktree-root` flags replace the configured defaults for that registration.
 
 ### Use an existing branch
 
@@ -189,16 +205,15 @@ A registered repository without automation resembles:
   "global": {
     "reconcile_interval": "30s",
     "debounce": "250ms",
-    "command_timeout": "20s"
+    "command_timeout": "20s",
+    "default_allowed_worktree_roots": ["/Users/me/.local/share/wt/worktrees"]
   },
   "repositories": [
     {
       "id": "api",
       "primary_root": "/Users/me/src/api",
       "common_git_dir": "/Users/me/src/api/.git",
-      "allowed_worktree_roots": [
-        "/Users/me/.local/share/worktree-sync/worktrees"
-      ],
+      "allowed_worktree_roots": ["/Users/me/.local/share/wt/worktrees"],
       "setup_policy": "manual",
       "launch_policy": "manual"
     }
@@ -206,7 +221,7 @@ A registered repository without automation resembles:
 }
 ```
 
-Registration writes canonical path fields. `common_git_dir` is Git's shared administrative directory and is also the source of the internal repository identity used for tmux ownership and durable state; there is no separate identity field to edit.
+Registration writes canonical path fields and snapshots the selected default roots into `allowed_worktree_roots`. `common_git_dir` is Git's shared administrative directory and is also the source of the internal repository identity used for tmux ownership and durable state; there is no separate identity field to edit.
 
 ### Setup and launch automation
 

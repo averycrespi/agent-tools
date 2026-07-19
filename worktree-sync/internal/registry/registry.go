@@ -52,8 +52,12 @@ func (s *Service) Add(ctx context.Context, cfg config.Config, options AddOptions
 			return cfg, config.Repository{}, fmt.Errorf("repository ID %q already exists", id)
 		}
 	}
-	roots := make([]string, 0, len(options.AllowedRoots)+1)
-	if len(options.AllowedRoots) == 0 {
+	requestedRoots := options.AllowedRoots
+	if len(requestedRoots) == 0 {
+		requestedRoots = cfg.Global.DefaultAllowedRoots
+	}
+	roots := make([]string, 0, len(requestedRoots)+1)
+	if len(requestedRoots) == 0 {
 		if err := os.MkdirAll(s.paths.Worktrees, 0o700); err != nil {
 			return cfg, config.Repository{}, fmt.Errorf("creating default worktree root: %w", err)
 		}
@@ -66,12 +70,16 @@ func (s *Service) Add(ctx context.Context, cfg config.Config, options AddOptions
 		}
 		roots = append(roots, canonical)
 	} else {
-		for _, root := range options.AllowedRoots {
+		seen := make(map[string]bool)
+		for _, root := range requestedRoots {
 			canonical, canonicalErr := config.CanonicalExisting(root)
 			if canonicalErr != nil {
 				return cfg, config.Repository{}, fmt.Errorf("allowed worktree root: %w", canonicalErr)
 			}
-			roots = append(roots, canonical)
+			if !seen[canonical] {
+				roots = append(roots, canonical)
+				seen[canonical] = true
+			}
 		}
 	}
 	repo := config.Repository{ID: id, PrimaryRoot: info.PrimaryRoot, CommonGitDir: info.CommonGitDir, AllowedRoots: roots, SetupPolicy: config.ActionManual, LaunchPolicy: config.ActionManual}
