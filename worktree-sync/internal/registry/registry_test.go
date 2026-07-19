@@ -27,13 +27,14 @@ func TestAddUsesConfiguredDefaultWorktreeRoots(t *testing.T) {
 	base := t.TempDir()
 	primary := filepath.Join(base, "repo")
 	common := filepath.Join(primary, ".git")
+	creation := filepath.Join(base, "managed")
 	first := filepath.Join(base, "worktrees-one")
 	second := filepath.Join(base, "worktrees-two")
-	for _, path := range []string{common, first, second} {
+	for _, path := range []string{common, creation, first, second} {
 		require.NoError(t, os.MkdirAll(path, 0o700))
 	}
 	configPath := filepath.Join(base, "config.json")
-	data := fmt.Sprintf(`{"version":2,"global":{"reconcile_interval":"30s","debounce":"250ms","command_timeout":"20s","default_allowed_worktree_roots":[%q,%q]},"repositories":[]}`, first, second)
+	data := fmt.Sprintf(`{"version":3,"global":{"reconcile_interval":"30s","debounce":"250ms","command_timeout":"20s","default_worktree_creation_root":%q,"default_allowed_worktree_roots":[%q,%q]},"repositories":[]}`, creation, first, second)
 	require.NoError(t, os.WriteFile(configPath, []byte(data), 0o600))
 	cfg, err := config.Load(configPath)
 	require.NoError(t, err)
@@ -42,7 +43,8 @@ func TestAddUsesConfiguredDefaultWorktreeRoots(t *testing.T) {
 	service := registry.New(inspector{info: gitclient.Repository{PrimaryRoot: primary, CommonGitDir: common}}, config.Paths{Worktrees: fallback})
 	_, repo, err := service.Add(context.Background(), cfg, registry.AddOptions{Path: primary})
 	require.NoError(t, err)
-	require.Equal(t, []string{first, second}, repo.AllowedRoots)
+	require.Equal(t, creation, repo.WorktreeCreationRoot)
+	require.Equal(t, []string{creation, first, second}, repo.AllowedRoots)
 	_, err = os.Stat(fallback)
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
@@ -51,20 +53,24 @@ func TestAddExplicitRootsOverrideConfiguredDefaultsAndDeduplicate(t *testing.T) 
 	base := t.TempDir()
 	primary := filepath.Join(base, "repo")
 	common := filepath.Join(primary, ".git")
-	configured := filepath.Join(base, "configured")
-	explicit := filepath.Join(base, "explicit")
-	for _, path := range []string{common, configured, explicit} {
+	configuredCreation := filepath.Join(base, "configured-creation")
+	configuredAllowed := filepath.Join(base, "configured-allowed")
+	explicitCreation := filepath.Join(base, "explicit-creation")
+	explicitAllowed := filepath.Join(base, "explicit-allowed")
+	for _, path := range []string{common, configuredCreation, configuredAllowed, explicitCreation, explicitAllowed} {
 		require.NoError(t, os.MkdirAll(path, 0o700))
 	}
 	alias := filepath.Join(base, "explicit-alias")
-	require.NoError(t, os.Symlink(explicit, alias))
+	require.NoError(t, os.Symlink(explicitAllowed, alias))
 	cfg := config.Default()
-	cfg.Global.DefaultAllowedRoots = []string{configured}
+	cfg.Global.DefaultCreationRoot = configuredCreation
+	cfg.Global.DefaultAllowedRoots = []string{configuredAllowed}
 	service := registry.New(inspector{info: gitclient.Repository{PrimaryRoot: primary, CommonGitDir: common}}, config.Paths{Worktrees: filepath.Join(base, "fallback")})
 
-	_, repo, err := service.Add(context.Background(), cfg, registry.AddOptions{Path: primary, AllowedRoots: []string{explicit, alias}})
+	_, repo, err := service.Add(context.Background(), cfg, registry.AddOptions{Path: primary, CreationRoot: explicitCreation, AllowedRoots: []string{explicitAllowed, alias}})
 	require.NoError(t, err)
-	require.Equal(t, []string{explicit}, repo.AllowedRoots)
+	require.Equal(t, explicitCreation, repo.WorktreeCreationRoot)
+	require.Equal(t, []string{explicitCreation, explicitAllowed}, repo.AllowedRoots)
 }
 
 func TestAddCreatesPrivateDefaultRootAndRequiresExplicitIDCollision(t *testing.T) {
@@ -79,6 +85,8 @@ func TestAddCreatesPrivateDefaultRootAndRequiresExplicitIDCollision(t *testing.T
 	updated, repo, err := service.Add(context.Background(), cfg, registry.AddOptions{Path: primary})
 	require.NoError(t, err)
 	require.Equal(t, "same", repo.ID)
+	require.Equal(t, paths.Worktrees, repo.WorktreeCreationRoot)
+	require.Equal(t, []string{paths.Worktrees}, repo.AllowedRoots)
 	info, err := os.Stat(paths.Worktrees)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o700), info.Mode().Perm())

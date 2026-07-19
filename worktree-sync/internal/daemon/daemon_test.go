@@ -69,7 +69,7 @@ func TestConfigReloadRebuildsAllowedRootWatch(t *testing.T) {
 	require.NoError(t, os.Mkdir(allowed, 0o700))
 	nested := filepath.Join(allowed, "existing-parent")
 	require.NoError(t, os.Mkdir(nested, 0o700))
-	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: primary, CommonGitDir: common, AllowedRoots: []string{allowed}}}
+	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: primary, CommonGitDir: common, WorktreeCreationRoot: allowed, AllowedRoots: []string{allowed}}}
 	require.NoError(t, config.Save(paths.Config, cfg))
 	require.Equal(t, "reconcile", receive(t, calls))
 drain:

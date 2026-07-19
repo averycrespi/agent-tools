@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -55,13 +56,17 @@ func TestCanonicalContainmentRejectsSymlinkEscape(t *testing.T) {
 	require.False(t, config.Contains(canonicalRoot, escaped))
 }
 
-func TestValidateRejectsNoncanonicalDefaultWorktreeRoot(t *testing.T) {
+func TestValidateRejectsInvalidDefaultWorktreeRoots(t *testing.T) {
 	base := t.TempDir()
 	target := filepath.Join(base, "target")
 	require.NoError(t, os.Mkdir(target, 0o700))
 	link := filepath.Join(base, "link")
 	require.NoError(t, os.Symlink(target, link))
 	cfg := config.Default()
+	cfg.Global.DefaultCreationRoot = link
+	require.ErrorContains(t, cfg.Validate(), "default worktree creation root")
+
+	cfg.Global.DefaultCreationRoot = ""
 	cfg.Global.DefaultAllowedRoots = []string{link}
 	require.ErrorContains(t, cfg.Validate(), "default allowed worktree root")
 
@@ -73,8 +78,8 @@ func TestValidateRejectsDuplicateIdentityAndUnsafeID(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Default()
 	cfg.Repositories = []config.Repository{
-		{ID: "safe", PrimaryRoot: root, CommonGitDir: filepath.Join(root, ".git"), AllowedRoots: []string{root}},
-		{ID: "unsafe:name", PrimaryRoot: root, CommonGitDir: filepath.Join(root, ".git"), AllowedRoots: []string{root}},
+		{ID: "safe", PrimaryRoot: root, CommonGitDir: filepath.Join(root, ".git"), WorktreeCreationRoot: root, AllowedRoots: []string{root}},
+		{ID: "unsafe:name", PrimaryRoot: root, CommonGitDir: filepath.Join(root, ".git"), WorktreeCreationRoot: root, AllowedRoots: []string{root}},
 	}
 
 	err := cfg.Validate()
@@ -90,7 +95,7 @@ func TestRepositoryIdentityIsDerivedFromCommonGitDirectory(t *testing.T) {
 	common := filepath.Join(root, ".git")
 	require.NoError(t, os.Mkdir(common, 0o700))
 	cfg := config.Default()
-	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: root, CommonGitDir: common, AllowedRoots: []string{root}}}
+	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: root, CommonGitDir: common, WorktreeCreationRoot: root, AllowedRoots: []string{root}}}
 	path := filepath.Join(root, "config.json")
 	require.NoError(t, config.Save(path, cfg))
 	loaded, err := config.Load(path)
@@ -101,11 +106,61 @@ func TestRepositoryIdentityIsDerivedFromCommonGitDirectory(t *testing.T) {
 	require.NotContains(t, string(data), "repository_identity")
 }
 
-func TestLoadRequiresExplicitRefreshForVersionOne(t *testing.T) {
+func TestLoadRequiresExplicitRefreshForOlderVersions(t *testing.T) {
+	for _, version := range []int{1, 2} {
+		path := filepath.Join(t.TempDir(), "config.json")
+		require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf(`{"version":%d}`, version)), 0o600))
+		_, err := config.Load(path)
+		require.ErrorContains(t, err, "wts config refresh")
+	}
+}
+
+func TestLoadForRefreshMigratesVersionTwoCreationRoots(t *testing.T) {
+	base := t.TempDir()
+	first := filepath.Join(base, "first")
+	second := filepath.Join(base, "second")
+	primary := filepath.Join(base, "repo")
+	common := filepath.Join(primary, ".git")
+	for _, path := range []string{first, second, common} {
+		require.NoError(t, os.MkdirAll(path, 0o700))
+	}
+	path := filepath.Join(base, "config.json")
+	data := fmt.Sprintf(`{"version":2,"global":{"reconcile_interval":"30s","debounce":"250ms","command_timeout":"20s","default_allowed_worktree_roots":[%q,%q]},"repositories":[{"id":"repo","primary_root":%q,"common_git_dir":%q,"allowed_worktree_roots":[%q,%q],"setup_policy":"manual","launch_policy":"manual"}]}`, first, second, primary, common, second, first)
+	require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
+
+	cfg, err := config.LoadForRefresh(path)
+	require.NoError(t, err)
+	encoded, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	var migrated struct {
+		Version int `json:"version"`
+		Global  struct {
+			CreationRoot string `json:"default_worktree_creation_root"`
+		} `json:"global"`
+		Repositories []struct {
+			CreationRoot string   `json:"worktree_creation_root"`
+			AllowedRoots []string `json:"allowed_worktree_roots"`
+		} `json:"repositories"`
+	}
+	require.NoError(t, json.Unmarshal(encoded, &migrated))
+	require.Equal(t, 3, migrated.Version)
+	require.Equal(t, first, migrated.Global.CreationRoot)
+	require.Equal(t, second, migrated.Repositories[0].CreationRoot)
+	require.Equal(t, []string{second, first}, migrated.Repositories[0].AllowedRoots)
+}
+
+func TestLoadForRefreshRejectsUnknownVersionOneFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	require.NoError(t, os.WriteFile(path, []byte(`{"version":1}`), 0o600))
-	_, err := config.Load(path)
-	require.ErrorContains(t, err, "wts config refresh")
+	require.NoError(t, os.WriteFile(path, []byte(`{"version":1,"unexpected":true}`), 0o600))
+	_, err := config.LoadForRefresh(path)
+	require.ErrorContains(t, err, "unknown field")
+}
+
+func TestLoadForRefreshRejectsUnknownVersionTwoFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"version":2,"unexpected":true}`), 0o600))
+	_, err := config.LoadForRefresh(path)
+	require.ErrorContains(t, err, "unknown field")
 }
 
 func TestLoadForRefreshMigratesVersionOnePolicies(t *testing.T) {
@@ -131,6 +186,7 @@ func TestLoadForRefreshMigratesVersionOnePolicies(t *testing.T) {
 	require.Equal(t, config.ActionWTSCreated, cfg.Repositories[1].LaunchPolicy)
 	require.Equal(t, config.ActionAll, cfg.Repositories[2].SetupPolicy)
 	require.Equal(t, config.ActionAll, cfg.Repositories[2].LaunchPolicy)
+	require.Equal(t, base, cfg.Repositories[0].WorktreeCreationRoot)
 }
 
 func TestLoadForRefreshRejectsMismatchedLegacyIdentity(t *testing.T) {
@@ -147,9 +203,9 @@ func TestLoadForRefreshRejectsPassiveOnlyVersionOnePolicy(t *testing.T) {
 	require.ErrorContains(t, err, "cannot migrate")
 }
 
-func TestVersionTwoRejectsLegacyPolicyField(t *testing.T) {
+func TestVersionThreeRejectsLegacyPolicyField(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	require.NoError(t, os.WriteFile(path, []byte(`{"version":2,"global":{"reconcile_interval":"30s","debounce":"250ms","command_timeout":"20s"},"repositories":[{"policy":{}}]}`), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte(`{"version":3,"global":{"reconcile_interval":"30s","debounce":"250ms","command_timeout":"20s"},"repositories":[{"policy":{}}]}`), 0o600))
 	_, err := config.Load(path)
 	require.ErrorContains(t, err, "unknown field")
 }
@@ -159,13 +215,16 @@ func TestActionPolicyValidationAndDefaults(t *testing.T) {
 	common := filepath.Join(root, ".git")
 	require.NoError(t, os.Mkdir(common, 0o700))
 	cfg := config.Default()
-	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: root, CommonGitDir: common, AllowedRoots: []string{root}}}
+	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: root, CommonGitDir: common, WorktreeCreationRoot: root, AllowedRoots: []string{root}}}
 	path := filepath.Join(root, "config.json")
 	require.NoError(t, config.Save(path, cfg))
 	loaded, err := config.Load(path)
 	require.NoError(t, err)
 	require.Equal(t, config.ActionManual, loaded.Repositories[0].SetupPolicy)
 	require.Equal(t, config.ActionManual, loaded.Repositories[0].LaunchPolicy)
+	loaded.Repositories[0].AllowedRoots = []string{common}
+	require.ErrorContains(t, loaded.Validate(), "worktree_creation_root must be included")
+	loaded.Repositories[0].AllowedRoots = []string{root}
 	loaded.Repositories[0].SetupPolicy = "sometimes"
 	require.ErrorContains(t, loaded.Validate(), "setup_policy")
 }

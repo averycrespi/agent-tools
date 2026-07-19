@@ -24,6 +24,7 @@ func New(git inspector, paths config.Paths) *Service { return &Service{git: git,
 type AddOptions struct {
 	Path         string
 	ID           string
+	CreationRoot string
 	AllowedRoots []string
 }
 
@@ -52,37 +53,41 @@ func (s *Service) Add(ctx context.Context, cfg config.Config, options AddOptions
 			return cfg, config.Repository{}, fmt.Errorf("repository ID %q already exists", id)
 		}
 	}
-	requestedRoots := options.AllowedRoots
-	if len(requestedRoots) == 0 {
-		requestedRoots = cfg.Global.DefaultAllowedRoots
+	creationRoot := options.CreationRoot
+	if creationRoot == "" {
+		creationRoot = cfg.Global.DefaultCreationRoot
 	}
-	roots := make([]string, 0, len(requestedRoots)+1)
-	if len(requestedRoots) == 0 {
+	if creationRoot == "" {
 		if err := os.MkdirAll(s.paths.Worktrees, 0o700); err != nil {
 			return cfg, config.Repository{}, fmt.Errorf("creating default worktree root: %w", err)
 		}
 		if err := os.Chmod(s.paths.Worktrees, 0o700); err != nil { //nolint:gosec // private directory requires owner traversal
 			return cfg, config.Repository{}, fmt.Errorf("securing default worktree root: %w", err)
 		}
-		canonical, canonicalErr := config.CanonicalExisting(s.paths.Worktrees)
+		creationRoot = s.paths.Worktrees
+	}
+	canonicalCreationRoot, err := config.CanonicalExisting(creationRoot)
+	if err != nil {
+		return cfg, config.Repository{}, fmt.Errorf("worktree creation root: %w", err)
+	}
+	requestedAllowedRoots := options.AllowedRoots
+	if len(requestedAllowedRoots) == 0 {
+		requestedAllowedRoots = cfg.Global.DefaultAllowedRoots
+	}
+	roots := make([]string, 0, len(requestedAllowedRoots)+1)
+	roots = append(roots, canonicalCreationRoot)
+	seen := map[string]bool{canonicalCreationRoot: true}
+	for _, root := range requestedAllowedRoots {
+		canonical, canonicalErr := config.CanonicalExisting(root)
 		if canonicalErr != nil {
-			return cfg, config.Repository{}, canonicalErr
+			return cfg, config.Repository{}, fmt.Errorf("allowed worktree root: %w", canonicalErr)
 		}
-		roots = append(roots, canonical)
-	} else {
-		seen := make(map[string]bool)
-		for _, root := range requestedRoots {
-			canonical, canonicalErr := config.CanonicalExisting(root)
-			if canonicalErr != nil {
-				return cfg, config.Repository{}, fmt.Errorf("allowed worktree root: %w", canonicalErr)
-			}
-			if !seen[canonical] {
-				roots = append(roots, canonical)
-				seen[canonical] = true
-			}
+		if !seen[canonical] {
+			roots = append(roots, canonical)
+			seen[canonical] = true
 		}
 	}
-	repo := config.Repository{ID: id, PrimaryRoot: info.PrimaryRoot, CommonGitDir: info.CommonGitDir, AllowedRoots: roots, SetupPolicy: config.ActionManual, LaunchPolicy: config.ActionManual}
+	repo := config.Repository{ID: id, PrimaryRoot: info.PrimaryRoot, CommonGitDir: info.CommonGitDir, WorktreeCreationRoot: canonicalCreationRoot, AllowedRoots: roots, SetupPolicy: config.ActionManual, LaunchPolicy: config.ActionManual}
 	cfg.Repositories = append(cfg.Repositories, repo)
 	if err := cfg.Validate(); err != nil {
 		return cfg, config.Repository{}, err

@@ -220,7 +220,7 @@ func (s *Service) addRepo(ctx context.Context, request app.Request) (string, err
 	if len(request.Args) == 1 {
 		path = request.Args[0]
 	}
-	updated, repo, err := registry.New(git, s.paths).Add(ctx, cfg, registry.AddOptions{Path: path, ID: optionString(request.Options, "id"), AllowedRoots: optionStrings(request.Options, "roots")})
+	updated, repo, err := registry.New(git, s.paths).Add(ctx, cfg, registry.AddOptions{Path: path, ID: optionString(request.Options, "id"), CreationRoot: optionString(request.Options, "root"), AllowedRoots: optionStrings(request.Options, "roots")})
 	if err != nil {
 		return "", err
 	}
@@ -337,7 +337,7 @@ func (s *Service) resolveRepo(ctx context.Context, cfg config.Config, id string)
 
 func (s *Service) pathFor(repo config.Repository, branch string) string {
 	occupied := func(path string) bool { _, err := os.Lstat(path); return err == nil }
-	return naming.Path(repo.AllowedRoots[0], repo.ID, branch, repo.Identity()+"\x00"+branch, occupied)
+	return naming.Path(repo.WorktreeCreationRoot, repo.ID, branch, repo.Identity()+"\x00"+branch, occupied)
 }
 
 func (s *Service) worktreePath(ctx context.Context, branch, repoID string) (string, error) {
@@ -381,18 +381,18 @@ func (s *Service) createWorktree(ctx context.Context, request app.Request) (stri
 	}
 	branch := request.Args[0]
 	path := s.pathFor(repo, branch)
-	allowedRoot, err := os.OpenRoot(repo.AllowedRoots[0])
+	creationRoot, err := os.OpenRoot(repo.WorktreeCreationRoot)
 	if err != nil {
-		return "", fmt.Errorf("opening allowed worktree root: %w", err)
+		return "", fmt.Errorf("opening worktree creation root: %w", err)
 	}
-	if err := allowedRoot.Mkdir(repo.ID, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
-		_ = allowedRoot.Close()
+	if err := creationRoot.Mkdir(repo.ID, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		_ = creationRoot.Close()
 		return "", fmt.Errorf("creating repository worktree root: %w", err)
 	}
-	_ = allowedRoot.Close()
+	_ = creationRoot.Close()
 	parent, err := config.CanonicalExisting(filepath.Dir(path))
-	if err != nil || !config.Contains(repo.AllowedRoots[0], parent) {
-		return "", fmt.Errorf("worktree path parent is not safely contained by the allowed root")
+	if err != nil || !config.Contains(repo.WorktreeCreationRoot, parent) {
+		return "", fmt.Errorf("worktree path parent is not safely contained by the creation root")
 	}
 	exists, err := git.BranchExists(ctx, repo.PrimaryRoot, branch)
 	if err != nil {

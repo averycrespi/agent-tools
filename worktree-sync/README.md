@@ -55,7 +55,7 @@ wts status
 wts attach
 ```
 
-Without configured or command-line roots, managed creation defaults to:
+Without a configured or command-line creation root, managed creation defaults to:
 
 ```text
 ${XDG_DATA_HOME:-~/.local/share}/worktree-sync/worktrees/
@@ -81,14 +81,15 @@ wts attach --repo-id api
 
 ## Common workflows
 
-### Register a repository with a custom ID or worktree root
+### Register a repository with custom roots
 
-Explicit worktree roots must already exist and canonicalize safely:
+The creation root controls where `wts worktree create` places worktrees. Additional allowed roots permit discovery of worktrees created through ordinary Git. Every root must already exist and canonicalize safely:
 
 ```bash
 wts repo add \
   --id api \
-  --worktree-root ~/.local/share/wt/worktrees/api \
+  --worktree-root ~/.local/share/wt/worktrees \
+  --allowed-worktree-root /Volumes/external-worktrees \
   /path/to/primary
 ```
 
@@ -101,14 +102,14 @@ To configure roots for future registrations, add them to the existing `global` o
   "reconcile_interval": "30s",
   "debounce": "250ms",
   "command_timeout": "20s",
-  "default_allowed_worktree_roots": [
-    "/Users/me/.local/share/wt/worktrees",
-    "/Volumes/worktrees"
-  ]
+  "default_worktree_creation_root": "/Users/me/.local/share/wt/worktrees",
+  "default_allowed_worktree_roots": ["/Volumes/external-worktrees"]
 }
 ```
 
-Configured roots must already exist and be absolute, canonical paths. Registration copies them into the new repository; changing the global list does not alter existing repositories. The first root is used for worktrees created by `wts`, while every root is eligible for externally created worktrees. Repeated `--worktree-root` flags replace the configured defaults for that registration.
+Configured roots must already exist and be absolute, canonical paths. Registration copies the selected creation root and complete allowlist into the new repository; changing global defaults does not alter existing repositories. The creation root is automatically allowed. `--worktree-root` replaces the default creation root, while one or more `--allowed-worktree-root` values replace the default additional allowlist for that registration. Allowed-root ordering has no effect on creation.
+
+For an existing registration, use `wts config edit` to change its `worktree_creation_root` and ensure the same path remains in `allowed_worktree_roots`. The change affects future `wts`-created worktrees; it does not move existing ones. Keep every root containing a current linked worktree in the allowlist or that worktree will be reported outside the safety boundary.
 
 ### Use an existing branch
 
@@ -187,9 +188,9 @@ wts config edit
 wts config refresh
 ```
 
-`config edit` opens a temporary copy using `VISUAL` or `EDITOR`, validates it, and atomically replaces the live file only when valid. `config refresh` explicitly migrates older versions and fills new defaults. Version-1 configurations must be refreshed before other commands run.
+`config edit` opens a temporary copy using `VISUAL` or `EDITOR`, validates it, and atomically replaces the live file only when valid. `config refresh` explicitly migrates older versions and fills new defaults. Version-1 and version-2 configurations must be refreshed before other commands run. Version 2 migrates deterministically: the first former default allowed root becomes `default_worktree_creation_root`, and each repository's first allowed root becomes its `worktree_creation_root`; the complete allowlists are preserved.
 
-A legacy passive-only policy cannot map exactly to the cumulative version-2 modes. If refresh reports one, back up and edit the version-1 file directly: either enable the matching `*_explicit` field to migrate it to `all`, or disable the `*_passive` field to migrate it to `none`. Then run refresh and, if desired, use `wts config edit` to select `manual`.
+A legacy passive-only policy cannot map exactly to the cumulative policy modes. If refresh reports one, back up and edit the version-1 file directly: either enable the matching `*_explicit` field to migrate it to `all`, or disable the `*_passive` field to migrate it to `none`. Then run refresh and, if desired, use `wts config edit` to select `manual`.
 
 ```bash
 cp "$(wts config path)" "$(wts config path).bak"
@@ -201,19 +202,24 @@ A registered repository without automation resembles:
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "global": {
     "reconcile_interval": "30s",
     "debounce": "250ms",
     "command_timeout": "20s",
-    "default_allowed_worktree_roots": ["/Users/me/.local/share/wt/worktrees"]
+    "default_worktree_creation_root": "/Users/me/.local/share/wt/worktrees",
+    "default_allowed_worktree_roots": ["/Volumes/external-worktrees"]
   },
   "repositories": [
     {
       "id": "api",
       "primary_root": "/Users/me/src/api",
       "common_git_dir": "/Users/me/src/api/.git",
-      "allowed_worktree_roots": ["/Users/me/.local/share/wt/worktrees"],
+      "worktree_creation_root": "/Users/me/.local/share/wt/worktrees",
+      "allowed_worktree_roots": [
+        "/Users/me/.local/share/wt/worktrees",
+        "/Volumes/external-worktrees"
+      ],
       "setup_policy": "manual",
       "launch_policy": "manual"
     }
@@ -221,7 +227,7 @@ A registered repository without automation resembles:
 }
 ```
 
-Registration writes canonical path fields and snapshots the selected default roots into `allowed_worktree_roots`. `common_git_dir` is Git's shared administrative directory and is also the source of the internal repository identity used for tmux ownership and durable state; there is no separate identity field to edit.
+Registration writes canonical path fields, stores the selected root in `worktree_creation_root`, and snapshots the complete safety boundary in `allowed_worktree_roots`. The creation root must appear in that allowlist. `common_git_dir` is Git's shared administrative directory and is also the source of the internal repository identity used for tmux ownership and durable state; there is no separate identity field to edit.
 
 ### Setup and launch automation
 

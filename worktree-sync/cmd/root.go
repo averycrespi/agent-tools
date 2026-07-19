@@ -58,12 +58,15 @@ func NewWTS(controller app.Controller) *cobra.Command {
 	}
 
 	repoCmd := &cobra.Command{Use: "repo", Short: "Manage registered Git repositories"}
-	var repoID string
-	var roots []string
+	var repoID, creationRoot string
+	var allowedRoots []string
 	repoAdd := &cobra.Command{Use: "add [path]", Short: "Register an existing primary Git worktree", Args: rangeArgs("repo add accepts at most one repository path", 0, 1)}
 	repoAdd.Flags().StringVar(&repoID, "id", "", "stable tmux-safe repository ID")
-	repoAdd.Flags().StringSliceVar(&roots, "worktree-root", nil, "existing allowed root; repeatable and overrides configured defaults")
-	repoAdd.RunE = run(controller, "repo.add", func(*cobra.Command) map[string]any { return map[string]any{"id": repoID, "roots": roots} })
+	repoAdd.Flags().StringVar(&creationRoot, "worktree-root", "", "existing root for worktrees created by wts")
+	repoAdd.Flags().StringSliceVar(&allowedRoots, "allowed-worktree-root", nil, "additional existing allowed root; repeatable and overrides defaults")
+	repoAdd.RunE = run(controller, "repo.add", func(*cobra.Command) map[string]any {
+		return map[string]any{"id": repoID, "root": creationRoot, "roots": allowedRoots}
+	})
 	repoList := &cobra.Command{Use: "list", Short: "List registered Git repositories", Args: exactArgs("repo list does not accept arguments", 0), RunE: run(controller, "repo.list", nil)}
 	repoRemove := &cobra.Command{Use: "remove <repository-id>", Short: "Unregister a repository without deleting Git worktrees", Args: exactArgs("repo remove requires exactly one repository ID", 1), RunE: run(controller, "repo.remove", nil)}
 	repoCmd.AddCommand(repoAdd, repoList, repoRemove)

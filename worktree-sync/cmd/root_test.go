@@ -132,6 +132,14 @@ func TestWorktreeLaunchHelpExplainsManagedWindowBehavior(t *testing.T) {
 	require.Contains(t, launch.Example, "--rerun")
 }
 
+func TestRepoAddForwardsCreationAndAllowedRoots(t *testing.T) {
+	controller := &recordingController{}
+	err := cmd.ExecuteWTS(context.Background(), controller, &bytes.Buffer{}, &bytes.Buffer{}, []string{"repo", "add", "--worktree-root", "/managed", "--allowed-worktree-root", "/external-one", "--allowed-worktree-root", "/external-two"})
+	require.NoError(t, err)
+	require.Equal(t, "/managed", controller.request.Options["root"])
+	require.Equal(t, []string{"/external-one", "/external-two"}, controller.request.Options["roots"])
+}
+
 func TestWorktreeCreateForwardsBranchOrigin(t *testing.T) {
 	controller := &recordingController{}
 	err := cmd.ExecuteWTS(context.Background(), controller, &bytes.Buffer{}, &bytes.Buffer{}, []string{"worktree", "create", "feature", "--from", "origin/main"})

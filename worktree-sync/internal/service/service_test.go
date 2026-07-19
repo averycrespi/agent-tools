@@ -55,7 +55,7 @@ func TestCleanupDryRunNeverInvokesGitPrune(t *testing.T) {
 	require.NoError(t, os.Mkdir(allowed, 0o700))
 	paths := config.Paths{Config: filepath.Join(base, "config.json"), State: filepath.Join(base, "state"), Worktrees: filepath.Join(base, "worktrees")}
 	cfg := config.Default()
-	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: primary, CommonGitDir: common, AllowedRoots: []string{allowed}}}
+	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: primary, CommonGitDir: common, WorktreeCreationRoot: allowed, AllowedRoots: []string{allowed}}}
 	require.NoError(t, config.Save(paths.Config, cfg))
 	runner := &safetyRunner{primary: primary}
 	output, err := service.New(runner, paths).Execute(context.Background(), app.Request{Action: "cleanup", Options: map[string]any{}})
@@ -96,6 +96,25 @@ func TestConfigRefreshCreatesValidatedDefaults(t *testing.T) {
 	require.Equal(t, config.Default().Global, cfg.Global)
 }
 
+func TestConfigRefreshMigratesVersionTwoCreationRoots(t *testing.T) {
+	base := t.TempDir()
+	primary, common, allowed := filepath.Join(base, "repo"), filepath.Join(base, "repo", ".git"), filepath.Join(base, "worktrees")
+	require.NoError(t, os.MkdirAll(common, 0o700))
+	require.NoError(t, os.Mkdir(allowed, 0o700))
+	paths := config.Paths{Config: filepath.Join(base, "config", "config.json"), State: filepath.Join(base, "state"), Worktrees: filepath.Join(base, "data", "worktrees")}
+	require.NoError(t, os.MkdirAll(filepath.Dir(paths.Config), 0o700))
+	versionTwo := fmt.Sprintf(`{"version":2,"global":{"reconcile_interval":"30s","debounce":"250ms","command_timeout":"20s","default_allowed_worktree_roots":[%q]},"repositories":[{"id":"repo","primary_root":%q,"common_git_dir":%q,"allowed_worktree_roots":[%q],"setup_policy":"manual","launch_policy":"manual"}]}`, allowed, primary, common, allowed)
+	require.NoError(t, os.WriteFile(paths.Config, []byte(versionTwo), 0o600))
+
+	_, err := service.New(&editorRunner{}, paths).Execute(context.Background(), app.Request{Action: "config.refresh"})
+	require.NoError(t, err)
+	cfg, err := config.Load(paths.Config)
+	require.NoError(t, err)
+	require.Equal(t, config.Version, cfg.Version)
+	require.Equal(t, allowed, cfg.Global.DefaultCreationRoot)
+	require.Equal(t, allowed, cfg.Repositories[0].WorktreeCreationRoot)
+}
+
 func TestConfigRefreshMigratesPoliciesWithoutReplacingRepositories(t *testing.T) {
 	base := t.TempDir()
 	primary, common, allowed := filepath.Join(base, "repo"), filepath.Join(base, "repo", ".git"), filepath.Join(base, "worktrees")
@@ -114,6 +133,7 @@ func TestConfigRefreshMigratesPoliciesWithoutReplacingRepositories(t *testing.T)
 	require.Equal(t, "repo", cfg.Repositories[0].ID)
 	require.Equal(t, config.ActionWTSCreated, cfg.Repositories[0].SetupPolicy)
 	require.Equal(t, config.ActionWTSCreated, cfg.Repositories[0].LaunchPolicy)
+	require.Equal(t, allowed, cfg.Repositories[0].WorktreeCreationRoot)
 	data, err := os.ReadFile(paths.Config)
 	require.NoError(t, err)
 	require.NotContains(t, string(data), `"policy"`)
