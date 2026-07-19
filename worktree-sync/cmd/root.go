@@ -216,6 +216,16 @@ windows, or foreign tmux resources. Incomplete snapshots fail closed.`,
 		return map[string]any{"prune_git": pruneID, "remove_orphaned_tmux": orphanID}
 	})
 
+	var doctorJSON bool
+	doctor := &cobra.Command{
+		Use:   "doctor",
+		Short: "Diagnose worktree-sync installation and configuration",
+		Long:  "Run non-mutating checks for tools, paths, configuration, state, repositories, tmux, and the macOS LaunchAgent. Warnings exit zero; errors print the complete report and exit nonzero.",
+		Args:  exactArgs("doctor does not accept arguments", 0),
+	}
+	doctor.Flags().BoolVar(&doctorJSON, "json", false, "emit stable versioned JSON")
+	doctor.RunE = run(controller, "doctor", func(*cobra.Command) map[string]any { return map[string]any{"json": doctorJSON} })
+
 	daemonCmd := &cobra.Command{Use: "daemon", Short: "Manage the macOS per-user LaunchAgent"}
 	for _, spec := range []struct{ name, short string }{
 		{"install", "Install or update the per-user LaunchAgent"},
@@ -248,7 +258,7 @@ entries until interrupted. launchd does not rotate these files.`,
 	logs.Flags().BoolVarP(&followLogs, "follow", "f", false, "stream new log entries until interrupted")
 	logs.RunE = run(controller, "daemon.logs", func(*cobra.Command) map[string]any { return map[string]any{"lines": logLines, "follow": followLogs} })
 	daemonCmd.AddCommand(logs)
-	root.AddCommand(configCmd, repoCmd, worktreeCmd, attach, status, reconcile, cleanup, daemonCmd)
+	root.AddCommand(configCmd, repoCmd, worktreeCmd, attach, status, reconcile, cleanup, doctor, daemonCmd)
 	return root
 }
 

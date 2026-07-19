@@ -451,6 +451,17 @@ func decodeCurrent(data []byte) (Config, error) {
 	return cfg.normalized(), nil
 }
 
+func DecodeForDiagnostics(data []byte) (Config, error) {
+	cfg, err := decodeCurrent(data)
+	if err != nil {
+		return Config{}, err
+	}
+	if cfg.Version != Version {
+		return Config{}, fmt.Errorf("unsupported config version %d", cfg.Version)
+	}
+	return cfg, nil
+}
+
 func decodeLegacy(data []byte) (legacyConfig, error) {
 	var cfg legacyConfig
 	decoder := json.NewDecoder(bytes.NewReader(data))

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,33 @@ func (r *editorRunner) Interactive(_ context.Context, _ string, _ string, args .
 	return os.WriteFile(args[len(args)-1], r.replacement, 0o600)
 }
 
+type doctorRunner struct{ launchdLoaded bool }
+
+func (r doctorRunner) Run(_ context.Context, _ string, name string, args ...string) ([]byte, error) {
+	switch name {
+	case "git":
+		return []byte("git version test\n"), nil
+	case "tmux":
+		if len(args) == 1 && args[0] == "-V" {
+			return []byte("tmux test\n"), nil
+		}
+		return []byte("no server running"), errors.New("missing")
+	case "launchctl":
+		if r.launchdLoaded {
+			return []byte("state = running"), nil
+		}
+		return []byte("Could not find service"), errors.New("missing")
+	default:
+		return nil, fmt.Errorf("unexpected command %s", name)
+	}
+}
+func (doctorRunner) RunEnv(context.Context, string, []string, string, ...string) ([]byte, error) {
+	return nil, errors.New("unexpected RunEnv")
+}
+func (doctorRunner) Interactive(context.Context, string, string, ...string) error {
+	return errors.New("unexpected interactive command")
+}
+
 type safetyRunner struct {
 	calls   [][]string
 	primary string
@@ -48,6 +76,107 @@ func (*safetyRunner) RunEnv(context.Context, string, []string, string, ...string
 	return nil, nil
 }
 func (*safetyRunner) Interactive(context.Context, string, string, ...string) error { return nil }
+
+func TestDoctorFreshInstallHasFixedOrderedChecksAndNoMutation(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	base := t.TempDir()
+	paths := config.Paths{ConfigHome: filepath.Join(base, "cfg"), DataHome: filepath.Join(base, "data"), StateHome: filepath.Join(base, "state-home"), Config: filepath.Join(base, "cfg", "worktree-sync", "config.json"), State: filepath.Join(base, "state-home", "worktree-sync"), Worktrees: filepath.Join(base, "data", "worktree-sync", "worktrees")}
+	output, err := service.New(doctorRunner{}, paths).Execute(context.Background(), app.Request{Action: "doctor", Options: map[string]any{"json": true}})
+	require.NoError(t, err)
+	var report struct {
+		Version int `json:"version"`
+		Checks  []struct {
+			ID       string   `json:"id"`
+			Status   string   `json:"status"`
+			Details  []string `json:"details"`
+			Recovery string   `json:"recovery"`
+		} `json:"checks"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(output), &report))
+	require.Equal(t, 1, report.Version)
+	ids := make([]string, 0, len(report.Checks))
+	for _, check := range report.Checks {
+		ids = append(ids, check.ID)
+		require.NotNil(t, check.Details)
+	}
+	expected := []string{"tools.git", "tools.tmux", "paths.resolved", "config.file", "config.syntax", "config.version", "config.runtime", "state.directory", "state.action_ledger", "state.provenance", "tmux.snapshot"}
+	if runtime.GOOS == "darwin" {
+		expected = append(expected, "launchd.plist", "launchd.lifecycle", "launchd.environment")
+	} else {
+		expected = append(expected, "launchd.support")
+	}
+	require.Equal(t, expected, ids)
+	require.NoFileExists(t, paths.Config)
+	require.NoDirExists(t, paths.State)
+}
+
+func TestDoctorEmitsSkippedRepositoryChecksWhenRuntimeConfigIsInvalid(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	base := t.TempDir()
+	paths := config.Paths{ConfigHome: filepath.Join(base, "cfg"), DataHome: filepath.Join(base, "data"), StateHome: filepath.Join(base, "state-home"), Config: filepath.Join(base, "cfg", "worktree-sync", "config.json"), State: filepath.Join(base, "state-home", "worktree-sync"), Worktrees: filepath.Join(base, "data", "worktree-sync", "worktrees")}
+	require.NoError(t, os.MkdirAll(filepath.Dir(paths.Config), 0o700))
+	data := `{"version":3,"global":{"reconcile_interval":"30s","debounce":"250ms","command_timeout":"20s"},"repositories":[{"id":"repo","primary_root":"/missing","common_git_dir":"/missing/.git","worktree_creation_root":"/missing/worktrees","allowed_worktree_roots":["/missing/worktrees"],"setup_policy":"manual","launch_policy":"manual"}]}`
+	require.NoError(t, os.WriteFile(paths.Config, []byte(data), 0o600))
+	output, err := service.New(doctorRunner{}, paths).Execute(context.Background(), app.Request{Action: "doctor", Options: map[string]any{"json": true}})
+	require.ErrorContains(t, err, "doctor found errors")
+	var report struct {
+		Checks []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"checks"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(output), &report))
+	statuses := make(map[string]string)
+	for _, check := range report.Checks {
+		statuses[check.ID] = check.Status
+	}
+	require.Equal(t, "error", statuses["config.runtime"])
+	for _, id := range []string{"repository.repo.primary", "repository.repo.common_git", "repository.repo.creation_root", "repository.repo.allowed_root.0", "repository.repo.git_snapshot", "tmux.ownership.repo"} {
+		require.Equal(t, "skipped", statuses[id], id)
+	}
+}
+
+func TestDoctorDetectsLoadedLaunchAgentWithoutOwnedPlist(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("LaunchAgent checks run only on macOS")
+	}
+	t.Setenv("HOME", t.TempDir())
+	base := t.TempDir()
+	paths := config.Paths{Config: filepath.Join(base, "cfg", "worktree-sync", "config.json"), State: filepath.Join(base, "state", "worktree-sync"), Worktrees: filepath.Join(base, "data", "worktree-sync", "worktrees")}
+	output, err := service.New(doctorRunner{launchdLoaded: true}, paths).Execute(context.Background(), app.Request{Action: "doctor", Options: map[string]any{"json": true}})
+	require.ErrorContains(t, err, "doctor found errors")
+	require.Contains(t, output, "owned plist is missing")
+}
+
+func TestDoctorReportsInvalidConfigAndContinuesIndependentChecksWithoutMutation(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	base := t.TempDir()
+	paths := config.Paths{ConfigHome: filepath.Join(base, "cfg"), DataHome: filepath.Join(base, "data"), StateHome: filepath.Join(base, "state-home"), Config: filepath.Join(base, "cfg", "worktree-sync", "config.json"), State: filepath.Join(base, "state-home", "worktree-sync"), Worktrees: filepath.Join(base, "data", "worktree-sync", "worktrees")}
+	require.NoError(t, os.MkdirAll(filepath.Dir(paths.Config), 0o700))
+	require.NoError(t, os.WriteFile(paths.Config, []byte(`{"version":`), 0o600))
+
+	output, err := service.New(doctorRunner{}, paths).Execute(context.Background(), app.Request{Action: "doctor", Options: map[string]any{"json": true}})
+	require.ErrorContains(t, err, "doctor found errors")
+	var report struct {
+		Version int `json:"version"`
+		Checks  []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"checks"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(output), &report))
+	require.Equal(t, 1, report.Version)
+	statuses := make(map[string]string)
+	for _, check := range report.Checks {
+		statuses[check.ID] = check.Status
+	}
+	require.Equal(t, "ok", statuses["tools.git"])
+	require.Equal(t, "ok", statuses["tools.tmux"])
+	require.Equal(t, "error", statuses["config.syntax"])
+	require.Equal(t, "skipped", statuses["config.version"])
+	require.Equal(t, "skipped", statuses["config.runtime"])
+	require.NoDirExists(t, paths.State)
+}
 
 func TestStatusCheckReportsCorruptActionLedgerInVersionTwoJSON(t *testing.T) {
 	base := t.TempDir()

@@ -288,6 +288,17 @@ Healthy repositories remain one-line summaries. Attention, degraded, and conflic
 
 Status JSON schema version 2 uses stable typed fields rather than internal Git/tmux or raw `launchctl` objects. The daemon state is `running`, `stopped`, `not_installed`, `unsupported`, or `unavailable`. `--verbose` and `--json` are mutually exclusive.
 
+### Diagnose the installation
+
+```bash
+wts doctor
+wts doctor --json
+```
+
+Doctor is read-only and works even when configuration is absent, malformed, outdated, or runtime-invalid. It checks Git/tmux discovery, resolved XDG paths, config syntax/version/runtime validity, private state, registered repository paths and Git snapshots, dedicated-socket ownership, and macOS LaunchAgent state/XDG consistency. Checks are ordered and reported as `ok`, `warning`, `error`, or `skipped`; warnings exit zero, while errors print the complete report before returning nonzero. JSON schema version 1 always includes `id`, `status`, `summary`, `details`, and `recovery` for every check.
+
+Doctor evaluates whether the installation can operate; `wts status` describes managed repository state. Doctor never creates state directories, reconciles, runs actions, or modifies tmux/launchd.
+
 ## Reconciliation and safety
 
 A full scan runs at daemon startup and on `reconcile_interval`. Configuration, Git administration, and allowed-root filesystem events debounce an earlier full scan. Periodic scans recover from missed events, unavailable mounts, daemon downtime, and restarts.
@@ -385,6 +396,7 @@ LaunchAgent commands are unsupported on Linux; run `wtsd` directly under your pr
 | `wts status`                                                        | Show progressive status; use `--verbose`, `--json`, or `--check`   |
 | `wts reconcile`                                                     | Reconcile the current repository; use `--all` for every repository |
 | `wts cleanup`                                                       | Inspect or explicitly remove stale Git and tmux state              |
+| `wts doctor`                                                        | Diagnose tools, paths, config, state, tmux, and LaunchAgent        |
 | `wts daemon install\|uninstall\|start\|stop\|restart\|status\|logs` | Manage the macOS LaunchAgent                                       |
 
 Repository-selecting commands accept `--repo-id <id>` when current-directory inference is not appropriate. Run `wts <command> --help` for flags, safety details, and examples.
@@ -413,9 +425,10 @@ An untagged or foreign `wts-<repository-id>` session is never adopted or attache
 
 ### The LaunchAgent cannot find Git or tmux
 
-Install them under `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, or `/bin`, or run `wtsd` in a terminal to compare environments. Inspect diagnostics with:
+Install them under `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, or `/bin`, or run `wtsd` in a terminal to compare environments. Inspect the installation and logs with:
 
 ```bash
+wts doctor
 wts daemon logs --follow
 ```
 

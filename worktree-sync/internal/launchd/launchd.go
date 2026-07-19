@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -145,12 +146,65 @@ type observedState struct {
 	state lifecycleState
 }
 
-func launchctlNotFound(output []byte, err error) bool {
+func IsNotFound(output []byte, err error) bool {
 	if err == nil {
 		return false
 	}
 	text := strings.ToLower(string(output))
 	return strings.Contains(text, "could not find service") || strings.Contains(text, "service not found")
+}
+
+func launchctlNotFound(output []byte, err error) bool { return IsNotFound(output, err) }
+
+func ParseEnvironment(data []byte) (map[string]string, error) {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	environment := make(map[string]string)
+	awaitingDictionary := false
+	inDictionary := false
+	currentKey := ""
+	for {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("decoding LaunchAgent plist: %w", err)
+		}
+		switch element := token.(type) {
+		case xml.StartElement:
+			switch element.Name.Local {
+			case "key":
+				var value string
+				if err := decoder.DecodeElement(&value, &element); err != nil {
+					return nil, fmt.Errorf("decoding LaunchAgent plist key: %w", err)
+				}
+				if !inDictionary && value == "EnvironmentVariables" {
+					awaitingDictionary = true
+				} else if inDictionary {
+					currentKey = value
+				}
+			case "dict":
+				if awaitingDictionary {
+					awaitingDictionary = false
+					inDictionary = true
+				}
+			case "string":
+				if inDictionary && currentKey != "" {
+					var value string
+					if err := decoder.DecodeElement(&value, &element); err != nil {
+						return nil, fmt.Errorf("decoding LaunchAgent environment value: %w", err)
+					}
+					environment[currentKey] = value
+					currentKey = ""
+				}
+			}
+		case xml.EndElement:
+			if inDictionary && element.Name.Local == "dict" {
+				return environment, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("LaunchAgent plist has no EnvironmentVariables dictionary")
 }
 
 func (m *Manager) observe(ctx context.Context) (observedState, error) {

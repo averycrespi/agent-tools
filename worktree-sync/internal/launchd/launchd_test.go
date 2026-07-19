@@ -51,6 +51,11 @@ func TestRenderContainsPortableAbsoluteDaemonAndXDGEnvironment(t *testing.T) {
 	for _, expected := range []string{"dev.agent-tools.worktree-sync", "/opt/tools/wtsd", "PATH", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "RunAtLoad", "KeepAlive", "StandardOutPath", "StandardErrorPath", "cfg&amp;one"} {
 		require.Contains(t, text, expected)
 	}
+	parsed, err := launchd.ParseEnvironment(data)
+	require.NoError(t, err)
+	require.Equal(t, environment.ConfigHome, parsed["XDG_CONFIG_HOME"])
+	require.Equal(t, environment.DataHome, parsed["XDG_DATA_HOME"])
+	require.Equal(t, environment.StateHome, parsed["XDG_STATE_HOME"])
 }
 
 func TestManagerRejectsNonDarwinWithoutRunningCommands(t *testing.T) {

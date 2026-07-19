@@ -114,6 +114,8 @@ func (s *Service) Execute(ctx context.Context, request app.Request) (string, err
 		return s.reconcile(ctx, optionString(request.Options, "repo_id"), optionBool(request.Options, "all"))
 	case "cleanup":
 		return s.cleanup(ctx, optionString(request.Options, "prune_git"), optionString(request.Options, "remove_orphaned_tmux"))
+	case "doctor":
+		return s.doctor(ctx, optionBool(request.Options, "json"))
 	case "daemon.install", "daemon.uninstall", "daemon.start", "daemon.stop", "daemon.restart", "daemon.status", "daemon.logs":
 		return s.daemon(ctx, strings.TrimPrefix(request.Action, "daemon."), request.Options)
 	default:

@@ -44,7 +44,7 @@ func TestWTSCommandSurface(t *testing.T) {
 			require.Equal(t, child, found.Name())
 		}
 	}
-	for _, command := range []string{"attach", "status", "reconcile", "cleanup"} {
+	for _, command := range []string{"attach", "status", "reconcile", "cleanup", "doctor"} {
 		found, _, err := root.Find([]string{command})
 		require.NoError(t, err)
 		require.Equal(t, command, found.Name())
@@ -57,7 +57,7 @@ func TestWTSCommandSurface(t *testing.T) {
 func TestEveryUserCommandHasDescription(t *testing.T) {
 	root := cmd.NewWTS(nil)
 	paths := [][]string{
-		{"attach"}, {"cleanup"}, {"config"}, {"daemon"}, {"reconcile"}, {"repo"}, {"status"}, {"worktree"},
+		{"attach"}, {"cleanup"}, {"config"}, {"daemon"}, {"doctor"}, {"reconcile"}, {"repo"}, {"status"}, {"worktree"},
 		{"config", "path"}, {"config", "edit"}, {"config", "validate"}, {"config", "refresh"},
 		{"repo", "add"}, {"repo", "list"}, {"repo", "remove"}, {"repo", "roots"},
 		{"repo", "roots", "show"}, {"repo", "roots", "set-creation"}, {"repo", "roots", "add-allowed"}, {"repo", "roots", "remove-allowed"},
@@ -81,7 +81,7 @@ func TestEveryCommandUsesSpecificArgumentValidation(t *testing.T) {
 		{"worktree", "remove"}, {"worktree", "remove", "branch", "repo"},
 		{"worktree", "setup"}, {"worktree", "setup", "branch", "repo"},
 		{"worktree", "launch"}, {"worktree", "launch", "branch", "repo"},
-		{"attach", "repo"}, {"status", "repo"}, {"reconcile", "repo"}, {"cleanup", "extra"},
+		{"attach", "repo"}, {"status", "repo"}, {"reconcile", "repo"}, {"cleanup", "extra"}, {"doctor", "extra"},
 		{"daemon", "install", "extra"}, {"daemon", "uninstall", "extra"}, {"daemon", "start", "extra"}, {"daemon", "stop", "extra"}, {"daemon", "restart", "extra"}, {"daemon", "status", "extra"}, {"daemon", "logs", "extra"},
 	}
 	for _, args := range tests {
@@ -209,6 +209,14 @@ func TestRepoIDAndAllAreMutuallyExclusive(t *testing.T) {
 		err := cmd.ExecuteWTS(context.Background(), &recordingController{}, &bytes.Buffer{}, &bytes.Buffer{}, []string{action, "--repo-id", "repo", "--all"})
 		require.ErrorContains(t, err, "choose only one")
 	}
+}
+
+func TestDoctorForwardsJSONOutput(t *testing.T) {
+	controller := &recordingController{}
+	err := cmd.ExecuteWTS(context.Background(), controller, &bytes.Buffer{}, &bytes.Buffer{}, []string{"doctor", "--json"})
+	require.NoError(t, err)
+	require.Equal(t, "doctor", controller.request.Action)
+	require.Equal(t, true, controller.request.Options["json"])
 }
 
 func TestDaemonLogsForwardsHistoryAndFollowOptions(t *testing.T) {

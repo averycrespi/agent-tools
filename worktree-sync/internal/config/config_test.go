@@ -206,6 +206,14 @@ func TestLoadForRefreshRejectsPassiveOnlyVersionOnePolicy(t *testing.T) {
 	require.ErrorContains(t, err, "cannot migrate")
 }
 
+func TestDecodeForDiagnosticsReturnsCurrentConfigWithoutRuntimeValidation(t *testing.T) {
+	data := []byte(`{"version":3,"global":{"reconcile_interval":"30s","debounce":"250ms","command_timeout":"20s"},"repositories":[{"id":"repo","primary_root":"/missing","common_git_dir":"/missing/.git","worktree_creation_root":"/missing/worktrees","allowed_worktree_roots":["/missing/worktrees"],"setup_policy":"manual","launch_policy":"manual"}]}`)
+	cfg, err := config.DecodeForDiagnostics(data)
+	require.NoError(t, err)
+	require.Equal(t, "repo", cfg.Repositories[0].ID)
+	require.Error(t, cfg.Validate())
+}
+
 func TestVersionThreeRejectsLegacyPolicyField(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{"version":3,"global":{"reconcile_interval":"30s","debounce":"250ms","command_timeout":"20s"},"repositories":[{"policy":{}}]}`), 0o600))
