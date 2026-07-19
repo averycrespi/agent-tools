@@ -18,11 +18,13 @@ func (partialController) Execute(context.Context, app.Request) (string, error) {
 	return "/created/path", errors.New("reconciliation degraded")
 }
 
-func TestCommandPrintsPartialSuccessOutputBeforeReturningError(t *testing.T) {
-	var stdout bytes.Buffer
-	err := cmd.ExecuteWTS(context.Background(), partialController{}, &stdout, &bytes.Buffer{}, []string{"reconcile"})
+func TestCommandPrintsPartialSuccessWithoutUsageBeforeReturningError(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := cmd.ExecuteWTS(context.Background(), partialController{}, &stdout, &stderr, []string{"reconcile"})
 	require.ErrorContains(t, err, "degraded")
 	require.Contains(t, stdout.String(), "/created/path")
+	require.NotContains(t, stdout.String(), "Usage:")
+	require.NotContains(t, stderr.String(), "Usage:")
 }
 
 func TestWTSCommandSurface(t *testing.T) {

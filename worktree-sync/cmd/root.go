@@ -46,7 +46,7 @@ func run(controller app.Controller, action string, options func(*cobra.Command) 
 }
 
 func NewWTS(controller app.Controller) *cobra.Command {
-	root := &cobra.Command{Use: "wts", Short: "Continuously mirror registered Git worktrees into isolated tmux sessions", SilenceErrors: true}
+	root := &cobra.Command{Use: "wts", Short: "Continuously mirror registered Git worktrees into isolated tmux sessions", SilenceErrors: true, SilenceUsage: true}
 	root.SetOut(os.Stdout)
 	root.SetErr(os.Stderr)
 
