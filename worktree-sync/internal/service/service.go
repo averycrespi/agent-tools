@@ -293,7 +293,7 @@ func (s *Service) removeRepo(ctx context.Context, id string) (string, error) {
 	return fmt.Sprintf("unregistered %s; Git worktrees and branches unchanged", id), nil
 }
 
-func (s *Service) resolveRepo(cfg config.Config, id string) (config.Repository, error) {
+func (s *Service) resolveRepo(ctx context.Context, cfg config.Config, id string) (config.Repository, error) {
 	if id != "" {
 		repo, ok := registry.Find(cfg, id)
 		if !ok {
@@ -305,14 +305,18 @@ func (s *Service) resolveRepo(cfg config.Config, id string) (config.Repository, 
 	if err != nil {
 		return config.Repository{}, err
 	}
+	git, _, _, _, _, err := s.runtime(cfg)
+	if err != nil {
+		return config.Repository{}, err
+	}
 	matches := make([]config.Repository, 0)
 	for _, repo := range cfg.Repositories {
-		if config.Contains(repo.PrimaryRoot, cwd) {
-			matches = append(matches, repo)
+		snapshot, snapshotErr := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
+		if snapshotErr != nil || !snapshot.Complete {
 			continue
 		}
-		for _, root := range repo.AllowedRoots {
-			if config.Contains(root, cwd) {
+		for _, worktree := range snapshot.Worktrees {
+			if worktree.Exclusion == "" && config.Contains(worktree.Path, cwd) {
 				matches = append(matches, repo)
 				break
 			}
@@ -341,7 +345,7 @@ func (s *Service) worktreePath(ctx context.Context, args []string) (string, erro
 	if len(args) == 2 {
 		id = args[1]
 	}
-	repo, err := s.resolveRepo(cfg, id)
+	repo, err := s.resolveRepo(ctx, cfg, id)
 	if err != nil {
 		return "", err
 	}
@@ -371,7 +375,7 @@ func (s *Service) createWorktree(ctx context.Context, request app.Request) (stri
 	if len(request.Args) == 2 {
 		id = request.Args[1]
 	}
-	repo, err := s.resolveRepo(cfg, id)
+	repo, err := s.resolveRepo(ctx, cfg, id)
 	if err != nil {
 		return "", err
 	}
@@ -469,7 +473,7 @@ func (s *Service) removeWorktree(ctx context.Context, request app.Request) (stri
 	if len(request.Args) == 2 {
 		id = request.Args[1]
 	}
-	repo, err := s.resolveRepo(cfg, id)
+	repo, err := s.resolveRepo(ctx, cfg, id)
 	if err != nil {
 		return "", err
 	}
@@ -521,11 +525,11 @@ func (s *Service) explicitAction(ctx context.Context, request app.Request, launc
 	if len(request.Args) == 2 {
 		id = request.Args[1]
 	}
-	repo, err := s.resolveRepo(cfg, id)
+	repo, err := s.resolveRepo(ctx, cfg, id)
 	if err != nil {
 		return "", err
 	}
-	_, snapshot, err := s.snapshotRepo(ctx, cfg, repo)
+	git, snapshot, err := s.snapshotRepo(ctx, cfg, repo)
 	if err != nil {
 		return "", err
 	}
@@ -537,9 +541,27 @@ func (s *Service) explicitAction(ctx context.Context, request app.Request, launc
 	if err != nil {
 		return "", err
 	}
+	revalidate := func() error {
+		fresh, snapshotErr := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
+		if snapshotErr != nil {
+			return snapshotErr
+		}
+		if !fresh.Complete {
+			return fmt.Errorf("worktree revalidation incomplete")
+		}
+		for _, candidate := range fresh.Worktrees {
+			if candidate.Path == worktree.Path && candidate.Identity == worktree.Identity && candidate.Exclusion == "" {
+				return nil
+			}
+		}
+		return fmt.Errorf("worktree identity or path changed; refusing action")
+	}
 	actionWorktree := actions.Worktree{Path: worktree.Path, Identity: worktree.Identity}
 	rerun := optionBool(request.Options, "rerun")
 	if !launch {
+		if err := revalidate(); err != nil {
+			return "", err
+		}
 		result := manager.Run(ctx, repo, actionWorktree, actions.Explicit, rerun)
 		return "setup evaluated", result.Error
 	}
@@ -563,6 +585,9 @@ func (s *Service) explicitAction(ctx context.Context, request app.Request, launc
 		return "", fmt.Errorf("managed worktree window is not present")
 	}
 	result := manager.Launch(ctx, repo, actionWorktree, actions.Explicit, rerun, func() error {
+		if err := revalidate(); err != nil {
+			return err
+		}
 		owned, ownershipErr := tmuxClient.OwnsWindow(ctx, windowID, expected)
 		if ownershipErr != nil {
 			return ownershipErr
@@ -590,7 +615,7 @@ func (s *Service) attach(ctx context.Context, args []string) error {
 	if len(args) == 1 {
 		id = args[0]
 	}
-	repo, err := s.resolveRepo(cfg, id)
+	repo, err := s.resolveRepo(ctx, cfg, id)
 	if err != nil {
 		return err
 	}
@@ -613,7 +638,7 @@ func (s *Service) reconcile(ctx context.Context, args []string) (string, error) 
 	}
 	repositories := cfg.Repositories
 	if len(args) == 1 {
-		repo, resolveErr := s.resolveRepo(cfg, args[0])
+		repo, resolveErr := s.resolveRepo(ctx, cfg, args[0])
 		if resolveErr != nil {
 			return "", resolveErr
 		}
@@ -623,14 +648,18 @@ func (s *Service) reconcile(ctx context.Context, args []string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	_, _, _, executor, _, err := s.runtime(cfg)
+	_, tmuxClient, _, executor, _, err := s.runtime(cfg)
+	if err != nil {
+		return "", err
+	}
+	actual, err := tmuxClient.Snapshot(ctx)
 	if err != nil {
 		return "", err
 	}
 	summaries := make([]string, 0, len(repositories))
 	var errs []error
 	for _, repo := range repositories {
-		report := executor.ReconcileRepo(ctx, repo, func(path, identity string) actions.Trigger {
+		report := executor.ReconcileRepoWithSnapshot(ctx, repo, actual, func(path, identity string) actions.Trigger {
 			if provenance.Explicit(repo.RepositoryIdentity, path, identity) {
 				return actions.Explicit
 			}
@@ -655,7 +684,7 @@ func (s *Service) status(ctx context.Context, args []string, jsonOutput bool) (s
 	}
 	repos := cfg.Repositories
 	if len(args) == 1 {
-		repo, resolveErr := s.resolveRepo(cfg, args[0])
+		repo, resolveErr := s.resolveRepo(ctx, cfg, args[0])
 		if resolveErr != nil {
 			return "", resolveErr
 		}
@@ -689,13 +718,13 @@ func (s *Service) status(ctx context.Context, args []string, jsonOutput bool) (s
 		}
 	}
 	ledger, _ := state.LoadLedger(filepath.Join(s.paths.State, "actions.json"))
+	git, tmuxClient, _, _, _, runtimeErr := s.runtime(cfg)
+	if runtimeErr != nil {
+		return "", runtimeErr
+	}
+	tmuxSnapshot, tmuxErr := tmuxClient.Snapshot(ctx)
 	for _, repo := range repos {
-		git, tmuxClient, _, _, _, runtimeErr := s.runtime(cfg)
-		if runtimeErr != nil {
-			return "", runtimeErr
-		}
 		gitSnapshot, gitErr := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
-		tmuxSnapshot, tmuxErr := tmuxClient.Snapshot(ctx)
 		health := "healthy"
 		if gitErr != nil || tmuxErr != nil || !gitSnapshot.Complete || !tmuxSnapshot.Complete {
 			health = "degraded"
@@ -827,11 +856,9 @@ func (s *Service) cleanup(ctx context.Context, pruneID, orphanID string) (string
 			desired[window.Metadata.Identity] = true
 		}
 		removed := 0
-		managedSession := matchingSession(actual, repo)
 		for _, session := range actual.Sessions {
-			outsideManagedSession := managedSession == nil || session.ID != managedSession.ID
 			for _, window := range session.Windows {
-				if !tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) || (!outsideManagedSession && desired[window.Metadata.Identity]) {
+				if !tmux.ValidOwnedWindow(window.Metadata, repo.RepositoryIdentity) || desired[window.Metadata.Identity] {
 					continue
 				}
 				owned, ownershipErr := tmuxClient.OwnsWindow(ctx, window.ID, window.Metadata)

@@ -29,12 +29,11 @@ func (r *runner) Run(_ context.Context, dir, name string, args ...string) ([]byt
 func (*runner) Interactive(context.Context, string, string, ...string) error { return nil }
 
 func TestSnapshotParsesMetadataAndUsesDedicatedSocket(t *testing.T) {
-	r := &runner{results: []result{
-		{out: []byte("$1\n")}, {out: []byte("wts-repo\n")},
-		{out: []byte("1\n")}, {out: []byte("identity\n")}, {out: []byte("session\n")}, {out: []byte("identity\n")},
-		{out: []byte("@1\n")}, {out: []byte("base\n")}, {out: []byte("/repo\n")},
-		{out: []byte("1\n")}, {out: []byte("identity\n")}, {out: []byte("base\n")}, {out: []byte("identity\n")},
-	}}
+	details := "__WTS_DETAIL_session-name__\nwts-repo\n__WTS_DETAIL_session-metadata__\n" +
+		"@wts-schema 1\n@wts-repository identity\n@wts-role session\n@wts-identity identity\n" +
+		"__WTS_DETAIL_window-0-name__\nbase\n__WTS_DETAIL_window-0-path__\n/repo\n__WTS_DETAIL_window-0-metadata__\n" +
+		"@wts-schema 1\n@wts-repository identity\n@wts-role base\n@wts-identity identity\n"
+	r := &runner{results: []result{{out: []byte("$1\n")}, {out: []byte("@1\n")}, {out: []byte(details)}}}
 	client := tmux.New(r, "test-socket", time.Second)
 	snapshot, err := client.Snapshot(context.Background())
 	require.NoError(t, err)
@@ -52,6 +51,26 @@ func TestCreateSessionCleansUpWhenTaggingFails(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, r.calls[len(r.calls)-1], "kill-session")
 	require.Contains(t, r.calls[len(r.calls)-1], "$1")
+}
+
+func TestNameRepairDoesNotRespawnWindow(t *testing.T) {
+	r := &runner{results: make([]result, 1)}
+	client := tmux.New(r, "test-socket", time.Second)
+	current := tmux.Window{Name: "old-name", Path: "/repo", Metadata: tmux.Metadata{Schema: 1, Repository: "repo", Role: "base", Identity: "repo"}}
+	desired := current
+	desired.Name = "new-name"
+	require.NoError(t, client.RepairWindow(context.Background(), "@1", current, desired))
+	for _, call := range r.calls {
+		require.NotContains(t, call, "respawn-window")
+	}
+}
+
+func TestTmuxErrorDoesNotExposeLaunchCommand(t *testing.T) {
+	r := &runner{results: []result{{out: []byte("failure"), err: errors.New("exit")}}}
+	client := tmux.New(r, "test-socket", time.Second)
+	err := client.Launch(context.Background(), "@1", "token=secret")
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "token=secret")
 }
 
 func TestApplyTagsCreatedObjectsAndKillsOnlyTargetID(t *testing.T) {

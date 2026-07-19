@@ -20,13 +20,14 @@ type tmuxClient interface {
 	OwnsSession(context.Context, string, tmux.Metadata) (bool, error)
 	OwnsWindow(context.Context, string, tmux.Metadata) (bool, error)
 	CreateWindow(context.Context, string, tmux.Window) (string, error)
-	RepairWindow(context.Context, string, tmux.Window) error
+	RepairWindow(context.Context, string, tmux.Window, tmux.Window) error
 	KillWindow(context.Context, string) error
 	Launch(context.Context, string, string) error
 }
 type actionManager interface {
 	Run(context.Context, config.Repository, actions.Worktree, actions.Trigger, bool) actions.Result
 	Launch(context.Context, config.Repository, actions.Worktree, actions.Trigger, bool, func() error) actions.Result
+	Prune(context.Context, config.Repository, map[string]bool) error
 }
 
 type Executor struct {
@@ -45,18 +46,31 @@ type Report struct {
 }
 
 func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, trigger func(string, string) actions.Trigger) Report {
-	gitSnapshot, gitErr := e.git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
 	actual, tmuxErr := e.tmux.Snapshot(ctx)
+	return e.reconcileRepo(ctx, repo, actual, tmuxErr, trigger)
+}
+
+func (e *Executor) ReconcileRepoWithSnapshot(ctx context.Context, repo config.Repository, actual tmux.Snapshot, trigger func(string, string) actions.Trigger) Report {
+	return e.reconcileRepo(ctx, repo, actual, nil, trigger)
+}
+
+func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, actual tmux.Snapshot, tmuxErr error, trigger func(string, string) actions.Trigger) Report {
 	report := Report{}
-	if gitErr != nil {
-		report.Errors = append(report.Errors, fmt.Sprintf("git snapshot: %v", gitErr))
-	}
 	if tmuxErr != nil || !actual.Complete {
 		if tmuxErr != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("tmux snapshot: %v", tmuxErr))
 		} else {
 			report.Errors = append(report.Errors, "tmux snapshot incomplete")
 		}
+		return report
+	}
+	gitSnapshot, gitErr := e.git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
+	if gitErr != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("git snapshot: %v", gitErr))
+		return report
+	}
+	if !gitSnapshot.Complete {
+		report.Errors = append(report.Errors, "git snapshot incomplete")
 		return report
 	}
 	report.Plan = Build(repo, gitSnapshot, actual)
@@ -67,6 +81,12 @@ func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, tr
 	windowByIdentity := make(map[string]tmux.Window)
 	for _, window := range report.Plan.Desired.Windows {
 		windowByIdentity[window.Metadata.Identity] = window
+	}
+	actualByID := make(map[string]tmux.Window)
+	for _, session := range actual.Sessions {
+		for _, window := range session.Windows {
+			actualByID[window.ID] = window
+		}
 	}
 	created := make(map[string]string)
 	projected := make(map[string]bool)
@@ -114,6 +134,16 @@ func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, tr
 				err = fmt.Errorf("managed session is unavailable")
 				break
 			}
+			expectedSession := tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.RepositoryIdentity, Role: "session", Identity: repo.RepositoryIdentity}
+			owned, ownershipErr := e.tmux.OwnsSession(ctx, sessionTarget, expectedSession)
+			if ownershipErr != nil {
+				err = ownershipErr
+				break
+			}
+			if !owned {
+				err = fmt.Errorf("ownership changed; refusing window creation")
+				break
+			}
 			var id string
 			id, err = e.tmux.CreateWindow(ctx, sessionTarget, window)
 			if err == nil {
@@ -128,7 +158,7 @@ func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, tr
 			case !owned:
 				err = fmt.Errorf("ownership changed; refusing window repair")
 			default:
-				err = e.tmux.RepairWindow(ctx, operation.TargetID, window)
+				err = e.tmux.RepairWindow(ctx, operation.TargetID, actualByID[operation.TargetID], window)
 			}
 		case KillWindow:
 			expected := tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.RepositoryIdentity, Role: operation.Role, Identity: operation.Identity}
@@ -146,11 +176,31 @@ func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, tr
 			report.Errors = append(report.Errors, fmt.Sprintf("%s %s: %v", operation.Type, operation.Identity, err))
 		}
 	}
-	if !gitSnapshot.Complete {
+	actionSnapshot, actionSnapshotErr := e.git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir, Identity: repo.RepositoryIdentity})
+	if actionSnapshotErr != nil || !actionSnapshot.Complete {
+		if actionSnapshotErr != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("action revalidation: %v", actionSnapshotErr))
+		} else {
+			report.Errors = append(report.Errors, "action revalidation incomplete")
+		}
 		return report
 	}
-	for _, worktree := range gitSnapshot.Worktrees {
-		if _, desired := windowByIdentity[worktree.Identity]; !desired || worktree.Identity == repo.RepositoryIdentity || !projected[worktree.Identity] {
+	liveIdentities := make(map[string]bool)
+	for _, worktree := range actionSnapshot.Worktrees {
+		if worktree.Exclusion == "" && worktree.Identity != "" {
+			liveIdentities[worktree.Identity] = true
+		}
+	}
+	if err := e.actions.Prune(ctx, repo, liveIdentities); err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("action ledger prune: %v", err))
+	}
+	for _, worktree := range actionSnapshot.Worktrees {
+		desiredWindow, desired := windowByIdentity[worktree.Identity]
+		if !desired || worktree.Identity == repo.RepositoryIdentity || !projected[worktree.Identity] {
+			continue
+		}
+		if desiredWindow.Path != worktree.Path {
+			report.Errors = append(report.Errors, fmt.Sprintf("action revalidation path changed for %s", worktree.Identity))
 			continue
 		}
 		worktreeTrigger := trigger(worktree.Path, worktree.Identity)
@@ -160,7 +210,16 @@ func (e *Executor) ReconcileRepo(ctx context.Context, repo config.Repository, tr
 			report.Errors = append(report.Errors, fmt.Sprintf("setup %s: %v", worktree.Path, result.Error))
 		}
 		if windowID, wasCreated := created[worktree.Identity]; wasCreated {
-			launchResult := e.actions.Launch(ctx, repo, actionWorktree, worktreeTrigger, false, func() error { return e.tmux.Launch(ctx, windowID, repo.LaunchCommand) })
+			launchResult := e.actions.Launch(ctx, repo, actionWorktree, worktreeTrigger, false, func() error {
+				owned, ownershipErr := e.tmux.OwnsWindow(ctx, windowID, desiredWindow.Metadata)
+				if ownershipErr != nil {
+					return ownershipErr
+				}
+				if !owned {
+					return fmt.Errorf("ownership changed; refusing launch")
+				}
+				return e.tmux.Launch(ctx, windowID, repo.LaunchCommand)
+			})
 			if launchResult.Error != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("launch %s: %v", worktree.Path, launchResult.Error))
 			}

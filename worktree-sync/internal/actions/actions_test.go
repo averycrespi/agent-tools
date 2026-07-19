@@ -12,6 +12,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/actions"
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/config"
+	"github.com/averycrespi/agent-tools/worktree-sync/internal/state"
 )
 
 type runner struct {
@@ -33,7 +34,7 @@ func TestCopyDoesNotOverwriteAndRejectsDestinationSymlinkEscape(t *testing.T) {
 	outside := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(primary, "source"), []byte("new"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(worktree, "existing"), []byte("old"), 0o600))
-	repo := config.Repository{RepositoryIdentity: "r", PrimaryRoot: primary, CopyActions: []config.CopyAction{{Source: "source", Destination: "existing"}}, Policy: config.Policy{SetupExplicit: true}}
+	repo := config.Repository{RepositoryIdentity: "r", PrimaryRoot: primary, AllowedRoots: []string{worktree}, CopyActions: []config.CopyAction{{Source: "source", Destination: "existing"}}, Policy: config.Policy{SetupExplicit: true}}
 	manager := actions.New(&runner{}, filepath.Join(t.TempDir(), "ledger.json"), time.Second)
 	result := manager.Run(context.Background(), repo, actions.Worktree{Path: worktree, Identity: "w"}, actions.Explicit, false)
 	require.NoError(t, result.Error)
@@ -46,6 +47,22 @@ func TestCopyDoesNotOverwriteAndRejectsDestinationSymlinkEscape(t *testing.T) {
 	result = manager.Run(context.Background(), repo, actions.Worktree{Path: worktree, Identity: "w2"}, actions.Explicit, false)
 	require.ErrorContains(t, result.Error, "escape")
 	_, err = os.Stat(filepath.Join(outside, "file"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestCopyRejectsReplacedWorktreeRootSymlink(t *testing.T) {
+	primary := t.TempDir()
+	allowed := t.TempDir()
+	worktree := filepath.Join(allowed, "worktree")
+	outside := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(primary, "source"), []byte("value"), 0o600))
+	require.NoError(t, os.Mkdir(worktree, 0o700))
+	require.NoError(t, os.Remove(worktree))
+	require.NoError(t, os.Symlink(outside, worktree))
+	repo := config.Repository{RepositoryIdentity: "r", PrimaryRoot: primary, AllowedRoots: []string{allowed}, CopyActions: []config.CopyAction{{Source: "source", Destination: "copied"}}, Policy: config.Policy{SetupExplicit: true}}
+	result := actions.New(&runner{}, filepath.Join(t.TempDir(), "ledger.json"), time.Second).Run(context.Background(), repo, actions.Worktree{Path: worktree, Identity: "w"}, actions.Explicit, false)
+	require.Error(t, result.Error)
+	_, err := os.Stat(filepath.Join(outside, "copied"))
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
@@ -105,6 +122,45 @@ func (r *blockingActionRunner) RunEnv(context.Context, string, []string, string,
 		<-r.release
 	}
 	return nil, nil
+}
+
+func TestSetupFailureDoesNotExposeCommandOutput(t *testing.T) {
+	manager := actions.New(&failingRunner{}, filepath.Join(t.TempDir(), "ledger.json"), time.Second)
+	repo := config.Repository{RepositoryIdentity: "r", SetupActions: []config.SetupAction{{Argv: []string{"tool"}}}, Policy: config.Policy{SetupExplicit: true}}
+	result := manager.Run(context.Background(), repo, actions.Worktree{Path: t.TempDir(), Identity: "w"}, actions.Explicit, false)
+	require.Error(t, result.Error)
+	require.NotContains(t, result.Error.Error(), "boom")
+}
+
+func TestLaunchPolicyLedgerAndRerun(t *testing.T) {
+	ledger := filepath.Join(t.TempDir(), "ledger.json")
+	repo := config.Repository{RepositoryIdentity: "r", LaunchCommand: "launch", Policy: config.Policy{LaunchExplicit: true}}
+	manager := actions.New(&runner{}, ledger, time.Second)
+	calls := 0
+	launch := func() error { calls++; return nil }
+	worktree := actions.Worktree{Path: t.TempDir(), Identity: "w"}
+	require.NoError(t, manager.Launch(context.Background(), repo, worktree, actions.Passive, false, launch).Error)
+	require.Zero(t, calls)
+	require.NoError(t, manager.Launch(context.Background(), repo, worktree, actions.Explicit, false, launch).Error)
+	require.Equal(t, 1, calls)
+	require.True(t, manager.Launch(context.Background(), repo, worktree, actions.Explicit, false, launch).Skipped)
+	require.Equal(t, 1, calls)
+	require.NoError(t, manager.Launch(context.Background(), repo, worktree, actions.Explicit, true, launch).Error)
+	require.Equal(t, 2, calls)
+}
+
+func TestPruneRemovesAttemptsForWorktreesNoLongerLive(t *testing.T) {
+	ledger := filepath.Join(t.TempDir(), "ledger.json")
+	repo := config.Repository{RepositoryIdentity: "r", SetupActions: []config.SetupAction{{Argv: []string{"tool"}}}, Policy: config.Policy{SetupExplicit: true}}
+	manager := actions.New(&runner{}, ledger, time.Second)
+	for _, identity := range []string{"removed", "live"} {
+		require.NoError(t, manager.Run(context.Background(), repo, actions.Worktree{Path: t.TempDir(), Identity: identity}, actions.Explicit, false).Error)
+	}
+	repo.SetupActions = []config.SetupAction{{Argv: []string{"changed"}}}
+	require.NoError(t, manager.Prune(context.Background(), repo, map[string]bool{"live": true}))
+	stored, err := state.LoadLedger(ledger)
+	require.NoError(t, err)
+	require.Empty(t, stored.Attempts, "removed identities and obsolete action digests should be pruned")
 }
 
 func TestPassivePolicyDefaultsDisabledAndEnvironmentOverridesAreExplicit(t *testing.T) {

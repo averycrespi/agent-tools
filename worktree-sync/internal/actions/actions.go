@@ -2,6 +2,7 @@ package actions
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -66,32 +67,8 @@ func (m *Manager) Run(ctx context.Context, repo config.Repository, worktree Work
 	if !enabled || (len(repo.CopyActions) == 0 && len(repo.SetupActions) == 0) {
 		return Result{Skipped: true}
 	}
-	lock, err := state.Acquire(ctx, m.ledgerPath+".lock")
-	if err != nil {
-		return Result{Error: err}
-	}
-	defer func() { _ = lock.Unlock() }()
-	ledger, err := state.LoadLedger(m.ledgerPath)
-	if err != nil {
-		return Result{Error: err}
-	}
 	key := state.ActionKey{Repository: repo.RepositoryIdentity, Worktree: worktree.Identity, Trigger: string(trigger), Digest: digest(repo)}
-	if rerun {
-		ledger.Rerun(key)
-	}
-	if !ledger.Eligible(key) {
-		return Result{Skipped: true}
-	}
-	err = m.execute(ctx, repo, worktree)
-	result := state.ActionResult{Success: err == nil}
-	if err != nil {
-		result.Error = err.Error()
-	}
-	ledger.Record(key, result)
-	if saveErr := ledger.Save(m.ledgerPath); saveErr != nil {
-		err = errors.Join(err, saveErr)
-	}
-	return Result{Error: err}
+	return m.attempt(ctx, key, rerun, func() error { return m.execute(ctx, repo, worktree) })
 }
 
 func (m *Manager) Launch(ctx context.Context, repo config.Repository, worktree Worktree, trigger Trigger, rerun bool, launch func() error) Result {
@@ -99,6 +76,11 @@ func (m *Manager) Launch(ctx context.Context, repo config.Repository, worktree W
 	if !enabled || repo.LaunchCommand == "" {
 		return Result{Skipped: true}
 	}
+	key := state.ActionKey{Repository: repo.RepositoryIdentity, Worktree: worktree.Identity, Trigger: string(trigger), Digest: digestValue(struct{ Launch string }{repo.LaunchCommand})}
+	return m.attempt(ctx, key, rerun, launch)
+}
+
+func (m *Manager) attempt(ctx context.Context, key state.ActionKey, rerun bool, operation func() error) Result {
 	lock, err := state.Acquire(ctx, m.ledgerPath+".lock")
 	if err != nil {
 		return Result{Error: err}
@@ -108,14 +90,13 @@ func (m *Manager) Launch(ctx context.Context, repo config.Repository, worktree W
 	if err != nil {
 		return Result{Error: err}
 	}
-	key := state.ActionKey{Repository: repo.RepositoryIdentity, Worktree: worktree.Identity, Trigger: string(trigger), Digest: digestValue(struct{ Launch string }{repo.LaunchCommand})}
 	if rerun {
 		ledger.Rerun(key)
 	}
 	if !ledger.Eligible(key) {
 		return Result{Skipped: true}
 	}
-	err = launch()
+	err = operation()
 	result := state.ActionResult{Success: err == nil}
 	if err != nil {
 		result.Error = err.Error()
@@ -127,9 +108,37 @@ func (m *Manager) Launch(ctx context.Context, repo config.Repository, worktree W
 	return Result{Error: err}
 }
 
+func (m *Manager) Prune(ctx context.Context, repo config.Repository, live map[string]bool) error {
+	lock, err := state.Acquire(ctx, m.ledgerPath+".lock")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Unlock() }()
+	ledger, err := state.LoadLedger(m.ledgerPath)
+	if err != nil {
+		return err
+	}
+	validDigests := map[string]bool{digest(repo): true, digestValue(struct{ Launch string }{repo.LaunchCommand}): true}
+	changed := false
+	for encoded := range ledger.Attempts {
+		key, decodeErr := state.DecodeActionKey(encoded)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		if key.Repository == repo.RepositoryIdentity && (!live[key.Worktree] || !validDigests[key.Digest]) {
+			delete(ledger.Attempts, encoded)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return ledger.Save(m.ledgerPath)
+}
+
 func (m *Manager) execute(ctx context.Context, repo config.Repository, worktree Worktree) error {
 	for _, action := range repo.CopyActions {
-		if err := copyFile(repo.PrimaryRoot, worktree.Path, action); err != nil {
+		if err := copyFile(repo, worktree.Path, action); err != nil {
 			return err
 		}
 	}
@@ -148,10 +157,10 @@ func (m *Manager) execute(ctx context.Context, repo config.Repository, worktree 
 			commandCtx, cancel = context.WithTimeout(ctx, timeout)
 		}
 		environment := mergeEnvironment(os.Environ(), action.Env)
-		output, err := m.runner.RunEnv(commandCtx, worktree.Path, environment, action.Argv[0], action.Argv[1:]...)
+		_, err := m.runner.RunEnv(commandCtx, worktree.Path, environment, action.Argv[0], action.Argv[1:]...)
 		cancel()
 		if err != nil {
-			return fmt.Errorf("setup %q failed: %w: %s", action.Argv[0], err, strings.TrimSpace(string(output)))
+			return fmt.Errorf("setup %q failed: %w", action.Argv[0], err)
 		}
 	}
 	return nil
@@ -191,7 +200,7 @@ func safeRelative(value string) (string, error) {
 	return clean, nil
 }
 
-func copyFile(primary, worktree string, action config.CopyAction) error {
+func copyFile(repo config.Repository, worktree string, action config.CopyAction) error {
 	sourceRelative, err := safeRelative(action.Source)
 	if err != nil {
 		return err
@@ -200,7 +209,7 @@ func copyFile(primary, worktree string, action config.CopyAction) error {
 	if err != nil {
 		return err
 	}
-	sourceRoot, err := os.OpenRoot(primary)
+	sourceRoot, err := os.OpenRoot(repo.PrimaryRoot)
 	if err != nil {
 		return fmt.Errorf("opening registered primary root: %w", err)
 	}
@@ -217,7 +226,7 @@ func copyFile(primary, worktree string, action config.CopyAction) error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("copy source %q is not a regular file", action.Source)
 	}
-	destinationRoot, err := os.OpenRoot(worktree)
+	destinationRoot, err := openWorktreeRoot(repo.AllowedRoots, worktree)
 	if err != nil {
 		return fmt.Errorf("opening worktree root: %w", err)
 	}
@@ -227,21 +236,62 @@ func copyFile(primary, worktree string, action config.CopyAction) error {
 			return fmt.Errorf("creating copy destination directory: %w", err)
 		}
 	}
-	output, err := destinationRoot.OpenFile(destinationRelative, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm()) //nolint:gosec // permissions intentionally follow trusted configured source
-	if errors.Is(err, os.ErrExist) {
-		return nil
-	}
+	temporary, err := temporaryName(filepath.Dir(destinationRelative))
 	if err != nil {
-		return fmt.Errorf("creating copy destination: %w", err)
+		return err
 	}
+	output, err := destinationRoot.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm()) //nolint:gosec // permissions intentionally follow trusted configured source
+	if err != nil {
+		return fmt.Errorf("creating temporary copy destination: %w", err)
+	}
+	defer func() { _ = destinationRoot.Remove(temporary) }()
 	if _, err := io.Copy(output, input); err != nil {
 		_ = output.Close()
-		_ = destinationRoot.Remove(destinationRelative)
 		return fmt.Errorf("copying file: %w", err)
 	}
 	if err := output.Sync(); err != nil {
 		_ = output.Close()
-		return err
+		return fmt.Errorf("syncing copied file: %w", err)
 	}
-	return output.Close()
+	if err := output.Close(); err != nil {
+		return fmt.Errorf("closing copied file: %w", err)
+	}
+	if err := destinationRoot.Link(temporary, destinationRelative); errors.Is(err, os.ErrExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("publishing copied file: %w", err)
+	}
+	if err := destinationRoot.Remove(temporary); err != nil {
+		return fmt.Errorf("removing temporary copied file: %w", err)
+	}
+	return nil
+}
+
+func openWorktreeRoot(allowedRoots []string, worktree string) (*os.Root, error) {
+	for _, allowed := range allowedRoots {
+		if !config.Contains(allowed, worktree) {
+			continue
+		}
+		root, err := os.OpenRoot(allowed)
+		if err != nil {
+			return nil, err
+		}
+		relative, err := filepath.Rel(allowed, worktree)
+		if err != nil {
+			_ = root.Close()
+			return nil, err
+		}
+		worktreeRoot, err := root.OpenRoot(relative)
+		_ = root.Close()
+		return worktreeRoot, err
+	}
+	return nil, fmt.Errorf("worktree is outside configured allowed roots")
+}
+
+func temporaryName(parent string) (string, error) {
+	var random [8]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return "", fmt.Errorf("creating temporary copy name: %w", err)
+	}
+	return filepath.Join(parent, ".wts-copy-"+hex.EncodeToString(random[:])), nil
 }

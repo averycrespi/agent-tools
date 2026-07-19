@@ -2,15 +2,20 @@ package service_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/app"
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/config"
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/service"
+	"github.com/averycrespi/agent-tools/worktree-sync/internal/state"
 )
 
 type editorRunner struct{ replacement []byte }
@@ -21,6 +26,63 @@ func (*editorRunner) RunEnv(context.Context, string, []string, string, ...string
 }
 func (r *editorRunner) Interactive(_ context.Context, _ string, _ string, args ...string) error {
 	return os.WriteFile(args[len(args)-1], r.replacement, 0o600)
+}
+
+type safetyRunner struct {
+	calls   [][]string
+	primary string
+}
+
+func (r *safetyRunner) Run(_ context.Context, dir, name string, args ...string) ([]byte, error) {
+	r.calls = append(r.calls, append([]string{dir, name}, args...))
+	if name == "tmux" {
+		return []byte("no server running"), errors.New("missing")
+	}
+	if name == "git" && strings.Join(args, " ") == "worktree list --porcelain -z" {
+		return []byte("worktree " + r.primary + "\x00HEAD abc\x00branch refs/heads/main\x00\x00"), nil
+	}
+	return nil, fmt.Errorf("unexpected command %s %v", name, args)
+}
+func (*safetyRunner) RunEnv(context.Context, string, []string, string, ...string) ([]byte, error) {
+	return nil, nil
+}
+func (*safetyRunner) Interactive(context.Context, string, string, ...string) error { return nil }
+
+func TestCleanupDryRunNeverInvokesGitPrune(t *testing.T) {
+	base := t.TempDir()
+	primary, common, allowed := filepath.Join(base, "repo"), filepath.Join(base, "repo", ".git"), filepath.Join(base, "allowed")
+	require.NoError(t, os.MkdirAll(common, 0o700))
+	require.NoError(t, os.Mkdir(allowed, 0o700))
+	paths := config.Paths{Config: filepath.Join(base, "config.json"), State: filepath.Join(base, "state"), Worktrees: filepath.Join(base, "worktrees")}
+	cfg := config.Default()
+	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: primary, CommonGitDir: common, RepositoryIdentity: common, AllowedRoots: []string{allowed}}}
+	require.NoError(t, config.Save(paths.Config, cfg))
+	runner := &safetyRunner{primary: primary}
+	output, err := service.New(runner, paths).Execute(context.Background(), app.Request{Action: "cleanup", Options: map[string]any{}})
+	require.NoError(t, err)
+	require.Contains(t, output, "dry run")
+	for _, call := range runner.calls {
+		require.NotContains(t, call, "prune")
+	}
+}
+
+func TestReconcileWaitsForSharedOperationLock(t *testing.T) {
+	base := t.TempDir()
+	paths := config.Paths{Config: filepath.Join(base, "config.json"), State: filepath.Join(base, "state"), Worktrees: filepath.Join(base, "worktrees")}
+	require.NoError(t, config.Save(paths.Config, config.Default()))
+	lock, err := state.Acquire(context.Background(), filepath.Join(paths.State, "operation.lock"))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, lock.Unlock()) }()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, err = service.New(&editorRunner{}, paths).Execute(ctx, app.Request{Action: "reconcile"})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestRemoveRejectsConflictingBranchDeletionFlags(t *testing.T) {
+	controller := service.New(&editorRunner{}, config.Paths{})
+	_, err := controller.Execute(context.Background(), app.Request{Action: "worktree.remove", Args: []string{"feature"}, Options: map[string]any{"delete_branch": true, "force_delete_branch": true}})
+	require.ErrorContains(t, err, "choose only one")
 }
 
 func TestConfigRefreshCreatesValidatedDefaults(t *testing.T) {

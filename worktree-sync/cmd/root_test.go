@@ -1,15 +1,32 @@
-package app_test
+package cmd_test
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/averycrespi/agent-tools/worktree-sync/cmd"
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/app"
 )
 
+type partialController struct{}
+
+func (partialController) Execute(context.Context, app.Request) (string, error) {
+	return "/created/path", errors.New("reconciliation degraded")
+}
+
+func TestCommandPrintsPartialSuccessOutputBeforeReturningError(t *testing.T) {
+	var stdout bytes.Buffer
+	err := cmd.ExecuteWTS(context.Background(), partialController{}, &stdout, &bytes.Buffer{}, []string{"reconcile"})
+	require.ErrorContains(t, err, "degraded")
+	require.Contains(t, stdout.String(), "/created/path")
+}
+
 func TestWTSCommandSurface(t *testing.T) {
-	root := app.NewWTS(nil)
+	root := cmd.NewWTS(nil)
 	expected := map[string][]string{
 		"config":   {"path", "edit", "validate", "refresh"},
 		"repo":     {"add", "list", "remove"},
@@ -44,7 +61,7 @@ func TestEveryCommandUsesSpecificArgumentValidation(t *testing.T) {
 		{"daemon", "install", "extra"}, {"daemon", "uninstall", "extra"}, {"daemon", "start", "extra"}, {"daemon", "stop", "extra"}, {"daemon", "status", "extra"},
 	}
 	for _, args := range tests {
-		root := app.NewWTS(nil)
+		root := cmd.NewWTS(nil)
 		root.SetArgs(args)
 		root.SilenceUsage = true
 		root.SilenceErrors = true
@@ -55,7 +72,7 @@ func TestEveryCommandUsesSpecificArgumentValidation(t *testing.T) {
 }
 
 func TestRequiredRepoArgumentUsesCommandSpecificError(t *testing.T) {
-	root := app.NewWTS(nil)
+	root := cmd.NewWTS(nil)
 	root.SetArgs([]string{"repo", "remove"})
 	root.SilenceUsage = true
 	root.SilenceErrors = true

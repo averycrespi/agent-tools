@@ -24,7 +24,18 @@ func (g gitSnapshotter) Snapshot(context.Context, gitclient.Repository) (gitclie
 	return g.snapshot, g.err
 }
 
+type sequenceSnapshotter struct{ snapshots []gitclient.Snapshot }
+
+func (s *sequenceSnapshotter) Snapshot(context.Context, gitclient.Repository) (gitclient.Snapshot, error) {
+	result := s.snapshots[0]
+	if len(s.snapshots) > 1 {
+		s.snapshots = s.snapshots[1:]
+	}
+	return result, nil
+}
+
 type tmuxFake struct {
+	snapshotCalls    int
 	snapshot         tmux.Snapshot
 	snapshotErr      error
 	createdSession   bool
@@ -37,7 +48,10 @@ type tmuxFake struct {
 	ownershipChanged map[string]bool
 }
 
-func (f *tmuxFake) Snapshot(context.Context) (tmux.Snapshot, error) { return f.snapshot, f.snapshotErr }
+func (f *tmuxFake) Snapshot(context.Context) (tmux.Snapshot, error) {
+	f.snapshotCalls++
+	return f.snapshot, f.snapshotErr
+}
 func (f *tmuxFake) CreateSession(_ context.Context, _ string, _ tmux.Window) (string, error) {
 	f.createdSession = true
 	return "$new", nil
@@ -57,7 +71,7 @@ func (f *tmuxFake) CreateWindow(_ context.Context, target string, w tmux.Window)
 	}
 	return "@new", nil
 }
-func (f *tmuxFake) RepairWindow(_ context.Context, id string, _ tmux.Window) error {
+func (f *tmuxFake) RepairWindow(_ context.Context, id string, _, _ tmux.Window) error {
 	f.repaired = append(f.repaired, id)
 	return nil
 }
@@ -87,6 +101,15 @@ func (a *actionFake) Launch(_ context.Context, _ config.Repository, _ actions.Wo
 	a.launches++
 	return actions.Result{Error: launch()}
 }
+func (*actionFake) Prune(context.Context, config.Repository, map[string]bool) error { return nil }
+
+func TestExecutorUsesProvidedSocketSnapshotWithoutResnapshotting(t *testing.T) {
+	repo, snapshot := fixture(t)
+	tmuxClient := &tmuxFake{}
+	executor := reconcile.NewExecutor(gitSnapshotter{snapshot: snapshot}, tmuxClient, &actionFake{})
+	executor.ReconcileRepoWithSnapshot(context.Background(), repo, tmux.Snapshot{Complete: true}, func(string, string) actions.Trigger { return actions.Passive })
+	require.Zero(t, tmuxClient.snapshotCalls)
+}
 
 func TestExecutorCreatesInspectionWindowDespiteSetupFailureAndLaunchesOnlyCreated(t *testing.T) {
 	repo, snapshot := fixture(t)
@@ -103,6 +126,51 @@ func TestExecutorCreatesInspectionWindowDespiteSetupFailureAndLaunchesOnlyCreate
 	require.Equal(t, 1, actionManager.launches)
 	require.Equal(t, []string{"@new"}, tmuxClient.launched)
 	require.Contains(t, report.Errors[0], "setup failed")
+}
+
+func TestExecutorRevalidatesWorktreeIdentityBeforeActions(t *testing.T) {
+	repo, initial := fixture(t)
+	desired := reconcile.Build(repo, initial, tmux.Snapshot{Complete: true}).Desired
+	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: desired.SessionName, Metadata: tmux.Metadata{Schema: 1, Repository: repo.RepositoryIdentity, Role: "session", Identity: repo.RepositoryIdentity}, Windows: desired.Windows}}}
+	replacement := initial
+	replacement.Worktrees = append([]gitclient.Worktree(nil), initial.Worktrees...)
+	replacement.Worktrees[1].Identity = "replacement"
+	actionManager := &actionFake{}
+	executor := reconcile.NewExecutor(&sequenceSnapshotter{snapshots: []gitclient.Snapshot{initial, replacement}}, &tmuxFake{snapshot: actual}, actionManager)
+	executor.ReconcileRepo(context.Background(), repo, func(string, string) actions.Trigger { return actions.Passive })
+	require.Zero(t, actionManager.runs)
+}
+
+func TestExecutorSkipsActionsWhenWorktreeMovesWithSameIdentity(t *testing.T) {
+	repo, initial := fixture(t)
+	desired := reconcile.Build(repo, initial, tmux.Snapshot{Complete: true}).Desired
+	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: desired.SessionName, Metadata: tmux.Metadata{Schema: 1, Repository: repo.RepositoryIdentity, Role: "session", Identity: repo.RepositoryIdentity}, Windows: desired.Windows}}}
+	moved := initial
+	moved.Worktrees = append([]gitclient.Worktree(nil), initial.Worktrees...)
+	moved.Worktrees[1].Path = filepath.Join(t.TempDir(), "moved")
+	actionManager := &actionFake{}
+	report := reconcile.NewExecutor(&sequenceSnapshotter{snapshots: []gitclient.Snapshot{initial, moved}}, &tmuxFake{snapshot: actual}, actionManager).ReconcileRepo(context.Background(), repo, func(string, string) actions.Trigger { return actions.Passive })
+	require.Zero(t, actionManager.runs)
+	require.Contains(t, report.Errors[0], "path changed")
+}
+
+func TestExecutorRechecksSessionBeforeCreatingWindow(t *testing.T) {
+	repo, snapshot := fixture(t)
+	desired := reconcile.Build(repo, snapshot, tmux.Snapshot{Complete: true}).Desired
+	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: desired.SessionName, Metadata: tmux.Metadata{Schema: 1, Repository: repo.RepositoryIdentity, Role: "session", Identity: repo.RepositoryIdentity}, Windows: desired.Windows[:1]}}}
+	tmuxClient := &tmuxFake{snapshot: actual, ownershipChanged: map[string]bool{"$1": true}}
+	reconcile.NewExecutor(gitSnapshotter{snapshot: snapshot}, tmuxClient, &actionFake{}).ReconcileRepo(context.Background(), repo, func(string, string) actions.Trigger { return actions.Passive })
+	require.Empty(t, tmuxClient.created)
+}
+
+func TestExecutorRechecksCreatedWindowBeforeLaunch(t *testing.T) {
+	repo, snapshot := fixture(t)
+	repo.LaunchCommand = "agent"
+	repo.Policy.LaunchPassive = true
+	tmuxClient := &tmuxFake{snapshot: tmux.Snapshot{Complete: true}, ownershipChanged: map[string]bool{"@new": true}}
+	report := reconcile.NewExecutor(gitSnapshotter{snapshot: snapshot}, tmuxClient, &actionFake{}).ReconcileRepo(context.Background(), repo, func(string, string) actions.Trigger { return actions.Passive })
+	require.Empty(t, tmuxClient.launched)
+	require.Contains(t, report.Errors[len(report.Errors)-1], "ownership changed")
 }
 
 func TestExecutorDoesNotRunSetupWithoutInspectionWindow(t *testing.T) {
@@ -155,6 +223,8 @@ func TestIncompleteGitSnapshotNeverRepairsOrDeletes(t *testing.T) {
 	tmuxClient := &tmuxFake{snapshot: actual}
 	executor := reconcile.NewExecutor(gitSnapshotter{snapshot: snapshot, err: errors.New("partial")}, tmuxClient, &actionFake{})
 	report := executor.ReconcileRepo(context.Background(), repo, func(string, string) actions.Trigger { return actions.Passive })
+	require.False(t, tmuxClient.createdSession)
+	require.Empty(t, tmuxClient.created)
 	require.Empty(t, tmuxClient.repaired)
 	require.Empty(t, tmuxClient.killed)
 	require.NotEmpty(t, report.Errors)

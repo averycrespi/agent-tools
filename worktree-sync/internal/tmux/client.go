@@ -40,7 +40,7 @@ func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return output, fmt.Errorf("tmux %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+		return output, fmt.Errorf("tmux command failed: %w", err)
 	}
 	return output, nil
 }
@@ -58,14 +58,6 @@ func parseMetadata(fields []string) (Metadata, error) {
 	return metadata, nil
 }
 
-func (c *Client) value(ctx context.Context, target, format string) (string, error) {
-	output, err := c.run(ctx, "display-message", "-p", "-t", target, "-F", format)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSuffix(string(output), "\n"), nil
-}
-
 func ids(output []byte) []string {
 	text := strings.TrimSuffix(string(output), "\n")
 	if text == "" {
@@ -74,22 +66,123 @@ func ids(output []byte) []string {
 	return strings.Split(text, "\n")
 }
 
-func (c *Client) metadata(ctx context.Context, target string, window bool) (Metadata, error) {
+func parseMetadataOptions(output string) (Metadata, error) {
 	options := []string{"@wts-schema", "@wts-repository", "@wts-role", "@wts-identity"}
+	found := make(map[string]string)
+	for _, line := range strings.Split(strings.TrimSuffix(output, "\n"), "\n") {
+		name, value, ok := strings.Cut(line, " ")
+		if !ok || !strings.HasPrefix(name, "@wts-") {
+			continue
+		}
+		if strings.HasPrefix(value, "\"") {
+			decoded, err := strconv.Unquote(value)
+			if err != nil {
+				return Metadata{}, fmt.Errorf("invalid quoted tmux metadata %s: %w", name, err)
+			}
+			value = decoded
+		}
+		found[name] = value
+	}
 	values := make([]string, len(options))
 	for i, option := range options {
-		args := []string{"show-options"}
-		if window {
-			args = append(args, "-w")
-		}
-		args = append(args, "-qv", "-t", target, option)
-		output, err := c.run(ctx, args...)
-		if err != nil {
-			return Metadata{}, err
-		}
-		values[i] = strings.TrimSuffix(string(output), "\n")
+		values[i] = found[option]
 	}
 	return parseMetadata(values)
+}
+
+func (c *Client) metadata(ctx context.Context, target string, window bool) (Metadata, error) {
+	args := []string{"show-options"}
+	if window {
+		args = append(args, "-w")
+	}
+	args = append(args, "-q", "-t", target)
+	output, err := c.run(ctx, args...)
+	if err != nil {
+		return Metadata{}, err
+	}
+	return parseMetadataOptions(string(output))
+}
+
+func appendCommand(args []string, command ...string) []string {
+	if len(args) > 0 {
+		args = append(args, ";")
+	}
+	return append(args, command...)
+}
+
+func detailMarker(name string) string { return "__WTS_DETAIL_" + name + "__" }
+
+func detailBlocks(output []byte, markers []string) (map[string]string, error) {
+	lines := strings.Split(strings.TrimSuffix(string(output), "\n"), "\n")
+	result := make(map[string]string, len(markers))
+	position := 0
+	for i, marker := range markers {
+		if position >= len(lines) || lines[position] != marker {
+			return nil, fmt.Errorf("tmux detail output missing marker %q", marker)
+		}
+		position++
+		end := len(lines)
+		if i+1 < len(markers) {
+			for j := position; j < len(lines); j++ {
+				if lines[j] == markers[i+1] {
+					end = j
+					break
+				}
+			}
+			if end == len(lines) {
+				return nil, fmt.Errorf("tmux detail output missing marker %q", markers[i+1])
+			}
+		}
+		result[marker] = strings.Join(lines[position:end], "\n")
+		position = end
+	}
+	return result, nil
+}
+
+func (c *Client) loadSessionDetails(ctx context.Context, session *Session) error {
+	markers := []string{detailMarker("session-name"), detailMarker("session-metadata")}
+	args := make([]string, 0)
+	args = appendCommand(args, "display-message", "-p", "-F", markers[0])
+	args = appendCommand(args, "display-message", "-p", "-t", session.ID, "-F", "#{session_name}")
+	args = appendCommand(args, "display-message", "-p", "-F", markers[1])
+	args = appendCommand(args, "show-options", "-q", "-t", session.ID)
+	for i, window := range session.Windows {
+		for _, field := range []string{"name", "path", "metadata"} {
+			marker := detailMarker(fmt.Sprintf("window-%d-%s", i, field))
+			markers = append(markers, marker)
+			args = appendCommand(args, "display-message", "-p", "-F", marker)
+			switch field {
+			case "name":
+				args = appendCommand(args, "display-message", "-p", "-t", window.ID, "-F", "#{window_name}")
+			case "path":
+				args = appendCommand(args, "display-message", "-p", "-t", window.ID, "-F", "#{pane_current_path}")
+			case "metadata":
+				args = appendCommand(args, "show-options", "-w", "-q", "-t", window.ID)
+			}
+		}
+	}
+	output, err := c.run(ctx, args...)
+	if err != nil {
+		return err
+	}
+	blocks, err := detailBlocks(output, markers)
+	if err != nil {
+		return err
+	}
+	session.Name = blocks[markers[0]]
+	session.Metadata, err = parseMetadataOptions(blocks[markers[1]])
+	if err != nil {
+		return err
+	}
+	for i := range session.Windows {
+		session.Windows[i].Name = blocks[detailMarker(fmt.Sprintf("window-%d-name", i))]
+		session.Windows[i].Path = blocks[detailMarker(fmt.Sprintf("window-%d-path", i))]
+		session.Windows[i].Metadata, err = parseMetadataOptions(blocks[detailMarker(fmt.Sprintf("window-%d-metadata", i))])
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *Client) Snapshot(ctx context.Context) (Snapshot, error) {
@@ -103,33 +196,16 @@ func (c *Client) Snapshot(ctx context.Context) (Snapshot, error) {
 	sessionIDs := ids(output)
 	snapshot := Snapshot{Complete: true, Sessions: make([]Session, 0, len(sessionIDs))}
 	for _, sessionID := range sessionIDs {
-		name, valueErr := c.value(ctx, sessionID, "#{session_name}")
-		if valueErr != nil {
-			return Snapshot{Complete: false}, valueErr
-		}
-		metadata, metadataErr := c.metadata(ctx, sessionID, false)
-		if metadataErr != nil {
-			return Snapshot{Complete: false}, metadataErr
-		}
-		session := Session{ID: sessionID, Name: name, Metadata: metadata}
 		windowsOut, windowsErr := c.run(ctx, "list-windows", "-t", sessionID, "-F", "#{window_id}")
 		if windowsErr != nil {
 			return Snapshot{Complete: false}, windowsErr
 		}
+		session := Session{ID: sessionID}
 		for _, windowID := range ids(windowsOut) {
-			windowName, nameErr := c.value(ctx, windowID, "#{window_name}")
-			if nameErr != nil {
-				return Snapshot{Complete: false}, nameErr
-			}
-			path, pathErr := c.value(ctx, windowID, "#{pane_current_path}")
-			if pathErr != nil {
-				return Snapshot{Complete: false}, pathErr
-			}
-			windowMetadata, windowMetadataErr := c.metadata(ctx, windowID, true)
-			if windowMetadataErr != nil {
-				return Snapshot{Complete: false}, windowMetadataErr
-			}
-			session.Windows = append(session.Windows, Window{ID: windowID, Name: windowName, Path: path, Metadata: windowMetadata})
+			session.Windows = append(session.Windows, Window{ID: windowID})
+		}
+		if detailErr := c.loadSessionDetails(ctx, &session); detailErr != nil {
+			return Snapshot{Complete: false}, detailErr
 		}
 		snapshot.Sessions = append(snapshot.Sessions, session)
 	}
@@ -148,17 +224,19 @@ func (c *Client) OwnsWindow(ctx context.Context, id string, expected Metadata) (
 
 func (c *Client) setMetadata(ctx context.Context, target string, window bool, metadata Metadata) error {
 	pairs := [][2]string{{"@wts-schema", strconv.Itoa(metadata.Schema)}, {"@wts-repository", metadata.Repository}, {"@wts-role", metadata.Role}, {"@wts-identity", metadata.Identity}}
-	for _, pair := range pairs {
-		args := []string{"set-option"}
+	args := make([]string, 0, len(pairs)*7)
+	for i, pair := range pairs {
+		if i > 0 {
+			args = append(args, ";")
+		}
+		args = append(args, "set-option")
 		if window {
 			args = append(args, "-w")
 		}
 		args = append(args, "-t", target, pair[0], pair[1])
-		if _, err := c.run(ctx, args...); err != nil {
-			return err
-		}
 	}
-	return nil
+	_, err := c.run(ctx, args...)
+	return err
 }
 
 func (c *Client) CreateSession(ctx context.Context, name string, base Window) (string, error) {
@@ -206,14 +284,21 @@ func (c *Client) CreateWindow(ctx context.Context, sessionID string, window Wind
 	return id, nil
 }
 
-func (c *Client) RepairWindow(ctx context.Context, id string, window Window) error {
-	if _, err := c.run(ctx, "rename-window", "-t", id, window.Name); err != nil {
-		return err
+func (c *Client) RepairWindow(ctx context.Context, id string, current, desired Window) error {
+	if current.Name != desired.Name {
+		if _, err := c.run(ctx, "rename-window", "-t", id, desired.Name); err != nil {
+			return err
+		}
 	}
-	if _, err := c.run(ctx, "respawn-window", "-k", "-t", id, "-c", window.Path); err != nil {
-		return err
+	if current.Path != desired.Path {
+		if _, err := c.run(ctx, "respawn-window", "-k", "-t", id, "-c", desired.Path); err != nil {
+			return err
+		}
 	}
-	return c.setMetadata(ctx, id, true, window.Metadata)
+	if current.Metadata != desired.Metadata {
+		return c.setMetadata(ctx, id, true, desired.Metadata)
+	}
+	return nil
 }
 
 func (c *Client) KillWindow(ctx context.Context, id string) error {

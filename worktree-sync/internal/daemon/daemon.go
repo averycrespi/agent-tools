@@ -55,10 +55,33 @@ func Run(ctx context.Context, paths config.Paths, service controller, logger *sl
 			return config.Config{}, loadErr
 		}
 		desiredWatches := map[string]bool{filepath.Dir(paths.Config): true}
+		addTree := func(root string) {
+			if walkErr := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !entry.IsDir() {
+					return nil
+				}
+				desiredWatches[path] = true
+				if path != root {
+					if _, markerErr := os.Lstat(filepath.Join(path, ".git")); markerErr == nil {
+						return filepath.SkipDir
+					}
+				}
+				return nil
+			}); walkErr != nil {
+				logger.Warn("enumerating filesystem watches", "path", root, "error", walkErr)
+			}
+		}
 		for _, repo := range cfg.Repositories {
 			desiredWatches[repo.CommonGitDir] = true
+			worktreeMetadata := filepath.Join(repo.CommonGitDir, "worktrees")
+			if _, statErr := os.Stat(worktreeMetadata); statErr == nil {
+				addTree(worktreeMetadata)
+			}
 			for _, root := range repo.AllowedRoots {
-				desiredWatches[root] = true
+				addTree(root)
 			}
 		}
 		for _, watched := range watcher.WatchList() {
@@ -92,6 +115,15 @@ func Run(ctx context.Context, paths config.Paths, service controller, logger *sl
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	updateSchedule := func(cfg config.Config) {
+		if parsed, parseErr := time.ParseDuration(cfg.Global.ReconcileInterval); parseErr == nil && parsed > 0 && parsed != interval {
+			interval = parsed
+			ticker.Reset(interval)
+		}
+		if parsed, parseErr := time.ParseDuration(cfg.Global.Debounce); parseErr == nil && parsed > 0 {
+			debounce = parsed
+		}
+	}
 	var timer *time.Timer
 	var timerChannel <-chan time.Time
 	queue := func() {
@@ -116,16 +148,11 @@ func Run(ctx context.Context, paths config.Paths, service controller, logger *sl
 			return nil
 		case <-ticker.C:
 			cfg, _ = reconcileNow("interval")
-			if parsed, parseErr := time.ParseDuration(cfg.Global.ReconcileInterval); parseErr == nil && parsed > 0 && parsed != interval {
-				interval = parsed
-				ticker.Reset(interval)
-			}
+			updateSchedule(cfg)
 		case <-timerChannel:
 			timerChannel = nil
 			cfg, _ = reconcileNow("filesystem event")
-			if parsed, parseErr := time.ParseDuration(cfg.Global.Debounce); parseErr == nil && parsed > 0 {
-				debounce = parsed
-			}
+			updateSchedule(cfg)
 		case _, ok := <-watcher.Events:
 			if !ok {
 				return fmt.Errorf("filesystem watcher closed")

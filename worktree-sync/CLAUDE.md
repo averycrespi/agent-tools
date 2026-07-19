@@ -18,8 +18,10 @@ make audit
 ## Architecture
 
 ```text
-cmd/wts/             Thin administrative CLI
-cmd/wtsd/            Thin foreground daemon
+cmd/root.go          Thin Cobra command construction
+cmd/wts/             Administrative CLI entry point
+cmd/wtsd/            Foreground daemon entry point
+internal/app/        Transport-neutral service request contract
 internal/config/     XDG config, validation, and atomic persistence
 internal/state/      Private state, operation/singleton locks, action ledger
 internal/git/        Repository validation and worktree snapshots
@@ -31,6 +33,6 @@ internal/launchd/    Per-user macOS LaunchAgent adapter
 internal/service/    Human workflows and status aggregation
 ```
 
-All subprocesses use `internal/exec.Runner`, caller cancellation, and a finite configured deadline. Keep commands thin and define narrow client interfaces at orchestration boundaries. Never authorize tmux mutation by a name: schema/repository/role/identity metadata is the ownership boundary. Git snapshots and tmux snapshots must both be complete before stale managed resources are deleted. The operation lock serializes lifecycle and reconcile apply phases; the daemon lock is separate.
+All subprocesses use `internal/exec.Runner`, caller cancellation, bounded captured output, a killable Unix process group, and a finite configured deadline. Keep commands thin and define narrow client interfaces at orchestration boundaries. Never authorize tmux mutation by a name: schema/repository/role/identity metadata is the ownership boundary. Git snapshots and tmux snapshots must both be complete before stale managed resources are deleted. The operation lock serializes lifecycle and reconcile apply phases; the daemon lock is separate.
 
 `fsnotify` is only a latency nudge; periodic full reconciliation guarantees recovery. `gofrs/flock` provides Unix advisory locks. Tests use fake runners; integration tests must use a unique tmux socket and always clean it up.

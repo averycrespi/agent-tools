@@ -52,7 +52,7 @@ Creation precedes stale deletion. If tagging a newly created object fails, that 
 
 Incomplete Git state permits no repair, duplicate removal, stale removal, setup, or launch. An incomplete tmux snapshot permits no apply. Invalid configuration permits no snapshot/apply. These rules fail closed for destructive behavior while retaining convergent retry on a later scan.
 
-The daemon and human lifecycle operations acquire one cross-process operation lock. A separate state-directory lock permits only one daemon. Locks are context-aware, and every non-interactive subprocess receives caller cancellation plus a finite configured timeout. Reconciliation is convergent rather than transactional across Git and tmux.
+The daemon and human lifecycle operations acquire one cross-process operation lock. A separate state-directory lock permits only one daemon. Locks are context-aware, and every non-interactive subprocess receives caller cancellation, bounded captured output, a killable Unix process group, and a finite configured timeout. Multi-repository scans reuse one complete tmux socket snapshot while stable-ID ownership is still rechecked immediately before mutation. Reconciliation is convergent rather than transactional across Git and tmux.
 
 ## Scheduling and recovery
 
@@ -70,9 +70,9 @@ Ordinary `git worktree add` has no provenance entry and is passive. The next eve
 
 Actions are trusted per-repository host configuration; repository-local files cannot define actions. Explicit and passive policy gates are separate, and passive actions default off.
 
-Copy actions use Go's rooted filesystem API for race-resistant containment of both source and destination, reject absolute/parent traversal, create private parents, and use exclusive destination creation so existing files and symlinks are never overwritten. Setup commands are argv arrays executed without a shell in the worktree with inherited environment plus validated overrides and a bounded action/default timeout.
+Copy actions use Go's rooted filesystem API for race-resistant containment of both source and destination, reject absolute/parent traversal, create private parents, fully write and sync a rooted temporary file, and publish it with a no-replace hard link so existing files and symlinks are never overwritten or exposed partially. Setup commands are argv arrays executed without a shell in a freshly revalidated worktree with inherited environment plus validated overrides and a bounded action/default timeout.
 
-The action ledger is protected by its own advisory lock and keyed by repository identity, worktree identity, explicit/passive trigger, and a digest of the action definition. Success and failure both suppress automatic retry; changed definitions, new worktree identities, or explicit `--rerun` are eligible. Setup runs after the inspection window exists, so failure never hides the worktree. Launch text is trusted shell input sent as one literal tmux argument and Enter. Automatic launch is considered only when a managed window was newly created and its trigger policy permits it.
+The action ledger is protected by its own advisory lock and keyed by repository identity, worktree identity, explicit/passive trigger, and a digest of the action definition. Complete reconciliations remove entries for vanished worktree identities and obsolete definitions. Success and failure both suppress automatic retry; changed definitions, new worktree identities, or explicit `--rerun` are eligible. Setup runs after the inspection window exists, so failure never hides the worktree. Launch text is trusted shell input sent as one literal tmux argument and Enter. Automatic launch is considered only when a managed window was newly created and its trigger policy permits it.
 
 ## Status, cleanup, and unregister
 

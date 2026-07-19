@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -48,7 +49,7 @@ func (c *Client) run(ctx context.Context, dir string, args ...string) ([]byte, e
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+		return nil, fmt.Errorf("git command failed: %w", err)
 	}
 	return output, nil
 }
@@ -126,32 +127,42 @@ func (c *Client) Snapshot(ctx context.Context, repo Repository) (Snapshot, error
 			continue
 		}
 		worktrees[i].Path = canonical
-		gitDirOut, runErr := c.run(ctx, canonical, "rev-parse", "--git-dir")
-		if runErr != nil {
-			worktrees[i].Exclusion = "git-identity-unavailable"
-			complete = false
-			errs = append(errs, runErr)
+		if canonical == repo.PrimaryRoot {
+			worktrees[i].Identity = repo.Identity
 			continue
 		}
-		identity, identityErr := canonicalGitPath(canonical, strings.TrimSpace(string(gitDirOut)))
+		identity, identityErr := linkedGitDir(canonical)
+		if identityErr == nil {
+			worktrees[i].Identity, identityErr = worktreeIdentity(identity)
+		}
 		if identityErr != nil {
 			worktrees[i].Exclusion = "git-identity-unavailable"
 			complete = false
 			errs = append(errs, identityErr)
-			continue
-		}
-		if identity == repo.CommonGitDir {
-			worktrees[i].Identity = repo.Identity
-		} else {
-			worktrees[i].Identity, identityErr = worktreeIdentity(identity)
-			if identityErr != nil {
-				worktrees[i].Exclusion = "git-identity-unavailable"
-				complete = false
-				errs = append(errs, identityErr)
-			}
 		}
 	}
 	return Snapshot{Complete: complete, Worktrees: worktrees}, errors.Join(errs...)
+}
+
+func linkedGitDir(worktree string) (string, error) {
+	file, err := os.Open(filepath.Join(worktree, ".git")) //nolint:gosec // canonical worktree path from Git
+	if err != nil {
+		return "", fmt.Errorf("opening linked-worktree Git file: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(io.LimitReader(file, 4097))
+	if err != nil {
+		return "", fmt.Errorf("reading linked-worktree Git file: %w", err)
+	}
+	if len(data) > 4096 {
+		return "", fmt.Errorf("linked-worktree Git file is too large")
+	}
+	value := strings.TrimSpace(string(data))
+	path, ok := strings.CutPrefix(value, "gitdir: ")
+	if !ok || path == "" {
+		return "", fmt.Errorf("linked-worktree Git file is malformed")
+	}
+	return canonicalGitPath(worktree, path)
 }
 
 func worktreeIdentity(gitDir string) (string, error) {

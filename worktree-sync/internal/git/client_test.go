@@ -63,6 +63,32 @@ func TestSnapshotReportsPrunableAndFailsIncompleteCanonicalization(t *testing.T)
 	require.Len(t, snapshot.Worktrees, 3)
 	require.Equal(t, "missing", snapshot.Worktrees[1].Exclusion)
 	require.Equal(t, "prunable", snapshot.Worktrees[2].Exclusion)
+	require.Len(t, runner.calls, 1, "primary identity should come from registration without another Git subprocess")
+}
+
+func TestSnapshotReadsLinkedGitFileWithoutPerWorktreeSubprocess(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "repo")
+	linked := filepath.Join(base, "linked")
+	common := filepath.Join(primary, ".git")
+	admin := filepath.Join(common, "worktrees", "linked")
+	require.NoError(t, os.MkdirAll(admin, 0o700))
+	require.NoError(t, os.Mkdir(linked, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(linked, ".git"), []byte("gitdir: "+admin+"\n"), 0o600))
+	output := "worktree " + primary + "\x00HEAD abc\x00branch refs/heads/main\x00\x00" + "worktree " + linked + "\x00HEAD def\x00branch refs/heads/linked\x00\x00"
+	runner := &fakeRunner{responses: []response{{output: []byte(output)}}}
+	snapshot, err := gitclient.New(runner, time.Second).Snapshot(context.Background(), gitclient.Repository{PrimaryRoot: primary, CommonGitDir: common, Identity: common})
+	require.NoError(t, err)
+	require.True(t, snapshot.Complete)
+	require.Len(t, runner.calls, 1)
+	require.Contains(t, snapshot.Worktrees[1].Identity, admin+"#")
+}
+
+func TestGitErrorDoesNotExposeCommandOutput(t *testing.T) {
+	runner := &fakeRunner{responses: []response{{output: []byte("token=secret"), err: errors.New("failed")}}}
+	_, err := gitclient.New(runner, time.Second).ListRaw(context.Background(), "/repo")
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "token=secret")
 }
 
 func TestBranchExistsDistinguishesMissingBranchFromCommandFailure(t *testing.T) {
@@ -79,6 +105,19 @@ type exitError struct{ code int }
 
 func (e exitError) Error() string { return "exit" }
 func (e exitError) ExitCode() int { return e.code }
+
+func TestRemoveAndBranchDeletionForwardExplicitSafetyFlags(t *testing.T) {
+	runner := &fakeRunner{responses: make([]response, 4)}
+	client := gitclient.New(runner, time.Second)
+	require.NoError(t, client.Remove(context.Background(), "/repo", "/worktree", false))
+	require.NoError(t, client.Remove(context.Background(), "/repo", "/worktree", true))
+	require.NoError(t, client.DeleteBranch(context.Background(), "/repo", "feature", false))
+	require.NoError(t, client.DeleteBranch(context.Background(), "/repo", "feature", true))
+	require.Equal(t, []string{"/repo", "git", "worktree", "remove", "/worktree"}, runner.calls[0])
+	require.Equal(t, []string{"/repo", "git", "worktree", "remove", "--force", "/worktree"}, runner.calls[1])
+	require.Equal(t, []string{"/repo", "git", "branch", "-d", "feature"}, runner.calls[2])
+	require.Equal(t, []string{"/repo", "git", "branch", "-D", "feature"}, runner.calls[3])
+}
 
 func TestClientDeadlineCancelsRunner(t *testing.T) {
 	runner := &blockingRunner{}
