@@ -233,6 +233,7 @@ func TestInstallRestoresPreviousPlistWhenBootoutFails(t *testing.T) {
 	output, err := manager.Install(context.Background(), "/opt/new-wtsd", testEnvironment(filepath.Join(t.TempDir(), "new")))
 	require.Error(t, err)
 	require.Contains(t, output, "previous plist restored")
+	require.Contains(t, output, "wts daemon status")
 	data, readErr := os.ReadFile(filepath.Join(home, "Library", "LaunchAgents", "dev.agent-tools.worktree-sync.plist"))
 	require.NoError(t, readErr)
 	require.Contains(t, string(data), "/opt/old-wtsd")
@@ -251,11 +252,34 @@ func TestInstallRestoresPreviousAgentWhenReplacementBootstrapFails(t *testing.T)
 	output, err := manager.Install(context.Background(), "/opt/new-wtsd", testEnvironment(filepath.Join(t.TempDir(), "new")))
 	require.Error(t, err)
 	require.Contains(t, output, "previous LaunchAgent restored")
+	require.Contains(t, output, "wts daemon status")
 	require.True(t, r.loaded)
 	data, readErr := os.ReadFile(filepath.Join(home, "Library", "LaunchAgents", "dev.agent-tools.worktree-sync.plist"))
 	require.NoError(t, readErr)
 	require.Contains(t, string(data), "/opt/old-wtsd")
 	require.NotContains(t, string(data), "/opt/new-wtsd")
+}
+
+func TestLifecycleMutationFailuresGiveStatusRecovery(t *testing.T) {
+	home := t.TempDir()
+	r := &lifecycleRunner{}
+	manager := launchd.New(r, "darwin", home, time.Second)
+	_, err := manager.Install(context.Background(), "/opt/wtsd", testEnvironment(t.TempDir()))
+	require.NoError(t, err)
+
+	r.failBootoutOnce = true
+	output, err := manager.Stop(context.Background())
+	require.Error(t, err)
+	require.Contains(t, output, "state is uncertain")
+	require.Contains(t, output, "wts daemon status")
+
+	_, err = manager.Stop(context.Background())
+	require.NoError(t, err)
+	r.failBootstrapOnce = true
+	output, err = manager.Start(context.Background())
+	require.Error(t, err)
+	require.Contains(t, output, "state is uncertain")
+	require.Contains(t, output, "wts daemon status")
 }
 
 func TestLifecycleUsesFixedLockIndependentOfXDGEnvironment(t *testing.T) {

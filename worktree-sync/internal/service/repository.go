@@ -140,7 +140,7 @@ func (s *Service) repositoryRoots(ctx context.Context, action, value, repoID str
 	}
 	cfg = replaceRepository(cfg, repo)
 	if err := config.Save(s.paths.Config, cfg); err != nil {
-		return "", err
+		return postCommitFailure(err, change+" was written", "run wts repo roots show --repo-id "+repo.ID+"; retry the root command only if the change is absent")
 	}
 	return rootsNextStep(repo, change), nil
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/actions"
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/config"
 	gitclient "github.com/averycrespi/agent-tools/worktree-sync/internal/git"
+	"github.com/averycrespi/agent-tools/worktree-sync/internal/state"
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/tmux"
 )
 
@@ -215,6 +216,8 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 			if err == nil {
 				sessionTarget, sessionReady = id, true
 				effects = append(effects, "created session "+id)
+			} else if id != "" {
+				effects = append(effects, "created session "+id+" may remain")
 			}
 		case RepairSession:
 			expected := tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.Identity(), Role: "session", Identity: repo.Identity()}
@@ -251,6 +254,8 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 				created[operation.Identity] = id
 				projected[operation.Identity] = id
 				effects = append(effects, "created window "+id)
+			} else if id != "" {
+				effects = append(effects, "created window "+id+" may remain")
 			}
 		case RepairWindow:
 			current, exists := actualByID[operation.TargetID]
@@ -322,7 +327,11 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 		}
 	}
 	if err := e.actions.Prune(ctx, repo, liveIdentities); err != nil {
-		report.Errors = append(report.Errors, fmt.Sprintf("action ledger prune: %v", err))
+		if state.CommitUncertain(err) {
+			report.Errors = append(report.Errors, fmt.Sprintf("action ledger prune was written but durability is uncertain; inspect the ledger before retrying reconcile: %v", err))
+		} else {
+			report.Errors = append(report.Errors, fmt.Sprintf("action ledger prune: %v", err))
+		}
 	}
 	for _, worktree := range actionSnapshot.Worktrees {
 		desiredWindow, desired := windowByIdentity[worktree.Identity]

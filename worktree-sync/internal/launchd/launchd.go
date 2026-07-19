@@ -315,28 +315,31 @@ func (m *Manager) Install(ctx context.Context, binary string, environment Enviro
 			return "", err
 		}
 		if err := state.AtomicWrite(m.plist(), data, 0o600); err != nil {
+			if state.CommitUncertain(err) {
+				return "LaunchAgent plist was replaced but directory sync failed; durability is uncertain\nnext: run wts daemon status; rerun wts daemon install only after inspecting the plist", err
+			}
 			return "", err
 		}
 		if observed.state == stateRunning {
 			if err := m.bootout(ctx); err != nil {
 				if restoreErr := state.AtomicWrite(m.plist(), previous.data, previous.mode); restoreErr != nil {
-					return "LaunchAgent update failed; rollback incomplete; rerun wts daemon install after checking the plist", errors.Join(err, restoreErr)
+					return "LaunchAgent update failed; rollback incomplete\nnext: run wts daemon status, inspect the plist, then rerun wts daemon install", errors.Join(err, restoreErr)
 				}
-				return "LaunchAgent update failed; previous plist restored", err
+				return "LaunchAgent update failed; previous plist restored\nnext: run wts daemon status; run wts daemon start if the prior agent is stopped", err
 			}
 		}
 		if err := m.bootstrap(ctx); err != nil {
 			restoreErr := m.restore(ctx, previous)
 			if restoreErr == nil {
 				if previous.exists {
-					return "LaunchAgent update failed; previous LaunchAgent restored", err
+					return "LaunchAgent update failed; previous LaunchAgent restored\nnext: run wts daemon status before retrying wts daemon install", err
 				}
-				return "LaunchAgent installation failed; no LaunchAgent installed", err
+				return "LaunchAgent installation failed; no LaunchAgent installed\nnext: correct the cause, then retry wts daemon install", err
 			}
-			return "LaunchAgent installation failed; rollback incomplete", errors.Join(err, restoreErr)
+			return "LaunchAgent installation failed; rollback incomplete\nnext: run wts daemon status, inspect the plist, then retry wts daemon install", errors.Join(err, restoreErr)
 		}
 		if err := m.confirm(ctx, stateRunning); err != nil {
-			return "LaunchAgent files updated but running state could not be confirmed", err
+			return "LaunchAgent files updated but running state could not be confirmed\nnext: run wts daemon status; if stopped, run wts daemon start", err
 		}
 		return "LaunchAgent installed and running", nil
 	})
@@ -353,7 +356,7 @@ func (m *Manager) Uninstall(ctx context.Context) (string, error) {
 		}
 		if observed.state == stateRunning {
 			if err := m.bootout(ctx); err != nil {
-				return "", err
+				return "LaunchAgent uninstall was requested but running state is uncertain\nnext: run wts daemon status; retry wts daemon uninstall if still installed", err
 			}
 		}
 		if err := os.Remove(m.plist()); err != nil && !os.IsNotExist(err) {
@@ -376,10 +379,10 @@ func (m *Manager) Start(ctx context.Context) (string, error) {
 			return "", fmt.Errorf("LaunchAgent is not installed; run wts daemon install")
 		}
 		if err := m.bootstrap(ctx); err != nil {
-			return "", err
+			return "LaunchAgent start failed and running state is uncertain\nnext: run wts daemon status; retry wts daemon start if stopped", err
 		}
 		if err := m.confirm(ctx, stateRunning); err != nil {
-			return "LaunchAgent start requested but running state could not be confirmed", err
+			return "LaunchAgent start requested but running state could not be confirmed\nnext: run wts daemon status; retry wts daemon start if stopped", err
 		}
 		return "LaunchAgent started", nil
 	})
@@ -398,10 +401,10 @@ func (m *Manager) Stop(ctx context.Context) (string, error) {
 			return "LaunchAgent is already stopped", nil
 		}
 		if err := m.bootout(ctx); err != nil {
-			return "", err
+			return "LaunchAgent stop failed and running state is uncertain\nnext: run wts daemon status; retry wts daemon stop if running", err
 		}
 		if err := m.confirm(ctx, stateStopped); err != nil {
-			return "LaunchAgent stop requested but stopped state could not be confirmed", err
+			return "LaunchAgent stop requested but stopped state could not be confirmed\nnext: run wts daemon status; retry wts daemon stop if running", err
 		}
 		return "LaunchAgent stopped", nil
 	})
@@ -418,14 +421,14 @@ func (m *Manager) Restart(ctx context.Context) (string, error) {
 		}
 		if observed.state == stateRunning {
 			if err := m.bootout(ctx); err != nil {
-				return "", err
+				return "LaunchAgent restart failed and running state is uncertain\nnext: run wts daemon status; retry wts daemon restart if needed", err
 			}
 		}
 		if err := m.bootstrap(ctx); err != nil {
-			return "LaunchAgent stopped but restart failed; run wts daemon start", err
+			return "LaunchAgent restart bootstrap failed and running state is uncertain\nnext: run wts daemon status, then wts daemon start if stopped", err
 		}
 		if err := m.confirm(ctx, stateRunning); err != nil {
-			return "LaunchAgent restart requested but running state could not be confirmed", err
+			return "LaunchAgent restart requested but running state could not be confirmed\nnext: run wts daemon status; run wts daemon start if stopped", err
 		}
 		return "LaunchAgent restarted", nil
 	})

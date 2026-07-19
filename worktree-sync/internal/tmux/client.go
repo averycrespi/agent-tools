@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -271,11 +272,15 @@ func (c *Client) CreateSession(ctx context.Context, name string, base Window) (s
 	sessionMetadata.Role = "session"
 	sessionMetadata.Identity = base.Metadata.Repository
 	if err := c.setMetadata(ctx, parts[0], false, sessionMetadata); err != nil {
-		_, _ = c.run(ctx, "kill-session", "-t", parts[0])
+		if _, cleanupErr := c.run(ctx, "kill-session", "-t", parts[0]); cleanupErr != nil {
+			return parts[0], fmt.Errorf("tagging new session failed and cleanup failed; session %s may remain: %w", parts[0], errors.Join(err, cleanupErr))
+		}
 		return "", err
 	}
 	if err := c.setMetadata(ctx, parts[1], true, base.Metadata); err != nil {
-		_, _ = c.run(ctx, "kill-session", "-t", parts[0])
+		if _, cleanupErr := c.run(ctx, "kill-session", "-t", parts[0]); cleanupErr != nil {
+			return parts[0], fmt.Errorf("tagging new base window failed and cleanup failed; session %s may remain: %w", parts[0], errors.Join(err, cleanupErr))
+		}
 		return "", err
 	}
 	return parts[0], nil
@@ -296,7 +301,9 @@ func (c *Client) CreateWindow(ctx context.Context, sessionID string, window Wind
 		return "", fmt.Errorf("tmux new-window returned no ID")
 	}
 	if err := c.setMetadata(ctx, id, true, window.Metadata); err != nil {
-		_, _ = c.run(ctx, "kill-window", "-t", id)
+		if _, cleanupErr := c.run(ctx, "kill-window", "-t", id); cleanupErr != nil {
+			return id, fmt.Errorf("tagging new window failed and cleanup failed; window %s may remain: %w", id, errors.Join(err, cleanupErr))
+		}
 		return "", err
 	}
 	return id, nil

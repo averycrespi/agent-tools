@@ -127,6 +127,13 @@ func (s *Service) acquire(ctx context.Context, name string) (*state.Lock, error)
 	return state.Acquire(ctx, filepath.Join(s.paths.State, name+".lock"))
 }
 
+func postCommitFailure(err error, effect, recovery string) (string, error) {
+	if !state.CommitUncertain(err) {
+		return "", err
+	}
+	return effect + "\nwarning: parent-directory sync failed, so durability is uncertain\nnext: " + recovery, err
+}
+
 func (s *Service) refreshConfig(ctx context.Context) (string, error) {
 	lock, err := s.acquire(ctx, "operation")
 	if err != nil {
@@ -151,7 +158,7 @@ func (s *Service) refreshConfig(ctx context.Context) (string, error) {
 		cfg.Version = defaults.Version
 	}
 	if err := config.Save(s.paths.Config, cfg); err != nil {
-		return "", err
+		return postCommitFailure(err, "configuration refresh was written", "run wts config validate; rerun wts config refresh only if validation still requires it")
 	}
 	return "configuration refreshed", nil
 }
@@ -250,7 +257,7 @@ func (s *Service) addRepo(ctx context.Context, request app.Request) (string, err
 		return "", err
 	}
 	if err := config.Save(s.paths.Config, updated); err != nil {
-		return "", err
+		return postCommitFailure(err, fmt.Sprintf("repository registration for %s was written", repo.ID), "run wts repo list; retry wts repo add only if the repository is absent")
 	}
 	return fmt.Sprintf("registered %s (%s)", repo.ID, repo.PrimaryRoot), nil
 }
@@ -345,6 +352,10 @@ func (s *Service) removeRepo(ctx context.Context, id string) (string, error) {
 		}
 	}
 	if err := config.Save(s.paths.Config, updated); err != nil {
+		if state.CommitUncertain(err) {
+			output := fmt.Sprintf("removed %d owned tmux windows; repository %s registration removal was written but durability is uncertain\nnext: run wts repo list; retry wts repo remove %s only if it is still registered", removed, id, id)
+			return output, fmt.Errorf("tmux resources removed and config update durability is uncertain: %w", err)
+		}
 		output := fmt.Sprintf("removed %d owned tmux windows; repository %s remains registered because config update failed\nnext: repair the config path, then retry wts repo remove %s", removed, id, id)
 		return output, fmt.Errorf("tmux resources removed but config update failed: %w", err)
 	}
@@ -484,6 +495,9 @@ func (s *Service) createWorktree(ctx context.Context, request app.Request) (stri
 	}
 	provenance.RecordExplicit(repo.Identity(), canonical, createdWorktree.Identity)
 	if err := provenance.Save(provenancePath); err != nil {
+		if state.CommitUncertain(err) {
+			return createdWorktreePartial(path, "explicit provenance was written but durability is uncertain", "inspect the provenance file; do not recreate the worktree; then run wts reconcile --repo-id "+repo.ID), err
+		}
 		return createdWorktreePartial(path, "explicit provenance could not be saved", "repair the private state path, then run wts reconcile --repo-id "+repo.ID), err
 	}
 	report := executor.ReconcileRepo(ctx, repo, func(path, identity string) actions.Trigger {
@@ -565,6 +579,9 @@ func (s *Service) removeWorktree(ctx context.Context, request app.Request) (stri
 		return "", err
 	}
 	if err := provenance.Save(provenancePath); err != nil {
+		if state.CommitUncertain(err) {
+			return removedWorktreePartial(worktree.Path, "provenance removal was written but durability is uncertain", "inspect the provenance file; do not retry worktree removal; then run wts reconcile --repo-id "+repo.ID), fmt.Errorf("worktree removed and provenance durability is uncertain: %w", err)
+		}
 		return removedWorktreePartial(worktree.Path, "provenance state was not updated", "repair the private state path; the Git worktree is already removed"), fmt.Errorf("worktree removed but provenance update failed: %w", err)
 	}
 	if optionBool(request.Options, "delete_branch") || optionBool(request.Options, "force_delete_branch") {

@@ -45,6 +45,7 @@ type tmuxFake struct {
 	killed           []string
 	launched         []string
 	createErr        error
+	createPartialID  string
 	repairResult     tmux.RepairResult
 	repairErr        error
 	ownershipChanged map[string]bool
@@ -69,7 +70,7 @@ func (f *tmuxFake) CreateWindow(_ context.Context, target string, w tmux.Window)
 	f.createTargets = append(f.createTargets, target)
 	f.created = append(f.created, w)
 	if f.createErr != nil {
-		return "", f.createErr
+		return f.createPartialID, f.createErr
 	}
 	return "@new", nil
 }
@@ -90,6 +91,7 @@ type actionFake struct {
 	runs      int
 	launches  int
 	prunes    int
+	pruneErr  error
 	fail      bool
 	runResult *actions.Result
 }
@@ -110,7 +112,7 @@ func (a *actionFake) Launch(_ context.Context, _ config.Repository, _ actions.Wo
 }
 func (a *actionFake) Prune(context.Context, config.Repository, map[string]bool) error {
 	a.prunes++
-	return nil
+	return a.pruneErr
 }
 
 func TestExecutorUsesProvidedSocketSnapshotWithoutResnapshotting(t *testing.T) {
@@ -245,6 +247,18 @@ func TestExecutorDoesNotRunSetupWithoutInspectionWindow(t *testing.T) {
 	report := executor.ReconcileRepo(context.Background(), repo, func(string, string) actions.Trigger { return actions.Passive })
 	require.Zero(t, actionManager.runs)
 	require.NotEmpty(t, report.Errors)
+}
+
+func TestExecutorReportsCreatedWindowWhenTagCleanupFails(t *testing.T) {
+	repo, snapshot := fixture(t)
+	desired := reconcile.Build(repo, snapshot, tmux.Snapshot{Complete: true}).Desired
+	desired.Windows[0].ID = "@base"
+	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{{ID: "$1", Name: desired.SessionName, Metadata: tmux.Metadata{Schema: 1, Repository: repo.Identity(), Role: "session", Identity: repo.Identity()}, Windows: desired.Windows[:1]}}}
+	tmuxClient := &tmuxFake{snapshot: actual, createErr: errors.New("tag cleanup failed"), createPartialID: "@dangling"}
+	report := reconcile.NewExecutor(gitSnapshotter{snapshot: snapshot}, tmuxClient, &actionFake{}).ReconcileRepo(context.Background(), repo, func(string, string) actions.Trigger { return actions.Passive })
+	require.Len(t, report.Outcomes, 1)
+	require.Equal(t, reconcile.OutcomePartial, report.Outcomes[0].Status)
+	require.Contains(t, report.Outcomes[0].Effects, "created window @dangling may remain")
 }
 
 func TestExecutorRechecksOwnershipBeforeRemoval(t *testing.T) {

@@ -388,7 +388,7 @@ wts daemon uninstall
 
 Installation manages only `~/Library/LaunchAgents/dev.agent-tools.worktree-sync.plist`. It uses the absolute sibling `wtsd`, an explicit `PATH`, the effective absolute XDG config/state/data homes, `RunAtLoad`, `KeepAlive`, and separate logs under `~/Library/Logs`. Rerun install after changing XDG homes. launchd does not load shell profiles or rotate logs.
 
-`stop` unloads the job but preserves the installed plist, so `KeepAlive` cannot restart it. `start` loads a stopped installation, and `restart` performs an explicit unload/load cycle. Status distinguishes running, stopped-but-installed, and not installed.
+`stop` unloads the job but preserves the installed plist, so `KeepAlive` cannot restart it. `start` loads a stopped installation, and `restart` performs an explicit unload/load cycle. Status distinguishes running, stopped-but-installed, and not installed. If launchctl cannot confirm a lifecycle mutation, the command reports the uncertain state and an exact `wts daemon status` recovery step. A plist replacement whose parent-directory sync fails is also reported as committed-but-uncertain rather than as an unchanged installation.
 
 See [docs/launchd.md](docs/launchd.md) and the reviewed [example plist](examples/launchd/dev.agent-tools.worktree-sync.plist).
 

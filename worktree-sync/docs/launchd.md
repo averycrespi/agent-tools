@@ -17,7 +17,9 @@ wts daemon restart
 wts daemon uninstall
 ```
 
-Installation resolves the absolute `wtsd` sibling of the running `wts` executable, atomically writes `~/Library/LaunchAgents/dev.agent-tools.worktree-sync.plist` with mode `0600`, and bootstraps the current GUI user domain. Repeating install updates only this plist and converges on one loaded service. If replacement bootstrap fails, `wts` restores the previous plist and loaded/stopped state; an incomplete rollback is reported as partial success with recovery guidance.
+Installation resolves the absolute `wtsd` sibling of the running `wts` executable, atomically writes `~/Library/LaunchAgents/dev.agent-tools.worktree-sync.plist` with mode `0600`, and bootstraps the current GUI user domain. Repeating install updates only this plist and converges on one loaded service. If replacement bootstrap fails, `wts` restores the previous plist and loaded/stopped state; an incomplete rollback is reported as partial success with recovery guidance. If plist replacement succeeds but parent-directory sync fails, the new bytes remain live and the command reports uncertain durability instead of claiming no change.
+
+After any launchctl mutation or confirmation failure, follow the printed `wts daemon status` step before retrying. Lifecycle errors distinguish whether `start`, `stop`, `restart`, `install`, or `uninstall` is safe to retry from the observed state.
 
 The generated service uses:
 

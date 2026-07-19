@@ -66,6 +66,21 @@ func TestCreateSessionCleansUpWhenTaggingFails(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, r.calls[len(r.calls)-1], "kill-session")
 	require.Contains(t, r.calls[len(r.calls)-1], "$1")
+
+	r = &runner{results: []result{{out: []byte("$2|@2\n")}, {err: errors.New("tag failed")}, {err: errors.New("cleanup failed")}}}
+	client = tmux.New(r, "test-socket", time.Second)
+	id, err := client.CreateSession(context.Background(), "wts-r", tmux.Window{Name: "base", Path: "/repo", Metadata: tmux.Metadata{Schema: 1, Repository: "repo", Role: "base", Identity: "repo"}})
+	require.Equal(t, "$2", id)
+	require.ErrorContains(t, err, "may remain")
+	require.ErrorContains(t, err, "cleanup failed")
+}
+
+func TestCreateWindowReportsFailedTagCleanup(t *testing.T) {
+	r := &runner{results: []result{{out: []byte("@2\n")}, {err: errors.New("tag failed")}, {err: errors.New("cleanup failed")}}}
+	id, err := tmux.New(r, "test-socket", time.Second).CreateWindow(context.Background(), "$1", tmux.Window{Name: "feature", Path: "/repo", Metadata: tmux.Metadata{Schema: 1, Repository: "repo", Role: "worktree", Identity: "worktree"}})
+	require.Equal(t, "@2", id)
+	require.ErrorContains(t, err, "may remain")
+	require.ErrorContains(t, err, "cleanup failed")
 }
 
 func TestNameRepairDoesNotRespawnWindow(t *testing.T) {

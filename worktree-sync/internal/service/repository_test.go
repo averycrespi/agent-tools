@@ -13,6 +13,7 @@ import (
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/actions"
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/config"
 	gitclient "github.com/averycrespi/agent-tools/worktree-sync/internal/git"
+	"github.com/averycrespi/agent-tools/worktree-sync/internal/state"
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/tmux"
 )
 
@@ -99,6 +100,19 @@ func TestResolveRepoExplainsEmptyAndUnregisteredContexts(t *testing.T) {
 	_, err = service.resolveRepo(context.Background(), cfg, "")
 	require.ErrorContains(t, err, "current Git repository is not registered")
 	require.ErrorContains(t, err, repo.PrimaryRoot)
+}
+
+func TestPostCommitFailureReportsEffectAndRecovery(t *testing.T) {
+	cause := errors.New("directory sync failed")
+	output, err := postCommitFailure(&state.PostCommitError{Err: cause}, "registration was written", "run wts repo list")
+	require.ErrorIs(t, err, cause)
+	require.Contains(t, output, "registration was written")
+	require.Contains(t, output, "durability is uncertain")
+	require.Contains(t, output, "run wts repo list")
+
+	output, err = postCommitFailure(cause, "not written", "retry")
+	require.ErrorIs(t, err, cause)
+	require.Empty(t, output)
 }
 
 func TestSetupResultReportsCompletedSkippedAndFailed(t *testing.T) {

@@ -21,7 +21,7 @@ func TestConfigureProcessUsesCancelableProcessGroup(t *testing.T) {
 
 func TestDiagnosticTailIsBoundedUTF8AndRedactsCredentials(t *testing.T) {
 	input := bytes.Repeat([]byte("x"), 5000)
-	input = append(input, []byte("\nhttps://user:secret@example.com/repo\nAuthorization: Bearer abc123\ntoken=secret password: hidden\n{\"token\":\"json-secret\", \"password\": \"json-password\"}\n")...)
+	input = append(input, []byte("\nhttps://user:secret@example.com/repo\nAuthorization: Bearer abc123\ntoken=secret password: hidden\n{\"token\":\"json-secret\", \"password\": \"json-password\"}\ntoken: Bearer bearer-secret\nAuthorization=Bearer authorization-secret\n")...)
 	input = append(input, 0xff)
 	diagnostic := Diagnostic(input)
 	require.Contains(t, diagnostic, "[output truncated]")
@@ -31,6 +31,8 @@ func TestDiagnosticTailIsBoundedUTF8AndRedactsCredentials(t *testing.T) {
 	require.NotContains(t, diagnostic, "password: hidden")
 	require.NotContains(t, diagnostic, "json-secret")
 	require.NotContains(t, diagnostic, "json-password")
+	require.NotContains(t, diagnostic, "bearer-secret")
+	require.NotContains(t, diagnostic, "authorization-secret")
 	require.Contains(t, diagnostic, "https://[redacted]@example.com/repo")
 	require.Contains(t, diagnostic, "Authorization: [redacted]")
 	require.LessOrEqual(t, len([]byte(diagnostic)), 4096+len("[output truncated]\n"))
