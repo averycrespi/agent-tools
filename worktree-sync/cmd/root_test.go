@@ -31,7 +31,7 @@ func TestWTSCommandSurface(t *testing.T) {
 	root := cmd.NewWTS(nil)
 	expected := map[string][]string{
 		"config":   {"path", "edit", "validate", "refresh"},
-		"repo":     {"add", "list", "remove"},
+		"repo":     {"add", "list", "remove", "roots"},
 		"worktree": {"path", "create", "remove", "setup", "launch"},
 		"daemon":   {"install", "uninstall", "start", "stop", "restart", "status", "logs"},
 	}
@@ -59,7 +59,8 @@ func TestEveryUserCommandHasDescription(t *testing.T) {
 	paths := [][]string{
 		{"attach"}, {"cleanup"}, {"config"}, {"daemon"}, {"reconcile"}, {"repo"}, {"status"}, {"worktree"},
 		{"config", "path"}, {"config", "edit"}, {"config", "validate"}, {"config", "refresh"},
-		{"repo", "add"}, {"repo", "list"}, {"repo", "remove"},
+		{"repo", "add"}, {"repo", "list"}, {"repo", "remove"}, {"repo", "roots"},
+		{"repo", "roots", "show"}, {"repo", "roots", "set-creation"}, {"repo", "roots", "add-allowed"}, {"repo", "roots", "remove-allowed"},
 		{"worktree", "path"}, {"worktree", "create"}, {"worktree", "remove"}, {"worktree", "setup"}, {"worktree", "launch"},
 		{"daemon", "install"}, {"daemon", "uninstall"}, {"daemon", "start"}, {"daemon", "stop"}, {"daemon", "restart"}, {"daemon", "status"}, {"daemon", "logs"},
 	}
@@ -74,6 +75,7 @@ func TestEveryCommandUsesSpecificArgumentValidation(t *testing.T) {
 	tests := [][]string{
 		{"config", "path", "extra"}, {"config", "edit", "extra"}, {"config", "validate", "extra"}, {"config", "refresh", "extra"},
 		{"repo", "add", "one", "two"}, {"repo", "list", "extra"}, {"repo", "remove"},
+		{"repo", "roots", "show", "extra"}, {"repo", "roots", "set-creation"}, {"repo", "roots", "add-allowed"}, {"repo", "roots", "remove-allowed"},
 		{"worktree", "path"}, {"worktree", "path", "branch", "repo"},
 		{"worktree", "create"}, {"worktree", "create", "branch", "repo"},
 		{"worktree", "remove"}, {"worktree", "remove", "branch", "repo"},
@@ -138,6 +140,31 @@ func TestRepoAddForwardsCreationAndAllowedRoots(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "/managed", controller.request.Options["root"])
 	require.Equal(t, []string{"/external-one", "/external-two"}, controller.request.Options["roots"])
+
+	controller = &recordingController{}
+	err = cmd.ExecuteWTS(context.Background(), controller, &bytes.Buffer{}, &bytes.Buffer{}, []string{"repo", "add", "--no-default-allowed-roots"})
+	require.NoError(t, err)
+	require.Equal(t, true, controller.request.Options["no_default_allowed_roots"])
+}
+
+func TestRepoAddRejectsDefaultAllowedRootOptOutWithExplicitRoots(t *testing.T) {
+	err := cmd.ExecuteWTS(context.Background(), &recordingController{}, &bytes.Buffer{}, &bytes.Buffer{}, []string{"repo", "add", "--no-default-allowed-roots", "--allowed-worktree-root", "/external"})
+	require.ErrorContains(t, err, "choose only one")
+}
+
+func TestRepoRootsCommandsForwardRepositoryAndPath(t *testing.T) {
+	for command, action := range map[string]string{"set-creation": "repo.roots.set-creation", "add-allowed": "repo.roots.add-allowed", "remove-allowed": "repo.roots.remove-allowed"} {
+		controller := &recordingController{}
+		err := cmd.ExecuteWTS(context.Background(), controller, &bytes.Buffer{}, &bytes.Buffer{}, []string{"repo", "roots", command, "/root", "--repo-id", "api"})
+		require.NoError(t, err)
+		require.Equal(t, action, controller.request.Action)
+		require.Equal(t, "api", controller.request.Options["repo_id"])
+		require.Equal(t, []string{"/root"}, controller.request.Args)
+	}
+	controller := &recordingController{}
+	err := cmd.ExecuteWTS(context.Background(), controller, &bytes.Buffer{}, &bytes.Buffer{}, []string{"repo", "roots", "show", "--repo-id", "api"})
+	require.NoError(t, err)
+	require.Equal(t, "repo.roots.show", controller.request.Action)
 }
 
 func TestWorktreeCreateForwardsBranchOrigin(t *testing.T) {

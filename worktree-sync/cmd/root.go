@@ -60,16 +60,33 @@ func NewWTS(controller app.Controller) *cobra.Command {
 	repoCmd := &cobra.Command{Use: "repo", Short: "Manage registered Git repositories"}
 	var repoID, creationRoot string
 	var allowedRoots []string
+	var noDefaultAllowedRoots bool
 	repoAdd := &cobra.Command{Use: "add [path]", Short: "Register an existing primary Git worktree", Args: rangeArgs("repo add accepts at most one repository path", 0, 1)}
 	repoAdd.Flags().StringVar(&repoID, "id", "", "stable tmux-safe repository ID")
 	repoAdd.Flags().StringVar(&creationRoot, "worktree-root", "", "existing root for worktrees created by wts")
 	repoAdd.Flags().StringSliceVar(&allowedRoots, "allowed-worktree-root", nil, "additional existing allowed root; repeatable and overrides defaults")
+	repoAdd.Flags().BoolVar(&noDefaultAllowedRoots, "no-default-allowed-roots", false, "allow only the creation root instead of configured defaults")
+	repoAdd.PreRunE = func(command *cobra.Command, _ []string) error {
+		if noDefaultAllowedRoots && command.Flags().Changed("allowed-worktree-root") {
+			return fmt.Errorf("choose only one of --no-default-allowed-roots or --allowed-worktree-root")
+		}
+		return nil
+	}
 	repoAdd.RunE = run(controller, "repo.add", func(*cobra.Command) map[string]any {
-		return map[string]any{"id": repoID, "root": creationRoot, "roots": allowedRoots}
+		return map[string]any{"id": repoID, "root": creationRoot, "roots": allowedRoots, "no_default_allowed_roots": noDefaultAllowedRoots}
 	})
 	repoList := &cobra.Command{Use: "list", Short: "List registered Git repositories", Args: exactArgs("repo list does not accept arguments", 0), RunE: run(controller, "repo.list", nil)}
 	repoRemove := &cobra.Command{Use: "remove <repository-id>", Short: "Unregister a repository without deleting Git worktrees", Args: exactArgs("repo remove requires exactly one repository ID", 1), RunE: run(controller, "repo.remove", nil)}
-	repoCmd.AddCommand(repoAdd, repoList, repoRemove)
+	var rootsRepoID string
+	rootsCmd := &cobra.Command{Use: "roots", Short: "Inspect or update repository worktree roots"}
+	rootsCmd.PersistentFlags().StringVar(&rootsRepoID, "repo-id", "", "registered repository ID (defaults to current directory)")
+	rootsOptions := func(*cobra.Command) map[string]any { return map[string]any{"repo_id": rootsRepoID} }
+	rootsShow := &cobra.Command{Use: "show", Short: "Show creation and allowed worktree roots", Args: exactArgs("repo roots show does not accept arguments", 0), RunE: run(controller, "repo.roots.show", rootsOptions)}
+	rootsSetCreation := &cobra.Command{Use: "set-creation <path>", Short: "Set the root for worktrees created by wts", Args: exactArgs("repo roots set-creation requires exactly one path", 1), RunE: run(controller, "repo.roots.set-creation", rootsOptions)}
+	rootsAddAllowed := &cobra.Command{Use: "add-allowed <path>", Short: "Add an allowed worktree root", Args: exactArgs("repo roots add-allowed requires exactly one path", 1), RunE: run(controller, "repo.roots.add-allowed", rootsOptions)}
+	rootsRemoveAllowed := &cobra.Command{Use: "remove-allowed <path>", Short: "Remove an unused allowed worktree root", Args: exactArgs("repo roots remove-allowed requires exactly one path", 1), RunE: run(controller, "repo.roots.remove-allowed", rootsOptions)}
+	rootsCmd.AddCommand(rootsShow, rootsSetCreation, rootsAddAllowed, rootsRemoveAllowed)
+	repoCmd.AddCommand(repoAdd, repoList, repoRemove, rootsCmd)
 
 	worktreeCmd := &cobra.Command{Use: "worktree", Short: "Manage Git worktrees for registered repositories"}
 	var pathRepoID string

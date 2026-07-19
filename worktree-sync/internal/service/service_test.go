@@ -79,6 +79,40 @@ func TestReconcileWaitsForSharedOperationLock(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
+func TestRepositoryRootCommandsPersistFocusedChanges(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "repo")
+	common := filepath.Join(primary, ".git")
+	creation := filepath.Join(base, "creation")
+	newCreation := filepath.Join(base, "new-creation")
+	extra := filepath.Join(base, "extra")
+	for _, path := range []string{common, creation, newCreation, extra} {
+		require.NoError(t, os.MkdirAll(path, 0o700))
+	}
+	paths := config.Paths{Config: filepath.Join(base, "config.json"), State: filepath.Join(base, "state"), Worktrees: filepath.Join(base, "worktrees")}
+	cfg := config.Default()
+	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: primary, CommonGitDir: common, WorktreeCreationRoot: creation, AllowedRoots: []string{creation}, SetupPolicy: config.ActionManual, LaunchPolicy: config.ActionManual}}
+	require.NoError(t, config.Save(paths.Config, cfg))
+	controller := service.New(&safetyRunner{primary: primary}, paths)
+
+	output, err := controller.Execute(context.Background(), app.Request{Action: "repo.roots.set-creation", Args: []string{newCreation}, Options: map[string]any{"repo_id": "repo"}})
+	require.NoError(t, err)
+	require.Contains(t, output, "daemon will reconcile")
+	_, err = controller.Execute(context.Background(), app.Request{Action: "repo.roots.add-allowed", Args: []string{extra}, Options: map[string]any{"repo_id": "repo"}})
+	require.NoError(t, err)
+	_, err = controller.Execute(context.Background(), app.Request{Action: "repo.roots.remove-allowed", Args: []string{creation}, Options: map[string]any{"repo_id": "repo"}})
+	require.NoError(t, err)
+
+	updated, err := config.Load(paths.Config)
+	require.NoError(t, err)
+	require.Equal(t, newCreation, updated.Repositories[0].WorktreeCreationRoot)
+	require.Equal(t, []string{newCreation, extra}, updated.Repositories[0].AllowedRoots)
+	output, err = controller.Execute(context.Background(), app.Request{Action: "repo.roots.show", Options: map[string]any{"repo_id": "repo"}})
+	require.NoError(t, err)
+	require.Contains(t, output, "creation\t"+newCreation)
+	require.Contains(t, output, "allowed\t"+extra)
+}
+
 func TestRemoveRejectsConflictingBranchDeletionFlags(t *testing.T) {
 	controller := service.New(&editorRunner{}, config.Paths{})
 	_, err := controller.Execute(context.Background(), app.Request{Action: "worktree.remove", Args: []string{"feature"}, Options: map[string]any{"delete_branch": true, "force_delete_branch": true}})

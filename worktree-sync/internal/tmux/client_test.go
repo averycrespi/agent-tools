@@ -16,8 +16,9 @@ type result struct {
 	err error
 }
 type runner struct {
-	results []result
-	calls   [][]string
+	results     []result
+	calls       [][]string
+	interactive [][]string
 }
 
 func (r *runner) Run(_ context.Context, dir, name string, args ...string) ([]byte, error) {
@@ -26,7 +27,10 @@ func (r *runner) Run(_ context.Context, dir, name string, args ...string) ([]byt
 	r.results = r.results[1:]
 	return result.out, result.err
 }
-func (*runner) Interactive(context.Context, string, string, ...string) error { return nil }
+func (r *runner) Interactive(_ context.Context, dir, name string, args ...string) error {
+	r.interactive = append(r.interactive, append([]string{dir, name}, args...))
+	return nil
+}
 
 func TestSnapshotParsesMetadataAndUsesDedicatedSocket(t *testing.T) {
 	details := "__WTS_DETAIL_session-name__\nwts-repo\n__WTS_DETAIL_session-metadata__\n" +
@@ -42,6 +46,17 @@ func TestSnapshotParsesMetadataAndUsesDedicatedSocket(t *testing.T) {
 	for _, call := range r.calls {
 		require.Equal(t, []string{"", "tmux", "-L", "test-socket"}, call[:4])
 	}
+}
+
+func TestSessionOwnershipRecheckAndAttachUseStableID(t *testing.T) {
+	expected := tmux.Metadata{Schema: tmux.MetadataSchema, Repository: "identity", Role: "session", Identity: "identity"}
+	r := &runner{results: []result{{out: []byte("@wts-schema 1\n@wts-repository identity\n@wts-role session\n@wts-identity identity\n")}}}
+	client := tmux.New(r, "test-socket", time.Second)
+	owned, err := client.OwnsSession(context.Background(), "$2", expected)
+	require.NoError(t, err)
+	require.True(t, owned)
+	require.NoError(t, client.Attach(context.Background(), "$2"))
+	require.Equal(t, [][]string{{"", "tmux", "-L", "test-socket", "attach-session", "-t", "$2"}}, r.interactive)
 }
 
 func TestCreateSessionCleansUpWhenTaggingFails(t *testing.T) {

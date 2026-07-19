@@ -23,6 +23,14 @@ type Repository struct {
 	CommonGitDir string
 }
 
+type Context struct {
+	WorktreeRoot string
+	PrimaryRoot  string
+	CommonGitDir string
+}
+
+var ErrNotWorktree = errors.New("current directory is not inside a Git worktree")
+
 type Snapshot struct {
 	Complete  bool       `json:"complete"`
 	Worktrees []Worktree `json:"worktrees"`
@@ -51,6 +59,52 @@ func (c *Client) run(ctx context.Context, dir string, args ...string) ([]byte, e
 		return nil, fmt.Errorf("git command failed: %w", err)
 	}
 	return output, nil
+}
+
+func (c *Client) InspectContext(ctx context.Context, path string) (Context, error) {
+	insideOut, err := c.run(ctx, path, "rev-parse", "--is-inside-work-tree")
+	if err != nil {
+		var exitError interface{ ExitCode() int }
+		if errors.As(err, &exitError) && exitError.ExitCode() == 128 {
+			return Context{}, ErrNotWorktree
+		}
+		return Context{}, fmt.Errorf("inspecting current Git context: %w", err)
+	}
+	if strings.TrimSpace(string(insideOut)) != "true" {
+		return Context{}, ErrNotWorktree
+	}
+	rootOut, err := c.run(ctx, path, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return Context{}, fmt.Errorf("resolving current worktree: %w", err)
+	}
+	root, err := config.CanonicalExisting(strings.TrimSpace(string(rootOut)))
+	if err != nil {
+		return Context{}, err
+	}
+	commonOut, err := c.run(ctx, root, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return Context{}, fmt.Errorf("resolving common Git directory: %w", err)
+	}
+	common, err := canonicalGitPath(root, strings.TrimSpace(string(commonOut)))
+	if err != nil {
+		return Context{}, err
+	}
+	data, err := c.ListRaw(ctx, root)
+	if err != nil {
+		return Context{}, fmt.Errorf("enumerating current repository worktrees: %w", err)
+	}
+	worktrees, err := ParsePorcelainZ(data)
+	if err != nil {
+		return Context{}, fmt.Errorf("parsing current repository worktrees: %w", err)
+	}
+	if len(worktrees) == 0 {
+		return Context{}, fmt.Errorf("current repository has no primary worktree")
+	}
+	primary, err := config.CanonicalExisting(worktrees[0].Path)
+	if err != nil {
+		return Context{}, fmt.Errorf("resolving primary worktree: %w", err)
+	}
+	return Context{WorktreeRoot: root, PrimaryRoot: primary, CommonGitDir: common}, nil
 }
 
 func (c *Client) InspectPrimary(ctx context.Context, path string) (Repository, error) {

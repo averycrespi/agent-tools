@@ -33,6 +33,29 @@ func (f *fakeRunner) Run(_ context.Context, dir, name string, args ...string) ([
 }
 func (*fakeRunner) Interactive(context.Context, string, string, ...string) error { return nil }
 
+func TestInspectContextIdentifiesPrimaryFromLinkedWorktree(t *testing.T) {
+	root := t.TempDir()
+	primary := filepath.Join(root, "primary")
+	linked := filepath.Join(root, "linked")
+	common := filepath.Join(primary, ".git")
+	require.NoError(t, os.MkdirAll(common, 0o700))
+	require.NoError(t, os.Mkdir(linked, 0o700))
+	porcelain := "worktree " + primary + "\x00HEAD abcdef\x00branch refs/heads/main\x00\x00" +
+		"worktree " + linked + "\x00HEAD 123456\x00branch refs/heads/feature\x00\x00"
+	runner := &fakeRunner{responses: []response{
+		{[]byte("true\n"), nil},
+		{[]byte(linked + "\n"), nil},
+		{[]byte(common + "\n"), nil},
+		{[]byte(porcelain), nil},
+	}}
+	client := gitclient.New(runner, time.Second)
+	contextInfo, err := client.InspectContext(context.Background(), linked)
+	require.NoError(t, err)
+	require.Equal(t, linked, contextInfo.WorktreeRoot)
+	require.Equal(t, primary, contextInfo.PrimaryRoot)
+	require.Equal(t, common, contextInfo.CommonGitDir)
+}
+
 func TestInspectRejectsLinkedAndBareWorktrees(t *testing.T) {
 	root := t.TempDir()
 	common := filepath.Join(root, ".git")

@@ -49,6 +49,24 @@ func TestAddUsesConfiguredDefaultWorktreeRoots(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
+func TestAddCanExcludeConfiguredDefaultAllowedRoots(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "repo")
+	common := filepath.Join(primary, ".git")
+	creation := filepath.Join(base, "creation")
+	additional := filepath.Join(base, "additional")
+	for _, path := range []string{common, creation, additional} {
+		require.NoError(t, os.MkdirAll(path, 0o700))
+	}
+	cfg := config.Default()
+	cfg.Global.DefaultCreationRoot = creation
+	cfg.Global.DefaultAllowedRoots = []string{additional}
+	service := registry.New(inspector{info: gitclient.Repository{PrimaryRoot: primary, CommonGitDir: common}}, config.Paths{})
+	_, repo, err := service.Add(context.Background(), cfg, registry.AddOptions{Path: primary, NoDefaultAllowedRoots: true})
+	require.NoError(t, err)
+	require.Equal(t, []string{creation}, repo.AllowedRoots)
+}
+
 func TestAddExplicitRootsOverrideConfiguredDefaultsAndDeduplicate(t *testing.T) {
 	base := t.TempDir()
 	primary := filepath.Join(base, "repo")

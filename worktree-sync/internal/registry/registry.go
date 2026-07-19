@@ -22,10 +22,11 @@ type Service struct {
 func New(git inspector, paths config.Paths) *Service { return &Service{git: git, paths: paths} }
 
 type AddOptions struct {
-	Path         string
-	ID           string
-	CreationRoot string
-	AllowedRoots []string
+	Path                  string
+	ID                    string
+	CreationRoot          string
+	AllowedRoots          []string
+	NoDefaultAllowedRoots bool
 }
 
 func (s *Service) Add(ctx context.Context, cfg config.Config, options AddOptions) (config.Config, config.Repository, error) {
@@ -71,7 +72,7 @@ func (s *Service) Add(ctx context.Context, cfg config.Config, options AddOptions
 		return cfg, config.Repository{}, fmt.Errorf("worktree creation root: %w", err)
 	}
 	requestedAllowedRoots := options.AllowedRoots
-	if len(requestedAllowedRoots) == 0 {
+	if len(requestedAllowedRoots) == 0 && !options.NoDefaultAllowedRoots {
 		requestedAllowedRoots = cfg.Global.DefaultAllowedRoots
 	}
 	roots := make([]string, 0, len(requestedAllowedRoots)+1)

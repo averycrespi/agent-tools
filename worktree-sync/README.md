@@ -109,7 +109,18 @@ To configure roots for future registrations, add them to the existing `global` o
 
 Configured roots must already exist and be absolute, canonical paths. Registration copies the selected creation root and complete allowlist into the new repository; changing global defaults does not alter existing repositories. The creation root is automatically allowed. `--worktree-root` replaces the default creation root, while one or more `--allowed-worktree-root` values replace the default additional allowlist for that registration. Allowed-root ordering has no effect on creation.
 
-For an existing registration, use `wts config edit` to change its `worktree_creation_root` and ensure the same path remains in `allowed_worktree_roots`. The change affects future `wts`-created worktrees; it does not move existing ones. Keep every root containing a current linked worktree in the allowlist or that worktree will be reported outside the safety boundary.
+To ignore configured additional roots for one new registration, use `--no-default-allowed-roots`; it cannot be combined with `--allowed-worktree-root`, and the creation root remains allowed.
+
+Manage an existing registration without editing identity fields:
+
+```bash
+wts repo roots show
+wts repo roots set-creation /new/creation/root
+wts repo roots add-allowed /Volumes/external-worktrees
+wts repo roots remove-allowed /old/root
+```
+
+These commands infer the current repository or accept `--repo-id`. Setting creation keeps the former root allowed and affects only future `wts`-created worktrees; it does not move existing ones. Removing the active creation root, an unavailable root, or a root still needed by an enumerated live worktree is rejected. A running daemon observes the saved config automatically; otherwise run the reconciliation command printed by the CLI.
 
 ### Use an existing branch
 
@@ -149,7 +160,7 @@ wts worktree remove feature/auth --delete-branch
 wts worktree remove feature/auth --force --force-delete-branch
 ```
 
-`--force` applies only to `git worktree remove`. Branch deletion always requires its own flag.
+`--force` applies only to `git worktree remove`. Branch deletion always requires its own flag. Remove, setup, and launch resolve an exact branch name first, then an existing absolute, relative, or symlinked path.
 
 ### Run setup actions
 
@@ -351,6 +362,7 @@ LaunchAgent commands are unsupported on Linux; run `wtsd` directly under your pr
 | `wts repo add [path]`                                               | Register a primary worktree                                        |
 | `wts repo list`                                                     | List registered repositories                                       |
 | `wts repo remove <repository-id>`                                   | Stop managing a repository without deleting Git worktrees          |
+| `wts repo roots show\|set-creation\|add-allowed\|remove-allowed`    | Inspect or update one repository's worktree roots                  |
 | `wts worktree path <branch>`                                        | Print an existing or planned worktree path                         |
 | `wts worktree create <branch>`                                      | Create a worktree and reconcile its tmux window                    |
 | `wts worktree remove\|rm <path-or-branch>`                          | Remove a worktree with explicit branch safety                      |
@@ -366,9 +378,9 @@ Repository-selecting commands accept `--repo-id <id>` when current-directory inf
 
 ## Troubleshooting
 
-### “current path does not identify a registered repository”
+### Repository context cannot be selected
 
-Run the command from a registered primary/linked worktree or pass `--repo-id <id>`.
+The CLI distinguishes an empty registry, an unregistered Git repository, a directory outside registered worktrees, and failed Git inspection. Follow the printed `wts repo add <primary-path>` instruction for an unregistered repository, or run from a registered primary/linked worktree and pass `--repo-id <id>` when current-directory inference is not appropriate.
 
 ### “sessions should be nested with care”
 
@@ -384,7 +396,7 @@ Check the repository's policy and `wts status`. The action may be disabled, unco
 
 ### A session-name collision is reported
 
-An untagged or foreign `wts-<repository-id>` session is never adopted. Rename or remove it manually after confirming ownership. Resolve the collision before running `wts attach`, which addresses the expected session name.
+An untagged or foreign `wts-<repository-id>` session is never adopted or attached. Rename or remove it manually after confirming ownership. `wts attach` locates a managed session by complete ownership metadata, rechecks its stable session ID, and suggests an explicit reconcile when no owned session exists.
 
 ### The LaunchAgent cannot find Git or tmux
 

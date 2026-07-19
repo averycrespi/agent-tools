@@ -94,6 +94,10 @@ func (s *Service) Execute(ctx context.Context, request app.Request) (string, err
 		return s.listRepos()
 	case "repo.remove":
 		return s.removeRepo(ctx, request.Args[0])
+	case "repo.roots.show":
+		return s.repositoryRoots(ctx, "show", "", optionString(request.Options, "repo_id"))
+	case "repo.roots.set-creation", "repo.roots.add-allowed", "repo.roots.remove-allowed":
+		return s.repositoryRoots(ctx, strings.TrimPrefix(request.Action, "repo.roots."), request.Args[0], optionString(request.Options, "repo_id"))
 	case "worktree.path":
 		return s.worktreePath(ctx, request.Args[0], optionString(request.Options, "repo_id"))
 	case "worktree.create":
@@ -220,7 +224,7 @@ func (s *Service) addRepo(ctx context.Context, request app.Request) (string, err
 	if len(request.Args) == 1 {
 		path = request.Args[0]
 	}
-	updated, repo, err := registry.New(git, s.paths).Add(ctx, cfg, registry.AddOptions{Path: path, ID: optionString(request.Options, "id"), CreationRoot: optionString(request.Options, "root"), AllowedRoots: optionStrings(request.Options, "roots")})
+	updated, repo, err := registry.New(git, s.paths).Add(ctx, cfg, registry.AddOptions{Path: path, ID: optionString(request.Options, "id"), CreationRoot: optionString(request.Options, "root"), AllowedRoots: optionStrings(request.Options, "roots"), NoDefaultAllowedRoots: optionBool(request.Options, "no_default_allowed_roots")})
 	if err != nil {
 		return "", err
 	}
@@ -253,6 +257,30 @@ func matchingSession(snapshot tmux.Snapshot, repo config.Repository) *tmux.Sessi
 		}
 	}
 	return nil
+}
+
+func attachSession(snapshot tmux.Snapshot, repo config.Repository) (tmux.Session, error) {
+	if !snapshot.Complete {
+		return tmux.Session{}, fmt.Errorf("tmux snapshot is incomplete; refusing attach")
+	}
+	expectedName := "wts-" + repo.ID
+	expectedMetadata := tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.Identity(), Role: "session", Identity: repo.Identity()}
+	owned := make([]tmux.Session, 0, 1)
+	for _, session := range snapshot.Sessions {
+		if session.Name == expectedName && session.Metadata != expectedMetadata {
+			return tmux.Session{}, fmt.Errorf("foreign or untagged session %q conflicts with repository %q", expectedName, repo.ID)
+		}
+		if session.Metadata == expectedMetadata {
+			owned = append(owned, session)
+		}
+	}
+	if len(owned) == 0 {
+		return tmux.Session{}, fmt.Errorf("managed session is not present; run wts reconcile --repo-id %s", repo.ID)
+	}
+	if len(owned) > 1 {
+		return tmux.Session{}, fmt.Errorf("multiple owned sessions exist for repository %q; reconcile or consolidate them before attaching", repo.ID)
+	}
+	return owned[0], nil
 }
 
 func (s *Service) removeRepo(ctx context.Context, id string) (string, error) {
@@ -313,24 +341,30 @@ func (s *Service) resolveRepo(ctx context.Context, cfg config.Config, id string)
 	if err != nil {
 		return config.Repository{}, err
 	}
-	matches := make([]config.Repository, 0)
-	for _, repo := range cfg.Repositories {
-		snapshot, snapshotErr := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir})
-		if snapshotErr != nil || !snapshot.Complete {
-			continue
+	current, err := git.InspectContext(ctx, cwd)
+	if errors.Is(err, gitclient.ErrNotWorktree) {
+		if len(cfg.Repositories) == 0 {
+			return config.Repository{}, fmt.Errorf("no repositories are registered; run wts repo add from a primary Git worktree")
 		}
-		for _, worktree := range snapshot.Worktrees {
-			if worktree.Exclusion == "" && config.Contains(worktree.Path, cwd) {
-				matches = append(matches, repo)
-				break
-			}
+		return config.Repository{}, fmt.Errorf("current directory is not inside a registered Git worktree; run from one or supply --repo-id <id>")
+	}
+	if err != nil {
+		return config.Repository{}, fmt.Errorf("current Git context could not be inspected; supply --repo-id <id>: %w", err)
+	}
+	matches := make([]config.Repository, 0, 1)
+	for _, repo := range cfg.Repositories {
+		if repo.Identity() == current.CommonGitDir {
+			matches = append(matches, repo)
 		}
 	}
 	if len(matches) == 0 {
-		return config.Repository{}, fmt.Errorf("current path does not identify a registered repository; supply a repository ID")
+		if len(cfg.Repositories) == 0 {
+			return config.Repository{}, fmt.Errorf("no repositories are registered; run wts repo add %q", current.PrimaryRoot)
+		}
+		return config.Repository{}, fmt.Errorf("current Git repository is not registered; run wts repo add %q", current.PrimaryRoot)
 	}
 	if len(matches) > 1 {
-		return config.Repository{}, fmt.Errorf("current path matches multiple repositories; supply a repository ID")
+		return config.Repository{}, fmt.Errorf("current Git repository matches multiple registrations; supply --repo-id <id>")
 	}
 	return matches[0], nil
 }
@@ -443,10 +477,17 @@ func (s *Service) snapshotRepo(ctx context.Context, cfg config.Config, repo conf
 	return git, snapshot, err
 }
 func findWorktree(snapshot gitclient.Snapshot, value string) (gitclient.Worktree, error) {
-	clean := filepath.Clean(value)
 	for _, worktree := range snapshot.Worktrees {
-		if worktree.Path == clean || worktree.Branch == value {
+		if worktree.Branch == value {
 			return worktree, nil
+		}
+	}
+	canonical, err := config.CanonicalExisting(value)
+	if err == nil {
+		for _, worktree := range snapshot.Worktrees {
+			if worktree.Path == canonical {
+				return worktree, nil
+			}
 		}
 	}
 	return gitclient.Worktree{}, fmt.Errorf("worktree %q is not enumerated by Git", value)
@@ -613,7 +654,22 @@ func (s *Service) attach(ctx context.Context, repoID string) error {
 	if err != nil {
 		return err
 	}
-	return tmuxClient.Attach(ctx, "wts-"+repo.ID)
+	snapshot, err := tmuxClient.Snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	session, err := attachSession(snapshot, repo)
+	if err != nil {
+		return err
+	}
+	owned, err := tmuxClient.OwnsSession(ctx, session.ID, session.Metadata)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return fmt.Errorf("session ownership changed; refusing attach")
+	}
+	return tmuxClient.Attach(ctx, session.ID)
 }
 
 func (s *Service) reconcile(ctx context.Context, repoID string, all bool) (string, error) {
