@@ -46,36 +46,36 @@ func run(controller app.Controller, action string, options func(*cobra.Command) 
 }
 
 func NewWTS(controller app.Controller) *cobra.Command {
-	root := &cobra.Command{Use: "wts", Short: "Project registered Git worktrees into isolated tmux sessions", SilenceErrors: true}
+	root := &cobra.Command{Use: "wts", Short: "Continuously mirror registered Git worktrees into isolated tmux sessions", SilenceErrors: true}
 	root.SetOut(os.Stdout)
 	root.SetErr(os.Stderr)
 
-	configCmd := &cobra.Command{Use: "config", Short: "Inspect and edit configuration"}
+	configCmd := &cobra.Command{Use: "config", Short: "View, edit, validate, and refresh configuration"}
 	for _, spec := range []struct{ name, short, action string }{
-		{"path", "Print the configuration path", "config.path"}, {"edit", "Edit and atomically validate configuration", "config.edit"}, {"validate", "Validate configuration", "config.validate"}, {"refresh", "Merge current defaults into configuration", "config.refresh"},
+		{"path", "Print the configuration file path", "config.path"}, {"edit", "Edit and validate configuration before saving", "config.edit"}, {"validate", "Validate the current configuration", "config.validate"}, {"refresh", "Add missing defaults to the current configuration", "config.refresh"},
 	} {
 		configCmd.AddCommand(&cobra.Command{Use: spec.name, Short: spec.short, Args: exactArgs(spec.name+" does not accept arguments", 0), RunE: run(controller, spec.action, nil)})
 	}
 
-	repoCmd := &cobra.Command{Use: "repo", Short: "Manage registered repositories"}
+	repoCmd := &cobra.Command{Use: "repo", Short: "Manage registered Git repositories"}
 	var repoID string
 	var roots []string
-	repoAdd := &cobra.Command{Use: "add [path]", Short: "Register an existing primary worktree", Args: rangeArgs("repo add accepts at most one repository path", 0, 1)}
+	repoAdd := &cobra.Command{Use: "add [path]", Short: "Register an existing primary Git worktree", Args: rangeArgs("repo add accepts at most one repository path", 0, 1)}
 	repoAdd.Flags().StringVar(&repoID, "id", "", "stable tmux-safe repository ID")
 	repoAdd.Flags().StringSliceVar(&roots, "worktree-root", nil, "existing allowed worktree root (repeatable)")
 	repoAdd.RunE = run(controller, "repo.add", func(*cobra.Command) map[string]any { return map[string]any{"id": repoID, "roots": roots} })
-	repoList := &cobra.Command{Use: "list", Short: "List registered repositories", Args: exactArgs("repo list does not accept arguments", 0), RunE: run(controller, "repo.list", nil)}
-	repoRemove := &cobra.Command{Use: "remove <repository-id>", Short: "Stop managing a repository and remove only its tagged tmux resources", Args: exactArgs("repo remove requires exactly one repository ID", 1), RunE: run(controller, "repo.remove", nil)}
+	repoList := &cobra.Command{Use: "list", Short: "List registered Git repositories", Args: exactArgs("repo list does not accept arguments", 0), RunE: run(controller, "repo.list", nil)}
+	repoRemove := &cobra.Command{Use: "remove <repository-id>", Short: "Unregister a repository without deleting Git worktrees", Args: exactArgs("repo remove requires exactly one repository ID", 1), RunE: run(controller, "repo.remove", nil)}
 	repoCmd.AddCommand(repoAdd, repoList, repoRemove)
 
-	worktreeCmd := &cobra.Command{Use: "worktree", Short: "Manage worktrees"}
-	worktreePath := &cobra.Command{Use: "path <branch> [repository-id]", Short: "Print the existing or planned worktree path", Args: rangeArgs("worktree path requires a branch and optional repository ID", 1, 2), RunE: run(controller, "worktree.path", nil)}
+	worktreeCmd := &cobra.Command{Use: "worktree", Short: "Manage Git worktrees for registered repositories"}
+	worktreePath := &cobra.Command{Use: "path <branch> [repository-id]", Short: "Print the existing or planned path for a branch", Args: rangeArgs("worktree path requires a branch and optional repository ID", 1, 2), RunE: run(controller, "worktree.path", nil)}
 	var start string
-	worktreeCreate := &cobra.Command{Use: "create <branch> [repository-id]", Short: "Create and reconcile a managed worktree", Args: rangeArgs("worktree create requires a branch and optional repository ID", 1, 2)}
+	worktreeCreate := &cobra.Command{Use: "create <branch> [repository-id]", Short: "Create a Git worktree and reconcile its tmux window", Args: rangeArgs("worktree create requires a branch and optional repository ID", 1, 2)}
 	worktreeCreate.Flags().StringVar(&start, "start", "", "start point for a new local branch")
 	worktreeCreate.RunE = run(controller, "worktree.create", func(*cobra.Command) map[string]any { return map[string]any{"start": start} })
 	var forceRemove, deleteBranch, forceDeleteBranch bool
-	worktreeRemove := &cobra.Command{Use: "remove <path-or-branch> [repository-id]", Aliases: []string{"rm"}, Short: "Remove a worktree with explicit branch safety", Args: rangeArgs("worktree remove requires a path or branch and optional repository ID", 1, 2)}
+	worktreeRemove := &cobra.Command{Use: "remove <path-or-branch> [repository-id]", Aliases: []string{"rm"}, Short: "Remove a Git worktree and optionally delete its branch", Args: rangeArgs("worktree remove requires a path or branch and optional repository ID", 1, 2)}
 	worktreeRemove.Flags().BoolVar(&forceRemove, "force", false, "pass --force to git worktree remove")
 	worktreeRemove.Flags().BoolVar(&deleteBranch, "delete-branch", false, "safely delete the local branch after removal")
 	worktreeRemove.Flags().BoolVar(&forceDeleteBranch, "force-delete-branch", false, "force-delete the local branch after removal")
@@ -87,17 +87,17 @@ func NewWTS(controller app.Controller) *cobra.Command {
 	setup.Flags().BoolVar(&rerun, "rerun", false, "rerun the configured action definition")
 	setup.RunE = run(controller, "worktree.setup", func(*cobra.Command) map[string]any { return map[string]any{"rerun": rerun} })
 	var relaunch bool
-	launch := &cobra.Command{Use: "launch <worktree> [repository-id]", Short: "Run the configured launch command", Args: rangeArgs("worktree launch requires a path and optional repository ID", 1, 2)}
+	launch := &cobra.Command{Use: "launch <worktree> [repository-id]", Short: "Run the configured command in the worktree's tmux window", Args: rangeArgs("worktree launch requires a path and optional repository ID", 1, 2)}
 	launch.Flags().BoolVar(&relaunch, "rerun", false, "rerun the configured launch definition")
 	launch.RunE = run(controller, "worktree.launch", func(*cobra.Command) map[string]any { return map[string]any{"rerun": relaunch} })
 	worktreeCmd.AddCommand(worktreePath, worktreeCreate, worktreeRemove, setup, launch)
 
 	attach := &cobra.Command{Use: "attach [repository-id]", Short: "Attach to a repository's managed tmux session", Args: rangeArgs("attach accepts at most one repository ID", 0, 1), RunE: run(controller, "attach", nil)}
 	var jsonOutput bool
-	status := &cobra.Command{Use: "status [repository-id]", Short: "Show desired and actual worktree state", Args: rangeArgs("status accepts at most one repository ID", 0, 1)}
+	status := &cobra.Command{Use: "status [repository-id]", Short: "Show worktree, tmux, and action status", Args: rangeArgs("status accepts at most one repository ID", 0, 1)}
 	status.Flags().BoolVar(&jsonOutput, "json", false, "emit stable versioned JSON")
 	status.RunE = run(controller, "status", func(*cobra.Command) map[string]any { return map[string]any{"json": jsonOutput} })
-	reconcile := &cobra.Command{Use: "reconcile [repository-id]", Short: "Reconcile Git worktrees into managed tmux resources", Args: rangeArgs("reconcile accepts at most one repository ID", 0, 1), RunE: run(controller, "reconcile", nil)}
+	reconcile := &cobra.Command{Use: "reconcile [repository-id]", Short: "Synchronize Git worktrees with managed tmux windows", Args: rangeArgs("reconcile accepts at most one repository ID", 0, 1), RunE: run(controller, "reconcile", nil)}
 	var pruneID, orphanID string
 	cleanup := &cobra.Command{Use: "cleanup", Short: "Preview or perform explicit Git and tmux cleanup", Args: exactArgs("cleanup does not accept positional arguments", 0)}
 	cleanup.Flags().StringVar(&pruneID, "prune-git", "", "revalidate and prune one registered repository")
