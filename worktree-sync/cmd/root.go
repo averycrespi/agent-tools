@@ -98,7 +98,20 @@ func NewWTS(controller app.Controller) *cobra.Command {
 	setup.RunE = run(controller, "worktree.setup", func(*cobra.Command) map[string]any { return map[string]any{"rerun": rerun, "repo_id": setupRepoID} })
 	var launchRepoID string
 	var relaunch bool
-	launch := &cobra.Command{Use: "launch <worktree>", Short: "Run the configured command in the worktree's tmux window", Args: exactArgs("worktree launch requires exactly one worktree", 1)}
+	launch := &cobra.Command{
+		Use:   "launch <worktree>",
+		Short: "Run the configured command in the worktree's tmux window",
+		Long: `Run the repository's configured launch command in the worktree's
+existing managed tmux window.
+
+The command is typed into the window's interactive shell and Enter is sent.
+This does not create a window or attach to the tmux session. A successful or
+failed definition is recorded; use --rerun to attempt the same definition again.`,
+		Example: `  wts worktree launch feature/auth
+  wts worktree launch feature/auth --repo-id api
+  wts worktree launch feature/auth --rerun`,
+		Args: exactArgs("worktree launch requires exactly one worktree", 1),
+	}
 	launch.Flags().StringVar(&launchRepoID, "repo-id", "", "registered repository ID (defaults to current directory)")
 	launch.Flags().BoolVar(&relaunch, "rerun", false, "rerun the configured launch definition")
 	launch.RunE = run(controller, "worktree.launch", func(*cobra.Command) map[string]any { return map[string]any{"rerun": relaunch, "repo_id": launchRepoID} })

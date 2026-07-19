@@ -123,6 +123,15 @@ func TestOptionalRepositorySelectorsUseRepoIDFlag(t *testing.T) {
 	}
 }
 
+func TestWorktreeLaunchHelpExplainsManagedWindowBehavior(t *testing.T) {
+	root := cmd.NewWTS(nil)
+	launch, _, err := root.Find([]string{"worktree", "launch"})
+	require.NoError(t, err)
+	require.Contains(t, launch.Long, "existing managed tmux window")
+	require.Contains(t, launch.Long, "does not create a window or attach")
+	require.Contains(t, launch.Example, "--rerun")
+}
+
 func TestWorktreeCreateForwardsBranchOrigin(t *testing.T) {
 	controller := &recordingController{}
 	err := cmd.ExecuteWTS(context.Background(), controller, &bytes.Buffer{}, &bytes.Buffer{}, []string{"worktree", "create", "feature", "--from", "origin/main"})

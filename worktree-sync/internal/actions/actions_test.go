@@ -143,10 +143,21 @@ func TestLaunchPolicyLedgerAndRerun(t *testing.T) {
 	require.Zero(t, calls)
 	require.NoError(t, manager.Launch(context.Background(), repo, worktree, actions.Explicit, false, launch).Error)
 	require.Equal(t, 1, calls)
-	require.True(t, manager.Launch(context.Background(), repo, worktree, actions.Explicit, false, launch).Skipped)
+	skipped := manager.Launch(context.Background(), repo, worktree, actions.Explicit, false, launch)
+	require.True(t, skipped.Skipped)
+	require.Equal(t, "already attempted", skipped.Reason)
 	require.Equal(t, 1, calls)
 	require.NoError(t, manager.Launch(context.Background(), repo, worktree, actions.Explicit, true, launch).Error)
 	require.Equal(t, 2, calls)
+}
+
+func TestLaunchReportsWhyItWasSkipped(t *testing.T) {
+	manager := actions.New(&runner{}, filepath.Join(t.TempDir(), "ledger.json"), time.Second)
+	worktree := actions.Worktree{Path: t.TempDir(), Identity: "w"}
+	disabled := manager.Launch(context.Background(), config.Repository{LaunchCommand: "launch"}, worktree, actions.Explicit, false, func() error { return nil })
+	require.Equal(t, "disabled by policy", disabled.Reason)
+	notConfigured := manager.Launch(context.Background(), config.Repository{Policy: config.Policy{LaunchExplicit: true}}, worktree, actions.Explicit, false, func() error { return nil })
+	require.Equal(t, "no launch command is configured", notConfigured.Reason)
 }
 
 func TestPruneRemovesAttemptsForWorktreesNoLongerLive(t *testing.T) {

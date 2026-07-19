@@ -103,7 +103,7 @@ The default path is `${XDG_CONFIG_HOME:-~/.config}/worktree-sync/config.json`. S
 }
 ```
 
-Registration writes canonical path and identity fields. Treat the config as trusted host configuration. Setup commands are explicit argv arrays run in the worktree with inherited environment plus overrides and bounded cancellation. Copy sources and destinations are root-relative, cannot escape through symlinks, and are atomically published without overwriting existing destinations. `launch_command` is sent literally to the interactive tmux shell, which interprets it; do not configure untrusted text.
+Registration writes canonical path and identity fields. Treat the config as trusted host configuration. Setup commands are explicit argv arrays run in the worktree with inherited environment plus overrides and bounded cancellation. Copy sources and destinations are root-relative, cannot escape through symlinks, and are atomically published without overwriting existing destinations. `launch_command` is sent literally to the existing managed worktree window's interactive shell, which interprets it; `wts worktree launch` does not create a window or attach to the session. Do not configure untrusted text.
 
 Explicit and passive setup/launch policy is separate. Passive behavior is off by default. An atomic action ledger records success and failure by repository, worktree identity, trigger, and action-definition digest; complete scans prune vanished identities and obsolete definitions. Failed actions remain visible in status and do not retry indefinitely; use `wts worktree setup|launch --rerun` or change the definition to make an attempt eligible again. Inspection windows are created even when setup fails.
 

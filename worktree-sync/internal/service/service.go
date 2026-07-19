@@ -585,7 +585,13 @@ func (s *Service) explicitAction(ctx context.Context, request app.Request, launc
 		}
 		return tmuxClient.Launch(ctx, windowID, repo.LaunchCommand)
 	})
-	return "launch evaluated", result.Error
+	if result.Skipped {
+		return "launch skipped: " + result.Reason, nil
+	}
+	if result.Error != nil {
+		return "launch failed in " + worktree.Path, result.Error
+	}
+	return "launch started in " + worktree.Path, nil
 }
 func (s *Service) runSetup(ctx context.Context, request app.Request) (string, error) {
 	return s.explicitAction(ctx, request, false)

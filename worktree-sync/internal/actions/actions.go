@@ -32,6 +32,7 @@ type Worktree struct {
 }
 type Result struct {
 	Skipped bool
+	Reason  string
 	Error   error
 }
 
@@ -73,8 +74,11 @@ func (m *Manager) Run(ctx context.Context, repo config.Repository, worktree Work
 
 func (m *Manager) Launch(ctx context.Context, repo config.Repository, worktree Worktree, trigger Trigger, rerun bool, launch func() error) Result {
 	enabled := (trigger == Explicit && repo.Policy.LaunchExplicit) || (trigger == Passive && repo.Policy.LaunchPassive)
-	if !enabled || repo.LaunchCommand == "" {
-		return Result{Skipped: true}
+	if !enabled {
+		return Result{Skipped: true, Reason: "disabled by policy"}
+	}
+	if repo.LaunchCommand == "" {
+		return Result{Skipped: true, Reason: "no launch command is configured"}
 	}
 	key := state.ActionKey{Repository: repo.RepositoryIdentity, Worktree: worktree.Identity, Trigger: string(trigger), Digest: digestValue(struct{ Launch string }{repo.LaunchCommand})}
 	return m.attempt(ctx, key, rerun, launch)
@@ -94,7 +98,7 @@ func (m *Manager) attempt(ctx context.Context, key state.ActionKey, rerun bool, 
 		ledger.Rerun(key)
 	}
 	if !ledger.Eligible(key) {
-		return Result{Skipped: true}
+		return Result{Skipped: true, Reason: "already attempted"}
 	}
 	err = operation()
 	result := state.ActionResult{Success: err == nil}
