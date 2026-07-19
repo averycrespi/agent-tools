@@ -99,7 +99,27 @@ func NewWTS(controller app.Controller) *cobra.Command {
 	status.RunE = run(controller, "status", func(*cobra.Command) map[string]any { return map[string]any{"json": jsonOutput} })
 	reconcile := &cobra.Command{Use: "reconcile [repository-id]", Short: "Synchronize Git worktrees with managed tmux windows", Args: rangeArgs("reconcile accepts at most one repository ID", 0, 1), RunE: run(controller, "reconcile", nil)}
 	var pruneID, orphanID string
-	cleanup := &cobra.Command{Use: "cleanup", Short: "Preview or perform explicit Git and tmux cleanup", Args: exactArgs("cleanup does not accept positional arguments", 0)}
+	cleanup := &cobra.Command{
+		Use:   "cleanup",
+		Short: "Inspect or explicitly remove stale Git and tmux state",
+		Long: `Inspect cleanup status or explicitly remove stale state.
+
+Without flags, cleanup is reporting-only and makes no changes.
+
+--prune-git revalidates one registered repository and runs
+"git worktree prune" only when Git reports stale worktree metadata.
+
+--remove-orphaned-tmux revalidates Git and tmux state, then removes only
+wts-owned worktree windows whose identities are no longer desired.
+
+Cleanup never deletes branches, live worktree directories, manual tmux
+windows, or foreign tmux resources. Incomplete snapshots fail closed.`,
+		Example: `  wts cleanup
+  wts cleanup --prune-git my-repo
+  wts cleanup --remove-orphaned-tmux my-repo
+  wts cleanup --prune-git my-repo --remove-orphaned-tmux my-repo`,
+		Args: exactArgs("cleanup does not accept positional arguments", 0),
+	}
 	cleanup.Flags().StringVar(&pruneID, "prune-git", "", "revalidate and prune one registered repository")
 	cleanup.Flags().StringVar(&orphanID, "remove-orphaned-tmux", "", "re-snapshot and remove owned orphan tmux resources for one repository")
 	cleanup.RunE = run(controller, "cleanup", func(*cobra.Command) map[string]any {
