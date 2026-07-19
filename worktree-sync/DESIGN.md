@@ -62,17 +62,17 @@ SIGINT and SIGTERM cancel in-flight work and stop the foreground loop. Structure
 
 ## Explicit lifecycle and provenance
 
-`wts worktree create` runs under the operation lock, chooses a collision-safe path below the configured canonical root, asks Git to check out an existing local branch or create one from an optional start point, re-snapshots its Git administrative identity, and atomically records explicit provenance before releasing the lock. Provenance includes repository, path, and worktree identity; path reuse cannot inherit an earlier explicit classification. Removal clears matching provenance and delegates dirty-worktree checks to Git. Branch deletion requires a separate safe or force flag.
+`wts worktree create` runs under the operation lock, chooses a collision-safe path below the configured canonical root, asks Git to check out an existing local branch or create one from an optional `--from` revision, re-snapshots its Git administrative identity, and atomically records explicit provenance before releasing the lock. Provenance includes repository, path, and worktree identity; path reuse cannot inherit an earlier explicit classification. Removal clears matching provenance and delegates dirty-worktree checks to Git. Branch deletion requires a separate safe or force flag.
 
 Ordinary `git worktree add` has no provenance entry and is passive. The next event nudge or periodic full scan discovers it through Git and projects it if eligible.
 
 ## Setup, copy, and launch
 
-Actions are trusted per-repository host configuration; repository-local files cannot define actions. Explicit and passive policy gates are separate, and passive actions default off.
+Actions are trusted per-repository host configuration; repository-local files cannot define actions. Setup and launch each use a cumulative policy: `none`, `manual`, `wts-created`, or `all`. The default `manual` mode never automates actions; `wts-created` enables automation for CLI-created worktrees, and `all` also enables automation for externally discovered worktrees.
 
 Copy actions use Go's rooted filesystem API for race-resistant containment of both source and destination, reject absolute/parent traversal, create private parents, fully write and sync a rooted temporary file, and publish it with a no-replace hard link so existing files and symlinks are never overwritten or exposed partially. Setup commands are argv arrays executed without a shell in a freshly revalidated worktree with inherited environment plus validated overrides and a bounded action/default timeout.
 
-The action ledger is protected by its own advisory lock and keyed by repository identity, worktree identity, explicit/passive trigger, and a digest of the action definition. Complete reconciliations remove entries for vanished worktree identities and obsolete definitions. Success and failure both suppress automatic retry; changed definitions, new worktree identities, or explicit `--rerun` are eligible. Setup runs after the inspection window exists, so failure never hides the worktree. Launch text is trusted shell input sent as one literal tmux argument and Enter. Automatic launch is considered only when a managed window was newly created and its trigger policy permits it.
+The action ledger is protected by its own advisory lock and keyed by repository identity, worktree identity, origin trigger, and a digest of the action definition. Manual and WTS-created attempts retain the legacy explicit ledger key so version-1 attempts do not run again after migration. Complete reconciliations remove entries for vanished worktree identities and obsolete definitions. Success and failure both suppress automatic retry; changed definitions, new worktree identities, or explicit `--rerun` are eligible. Setup runs after the inspection window exists, so failure never hides the worktree. Launch text is trusted shell input sent as one literal tmux argument and Enter. Automatic launch is considered only when a managed window was newly created and its trigger policy permits it.
 
 ## Status, cleanup, and unregister
 

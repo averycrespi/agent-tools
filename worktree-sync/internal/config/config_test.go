@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -77,6 +78,68 @@ func TestValidateRequiresCanonicalRepositoryIdentity(t *testing.T) {
 	cfg := config.Default()
 	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: root, CommonGitDir: common, AllowedRoots: []string{root}}}
 	require.ErrorContains(t, cfg.Validate(), "identity")
+}
+
+func TestLoadRequiresExplicitRefreshForVersionOne(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"version":1}`), 0o600))
+	_, err := config.Load(path)
+	require.ErrorContains(t, err, "wts config refresh")
+}
+
+func TestLoadForRefreshMigratesVersionOnePolicies(t *testing.T) {
+	base := t.TempDir()
+	common := filepath.Join(base, ".git")
+	require.NoError(t, os.Mkdir(common, 0o700))
+	path := filepath.Join(base, "config.json")
+	data := fmt.Sprintf(`{
+  "version": 1,
+  "global": {"reconcile_interval":"30s","debounce":"250ms","command_timeout":"20s"},
+  "repositories": [
+    {"id":"none","primary_root":%q,"common_git_dir":%q,"repository_identity":%q,"allowed_worktree_roots":[%q],"policy":{}},
+    {"id":"created","primary_root":%q,"common_git_dir":%q,"repository_identity":%q,"allowed_worktree_roots":[%q],"policy":{"setup_explicit":true,"launch_explicit":true}},
+    {"id":"all","primary_root":%q,"common_git_dir":%q,"repository_identity":%q,"allowed_worktree_roots":[%q],"policy":{"setup_explicit":true,"setup_passive":true,"launch_explicit":true,"launch_passive":true}}
+  ]
+}`, base, common, common, base, base, common, common, base, base, common, common, base)
+	require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
+	cfg, err := config.LoadForRefresh(path)
+	require.NoError(t, err)
+	require.Equal(t, config.Version, cfg.Version)
+	require.Equal(t, config.ActionNone, cfg.Repositories[0].SetupPolicy)
+	require.Equal(t, config.ActionWTSCreated, cfg.Repositories[1].SetupPolicy)
+	require.Equal(t, config.ActionWTSCreated, cfg.Repositories[1].LaunchPolicy)
+	require.Equal(t, config.ActionAll, cfg.Repositories[2].SetupPolicy)
+	require.Equal(t, config.ActionAll, cfg.Repositories[2].LaunchPolicy)
+}
+
+func TestLoadForRefreshRejectsPassiveOnlyVersionOnePolicy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"version":1,"repositories":[{"id":"repo","policy":{"setup_passive":true}}]}`), 0o600))
+	_, err := config.LoadForRefresh(path)
+	require.ErrorContains(t, err, "cannot migrate")
+}
+
+func TestVersionTwoRejectsLegacyPolicyField(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"version":2,"global":{"reconcile_interval":"30s","debounce":"250ms","command_timeout":"20s"},"repositories":[{"policy":{}}]}`), 0o600))
+	_, err := config.Load(path)
+	require.ErrorContains(t, err, "unknown field")
+}
+
+func TestActionPolicyValidationAndDefaults(t *testing.T) {
+	root := t.TempDir()
+	common := filepath.Join(root, ".git")
+	require.NoError(t, os.Mkdir(common, 0o700))
+	cfg := config.Default()
+	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: root, CommonGitDir: common, RepositoryIdentity: common, AllowedRoots: []string{root}}}
+	path := filepath.Join(root, "config.json")
+	require.NoError(t, config.Save(path, cfg))
+	loaded, err := config.Load(path)
+	require.NoError(t, err)
+	require.Equal(t, config.ActionManual, loaded.Repositories[0].SetupPolicy)
+	require.Equal(t, config.ActionManual, loaded.Repositories[0].LaunchPolicy)
+	loaded.Repositories[0].SetupPolicy = "sometimes"
+	require.ErrorContains(t, loaded.Validate(), "setup_policy")
 }
 
 func TestSaveAtomicPreservesValidConfigOnValidationFailure(t *testing.T) {

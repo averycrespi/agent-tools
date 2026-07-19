@@ -52,7 +52,7 @@ func NewWTS(controller app.Controller) *cobra.Command {
 
 	configCmd := &cobra.Command{Use: "config", Short: "View, edit, validate, and refresh configuration"}
 	for _, spec := range []struct{ name, short, action string }{
-		{"path", "Print the configuration file path", "config.path"}, {"edit", "Edit and validate configuration before saving", "config.edit"}, {"validate", "Validate the current configuration", "config.validate"}, {"refresh", "Add missing defaults to the current configuration", "config.refresh"},
+		{"path", "Print the configuration file path", "config.path"}, {"edit", "Edit and validate configuration before saving", "config.edit"}, {"validate", "Validate the current configuration", "config.validate"}, {"refresh", "Migrate configuration and add missing defaults", "config.refresh"},
 	} {
 		configCmd.AddCommand(&cobra.Command{Use: spec.name, Short: spec.short, Args: exactArgs(spec.name+" does not accept arguments", 0), RunE: run(controller, spec.action, nil)})
 	}

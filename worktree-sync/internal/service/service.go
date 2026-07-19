@@ -550,7 +550,7 @@ func (s *Service) explicitAction(ctx context.Context, request app.Request, launc
 		if err := revalidate(); err != nil {
 			return "", err
 		}
-		result := manager.Run(ctx, repo, actionWorktree, actions.Explicit, rerun)
+		result := manager.Run(ctx, repo, actionWorktree, actions.Manual, rerun)
 		return "setup evaluated", result.Error
 	}
 	actual, err := tmuxClient.Snapshot(ctx)
@@ -572,7 +572,7 @@ func (s *Service) explicitAction(ctx context.Context, request app.Request, launc
 	if windowID == "" {
 		return "", fmt.Errorf("managed worktree window is not present")
 	}
-	result := manager.Launch(ctx, repo, actionWorktree, actions.Explicit, rerun, func() error {
+	result := manager.Launch(ctx, repo, actionWorktree, actions.Manual, rerun, func() error {
 		if err := revalidate(); err != nil {
 			return err
 		}

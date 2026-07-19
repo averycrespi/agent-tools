@@ -22,6 +22,7 @@ import (
 type Trigger string
 
 const (
+	Manual   Trigger = "manual"
 	Explicit Trigger = "explicit"
 	Passive  Trigger = "passive"
 )
@@ -63,24 +64,44 @@ func digest(repo config.Repository) string {
 	}{repo.CopyActions, repo.SetupActions})
 }
 
+func policyAllows(policy config.ActionPolicy, trigger Trigger) bool {
+	switch trigger {
+	case Manual:
+		return policy != config.ActionNone
+	case Explicit:
+		return policy == config.ActionWTSCreated || policy == config.ActionAll
+	case Passive:
+		return policy == config.ActionAll
+	default:
+		return false
+	}
+}
+
+func ledgerTrigger(trigger Trigger) string {
+	if trigger == Manual {
+		return string(Explicit)
+	}
+	return string(trigger)
+}
+
 func (m *Manager) Run(ctx context.Context, repo config.Repository, worktree Worktree, trigger Trigger, rerun bool) Result {
-	enabled := (trigger == Explicit && repo.Policy.SetupExplicit) || (trigger == Passive && repo.Policy.SetupPassive)
+	enabled := policyAllows(repo.SetupPolicy, trigger)
 	if !enabled || (len(repo.CopyActions) == 0 && len(repo.SetupActions) == 0) {
 		return Result{Skipped: true}
 	}
-	key := state.ActionKey{Repository: repo.RepositoryIdentity, Worktree: worktree.Identity, Trigger: string(trigger), Digest: digest(repo)}
+	key := state.ActionKey{Repository: repo.RepositoryIdentity, Worktree: worktree.Identity, Trigger: ledgerTrigger(trigger), Digest: digest(repo)}
 	return m.attempt(ctx, key, rerun, func() error { return m.execute(ctx, repo, worktree) })
 }
 
 func (m *Manager) Launch(ctx context.Context, repo config.Repository, worktree Worktree, trigger Trigger, rerun bool, launch func() error) Result {
-	enabled := (trigger == Explicit && repo.Policy.LaunchExplicit) || (trigger == Passive && repo.Policy.LaunchPassive)
+	enabled := policyAllows(repo.LaunchPolicy, trigger)
 	if !enabled {
 		return Result{Skipped: true, Reason: "disabled by policy"}
 	}
 	if repo.LaunchCommand == "" {
 		return Result{Skipped: true, Reason: "no launch command is configured"}
 	}
-	key := state.ActionKey{Repository: repo.RepositoryIdentity, Worktree: worktree.Identity, Trigger: string(trigger), Digest: digestValue(struct{ Launch string }{repo.LaunchCommand})}
+	key := state.ActionKey{Repository: repo.RepositoryIdentity, Worktree: worktree.Identity, Trigger: ledgerTrigger(trigger), Digest: digestValue(struct{ Launch string }{repo.LaunchCommand})}
 	return m.attempt(ctx, key, rerun, launch)
 }
 

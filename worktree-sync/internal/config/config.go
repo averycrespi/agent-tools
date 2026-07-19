@@ -1,9 +1,11 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,7 +16,7 @@ import (
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/state"
 )
 
-const Version = 1
+const Version = 2
 
 var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 
@@ -30,11 +32,17 @@ type Global struct {
 	CommandTimeout    string `json:"command_timeout"`
 }
 
-type Policy struct {
-	SetupExplicit  bool `json:"setup_explicit"`
-	LaunchExplicit bool `json:"launch_explicit"`
-	SetupPassive   bool `json:"setup_passive"`
-	LaunchPassive  bool `json:"launch_passive"`
+type ActionPolicy string
+
+const (
+	ActionNone       ActionPolicy = "none"
+	ActionManual     ActionPolicy = "manual"
+	ActionWTSCreated ActionPolicy = "wts-created"
+	ActionAll        ActionPolicy = "all"
+)
+
+func (p ActionPolicy) valid() bool {
+	return p == ActionNone || p == ActionManual || p == ActionWTSCreated || p == ActionAll
 }
 
 type CopyAction struct {
@@ -56,7 +64,8 @@ type Repository struct {
 	LaunchCommand      string        `json:"launch_command,omitempty"`
 	CopyActions        []CopyAction  `json:"copy_actions,omitempty"`
 	SetupActions       []SetupAction `json:"setup_actions,omitempty"`
-	Policy             Policy        `json:"policy"`
+	SetupPolicy        ActionPolicy  `json:"setup_policy"`
+	LaunchPolicy       ActionPolicy  `json:"launch_policy"`
 	RepositoryIdentity string        `json:"repository_identity,omitempty"`
 }
 
@@ -68,6 +77,65 @@ type Config struct {
 
 func Default() Config {
 	return Config{Version: Version, Global: Global{ReconcileInterval: "30s", Debounce: "250ms", CommandTimeout: "20s"}, Repositories: []Repository{}}
+}
+
+func (c Config) normalized() Config {
+	for i := range c.Repositories {
+		if c.Repositories[i].SetupPolicy == "" {
+			c.Repositories[i].SetupPolicy = ActionManual
+		}
+		if c.Repositories[i].LaunchPolicy == "" {
+			c.Repositories[i].LaunchPolicy = ActionManual
+		}
+	}
+	return c
+}
+
+type legacyPolicy struct {
+	SetupExplicit  bool `json:"setup_explicit"`
+	LaunchExplicit bool `json:"launch_explicit"`
+	SetupPassive   bool `json:"setup_passive"`
+	LaunchPassive  bool `json:"launch_passive"`
+}
+type legacyRepository struct {
+	Repository
+	Policy legacyPolicy `json:"policy"`
+}
+type legacyConfig struct {
+	Version      int                `json:"version"`
+	Global       Global             `json:"global"`
+	Repositories []legacyRepository `json:"repositories"`
+}
+
+func migratePolicy(explicit, passive bool) (ActionPolicy, error) {
+	switch {
+	case !explicit && !passive:
+		return ActionNone, nil
+	case explicit && !passive:
+		return ActionWTSCreated, nil
+	case explicit && passive:
+		return ActionAll, nil
+	default:
+		return "", fmt.Errorf("passive-only policy cannot migrate to cumulative modes")
+	}
+}
+
+func migrateLegacy(legacy legacyConfig) (Config, error) {
+	cfg := Config{Version: Version, Global: legacy.Global, Repositories: make([]Repository, 0, len(legacy.Repositories))}
+	for _, old := range legacy.Repositories {
+		setup, err := migratePolicy(old.Policy.SetupExplicit, old.Policy.SetupPassive)
+		if err != nil {
+			return Config{}, fmt.Errorf("repository %q setup policy cannot migrate: %w", old.ID, err)
+		}
+		launch, err := migratePolicy(old.Policy.LaunchExplicit, old.Policy.LaunchPassive)
+		if err != nil {
+			return Config{}, fmt.Errorf("repository %q launch policy cannot migrate: %w", old.ID, err)
+		}
+		repo := old.Repository
+		repo.SetupPolicy, repo.LaunchPolicy = setup, launch
+		cfg.Repositories = append(cfg.Repositories, repo)
+	}
+	return cfg, nil
 }
 
 func envHome(name, fallback string) (string, error) {
@@ -132,9 +200,13 @@ func parsePositive(name, value string) error {
 }
 
 func (c Config) Validate() error {
+	if c.Version == 1 {
+		return fmt.Errorf("config version 1 requires migration; run wts config refresh")
+	}
 	if c.Version != Version {
 		return fmt.Errorf("unsupported config version %d", c.Version)
 	}
+	c = c.normalized()
 	if err := parsePositive("reconcile_interval", c.Global.ReconcileInterval); err != nil {
 		return err
 	}
@@ -164,6 +236,12 @@ func (c Config) Validate() error {
 		identities[identity] = true
 	}
 	for _, repo := range c.Repositories {
+		if !repo.SetupPolicy.valid() {
+			return fmt.Errorf("repository %q setup_policy %q is invalid", repo.ID, repo.SetupPolicy)
+		}
+		if !repo.LaunchPolicy.valid() {
+			return fmt.Errorf("repository %q launch_policy %q is invalid", repo.ID, repo.LaunchPolicy)
+		}
 		if repo.PrimaryRoot == "" || repo.CommonGitDir == "" || len(repo.AllowedRoots) == 0 {
 			return fmt.Errorf("repository %q requires primary_root, common_git_dir, and allowed roots", repo.ID)
 		}
@@ -203,19 +281,48 @@ func (c Config) Validate() error {
 	return nil
 }
 
-func decode(path string) (Config, error) {
+func read(path string) ([]byte, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // caller supplies the XDG configuration path
 	if errors.Is(err, os.ErrNotExist) {
-		return Default(), nil
+		return nil, nil
 	}
 	if err != nil {
-		return Config{}, fmt.Errorf("reading config: %w", err)
+		return nil, fmt.Errorf("reading config: %w", err)
 	}
+	return data, nil
+}
+
+func decodeCurrent(data []byte) (Config, error) {
 	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&cfg); err != nil {
 		return Config{}, fmt.Errorf("decoding config: %w", err)
 	}
-	return cfg, nil
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return Config{}, fmt.Errorf("decoding config: trailing JSON value")
+	}
+	return cfg.normalized(), nil
+}
+
+func decode(path string) (Config, error) {
+	data, err := read(path)
+	if err != nil {
+		return Config{}, err
+	}
+	if data == nil {
+		return Default(), nil
+	}
+	var header struct {
+		Version int `json:"version"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return Config{}, fmt.Errorf("decoding config: %w", err)
+	}
+	if header.Version == 1 {
+		return Config{}, fmt.Errorf("config version 1 requires migration; run wts config refresh")
+	}
+	return decodeCurrent(data)
 }
 
 func Load(path string) (Config, error) {
@@ -230,9 +337,35 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
-func LoadForRefresh(path string) (Config, error) { return decode(path) }
+func LoadForRefresh(path string) (Config, error) {
+	data, err := read(path)
+	if err != nil {
+		return Config{}, err
+	}
+	if data == nil {
+		return Default(), nil
+	}
+	var header struct {
+		Version int `json:"version"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return Config{}, fmt.Errorf("decoding config: %w", err)
+	}
+	if header.Version == 0 || header.Version == 1 {
+		var legacy legacyConfig
+		if err := json.Unmarshal(data, &legacy); err != nil {
+			return Config{}, fmt.Errorf("decoding version 1 config: %w", err)
+		}
+		return migrateLegacy(legacy)
+	}
+	if header.Version != Version {
+		return Config{}, fmt.Errorf("unsupported config version %d", header.Version)
+	}
+	return decodeCurrent(data)
+}
 
 func Save(path string, cfg Config) error {
+	cfg = cfg.normalized()
 	if err := cfg.Validate(); err != nil {
 		return err
 	}

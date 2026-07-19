@@ -114,7 +114,7 @@ func TestExecutorUsesProvidedSocketSnapshotWithoutResnapshotting(t *testing.T) {
 func TestExecutorCreatesInspectionWindowDespiteSetupFailureAndLaunchesOnlyCreated(t *testing.T) {
 	repo, snapshot := fixture(t)
 	repo.LaunchCommand = "agent"
-	repo.Policy = config.Policy{SetupPassive: true, LaunchPassive: true}
+	repo.SetupPolicy, repo.LaunchPolicy = config.ActionAll, config.ActionAll
 	tmuxClient := &tmuxFake{snapshot: tmux.Snapshot{Complete: true}}
 	actionManager := &actionFake{fail: true}
 	executor := reconcile.NewExecutor(gitSnapshotter{snapshot: snapshot}, tmuxClient, actionManager)
@@ -166,7 +166,7 @@ func TestExecutorRechecksSessionBeforeCreatingWindow(t *testing.T) {
 func TestExecutorRechecksCreatedWindowBeforeLaunch(t *testing.T) {
 	repo, snapshot := fixture(t)
 	repo.LaunchCommand = "agent"
-	repo.Policy.LaunchPassive = true
+	repo.LaunchPolicy = config.ActionAll
 	tmuxClient := &tmuxFake{snapshot: tmux.Snapshot{Complete: true}, ownershipChanged: map[string]bool{"@new": true}}
 	report := reconcile.NewExecutor(gitSnapshotter{snapshot: snapshot}, tmuxClient, &actionFake{}).ReconcileRepo(context.Background(), repo, func(string, string) actions.Trigger { return actions.Passive })
 	require.Empty(t, tmuxClient.launched)

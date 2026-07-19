@@ -74,7 +74,7 @@ func (s *Service) Add(ctx context.Context, cfg config.Config, options AddOptions
 			roots = append(roots, canonical)
 		}
 	}
-	repo := config.Repository{ID: id, PrimaryRoot: info.PrimaryRoot, CommonGitDir: info.CommonGitDir, RepositoryIdentity: info.Identity, AllowedRoots: roots}
+	repo := config.Repository{ID: id, PrimaryRoot: info.PrimaryRoot, CommonGitDir: info.CommonGitDir, RepositoryIdentity: info.Identity, AllowedRoots: roots, SetupPolicy: config.ActionManual, LaunchPolicy: config.ActionManual}
 	cfg.Repositories = append(cfg.Repositories, repo)
 	if err := cfg.Validate(); err != nil {
 		return cfg, config.Repository{}, err

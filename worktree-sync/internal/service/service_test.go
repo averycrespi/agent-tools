@@ -96,17 +96,27 @@ func TestConfigRefreshCreatesValidatedDefaults(t *testing.T) {
 	require.Equal(t, config.Default().Global, cfg.Global)
 }
 
-func TestConfigRefreshFillsMissingFieldsWithoutReplacingRepositories(t *testing.T) {
+func TestConfigRefreshMigratesPoliciesWithoutReplacingRepositories(t *testing.T) {
 	base := t.TempDir()
+	primary, common, allowed := filepath.Join(base, "repo"), filepath.Join(base, "repo", ".git"), filepath.Join(base, "worktrees")
+	require.NoError(t, os.MkdirAll(common, 0o700))
+	require.NoError(t, os.Mkdir(allowed, 0o700))
 	paths := config.Paths{Config: filepath.Join(base, "config", "config.json"), State: filepath.Join(base, "state"), Worktrees: filepath.Join(base, "data", "worktrees")}
 	require.NoError(t, os.MkdirAll(filepath.Dir(paths.Config), 0o700))
-	require.NoError(t, os.WriteFile(paths.Config, []byte(`{"version":1,"global":{},"repositories":[]}`), 0o600))
+	legacy := fmt.Sprintf(`{"version":1,"global":{},"repositories":[{"id":"repo","primary_root":%q,"common_git_dir":%q,"repository_identity":%q,"allowed_worktree_roots":[%q],"policy":{"setup_explicit":true,"launch_explicit":true}}]}`, primary, common, common, allowed)
+	require.NoError(t, os.WriteFile(paths.Config, []byte(legacy), 0o600))
 	controller := service.New(&editorRunner{}, paths)
 	_, err := controller.Execute(context.Background(), app.Request{Action: "config.refresh"})
 	require.NoError(t, err)
 	cfg, err := config.Load(paths.Config)
 	require.NoError(t, err)
 	require.Equal(t, config.Default().Global, cfg.Global)
+	require.Equal(t, "repo", cfg.Repositories[0].ID)
+	require.Equal(t, config.ActionWTSCreated, cfg.Repositories[0].SetupPolicy)
+	require.Equal(t, config.ActionWTSCreated, cfg.Repositories[0].LaunchPolicy)
+	data, err := os.ReadFile(paths.Config)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), `"policy"`)
 }
 
 func TestConfigEditLeavesLiveFileUnchangedWhenEditedCopyIsInvalid(t *testing.T) {

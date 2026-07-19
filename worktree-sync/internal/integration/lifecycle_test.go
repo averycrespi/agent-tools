@@ -57,7 +57,7 @@ func TestExplicitLifecycleStatusBranchSafetyCleanupAndUnregister(t *testing.T) {
 	require.Equal(t, expected, created)
 	launchOutput, err := controller.Execute(context.Background(), forRepo("worktree.launch", []string{created}, nil))
 	require.NoError(t, err)
-	require.Equal(t, "launch skipped: disabled by policy", launchOutput)
+	require.Equal(t, "launch skipped: no launch command is configured", launchOutput)
 	again, err := controller.Execute(context.Background(), forRepo("worktree.path", []string{"feature"}, nil))
 	require.NoError(t, err)
 	require.Equal(t, created, again)

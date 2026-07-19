@@ -60,7 +60,7 @@ Commands infer a repository from the current primary/worktree path only when the
 
 `wts worktree create <branch> [--repo-id <id>]` checks out an existing local branch or creates a missing branch from `--from <revision>` (the current HEAD by default). `--from` is rejected when the branch already exists. Paths are collision-safe under `<allowed-root>/<repo-id>/<branch-slug>`. `wts worktree remove` delegates worktree safety to Git. It never deletes a branch unless `--delete-branch` or `--force-delete-branch` is supplied; `--force` applies only to `git worktree remove`.
 
-`wts config edit` uses `VISUAL` or `EDITOR`, validates the temporary edited copy, and atomically replaces the live file only when valid. `config refresh` fills newly introduced default fields without replacing repository values.
+`wts config edit` uses `VISUAL` or `EDITOR`, validates the temporary edited copy, and atomically replaces the live file only when valid. `config refresh` explicitly migrates older configuration versions and fills newly introduced defaults before atomically saving.
 
 ## Configuration
 
@@ -68,7 +68,7 @@ The default path is `${XDG_CONFIG_HOME:-~/.config}/worktree-sync/config.json`. S
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "global": {
     "reconcile_interval": "30s",
     "debounce": "250ms",
@@ -92,12 +92,8 @@ The default path is `${XDG_CONFIG_HOME:-~/.config}/worktree-sync/config.json`. S
         }
       ],
       "launch_command": "pi",
-      "policy": {
-        "setup_explicit": true,
-        "launch_explicit": true,
-        "setup_passive": false,
-        "launch_passive": false
-      }
+      "setup_policy": "wts-created",
+      "launch_policy": "wts-created"
     }
   ]
 }
@@ -105,7 +101,7 @@ The default path is `${XDG_CONFIG_HOME:-~/.config}/worktree-sync/config.json`. S
 
 Registration writes canonical path and identity fields. Treat the config as trusted host configuration. Setup commands are explicit argv arrays run in the worktree with inherited environment plus overrides and bounded cancellation. Copy sources and destinations are root-relative, cannot escape through symlinks, and are atomically published without overwriting existing destinations. `launch_command` is sent literally to the existing managed worktree window's interactive shell, which interprets it; `wts worktree launch` does not create a window or attach to the session. Do not configure untrusted text.
 
-Explicit and passive setup/launch policy is separate. Passive behavior is off by default. An atomic action ledger records success and failure by repository, worktree identity, trigger, and action-definition digest; complete scans prune vanished identities and obsolete definitions. Failed actions remain visible in status and do not retry indefinitely; use `wts worktree setup|launch --rerun` or change the definition to make an attempt eligible again. Inspection windows are created even when setup fails.
+`setup_policy` and `launch_policy` accept `none`, `manual`, `wts-created`, or `all`; modes are cumulative and default to `manual`. `wts-created` adds automation for worktrees created by `wts`, while `all` also automates externally discovered worktrees. An atomic action ledger records success and failure by repository, worktree identity, trigger, and action-definition digest; complete scans prune vanished identities and obsolete definitions. Failed actions remain visible in status and do not retry indefinitely; use `wts worktree setup|launch --rerun` or change the definition to make an attempt eligible again. Inspection windows are created even when setup fails.
 
 ## Reconciliation and safety
 
