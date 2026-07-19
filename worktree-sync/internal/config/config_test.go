@@ -19,6 +19,9 @@ func TestPathsUseWorktreeSyncXDGNamespaces(t *testing.T) {
 
 	paths, err := config.PathsFromEnv()
 	require.NoError(t, err)
+	require.Equal(t, "/cfg", paths.ConfigHome)
+	require.Equal(t, "/data", paths.DataHome)
+	require.Equal(t, "/state", paths.StateHome)
 	require.Equal(t, "/cfg/worktree-sync/config.json", paths.Config)
 	require.Equal(t, "/data/worktree-sync/worktrees", paths.Worktrees)
 	require.Equal(t, "/state/worktree-sync", paths.State)

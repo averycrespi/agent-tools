@@ -187,6 +187,7 @@ windows, or foreign tmux resources. Incomplete snapshots fail closed.`,
 		{"uninstall", "Unload and remove the per-user LaunchAgent"},
 		{"start", "Start the installed per-user LaunchAgent"},
 		{"stop", "Stop the installed per-user LaunchAgent"},
+		{"restart", "Restart the installed per-user LaunchAgent"},
 		{"status", "Show the per-user LaunchAgent status"},
 	} {
 		daemonCmd.AddCommand(&cobra.Command{Use: spec.name, Short: spec.short, Args: exactArgs("daemon "+spec.name+" does not accept arguments", 0), RunE: run(controller, "daemon."+spec.name, nil)})

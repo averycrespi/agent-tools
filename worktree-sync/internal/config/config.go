@@ -21,9 +21,12 @@ const Version = 3
 var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 
 type Paths struct {
-	Config    string
-	Worktrees string
-	State     string
+	ConfigHome string
+	DataHome   string
+	StateHome  string
+	Config     string
+	Worktrees  string
+	State      string
 }
 
 type Global struct {
@@ -246,6 +249,20 @@ func envHome(name, fallback string) (string, error) {
 	return filepath.Join(home, fallback), nil
 }
 
+func (p Paths) XDGHomePaths() (configHome, dataHome, stateHome string) {
+	configHome, dataHome, stateHome = p.ConfigHome, p.DataHome, p.StateHome
+	if configHome == "" {
+		configHome = filepath.Dir(filepath.Dir(p.Config))
+	}
+	if dataHome == "" {
+		dataHome = filepath.Dir(filepath.Dir(p.Worktrees))
+	}
+	if stateHome == "" {
+		stateHome = filepath.Dir(p.State)
+	}
+	return configHome, dataHome, stateHome
+}
+
 func PathsFromEnv() (Paths, error) {
 	configHome, err := envHome("XDG_CONFIG_HOME", ".config")
 	if err != nil {
@@ -259,7 +276,7 @@ func PathsFromEnv() (Paths, error) {
 	if err != nil {
 		return Paths{}, err
 	}
-	return Paths{Config: filepath.Join(configHome, "worktree-sync", "config.json"), Worktrees: filepath.Join(dataHome, "worktree-sync", "worktrees"), State: filepath.Join(stateHome, "worktree-sync")}, nil
+	return Paths{ConfigHome: configHome, DataHome: dataHome, StateHome: stateHome, Config: filepath.Join(configHome, "worktree-sync", "config.json"), Worktrees: filepath.Join(dataHome, "worktree-sync", "worktrees"), State: filepath.Join(stateHome, "worktree-sync")}, nil
 }
 
 func ValidID(id string) bool { return validID.MatchString(id) }

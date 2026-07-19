@@ -320,7 +320,7 @@ A session containing scratch windows survives unregister.
 wtsd
 ```
 
-SIGINT and SIGTERM cancel in-flight work and stop the daemon cleanly.
+`wtsd --help` describes foreground operation. Unknown flags and positional arguments fail before configuration is loaded or reconciliation starts. SIGINT and SIGTERM cancel in-flight work and stop the daemon cleanly.
 
 ### macOS LaunchAgent
 
@@ -331,10 +331,13 @@ wts daemon logs
 wts daemon logs --follow
 wts daemon stop
 wts daemon start
+wts daemon restart
 wts daemon uninstall
 ```
 
-Installation manages only `~/Library/LaunchAgents/dev.agent-tools.worktree-sync.plist`. It uses the absolute sibling `wtsd`, an explicit `PATH`, `RunAtLoad`, `KeepAlive`, and separate logs under `~/Library/Logs`. launchd does not load shell profiles or rotate logs.
+Installation manages only `~/Library/LaunchAgents/dev.agent-tools.worktree-sync.plist`. It uses the absolute sibling `wtsd`, an explicit `PATH`, the effective absolute XDG config/state/data homes, `RunAtLoad`, `KeepAlive`, and separate logs under `~/Library/Logs`. Rerun install after changing XDG homes. launchd does not load shell profiles or rotate logs.
+
+`stop` unloads the job but preserves the installed plist, so `KeepAlive` cannot restart it. `start` loads a stopped installation, and `restart` performs an explicit unload/load cycle. Status distinguishes running, stopped-but-installed, and not installed.
 
 See [docs/launchd.md](docs/launchd.md) and the reviewed [example plist](examples/launchd/dev.agent-tools.worktree-sync.plist).
 
@@ -342,22 +345,22 @@ LaunchAgent commands are unsupported on Linux; run `wtsd` directly under your pr
 
 ## Command reference
 
-| Command                                                    | Purpose                                                            |
-| ---------------------------------------------------------- | ------------------------------------------------------------------ |
-| `wts config path\|edit\|validate\|refresh`                 | Inspect, edit, validate, or migrate configuration                  |
-| `wts repo add [path]`                                      | Register a primary worktree                                        |
-| `wts repo list`                                            | List registered repositories                                       |
-| `wts repo remove <repository-id>`                          | Stop managing a repository without deleting Git worktrees          |
-| `wts worktree path <branch>`                               | Print an existing or planned worktree path                         |
-| `wts worktree create <branch>`                             | Create a worktree and reconcile its tmux window                    |
-| `wts worktree remove\|rm <path-or-branch>`                 | Remove a worktree with explicit branch safety                      |
-| `wts worktree setup <worktree>`                            | Run configured copy and setup actions                              |
-| `wts worktree launch <worktree>`                           | Run the configured command in its managed tmux window              |
-| `wts attach`                                               | Attach to the current repository's managed session                 |
-| `wts status`                                               | Show current repository status; use `--all` for every repository   |
-| `wts reconcile`                                            | Reconcile the current repository; use `--all` for every repository |
-| `wts cleanup`                                              | Inspect or explicitly remove stale Git and tmux state              |
-| `wts daemon install\|uninstall\|start\|stop\|status\|logs` | Manage the macOS LaunchAgent                                       |
+| Command                                                             | Purpose                                                            |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `wts config path\|edit\|validate\|refresh`                          | Inspect, edit, validate, or migrate configuration                  |
+| `wts repo add [path]`                                               | Register a primary worktree                                        |
+| `wts repo list`                                                     | List registered repositories                                       |
+| `wts repo remove <repository-id>`                                   | Stop managing a repository without deleting Git worktrees          |
+| `wts worktree path <branch>`                                        | Print an existing or planned worktree path                         |
+| `wts worktree create <branch>`                                      | Create a worktree and reconcile its tmux window                    |
+| `wts worktree remove\|rm <path-or-branch>`                          | Remove a worktree with explicit branch safety                      |
+| `wts worktree setup <worktree>`                                     | Run configured copy and setup actions                              |
+| `wts worktree launch <worktree>`                                    | Run the configured command in its managed tmux window              |
+| `wts attach`                                                        | Attach to the current repository's managed session                 |
+| `wts status`                                                        | Show current repository status; use `--all` for every repository   |
+| `wts reconcile`                                                     | Reconcile the current repository; use `--all` for every repository |
+| `wts cleanup`                                                       | Inspect or explicitly remove stale Git and tmux state              |
+| `wts daemon install\|uninstall\|start\|stop\|restart\|status\|logs` | Manage the macOS LaunchAgent                                       |
 
 Repository-selecting commands accept `--repo-id <id>` when current-directory inference is not appropriate. Run `wts <command> --help` for flags, safety details, and examples.
 

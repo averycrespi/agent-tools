@@ -112,7 +112,7 @@ func (s *Service) Execute(ctx context.Context, request app.Request) (string, err
 		return s.reconcile(ctx, optionString(request.Options, "repo_id"), optionBool(request.Options, "all"))
 	case "cleanup":
 		return s.cleanup(ctx, optionString(request.Options, "prune_git"), optionString(request.Options, "remove_orphaned_tmux"))
-	case "daemon.install", "daemon.uninstall", "daemon.start", "daemon.stop", "daemon.status", "daemon.logs":
+	case "daemon.install", "daemon.uninstall", "daemon.start", "daemon.stop", "daemon.restart", "daemon.status", "daemon.logs":
 		return s.daemon(ctx, strings.TrimPrefix(request.Action, "daemon."), request.Options)
 	default:
 		return "", fmt.Errorf("unsupported action %q", request.Action)
@@ -875,7 +875,11 @@ func (s *Service) daemon(ctx context.Context, action string, options map[string]
 	if err != nil {
 		return "", err
 	}
-	manager := launchd.New(s.runner, runtime.GOOS, userHome(), timeout)
+	home, err := userHome()
+	if err != nil {
+		return "", err
+	}
+	manager := launchd.New(s.runner, runtime.GOOS, home, timeout)
 	switch action {
 	case "install":
 		executable, err := os.Executable()
@@ -890,13 +894,16 @@ func (s *Service) daemon(ctx context.Context, action string, options map[string]
 		if _, err := os.Stat(canonical); err != nil {
 			return "", fmt.Errorf("finding sibling wtsd: %w", err)
 		}
-		return "LaunchAgent installed", manager.Install(ctx, canonical)
+		configHome, dataHome, stateHome := s.paths.XDGHomePaths()
+		return manager.Install(ctx, canonical, launchd.Environment{ConfigHome: configHome, DataHome: dataHome, StateHome: stateHome})
 	case "uninstall":
-		return "LaunchAgent uninstalled", manager.Uninstall(ctx)
+		return manager.Uninstall(ctx)
 	case "start":
-		return "LaunchAgent started", manager.Start(ctx)
+		return manager.Start(ctx)
 	case "stop":
-		return "LaunchAgent stopped", manager.Stop(ctx)
+		return manager.Stop(ctx)
+	case "restart":
+		return manager.Restart(ctx)
 	case "status":
 		return manager.Status(ctx)
 	case "logs":
@@ -905,4 +912,13 @@ func (s *Service) daemon(ctx context.Context, action string, options map[string]
 		return "", fmt.Errorf("unknown daemon action")
 	}
 }
-func userHome() string { home, _ := os.UserHomeDir(); return home }
+func userHome() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolving user home directory: %w", err)
+	}
+	if !filepath.IsAbs(home) {
+		return "", fmt.Errorf("user home directory must be absolute")
+	}
+	return filepath.Clean(home), nil
+}

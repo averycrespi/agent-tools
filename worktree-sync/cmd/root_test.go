@@ -33,7 +33,7 @@ func TestWTSCommandSurface(t *testing.T) {
 		"config":   {"path", "edit", "validate", "refresh"},
 		"repo":     {"add", "list", "remove"},
 		"worktree": {"path", "create", "remove", "setup", "launch"},
-		"daemon":   {"install", "uninstall", "start", "stop", "status", "logs"},
+		"daemon":   {"install", "uninstall", "start", "stop", "restart", "status", "logs"},
 	}
 	for parent, children := range expected {
 		command, _, err := root.Find([]string{parent})
@@ -61,7 +61,7 @@ func TestEveryUserCommandHasDescription(t *testing.T) {
 		{"config", "path"}, {"config", "edit"}, {"config", "validate"}, {"config", "refresh"},
 		{"repo", "add"}, {"repo", "list"}, {"repo", "remove"},
 		{"worktree", "path"}, {"worktree", "create"}, {"worktree", "remove"}, {"worktree", "setup"}, {"worktree", "launch"},
-		{"daemon", "install"}, {"daemon", "uninstall"}, {"daemon", "start"}, {"daemon", "stop"}, {"daemon", "status"}, {"daemon", "logs"},
+		{"daemon", "install"}, {"daemon", "uninstall"}, {"daemon", "start"}, {"daemon", "stop"}, {"daemon", "restart"}, {"daemon", "status"}, {"daemon", "logs"},
 	}
 	for _, path := range paths {
 		command, _, err := root.Find(path)
@@ -80,7 +80,7 @@ func TestEveryCommandUsesSpecificArgumentValidation(t *testing.T) {
 		{"worktree", "setup"}, {"worktree", "setup", "branch", "repo"},
 		{"worktree", "launch"}, {"worktree", "launch", "branch", "repo"},
 		{"attach", "repo"}, {"status", "repo"}, {"reconcile", "repo"}, {"cleanup", "extra"},
-		{"daemon", "install", "extra"}, {"daemon", "uninstall", "extra"}, {"daemon", "start", "extra"}, {"daemon", "stop", "extra"}, {"daemon", "status", "extra"}, {"daemon", "logs", "extra"},
+		{"daemon", "install", "extra"}, {"daemon", "uninstall", "extra"}, {"daemon", "start", "extra"}, {"daemon", "stop", "extra"}, {"daemon", "restart", "extra"}, {"daemon", "status", "extra"}, {"daemon", "logs", "extra"},
 	}
 	for _, args := range tests {
 		root := cmd.NewWTS(nil)

@@ -3,8 +3,14 @@
 <plist version="1.0"><dict>
   <key>Label</key><string>dev.agent-tools.worktree-sync</string>
   <key>ProgramArguments</key><array><string>/absolute/path/to/wtsd</string></array>
-  <key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
-  <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>XDG_CONFIG_HOME</key><string>/Users/you/.config</string>
+    <key>XDG_DATA_HOME</key><string>/Users/you/.local/share</string>
+    <key>XDG_STATE_HOME</key><string>/Users/you/.local/state</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>/Users/you/Library/Logs/worktree-sync.log</string>
   <key>StandardErrorPath</key><string>/Users/you/Library/Logs/worktree-sync.error.log</string>
 </dict></plist>
