@@ -275,6 +275,19 @@ An atomic action ledger records success and failure by repository, worktree iden
 
 Configuration is trusted host input. Setup argv and environment values are passed directly to the selected executable. `launch_command` is trusted shell input interpreted by the interactive tmux shell; never populate it from untrusted text.
 
+### Inspect status and use it in automation
+
+```bash
+wts status
+wts status --verbose
+wts status --all --json
+wts status --all --json --check
+```
+
+Healthy repositories remain one-line summaries. Attention, degraded, and conflict states expand automatically with sorted diagnostics, affected worktrees, action failures, and safe next steps; `--verbose` also lists healthy desired worktrees and managed windows. `--check` prints the same complete human or JSON report and exits nonzero whenever any selected status requires attention, so JSON remains valid on stdout while the check error goes to stderr.
+
+Status JSON schema version 2 uses stable typed fields rather than internal Git/tmux or raw `launchctl` objects. The daemon state is `running`, `stopped`, `not_installed`, `unsupported`, or `unavailable`. `--verbose` and `--json` are mutually exclusive.
+
 ## Reconciliation and safety
 
 A full scan runs at daemon startup and on `reconcile_interval`. Configuration, Git administration, and allowed-root filesystem events debounce an earlier full scan. Periodic scans recover from missed events, unavailable mounts, daemon downtime, and restarts.
@@ -369,7 +382,7 @@ LaunchAgent commands are unsupported on Linux; run `wtsd` directly under your pr
 | `wts worktree setup <worktree>`                                     | Run configured copy and setup actions                              |
 | `wts worktree launch <worktree>`                                    | Run the configured command in its managed tmux window              |
 | `wts attach`                                                        | Attach to the current repository's managed session                 |
-| `wts status`                                                        | Show current repository status; use `--all` for every repository   |
+| `wts status`                                                        | Show progressive status; use `--verbose`, `--json`, or `--check`   |
 | `wts reconcile`                                                     | Reconcile the current repository; use `--all` for every repository |
 | `wts cleanup`                                                       | Inspect or explicitly remove stale Git and tmux state              |
 | `wts daemon install\|uninstall\|start\|stop\|restart\|status\|logs` | Manage the macOS LaunchAgent                                       |

@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -47,6 +48,40 @@ func (*safetyRunner) RunEnv(context.Context, string, []string, string, ...string
 	return nil, nil
 }
 func (*safetyRunner) Interactive(context.Context, string, string, ...string) error { return nil }
+
+func TestStatusCheckReportsCorruptActionLedgerInVersionTwoJSON(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "repo")
+	common := filepath.Join(primary, ".git")
+	allowed := filepath.Join(base, "allowed")
+	require.NoError(t, os.MkdirAll(common, 0o700))
+	require.NoError(t, os.Mkdir(allowed, 0o700))
+	paths := config.Paths{Config: filepath.Join(base, "config.json"), State: filepath.Join(base, "state"), Worktrees: filepath.Join(base, "worktrees")}
+	cfg := config.Default()
+	cfg.Repositories = []config.Repository{{ID: "repo", PrimaryRoot: primary, CommonGitDir: common, WorktreeCreationRoot: allowed, AllowedRoots: []string{allowed}, SetupPolicy: config.ActionManual, LaunchPolicy: config.ActionManual}}
+	require.NoError(t, config.Save(paths.Config, cfg))
+	require.NoError(t, os.MkdirAll(paths.State, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(paths.State, "actions.json"), []byte(`{"version":1,"attempts":{"{}":{"success":false,"attempted":"2026-01-01T00:00:00Z"}}}`), 0o600))
+
+	output, err := service.New(&safetyRunner{primary: primary}, paths).Execute(context.Background(), app.Request{Action: "status", Options: map[string]any{"all": true, "json": true, "check": true}})
+	require.ErrorContains(t, err, "status check failed")
+	var document map[string]any
+	require.NoError(t, json.Unmarshal([]byte(output), &document))
+	require.Equal(t, float64(2), document["version"])
+	diagnostics := document["diagnostics"].([]any)
+	require.Equal(t, "action_ledger_unavailable", diagnostics[0].(map[string]any)["code"])
+	daemon := document["daemon"].(map[string]any)
+	require.Contains(t, []any{"running", "stopped", "not_installed", "unsupported", "unavailable"}, daemon["state"])
+	repositories := document["repositories"].([]any)
+	require.Len(t, repositories, 1)
+	repo := repositories[0].(map[string]any)
+	for _, key := range []string{"id", "health", "diagnostics", "desired_worktrees", "actual_managed_windows", "conflicts", "reported_worktrees", "prunable_worktrees", "action_failures"} {
+		require.Contains(t, repo, key)
+	}
+	desired := repo["desired_worktrees"].([]any)
+	require.Len(t, desired, 1)
+	require.Equal(t, true, desired[0].(map[string]any)["eligible"])
+}
 
 func TestCleanupDryRunNeverInvokesGitPrune(t *testing.T) {
 	base := t.TempDir()

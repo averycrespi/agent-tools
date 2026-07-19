@@ -49,6 +49,19 @@ func TestPlanRepairsRenamedOwnedSession(t *testing.T) {
 	require.Equal(t, []reconcile.Operation{{Type: reconcile.RepairSession, TargetID: "$1", Identity: repo.Identity(), Name: "wts-repo"}}, plan.Operations)
 }
 
+func TestPlanReportsMultipleOwnedSessionsWhenExpectedNameExists(t *testing.T) {
+	repo, gitSnapshot := fixture(t)
+	metadata := tmux.Metadata{Schema: 1, Repository: repo.Identity(), Role: "session", Identity: repo.Identity()}
+	actual := tmux.Snapshot{Complete: true, Sessions: []tmux.Session{
+		{ID: "$1", Name: "wts-repo", Metadata: metadata},
+		{ID: "$2", Name: "renamed", Metadata: metadata},
+	}}
+	plan := reconcile.Build(repo, gitSnapshot, actual)
+	require.Empty(t, plan.Operations)
+	require.Equal(t, []string{"multiple_owned_sessions"}, plan.ConflictCodes)
+	require.Contains(t, plan.Conflicts[0], "multiple owned sessions")
+}
+
 func TestPlanPreservesManualAndRejectsForeignSessionCollision(t *testing.T) {
 	repo, gitSnapshot := fixture(t)
 	foreign := tmux.Session{ID: "$1", Name: "wts-repo", Metadata: tmux.Metadata{Schema: 1, Repository: "other", Role: "session", Identity: "other"}}

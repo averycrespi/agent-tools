@@ -145,6 +145,9 @@ func DecodeActionKey(value string) (ActionKey, error) {
 	if err := json.Unmarshal([]byte(value), &key); err != nil {
 		return ActionKey{}, fmt.Errorf("decoding action key: %w", err)
 	}
+	if key.Repository == "" || key.Worktree == "" || key.Trigger == "" || key.Digest == "" {
+		return ActionKey{}, fmt.Errorf("action key requires repository, worktree, trigger, and digest")
+	}
 	return key, nil
 }
 

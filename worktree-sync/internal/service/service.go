@@ -2,13 +2,11 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"time"
 
@@ -111,7 +109,7 @@ func (s *Service) Execute(ctx context.Context, request app.Request) (string, err
 	case "attach":
 		return "", s.attach(ctx, optionString(request.Options, "repo_id"))
 	case "status":
-		return s.status(ctx, optionString(request.Options, "repo_id"), optionBool(request.Options, "all"), optionBool(request.Options, "json"))
+		return s.status(ctx, optionString(request.Options, "repo_id"), optionBool(request.Options, "all"), optionBool(request.Options, "json"), optionBool(request.Options, "verbose"), optionBool(request.Options, "check"))
 	case "reconcile":
 		return s.reconcile(ctx, optionString(request.Options, "repo_id"), optionBool(request.Options, "all"))
 	case "cleanup":
@@ -723,115 +721,6 @@ func (s *Service) reconcile(ctx context.Context, repoID string, all bool) (strin
 	return strings.Join(summaries, "\n"), errors.Join(errs...)
 }
 
-func (s *Service) status(ctx context.Context, repoID string, all, jsonOutput bool) (string, error) {
-	cfg, err := config.Load(s.paths.Config)
-	if err != nil {
-		return "", err
-	}
-	repos := cfg.Repositories
-	if !all {
-		repo, resolveErr := s.resolveRepo(ctx, cfg, repoID)
-		if resolveErr != nil {
-			return "", resolveErr
-		}
-		repos = []config.Repository{repo}
-	}
-	type actionFailure struct {
-		Key    string             `json:"key"`
-		Result state.ActionResult `json:"result"`
-	}
-	type repoStatus struct {
-		ID             string               `json:"id"`
-		Health         string               `json:"health"`
-		Desired        []gitclient.Worktree `json:"desired_worktrees"`
-		Actual         []tmux.Window        `json:"actual_managed_windows"`
-		Conflicts      []string             `json:"conflicts"`
-		Reported       []string             `json:"reported_worktrees"`
-		Prunable       []gitclient.Worktree `json:"prunable"`
-		ActionFailures []actionFailure      `json:"action_failures"`
-	}
-	type statusDocument struct {
-		Version      int          `json:"version"`
-		Repositories []repoStatus `json:"repositories"`
-		Daemon       string       `json:"daemon"`
-	}
-	document := statusDocument{Version: 1, Repositories: make([]repoStatus, 0, len(repos)), Daemon: "unsupported"}
-	if runtime.GOOS == "darwin" {
-		if daemonStatus, daemonErr := s.daemon(ctx, "status", nil); daemonErr == nil {
-			document.Daemon = strings.TrimSpace(daemonStatus)
-		} else {
-			document.Daemon = "unavailable"
-		}
-	}
-	ledger, _ := state.LoadLedger(filepath.Join(s.paths.State, "actions.json"))
-	git, tmuxClient, _, _, _, runtimeErr := s.runtime(cfg)
-	if runtimeErr != nil {
-		return "", runtimeErr
-	}
-	tmuxSnapshot, tmuxErr := tmuxClient.Snapshot(ctx)
-	for _, repo := range repos {
-		gitSnapshot, gitErr := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir})
-		health := "healthy"
-		if gitErr != nil || tmuxErr != nil || !gitSnapshot.Complete || !tmuxSnapshot.Complete {
-			health = "degraded"
-		}
-		plan := reconcile.Build(repo, gitSnapshot, tmuxSnapshot)
-		if len(plan.Conflicts) > 0 {
-			health = "conflict"
-		}
-		entry := repoStatus{ID: repo.ID, Health: health, Desired: planDesiredWorktrees(gitSnapshot, plan), Conflicts: plan.Conflicts, Reported: plan.Report}
-		for _, session := range tmuxSnapshot.Sessions {
-			for _, window := range session.Windows {
-				if tmux.ValidOwnedWindow(window.Metadata, repo.Identity()) {
-					entry.Actual = append(entry.Actual, window)
-				}
-			}
-		}
-		for _, worktree := range gitSnapshot.Worktrees {
-			if worktree.Prunable != "" {
-				entry.Prunable = append(entry.Prunable, worktree)
-			}
-		}
-		if ledger != nil {
-			for encodedKey, result := range ledger.Attempts {
-				key, keyErr := state.DecodeActionKey(encodedKey)
-				if keyErr == nil && key.Repository == repo.Identity() && !result.Success {
-					entry.ActionFailures = append(entry.ActionFailures, actionFailure{Key: encodedKey, Result: result})
-				}
-			}
-		}
-		sort.Slice(entry.Actual, func(i, j int) bool { return entry.Actual[i].ID < entry.Actual[j].ID })
-		sort.Slice(entry.ActionFailures, func(i, j int) bool { return entry.ActionFailures[i].Key < entry.ActionFailures[j].Key })
-		document.Repositories = append(document.Repositories, entry)
-	}
-	if jsonOutput {
-		data, err := json.MarshalIndent(document, "", "  ")
-		return string(data), err
-	}
-	lines := make([]string, 0, len(document.Repositories))
-	for _, repo := range document.Repositories {
-		lines = append(lines, fmt.Sprintf("%s\t%s\tdesired=%d actual=%d conflicts=%d reported=%d", repo.ID, repo.Health, len(repo.Desired), len(repo.Actual), len(repo.Conflicts), len(repo.Reported)))
-	}
-	if len(lines) == 0 {
-		return "no repositories registered", nil
-	}
-	return strings.Join(lines, "\n"), nil
-}
-func planDesiredWorktrees(snapshot gitclient.Snapshot, plan reconcile.Plan) []gitclient.Worktree {
-	ids := make(map[string]bool)
-	for _, window := range plan.Desired.Windows {
-		ids[window.Metadata.Identity] = true
-	}
-	result := make([]gitclient.Worktree, 0)
-	for _, worktree := range snapshot.Worktrees {
-		if ids[worktree.Identity] {
-			result = append(result, worktree)
-		}
-	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Identity < result[j].Identity })
-	return result
-}
-
 func (s *Service) cleanup(ctx context.Context, pruneID, orphanID string) (string, error) {
 	lock, err := s.acquire(ctx, "operation")
 	if err != nil {
@@ -843,7 +732,7 @@ func (s *Service) cleanup(ctx context.Context, pruneID, orphanID string) (string
 		return "", err
 	}
 	if pruneID == "" && orphanID == "" {
-		output, statusErr := s.status(ctx, "", true, false)
+		output, statusErr := s.status(ctx, "", true, false, false, false)
 		return "dry run; no changes applied\n" + output, statusErr
 	}
 	lines := make([]string, 0)

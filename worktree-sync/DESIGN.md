@@ -80,7 +80,9 @@ The action ledger is protected by its own advisory lock and keyed by repository 
 
 ## Status, cleanup, and unregister
 
-Versioned JSON status sorts repositories, desired/actual resources, and action failures. It includes health, desired worktrees, actual owned windows, conflicts, report-only missing/outside/prunable records, failed actions, and LaunchAgent state where available.
+Status separates collection from human and JSON rendering. Healthy human output is concise; non-healthy repositories expand diagnostics and recovery, while verbose output includes all desired worktrees and managed windows. Reporting-only status returns success even for attention states; `--check` prints the complete report before returning nonzero.
+
+Version-2 JSON owns stable DTOs rather than serializing internal Git/tmux structures or raw launchctl text. All arrays are non-null and deterministically sorted. Repository health is `healthy`, `attention`, `degraded`, or `conflict`; typed diagnostics preserve snapshot, ownership, outside-root, prunable, ledger, action, and daemon causes. Failed-action rendering never exposes encoded ledger keys or configured commands. Daemon states are typed, with unsupported/not-installed neutral and stopped/unavailable represented as global diagnostics.
 
 Automatic reconciliation never removes Git worktrees, branches, directories, or prunable metadata. `cleanup` without explicit action flags is reporting-only. `--prune-git <repo-id>` re-snapshots under the operation lock and invokes repository-wide `git worktree prune` only when Git still reports prunable records. `--remove-orphaned-tmux <repo-id>` re-snapshots both sides and kills only correctly owned identities absent from desired state; duplicate live projections remain the reconciler's responsibility.
 

@@ -35,33 +35,47 @@ type Desired struct {
 	Windows     []tmux.Window `json:"windows"`
 }
 
+type ReportedWorktree struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
 type Plan struct {
-	Desired    Desired     `json:"desired"`
-	Operations []Operation `json:"operations"`
-	Conflicts  []string    `json:"conflicts"`
-	Report     []string    `json:"report"`
+	Desired       Desired            `json:"desired"`
+	Operations    []Operation        `json:"operations"`
+	Conflicts     []string           `json:"conflicts"`
+	ConflictCodes []string           `json:"conflict_codes"`
+	Report        []string           `json:"report"`
+	Reported      []ReportedWorktree `json:"reported_worktrees"`
 }
 
 func ownedMetadata(metadata tmux.Metadata, repo config.Repository, role, identity string) bool {
 	return metadata.Schema == tmux.MetadataSchema && metadata.Repository == repo.Identity() && metadata.Role == role && metadata.Identity == identity
 }
 
-func desiredState(repo config.Repository, snapshot gitclient.Snapshot) (Desired, []string) {
+func desiredState(repo config.Repository, snapshot gitclient.Snapshot) (Desired, []string, []ReportedWorktree) {
 	desired := Desired{SessionName: "wts-" + repo.ID}
 	desired.Windows = append(desired.Windows, tmux.Window{Name: "base", Path: repo.PrimaryRoot, Metadata: tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.Identity(), Role: "base", Identity: repo.Identity()}})
 	items := make([]naming.Item, 0)
 	worktrees := make(map[string]gitclient.Worktree)
 	report := make([]string, 0)
+	reported := make([]ReportedWorktree, 0)
 	for _, worktree := range snapshot.Worktrees {
 		if worktree.Path == repo.PrimaryRoot || worktree.Identity == repo.Identity() {
 			continue
 		}
 		if worktree.Prunable != "" || worktree.Exclusion == "prunable" {
 			report = append(report, fmt.Sprintf("%s: prunable", worktree.Path))
+			reported = append(reported, ReportedWorktree{Path: worktree.Path, Reason: "git_metadata_prunable"})
 			continue
 		}
 		if worktree.Exclusion != "" {
 			report = append(report, fmt.Sprintf("%s: %s", worktree.Path, worktree.Exclusion))
+			reason := "git_identity_unavailable"
+			if worktree.Exclusion == "missing" {
+				reason = "missing"
+			}
+			reported = append(reported, ReportedWorktree{Path: worktree.Path, Reason: reason})
 			continue
 		}
 		inside := false
@@ -73,6 +87,7 @@ func desiredState(repo config.Repository, snapshot gitclient.Snapshot) (Desired,
 		}
 		if !inside {
 			report = append(report, fmt.Sprintf("%s: outside allowed roots", worktree.Path))
+			reported = append(reported, ReportedWorktree{Path: worktree.Path, Reason: "outside_allowed_roots"})
 			continue
 		}
 		label := worktree.Branch
@@ -92,45 +107,40 @@ func desiredState(repo config.Repository, snapshot gitclient.Snapshot) (Desired,
 		worktree := worktrees[id]
 		desired.Windows = append(desired.Windows, tmux.Window{Name: names[id], Path: worktree.Path, Metadata: tmux.Metadata{Schema: tmux.MetadataSchema, Repository: repo.Identity(), Role: "worktree", Identity: id}})
 	}
-	return desired, report
+	return desired, report, reported
 }
 
 func Build(repo config.Repository, gitSnapshot gitclient.Snapshot, actual tmux.Snapshot) Plan {
-	desired, report := desiredState(repo, gitSnapshot)
-	plan := Plan{Desired: desired, Report: report}
+	desired, report, reported := desiredState(repo, gitSnapshot)
+	plan := Plan{Desired: desired, Report: report, Reported: reported}
 	var session *tmux.Session
+	ownedSessions := make([]*tmux.Session, 0)
 	for i := range actual.Sessions {
 		candidate := &actual.Sessions[i]
-		if candidate.Name != desired.SessionName {
-			continue
+		owned := ownedMetadata(candidate.Metadata, repo, "session", repo.Identity())
+		if owned {
+			ownedSessions = append(ownedSessions, candidate)
 		}
-		if !ownedMetadata(candidate.Metadata, repo, "session", repo.Identity()) {
+		if candidate.Name == desired.SessionName && !owned {
 			kind := "foreign-owned"
 			if candidate.Metadata.Schema == 0 {
 				kind = "untagged"
 			}
 			plan.Conflicts = append(plan.Conflicts, fmt.Sprintf("%s session %q conflicts with registered repository", kind, candidate.Name))
+			plan.ConflictCodes = append(plan.ConflictCodes, "session_name_conflict")
 			return plan
 		}
-		session = candidate
-		break
 	}
-	if session == nil {
-		ownedSessions := make([]*tmux.Session, 0)
-		for i := range actual.Sessions {
-			candidate := &actual.Sessions[i]
-			if ownedMetadata(candidate.Metadata, repo, "session", repo.Identity()) {
-				ownedSessions = append(ownedSessions, candidate)
-			}
-		}
-		sort.Slice(ownedSessions, func(i, j int) bool { return ownedSessions[i].ID < ownedSessions[j].ID })
-		if len(ownedSessions) > 0 {
-			session = ownedSessions[0]
+	sort.Slice(ownedSessions, func(i, j int) bool { return ownedSessions[i].ID < ownedSessions[j].ID })
+	if len(ownedSessions) > 1 {
+		plan.Conflicts = append(plan.Conflicts, "multiple owned sessions require manual consolidation")
+		plan.ConflictCodes = append(plan.ConflictCodes, "multiple_owned_sessions")
+		return plan
+	}
+	if len(ownedSessions) == 1 {
+		session = ownedSessions[0]
+		if session.Name != desired.SessionName {
 			plan.Operations = append(plan.Operations, Operation{Type: RepairSession, TargetID: session.ID, Identity: repo.Identity(), Name: desired.SessionName})
-		}
-		if len(ownedSessions) > 1 {
-			plan.Conflicts = append(plan.Conflicts, "multiple owned sessions require manual consolidation")
-			return plan
 		}
 	}
 	if session == nil {

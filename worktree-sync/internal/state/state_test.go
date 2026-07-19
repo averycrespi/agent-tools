@@ -23,6 +23,11 @@ func TestLockHonorsContextAndSerializes(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
+func TestDecodeActionKeyRejectsMissingRequiredFields(t *testing.T) {
+	_, err := state.DecodeActionKey(`{}`)
+	require.ErrorContains(t, err, "requires")
+}
+
 func TestLedgerSuppressesSameAttemptAndAllowsChangedDigestOrRerun(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "actions.json")
 	ledger, err := state.LoadLedger(path)

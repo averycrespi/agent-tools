@@ -142,19 +142,37 @@ failed definition is recorded; use --rerun to attempt the same definition again.
 	attach.Flags().StringVar(&attachRepoID, "repo-id", "", "registered repository ID (defaults to current directory)")
 	attach.RunE = run(controller, "attach", func(*cobra.Command) map[string]any { return map[string]any{"repo_id": attachRepoID} })
 	var statusRepoID string
-	var jsonOutput, statusAll bool
-	status := &cobra.Command{Use: "status", Short: "Show worktree, tmux, and action status", Args: exactArgs("status does not accept arguments", 0)}
+	var jsonOutput, statusAll, statusVerbose, statusCheck bool
+	status := &cobra.Command{
+		Use:   "status",
+		Short: "Show worktree, tmux, and action status",
+		Long: `Show worktree, tmux, action, and daemon health.
+
+Healthy repositories use a concise summary. Repositories requiring attention
+include diagnostics and safe next steps. Use --verbose for complete human
+resource details, --json for the stable versioned document, and --check to
+print the report but exit nonzero when attention is required.`,
+		Example: `  wts status
+  wts status --verbose
+  wts status --all --json --check`,
+		Args: exactArgs("status does not accept arguments", 0),
+	}
 	status.Flags().StringVar(&statusRepoID, "repo-id", "", "registered repository ID (defaults to current directory)")
 	status.Flags().BoolVar(&statusAll, "all", false, "show all registered repositories")
 	status.Flags().BoolVar(&jsonOutput, "json", false, "emit stable versioned JSON")
+	status.Flags().BoolVar(&statusVerbose, "verbose", false, "show complete human-readable details")
+	status.Flags().BoolVar(&statusCheck, "check", false, "exit nonzero when attention is required")
 	status.PreRunE = func(*cobra.Command, []string) error {
 		if statusRepoID != "" && statusAll {
 			return fmt.Errorf("choose only one of --repo-id or --all")
 		}
+		if statusVerbose && jsonOutput {
+			return fmt.Errorf("choose only one of --verbose or --json")
+		}
 		return nil
 	}
 	status.RunE = run(controller, "status", func(*cobra.Command) map[string]any {
-		return map[string]any{"json": jsonOutput, "repo_id": statusRepoID, "all": statusAll}
+		return map[string]any{"json": jsonOutput, "repo_id": statusRepoID, "all": statusAll, "verbose": statusVerbose, "check": statusCheck}
 	})
 	var reconcileRepoID string
 	var reconcileAll bool

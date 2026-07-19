@@ -174,6 +174,27 @@ func TestWorktreeCreateForwardsBranchOrigin(t *testing.T) {
 	require.Equal(t, "origin/main", controller.request.Options["from"])
 }
 
+func TestStatusHelpExplainsProgressiveAndCheckOutput(t *testing.T) {
+	root := cmd.NewWTS(nil)
+	status, _, err := root.Find([]string{"status"})
+	require.NoError(t, err)
+	require.Contains(t, status.Long, "attention")
+	require.Contains(t, status.Long, "--check")
+	require.Contains(t, status.Example, "--verbose")
+	require.Contains(t, status.Example, "--json --check")
+}
+
+func TestStatusForwardsVerboseAndCheckAndRejectsVerboseJSON(t *testing.T) {
+	controller := &recordingController{}
+	err := cmd.ExecuteWTS(context.Background(), controller, &bytes.Buffer{}, &bytes.Buffer{}, []string{"status", "--verbose", "--check"})
+	require.NoError(t, err)
+	require.Equal(t, true, controller.request.Options["verbose"])
+	require.Equal(t, true, controller.request.Options["check"])
+
+	err = cmd.ExecuteWTS(context.Background(), &recordingController{}, &bytes.Buffer{}, &bytes.Buffer{}, []string{"status", "--verbose", "--json"})
+	require.ErrorContains(t, err, "choose only one")
+}
+
 func TestStatusAndReconcileSupportExplicitAll(t *testing.T) {
 	for _, action := range []string{"status", "reconcile"} {
 		controller := &recordingController{}

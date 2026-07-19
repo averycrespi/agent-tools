@@ -64,6 +64,17 @@ func digest(repo config.Repository) string {
 	}{repo.CopyActions, repo.SetupActions})
 }
 
+func DefinitionKind(repo config.Repository, definitionDigest string) string {
+	switch definitionDigest {
+	case digest(repo):
+		return "setup"
+	case digestValue(struct{ Launch string }{repo.LaunchCommand}):
+		return "launch"
+	default:
+		return "unknown"
+	}
+}
+
 func policyAllows(policy config.ActionPolicy, trigger Trigger) bool {
 	switch trigger {
 	case Manual:

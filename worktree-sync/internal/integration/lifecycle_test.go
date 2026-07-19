@@ -86,7 +86,7 @@ func TestExplicitLifecycleStatusBranchSafetyCleanupAndUnregister(t *testing.T) {
 	require.Equal(t, statusOne, statusTwo)
 	var status map[string]any
 	require.NoError(t, json.Unmarshal([]byte(statusOne), &status))
-	require.Equal(t, float64(1), status["version"])
+	require.Equal(t, float64(2), status["version"])
 	firstIdentity := statusWorktreeIdentity(t, statusOne, created)
 	_, err = controller.Execute(context.Background(), forRepo("worktree.remove", []string{created}, nil))
 	require.NoError(t, err)
