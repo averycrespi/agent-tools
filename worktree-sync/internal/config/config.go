@@ -132,7 +132,7 @@ func migrateLegacy(legacy legacyConfig) (Config, error) {
 			return Config{}, fmt.Errorf("repository %q launch policy cannot migrate: %w", old.ID, err)
 		}
 		repo := old.Repository
-		if old.Identity() != "" && old.Identity() != repo.CommonGitDir {
+		if old.RepositoryIdentity != "" && old.RepositoryIdentity != repo.CommonGitDir {
 			return Config{}, fmt.Errorf("repository %q identity does not match common_git_dir", old.ID)
 		}
 		repo.SetupPolicy, repo.LaunchPolicy = setup, launch

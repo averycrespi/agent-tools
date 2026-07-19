@@ -119,6 +119,13 @@ func TestLoadForRefreshMigratesVersionOnePolicies(t *testing.T) {
 	require.Equal(t, config.ActionAll, cfg.Repositories[2].LaunchPolicy)
 }
 
+func TestLoadForRefreshRejectsMismatchedLegacyIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"version":1,"repositories":[{"id":"repo","common_git_dir":"/git/common","repository_identity":"/git/other","policy":{}}]}`), 0o600))
+	_, err := config.LoadForRefresh(path)
+	require.ErrorContains(t, err, "identity does not match")
+}
+
 func TestLoadForRefreshRejectsPassiveOnlyVersionOnePolicy(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{"version":1,"repositories":[{"id":"repo","policy":{"setup_passive":true}}]}`), 0o600))
