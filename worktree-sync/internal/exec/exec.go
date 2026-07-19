@@ -87,6 +87,5 @@ func (OSRunner) Interactive(ctx context.Context, dir, name string, args ...strin
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	configureProcess(cmd)
 	return cmd.Run()
 }

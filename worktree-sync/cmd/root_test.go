@@ -52,6 +52,22 @@ func TestWTSCommandSurface(t *testing.T) {
 	require.Equal(t, "remove", remove.Name())
 }
 
+func TestEveryUserCommandHasDescription(t *testing.T) {
+	root := cmd.NewWTS(nil)
+	paths := [][]string{
+		{"attach"}, {"cleanup"}, {"config"}, {"daemon"}, {"reconcile"}, {"repo"}, {"status"}, {"worktree"},
+		{"config", "path"}, {"config", "edit"}, {"config", "validate"}, {"config", "refresh"},
+		{"repo", "add"}, {"repo", "list"}, {"repo", "remove"},
+		{"worktree", "path"}, {"worktree", "create"}, {"worktree", "remove"}, {"worktree", "setup"}, {"worktree", "launch"},
+		{"daemon", "install"}, {"daemon", "uninstall"}, {"daemon", "start"}, {"daemon", "stop"}, {"daemon", "status"},
+	}
+	for _, path := range paths {
+		command, _, err := root.Find(path)
+		require.NoError(t, err)
+		require.NotEmpty(t, command.Short, path)
+	}
+}
+
 func TestEveryCommandUsesSpecificArgumentValidation(t *testing.T) {
 	tests := [][]string{
 		{"config", "path", "extra"}, {"config", "edit", "extra"}, {"config", "validate", "extra"}, {"config", "refresh", "extra"},
