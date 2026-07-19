@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/averycrespi/agent-tools/worktree-sync/internal/actions"
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/config"
 	gitclient "github.com/averycrespi/agent-tools/worktree-sync/internal/git"
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/tmux"
@@ -98,6 +99,34 @@ func TestResolveRepoExplainsEmptyAndUnregisteredContexts(t *testing.T) {
 	_, err = service.resolveRepo(context.Background(), cfg, "")
 	require.ErrorContains(t, err, "current Git repository is not registered")
 	require.ErrorContains(t, err, repo.PrimaryRoot)
+}
+
+func TestSetupResultReportsCompletedSkippedAndFailed(t *testing.T) {
+	output, err := formatSetupResult("/worktree", "repo", actions.Result{Code: actions.ResultCompleted})
+	require.NoError(t, err)
+	require.Equal(t, "setup completed in /worktree", output)
+	output, err = formatSetupResult("/worktree", "repo", actions.Result{Code: actions.ResultSkippedPolicy, Skipped: true, Reason: "disabled by policy"})
+	require.NoError(t, err)
+	require.Equal(t, "setup skipped for /worktree: disabled by policy", output)
+	output, err = formatSetupResult("/worktree", "repo", actions.Result{Code: actions.ResultSkippedAttempted, Skipped: true, Reason: "already attempted"})
+	require.NoError(t, err)
+	require.Contains(t, output, `wts worktree setup "/worktree" --repo-id repo --rerun`)
+	failure := errors.New("failed")
+	output, err = formatSetupResult("/worktree", "repo", actions.Result{Code: actions.ResultFailed, AttemptRecorded: true, Error: failure})
+	require.ErrorIs(t, err, failure)
+	require.Contains(t, output, "setup failed in /worktree")
+	require.Contains(t, output, "earlier setup side effects may remain")
+	require.Contains(t, output, `wts worktree setup "/worktree" --repo-id repo --rerun`)
+
+	output, err = formatSetupResult("/worktree", "repo", actions.Result{Code: actions.ResultFailed, OperationCompleted: true, AttemptRecorded: false, Error: failure})
+	require.ErrorIs(t, err, failure)
+	require.Contains(t, output, "operation_completed=yes attempt_recorded=no")
+	require.Contains(t, output, "do not rerun")
+
+	output, err = formatSetupResult("/worktree", "repo", actions.Result{Code: actions.ResultFailed, AttemptRecordUncertain: true, Error: failure})
+	require.ErrorIs(t, err, failure)
+	require.Contains(t, output, "attempt_recorded=unknown")
+	require.Contains(t, output, "inspect the action ledger")
 }
 
 func TestRepositoryRootMutationsPreserveSafetyBoundaries(t *testing.T) {

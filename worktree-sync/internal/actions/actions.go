@@ -31,10 +31,24 @@ type Worktree struct {
 	Path     string
 	Identity string
 }
+type ResultCode string
+
+const (
+	ResultCompleted           ResultCode = "completed"
+	ResultFailed              ResultCode = "failed"
+	ResultSkippedPolicy       ResultCode = "skipped_policy"
+	ResultSkippedUnconfigured ResultCode = "skipped_unconfigured"
+	ResultSkippedAttempted    ResultCode = "skipped_already_attempted"
+)
+
 type Result struct {
-	Skipped bool
-	Reason  string
-	Error   error
+	Code                   ResultCode
+	Skipped                bool
+	Reason                 string
+	OperationCompleted     bool
+	AttemptRecorded        bool
+	AttemptRecordUncertain bool
+	Error                  error
 }
 
 type runner interface {
@@ -97,8 +111,11 @@ func ledgerTrigger(trigger Trigger) string {
 
 func (m *Manager) Run(ctx context.Context, repo config.Repository, worktree Worktree, trigger Trigger, rerun bool) Result {
 	enabled := policyAllows(repo.SetupPolicy, trigger)
-	if !enabled || (len(repo.CopyActions) == 0 && len(repo.SetupActions) == 0) {
-		return Result{Skipped: true}
+	if !enabled {
+		return Result{Code: ResultSkippedPolicy, Skipped: true, Reason: "disabled by policy"}
+	}
+	if len(repo.CopyActions) == 0 && len(repo.SetupActions) == 0 {
+		return Result{Code: ResultSkippedUnconfigured, Skipped: true, Reason: "no setup actions are configured"}
 	}
 	key := state.ActionKey{Repository: repo.Identity(), Worktree: worktree.Identity, Trigger: ledgerTrigger(trigger), Digest: digest(repo)}
 	return m.attempt(ctx, key, rerun, func() error { return m.execute(ctx, repo, worktree) })
@@ -107,10 +124,10 @@ func (m *Manager) Run(ctx context.Context, repo config.Repository, worktree Work
 func (m *Manager) Launch(ctx context.Context, repo config.Repository, worktree Worktree, trigger Trigger, rerun bool, launch func() error) Result {
 	enabled := policyAllows(repo.LaunchPolicy, trigger)
 	if !enabled {
-		return Result{Skipped: true, Reason: "disabled by policy"}
+		return Result{Code: ResultSkippedPolicy, Skipped: true, Reason: "disabled by policy"}
 	}
 	if repo.LaunchCommand == "" {
-		return Result{Skipped: true, Reason: "no launch command is configured"}
+		return Result{Code: ResultSkippedUnconfigured, Skipped: true, Reason: "no launch command is configured"}
 	}
 	key := state.ActionKey{Repository: repo.Identity(), Worktree: worktree.Identity, Trigger: ledgerTrigger(trigger), Digest: digestValue(struct{ Launch string }{repo.LaunchCommand})}
 	return m.attempt(ctx, key, rerun, launch)
@@ -119,29 +136,34 @@ func (m *Manager) Launch(ctx context.Context, repo config.Repository, worktree W
 func (m *Manager) attempt(ctx context.Context, key state.ActionKey, rerun bool, operation func() error) Result {
 	lock, err := state.Acquire(ctx, m.ledgerPath+".lock")
 	if err != nil {
-		return Result{Error: err}
+		return Result{Code: ResultFailed, Error: err}
 	}
 	defer func() { _ = lock.Unlock() }()
 	ledger, err := state.LoadLedger(m.ledgerPath)
 	if err != nil {
-		return Result{Error: err}
+		return Result{Code: ResultFailed, Error: err}
 	}
 	if rerun {
 		ledger.Rerun(key)
 	}
 	if !ledger.Eligible(key) {
-		return Result{Skipped: true, Reason: "already attempted"}
+		return Result{Code: ResultSkippedAttempted, Skipped: true, Reason: "already attempted"}
 	}
 	err = operation()
-	result := state.ActionResult{Success: err == nil}
+	operationCompleted := err == nil
+	result := state.ActionResult{Success: operationCompleted}
 	if err != nil {
 		result.Error = err.Error()
 	}
 	ledger.Record(key, result)
-	if saveErr := ledger.Save(m.ledgerPath); saveErr != nil {
+	saveErr := ledger.Save(m.ledgerPath)
+	if saveErr != nil {
 		err = errors.Join(err, saveErr)
 	}
-	return Result{Error: err}
+	if err != nil {
+		return Result{Code: ResultFailed, OperationCompleted: operationCompleted, AttemptRecorded: saveErr == nil, AttemptRecordUncertain: state.CommitUncertain(saveErr), Error: err}
+	}
+	return Result{Code: ResultCompleted, OperationCompleted: true, AttemptRecorded: true}
 }
 
 func (m *Manager) Prune(ctx context.Context, repo config.Repository, live map[string]bool) error {
@@ -178,7 +200,7 @@ func (m *Manager) execute(ctx context.Context, repo config.Repository, worktree 
 			return err
 		}
 	}
-	for _, action := range repo.SetupActions {
+	for index, action := range repo.SetupActions {
 		timeout := m.timeout
 		if action.Timeout != "" {
 			parsed, err := time.ParseDuration(action.Timeout)
@@ -194,9 +216,17 @@ func (m *Manager) execute(ctx context.Context, repo config.Repository, worktree 
 		}
 		environment := mergeEnvironment(os.Environ(), action.Env)
 		_, err := m.runner.RunEnv(commandCtx, worktree.Path, environment, action.Argv[0], action.Argv[1:]...)
+		contextErr := commandCtx.Err()
 		cancel()
 		if err != nil {
-			return fmt.Errorf("setup %q failed: %w", action.Argv[0], err)
+			if contextErr != nil {
+				return fmt.Errorf("setup action %d failed: %w", index+1, contextErr)
+			}
+			var exitCoder interface{ ExitCode() int }
+			if errors.As(err, &exitCoder) && exitCoder.ExitCode() >= 0 {
+				return fmt.Errorf("setup action %d failed with exit code %d", index+1, exitCoder.ExitCode())
+			}
+			return fmt.Errorf("setup action %d could not start", index+1)
 		}
 	}
 	return nil

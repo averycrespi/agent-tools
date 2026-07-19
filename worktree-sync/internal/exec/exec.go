@@ -5,12 +5,34 @@ import (
 	"errors"
 	"os"
 	oexec "os/exec"
+	"regexp"
+	"strings"
 	"sync"
 )
 
 const maxOutputBytes = 1 << 20
+const maxDiagnosticBytes = 4 << 10
 
 var errOutputTruncated = errors.New("command output exceeded 1 MiB limit")
+var urlCredentials = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)[^/@\s]+@`)
+var authorizationValue = regexp.MustCompile(`(?im)(authorization\s*:\s*)[^\r\n]+`)
+var secretAssignment = regexp.MustCompile(`(?im)(["']?\b(?:token|access_token|password|passwd|secret|api[_-]?key|access[_-]?key)\b["']?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;}]+)`)
+
+func Diagnostic(output []byte) string {
+	truncated := len(output) > maxDiagnosticBytes
+	text := strings.TrimSpace(strings.ToValidUTF8(string(output), "�"))
+	text = urlCredentials.ReplaceAllString(text, `$1[redacted]@`)
+	text = authorizationValue.ReplaceAllString(text, `$1[redacted]`)
+	text = secretAssignment.ReplaceAllString(text, `$1[redacted]`)
+	if len(text) > maxDiagnosticBytes {
+		text = strings.ToValidUTF8(text[len(text)-maxDiagnosticBytes:], "�")
+		truncated = true
+	}
+	if truncated {
+		return "[output truncated]\n" + text
+	}
+	return text
+}
 
 // Runner executes context-aware subprocesses without an implicit shell.
 type Runner interface {

@@ -73,6 +73,9 @@ func TestExplicitLifecycleStatusBranchSafetyCleanupAndUnregister(t *testing.T) {
 	}
 	alias := filepath.Join(base, "feature-alias")
 	require.NoError(t, os.Symlink(created, alias))
+	setupOutput, err := controller.Execute(context.Background(), forRepo("worktree.setup", []string{alias}, nil))
+	require.NoError(t, err)
+	require.Equal(t, "setup skipped for "+created+": no setup actions are configured", setupOutput)
 	launchOutput, err := controller.Execute(context.Background(), forRepo("worktree.launch", []string{alias}, nil))
 	require.NoError(t, err)
 	require.Equal(t, "launch skipped: no launch command is configured", launchOutput)

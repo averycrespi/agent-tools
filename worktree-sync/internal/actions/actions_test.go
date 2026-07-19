@@ -2,6 +2,7 @@ package actions_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -88,7 +89,7 @@ type failingRunner struct{ calls int }
 
 func (r *failingRunner) RunEnv(context.Context, string, []string, string, ...string) ([]byte, error) {
 	r.calls++
-	return []byte("boom"), context.Canceled
+	return []byte("secret setup output"), fmt.Errorf(`exec: "secret-tool": executable file not found`)
 }
 
 func TestLedgerLockPreventsConcurrentDuplicateExecution(t *testing.T) {
@@ -129,6 +130,12 @@ func TestSetupFailureDoesNotExposeCommandOutput(t *testing.T) {
 	repo := config.Repository{CommonGitDir: "r", SetupActions: []config.SetupAction{{Argv: []string{"tool"}}}, SetupPolicy: config.ActionWTSCreated}
 	result := manager.Run(context.Background(), repo, actions.Worktree{Path: t.TempDir(), Identity: "w"}, actions.Explicit, false)
 	require.Error(t, result.Error)
+	require.False(t, result.OperationCompleted)
+	require.True(t, result.AttemptRecorded)
+	require.Contains(t, result.Error.Error(), "setup action 1 could not start")
+	require.NotContains(t, result.Error.Error(), "secret-tool")
+	require.NotContains(t, result.Error.Error(), "secret setup output")
+	require.NotContains(t, result.Error.Error(), "tool")
 	require.NotContains(t, result.Error.Error(), "boom")
 }
 
@@ -173,6 +180,26 @@ func TestLaunchPolicyLedgerAndRerun(t *testing.T) {
 	require.Equal(t, 1, calls)
 	require.NoError(t, manager.Launch(context.Background(), repo, worktree, actions.Explicit, true, launch).Error)
 	require.Equal(t, 2, calls)
+}
+
+func TestSetupReportsStableCompletedAndSkippedOutcomes(t *testing.T) {
+	manager := actions.New(&runner{}, filepath.Join(t.TempDir(), "ledger.json"), time.Second)
+	worktree := actions.Worktree{Path: t.TempDir(), Identity: "w"}
+	disabled := manager.Run(context.Background(), config.Repository{SetupPolicy: config.ActionNone}, worktree, actions.Manual, false)
+	require.Equal(t, actions.ResultSkippedPolicy, disabled.Code)
+	require.Equal(t, "disabled by policy", disabled.Reason)
+	unconfigured := manager.Run(context.Background(), config.Repository{SetupPolicy: config.ActionManual}, worktree, actions.Manual, false)
+	require.Equal(t, actions.ResultSkippedUnconfigured, unconfigured.Code)
+	require.Equal(t, "no setup actions are configured", unconfigured.Reason)
+
+	repo := config.Repository{CommonGitDir: "repo", SetupPolicy: config.ActionManual, SetupActions: []config.SetupAction{{Argv: []string{"true"}}}}
+	completed := manager.Run(context.Background(), repo, worktree, actions.Manual, false)
+	require.Equal(t, actions.ResultCompleted, completed.Code)
+	require.True(t, completed.OperationCompleted)
+	require.True(t, completed.AttemptRecorded)
+	already := manager.Run(context.Background(), repo, worktree, actions.Manual, false)
+	require.Equal(t, actions.ResultSkippedAttempted, already.Code)
+	require.Equal(t, "already attempted", already.Reason)
 }
 
 func TestLaunchReportsWhyItWasSkipped(t *testing.T) {

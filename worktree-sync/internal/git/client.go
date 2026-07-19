@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/config"
+	execclient "github.com/averycrespi/agent-tools/worktree-sync/internal/exec"
 )
 
 type runner interface {
@@ -55,6 +56,10 @@ func (c *Client) run(ctx context.Context, dir string, args ...string) ([]byte, e
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
+		}
+		diagnostic := execclient.Diagnostic(output)
+		if diagnostic != "" {
+			return nil, fmt.Errorf("git command failed: %w\n%s", err, diagnostic)
 		}
 		return nil, fmt.Errorf("git command failed: %w", err)
 	}

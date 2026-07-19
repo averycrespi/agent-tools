@@ -171,6 +171,8 @@ wts worktree setup feature/auth --rerun
 
 Setup runs configured `copy_actions` followed by `setup_actions`. Copy sources are relative to the registered primary worktree; destinations are relative to the target linked worktree. Both sides reject symlink escapes, and copies never overwrite an existing destination. Setup commands use explicit argv arrays rather than an implicit shell.
 
+The CLI reports `setup completed`, `setup skipped`, or `setup failed`. Skip messages distinguish disabled policy, no configured actions, and an already attempted definition; skips exit zero. Failures exit nonzero, warn that earlier side effects may exist, and print the exact `--rerun` command without exposing executable names, argv, or setup output.
+
 ### Launch a configured command
 
 ```bash
@@ -178,7 +180,7 @@ wts worktree launch feature/auth
 wts worktree launch feature/auth --rerun
 ```
 
-Launch types `launch_command` into the worktree's existing managed tmux window and sends Enter. It does not create a window or attach to the session. The CLI reports whether launch started or why it was skipped without printing the configured command.
+Launch types `launch_command` into the worktree's existing managed tmux window and sends Enter. It does not create a window or attach to the session. The CLI reports whether launch started or why it was skipped without printing the configured command. A delivery or ledger failure reports that text or Enter may have been partially delivered and tells the user to inspect the window before an explicit rerun.
 
 ## Configuration
 
@@ -199,7 +201,9 @@ wts config edit
 wts config refresh
 ```
 
-`config edit` opens a temporary copy using `VISUAL` or `EDITOR`, validates it, and atomically replaces the live file only when valid. `config refresh` explicitly migrates older versions and fills new defaults. Version-1 and version-2 configurations must be refreshed before other commands run. Version 2 migrates deterministically: the first former default allowed root becomes `default_worktree_creation_root`, and each repository's first allowed root becomes its `worktree_creation_root`; the complete allowlists are preserved.
+`config edit` opens the exact current bytes in a private temporary file using `VISUAL` or `EDITOR`. A successful editor exit atomically saves those bytes with mode `0600`, then validates the live file. Valid edits report success. Invalid edits remain saved, print `configuration updated but is invalid`, and exit nonzero so another `wts config edit` can continue the repair; all other commands continue to reject invalid config and the daemon pauses mutations. Editor failure or cancellation leaves the live file unchanged.
+
+`config refresh` explicitly migrates older versions and fills new defaults. Version-1 and version-2 configurations must be refreshed before other commands run. Version 2 migrates deterministically: the first former default allowed root becomes `default_worktree_creation_root`, and each repository's first allowed root becomes its `worktree_creation_root`; the complete allowlists are preserved.
 
 A legacy passive-only policy cannot map exactly to the cumulative policy modes. If refresh reports one, back up and edit the version-1 file directly: either enable the matching `*_explicit` field to migrate it to `all`, or disable the `*_passive` field to migrate it to `none`. Then run refresh and, if desired, use `wts config edit` to select `manual`.
 
@@ -321,6 +325,8 @@ Automatic reconciliation never:
 A managed window whose pane changes directory is considered drifted. Reconciliation restores its configured worktree directory with `respawn-window -k`, which terminates the pane's current shell or process. Use an untagged scratch window for work that should not be reset.
 
 Detached and locked live worktrees remain eligible. Invalid configuration or incomplete Git/tmux snapshots fail closed.
+
+Failed Git and tmux commands include a whitespace-trimmed, UTF-8-safe diagnostic tail of at most 4 KiB. URL credentials, authorization values, and token/password-like assignments are redacted centrally; argv, setup output, executable names, and configured launch commands are not printed. Mutating commands that fail after a committed change print what changed, what remains uncertain, whether retry is safe, and a recovery command before exiting nonzero.
 
 ### Explicit cleanup
 

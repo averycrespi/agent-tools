@@ -2,6 +2,8 @@ package state_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -44,4 +46,12 @@ func TestLedgerSuppressesSameAttemptAndAllowsChangedDigestOrRerun(t *testing.T) 
 	reloaded, err := state.LoadLedger(path)
 	require.NoError(t, err)
 	require.True(t, reloaded.Eligible(key))
+}
+
+func TestCommitUncertainRecognizesWrappedPostCommitError(t *testing.T) {
+	cause := errors.New("sync failed")
+	err := fmt.Errorf("saving ledger: %w", &state.PostCommitError{Err: cause})
+	require.True(t, state.CommitUncertain(err))
+	require.ErrorIs(t, err, cause)
+	require.False(t, state.CommitUncertain(cause))
 }

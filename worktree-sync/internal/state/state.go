@@ -56,6 +56,16 @@ func (l *Lock) Unlock() error {
 	return l.lock.Unlock()
 }
 
+type PostCommitError struct{ Err error }
+
+func (e *PostCommitError) Error() string { return e.Err.Error() }
+func (e *PostCommitError) Unwrap() error { return e.Err }
+
+func CommitUncertain(err error) bool {
+	var postCommit *PostCommitError
+	return errors.As(err, &postCommit)
+}
+
 func AtomicWrite(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -90,11 +100,11 @@ func AtomicWrite(path string, data []byte, mode os.FileMode) error {
 	}
 	directory, err := os.Open(dir) //nolint:gosec // path is application-controlled state/config directory
 	if err != nil {
-		return fmt.Errorf("opening parent directory: %w", err)
+		return &PostCommitError{Err: fmt.Errorf("opening parent directory: %w", err)}
 	}
 	defer func() { _ = directory.Close() }()
 	if err := directory.Sync(); err != nil {
-		return fmt.Errorf("syncing parent directory: %w", err)
+		return &PostCommitError{Err: fmt.Errorf("syncing parent directory: %w", err)}
 	}
 	return nil
 }

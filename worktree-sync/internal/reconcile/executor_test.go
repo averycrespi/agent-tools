@@ -79,7 +79,7 @@ func (f *tmuxFake) KillWindow(_ context.Context, id string) error {
 	f.killed = append(f.killed, id)
 	return nil
 }
-func (f *tmuxFake) Launch(_ context.Context, id, _ string) error {
+func (f *tmuxFake) Launch(_ context.Context, id string, _ tmux.Metadata, _ string) error {
 	f.launched = append(f.launched, id)
 	return nil
 }

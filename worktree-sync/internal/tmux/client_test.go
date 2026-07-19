@@ -80,12 +80,38 @@ func TestNameRepairDoesNotRespawnWindow(t *testing.T) {
 	}
 }
 
-func TestTmuxErrorDoesNotExposeLaunchCommand(t *testing.T) {
-	r := &runner{results: []result{{out: []byte("failure"), err: errors.New("exit")}}}
+func TestTmuxErrorIncludesDiagnosticWithoutLaunchCommand(t *testing.T) {
+	expected := tmux.Metadata{Schema: 1, Repository: "repo", Role: "worktree", Identity: "worktree"}
+	metadata := []byte("@wts-schema 1\n@wts-repository repo\n@wts-role worktree\n@wts-identity worktree\n")
+	r := &runner{results: []result{{out: metadata}, {out: []byte("tmux target unavailable: token=secret"), err: errors.New("exit")}}}
 	client := tmux.New(r, "test-socket", time.Second)
-	err := client.Launch(context.Background(), "@1", "token=secret")
+	err := client.Launch(context.Background(), "@1", expected, "token=secret")
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "tmux target unavailable")
 	require.NotContains(t, err.Error(), "token=secret")
+	require.NotContains(t, err.Error(), "token=")
+	require.Contains(t, err.Error(), "[redacted launch command]")
+	var delivery *tmux.LaunchError
+	require.ErrorAs(t, err, &delivery)
+	require.Equal(t, "unknown", delivery.TextSent)
+	require.Equal(t, "no", delivery.EnterSent)
+
+	r = &runner{results: []result{{out: metadata}, {}, {out: metadata}, {out: []byte("enter failed"), err: errors.New("exit")}}}
+	delivery = nil
+	err = tmux.New(r, "test-socket", time.Second).Launch(context.Background(), "@1", expected, "safe command")
+	require.ErrorAs(t, err, &delivery)
+	require.Equal(t, "yes", delivery.TextSent)
+	require.Equal(t, "unknown", delivery.EnterSent)
+
+	changed := []byte("@wts-schema 1\n@wts-repository other\n@wts-role worktree\n@wts-identity worktree\n")
+	r = &runner{results: []result{{out: metadata}, {}, {out: changed}}}
+	delivery = nil
+	err = tmux.New(r, "test-socket", time.Second).Launch(context.Background(), "@1", expected, "safe command")
+	require.ErrorContains(t, err, "refusing Enter")
+	require.ErrorAs(t, err, &delivery)
+	require.Equal(t, "yes", delivery.TextSent)
+	require.Equal(t, "no", delivery.EnterSent)
+	require.Len(t, r.calls, 3)
 }
 
 func TestApplyTagsCreatedObjectsAndKillsOnlyTargetID(t *testing.T) {

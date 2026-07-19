@@ -162,10 +162,6 @@ func (s *Service) editConfig(ctx context.Context) (string, error) {
 		return "", err
 	}
 	defer func() { _ = lock.Unlock() }()
-	cfg, err := config.Load(s.paths.Config)
-	if err != nil {
-		return "", err
-	}
 	dir := filepath.Dir(s.paths.Config)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
@@ -175,10 +171,27 @@ func (s *Service) editConfig(ctx context.Context) (string, error) {
 		return "", err
 	}
 	path := tmp.Name()
-	_ = tmp.Close()
 	defer func() { _ = os.Remove(path) }()
-	if err := config.Save(path, cfg); err != nil {
-		return "", err
+	current, err := os.ReadFile(s.paths.Config) //nolint:gosec // fixed application config path
+	if errors.Is(err, os.ErrNotExist) {
+		if closeErr := tmp.Close(); closeErr != nil {
+			return "", closeErr
+		}
+		if err := config.Save(path, config.Default()); err != nil {
+			return "", err
+		}
+	} else {
+		if err != nil {
+			_ = tmp.Close()
+			return "", err
+		}
+		if _, err := tmp.Write(current); err != nil {
+			_ = tmp.Close()
+			return "", err
+		}
+		if err := tmp.Close(); err != nil {
+			return "", err
+		}
 	}
 	editor := os.Getenv("VISUAL")
 	if editor == "" {
@@ -196,14 +209,22 @@ func (s *Service) editConfig(ctx context.Context) (string, error) {
 	if err := s.runner.Interactive(editCtx, "", fields[0], append(fields[1:], path)...); err != nil {
 		return "", fmt.Errorf("editing config: %w", err)
 	}
-	edited, err := config.Load(path)
+	edited, err := os.ReadFile(path) //nolint:gosec // private editor temporary file
 	if err != nil {
-		return "", fmt.Errorf("edited config is invalid: %w", err)
-	}
-	if err := config.Save(s.paths.Config, edited); err != nil {
 		return "", err
 	}
-	return "configuration updated", nil
+	if err := state.AtomicWrite(s.paths.Config, edited, 0o600); err != nil {
+		if state.CommitUncertain(err) {
+			output := "configuration bytes were replaced but directory sync failed; durability is uncertain\nnext: run wts config validate, then wts config edit if repair is needed"
+			return output, err
+		}
+		return "", err
+	}
+	if _, err := config.Load(s.paths.Config); err != nil {
+		output := fmt.Sprintf("configuration updated but is invalid: %v\nnext: run wts config edit to continue repairing it", err)
+		return output, fmt.Errorf("configuration is invalid: %w", err)
+	}
+	return "configuration updated and valid", nil
 }
 
 func (s *Service) addRepo(ctx context.Context, request app.Request) (string, error) {
@@ -305,6 +326,7 @@ func (s *Service) removeRepo(ctx context.Context, id string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("tmux cleanup failed; repository remains registered: %w", err)
 	}
+	removed := 0
 	for _, session := range snapshot.Sessions {
 		for _, window := range session.Windows {
 			if !tmux.ValidOwnedWindow(window.Metadata, repo.Identity()) {
@@ -312,17 +334,21 @@ func (s *Service) removeRepo(ctx context.Context, id string) (string, error) {
 			}
 			owned, ownershipErr := tmuxClient.OwnsWindow(ctx, window.ID, window.Metadata)
 			if ownershipErr != nil || !owned {
-				return "", fmt.Errorf("tmux ownership changed; repository remains registered")
+				output := fmt.Sprintf("removed %d owned tmux windows; repository %s remains registered\nnext: inspect ownership, then retry wts repo remove %s", removed, id, id)
+				return output, fmt.Errorf("tmux ownership changed; repository remains registered")
 			}
 			if err := tmuxClient.KillWindow(ctx, window.ID); err != nil {
-				return "", fmt.Errorf("tmux cleanup failed; repository remains registered: %w", err)
+				output := fmt.Sprintf("removed %d owned tmux windows; repository %s remains registered\nnext: correct tmux availability, then retry wts repo remove %s", removed, id, id)
+				return output, fmt.Errorf("tmux cleanup failed; repository remains registered: %w", err)
 			}
+			removed++
 		}
 	}
 	if err := config.Save(s.paths.Config, updated); err != nil {
-		return "", fmt.Errorf("tmux resources removed but config update failed: %w", err)
+		output := fmt.Sprintf("removed %d owned tmux windows; repository %s remains registered because config update failed\nnext: repair the config path, then retry wts repo remove %s", removed, id, id)
+		return output, fmt.Errorf("tmux resources removed but config update failed: %w", err)
 	}
-	return fmt.Sprintf("unregistered %s; Git worktrees and branches unchanged", id), nil
+	return fmt.Sprintf("unregistered %s; removed %d owned tmux windows; Git worktrees and branches unchanged", id, removed), nil
 }
 
 func (s *Service) resolveRepo(ctx context.Context, cfg config.Config, id string) (config.Repository, error) {
@@ -395,6 +421,10 @@ func (s *Service) worktreePath(ctx context.Context, branch, repoID string) (stri
 	return s.pathFor(repo, branch), nil
 }
 
+func createdWorktreePartial(path, warning, recovery string) string {
+	return fmt.Sprintf("worktree created: %s\nwarning: %s\nnext: %s", path, warning, recovery)
+}
+
 func (s *Service) createWorktree(ctx context.Context, request app.Request) (string, error) {
 	lock, err := s.acquire(ctx, "operation")
 	if err != nil {
@@ -437,24 +467,24 @@ func (s *Service) createWorktree(ctx context.Context, request app.Request) (stri
 	}
 	canonical, err := config.CanonicalExisting(path)
 	if err != nil {
-		return "", err
+		return createdWorktreePartial(path, "created path could not be canonicalized", "inspect the created worktree before retrying"), err
 	}
 	snapshot, err := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir})
 	if err != nil {
-		return path, fmt.Errorf("worktree created but explicit provenance could not be established: %w", err)
+		return createdWorktreePartial(path, "explicit provenance could not be established", "repair Git metadata, then run wts reconcile --repo-id "+repo.ID), fmt.Errorf("worktree created but explicit provenance could not be established: %w", err)
 	}
 	createdWorktree, err := findWorktree(snapshot, canonical)
 	if err != nil || createdWorktree.Identity == "" {
-		return path, fmt.Errorf("worktree created but its Git identity is unavailable")
+		return createdWorktreePartial(path, "Git identity is unavailable", "repair Git metadata, then run wts reconcile --repo-id "+repo.ID), fmt.Errorf("worktree created but its Git identity is unavailable")
 	}
 	provenancePath := filepath.Join(s.paths.State, "provenance.json")
 	provenance, err := state.LoadProvenance(provenancePath)
 	if err != nil {
-		return "", err
+		return createdWorktreePartial(path, "provenance state could not be read", "repair the private state path, then run wts reconcile --repo-id "+repo.ID), err
 	}
 	provenance.RecordExplicit(repo.Identity(), canonical, createdWorktree.Identity)
 	if err := provenance.Save(provenancePath); err != nil {
-		return "", err
+		return createdWorktreePartial(path, "explicit provenance could not be saved", "repair the private state path, then run wts reconcile --repo-id "+repo.ID), err
 	}
 	report := executor.ReconcileRepo(ctx, repo, func(path, identity string) actions.Trigger {
 		if provenance.Explicit(repo.Identity(), path, identity) {
@@ -463,7 +493,7 @@ func (s *Service) createWorktree(ctx context.Context, request app.Request) (stri
 		return actions.Passive
 	})
 	if len(report.Errors) > 0 {
-		return path, fmt.Errorf("worktree created; reconciliation degraded: %s", strings.Join(report.Errors, "; "))
+		return createdWorktreePartial(path, "reconciliation was degraded", "correct the reported cause, then run wts reconcile --repo-id "+repo.ID), fmt.Errorf("worktree created; reconciliation degraded: %s", strings.Join(report.Errors, "; "))
 	}
 	return path, nil
 }
@@ -491,6 +521,10 @@ func findWorktree(snapshot gitclient.Snapshot, value string) (gitclient.Worktree
 		}
 	}
 	return gitclient.Worktree{}, fmt.Errorf("worktree %q is not enumerated by Git", value)
+}
+
+func removedWorktreePartial(path, warning, recovery string) string {
+	return fmt.Sprintf("worktree removed: %s\nwarning: %s\nnext: %s", path, warning, recovery)
 }
 
 func (s *Service) removeWorktree(ctx context.Context, request app.Request) (string, error) {
@@ -531,17 +565,55 @@ func (s *Service) removeWorktree(ctx context.Context, request app.Request) (stri
 		return "", err
 	}
 	if err := provenance.Save(provenancePath); err != nil {
-		return "worktree removed", fmt.Errorf("worktree removed but provenance update failed: %w", err)
+		return removedWorktreePartial(worktree.Path, "provenance state was not updated", "repair the private state path; the Git worktree is already removed"), fmt.Errorf("worktree removed but provenance update failed: %w", err)
 	}
 	if optionBool(request.Options, "delete_branch") || optionBool(request.Options, "force_delete_branch") {
 		if worktree.Branch == "" {
-			return "worktree removed", fmt.Errorf("detached worktree has no branch to delete")
+			return removedWorktreePartial(worktree.Path, "detached worktree has no branch to delete", "no branch action is required"), fmt.Errorf("detached worktree has no branch to delete")
 		}
 		if err := git.DeleteBranch(ctx, repo.PrimaryRoot, worktree.Branch, optionBool(request.Options, "force_delete_branch")); err != nil {
-			return "worktree removed", fmt.Errorf("worktree removed but branch deletion failed: %w", err)
+			return removedWorktreePartial(worktree.Path, "branch "+worktree.Branch+" was not deleted", "resolve branch safety, then delete it explicitly with Git"), fmt.Errorf("worktree removed but branch deletion failed: %w", err)
 		}
+		return fmt.Sprintf("worktree removed: %s\nbranch deleted: %s", worktree.Path, worktree.Branch), nil
 	}
-	return "worktree removed", nil
+	return "worktree removed: " + worktree.Path + "\nbranch preserved", nil
+}
+
+func formatSetupResult(path, repoID string, result actions.Result) (string, error) {
+	if result.Skipped {
+		output := fmt.Sprintf("setup skipped for %s: %s", path, result.Reason)
+		if result.Code == actions.ResultSkippedAttempted {
+			output += fmt.Sprintf("; run wts worktree setup %q --repo-id %s --rerun to retry", path, repoID)
+		}
+		return output, nil
+	}
+	if result.Error != nil {
+		operationCompleted, attemptRecorded := "no", "no"
+		if result.OperationCompleted {
+			operationCompleted = "yes"
+		}
+		if result.AttemptRecorded {
+			attemptRecorded = "yes"
+		} else if result.AttemptRecordUncertain {
+			attemptRecorded = "unknown"
+		}
+		output := fmt.Sprintf("setup failed in %s\noperation_completed=%s attempt_recorded=%s", path, operationCompleted, attemptRecorded)
+		if !result.OperationCompleted {
+			output += "\nwarning: earlier setup side effects may remain"
+		}
+		switch {
+		case result.OperationCompleted && !result.AttemptRecorded:
+			output += "\nnext: setup completed but ledger persistence is incomplete or uncertain; do not rerun until the state path is repaired and side effects are inspected"
+		case result.AttemptRecordUncertain:
+			output += "\nnext: inspect the action ledger and setup side effects before deciding whether an explicit --rerun is safe"
+		case result.AttemptRecorded:
+			output += fmt.Sprintf("\nnext: correct the cause, then run wts worktree setup %q --repo-id %s --rerun", path, repoID)
+		default:
+			output += fmt.Sprintf("\nnext: no attempt was recorded; correct the cause, then retry wts worktree setup %q --repo-id %s", path, repoID)
+		}
+		return output, result.Error
+	}
+	return "setup completed in " + path, nil
 }
 
 func (s *Service) explicitAction(ctx context.Context, request app.Request, launch bool) (string, error) {
@@ -592,7 +664,7 @@ func (s *Service) explicitAction(ctx context.Context, request app.Request, launc
 			return "", err
 		}
 		result := manager.Run(ctx, repo, actionWorktree, actions.Manual, rerun)
-		return "setup evaluated", result.Error
+		return formatSetupResult(worktree.Path, repo.ID, result)
 	}
 	actual, err := tmuxClient.Snapshot(ctx)
 	if err != nil {
@@ -624,13 +696,29 @@ func (s *Service) explicitAction(ctx context.Context, request app.Request, launc
 		if !owned {
 			return fmt.Errorf("ownership changed; refusing launch")
 		}
-		return tmuxClient.Launch(ctx, windowID, repo.LaunchCommand)
+		return tmuxClient.Launch(ctx, windowID, expected, repo.LaunchCommand)
 	})
 	if result.Skipped {
 		return "launch skipped: " + result.Reason, nil
 	}
 	if result.Error != nil {
-		return "launch failed in " + worktree.Path, result.Error
+		textSent, enterSent := "no", "no"
+		if result.OperationCompleted {
+			textSent, enterSent = "yes", "yes"
+		} else {
+			var delivery *tmux.LaunchError
+			if errors.As(result.Error, &delivery) {
+				textSent, enterSent = delivery.TextSent, delivery.EnterSent
+			}
+		}
+		attemptRecorded := "no"
+		if result.AttemptRecorded {
+			attemptRecorded = "yes"
+		} else if result.AttemptRecordUncertain {
+			attemptRecorded = "unknown"
+		}
+		output := fmt.Sprintf("launch failed in %s\ntext_sent=%s enter_sent=%s attempt_recorded=%s\nnext: inspect the managed window, then run wts worktree launch %q --repo-id %s --rerun if safe", worktree.Path, textSent, enterSent, attemptRecorded, worktree.Path, repo.ID)
+		return output, result.Error
 	}
 	return "launch started in " + worktree.Path, nil
 }
@@ -723,6 +811,13 @@ func (s *Service) reconcile(ctx context.Context, repoID string, all bool) (strin
 	return strings.Join(summaries, "\n"), errors.Join(errs...)
 }
 
+func cleanupPartial(lines []string, warning, recovery string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(append(lines, "warning: "+warning, "next: "+recovery), "\n")
+}
+
 func (s *Service) cleanup(ctx context.Context, pruneID, orphanID string) (string, error) {
 	lock, err := s.acquire(ctx, "operation")
 	if err != nil {
@@ -755,12 +850,16 @@ func (s *Service) cleanup(ctx context.Context, pruneID, orphanID string) (string
 		}
 		if before > 0 {
 			if err := git.Prune(ctx, repo.PrimaryRoot); err != nil {
-				return "", err
+				return strings.Join(lines, "\n"), err
 			}
+			lines = append(lines, fmt.Sprintf("%s git prune applied: before=%d; verification pending", repo.ID, before))
 		}
 		afterSnapshot, afterErr := git.Snapshot(ctx, gitclient.Repository{PrimaryRoot: repo.PrimaryRoot, CommonGitDir: repo.CommonGitDir})
 		if afterErr != nil {
-			return "", afterErr
+			if before > 0 {
+				lines = append(lines, "verification incomplete; next: retry wts cleanup --prune-git "+repo.ID)
+			}
+			return strings.Join(lines, "\n"), afterErr
 		}
 		after := 0
 		for _, worktree := range afterSnapshot.Worktrees {
@@ -768,24 +867,28 @@ func (s *Service) cleanup(ctx context.Context, pruneID, orphanID string) (string
 				after++
 			}
 		}
-		lines = append(lines, fmt.Sprintf("%s git prunable: before=%d after=%d", repo.ID, before, after))
+		if before > 0 {
+			lines[len(lines)-1] = fmt.Sprintf("%s git prunable: before=%d after=%d", repo.ID, before, after)
+		} else {
+			lines = append(lines, fmt.Sprintf("%s git prunable: before=0 after=%d", repo.ID, after))
+		}
 	}
 	if orphanID != "" {
 		repo, ok := registry.Find(cfg, orphanID)
 		if !ok {
-			return "", fmt.Errorf("repository %q is not registered", orphanID)
+			return cleanupPartial(lines, "orphan cleanup did not run because the repository is not registered", "verify the repository ID before retrying"), fmt.Errorf("repository %q is not registered", orphanID)
 		}
 		_, gitSnapshot, gitSnapshotErr := s.snapshotRepo(ctx, cfg, repo)
 		if gitSnapshotErr != nil {
-			return "", gitSnapshotErr
+			return cleanupPartial(lines, "orphan cleanup Git snapshot failed", "repair Git state, then retry wts cleanup --remove-orphaned-tmux "+repo.ID), gitSnapshotErr
 		}
 		_, tmuxClient, _, _, _, runtimeErr := s.runtime(cfg)
 		if runtimeErr != nil {
-			return "", runtimeErr
+			return cleanupPartial(lines, "orphan cleanup could not initialize", "correct configuration, then retry wts cleanup --remove-orphaned-tmux "+repo.ID), runtimeErr
 		}
 		actual, snapshotErr := tmuxClient.Snapshot(ctx)
 		if snapshotErr != nil {
-			return "", snapshotErr
+			return cleanupPartial(lines, "orphan cleanup tmux snapshot failed", "repair tmux availability, then retry wts cleanup --remove-orphaned-tmux "+repo.ID), snapshotErr
 		}
 		plan := reconcile.Build(repo, gitSnapshot, actual)
 		desired := make(map[string]bool)
@@ -800,15 +903,17 @@ func (s *Service) cleanup(ctx context.Context, pruneID, orphanID string) (string
 				}
 				owned, ownershipErr := tmuxClient.OwnsWindow(ctx, window.ID, window.Metadata)
 				if ownershipErr != nil || !owned {
-					return "", fmt.Errorf("tmux ownership changed; refusing orphan removal")
+					lines = append(lines, fmt.Sprintf("%s orphaned tmux: removed=%d; verification incomplete", repo.ID, removed), "next: inspect ownership, then retry wts cleanup --remove-orphaned-tmux "+repo.ID)
+					return strings.Join(lines, "\n"), fmt.Errorf("tmux ownership changed; refusing orphan removal")
 				}
 				if err := tmuxClient.KillWindow(ctx, window.ID); err != nil {
-					return "", err
+					lines = append(lines, fmt.Sprintf("%s orphaned tmux: removed=%d; verification incomplete", repo.ID, removed), "next: correct tmux availability, then retry wts cleanup --remove-orphaned-tmux "+repo.ID)
+					return strings.Join(lines, "\n"), err
 				}
 				removed++
 			}
 		}
-		lines = append(lines, fmt.Sprintf("%s orphaned tmux: before=%d after=0", repo.ID, removed))
+		lines = append(lines, fmt.Sprintf("%s orphaned tmux: removed=%d", repo.ID, removed))
 	}
 	return strings.Join(lines, "\n"), nil
 }

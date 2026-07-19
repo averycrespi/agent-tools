@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	execclient "github.com/averycrespi/agent-tools/worktree-sync/internal/exec"
 )
 
 const separator = "|"
@@ -29,6 +31,10 @@ func New(runner runner, socket string, timeout time.Duration) *Client {
 }
 
 func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
+	return c.runSensitive(ctx, "", args...)
+}
+
+func (c *Client) runSensitive(ctx context.Context, sensitive string, args ...string) ([]byte, error) {
 	if c.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, c.timeout)
@@ -39,6 +45,14 @@ func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
+		}
+		diagnosticOutput := output
+		if sensitive != "" {
+			diagnosticOutput = []byte(strings.ReplaceAll(string(output), sensitive, "[redacted launch command]"))
+		}
+		diagnostic := execclient.Diagnostic(diagnosticOutput)
+		if diagnostic != "" {
+			return output, fmt.Errorf("tmux command failed: %w\n%s", err, diagnostic)
 		}
 		return output, fmt.Errorf("tmux command failed: %w", err)
 	}
@@ -310,12 +324,37 @@ func (c *Client) KillSession(ctx context.Context, id string) error {
 	return err
 }
 
-func (c *Client) Launch(ctx context.Context, id, command string) error {
-	if _, err := c.run(ctx, "send-keys", "-t", id, "-l", "--", command); err != nil {
-		return err
+type LaunchError struct {
+	TextSent  string
+	EnterSent string
+	Err       error
+}
+
+func (e *LaunchError) Error() string { return e.Err.Error() }
+func (e *LaunchError) Unwrap() error { return e.Err }
+
+func (c *Client) Launch(ctx context.Context, id string, expected Metadata, command string) error {
+	owned, err := c.OwnsWindow(ctx, id, expected)
+	if err != nil {
+		return &LaunchError{TextSent: "no", EnterSent: "no", Err: err}
 	}
-	_, err := c.run(ctx, "send-keys", "-t", id, "Enter")
-	return err
+	if !owned {
+		return &LaunchError{TextSent: "no", EnterSent: "no", Err: fmt.Errorf("ownership changed; refusing launch")}
+	}
+	if _, err := c.runSensitive(ctx, command, "send-keys", "-t", id, "-l", "--", command); err != nil {
+		return &LaunchError{TextSent: "unknown", EnterSent: "no", Err: err}
+	}
+	owned, err = c.OwnsWindow(ctx, id, expected)
+	if err != nil {
+		return &LaunchError{TextSent: "yes", EnterSent: "no", Err: err}
+	}
+	if !owned {
+		return &LaunchError{TextSent: "yes", EnterSent: "no", Err: fmt.Errorf("ownership changed; refusing Enter delivery")}
+	}
+	if _, err := c.run(ctx, "send-keys", "-t", id, "Enter"); err != nil {
+		return &LaunchError{TextSent: "yes", EnterSent: "unknown", Err: err}
+	}
+	return nil
 }
 
 func (c *Client) Attach(ctx context.Context, session string) error {

@@ -22,7 +22,7 @@ type tmuxClient interface {
 	CreateWindow(context.Context, string, tmux.Window) (string, error)
 	RepairWindow(context.Context, string, tmux.Window, tmux.Window) error
 	KillWindow(context.Context, string) error
-	Launch(context.Context, string, string) error
+	Launch(context.Context, string, tmux.Metadata, string) error
 }
 type actionManager interface {
 	Run(context.Context, config.Repository, actions.Worktree, actions.Trigger, bool) actions.Result
@@ -218,7 +218,7 @@ func (e *Executor) reconcileRepo(ctx context.Context, repo config.Repository, ac
 				if !owned {
 					return fmt.Errorf("ownership changed; refusing launch")
 				}
-				return e.tmux.Launch(ctx, windowID, repo.LaunchCommand)
+				return e.tmux.Launch(ctx, windowID, desiredWindow.Metadata, repo.LaunchCommand)
 			})
 			if launchResult.Error != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("launch %s: %v", worktree.Path, launchResult.Error))

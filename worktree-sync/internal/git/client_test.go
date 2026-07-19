@@ -110,11 +110,13 @@ func TestSnapshotReadsLinkedGitFileWithoutPerWorktreeSubprocess(t *testing.T) {
 	require.Contains(t, snapshot.Worktrees[1].Identity, admin+"#")
 }
 
-func TestGitErrorDoesNotExposeCommandOutput(t *testing.T) {
-	runner := &fakeRunner{responses: []response{{output: []byte("token=secret"), err: errors.New("failed")}}}
+func TestGitErrorIncludesRedactedDiagnosticOutput(t *testing.T) {
+	runner := &fakeRunner{responses: []response{{output: []byte("fatal: branch is already checked out; token=secret"), err: errors.New("failed")}}}
 	_, err := gitclient.New(runner, time.Second).ListRaw(context.Background(), "/repo")
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "branch is already checked out")
 	require.NotContains(t, err.Error(), "token=secret")
+	require.Contains(t, err.Error(), "token=[redacted]")
 }
 
 func TestAddCreatesMissingBranchFromRevision(t *testing.T) {

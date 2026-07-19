@@ -20,14 +20,30 @@ import (
 	"github.com/averycrespi/agent-tools/worktree-sync/internal/state"
 )
 
-type editorRunner struct{ replacement []byte }
+type editorRunner struct {
+	replacement []byte
+	seen        []byte
+	err         error
+}
 
 func (*editorRunner) Run(context.Context, string, string, ...string) ([]byte, error) { return nil, nil }
 func (*editorRunner) RunEnv(context.Context, string, []string, string, ...string) ([]byte, error) {
 	return nil, nil
 }
 func (r *editorRunner) Interactive(_ context.Context, _ string, _ string, args ...string) error {
-	return os.WriteFile(args[len(args)-1], r.replacement, 0o600)
+	path := args[len(args)-1]
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	r.seen = data
+	if r.err != nil {
+		return r.err
+	}
+	if r.replacement == nil {
+		return nil
+	}
+	return os.WriteFile(path, r.replacement, 0o600)
 }
 
 type doctorRunner struct{ launchdLoaded bool }
@@ -338,17 +354,61 @@ func TestConfigRefreshMigratesPoliciesWithoutReplacingRepositories(t *testing.T)
 	require.NotContains(t, string(data), "repository_identity")
 }
 
-func TestConfigEditLeavesLiveFileUnchangedWhenEditedCopyIsInvalid(t *testing.T) {
+func TestConfigEditInitializesMissingConfigForEditor(t *testing.T) {
+	t.Setenv("EDITOR", "editor")
+	base := t.TempDir()
+	paths := config.Paths{Config: filepath.Join(base, "config", "config.json"), State: filepath.Join(base, "state"), Worktrees: filepath.Join(base, "data", "worktrees")}
+	runner := &editorRunner{}
+	output, err := service.New(runner, paths).Execute(context.Background(), app.Request{Action: "config.edit"})
+	require.NoError(t, err)
+	require.Equal(t, "configuration updated and valid", output)
+	var edited config.Config
+	require.NoError(t, json.Unmarshal(runner.seen, &edited))
+	require.Equal(t, config.Version, edited.Version)
+	_, err = config.Load(paths.Config)
+	require.NoError(t, err)
+}
+
+func TestConfigEditAlwaysSavesThenReportsInvalidConfiguration(t *testing.T) {
 	t.Setenv("EDITOR", "editor")
 	base := t.TempDir()
 	paths := config.Paths{Config: filepath.Join(base, "config", "config.json"), State: filepath.Join(base, "state"), Worktrees: filepath.Join(base, "data", "worktrees")}
 	require.NoError(t, config.Save(paths.Config, config.Default()))
-	before, err := os.ReadFile(paths.Config)
-	require.NoError(t, err)
-	controller := service.New(&editorRunner{replacement: []byte(`{"version":999}`)}, paths)
-	_, err = controller.Execute(context.Background(), app.Request{Action: "config.edit"})
+	replacement := []byte(`{"version":999}`)
+	controller := service.New(&editorRunner{replacement: replacement}, paths)
+	output, err := controller.Execute(context.Background(), app.Request{Action: "config.edit"})
 	require.ErrorContains(t, err, "invalid")
+	require.Contains(t, output, "updated but is invalid: unsupported config version 999")
 	after, readErr := os.ReadFile(paths.Config)
 	require.NoError(t, readErr)
-	require.Equal(t, before, after)
+	require.Equal(t, replacement, after)
+	info, statErr := os.Stat(paths.Config)
+	require.NoError(t, statErr)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}
+
+func TestConfigEditOpensInvalidRawBytesAndEditorFailurePreservesThem(t *testing.T) {
+	t.Setenv("EDITOR", "editor")
+	base := t.TempDir()
+	paths := config.Paths{Config: filepath.Join(base, "config", "config.json"), State: filepath.Join(base, "state"), Worktrees: filepath.Join(base, "data", "worktrees")}
+	require.NoError(t, os.MkdirAll(filepath.Dir(paths.Config), 0o700))
+	invalid := []byte(`{"version":`)
+	require.NoError(t, os.WriteFile(paths.Config, invalid, 0o600))
+	runner := &editorRunner{err: errors.New("editor canceled")}
+	_, err := service.New(runner, paths).Execute(context.Background(), app.Request{Action: "config.edit"})
+	require.ErrorContains(t, err, "editor canceled")
+	require.Equal(t, invalid, runner.seen)
+	live, readErr := os.ReadFile(paths.Config)
+	require.NoError(t, readErr)
+	require.Equal(t, invalid, live)
+
+	valid, marshalErr := json.Marshal(config.Default())
+	require.NoError(t, marshalErr)
+	repair := &editorRunner{replacement: valid}
+	output, err := service.New(repair, paths).Execute(context.Background(), app.Request{Action: "config.edit"})
+	require.NoError(t, err)
+	require.Equal(t, "configuration updated and valid", output)
+	require.Equal(t, invalid, repair.seen)
+	_, err = config.Load(paths.Config)
+	require.NoError(t, err)
 }
