@@ -69,35 +69,72 @@ func NewWTS(controller app.Controller) *cobra.Command {
 	repoCmd.AddCommand(repoAdd, repoList, repoRemove)
 
 	worktreeCmd := &cobra.Command{Use: "worktree", Short: "Manage Git worktrees for registered repositories"}
-	worktreePath := &cobra.Command{Use: "path <branch> [repository-id]", Short: "Print the existing or planned path for a branch", Args: rangeArgs("worktree path requires a branch and optional repository ID", 1, 2), RunE: run(controller, "worktree.path", nil)}
-	var start string
-	worktreeCreate := &cobra.Command{Use: "create <branch> [repository-id]", Short: "Create a Git worktree and reconcile its tmux window", Args: rangeArgs("worktree create requires a branch and optional repository ID", 1, 2)}
+	var pathRepoID string
+	worktreePath := &cobra.Command{Use: "path <branch>", Short: "Print the existing or planned path for a branch", Args: exactArgs("worktree path requires exactly one branch", 1)}
+	worktreePath.Flags().StringVar(&pathRepoID, "repo-id", "", "registered repository ID (defaults to current directory)")
+	worktreePath.RunE = run(controller, "worktree.path", func(*cobra.Command) map[string]any { return map[string]any{"repo_id": pathRepoID} })
+	var start, createRepoID string
+	worktreeCreate := &cobra.Command{Use: "create <branch>", Short: "Create a Git worktree and reconcile its tmux window", Args: exactArgs("worktree create requires exactly one branch", 1)}
 	worktreeCreate.Flags().StringVar(&start, "start", "", "start point for a new local branch")
-	worktreeCreate.RunE = run(controller, "worktree.create", func(*cobra.Command) map[string]any { return map[string]any{"start": start} })
+	worktreeCreate.Flags().StringVar(&createRepoID, "repo-id", "", "registered repository ID (defaults to current directory)")
+	worktreeCreate.RunE = run(controller, "worktree.create", func(*cobra.Command) map[string]any { return map[string]any{"start": start, "repo_id": createRepoID} })
+	var removeRepoID string
 	var forceRemove, deleteBranch, forceDeleteBranch bool
-	worktreeRemove := &cobra.Command{Use: "remove <path-or-branch> [repository-id]", Aliases: []string{"rm"}, Short: "Remove a Git worktree and optionally delete its branch", Args: rangeArgs("worktree remove requires a path or branch and optional repository ID", 1, 2)}
+	worktreeRemove := &cobra.Command{Use: "remove <path-or-branch>", Aliases: []string{"rm"}, Short: "Remove a Git worktree and optionally delete its branch", Args: exactArgs("worktree remove requires exactly one path or branch", 1)}
+	worktreeRemove.Flags().StringVar(&removeRepoID, "repo-id", "", "registered repository ID (defaults to current directory)")
 	worktreeRemove.Flags().BoolVar(&forceRemove, "force", false, "pass --force to git worktree remove")
 	worktreeRemove.Flags().BoolVar(&deleteBranch, "delete-branch", false, "safely delete the local branch after removal")
 	worktreeRemove.Flags().BoolVar(&forceDeleteBranch, "force-delete-branch", false, "force-delete the local branch after removal")
 	worktreeRemove.RunE = run(controller, "worktree.remove", func(*cobra.Command) map[string]any {
-		return map[string]any{"force": forceRemove, "delete_branch": deleteBranch, "force_delete_branch": forceDeleteBranch}
+		return map[string]any{"force": forceRemove, "delete_branch": deleteBranch, "force_delete_branch": forceDeleteBranch, "repo_id": removeRepoID}
 	})
+	var setupRepoID string
 	var rerun bool
-	setup := &cobra.Command{Use: "setup <worktree> [repository-id]", Short: "Run configured copy and setup actions", Args: rangeArgs("worktree setup requires a path and optional repository ID", 1, 2)}
+	setup := &cobra.Command{Use: "setup <worktree>", Short: "Run configured copy and setup actions", Args: exactArgs("worktree setup requires exactly one worktree", 1)}
+	setup.Flags().StringVar(&setupRepoID, "repo-id", "", "registered repository ID (defaults to current directory)")
 	setup.Flags().BoolVar(&rerun, "rerun", false, "rerun the configured action definition")
-	setup.RunE = run(controller, "worktree.setup", func(*cobra.Command) map[string]any { return map[string]any{"rerun": rerun} })
+	setup.RunE = run(controller, "worktree.setup", func(*cobra.Command) map[string]any { return map[string]any{"rerun": rerun, "repo_id": setupRepoID} })
+	var launchRepoID string
 	var relaunch bool
-	launch := &cobra.Command{Use: "launch <worktree> [repository-id]", Short: "Run the configured command in the worktree's tmux window", Args: rangeArgs("worktree launch requires a path and optional repository ID", 1, 2)}
+	launch := &cobra.Command{Use: "launch <worktree>", Short: "Run the configured command in the worktree's tmux window", Args: exactArgs("worktree launch requires exactly one worktree", 1)}
+	launch.Flags().StringVar(&launchRepoID, "repo-id", "", "registered repository ID (defaults to current directory)")
 	launch.Flags().BoolVar(&relaunch, "rerun", false, "rerun the configured launch definition")
-	launch.RunE = run(controller, "worktree.launch", func(*cobra.Command) map[string]any { return map[string]any{"rerun": relaunch} })
+	launch.RunE = run(controller, "worktree.launch", func(*cobra.Command) map[string]any { return map[string]any{"rerun": relaunch, "repo_id": launchRepoID} })
 	worktreeCmd.AddCommand(worktreePath, worktreeCreate, worktreeRemove, setup, launch)
 
-	attach := &cobra.Command{Use: "attach [repository-id]", Short: "Attach to a repository's managed tmux session", Args: rangeArgs("attach accepts at most one repository ID", 0, 1), RunE: run(controller, "attach", nil)}
-	var jsonOutput bool
-	status := &cobra.Command{Use: "status [repository-id]", Short: "Show worktree, tmux, and action status", Args: rangeArgs("status accepts at most one repository ID", 0, 1)}
+	var attachRepoID string
+	attach := &cobra.Command{Use: "attach", Short: "Attach to a repository's managed tmux session", Args: exactArgs("attach does not accept arguments", 0)}
+	attach.Flags().StringVar(&attachRepoID, "repo-id", "", "registered repository ID (defaults to current directory)")
+	attach.RunE = run(controller, "attach", func(*cobra.Command) map[string]any { return map[string]any{"repo_id": attachRepoID} })
+	var statusRepoID string
+	var jsonOutput, statusAll bool
+	status := &cobra.Command{Use: "status", Short: "Show worktree, tmux, and action status", Args: exactArgs("status does not accept arguments", 0)}
+	status.Flags().StringVar(&statusRepoID, "repo-id", "", "registered repository ID (defaults to current directory)")
+	status.Flags().BoolVar(&statusAll, "all", false, "show all registered repositories")
 	status.Flags().BoolVar(&jsonOutput, "json", false, "emit stable versioned JSON")
-	status.RunE = run(controller, "status", func(*cobra.Command) map[string]any { return map[string]any{"json": jsonOutput} })
-	reconcile := &cobra.Command{Use: "reconcile [repository-id]", Short: "Synchronize Git worktrees with managed tmux windows", Args: rangeArgs("reconcile accepts at most one repository ID", 0, 1), RunE: run(controller, "reconcile", nil)}
+	status.PreRunE = func(*cobra.Command, []string) error {
+		if statusRepoID != "" && statusAll {
+			return fmt.Errorf("choose only one of --repo-id or --all")
+		}
+		return nil
+	}
+	status.RunE = run(controller, "status", func(*cobra.Command) map[string]any {
+		return map[string]any{"json": jsonOutput, "repo_id": statusRepoID, "all": statusAll}
+	})
+	var reconcileRepoID string
+	var reconcileAll bool
+	reconcile := &cobra.Command{Use: "reconcile", Short: "Synchronize Git worktrees with managed tmux windows", Args: exactArgs("reconcile does not accept arguments", 0)}
+	reconcile.Flags().StringVar(&reconcileRepoID, "repo-id", "", "registered repository ID (defaults to current directory)")
+	reconcile.Flags().BoolVar(&reconcileAll, "all", false, "reconcile all registered repositories")
+	reconcile.PreRunE = func(*cobra.Command, []string) error {
+		if reconcileRepoID != "" && reconcileAll {
+			return fmt.Errorf("choose only one of --repo-id or --all")
+		}
+		return nil
+	}
+	reconcile.RunE = run(controller, "reconcile", func(*cobra.Command) map[string]any {
+		return map[string]any{"repo_id": reconcileRepoID, "all": reconcileAll}
+	})
 	var pruneID, orphanID string
 	cleanup := &cobra.Command{
 		Use:   "cleanup",

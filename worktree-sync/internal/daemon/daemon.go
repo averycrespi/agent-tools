@@ -43,7 +43,7 @@ func Run(ctx context.Context, paths config.Paths, service controller, logger *sl
 
 	reconcileNow := func(reason string) (config.Config, error) {
 		logger.Info("reconciling", "reason", reason)
-		output, reconcileErr := service.Execute(ctx, app.Request{Action: "reconcile"})
+		output, reconcileErr := service.Execute(ctx, app.Request{Action: "reconcile", Options: map[string]any{"all": true}})
 		if reconcileErr != nil {
 			logger.Warn("reconciliation degraded", "reason", reason, "error", reconcileErr)
 		} else {

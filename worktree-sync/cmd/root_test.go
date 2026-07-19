@@ -74,8 +74,12 @@ func TestEveryCommandUsesSpecificArgumentValidation(t *testing.T) {
 	tests := [][]string{
 		{"config", "path", "extra"}, {"config", "edit", "extra"}, {"config", "validate", "extra"}, {"config", "refresh", "extra"},
 		{"repo", "add", "one", "two"}, {"repo", "list", "extra"}, {"repo", "remove"},
-		{"worktree", "path"}, {"worktree", "create"}, {"worktree", "remove"}, {"worktree", "setup"}, {"worktree", "launch"},
-		{"attach", "one", "two"}, {"status", "one", "two"}, {"reconcile", "one", "two"}, {"cleanup", "extra"},
+		{"worktree", "path"}, {"worktree", "path", "branch", "repo"},
+		{"worktree", "create"}, {"worktree", "create", "branch", "repo"},
+		{"worktree", "remove"}, {"worktree", "remove", "branch", "repo"},
+		{"worktree", "setup"}, {"worktree", "setup", "branch", "repo"},
+		{"worktree", "launch"}, {"worktree", "launch", "branch", "repo"},
+		{"attach", "repo"}, {"status", "repo"}, {"reconcile", "repo"}, {"cleanup", "extra"},
 		{"daemon", "install", "extra"}, {"daemon", "uninstall", "extra"}, {"daemon", "start", "extra"}, {"daemon", "stop", "extra"}, {"daemon", "status", "extra"}, {"daemon", "logs", "extra"},
 	}
 	for _, args := range tests {
@@ -94,6 +98,45 @@ type recordingController struct{ request app.Request }
 func (c *recordingController) Execute(_ context.Context, request app.Request) (string, error) {
 	c.request = request
 	return "", nil
+}
+
+func TestOptionalRepositorySelectorsUseRepoIDFlag(t *testing.T) {
+	tests := []struct {
+		args   []string
+		action string
+	}{
+		{[]string{"worktree", "path", "branch", "--repo-id", "repo"}, "worktree.path"},
+		{[]string{"worktree", "create", "branch", "--repo-id", "repo"}, "worktree.create"},
+		{[]string{"worktree", "remove", "branch", "--repo-id", "repo"}, "worktree.remove"},
+		{[]string{"worktree", "setup", "branch", "--repo-id", "repo"}, "worktree.setup"},
+		{[]string{"worktree", "launch", "branch", "--repo-id", "repo"}, "worktree.launch"},
+		{[]string{"attach", "--repo-id", "repo"}, "attach"},
+		{[]string{"status", "--repo-id", "repo"}, "status"},
+		{[]string{"reconcile", "--repo-id", "repo"}, "reconcile"},
+	}
+	for _, tt := range tests {
+		controller := &recordingController{}
+		err := cmd.ExecuteWTS(context.Background(), controller, &bytes.Buffer{}, &bytes.Buffer{}, tt.args)
+		require.NoError(t, err, tt.args)
+		require.Equal(t, tt.action, controller.request.Action, tt.args)
+		require.Equal(t, "repo", controller.request.Options["repo_id"], tt.args)
+	}
+}
+
+func TestStatusAndReconcileSupportExplicitAll(t *testing.T) {
+	for _, action := range []string{"status", "reconcile"} {
+		controller := &recordingController{}
+		err := cmd.ExecuteWTS(context.Background(), controller, &bytes.Buffer{}, &bytes.Buffer{}, []string{action, "--all"})
+		require.NoError(t, err)
+		require.Equal(t, true, controller.request.Options["all"])
+	}
+}
+
+func TestRepoIDAndAllAreMutuallyExclusive(t *testing.T) {
+	for _, action := range []string{"status", "reconcile"} {
+		err := cmd.ExecuteWTS(context.Background(), &recordingController{}, &bytes.Buffer{}, &bytes.Buffer{}, []string{action, "--repo-id", "repo", "--all"})
+		require.ErrorContains(t, err, "choose only one")
+	}
 }
 
 func TestDaemonLogsForwardsHistoryAndFollowOptions(t *testing.T) {

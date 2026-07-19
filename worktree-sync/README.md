@@ -29,7 +29,7 @@ wts repo add --id my-repo \
   --worktree-root ~/.local/share/wt/worktrees/my-repo \
   /path/to/primary
 
-wts worktree create feature/example my-repo
+wts worktree create feature/example --repo-id my-repo
 wts status
 wts attach my-repo
 
@@ -49,16 +49,16 @@ Registration accepts only an existing primary non-bare worktree. Explicit worktr
 wts config path|edit|validate|refresh
 wts repo add|list|remove
 wts worktree path|create|remove|rm|setup|launch
-wts attach [repository-id]
-wts status [repository-id] [--json]
-wts reconcile [repository-id]
+wts attach [--repo-id repository-id]
+wts status [--repo-id repository-id | --all] [--json]
+wts reconcile [--repo-id repository-id | --all]
 wts cleanup [--prune-git repository-id] [--remove-orphaned-tmux repository-id]
 wts daemon install|uninstall|start|stop|status|logs
 ```
 
-Commands infer a repository from the current primary/worktree path only when the result is unambiguous. Otherwise supply its ID.
+Commands infer a repository from the current primary/worktree path only when the result is unambiguous. Otherwise use `--repo-id`. `status` and `reconcile` accept `--all` to target every registered repository.
 
-`wts worktree create <branch> [repo-id]` checks out an existing local branch or creates it from `--start <revision>` (the current HEAD by default). Paths are collision-safe under `<allowed-root>/<repo-id>/<branch-slug>`. `wts worktree remove` delegates worktree safety to Git. It never deletes a branch unless `--delete-branch` or `--force-delete-branch` is supplied; `--force` applies only to `git worktree remove`.
+`wts worktree create <branch> [--repo-id <id>]` checks out an existing local branch or creates it from `--start <revision>` (the current HEAD by default). Paths are collision-safe under `<allowed-root>/<repo-id>/<branch-slug>`. `wts worktree remove` delegates worktree safety to Git. It never deletes a branch unless `--delete-branch` or `--force-delete-branch` is supplied; `--force` applies only to `git worktree remove`.
 
 `wts config edit` uses `VISUAL` or `EDITOR`, validates the temporary edited copy, and atomically replaces the live file only when valid. `config refresh` fills newly introduced default fields without replacing repository values.
 

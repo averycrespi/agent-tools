@@ -95,7 +95,7 @@ func (s *Service) Execute(ctx context.Context, request app.Request) (string, err
 	case "repo.remove":
 		return s.removeRepo(ctx, request.Args[0])
 	case "worktree.path":
-		return s.worktreePath(ctx, request.Args)
+		return s.worktreePath(ctx, request.Args[0], optionString(request.Options, "repo_id"))
 	case "worktree.create":
 		return s.createWorktree(ctx, request)
 	case "worktree.remove":
@@ -105,11 +105,11 @@ func (s *Service) Execute(ctx context.Context, request app.Request) (string, err
 	case "worktree.launch":
 		return s.runLaunch(ctx, request)
 	case "attach":
-		return "", s.attach(ctx, request.Args)
+		return "", s.attach(ctx, optionString(request.Options, "repo_id"))
 	case "status":
-		return s.status(ctx, request.Args, optionBool(request.Options, "json"))
+		return s.status(ctx, optionString(request.Options, "repo_id"), optionBool(request.Options, "all"), optionBool(request.Options, "json"))
 	case "reconcile":
-		return s.reconcile(ctx, request.Args)
+		return s.reconcile(ctx, optionString(request.Options, "repo_id"), optionBool(request.Options, "all"))
 	case "cleanup":
 		return s.cleanup(ctx, optionString(request.Options, "prune_git"), optionString(request.Options, "remove_orphaned_tmux"))
 	case "daemon.install", "daemon.uninstall", "daemon.start", "daemon.stop", "daemon.status", "daemon.logs":
@@ -340,16 +340,12 @@ func (s *Service) pathFor(repo config.Repository, branch string) string {
 	return naming.Path(repo.AllowedRoots[0], repo.ID, branch, repo.RepositoryIdentity+"\x00"+branch, occupied)
 }
 
-func (s *Service) worktreePath(ctx context.Context, args []string) (string, error) {
+func (s *Service) worktreePath(ctx context.Context, branch, repoID string) (string, error) {
 	cfg, err := config.Load(s.paths.Config)
 	if err != nil {
 		return "", err
 	}
-	id := ""
-	if len(args) == 2 {
-		id = args[1]
-	}
-	repo, err := s.resolveRepo(ctx, cfg, id)
+	repo, err := s.resolveRepo(ctx, cfg, repoID)
 	if err != nil {
 		return "", err
 	}
@@ -358,11 +354,11 @@ func (s *Service) worktreePath(ctx context.Context, args []string) (string, erro
 		return "", err
 	}
 	for _, worktree := range snapshot.Worktrees {
-		if worktree.Branch == args[0] && worktree.Exclusion == "" {
+		if worktree.Branch == branch && worktree.Exclusion == "" {
 			return worktree.Path, nil
 		}
 	}
-	return s.pathFor(repo, args[0]), nil
+	return s.pathFor(repo, branch), nil
 }
 
 func (s *Service) createWorktree(ctx context.Context, request app.Request) (string, error) {
@@ -375,11 +371,7 @@ func (s *Service) createWorktree(ctx context.Context, request app.Request) (stri
 	if err != nil {
 		return "", err
 	}
-	id := ""
-	if len(request.Args) == 2 {
-		id = request.Args[1]
-	}
-	repo, err := s.resolveRepo(ctx, cfg, id)
+	repo, err := s.resolveRepo(ctx, cfg, optionString(request.Options, "repo_id"))
 	if err != nil {
 		return "", err
 	}
@@ -473,11 +465,7 @@ func (s *Service) removeWorktree(ctx context.Context, request app.Request) (stri
 	if err != nil {
 		return "", err
 	}
-	id := ""
-	if len(request.Args) == 2 {
-		id = request.Args[1]
-	}
-	repo, err := s.resolveRepo(ctx, cfg, id)
+	repo, err := s.resolveRepo(ctx, cfg, optionString(request.Options, "repo_id"))
 	if err != nil {
 		return "", err
 	}
@@ -525,11 +513,7 @@ func (s *Service) explicitAction(ctx context.Context, request app.Request, launc
 	if err != nil {
 		return "", err
 	}
-	id := ""
-	if len(request.Args) == 2 {
-		id = request.Args[1]
-	}
-	repo, err := s.resolveRepo(ctx, cfg, id)
+	repo, err := s.resolveRepo(ctx, cfg, optionString(request.Options, "repo_id"))
 	if err != nil {
 		return "", err
 	}
@@ -610,16 +594,12 @@ func (s *Service) runLaunch(ctx context.Context, request app.Request) (string, e
 	return s.explicitAction(ctx, request, true)
 }
 
-func (s *Service) attach(ctx context.Context, args []string) error {
+func (s *Service) attach(ctx context.Context, repoID string) error {
 	cfg, err := config.Load(s.paths.Config)
 	if err != nil {
 		return err
 	}
-	id := ""
-	if len(args) == 1 {
-		id = args[0]
-	}
-	repo, err := s.resolveRepo(ctx, cfg, id)
+	repo, err := s.resolveRepo(ctx, cfg, repoID)
 	if err != nil {
 		return err
 	}
@@ -630,7 +610,7 @@ func (s *Service) attach(ctx context.Context, args []string) error {
 	return tmuxClient.Attach(ctx, "wts-"+repo.ID)
 }
 
-func (s *Service) reconcile(ctx context.Context, args []string) (string, error) {
+func (s *Service) reconcile(ctx context.Context, repoID string, all bool) (string, error) {
 	lock, err := s.acquire(ctx, "operation")
 	if err != nil {
 		return "", err
@@ -641,8 +621,8 @@ func (s *Service) reconcile(ctx context.Context, args []string) (string, error) 
 		return "", err
 	}
 	repositories := cfg.Repositories
-	if len(args) == 1 {
-		repo, resolveErr := s.resolveRepo(ctx, cfg, args[0])
+	if !all {
+		repo, resolveErr := s.resolveRepo(ctx, cfg, repoID)
 		if resolveErr != nil {
 			return "", resolveErr
 		}
@@ -681,14 +661,14 @@ func (s *Service) reconcile(ctx context.Context, args []string) (string, error) 
 	return strings.Join(summaries, "\n"), errors.Join(errs...)
 }
 
-func (s *Service) status(ctx context.Context, args []string, jsonOutput bool) (string, error) {
+func (s *Service) status(ctx context.Context, repoID string, all, jsonOutput bool) (string, error) {
 	cfg, err := config.Load(s.paths.Config)
 	if err != nil {
 		return "", err
 	}
 	repos := cfg.Repositories
-	if len(args) == 1 {
-		repo, resolveErr := s.resolveRepo(ctx, cfg, args[0])
+	if !all {
+		repo, resolveErr := s.resolveRepo(ctx, cfg, repoID)
 		if resolveErr != nil {
 			return "", resolveErr
 		}
@@ -801,7 +781,7 @@ func (s *Service) cleanup(ctx context.Context, pruneID, orphanID string) (string
 		return "", err
 	}
 	if pruneID == "" && orphanID == "" {
-		output, statusErr := s.status(ctx, nil, false)
+		output, statusErr := s.status(ctx, "", true, false)
 		return "dry run; no changes applied\n" + output, statusErr
 	}
 	lines := make([]string, 0)
