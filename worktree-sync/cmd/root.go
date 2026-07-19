@@ -73,11 +73,13 @@ func NewWTS(controller app.Controller) *cobra.Command {
 	worktreePath := &cobra.Command{Use: "path <branch>", Short: "Print the existing or planned path for a branch", Args: exactArgs("worktree path requires exactly one branch", 1)}
 	worktreePath.Flags().StringVar(&pathRepoID, "repo-id", "", "registered repository ID (defaults to current directory)")
 	worktreePath.RunE = run(controller, "worktree.path", func(*cobra.Command) map[string]any { return map[string]any{"repo_id": pathRepoID} })
-	var start, createRepoID string
+	var branchFrom, createRepoID string
 	worktreeCreate := &cobra.Command{Use: "create <branch>", Short: "Create a Git worktree and reconcile its tmux window", Args: exactArgs("worktree create requires exactly one branch", 1)}
-	worktreeCreate.Flags().StringVar(&start, "start", "", "start point for a new local branch")
+	worktreeCreate.Flags().StringVar(&branchFrom, "from", "", "revision from which to create a new branch")
 	worktreeCreate.Flags().StringVar(&createRepoID, "repo-id", "", "registered repository ID (defaults to current directory)")
-	worktreeCreate.RunE = run(controller, "worktree.create", func(*cobra.Command) map[string]any { return map[string]any{"start": start, "repo_id": createRepoID} })
+	worktreeCreate.RunE = run(controller, "worktree.create", func(*cobra.Command) map[string]any {
+		return map[string]any{"from": branchFrom, "repo_id": createRepoID}
+	})
 	var removeRepoID string
 	var forceRemove, deleteBranch, forceDeleteBranch bool
 	worktreeRemove := &cobra.Command{Use: "remove <path-or-branch>", Aliases: []string{"rm"}, Short: "Remove a Git worktree and optionally delete its branch", Args: exactArgs("worktree remove requires exactly one path or branch", 1)}

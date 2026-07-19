@@ -398,7 +398,7 @@ func (s *Service) createWorktree(ctx context.Context, request app.Request) (stri
 	if err != nil {
 		return "", err
 	}
-	if err := git.Add(ctx, repo.PrimaryRoot, path, branch, optionString(request.Options, "start"), exists); err != nil {
+	if err := git.Add(ctx, repo.PrimaryRoot, path, branch, optionString(request.Options, "from"), exists); err != nil {
 		return "", err
 	}
 	canonical, err := config.CanonicalExisting(path)

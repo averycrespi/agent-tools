@@ -58,7 +58,7 @@ wts daemon install|uninstall|start|stop|status|logs
 
 Commands infer a repository from the current primary/worktree path only when the result is unambiguous. Otherwise use `--repo-id`. `status` and `reconcile` accept `--all` to target every registered repository.
 
-`wts worktree create <branch> [--repo-id <id>]` checks out an existing local branch or creates it from `--start <revision>` (the current HEAD by default). Paths are collision-safe under `<allowed-root>/<repo-id>/<branch-slug>`. `wts worktree remove` delegates worktree safety to Git. It never deletes a branch unless `--delete-branch` or `--force-delete-branch` is supplied; `--force` applies only to `git worktree remove`.
+`wts worktree create <branch> [--repo-id <id>]` checks out an existing local branch or creates a missing branch from `--from <revision>` (the current HEAD by default). `--from` is rejected when the branch already exists. Paths are collision-safe under `<allowed-root>/<repo-id>/<branch-slug>`. `wts worktree remove` delegates worktree safety to Git. It never deletes a branch unless `--delete-branch` or `--force-delete-branch` is supplied; `--force` applies only to `git worktree remove`.
 
 `wts config edit` uses `VISUAL` or `EDITOR`, validates the temporary edited copy, and atomically replaces the live file only when valid. `config refresh` fills newly introduced default fields without replacing repository values.
 

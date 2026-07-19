@@ -52,7 +52,7 @@ func TestExplicitLifecycleStatusBranchSafetyCleanupAndUnregister(t *testing.T) {
 	pathOutput, err := controller.Execute(context.Background(), forRepo("worktree.path", []string{"feature"}, nil))
 	require.NoError(t, err)
 	require.Equal(t, expected, pathOutput)
-	created, err := controller.Execute(context.Background(), forRepo("worktree.create", []string{"feature"}, map[string]any{"start": ""}))
+	created, err := controller.Execute(context.Background(), forRepo("worktree.create", []string{"feature"}, map[string]any{"from": ""}))
 	require.NoError(t, err)
 	require.Equal(t, expected, created)
 	again, err := controller.Execute(context.Background(), forRepo("worktree.path", []string{"feature"}, nil))

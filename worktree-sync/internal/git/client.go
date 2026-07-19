@@ -181,7 +181,10 @@ func worktreeIdentity(gitDir string) (string, error) {
 	return fmt.Sprintf("%s#%v:%v", gitDir, device.Interface(), inode.Interface()), nil
 }
 
-func (c *Client) Add(ctx context.Context, root, path, branch, start string, existing bool) error {
+func (c *Client) Add(ctx context.Context, root, path, branch, from string, existing bool) error {
+	if existing && from != "" {
+		return fmt.Errorf("branch %q already exists; --from applies only when creating a new branch", branch)
+	}
 	args := []string{"worktree", "add", "--quiet"}
 	if !existing {
 		args = append(args, "-b", branch)
@@ -189,8 +192,8 @@ func (c *Client) Add(ctx context.Context, root, path, branch, start string, exis
 	args = append(args, path)
 	if existing {
 		args = append(args, branch)
-	} else if start != "" {
-		args = append(args, start)
+	} else if from != "" {
+		args = append(args, from)
 	}
 	_, err := c.run(ctx, root, args...)
 	return err

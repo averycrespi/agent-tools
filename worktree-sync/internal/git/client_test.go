@@ -24,6 +24,9 @@ type fakeRunner struct {
 
 func (f *fakeRunner) Run(_ context.Context, dir, name string, args ...string) ([]byte, error) {
 	f.calls = append(f.calls, append([]string{dir, name}, args...))
+	if len(f.responses) == 0 {
+		return nil, nil
+	}
 	response := f.responses[0]
 	f.responses = f.responses[1:]
 	return response.output, response.err
@@ -89,6 +92,20 @@ func TestGitErrorDoesNotExposeCommandOutput(t *testing.T) {
 	_, err := gitclient.New(runner, time.Second).ListRaw(context.Background(), "/repo")
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "token=secret")
+}
+
+func TestAddCreatesMissingBranchFromRevision(t *testing.T) {
+	runner := &fakeRunner{}
+	err := gitclient.New(runner, time.Second).Add(context.Background(), "/repo", "/worktree", "feature", "origin/main", false)
+	require.NoError(t, err)
+	require.Equal(t, []string{"/repo", "git", "worktree", "add", "--quiet", "-b", "feature", "/worktree", "origin/main"}, runner.calls[0])
+}
+
+func TestAddRejectsBranchOriginWhenBranchAlreadyExists(t *testing.T) {
+	runner := &fakeRunner{}
+	err := gitclient.New(runner, time.Second).Add(context.Background(), "/repo", "/worktree", "feature", "origin/main", true)
+	require.ErrorContains(t, err, "already exists")
+	require.Empty(t, runner.calls)
 }
 
 func TestBranchExistsDistinguishesMissingBranchFromCommandFailure(t *testing.T) {

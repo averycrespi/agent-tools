@@ -123,6 +123,13 @@ func TestOptionalRepositorySelectorsUseRepoIDFlag(t *testing.T) {
 	}
 }
 
+func TestWorktreeCreateForwardsBranchOrigin(t *testing.T) {
+	controller := &recordingController{}
+	err := cmd.ExecuteWTS(context.Background(), controller, &bytes.Buffer{}, &bytes.Buffer{}, []string{"worktree", "create", "feature", "--from", "origin/main"})
+	require.NoError(t, err)
+	require.Equal(t, "origin/main", controller.request.Options["from"])
+}
+
 func TestStatusAndReconcileSupportExplicitAll(t *testing.T) {
 	for _, action := range []string{"status", "reconcile"} {
 		controller := &recordingController{}
