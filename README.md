@@ -13,7 +13,6 @@ This repo is opinionated. It provides structured worktree management, sandboxed 
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
 - **[Telegram MCP](#telegram-mcp)** — Minimal stdio MCP server for sending Telegram notifications
 - **[Pi Session Analyzer](#pi-session-analyzer)** — Private local Pi session diagnostics and read-only MCP queries
-- **[Hindsight](#hindsight)** — Local memory server stack for AI agents
 
 ## How the Tools Fit Together
 
@@ -27,7 +26,6 @@ Requirements:
 - Node.js and npm for development hooks and document formatting
 - GNU Make
 - macOS for `sandbox-manager` (requires Lima)
-- Docker Compose for the auxiliary `hindsight/` stack
 
 ```bash
 # First-time setup on macOS: install Homebrew deps, dev deps/hooks, and all Go tools
@@ -142,19 +140,6 @@ Pi's local JSONL transcripts contain goal state, compactions, broker guards, too
 - Exposes six bounded, closed-world read-only MCP tools, including guarded read-only SQL, for use behind `mcp-broker`.
 
 See the [pi-session-analyzer README](pi-session-analyzer/README.md) for setup, trust-boundary details, detector semantics, and limits.
-
-### Hindsight
-
-The auxiliary `hindsight/` directory contains a local Docker Compose stack for [Hindsight](https://github.com/vectorize-io/hindsight), used as persistent memory for AI agents. It is not part of `go.work` or `make install`.
-
-It includes:
-
-- Hindsight API and Control Plane with Codex OAuth provider credentials mounted for model access
-- PostgreSQL with `pgvector` for persistent memory storage
-- Local compressed database backups under XDG state by default
-- Bearer API-key auth for the Hindsight API and localhost-only port bindings
-
-See the [Hindsight README](hindsight/README.md) for setup and usage.
 
 ## Related
 

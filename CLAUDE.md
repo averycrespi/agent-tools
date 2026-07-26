@@ -12,10 +12,9 @@ local-git-mcp/       Stdio MCP server for authenticated git remote operations �
 local-gomod-proxy/  Host-side Go module proxy for sandboxed agents — see local-gomod-proxy/CLAUDE.md
 telegram-mcp/       Minimal stdio MCP server for sending Telegram notifications — see telegram-mcp/CLAUDE.md
 pi-session-analyzer/ Private local Pi session diagnostics and read-only MCP — see pi-session-analyzer/CLAUDE.md
-hindsight/          Auxiliary Docker Compose memory stack — see hindsight/README.md
 ```
 
-Each Go tool has its own `CLAUDE.md` with tool-specific instructions. `hindsight/` is an auxiliary Docker Compose stack, not a Go tool.
+Each Go tool has its own `CLAUDE.md` with tool-specific instructions.
 
 ## Development
 
@@ -31,7 +30,7 @@ Targets are forwarded to each tool's Makefile. Run from any subdirectory for a s
 
 ## Service Layout
 
-Each Go tool is a separate Go module under `go.work` and follows the same baseline so structure is predictable. When adding a new Go tool or looking for the expected shape, mirror an existing tool (e.g. `worktree-manager/`) as a template — file layout, Makefile targets, and package organization should match. Auxiliary non-Go stacks such as `hindsight/` are documented separately and are not forwarded by the root Makefile.
+Each Go tool is a separate Go module under `go.work` and follows the same baseline so structure is predictable. When adding a new Go tool or looking for the expected shape, mirror an existing tool (e.g. `worktree-manager/`) as a template — file layout, Makefile targets, and package organization should match.
 
 ## Go Conventions
 

@@ -27,7 +27,6 @@ go.work.sum
 
 # env files
 .env
-hindsight/.env
 
 # Editor/IDE
 # .idea/

@@ -65,10 +65,6 @@
   <rect class="node host-node" x="940" y="385" width="150" height="50" />
   <text class="label" x="1015" y="410">Local Git MCP</text>
 
-  <rect class="node host-node" x="1135" y="275" width="115" height="58" />
-  <text class="label" x="1192" y="296">Hindsight</text>
-  <text class="label" x="1192" y="314">MCP</text>
-
   <rect class="node host-node" x="940" y="475" width="150" height="50" />
   <text class="label" x="1015" y="500">Telegram MCP</text>
 
@@ -97,7 +93,6 @@
   <rect class="label-bg" x="770" y="328" width="70" height="18" />
   <text class="edge-label" x="805" y="341">MCP calls</text>
   <path class="mcp" d="M1015 333 L1015 382" />
-  <path class="mcp" d="M1090 304 L1132 304" />
   <path class="mcp" d="M990 333 L900 333 L900 500 L937 500" />
   <path class="proxy" d="M720 404 L937 614" />
   <rect class="label-bg" x="770" y="462" width="66" height="18" />

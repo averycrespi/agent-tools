@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -24,15 +23,6 @@ func isUnauthorized(err error) bool {
 	return client.IsOAuthAuthorizationRequiredError(err) ||
 		client.IsAuthorizationRequiredError(err) ||
 		errors.Is(err, transport.ErrUnauthorized)
-}
-
-// ErrSessionTerminated covers the standard stale-session response. Hindsight
-// may instead return a JSON-RPC error containing "Missing session ID"; mcp-go
-// exposes no typed sentinel for that response, so match its message as a
-// compatibility fallback.
-func isSessionInvalid(err error) bool {
-	return errors.Is(err, transport.ErrSessionTerminated) ||
-		strings.Contains(strings.ToLower(err.Error()), "missing session id")
 }
 
 func httpBackendTimeout(srv config.ServerConfig) time.Duration {
@@ -184,7 +174,7 @@ func (b *httpBackend) ListTools(ctx context.Context) ([]Tool, error) {
 	staleClient := b.client
 	resp, err := call(staleClient)
 	b.mu.RUnlock()
-	if err != nil && isSessionInvalid(err) && b.reconnect != nil {
+	if err != nil && errors.Is(err, transport.ErrSessionTerminated) && b.reconnect != nil {
 		if reconnectErr := b.reconnectClient(ctx, staleClient); reconnectErr != nil {
 			return nil, fmt.Errorf("reconnect after invalid MCP session: %w", reconnectErr)
 		}
@@ -222,7 +212,7 @@ func (b *httpBackend) CallTool(ctx context.Context, name string, arguments map[s
 	staleClient := b.client
 	resp, err := call(staleClient)
 	b.mu.RUnlock()
-	if err != nil && isSessionInvalid(err) && b.reconnect != nil {
+	if err != nil && errors.Is(err, transport.ErrSessionTerminated) && b.reconnect != nil {
 		if reconnectErr := b.reconnectClient(ctx, staleClient); reconnectErr != nil {
 			return nil, fmt.Errorf("reconnect after invalid MCP session: %w", reconnectErr)
 		}
