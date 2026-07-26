@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1350" height="820" viewBox="0 0 1350 820" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1350" height="740" viewBox="0 0 1350 740" role="img" aria-labelledby="title desc">
   <title id="title">Agent Tools relationship diagram</title>
-  <desc id="desc">Diagram showing host tools around a Lima sandbox, Worktree Sync observing host-visible Git worktrees and controlling isolated tmux resources, a host worktree mounted into the sandbox, MCP and proxy traffic through host services, and Pi session logs flowing into an analyzer behind the MCP Broker.</desc>
+  <desc id="desc">Diagram showing host tools around a Lima sandbox, Worktree Sync observing host-visible Git worktrees and controlling isolated tmux resources, a host worktree mounted into the sandbox, and MCP and proxy traffic through host services.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569" />
@@ -28,14 +28,15 @@
     </style>
   </defs>
 
-  <rect class="canvas" width="1350" height="820" />
+  <rect class="canvas" width="1350" height="740" />
   <text class="title" x="40" y="42">How the tools fit together</text>
 
-  <rect class="group host" x="40" y="95" width="1270" height="635" />
+  <rect class="group host" x="40" y="95" width="1270" height="555" />
   <text class="title" x="70" y="130">Host machine</text>
 
-  <rect class="group sandbox" x="490" y="190" width="310" height="360" />
-  <text class="title" x="610" y="223" text-anchor="middle">Lima sandbox</text>
+  <g transform="translate(0 -80)">
+  <rect class="group sandbox" x="490" y="295" width="310" height="255" />
+  <text class="title" x="610" y="328" text-anchor="middle">Lima sandbox</text>
 
   <rect class="node host-node" x="85" y="465" width="150" height="58" />
   <text class="label" x="160" y="494">Worktree Manager</text>
@@ -59,22 +60,11 @@
   <rect class="node workspace-node" x="570" y="465" width="150" height="58" />
   <text class="label" x="645" y="494">Mounted worktree</text>
 
-  <rect class="node workspace-node" x="570" y="255" width="150" height="58" />
-  <text class="label" x="645" y="284">Pi session logs</text>
-
-  <rect class="node host-node" x="940" y="165" width="150" height="58" />
-  <text class="label" x="1015" y="186">Pi Session</text>
-  <text class="label" x="1015" y="204">Analyzer</text>
-
   <rect class="node host-node" x="940" y="275" width="150" height="58" />
   <text class="label" x="1015" y="304">MCP Broker</text>
 
   <rect class="node host-node" x="940" y="385" width="150" height="50" />
   <text class="label" x="1015" y="410">Local Git MCP</text>
-
-  <rect class="node host-node" x="1135" y="275" width="115" height="58" />
-  <text class="label" x="1192" y="296">Hindsight</text>
-  <text class="label" x="1192" y="314">MCP</text>
 
   <rect class="node host-node" x="940" y="475" width="150" height="50" />
   <text class="label" x="1015" y="500">Telegram MCP</text>
@@ -92,7 +82,7 @@
   <text class="label" x="1192" y="614">Go modules</text>
 
   <path class="edge" d="M235 494 L292 494" />
-  <path class="edge" d="M330 523 L235 570" />
+  <path class="edge" d="M235 570 L330 523" />
   <rect class="label-bg" x="244" y="534" width="65" height="18" />
   <text class="edge-label" x="276" y="547">observes</text>
   <path class="edge" d="M235 599 L292 599" />
@@ -101,14 +91,12 @@
   <path class="mount" d="M445 494 L567 494" />
   <rect class="label-bg" x="488" y="466" width="76" height="18" />
   <text class="edge-label" x="526" y="479">Lima mount</text>
-  <path class="edge" d="M645 360 L645 316" />
   <path class="edge" d="M645 418 L645 462" />
 
   <path class="mcp" d="M720 389 L937 304" />
   <rect class="label-bg" x="770" y="328" width="70" height="18" />
   <text class="edge-label" x="805" y="341">MCP calls</text>
   <path class="mcp" d="M1015 333 L1015 382" />
-  <path class="mcp" d="M1090 304 L1132 304" />
   <path class="mcp" d="M990 333 L900 333 L900 500 L937 500" />
   <path class="proxy" d="M720 404 L937 614" />
   <rect class="label-bg" x="770" y="462" width="66" height="18" />
@@ -117,16 +105,14 @@
   <path class="edge" d="M1090 410 L1132 410" />
   <path class="edge" d="M1090 500 L1132 500" />
   <path class="edge" d="M1090 614 L1132 614" />
+  </g>
 
-  <path class="edge" d="M720 284 L937 194" />
-  <path class="mcp" d="M1015 275 L1015 226" />
-
-  <rect class="node host-node" x="40" y="780" width="14" height="14" />
-  <text class="legend-text" x="62" y="792">Host tool</text>
-  <rect class="node sandbox-node" x="145" y="780" width="14" height="14" />
-  <text class="legend-text" x="167" y="792">Sandbox runtime</text>
-  <rect class="node workspace-node" x="295" y="780" width="14" height="14" />
-  <text class="legend-text" x="317" y="792">Local data/workspace</text>
-  <rect class="node external-node" x="480" y="780" width="14" height="14" />
-  <text class="legend-text" x="502" y="792">External service</text>
+  <rect class="node host-node" x="40" y="700" width="14" height="14" />
+  <text class="legend-text" x="62" y="712">Host tool</text>
+  <rect class="node sandbox-node" x="145" y="700" width="14" height="14" />
+  <text class="legend-text" x="167" y="712">Sandbox runtime</text>
+  <rect class="node workspace-node" x="295" y="700" width="14" height="14" />
+  <text class="legend-text" x="317" y="712">Local data/workspace</text>
+  <rect class="node external-node" x="480" y="700" width="14" height="14" />
+  <text class="legend-text" x="502" y="712">External service</text>
 </svg>
