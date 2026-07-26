@@ -4,8 +4,6 @@
 
 set -euo pipefail
 
-command_exists() { command -v "$1" &>/dev/null; }
-
 cd ~/work/agent-tools
 
 NODE_VERSION=$(awk '$1 == "nodejs" { print $2 }' .tool-versions)
