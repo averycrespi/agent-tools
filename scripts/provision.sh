@@ -1,5 +1,6 @@
 #!/bin/bash
 # Provisioning script for https://github.com/averycrespi/agent-tools/tree/main/sandbox-manager
+# Assumes that the repo is located at ~/work/agent-tools
 
 set -euo pipefail
 
@@ -31,5 +32,5 @@ asdf install golang "$GO_VERSION"
 echo "Reshimming asdf golang"
 asdf reshim golang
 
-echo "Installing agent-tools dependencies"
+echo "Installing dev dependencies"
 make install-dev
