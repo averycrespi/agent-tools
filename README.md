@@ -12,7 +12,6 @@ This repo is opinionated. It provides structured worktree management, sandboxed 
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
 - **[Telegram MCP](#telegram-mcp)** — Minimal stdio MCP server for sending Telegram notifications
-- **[Pi Session Analyzer](#pi-session-analyzer)** — Private local Pi session diagnostics and read-only MCP queries
 
 ## How the Tools Fit Together
 
@@ -47,7 +46,6 @@ cd mcp-broker && make install
 cd local-git-mcp && make install
 cd local-gomod-proxy && make install
 cd telegram-mcp && make install
-cd pi-session-analyzer && make install
 ```
 
 ## Tools
@@ -129,17 +127,6 @@ Agents sometimes need a direct way to notify the human operator when work finish
 - No general Telegram client features — no arbitrary recipients, media upload, receiving messages, or chat administration.
 
 See the [telegram-mcp README](telegram-mcp/README.md) for more information.
-
-### Pi Session Analyzer
-
-Pi's local JSONL transcripts contain goal state, compactions, broker guards, tool outcomes, and usage details that generic provider traces miss. `pi-session-analyzer` passively indexes those logs into a private local SQLite database and runs deterministic structural and guarded heuristic detectors.
-
-- Tolerantly ingests all known Pi record types while skipping malformed or unknown records.
-- Removes assistant thinking and credential values before persistence; identifiers remain, so the database is private and non-share-safe.
-- Reports session summaries and traceable classified findings through CLI commands.
-- Exposes six bounded, closed-world read-only MCP tools, including guarded read-only SQL, for use behind `mcp-broker`.
-
-See the [pi-session-analyzer README](pi-session-analyzer/README.md) for setup, trust-boundary details, detector semantics, and limits.
 
 ## Related
 

@@ -11,7 +11,6 @@ sandbox-manager/     Lima VM sandbox manager for isolated agent environments —
 local-git-mcp/       Stdio MCP server for authenticated git remote operations — see local-git-mcp/CLAUDE.md
 local-gomod-proxy/  Host-side Go module proxy for sandboxed agents — see local-gomod-proxy/CLAUDE.md
 telegram-mcp/       Minimal stdio MCP server for sending Telegram notifications — see telegram-mcp/CLAUDE.md
-pi-session-analyzer/ Private local Pi session diagnostics and read-only MCP — see pi-session-analyzer/CLAUDE.md
 ```
 
 Each Go tool has its own `CLAUDE.md` with tool-specific instructions.

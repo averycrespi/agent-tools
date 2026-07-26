@@ -3,9 +3,8 @@ go 1.25.12
 use (
 	./local-git-mcp
 	./local-gomod-proxy
-	./telegram-mcp
 	./mcp-broker
-	./pi-session-analyzer
 	./sandbox-manager
+	./telegram-mcp
 	./worktree-manager
 )
