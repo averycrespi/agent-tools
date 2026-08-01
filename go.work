@@ -1,6 +1,7 @@
 go 1.25.12
 
 use (
+	./egress-broker
 	./local-git-mcp
 	./local-gomod-proxy
 	./mcp-broker
