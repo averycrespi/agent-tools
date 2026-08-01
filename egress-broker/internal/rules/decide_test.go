@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 
@@ -494,5 +495,31 @@ func TestPathNormalizationPreservesTrailingSlash(t *testing.T) {
 
 	if got := e.Evaluate("api.example.com", 443, "GET", "/admin/"); got.Action != rules.RequestDeny {
 		t.Errorf(`Evaluate("/admin/") = %q, want deny`, got.Action)
+	}
+}
+
+// TestPathNormalizationHandlesEncodedTraversal: Go decodes percent-escapes
+// into URL.Path before we see it, so the encoded spellings collapse the same
+// way. Pinned because matching RawPath instead would silently reopen the gap.
+func TestPathNormalizationHandlesEncodedTraversal(t *testing.T) {
+	e := engine(t, rules.FallthroughTunnel,
+		rules.Rule{Name: "no-admin", Host: "h", Path: "/admin/**", Mode: rules.ModeDeny})
+
+	raws := []string{
+		"/%2e%2e/admin/secret",
+		"/public/%2e%2e/admin/secret",
+		"/%2E%2E/admin/secret",
+		"/%2f%2fadmin/secret",
+		"/admin%2fsecret",
+		"/public/..%2fadmin/secret",
+	}
+	for _, raw := range raws {
+		u, err := url.Parse("https://h" + raw)
+		if err != nil {
+			t.Fatalf("parsing %q: %v", raw, err)
+		}
+		if got := e.Evaluate("h", 443, "GET", u.Path); got.Action != rules.RequestDeny {
+			t.Errorf("%s (decoded %q) = %q, want deny", raw, u.Path, got.Action)
+		}
 	}
 }
