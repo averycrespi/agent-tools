@@ -470,7 +470,66 @@ func TestDialRejectsEmptyResolverAnswer(t *testing.T) {
 	}
 }
 
+// TestDialFallsBackToTheNextValidatedAddress is the dual-stack case.
+//
+// LookupNetIP("ip") returns AAAA and A records together, so on an IPv4-only
+// host the first address is unreachable. Stopping there failed every request
+// to a dual-stack upstream with a validated, reachable address in hand. Every
+// address has already passed CheckAddr, so trying the rest gives up nothing.
+func TestDialFallsBackToTheNextValidatedAddress(t *testing.T) {
+	rec := &failingDialer{failAddrs: map[string]bool{"[2606:2800:220:1:248:1893:25c8:1946]:443": true}}
+	d := netguard.NewWith(rec.dial, staticResolver{
+		"dual.test": {"2606:2800:220:1:248:1893:25c8:1946", "93.184.216.34"},
+	})
+
+	if _, err := d.DialContext(context.Background(), "tcp", "dual.test:443"); err != nil {
+		t.Fatalf("DialContext = %v, want the IPv4 address tried after the IPv6 one failed", err)
+	}
+	if got := rec.last(); got != "93.184.216.34:443" {
+		t.Errorf("dialled %q last, want the fallback address 93.184.216.34:443", got)
+	}
+}
+
+// TestDialReportsTheFailureWhenEveryAddressFails keeps the fallback from
+// swallowing a genuinely unreachable upstream.
+func TestDialReportsTheFailureWhenEveryAddressFails(t *testing.T) {
+	rec := &failingDialer{failAll: true}
+	d := netguard.NewWith(rec.dial, staticResolver{
+		"dead.test": {"93.184.216.34", "93.184.216.35"},
+	})
+
+	if _, err := d.DialContext(context.Background(), "tcp", "dead.test:443"); err == nil {
+		t.Error("DialContext = nil, want the dial failure reported")
+	}
+	if got := rec.calls.Load(); got != 2 {
+		t.Errorf("dialled %d times, want every validated address tried", got)
+	}
+}
+
 // --- test doubles -----------------------------------------------------------
+
+// failingDialer fails the addresses it is told to and records every attempt.
+type failingDialer struct {
+	failAll   bool
+	failAddrs map[string]bool
+
+	calls atomic.Int64
+	addr  atomic.Value
+}
+
+func (f *failingDialer) dial(_ context.Context, _, addr string) (net.Conn, error) {
+	f.calls.Add(1)
+	f.addr.Store(addr)
+	if f.failAll || f.failAddrs[addr] {
+		return nil, errors.New("connect: network is unreachable")
+	}
+	return nil, nil //nolint:nilnil // the tests assert on the recorded address, not on a connection
+}
+
+func (f *failingDialer) last() string {
+	v, _ := f.addr.Load().(string)
+	return v
+}
 
 type recordingDialer struct {
 	calls atomic.Int64

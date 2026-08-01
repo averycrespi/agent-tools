@@ -374,6 +374,26 @@ func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Con
 		}
 	}
 
-	// Dial the address that was checked, not the name that produced it.
-	return d.dial(ctx, network, net.JoinHostPort(addrs[0].Unmap().String(), port))
+	// Dial the addresses that were checked, not the name that produced them.
+	//
+	// Every address in the slice has already passed CheckAddr, so trying the
+	// rest after a connection failure gives up none of the rebinding
+	// guarantee. Stopping at the first is what a dual-stack upstream trips
+	// over: LookupNetIP returns AAAA and A records together, so an IPv4-only
+	// host would fail every request with a validated, reachable address in
+	// hand.
+	var lastErr error
+	for _, a := range addrs {
+		conn, err := d.dial(ctx, network, net.JoinHostPort(a.Unmap().String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+		// A cancelled or expired context will fail identically for every
+		// remaining address; report the first failure instead of retrying.
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return nil, lastErr
 }

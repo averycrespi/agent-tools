@@ -46,8 +46,8 @@ loopback.
    transport share one guard covering cloud metadata, loopback, private,
    carrier-grade NAT, link-local, multicast, unspecified and reserved ranges;
    alternate IP encodings; IPv6 transition forms that embed an IPv4 address;
-   and DNS rebinding, by validating every resolved address and dialling the
-   validated one.
+   and DNS rebinding, by validating every resolved address and dialling only
+   addresses from that validated set.
 8. **Upstream TLS is strict.** System trust store, verification on, TLS 1.3
    minimum. Interception does not weaken the connection that actually carries
    the credential.
