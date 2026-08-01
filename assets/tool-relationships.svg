@@ -78,7 +78,7 @@
   <text class="label" x="1192" y="614">Go modules</text>
 
   <rect class="node host-node" x="940" y="675" width="150" height="50" />
-  <text class="label" x="1015" y="700">Egress Broker</text>
+  <text class="label" x="1015" y="700">HTTP Broker</text>
 
   <rect class="node external-node" x="1135" y="675" width="115" height="50" />
   <text class="label" x="1192" y="700">HTTP APIs</text>

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HTTP Broker</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <svg class="brand-icon" viewBox="0 0 64 64" aria-hidden="true">
+          <rect width="64" height="64" rx="14" fill="var(--product-accent)" />
+          <path d="M18 32h28M32 18v28" stroke="#04121a" stroke-width="6" stroke-linecap="round" />
+        </svg>
+        <div>
+          <h1>HTTP Broker</h1>
+          <p class="subtitle">Read-only view of policy and traffic</p>
+        </div>
+      </div>
+      <div class="status">
+        <span class="dot" id="stream-dot"></span>
+        <span id="stream-label">connecting</span>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab selected" data-panel="traffic" role="tab">Traffic</button>
+      <button class="tab" data-panel="rules" role="tab">Rules</button>
+      <button class="tab" data-panel="credentials" role="tab">Credentials</button>
+    </nav>
+
+    <main>
+      <section class="panel" id="panel-traffic">
+        <div class="filters">
+          <input id="filter-host" type="text" placeholder="host" aria-label="Filter by host" />
+          <select id="filter-outcome" aria-label="Filter by outcome">
+            <option value="">any outcome</option>
+            <option value="allowed">allowed</option>
+            <option value="blocked">blocked</option>
+            <option value="error">error</option>
+          </select>
+          <button id="apply-filters">Apply</button>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th><th>Outcome</th><th>Host</th><th>Port</th>
+                <th>Method</th><th>Path</th><th>Status</th><th>Rule</th>
+                <th>Mode</th><th>Credential</th><th>ms</th>
+              </tr>
+            </thead>
+            <tbody id="traffic-rows"></tbody>
+          </table>
+        </div>
+        <p class="meta" id="traffic-meta"></p>
+      </section>
+
+      <section class="panel hidden" id="panel-rules">
+        <p class="meta" id="rules-fallthrough"></p>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Mode</th><th>Host</th><th>Path</th><th>Method</th><th>Ports</th><th>Injects</th></tr>
+            </thead>
+            <tbody id="rules-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="panel-credentials">
+        <p class="meta">Names and host bindings only. Values are never sent to this page.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Name</th><th>Source</th><th>Bound hosts</th></tr></thead>
+            <tbody id="credential-rows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
