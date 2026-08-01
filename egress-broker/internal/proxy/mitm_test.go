@@ -47,6 +47,79 @@ func TestServeH1ReleasesTheConnection(t *testing.T) {
 	}
 }
 
+// TestRelayTearsDownBothHalves is a regression test.
+//
+// Each copy direction wakes the other by expiring its read deadline. The wake
+// used to be applied to the socket the finishing goroutine had itself been
+// reading, which unblocks nothing: when an upstream closed while the agent held
+// its end open, the client→upstream copy stayed parked for the whole idle
+// window, holding two descriptors and a WaitGroup entry that also stalls the
+// shutdown drain.
+func TestRelayTearsDownBothHalves(t *testing.T) {
+	clientSide, clientPeer := tcpPair(t)
+	upstreamSide, upstreamPeer := tcpPair(t)
+
+	// The agent stays connected and silent, which is the ordinary case for an
+	// idle tunnel.
+	defer func() { _ = clientPeer.Close() }()
+
+	// The upstream hangs up.
+	if err := upstreamPeer.Close(); err != nil {
+		t.Fatalf("closing the upstream peer: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		relay(clientSide, upstreamSide, time.Minute)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("relay did not return after the upstream closed: the client→upstream copy was never woken, so it waits out the full idle window")
+	}
+}
+
+// tcpPair returns the two ends of a connected loopback TCP connection.
+//
+// Real sockets rather than net.Pipe: the relay half-closes with CloseWrite,
+// which only a TCP connection implements.
+func tcpPair(t *testing.T) (net.Conn, net.Conn) {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listening: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	type accepted struct {
+		conn net.Conn
+		err  error
+	}
+	accept := make(chan accepted, 1)
+	go func() {
+		conn, err := ln.Accept()
+		accept <- accepted{conn, err}
+	}()
+
+	dialed, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("dialling: %v", err)
+	}
+	a := <-accept
+	if a.err != nil {
+		t.Fatalf("accepting: %v", a.err)
+	}
+
+	t.Cleanup(func() {
+		_ = dialed.Close()
+		_ = a.conn.Close()
+	})
+	return a.conn, dialed
+}
+
 // TestServeH1DoesNotLeakGoroutines exercises the same property in aggregate,
 // which is what actually matters: sustained agent traffic must not grow the
 // goroutine count without bound.

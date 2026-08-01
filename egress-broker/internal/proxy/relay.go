@@ -55,6 +55,12 @@ func (c *idleConn) Write(p []byte) (int, error) {
 // Both copies are torn down together. Leaving one half running after the other
 // finishes leaks a goroutine per abandoned connection, which an agent can
 // trigger at will.
+//
+// Each half wakes the *other* one when it finishes, by expiring the read
+// deadline on the connection that copy is blocked reading from. Setting the
+// deadline on the socket the finishing goroutine was itself reading unblocks
+// nothing: the peer stays parked until the idle window elapses, holding two
+// descriptors and a WaitGroup entry that also stalls the shutdown drain.
 func relay(client, upstream net.Conn, idle time.Duration) (sent, received int64) {
 	c := &idleConn{Conn: client, idle: idle}
 	u := &idleConn{Conn: upstream, idle: idle}
@@ -73,14 +79,14 @@ func relay(client, upstream net.Conn, idle time.Duration) (sent, received int64)
 		// Signal end-of-stream upstream so a server waiting on the request
 		// body can respond, rather than both sides waiting on each other.
 		closeWrite(upstream)
-		_ = client.SetReadDeadline(time.Now())
+		_ = upstream.SetReadDeadline(time.Now())
 	}()
 	go func() {
 		defer wg.Done()
 		n, _ := io.Copy(c, u)
 		fromUpstream.Store(n)
 		closeWrite(client)
-		_ = upstream.SetReadDeadline(time.Now())
+		_ = client.SetReadDeadline(time.Now())
 	}()
 	wg.Wait()
 
