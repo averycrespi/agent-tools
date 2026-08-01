@@ -12,8 +12,11 @@
 *.test
 
 # Code coverage profiles and other test artifacts
+# Note: patterns here must not match Go source. A bare "coverage.*" also
+# matches coverage.go, which silently drops such a file from every commit.
 *.out
-coverage.*
+coverage.html
+coverage.txt
 *.coverprofile
 profile.cov
 

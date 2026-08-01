@@ -180,7 +180,7 @@ func (a *Authority) issueLeaf(host string) (*cacheEntry, error) {
 	template := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: subjectCommonName(host)},
-		NotBefore:             now.Add(-skewAllowance),
+		NotBefore:             now.Add(-a.skewBuffer),
 		NotAfter:              now.Add(a.leafLifetime),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},

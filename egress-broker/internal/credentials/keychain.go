@@ -107,6 +107,11 @@ func (k *Keychain) Set(name, value string, hosts []string) error {
 
 // Delete removes a credential.
 func (k *Keychain) Delete(name string) error {
+	// Validate as Set does, so a malformed name produces the same clear error
+	// rather than whatever the keychain backend happens to say.
+	if !ValidName(name) {
+		return fmt.Errorf("credential name %q must contain only letters, digits, and the characters . _ -", name)
+	}
 	if err := keyring.Delete(k.service, name); err != nil {
 		if errors.Is(err, keyring.ErrNotFound) {
 			return fmt.Errorf("%w: %q", ErrNotFound, name)

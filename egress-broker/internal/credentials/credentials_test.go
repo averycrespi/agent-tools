@@ -233,6 +233,33 @@ func TestExpandAllMultipleReferencesInOneHeader(t *testing.T) {
 	}
 }
 
+// TestExpandAllDoesNotRescanValues: a credential whose value happens to
+// contain ${cred.other} must be inserted literally, never treated as a further
+// reference. Rescanning would let one credential's value pull in another,
+// bypassing that second credential's own host check.
+func TestExpandAllDoesNotRescanValues(t *testing.T) {
+	r, _ := newResolver(map[string]credentials.Record{
+		"outer":  {Value: "${cred.secret}", Hosts: []string{"api.example.com"}},
+		"secret": {Value: "MUST-NOT-APPEAR", Hosts: []string{"api.example.com"}},
+	})
+
+	got, err := r.ExpandAll(map[string]string{"X-Test": "${cred.outer}"}, "api.example.com")
+	if err != nil {
+		t.Fatalf("ExpandAll: %v", err)
+	}
+	if got.Headers["X-Test"] != "${cred.secret}" {
+		t.Errorf("X-Test = %q, want the value inserted literally without a second expansion pass", got.Headers["X-Test"])
+	}
+	if strings.Contains(got.Headers["X-Test"], "MUST-NOT-APPEAR") {
+		t.Error("a credential value must never be rescanned for further references")
+	}
+	// Only the directly referenced credential is recorded, so the audit row
+	// does not claim a credential that was never resolved.
+	if len(got.Names) != 1 || got.Names[0] != "outer" {
+		t.Errorf("Names = %v, want [outer]", got.Names)
+	}
+}
+
 // TestExpandAllRejectsControlBytes covers header-splitting: a value carrying a
 // CRLF would let a credential inject arbitrary headers upstream.
 func TestExpandAllRejectsControlBytes(t *testing.T) {

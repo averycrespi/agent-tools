@@ -130,10 +130,36 @@ func TestTunnelPorts(t *testing.T) {
 		}
 		got := e.ConnectDecision("cdn.pinned-sdk.com", 8443)
 		if got.Action != rules.ConnectDeny {
-			t.Errorf("port 8443: Action = %q, want deny — the rule does not admit that port", got.Action)
+			t.Errorf("port 8443: Action = %q, want deny", got.Action)
 		}
-		if !strings.Contains(got.Reason, "ports") {
-			t.Errorf("Reason %q should point at the rule's ports list", got.Reason)
+		// The rule does not apply to 8443, so the fallthrough policy decides —
+		// the rule is not consulted and does not appear in the attribution.
+		if got.Mode != "fallthrough" {
+			t.Errorf("Mode = %q, want fallthrough: a port-scoped rule that excludes this port simply does not apply", got.Mode)
+		}
+	})
+
+	// A rule whose ports exclude the request port must not override the
+	// fallthrough policy. The operator scoped that rule deliberately; treating
+	// a non-matching port as a refusal would ignore what they wrote.
+	t.Run("a port-scoped rule does not govern ports it excludes", func(t *testing.T) {
+		e := engine(t, rules.FallthroughTunnel,
+			rules.Rule{Name: "alt-only", Host: "api.example.com", Ports: []int{8443}, Mode: rules.ModeDeny})
+
+		got := e.ConnectDecision("api.example.com", 443)
+		if got.Action != rules.ConnectTunnel {
+			t.Errorf("Action = %q, want tunnel: the deny rule is scoped to 8443, so 443 falls through", got.Action)
+		}
+		if got.Mode != "fallthrough" {
+			t.Errorf("Mode = %q, want fallthrough", got.Mode)
+		}
+		if got.Rule != "" {
+			t.Errorf("Rule = %q, want empty: no rule applied", got.Rule)
+		}
+
+		// On the port it does cover, the rule applies.
+		if denied := e.ConnectDecision("api.example.com", 8443); denied.Action != rules.ConnectDeny {
+			t.Errorf("port 8443: Action = %q, want deny from the rule", denied.Action)
 		}
 	})
 
@@ -309,6 +335,40 @@ func TestEvaluatePathMatching(t *testing.T) {
 		if got := e.Evaluate("api.github.com", 443, "GET", tc.path); got.Rule != tc.want {
 			t.Errorf("path %q matched rule %q, want %q", tc.path, got.Rule, tc.want)
 		}
+	}
+}
+
+// TestOverlappingHostOnlyRulesPreferDeny covers globs that overlap without
+// being written identically, which load-time validation cannot catch. The
+// outcome must not depend on which rule appears first in the file.
+func TestOverlappingHostOnlyRulesPreferDeny(t *testing.T) {
+	tunnel := rules.Rule{Name: "tunnel-exact", Host: "api.example.com", Mode: rules.ModeTunnel}
+	deny := rules.Rule{Name: "deny-wildcard", Host: "*.example.com", Mode: rules.ModeDeny}
+
+	for _, tc := range []struct {
+		name  string
+		rules []rules.Rule
+	}{
+		{"tunnel written first", []rules.Rule{tunnel, deny}},
+		{"deny written first", []rules.Rule{deny, tunnel}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := engine(t, rules.FallthroughTunnel, tc.rules...)
+
+			got := e.ConnectDecision("api.example.com", 443)
+			if got.Action != rules.ConnectDeny {
+				t.Errorf("Action = %q, want deny regardless of rule order", got.Action)
+			}
+			if got.Rule != "deny-wildcard" {
+				t.Errorf("Rule = %q, want deny-wildcard", got.Rule)
+			}
+		})
+	}
+
+	// A host only the tunnel rule's glob covers still tunnels.
+	e := engine(t, rules.FallthroughDeny, tunnel)
+	if got := e.ConnectDecision("api.example.com", 443); got.Action != rules.ConnectTunnel {
+		t.Errorf("Action = %q, want tunnel when no deny rule overlaps", got.Action)
 	}
 }
 

@@ -26,9 +26,6 @@ const (
 	// ModeImplicitAllow marks a request on a host that policy knows about
 	// (some path-scoped rule covers it) but which matched no rule itself.
 	ModeImplicitAllow = "implicit-allow"
-	// ModePortNotAdmitted marks a refusal because the target port is outside
-	// what the decision admits.
-	ModePortNotAdmitted = "port-not-admitted"
 )
 
 // ConnectResult is the CONNECT-time decision.
@@ -55,9 +52,10 @@ type ConnectResult struct {
 //  1. Collect rules whose host glob matches and whose ports admit the port.
 //  2. Any intercept match wins: the path is needed to know which rule applies,
 //     and only MITM reveals it.
-//  3. Otherwise a host-only tunnel or deny rule applies directly. Two
-//     host-only rules of differing mode for one host is a load-time error, so
-//     this is never ambiguous.
+//  3. Otherwise a host-only tunnel or deny rule applies directly. Load-time
+//     validation rejects two identically written host-only rules of differing
+//     mode; differently written globs can still overlap, so deny wins here to
+//     keep the outcome independent of rule order.
 //  4. Otherwise only path-scoped deny rules match, so MITM and decide per
 //     request. The host is already known to policy, so fallthrough does not
 //     apply to it.
@@ -65,23 +63,17 @@ type ConnectResult struct {
 //     subject to the port-443 default.
 func (e *Engine) ConnectDecision(host string, port int) ConnectResult {
 	var (
-		hostMatched  bool
 		intercept    *compiled
+		hostOnlyDeny *compiled
 		hostOnly     *compiled
 		pathScoped   bool
-		portRejected *compiled
 	)
 
 	for _, c := range e.rules {
-		if !c.host.Match(host) {
-			continue
-		}
-		hostMatched = true
-
-		if !c.admitsPort(port) {
-			if portRejected == nil {
-				portRejected = c
-			}
+		// A rule whose ports exclude this port simply does not apply. It is
+		// not a refusal: the operator scoped it deliberately, and overriding
+		// that would ignore what they wrote.
+		if !c.host.Match(host) || !c.admitsPort(port) {
 			continue
 		}
 
@@ -91,6 +83,18 @@ func (e *Engine) ConnectDecision(host string, port int) ConnectResult {
 				intercept = c
 			}
 		case c.rule.HostOnly():
+			// Two host-only rules of differing mode can still both match when
+			// their globs are written differently ("api.example.com" and
+			// "*.example.com"). Load-time validation only catches identical
+			// patterns, so deny is preferred here rather than taking whichever
+			// came first — otherwise reordering the file would silently change
+			// whether traffic is tunnelled or rejected.
+			if c.rule.Mode == ModeDeny {
+				if hostOnlyDeny == nil {
+					hostOnlyDeny = c
+				}
+				continue
+			}
 			if hostOnly == nil {
 				hostOnly = c
 			}
@@ -106,34 +110,22 @@ func (e *Engine) ConnectDecision(host string, port int) ConnectResult {
 		return ConnectResult{Action: ConnectMITM, Rule: intercept.rule.Name, Mode: string(ModeIntercept)}
 	}
 
-	// Step 3.
-	if hostOnly != nil {
-		if hostOnly.rule.Mode == ModeTunnel {
-			return ConnectResult{Action: ConnectTunnel, Rule: hostOnly.rule.Name, Mode: string(ModeTunnel)}
-		}
+	// Step 3. Deny first, so the outcome does not depend on rule order.
+	if hostOnlyDeny != nil {
 		return ConnectResult{
 			Action: ConnectDeny,
-			Rule:   hostOnly.rule.Name,
+			Rule:   hostOnlyDeny.rule.Name,
 			Mode:   string(ModeDeny),
-			Reason: "denied by rule " + hostOnly.rule.Name,
+			Reason: "denied by rule " + hostOnlyDeny.rule.Name,
 		}
+	}
+	if hostOnly != nil {
+		return ConnectResult{Action: ConnectTunnel, Rule: hostOnly.rule.Name, Mode: string(ModeTunnel)}
 	}
 
 	// Step 4.
 	if pathScoped {
 		return ConnectResult{Action: ConnectMITM, Mode: ModeImplicitAllow}
-	}
-
-	// A rule covered the host but not this port. Refuse rather than falling
-	// through: the operator named the host, so silently applying a different
-	// policy to a different port would be surprising.
-	if hostMatched && portRejected != nil {
-		return ConnectResult{
-			Action: ConnectDeny,
-			Rule:   portRejected.rule.Name,
-			Mode:   ModePortNotAdmitted,
-			Reason: "rule " + portRejected.rule.Name + " does not admit this port; add it to the rule's \"ports\" list",
-		}
 	}
 
 	// Step 5.
