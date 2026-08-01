@@ -13,6 +13,7 @@ This repo is opinionated. It provides structured worktree management, sandboxed 
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
 - **[Telegram MCP](#telegram-mcp)** — Minimal stdio MCP server for sending Telegram notifications
+- **[Egress Broker](#egress-broker)** — MITM HTTP/HTTPS forward proxy that injects credentials for sandboxed agents
 
 ## How the Tools Fit Together
 
@@ -48,6 +49,7 @@ cd mcp-broker && make install
 cd local-git-mcp && make install
 cd local-gomod-proxy && make install
 cd telegram-mcp && make install
+cd egress-broker && make install
 ```
 
 ## Tools
@@ -140,6 +142,26 @@ Agents sometimes need a direct way to notify the human operator when work finish
 - No general Telegram client features — no arbitrary recipients, media upload, receiving messages, or chat administration.
 
 See the [telegram-mcp README](telegram-mcp/README.md) for more information.
+
+## Egress Broker
+
+`mcp-broker` keeps secrets out of the sandbox for MCP tool calls. An agent that reaches for `curl`, an SDK, or any ordinary HTTP client is back to holding its own.
+
+`egress-broker` applies the same premise to raw HTTP. It is a host-native forward proxy that decides per connection whether to intercept, tunnel, or deny, injects credentials the sandbox never holds, and records every request to an audit log surfaced through a read-only dashboard.
+
+```json
+{
+  "name": "github-issues",
+  "host": "api.github.com",
+  "path": "/repos/*/*/issues",
+  "mode": "intercept",
+  "inject": { "set": { "Authorization": "Bearer ${cred.gh_bot}" } }
+}
+```
+
+Every credential carries bound hosts, so a rule-authoring slip cannot send a token somewhere it does not belong.
+
+Enforcement is **cooperative** — it rests on the sandbox honouring `HTTP_PROXY`/`HTTPS_PROXY`, so it is not a containment boundary. See the [egress-broker README](egress-broker/README.md) and its [security model](egress-broker/docs/security-model.md) for what it does and does not guarantee.
 
 ## Related
 

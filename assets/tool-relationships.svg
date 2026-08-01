@@ -77,6 +77,13 @@
   <rect class="node external-node" x="1135" y="589" width="115" height="50" />
   <text class="label" x="1192" y="614">Go modules</text>
 
+  <rect class="node host-node" x="940" y="675" width="150" height="50" />
+  <text class="label" x="1015" y="700">Egress Broker</text>
+
+  <rect class="node external-node" x="1135" y="675" width="115" height="50" />
+  <text class="label" x="1192" y="700">HTTP APIs</text>
+
+  <path class="edge" d="M1090 700 L1132 700" />
   <path class="edge" d="M235 494 L292 494" />
   <path class="edge" d="M235 570 L330 523" />
   <rect class="label-bg" x="244" y="534" width="65" height="18" />
@@ -96,6 +103,10 @@
   <path class="proxy" d="M720 404 L937 614" />
   <rect class="label-bg" x="770" y="462" width="66" height="18" />
   <text class="edge-label" x="803" y="475">GOPROXY</text>
+
+  <path class="proxy" d="M720 418 L860 418 L860 700 L937 700" />
+  <rect class="label-bg" x="868" y="560" width="82" height="18" />
+  <text class="edge-label" x="909" y="573">HTTP_PROXY</text>
 
   <path class="edge" d="M1090 410 L1132 410" />
   <path class="edge" d="M1090 500 L1132 500" />
