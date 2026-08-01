@@ -123,6 +123,12 @@ type stack struct {
 	caPool     *x509.CertPool
 	rulesPath  string
 	configPath string
+	// xdgEnv is what the running broker was started with, so a CLI subcommand
+	// can be run against the same config and data directories.
+	xdgEnv []string
+	// cfgDoc is the config.json the stack was started with, kept so a test can
+	// edit one field and rewrite it.
+	cfgDoc map[string]any
 }
 
 func startStack(t *testing.T, opts stackOptions) *stack {
@@ -153,6 +159,7 @@ func startStack(t *testing.T, opts stackOptions) *stack {
 	if len(opts.EnvCredentials) > 0 {
 		cfg["env_credentials"] = opts.EnvCredentials
 	}
+	s.cfgDoc = cfg
 	writeJSON(t, s.configPath, cfg)
 
 	rules := opts.Rules
@@ -167,11 +174,13 @@ func startStack(t *testing.T, opts stackOptions) *stack {
 	}
 	s.logPath = logFile.Name()
 
+	s.xdgEnv = []string{
+		"XDG_CONFIG_HOME=" + configHome,
+		"XDG_DATA_HOME=" + dataHome,
+	}
+
 	cmd := exec.Command(brokerBinary, "serve")
-	cmd.Env = append(os.Environ(),
-		"XDG_CONFIG_HOME="+configHome,
-		"XDG_DATA_HOME="+dataHome,
-	)
+	cmd.Env = append(os.Environ(), s.xdgEnv...)
 	if len(opts.UpstreamCA) > 0 {
 		caPath := filepath.Join(t.TempDir(), "upstream-ca.pem")
 		if err := os.WriteFile(caPath, opts.UpstreamCA, 0o600); err != nil {
@@ -330,6 +339,27 @@ func (s *stack) connectKeepingConn(target string) (net.Conn, *http.Response) {
 		s.t.Fatalf("reading the CONNECT response: %v", err)
 	}
 	return conn, resp
+}
+
+// rotateToken runs `egress-broker token rotate` against the running stack's
+// config directory — the documented first step of the compromise response —
+// and returns the new token.
+func (s *stack) rotateToken() string {
+	s.t.Helper()
+
+	cmd := exec.Command(brokerBinary, "token", "rotate")
+	cmd.Env = append(os.Environ(), s.xdgEnv...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		s.t.Fatalf("rotating the token: %v\n%s", err, out)
+	}
+	return s.readToken()
+}
+
+// writeConfig applies an edit to config.json without restarting.
+func (s *stack) writeConfig(edit func(map[string]any)) {
+	s.t.Helper()
+	edit(s.cfgDoc)
+	writeJSON(s.t, s.configPath, s.cfgDoc)
 }
 
 // writeRules replaces rules.json without restarting.

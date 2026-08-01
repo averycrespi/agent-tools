@@ -38,7 +38,7 @@ var hopByHopHeaders = []string{
 // It enters exactly the same pipeline the intercepted path uses, so plain HTTP
 // gets the same modes, the same injection, and the same audit shape (AC-14).
 func (p *Proxy) handleAbsolute(w http.ResponseWriter, r *http.Request) {
-	if !auth.CheckProxyAuth(r.Header.Get("Proxy-Authorization"), p.token) {
+	if !auth.CheckProxyAuth(r.Header.Get("Proxy-Authorization"), p.authToken()) {
 		w.Header().Set("Proxy-Authenticate", `Basic realm="egress-broker"`)
 		p.refuse(w, http.StatusProxyAuthRequired, ReasonUnauthenticated, "proxy authentication required")
 		return

@@ -3,6 +3,7 @@
 package e2e_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -139,6 +140,108 @@ func TestReloadIsTheKillSwitch(t *testing.T) {
 		t.Errorf("CONNECT status = %d, want 200 — the kill switch must not break connectivity", resp.StatusCode)
 	}
 	_ = conn.Close()
+}
+
+// TestTokenRotationTakesEffectOnReload is the compromise response documented in
+// docs/security-model.md: `token rotate`, re-provision, SIGHUP.
+//
+// The token used to be captured once at startup, so a reload left the leaked
+// value working and 407'd every re-provisioned sandbox — the procedure did
+// nothing until someone restarted the process.
+func TestTokenRotationTakesEffectOnReload(t *testing.T) {
+	s := startStack(t, stackOptions{Rules: rulesDoc("tunnel")})
+
+	old := s.token
+	fresh := s.rotateToken()
+	if fresh == old {
+		t.Fatal("token rotate returned the same token")
+	}
+
+	s.reload()
+
+	// The leaked token no longer authenticates.
+	conn := dialProxy(t, s)
+	writeRaw(t, conn, fmt.Sprintf("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\nProxy-Authorization: %s\r\n\r\n",
+		basicCredential(old)))
+	resp, err := readResponse(conn)
+	if err != nil {
+		t.Fatalf("reading the response: %v", err)
+	}
+	if resp.StatusCode != http.StatusProxyAuthRequired {
+		t.Errorf("old token: status = %d, want 407 (logs:\n%s)", resp.StatusCode, s.Logs())
+	}
+
+	// And a re-provisioned sandbox works. The dial fails because nothing is
+	// listening on example.com here, so the proof is that the refusal is no
+	// longer an authentication failure.
+	fresh2 := dialProxy(t, s)
+	writeRaw(t, fresh2, fmt.Sprintf("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\nProxy-Authorization: %s\r\n\r\n",
+		basicCredential(fresh)))
+	freshResp, err := readResponse(fresh2)
+	if err != nil {
+		t.Fatalf("reading the response: %v", err)
+	}
+	if freshResp.StatusCode == http.StatusProxyAuthRequired {
+		t.Errorf("new token: status = 407, want the rotated token to be accepted (logs:\n%s)", s.Logs())
+	}
+
+	// The dashboard follows the same token.
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, s.dashURL("/api/rules"), nil)
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+old)
+	dashResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("dashboard request: %v", err)
+	}
+	defer func() { _ = dashResp.Body.Close() }()
+	if dashResp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("dashboard with the old token: status = %d, want 401", dashResp.StatusCode)
+	}
+}
+
+// TestEnvCredentialReload covers the other half of a SIGHUP: an edited
+// env_credentials block.
+//
+// The resolver's cache was cleared on reload, which implies credential edits
+// take effect, but the env source itself was built once at startup — so a
+// newly added entry stayed unresolvable until a restart.
+func TestEnvCredentialReload(t *testing.T) {
+	up := newUpstream(t)
+	host, port := up.HostPort(t)
+
+	s := startStack(t, stackOptions{
+		Rules: rulesDoc("deny", rule{
+			Name: "up", Host: host, Ports: []int{port}, Mode: "intercept",
+			Inject: inject(map[string]string{"Authorization": "Bearer ${cred.tok}"}),
+		}),
+		AllowAddrs: []string{hostPort(host, port)},
+		Env:        map[string]string{"TOK": "SENTINEL-RELOADED"},
+	})
+
+	// No env_credentials entry yet: the reference cannot resolve.
+	resp, _ := requestThroughProxy(t, s.client(), http.MethodGet,
+		fmt.Sprintf("http://%s/x", hostPort(host, port)))
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("before reload: status = %d, want 403 for an unresolvable credential", resp.StatusCode)
+	}
+
+	s.writeConfig(func(cfg map[string]any) {
+		cfg["env_credentials"] = map[string]any{
+			"tok": map[string]any{"var": "TOK", "hosts": []string{host}},
+		}
+	})
+	s.reload()
+
+	resp, _ = requestThroughProxy(t, s.client(), http.MethodGet,
+		fmt.Sprintf("http://%s/x", hostPort(host, port)))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("after reload: status = %d, want 200 (logs:\n%s)", resp.StatusCode, s.Logs())
+	}
+	if got := up.Last(t).Header.Get("Authorization"); got != "Bearer SENTINEL-RELOADED" {
+		t.Errorf("Authorization = %q, want the newly configured credential injected", got)
+	}
 }
 
 // TestShutdownDrainsTunnel is V-25 / AC-7: a tunnel with an in-flight transfer,

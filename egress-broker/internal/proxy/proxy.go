@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/averycrespi/agent-tools/egress-broker/internal/auth"
@@ -105,10 +106,15 @@ type Proxy struct {
 	resolver      *credentials.Resolver
 	dialer        *netguard.Dialer
 	audit         AuditSink
-	token         string
 	log           *slog.Logger
 	headerTimeout time.Duration
 	tunnelIdle    time.Duration
+
+	// token is swapped on SIGHUP rather than captured at construction. A
+	// leaked token is answered by `token rotate` plus a reload, and that
+	// procedure is worthless if the running process keeps honouring the old
+	// value until someone restarts it.
+	token atomic.Pointer[string]
 
 	transport *http.Transport
 
@@ -154,13 +160,25 @@ func New(opts Options) *Proxy {
 		resolver:      opts.Resolver,
 		dialer:        opts.Dialer,
 		audit:         opts.Audit,
-		token:         opts.Token,
 		log:           opts.Logger,
 		headerTimeout: opts.HeaderTimeout,
 		tunnelIdle:    opts.TunnelIdle,
 	}
+	p.SetToken(opts.Token)
 	p.transport = p.newUpstreamTransport()
 	return p
+}
+
+// SetToken replaces the token the proxy authenticates against. Called on
+// SIGHUP so a rotated token takes effect without a restart.
+func (p *Proxy) SetToken(token string) { p.token.Store(&token) }
+
+// authToken returns the token in force for this request.
+func (p *Proxy) authToken() string {
+	if t := p.token.Load(); t != nil {
+		return *t
+	}
+	return ""
 }
 
 type discardSink struct{}
@@ -194,7 +212,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// SQLite keeps only the first, silently losing every later refusal.
 	id := newRequestID()
 
-	if !auth.CheckProxyAuth(r.Header.Get("Proxy-Authorization"), p.token) {
+	if !auth.CheckProxyAuth(r.Header.Get("Proxy-Authorization"), p.authToken()) {
 		w.Header().Set("Proxy-Authenticate", `Basic realm="egress-broker"`)
 		p.refuse(w, http.StatusProxyAuthRequired, ReasonUnauthenticated,
 			"proxy authentication required")

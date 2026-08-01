@@ -7,9 +7,11 @@ All commands accept `--config <path>` to override `config.json`.
 Runs the proxy and dashboard in the foreground. No pidfile. Supervise with
 launchd; see [launchd.md](launchd.md).
 
-Signals: `SIGHUP` reloads rules and the CA and clears the credential cache,
-keeping previous state on failure. `SIGINT`/`SIGTERM` shut down gracefully with
-a 10-second drain window.
+Signals: `SIGHUP` reloads `config.json`, `rules.json`, the auth token and the
+CA, and clears the credential cache, keeping previous state on failure. The
+listener addresses are the exception — moving a bound socket would point every
+sandbox at a dead port, so a changed address is logged and ignored until a
+restart. `SIGINT`/`SIGTERM` shut down gracefully with a 10-second drain window.
 
 ## `config`
 

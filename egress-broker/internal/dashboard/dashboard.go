@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/averycrespi/agent-tools/egress-broker/internal/audit"
@@ -75,8 +76,11 @@ type Dashboard struct {
 	rules       RulesLister
 	credentials CredentialLister
 	ca          CAProvider
-	token       string
 	log         *slog.Logger
+
+	// token is swapped on SIGHUP, for the same reason the proxy's is: a
+	// rotated token must take effect without a restart.
+	token atomic.Pointer[string]
 }
 
 // New returns a Dashboard.
@@ -87,10 +91,23 @@ func New(
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	return &Dashboard{
+	d := &Dashboard{
 		audit: auditor, rules: rulesList, credentials: creds,
-		ca: caProvider, token: token, log: logger,
+		ca: caProvider, log: logger,
 	}
+	d.SetToken(token)
+	return d
+}
+
+// SetToken replaces the token the dashboard authenticates against.
+func (d *Dashboard) SetToken(token string) { d.token.Store(&token) }
+
+// authToken returns the token in force for this request.
+func (d *Dashboard) authToken() string {
+	if t := d.token.Load(); t != nil {
+		return *t
+	}
+	return ""
 }
 
 // Handler returns the mux for the dashboard listener.
@@ -127,14 +144,15 @@ func (d *Dashboard) Handler() http.Handler {
 // drops the token from the URL so it does not linger in history.
 func (d *Dashboard) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		token := d.authToken()
 		// Constant-time, like every other token comparison in the tool. A
 		// plain == here was the lone outlier.
-		if qToken := r.URL.Query().Get("token"); qToken != "" && auth.ConstantTimeEqual(qToken, d.token) {
+		if qToken := r.URL.Query().Get("token"); qToken != "" && auth.ConstantTimeEqual(qToken, token) {
 			//nolint:gosec // the dashboard is loopback-only plain HTTP; a
 			// Secure cookie would never be sent and local auth would break.
 			http.SetCookie(w, &http.Cookie{
 				Name:     auth.DashboardCookieName,
-				Value:    d.token,
+				Value:    token,
 				Path:     "/",
 				HttpOnly: true,
 				SameSite: http.SameSiteStrictMode,
@@ -152,7 +170,7 @@ func (d *Dashboard) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		if !auth.CheckDashboardAuth(r, d.token) {
+		if !auth.CheckDashboardAuth(r, token) {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="egress-broker"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

@@ -34,9 +34,10 @@ tail -f ~/Library/Logs/egress-broker.err.log
 launchctl kill HUP "gui/$(id -u)/dev.agent-tools.egress-broker"
 ```
 
-`SIGHUP` re-reads `rules.json` and the CA. Each step keeps its previous state
-on failure, so a typo leaves the previous ruleset serving traffic and logs an
-error — check the log after every reload.
+`SIGHUP` re-reads `config.json`, `rules.json`, the auth token and the CA. Each
+step keeps its previous state on failure, so a typo leaves the previous ruleset
+serving traffic and logs an error — check the log after every reload. Listener
+addresses are not reloadable; changing one needs a restart.
 
 **Prefer `SIGHUP` over a restart.** Proxy variables are baked into every
 sandbox's shell, so a restart points them all at a dead socket for its

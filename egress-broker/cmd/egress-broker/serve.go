@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -52,16 +53,32 @@ var serveCmd = &cobra.Command{
 
 // stack holds everything a running proxy needs, so startup can fail before
 // anything binds a port.
+//
+// Everything a SIGHUP can change is reachable from here and swapped in place:
+// the listeners keep serving across a reload, so the running proxy and
+// dashboard must see the new values rather than the ones captured at startup.
 type stack struct {
-	cfg       config.Config
 	log       *slog.Logger
 	rules     *rules.Store
 	authority *ca.Authority
 	resolver  *credentials.Resolver
-	token     string
+	env       *credentials.Env
 	envNames  []string
 	audit     *audit.Logger
 	proxy     *proxy.Proxy
+	dashboard *dashboard.Dashboard
+
+	// mu guards the fields a reload replaces and a request path reads.
+	mu    sync.RWMutex
+	cfg   config.Config
+	token string
+}
+
+// config returns the configuration currently in force.
+func (st *stack) config() config.Config {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.cfg
 }
 
 func runServe(ctx context.Context, out interface{ Write([]byte) (int, error) }) error {
@@ -92,7 +109,7 @@ func runServe(ctx context.Context, out interface{ Write([]byte) (int, error) }) 
 	pruneCtx, stopPruning := context.WithCancel(ctx)
 	defer stopPruning()
 	st.audit.StartPruning(pruneCtx,
-		time.Duration(st.cfg.Audit.RetentionDays)*24*time.Hour,
+		time.Duration(st.config().Audit.RetentionDays)*24*time.Hour,
 		pruneInterval, time.Now,
 		func(err error) { st.log.Error("pruning the audit log failed", "error", err) })
 
@@ -153,7 +170,7 @@ func buildStack(out interface{ Write([]byte) (int, error) }) (*stack, error) {
 
 	return &stack{
 		cfg: cfg, log: log, rules: store, authority: authority,
-		resolver: resolver, token: token, envNames: env.Names(), audit: auditLog,
+		resolver: resolver, env: env, token: token, envNames: env.Names(), audit: auditLog,
 	}, nil
 }
 
@@ -186,18 +203,26 @@ func newProxy(st *stack) *proxy.Proxy {
 		Resolver:  st.resolver,
 		Dialer:    dialer,
 		Audit:     audit.NewSink(st.audit, st.log),
-		Token:     st.token,
+		Token:     st.authToken(),
 		Logger:    st.log,
 	})
 }
 
+// authToken returns the token currently in force.
+func (st *stack) authToken() string {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.token
+}
+
 func startProxy(st *stack) (*http.Server, net.Listener, error) {
-	if err := config.ValidateLoopback(st.cfg.Proxy); err != nil {
+	cfg := st.config()
+	if err := config.ValidateLoopback(cfg.Proxy); err != nil {
 		return nil, nil, fmt.Errorf("proxy listener: %w", err)
 	}
-	ln, err := net.Listen("tcp", st.cfg.Proxy.Addr())
+	ln, err := net.Listen("tcp", cfg.Proxy.Addr())
 	if err != nil {
-		return nil, nil, fmt.Errorf("binding the proxy listener on %s: %w", st.cfg.Proxy.Addr(), err)
+		return nil, nil, fmt.Errorf("binding the proxy listener on %s: %w", cfg.Proxy.Addr(), err)
 	}
 
 	st.proxy = newProxy(st)
@@ -218,16 +243,17 @@ func startProxy(st *stack) (*http.Server, net.Listener, error) {
 
 // startDashboard binds the dashboard listener.
 func startDashboard(st *stack) (*http.Server, net.Listener, error) {
-	if err := config.ValidateLoopback(st.cfg.Dashboard); err != nil {
+	cfg := st.config()
+	if err := config.ValidateLoopback(cfg.Dashboard); err != nil {
 		return nil, nil, fmt.Errorf("dashboard listener: %w", err)
 	}
-	ln, err := net.Listen("tcp", st.cfg.Dashboard.Addr())
+	ln, err := net.Listen("tcp", cfg.Dashboard.Addr())
 	if err != nil {
-		return nil, nil, fmt.Errorf("binding the dashboard listener on %s: %w", st.cfg.Dashboard.Addr(), err)
+		return nil, nil, fmt.Errorf("binding the dashboard listener on %s: %w", cfg.Dashboard.Addr(), err)
 	}
 
-	board := dashboard.New(st.audit, st.rules, st.credentialLister(), st.authority, st.token, st.log)
-	server := &http.Server{Handler: board.Handler(), ReadHeaderTimeout: proxy.DefaultHeaderTimeout}
+	st.dashboard = dashboard.New(st.audit, st.rules, st.credentialLister(), st.authority, st.authToken(), st.log)
+	server := &http.Server{Handler: st.dashboard.Handler(), ReadHeaderTimeout: proxy.DefaultHeaderTimeout}
 	go func() {
 		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			st.log.Error("dashboard listener stopped", "error", err)
@@ -258,11 +284,16 @@ func serveEventLoop(ctx context.Context, st *stack, servers ...*http.Server) err
 	}
 }
 
-// reload re-reads rules and the CA without restarting.
+// reload re-reads config, rules, credentials, the auth token and the CA
+// without restarting.
 //
 // Each step keeps its previous state on failure. A typo in rules.json must not
 // take the sandbox's network down, which is the whole reason the kill switch
 // is a rules edit rather than a process kill (D15).
+//
+// The listener addresses are deliberately not reloadable: moving a bound
+// socket would point every provisioned sandbox at a dead port, which is the
+// restart this exists to avoid. A changed address is logged and ignored.
 func (st *stack) reload() {
 	cfg, err := config.Load(configPath())
 	if err != nil {
@@ -284,11 +315,55 @@ func (st *stack) reload() {
 		st.log.Error("reload: CA unchanged", "error", err)
 	}
 
+	// The token is re-read from disk, not kept from startup. `token rotate`
+	// followed by SIGHUP is the documented response to a leaked token, and it
+	// is worthless if the running process still honours the old value.
+	if token, err := auth.LoadToken(auth.TokenPath()); err != nil {
+		st.log.Error("reload: auth token unchanged", "error", err)
+	} else if token != st.authToken() {
+		st.setToken(token)
+		if st.proxy != nil {
+			st.proxy.SetToken(token)
+		}
+		if st.dashboard != nil {
+			st.dashboard.SetToken(token)
+		}
+		st.log.Info("reload: auth token rotated; sandboxes must be re-provisioned")
+	}
+
+	prev := st.config()
+	if cfg.Proxy != prev.Proxy || cfg.Dashboard != prev.Dashboard {
+		st.log.Warn("reload: listener addresses are not reloadable; restart to apply",
+			"proxy", prev.Proxy.Addr(), "dashboard", prev.Dashboard.Addr())
+	}
+	st.setConfig(cfg)
+
+	// The env source is replaced, not rebuilt around the resolver: an operator
+	// who adds or rebinds an env_credentials entry expects it to take effect,
+	// and ClearCache below implies exactly that.
+	envSpecs := make(map[string]credentials.EnvSpec, len(cfg.EnvCredentials))
+	for name, ec := range cfg.EnvCredentials {
+		envSpecs[name] = credentials.EnvSpec{Var: ec.Var, Hosts: ec.Hosts}
+	}
+	st.env.SetSpecs(envSpecs)
+
 	// Drop cached credentials so a just-rotated secret takes effect now rather
 	// than after the TTL.
 	st.resolver.ClearCache()
 
 	st.log.Info("reloaded", "rules", rulesPath, "count", len(doc.Rules), "fallthrough", doc.Fallthrough)
+}
+
+func (st *stack) setConfig(cfg config.Config) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.cfg = cfg
+}
+
+func (st *stack) setToken(token string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.token = token
 }
 
 func shutdownAll(st *stack, servers ...*http.Server) error {
@@ -342,8 +417,9 @@ func shutdownAll(st *stack, servers ...*http.Server) error {
 // metadata only.
 func (st *stack) credentialLister() dashboard.CredentialLister {
 	return credentialListerFunc(func() []dashboard.CredentialInfo {
-		infos := make([]dashboard.CredentialInfo, 0, len(st.cfg.EnvCredentials))
-		for name, ec := range st.cfg.EnvCredentials {
+		cfg := st.config()
+		infos := make([]dashboard.CredentialInfo, 0, len(cfg.EnvCredentials))
+		for name, ec := range cfg.EnvCredentials {
 			infos = append(infos, dashboard.CredentialInfo{
 				Name: name, Source: "env_credentials", Hosts: ec.Hosts,
 			})
@@ -351,7 +427,7 @@ func (st *stack) credentialLister() dashboard.CredentialLister {
 
 		keychain := credentials.NewKeychain()
 		for _, name := range st.rules.Engine().ReferencedCredentials() {
-			if _, isEnv := st.cfg.EnvCredentials[name]; isEnv {
+			if _, isEnv := cfg.EnvCredentials[name]; isEnv {
 				continue
 			}
 			// Describe returns bound hosts and a byte count, never a value.

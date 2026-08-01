@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"sync"
 )
 
 // EnvSpec is one env_credentials entry: the variable to read and the hosts the
@@ -21,7 +22,11 @@ type EnvSpec struct {
 // through the identical check. `serve` logs a prominent startup warning naming
 // every credential sourced this way, because the value sits in the process
 // environment where the keychain design is trying not to put it.
+// Specs are swappable so a SIGHUP can apply an edited env_credentials block.
+// The mutex is what makes that safe: reload runs on the signal goroutine while
+// requests are resolving.
 type Env struct {
+	mu     sync.RWMutex
 	specs  map[string]EnvSpec
 	lookup func(string) (string, bool)
 }
@@ -31,12 +36,30 @@ func NewEnv(specs map[string]EnvSpec) *Env {
 	return &Env{specs: specs, lookup: os.LookupEnv}
 }
 
+// SetSpecs replaces the configured specs. Called on SIGHUP, so an operator who
+// adds or rebinds an env_credentials entry does not have to restart.
+func (e *Env) SetSpecs(specs map[string]EnvSpec) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.specs = specs
+}
+
+func (e *Env) spec(name string) (EnvSpec, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	spec, ok := e.specs[name]
+	return spec, ok
+}
+
 // Kind implements Source.
 func (e *Env) Kind() string { return "env_credentials" }
 
 // Names returns the configured credential names, sorted. `serve` uses this for
 // its startup warning.
 func (e *Env) Names() []string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
 	out := make([]string, 0, len(e.specs))
 	for name := range e.specs {
 		out = append(out, name)
@@ -47,7 +70,7 @@ func (e *Env) Names() []string {
 
 // Get implements Source.
 func (e *Env) Get(name string) (Record, error) {
-	spec, ok := e.specs[name]
+	spec, ok := e.spec(name)
 	if !ok {
 		return Record{}, fmt.Errorf("%w: %q", ErrNotFound, name)
 	}
@@ -72,7 +95,7 @@ func (e *Env) Get(name string) (Record, error) {
 // Describe returns metadata for a configured env credential, without its
 // value.
 func (e *Env) Describe(name string) (Metadata, error) {
-	spec, ok := e.specs[name]
+	spec, ok := e.spec(name)
 	if !ok {
 		return Metadata{}, fmt.Errorf("%w: %q", ErrNotFound, name)
 	}
