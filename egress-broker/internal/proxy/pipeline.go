@@ -44,6 +44,18 @@ func (p *Proxy) handleAbsolute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The request-line scheme is authoritative and must be checked before
+	// anything else derives from it. An absolute-form "https://" request line
+	// parses into a URL whose Port() is empty, so assuming plain HTTP here
+	// would default the port to 80 and forward an intercepted, credential-
+	// injected request in cleartext. Only plain HTTP travels in absolute form;
+	// TLS reaches this proxy as CONNECT.
+	if r.URL.Scheme != "http" {
+		p.refuse(w, http.StatusBadRequest, ReasonBadRequest,
+			"this proxy accepts absolute-form request lines for http only; send https through CONNECT")
+		return
+	}
+
 	host, err := hostnorm.Normalize(r.URL.Hostname())
 	if err != nil || host == "" {
 		p.refuse(w, http.StatusBadRequest, ReasonBadRequest, "the request URL has an invalid host")

@@ -396,6 +396,47 @@ func TestPlainHTTP(t *testing.T) {
 	}
 }
 
+// TestAbsoluteFormHTTPSIsRefused guards the downgrade the absolute-form path
+// used to allow.
+//
+// An "https://" request line is not a CONNECT: nothing about it is encrypted.
+// Treating it as plain HTTP dialled the upstream in the clear and, because an
+// intercept rule matches any port by default, attached the credential to a
+// cleartext request — a leak an agent could trigger by choosing the request
+// form.
+func TestAbsoluteFormHTTPSIsRefused(t *testing.T) {
+	up := newUpstream(t)
+	host, port := up.HostPort(t)
+
+	s := startStack(t, stackOptions{
+		Rules: rulesDoc("deny", rule{
+			Name: "up", Host: host, Mode: "intercept",
+			Inject: inject(map[string]string{"Authorization": "Bearer ${cred.tok}"}),
+		}),
+		AllowAddrs: []string{hostPort(host, port)},
+		EnvCredentials: map[string]any{
+			"tok": map[string]any{"var": "TOK", "hosts": []string{host}},
+		},
+		Env: map[string]string{"TOK": "SENTINEL-DOWNGRADE"},
+	})
+
+	conn := dialProxy(t, s)
+	target := hostPort(host, port)
+	writeRaw(t, conn, fmt.Sprintf("GET https://%s/secret HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s\r\n\r\n",
+		target, target, basicCredential(s.token)))
+
+	resp, err := readResponse(conn)
+	if err != nil {
+		t.Fatalf("reading the response: %v", err)
+	}
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (logs:\n%s)", resp.StatusCode, s.Logs())
+	}
+	if up.Count() != 0 {
+		t.Fatalf("the upstream saw %d cleartext request(s), want 0", up.Count())
+	}
+}
+
 // TestPlainHTTPRespectsDeny proves the plain path is policed, not just
 // injected on.
 func TestPlainHTTPRespectsDeny(t *testing.T) {
