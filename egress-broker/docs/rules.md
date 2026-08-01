@@ -71,10 +71,14 @@ on any port the rule admits.
 
 ### Ports
 
-`intercept` defaults to **any port**. `tunnel` and `deny` default to **443
+`intercept` and `deny` default to **any port**. `tunnel` defaults to **443
 only**, and so does the `fallthrough` path — otherwise `fallthrough: "tunnel"`
 would relay any port an agent names, which is a far larger grant than choosing
 to relay unmatched HTTPS.
+
+`deny` matches `intercept` here deliberately. A narrower default would let an
+unported `deny` cover only 443 while the `intercept` rule it overrides covers
+every port, which would break "deny beats intercept" off 443.
 
 Opt a port in explicitly:
 

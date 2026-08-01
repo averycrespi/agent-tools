@@ -42,9 +42,9 @@ const (
 	FallthroughDeny Fallthrough = "deny"
 )
 
-// DefaultTunnelPort is the only port a tunnel or deny decision applies to
-// unless a rule opts others in via "ports". Tunnelling an arbitrary port
-// turns the proxy into a generic TCP relay (AC-16).
+// DefaultTunnelPort is the only port a tunnel decision applies to unless a
+// rule opts others in via "ports". Tunnelling an arbitrary port turns the
+// proxy into a generic TCP relay (AC-16).
 const DefaultTunnelPort = 443
 
 // Inject describes the header mutations an intercept rule applies.
@@ -84,7 +84,7 @@ type compiled struct {
 	host *hostnorm.Glob
 	path *glob.Glob
 	// ports is the effective port set. Empty means "any port", which is the
-	// default for intercept rules only.
+	// default for every mode except tunnel.
 	ports []int
 }
 
@@ -239,20 +239,27 @@ func compileRule(r Rule) (*compiled, error) {
 
 // effectivePorts resolves the ports a rule applies to.
 //
-// Tunnel and deny default to 443 only: a tunnel decision is a decision to
-// relay opaque bytes, and defaulting that to every port would make the proxy a
-// generic TCP relay. Intercept defaults to any port, because an intercepted
-// connection is still parsed and evaluated per request (AC-16).
+// Tunnel defaults to 443 only: a tunnel decision is a decision to relay opaque
+// bytes, and defaulting that to every port would make the proxy a generic TCP
+// relay. Intercept defaults to any port, because an intercepted connection is
+// still parsed and evaluated per request (AC-16).
+//
+// Deny defaults to any port too, and must. A narrower default than intercept's
+// breaks "deny beats intercept regardless of order": an unported deny would
+// cover only 443 while the intercept rule it is meant to override covers every
+// port, so off 443 the credential would be injected into exactly the path the
+// operator denied. A deny is a refusal to reach something, not a statement
+// about which port it listens on.
 func effectivePorts(r Rule) []int {
 	if len(r.Ports) > 0 {
 		ports := slices.Clone(r.Ports)
 		slices.Sort(ports)
 		return slices.Compact(ports)
 	}
-	if r.Mode == ModeIntercept {
-		return nil
+	if r.Mode == ModeTunnel {
+		return []int{DefaultTunnelPort}
 	}
-	return []int{DefaultTunnelPort}
+	return nil
 }
 
 func normalizeRule(r Rule) Rule {

@@ -118,9 +118,9 @@ func TestPortStripping(t *testing.T) {
 	}
 }
 
-// TestTunnelPorts is the other half of AC-16: a tunnel or deny decision is
-// limited to 443 unless a rule opts a port in, and that limit applies to the
-// fallthrough path too.
+// TestTunnelPorts is the other half of AC-16: a tunnel decision is limited to
+// 443 unless a rule opts a port in, and that limit applies to the fallthrough
+// path too.
 func TestTunnelPorts(t *testing.T) {
 	t.Run("a tunnel rule defaults to 443 only", func(t *testing.T) {
 		e := engine(t, rules.FallthroughDeny,
@@ -264,6 +264,31 @@ func TestDenyBeatsIntercept(t *testing.T) {
 					allowed.Rule, allowed.Inject)
 			}
 		})
+	}
+}
+
+// TestDenyBeatsInterceptOnEveryPort pins the port half of that invariant.
+//
+// A deny rule with no "ports" once defaulted to 443 while an intercept rule
+// with no "ports" covered every port, so off 443 the deny silently stopped
+// applying and the credential was injected into the denied path.
+func TestDenyBeatsInterceptOnEveryPort(t *testing.T) {
+	e := engine(t, rules.FallthroughDeny,
+		rules.Rule{
+			Name: "api", Host: "api.example.com", Mode: rules.ModeIntercept,
+			Inject: &rules.Inject{Set: map[string]string{"Authorization": "Bearer ${cred.tok}"}},
+		},
+		rules.Rule{Name: "no-admin", Host: "api.example.com", Path: "/admin/**", Mode: rules.ModeDeny},
+	)
+
+	for _, port := range []int{443, 80, 8443, 9999} {
+		got := e.Evaluate("api.example.com", port, "GET", "/admin/users")
+		if got.Action != rules.RequestDeny {
+			t.Errorf("port %d: Action = %q, want deny on every port the intercept rule covers", port, got.Action)
+		}
+		if got.Inject != nil {
+			t.Errorf("port %d: a denied request must carry no injection", port)
+		}
 	}
 }
 
