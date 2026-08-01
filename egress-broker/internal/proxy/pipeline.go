@@ -289,10 +289,16 @@ func (p *Proxy) buildUpstreamRequest(
 	r *http.Request, host string, port int, scheme string,
 	decision rules.Decision, injected map[string]string,
 ) (*http.Request, error) {
+	// RawPath travels with Path so URL.String() reproduces the escaping the
+	// client sent. Rebuilding from the decoded Path alone re-encodes it, which
+	// turns a percent-encoded separator inside a segment into a real separator
+	// — "/contents/a%2Fb" becomes "/contents/a/b", a different resource on
+	// GitHub, S3, and anything else that allows encoded separators.
 	target := &url.URL{
 		Scheme:   scheme,
 		Host:     upstreamAuthority(host, port, scheme),
 		Path:     r.URL.Path,
+		RawPath:  r.URL.RawPath,
 		RawQuery: r.URL.RawQuery,
 	}
 

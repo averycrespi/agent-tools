@@ -396,6 +396,28 @@ func TestPlainHTTP(t *testing.T) {
 	}
 }
 
+// TestEncodedPathReachesUpstreamUnchanged pins that interception does not
+// rewrite the request target.
+//
+// Rebuilding the upstream URL from the decoded path re-escapes it, so an
+// encoded separator inside a segment becomes a real separator and the agent
+// silently addresses a different resource.
+func TestEncodedPathReachesUpstreamUnchanged(t *testing.T) {
+	s, up := interceptStack(t, rule{Name: "up"}, stackOptions{})
+	host, port := up.HostPort(t)
+
+	const encoded = "/repos/o/r/contents/a%2Fb"
+	resp, _ := requestThroughProxy(t, s.client(), http.MethodGet,
+		fmt.Sprintf("https://%s%s", hostPort(host, port), encoded))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (logs:\n%s)", resp.StatusCode, s.Logs())
+	}
+
+	if got := up.Last(t).RawPath; got != encoded {
+		t.Errorf("upstream path = %q, want %q: the encoded separator must survive interception", got, encoded)
+	}
+}
+
 // TestAbsoluteFormHTTPSIsRefused guards the downgrade the absolute-form path
 // used to allow.
 //

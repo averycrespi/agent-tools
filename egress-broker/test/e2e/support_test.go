@@ -27,9 +27,12 @@ func readResponse(conn net.Conn) (*http.Response, error) {
 type recordedRequest struct {
 	Method string
 	Path   string
-	Query  string
-	Header http.Header
-	Host   string
+	// RawPath is the path as it arrived on the wire, still escaped. Path alone
+	// cannot distinguish "/a%2Fb" from "/a/b".
+	RawPath string
+	Query   string
+	Header  http.Header
+	Host    string
 }
 
 // upstream is a mock server that records every request it receives.
@@ -68,11 +71,12 @@ func newTLSUpstream(t *testing.T) *upstream {
 func (u *upstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	u.mu.Lock()
 	u.requests = append(u.requests, recordedRequest{
-		Method: r.Method,
-		Path:   r.URL.Path,
-		Query:  r.URL.RawQuery,
-		Header: r.Header.Clone(),
-		Host:   r.Host,
+		Method:  r.Method,
+		Path:    r.URL.Path,
+		RawPath: r.URL.EscapedPath(),
+		Query:   r.URL.RawQuery,
+		Header:  r.Header.Clone(),
+		Host:    r.Host,
 	})
 	handler := u.handler
 	u.mu.Unlock()
