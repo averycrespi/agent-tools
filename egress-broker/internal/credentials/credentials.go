@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/averycrespi/agent-tools/egress-broker/internal/hostmatch"
 	"github.com/averycrespi/agent-tools/egress-broker/internal/hostnorm"
 )
 
@@ -281,6 +282,14 @@ func ValidateHeaderValue(v string) error {
 	return nil
 }
 
+// ValidateHostGlobs reports whether a credential's bound host globs are
+// acceptable, without returning the normalised form. Config loading uses it so
+// an env_credentials entry is rejected at startup rather than at first use.
+func ValidateHostGlobs(hosts []string) error {
+	_, err := NormalizeHosts(hosts)
+	return err
+}
+
 // NormalizeHosts normalises and validates a credential's bound host globs.
 func NormalizeHosts(hosts []string) ([]string, error) {
 	if len(hosts) == 0 {
@@ -294,6 +303,15 @@ func NormalizeHosts(hosts []string) ([]string, error) {
 		}
 		if normalized == "*" || normalized == "**" {
 			return nil, fmt.Errorf("host %q matches every host; bind the credential to the hosts it is for", h)
+		}
+		// The same public-suffix rejection rule loading applies. Binding a
+		// credential to "*.com" is the footgun host binding exists to prevent,
+		// and it has to be caught here rather than only in the CLI — otherwise
+		// an env_credentials entry in config.json reaches the request path
+		// unchecked, which is exactly the single-enforcement-path gap this
+		// package was written to make impossible.
+		if isSuffix, suffix := hostmatch.MatchesPublicSuffix(normalized); isSuffix {
+			return nil, fmt.Errorf("host %q reduces to the public suffix %q, binding the credential to every host under a registry-controlled TLD", h, suffix)
 		}
 		out = append(out, normalized)
 	}

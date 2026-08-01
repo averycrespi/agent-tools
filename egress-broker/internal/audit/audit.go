@@ -370,11 +370,19 @@ func (l *Logger) StartPruning(ctx context.Context, retention, interval time.Dura
 }
 
 // Close releases the database.
+//
+// The lock is held across the whole close, not just the flag write. Releasing
+// it first would let a Record call that had already passed the closed check
+// run stmt.Exec concurrently with stmt.Close.
 func (l *Logger) Close() error {
 	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.closed {
+		return nil
+	}
 	l.closed = true
 	l.subscribers = nil
-	l.mu.Unlock()
 
 	if err := l.stmt.Close(); err != nil {
 		_ = l.db.Close()

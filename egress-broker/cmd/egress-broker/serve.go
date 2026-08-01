@@ -61,6 +61,7 @@ type stack struct {
 	token     string
 	envNames  []string
 	audit     *audit.Logger
+	proxy     *proxy.Proxy
 }
 
 func runServe(ctx context.Context, out interface{ Write([]byte) (int, error) }) error {
@@ -95,7 +96,7 @@ func runServe(ctx context.Context, out interface{ Write([]byte) (int, error) }) 
 		pruneInterval, time.Now,
 		func(err error) { st.log.Error("pruning the audit log failed", "error", err) })
 
-	return serveEventLoop(ctx, st, proxyServer, proxyLn, healthServer, healthLn)
+	return serveEventLoop(ctx, st, proxyServer, healthServer)
 }
 
 func buildStack(out interface{ Write([]byte) (int, error) }) (*stack, error) {
@@ -199,8 +200,9 @@ func startProxy(st *stack) (*http.Server, net.Listener, error) {
 		return nil, nil, fmt.Errorf("binding the proxy listener on %s: %w", st.cfg.Proxy.Addr(), err)
 	}
 
+	st.proxy = newProxy(st)
 	server := &http.Server{
-		Handler: newProxy(st),
+		Handler: st.proxy,
 		// ReadHeaderTimeout bounds how long a client may hold a connection
 		// without stating its intent. No overall ReadTimeout: a CONNECT is
 		// hijacked and relayed for as long as the tunnel lives.
@@ -235,7 +237,7 @@ func startDashboard(st *stack) (*http.Server, net.Listener, error) {
 }
 
 // serveEventLoop blocks until a termination signal, handling SIGHUP reloads.
-func serveEventLoop(ctx context.Context, st *stack, servers ...any) error {
+func serveEventLoop(ctx context.Context, st *stack, servers ...*http.Server) error {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigs)
@@ -289,21 +291,25 @@ func (st *stack) reload() {
 	st.log.Info("reloaded", "rules", rulesPath, "count", len(doc.Rules), "fallthrough", doc.Fallthrough)
 }
 
-func shutdownAll(st *stack, servers ...any) error {
+func shutdownAll(st *stack, servers ...*http.Server) error {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for _, s := range servers {
-			srv, ok := s.(*http.Server)
-			if !ok {
-				continue
-			}
+		for _, srv := range servers {
 			if err := srv.Shutdown(ctx); err != nil {
 				st.log.Warn("shutdown did not complete cleanly", "error", err)
 			}
+		}
+		// http.Server.Shutdown has no visibility into hijacked CONNECT
+		// relays — a hijacked connection leaves the server's active set, so
+		// Shutdown returns immediately even with tunnels mid-transfer. Wait
+		// on them explicitly, or the documented drain window would be a
+		// promise the code does not keep.
+		if st.proxy != nil {
+			st.proxy.WaitForRelays(ctx)
 		}
 	}()
 
@@ -325,28 +331,51 @@ func shutdownAll(st *stack, servers ...any) error {
 }
 
 // credentialLister exposes credential names and bindings to the dashboard.
-// It is built from configuration rather than from the resolver, so no code
-// path can hand a value to the dashboard even by accident.
+//
+// It is evaluated per request, not at startup. Reading a keychain item can
+// prompt for access on macOS, and doing that during startup is exactly the
+// unattended hang the lazy-resolution design avoids — a dashboard visit is a
+// moment someone is present to answer.
+//
+// Values never enter this path: it builds dashboard.CredentialInfo, which has
+// no value field, from configuration and from Keychain.Describe, which returns
+// metadata only.
 func (st *stack) credentialLister() dashboard.CredentialLister {
-	infos := make([]dashboard.CredentialInfo, 0, len(st.cfg.EnvCredentials))
-	for name, ec := range st.cfg.EnvCredentials {
-		infos = append(infos, dashboard.CredentialInfo{
-			Name: name, Source: "env_credentials", Hosts: ec.Hosts,
-		})
-	}
-	for _, name := range st.rules.Engine().ReferencedCredentials() {
-		if _, isEnv := st.cfg.EnvCredentials[name]; isEnv {
-			continue
+	return credentialListerFunc(func() []dashboard.CredentialInfo {
+		infos := make([]dashboard.CredentialInfo, 0, len(st.cfg.EnvCredentials))
+		for name, ec := range st.cfg.EnvCredentials {
+			infos = append(infos, dashboard.CredentialInfo{
+				Name: name, Source: "env_credentials", Hosts: ec.Hosts,
+			})
 		}
-		infos = append(infos, dashboard.CredentialInfo{Name: name, Source: "keychain"})
-	}
-	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
-	return staticCredentialLister(infos)
+
+		keychain := credentials.NewKeychain()
+		for _, name := range st.rules.Engine().ReferencedCredentials() {
+			if _, isEnv := st.cfg.EnvCredentials[name]; isEnv {
+				continue
+			}
+			// Describe returns bound hosts and a byte count, never a value.
+			// An unreachable item is shown as such rather than omitted: a
+			// referenced-but-missing credential is the misconfiguration that
+			// produces a 403, so hiding it would hide the diagnosis.
+			meta, err := keychain.Describe(name)
+			if err != nil {
+				infos = append(infos, dashboard.CredentialInfo{Name: name, Source: "keychain (unavailable)"})
+				continue
+			}
+			infos = append(infos, dashboard.CredentialInfo{
+				Name: meta.Name, Source: meta.Source, Hosts: meta.Hosts,
+			})
+		}
+
+		sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
+		return infos
+	})
 }
 
-type staticCredentialLister []dashboard.CredentialInfo
+type credentialListerFunc func() []dashboard.CredentialInfo
 
-func (s staticCredentialLister) List() []dashboard.CredentialInfo { return s }
+func (f credentialListerFunc) List() []dashboard.CredentialInfo { return f() }
 
 func logLevel(level string) slog.Level {
 	switch level {

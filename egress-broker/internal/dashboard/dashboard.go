@@ -127,7 +127,9 @@ func (d *Dashboard) Handler() http.Handler {
 // drops the token from the URL so it does not linger in history.
 func (d *Dashboard) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if qToken := r.URL.Query().Get("token"); qToken != "" && qToken == d.token {
+		// Constant-time, like every other token comparison in the tool. A
+		// plain == here was the lone outlier.
+		if qToken := r.URL.Query().Get("token"); qToken != "" && auth.ConstantTimeEqual(qToken, d.token) {
 			//nolint:gosec // the dashboard is loopback-only plain HTTP; a
 			// Secure cookie would never be sent and local auth would break.
 			http.SetCookie(w, &http.Cookie{

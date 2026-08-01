@@ -141,9 +141,14 @@ func TestReloadIsTheKillSwitch(t *testing.T) {
 	_ = conn.Close()
 }
 
-// TestShutdownDrainsTunnel is V-25 / AC-7: a tunnel with an in-flight
-// transfer, interrupted by SIGTERM, is completed or cut within the documented
-// drain window rather than severed instantly.
+// TestShutdownDrainsTunnel is V-25 / AC-7: a tunnel with an in-flight transfer,
+// interrupted by SIGTERM, is drained rather than severed instantly.
+//
+// The assertion has both bounds on purpose. An upper bound alone passes whether
+// the tunnel drained or was cut immediately, which is exactly the regression
+// this is meant to catch: http.Server.Shutdown does not see hijacked
+// connections, so without explicit tracking the drain window elapses instantly
+// and the documented behaviour is a promise the code does not keep.
 func TestShutdownDrainsTunnel(t *testing.T) {
 	up := newTLSUpstream(t)
 	host, port := up.HostPort(t)
@@ -158,7 +163,15 @@ func TestShutdownDrainsTunnel(t *testing.T) {
 		t.Fatalf("CONNECT status = %d, want 200", resp.StatusCode)
 	}
 
-	// Interrupt with the tunnel still open.
+	// Hold the tunnel open for a measurable stretch after the signal, then
+	// close it. A shutdown that ignores hijacked relays returns well before
+	// this fires.
+	const holdFor = 2 * time.Second
+	go func() {
+		time.Sleep(holdFor)
+		_ = conn.Close()
+	}()
+
 	start := time.Now()
 	if err := s.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatalf("sending SIGTERM: %v", err)
@@ -173,20 +186,21 @@ func TestShutdownDrainsTunnel(t *testing.T) {
 	select {
 	case <-exited:
 		elapsed := time.Since(start)
-		// The documented window is 10 seconds. Exiting well beyond it would
-		// mean a process launchd can never restart.
+		// Lower bound: the open tunnel was actually waited on.
+		if elapsed < holdFor {
+			t.Errorf("shutdown took %v, less than the %v the tunnel was held open: hijacked relays were severed rather than drained",
+				elapsed, holdFor)
+		}
+		// Upper bound: the documented window still caps it, so launchd can
+		// restart the process.
 		if elapsed > 15*time.Second {
 			t.Errorf("shutdown took %v, beyond the documented 10s drain window", elapsed)
 		}
-		t.Logf("exited %v after SIGTERM with a tunnel open", elapsed)
-	case <-time.After(20 * time.Second):
-		t.Fatal("the process did not exit within 20s of SIGTERM with a tunnel open")
+		t.Logf("exited %v after SIGTERM with a tunnel held open for %v", elapsed, holdFor)
+	case <-time.After(25 * time.Second):
+		t.Fatal("the process did not exit within 25s of SIGTERM with a tunnel open")
 	}
 
-	_ = conn.Close()
-
-	// The log records what happened, so an operator can tell a clean drain
-	// from a deadline overrun.
 	logs := s.Logs()
 	if !strings.Contains(logs, "shutting down") {
 		t.Errorf("shutdown should be logged:\n%s", logs)

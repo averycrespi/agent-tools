@@ -416,3 +416,33 @@ func TestValidName(t *testing.T) {
 		}
 	}
 }
+
+// TestNormalizeHostsRejectsPublicSuffix is the AC-6 gap the whole-change review
+// found: rule loading rejected a public-suffix host glob, and so did the
+// `credential set` CLI, but an env_credentials entry in config.json reached the
+// request path unchecked — the exact single-enforcement-path gap this package
+// exists to close.
+func TestNormalizeHostsRejectsPublicSuffix(t *testing.T) {
+	for _, pattern := range []string{"*.com", "**.co.uk", "com", "co.uk", "*.*.com"} {
+		if _, err := credentials.NormalizeHosts([]string{pattern}); err == nil {
+			t.Errorf("NormalizeHosts(%q) = nil, want it rejected as a public suffix", pattern)
+		}
+	}
+	// A legitimate binding still works.
+	if _, err := credentials.NormalizeHosts([]string{"*.example.com", "api.github.com"}); err != nil {
+		t.Errorf("a normal binding should be accepted: %v", err)
+	}
+	// One bad entry among good ones still fails.
+	if _, err := credentials.NormalizeHosts([]string{"api.github.com", "*.com"}); err == nil {
+		t.Error("a public suffix alongside a valid host should still be rejected")
+	}
+}
+
+func TestValidateHostGlobs(t *testing.T) {
+	if err := credentials.ValidateHostGlobs([]string{"*.com"}); err == nil {
+		t.Error("ValidateHostGlobs should reject a public suffix")
+	}
+	if err := credentials.ValidateHostGlobs([]string{"api.github.com"}); err != nil {
+		t.Errorf("ValidateHostGlobs should accept a normal host: %v", err)
+	}
+}

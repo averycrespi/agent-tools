@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/averycrespi/agent-tools/egress-broker/internal/credentials"
 	"github.com/averycrespi/agent-tools/egress-broker/internal/paths"
 )
 
@@ -177,6 +178,9 @@ func Validate(cfg Config) error {
 		}
 		if len(ec.Hosts) == 0 {
 			return fmt.Errorf("env_credentials.%s: at least one bound host is required; every credential carries host scope", name)
+		}
+		if err := credentials.ValidateHostGlobs(ec.Hosts); err != nil {
+			return fmt.Errorf("env_credentials.%s: %w", name, err)
 		}
 	}
 	return nil

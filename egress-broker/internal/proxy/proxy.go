@@ -3,12 +3,14 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/averycrespi/agent-tools/egress-broker/internal/auth"
@@ -109,6 +111,26 @@ type Proxy struct {
 	tunnelIdle    time.Duration
 
 	transport *http.Transport
+
+	// hijacked counts relays that http.Server.Shutdown cannot see. A CONNECT
+	// is removed from the server's active-connection set the moment it is
+	// hijacked, so without this the documented drain window would elapse
+	// instantly and cut live tunnels.
+	hijacked sync.WaitGroup
+}
+
+// WaitForRelays blocks until every hijacked relay has finished, or until ctx
+// is done. The composition root calls it during shutdown.
+func (p *Proxy) WaitForRelays(ctx context.Context) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		p.hijacked.Wait()
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
 }
 
 // New returns a Proxy.
@@ -242,6 +264,9 @@ func (p *Proxy) serveTunnel(w http.ResponseWriter, r *http.Request, id, host str
 	}
 	defer func() { _ = client.Close() }()
 
+	p.hijacked.Add(1)
+	defer p.hijacked.Done()
+
 	if _, err := client.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n")); err != nil {
 		return
 	}
@@ -265,7 +290,9 @@ func (p *Proxy) recordDialFailure(id string, start time.Time, interception, host
 	p.audit.Record(Event{
 		ID: id, Start: start, Interception: interception, Host: host, Port: port,
 		MatchedRule: decision.Rule, Mode: decision.Mode, Outcome: outcome,
-		Status: dialStatus(err), Error: err.Error(), DurationMS: sinceMS(start),
+		// Sanitised like every other audit error path, so the invariant holds
+		// uniformly rather than depending on which failure fired.
+		Status: dialStatus(err), Error: sanitizeDetail(err.Error()), DurationMS: sinceMS(start),
 	})
 }
 

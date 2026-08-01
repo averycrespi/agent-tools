@@ -432,3 +432,67 @@ func TestStoreRejectsInvalidInitialDocument(t *testing.T) {
 		t.Error("NewStore with an invalid document = nil, want an error")
 	}
 }
+
+// TestPathNormalizationDefeatsTraversal is a regression test. Go's URL parsing
+// leaves "." and ".." in place, so matching the literal path let a deny rule
+// be bypassed by a spelling the upstream would collapse back to the denied
+// path before its own routing.
+func TestPathNormalizationDefeatsTraversal(t *testing.T) {
+	e := engine(t, rules.FallthroughTunnel,
+		rules.Rule{Name: "no-admin", Host: "api.example.com", Path: "/admin/**", Mode: rules.ModeDeny})
+
+	bypasses := []string{
+		"/admin/secret",
+		"/public/../admin/secret",
+		"/./admin/secret",
+		"//admin/secret",
+		"/a/b/../../admin/secret",
+		"/admin/./secret",
+		"/admin//secret",
+		"/../admin/secret",
+	}
+	for _, p := range bypasses {
+		got := e.Evaluate("api.example.com", 443, "GET", p)
+		if got.Action != rules.RequestDeny {
+			t.Errorf("Evaluate(%q) = %q, want deny: it collapses to a denied path", p, got.Action)
+		}
+	}
+
+	// A genuinely different path is still allowed, so normalisation has not
+	// simply made everything match.
+	if got := e.Evaluate("api.example.com", 443, "GET", "/public/thing"); got.Action != rules.RequestForward {
+		t.Errorf("a non-denied path = %q, want forward", got.Action)
+	}
+}
+
+func TestNormalizePath(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", "/"},
+		{"/", "/"},
+		{"/admin", "/admin"},
+		{"/admin/", "/admin/"},
+		{"//admin", "/admin"},
+		{"/./admin", "/admin"},
+		{"/a/../admin", "/admin"},
+		{"/../admin", "/admin"},
+		{"/admin//secret", "/admin/secret"},
+		{"/admin/./", "/admin/"},
+		{"relative/path", "/relative/path"},
+	}
+	for _, tc := range cases {
+		if got := rules.NormalizePath(tc.in); got != tc.want {
+			t.Errorf("NormalizePath(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestPathNormalizationPreservesTrailingSlash: "/admin/**" matches "/admin/"
+// but not "/admin", so collapsing the trailing slash would change matching.
+func TestPathNormalizationPreservesTrailingSlash(t *testing.T) {
+	e := engine(t, rules.FallthroughTunnel,
+		rules.Rule{Name: "no-admin", Host: "api.example.com", Path: "/admin/**", Mode: rules.ModeDeny})
+
+	if got := e.Evaluate("api.example.com", 443, "GET", "/admin/"); got.Action != rules.RequestDeny {
+		t.Errorf(`Evaluate("/admin/") = %q, want deny`, got.Action)
+	}
+}

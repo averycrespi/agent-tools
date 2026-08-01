@@ -305,3 +305,27 @@ func read(t *testing.T, path string) string {
 	}
 	return string(data)
 }
+
+// TestEnvCredentialsRejectPublicSuffix proves the check runs at config load,
+// not only when a request first resolves the credential.
+func TestEnvCredentialsRejectPublicSuffix(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.EnvCredentials = map[string]config.EnvCredential{
+		"too_broad": {Var: "TOK", Hosts: []string{"*.com"}},
+	}
+
+	err := config.Validate(cfg)
+	if err == nil {
+		t.Fatal("an env credential bound to a public suffix should be rejected at load")
+	}
+	for _, want := range []string{"too_broad", "public suffix"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q should mention %q", err, want)
+		}
+	}
+
+	cfg.EnvCredentials["too_broad"] = config.EnvCredential{Var: "TOK", Hosts: []string{"api.github.com"}}
+	if err := config.Validate(cfg); err != nil {
+		t.Errorf("a normally bound env credential should validate: %v", err)
+	}
+}

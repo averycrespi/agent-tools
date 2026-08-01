@@ -119,15 +119,17 @@ func CheckProxyAuth(header, token string) bool {
 		if !ok {
 			return false
 		}
-		return constantTimeEqual(password, token)
+		return ConstantTimeEqual(password, token)
 	case strings.EqualFold(scheme, "Bearer"):
-		return constantTimeEqual(value, token)
+		return ConstantTimeEqual(value, token)
 	default:
 		return false
 	}
 }
 
-func constantTimeEqual(a, b string) bool {
+// ConstantTimeEqual compares two tokens without leaking their contents through
+// timing. Every token comparison in the tool goes through it.
+func ConstantTimeEqual(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
@@ -143,12 +145,12 @@ func CheckDashboardAuth(r *http.Request, token string) bool {
 
 	if header := r.Header.Get("Authorization"); header != "" {
 		scheme, value, found := strings.Cut(header, " ")
-		if found && strings.EqualFold(scheme, "Bearer") && constantTimeEqual(strings.TrimSpace(value), token) {
+		if found && strings.EqualFold(scheme, "Bearer") && ConstantTimeEqual(strings.TrimSpace(value), token) {
 			return true
 		}
 	}
 	if cookie, err := r.Cookie(DashboardCookieName); err == nil {
-		return constantTimeEqual(cookie.Value, token)
+		return ConstantTimeEqual(cookie.Value, token)
 	}
 	return false
 }

@@ -53,6 +53,9 @@ func (p *Proxy) serveMITM(w http.ResponseWriter, r *http.Request, id, host strin
 	}
 	defer func() { _ = client.Close() }()
 
+	p.hijacked.Add(1)
+	defer p.hijacked.Done()
+
 	if _, err := client.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n")); err != nil {
 		return
 	}

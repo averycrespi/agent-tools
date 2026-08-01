@@ -5,7 +5,6 @@ package e2e_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -254,5 +253,3 @@ func authedGet(t *testing.T, s *stack, route string) (*http.Response, string) {
 	}
 	return resp, string(data)
 }
-
-var _ = fmt.Sprintf

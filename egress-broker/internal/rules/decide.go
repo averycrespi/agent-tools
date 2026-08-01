@@ -1,7 +1,9 @@
 package rules
 
 import (
+	"path"
 	"slices"
+	"strings"
 	"sync/atomic"
 )
 
@@ -185,11 +187,14 @@ type Decision struct {
 //
 // A request matching no rule on a host policy already knows about is forwarded
 // without injection, recorded as implicit-allow.
-func (e *Engine) Evaluate(host string, port int, method, path string) Decision {
+func (e *Engine) Evaluate(host string, port int, method, requestPath string) Decision {
+	// Normalise once, before any rule sees it.
+	requestPath = NormalizePath(requestPath)
+
 	var intercept *compiled
 
 	for _, c := range e.rules {
-		if !c.matchesRequest(host, port, method, path) {
+		if !c.matchesRequest(host, port, method, requestPath) {
 			continue
 		}
 		if c.rule.Mode == ModeDeny {
@@ -218,6 +223,9 @@ func (e *Engine) Evaluate(host string, port int, method, path string) Decision {
 }
 
 // matchesRequest reports whether the rule applies to this request.
+//
+// The path is expected to be already normalised by the caller; Evaluate does
+// that once per request rather than once per rule.
 func (c *compiled) matchesRequest(host string, port int, method, path string) bool {
 	if !c.host.Match(host) || !c.admitsPort(port) {
 		return false
@@ -229,6 +237,33 @@ func (c *compiled) matchesRequest(host string, port int, method, path string) bo
 		return false
 	}
 	return true
+}
+
+// NormalizePath collapses dot segments and duplicate separators before a path
+// is matched against a rule.
+//
+// Go's URL parsing leaves "." and ".." in place, so without this a deny rule
+// for "/admin/**" is bypassed by "/public/../admin/secret", "/./admin/secret",
+// or "//admin/secret" — every one of which a typical upstream collapses back
+// to "/admin/secret" before its own routing. Matching the collapsed form is
+// the safe direction: it can only ever make a deny rule match more, never
+// less.
+//
+// A trailing slash is preserved, because "/admin/**" matches "/admin/" but not
+// "/admin", and path.Clean would otherwise silently change that.
+func NormalizePath(p string) string {
+	if p == "" {
+		return "/"
+	}
+
+	cleaned := path.Clean(p)
+	if !strings.HasPrefix(cleaned, "/") {
+		cleaned = "/" + cleaned
+	}
+	if strings.HasSuffix(p, "/") && !strings.HasSuffix(cleaned, "/") {
+		cleaned += "/"
+	}
+	return cleaned
 }
 
 // admitsPort reports whether the rule applies to the given port. An empty

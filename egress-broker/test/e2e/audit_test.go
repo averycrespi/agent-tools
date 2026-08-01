@@ -3,9 +3,12 @@
 package e2e_test
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -159,6 +162,7 @@ func TestNoLeak(t *testing.T) {
 	rows := waitForRows(t, s, 1)
 	joined := strings.Join(rows, "\n")
 
+	// Sink 1: the audit database. Sink 2: the process logs.
 	for _, sentinel := range []string{credSentinel, headerSentinel} {
 		if strings.Contains(joined, sentinel) {
 			t.Errorf("sentinel %q appeared in the audit database:\n%s", sentinel, joined)
@@ -167,6 +171,97 @@ func TestNoLeak(t *testing.T) {
 			t.Errorf("sentinel %q appeared in the process logs", sentinel)
 		}
 	}
+
+	// Sink 3: every dashboard JSON response, including the live SSE feed.
+	for _, route := range []string{"/api/audit", "/api/rules", "/api/credentials"} {
+		_, body := authedGet(t, s, route)
+		for _, sentinel := range []string{credSentinel, headerSentinel} {
+			if strings.Contains(body, sentinel) {
+				t.Errorf("sentinel %q appeared in %s:\n%s", sentinel, route, body)
+			}
+		}
+	}
+
+	events := readSSE(t, s, 3*time.Second)
+	if events == "" {
+		t.Log("note: no SSE events observed in the window; the sweep below is then vacuous for that sink")
+	}
+	for _, sentinel := range []string{credSentinel, headerSentinel} {
+		if strings.Contains(events, sentinel) {
+			t.Errorf("sentinel %q appeared in the SSE feed:\n%s", sentinel, events)
+		}
+	}
+
+	// Sink 4: CLI output.
+	out := runCLI(t, s, "credential", "list")
+	for _, sentinel := range []string{credSentinel, headerSentinel} {
+		if strings.Contains(out, sentinel) {
+			t.Errorf("sentinel %q appeared in `credential list` output:\n%s", sentinel, out)
+		}
+	}
+	if !strings.Contains(out, "tok") {
+		t.Errorf("`credential list` should still name the credential, so this sweep is not vacuous:\n%s", out)
+	}
+}
+
+// readSSE subscribes to the live feed, drives one more request so an event is
+// produced, and returns whatever arrived within the window.
+func readSSE(t *testing.T, s *stack, window time.Duration) string {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), window)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.dashURL("/api/events"), nil)
+	if err != nil {
+		t.Fatalf("building the SSE request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+s.token)
+
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatalf("subscribing to the SSE feed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// Produce an event for the feed to carry.
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		up, _ := http.NewRequest(http.MethodGet, s.dashURL("/healthz"), nil)
+		_, _ = (&http.Client{Timeout: time.Second}).Do(up)
+	}()
+
+	buf := make([]byte, 32*1024)
+	var collected strings.Builder
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			collected.Write(buf[:n])
+		}
+		if err != nil {
+			break
+		}
+		if collected.Len() > 16*1024 {
+			break
+		}
+	}
+	return collected.String()
+}
+
+// runCLI runs an egress-broker subcommand against the stack's config.
+func runCLI(t *testing.T, s *stack, args ...string) string {
+	t.Helper()
+
+	cmd := exec.Command(brokerBinary, args...)
+	cmd.Env = append(os.Environ(),
+		"XDG_CONFIG_HOME="+filepath.Dir(s.configDir),
+		"XDG_DATA_HOME="+filepath.Dir(s.dataDir),
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Logf("`egress-broker %s` exited with %v (output kept for the sweep)", strings.Join(args, " "), err)
+	}
+	return string(out)
 }
 
 // TestQueryRedaction is D14: credential-shaped query parameters are stored
