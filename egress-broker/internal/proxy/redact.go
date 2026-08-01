@@ -2,9 +2,11 @@ package proxy
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"net/url"
 	"strings"
+	"time"
+
+	"github.com/oklog/ulid/v2"
 )
 
 // redactedPlaceholder replaces a credential-shaped query value.
@@ -76,14 +78,18 @@ func redactQuery(raw string) string {
 	return out
 }
 
-// newRequestID returns an identifier for one request, assigned at decode so
-// the audit row and any log line about the same request can be correlated.
+// newRequestID returns a ULID for one request, assigned at decode so the audit
+// row and any log line about the same request can be correlated.
+//
+// A ULID rather than a random hex string: the leading timestamp makes IDs sort
+// in creation order, so audit rows can be ordered by ID alone when timestamps
+// tie, and a row's approximate age is readable from the identifier itself.
 func newRequestID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		// A request without an identifier is still auditable; the identifier
-		// is for correlation, not correctness.
+	id, err := ulid.New(ulid.Timestamp(time.Now()), rand.Reader)
+	if err != nil {
+		// A request without an identifier is still auditable, and the store
+		// assigns a fallback rather than dropping the row.
 		return ""
 	}
-	return hex.EncodeToString(b)
+	return id.String()
 }

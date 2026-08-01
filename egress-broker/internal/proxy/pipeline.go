@@ -179,7 +179,7 @@ func (p *Proxy) handleIntercepted(w http.ResponseWriter, r *http.Request, host s
 	if err != nil {
 		event.Status = http.StatusBadRequest
 		event.Outcome = OutcomeError
-		event.Error = err.Error()
+		event.Error = sanitizeDetail(err.Error())
 		event.DurationMS = sinceMS(start)
 		p.audit.Record(event)
 		p.refuse(w, http.StatusBadRequest, ReasonBadRequest, "could not build the upstream request")
@@ -213,7 +213,11 @@ func (p *Proxy) recordRoundTripFailure(event *Event, err error) {
 		event.Status = http.StatusForbidden
 		event.Outcome = OutcomeBlocked
 	}
-	event.Error = err.Error()
+	// Sanitised for the same reason the client-facing detail is: this is the
+	// only audit path that runs after a credential has already been placed on
+	// the outgoing request, so an unconstrained error string is the one place
+	// credential-adjacent detail could reach a stored row.
+	event.Error = sanitizeDetail(err.Error())
 	event.DurationMS = sinceMS(event.Start)
 	p.audit.Record(*event)
 }
@@ -249,9 +253,16 @@ func (p *Proxy) recordInjectionFailure(event *Event, err error) {
 func (p *Proxy) refuseInjection(w http.ResponseWriter, err error) {
 	reason := ReasonCredentialUnresolved
 	detail := "a credential referenced by the matching rule could not be resolved"
-	if errors.Is(err, credentials.ErrHostScope) {
+	switch {
+	case errors.Is(err, credentials.ErrHostScope):
 		reason = ReasonCredentialScope
 		detail = "a credential referenced by the matching rule is not bound to this host"
+	case errors.Is(err, credentials.ErrInvalidValue):
+		// The credential resolved; its value simply cannot go in a header.
+		// Saying "could not be resolved" would send an operator looking in the
+		// wrong place.
+		reason = ReasonCredentialInvalid
+		detail = "a credential referenced by the matching rule holds a value that cannot be sent in a header"
 	}
 	// The detail never carries the underlying error, which could name the
 	// credential's bound hosts, and never the value (AC-10).

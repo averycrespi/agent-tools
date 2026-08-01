@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent for egress-broker. Runs the proxy whenever the user is logged in.
+
+  Before installing:
+    1. Replace every occurrence of USERNAME with your macOS short username
+       (see `whoami`). The README's install snippet does this with sed.
+    2. If `go install` put the binary somewhere other than ~/go/bin, update
+       the ProgramArguments path.
+
+  This must run as a gui/$UID agent, not a system daemon. Credentials come
+  from the login keychain, which is only unlocked in the logged-in session.
+
+  See docs/launchd.md for install and verify steps.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>dev.agent-tools.egress-broker</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/USERNAME/go/bin/egress-broker</string>
+        <string>serve</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- KeepAlive restarts a crashed process. It does NOT catch a proxy that
+         is wedged but still listening, which is the worse failure here
+         because it takes every sandbox's network with it. Probe
+         GET /healthz externally; see docs/launchd.md. -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- PATH and nothing else.
+
+             Credentials belong in the login keychain, not here. launchd does
+             not source shell profiles, so an env-only design would force every
+             API key into this file in plaintext — which is exactly what the
+             keychain design exists to avoid. Store them with:
+
+               printf %s "$TOKEN" | egress-broker credential set <name> --host <host>
+
+             env_credentials in config.json is the escape hatch for headless
+             Linux and CI, not for this plist. -->
+        <key>PATH</key>
+        <string>/Users/USERNAME/go/bin:/opt/homebrew/bin:/usr/local/bin:/usr/local/go/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/USERNAME</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/USERNAME/Library/Logs/egress-broker.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/USERNAME/Library/Logs/egress-broker.err.log</string>
+</dict>
+</plist>

@@ -416,3 +416,85 @@ func TestPlainHTTPRespectsDeny(t *testing.T) {
 		t.Errorf("the upstream saw %d requests, want 0", up.Count())
 	}
 }
+
+// TestMITMIPLiteral is D11 / V-12: intercepting a target named by IP literal
+// must complete rather than failing verification.
+//
+// A leaf carrying "127.0.0.1" in DNSNames instead of IPAddresses does not
+// verify, and the handshake failure an agent sees is indistinguishable from a
+// network fault — which is the opaque failure D11 exists to prevent.
+func TestMITMIPLiteral(t *testing.T) {
+	up := newTLSUpstream(t)
+	host, port := up.HostPort(t)
+
+	// The mock upstream listens on 127.0.0.1, so the CONNECT target is an IP
+	// literal and the proxy must issue a leaf bound to it as an IP SAN.
+	if host != "127.0.0.1" {
+		t.Skipf("expected the mock upstream on 127.0.0.1, got %s", host)
+	}
+
+	s := startStack(t, stackOptions{
+		Rules:      rulesDoc("deny", rule{Name: "ip", Host: host, Ports: []int{port}, Mode: "intercept"}),
+		AllowAddrs: []string{hostPort(host, port)},
+		UpstreamCA: up.CertPEM(t),
+	})
+
+	up.SetHandler(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("reached via ip literal"))
+	})
+
+	resp, body := requestThroughProxy(t, s.client(), http.MethodGet,
+		fmt.Sprintf("https://%s/ip", hostPort(host, port)))
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200: MITM of an allowed IP literal should complete (logs:\n%s)",
+			resp.StatusCode, s.Logs())
+	}
+	if body != "reached via ip literal" {
+		t.Errorf("body = %q, want the upstream response", body)
+	}
+
+	// The client verified the proxy's leaf against the proxy CA with an IP
+	// server name, which only succeeds if the leaf carries an IP SAN.
+	if up.Count() != 1 {
+		t.Errorf("the upstream saw %d requests, want 1", up.Count())
+	}
+}
+
+// TestRoundTripFailureDoesNotLeakCredential covers the one audit path that
+// runs after a credential has already been placed on the outgoing request.
+func TestRoundTripFailureDoesNotLeakCredential(t *testing.T) {
+	const sentinel = "SENTINEL-ROUNDTRIP-FAIL"
+
+	up := newTLSUpstream(t)
+	host, port := up.HostPort(t)
+
+	s := startStack(t, stackOptions{
+		Rules: rulesDoc("deny", rule{
+			Name: "up", Host: host, Ports: []int{port}, Mode: "intercept",
+			Inject: inject(map[string]string{"Authorization": "Bearer ${cred.tok}"}),
+		}),
+		AllowAddrs: []string{hostPort(host, port)},
+		// No UpstreamCA: injection succeeds, then the round trip fails because
+		// the proxy will not trust the upstream's certificate (D12).
+		EnvCredentials: map[string]any{
+			"tok": map[string]any{"var": "TOK", "hosts": []string{host}},
+		},
+		Env: map[string]string{"TOK": sentinel},
+	})
+
+	resp, _ := requestThroughProxy(t, s.client(), http.MethodGet,
+		fmt.Sprintf("https://%s/x", hostPort(host, port)))
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502: the upstream certificate should not verify", resp.StatusCode)
+	}
+
+	rows := waitForRows(t, s, 1)
+	joined := strings.Join(rows, "\n")
+	if strings.Contains(joined, sentinel) {
+		t.Errorf("the credential appeared in an audit row after a round-trip failure:\n%s", joined)
+	}
+	if strings.Contains(s.Logs(), sentinel) {
+		t.Error("the credential appeared in the process logs after a round-trip failure")
+	}
+}

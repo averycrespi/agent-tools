@@ -37,6 +37,7 @@ const (
 	// G101 heuristic flags them only because the name contains "credential".
 	ReasonCredentialScope      = "credential-host-scope" //nolint:gosec // reason code, not a credential
 	ReasonCredentialUnresolved = "credential-unresolved" //nolint:gosec // reason code, not a credential
+	ReasonCredentialInvalid    = "credential-invalid"    //nolint:gosec // reason code, not a credential
 )
 
 // Timeouts. The header deadline bounds how long a client may hold a connection

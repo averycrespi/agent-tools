@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"golang.org/x/net/http2"
@@ -22,7 +23,9 @@ const (
 	h2MaxFrameSize         = 1 << 14 // 16 KiB, the RFC 7540 default
 	h2MaxHeaderListSize    = 1 << 20 // 1 MiB
 	h2IdleTimeout          = 5 * time.Minute
-	h2ReadIdleTimeout      = 30 * time.Second
+	// MaxUploadBufferPerStream bounds how much a single stream may buffer,
+	// which is the other half of limiting what a burst of streams can hold.
+	h2MaxUploadBufferPerStream = 1 << 20 // 1 MiB
 )
 
 // serveMITM terminates TLS with a leaf bound to the CONNECT host, then serves
@@ -86,6 +89,7 @@ func (p *Proxy) serveH2(conn net.Conn, handler http.Handler) {
 		MaxConcurrentStreams:      h2MaxConcurrentStreams,
 		MaxReadFrameSize:          h2MaxFrameSize,
 		MaxDecoderHeaderTableSize: h2MaxHeaderListSize,
+		MaxUploadBufferPerStream:  h2MaxUploadBufferPerStream,
 		IdleTimeout:               h2IdleTimeout,
 	}
 	server.ServeConn(conn, &http2.ServeConnOpts{Handler: handler})
@@ -95,40 +99,65 @@ func (p *Proxy) serveH2(conn net.Conn, handler http.Handler) {
 //
 // http.Server drives keep-alive, pipelining and chunked bodies correctly, so
 // the connection is handed to one rather than parsing requests by hand.
+//
+// The listener is closed from a ConnState hook once the connection reaches a
+// terminal state, which is what lets Serve return. Without that, Accept blocks
+// forever after handing over its one connection, Serve never returns, and this
+// frame never unwinds — pinning a goroutine and leaving serveMITM's deferred
+// Close calls unexecuted for the life of the process. That is one leaked
+// goroutine and one leaked TLS connection per intercepted HTTP/1.1
+// connection, which an agent can produce at will.
 func (p *Proxy) serveH1(conn net.Conn, handler http.Handler) {
+	listener := newSingleConnListener(conn)
+
 	server := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: p.headerTimeout,
 		IdleTimeout:       h2IdleTimeout,
-		ErrorLog:          nil,
+		ConnState: func(_ net.Conn, state http.ConnState) {
+			if state == http.StateClosed || state == http.StateHijacked {
+				_ = listener.Close()
+			}
+		},
 	}
-	_ = server.Serve(&singleConnListener{conn: conn, done: make(chan struct{})})
+
+	// Serve returns once the listener is closed, which happens above when the
+	// connection finishes. Errors here are the expected "use of closed
+	// listener".
+	_ = server.Serve(listener)
 }
 
-// singleConnListener hands one already-accepted connection to an http.Server
-// and then blocks until that server shuts down.
+// singleConnListener hands one already-accepted connection to an http.Server,
+// then blocks in Accept until Close is called.
 type singleConnListener struct {
-	conn net.Conn
-	once bool
-	done chan struct{}
+	conn     net.Conn
+	accepted sync.Once
+	ch       chan net.Conn
+	done     chan struct{}
+	closeOne sync.Once
+}
+
+func newSingleConnListener(conn net.Conn) *singleConnListener {
+	return &singleConnListener{
+		conn: conn,
+		ch:   make(chan net.Conn, 1),
+		done: make(chan struct{}),
+	}
 }
 
 func (l *singleConnListener) Accept() (net.Conn, error) {
-	if !l.once {
-		l.once = true
-		return l.conn, nil
+	l.accepted.Do(func() { l.ch <- l.conn })
+
+	select {
+	case c := <-l.ch:
+		return c, nil
+	case <-l.done:
+		return nil, net.ErrClosed
 	}
-	// Block until Close, so http.Server does not spin on a closed listener.
-	<-l.done
-	return nil, net.ErrClosed
 }
 
 func (l *singleConnListener) Close() error {
-	select {
-	case <-l.done:
-	default:
-		close(l.done)
-	}
+	l.closeOne.Do(func() { close(l.done) })
 	return nil
 }
 
