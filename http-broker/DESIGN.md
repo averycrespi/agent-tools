@@ -40,12 +40,19 @@ toward `deny` with an explicit allowlist is the intended end state.
 One binary, two loopback listeners.
 
 - **`:8220`** accepts HTTP `CONNECT` and absolute-form plain HTTP.
-- **`:8221`** serves the read-only dashboard, the SSE feed, and the
-  unauthenticated `/ca.pem` and `/healthz`.
+- **`:8221`** serves the read-only dashboard and its SSE feed under
+  `/dashboard/`, plus the unauthenticated `/ca.pem` and `/healthz` at the root.
+  The root itself redirects to `/dashboard/`.
 
 **Two ports, not one.** `mcp-broker` shares a port because MCP and its
 dashboard are both ordinary HTTP. A forward proxy is not, and sharing would
 make the dashboard reachable _through_ the proxy.
+
+**The `/dashboard/` prefix is consistency, not necessity.** With a dedicated
+listener nothing else could collide, so the prefix earns its place only by
+matching `mcp-broker`, where the same port also serves `/mcp`. `/healthz` and
+`/ca.pem` stay at the root because their consumers are monitors and
+provisioning scripts, which should not have to track a UI path.
 
 ```
 cmd/http-broker/     CLI entry point (Cobra), composition root in serve.go

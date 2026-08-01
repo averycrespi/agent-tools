@@ -103,7 +103,7 @@ func TestDashboardReadOnly(t *testing.T) {
 	for _, route := range routes {
 		// The SSE feed blocks until the client disconnects, so it gets its own
 		// bounded exercise below rather than the full sweep.
-		if route == "/api/events" {
+		if route == "/dashboard/api/events" {
 			continue
 		}
 		for _, method := range methods {
@@ -129,9 +129,9 @@ func TestDashboardReadOnly(t *testing.T) {
 	}
 
 	// The credential list still holds exactly what it did, and never a value.
-	resp, body := authedGet(t, s, "/api/credentials")
+	resp, body := authedGet(t, s, "/dashboard/api/credentials")
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("/api/credentials status = %d, want 200", resp.StatusCode)
+		t.Fatalf("/dashboard/api/credentials status = %d, want 200", resp.StatusCode)
 	}
 	if !strings.Contains(body, "tok") {
 		t.Errorf("the credential list should still name the credential: %s", body)
@@ -142,12 +142,19 @@ func TestDashboardReadOnly(t *testing.T) {
 }
 
 // TestDashboardAuth is AC-12's other half: every route except /ca.pem and
-// /healthz requires the token.
+// /healthz requires the token, and the root only redirects.
 func TestDashboardAuth(t *testing.T) {
 	s := startStack(t, stackOptions{})
 
 	public := map[string]bool{"/ca.pem": true, "/healthz": true}
-	client := &http.Client{Timeout: 10e9}
+	// The listener root serves nothing to authenticate; it only redirects.
+	redirects := map[string]bool{"/": true}
+	client := &http.Client{
+		Timeout: 10e9,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 
 	for _, route := range dashboardRoutes(t) {
 		req, err := http.NewRequest(http.MethodGet, s.dashURL(route), nil)
@@ -164,6 +171,12 @@ func TestDashboardAuth(t *testing.T) {
 		if public[route] {
 			if resp.StatusCode != http.StatusOK {
 				t.Errorf("%s status = %d, want 200 without a token", route, resp.StatusCode)
+			}
+			continue
+		}
+		if redirects[route] {
+			if resp.StatusCode != http.StatusFound {
+				t.Errorf("%s status = %d, want 302 without a token", route, resp.StatusCode)
 			}
 			continue
 		}
@@ -185,9 +198,10 @@ func TestDashboardRoutesAreDocumented(t *testing.T) {
 
 	// Every route the implementation is known to serve.
 	served := []string{
-		"/", "/app.js", "/styles.css", "/favicon.svg",
-		"/api/audit", "/api/rules", "/api/credentials", "/api/events",
-		"/ca.pem", "/healthz",
+		"/dashboard/", "/dashboard/app.js", "/dashboard/styles.css", "/dashboard/favicon.svg",
+		"/dashboard/api/audit", "/dashboard/api/rules", "/dashboard/api/credentials",
+		"/dashboard/api/events",
+		"/", "/ca.pem", "/healthz",
 	}
 	for _, route := range served {
 		if !documented[route] {
@@ -197,7 +211,7 @@ func TestDashboardRoutesAreDocumented(t *testing.T) {
 
 	// And each documented route actually exists, so the list is not stale.
 	for route := range documented {
-		if route == "/api/events" {
+		if route == "/dashboard/api/events" {
 			continue
 		}
 		req, _ := http.NewRequest(http.MethodGet, s.dashURL(route), nil)
@@ -222,7 +236,7 @@ func TestDashboardRulesReflectPolicy(t *testing.T) {
 		),
 	})
 
-	resp, body := authedGet(t, s, "/api/rules")
+	resp, body := authedGet(t, s, "/dashboard/api/rules")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}

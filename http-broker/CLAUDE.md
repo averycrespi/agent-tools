@@ -77,6 +77,13 @@ These are load-bearing. Changing one needs a matching change to `DESIGN.md`.
 - **The dashboard is read-only.** Every route is registered `GET <path>`.
   `docs/dashboard.md` is the source of truth the AC-12 sweep parses; add a
   route there or it is never swept.
+- **Every authenticated route hangs off `dashboard.Prefix`.** The mux
+  registrations, the cookie `Path`, the `dashboardPaths` redirect allowlist,
+  the embedded `index.html`/`app.js` URLs and `serve`'s startup URL all derive
+  from it. `/healthz` and `/ca.pem` deliberately do not — moving them would
+  break liveness probes and provisioning. The root is registered `GET /{$}`,
+  not `GET /`: a subtree pattern there would serve the page for every unmatched
+  path instead of 404.
 
 ## Gotchas
 

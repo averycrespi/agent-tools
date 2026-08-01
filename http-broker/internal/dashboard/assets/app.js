@@ -78,7 +78,7 @@
     tbody.replaceChildren();
 
     try {
-      const data = await getJSON(`/api/audit?${params}`);
+      const data = await getJSON(`/dashboard/api/audit?${params}`);
       if (!data.records || data.records.length === 0) {
         setEmpty(tbody, 11, "No matching requests yet.");
       } else {
@@ -94,7 +94,7 @@
     const tbody = $("rules-rows");
     tbody.replaceChildren();
     try {
-      const data = await getJSON("/api/rules");
+      const data = await getJSON("/dashboard/api/rules");
       $("rules-fallthrough").textContent = `Unmatched hosts: ${data.fallthrough}`;
       if (!data.rules || data.rules.length === 0) {
         setEmpty(tbody, 7, "No rules configured. Every host follows the fallthrough policy.");
@@ -121,7 +121,7 @@
     const tbody = $("credential-rows");
     tbody.replaceChildren();
     try {
-      const data = await getJSON("/api/credentials");
+      const data = await getJSON("/dashboard/api/credentials");
       if (!data.credentials || data.credentials.length === 0) {
         setEmpty(tbody, 3, "No credentials configured.");
         return;
@@ -141,7 +141,7 @@
   function connectStream() {
     const dot = $("stream-dot");
     const label = $("stream-label");
-    const source = new EventSource("/api/events");
+    const source = new EventSource("/dashboard/api/events");
 
     source.onopen = () => {
       dot.className = "dot live";

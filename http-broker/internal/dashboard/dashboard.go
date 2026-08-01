@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -28,6 +29,11 @@ import (
 
 //go:embed assets/*
 var assets embed.FS
+
+// Prefix is the path every authenticated dashboard route sits under, including
+// the trailing slash. `serve` builds its startup URL from it, and the embedded
+// assets reference it, so it is not free to change in one place only.
+const Prefix = "/dashboard/"
 
 // sseBuffer is how many events a slow client may fall behind before its
 // events start being dropped.
@@ -120,21 +126,48 @@ func (d *Dashboard) Handler() http.Handler {
 
 	// Unauthenticated. /healthz is the liveness probe an external monitor
 	// needs (AC-19); /ca.pem is fetched by provisioning before any token
-	// exists in the sandbox.
+	// exists in the sandbox. Both stay at the root: they are consumed by
+	// scripts and monitors, not by the dashboard.
 	mux.HandleFunc("GET /healthz", d.handleHealthz)
 	mux.HandleFunc("GET /ca.pem", d.handleCA)
 
-	// Authenticated, read-only.
-	mux.HandleFunc("GET /", d.requireAuth(d.handleIndex))
-	mux.HandleFunc("GET /app.js", d.requireAuth(d.handleAsset("assets/app.js", "text/javascript; charset=utf-8")))
-	mux.HandleFunc("GET /styles.css", d.requireAuth(d.handleAsset("assets/styles.css", "text/css; charset=utf-8")))
-	mux.HandleFunc("GET /favicon.svg", d.requireAuth(d.handleAsset("assets/favicon.svg", "image/svg+xml")))
-	mux.HandleFunc("GET /api/audit", d.requireAuth(d.handleAudit))
-	mux.HandleFunc("GET /api/rules", d.requireAuth(d.handleRules))
-	mux.HandleFunc("GET /api/credentials", d.requireAuth(d.handleCredentials))
-	mux.HandleFunc("GET /api/events", d.requireAuth(d.handleEvents))
+	// The bare listener address is a dead end otherwise. "/{$}" matches the
+	// root exactly, so an unknown path is a mux 404 rather than the page.
+	mux.HandleFunc("GET /{$}", d.handleRoot)
+
+	// Authenticated, read-only. Prefixed to match mcp-broker, where the
+	// dashboard shares a port with /mcp and the prefix is load-bearing. Here
+	// it buys consistency rather than disambiguation.
+	mux.HandleFunc("GET "+Prefix, d.requireAuth(d.handleIndex))
+	mux.HandleFunc("GET "+Prefix+"app.js", d.requireAuth(d.handleAsset("assets/app.js", "text/javascript; charset=utf-8")))
+	mux.HandleFunc("GET "+Prefix+"styles.css", d.requireAuth(d.handleAsset("assets/styles.css", "text/css; charset=utf-8")))
+	mux.HandleFunc("GET "+Prefix+"favicon.svg", d.requireAuth(d.handleAsset("assets/favicon.svg", "image/svg+xml")))
+	mux.HandleFunc("GET "+Prefix+"api/audit", d.requireAuth(d.handleAudit))
+	mux.HandleFunc("GET "+Prefix+"api/rules", d.requireAuth(d.handleRules))
+	mux.HandleFunc("GET "+Prefix+"api/credentials", d.requireAuth(d.handleCredentials))
+	mux.HandleFunc("GET "+Prefix+"api/events", d.requireAuth(d.handleEvents))
 
 	return mux
+}
+
+// handleRoot sends the bare listener address to the dashboard.
+//
+// A `?token=` parameter is carried over so a hand-typed root URL still
+// authenticates, but it is re-encoded from the parsed query rather than echoed:
+// the target is a literal prefix plus one escaped parameter, so it can neither
+// leave the origin nor inject a header. TestRootRedirectStaysOnTheDashboard
+// pins that.
+func (d *Dashboard) handleRoot(w http.ResponseWriter, r *http.Request) {
+	//nolint:gosec // G710: the target is built from Prefix, never from the request path.
+	http.Redirect(w, r, rootRedirectTarget(r.URL.Query().Get("token")), http.StatusFound)
+}
+
+// rootRedirectTarget returns the dashboard URL a root visit is sent to.
+func rootRedirectTarget(token string) string {
+	if token == "" {
+		return Prefix
+	}
+	return Prefix + "?token=" + url.QueryEscape(token)
 }
 
 // requireAuth wraps a handler with the bearer-token check.
@@ -153,7 +186,7 @@ func (d *Dashboard) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			http.SetCookie(w, &http.Cookie{
 				Name:     auth.DashboardCookieName,
 				Value:    token,
-				Path:     "/",
+				Path:     Prefix,
 				HttpOnly: true,
 				SameSite: http.SameSiteStrictMode,
 				MaxAge:   int(365 * 24 * time.Hour / time.Second),
@@ -181,20 +214,20 @@ func (d *Dashboard) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 
 // dashboardPaths is the set a post-authentication redirect may target.
 var dashboardPaths = map[string]struct{}{
-	"/":                {},
-	"/api/audit":       {},
-	"/api/rules":       {},
-	"/api/credentials": {},
-	"/api/events":      {},
+	Prefix:                     {},
+	Prefix + "api/audit":       {},
+	Prefix + "api/rules":       {},
+	Prefix + "api/credentials": {},
+	Prefix + "api/events":      {},
 }
 
-// safeRedirectTarget returns path when it is a known dashboard route, and "/"
-// otherwise.
+// safeRedirectTarget returns path when it is a known dashboard route, and the
+// dashboard root otherwise.
 func safeRedirectTarget(path string) string {
 	if _, ok := dashboardPaths[path]; ok {
 		return path
 	}
-	return "/"
+	return Prefix
 }
 
 func (d *Dashboard) handleHealthz(w http.ResponseWriter, _ *http.Request) {

@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/averycrespi/agent-tools/http-broker/internal/dashboard"
 )
 
 func testStack(token string) *stack {
@@ -24,7 +26,7 @@ var testDashAddr = &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8221}
 // requireAuth can swap it for a cookie and redirect it out of the URL.
 func TestDashboardURLCarriesTheToken(t *testing.T) {
 	got := dashboardURL(testDashAddr, "deadbeef")
-	if want := "http://127.0.0.1:8221/?token=deadbeef"; got != want {
+	if want := "http://127.0.0.1:8221/dashboard/?token=deadbeef"; got != want {
 		t.Fatalf("dashboardURL = %q, want %q", got, want)
 	}
 
@@ -32,8 +34,8 @@ func TestDashboardURLCarriesTheToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parsing %q: %v", got, err)
 	}
-	if parsed.Path != "/" {
-		t.Errorf("path = %q, want %q — the redirect allowlist only covers known routes", parsed.Path, "/")
+	if parsed.Path != dashboard.Prefix {
+		t.Errorf("path = %q, want %q — the redirect allowlist only covers known routes", parsed.Path, dashboard.Prefix)
 	}
 	if parsed.Query().Get("token") != "deadbeef" {
 		t.Errorf("token query = %q, want %q", parsed.Query().Get("token"), "deadbeef")

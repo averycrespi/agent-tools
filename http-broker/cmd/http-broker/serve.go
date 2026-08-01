@@ -309,7 +309,7 @@ func announceDashboard(st *stack, addr net.Addr, out io.Writer, open bool) {
 
 // dashboardURL builds the token-bearing URL for the bound dashboard address.
 func dashboardURL(addr net.Addr, token string) string {
-	return fmt.Sprintf("http://%s/?token=%s", addr, url.QueryEscape(token))
+	return fmt.Sprintf("http://%s%s?token=%s", addr, dashboard.Prefix, url.QueryEscape(token))
 }
 
 // openBrowser hands a URL to the platform opener.

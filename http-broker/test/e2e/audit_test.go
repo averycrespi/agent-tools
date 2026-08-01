@@ -274,7 +274,7 @@ func TestNoLeak(t *testing.T) {
 	}
 
 	// Sink 3: every dashboard JSON response, including the live SSE feed.
-	for _, route := range []string{"/api/audit", "/api/rules", "/api/credentials"} {
+	for _, route := range []string{"/dashboard/api/audit", "/dashboard/api/rules", "/dashboard/api/credentials"} {
 		_, body := authedGet(t, s, route)
 		for _, sentinel := range []string{credSentinel, headerSentinel} {
 			if strings.Contains(body, sentinel) {
@@ -313,7 +313,7 @@ func readSSE(t *testing.T, s *stack, window time.Duration) string {
 	ctx, cancel := context.WithTimeout(context.Background(), window)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.dashURL("/api/events"), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.dashURL("/dashboard/api/events"), nil)
 	if err != nil {
 		t.Fatalf("building the SSE request: %v", err)
 	}

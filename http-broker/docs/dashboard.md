@@ -15,13 +15,22 @@ the proxy allows.
 by hand:
 
 ```bash
-open "http://127.0.0.1:8221/?token=$(http-broker token show)"
+open "http://127.0.0.1:8221/dashboard/?token=$(http-broker token show)"
 ```
 
 The token is exchanged for an `http-broker-auth` cookie and dropped from the URL,
-so it does not linger in browser history.
+so it does not linger in browser history. The cookie is scoped to `/dashboard/`.
+
+The listener root redirects to `/dashboard/`, carrying a `?token=` parameter
+over if one was given, so the bare address is not a dead end.
 
 Requests may also authenticate with `Authorization: Bearer <token>`.
+
+Everything the dashboard serves lives under `/dashboard/`, matching
+`mcp-broker`. That tool shares one port between `/mcp` and its dashboard, so the
+prefix disambiguates; here the dashboard has its own listener and the prefix
+buys consistency instead. `/healthz` and `/ca.pem` stay at the root: they are
+consumed by monitors and provisioning scripts, not by the UI.
 
 ## Routes
 
@@ -32,18 +41,19 @@ asserts that no on-disk state changed. **A route added to the code must be
 added here, or it will never be swept.** A companion test fails if the code
 serves a route this table omits.
 
-| Route                  | Auth  | Returns                                                                                                     |
-| ---------------------- | ----- | ----------------------------------------------------------------------------------------------------------- |
-| `GET /healthz`         | none  | `ok`. The liveness probe an external monitor uses to detect a wedged-but-listening proxy.                   |
-| `GET /ca.pem`          | none  | The CA certificate. Unauthenticated because provisioning fetches it before any token exists in the sandbox. |
-| `GET /`                | token | The dashboard page.                                                                                         |
-| `GET /app.js`          | token | Dashboard script.                                                                                           |
-| `GET /styles.css`      | token | Dashboard styles.                                                                                           |
-| `GET /favicon.svg`     | token | Dashboard icon.                                                                                             |
-| `GET /api/audit`       | token | Audit history. Filters: `host`, `outcome`, `rule`, `limit`, `offset`.                                       |
-| `GET /api/rules`       | token | The active ruleset and fallthrough policy.                                                                  |
-| `GET /api/credentials` | token | Credential **names, sources and bound hosts**. Never a value.                                               |
-| `GET /api/events`      | token | Server-sent events: one `audit` event per new request.                                                      |
+| Route                            | Auth  | Returns                                                                                                     |
+| -------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------- |
+| `GET /`                          | none  | 302 to `/dashboard/`, carrying `?token=` over if present. Exposes nothing itself.                           |
+| `GET /healthz`                   | none  | `ok`. The liveness probe an external monitor uses to detect a wedged-but-listening proxy.                   |
+| `GET /ca.pem`                    | none  | The CA certificate. Unauthenticated because provisioning fetches it before any token exists in the sandbox. |
+| `GET /dashboard/`                | token | The dashboard page.                                                                                         |
+| `GET /dashboard/app.js`          | token | Dashboard script.                                                                                           |
+| `GET /dashboard/styles.css`      | token | Dashboard styles.                                                                                           |
+| `GET /dashboard/favicon.svg`     | token | Dashboard icon.                                                                                             |
+| `GET /dashboard/api/audit`       | token | Audit history. Filters: `host`, `outcome`, `rule`, `limit`, `offset`.                                       |
+| `GET /dashboard/api/rules`       | token | The active ruleset and fallthrough policy.                                                                  |
+| `GET /dashboard/api/credentials` | token | Credential **names, sources and bound hosts**. Never a value.                                               |
+| `GET /dashboard/api/events`      | token | Server-sent events: one `audit` event per new request.                                                      |
 
 Every route is registered with an explicit `GET` method pattern, so any other
 method returns 405 from the mux rather than relying on a handler to reject it.
@@ -62,7 +72,7 @@ read them.
 
 ## The live feed
 
-`/api/events` sends one event per audit record. Each client gets a buffered
+`/dashboard/api/events` sends one event per audit record. Each client gets a buffered
 channel and the broadcast is non-blocking: a browser tab that stops reading
 loses events rather than applying back-pressure to the proxy's request path.
 

@@ -228,7 +228,7 @@ func TestTokenRotationTakesEffectOnReload(t *testing.T) {
 	}
 
 	// The dashboard follows the same token.
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, s.dashURL("/api/rules"), nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, s.dashURL("/dashboard/api/rules"), nil)
 	if err != nil {
 		t.Fatalf("building the request: %v", err)
 	}
