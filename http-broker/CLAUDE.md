@@ -103,6 +103,11 @@ These are load-bearing. Changing one needs a matching change to `DESIGN.md`.
 - **Audit records need an ID.** CONNECT-path events once had none, so every row
   shared an empty primary key and SQLite kept only the first. The store assigns
   a fallback, but set one at the source.
+- **The dashboard URL is only printed to a terminal.** `announceDashboard`
+  returns early unless stdout is an `*os.File` that passes
+  `term.IsTerminal`, because the URL carries the token and launchd's stdout is a
+  log file. Tests pass a buffer, so they take that path — asserting on printed
+  output needs a pty, not a `bytes.Buffer`.
 - **`golangci-lint` can OOM at default concurrency here.** Use
   `GOGC=50 go tool golangci-lint run --concurrency=2 ./...`.
 

@@ -22,6 +22,7 @@ make install     # go install ./cmd/http-broker
 
 ```bash
 # 1. Start the proxy. First run generates config, rules, a CA, and a token.
+#    The dashboard opens in a browser; pass --no-open to skip that.
 http-broker serve
 
 # 2. Store a credential, bound to the hosts it may be sent to.
@@ -235,7 +236,7 @@ end state.
 
 | Command                                | Purpose                                        |
 | -------------------------------------- | ---------------------------------------------- |
-| `serve`                                | Run the proxy and dashboard in the foreground. |
+| `serve [--no-open]`                    | Run the proxy and dashboard in the foreground. |
 | `config path\|show\|refresh`           | Inspect and backfill `config.json`.            |
 | `rules path\|show\|check\|refresh`     | Inspect and validate `rules.json`.             |
 | `credential set\|list\|rm`             | Manage credentials and their host bindings.    |

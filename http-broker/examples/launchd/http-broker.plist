@@ -19,10 +19,14 @@
     <key>Label</key>
     <string>dev.agent-tools.http-broker</string>
 
+    <!-- --no-open is belt and braces: `serve` only opens a browser when stdout
+         is a terminal, and under launchd it is a log file. Passing the flag
+         states the intent rather than relying on that check. -->
     <key>ProgramArguments</key>
     <array>
         <string>/Users/USERNAME/go/bin/http-broker</string>
         <string>serve</string>
+        <string>--no-open</string>
     </array>
 
     <key>RunAtLoad</key>

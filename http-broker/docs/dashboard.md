@@ -10,9 +10,16 @@ the proxy allows.
 
 ## Access
 
-Open `http://127.0.0.1:8221/?token=$(http-broker token show)`. The token is
-exchanged for an `http-broker-auth` cookie and dropped from the URL, so it
-does not linger in browser history.
+`serve` prints this URL and opens it in a browser at startup, unless
+`--no-open` is passed or stdout is not a terminal (as under launchd). To open it
+by hand:
+
+```bash
+open "http://127.0.0.1:8221/?token=$(http-broker token show)"
+```
+
+The token is exchanged for an `http-broker-auth` cookie and dropped from the URL,
+so it does not linger in browser history.
 
 Requests may also authenticate with `Authorization: Bearer <token>`.
 

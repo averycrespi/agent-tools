@@ -131,6 +131,19 @@ All templates for a rule are expanded and host-checked before any header is
 written. A single failure discards the whole in-progress request, so a
 partially injected request can never reach the wire.
 
+### The dashboard opens itself, but only from a terminal
+
+`serve` prints the dashboard URL with a `?token=` parameter and opens it in a
+browser, matching `mcp-broker`. The dashboard swaps the token for a cookie and
+redirects to the same path without it, so the token never enters browser
+history.
+
+Both steps are gated on stdout being a terminal, which `mcp-broker` does not do.
+The intended deployment is launchd, where stdout is a log file: printing the URL
+there would persist the token in a world-readable log, and opening a browser at
+every login is the wrong behaviour for a supervised daemon. `--no-open` remains
+the explicit control for interactive runs, and the shipped plist passes it.
+
 ### Recovery is a rules edit, not a process kill
 
 Proxy variables are baked into every sandbox's shell, so killing `serve` points

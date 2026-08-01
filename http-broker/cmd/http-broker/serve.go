@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -16,6 +20,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/averycrespi/agent-tools/http-broker/internal/audit"
 	"github.com/averycrespi/agent-tools/http-broker/internal/auth"
@@ -39,6 +44,8 @@ const shutdownTimeout = 10 * time.Second
 // pruneInterval is how often expired audit rows are removed.
 const pruneInterval = 24 * time.Hour
 
+var serveNoOpen bool
+
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Run the forward proxy and the dashboard",
@@ -47,8 +54,13 @@ var serveCmd = &cobra.Command{
 		"sandbox at a dead socket for the duration.",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		return runServe(cmd.Context(), cmd.OutOrStdout())
+		return runServe(cmd.Context(), cmd.OutOrStdout(), !serveNoOpen)
 	},
+}
+
+func init() {
+	serveCmd.Flags().BoolVar(&serveNoOpen, "no-open", false,
+		"do not open the dashboard in a browser at startup")
 }
 
 // stack holds everything a running proxy needs, so startup can fail before
@@ -81,7 +93,7 @@ func (st *stack) config() config.Config {
 	return st.cfg
 }
 
-func runServe(ctx context.Context, out interface{ Write([]byte) (int, error) }) error {
+func runServe(ctx context.Context, out interface{ Write([]byte) (int, error) }, openDashboard bool) error {
 	st, err := buildStack(out)
 	if err != nil {
 		return err
@@ -105,6 +117,7 @@ func runServe(ctx context.Context, out interface{ Write([]byte) (int, error) }) 
 		st.log.Warn("credential is sourced from the process environment rather than the keychain",
 			"credential", name)
 	}
+	announceDashboard(st, healthLn.Addr(), out, openDashboard)
 
 	pruneCtx, stopPruning := context.WithCancel(ctx)
 	defer stopPruning()
@@ -260,6 +273,62 @@ func startDashboard(st *stack) (*http.Server, net.Listener, error) {
 		}
 	}()
 	return server, ln, nil
+}
+
+// announceDashboard prints the dashboard URL and, unless disabled, opens it in
+// a browser.
+//
+// The URL carries `?token=`, which the dashboard exchanges for a cookie and
+// then redirects away from, so the token does not linger in browser history.
+// Printing the URL is what makes a failed browser launch recoverable.
+//
+// Both the printing and the opening require stdout to be a terminal. `serve` is
+// normally supervised by launchd, where opening a browser at login is wrong and
+// stdout is a log file the token would persist in.
+func announceDashboard(st *stack, addr net.Addr, out io.Writer, open bool) {
+	f, ok := out.(*os.File)
+	if !ok || !term.IsTerminal(int(f.Fd())) {
+		st.log.Debug("not announcing the dashboard URL because stdout is not a terminal",
+			"dashboard", addr.String())
+		return
+	}
+
+	dashURL := dashboardURL(addr, st.authToken())
+	// A failed write to stdout is not worth failing startup over.
+	_, _ = fmt.Fprintf(out, "Dashboard: %s\n", dashURL)
+	if !open {
+		return
+	}
+	if err := openBrowser(dashURL); err != nil {
+		// The URL is already on stdout, so a failed launch is recoverable.
+		// Never log the URL itself: it carries the token.
+		st.log.Warn("opening the dashboard in a browser failed",
+			"error", err, "dashboard", addr.String())
+	}
+}
+
+// dashboardURL builds the token-bearing URL for the bound dashboard address.
+func dashboardURL(addr net.Addr, token string) string {
+	return fmt.Sprintf("http://%s/?token=%s", addr, url.QueryEscape(token))
+}
+
+// openBrowser hands a URL to the platform opener.
+//
+// Ported from mcp-broker/cmd/mcp-broker/serve.go with no behavioural change.
+func openBrowser(target string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		//nolint:gosec // target is built from the bound listener address and the local token, never from user input.
+		cmd = exec.Command("open", target)
+	default:
+		//nolint:gosec // target is built from the bound listener address and the local token, never from user input.
+		cmd = exec.Command("xdg-open", target)
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("starting the browser: %w", err)
+	}
+	return nil
 }
 
 // serveEventLoop blocks until a termination signal, handling SIGHUP reloads.

@@ -7,6 +7,16 @@ All commands accept `--config <path>` to override `config.json`.
 Runs the proxy and dashboard in the foreground. No pidfile. Supervise with
 launchd; see [launchd.md](launchd.md).
 
+| Flag        | Effect                                             |
+| ----------- | -------------------------------------------------- |
+| `--no-open` | Do not open the dashboard in a browser at startup. |
+
+On startup the dashboard URL is printed with a `?token=` parameter and opened in
+a browser. Both steps require stdout to be a terminal: under launchd stdout is a
+log file, so printing would persist the token and opening a browser at login is
+wrong. The token is exchanged for a cookie and redirected out of the URL on
+first load, so it does not linger in browser history.
+
 Signals: `SIGHUP` reloads `config.json`, `rules.json`, the auth token and the
 CA, and clears the credential cache, keeping previous state on failure. The
 listener addresses are the exception — moving a bound socket would point every
