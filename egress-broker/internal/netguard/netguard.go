@@ -265,6 +265,47 @@ type DialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 type Dialer struct {
 	dial     DialFunc
 	resolver Resolver
+	// exempt holds exact "host:port" strings that skip the address checks.
+	// See SetExemptions for why this exists and how narrow it is.
+	exempt map[string]struct{}
+}
+
+// SetExemptions installs a set of exact "host:port" targets that bypass the
+// address checks.
+//
+// This exists for one reason: every mock upstream a test can start listens on
+// loopback, which this package refuses by design. Without a seam, no test
+// could exercise any *allowed* path — not a tunnel, not interception, not
+// injection — so the only end-to-end coverage possible would be of refusals.
+//
+// It is deliberately the narrowest thing that works:
+//
+//   - Exact "host:port" strings only. No globs, no ranges, no address classes.
+//   - Not reachable from config.json or rules.json. An operator editing policy
+//     cannot turn it on by accident.
+//   - The composition root populates it only from a test-only environment
+//     variable and logs a warning naming every exemption at startup.
+//
+// It must never be set in production. The README says so, and the startup
+// warning says so again where an operator will actually see it.
+func (d *Dialer) SetExemptions(targets []string) {
+	if len(targets) == 0 {
+		d.exempt = nil
+		return
+	}
+	d.exempt = make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		d.exempt[target] = struct{}{}
+	}
+}
+
+// isExempt reports whether an exact target was exempted.
+func (d *Dialer) isExempt(addr string) bool {
+	if d.exempt == nil {
+		return false
+	}
+	_, ok := d.exempt[addr]
+	return ok
 }
 
 // New returns a Dialer wrapping base.
@@ -299,6 +340,11 @@ func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Con
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("netguard: split host/port %q: %w", addr, err)
+	}
+
+	// A test exemption is an exact target match and nothing else.
+	if d.isExempt(addr) {
+		return d.dial(ctx, network, addr)
 	}
 
 	if err := CheckHost(host); err != nil {

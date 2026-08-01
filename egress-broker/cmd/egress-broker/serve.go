@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -136,12 +137,34 @@ func buildStack(out interface{ Write([]byte) (int, error) }) (*stack, error) {
 	}, nil
 }
 
+// testAllowEnv names exact "host:port" targets that skip the address guard.
+//
+// It exists only so the e2e suite can reach a mock upstream, which necessarily
+// listens on loopback — an address the guard refuses by design. Setting it in
+// production disables SSRF protection for the named targets, which is why it
+// is an environment variable rather than a config field and why every entry is
+// logged as a warning at startup.
+const testAllowEnv = "EGRESS_BROKER_TEST_ALLOW_ADDRS"
+
 func newProxy(st *stack) *proxy.Proxy {
+	dialer := netguard.New(proxy.BaseDialer())
+
+	if raw := os.Getenv(testAllowEnv); raw != "" {
+		targets := strings.Split(raw, ",")
+		for i := range targets {
+			targets[i] = strings.TrimSpace(targets[i])
+		}
+		dialer.SetExemptions(targets)
+		st.log.Warn("address guard disabled for specific targets by "+testAllowEnv+
+			"; this is for tests only and must not be set in production",
+			"targets", strings.Join(targets, ","))
+	}
+
 	return proxy.New(proxy.Options{
 		Rules:     st.rules,
 		Authority: st.authority,
 		Resolver:  st.resolver,
-		Dialer:    netguard.New(proxy.BaseDialer()),
+		Dialer:    dialer,
 		Token:     st.token,
 		Logger:    st.log,
 	})
