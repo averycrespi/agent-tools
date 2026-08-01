@@ -46,19 +46,27 @@ func (g *Glob) Match(s string) bool { return g.re.MatchString(s) }
 func (g *Glob) String() string { return g.pattern }
 
 // ToRegexp translates a glob pattern to an anchored regexp string.
+//
+// The pattern is walked by rune, not by byte. Quoting a raw byte of a
+// multi-byte UTF-8 sequence would re-encode that byte's numeric value as its
+// own code point, so a pattern such as "/café" would compile to "^/cafÃ©$" —
+// a valid regexp that silently never matches. A deny rule written that way
+// would load without complaint and never fire.
 func ToRegexp(pattern string, sep byte) string {
 	escapedSep := regexp.QuoteMeta(string(sep))
+	runes := []rune(pattern)
+	sepRune := rune(sep)
 
 	var sb strings.Builder
 	sb.WriteString("^")
 
 	i := 0
-	for i < len(pattern) {
+	for i < len(runes) {
 		// "**<sep>" spans zero or more whole segments; a trailing "**" spans
 		// the remainder of the string.
-		if i+1 < len(pattern) && pattern[i] == '*' && pattern[i+1] == '*' {
+		if i+1 < len(runes) && runes[i] == '*' && runes[i+1] == '*' {
 			i += 2
-			if i < len(pattern) && pattern[i] == sep {
+			if i < len(runes) && runes[i] == sepRune {
 				sb.WriteString(`(?:.*` + escapedSep + `)?`)
 				i++
 			} else {
@@ -66,12 +74,12 @@ func ToRegexp(pattern string, sep byte) string {
 			}
 			continue
 		}
-		if pattern[i] == '*' {
+		if runes[i] == '*' {
 			sb.WriteString(`[^` + escapedSep + `]*`)
 			i++
 			continue
 		}
-		sb.WriteString(regexp.QuoteMeta(string(pattern[i])))
+		sb.WriteString(regexp.QuoteMeta(string(runes[i])))
 		i++
 	}
 

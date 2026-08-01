@@ -1,6 +1,7 @@
 package hostnorm_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/egress-broker/internal/hostnorm"
@@ -178,5 +179,30 @@ func TestGlobAnchoring(t *testing.T) {
 func TestCompileRejectsBadGlob(t *testing.T) {
 	if _, err := hostnorm.Compile("exa mple.com"); err == nil {
 		t.Error("Compile should reject a pattern with a space in a literal segment")
+	}
+}
+
+// TestNormalizeGlobRejectsUnicodeMixedSegment: a host is always compared in
+// its punycode form, so a wildcard segment carrying raw Unicode could never
+// match. Rejecting it at load beats loading a rule that silently never fires.
+func TestNormalizeGlobRejectsUnicodeMixedSegment(t *testing.T) {
+	for _, pattern := range []string{"café-*.example.com", "*-café.example.com", "bü*.example"} {
+		_, err := hostnorm.NormalizeGlob(pattern)
+		if err == nil {
+			t.Errorf("NormalizeGlob(%q) = nil error, want it rejected", pattern)
+			continue
+		}
+		if !strings.Contains(err.Error(), "punycode") {
+			t.Errorf("NormalizeGlob(%q) error %q should tell the operator to use punycode", pattern, err)
+		}
+	}
+
+	// A pure-literal Unicode segment is fine: it can be punycoded outright.
+	if _, err := hostnorm.NormalizeGlob("*.bücher.example"); err != nil {
+		t.Errorf("a pure-literal Unicode segment should be punycoded, not rejected: %v", err)
+	}
+	// An ASCII mixed segment stays supported.
+	if got, err := hostnorm.NormalizeGlob("API-*.example.com"); err != nil || got != "api-*.example.com" {
+		t.Errorf("NormalizeGlob(API-*.example.com) = (%q, %v), want (api-*.example.com, nil)", got, err)
 	}
 }

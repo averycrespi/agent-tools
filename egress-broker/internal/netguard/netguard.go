@@ -52,6 +52,49 @@ var imdsAddrs = []netip.Addr{
 // method, so it is checked explicitly.
 var limitedBroadcast = netip.MustParseAddr("255.255.255.255")
 
+// reservedPrefixes are ranges Go's netip predicates do not cover but that
+// have no legitimate reason to be an upstream target.
+//
+// 100.64.0.0/10 is the important one: netip's IsPrivate covers only RFC 1918
+// and RFC 4193, not RFC 6598 carrier-grade NAT — and Alibaba Cloud's instance
+// metadata service lives at 100.100.100.200, inside it. The rest are
+// non-forwardable per RFC and are listed so the denial is exhaustive rather
+// than incidental.
+var reservedPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"),   // RFC 6598 carrier-grade NAT
+	netip.MustParsePrefix("0.0.0.0/8"),       // RFC 1122 "this network"
+	netip.MustParsePrefix("192.0.0.0/24"),    // RFC 6890 IETF protocol assignments
+	netip.MustParsePrefix("192.0.2.0/24"),    // RFC 5737 documentation
+	netip.MustParsePrefix("198.18.0.0/15"),   // RFC 2544 benchmarking
+	netip.MustParsePrefix("198.51.100.0/24"), // RFC 5737 documentation
+	netip.MustParsePrefix("203.0.113.0/24"),  // RFC 5737 documentation
+	netip.MustParsePrefix("240.0.0.0/4"),     // RFC 1112 reserved
+	netip.MustParsePrefix("fec0::/10"),       // deprecated IPv6 site-local
+	netip.MustParsePrefix("2001:db8::/32"),   // RFC 3849 documentation
+}
+
+// embeddedIPv4Prefixes are IPv6 transition prefixes that carry an arbitrary
+// IPv4 address inside them.
+//
+// Go's per-address predicates look only at the outer IPv6 address, so
+// 64:ff9b::7f00:1 (NAT64-encoded 127.0.0.1) and 2002:7f00:1:: (6to4-encoded
+// 127.0.0.1) both report as ordinary public addresses. On any network with a
+// NAT64/DNS64 gateway or 6to4 configured — mobile carriers, some corporate
+// VPNs, IPv6-only cloud subnets — a resolver can legitimately return one of
+// these for a name that routes to loopback, private, or metadata space. Each
+// is decoded and the embedded address re-checked.
+var embeddedIPv4Prefixes = []struct {
+	prefix netip.Prefix
+	// offset is the byte index within the 16-byte address where the embedded
+	// IPv4 address begins.
+	offset int
+}{
+	{netip.MustParsePrefix("64:ff9b::/96"), 12},   // RFC 6052 NAT64 well-known
+	{netip.MustParsePrefix("64:ff9b:1::/48"), 12}, // RFC 8215 local-use NAT64
+	{netip.MustParsePrefix("2002::/16"), 2},       // RFC 3056 6to4
+	{netip.MustParsePrefix("2001::/32"), 12},      // RFC 4380 Teredo (client address)
+}
+
 // CheckAddr returns a non-nil error if addr must not be dialled.
 //
 // It is written to be called on an address that DNS has already resolved, so
@@ -69,6 +112,14 @@ func CheckAddr(addr netip.Addr) error {
 	for _, imds := range imdsAddrs {
 		if addr == imds {
 			return fmt.Errorf("%w: %s is a cloud instance-metadata address", ErrBlocked, addr)
+		}
+	}
+
+	// Decode IPv6 transition forms before the predicate checks: the embedded
+	// IPv4 address is what the packet actually reaches.
+	if inner, ok := embeddedIPv4(addr); ok {
+		if err := CheckAddr(inner); err != nil {
+			return fmt.Errorf("%s embeds a blocked address: %w", addr, err)
 		}
 	}
 
@@ -95,7 +146,43 @@ func CheckAddr(addr netip.Addr) error {
 		return fmt.Errorf("%w: %s is the limited-broadcast address", ErrBlocked, addr)
 	}
 
+	// Checked last so the classes above keep their specific messages; this
+	// loop catches what netip's predicates do not cover at all.
+	for _, prefix := range reservedPrefixes {
+		if prefix.Contains(addr) {
+			return fmt.Errorf("%w: %s is in the reserved range %s", ErrBlocked, addr, prefix)
+		}
+	}
+
 	return nil
+}
+
+// embeddedIPv4 extracts the IPv4 address carried inside an IPv6 transition
+// address, reporting false when addr is not one.
+func embeddedIPv4(addr netip.Addr) (netip.Addr, bool) {
+	if !addr.Is6() {
+		return netip.Addr{}, false
+	}
+	for _, e := range embeddedIPv4Prefixes {
+		if !e.prefix.Contains(addr) {
+			continue
+		}
+		b := addr.As16()
+		inner, ok := netip.AddrFromSlice(b[e.offset : e.offset+4])
+		if !ok {
+			continue
+		}
+		// Teredo stores the client's IPv4 address bitwise-complemented.
+		if e.prefix.Bits() == 32 && e.prefix.Addr() == netip.MustParseAddr("2001::") {
+			c := inner.As4()
+			for i := range c {
+				c[i] = ^c[i]
+			}
+			inner = netip.AddrFrom4(c)
+		}
+		return inner, true
+	}
+	return netip.Addr{}, false
 }
 
 // CheckHost rejects a host that is written in an alternate IP encoding.

@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/averycrespi/agent-tools/egress-broker/internal/config"
+	"github.com/averycrespi/agent-tools/egress-broker/internal/rules"
 )
 
 var rulesCmd = &cobra.Command{
@@ -62,19 +63,42 @@ var rulesCheckCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		path := config.EffectiveRulesPath(configPath(), cfg)
-		engine, err := config.LoadRulesEngine(path)
+		// Go through LoadRulesForConfig, as `path` and `show` do, so a fresh
+		// install validates the generated default document rather than failing
+		// with a bare "no such file" — this is the first command an operator
+		// runs, and its own help text points them at it.
+		path, doc, err := config.LoadRulesForConfig(configPath(), cfg)
 		if err != nil {
 			return err
 		}
-		cmd.Println(fmt.Sprintf("%s: ok (%d rules, fallthrough %q)",
-			path, len(engine.RuleNames()), engine.Fallthrough()))
+		engine, err := rules.New(doc)
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		cmd.Printf("%s: ok (%d rules, fallthrough %q)\n",
+			path, len(engine.RuleNames()), engine.Fallthrough())
+		return nil
+	},
+}
+
+var rulesRefreshCmd = &cobra.Command{
+	Use:   "refresh",
+	Short: "Validate rules.json and rewrite it in canonical form",
+	Long: "Loads the rules document, validates it, and writes it back formatted\n" +
+		"consistently. Creates the default document if none exists.",
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		written, err := config.RefreshRules(configPath())
+		if err != nil {
+			return err
+		}
+		cmd.Printf("wrote %s\n", written)
 		return nil
 	},
 }
 
 func init() {
-	rulesCmd.AddCommand(rulesPathCmd, rulesShowCmd, rulesCheckCmd)
+	rulesCmd.AddCommand(rulesPathCmd, rulesShowCmd, rulesCheckCmd, rulesRefreshCmd)
 	rootCmd.AddCommand(rulesCmd)
 }
 

@@ -88,9 +88,15 @@ func NormalizeGlob(pattern string) (string, error) {
 		case seg == "" || seg == "*" || seg == "**":
 			// Empty (leading dot) or pure wildcard — leave as-is.
 		case strings.Contains(seg, "*"):
-			// Mixed literal+wildcard segment: ASCII lowercase only. Unicode in
-			// mixed segments is unsupported; operators must spell the literal
-			// portion in ASCII.
+			// Mixed literal+wildcard segment. There is no way to punycode the
+			// literal half without knowing where the wildcard expands, so
+			// these are ASCII-only and non-ASCII is rejected rather than
+			// passed through: a host is compared in its punycode form, so a
+			// Unicode mixed segment could never match anything, and a rule
+			// that silently never fires is worse than one that fails to load.
+			if !isASCII(seg) {
+				return "", fmt.Errorf("hostnorm: segment %q in %q mixes a wildcard with non-ASCII characters; write the literal part in punycode (xn--…)", seg, pattern)
+			}
 			segments[i] = strings.ToLower(seg)
 		default:
 			out, err := idna.Lookup.ToASCII(seg)
@@ -146,6 +152,16 @@ func MatchHostGlob(pattern, host string) bool {
 		return false
 	}
 	return g.Match(host)
+}
+
+// isASCII reports whether s contains only single-byte characters.
+func isASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }
 
 // asIPLiteral reports whether host is an IP literal — bare v4, bare v6, or

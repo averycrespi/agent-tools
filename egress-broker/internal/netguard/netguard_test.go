@@ -82,6 +82,112 @@ func TestCheckAddrBlocked(t *testing.T) {
 	}
 }
 
+// TestCheckAddrEmbeddedIPv4 covers the IPv6 transition prefixes that carry an
+// arbitrary IPv4 address. Go's per-address predicates see only the outer IPv6
+// address, so without decoding, 64:ff9b::7f00:1 reads as an ordinary public
+// address while actually routing to 127.0.0.1 through a NAT64 gateway.
+func TestCheckAddrEmbeddedIPv4(t *testing.T) {
+	cases := []struct {
+		name string
+		addr string
+	}{
+		{"nat64 loopback", "64:ff9b::7f00:1"},
+		{"nat64 imds", "64:ff9b::a9fe:a9fe"},
+		{"nat64 rfc1918", "64:ff9b::a00:1"},
+		{"nat64 local-use loopback", "64:ff9b:1::7f00:1"},
+		{"6to4 loopback", "2002:7f00:1::"},
+		{"6to4 imds", "2002:a9fe:a9fe::"},
+		{"6to4 rfc1918", "2002:c0a8:101::"},
+		{"teredo loopback", "2001:0:0:0:0:0:80ff:fffe"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			addr := netip.MustParseAddr(tc.addr)
+			err := netguard.CheckAddr(addr)
+			if err == nil {
+				t.Fatalf("CheckAddr(%s) = nil, want it blocked: it embeds a blocked IPv4 address", tc.addr)
+			}
+			if !errors.Is(err, netguard.ErrBlocked) {
+				t.Fatalf("CheckAddr(%s) error %v, want it to wrap ErrBlocked", tc.addr, err)
+			}
+			if !strings.Contains(err.Error(), "embeds") {
+				t.Errorf("CheckAddr(%s) error %q should say the address embeds a blocked one", tc.addr, err)
+			}
+		})
+	}
+}
+
+// TestCheckAddrEmbeddedPublicIPv4IsAllowed guards against over-blocking: a
+// transition address wrapping a public IPv4 address is legitimate.
+func TestCheckAddrEmbeddedPublicIPv4IsAllowed(t *testing.T) {
+	for _, s := range []string{
+		"64:ff9b::5db8:d822", // NAT64 of 93.184.216.34
+		"2002:5db8:d822::",   // 6to4 of 93.184.216.34
+	} {
+		if err := netguard.CheckAddr(netip.MustParseAddr(s)); err != nil {
+			t.Errorf("CheckAddr(%s) = %v, want allowed: it embeds a public address", s, err)
+		}
+	}
+}
+
+// TestCheckAddrReservedRanges covers ranges netip's predicates do not.
+// 100.64.0.0/10 is the one that matters most: Alibaba Cloud's metadata
+// service sits at 100.100.100.200, and IsPrivate does not cover RFC 6598.
+func TestCheckAddrReservedRanges(t *testing.T) {
+	cases := []struct{ name, addr string }{
+		{"cgnat alibaba imds", "100.100.100.200"},
+		{"cgnat low", "100.64.0.1"},
+		{"cgnat high", "100.127.255.255"},
+		{"this network", "0.1.2.3"},
+		{"ietf protocol assignments", "192.0.0.1"},
+		{"benchmarking", "198.18.0.1"},
+		{"reserved class e", "240.0.0.1"},
+		{"documentation v4", "192.0.2.1"},
+		{"ipv6 site-local", "fec0::1"},
+		{"ipv6 documentation", "2001:db8::1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := netguard.CheckAddr(netip.MustParseAddr(tc.addr))
+			if err == nil {
+				t.Fatalf("CheckAddr(%s) = nil, want it blocked", tc.addr)
+			}
+			if !errors.Is(err, netguard.ErrBlocked) {
+				t.Fatalf("CheckAddr(%s) error %v, want it to wrap ErrBlocked", tc.addr, err)
+			}
+		})
+	}
+}
+
+func TestCheckAddrReservedBoundaries(t *testing.T) {
+	cases := []struct {
+		addr    string
+		blocked bool
+	}{
+		{"100.63.255.255", false},
+		{"100.64.0.0", true},
+		{"100.127.255.255", true},
+		{"100.128.0.0", false},
+
+		{"198.17.255.255", false},
+		{"198.18.0.0", true},
+		{"198.19.255.255", true},
+		{"198.20.0.0", false},
+
+		{"239.255.255.255", true}, // multicast
+		{"240.0.0.0", true},       // reserved
+	}
+	for _, tc := range cases {
+		err := netguard.CheckAddr(netip.MustParseAddr(tc.addr))
+		if tc.blocked && err == nil {
+			t.Errorf("CheckAddr(%s) = nil, want blocked", tc.addr)
+		}
+		if !tc.blocked && err != nil {
+			t.Errorf("CheckAddr(%s) = %v, want allowed", tc.addr, err)
+		}
+	}
+}
+
 func TestCheckAddrAllowed(t *testing.T) {
 	allowed := []string{
 		"93.184.216.34",

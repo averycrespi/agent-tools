@@ -96,6 +96,55 @@ func TestMetacharactersAreLiterals(t *testing.T) {
 	}
 }
 
+// TestNonASCIILiterals is a regression test. Walking the pattern by byte and
+// quoting each byte as its own code point turned "/café" into "^/cafÃ©$" — a
+// valid regexp that never matches, so a deny rule containing any non-ASCII
+// character loaded cleanly and then silently never fired.
+func TestNonASCIILiterals(t *testing.T) {
+	cases := []struct {
+		pattern string
+		input   string
+		want    bool
+	}{
+		{"/café", "/café", true},
+		{"/café", "/cafe", false},
+		{"/café", "/cafÃ©", false},
+		{"/naïve/**", "/naïve/deeper", true},
+		{"/naïve/*", "/naïve/one", true},
+		{"/naïve/*", "/naïve/one/two", false},
+		{"/日本語", "/日本語", true},
+		{"/日本語", "/日本", false},
+		{"/*/café", "/x/café", true},
+		{"/emoji/🎉", "/emoji/🎉", true},
+		{"/emoji/🎉", "/emoji/x", false},
+	}
+	for _, tc := range cases {
+		g, err := glob.Compile(tc.pattern, '/')
+		if err != nil {
+			t.Fatalf("Compile(%q): %v", tc.pattern, err)
+		}
+		if got := g.Match(tc.input); got != tc.want {
+			t.Errorf("Compile(%q).Match(%q) = %v, want %v (regexp was %q)",
+				tc.pattern, tc.input, got, tc.want, glob.ToRegexp(tc.pattern, '/'))
+		}
+	}
+}
+
+// TestNonASCIISeparatorHandling proves a multi-byte character adjacent to a
+// wildcard does not disturb segment boundaries.
+func TestNonASCIISeparatorHandling(t *testing.T) {
+	g, err := glob.Compile("/é/*", '/')
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if !g.Match("/é/x") {
+		t.Error(`Match("/é/x") = false, want true`)
+	}
+	if g.Match("/é/x/y") {
+		t.Error(`Match("/é/x/y") = true, want false: "*" must not cross a separator`)
+	}
+}
+
 func TestAnchoring(t *testing.T) {
 	g, err := glob.Compile("/issues", '/')
 	if err != nil {
