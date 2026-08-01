@@ -20,3 +20,11 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", fmt.Sprintf("config file (default %q)", paths.ConfigFile()))
 }
+
+// configPath resolves the effective config file path, honouring --config.
+func configPath() string {
+	if cfgFile != "" {
+		return cfgFile
+	}
+	return paths.ConfigFile()
+}
