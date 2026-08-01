@@ -19,9 +19,12 @@
     <key>Label</key>
     <string>dev.agent-tools.http-broker</string>
 
-    <!-- --no-open is belt and braces: `serve` only opens a browser when stdout
-         is a terminal, and under launchd it is a log file. Passing the flag
-         states the intent rather than relying on that check. -->
+    <!-- The no-open flag below is belt and braces: `serve` only opens a browser
+         when stdout is a terminal, and under launchd it is a log file. Passing
+         the flag states the intent rather than relying on that check.
+
+         Note for editors: XML forbids a double hyphen inside a comment, so the
+         flag cannot be written out in full here. -->
     <key>ProgramArguments</key>
     <array>
         <string>/Users/USERNAME/go/bin/http-broker</string>
@@ -46,9 +49,11 @@
              Credentials belong in the login keychain, not here. launchd does
              not source shell profiles, so an env-only design would force every
              API key into this file in plaintext — which is exactly what the
-             keychain design exists to avoid. Store them with:
-
-               printf %s "$TOKEN" | http-broker credential set <name> --host <host>
+             keychain design exists to avoid. Store them with
+             `http-broker credential set`, passing the value on stdin and the
+             bound hosts as host flags; see docs/cli.md for the exact form,
+             which cannot be spelled out here because XML forbids a double
+             hyphen inside a comment.
 
              env_credentials in config.json is the escape hatch for headless
              Linux and CI, not for this plist. -->
