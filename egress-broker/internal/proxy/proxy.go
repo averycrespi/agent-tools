@@ -214,6 +214,8 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	if !auth.CheckProxyAuth(r.Header.Get("Proxy-Authorization"), p.authToken()) {
 		w.Header().Set("Proxy-Authenticate", `Basic realm="egress-broker"`)
+		p.recordEarlyRefusal(id, start, "tunnel", r.Method,
+			http.StatusProxyAuthRequired, "proxy authentication failed")
 		p.refuse(w, http.StatusProxyAuthRequired, ReasonUnauthenticated,
 			"proxy authentication required")
 		return
@@ -221,6 +223,8 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	host, port, err := splitTarget(r.Host)
 	if err != nil {
+		p.recordEarlyRefusal(id, start, "tunnel", r.Method,
+			http.StatusBadRequest, "malformed CONNECT target")
 		p.refuse(w, http.StatusBadRequest, ReasonBadRequest, err.Error())
 		return
 	}

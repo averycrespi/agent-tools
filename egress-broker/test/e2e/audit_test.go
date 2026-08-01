@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
@@ -108,6 +109,106 @@ func TestAuditOneRowPerRequest(t *testing.T) {
 			t.Errorf("row %q should carry the outcome", row)
 		}
 	}
+}
+
+// TestAuditRecordsRefusedRequests covers the rows AC-10 was missing.
+//
+// A 407 and a malformed CONNECT target both returned without writing anything,
+// so repeated authentication failures — how a misprovisioned sandbox and
+// something probing the port both look — left no trace at all.
+func TestAuditRecordsRefusedRequests(t *testing.T) {
+	s := startStack(t, stackOptions{Rules: rulesDoc("deny")})
+
+	// Unauthenticated CONNECT.
+	unauth := dialProxy(t, s)
+	writeRaw(t, unauth, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+	if resp, err := readResponse(unauth); err != nil {
+		t.Fatalf("reading the response: %v", err)
+	} else if resp.StatusCode != http.StatusProxyAuthRequired {
+		t.Fatalf("status = %d, want 407", resp.StatusCode)
+	}
+
+	// Authenticated CONNECT to a target that cannot be parsed.
+	bad := dialProxy(t, s)
+	writeRaw(t, bad, fmt.Sprintf("CONNECT not-a-target HTTP/1.1\r\nHost: not-a-target\r\nProxy-Authorization: %s\r\n\r\n",
+		basicCredential(s.token)))
+	if resp, err := readResponse(bad); err != nil {
+		t.Fatalf("reading the response: %v", err)
+	} else if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+
+	rows := waitForRows(t, s, 2)
+	joined := strings.Join(rows, "\n")
+	if !strings.Contains(joined, "proxy authentication failed") {
+		t.Errorf("no row for the refused authentication:\n%s", joined)
+	}
+	if !strings.Contains(joined, "malformed CONNECT target") {
+		t.Errorf("no row for the malformed target:\n%s", joined)
+	}
+	// Nothing an unauthenticated caller chose may be stored as a host.
+	for _, row := range rows {
+		if strings.Contains(row, "example.com") || strings.Contains(row, "not-a-target") {
+			t.Errorf("row %q records a target that never passed validation", row)
+		}
+	}
+}
+
+// TestAuditRecordsChunkedBodySize pins the byte count for a body whose length
+// Go reports as -1, which used to land in the column as negative bytes.
+func TestAuditRecordsChunkedBodySize(t *testing.T) {
+	up := newUpstream(t)
+	host, port := up.HostPort(t)
+
+	s := startStack(t, stackOptions{
+		Rules: rulesDoc("deny", rule{
+			Name: "up", Host: host, Ports: []int{port}, Mode: "intercept",
+		}),
+		AllowAddrs: []string{hostPort(host, port)},
+	})
+
+	const payload = "chunked-body-payload"
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	// A body with no known length: Go sends it chunked and reports
+	// ContentLength as -1.
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		fmt.Sprintf("http://%s/upload", hostPort(host, port)), iotest.OneByteReader(strings.NewReader(payload)))
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+	resp, err := s.client().Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (logs:\n%s)", resp.StatusCode, s.Logs())
+	}
+
+	got := waitForBytesOut(t, s)
+	if got != int64(len(payload)) {
+		t.Errorf("bytes_out = %d, want %d", got, len(payload))
+	}
+}
+
+// waitForBytesOut reads the bytes_out column of the single audit row.
+func waitForBytesOut(t *testing.T, s *stack) int64 {
+	t.Helper()
+	waitForRows(t, s, 1)
+
+	db, err := sql.Open("sqlite3", "file:"+filepath.Join(s.dataDir, "audit.db")+"?mode=ro")
+	if err != nil {
+		t.Fatalf("opening the audit database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var out int64
+	if err := db.QueryRow(`SELECT bytes_out FROM audit_records ORDER BY ts LIMIT 1`).Scan(&out); err != nil {
+		t.Fatalf("reading bytes_out: %v", err)
+	}
+	return out
 }
 
 // TestNoLeak is AC-10 and the no-leak half of AC-8: an injected credential

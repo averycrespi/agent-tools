@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/averycrespi/agent-tools/egress-broker/internal/auth"
@@ -38,8 +39,13 @@ var hopByHopHeaders = []string{
 // It enters exactly the same pipeline the intercepted path uses, so plain HTTP
 // gets the same modes, the same injection, and the same audit shape (AC-14).
 func (p *Proxy) handleAbsolute(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	id := newRequestID()
+
 	if !auth.CheckProxyAuth(r.Header.Get("Proxy-Authorization"), p.authToken()) {
 		w.Header().Set("Proxy-Authenticate", `Basic realm="egress-broker"`)
+		p.recordEarlyRefusal(id, start, "http", r.Method,
+			http.StatusProxyAuthRequired, "proxy authentication failed")
 		p.refuse(w, http.StatusProxyAuthRequired, ReasonUnauthenticated, "proxy authentication required")
 		return
 	}
@@ -51,6 +57,7 @@ func (p *Proxy) handleAbsolute(w http.ResponseWriter, r *http.Request) {
 	// injected request in cleartext. Only plain HTTP travels in absolute form;
 	// TLS reaches this proxy as CONNECT.
 	if r.URL.Scheme != "http" {
+		p.recordEarlyRefusal(id, start, "http", r.Method, http.StatusBadRequest, "non-http absolute-form request line")
 		p.refuse(w, http.StatusBadRequest, ReasonBadRequest,
 			"this proxy accepts absolute-form request lines for http only; send https through CONNECT")
 		return
@@ -58,6 +65,7 @@ func (p *Proxy) handleAbsolute(w http.ResponseWriter, r *http.Request) {
 
 	host, err := hostnorm.Normalize(r.URL.Hostname())
 	if err != nil || host == "" {
+		p.recordEarlyRefusal(id, start, "http", r.Method, http.StatusBadRequest, "invalid request URL host")
 		p.refuse(w, http.StatusBadRequest, ReasonBadRequest, "the request URL has an invalid host")
 		return
 	}
@@ -66,6 +74,7 @@ func (p *Proxy) handleAbsolute(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Port(); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 1 || parsed > 65535 {
+			p.recordEarlyRefusal(id, start, "http", r.Method, http.StatusBadRequest, "invalid request URL port")
 			p.refuse(w, http.StatusBadRequest, ReasonBadRequest, "the request URL has an invalid port")
 			return
 		}
@@ -84,10 +93,11 @@ func (p *Proxy) handleAbsolute(w http.ResponseWriter, r *http.Request) {
 	switch decision.Action {
 	case rules.ConnectDeny:
 		p.audit.Record(Event{
-			ID: newRequestID(), Start: time.Now(), Interception: "http",
+			ID: id, Start: start, Interception: "http",
 			Method: r.Method, Host: host, Port: port, Path: r.URL.Path,
 			Query: redactQuery(r.URL.RawQuery), Status: http.StatusForbidden,
 			MatchedRule: decision.Rule, Mode: decision.Mode, Outcome: OutcomeBlocked,
+			DurationMS: sinceMS(start),
 		})
 		p.refuse(w, http.StatusForbidden, denyReason(decision.Mode), decision.Reason)
 		return
@@ -104,6 +114,49 @@ func (p *Proxy) handleAbsolute(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// recordEarlyRefusal audits a request refused before any policy decision was
+// reached — a failed proxy auth, or a request form the proxy cannot act on.
+//
+// AC-10 wants one row per request, and these are the rows an operator most
+// needs: repeated authentication failures are how a misprovisioned sandbox and
+// something probing the port both look. No host is recorded, because nothing
+// here has been through hostnorm and an unauthenticated caller chooses it.
+func (p *Proxy) recordEarlyRefusal(id string, start time.Time, interception, method string, status int, detail string) {
+	p.audit.Record(Event{
+		ID: id, Start: start, Interception: interception, Method: method,
+		Status: status, Outcome: OutcomeBlocked, Error: detail,
+		DurationMS: sinceMS(start),
+	})
+}
+
+// countingBody counts the request-body bytes actually forwarded upstream.
+//
+// The audit row cannot use ContentLength: Go reports -1 for a chunked or
+// otherwise unknown-length body, which lands in the column as negative bytes
+// and skews any total. Counting is also simply more accurate for a request
+// that fails part-way through its upload.
+type countingBody struct {
+	io.ReadCloser
+	n atomic.Int64
+}
+
+func (b *countingBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	b.n.Add(int64(n))
+	return n, err
+}
+
+// count is read after the round trip, on a different goroutine from the
+// transport's reads, so it is atomic.
+func (b *countingBody) count() int64 { return b.n.Load() }
+
+// countBody replaces r.Body with a counter and returns it.
+func countBody(r *http.Request) *countingBody {
+	counted := &countingBody{ReadCloser: r.Body}
+	r.Body = counted
+	return counted
+}
+
 // forwardPlain forwards a plain-HTTP request without evaluating rules or
 // injecting, which is what a tunnel decision means when there is no TLS.
 func (p *Proxy) forwardPlain(w http.ResponseWriter, r *http.Request, host string, port int, decision rules.ConnectResult) {
@@ -115,6 +168,7 @@ func (p *Proxy) forwardPlain(w http.ResponseWriter, r *http.Request, host string
 		MatchedRule: decision.Rule, Mode: decision.Mode,
 	}
 
+	body := countBody(r)
 	upstreamReq, err := p.buildUpstreamRequest(r, host, port, "http", rules.Decision{}, nil)
 	if err != nil {
 		event.Status = http.StatusBadRequest
@@ -136,7 +190,7 @@ func (p *Proxy) forwardPlain(w http.ResponseWriter, r *http.Request, host string
 	event.BytesIn = p.streamResponse(w, resp)
 	event.Status = resp.StatusCode
 	event.Outcome = OutcomeAllowed
-	event.BytesOut = r.ContentLength
+	event.BytesOut = body.count()
 	event.DurationMS = sinceMS(start)
 	p.audit.Record(event)
 }
@@ -189,6 +243,7 @@ func (p *Proxy) handleIntercepted(w http.ResponseWriter, r *http.Request, host s
 		event.Injection = strconv.Itoa(len(expanded.Headers))
 	}
 
+	body := countBody(r)
 	upstreamReq, err := p.buildUpstreamRequest(r, host, port, scheme, decision, injected)
 	if err != nil {
 		event.Status = http.StatusBadRequest
@@ -213,7 +268,7 @@ func (p *Proxy) handleIntercepted(w http.ResponseWriter, r *http.Request, host s
 	event.Status = resp.StatusCode
 	event.Outcome = OutcomeAllowed
 	event.BytesIn = written
-	event.BytesOut = r.ContentLength
+	event.BytesOut = body.count()
 	event.DurationMS = sinceMS(start)
 	p.audit.Record(event)
 }
