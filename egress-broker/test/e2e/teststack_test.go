@@ -91,6 +91,16 @@ type stackOptions struct {
 	// Env holds extra environment variables for the broker process, which is
 	// how env_credentials values reach it.
 	Env map[string]string
+	// UpstreamCA is a PEM certificate the proxy should trust when it dials
+	// upstream.
+	//
+	// The proxy verifies upstream certificates against the system trust store
+	// with no InsecureSkipVerify (D12), which is the behaviour we want and
+	// which a self-signed mock upstream necessarily fails. Go's system pool
+	// honours SSL_CERT_FILE on Unix, so pointing that at the mock's own
+	// certificate is enough — no code change and no verification-weakening
+	// switch.
+	UpstreamCA []byte
 	// AllowAddrs are exact "host:port" targets the address guard should skip.
 	//
 	// Every mock upstream a test can start listens on loopback, which the
@@ -162,6 +172,13 @@ func startStack(t *testing.T, opts stackOptions) *stack {
 		"XDG_CONFIG_HOME="+configHome,
 		"XDG_DATA_HOME="+dataHome,
 	)
+	if len(opts.UpstreamCA) > 0 {
+		caPath := filepath.Join(t.TempDir(), "upstream-ca.pem")
+		if err := os.WriteFile(caPath, opts.UpstreamCA, 0o600); err != nil {
+			t.Fatalf("writing the upstream CA: %v", err)
+		}
+		cmd.Env = append(cmd.Env, "SSL_CERT_FILE="+caPath)
+	}
 	if len(opts.AllowAddrs) > 0 {
 		cmd.Env = append(cmd.Env, "EGRESS_BROKER_TEST_ALLOW_ADDRS="+strings.Join(opts.AllowAddrs, ","))
 	}

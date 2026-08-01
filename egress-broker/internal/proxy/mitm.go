@@ -1,36 +1,152 @@
 package proxy
 
 import (
+	"crypto/tls"
+	"net"
 	"net/http"
 	"time"
+
+	"golang.org/x/net/http2"
 
 	"github.com/averycrespi/agent-tools/egress-broker/internal/rules"
 )
 
-// serveMITM terminates TLS and evaluates each request on the connection.
+// HTTP/2 server limits for the interception endpoint.
 //
-// Not yet implemented: TLS termination lands with the certificate work and the
-// request pipeline lands with injection. Until then this refuses rather than
-// forwarding, so a rule that says "intercept" can never silently degrade into
-// an unaudited, uninjected pass-through — which would look like the feature
-// working while doing none of it.
-func (p *Proxy) serveMITM(w http.ResponseWriter, _ *http.Request, host string, port int, decision rules.ConnectResult, start time.Time) {
-	p.audit.Record(Event{
-		Start: start, Interception: "mitm", Host: host, Port: port,
-		Status: http.StatusNotImplemented, MatchedRule: decision.Rule, Mode: decision.Mode,
-		Outcome: OutcomeError, Error: "interception not yet implemented",
-		DurationMS: sinceMS(start),
-	})
-	p.refuse(w, http.StatusNotImplemented, ReasonUpstreamFailure,
-		"TLS interception is not yet wired up in this build")
+// The reference implementation this design draws on cited CVE-2023-44487
+// (Rapid Reset) and CVE-2024-27316 (CONTINUATION flood). Both are cheap for a
+// client to trigger and expensive for a server to absorb, and the client here
+// is an agent we are explicitly not trusting to behave.
+const (
+	h2MaxConcurrentStreams = 100
+	h2MaxFrameSize         = 1 << 14 // 16 KiB, the RFC 7540 default
+	h2MaxHeaderListSize    = 1 << 20 // 1 MiB
+	h2IdleTimeout          = 5 * time.Minute
+	h2ReadIdleTimeout      = 30 * time.Second
+)
+
+// serveMITM terminates TLS with a leaf bound to the CONNECT host, then serves
+// requests on that connection through the rules pipeline.
+//
+// D11: the leaf is issued for the CONNECT hostname, not the SNI the client
+// sends. Trusting SNI would let a client request a certificate for one name
+// while the policy decision was made for another.
+func (p *Proxy) serveMITM(w http.ResponseWriter, r *http.Request, host string, port int, decision rules.ConnectResult, start time.Time) {
+	tlsCfg, err := p.authority.ServerConfig(host)
+	if err != nil {
+		p.audit.Record(Event{
+			Start: start, Interception: "mitm", Host: host, Port: port,
+			Status: http.StatusInternalServerError, MatchedRule: decision.Rule, Mode: decision.Mode,
+			Outcome: OutcomeError, Error: "issuing a leaf certificate failed", DurationMS: sinceMS(start),
+		})
+		p.refuse(w, http.StatusInternalServerError, ReasonUpstreamFailure, "could not issue a certificate for this host")
+		return
+	}
+
+	client, err := hijack(w)
+	if err != nil {
+		p.log.Error("hijacking the client connection failed", "error", err)
+		return
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n")); err != nil {
+		return
+	}
+
+	tlsConn := tls.Server(&idleConn{Conn: client, idle: p.tunnelIdle}, tlsCfg)
+	if err := tlsConn.HandshakeContext(r.Context()); err != nil {
+		// A pinning client fails here by design. The README documents the
+		// signature and the mode:"tunnel" fix, because the error the agent
+		// sees is otherwise indistinguishable from a network fault.
+		p.log.Debug("TLS handshake with the client failed",
+			"host", host, "port", port, "error", err)
+		p.audit.Record(Event{
+			Start: start, Interception: "mitm", Host: host, Port: port,
+			MatchedRule: decision.Rule, Mode: decision.Mode, Outcome: OutcomeError,
+			Error:      "client TLS handshake failed (a certificate-pinning client needs a mode:\"tunnel\" rule)",
+			DurationMS: sinceMS(start),
+		})
+		return
+	}
+	defer func() { _ = tlsConn.Close() }()
+
+	handler := &mitmHandler{proxy: p, host: host, port: port, connectRule: decision}
+
+	if tlsConn.ConnectionState().NegotiatedProtocol == "h2" {
+		p.serveH2(tlsConn, handler)
+		return
+	}
+	p.serveH1(tlsConn, handler)
 }
 
-// handleAbsolute serves an absolute-form plain HTTP request through the same
-// rules pipeline the MITM path uses.
+// serveH2 serves an intercepted connection that negotiated HTTP/2.
+func (p *Proxy) serveH2(conn net.Conn, handler http.Handler) {
+	server := &http2.Server{
+		MaxConcurrentStreams:      h2MaxConcurrentStreams,
+		MaxReadFrameSize:          h2MaxFrameSize,
+		MaxDecoderHeaderTableSize: h2MaxHeaderListSize,
+		IdleTimeout:               h2IdleTimeout,
+	}
+	server.ServeConn(conn, &http2.ServeConnOpts{Handler: handler})
+}
+
+// serveH1 serves an intercepted connection over HTTP/1.1.
 //
-// Not yet implemented, for the same reason as serveMITM: refusing is the only
-// safe placeholder for a path whose whole purpose is to apply policy.
-func (p *Proxy) handleAbsolute(w http.ResponseWriter, _ *http.Request) {
-	p.refuse(w, http.StatusNotImplemented, ReasonUpstreamFailure,
-		"plain-HTTP proxying is not yet wired up in this build")
+// http.Server drives keep-alive, pipelining and chunked bodies correctly, so
+// the connection is handed to one rather than parsing requests by hand.
+func (p *Proxy) serveH1(conn net.Conn, handler http.Handler) {
+	server := &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: p.headerTimeout,
+		IdleTimeout:       h2IdleTimeout,
+		ErrorLog:          nil,
+	}
+	_ = server.Serve(&singleConnListener{conn: conn, done: make(chan struct{})})
+}
+
+// singleConnListener hands one already-accepted connection to an http.Server
+// and then blocks until that server shuts down.
+type singleConnListener struct {
+	conn net.Conn
+	once bool
+	done chan struct{}
+}
+
+func (l *singleConnListener) Accept() (net.Conn, error) {
+	if !l.once {
+		l.once = true
+		return l.conn, nil
+	}
+	// Block until Close, so http.Server does not spin on a closed listener.
+	<-l.done
+	return nil, net.ErrClosed
+}
+
+func (l *singleConnListener) Close() error {
+	select {
+	case <-l.done:
+	default:
+		close(l.done)
+	}
+	return nil
+}
+
+func (l *singleConnListener) Addr() net.Addr { return l.conn.LocalAddr() }
+
+// mitmHandler serves requests on one intercepted connection.
+//
+// It carries the CONNECT host and port, which are authoritative: D10 says the
+// CONNECT target wins over any Host header inside the tunnel, because the
+// policy decision was made against the former and a client must not be able to
+// redirect it by writing a different Host.
+type mitmHandler struct {
+	proxy       *Proxy
+	host        string
+	port        int
+	connectRule rules.ConnectResult
+}
+
+func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.proxy.handleIntercepted(w, r, h.host, h.port, "https")
 }

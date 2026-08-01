@@ -4,8 +4,8 @@ package e2e_test
 
 import (
 	"bufio"
-	"crypto/tls"
 	"encoding/base64"
+	"encoding/pem"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -130,9 +130,15 @@ func (u *upstream) HostPort(t *testing.T) (string, int) {
 	return host, p
 }
 
-// CertPool returns a pool trusting a TLS upstream's certificate.
-func (u *upstream) CertPool() *tls.Config {
-	return u.Server.TLS
+// CertPEM returns the TLS upstream's certificate in PEM form, for the proxy
+// to trust when it dials.
+func (u *upstream) CertPEM(t *testing.T) []byte {
+	t.Helper()
+	cert := u.Server.Certificate()
+	if cert == nil {
+		t.Fatal("this upstream is not serving TLS")
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
 }
 
 // fmtSscan is a tiny indirection so the import list stays short.
