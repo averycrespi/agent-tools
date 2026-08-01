@@ -52,6 +52,26 @@ func TestLoopbackValidation(t *testing.T) {
 	}
 }
 
+// TestLoopbackValidationChecksThePort covers every host form, including the
+// ones that return early.
+//
+// "localhost" short-circuited before the port range was checked, so an
+// out-of-range port passed validation and surfaced later as a raw bind error
+// rather than the named config error AC-1 asks for.
+func TestLoopbackValidationChecksThePort(t *testing.T) {
+	for _, host := range []string{"localhost", "127.0.0.1", "::1"} {
+		for _, port := range []int{-1, 65536, 99999} {
+			err := config.ValidateLoopback(config.ListenerConfig{Host: host, Port: port})
+			if err == nil {
+				t.Errorf("ValidateLoopback(%q, %d) = nil, want an out-of-range error", host, port)
+			}
+		}
+		if err := config.ValidateLoopback(config.ListenerConfig{Host: host, Port: 8220}); err != nil {
+			t.Errorf("ValidateLoopback(%q, 8220) = %v, want nil", host, err)
+		}
+	}
+}
+
 // TestLoopbackRejectedAtLoad proves the named error reaches the caller through
 // Load, not just through the helper (AC-1).
 func TestLoopbackRejectedAtLoad(t *testing.T) {

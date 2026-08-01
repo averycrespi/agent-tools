@@ -197,6 +197,15 @@ func ValidateLoopback(l ListenerConfig) error {
 	if host == "" {
 		return fmt.Errorf("%w: host is empty", ErrNonLoopback)
 	}
+
+	// The port check comes first because "localhost" returns early below. With
+	// it after, {"host": "localhost", "port": 99999} passed validation and
+	// failed later as a raw bind error rather than the named config error
+	// AC-1 asks for.
+	if l.Port < 0 || l.Port > 65535 {
+		return fmt.Errorf("port %d out of range 0-65535", l.Port)
+	}
+
 	if strings.EqualFold(host, "localhost") {
 		return nil
 	}
@@ -206,9 +215,6 @@ func ValidateLoopback(l ListenerConfig) error {
 	}
 	if !ip.IsLoopback() {
 		return fmt.Errorf("%w: %q resolves to a non-loopback address", ErrNonLoopback, l.Host)
-	}
-	if l.Port < 0 || l.Port > 65535 {
-		return fmt.Errorf("port %d out of range 0-65535", l.Port)
 	}
 	return nil
 }
