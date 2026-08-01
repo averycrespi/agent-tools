@@ -196,6 +196,32 @@ func TestTunnelPorts(t *testing.T) {
 	})
 }
 
+// TestPlainHTTPFallthroughIgnoresThePortLimit is AC-16's scope.
+//
+// The limit bounds tunnelling. A plain HTTP request is parsed, evaluated and
+// audited whatever port it names, so applying the limit to it refused every
+// unmatched plain HTTP request on the shipped default configuration — port 80
+// included, with a message about tunnelling.
+func TestPlainHTTPFallthroughIgnoresThePortLimit(t *testing.T) {
+	e := engine(t, rules.FallthroughTunnel)
+
+	for _, port := range []int{80, 443, 8080} {
+		got := e.PlainHTTPDecision("unmatched.example.com", port)
+		if got.Action != rules.ConnectTunnel {
+			t.Errorf("port %d: Action = %q, want the fallthrough policy to forward it", port, got.Action)
+		}
+		if got.Mode != "fallthrough" {
+			t.Errorf("port %d: Mode = %q, want fallthrough", port, got.Mode)
+		}
+	}
+
+	// The fallthrough policy itself still governs.
+	denying := engine(t, rules.FallthroughDeny)
+	if got := denying.PlainHTTPDecision("unmatched.example.com", 80); got.Action != rules.ConnectDeny {
+		t.Errorf("Action = %q, want deny under fallthrough \"deny\"", got.Action)
+	}
+}
+
 // TestGlobAnchoringInDecisions proves the anchoring property survives into
 // the decision path, not just the glob unit tests.
 func TestGlobMatchingInDecisions(t *testing.T) {

@@ -72,12 +72,14 @@ func (p *Proxy) handleAbsolute(w http.ResponseWriter, r *http.Request) {
 		port = parsed
 	}
 
-	// Run the CONNECT-time decision first, exactly as the HTTPS path does.
+	// Run the host-level decision first, as the HTTPS path does at CONNECT.
 	// Without this the fallthrough policy would never apply to plain HTTP: a
 	// request matching no rule would fall through to Evaluate's implicit-allow
-	// and be forwarded even under fallthrough "deny" (AC-14).
+	// and be forwarded even under fallthrough "deny" (AC-14). The one
+	// difference from CONNECT is the port limit, which bounds tunnelling and
+	// has no meaning for a request the proxy parses and audits.
 	engine := p.rules.Engine()
-	decision := engine.ConnectDecision(host, port)
+	decision := engine.PlainHTTPDecision(host, port)
 
 	switch decision.Action {
 	case rules.ConnectDeny:

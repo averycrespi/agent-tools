@@ -74,10 +74,10 @@ Synthesized 4xx/5xx responses carry `X-Egress-Broker-Reason`:
 | --- | --- |
 | `proxy-auth-required` | Missing or wrong `Proxy-Authorization`. |
 | `rule-deny` | A `deny` rule matched. |
-| `fallthrough-deny` | No rule matched and `fallthrough` is `deny`, or a fallthrough tunnel was attempted on a non-443 port. |
+| `fallthrough-deny` | No rule matched and `fallthrough` is `deny`, or a fallthrough tunnel was CONNECTed on a non-443 port. |
 | `blocked-address` | The upstream address is blocked by the SSRF guard. |
 | `credential-unresolved` | A referenced credential could not be resolved. |
 | `credential-host-scope` | A referenced credential is not bound to this host. |
 | `credential-invalid` | A credential resolved but its value cannot go in a header. |
-| `bad-request` | Malformed CONNECT target or request URL. |
+| `bad-request` | Malformed CONNECT target or request URL, or an `https` absolute-form request line — send those through CONNECT. |
 | `upstream-failure` | The upstream request failed. |

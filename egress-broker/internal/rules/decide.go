@@ -64,6 +64,25 @@ type ConnectResult struct {
 //  5. No rule matches the host at all: the fallthrough policy decides, itself
 //     subject to the port-443 default.
 func (e *Engine) ConnectDecision(host string, port int) ConnectResult {
+	return e.decide(host, port, true)
+}
+
+// PlainHTTPDecision decides what to do with an absolute-form plain HTTP
+// request to host:port.
+//
+// It is ConnectDecision with the fallthrough port limit lifted. That limit
+// stops `fallthrough: "tunnel"` from turning the proxy into a general-purpose
+// TCP relay (AC-16), and only a tunnel can do that: a plain HTTP request is
+// parsed, evaluated and audited as one request whatever port it names. Applying
+// the limit here refused every plain HTTP request to an unmatched host on the
+// shipped default configuration, port 80 included.
+func (e *Engine) PlainHTTPDecision(host string, port int) ConnectResult {
+	return e.decide(host, port, false)
+}
+
+// decide is the shared body. tunnelPortLimit selects whether an unmatched host
+// may fall through on ports other than 443.
+func (e *Engine) decide(host string, port int, tunnelPortLimit bool) ConnectResult {
 	var (
 		intercept    *compiled
 		hostOnlyDeny *compiled
@@ -131,7 +150,7 @@ func (e *Engine) ConnectDecision(host string, port int) ConnectResult {
 	}
 
 	// Step 5.
-	return e.fallthroughDecision(port)
+	return e.fallthroughDecision(port, tunnelPortLimit)
 }
 
 // fallthroughDecision applies the unmatched-host policy.
@@ -140,7 +159,7 @@ func (e *Engine) ConnectDecision(host string, port int) ConnectResult {
 // "tunnel" would make the proxy a general-purpose TCP relay for every port an
 // agent cares to name, which is a much larger grant than the operator asked
 // for when they chose to relay unmatched HTTPS.
-func (e *Engine) fallthroughDecision(port int) ConnectResult {
+func (e *Engine) fallthroughDecision(port int, tunnelPortLimit bool) ConnectResult {
 	if e.fallthrough_ == FallthroughDeny {
 		return ConnectResult{
 			Action: ConnectDeny,
@@ -148,7 +167,7 @@ func (e *Engine) fallthroughDecision(port int) ConnectResult {
 			Reason: "no rule matches this host and fallthrough is \"deny\"",
 		}
 	}
-	if port != DefaultTunnelPort {
+	if tunnelPortLimit && port != DefaultTunnelPort {
 		return ConnectResult{
 			Action: ConnectDeny,
 			Mode:   ModeFallthrough,

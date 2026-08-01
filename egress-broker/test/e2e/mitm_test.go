@@ -396,6 +396,34 @@ func TestPlainHTTP(t *testing.T) {
 	}
 }
 
+// TestPlainHTTPFallthroughTunnel is the shipped default: `fallthrough:
+// "tunnel"` and no rules.
+//
+// The port-443 tunnel limit used to be applied here too, so on a fresh install
+// every plain HTTP request to an unmatched host was refused with a message
+// about tunnelling — undocumented, and not what AC-16 restricts.
+func TestPlainHTTPFallthroughTunnel(t *testing.T) {
+	up := newUpstream(t)
+	host, port := up.HostPort(t)
+
+	s := startStack(t, stackOptions{
+		Rules:      rulesDoc("tunnel"),
+		AllowAddrs: []string{hostPort(host, port)},
+	})
+
+	resp, body := requestThroughProxy(t, s.client(), http.MethodGet,
+		fmt.Sprintf("http://%s/plain", hostPort(host, port)))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 on the default install (logs:\n%s)", resp.StatusCode, s.Logs())
+	}
+	if body != "upstream ok" {
+		t.Errorf("body = %q, want the upstream response", body)
+	}
+	if got := up.Last(t).Header.Get("Authorization"); got != "" {
+		t.Errorf("Authorization = %q, want nothing injected on a fallthrough forward", got)
+	}
+}
+
 // TestEncodedPathReachesUpstreamUnchanged pins that interception does not
 // rewrite the request target.
 //

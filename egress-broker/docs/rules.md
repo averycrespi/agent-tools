@@ -72,9 +72,11 @@ on any port the rule admits.
 ### Ports
 
 `intercept` and `deny` default to **any port**. `tunnel` defaults to **443
-only**, and so does the `fallthrough` path — otherwise `fallthrough: "tunnel"`
-would relay any port an agent names, which is a far larger grant than choosing
-to relay unmatched HTTPS.
+only**, and so does a `fallthrough: "tunnel"` decision on a CONNECT — otherwise
+it would relay any port an agent names, which is a far larger grant than
+choosing to relay unmatched HTTPS. The limit is about tunnelling, so it does
+not apply to an absolute-form plain HTTP request, which is parsed, evaluated
+and audited whatever port it names.
 
 `deny` matches `intercept` here deliberately. A narrower default would let an
 unported `deny` cover only 443 while the `intercept` rule it overrides covers
