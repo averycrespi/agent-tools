@@ -21,11 +21,18 @@ import (
 const (
 	h2MaxConcurrentStreams = 100
 	h2MaxFrameSize         = 1 << 14 // 16 KiB, the RFC 7540 default
-	h2MaxHeaderListSize    = 1 << 20 // 1 MiB
 	h2IdleTimeout          = 5 * time.Minute
 	// MaxUploadBufferPerStream bounds how much a single stream may buffer,
 	// which is the other half of limiting what a burst of streams can hold.
 	h2MaxUploadBufferPerStream = 1 << 20 // 1 MiB
+	// h2MaxHeaderBytes bounds one request's header block, which is the
+	// CONTINUATION-flood limit. It reaches the h2 server through
+	// ServeConnOpts.BaseConfig; http2.Server has no field of its own for it,
+	// and MaxDecoderHeaderTableSize — which does sit on http2.Server — is the
+	// HPACK compression table, not a header-list bound. Setting that to a
+	// megabyte advertised a 256x larger table to an untrusted client, the
+	// opposite of hardening.
+	h2MaxHeaderBytes = 1 << 20 // 1 MiB
 )
 
 // serveMITM terminates TLS with a leaf bound to the CONNECT host, then serves
@@ -89,13 +96,17 @@ func (p *Proxy) serveMITM(w http.ResponseWriter, r *http.Request, id, host strin
 // serveH2 serves an intercepted connection that negotiated HTTP/2.
 func (p *Proxy) serveH2(conn net.Conn, handler http.Handler) {
 	server := &http2.Server{
-		MaxConcurrentStreams:      h2MaxConcurrentStreams,
-		MaxReadFrameSize:          h2MaxFrameSize,
-		MaxDecoderHeaderTableSize: h2MaxHeaderListSize,
-		MaxUploadBufferPerStream:  h2MaxUploadBufferPerStream,
-		IdleTimeout:               h2IdleTimeout,
+		MaxConcurrentStreams:     h2MaxConcurrentStreams,
+		MaxReadFrameSize:         h2MaxFrameSize,
+		MaxUploadBufferPerStream: h2MaxUploadBufferPerStream,
+		IdleTimeout:              h2IdleTimeout,
 	}
-	server.ServeConn(conn, &http2.ServeConnOpts{Handler: handler})
+	// BaseConfig is where the header-block limit comes from; leaving it nil
+	// left the CONTINUATION-flood bound unset entirely.
+	server.ServeConn(conn, &http2.ServeConnOpts{
+		Handler:    handler,
+		BaseConfig: &http.Server{MaxHeaderBytes: h2MaxHeaderBytes, ReadHeaderTimeout: p.headerTimeout},
+	})
 }
 
 // serveH1 serves an intercepted connection over HTTP/1.1.

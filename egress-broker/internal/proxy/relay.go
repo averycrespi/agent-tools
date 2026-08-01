@@ -37,11 +37,28 @@ func (c *bufferedConn) Read(p []byte) (int, error) {
 type idleConn struct {
 	net.Conn
 	idle time.Duration
+	// stopped lets the other copy direction end this one for good. A bare
+	// deadline cannot: Read re-arms the deadline on every call, so a wake-up
+	// that lands between two reads is erased and the copy parks for the whole
+	// idle window anyway.
+	stopped atomic.Bool
 }
 
 func (c *idleConn) Read(p []byte) (int, error) {
+	// Arm first, then check. stop() sets the flag before expiring the
+	// deadline, so with this order there is no interleaving in which a read
+	// both misses the flag and re-arms over the expiry.
 	_ = c.SetReadDeadline(time.Now().Add(c.idle))
+	if c.stopped.Load() {
+		return 0, net.ErrClosed
+	}
 	return c.Conn.Read(p)
+}
+
+// stop ends any read parked on this connection and prevents further ones.
+func (c *idleConn) stop() {
+	c.stopped.Store(true)
+	_ = c.SetReadDeadline(time.Now())
 }
 
 func (c *idleConn) Write(p []byte) (int, error) {
@@ -52,15 +69,14 @@ func (c *idleConn) Write(p []byte) (int, error) {
 // relay copies bytes in both directions until either side closes or the idle
 // window elapses, returning the byte counts.
 //
-// Both copies are torn down together. Leaving one half running after the other
-// finishes leaks a goroutine per abandoned connection, which an agent can
-// trigger at will.
+// A finished upstream ends the client copy too. Leaving it running after the
+// upstream has hung up leaks a goroutine, two descriptors and a WaitGroup
+// entry per abandoned connection — which also stalls the shutdown drain, and
+// which an agent can trigger at will by holding its socket open.
 //
-// Each half wakes the *other* one when it finishes, by expiring the read
-// deadline on the connection that copy is blocked reading from. Setting the
-// deadline on the socket the finishing goroutine was itself reading unblocks
-// nothing: the peer stays parked until the idle window elapses, holding two
-// descriptors and a WaitGroup entry that also stalls the shutdown drain.
+// The reverse is deliberately not symmetric. A client that stops sending has
+// only half-closed: it is still waiting for the response, so the upstream copy
+// must keep running. Its own idle window bounds it.
 func relay(client, upstream net.Conn, idle time.Duration) (sent, received int64) {
 	c := &idleConn{Conn: client, idle: idle}
 	u := &idleConn{Conn: upstream, idle: idle}
@@ -79,14 +95,15 @@ func relay(client, upstream net.Conn, idle time.Duration) (sent, received int64)
 		// Signal end-of-stream upstream so a server waiting on the request
 		// body can respond, rather than both sides waiting on each other.
 		closeWrite(upstream)
-		_ = upstream.SetReadDeadline(time.Now())
 	}()
 	go func() {
 		defer wg.Done()
 		n, _ := io.Copy(c, u)
 		fromUpstream.Store(n)
 		closeWrite(client)
-		_ = client.SetReadDeadline(time.Now())
+		// Nothing more can arrive for the client, so the other copy has
+		// nothing left to do.
+		c.stop()
 	}()
 	wg.Wait()
 
