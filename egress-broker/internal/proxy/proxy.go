@@ -247,7 +247,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case rules.ConnectMITM:
-		p.serveMITM(w, r, id, host, port, decision, start)
+		p.serveMITM(w, r, id, host, port, engine, decision, start)
 		return
 	}
 }

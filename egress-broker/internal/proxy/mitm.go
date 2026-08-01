@@ -41,7 +41,7 @@ const (
 // D11: the leaf is issued for the CONNECT hostname, not the SNI the client
 // sends. Trusting SNI would let a client request a certificate for one name
 // while the policy decision was made for another.
-func (p *Proxy) serveMITM(w http.ResponseWriter, r *http.Request, id, host string, port int, decision rules.ConnectResult, start time.Time) {
+func (p *Proxy) serveMITM(w http.ResponseWriter, r *http.Request, id, host string, port int, engine *rules.Engine, decision rules.ConnectResult, start time.Time) {
 	tlsCfg, err := p.authority.ServerConfig(host)
 	if err != nil {
 		p.audit.Record(Event{
@@ -84,7 +84,7 @@ func (p *Proxy) serveMITM(w http.ResponseWriter, r *http.Request, id, host strin
 	}
 	defer func() { _ = tlsConn.Close() }()
 
-	handler := &mitmHandler{proxy: p, host: host, port: port, connectRule: decision}
+	handler := &mitmHandler{proxy: p, host: host, port: port, engine: engine}
 
 	if tlsConn.ConnectionState().NegotiatedProtocol == "h2" {
 		p.serveH2(tlsConn, handler)
@@ -183,13 +183,19 @@ func (l *singleConnListener) Addr() net.Addr { return l.conn.LocalAddr() }
 // CONNECT target wins over any Host header inside the tunnel, because the
 // policy decision was made against the former and a client must not be able to
 // redirect it by writing a different Host.
+//
+// It also carries the rules snapshot the CONNECT decision was made against,
+// which is Store.Engine()'s documented contract: take it once per connection.
+// Re-taking it per request let a SIGHUP land mid-connection and leave the
+// CONNECT decision and the per-request decisions evaluating different
+// rulesets.
 type mitmHandler struct {
-	proxy       *Proxy
-	host        string
-	port        int
-	connectRule rules.ConnectResult
+	proxy  *Proxy
+	host   string
+	port   int
+	engine *rules.Engine
 }
 
 func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h.proxy.handleIntercepted(w, r, h.host, h.port, "https")
+	h.proxy.handleIntercepted(w, r, h.host, h.port, "https", h.engine)
 }

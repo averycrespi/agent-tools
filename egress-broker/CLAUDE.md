@@ -61,7 +61,17 @@ These are load-bearing. Changing one needs a matching change to `DESIGN.md`.
   header.** A caller that writes headers only from a successful return cannot
   dispatch a partially injected request.
 - **Deny beats intercept, and deny beats tunnel among overlapping host-only
-  rules.** Rule order must never change enforcement.
+  rules.** Rule order must never change enforcement. Deny therefore defaults to
+  *any* port, like intercept: a narrower default silently reinstated the
+  ordering dependency off 443. Only `tunnel` defaults to 443.
+- **Absolute-form request lines are `http` only.** The scheme is checked before
+  anything derives from it. An `https://` request line has an empty
+  `URL.Port()`, so treating it as plain HTTP forwarded a credential-injected
+  request in cleartext on port 80.
+- **The rules engine is taken once per connection.** `mitmHandler` carries the
+  snapshot its CONNECT decision was made against, so a SIGHUP mid-connection
+  cannot make the connect-time and per-request decisions disagree. The README
+  documents what this means for the kill switch.
 - **No audit column may carry a body, a header value, or a credential.**
   `TestNoBodyOrHeaderColumns` fails if a field named like one is added.
 - **The dashboard is read-only.** Every route is registered `GET <path>`.

@@ -109,7 +109,7 @@ func (p *Proxy) handleAbsolute(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case rules.ConnectMITM:
-		p.handleIntercepted(w, r, host, port, "http")
+		p.handleIntercepted(w, r, host, port, "http", engine)
 		return
 	}
 }
@@ -201,7 +201,7 @@ func (p *Proxy) forwardPlain(w http.ResponseWriter, r *http.Request, host string
 // host and port come from the CONNECT target on the MITM path and from the
 // absolute-form URL on the plain-HTTP path. Either way they are authoritative
 // over anything the request's own Host header says (D10).
-func (p *Proxy) handleIntercepted(w http.ResponseWriter, r *http.Request, host string, port int, scheme string) {
+func (p *Proxy) handleIntercepted(w http.ResponseWriter, r *http.Request, host string, port int, scheme string, engine *rules.Engine) {
 	start := time.Now()
 	id := newRequestID()
 
@@ -214,7 +214,6 @@ func (p *Proxy) handleIntercepted(w http.ResponseWriter, r *http.Request, host s
 		event.Interception = "http"
 	}
 
-	engine := p.rules.Engine()
 	decision := engine.Evaluate(host, port, r.Method, r.URL.Path)
 	event.MatchedRule = decision.Rule
 	event.Mode = decision.Mode

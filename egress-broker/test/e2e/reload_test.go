@@ -142,6 +142,48 @@ func TestReloadIsTheKillSwitch(t *testing.T) {
 	_ = conn.Close()
 }
 
+// TestReloadKeepsALiveConnectionOnItsRuleset pins the take-once-per-connection
+// contract in rules.Store.Engine.
+//
+// The MITM handler re-took the engine on every request, so a SIGHUP landing
+// mid-connection left the CONNECT decision and the per-request decisions on
+// that same connection evaluating different rulesets. The README documents the
+// consequence for the kill switch: established connections drain under the
+// rules their CONNECT was decided against.
+func TestReloadKeepsALiveConnectionOnItsRuleset(t *testing.T) {
+	up := newTLSUpstream(t)
+	host, port := up.HostPort(t)
+
+	intercept := rule{Name: "up", Host: host, Ports: []int{port}, Mode: "intercept"}
+	s := startStack(t, stackOptions{
+		Rules:      rulesDoc("deny", intercept),
+		AllowAddrs: []string{hostPort(host, port)},
+		UpstreamCA: up.CertPEM(t),
+	})
+
+	// One client, so its transport pools the intercepted connection and the
+	// second request travels over the same one.
+	client := s.client()
+	target := fmt.Sprintf("https://%s/thing", hostPort(host, port))
+
+	if resp, _ := requestThroughProxy(t, client, http.MethodGet, target); resp.StatusCode != http.StatusOK {
+		t.Fatalf("before reload: status = %d, want 200 (logs:\n%s)", resp.StatusCode, s.Logs())
+	}
+
+	s.writeRules(rulesDoc("deny", intercept,
+		rule{Name: "no-things", Host: host, Ports: []int{port}, Path: "/thing", Mode: "deny"}))
+	s.reload()
+
+	if resp, _ := requestThroughProxy(t, client, http.MethodGet, target); resp.StatusCode != http.StatusOK {
+		t.Errorf("on the live connection: status = %d, want 200 — it must keep the ruleset its CONNECT was decided under", resp.StatusCode)
+	}
+
+	// A fresh connection takes the new snapshot.
+	if resp, _ := requestThroughProxy(t, s.client(), http.MethodGet, target); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("on a new connection: status = %d, want 403 from the reloaded deny rule (logs:\n%s)", resp.StatusCode, s.Logs())
+	}
+}
+
 // TestTokenRotationTakesEffectOnReload is the compromise response documented in
 // docs/security-model.md: `token rotate`, re-provision, SIGHUP.
 //

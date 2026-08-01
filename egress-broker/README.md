@@ -144,9 +144,16 @@ The kill switch is an all-tunnel `rules.json` plus `SIGHUP`:
 kill -HUP $(pgrep -f 'egress-broker serve')
 ```
 
-Injection stops immediately; the network keeps working. A failed reload leaves
-the previous ruleset serving and logs an error, so check the log after every
-reload.
+Injection stops for every new connection; the network keeps working. A failed
+reload leaves the previous ruleset serving and logs an error, so check the log
+after every reload.
+
+A connection already established keeps the ruleset its CONNECT was decided
+under, so that the connect-time decision and the per-request decisions on one
+connection can never disagree. Existing intercepted connections therefore drain
+under the old rules — bounded by the idle timeout, five minutes by default. If
+you need injection to stop for traffic already in flight, restart instead and
+accept the outage.
 
 ### The wedged-but-listening failure
 
