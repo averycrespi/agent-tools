@@ -4,6 +4,8 @@ go 1.25.11
 
 require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	github.com/ncruces/go-sqlite3 v0.35.0
+	github.com/oklog/ulid/v2 v2.1.1
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.7
 	golang.org/x/net v0.54.0
@@ -146,13 +148,11 @@ require (
 	github.com/moricho/tparallel v0.3.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/nakabonne/nestif v0.3.1 // indirect
-	github.com/ncruces/go-sqlite3 v0.35.0 // indirect
 	github.com/ncruces/go-sqlite3-wasm/v3 v3.1.35302 // indirect
 	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/nishanths/exhaustive v0.12.0 // indirect
 	github.com/nishanths/predeclared v0.2.2 // indirect
 	github.com/nunnatsa/ginkgolinter v0.23.0 // indirect
-	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.3.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
