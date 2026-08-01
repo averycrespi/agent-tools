@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/averycrespi/agent-tools/egress-broker/internal/audit"
 	"github.com/averycrespi/agent-tools/egress-broker/internal/auth"
 	"github.com/averycrespi/agent-tools/egress-broker/internal/ca"
 	"github.com/averycrespi/agent-tools/egress-broker/internal/config"
@@ -31,6 +32,9 @@ var forceExit = os.Exit
 
 // shutdownTimeout bounds graceful shutdown of the HTTP servers.
 const shutdownTimeout = 10 * time.Second
+
+// pruneInterval is how often expired audit rows are removed.
+const pruneInterval = 24 * time.Hour
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
@@ -54,6 +58,7 @@ type stack struct {
 	resolver  *credentials.Resolver
 	token     string
 	envNames  []string
+	audit     *audit.Logger
 }
 
 func runServe(ctx context.Context, out interface{ Write([]byte) (int, error) }) error {
@@ -80,6 +85,13 @@ func runServe(ctx context.Context, out interface{ Write([]byte) (int, error) }) 
 		st.log.Warn("credential is sourced from the process environment rather than the keychain",
 			"credential", name)
 	}
+
+	pruneCtx, stopPruning := context.WithCancel(ctx)
+	defer stopPruning()
+	st.audit.StartPruning(pruneCtx,
+		time.Duration(st.cfg.Audit.RetentionDays)*24*time.Hour,
+		pruneInterval, time.Now,
+		func(err error) { st.log.Error("pruning the audit log failed", "error", err) })
 
 	return serveEventLoop(ctx, st, proxyServer, proxyLn, healthServer, healthLn)
 }
@@ -131,9 +143,14 @@ func buildStack(out interface{ Write([]byte) (int, error) }) (*stack, error) {
 		log.Warn("credential host binding may not cover this rule", "detail", w.String())
 	}
 
+	auditLog, err := audit.Open(cfg.Audit.Path)
+	if err != nil {
+		return nil, err
+	}
+
 	return &stack{
 		cfg: cfg, log: log, rules: store, authority: authority,
-		resolver: resolver, token: token, envNames: env.Names(),
+		resolver: resolver, token: token, envNames: env.Names(), audit: auditLog,
 	}, nil
 }
 
@@ -165,6 +182,7 @@ func newProxy(st *stack) *proxy.Proxy {
 		Authority: st.authority,
 		Resolver:  st.resolver,
 		Dialer:    dialer,
+		Audit:     audit.NewSink(st.audit, st.log),
 		Token:     st.token,
 		Logger:    st.log,
 	})
@@ -300,6 +318,9 @@ func shutdownAll(st *stack, servers ...any) error {
 
 	select {
 	case <-done:
+		if err := st.audit.Close(); err != nil {
+			st.log.Warn("closing the audit log", "error", err)
+		}
 		return nil
 	case <-ctx.Done():
 		// http.Server.Shutdown has no visibility into hijacked CONNECT

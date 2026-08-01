@@ -31,11 +31,11 @@ const (
 // D11: the leaf is issued for the CONNECT hostname, not the SNI the client
 // sends. Trusting SNI would let a client request a certificate for one name
 // while the policy decision was made for another.
-func (p *Proxy) serveMITM(w http.ResponseWriter, r *http.Request, host string, port int, decision rules.ConnectResult, start time.Time) {
+func (p *Proxy) serveMITM(w http.ResponseWriter, r *http.Request, id, host string, port int, decision rules.ConnectResult, start time.Time) {
 	tlsCfg, err := p.authority.ServerConfig(host)
 	if err != nil {
 		p.audit.Record(Event{
-			Start: start, Interception: "mitm", Host: host, Port: port,
+			ID: id, Start: start, Interception: "mitm", Host: host, Port: port,
 			Status: http.StatusInternalServerError, MatchedRule: decision.Rule, Mode: decision.Mode,
 			Outcome: OutcomeError, Error: "issuing a leaf certificate failed", DurationMS: sinceMS(start),
 		})
@@ -62,7 +62,7 @@ func (p *Proxy) serveMITM(w http.ResponseWriter, r *http.Request, host string, p
 		p.log.Debug("TLS handshake with the client failed",
 			"host", host, "port", port, "error", err)
 		p.audit.Record(Event{
-			Start: start, Interception: "mitm", Host: host, Port: port,
+			ID: id, Start: start, Interception: "mitm", Host: host, Port: port,
 			MatchedRule: decision.Rule, Mode: decision.Mode, Outcome: OutcomeError,
 			Error:      "client TLS handshake failed (a certificate-pinning client needs a mode:\"tunnel\" rule)",
 			DurationMS: sinceMS(start),

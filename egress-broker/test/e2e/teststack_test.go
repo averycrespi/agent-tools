@@ -301,6 +301,14 @@ func (s *stack) unauthenticatedClient() *http.Client {
 // attempting a TLS handshake. It is how tunnel-level refusals are asserted.
 func (s *stack) connect(target string) *http.Response {
 	s.t.Helper()
+	_, resp := s.connectKeepingConn(target)
+	return resp
+}
+
+// connectKeepingConn is connect, also returning the connection so a caller can
+// close it and let a relay finish.
+func (s *stack) connectKeepingConn(target string) (net.Conn, *http.Response) {
+	s.t.Helper()
 
 	conn, err := net.DialTimeout("tcp", s.proxyAddr(), 5*time.Second)
 	if err != nil {
@@ -321,7 +329,7 @@ func (s *stack) connect(target string) *http.Response {
 	if err != nil {
 		s.t.Fatalf("reading the CONNECT response: %v", err)
 	}
-	return resp
+	return conn, resp
 }
 
 // writeRules replaces rules.json without restarting.

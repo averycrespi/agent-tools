@@ -166,6 +166,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // handleConnect implements the CONNECT-time decision.
 func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+	// Assigned here so every row this connection produces is identifiable.
+	// Without it the CONNECT-path rows all share an empty primary key and
+	// SQLite keeps only the first, silently losing every later refusal.
+	id := newRequestID()
 
 	if !auth.CheckProxyAuth(r.Header.Get("Proxy-Authorization"), p.token) {
 		w.Header().Set("Proxy-Authenticate", `Basic realm="egress-broker"`)
@@ -186,7 +190,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	switch decision.Action {
 	case rules.ConnectDeny:
 		p.audit.Record(Event{
-			Start: start, Interception: "tunnel", Host: host, Port: port,
+			ID: id, Start: start, Interception: "tunnel", Host: host, Port: port,
 			Status: http.StatusForbidden, MatchedRule: decision.Rule, Mode: decision.Mode,
 			Outcome: OutcomeBlocked, DurationMS: sinceMS(start),
 		})
@@ -194,11 +198,11 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case rules.ConnectTunnel:
-		p.serveTunnel(w, r, host, port, decision, start)
+		p.serveTunnel(w, r, id, host, port, decision, start)
 		return
 
 	case rules.ConnectMITM:
-		p.serveMITM(w, r, host, port, decision, start)
+		p.serveMITM(w, r, id, host, port, decision, start)
 		return
 	}
 }
@@ -219,12 +223,12 @@ func denyReason(mode string) string {
 // The implementation this was modelled on guarded only its MITM transport and
 // called a bare net.Dial here, which left the tunnel as an open route to cloud
 // metadata (D8).
-func (p *Proxy) serveTunnel(w http.ResponseWriter, r *http.Request, host string, port int, decision rules.ConnectResult, start time.Time) {
+func (p *Proxy) serveTunnel(w http.ResponseWriter, r *http.Request, id, host string, port int, decision rules.ConnectResult, start time.Time) {
 	target := net.JoinHostPort(host, strconv.Itoa(port))
 
 	upstream, err := p.dialer.DialContext(r.Context(), "tcp", target)
 	if err != nil {
-		p.recordDialFailure(start, "tunnel", host, port, decision, err)
+		p.recordDialFailure(id, start, "tunnel", host, port, decision, err)
 		p.refuseDial(w, err)
 		return
 	}
@@ -246,19 +250,19 @@ func (p *Proxy) serveTunnel(w http.ResponseWriter, r *http.Request, host string,
 	// A tunnel reveals no method or path — that is what tunnelling means — so
 	// those columns stay empty rather than being guessed at (AC-4).
 	p.audit.Record(Event{
-		Start: start, Interception: "tunnel", Host: host, Port: port,
+		ID: id, Start: start, Interception: "tunnel", Host: host, Port: port,
 		MatchedRule: decision.Rule, Mode: decision.Mode, Outcome: OutcomeAllowed,
 		BytesOut: sent, BytesIn: received, DurationMS: sinceMS(start),
 	})
 }
 
-func (p *Proxy) recordDialFailure(start time.Time, interception, host string, port int, decision rules.ConnectResult, err error) {
+func (p *Proxy) recordDialFailure(id string, start time.Time, interception, host string, port int, decision rules.ConnectResult, err error) {
 	outcome := OutcomeError
 	if errors.Is(err, netguard.ErrBlocked) {
 		outcome = OutcomeBlocked
 	}
 	p.audit.Record(Event{
-		Start: start, Interception: interception, Host: host, Port: port,
+		ID: id, Start: start, Interception: interception, Host: host, Port: port,
 		MatchedRule: decision.Rule, Mode: decision.Mode, Outcome: outcome,
 		Status: dialStatus(err), Error: err.Error(), DurationMS: sinceMS(start),
 	})
