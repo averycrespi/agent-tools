@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/averycrespi/agent-tools/egress-broker/internal/ca"
 	"github.com/averycrespi/agent-tools/egress-broker/internal/config"
 	"github.com/averycrespi/agent-tools/egress-broker/internal/credentials"
+	"github.com/averycrespi/agent-tools/egress-broker/internal/dashboard"
 	"github.com/averycrespi/agent-tools/egress-broker/internal/netguard"
 	"github.com/averycrespi/agent-tools/egress-broker/internal/paths"
 	"github.com/averycrespi/agent-tools/egress-broker/internal/proxy"
@@ -71,7 +73,7 @@ func runServe(ctx context.Context, out interface{ Write([]byte) (int, error) }) 
 	if err != nil {
 		return err
 	}
-	healthServer, healthLn, err := startHealth(st)
+	healthServer, healthLn, err := startDashboard(st)
 	if err != nil {
 		_ = proxyServer.Close()
 		return err
@@ -212,10 +214,8 @@ func startProxy(st *stack) (*http.Server, net.Listener, error) {
 	return server, ln, nil
 }
 
-// startHealth binds the dashboard listener. For now it serves only the
-// unauthenticated liveness and CA endpoints; the dashboard itself mounts here
-// once it exists.
-func startHealth(st *stack) (*http.Server, net.Listener, error) {
+// startDashboard binds the dashboard listener.
+func startDashboard(st *stack) (*http.Server, net.Listener, error) {
 	if err := config.ValidateLoopback(st.cfg.Dashboard); err != nil {
 		return nil, nil, fmt.Errorf("dashboard listener: %w", err)
 	}
@@ -224,17 +224,8 @@ func startHealth(st *stack) (*http.Server, net.Listener, error) {
 		return nil, nil, fmt.Errorf("binding the dashboard listener on %s: %w", st.cfg.Dashboard.Addr(), err)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("ok"))
-	})
-	mux.HandleFunc("GET /ca.pem", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/x-pem-file")
-		_, _ = w.Write(st.authority.RootPEM())
-	})
-
-	server := &http.Server{Handler: mux, ReadHeaderTimeout: proxy.DefaultHeaderTimeout}
+	board := dashboard.New(st.audit, st.rules, st.credentialLister(), st.authority, st.token, st.log)
+	server := &http.Server{Handler: board.Handler(), ReadHeaderTimeout: proxy.DefaultHeaderTimeout}
 	go func() {
 		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			st.log.Error("dashboard listener stopped", "error", err)
@@ -332,6 +323,30 @@ func shutdownAll(st *stack, servers ...any) error {
 		return nil
 	}
 }
+
+// credentialLister exposes credential names and bindings to the dashboard.
+// It is built from configuration rather than from the resolver, so no code
+// path can hand a value to the dashboard even by accident.
+func (st *stack) credentialLister() dashboard.CredentialLister {
+	infos := make([]dashboard.CredentialInfo, 0, len(st.cfg.EnvCredentials))
+	for name, ec := range st.cfg.EnvCredentials {
+		infos = append(infos, dashboard.CredentialInfo{
+			Name: name, Source: "env_credentials", Hosts: ec.Hosts,
+		})
+	}
+	for _, name := range st.rules.Engine().ReferencedCredentials() {
+		if _, isEnv := st.cfg.EnvCredentials[name]; isEnv {
+			continue
+		}
+		infos = append(infos, dashboard.CredentialInfo{Name: name, Source: "keychain"})
+	}
+	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
+	return staticCredentialLister(infos)
+}
+
+type staticCredentialLister []dashboard.CredentialInfo
+
+func (s staticCredentialLister) List() []dashboard.CredentialInfo { return s }
 
 func logLevel(level string) slog.Level {
 	switch level {

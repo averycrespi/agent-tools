@@ -133,3 +133,24 @@ func sortedReferences(templates map[string]string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// ReferencedCredentials returns the credential names the snapshot's rules
+// reference, sorted. The dashboard uses this to list credentials by name; no
+// value ever enters this package.
+func (e *Engine) ReferencedCredentials() []string {
+	seen := make(map[string]struct{})
+	for _, c := range e.rules {
+		if c.rule.Inject == nil {
+			continue
+		}
+		for _, name := range sortedReferences(c.rule.Inject.Set) {
+			seen[name] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}

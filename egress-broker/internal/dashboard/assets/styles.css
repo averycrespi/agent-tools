@@ -1,0 +1,92 @@
+/* Shared Agent Tools dashboard language. Product identity for egress-broker
+   is cyan/violet; the base tokens match mcp-broker so the two feel related. */
+:root {
+  --bg: #080b10;
+  --panel: #101722;
+  --panel-strong: #151f2d;
+  --panel-sunken: #05070b;
+  --text: #e6edf3;
+  --muted: #8b98a8;
+  --line: #263244;
+  --product-accent: #22d3ee;
+  --product-accent-2: #a78bfa;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --bad: #ef4444;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--ui);
+  font-size: 14px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.06), transparent);
+}
+
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-icon { width: 28px; height: 28px; }
+.brand h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.01em; }
+.subtitle { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+
+.status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--muted); box-shadow: 0 0 0 3px rgba(139, 152, 168, 0.15);
+}
+.dot.live { background: var(--ok); box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2); }
+.dot.down { background: var(--bad); box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2); }
+
+.tabs { display: flex; gap: 4px; padding: 12px 20px 0; border-bottom: 1px solid var(--line); }
+.tab {
+  appearance: none; border: 0; background: transparent; color: var(--muted);
+  font: inherit; padding: 8px 14px; border-radius: 8px 8px 0 0; cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.tab:hover { color: var(--text); }
+.tab.selected { color: var(--text); border-bottom-color: var(--product-accent); background: rgba(34, 211, 238, 0.06); }
+
+main { padding: 20px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.panel.hidden { display: none; }
+
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+input, select, button {
+  font: inherit; color: var(--text); background: var(--panel-sunken);
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
+}
+button { cursor: pointer; background: var(--panel-strong); }
+button:hover { border-color: var(--product-accent); }
+
+/* Wide tables scroll inside their own container; the page body never does. */
+.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; background: var(--panel-strong); position: sticky; top: 0; }
+tbody tr:hover { background: rgba(34, 211, 238, 0.04); }
+td.path, td.host, td.cred { font-family: var(--mono); }
+
+.badge {
+  display: inline-block; padding: 1px 8px; border-radius: 999px;
+  font-size: 11px; font-family: var(--mono); border: 1px solid transparent;
+}
+.badge.allowed { color: var(--ok); border-color: rgba(34, 197, 94, 0.4); background: rgba(34, 197, 94, 0.1); }
+.badge.blocked { color: var(--bad); border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.1); }
+.badge.error { color: var(--warn); border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.1); }
+.badge.mode { color: var(--product-accent-2); border-color: rgba(167, 139, 250, 0.4); background: rgba(167, 139, 250, 0.1); }
+
+.meta { color: var(--muted); font-size: 12px; margin: 12px 0 0; }
+.empty { color: var(--muted); padding: 20px; text-align: center; }
