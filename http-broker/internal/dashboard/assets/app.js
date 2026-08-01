@@ -143,13 +143,15 @@
     const label = $("stream-label");
     const source = new EventSource("/dashboard/api/events");
 
+    // Two states, matching mcp-broker. EventSource reconnects on its own, so
+    // a dropped stream reads as Disconnected until it comes back.
     source.onopen = () => {
-      dot.className = "dot live";
-      label.textContent = "live";
+      dot.className = "dot connected";
+      label.textContent = "Connected";
     };
     source.onerror = () => {
-      dot.className = "dot down";
-      label.textContent = "reconnecting";
+      dot.className = "dot";
+      label.textContent = "Disconnected";
     };
     source.addEventListener("audit", (event) => {
       let rec;

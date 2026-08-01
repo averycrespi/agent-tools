@@ -1,6 +1,18 @@
-/* Shared Agent Tools dashboard language. Product identity for http-broker
-   is cyan/violet; the base tokens match mcp-broker so the two feel related. */
+/* Shared Agent Tools dashboard language.
+ *
+ * Base tokens, type scale, header, tab bar and table treatment are kept
+ * deliberately identical to mcp-broker/internal/dashboard/index.html so the two
+ * dashboards read as one product. Only the product accent differs: mcp-broker
+ * is green/amber, http-broker is cyan/violet. When editing either, edit both.
+ */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 :root {
+  color-scheme: dark;
   --bg: #080b10;
   --panel: #101722;
   --panel-strong: #151f2d;
@@ -10,83 +22,296 @@
   --line: #263244;
   --product-accent: #22d3ee;
   --product-accent-2: #a78bfa;
-  --ok: #22c55e;
-  --warn: #f59e0b;
-  --bad: #ef4444;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --good: #86efac;
+  --bad: #fca5a5;
+  --warn: #fde68a;
+  --bg-hover: rgba(34, 49, 74, 0.58);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
 }
-
-* { box-sizing: border-box; }
 
 body {
-  margin: 0;
-  background: var(--bg);
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(
+      circle at 14% 10%,
+      rgba(34, 211, 238, 0.1),
+      transparent 32rem
+    ),
+    radial-gradient(
+      circle at 84% 18%,
+      rgba(167, 139, 250, 0.08),
+      transparent 28rem
+    ),
+    var(--bg);
   color: var(--text);
-  font-family: var(--ui);
-  font-size: 14px;
+  min-height: 100vh;
 }
 
+/* Header */
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 16px 20px;
+  padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(34, 211, 238, 0.06), transparent);
+  background: rgba(11, 17, 26, 0.92);
+  backdrop-filter: blur(12px);
 }
 
-.brand { display: flex; align-items: center; gap: 12px; }
-.brand-icon { width: 28px; height: 28px; }
-.brand h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.01em; }
-.subtitle { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
 
-.status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.brand-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.brand h1 {
+  font-family: var(--font-sans);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.04em;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--muted); box-shadow: 0 0 0 3px rgba(139, 152, 168, 0.15);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bad);
+  box-shadow: 0 0 0 4px rgba(252, 165, 165, 0.08);
+  flex-shrink: 0;
 }
-.dot.live { background: var(--ok); box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2); }
-.dot.down { background: var(--bad); box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2); }
 
-.tabs { display: flex; gap: 4px; padding: 12px 20px 0; border-bottom: 1px solid var(--line); }
+.dot.connected {
+  background: var(--good);
+  box-shadow: 0 0 0 4px rgba(134, 239, 172, 0.08);
+}
+
+.status-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+
+/* Tab bar */
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--line);
+  background: rgba(16, 23, 34, 0.92);
+  padding: 0 1.25rem;
+}
+
 .tab {
-  appearance: none; border: 0; background: transparent; color: var(--muted);
-  font: inherit; padding: 8px 14px; border-radius: 8px 8px 0 0; cursor: pointer;
+  padding: 0.75rem 1.25rem;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  border: none;
+  background: none;
   border-bottom: 2px solid transparent;
+  transition: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  position: relative;
+  top: 1px;
 }
-.tab:hover { color: var(--text); }
-.tab.selected { color: var(--text); border-bottom-color: var(--product-accent); background: rgba(34, 211, 238, 0.06); }
 
-main { padding: 20px; }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
-.panel.hidden { display: none; }
-
-.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-input, select, button {
-  font: inherit; color: var(--text); background: var(--panel-sunken);
-  border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
+.tab:hover {
+  color: var(--text);
 }
-button { cursor: pointer; background: var(--panel-strong); }
-button:hover { border-color: var(--product-accent); }
 
-/* Wide tables scroll inside their own container; the page body never does. */
-.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-th { color: var(--muted); font-weight: 500; background: var(--panel-strong); position: sticky; top: 0; }
-tbody tr:hover { background: rgba(34, 211, 238, 0.04); }
-td.path, td.host, td.cred { font-family: var(--mono); }
+.tab.selected {
+  color: var(--product-accent);
+  border-bottom-color: var(--product-accent);
+}
 
+.tab:focus-visible {
+  outline: 2px solid rgba(34, 211, 238, 0.4);
+  outline-offset: -2px;
+}
+
+/* Content area */
+main {
+  padding: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.panel.hidden {
+  display: none;
+}
+
+/* Filters */
+.filters {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filter-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.filters input,
+.filters select {
+  padding: 0.4rem 0.625rem;
+  background: rgba(16, 23, 34, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.filters input {
+  width: 180px;
+}
+
+.filters select {
+  cursor: pointer;
+}
+
+.filters input::placeholder {
+  color: #555;
+}
+
+.filters input:focus,
+.filters select:focus {
+  outline: none;
+  border-color: var(--muted);
+}
+
+.filters button {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(21, 31, 45, 0.95);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.filters button:hover {
+  border-color: var(--muted);
+}
+
+/* Tables. Wide tables scroll inside their own container; the body never does. */
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(16, 23, 34, 0.92);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+th {
+  text-align: left;
+  padding: 0.625rem 1rem;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-sunken);
+  /* Sticky is the one deliberate departure from mcp-broker's audit table: the
+     traffic view streams and grows without bound. It is invisible at rest. */
+  position: sticky;
+  top: 0;
+}
+
+td {
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+tbody tr:hover td {
+  background: var(--bg-hover);
+}
+
+/* Badges */
 .badge {
-  display: inline-block; padding: 1px 8px; border-radius: 999px;
-  font-size: 11px; font-family: var(--mono); border: 1px solid transparent;
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
 }
-.badge.allowed { color: var(--ok); border-color: rgba(34, 197, 94, 0.4); background: rgba(34, 197, 94, 0.1); }
-.badge.blocked { color: var(--bad); border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.1); }
-.badge.error { color: var(--warn); border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.1); }
-.badge.mode { color: var(--product-accent-2); border-color: rgba(167, 139, 250, 0.4); background: rgba(167, 139, 250, 0.1); }
 
-.meta { color: var(--muted); font-size: 12px; margin: 12px 0 0; }
-.empty { color: var(--muted); padding: 20px; text-align: center; }
+.badge.allowed {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--good);
+}
+
+.badge.blocked {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--bad);
+}
+
+.badge.error {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warn);
+}
+
+.badge.mode {
+  background: rgba(167, 139, 250, 0.15);
+  color: var(--product-accent-2);
+}
+
+.meta {
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  margin-top: 0.75rem;
+}
+
+.panel .meta:first-child {
+  margin: 0 0 0.75rem;
+}
+
+.empty {
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  padding: 2rem;
+  text-align: center;
+  white-space: normal;
+}

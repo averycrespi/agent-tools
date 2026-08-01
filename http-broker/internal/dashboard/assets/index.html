@@ -10,18 +10,12 @@
   <body>
     <header class="topbar">
       <div class="brand">
-        <svg class="brand-icon" viewBox="0 0 64 64" aria-hidden="true">
-          <rect width="64" height="64" rx="14" fill="var(--product-accent)" />
-          <path d="M18 32h28M32 18v28" stroke="#04121a" stroke-width="6" stroke-linecap="round" />
-        </svg>
-        <div>
-          <h1>HTTP Broker</h1>
-          <p class="subtitle">Read-only view of policy and traffic</p>
-        </div>
+        <img src="/dashboard/favicon.svg" alt="" width="24" height="24" class="brand-icon" />
+        <h1>HTTP Broker</h1>
       </div>
       <div class="status">
         <span class="dot" id="stream-dot"></span>
-        <span id="stream-label">connecting</span>
+        <span class="status-label" id="stream-label">Disconnected</span>
       </div>
     </header>
 
@@ -34,7 +28,8 @@
     <main>
       <section class="panel" id="panel-traffic">
         <div class="filters">
-          <input id="filter-host" type="text" placeholder="host" aria-label="Filter by host" />
+          <span class="filter-label">Filter:</span>
+          <input id="filter-host" type="text" placeholder="host contains..." aria-label="Filter by host" />
           <select id="filter-outcome" aria-label="Filter by outcome">
             <option value="">any outcome</option>
             <option value="allowed">allowed</option>

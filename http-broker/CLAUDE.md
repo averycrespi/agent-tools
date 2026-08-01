@@ -132,11 +132,28 @@ These are load-bearing. Changing one needs a matching change to `DESIGN.md`.
 
 ## Dashboard UI
 
-Shared Agent Tools dashboard language: dark blue-black base tokens (`--bg
-#080b10`, `--panel #101722`, `--text #e6edf3`, `--line #263244`), system UI and
-monospace stacks, no external font dependencies. Product identity is cyan and
-violet (`#22d3ee`, `#a78bfa`). 28px header icons, 12px panels, 8px controls,
-accent-marked selected tabs, status dots with a soft glow.
+**This dashboard is a deliberate copy of `mcp-broker`'s.** The base tokens, type
+scale, header, tab bar, filter row, table treatment and badges in
+`assets/styles.css` are lifted from
+`mcp-broker/internal/dashboard/index.html`'s `<style>` block so the two read as
+one product. **Change one, change the other**, and verify by running both and
+comparing computed styles rather than by reading the CSS.
+
+Only these differ on purpose:
+
+- **Product accent.** mcp-broker is green/amber; http-broker is cyan/violet
+  (`--product-accent #22d3ee`, `--product-accent-2 #a78bfa`). The body's radial
+  background tints and the tab focus ring follow the accent.
+- **Sticky table headers.** The traffic view streams without bound, so `th` is
+  `position: sticky`. Invisible at rest, so it does not break the match.
+
+Sizes are rem, matching mcp-broker: `h1` 1.25rem/700/0.04em, `th`
+0.6875rem/600 uppercase, `td` and badges 0.8125rem/0.6875rem mono, status label
+0.75rem mono. Do not reintroduce px sizing or a `body { font-size }`.
+
+`favicon.svg` is the header logo too — the header `<img>` points at it, so they
+cannot drift. Keep it in the shared family: a `#0b111a` 64x64 tile with `rx=14`
+and an accent-stroked glyph at roughly 4.5 stroke width filling most of the box.
 
 Values from the audit log are attacker-influenced: render them with
 `textContent`, never `innerHTML`.
