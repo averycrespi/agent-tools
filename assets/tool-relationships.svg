@@ -37,11 +37,11 @@
   <rect class="group sandbox" x="250" y="295" width="310" height="255" />
   <text class="title" x="405" y="328" text-anchor="middle">Lima sandbox</text>
 
-  <rect class="node host-node" x="55" y="360" width="150" height="58" />
-  <text class="label" x="130" y="389">Sandbox Manager</text>
+  <rect class="node host-node" x="70" y="360" width="150" height="58" />
+  <text class="label" x="145" y="389">Sandbox Manager</text>
 
-  <rect class="node workspace-node" x="55" y="465" width="150" height="58" />
-  <text class="label" x="130" y="494">Host worktree</text>
+  <rect class="node workspace-node" x="70" y="465" width="150" height="58" />
+  <text class="label" x="145" y="494">Host worktree</text>
 
   <rect class="node sandbox-node" x="330" y="360" width="150" height="58" />
   <text class="label" x="405" y="389">Pi coding agent</text>
@@ -70,9 +70,9 @@
   <rect class="node external-node" x="895" y="589" width="115" height="50" />
   <text class="label" x="952" y="614">Go modules</text>
 
-  <path class="edge" d="M205 389 L327 389" />
+  <path class="edge" d="M220 389 L327 389" />
 
-  <path class="mount" d="M205 494 L327 494" />
+  <path class="mount" d="M220 494 L327 494" />
   <rect class="label-bg" x="248" y="466" width="76" height="18" />
   <text class="edge-label" x="286" y="479">Lima mount</text>
   <path class="edge" d="M405 418 L405 462" />
