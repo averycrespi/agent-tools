@@ -2,12 +2,10 @@
 
 My tools for working with AI coding agents. Pairs well with my [agent-config](https://github.com/averycrespi/agent-config).
 
-This repo is opinionated. It provides structured worktree management, sandboxed execution, and broker-backed external access that make coding agents safer and easier to run day to day. Use it as-is, fork it, or cherry-pick the tools that fit your setup.
+This repo is opinionated. It provides sandboxed execution and broker-backed external access that make coding agents safer and easier to run day to day. Use it as-is, fork it, or cherry-pick the tools that fit your setup.
 
 ## Overview
 
-- **[Worktree Manager](#worktree-manager-wt)** — Manage git worktrees with tmux integration
-- **[Worktree Sync](#worktree-sync-wts-and-wtsd)** — Continuously project registered Git worktrees into isolated tmux sessions
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
@@ -29,7 +27,6 @@ Requirements:
 
 ```bash
 # First-time setup on macOS: install Homebrew deps, dev deps/hooks, and all Go tools
-# For Linux: install `tmux` from your preferred package manager first
 make setup
 
 # Or run the steps separately
@@ -41,8 +38,6 @@ make install      # install all Go tool binaries
 make check
 
 # Or, to install individual tools
-cd worktree-manager && make install
-cd worktree-sync && make install
 cd sandbox-manager && make install
 cd mcp-broker && make install
 cd local-git-mcp && make install
@@ -51,28 +46,6 @@ cd telegram-mcp && make install
 ```
 
 ## Tools
-
-### Worktree Manager (wt)
-
-Running multiple AI agents across different branches means a lot of repetitive setup: create a worktree, open a tmux window, copy config files, launch the agent. Tear it all down when you're done. Multiply by several concurrent tasks and it's a lot of ceremony.
-
-`wt` simplifies that flow to a pair of commands:
-
-- `wt add <branch>` spins up a fully configured worktree — tmux window, config files copied, agent launched.
-- `wt rm <branch>` tears it down, optionally deleting the branch as well.
-
-See the [worktree-manager README](worktree-manager/README.md) for more information.
-
-### Worktree Sync (wts and wtsd)
-
-`worktree-sync` is the continuous counterpart to `wt`: it observes registered repositories through ordinary Git, projects each eligible linked worktree into a metadata-owned window on an isolated tmux socket, and repairs drift without adopting or deleting manual tmux state.
-
-- `wts repo add` registers a primary repository and its allowed worktree roots.
-- `wts worktree create|remove` provides explicit lifecycle helpers with conservative branch safety.
-- `wts status`, `wts reconcile`, and `wts cleanup` expose drift and narrowly scoped maintenance.
-- `wtsd` performs startup and periodic full reconciliation; filesystem events only nudge an earlier scan.
-
-See the [worktree-sync README](worktree-sync/README.md) for setup, commands, policy, and safety boundaries.
 
 ### Sandbox Manager (sb)
 

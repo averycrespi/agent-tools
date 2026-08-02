@@ -5,8 +5,6 @@ Monorepo of tools for working with AI coding agents.
 ## Structure
 
 ```
-worktree-manager/    Git worktree manager with tmux integration — see worktree-manager/CLAUDE.md
-worktree-sync/       Continuous Git worktree-to-tmux projection — see worktree-sync/CLAUDE.md
 mcp-broker/          MCP proxy for sandboxed agents — see mcp-broker/CLAUDE.md
 sandbox-manager/     Lima VM sandbox manager for isolated agent environments — see sandbox-manager/CLAUDE.md
 local-git-mcp/       Stdio MCP server for authenticated git remote operations — see local-git-mcp/CLAUDE.md
@@ -30,7 +28,7 @@ Targets are forwarded to each tool's Makefile. Run from any subdirectory for a s
 
 ## Service Layout
 
-Each Go tool is a separate Go module under `go.work` and follows the same baseline so structure is predictable. When adding a new Go tool or looking for the expected shape, mirror an existing tool (e.g. `worktree-manager/`) as a template — file layout, Makefile targets, and package organization should match.
+Each Go tool is a separate Go module under `go.work` and follows the same baseline so structure is predictable. When adding a new Go tool or looking for the expected shape, mirror an existing tool (e.g. `sandbox-manager/`) as a template — file layout, Makefile targets, and package organization should match.
 
 ## Go Conventions
 

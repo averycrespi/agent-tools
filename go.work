@@ -6,6 +6,4 @@ use (
 	./mcp-broker
 	./sandbox-manager
 	./telegram-mcp
-	./worktree-manager
-	./worktree-sync
 )
