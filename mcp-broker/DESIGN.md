@@ -72,11 +72,11 @@ Each backend server has a name (from config). When tools are discovered, they ar
 
 ### Config (`internal/config`)
 
-Primary config lives at `~/.config/mcp-broker/config.json`; base policy rules live in a separate `rules.json` document by default. `config.json` contains backend/server settings and `rules_path`, while `rules.json` contains `{ "rules": [...] }`. On first run, default config and rules files are written. The `Refresh` function loads, overlays defaults for new fields, writes config back, and ensures the companion rules file exists — useful for upgrading config after new features are added.
+Primary config lives at `~/.config/mcp-broker/config.json`; base policy rules live in a separate `rules.json` document by default. `config.json` contains backend/server settings and `rules.path`, while `rules.json` contains `{ "rules": [...] }`. On first run, default config and rules files are written. The `Refresh` function loads, overlays defaults for new fields, writes config back, and ensures the companion rules file exists — useful for upgrading config after new features are added.
 
-Most config is loaded once at startup. Policy rule content is the only hot-reloadable configuration: sending `SIGHUP` to the running process reads the effective rules file selected at startup, compiles a complete rules snapshot, and atomically swaps it into the broker and dashboard after validation succeeds. Invalid reloads are non-fatal and leave the previous rules active. Changing `rules_path` itself requires restart.
+Most config is loaded once at startup. Policy rule content is the only hot-reloadable configuration: sending `SIGHUP` to the running process reads the effective rules file selected at startup, compiles a complete rules snapshot, and atomically swaps it into the broker and dashboard after validation succeeds. Invalid reloads are non-fatal and leave the previous rules active. Changing `rules.path` itself requires restart.
 
-Legacy top-level `config.json` `rules` are migration-only. If legacy embedded rules exist and the effective rules file is missing, they are written to `rules.json`. If both exist, the rules file is authoritative and legacy embedded rules are ignored with a warning.
+The legacy top-level `rules_path` field remains an input-only compatibility alias. `rules.path` takes precedence when both are present, and config refresh serializes only the canonical nested field. Legacy top-level `config.json` rule arrays are migration-only. If legacy embedded rules exist and the effective rules file is missing, they are written to `rules.json`. If both exist, the rules file is authoritative and legacy embedded rules are ignored with a warning.
 
 Backend servers, `tool_patches`, listener settings, audit path, grants path/max TTL, auth token, Telegram settings, approval timeout, log level, browser opening, and request body limit remain startup-only and require restart. Tool patches are ordered load-time transforms for discovered tools. Tool patch patterns match broker-prefixed tool names with `filepath.Match`; the first matching patch applies. `disabled: true` removes the tool from the broker registry, and `annotations` merges field-by-field into MCP tool annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). `_meta` is passed through unchanged and is not patched.
 
@@ -258,7 +258,7 @@ Cobra-based CLI with commands:
 
 **Failed backends don't block startup.** If one of several backend servers is unavailable, the broker retries startup connect/discovery with bounded per-backend settings, then starts with the remaining servers rather than failing entirely. Exhausted failures are logged and shown in the dashboard Tools tab. Recovery after exhaustion requires restarting the broker because runtime rediscovery and dynamic MCP tool registration are out of scope.
 
-**Rules reload without backend churn.** Rules are frequent operational edits, so `SIGHUP` reloads only the selected `rules.json` policy document and keeps the HTTP server, backend connections, discovered tools, and listener address unchanged. Reload compiles before swapping and keeps the old snapshot on any error. The `rules_path` setting itself is startup-only and requires restart.
+**Rules reload without backend churn.** Rules are frequent operational edits, so `SIGHUP` reloads only the selected `rules.json` policy document and keeps the HTTP server, backend connections, discovered tools, and listener address unchanged. Reload compiles before swapping and keeps the old snapshot on any error. The `rules.path` setting itself is startup-only and requires restart.
 
 **Default verdict is require-approval.** Fail-closed by default — any tool not explicitly allowed requires human approval.
 

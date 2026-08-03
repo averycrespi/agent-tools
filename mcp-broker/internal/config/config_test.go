@@ -15,7 +15,7 @@ func TestLoadCreatesDefaultConfigAndRulesFile(t *testing.T) {
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	require.Equal(t, filepath.Join(dir, "rules.json"), cfg.RulesPath)
+	require.Equal(t, filepath.Join(dir, "rules.json"), cfg.Rules.Path)
 	require.FileExists(t, path)
 
 	rulesResult, err := LoadRulesForConfig(path, cfg)
@@ -26,8 +26,9 @@ func TestLoadCreatesDefaultConfigAndRulesFile(t *testing.T) {
 
 	rawConfig, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.Contains(t, string(rawConfig), `"rules_path"`)
-	require.NotContains(t, string(rawConfig), `"rules":`)
+	require.Contains(t, string(rawConfig), `"rules": {`)
+	require.Contains(t, string(rawConfig), `"path":`)
+	require.NotContains(t, string(rawConfig), `"rules_path"`)
 
 	rawRules, err := os.ReadFile(rulesResult.Path)
 	require.NoError(t, err)
@@ -44,11 +45,60 @@ func TestRulesPathDefaultsBesideEffectiveConfigPath(t *testing.T) {
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	require.Equal(t, filepath.Join(dir, "profile", "rules.json"), cfg.RulesPath)
+	require.Equal(t, filepath.Join(dir, "profile", "rules.json"), cfg.Rules.Path)
 
 	result, err := LoadRulesForConfig(path, cfg)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(dir, "profile", "rules.json"), result.Path)
+}
+
+func TestResolveRulesPathReadsNestedRulesPath(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	customRulesPath := filepath.Join(dir, "custom-rules.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{
+		"rules": {"path": "`+customRulesPath+`"}
+	}`), 0o600))
+
+	resolved, err := ResolveRulesPath(configPath)
+	require.NoError(t, err)
+	require.Equal(t, customRulesPath, resolved)
+}
+
+func TestLoadAcceptsLegacyRulesPath(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	legacyRulesPath := filepath.Join(dir, "legacy-rules.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{
+		"rules_path": "`+legacyRulesPath+`"
+	}`), 0o600))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+	require.Equal(t, legacyRulesPath, cfg.Rules.Path)
+
+	resolved, err := ResolveRulesPath(configPath)
+	require.NoError(t, err)
+	require.Equal(t, legacyRulesPath, resolved)
+}
+
+func TestLoadPrefersNestedRulesPathOverLegacyAlias(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	nestedRulesPath := filepath.Join(dir, "nested-rules.json")
+	legacyRulesPath := filepath.Join(dir, "legacy-rules.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{
+		"rules": {"path": "`+nestedRulesPath+`"},
+		"rules_path": "`+legacyRulesPath+`"
+	}`), 0o600))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+	require.Equal(t, nestedRulesPath, cfg.Rules.Path)
+
+	resolved, err := ResolveRulesPath(configPath)
+	require.NoError(t, err)
+	require.Equal(t, nestedRulesPath, resolved)
 }
 
 func TestLoadRulesForConfigMigratesLegacyEmbeddedRulesWhenRulesFileMissing(t *testing.T) {
@@ -81,7 +131,7 @@ func TestLoadRulesForConfigUsesRulesFileWhenLegacyRulesAlsoExist(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(path, []byte(`{
 		"rules_path": "`+rulesPath+`",
-		"rules": {"tool": "*", "verdict": "allow"}
+		"rules": [{"tool": "*", "verdict": "allow"}]
 	}`), 0o600))
 	require.NoError(t, SaveRulesFile(rulesPath, []RuleConfig{{Tool: "slack.*", Verdict: "deny", Reason: "external wins"}}))
 
@@ -169,8 +219,28 @@ func TestRefresh_MigratesLegacyRulesBeforeRemovingEmbeddedRules(t *testing.T) {
 
 	rawConfig, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.NotContains(t, string(rawConfig), `"rules":`)
-	require.Contains(t, string(rawConfig), `"rules_path"`)
+	require.Contains(t, string(rawConfig), `"rules": {`)
+	require.Contains(t, string(rawConfig), `"path":`)
+	require.NotContains(t, string(rawConfig), `"rules_path"`)
+}
+
+func TestRefresh_RewritesLegacyRulesPathAsNestedRulesPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	rulesPath := filepath.Join(dir, "custom-rules.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"rules_path":"`+rulesPath+`"}`), 0o600))
+
+	_, err := Refresh(path)
+	require.NoError(t, err)
+
+	rawConfig, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var root map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rawConfig, &root))
+	require.NotContains(t, root, "rules_path")
+	var rules RulesConfig
+	require.NoError(t, json.Unmarshal(root["rules"], &rules))
+	require.Equal(t, rulesPath, rules.Path)
 }
 
 func TestRefresh_PreservesExistingRulesFile(t *testing.T) {

@@ -198,7 +198,7 @@ func TestRunServeFailsClosedWhenStartupRulesDoNotCompile(t *testing.T) {
 
 	rulesPath := filepath.Join(dir, "rules.json")
 	cfg := config.DefaultConfigAt(cfgFile)
-	cfg.RulesPath = rulesPath
+	cfg.Rules.Path = rulesPath
 	cfg.OpenBrowser = false
 	cfg.Audit.Path = filepath.Join(dir, "audit.db")
 	cfg.Grants.Path = filepath.Join(dir, "grants.db")

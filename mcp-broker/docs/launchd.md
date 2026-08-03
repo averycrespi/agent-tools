@@ -19,7 +19,7 @@ The broker creates and reads from these on first launch, running as the same use
 
 | Path                                  | Contents                                     |
 | ------------------------------------- | -------------------------------------------- |
-| `~/.config/mcp-broker/config.json`    | Backend servers, rules_path, port, log level |
+| `~/.config/mcp-broker/config.json`    | Backend servers, rules.path, port, log level |
 | `~/.config/mcp-broker/rules.json`     | Base policy rules (mode `0600`)              |
 | `~/.config/mcp-broker/auth-token`     | 64-char hex bearer token (mode `0600`)       |
 | `~/.local/share/mcp-broker/audit.db`  | SQLite audit log of every tool call          |
@@ -69,7 +69,7 @@ tail -f ~/Library/Logs/mcp-broker.{out,err}.log
 launchctl kill HUP gui/$UID/dev.agent-tools.mcp-broker
 
 # Restart after upgrading the binary, editing the plist, changing backend
-# servers, tool patches, host/port, rules_path, audit path, grants path/max TTL,
+# servers, tool patches, host/port, rules.path, audit path, grants path/max TTL,
 # auth token, Telegram settings, approval timeout, log level, open_browser,
 # request body limit, or fixing a backend that exhausted startup retries and
 # needs its tools rediscovered. Grant mint/revoke changes are read from grants.db

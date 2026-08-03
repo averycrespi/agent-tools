@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,7 +15,7 @@ import (
 // security posture relies on not being network-reachable.
 type Config struct {
 	Servers                map[string]ServerConfig `json:"servers"`
-	RulesPath              string                  `json:"rules_path"`
+	Rules                  RulesConfig             `json:"rules"`
 	ToolPatches            []ToolPatchConfig       `json:"tool_patches,omitempty"`
 	Host                   string                  `json:"host"`
 	Port                   int                     `json:"port"`
@@ -25,6 +26,36 @@ type Config struct {
 	ApprovalTimeoutSeconds int                     `json:"approval_timeout_seconds"`
 	MaxRequestBodyBytes    int64                   `json:"max_request_body_bytes"`
 	Telegram               TelegramConfig          `json:"telegram"`
+}
+
+// UnmarshalJSON accepts the legacy top-level rules_path field while keeping
+// rules.path as the canonical configuration shape. A legacy embedded rules
+// array is ignored here and migrated separately by LoadRulesForConfig.
+func (c *Config) UnmarshalJSON(data []byte) error {
+	type configAlias Config
+	decoded := configAlias(*c)
+	var wire struct {
+		*configAlias
+		Rules           json.RawMessage `json:"rules"`
+		LegacyRulesPath *string         `json:"rules_path"`
+	}
+	wire.configAlias = &decoded
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+
+	*c = Config(decoded)
+	trimmedRules := bytes.TrimSpace(wire.Rules)
+	if len(trimmedRules) > 0 && trimmedRules[0] == '{' {
+		var rules RulesConfig
+		if err := json.Unmarshal(trimmedRules, &rules); err != nil {
+			return err
+		}
+		c.Rules = rules
+	} else if wire.LegacyRulesPath != nil {
+		c.Rules.Path = *wire.LegacyRulesPath
+	}
+	return nil
 }
 
 // MaxStartupRetryCount bounds configured startup retries to avoid overflow and accidental long startup delays.
@@ -114,6 +145,11 @@ type ArgPattern struct {
 	Match json.RawMessage `json:"match"`
 }
 
+// RulesConfig selects the base policy rules file.
+type RulesConfig struct {
+	Path string `json:"path"`
+}
+
 // AuditConfig controls the SQLite audit log.
 type AuditConfig struct {
 	Path string `json:"path"`
@@ -172,8 +208,10 @@ func DefaultConfig() Config {
 // DefaultConfigAt returns a Config with defaults resolved relative to path.
 func DefaultConfigAt(path string) Config {
 	return Config{
-		Servers:                map[string]ServerConfig{},
-		RulesPath:              filepath.Join(filepath.Dir(path), "rules.json"),
+		Servers: map[string]ServerConfig{},
+		Rules: RulesConfig{
+			Path: filepath.Join(filepath.Dir(path), "rules.json"),
+		},
 		Host:                   "127.0.0.1",
 		Port:                   8200,
 		OpenBrowser:            true,
@@ -210,8 +248,8 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, err
 	}
-	if cfg.RulesPath == "" {
-		cfg.RulesPath = filepath.Join(filepath.Dir(path), "rules.json")
+	if cfg.Rules.Path == "" {
+		cfg.Rules.Path = filepath.Join(filepath.Dir(path), "rules.json")
 	}
 	if err := validate(cfg); err != nil {
 		return cfg, err

@@ -29,13 +29,13 @@ func TestRulesFilePathUsesEffectiveConfigPathWithoutCreatingConfig(t *testing.T)
 	require.NoFileExists(t, cfgFile)
 }
 
-func TestRulesFilePathReadsOnlyRulesPath(t *testing.T) {
+func TestRulesFilePathReadsOnlyNestedRulesPath(t *testing.T) {
 	oldCfgFile := cfgFile
 	cfgFile = filepath.Join(t.TempDir(), "config.json")
 	t.Cleanup(func() { cfgFile = oldCfgFile })
 	customRulesPath := filepath.Join(filepath.Dir(cfgFile), "custom-rules.json")
 	require.NoError(t, os.WriteFile(cfgFile, []byte(`{
-		"rules_path": "`+customRulesPath+`",
+		"rules": {"path": "`+customRulesPath+`"},
 		"grants": {"max_ttl_seconds": 0}
 	}`), 0o600))
 

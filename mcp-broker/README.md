@@ -97,7 +97,9 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
       }
     }
   },
-  "rules_path": "/Users/alice/.config/mcp-broker/rules.json",
+  "rules": {
+    "path": "/Users/alice/.config/mcp-broker/rules.json"
+  },
   "tool_patches": [
     {
       "tool": "github.search_*",
@@ -141,7 +143,7 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
 | `approval_timeout_seconds` | Human approval timeout. Defaults to 600 seconds.                                         |
 | `max_request_body_bytes`   | Maximum accepted request body size on `/mcp`. Defaults to 10 MiB; set to `0` to disable. |
 | `open_browser`             | Open the dashboard in a browser on startup. Defaults to `true`.                          |
-| `rules_path`               | Base policy rules file. Defaults to `rules.json` alongside the effective config file.    |
+| `rules.path`               | Base policy rules file. Defaults to `rules.json` alongside the effective config file.    |
 | `grants.path`              | SQLite grants DB path. Defaults to `$XDG_DATA_HOME/mcp-broker/grants.db`.                |
 | `grants.max_ttl_seconds`   | Maximum mintable grant TTL. Defaults to 604800 seconds (7 days); must be positive.       |
 
@@ -161,7 +163,7 @@ launchctl kill HUP gui/$UID/dev.agent-tools.mcp-broker
 
 Only the effective rules file is reloaded. If the reload cannot read `rules.json`, parse JSON, parse the top-level `rules` array, or compile rule argument paths/regexes, the broker logs `rules reload failed` and keeps the previously active rules. New tool calls use successfully reloaded rules; calls that already reached a policy decision, including pending approval requests, keep that decision.
 
-Restart mcp-broker for changes to `servers`, `tool_patches`, `host`, `port`, `rules_path`, `audit.path`, `grants.path`, `grants.max_ttl_seconds`, auth token, Telegram approver settings, approval timeout, log level, `open_browser`, or `max_request_body_bytes`, and after fixing a backend that exhausted startup retries. Minted and revoked grant records take effect on the next MCP request without restart because the broker checks the grants DB per request.
+Restart mcp-broker for changes to `servers`, `tool_patches`, `host`, `port`, `rules.path`, `audit.path`, `grants.path`, `grants.max_ttl_seconds`, auth token, Telegram approver settings, approval timeout, log level, `open_browser`, or `max_request_body_bytes`, and after fixing a backend that exhausted startup retries. Minted and revoked grant records take effect on the next MCP request without restart because the broker checks the grants DB per request.
 
 ### Servers
 
@@ -240,7 +242,7 @@ When enabled, approval requests are sent to both the web dashboard and Telegram 
 
 ### Rules
 
-Base policy rules live in `~/.config/mcp-broker/rules.json` by default, or the file named by `rules_path` in `config.json`. The canonical file shape is:
+Base policy rules live in `~/.config/mcp-broker/rules.json` by default, or the file named by `rules.path` in `config.json`. The legacy top-level `rules_path` field remains accepted; if both fields are present, `rules.path` wins. Running `mcp-broker config refresh` rewrites the legacy field in the canonical nested form. The canonical rules file shape is:
 
 ```json
 {

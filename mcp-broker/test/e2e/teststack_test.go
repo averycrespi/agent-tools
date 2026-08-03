@@ -152,7 +152,7 @@ func startMockBackend(t *testing.T, tools []toolDef) string {
 
 type testConfig struct {
 	Servers     map[string]testServerConfig `json:"servers"`
-	RulesPath   string                      `json:"rules_path"`
+	Rules       testRulesPathConfig         `json:"rules"`
 	ToolPatches []testToolPatchConfig       `json:"tool_patches,omitempty"`
 	Port        int                         `json:"port"`
 	OpenBrowser bool                        `json:"open_browser"`
@@ -163,6 +163,10 @@ type testConfig struct {
 type testServerConfig struct {
 	Type string `json:"type,omitempty"`
 	URL  string `json:"url"`
+}
+
+type testRulesPathConfig struct {
+	Path string `json:"path"`
 }
 
 type testRulesConfig struct {
@@ -240,7 +244,7 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 		Servers: map[string]testServerConfig{
 			"echo": {Type: "streamable-http", URL: backendURL},
 		},
-		RulesPath:   rulesPath,
+		Rules:       testRulesPathConfig{Path: rulesPath},
 		ToolPatches: opts.ToolPatches,
 		Port:        brokerPort,
 		OpenBrowser: false,
