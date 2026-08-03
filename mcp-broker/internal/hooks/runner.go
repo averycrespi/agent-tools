@@ -52,31 +52,22 @@ func (commandRunner) Run(ctx context.Context, handler Handler, payload []byte) R
 	case waitErr := <-waited:
 		_ = stdinWriter.Close()
 		<-writerDone
-		if ctx.Err() != nil {
-			stopProcess(cmd.Process, nil, true)
-			return statusForContext(ctx)
-		}
 		if waitErr != nil {
 			return RunStatusFailed
 		}
 		return RunStatusSucceeded
 	case <-ctx.Done():
 		_ = stdinWriter.Close()
-		stopProcess(cmd.Process, waited, false)
+		stopProcess(cmd.Process, waited)
 		<-writerDone
 		return statusForContext(ctx)
 	}
 }
 
-func stopProcess(process *os.Process, waited <-chan error, directExited bool) {
+func stopProcess(process *os.Process, waited <-chan error) {
 	terminateProcess(process)
 	timer := time.NewTimer(terminateGracePeriod)
-	if directExited {
-		<-timer.C
-		killProcess(process)
-		return
-	}
-
+	directExited := false
 	select {
 	case <-waited:
 		directExited = true
