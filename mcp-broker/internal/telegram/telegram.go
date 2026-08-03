@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/broker"
 )
 
 const (
@@ -69,16 +71,16 @@ func newWithBase(token, chatID, apiBase string, client *http.Client, logger *slo
 // Deny, the context is cancelled, or the deadline is reached.
 // Returns (approved, denialReason, err). On context cancellation/timeout:
 // returns (false, "timeout", nil) — the caller should not treat this as an error.
-func (a *Approver) Review(ctx context.Context, tool string, args map[string]any) (bool, string, error) {
+func (a *Approver) Review(ctx context.Context, request broker.ApprovalRequest) (bool, string, error) {
 	timeout := timeoutLabel(ctx)
-	argsStr := formatArgs(args)
+	argsStr := formatArgs(request.ToolInput)
 	desc := ""
 	if a.tools != nil {
-		if d := a.tools.ToolDescription(tool); d != "" {
+		if d := a.tools.ToolDescription(request.ToolName); d != "" {
 			desc = "\n" + truncate(d, 120)
 		}
 	}
-	text := approvalText(tool, desc, argsStr, timeout)
+	text := approvalText(request.ToolName, desc, argsStr, timeout)
 
 	msgID, err := a.sendMessage(ctx, text)
 	if err != nil {
@@ -91,7 +93,7 @@ func (a *Approver) Review(ctx context.Context, tool string, args map[string]any)
 	approved, denialReason, err := a.waitForDecision(ctx, msgID)
 
 	// Best-effort: update the message to show the outcome.
-	outcome := resolvedText(approved, denialReason, err, ctx, tool, argsStr)
+	outcome := resolvedText(approved, denialReason, err, ctx, request.ToolName, argsStr)
 	_ = a.editMessage(context.Background(), msgID, outcome)
 
 	if err != nil {

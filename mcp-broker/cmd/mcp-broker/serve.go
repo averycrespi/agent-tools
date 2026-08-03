@@ -27,6 +27,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/dashboard"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/grants"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/hooks"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/rules"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/telegram"
@@ -96,6 +97,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	var (
 		auditor          *audit.Logger
 		grantStore       *grants.Store
+		hookDispatcher   *hooks.Dispatcher
 		mgr              *server.Manager
 		unsubscribeAudit func()
 		closeOnce        sync.Once
@@ -108,6 +110,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 				unsubscribeAudit()
 			}
 			var errs []error
+			if hookDispatcher != nil {
+				if err := hookDispatcher.Close(ctx); err != nil {
+					errs = append(errs, fmt.Errorf("closing hook dispatcher: %w", err))
+				}
+			}
 			if mgr != nil {
 				if err := mgr.Close(); err != nil {
 					errs = append(errs, fmt.Errorf("closing server manager: %w", err))
@@ -203,8 +210,12 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	multi := broker.NewMultiApprover(timeout, approvers...)
 
-	// Create broker
-	b := broker.NewWithGrants(mgr, ruleStore, auditor, multi, grantStore, logger.With("component", "broker"))
+	// Create startup-only hook dispatcher and broker.
+	hookDispatcher = hooks.New(lifetimeCtx, cfg.Hooks, logger.With("component", "hooks"))
+	b := broker.NewWithOptions(broker.Options{
+		Servers: mgr, Rules: ruleStore, Auditor: auditor, Approver: multi,
+		Grants: grantStore, Observer: hookDispatcher, Logger: logger.With("component", "broker"),
+	})
 
 	// Create MCP server
 	mcpSrv := mcpserver.NewMCPServer("mcp-broker", "0.1.0")

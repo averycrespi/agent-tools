@@ -2,9 +2,7 @@ package dashboard
 
 import (
 	"context"
-	"crypto/rand"
 	_ "embed"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -17,6 +15,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/broker"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/grants"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
@@ -115,15 +114,14 @@ func (d *Dashboard) Handler() http.Handler {
 // Review blocks until a human approves or denies the request via the web UI.
 // Returns (approved, denialReason, err). On explicit denial: denialReason="user"
 // or "user: <reason>". On context cancellation: returns (false, "timeout", nil).
-func (d *Dashboard) Review(ctx context.Context, tool string, args map[string]any) (bool, string, error) {
-	id := generateID()
+func (d *Dashboard) Review(ctx context.Context, request broker.ApprovalRequest) (bool, string, error) {
 	ch := make(chan string, 1) // sends "" for approval, "user" for denial
 
 	pr := &pendingRequest{
-		ID:        id,
-		Tool:      tool,
-		Args:      args,
-		Timestamp: time.Now(),
+		ID:        request.ID,
+		Tool:      request.ToolName,
+		Args:      request.ToolInput,
+		Timestamp: request.OccurredAt,
 		decision:  ch,
 	}
 	if deadline, ok := ctx.Deadline(); ok {
@@ -131,11 +129,11 @@ func (d *Dashboard) Review(ctx context.Context, tool string, args map[string]any
 	}
 
 	d.mu.Lock()
-	d.pending[id] = pr
+	d.pending[request.ID] = pr
 	d.mu.Unlock()
 
 	if d.logger != nil {
-		d.logger.Info("approval requested", "tool", tool, "request_id", id)
+		d.logger.Info("approval requested", "tool", request.ToolName, "request_id", request.ID)
 	}
 	d.broadcast(newRequestEvent(pr))
 
@@ -145,9 +143,9 @@ func (d *Dashboard) Review(ctx context.Context, tool string, args map[string]any
 		return approved, denialReason, nil
 	case <-ctx.Done():
 		d.mu.Lock()
-		delete(d.pending, id)
+		delete(d.pending, request.ID)
 		d.mu.Unlock()
-		d.broadcast(removedEvent(id))
+		d.broadcast(removedEvent(request.ID))
 		return false, "timeout", nil
 	}
 }
@@ -494,12 +492,6 @@ func auditEvent(rec audit.Record) []byte {
 // It is safe to call from any goroutine.
 func (d *Dashboard) OnAuditRecord(rec audit.Record) {
 	d.broadcast(auditEvent(rec))
-}
-
-func generateID() string {
-	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
 }
 
 //go:embed index.html

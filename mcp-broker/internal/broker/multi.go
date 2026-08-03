@@ -19,7 +19,7 @@ func NewMultiApprover(timeout time.Duration, approvers ...Approver) *MultiApprov
 	return &MultiApprover{approvers: approvers, timeout: timeout}
 }
 
-func (m *MultiApprover) Review(ctx context.Context, tool string, args map[string]any) (bool, string, error) {
+func (m *MultiApprover) Review(ctx context.Context, request ApprovalRequest) (bool, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
@@ -34,7 +34,7 @@ func (m *MultiApprover) Review(ctx context.Context, tool string, args map[string
 	for _, a := range m.approvers {
 		a := a
 		go func() {
-			approved, reason, err := a.Review(ctx, tool, args)
+			approved, reason, err := a.Review(ctx, request)
 			ch <- result{approved, reason, err}
 		}()
 	}

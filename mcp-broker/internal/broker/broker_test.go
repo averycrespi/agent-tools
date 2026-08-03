@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -57,14 +58,43 @@ type blockingApprover struct {
 	release chan struct{}
 }
 
-func (m *mockApprover) Review(ctx context.Context, tool string, args map[string]any) (bool, string, error) {
-	a := m.Called(ctx, tool, args)
+func (m *mockApprover) Review(ctx context.Context, request ApprovalRequest) (bool, string, error) {
+	a := m.Called(ctx, request)
 	return a.Bool(0), a.String(1), a.Error(2)
 }
 
-func (a *blockingApprover) Review(context.Context, string, map[string]any) (bool, string, error) {
+func (a *blockingApprover) Review(context.Context, ApprovalRequest) (bool, string, error) {
 	close(a.started)
 	<-a.release
+	return true, "", nil
+}
+
+func approvalRequestFor(tool string, args map[string]any) any {
+	return mock.MatchedBy(func(request ApprovalRequest) bool {
+		return request.ToolName == tool && reflect.DeepEqual(args, request.ToolInput)
+	})
+}
+
+type recordingObserver struct {
+	requests []ApprovalRequest
+	order    *[]string
+}
+
+func (o *recordingObserver) Observe(request ApprovalRequest) {
+	o.requests = append(o.requests, request)
+	if o.order != nil {
+		*o.order = append(*o.order, "observe")
+	}
+}
+
+type recordingApprover struct {
+	request ApprovalRequest
+	order   *[]string
+}
+
+func (a *recordingApprover) Review(_ context.Context, request ApprovalRequest) (bool, string, error) {
+	a.request = request
+	*a.order = append(*a.order, "review")
 	return true, "", nil
 }
 
@@ -150,7 +180,7 @@ func TestBroker_Handle_ApprovalRequired_Approved(t *testing.T) {
 	al.On("Record", mock.Anything, mock.Anything).Return(nil)
 
 	ap := new(mockApprover)
-	ap.On("Review", mock.Anything, "fs.write", map[string]any{"path": "/tmp"}).Return(true, "", nil)
+	ap.On("Review", mock.Anything, approvalRequestFor("fs.write", map[string]any{"path": "/tmp"})).Return(true, "", nil)
 
 	engine, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
 	require.NoError(t, err)
@@ -165,6 +195,141 @@ func TestBroker_Handle_ApprovalRequired_Approved(t *testing.T) {
 	result, err := b.Handle(context.Background(), "fs.write", map[string]any{"path": "/tmp"})
 	require.NoError(t, err)
 	require.Equal(t, "ok", result)
+}
+
+func TestBroker_Handle_RequireApprovalObservesBrokerOwnedRequestBeforeReview(t *testing.T) {
+	fixedTime := time.Date(2026, 8, 3, 18, 42, 0, 0, time.FixedZone("offset", 3600))
+	input := map[string]any{"path": "/tmp/file"}
+	order := []string{}
+	observer := &recordingObserver{order: &order}
+	approver := &recordingApprover{order: &order}
+
+	sm := new(mockServerManager)
+	sm.On("Call", mock.Anything, "fs.write", input).Return(&server.ToolResult{Content: "ok"}, nil)
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.Anything).Return(nil)
+	engine, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
+	require.NoError(t, err)
+
+	b := NewWithOptions(Options{
+		Servers: sm, Rules: engine, Auditor: al, Approver: approver, Observer: observer,
+		Clock:              func() time.Time { return fixedTime },
+		GenerateApprovalID: func() (string, error) { return "c9cb427bc1387a23c9cb427bc1387a23", nil },
+	})
+	_, err = b.Handle(context.Background(), "fs.write", input)
+	require.NoError(t, err)
+
+	require.Equal(t, []string{"observe", "review"}, order)
+	require.Len(t, observer.requests, 1)
+	request := observer.requests[0]
+	require.Equal(t, approver.request, request)
+	require.Equal(t, "c9cb427bc1387a23c9cb427bc1387a23", request.ID)
+	require.Equal(t, fixedTime.UTC(), request.OccurredAt)
+	require.Equal(t, ApprovalPolicy{Verdict: "require-approval", RuleSource: "base"}, request.Policy)
+	require.Nil(t, request.Grant)
+}
+
+func TestBroker_Handle_RequireApprovalObserverSuppressedBeforeFanoutTransition(t *testing.T) {
+	tests := []struct {
+		name         string
+		verdict      string
+		options      HandleOptions
+		withApprover bool
+		cancel       bool
+	}{
+		{name: "allow", verdict: "allow", withApprover: true},
+		{name: "deny", verdict: "deny", withApprover: true},
+		{name: "reject mode", verdict: "require-approval", options: HandleOptions{ApprovalMode: ApprovalModeReject}, withApprover: true},
+		{name: "no approver", verdict: "require-approval"},
+		{name: "already canceled", verdict: "require-approval", withApprover: true, cancel: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			engine, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: tc.verdict}})
+			require.NoError(t, err)
+			observer := &recordingObserver{}
+			al := new(mockAuditLogger)
+			al.On("Record", mock.Anything, mock.Anything).Return(nil)
+			sm := new(mockServerManager)
+			if tc.verdict == "allow" || tc.cancel {
+				sm.On("Call", mock.Anything, "tool", mock.Anything).Return(&server.ToolResult{Content: "ok"}, nil)
+			}
+			var approver Approver
+			order := []string{}
+			if tc.withApprover {
+				approver = &recordingApprover{order: &order}
+			}
+			b := NewWithOptions(Options{
+				Servers: sm, Rules: engine, Auditor: al, Approver: approver, Observer: observer,
+				GenerateApprovalID: func() (string, error) { return "approval-id", nil },
+			})
+			ctx := context.Background()
+			if tc.cancel {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+			_, _ = b.HandleToolResultWithOptions(ctx, "tool", nil, tc.options)
+			require.Empty(t, observer.requests)
+		})
+	}
+}
+
+func TestBroker_Handle_RequireApprovalIncludesValidGrantAttribution(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		grantRules []config.RuleConfig
+		baseRules  []config.RuleConfig
+		source     string
+	}{
+		{name: "grant rule", grantRules: []config.RuleConfig{{Tool: "fs.write", Verdict: "require-approval"}}, baseRules: []config.RuleConfig{{Tool: "*", Verdict: "deny"}}, source: "grant"},
+		{name: "grant fallthrough", grantRules: []config.RuleConfig{{Tool: "github.*", Verdict: "allow"}}, baseRules: []config.RuleConfig{{Tool: "*", Verdict: "require-approval"}}, source: "base"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			grant := grants.Grant{ID: "grant-1", Name: "release", Fingerprint: "abc123", Status: "active", Rules: tc.grantRules}
+			engine, err := rules.New(tc.baseRules)
+			require.NoError(t, err)
+			observer := &recordingObserver{}
+			order := []string{}
+			approver := &recordingApprover{order: &order}
+			sm := new(mockServerManager)
+			sm.On("Call", mock.Anything, "fs.write", mock.Anything).Return(&server.ToolResult{Content: "ok"}, nil)
+			al := new(mockAuditLogger)
+			al.On("Record", mock.Anything, mock.Anything).Return(nil)
+			b := NewWithOptions(Options{
+				Servers: sm, Rules: engine, Auditor: al, Approver: approver,
+				Grants: fakeGrantValidator{grant: grant}, Observer: observer,
+				GenerateApprovalID: func() (string, error) { return "approval-id", nil },
+			})
+
+			_, err = b.HandleToolResultWithOptions(context.Background(), "fs.write", nil, HandleOptions{GrantToken: "secret"})
+			require.NoError(t, err)
+			require.Len(t, observer.requests, 1)
+			require.Equal(t, tc.source, observer.requests[0].Policy.RuleSource)
+			require.Equal(t, &ApprovalGrant{ID: "grant-1", Name: "release", Fingerprint: "abc123", Status: "active"}, observer.requests[0].Grant)
+		})
+	}
+}
+
+func TestBroker_Handle_ApprovalIDGenerationFailureFailsClosed(t *testing.T) {
+	engine, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
+	require.NoError(t, err)
+	observer := &recordingObserver{}
+	order := []string{}
+	approver := &recordingApprover{order: &order}
+	al := new(mockAuditLogger)
+	al.On("Record", mock.Anything, mock.MatchedBy(func(rec audit.Record) bool {
+		return rec.Error == "approval request ID generation failed" && rec.Approved != nil && !*rec.Approved
+	})).Return(nil)
+	b := NewWithOptions(Options{
+		Servers: new(mockServerManager), Rules: engine, Auditor: al, Approver: approver, Observer: observer,
+		GenerateApprovalID: func() (string, error) { return "", errors.New("entropy unavailable") },
+	})
+
+	_, err = b.Handle(context.Background(), "fs.write", nil)
+	require.ErrorIs(t, err, ErrDenied)
+	require.Empty(t, observer.requests)
+	require.Empty(t, order)
 }
 
 func TestBroker_Handle_ApprovalInProgressKeepsPreReloadDecision(t *testing.T) {
@@ -204,7 +369,7 @@ func TestBroker_Handle_ApprovalRequired_Denied(t *testing.T) {
 	al.On("Record", mock.Anything, mock.Anything).Return(nil)
 
 	ap := new(mockApprover)
-	ap.On("Review", mock.Anything, "fs.write", mock.Anything).Return(false, "", nil)
+	ap.On("Review", mock.Anything, approvalRequestFor("fs.write", nil)).Return(false, "", nil)
 
 	engine, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
 	require.NoError(t, err)
@@ -228,7 +393,7 @@ func TestBroker_Handle_ApprovalRequired_DenialReasonPropagated(t *testing.T) {
 	})).Return(nil)
 
 	ap := new(mockApprover)
-	ap.On("Review", mock.Anything, "fs.write", mock.Anything).Return(false, "timeout", nil)
+	ap.On("Review", mock.Anything, approvalRequestFor("fs.write", nil)).Return(false, "timeout", nil)
 
 	engine, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
 	require.NoError(t, err)
@@ -482,7 +647,7 @@ func TestBroker_Handle_ApprovalRequired_UserDenialReasonFormatted(t *testing.T) 
 	})).Return(nil)
 
 	ap := new(mockApprover)
-	ap.On("Review", mock.Anything, "fs.write", mock.Anything).Return(false, "user: needs narrower scope", nil)
+	ap.On("Review", mock.Anything, approvalRequestFor("fs.write", nil)).Return(false, "user: needs narrower scope", nil)
 
 	engine, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "require-approval"}})
 	require.NoError(t, err)
