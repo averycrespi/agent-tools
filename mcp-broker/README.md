@@ -2,7 +2,7 @@
 
 An MCP proxy that lets sandboxed agents use external tools without holding secrets.
 
-Agents run in sandboxes with no credentials and restricted network access — but they still need to call GitHub, Jira, Slack, and other external APIs. mcp-broker runs on the host, holds the secrets, and exposes backend MCP servers through a single endpoint. Policy rules control which tools are allowed, sensitive operations require human approval via a web dashboard, and every call is audit-logged.
+Agents run in sandboxes with no credentials and restricted network access — but they still need to call GitHub, Jira, Slack, and other external APIs. mcp-broker runs on the host, holds the secrets, and exposes backend MCP servers through a single endpoint. Policy rules control which tools are allowed, sensitive operations require human approval via a web dashboard, and calls are audit-logged on a best-effort basis.
 
 ## How it works
 
@@ -21,7 +21,7 @@ An agent connects to mcp-broker as a single MCP server. mcp-broker connects to o
 2. **Base rules check** — if no grant rule matches, glob patterns match tool names to base verdicts (`allow`, `deny`, `require-approval`).
 3. **Approval** — if the final verdict is `require-approval`, the call blocks until a human approves or denies it via the web dashboard (and optionally Telegram). A configurable timeout (default 10 minutes) auto-denies if no response arrives. Requests can opt out of waiting with `Mcp-Broker-Approval-Mode: reject`.
 4. **Proxy** — the call is forwarded to the backend server.
-5. **Audit** — the call, verdict, grant attribution, and result are recorded in SQLite.
+5. **Audit** — the broker attempts to record the call, verdict, grant attribution, and any error in SQLite. Audit storage failure or cancellation can omit a row but does not fail the tool call.
 
 ## Security
 

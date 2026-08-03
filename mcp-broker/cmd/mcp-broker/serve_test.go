@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,7 +25,7 @@ import (
 )
 
 type blockingShutdownServer struct {
-	closed bool
+	closed chan struct{}
 }
 
 type recordingServer struct {
@@ -91,7 +91,7 @@ func (s *blockingShutdownServer) Shutdown(ctx context.Context) error {
 }
 
 func (s *blockingShutdownServer) Close() error {
-	s.closed = true
+	close(s.closed)
 	return nil
 }
 
@@ -297,9 +297,11 @@ func TestServeEventLoopReloadSignalDoesNotShutdown(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- serveEventLoop(stop, reload, errCh, srv, nil, func() error {
+		done <- serveEventLoop(stop, reload, errCh, nil, func() error {
 			reloaded <- struct{}{}
 			return nil
+		}, func() error {
+			return srv.Shutdown(context.Background())
 		})
 	}()
 
@@ -324,8 +326,10 @@ func TestServeEventLoopStopSignalShutsDown(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- serveEventLoop(stop, reload, errCh, srv, nil, func() error {
+		done <- serveEventLoop(stop, reload, errCh, nil, func() error {
 			return nil
+		}, func() error {
+			return srv.Shutdown(context.Background())
 		})
 	}()
 
@@ -348,8 +352,10 @@ func TestServeEventLoopSecondStopSignalForcesExit(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- serveEventLoop(stop, reload, errCh, srv, nil, func() error {
+		done <- serveEventLoop(stop, reload, errCh, nil, func() error {
 			return nil
+		}, func() error {
+			return srv.Shutdown(context.Background())
 		})
 	}()
 
@@ -361,14 +367,68 @@ func TestServeEventLoopSecondStopSignalForcesExit(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
-func TestShutdownServerForcesCloseAfterTimeout(t *testing.T) {
-	srv := &blockingShutdownServer{}
+func TestShutdownApplicationForcesCloseWhenHTTPShutdownBlocks(t *testing.T) {
+	_, cancelLifetime := context.WithCancel(context.Background())
+	srv := &blockingShutdownServer{closed: make(chan struct{})}
 
 	start := time.Now()
-	err := shutdownServer(srv, slog.Default(), 10*time.Millisecond)
+	err := shutdownApplication(cancelLifetime, srv, nil, nil, 10*time.Millisecond)
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	select {
+	case <-srv.closed:
+	case <-time.After(time.Second):
+		t.Fatal("forced HTTP close did not start")
+	}
+	require.Less(t, time.Since(start), time.Second)
+}
+
+func TestShutdownApplicationCancelsLifetimeBeforeHTTPShutdown(t *testing.T) {
+	lifetimeCtx, cancelLifetime := context.WithCancel(context.Background())
+	srv := &recordingServer{}
+	resourcesClosed := false
+
+	err := shutdownApplication(cancelLifetime, srv, func(context.Context) error {
+		select {
+		case <-lifetimeCtx.Done():
+			resourcesClosed = true
+			return nil
+		default:
+			return errors.New("lifetime context was not canceled")
+		}
+	}, nil, time.Second)
 
 	require.NoError(t, err)
-	require.True(t, srv.closed)
+	require.True(t, resourcesClosed)
+	require.Equal(t, 1, srv.shutdowns)
+}
+
+func TestShutdownApplicationBoundsResourceCleanup(t *testing.T) {
+	_, cancelLifetime := context.WithCancel(context.Background())
+	srv := &recordingServer{}
+	cleanupStarted := make(chan struct{})
+	cleanupRelease := make(chan struct{})
+	done := make(chan error, 1)
+
+	start := time.Now()
+	go func() {
+		done <- shutdownApplication(cancelLifetime, srv, func(context.Context) error {
+			close(cleanupStarted)
+			<-cleanupRelease
+			return nil
+		}, nil, 100*time.Millisecond)
+	}()
+
+	select {
+	case <-cleanupStarted:
+	case <-time.After(time.Second):
+		close(cleanupRelease)
+		t.Fatal("resource cleanup did not start")
+	}
+	err := <-done
+	close(cleanupRelease)
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Less(t, time.Since(start), time.Second)
 }
 

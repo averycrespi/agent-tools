@@ -131,7 +131,7 @@ func NewLogger(path string) (*Logger, error) {
 }
 
 // Record inserts an audit record and notifies subscribers on success.
-func (l *Logger) Record(_ context.Context, rec Record) error {
+func (l *Logger) Record(ctx context.Context, rec Record) error {
 	argsJSON, err := marshalNullable(rec.Args)
 	if err != nil {
 		return fmt.Errorf("marshal args: %w", err)
@@ -148,7 +148,7 @@ func (l *Logger) Record(_ context.Context, rec Record) error {
 
 	l.mu.Lock()
 
-	_, err = l.stmt.Exec(
+	_, err = l.stmt.ExecContext(ctx,
 		rec.Timestamp.Format(time.RFC3339),
 		rec.Tool,
 		argsJSON,
@@ -224,7 +224,7 @@ func sourceCondition(source string) string {
 }
 
 // Query returns audit records matching the given filters.
-func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error) {
+func (l *Logger) Query(ctx context.Context, opts QueryOpts) ([]Record, int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -263,7 +263,7 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 
 	var total int
 	countSQL := "SELECT COUNT(*) FROM audit_records" + where
-	if err := l.db.QueryRow(countSQL, queryArgs...).Scan(&total); err != nil {
+	if err := l.db.QueryRowContext(ctx, countSQL, queryArgs...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count audit records: %w", err)
 	}
 
@@ -278,7 +278,7 @@ func (l *Logger) Query(_ context.Context, opts QueryOpts) ([]Record, int, error)
 	copy(selectArgs, queryArgs)
 	selectArgs = append(selectArgs, limit, opts.Offset)
 
-	rows, err := l.db.Query(selectSQL, selectArgs...)
+	rows, err := l.db.QueryContext(ctx, selectSQL, selectArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query audit records: %w", err)
 	}

@@ -19,7 +19,7 @@ mcp-broker is that broker:
 - **Policy controls access** — glob-based rules determine which tools are allowed, denied, or require human approval. Default is require-approval (fail-closed).
 - **Temporary grants** — users can mint mandatory-TTL bearer grants that prepend a temporary rule overlay for a request while preserving normal broker authentication.
 - **Human in the loop** — sensitive operations appear in a web dashboard where a human can approve or deny them before they execute.
-- **Full audit trail** — every tool call is logged with arguments, verdict, approval status, denial reason, grant attribution, and errors. Successful tool results are not stored, keeping returned data out of the audit database.
+- **Audit trail** — tool calls are logged with arguments, verdict, approval status, denial reason, grant attribution, and errors. Audit writes are best effort so storage failure does not fail the tool pipeline, and request cancellation is propagated to SQLite. Successful tool results are not stored, keeping returned data out of the audit database.
 
 ## Architecture
 
@@ -50,6 +50,12 @@ mcp-broker is a single Go binary serving on a single port (default 8200):
 - `/mcp` — Streamable HTTP MCP endpoint for agents, protected by a configurable request body limit (`max_request_body_bytes`, default 10 MiB)
 - `/` — Web dashboard for humans (approval, tools, audit log)
 
+### Process lifecycle
+
+The broker uses one lifetime context for inbound HTTP requests and backend connections. The first `SIGINT` or `SIGTERM` cancels that context, which ends dashboard and MCP streams, pending approvals, and in-flight backend work before HTTP shutdown begins. HTTP shutdown, backend closure, and database closure share one 10-second process-wide deadline; expiry force-closes HTTP and terminates the process rather than leaving a restart blocked. A second termination signal exits immediately.
+
+Backend connections close concurrently so one slow stdio or remote backend does not delay every other backend in sequence. Audit inserts and queries use caller contexts so canceled requests do not keep SQLite work alive during shutdown.
+
 ### Pipeline
 
 Every tool call flows through the same pipeline:
@@ -62,7 +68,7 @@ Every tool call flows through the same pipeline:
 
 4. **Proxy** — The call is forwarded to the backend MCP server that owns the tool. The broker strips the namespace prefix before forwarding.
 
-5. **Audit** — Every call is recorded in a SQLite database with: timestamp, tool name, arguments, verdict, approval status, denial reason, grant metadata/status, rule source, and any error. Successful tool results are deliberately not stored.
+5. **Audit** — The broker attempts to record every call in a SQLite database with: timestamp, tool name, arguments, verdict, approval status, denial reason, grant metadata/status, rule source, and any error. Writes use the request context and are best effort: cancellation or a database failure can omit a row without failing the tool call. Successful tool results are deliberately not stored.
 
 ### Tool namespacing
 

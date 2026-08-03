@@ -36,6 +36,30 @@ func TestNewLogger_CreatesAuditFilesWithPrivatePermissions(t *testing.T) {
 	}
 }
 
+func TestLogger_RecordHonorsCanceledContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	l, err := NewLogger(path)
+	require.NoError(t, err)
+	defer func() { _ = l.Close(context.Background()) }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = l.Record(ctx, Record{Timestamp: time.Now(), Tool: "test.tool", Verdict: "allow"})
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestLogger_QueryHonorsCanceledContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	l, err := NewLogger(path)
+	require.NoError(t, err)
+	defer func() { _ = l.Close(context.Background()) }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, err = l.Query(ctx, QueryOpts{Limit: 10})
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 func TestLogger_RecordAndQuery(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.db")
 	l, err := NewLogger(path)

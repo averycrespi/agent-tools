@@ -80,4 +80,6 @@ launchctl kickstart -k gui/$UID/dev.agent-tools.mcp-broker
 launchctl bootout gui/$UID/dev.agent-tools.mcp-broker
 ```
 
+On restart or stop, the broker cancels active dashboard/MCP streams and in-flight tool calls, then closes its HTTP listener, backend connections, and databases. The complete shutdown has a 10-second hard limit, so a stuck backend cannot block a launchd restart indefinitely.
+
 Logs at `~/Library/Logs/mcp-broker.{out,err}.log` are not rotated automatically — prune them yourself if they grow.

@@ -38,7 +38,8 @@ func TestNewStdioBackend_DrainsBackendStderr(t *testing.T) {
 func runNoisyStdioHelper() {
 	_, _ = os.Stderr.WriteString(strings.Repeat("stderr noise fills the pipe\n", 8192))
 
-	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
 	if err != nil {
 		return
 	}
@@ -51,4 +52,5 @@ func runNoisyStdioHelper() {
 	}
 
 	_, _ = fmt.Fprintf(os.Stdout, `{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"noisy","version":"0.1.0"}}}`+"\n", req.ID)
+	_, _ = reader.ReadString('\n')
 }

@@ -20,6 +20,26 @@ type mockBackend struct {
 	mock.Mock
 }
 
+type blockingCloseBackend struct {
+	name    string
+	started chan<- string
+	release <-chan struct{}
+}
+
+func (b *blockingCloseBackend) ListTools(context.Context) ([]Tool, error) {
+	return nil, nil
+}
+
+func (b *blockingCloseBackend) CallTool(context.Context, string, map[string]any) (*ToolResult, error) {
+	return nil, nil
+}
+
+func (b *blockingCloseBackend) Close() error {
+	b.started <- b.name
+	<-b.release
+	return nil
+}
+
 func (m *mockBackend) ListTools(ctx context.Context) ([]Tool, error) {
 	args := m.Called(ctx)
 	return args.Get(0).([]Tool), args.Error(1)
@@ -33,6 +53,34 @@ func (m *mockBackend) CallTool(ctx context.Context, name string, arguments map[s
 func (m *mockBackend) Close() error {
 	args := m.Called()
 	return args.Error(0)
+}
+
+func TestManager_CloseClosesBackendsConcurrently(t *testing.T) {
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	m := &Manager{backends: map[string]Backend{
+		"first":  &blockingCloseBackend{name: "first", started: started, release: release},
+		"second": &blockingCloseBackend{name: "second", started: started, release: release},
+	}}
+
+	done := make(chan error, 1)
+	go func() { done <- m.Close() }()
+
+	seen := make(map[string]bool, 2)
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	for len(seen) < 2 {
+		select {
+		case name := <-started:
+			seen[name] = true
+		case <-timer.C:
+			close(release)
+			<-done
+			t.Fatal("backends were closed serially")
+		}
+	}
+	close(release)
+	require.NoError(t, <-done)
 }
 
 func TestManager_DiscoverTools_PrefixesNames(t *testing.T) {

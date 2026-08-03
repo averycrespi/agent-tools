@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -210,10 +211,40 @@ type testLogConfig struct {
 // --- TestStack ---
 
 type TestStack struct {
-	BrokerURL string
-	AuthToken string
-	Client    *client.Client
-	t         *testing.T
+	BrokerURL     string
+	AuthToken     string
+	Client        *client.Client
+	brokerCmd     *exec.Cmd
+	brokerDone    <-chan error
+	brokerStop    sync.Once
+	brokerStopErr error
+	t             *testing.T
+}
+
+func (s *TestStack) stopBroker(sig os.Signal, timeout time.Duration) error {
+	s.brokerStop.Do(func() {
+		select {
+		case s.brokerStopErr = <-s.brokerDone:
+			return
+		default:
+		}
+
+		if err := s.brokerCmd.Process.Signal(sig); err != nil {
+			s.brokerStopErr = err
+			return
+		}
+
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		select {
+		case s.brokerStopErr = <-s.brokerDone:
+		case <-timer.C:
+			_ = s.brokerCmd.Process.Kill()
+			<-s.brokerDone
+			s.brokerStopErr = fmt.Errorf("broker did not exit within %s", timeout)
+		}
+	})
+	return s.brokerStopErr
 }
 
 type stackOpts struct {
@@ -276,9 +307,13 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 	if err := brokerCmd.Start(); err != nil {
 		t.Fatalf("start broker: %v", err)
 	}
+	brokerDone := make(chan error, 1)
+	go func() { brokerDone <- brokerCmd.Wait() }()
+	stack := &TestStack{brokerCmd: brokerCmd, brokerDone: brokerDone, t: t}
 	t.Cleanup(func() {
-		_ = brokerCmd.Process.Signal(os.Interrupt)
-		_ = brokerCmd.Wait()
+		if err := stack.stopBroker(os.Interrupt, 2*time.Second); err != nil {
+			t.Logf("stop broker: %v", err)
+		}
 	})
 
 	brokerURL := fmt.Sprintf("http://127.0.0.1:%d", brokerPort)
@@ -327,12 +362,10 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 		t.Fatalf("initialize MCP client: %v", err)
 	}
 
-	return &TestStack{
-		BrokerURL: brokerURL,
-		AuthToken: authToken,
-		Client:    mcpClient,
-		t:         t,
-	}
+	stack.BrokerURL = brokerURL
+	stack.AuthToken = authToken
+	stack.Client = mcpClient
+	return stack
 }
 
 // --- Dashboard API helpers ---

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"syscall"
 	"testing"
 	"time"
 
@@ -15,6 +16,23 @@ import (
 
 var defaultTools = []toolDef{
 	{Name: "say_hello", Description: "Says hello", Response: `{"message":"hello"}`},
+}
+
+func TestE2E_SIGTERMClosesDashboardSSEPromptly(t *testing.T) {
+	s := newTestStack(t, stackOpts{Tools: defaultTools})
+	require.NoError(t, s.Client.Close())
+
+	req, err := http.NewRequest(http.MethodGet, s.BrokerURL+"/dashboard/events", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	started := time.Now()
+	require.NoError(t, s.stopBroker(syscall.SIGTERM, 2*time.Second))
+	require.Less(t, time.Since(started), 2*time.Second)
 }
 
 func TestE2E_ApproveToolCall(t *testing.T) {
