@@ -194,6 +194,37 @@ func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
 	require.True(t, approved)
 }
 
+func TestDashboard_ReviewPublishesBrokerOwnedIDAndTimestampToSSE(t *testing.T) {
+	d := New(nil, nil, nil, nil)
+	events := make(chan []byte, 1)
+	d.mu.Lock()
+	d.clients = append(d.clients, events)
+	d.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _, _ = d.Review(ctx, approvalRequest("shared-approval-id", "github.push", map[string]any{"branch": "main"}))
+	}()
+
+	select {
+	case data := <-events:
+		var event struct {
+			Type string         `json:"type"`
+			Data pendingRequest `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(data, &event))
+		require.Equal(t, "new", event.Type)
+		require.Equal(t, "shared-approval-id", event.Data.ID)
+		require.Equal(t, time.Date(2026, 8, 3, 18, 42, 0, 0, time.UTC), event.Data.Timestamp)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for approval SSE event")
+	}
+	cancel()
+	<-done
+}
+
 func TestDashboard_Review_DeniesViaAPI(t *testing.T) {
 	d := New(nil, nil, nil, nil)
 	mux := d.Handler()

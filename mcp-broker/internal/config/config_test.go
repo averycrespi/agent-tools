@@ -747,6 +747,7 @@ func TestLoad_HooksRejectsInvalidConfiguration(t *testing.T) {
 		"invalid env key":      {`{"events":{"require-approval":[{"command":"notify","timeout_seconds":1,"env":{"BAD-KEY":"x"}}]}}`, "environment key"},
 		"nul command":          {`{"events":{"require-approval":[{"command":"bad\u0000cmd","timeout_seconds":1}]}}`, "NUL"},
 		"nul arg":              {`{"events":{"require-approval":[{"command":"notify","args":["bad\u0000arg"],"timeout_seconds":1}]}}`, "NUL"},
+		"nul env key":          {`{"events":{"require-approval":[{"command":"notify","timeout_seconds":1,"env":{"BAD\u0000KEY":"value"}}]}}`, "NUL"},
 		"nul env value":        {`{"events":{"require-approval":[{"command":"notify","timeout_seconds":1,"env":{"KEY":"bad\u0000value"}}]}}`, "NUL"},
 	}
 

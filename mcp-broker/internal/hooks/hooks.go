@@ -162,11 +162,10 @@ func (d *Dispatcher) Observe(request broker.ApprovalRequest) {
 		return
 	}
 
-	admittedAt := time.Now()
 	for i, handler := range d.handlers {
 		d.tryAdmit(job{
 			handlerIndex: i, handler: handler, requestID: request.ID, payload: payload,
-			deadline: admittedAt.Add(handler.Timeout),
+			deadline: time.Now().Add(handler.Timeout),
 		})
 	}
 }
@@ -206,21 +205,24 @@ func (d *Dispatcher) isAccepting() bool {
 
 func (d *Dispatcher) tryAdmit(candidate job) {
 	size := int64(len(candidate.payload))
+	dropReason := ""
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	if !d.accepting || d.ctx.Err() != nil {
-		d.logDrop(candidate.handlerIndex, candidate.requestID, "shutdown")
-		return
-	}
-	if d.queuedBytes+size > d.maxBytes {
-		d.logDrop(candidate.handlerIndex, candidate.requestID, "byte-budget")
-		return
-	}
-	select {
-	case d.queue <- candidate:
-		d.queuedBytes += size
+	switch {
+	case !d.accepting || d.ctx.Err() != nil:
+		dropReason = "shutdown"
+	case d.queuedBytes+size > d.maxBytes:
+		dropReason = "byte-budget"
 	default:
-		d.logDrop(candidate.handlerIndex, candidate.requestID, "queue-full")
+		select {
+		case d.queue <- candidate:
+			d.queuedBytes += size
+		default:
+			dropReason = "queue-full"
+		}
+	}
+	d.mu.Unlock()
+	if dropReason != "" {
+		d.logDrop(candidate.handlerIndex, candidate.requestID, dropReason)
 	}
 }
 

@@ -35,7 +35,7 @@ func TestMain(m *testing.M) {
 	defer os.RemoveAll(tmp)
 
 	bin := filepath.Join(tmp, "mcp-broker")
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/mcp-broker")
+	cmd := exec.Command("go", "build", "-race", "-o", bin, "./cmd/mcp-broker")
 	cmd.Dir = filepath.Join(mustFindModuleRoot(), "mcp-broker")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -159,6 +159,7 @@ type testConfig struct {
 	OpenBrowser bool                        `json:"open_browser"`
 	Audit       testAuditConfig             `json:"audit"`
 	Log         testLogConfig               `json:"log"`
+	Hooks       *testHooksConfig            `json:"hooks,omitempty"`
 }
 
 type testServerConfig struct {
@@ -208,6 +209,39 @@ type testLogConfig struct {
 	Level string `json:"level"`
 }
 
+type testHooksConfig struct {
+	Dispatch testHookDispatchConfig `json:"dispatch"`
+	Events   testHookEventsConfig   `json:"events"`
+}
+
+type testHookDispatchConfig struct {
+	MaxConcurrent   int   `json:"max_concurrent"`
+	QueueSize       int   `json:"queue_size"`
+	MaxPayloadBytes int64 `json:"max_payload_bytes"`
+	MaxQueuedBytes  int64 `json:"max_queued_bytes"`
+}
+
+type testHookEventsConfig struct {
+	RequireApproval []testHookHandlerConfig `json:"require-approval"`
+}
+
+type testHookHandlerConfig struct {
+	Command        string            `json:"command"`
+	Args           []string          `json:"args,omitempty"`
+	TimeoutSeconds int               `json:"timeout_seconds"`
+	Env            map[string]string `json:"env,omitempty"`
+}
+
+func testHooks(handlers ...testHookHandlerConfig) *testHooksConfig {
+	return &testHooksConfig{
+		Dispatch: testHookDispatchConfig{
+			MaxConcurrent: 4, QueueSize: 64,
+			MaxPayloadBytes: 10 * 1024 * 1024, MaxQueuedBytes: 64 * 1024 * 1024,
+		},
+		Events: testHookEventsConfig{RequireApproval: handlers},
+	}
+}
+
 // --- TestStack ---
 
 type TestStack struct {
@@ -251,6 +285,7 @@ type stackOpts struct {
 	Tools       []toolDef
 	Rules       []testRuleConfig
 	ToolPatches []testToolPatchConfig
+	Hooks       *testHooksConfig
 }
 
 func newTestStack(t *testing.T, opts stackOpts) *TestStack {
@@ -281,6 +316,7 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 		OpenBrowser: false,
 		Audit:       testAuditConfig{Path: filepath.Join(tmpDir, "audit.db")},
 		Log:         testLogConfig{Level: "debug"},
+		Hooks:       opts.Hooks,
 	}
 	cfgData, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -372,8 +408,9 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 
 // pendingResponse is the JSON shape returned by GET /api/pending.
 type pendingResponse []struct {
-	ID   string `json:"id"`
-	Tool string `json:"tool"`
+	ID        string    `json:"id"`
+	Tool      string    `json:"tool"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 func (s *TestStack) getPending() pendingResponse {

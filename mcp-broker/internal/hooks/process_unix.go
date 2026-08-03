@@ -14,8 +14,10 @@ func configureProcess(cmd *exec.Cmd) {
 
 func terminateProcess(process *os.Process) {
 	_ = syscall.Kill(-process.Pid, syscall.SIGTERM)
+	_ = process.Signal(syscall.SIGTERM)
 }
 
 func killProcess(process *os.Process) {
 	_ = syscall.Kill(-process.Pid, syscall.SIGKILL)
+	_ = process.Kill()
 }

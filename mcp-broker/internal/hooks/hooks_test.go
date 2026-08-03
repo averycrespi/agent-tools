@@ -239,6 +239,25 @@ func TestDispatcherExpandsEnvironmentOnceAtConstruction(t *testing.T) {
 	require.Contains(t, env, "COMBINED=startup-suffix")
 }
 
+func TestDispatcherAcceptsHandlersIndependentlyUnderSaturation(t *testing.T) {
+	runner := &captureRunner{started: make(chan struct{}), release: make(chan struct{})}
+	cfg := hookConfig(1)
+	cfg.Dispatch.QueueSize = 1
+	d := newWithRunner(context.Background(), cfg, nil, runner)
+	t.Cleanup(func() { require.NoError(t, d.Close(context.Background())) })
+
+	d.Observe(approvalRequest(map[string]any{"call": "blocker"}))
+	<-runner.started
+	d.handlers = append(d.handlers, d.handlers[0])
+	d.Observe(approvalRequest(map[string]any{"call": "partial"}))
+	close(runner.release)
+	require.Eventually(t, func() bool { return len(runner.snapshot()) == 2 }, time.Second, time.Millisecond)
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(runner.snapshot()[1].payload, &decoded))
+	require.Equal(t, "partial", decoded["tool_input"].(map[string]any)["call"])
+}
+
 func TestDispatcherEnforcesQueuedByteBudget(t *testing.T) {
 	runner := &captureRunner{started: make(chan struct{}), release: make(chan struct{})}
 	cfg := hookConfig(1)
@@ -255,6 +274,9 @@ func TestDispatcherEnforcesQueuedByteBudget(t *testing.T) {
 	d.Observe(approvalRequest(map[string]any{"call": 3}))
 	close(runner.release)
 	require.Eventually(t, func() bool { return len(runner.snapshot()) == 2 }, time.Second, time.Millisecond)
+
+	d.Observe(approvalRequest(map[string]any{"call": 4}))
+	require.Eventually(t, func() bool { return len(runner.snapshot()) == 3 }, time.Second, time.Millisecond)
 }
 
 func TestDispatcherEnforcesConcurrencyLimit(t *testing.T) {
@@ -322,6 +344,31 @@ func TestDispatcherCloseHonorsCallerDeadlineForUncooperativeRunner(t *testing.T)
 	defer cancel()
 	require.ErrorIs(t, d.Close(ctx), context.DeadlineExceeded)
 	close(runner.release)
+	require.NoError(t, d.Close(context.Background()))
+}
+
+func TestDispatcherConcurrentObserveAndCloseIsRaceSafe(t *testing.T) {
+	runner := &captureRunner{}
+	cfg := hookConfig(2)
+	cfg.Dispatch.MaxConcurrent = 4
+	d := newWithRunner(context.Background(), cfg, nil, runner)
+
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range 20 {
+				d.Observe(approvalRequest(map[string]any{"emitter": i, "call": j}))
+			}
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		require.NoError(t, d.Close(context.Background()))
+	}()
+	wg.Wait()
 	require.NoError(t, d.Close(context.Background()))
 }
 

@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -96,6 +97,15 @@ func (a *recordingApprover) Review(_ context.Context, request ApprovalRequest) (
 	a.request = request
 	*a.order = append(*a.order, "review")
 	return true, "", nil
+}
+
+func TestNewApprovalIDGenerates128RandomBitsAsHex(t *testing.T) {
+	id, err := newApprovalID()
+	require.NoError(t, err)
+	require.Len(t, id, 32)
+	decoded, err := hex.DecodeString(id)
+	require.NoError(t, err)
+	require.Len(t, decoded, 16)
 }
 
 func TestBroker_Handle_AllowedTool(t *testing.T) {
@@ -581,11 +591,16 @@ func TestBroker_Handle_InvalidGrantFailsClosedBeforeApprovalOrBackend(t *testing
 	require.NoError(t, err)
 	ap := new(mockApprover)
 	sm := new(mockServerManager)
-	b := NewWithGrants(sm, base, al, ap, fakeGrantValidator{err: grants.ErrUnknown}, nil)
+	observer := &recordingObserver{}
+	b := NewWithOptions(Options{
+		Servers: sm, Rules: base, Auditor: al, Approver: ap,
+		Grants: fakeGrantValidator{err: grants.ErrUnknown}, Observer: observer,
+	})
 
 	_, err = b.HandleToolResultWithOptions(context.Background(), "git.push", nil, HandleOptions{GrantToken: "bad"})
 	require.ErrorIs(t, err, ErrDenied)
-	ap.AssertNotCalled(t, "Review", mock.Anything, mock.Anything, mock.Anything)
+	ap.AssertNotCalled(t, "Review", mock.Anything, mock.Anything)
+	require.Empty(t, observer.requests)
 	sm.AssertNotCalled(t, "Call", mock.Anything, mock.Anything, mock.Anything)
 	al.AssertExpectations(t)
 }
@@ -616,10 +631,15 @@ func TestBroker_Handle_ExpiredAndRevokedGrantsFailClosed(t *testing.T) {
 
 			base, err := rules.New([]config.RuleConfig{{Tool: "*", Verdict: "allow"}})
 			require.NoError(t, err)
-			b := NewWithGrants(new(mockServerManager), base, al, nil, fakeGrantValidator{grant: grant, err: tt.err}, nil)
+			observer := &recordingObserver{}
+			b := NewWithOptions(Options{
+				Servers: new(mockServerManager), Rules: base, Auditor: al,
+				Grants: fakeGrantValidator{grant: grant, err: tt.err}, Observer: observer,
+			})
 
 			_, err = b.HandleToolResultWithOptions(context.Background(), "git.push", nil, HandleOptions{GrantToken: "secret"})
 			require.ErrorIs(t, err, ErrDenied)
+			require.Empty(t, observer.requests)
 			al.AssertExpectations(t)
 		})
 	}

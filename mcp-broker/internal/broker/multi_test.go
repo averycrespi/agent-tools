@@ -26,6 +26,37 @@ func (s *stubApprover) Review(ctx context.Context, _ ApprovalRequest) (bool, str
 	}
 }
 
+type captureApprover struct {
+	received chan ApprovalRequest
+}
+
+func (a *captureApprover) Review(_ context.Context, request ApprovalRequest) (bool, string, error) {
+	a.received <- request
+	return true, "", nil
+}
+
+func TestMultiApproverPropagatesOneBrokerOwnedRequestToEveryApprover(t *testing.T) {
+	first := &captureApprover{received: make(chan ApprovalRequest, 1)}
+	second := &captureApprover{received: make(chan ApprovalRequest, 1)}
+	multi := NewMultiApprover(time.Second, first, second)
+	request := ApprovalRequest{
+		ID: "shared-id", OccurredAt: time.Date(2026, 8, 3, 18, 42, 0, 0, time.UTC),
+		ToolName: "tool", ToolInput: map[string]any{"complete": true},
+	}
+
+	approved, _, err := multi.Review(context.Background(), request)
+	require.NoError(t, err)
+	require.True(t, approved)
+	for _, received := range []<-chan ApprovalRequest{first.received, second.received} {
+		select {
+		case got := <-received:
+			require.Equal(t, request, got)
+		case <-time.After(time.Second):
+			t.Fatal("approver did not receive shared request")
+		}
+	}
+}
+
 func TestMultiApprover_FirstApproverWins(t *testing.T) {
 	fast := &stubApprover{approved: true, delay: 0}
 	slow := &stubApprover{approved: false, denialReason: "user", delay: 10 * time.Second}

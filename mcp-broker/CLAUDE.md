@@ -34,9 +34,10 @@ internal/
   server/               Backend interface with stdio, HTTP, SSE, and OAuth transports
   dashboard/            Embedded HTML, SSE updates, implements Approver interface
   telegram/             Telegram Bot API polling approver (opt-in, outbound-only)
+  hooks/                Bounded async approval observers and direct command runner
   auth/                 Bearer token auth: generation, file storage, HTTP middleware
-  broker/               Orchestrator with ServerManager, AuditLogger, Approver interfaces;
-                        MultiApprover fans requests to all approvers with shared timeout
+  broker/               Orchestrator with ServerManager, AuditLogger, Approver, and
+                        ApprovalObserver interfaces; MultiApprover fans one broker-owned request
 ```
 
 ## Dashboard UI
@@ -74,3 +75,10 @@ The embedded dashboard in `internal/dashboard/index.html` should use the shared 
 - Dashboard auth uses `mcp-broker-auth` cookie (`HttpOnly`, `SameSite=Strict`)
 - Telegram approver uses long-polling (`getUpdates?timeout=30`) — no inbound connections needed; correlates responses by Telegram `message_id`
 - `expandEnv` for Telegram token/chat_id is applied at startup in `serve.go` via `os.ExpandEnv`, not in the config package
+- Approval hooks are observers, never approvers: emit only after final `require-approval` passes reject/no-approver gates and immediately before `Approver.Review`; hook status/output must never affect authorization, proxying, or audit
+- The broker owns each approval's 128-bit ID and UTC timestamp; the same typed `ApprovalRequest` goes to hooks, dashboard, and Telegram. Preserve valid grant metadata on base/default fallthrough and never include raw grant/auth tokens
+- Hook config is startup-only. Preserve raw `$VAR`/`${VAR}` values through config load/refresh and expand handler environment once in `internal/hooks` construction
+- Hook admission must remain a non-blocking try operation bounded by both queue slots and queued bytes. Handler deadlines start at admission, queued work must recheck expiry/cancellation before process start, and jobs are never retried
+- Hook logs are metadata-only: event, handler index, request ID, duration/status, and drop/timeout classification. Never log command, argv, environment, tool input, stdout/stderr, or raw subprocess errors
+- Dispatcher close has one accepting/closed linearization point: reject new work, drain queued byte reservations, cancel running commands through the broker lifetime, and wait only under the caller context. Concurrent/repeated `Observe`/`Close` must remain race-safe
+- Hook commands use direct exec; leave stdout/stderr nil so `os/exec` attaches the operating-system null device without broker-owned copy pipes. macOS/Linux runners create process groups, TERM then KILL the group with bounded grace, and always wait the direct child; other targets intentionally guarantee only direct-process cancellation
