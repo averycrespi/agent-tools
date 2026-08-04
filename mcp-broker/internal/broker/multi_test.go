@@ -17,7 +17,7 @@ type stubApprover struct {
 	delay        time.Duration
 }
 
-func (s *stubApprover) Review(ctx context.Context, _ string, _ map[string]any) (bool, string, error) {
+func (s *stubApprover) Review(ctx context.Context, _ ApprovalRequest) (bool, string, error) {
 	select {
 	case <-time.After(s.delay):
 		return s.approved, s.denialReason, s.err
@@ -26,12 +26,43 @@ func (s *stubApprover) Review(ctx context.Context, _ string, _ map[string]any) (
 	}
 }
 
+type captureApprover struct {
+	received chan ApprovalRequest
+}
+
+func (a *captureApprover) Review(_ context.Context, request ApprovalRequest) (bool, string, error) {
+	a.received <- request
+	return true, "", nil
+}
+
+func TestMultiApproverPropagatesOneBrokerOwnedRequestToEveryApprover(t *testing.T) {
+	first := &captureApprover{received: make(chan ApprovalRequest, 1)}
+	second := &captureApprover{received: make(chan ApprovalRequest, 1)}
+	multi := NewMultiApprover(time.Second, first, second)
+	request := ApprovalRequest{
+		ID: "shared-id", OccurredAt: time.Date(2026, 8, 3, 18, 42, 0, 0, time.UTC),
+		ToolName: "tool", ToolInput: map[string]any{"complete": true},
+	}
+
+	approved, _, err := multi.Review(context.Background(), request)
+	require.NoError(t, err)
+	require.True(t, approved)
+	for _, received := range []<-chan ApprovalRequest{first.received, second.received} {
+		select {
+		case got := <-received:
+			require.Equal(t, request, got)
+		case <-time.After(time.Second):
+			t.Fatal("approver did not receive shared request")
+		}
+	}
+}
+
 func TestMultiApprover_FirstApproverWins(t *testing.T) {
 	fast := &stubApprover{approved: true, delay: 0}
 	slow := &stubApprover{approved: false, denialReason: "user", delay: 10 * time.Second}
 
 	m := NewMultiApprover(30*time.Second, fast, slow)
-	approved, reason, err := m.Review(context.Background(), "tool", nil)
+	approved, reason, err := m.Review(context.Background(), ApprovalRequest{ToolName: "tool"})
 
 	require.NoError(t, err)
 	require.True(t, approved)
@@ -42,7 +73,7 @@ func TestMultiApprover_ExplicitDenyPropagated(t *testing.T) {
 	denier := &stubApprover{approved: false, denialReason: "user", delay: 0}
 
 	m := NewMultiApprover(30*time.Second, denier)
-	approved, reason, err := m.Review(context.Background(), "tool", nil)
+	approved, reason, err := m.Review(context.Background(), ApprovalRequest{ToolName: "tool"})
 
 	require.NoError(t, err)
 	require.False(t, approved)
@@ -53,7 +84,7 @@ func TestMultiApprover_TimeoutReturnsDeniedWithReason(t *testing.T) {
 	never := &stubApprover{delay: 10 * time.Second}
 
 	m := NewMultiApprover(50*time.Millisecond, never)
-	approved, reason, err := m.Review(context.Background(), "tool", nil)
+	approved, reason, err := m.Review(context.Background(), ApprovalRequest{ToolName: "tool"})
 
 	require.NoError(t, err)
 	require.False(t, approved)
@@ -66,7 +97,7 @@ func TestMultiApprover_ContextCancelledApproverSkipped(t *testing.T) {
 	good := &stubApprover{approved: true, delay: 5 * time.Millisecond}
 
 	m := NewMultiApprover(30*time.Second, ctxErr, good)
-	approved, reason, err := m.Review(context.Background(), "tool", nil)
+	approved, reason, err := m.Review(context.Background(), ApprovalRequest{ToolName: "tool"})
 
 	require.NoError(t, err)
 	require.True(t, approved)

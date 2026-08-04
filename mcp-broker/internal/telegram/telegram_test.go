@@ -12,7 +12,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/broker"
 )
+
+func approvalRequest(tool string, input map[string]any) broker.ApprovalRequest {
+	return broker.ApprovalRequest{ID: "approval-1", ToolName: tool, ToolInput: input}
+}
 
 func fakeTelegramServer(t *testing.T, callbackData string) (*httptest.Server, *int32) {
 	t.Helper()
@@ -56,7 +62,7 @@ func TestApprover_Review_Approves(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	approved, reason, err := a.Review(ctx, "github.push", map[string]any{"branch": "main"})
+	approved, reason, err := a.Review(ctx, approvalRequest("github.push", map[string]any{"branch": "main"}))
 	require.NoError(t, err)
 	require.True(t, approved)
 	require.Empty(t, reason)
@@ -70,7 +76,7 @@ func TestApprover_Review_Denies(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	approved, reason, err := a.Review(ctx, "github.push", nil)
+	approved, reason, err := a.Review(ctx, approvalRequest("github.push", nil))
 	require.NoError(t, err)
 	require.False(t, approved)
 	require.Equal(t, "user", reason)
@@ -144,7 +150,7 @@ func TestApprover_Review_ConcurrentCallbacksAreDispatchedByMessageID(t *testing.
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			approved, reason, err := a.Review(ctx, "github.push", nil)
+			approved, reason, err := a.Review(ctx, approvalRequest("github.push", nil))
 			results <- approved
 			reasons <- reason
 			errs <- err
@@ -201,9 +207,9 @@ func TestApprover_Review_EscapesHTMLInApprovalMessage(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	approved, reason, err := a.Review(ctx, "evil</code>", map[string]any{
+	approved, reason, err := a.Review(ctx, approvalRequest("evil</code>", map[string]any{
 		"body": "</pre><b>approved</b><pre>&",
-	})
+	}))
 
 	require.NoError(t, err)
 	require.True(t, approved)
@@ -262,7 +268,7 @@ func TestApprover_Review_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	approved, reason, err := a.Review(ctx, "test.tool", nil)
+	approved, reason, err := a.Review(ctx, approvalRequest("test.tool", nil))
 	require.NoError(t, err) // context cancel is not returned as an error
 	require.False(t, approved)
 	require.Equal(t, "timeout", reason)

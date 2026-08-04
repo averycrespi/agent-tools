@@ -6,6 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -15,6 +19,124 @@ import (
 
 var defaultTools = []toolDef{
 	{Name: "say_hello", Description: "Says hello", Response: `{"message":"hello"}`},
+}
+
+func TestE2E_SIGTERMClosesDashboardSSEPromptly(t *testing.T) {
+	s := newTestStack(t, stackOpts{Tools: defaultTools})
+	require.NoError(t, s.Client.Close())
+
+	req, err := http.NewRequest(http.MethodGet, s.BrokerURL+"/dashboard/events", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	started := time.Now()
+	require.NoError(t, s.stopBroker(syscall.SIGTERM, 2*time.Second))
+	require.Less(t, time.Since(started), 2*time.Second)
+}
+
+func TestE2E_HookPayloadCorrelatesWithDashboardWithoutBlockingApproval(t *testing.T) {
+	dir := t.TempDir()
+	payloadPath := filepath.Join(dir, "payload.json")
+	startedPath := filepath.Join(dir, "started")
+	script := filepath.Join(dir, "slow-hook.sh")
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\ncat > \"$1\"\ntouch \"$2\"\nsleep 30\n"), 0o700))
+
+	s := newTestStack(t, stackOpts{
+		Tools: defaultTools,
+		Hooks: testHooks(testHookHandlerConfig{
+			Command: script, Args: []string{payloadPath, startedPath}, TimeoutSeconds: 60,
+		}),
+	})
+
+	callDone := make(chan error, 1)
+	go func() {
+		_, err := s.callTool("echo.say_hello", map[string]any{"name": "Ada", "nested": map[string]any{"complete": true}})
+		callDone <- err
+	}()
+	pending := s.waitForPending(5 * time.Second)
+	require.Len(t, pending, 1)
+	require.Eventually(t, func() bool {
+		_, payloadErr := os.Stat(payloadPath)
+		_, startedErr := os.Stat(startedPath)
+		return payloadErr == nil && startedErr == nil
+	}, 5*time.Second, 20*time.Millisecond)
+
+	var payload struct {
+		SchemaVersion int            `json:"schema_version"`
+		EventName     string         `json:"hook_event_name"`
+		RequestID     string         `json:"request_id"`
+		OccurredAt    time.Time      `json:"occurred_at"`
+		ToolName      string         `json:"tool_name"`
+		ToolInput     map[string]any `json:"tool_input"`
+		Policy        struct {
+			Verdict    string `json:"verdict"`
+			RuleSource string `json:"rule_source"`
+		} `json:"policy"`
+	}
+	data, err := os.ReadFile(payloadPath)
+	require.NoError(t, err)
+	require.True(t, strings.HasSuffix(string(data), "\n"))
+	require.NoError(t, json.Unmarshal(data, &payload))
+	require.Equal(t, 1, payload.SchemaVersion)
+	require.Equal(t, "require-approval", payload.EventName)
+	require.Equal(t, pending[0].ID, payload.RequestID)
+	require.Equal(t, pending[0].Timestamp, payload.OccurredAt)
+	require.Equal(t, "echo.say_hello", payload.ToolName)
+	require.Equal(t, "require-approval", payload.Policy.Verdict)
+	require.Equal(t, "base", payload.Policy.RuleSource)
+	require.Equal(t, map[string]any{"name": "Ada", "nested": map[string]any{"complete": true}}, payload.ToolInput)
+
+	s.approve(pending[0].ID)
+	select {
+	case err := <-callDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("slow hook blocked approval completion")
+	}
+}
+
+func TestE2E_RejectApprovalModeDoesNotInvokeHook(t *testing.T) {
+	dir := t.TempDir()
+	payloadPath := filepath.Join(dir, "payloads.jsonl")
+	script := filepath.Join(dir, "capture-hook.sh")
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\ncat >> \"$1\"\n"), 0o700))
+	s := newTestStack(t, stackOpts{
+		Tools: defaultTools,
+		Hooks: testHooks(testHookHandlerConfig{Command: script, Args: []string{payloadPath}, TimeoutSeconds: 5}),
+	})
+
+	result, err := s.callToolWithHeaders("echo.say_hello", map[string]any{"call": "rejected"}, http.Header{
+		"Mcp-Broker-Approval-Mode": []string{"reject"},
+	})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	require.Empty(t, s.getPending())
+
+	callDone := make(chan error, 1)
+	go func() {
+		_, err := s.callTool("echo.say_hello", map[string]any{"call": "approved"})
+		callDone <- err
+	}()
+	pending := s.waitForPending(5 * time.Second)
+	s.approve(pending[0].ID)
+	require.NoError(t, <-callDone)
+	require.Eventually(t, func() bool {
+		data, readErr := os.ReadFile(payloadPath)
+		return readErr == nil && len(strings.Split(strings.TrimSpace(string(data)), "\n")) >= 1
+	}, 5*time.Second, 20*time.Millisecond)
+	require.NoError(t, s.Client.Close())
+	require.NoError(t, s.stopBroker(syscall.SIGTERM, 2*time.Second))
+
+	data, err := os.ReadFile(payloadPath)
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	require.Len(t, lines, 1)
+	require.Contains(t, lines[0], `"call":"approved"`)
+	require.NotContains(t, lines[0], "rejected")
 }
 
 func TestE2E_ApproveToolCall(t *testing.T) {

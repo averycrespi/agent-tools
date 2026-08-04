@@ -403,16 +403,35 @@ func (m *Manager) Call(ctx context.Context, tool string, args map[string]any) (*
 
 // Close shuts down all backend connections.
 func (m *Manager) Close() error {
-	var errs []error
+	type closeResult struct {
+		name string
+		err  error
+	}
+
+	results := make(chan closeResult, len(m.backends))
 	for name, backend := range m.backends {
-		if err := backend.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("closing %s: %w", name, err))
+		go func() {
+			results <- closeResult{name: name, err: backend.Close()}
+		}()
+	}
+
+	var failures []closeResult
+	for range len(m.backends) {
+		result := <-results
+		if result.err != nil {
+			failures = append(failures, result)
 		}
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("errors closing backends: %v", errs)
+	if len(failures) == 0 {
+		return nil
 	}
-	return nil
+
+	sort.Slice(failures, func(i, j int) bool { return failures[i].name < failures[j].name })
+	errs := make([]error, 0, len(failures))
+	for _, failure := range failures {
+		errs = append(errs, fmt.Errorf("closing %s: %w", failure.name, failure.err))
+	}
+	return fmt.Errorf("errors closing backends: %w", errors.Join(errs...))
 }
 
 // expandEnv substitutes $VAR and ${VAR} references in values from the process environment.

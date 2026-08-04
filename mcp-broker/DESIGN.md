@@ -19,29 +19,34 @@ mcp-broker is that broker:
 - **Policy controls access** — glob-based rules determine which tools are allowed, denied, or require human approval. Default is require-approval (fail-closed).
 - **Temporary grants** — users can mint mandatory-TTL bearer grants that prepend a temporary rule overlay for a request while preserving normal broker authentication.
 - **Human in the loop** — sensitive operations appear in a web dashboard where a human can approve or deny them before they execute.
-- **Full audit trail** — every tool call is logged with arguments, verdict, approval status, denial reason, grant attribution, and errors. Successful tool results are not stored, keeping returned data out of the audit database.
+- **Approval observers** — trusted startup-configured commands can receive bounded best-effort `require-approval` notifications without participating in authorization.
+- **Audit trail** — tool calls are logged with arguments, verdict, approval status, denial reason, grant attribution, and errors. Audit writes are best effort so storage failure does not fail the tool pipeline, and request cancellation is propagated to SQLite. Successful tool results are not stored, keeping returned data out of the audit database.
 
 ## Architecture
 
 ```
-                          ┌─────────────────────────────────────────────┐
-                          │                 mcp-broker                  │
-                          │                                             │
-Agent ──MCP(/mcp)──▶      │  ┌─────────┐   ┌──────────┐   ┌────────┐  │
-                          │  │  Rules   │──▶│ Approval │──▶│ Proxy  │  │──MCP──▶ Backend A
-                          │  │ Engine   │   │(Dashboard│   │(Manager│  │──MCP──▶ Backend B
-                          │  └─────────┘   └──────────┘   └────────┘  │──MCP──▶ Backend C
-                          │       │              │             │       │
-                          │       └──────────────┼─────────────┘       │
-                          │                      ▼                     │
-                          │               ┌────────────┐               │
-                          │               │   Audit    │               │
-                          │               │  (SQLite)  │               │
-                          │               └────────────┘               │
-                          │                                             │
-Human ──HTTP(:8200)──▶    │            Dashboard (Web UI)               │
-                          └─────────────────────────────────────────────┘
+                          ┌──────────────────────────────────────────────────────┐
+                          │                    mcp-broker                       │
+                          │                                                      │
+Agent ──MCP(/mcp)──▶      │  ┌─────────┐   ┌──────────┐   ┌────────┐           │
+                          │  │  Rules   │──▶│ Approval │──▶│ Proxy  │           │──MCP──▶ Backend A
+                          │  │ Engine   │   │ fan-out  │   │ Manager│           │──MCP──▶ Backend B
+                          │  └─────────┘   └────┬─────┘   └────────┘           │──MCP──▶ Backend C
+                          │       │              │                              │
+                          │       │              └──observer──▶ Hook Dispatcher │──exec──▶ Trusted commands
+                          │       │                                             │
+                          │       └──────────────────┬──────────────────────────┘
+                          │                          ▼                           │
+                          │                   ┌────────────┐                     │
+                          │                   │   Audit    │                     │
+                          │                   │  (SQLite)  │                     │
+                          │                   └────────────┘                     │
+                          │                                                      │
+Human ──HTTP(:8200)──▶    │               Dashboard (Web UI)                    │
+                          └──────────────────────────────────────────────────────┘
 ```
+
+The hook branch is observational and best-effort. It is entered only when the broker commits to human approval fan-out; it has no return path into policy, approval, proxy, or audit decisions.
 
 ### Single binary, single port
 
@@ -49,6 +54,12 @@ mcp-broker is a single Go binary serving on a single port (default 8200):
 
 - `/mcp` — Streamable HTTP MCP endpoint for agents, protected by a configurable request body limit (`max_request_body_bytes`, default 10 MiB)
 - `/` — Web dashboard for humans (approval, tools, audit log)
+
+### Process lifecycle
+
+The broker uses one lifetime context for inbound HTTP requests, backend connections, and hook commands. The first `SIGINT` or `SIGTERM` cancels that context, which ends dashboard and MCP streams, pending approvals, in-flight backend work, and running hook process groups before HTTP shutdown begins. HTTP shutdown, backend closure, and database closure share one 10-second process-wide deadline; expiry force-closes HTTP and terminates the process rather than leaving a restart blocked. A second termination signal exits immediately.
+
+Backend connections close concurrently so one slow stdio or remote backend does not delay every other backend in sequence. The hook dispatcher first linearizes into a closed state, rejects new admissions, drains queued jobs and byte reservations, and cancels running commands; its `Close` waits only within the shared shutdown context and is safe to repeat. Audit inserts and queries use caller contexts so canceled requests do not keep SQLite work alive during shutdown.
 
 ### Pipeline
 
@@ -58,11 +69,11 @@ Every tool call flows through the same pipeline:
 
 2. **Rules engine** — If no grant rule matches, the broker evaluates the tool name against the ordered base rules. Each rule maps a pattern to a verdict: `allow`, `deny`, or `require-approval`. First match wins; default is `require-approval`. Deny rules may include an optional human-authored `reason`, returned to agents as `denied by rule: <reason>` or `denied by grant rule: <reason>`.
 
-3. **Approval** — If the final verdict is `require-approval`, the call blocks and appears in the web dashboard. A human approves or denies it. Dashboard denials can include an optional reason, returned as `denied by user: <reason>`; binary denials return `denied by user`. Approval timeouts return `denied by timeout`. If no approver is configured, the call is rejected. Per-request `Mcp-Broker-Approval-Mode: reject` skips approval fan-out and immediately rejects calls whose final verdict is `require-approval`; `allow` and `deny` verdicts are unchanged.
+3. **Approval** — If the final verdict is `require-approval`, reject mode and the missing-approver gate run first. The broker then generates one cryptographically random 128-bit approval ID and UTC occurrence timestamp. If the initiating context is still active, it gives an `ApprovalObserver` the same immutable request immediately before invoking the human approver. The call then appears in the web dashboard and fans out to optional Telegram; a human approves or denies it. Dashboard denials can include an optional reason, returned as `denied by user: <reason>`; binary denials return `denied by user`. Approval timeouts return `denied by timeout`. If ID generation fails, authorization fails closed. Per-request `Mcp-Broker-Approval-Mode: reject` skips observer and approver fan-out and immediately rejects calls whose final verdict is `require-approval`; `allow` and `deny` verdicts are unchanged. Observer delivery is never an authorization input.
 
 4. **Proxy** — The call is forwarded to the backend MCP server that owns the tool. The broker strips the namespace prefix before forwarding.
 
-5. **Audit** — Every call is recorded in a SQLite database with: timestamp, tool name, arguments, verdict, approval status, denial reason, grant metadata/status, rule source, and any error. Successful tool results are deliberately not stored.
+5. **Audit** — The broker attempts to record every call in a SQLite database with: timestamp, tool name, arguments, verdict, approval status, denial reason, grant metadata/status, rule source, and any error. Writes use the request context and are best effort: cancellation or a database failure can omit a row without failing the tool call. Successful tool results are deliberately not stored.
 
 ### Tool namespacing
 
@@ -72,13 +83,13 @@ Each backend server has a name (from config). When tools are discovered, they ar
 
 ### Config (`internal/config`)
 
-Primary config lives at `~/.config/mcp-broker/config.json`; base policy rules live in a separate `rules.json` document by default. `config.json` contains backend/server settings and `rules_path`, while `rules.json` contains `{ "rules": [...] }`. On first run, default config and rules files are written. The `Refresh` function loads, overlays defaults for new fields, writes config back, and ensures the companion rules file exists — useful for upgrading config after new features are added.
+Primary config lives at `~/.config/mcp-broker/config.json`; base policy rules live in a separate `rules.json` document by default. `config.json` contains backend/server settings and `rules.path`, while `rules.json` contains `{ "rules": [...] }`. On first run, default config and rules files are written. The `Refresh` function loads, overlays defaults for new fields, writes config back, and ensures the companion rules file exists — useful for upgrading config after new features are added.
 
-Most config is loaded once at startup. Policy rule content is the only hot-reloadable configuration: sending `SIGHUP` to the running process reads the effective rules file selected at startup, compiles a complete rules snapshot, and atomically swaps it into the broker and dashboard after validation succeeds. Invalid reloads are non-fatal and leave the previous rules active. Changing `rules_path` itself requires restart.
+Most config is loaded once at startup. Policy rule content is the only hot-reloadable configuration: sending `SIGHUP` to the running process reads the effective rules file selected at startup, compiles a complete rules snapshot, and atomically swaps it into the broker and dashboard after validation succeeds. Invalid reloads are non-fatal and leave the previous rules active. Changing `rules.path` itself requires restart.
 
-Legacy top-level `config.json` `rules` are migration-only. If legacy embedded rules exist and the effective rules file is missing, they are written to `rules.json`. If both exist, the rules file is authoritative and legacy embedded rules are ignored with a warning.
+The legacy top-level `rules_path` field remains an input-only compatibility alias. `rules.path` takes precedence when both are present, and config refresh serializes only the canonical nested field. Legacy top-level `config.json` rule arrays are migration-only. If legacy embedded rules exist and the effective rules file is missing, they are written to `rules.json`. If both exist, the rules file is authoritative and legacy embedded rules are ignored with a warning.
 
-Backend servers, `tool_patches`, listener settings, audit path, grants path/max TTL, auth token, Telegram settings, approval timeout, log level, browser opening, and request body limit remain startup-only and require restart. Tool patches are ordered load-time transforms for discovered tools. Tool patch patterns match broker-prefixed tool names with `filepath.Match`; the first matching patch applies. `disabled: true` removes the tool from the broker registry, and `annotations` merges field-by-field into MCP tool annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). `_meta` is passed through unchanged and is not patched.
+Backend servers, `tool_patches`, hook definitions/dispatch limits, listener settings, audit path, grants path/max TTL, auth token, Telegram settings, approval timeout, log level, browser opening, and request body limit remain startup-only and require restart. Tool patches are ordered load-time transforms for discovered tools. Tool patch patterns match broker-prefixed tool names with `filepath.Match`; the first matching patch applies. `disabled: true` removes the tool from the broker registry, and `annotations` merges field-by-field into MCP tool annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). `_meta` is passed through unchanged and is not patched.
 
 Defaults:
 
@@ -90,6 +101,11 @@ Defaults:
 - Grants path: `~/.local/share/mcp-broker/grants.db`
 - Maximum grant TTL: 604800 seconds (7 days)
 - Log level: `info`
+- Hook command concurrency: 4
+- Hook queue capacity: 64 jobs
+- Maximum hook payload: 10 MiB
+- Hook queued-payload budget: 64 MiB
+- `require-approval` hook handlers: none
 
 ### Rules engine (`internal/rules`)
 
@@ -192,6 +208,16 @@ Environment variables in server config support `$VAR` expansion from the process
 
 Bearer token authentication for the `/mcp` endpoint. Generates a 32-byte random token (hex-encoded, 64 chars) stored with `0600` file permissions (parent directories `0750`). The HTTP middleware validates tokens using `crypto/subtle.ConstantTimeCompare`. Token is generated on first `serve` if it doesn't already exist.
 
+### Hooks (`internal/hooks`)
+
+The hooks subsystem implements `broker.ApprovalObserver`; it is deliberately separate from `Approver` because command results must have no authorization semantics. V1 registers only `require-approval`. The broker-owned request contains the shared ID/time, tool and complete input snapshot source, final verdict/rule source, and optional non-secret valid-grant metadata. The dispatcher serializes a versioned JSON object plus a trailing newline synchronously, normalizes nil input to `{}`, and never adds authentication or grant tokens. Unsupported/cyclic JSON and oversized payloads are metadata-only drops.
+
+At startup, handler `$VAR`/`${VAR}` environment references are expanded once and overlaid on the inherited broker environment; config load/refresh retains the raw references. Commands use direct executable-plus-argv invocation. Request-controlled values are written only to stdin and are never interpolated into executable names, arguments, or environment. Bare executable lookup uses the broker `PATH`; a configured child `PATH` overlay does not change lookup.
+
+Admission is a mutex-linearized non-blocking try-send that reserves both one queue slot and serialized payload bytes. Each configured handler receives at most one attempt and jobs are never retried. Queue-slot saturation, byte-budget saturation, serialization/size failure, deadline expiry, and shutdown drop jobs independently without affecting approval. Handler deadlines begin at admission, so queue delay consumes runtime. The queued budget plus `max_concurrent * max_payload_bytes` bounds retained serialized payload memory.
+
+Workers recheck lifetime cancellation and the end-to-end deadline immediately before starting a command. Stdout and stderr are left on `os/exec`'s direct operating-system null-device path, avoiding broker-owned copy pipes; only metadata classifications are logged. On macOS/Linux the runner creates a new process group, sends TERM on deadline or lifetime cancellation, escalates to KILL after a fixed short grace period, and always waits for the direct child. Same-group descendants are covered; escaped descendants are not. Other targets compile a direct-process fallback with no descendant guarantee.
+
 ### Telegram approver (`internal/telegram`)
 
 Optional Telegram Bot API-based approver. Uses long-polling (`getUpdates?timeout=30`) — no inbound connections needed. When an approval is required, a message is sent to the configured chat; responses are correlated by Telegram `message_id`. Bot token and chat ID support `$VAR` expansion via `os.ExpandEnv` at startup.
@@ -216,8 +242,9 @@ The orchestrator. Wires together rules, approval, proxy, and audit. The `Handle`
 - `AuditLogger` — recording and querying audit entries
 - `Approver` — human approval decisions
 - `GrantValidator` — per-request durable grant validation
+- `ApprovalObserver` — non-authorizing best-effort observation of a broker-owned `ApprovalRequest`
 
-`MultiApprover` fans approval requests to all configured approvers (e.g., dashboard + Telegram) concurrently with a shared timeout. First response wins. Telegram denial is binary (`user`); timeout resolves as `timeout`.
+`ApprovalRequest` is generated only after the broker commits an active request to human fan-out. It carries one ID/time and the selected policy/grant attribution so rules reloads cannot change an in-progress decision and dashboard/Telegram fan-out cannot duplicate hook emission. `MultiApprover` fans approval requests to all configured approvers (e.g., dashboard + Telegram) concurrently with a shared timeout. First response wins. Telegram denial is binary (`user`); timeout resolves as `timeout`.
 
 ### CLI (`cmd/mcp-broker`)
 
@@ -258,9 +285,13 @@ Cobra-based CLI with commands:
 
 **Failed backends don't block startup.** If one of several backend servers is unavailable, the broker retries startup connect/discovery with bounded per-backend settings, then starts with the remaining servers rather than failing entirely. Exhausted failures are logged and shown in the dashboard Tools tab. Recovery after exhaustion requires restarting the broker because runtime rediscovery and dynamic MCP tool registration are out of scope.
 
-**Rules reload without backend churn.** Rules are frequent operational edits, so `SIGHUP` reloads only the selected `rules.json` policy document and keeps the HTTP server, backend connections, discovered tools, and listener address unchanged. Reload compiles before swapping and keeps the old snapshot on any error. The `rules_path` setting itself is startup-only and requires restart.
+**Rules reload without backend churn.** Rules are frequent operational edits, so `SIGHUP` reloads only the selected `rules.json` policy document and keeps the HTTP server, backend connections, discovered tools, and listener address unchanged. Reload compiles before swapping and keeps the old snapshot on any error. The `rules.path` setting itself is startup-only and requires restart.
 
 **Default verdict is require-approval.** Fail-closed by default — any tool not explicitly allowed requires human approval.
+
+**Hooks observe approval commitment, never policy.** A hook attempt occurs only after the final `require-approval` verdict passes reject/no-approver gates and an active initiating context reaches fan-out. A cancellation racing after that check can remove the pending dashboard request after admission; notification is not proof of a live prompt. Hook output, status, timeout, overload, and shutdown have no path into approval, proxy, or audit decisions.
+
+**Hook delivery is bounded at-most-once.** The dispatcher is in-memory and non-durable: no retries, outbox, dead-letter queue, or delivery guarantee. This keeps admission independent of queue capacity and command execution while bounding retained payload memory. Hook commands are privileged trusted host configuration, run unsandboxed as the broker user, inherit its environment, and receive full unredacted tool input; isolation or secret confinement is not promised.
 
 **Grants are prepend-only overlays.** A supplied valid grant is evaluated before base rules, and base rules run only if no grant rule matches. Grant rules support `allow`, `deny`, and `require-approval`, so a grant can intentionally shadow a base deny for a bounded TTL. Invalid, expired, revoked, duplicate, or unreadable grant state fails closed and is audited; silent fallback to base rules is not allowed for bad grant headers.
 

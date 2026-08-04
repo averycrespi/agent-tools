@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -25,6 +27,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/dashboard"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/grants"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/hooks"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/rules"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/telegram"
@@ -88,6 +91,56 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	logger := slog.New(handler)
 	logger.Info("config loaded", "path", cfgPath)
 
+	lifetimeCtx, cancelLifetime := context.WithCancel(context.Background())
+	defer cancelLifetime()
+
+	var (
+		auditor          *audit.Logger
+		grantStore       *grants.Store
+		hookDispatcher   *hooks.Dispatcher
+		mgr              *server.Manager
+		unsubscribeAudit func()
+		closeOnce        sync.Once
+		closeErr         error
+		coordinated      bool
+	)
+	closeResources := func(ctx context.Context) error {
+		closeOnce.Do(func() {
+			if unsubscribeAudit != nil {
+				unsubscribeAudit()
+			}
+			var errs []error
+			if hookDispatcher != nil {
+				if err := hookDispatcher.Close(ctx); err != nil {
+					errs = append(errs, fmt.Errorf("closing hook dispatcher: %w", err))
+				}
+			}
+			if mgr != nil {
+				if err := mgr.Close(); err != nil {
+					errs = append(errs, fmt.Errorf("closing server manager: %w", err))
+				}
+			}
+			if grantStore != nil {
+				if err := grantStore.Close(); err != nil {
+					errs = append(errs, fmt.Errorf("closing grants store: %w", err))
+				}
+			}
+			if auditor != nil {
+				if err := auditor.Close(ctx); err != nil {
+					errs = append(errs, fmt.Errorf("closing audit logger: %w", err))
+				}
+			}
+			closeErr = errors.Join(errs...)
+		})
+		return closeErr
+	}
+	defer func() {
+		if !coordinated {
+			cancelLifetime()
+			_ = closeResources(context.Background())
+		}
+	}()
+
 	rulesResult, err := config.LoadRulesForConfig(cfgPath, cfg)
 	if err != nil {
 		return fmt.Errorf("loading rules: %w", err)
@@ -109,26 +162,22 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	logger.Info("auth token loaded", "path", tokenPath)
 
 	// Create audit logger
-	auditor, err := audit.NewLogger(cfg.Audit.Path)
+	auditor, err = audit.NewLogger(cfg.Audit.Path)
 	if err != nil {
 		return fmt.Errorf("creating audit logger: %w", err)
 	}
-	defer func() { _ = auditor.Close(context.Background()) }()
 
 	// Create grant store. Grant lookup errors are authorization state failures, so startup fails if unavailable.
-	grantStore, err := grants.Open(cfg.Grants.Path)
+	grantStore, err = grants.Open(cfg.Grants.Path)
 	if err != nil {
 		return fmt.Errorf("creating grants store: %w", err)
 	}
-	defer func() { _ = grantStore.Close() }()
 
 	// Connect to backend servers
-	ctx := context.Background()
-	mgr, err := server.NewManager(ctx, cfg.Servers, cfg.ToolPatches, logger.With("component", "server"))
+	mgr, err = server.NewManager(lifetimeCtx, cfg.Servers, cfg.ToolPatches, logger.With("component", "server"))
 	if err != nil {
 		return fmt.Errorf("creating server manager: %w", err)
 	}
-	defer func() { _ = mgr.Close() }()
 
 	tools := mgr.Tools()
 	logger.Info("tools discovered", "count", len(tools))
@@ -143,8 +192,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	dash := dashboard.NewWithGrants(mgr, ruleStore, auditor, grantStore, logger.With("component", "dashboard"))
 
 	// Wire audit subscriber so live records are broadcast over SSE.
-	unsubscribeAudit := auditor.Subscribe(dash.OnAuditRecord)
-	defer unsubscribeAudit()
+	unsubscribeAudit = auditor.Subscribe(dash.OnAuditRecord)
 
 	// Create multi-approver
 	timeout := time.Duration(cfg.ApprovalTimeoutSeconds) * time.Second
@@ -162,8 +210,12 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	multi := broker.NewMultiApprover(timeout, approvers...)
 
-	// Create broker
-	b := broker.NewWithGrants(mgr, ruleStore, auditor, multi, grantStore, logger.With("component", "broker"))
+	// Create startup-only hook dispatcher and broker.
+	hookDispatcher = hooks.New(lifetimeCtx, cfg.Hooks, logger.With("component", "hooks"))
+	b := broker.NewWithOptions(broker.Options{
+		Servers: mgr, Rules: ruleStore, Auditor: auditor, Approver: multi,
+		Grants: grantStore, Observer: hookDispatcher, Logger: logger.With("component", "broker"),
+	})
 
 	// Create MCP server
 	mcpSrv := mcpserver.NewMCPServer("mcp-broker", "0.1.0")
@@ -195,10 +247,28 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	if err := server.ValidateLoopbackAddr(addr); err != nil {
 		return err
 	}
-	srv := &http.Server{Addr: addr, Handler: auth.Middleware(token, mux), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           auth.Middleware(token, mux),
+		ReadHeaderTimeout: 10 * time.Second,
+		BaseContext: func(net.Listener) context.Context {
+			return lifetimeCtx
+		},
+	}
+
+	var shutdownOnce sync.Once
+	var shutdownErr error
+	shutdown := func() error {
+		shutdownOnce.Do(func() {
+			shutdownErr = shutdownApplication(cancelLifetime, srv, closeResources, logger, shutdownTimeout)
+		})
+		return shutdownErr
+	}
+	coordinated = true
+	defer func() { _ = shutdown() }()
 
 	// Handle shutdown and rules reload.
-	stop := make(chan os.Signal, 1)
+	stop := make(chan os.Signal, 2)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(stop)
 
@@ -223,12 +293,12 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	return serveEventLoop(stop, reload, errCh, srv, logger, func() error {
+	return serveEventLoop(stop, reload, errCh, logger, func() error {
 		return reloadRulesFromFile(rulesResult.Path, ruleStore, logger)
-	})
+	}, shutdown)
 }
 
-func serveEventLoop(stop <-chan os.Signal, reload <-chan os.Signal, errCh <-chan error, srv stoppableServer, logger *slog.Logger, reloadRules func() error) error {
+func serveEventLoop(stop <-chan os.Signal, reload <-chan os.Signal, errCh <-chan error, logger *slog.Logger, reloadRules func() error, shutdown func() error) error {
 	for {
 		select {
 		case <-reload:
@@ -246,7 +316,7 @@ func serveEventLoop(stop <-chan os.Signal, reload <-chan os.Signal, errCh <-chan
 				}
 				forceExit(1)
 			}()
-			return shutdownServer(srv, logger, shutdownTimeout)
+			return shutdown()
 		case err := <-errCh:
 			if !errors.Is(err, http.ErrServerClosed) {
 				return fmt.Errorf("server error: %w", err)
@@ -289,22 +359,55 @@ func limitRequestBody(maxBytes int64, next http.Handler) http.Handler {
 	})
 }
 
-func shutdownServer(srv stoppableServer, logger *slog.Logger, timeout time.Duration) error {
+func shutdownApplication(cancelLifetime context.CancelFunc, srv stoppableServer, closeResources func(context.Context) error, logger *slog.Logger, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	cancelLifetime()
 
-	if err := srv.Shutdown(ctx); err != nil {
-		if !errors.Is(err, context.DeadlineExceeded) {
-			return err
-		}
-		if logger != nil {
-			logger.Warn("graceful shutdown timed out, forcing close", "timeout", timeout)
-		}
-		if closeErr := srv.Close(); closeErr != nil {
-			return fmt.Errorf("forcing shutdown: %w", closeErr)
-		}
+	var (
+		forceCloseOnce sync.Once
+		forceCloseErr  error
+	)
+	forceClose := func() error {
+		forceCloseOnce.Do(func() {
+			forceCloseErr = srv.Close()
+		})
+		return forceCloseErr
 	}
-	return nil
+
+	done := make(chan error, 1)
+	go func() {
+		var errs []error
+		if err := srv.Shutdown(ctx); err != nil {
+			if closeErr := forceClose(); closeErr != nil {
+				errs = append(errs, fmt.Errorf("forcing HTTP shutdown: %w", closeErr))
+			}
+			if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+				errs = append(errs, fmt.Errorf("shutting down HTTP server: %w", err))
+			}
+		}
+		if closeResources != nil {
+			if err := closeResources(ctx); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		done <- errors.Join(errs...)
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		if logger != nil {
+			logger.Warn("application shutdown timed out, forcing exit", "timeout", timeout)
+		}
+		go func() {
+			if err := forceClose(); err != nil && logger != nil {
+				logger.Warn("forced HTTP close failed", "error", err)
+			}
+		}()
+		return ctx.Err()
+	}
 }
 
 func openBrowser(url string) error {

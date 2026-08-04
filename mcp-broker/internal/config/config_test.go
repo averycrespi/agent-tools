@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,7 +16,7 @@ func TestLoadCreatesDefaultConfigAndRulesFile(t *testing.T) {
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	require.Equal(t, filepath.Join(dir, "rules.json"), cfg.RulesPath)
+	require.Equal(t, filepath.Join(dir, "rules.json"), cfg.Rules.Path)
 	require.FileExists(t, path)
 
 	rulesResult, err := LoadRulesForConfig(path, cfg)
@@ -26,8 +27,9 @@ func TestLoadCreatesDefaultConfigAndRulesFile(t *testing.T) {
 
 	rawConfig, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.Contains(t, string(rawConfig), `"rules_path"`)
-	require.NotContains(t, string(rawConfig), `"rules":`)
+	require.Contains(t, string(rawConfig), `"rules": {`)
+	require.Contains(t, string(rawConfig), `"path":`)
+	require.NotContains(t, string(rawConfig), `"rules_path"`)
 
 	rawRules, err := os.ReadFile(rulesResult.Path)
 	require.NoError(t, err)
@@ -44,11 +46,60 @@ func TestRulesPathDefaultsBesideEffectiveConfigPath(t *testing.T) {
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	require.Equal(t, filepath.Join(dir, "profile", "rules.json"), cfg.RulesPath)
+	require.Equal(t, filepath.Join(dir, "profile", "rules.json"), cfg.Rules.Path)
 
 	result, err := LoadRulesForConfig(path, cfg)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(dir, "profile", "rules.json"), result.Path)
+}
+
+func TestResolveRulesPathReadsNestedRulesPath(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	customRulesPath := filepath.Join(dir, "custom-rules.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{
+		"rules": {"path": "`+customRulesPath+`"}
+	}`), 0o600))
+
+	resolved, err := ResolveRulesPath(configPath)
+	require.NoError(t, err)
+	require.Equal(t, customRulesPath, resolved)
+}
+
+func TestLoadAcceptsLegacyRulesPath(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	legacyRulesPath := filepath.Join(dir, "legacy-rules.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{
+		"rules_path": "`+legacyRulesPath+`"
+	}`), 0o600))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+	require.Equal(t, legacyRulesPath, cfg.Rules.Path)
+
+	resolved, err := ResolveRulesPath(configPath)
+	require.NoError(t, err)
+	require.Equal(t, legacyRulesPath, resolved)
+}
+
+func TestLoadPrefersNestedRulesPathOverLegacyAlias(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	nestedRulesPath := filepath.Join(dir, "nested-rules.json")
+	legacyRulesPath := filepath.Join(dir, "legacy-rules.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{
+		"rules": {"path": "`+nestedRulesPath+`"},
+		"rules_path": "`+legacyRulesPath+`"
+	}`), 0o600))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+	require.Equal(t, nestedRulesPath, cfg.Rules.Path)
+
+	resolved, err := ResolveRulesPath(configPath)
+	require.NoError(t, err)
+	require.Equal(t, nestedRulesPath, resolved)
 }
 
 func TestLoadRulesForConfigMigratesLegacyEmbeddedRulesWhenRulesFileMissing(t *testing.T) {
@@ -81,7 +132,7 @@ func TestLoadRulesForConfigUsesRulesFileWhenLegacyRulesAlsoExist(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(path, []byte(`{
 		"rules_path": "`+rulesPath+`",
-		"rules": {"tool": "*", "verdict": "allow"}
+		"rules": [{"tool": "*", "verdict": "allow"}]
 	}`), 0o600))
 	require.NoError(t, SaveRulesFile(rulesPath, []RuleConfig{{Tool: "slack.*", Verdict: "deny", Reason: "external wins"}}))
 
@@ -169,8 +220,28 @@ func TestRefresh_MigratesLegacyRulesBeforeRemovingEmbeddedRules(t *testing.T) {
 
 	rawConfig, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.NotContains(t, string(rawConfig), `"rules":`)
-	require.Contains(t, string(rawConfig), `"rules_path"`)
+	require.Contains(t, string(rawConfig), `"rules": {`)
+	require.Contains(t, string(rawConfig), `"path":`)
+	require.NotContains(t, string(rawConfig), `"rules_path"`)
+}
+
+func TestRefresh_RewritesLegacyRulesPathAsNestedRulesPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	rulesPath := filepath.Join(dir, "custom-rules.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"rules_path":"`+rulesPath+`"}`), 0o600))
+
+	_, err := Refresh(path)
+	require.NoError(t, err)
+
+	rawConfig, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var root map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rawConfig, &root))
+	require.NotContains(t, root, "rules_path")
+	var rules RulesConfig
+	require.NoError(t, json.Unmarshal(root["rules"], &rules))
+	require.Equal(t, rulesPath, rules.Path)
 }
 
 func TestRefresh_PreservesExistingRulesFile(t *testing.T) {
@@ -584,6 +655,110 @@ func TestDefaultConfig_TelegramDisabledByDefault(t *testing.T) {
 	cfg := DefaultConfig()
 	require.False(t, cfg.Telegram.Enabled)
 	require.Equal(t, 600, cfg.ApprovalTimeoutSeconds)
+}
+
+func TestLoad_HooksDefaultsAndEmptyForms(t *testing.T) {
+	for name, body := range map[string]string{
+		"omitted":      `{}`,
+		"empty object": `{"hooks":{}}`,
+		"empty event":  `{"hooks":{"events":{"require-approval":[]}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+
+			cfg, err := Load(path)
+			require.NoError(t, err)
+			require.Equal(t, HookDispatchConfig{
+				MaxConcurrent:   4,
+				QueueSize:       64,
+				MaxPayloadBytes: 10 * 1024 * 1024,
+				MaxQueuedBytes:  64 * 1024 * 1024,
+			}, cfg.Hooks.Dispatch)
+			require.Empty(t, cfg.Hooks.Events.RequireApproval)
+			require.NotNil(t, cfg.Hooks.Events.RequireApproval)
+		})
+	}
+}
+
+func TestRefresh_HooksWritesCanonicalDefaultsAndPreservesRawEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+		"hooks":{"events":{"require-approval":[{
+			"command":"notify",
+			"timeout_seconds":10,
+			"env":{"TOKEN":"$TOKEN","CHANNEL":"${CHANNEL}"}
+		}]}}
+	}`), 0o600))
+
+	_, err := Refresh(path)
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var root map[string]any
+	require.NoError(t, json.Unmarshal(raw, &root))
+	hooks := root["hooks"].(map[string]any)
+	dispatch := hooks["dispatch"].(map[string]any)
+	require.EqualValues(t, 4, dispatch["max_concurrent"])
+	require.EqualValues(t, 64, dispatch["queue_size"])
+	require.EqualValues(t, 10*1024*1024, dispatch["max_payload_bytes"])
+	require.EqualValues(t, 64*1024*1024, dispatch["max_queued_bytes"])
+	handlers := hooks["events"].(map[string]any)["require-approval"].([]any)
+	env := handlers[0].(map[string]any)["env"].(map[string]any)
+	require.Equal(t, "$TOKEN", env["TOKEN"])
+	require.Equal(t, "${CHANNEL}", env["CHANNEL"])
+}
+
+func TestLoad_HooksAcceptsMultipleHandlers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+		"hooks":{"events":{"require-approval":[
+			{"command":"/bin/echo","args":["one"],"timeout_seconds":1},
+			{"command":"notify","args":[],"timeout_seconds":86400,"env":{"SAFE_KEY":"value"}}
+		]}}
+	}`), 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Len(t, cfg.Hooks.Events.RequireApproval, 2)
+	require.Equal(t, []string{"one"}, cfg.Hooks.Events.RequireApproval[0].Args)
+	require.Equal(t, "value", cfg.Hooks.Events.RequireApproval[1].Env["SAFE_KEY"])
+}
+
+func TestLoad_HooksRejectsInvalidConfiguration(t *testing.T) {
+	const mib = 1024 * 1024
+	tests := map[string]struct {
+		hooks string
+		want  string
+	}{
+		"max concurrent low":   {`{"dispatch":{"max_concurrent":0}}`, "hooks.dispatch.max_concurrent"},
+		"max concurrent high":  {`{"dispatch":{"max_concurrent":65}}`, "hooks.dispatch.max_concurrent"},
+		"queue size low":       {`{"dispatch":{"queue_size":0}}`, "hooks.dispatch.queue_size"},
+		"queue size high":      {`{"dispatch":{"queue_size":4097}}`, "hooks.dispatch.queue_size"},
+		"payload low":          {`{"dispatch":{"max_payload_bytes":0}}`, "hooks.dispatch.max_payload_bytes"},
+		"payload high":         {fmt.Sprintf(`{"dispatch":{"max_payload_bytes":%d,"max_queued_bytes":%d}}`, 64*mib+1, 64*mib+1), "hooks.dispatch.max_payload_bytes"},
+		"queued below payload": {`{"dispatch":{"max_payload_bytes":1024,"max_queued_bytes":1023}}`, "hooks.dispatch.max_queued_bytes"},
+		"queued high":          {fmt.Sprintf(`{"dispatch":{"max_queued_bytes":%d}}`, 512*mib+1), "hooks.dispatch.max_queued_bytes"},
+		"unknown event":        {`{"events":{"after-call":[]}}`, "unknown hook event"},
+		"empty command":        {`{"events":{"require-approval":[{"command":"","timeout_seconds":1}]}}`, "command must not be empty"},
+		"missing timeout":      {`{"events":{"require-approval":[{"command":"notify"}]}}`, "timeout_seconds"},
+		"timeout high":         {`{"events":{"require-approval":[{"command":"notify","timeout_seconds":86401}]}}`, "timeout_seconds"},
+		"invalid env key":      {`{"events":{"require-approval":[{"command":"notify","timeout_seconds":1,"env":{"BAD-KEY":"x"}}]}}`, "environment key"},
+		"nul command":          {`{"events":{"require-approval":[{"command":"bad\u0000cmd","timeout_seconds":1}]}}`, "NUL"},
+		"nul arg":              {`{"events":{"require-approval":[{"command":"notify","args":["bad\u0000arg"],"timeout_seconds":1}]}}`, "NUL"},
+		"nul env key":          {`{"events":{"require-approval":[{"command":"notify","timeout_seconds":1,"env":{"BAD\u0000KEY":"value"}}]}}`, "NUL"},
+		"nul env value":        {`{"events":{"require-approval":[{"command":"notify","timeout_seconds":1,"env":{"KEY":"bad\u0000value"}}]}}`, "NUL"},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			require.NoError(t, os.WriteFile(path, []byte(`{"hooks":`+tc.hooks+`}`), 0o600))
+			_, err := Load(path)
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
 }
 
 // TestRuleConfig_NoArgs verifies that a rule with no args field round-trips

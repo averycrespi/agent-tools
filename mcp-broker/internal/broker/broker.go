@@ -2,6 +2,8 @@ package broker
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -50,7 +52,36 @@ type AuditLogger interface {
 // denials, "user: <reason>" for explicit denials with a reason, "timeout" for
 // timeouts, and "" when approved or not applicable.
 type Approver interface {
-	Review(ctx context.Context, tool string, args map[string]any) (bool, string, error)
+	Review(ctx context.Context, request ApprovalRequest) (bool, string, error)
+}
+
+// ApprovalRequest is the broker-owned immutable description of one approval fan-out.
+type ApprovalRequest struct {
+	ID         string
+	OccurredAt time.Time
+	ToolName   string
+	ToolInput  map[string]any
+	Policy     ApprovalPolicy
+	Grant      *ApprovalGrant
+}
+
+// ApprovalPolicy attributes the final policy decision that required approval.
+type ApprovalPolicy struct {
+	Verdict    string `json:"verdict"`
+	RuleSource string `json:"rule_source"`
+}
+
+// ApprovalGrant contains non-secret metadata for a valid request grant.
+type ApprovalGrant struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Fingerprint string `json:"fingerprint"`
+	Status      string `json:"status"`
+}
+
+// ApprovalObserver receives best-effort notifications and never authorizes calls.
+type ApprovalObserver interface {
+	Observe(request ApprovalRequest)
 }
 
 // RuleEvaluator evaluates policy and returns matched metadata from the same rules snapshot.
@@ -65,12 +96,28 @@ type GrantValidator interface {
 
 // Broker orchestrates the tool call pipeline.
 type Broker struct {
-	servers  ServerManager
-	rules    RuleEvaluator
-	auditor  AuditLogger
-	approver Approver
-	grants   GrantValidator
-	logger   *slog.Logger
+	servers            ServerManager
+	rules              RuleEvaluator
+	auditor            AuditLogger
+	approver           Approver
+	grants             GrantValidator
+	observer           ApprovalObserver
+	logger             *slog.Logger
+	clock              func() time.Time
+	generateApprovalID func() (string, error)
+}
+
+// Options supplies broker dependencies, including optional approval observation seams.
+type Options struct {
+	Servers            ServerManager
+	Rules              RuleEvaluator
+	Auditor            AuditLogger
+	Approver           Approver
+	Grants             GrantValidator
+	Observer           ApprovalObserver
+	Logger             *slog.Logger
+	Clock              func() time.Time
+	GenerateApprovalID func() (string, error)
 }
 
 // New creates a Broker with the given components.
@@ -80,13 +127,26 @@ func New(servers ServerManager, rulesEngine RuleEvaluator, auditor AuditLogger, 
 
 // NewWithGrants creates a Broker with durable grant validation enabled.
 func NewWithGrants(servers ServerManager, rulesEngine RuleEvaluator, auditor AuditLogger, approver Approver, grantValidator GrantValidator, logger *slog.Logger) *Broker {
+	return NewWithOptions(Options{
+		Servers: servers, Rules: rulesEngine, Auditor: auditor, Approver: approver,
+		Grants: grantValidator, Logger: logger,
+	})
+}
+
+// NewWithOptions creates a Broker with explicit dependencies.
+func NewWithOptions(opts Options) *Broker {
+	clock := opts.Clock
+	if clock == nil {
+		clock = time.Now
+	}
+	generateApprovalID := opts.GenerateApprovalID
+	if generateApprovalID == nil {
+		generateApprovalID = newApprovalID
+	}
 	return &Broker{
-		servers:  servers,
-		rules:    rulesEngine,
-		auditor:  auditor,
-		approver: approver,
-		grants:   grantValidator,
-		logger:   logger,
+		servers: opts.Servers, rules: opts.Rules, auditor: opts.Auditor,
+		approver: opts.Approver, grants: opts.Grants, observer: opts.Observer,
+		logger: opts.Logger, clock: clock, generateApprovalID: generateApprovalID,
 	}
 }
 
@@ -107,7 +167,7 @@ func (b *Broker) HandleToolResult(ctx context.Context, tool string, args map[str
 // HandleToolResultWithOptions drives the full tool call pipeline with per-call options.
 func (b *Broker) HandleToolResultWithOptions(ctx context.Context, tool string, args map[string]any, opts HandleOptions) (*server.ToolResult, error) {
 	rec := audit.Record{
-		Timestamp: time.Now(),
+		Timestamp: b.now(),
 		Tool:      tool,
 		Args:      args,
 	}
@@ -148,7 +208,20 @@ func (b *Broker) HandleToolResultWithOptions(ctx context.Context, tool string, a
 			return nil, fmt.Errorf("approval required but no approver configured for: %s", tool)
 		}
 
-		approved, denialReason, err := b.approver.Review(ctx, tool, args)
+		request, err := b.newApprovalRequest(tool, args, rec)
+		if err != nil {
+			approved := false
+			rec.Approved = &approved
+			rec.DenialReason = "approval request"
+			rec.Error = "approval request ID generation failed"
+			_ = b.auditor.Record(ctx, rec)
+			return nil, fmt.Errorf("%w: %s", ErrDenied, rec.Error)
+		}
+		if b.observer != nil && ctx.Err() == nil {
+			b.observer.Observe(request)
+		}
+
+		approved, denialReason, err := b.approver.Review(ctx, request)
 		rec.Approved = &approved
 		rec.DenialReason = denialReason
 		if err != nil {
@@ -208,7 +281,7 @@ func (b *Broker) evaluatePolicy(ctx context.Context, tool string, args map[strin
 			return rules.Evaluation{}, rules.Deny, ErrDenied
 		}
 
-		grant, err := b.grants.ValidateToken(ctx, opts.GrantToken, time.Now())
+		grant, err := b.grants.ValidateToken(ctx, opts.GrantToken, b.now())
 		if err != nil {
 			populateGrantRecord(rec, grant)
 			rec.Verdict = rules.Deny.String()
@@ -243,6 +316,48 @@ func (b *Broker) evaluatePolicy(ctx context.Context, tool string, args map[strin
 		rec.RuleSource = "none/default"
 	}
 	return baseEvaluation, baseEvaluation.Verdict, nil
+}
+
+func (b *Broker) now() time.Time {
+	if b.clock == nil {
+		return time.Now()
+	}
+	return b.clock()
+}
+
+func (b *Broker) newApprovalRequest(tool string, args map[string]any, rec audit.Record) (ApprovalRequest, error) {
+	generateID := b.generateApprovalID
+	if generateID == nil {
+		generateID = newApprovalID
+	}
+	id, err := generateID()
+	if err != nil {
+		return ApprovalRequest{}, err
+	}
+	request := ApprovalRequest{
+		ID:         id,
+		OccurredAt: b.now().UTC(),
+		ToolName:   tool,
+		ToolInput:  args,
+		Policy: ApprovalPolicy{
+			Verdict:    rec.Verdict,
+			RuleSource: rec.RuleSource,
+		},
+	}
+	if rec.GrantID != "" {
+		request.Grant = &ApprovalGrant{
+			ID: rec.GrantID, Name: rec.GrantName, Fingerprint: rec.GrantFingerprint, Status: rec.GrantStatus,
+		}
+	}
+	return request, nil
+}
+
+func newApprovalID() (string, error) {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return "", fmt.Errorf("generate approval ID: %w", err)
+	}
+	return hex.EncodeToString(id[:]), nil
 }
 
 func populateGrantRecord(rec *audit.Record, grant grants.Grant) {

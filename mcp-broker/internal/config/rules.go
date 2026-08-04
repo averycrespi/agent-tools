@@ -23,15 +23,14 @@ type rulesDocument struct {
 // EffectiveRulesPath returns the configured rules file path, defaulting to
 // rules.json alongside the effective config file.
 func EffectiveRulesPath(configPath string, cfg Config) string {
-	if cfg.RulesPath != "" {
-		return cfg.RulesPath
+	if cfg.Rules.Path != "" {
+		return cfg.Rules.Path
 	}
 	return filepath.Join(filepath.Dir(configPath), "rules.json")
 }
 
-// ResolveRulesPath reads only rules_path from configPath, defaulting to
-// rules.json alongside the effective config file when configPath is missing or
-// rules_path is omitted.
+// ResolveRulesPath reads only rules.path (or the legacy rules_path alias) from
+// configPath, defaulting to rules.json alongside the effective config file.
 func ResolveRulesPath(configPath string) (string, error) {
 	data, err := os.ReadFile(configPath)
 	if os.IsNotExist(err) {
@@ -41,13 +40,24 @@ func ResolveRulesPath(configPath string) (string, error) {
 		return "", err
 	}
 
-	var cfg struct {
-		RulesPath string `json:"rules_path"`
+	var wire struct {
+		Rules           json.RawMessage `json:"rules"`
+		LegacyRulesPath *string         `json:"rules_path"`
 	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := json.Unmarshal(data, &wire); err != nil {
 		return "", fmt.Errorf("parsing config JSON: %w", err)
 	}
-	return EffectiveRulesPath(configPath, Config{RulesPath: cfg.RulesPath}), nil
+
+	var cfg Config
+	trimmedRules := bytes.TrimSpace(wire.Rules)
+	if len(trimmedRules) > 0 && trimmedRules[0] == '{' {
+		if err := json.Unmarshal(trimmedRules, &cfg.Rules); err != nil {
+			return "", fmt.Errorf("parsing config rules: %w", err)
+		}
+	} else if wire.LegacyRulesPath != nil {
+		cfg.Rules.Path = *wire.LegacyRulesPath
+	}
+	return EffectiveRulesPath(configPath, cfg), nil
 }
 
 // LoadRulesForConfig loads or creates the base policy rules for cfg.
@@ -167,5 +177,12 @@ func legacyRulesRaw(configPath string) (json.RawMessage, bool, error) {
 		return nil, false, fmt.Errorf("parsing config JSON: %w", err)
 	}
 	raw, ok := root["rules"]
-	return raw, ok, nil
+	if !ok {
+		return nil, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) > 0 && trimmed[0] == '{' {
+		return nil, false, nil
+	}
+	return raw, true, nil
 }

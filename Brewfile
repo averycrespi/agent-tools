@@ -1,2 +1,1 @@
 brew "lima"
-brew "tmux"

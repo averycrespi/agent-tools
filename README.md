@@ -2,12 +2,10 @@
 
 My tools for working with AI coding agents. Pairs well with my [agent-config](https://github.com/averycrespi/agent-config).
 
-This repo is opinionated. It provides structured worktree management, sandboxed execution, and broker-backed external access that make coding agents safer and easier to run day to day. Use it as-is, fork it, or cherry-pick the tools that fit your setup.
+This repo is opinionated. It provides sandboxed execution and broker-backed external access that make coding agents safer and easier to run day to day. Use it as-is, fork it, or cherry-pick the tools that fit your setup.
 
 ## Overview
 
-- **[Worktree Manager](#worktree-manager-wt)** — Manage git worktrees with tmux integration
-- **[Worktree Sync](#worktree-sync-wts-and-wtsd)** — Continuously project registered Git worktrees into isolated tmux sessions
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
@@ -30,7 +28,6 @@ Requirements:
 
 ```bash
 # First-time setup on macOS: install Homebrew deps, dev deps/hooks, and all Go tools
-# For Linux: install `tmux` from your preferred package manager first
 make setup
 
 # Or run the steps separately
@@ -42,8 +39,6 @@ make install      # install all Go tool binaries
 make check
 
 # Or, to install individual tools
-cd worktree-manager && make install
-cd worktree-sync && make install
 cd sandbox-manager && make install
 cd mcp-broker && make install
 cd local-git-mcp && make install
@@ -53,28 +48,6 @@ cd http-broker && make install
 ```
 
 ## Tools
-
-### Worktree Manager (wt)
-
-Running multiple AI agents across different branches means a lot of repetitive setup: create a worktree, open a tmux window, copy config files, launch the agent. Tear it all down when you're done. Multiply by several concurrent tasks and it's a lot of ceremony.
-
-`wt` simplifies that flow to a pair of commands:
-
-- `wt add <branch>` spins up a fully configured worktree — tmux window, config files copied, agent launched.
-- `wt rm <branch>` tears it down, optionally deleting the branch as well.
-
-See the [worktree-manager README](worktree-manager/README.md) for more information.
-
-### Worktree Sync (wts and wtsd)
-
-`worktree-sync` is the continuous counterpart to `wt`: it observes registered repositories through ordinary Git, projects each eligible linked worktree into a metadata-owned window on an isolated tmux socket, and repairs drift without adopting or deleting manual tmux state.
-
-- `wts repo add` registers a primary repository and its allowed worktree roots.
-- `wts worktree create|remove` provides explicit lifecycle helpers with conservative branch safety.
-- `wts status`, `wts reconcile`, and `wts cleanup` expose drift and narrowly scoped maintenance.
-- `wtsd` performs startup and periodic full reconciliation; filesystem events only nudge an earlier scan.
-
-See the [worktree-sync README](worktree-sync/README.md) for setup, commands, policy, and safety boundaries.
 
 ### Sandbox Manager (sb)
 
@@ -143,7 +116,7 @@ Agents sometimes need a direct way to notify the human operator when work finish
 
 See the [telegram-mcp README](telegram-mcp/README.md) for more information.
 
-## HTTP Broker
+### HTTP Broker
 
 `mcp-broker` keeps secrets out of the sandbox for MCP tool calls. An agent that reaches for `curl`, an SDK, or any ordinary HTTP client is back to holding its own.
 
@@ -162,6 +135,22 @@ See the [telegram-mcp README](telegram-mcp/README.md) for more information.
 Every credential carries bound hosts, so a rule-authoring slip cannot send a token somewhere it does not belong.
 
 Enforcement is **cooperative** — it rests on the sandbox honouring `HTTP_PROXY`/`HTTPS_PROXY`, so it is not a containment boundary. See the [http-broker README](http-broker/README.md) and its [security model](http-broker/docs/security-model.md) for what it does and does not guarantee.
+
+## Deprecated Tools
+
+These tools are no longer maintained, but their final versions remain available in the repository history.
+
+| Tool                  | Last commit                                                                                                                  | Reason                                                              |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `worktree-manager`    | [`20b0fb924c`](https://github.com/averycrespi/agent-tools/tree/20b0fb924c97b2058e181ce08f721214bbf80e5c/worktree-manager)    | Deprecated in favor of Herdr for workspace and worktree management. |
+| `worktree-sync`       | [`20b0fb924c`](https://github.com/averycrespi/agent-tools/tree/20b0fb924c97b2058e181ce08f721214bbf80e5c/worktree-sync)       | Deprecated in favor of Herdr for workspace and worktree management. |
+| `pi-session-analyzer` | [`7f52e38085`](https://github.com/averycrespi/agent-tools/tree/7f52e380857a435b25ba85a6c3c7e8865e04cd1d/pi-session-analyzer) | Built as an experiment and not carried forward.                     |
+| `pi-dispatcher`       | [`d1f7ae3da4`](https://github.com/averycrespi/agent-tools/tree/d1f7ae3da4aa70616ee2ee6161eaf22e81cd4c51/pi-dispatcher)       | Replaced by the scheduled-tasks extension.                          |
+| `pi-orchestrator`     | [`3e799fa7c1`](https://github.com/averycrespi/agent-tools/tree/3e799fa7c1b568f8d5abe1faf9335f7ba18ad0b1/pi-orchestrator)     | Replaced by the scheduled-tasks extension.                          |
+| `agent-mailbox`       | [`4378f6ef71`](https://github.com/averycrespi/agent-tools/tree/4378f6ef71ea25961b3bb8e08053dfc8ff0302eb/agent-mailbox)       | Replaced by `telegram-mcp`.                                         |
+| `local-gh-mcp`        | [`1f7cfd126f`](https://github.com/averycrespi/agent-tools/tree/1f7cfd126fe10f5f3107db771a06450c2adc0d92/local-gh-mcp)        | Deprecated in favor of the official GitHub MCP server.              |
+| `broker-cli`          | [`0251368f3b`](https://github.com/averycrespi/agent-tools/tree/0251368f3b209242d6edcc7b916f476f810cb584/broker-cli)          | Replaced by the `mcp-broker` extension.                             |
+| `hindsight`           | [`164ffccbc0`](https://github.com/averycrespi/agent-tools/tree/164ffccbc010cc41c0a1330f8f1a5570ae61199f/hindsight)           | An experimental memory solution that was ultimately abandoned.      |
 
 ## Related
 

@@ -1,10 +1,12 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Config is the top-level configuration for mcp-broker.
@@ -14,7 +16,7 @@ import (
 // security posture relies on not being network-reachable.
 type Config struct {
 	Servers                map[string]ServerConfig `json:"servers"`
-	RulesPath              string                  `json:"rules_path"`
+	Rules                  RulesConfig             `json:"rules"`
 	ToolPatches            []ToolPatchConfig       `json:"tool_patches,omitempty"`
 	Host                   string                  `json:"host"`
 	Port                   int                     `json:"port"`
@@ -25,6 +27,37 @@ type Config struct {
 	ApprovalTimeoutSeconds int                     `json:"approval_timeout_seconds"`
 	MaxRequestBodyBytes    int64                   `json:"max_request_body_bytes"`
 	Telegram               TelegramConfig          `json:"telegram"`
+	Hooks                  HooksConfig             `json:"hooks"`
+}
+
+// UnmarshalJSON accepts the legacy top-level rules_path field while keeping
+// rules.path as the canonical configuration shape. A legacy embedded rules
+// array is ignored here and migrated separately by LoadRulesForConfig.
+func (c *Config) UnmarshalJSON(data []byte) error {
+	type configAlias Config
+	decoded := configAlias(*c)
+	var wire struct {
+		*configAlias
+		Rules           json.RawMessage `json:"rules"`
+		LegacyRulesPath *string         `json:"rules_path"`
+	}
+	wire.configAlias = &decoded
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+
+	*c = Config(decoded)
+	trimmedRules := bytes.TrimSpace(wire.Rules)
+	if len(trimmedRules) > 0 && trimmedRules[0] == '{' {
+		var rules RulesConfig
+		if err := json.Unmarshal(trimmedRules, &rules); err != nil {
+			return err
+		}
+		c.Rules = rules
+	} else if wire.LegacyRulesPath != nil {
+		c.Rules.Path = *wire.LegacyRulesPath
+	}
+	return nil
 }
 
 // MaxStartupRetryCount bounds configured startup retries to avoid overflow and accidental long startup delays.
@@ -114,6 +147,11 @@ type ArgPattern struct {
 	Match json.RawMessage `json:"match"`
 }
 
+// RulesConfig selects the base policy rules file.
+type RulesConfig struct {
+	Path string `json:"path"`
+}
+
 // AuditConfig controls the SQLite audit log.
 type AuditConfig struct {
 	Path string `json:"path"`
@@ -136,6 +174,70 @@ type TelegramConfig struct {
 	Enabled bool   `json:"enabled"`
 	Token   string `json:"token"`
 	ChatID  string `json:"chat_id"`
+}
+
+const (
+	DefaultHookMaxConcurrent   = 4
+	DefaultHookQueueSize       = 64
+	DefaultHookMaxPayloadBytes = 10 * 1024 * 1024
+	DefaultHookMaxQueuedBytes  = 64 * 1024 * 1024
+
+	MaxHookConcurrent     = 64
+	MaxHookQueueSize      = 4096
+	MaxHookPayloadBytes   = 64 * 1024 * 1024
+	MaxHookQueuedBytes    = 512 * 1024 * 1024
+	MaxHookTimeoutSeconds = 86400
+)
+
+// HooksConfig registers startup-only command observers for broker lifecycle events.
+type HooksConfig struct {
+	Dispatch HookDispatchConfig `json:"dispatch"`
+	Events   HookEventsConfig   `json:"events"`
+}
+
+// HookDispatchConfig bounds command concurrency and retained payload memory.
+type HookDispatchConfig struct {
+	MaxConcurrent   int   `json:"max_concurrent"`
+	QueueSize       int   `json:"queue_size"`
+	MaxPayloadBytes int64 `json:"max_payload_bytes"`
+	MaxQueuedBytes  int64 `json:"max_queued_bytes"`
+}
+
+// HookEventsConfig contains the supported hook event registry.
+type HookEventsConfig struct {
+	RequireApproval []HookHandlerConfig `json:"require-approval"`
+}
+
+// UnmarshalJSON rejects unimplemented event names instead of silently ignoring them.
+func (e *HookEventsConfig) UnmarshalJSON(data []byte) error {
+	var events map[string]json.RawMessage
+	if err := json.Unmarshal(data, &events); err != nil {
+		return err
+	}
+	for name := range events {
+		if name != "require-approval" {
+			return fmt.Errorf("unknown hook event %q", name)
+		}
+	}
+
+	type eventsAlias HookEventsConfig
+	decoded := eventsAlias(*e)
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if decoded.RequireApproval == nil {
+		decoded.RequireApproval = []HookHandlerConfig{}
+	}
+	*e = HookEventsConfig(decoded)
+	return nil
+}
+
+// HookHandlerConfig defines one direct executable-plus-argv event handler.
+type HookHandlerConfig struct {
+	Command        string            `json:"command"`
+	Args           []string          `json:"args,omitempty"`
+	TimeoutSeconds int               `json:"timeout_seconds"`
+	Env            map[string]string `json:"env,omitempty"`
 }
 
 func xdgConfigHome() string {
@@ -172,8 +274,10 @@ func DefaultConfig() Config {
 // DefaultConfigAt returns a Config with defaults resolved relative to path.
 func DefaultConfigAt(path string) Config {
 	return Config{
-		Servers:                map[string]ServerConfig{},
-		RulesPath:              filepath.Join(filepath.Dir(path), "rules.json"),
+		Servers: map[string]ServerConfig{},
+		Rules: RulesConfig{
+			Path: filepath.Join(filepath.Dir(path), "rules.json"),
+		},
 		Host:                   "127.0.0.1",
 		Port:                   8200,
 		OpenBrowser:            true,
@@ -188,6 +292,15 @@ func DefaultConfigAt(path string) Config {
 		},
 		Log:      LogConfig{Level: "info"},
 		Telegram: TelegramConfig{Enabled: false},
+		Hooks: HooksConfig{
+			Dispatch: HookDispatchConfig{
+				MaxConcurrent:   DefaultHookMaxConcurrent,
+				QueueSize:       DefaultHookQueueSize,
+				MaxPayloadBytes: DefaultHookMaxPayloadBytes,
+				MaxQueuedBytes:  DefaultHookMaxQueuedBytes,
+			},
+			Events: HookEventsConfig{RequireApproval: []HookHandlerConfig{}},
+		},
 	}
 }
 
@@ -210,8 +323,8 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, err
 	}
-	if cfg.RulesPath == "" {
-		cfg.RulesPath = filepath.Join(filepath.Dir(path), "rules.json")
+	if cfg.Rules.Path == "" {
+		cfg.Rules.Path = filepath.Join(filepath.Dir(path), "rules.json")
 	}
 	if err := validate(cfg); err != nil {
 		return cfg, err
@@ -222,6 +335,9 @@ func Load(path string) (Config, error) {
 func validate(cfg Config) error {
 	if cfg.Grants.MaxTTLSeconds <= 0 {
 		return fmt.Errorf("grants.max_ttl_seconds must be positive")
+	}
+	if err := validateHooks(cfg.Hooks); err != nil {
+		return err
 	}
 	for name, srv := range cfg.Servers {
 		if srv.StartupRetryCount != nil && *srv.StartupRetryCount < 0 {
@@ -241,6 +357,65 @@ func validate(cfg Config) error {
 		}
 	}
 	return nil
+}
+
+func validateHooks(hooks HooksConfig) error {
+	dispatch := hooks.Dispatch
+	if dispatch.MaxConcurrent < 1 || dispatch.MaxConcurrent > MaxHookConcurrent {
+		return fmt.Errorf("hooks.dispatch.max_concurrent must be between 1 and %d", MaxHookConcurrent)
+	}
+	if dispatch.QueueSize < 1 || dispatch.QueueSize > MaxHookQueueSize {
+		return fmt.Errorf("hooks.dispatch.queue_size must be between 1 and %d", MaxHookQueueSize)
+	}
+	if dispatch.MaxPayloadBytes < 1 || dispatch.MaxPayloadBytes > MaxHookPayloadBytes {
+		return fmt.Errorf("hooks.dispatch.max_payload_bytes must be between 1 and %d", MaxHookPayloadBytes)
+	}
+	if dispatch.MaxQueuedBytes < dispatch.MaxPayloadBytes || dispatch.MaxQueuedBytes > MaxHookQueuedBytes {
+		return fmt.Errorf("hooks.dispatch.max_queued_bytes must be between max_payload_bytes and %d", MaxHookQueuedBytes)
+	}
+
+	for i, handler := range hooks.Events.RequireApproval {
+		path := fmt.Sprintf("hooks.events.require-approval[%d]", i)
+		if strings.ContainsRune(handler.Command, '\x00') {
+			return fmt.Errorf("%s.command must not contain NUL", path)
+		}
+		if strings.TrimSpace(handler.Command) == "" {
+			return fmt.Errorf("%s.command must not be empty", path)
+		}
+		if handler.TimeoutSeconds < 1 || handler.TimeoutSeconds > MaxHookTimeoutSeconds {
+			return fmt.Errorf("%s.timeout_seconds must be between 1 and %d", path, MaxHookTimeoutSeconds)
+		}
+		for j, arg := range handler.Args {
+			if strings.ContainsRune(arg, '\x00') {
+				return fmt.Errorf("%s.args[%d] must not contain NUL", path, j)
+			}
+		}
+		for key, value := range handler.Env {
+			if strings.ContainsRune(key, '\x00') || strings.ContainsRune(value, '\x00') {
+				return fmt.Errorf("%s.env must not contain NUL", path)
+			}
+			if !validEnvironmentKey(key) {
+				return fmt.Errorf("%s environment key %q is invalid", path, key)
+			}
+		}
+	}
+	return nil
+}
+
+func validEnvironmentKey(key string) bool {
+	if key == "" || !isASCIILetter(key[0]) && key[0] != '_' {
+		return false
+	}
+	for i := 1; i < len(key); i++ {
+		if !isASCIILetter(key[i]) && (key[i] < '0' || key[i] > '9') && key[i] != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func isASCIILetter(b byte) bool {
+	return b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z'
 }
 
 // Save writes cfg to path. Creates parent directories as needed.

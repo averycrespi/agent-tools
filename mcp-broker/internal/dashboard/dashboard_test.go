@@ -15,11 +15,19 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/broker"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/grants"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/rules"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 )
+
+func approvalRequest(id, tool string, input map[string]any) broker.ApprovalRequest {
+	return broker.ApprovalRequest{
+		ID: id, OccurredAt: time.Date(2026, 8, 3, 18, 42, 0, 0, time.UTC),
+		ToolName: tool, ToolInput: input,
+	}
+}
 
 type fakeToolLister struct{ tools []server.Tool }
 
@@ -155,7 +163,7 @@ func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
 	// Start a review in a goroutine
 	done := make(chan bool, 1)
 	go func() {
-		approved, _, err := d.Review(context.Background(), "github.push", map[string]any{"branch": "main"})
+		approved, _, err := d.Review(context.Background(), approvalRequest("approval-1", "github.push", map[string]any{"branch": "main"}))
 		require.NoError(t, err)
 		done <- approved
 	}()
@@ -172,6 +180,8 @@ func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
 	err = json.NewDecoder(resp.Body).Decode(&pending)
 	require.NoError(t, err)
 	require.Len(t, pending, 1)
+	require.Equal(t, "approval-1", pending[0].ID)
+	require.Equal(t, time.Date(2026, 8, 3, 18, 42, 0, 0, time.UTC), pending[0].Timestamp)
 
 	// Approve it
 	body := `{"id":"` + pending[0].ID + `","decision":"approve"}`
@@ -182,6 +192,37 @@ func TestDashboard_Review_ApprovesViaAPI(t *testing.T) {
 
 	approved := <-done
 	require.True(t, approved)
+}
+
+func TestDashboard_ReviewPublishesBrokerOwnedIDAndTimestampToSSE(t *testing.T) {
+	d := New(nil, nil, nil, nil)
+	events := make(chan []byte, 1)
+	d.mu.Lock()
+	d.clients = append(d.clients, events)
+	d.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _, _ = d.Review(ctx, approvalRequest("shared-approval-id", "github.push", map[string]any{"branch": "main"}))
+	}()
+
+	select {
+	case data := <-events:
+		var event struct {
+			Type string         `json:"type"`
+			Data pendingRequest `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(data, &event))
+		require.Equal(t, "new", event.Type)
+		require.Equal(t, "shared-approval-id", event.Data.ID)
+		require.Equal(t, time.Date(2026, 8, 3, 18, 42, 0, 0, time.UTC), event.Data.Timestamp)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for approval SSE event")
+	}
+	cancel()
+	<-done
 }
 
 func TestDashboard_Review_DeniesViaAPI(t *testing.T) {
@@ -196,7 +237,7 @@ func TestDashboard_Review_DeniesViaAPI(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		approved, reason, err := d.Review(context.Background(), "github.push", map[string]any{})
+		approved, reason, err := d.Review(context.Background(), approvalRequest("approval-2", "github.push", map[string]any{}))
 		require.NoError(t, err)
 		done <- result{approved, reason}
 	}()
@@ -232,7 +273,7 @@ func TestDashboard_Review_DeniesViaAPIWithReason(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		approved, reason, err := d.Review(context.Background(), "github.push", map[string]any{})
+		approved, reason, err := d.Review(context.Background(), approvalRequest("approval-3", "github.push", map[string]any{}))
 		require.NoError(t, err)
 		done <- result{approved, reason}
 	}()
@@ -264,7 +305,7 @@ func TestDashboard_Review_DeniesViaAPIWithBlankReason(t *testing.T) {
 
 	done := make(chan string, 1)
 	go func() {
-		_, reason, err := d.Review(context.Background(), "github.push", map[string]any{})
+		_, reason, err := d.Review(context.Background(), approvalRequest("approval-4", "github.push", map[string]any{}))
 		require.NoError(t, err)
 		done <- reason
 	}()
@@ -298,7 +339,7 @@ func TestDashboard_Review_CancelsOnContextDone(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		approved, reason, err := d.Review(ctx, "test.tool", nil)
+		approved, reason, err := d.Review(ctx, approvalRequest("approval-5", "test.tool", nil))
 		done <- result{approved, reason, err}
 	}()
 
@@ -321,7 +362,7 @@ func TestDashboard_PendingRequest_HasDeadline(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _, _ = d.Review(ctx, "test.tool", nil)
+		_, _, _ = d.Review(ctx, approvalRequest("approval-6", "test.tool", nil))
 	}()
 
 	time.Sleep(50 * time.Millisecond)

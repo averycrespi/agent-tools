@@ -2,7 +2,7 @@
 
 An MCP proxy that lets sandboxed agents use external tools without holding secrets.
 
-Agents run in sandboxes with no credentials and restricted network access — but they still need to call GitHub, Jira, Slack, and other external APIs. mcp-broker runs on the host, holds the secrets, and exposes backend MCP servers through a single endpoint. Policy rules control which tools are allowed, sensitive operations require human approval via a web dashboard, and every call is audit-logged.
+Agents run in sandboxes with no credentials and restricted network access — but they still need to call GitHub, Jira, Slack, and other external APIs. mcp-broker runs on the host, holds the secrets, and exposes backend MCP servers through a single endpoint. Policy rules control which tools are allowed, sensitive operations require human approval via a web dashboard, and calls are audit-logged on a best-effort basis.
 
 ## How it works
 
@@ -12,6 +12,7 @@ Agent ──MCP──▶ mcp-broker ──MCP──▶ Backend servers
                   ├─ Optional grant overlay (Mcp-Broker-Grant)
                   ├─ Rules engine (glob-based allow/deny/require-approval)
                   ├─ Human approval via web dashboard + optional Telegram
+                  ├─ Best-effort require-approval command hooks (optional)
                   └─ SQLite audit log
 ```
 
@@ -19,9 +20,9 @@ An agent connects to mcp-broker as a single MCP server. mcp-broker connects to o
 
 1. **Grant overlay** — if the request supplies `Mcp-Broker-Grant`, the broker validates that durable grant token and evaluates its rules first.
 2. **Base rules check** — if no grant rule matches, glob patterns match tool names to base verdicts (`allow`, `deny`, `require-approval`).
-3. **Approval** — if the final verdict is `require-approval`, the call blocks until a human approves or denies it via the web dashboard (and optionally Telegram). A configurable timeout (default 10 minutes) auto-denies if no response arrives. Requests can opt out of waiting with `Mcp-Broker-Approval-Mode: reject`.
+3. **Approval** — if the final verdict is `require-approval`, the broker creates one approval request, makes best-effort non-blocking notification-hook admissions, then blocks until a human approves or denies it via the web dashboard (and optionally Telegram). A configurable timeout (default 10 minutes) auto-denies if no response arrives. Requests can opt out of waiting with `Mcp-Broker-Approval-Mode: reject`. Hooks observe this transition but never participate in authorization.
 4. **Proxy** — the call is forwarded to the backend server.
-5. **Audit** — the call, verdict, grant attribution, and result are recorded in SQLite.
+5. **Audit** — the broker attempts to record the call, verdict, grant attribution, and any error in SQLite. Audit storage failure or cancellation can omit a row but does not fail the tool call.
 
 ## Security
 
@@ -97,7 +98,9 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
       }
     }
   },
-  "rules_path": "/Users/alice/.config/mcp-broker/rules.json",
+  "rules": {
+    "path": "/Users/alice/.config/mcp-broker/rules.json"
+  },
   "tool_patches": [
     {
       "tool": "github.search_*",
@@ -118,6 +121,17 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
     "enabled": false,
     "token": "$TELEGRAM_BOT_TOKEN",
     "chat_id": "$TELEGRAM_CHAT_ID"
+  },
+  "hooks": {
+    "dispatch": {
+      "max_concurrent": 4,
+      "queue_size": 64,
+      "max_payload_bytes": 10485760,
+      "max_queued_bytes": 67108864
+    },
+    "events": {
+      "require-approval": []
+    }
   },
   "audit": {
     "path": "/Users/alice/.local/share/mcp-broker/audit.db"
@@ -141,7 +155,7 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
 | `approval_timeout_seconds` | Human approval timeout. Defaults to 600 seconds.                                         |
 | `max_request_body_bytes`   | Maximum accepted request body size on `/mcp`. Defaults to 10 MiB; set to `0` to disable. |
 | `open_browser`             | Open the dashboard in a browser on startup. Defaults to `true`.                          |
-| `rules_path`               | Base policy rules file. Defaults to `rules.json` alongside the effective config file.    |
+| `rules.path`               | Base policy rules file. Defaults to `rules.json` alongside the effective config file.    |
 | `grants.path`              | SQLite grants DB path. Defaults to `$XDG_DATA_HOME/mcp-broker/grants.db`.                |
 | `grants.max_ttl_seconds`   | Maximum mintable grant TTL. Defaults to 604800 seconds (7 days); must be positive.       |
 
@@ -161,7 +175,7 @@ launchctl kill HUP gui/$UID/dev.agent-tools.mcp-broker
 
 Only the effective rules file is reloaded. If the reload cannot read `rules.json`, parse JSON, parse the top-level `rules` array, or compile rule argument paths/regexes, the broker logs `rules reload failed` and keeps the previously active rules. New tool calls use successfully reloaded rules; calls that already reached a policy decision, including pending approval requests, keep that decision.
 
-Restart mcp-broker for changes to `servers`, `tool_patches`, `host`, `port`, `rules_path`, `audit.path`, `grants.path`, `grants.max_ttl_seconds`, auth token, Telegram approver settings, approval timeout, log level, `open_browser`, or `max_request_body_bytes`, and after fixing a backend that exhausted startup retries. Minted and revoked grant records take effect on the next MCP request without restart because the broker checks the grants DB per request.
+Restart mcp-broker for changes to `servers`, `tool_patches`, `hooks`, `host`, `port`, `rules.path`, `audit.path`, `grants.path`, `grants.max_ttl_seconds`, auth token, Telegram approver settings, approval timeout, log level, `open_browser`, or `max_request_body_bytes`, and after fixing a backend that exhausted startup retries. Minted and revoked grant records take effect on the next MCP request without restart because the broker checks the grants DB per request.
 
 ### Servers
 
@@ -213,6 +227,84 @@ Interactive OAuth is deliberately exempt from `startup_timeout_seconds` and from
 
 If a backend's cached login goes stale — for example after the upstream rotates its OAuth client registration and tool calls start failing with authorization errors — clear it with `mcp-broker logout <server>`. This removes the server's stored token and client registration from the keychain; the next call triggers a fresh OAuth flow.
 
+### Approval command hooks
+
+Hooks are startup-configured, asynchronous observers for approval notifications. V1 supports only the `require-approval` event:
+
+```json
+{
+  "hooks": {
+    "dispatch": {
+      "max_concurrent": 4,
+      "queue_size": 64,
+      "max_payload_bytes": 10485760,
+      "max_queued_bytes": 67108864
+    },
+    "events": {
+      "require-approval": [
+        {
+          "command": "/Users/alice/bin/notify-approval.sh",
+          "args": ["agent-approvals"],
+          "timeout_seconds": 10,
+          "env": { "NOTIFICATION_TOKEN": "$NOTIFICATION_TOKEN" }
+        }
+      ]
+    }
+  }
+}
+```
+
+Omitting `hooks`, using `"hooks": {}`, or configuring an empty event list starts no hook workers and preserves normal broker behavior. `mcp-broker config refresh` writes the canonical defaults and empty event list. Hook changes require a broker restart; `SIGHUP` reloads policy rules only.
+
+Each handler is a direct executable plus argument vector. The broker does not invoke a shell or substitute request data into the command or arguments. To use shell syntax deliberately, configure a shell explicitly, for example `"command": "/bin/sh", "args": ["-c", "..."]`. Relative executable paths use the broker working directory. Bare names are resolved through the broker process's startup `PATH`; a handler's `PATH` overlay affects the child environment, not executable lookup.
+
+Handlers inherit the broker environment and overlay their configured `env`. `$VAR` and `${VAR}` references are preserved literally in `config.json` and expanded once when the dispatcher is constructed. Environment keys must match `[A-Za-z_][A-Za-z0-9_]*`. Commands, arguments, keys, and values containing NUL are rejected. Every handler must set `timeout_seconds` from 1 through 86400.
+
+The broker emits only after the final policy verdict is `require-approval`, reject mode and the missing-approver gate have passed, and the initiating context is still active. It creates one 128-bit request ID and UTC occurrence time, attempts each configured handler once immediately before dashboard/Telegram fan-out, publishes both in dashboard pending/SSE data, and accepts that same ID at `/api/decide`. Allowed, denied, reject-mode, no-approver, invalid-grant, and already-canceled calls do not emit. Cancellation can race after the pre-emission check, so hook delivery is not proof that a dashboard request remains pending. Once admitted, a hook uses broker-lifetime and handler-timeout cancellation rather than client-request cancellation.
+
+An admitted command receives one UTF-8 JSON object followed by a newline on standard input:
+
+```json
+{
+  "schema_version": 1,
+  "hook_event_name": "require-approval",
+  "request_id": "c9cb427bc1387a23c9cb427bc1387a23",
+  "occurred_at": "2026-08-03T18:42:00Z",
+  "tool_name": "github.create_pull_request",
+  "tool_input": { "owner": "example", "repo": "project" },
+  "policy": {
+    "verdict": "require-approval",
+    "rule_source": "base"
+  },
+  "grant": {
+    "id": "optional-id",
+    "name": "optional-name",
+    "fingerprint": "optional-fingerprint",
+    "status": "active"
+  }
+}
+```
+
+`tool_input` is a complete JSON-semantic snapshot; nil input is `{}`. `grant` is omitted when no valid grant was supplied and remains present when a valid grant falls through to base/default policy. Authentication and raw grant tokens are never dedicated payload fields. The unredacted tool input can itself contain caller-supplied secrets.
+
+Dispatch is bounded, in-memory, best-effort, at-most-once, and non-retrying. Admission never waits for queue capacity or command completion. A handler job can be dropped independently because serialization failed, the payload exceeded its limit, the queue or byte budget was saturated, its admission-to-completion deadline expired, or shutdown began; drops never change approval. Serialization and ID generation happen synchronously before fan-out. Defaults and validation ranges are:
+
+| Setting                   | Default  | Valid range                 |
+| ------------------------- | -------- | --------------------------- |
+| `max_concurrent`          | 4        | 1–64 commands               |
+| `queue_size`              | 64       | 1–4096 queued jobs          |
+| `max_payload_bytes`       | 10 MiB   | 1 byte–64 MiB               |
+| `max_queued_bytes`        | 64 MiB   | `max_payload_bytes`–512 MiB |
+| handler `timeout_seconds` | required | 1–86400 seconds             |
+
+Queue delay consumes the handler timeout, so expired queued work does not start. Retained payload memory is bounded by `max_queued_bytes + max_concurrent * max_payload_bytes`. This timeout is independent of human `approval_timeout_seconds` and backend `http_timeout_seconds`.
+
+Stdout and stderr go directly to the operating system's discard sink and are neither buffered nor interpreted. Exit status and output cannot approve, deny, mutate, audit, or proxy a call. Logs contain only event name, handler index, request ID, duration/status, and drop/timeout classification—not command, arguments, environment, tool input, output, or raw subprocess errors.
+
+On macOS and Linux, each hook starts in a new process group. Timeout or broker shutdown sends the group a termination signal, escalates after a short bounded grace period, and waits for the direct child; same-group descendants are covered, while descendants that deliberately leave the group are not. Other platforms use a direct-process fallback with no descendant guarantee. Shutdown rejects new work, discards queued jobs, cancels running jobs, and waits only within the process-wide shutdown deadline.
+
+**Security:** Hook definitions are trusted host configuration that execute unsandboxed code as the broker user. Commands receive the broker's inherited environment—which may contain secrets—and full unredacted tool input, and can read files, launch processes, persist data, or exfiltrate it. Configure only trusted commands; hooks do not isolate host code from the broker.
+
 ### Mobile Approval (Telegram)
 
 To receive approval requests on your phone and approve/deny them from anywhere, enable the Telegram notifier:
@@ -240,7 +332,7 @@ When enabled, approval requests are sent to both the web dashboard and Telegram 
 
 ### Rules
 
-Base policy rules live in `~/.config/mcp-broker/rules.json` by default, or the file named by `rules_path` in `config.json`. The canonical file shape is:
+Base policy rules live in `~/.config/mcp-broker/rules.json` by default, or the file named by `rules.path` in `config.json`. The legacy top-level `rules_path` field remains accepted; if both fields are present, `rules.path` wins. Running `mcp-broker config refresh` rewrites the legacy field in the canonical nested form. The canonical rules file shape is:
 
 ```json
 {
@@ -526,5 +618,6 @@ internal/
   server/               Backend MCP client (stdio, HTTP, SSE, OAuth transports)
   dashboard/            Web UI with approval flow, SSE, audit viewer
   telegram/             Telegram Bot API polling approver (opt-in)
+  hooks/                Bounded asynchronous approval command observers
   broker/               Core orchestrator (rules → approval → proxy → audit)
 ```
