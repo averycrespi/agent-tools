@@ -129,6 +129,24 @@ type stack struct {
 	// cfgDoc is the config.json the stack was started with, kept so a test can
 	// edit one field and rewrite it.
 	cfgDoc map[string]any
+	// transports are every proxy transport handed to a test, so stop can close
+	// their idle connections. See track.
+	transports []*http.Transport
+}
+
+// track registers a transport whose pooled connections must be closed before
+// the broker is signalled.
+//
+// A pooled CONNECT is a live hijacked relay as far as the broker is concerned,
+// and its drain window waits on those deliberately. Leaving one open therefore
+// made every teardown wait out the full ten seconds for a tunnel no test was
+// still using — 162 of the suite's 169 seconds. Closing them first is the test
+// client behaving like one that has finished. The drain itself is still
+// covered, by TestShutdownDrainsTunnel, which holds a raw conn open across its
+// own SIGTERM.
+func (s *stack) track(tr *http.Transport) *http.Transport {
+	s.transports = append(s.transports, tr)
+	return tr
 }
 
 func startStack(t *testing.T, opts stackOptions) *stack {
@@ -287,10 +305,10 @@ func (s *stack) client() *http.Client {
 	proxyURL := s.proxyURL()
 	return &http.Client{
 		Timeout: 20 * time.Second,
-		Transport: &http.Transport{
+		Transport: s.track(&http.Transport{
 			Proxy:           http.ProxyURL(proxyURL),
 			TLSClientConfig: &tls.Config{RootCAs: s.caPool, MinVersion: tls.VersionTLS12},
-		},
+		}),
 	}
 }
 
@@ -299,10 +317,10 @@ func (s *stack) unauthenticatedClient() *http.Client {
 	u, _ := url.Parse("http://" + s.proxyAddr())
 	return &http.Client{
 		Timeout: 20 * time.Second,
-		Transport: &http.Transport{
+		Transport: s.track(&http.Transport{
 			Proxy:           http.ProxyURL(u),
 			TLSClientConfig: &tls.Config{RootCAs: s.caPool, MinVersion: tls.VersionTLS12},
-		},
+		}),
 	}
 }
 
@@ -407,6 +425,11 @@ func (s *stack) Logs() string {
 func (s *stack) stop() {
 	if s.cmd == nil || s.cmd.Process == nil {
 		return
+	}
+	// Pooled tunnels first: each one is a relay the broker's drain window
+	// waits on, so signalling with one open costs the full shutdownTimeout.
+	for _, tr := range s.transports {
+		tr.CloseIdleConnections()
 	}
 	_ = s.cmd.Process.Signal(syscall.SIGTERM)
 	done := make(chan struct{})

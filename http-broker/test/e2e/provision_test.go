@@ -372,14 +372,14 @@ func proxiedClientHonouringNoProxy(t *testing.T, s *stack, noProxy string) *http
 	proxyURL := s.proxyURL()
 	return &http.Client{
 		Timeout: 20 * time.Second,
-		Transport: &http.Transport{
+		Transport: s.track(&http.Transport{
 			Proxy: func(r *http.Request) (*url.URL, error) {
 				if exempt[r.URL.Hostname()] {
 					return nil, nil
 				}
 				return proxyURL, nil
 			},
-		},
+		}),
 	}
 }
 
