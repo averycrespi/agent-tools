@@ -270,46 +270,6 @@ tbody tr:hover td {
   background: var(--bg-hover);
 }
 
-/* Badges */
-.badge {
-  display: inline-block;
-  padding: 0.125rem 0.5rem;
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  vertical-align: middle;
-}
-
-.badge.allowed {
-  background: rgba(34, 197, 94, 0.15);
-  color: var(--good);
-}
-
-.badge.blocked {
-  background: rgba(239, 68, 68, 0.15);
-  color: var(--bad);
-}
-
-.badge.error {
-  background: rgba(245, 158, 11, 0.15);
-  color: var(--warn);
-}
-
-.badge.mode {
-  background: rgba(167, 139, 250, 0.15);
-  color: var(--product-accent-2);
-}
-
-/* A private-space grant is a widened dial permission, so it reads as a warning
-   rather than as neutral metadata. */
-.badge.private {
-  background: rgba(251, 191, 36, 0.15);
-  color: #fbbf24;
-}
-
 .meta {
   color: var(--muted);
   font-family: var(--font-sans);

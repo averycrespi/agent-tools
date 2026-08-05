@@ -157,7 +157,7 @@ These are load-bearing. Changing one needs a matching change to `DESIGN.md`.
 ## Dashboard UI
 
 **This dashboard is a deliberate copy of `mcp-broker`'s.** The base tokens, type
-scale, header, tab bar, filter row, table treatment and badges in
+scale, header, tab bar, filter row and table treatment in
 `assets/styles.css` are lifted from
 `mcp-broker/internal/dashboard/index.html`'s `<style>` block so the two read as
 one product. **Change one, change the other**, and verify by running both and
@@ -173,13 +173,19 @@ duration, bytes, credential, injection and the failure reason — lives in the
 expanded row. When the two dashboards disagree on any of that, one of them is
 wrong.
 
+Cell values are plain text, never pill badges. mcp-broker's audit log renders
+its source, verdict and status columns as text and carries the state in the row
+tint, so mode, outcome and a rule's `allow_private` read the same way here.
+`allow_private` shows `true`/`false` rather than a chip that is absent when
+false — an empty cell reads as missing data, not as "no".
+
 Only the product accent differs on purpose: mcp-broker is green/amber,
 http-broker is cyan/violet (`--product-accent #22d3ee`, `--product-accent-2
 #a78bfa`). The body's radial background tints and the tab focus ring follow the
 accent.
 
 Sizes are rem, matching mcp-broker: `h1` 1.25rem/700/0.04em, `th`
-0.6875rem/600 uppercase, `td` and badges 0.8125rem/0.6875rem mono, status label
+0.6875rem/600 uppercase, `td` 0.8125rem mono, status label
 0.75rem mono. Do not reintroduce px sizing or a `body { font-size }`.
 
 Two behaviours are load-bearing rather than cosmetic:

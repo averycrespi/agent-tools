@@ -40,19 +40,6 @@
     return td;
   };
 
-  const badge = (text, kind) => {
-    const td = document.createElement("td");
-    if (!text) {
-      td.textContent = "—";
-      return td;
-    }
-    const span = document.createElement("span");
-    span.className = `badge ${kind || ""}`.trim();
-    span.textContent = text;
-    td.appendChild(span);
-    return td;
-  };
-
   // Date as well as time: a dashboard left open overnight otherwise shows two
   // days of traffic with nothing to tell them apart.
   const stamp = (iso) => {
@@ -142,8 +129,8 @@
       cell(stamp(rec.ts)),
       cell(rec.host, "host"),
       cell(rec.matched_rule),
-      badge(rec.mode, "mode"),
-      badge(rec.outcome, rec.outcome),
+      cell(rec.mode),
+      cell(rec.outcome),
       cell(rec.status || ""),
     );
     return tr;
@@ -445,9 +432,10 @@
         const tr = document.createElement("tr");
         tr.append(
           cell(r.name),
-          badge(r.mode, "mode"),
+          cell(r.mode),
           cell(r.host, "host"),
-          badge(r.allow_private ? "private ok" : "", "private"),
+          // allow_private is omitempty, so an absent field means false.
+          cell(r.allow_private ? "true" : "false"),
           cell(r.path, "path"),
           cell(r.method),
           cell(r.ports ? r.ports.join(", ") : ""),
