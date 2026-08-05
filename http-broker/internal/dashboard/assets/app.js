@@ -33,9 +33,8 @@
   const dash = (value) =>
     value === null || value === undefined || value === "" ? "—" : String(value);
 
-  const cell = (value, className) => {
+  const cell = (value) => {
     const td = document.createElement("td");
-    if (className) td.className = className;
     td.textContent = dash(value);
     return td;
   };
@@ -127,7 +126,7 @@
     tr.setAttribute("aria-expanded", "false");
     tr.append(
       cell(stamp(rec.ts)),
-      cell(rec.host, "host"),
+      cell(rec.host),
       cell(rec.matched_rule),
       cell(rec.mode),
       cell(rec.outcome),
@@ -433,10 +432,10 @@
         tr.append(
           cell(r.name),
           cell(r.mode),
-          cell(r.host, "host"),
+          cell(r.host),
           // allow_private is omitempty, so an absent field means false.
           cell(r.allow_private ? "true" : "false"),
-          cell(r.path, "path"),
+          cell(r.path),
           cell(r.method),
           cell(r.ports ? r.ports.join(", ") : ""),
           cell(
@@ -465,9 +464,9 @@
       for (const c of data.credentials) {
         const tr = document.createElement("tr");
         tr.append(
-          cell(c.name, "cred"),
+          cell(c.name),
           cell(c.source),
-          cell(c.hosts ? c.hosts.join(", ") : "", "host"),
+          cell(c.hosts ? c.hosts.join(", ") : ""),
         );
         tbody.appendChild(tr);
       }
