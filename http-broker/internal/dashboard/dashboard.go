@@ -268,6 +268,7 @@ func (d *Dashboard) handleAudit(w http.ResponseWriter, r *http.Request) {
 	opts := audit.QueryOpts{
 		Host:    r.URL.Query().Get("host"),
 		Outcome: r.URL.Query().Get("outcome"),
+		Source:  r.URL.Query().Get("source"),
 		Mode:    r.URL.Query().Get("mode"),
 		Rule:    r.URL.Query().Get("rule"),
 		Limit:   intParam(r, "limit", audit.DefaultLimit),
@@ -376,6 +377,7 @@ func recordJSON(rec audit.Record) map[string]any {
 		"bytes_in":       rec.BytesIn,
 		"bytes_out":      rec.BytesOut,
 		"matched_rule":   rec.MatchedRule,
+		"source":         rec.Source,
 		"mode":           rec.Mode,
 		"injection":      rec.Injection,
 		"credential_ref": rec.CredentialRef,

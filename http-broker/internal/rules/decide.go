@@ -20,23 +20,35 @@ const (
 	ConnectDeny ConnectAction = "deny"
 )
 
-// Attribution values recorded in the audit log's mode column.
+// Source values record what decided, for the audit log's source column.
+//
+// Attribution and action are separate axes: source says who decided, mode says
+// what the proxy then did with the bytes. They were once one column, which
+// meant every row no rule decided reported "fallthrough" and lost whether the
+// connection was relayed untouched or terminated — the one fact a reader most
+// needs.
 const (
-	// ModeFallthrough marks a decision made by the fallthrough policy rather
-	// than by any rule.
-	ModeFallthrough = "fallthrough"
-	// ModeImplicitAllow marks a request on a host that policy knows about
-	// (some path-scoped rule covers it) but which matched no rule itself.
-	ModeImplicitAllow = "implicit-allow"
+	// SourceRule marks a decision a named rule made. Rule carries which one.
+	SourceRule = "rule"
+	// SourceFallthrough marks a decision the unmatched-host policy made,
+	// because no rule matched the host at all.
+	SourceFallthrough = "fallthrough"
+	// SourceImplicitAllow marks a request on a host policy knows about (some
+	// path-scoped rule covers it) that matched no rule itself.
+	SourceImplicitAllow = "implicit-allow"
 )
 
 // ConnectResult is the CONNECT-time decision.
 type ConnectResult struct {
 	Action ConnectAction
-	// Rule is the name of the rule that decided this, empty when the
-	// fallthrough policy decided.
+	// Rule is the name of the rule that decided this, empty unless Source is
+	// SourceRule.
 	Rule string
-	// Mode records how the decision was reached, for the audit log.
+	// Source is what decided: a rule, the fallthrough policy, or an implicit
+	// allow. Always set.
+	Source string
+	// Mode is what the proxy does with the bytes — intercept, tunnel or deny —
+	// whatever decided it. Always set.
 	Mode string
 	// Reason is a short operator-facing explanation, used in the
 	// X-Http-Broker-Reason header on a refusal.
@@ -158,7 +170,8 @@ func (e *Engine) decide(host string, port int, tunnelPortLimit bool) ConnectResu
 	// Step 2.
 	if intercept != nil {
 		return ConnectResult{
-			Action: ConnectMITM, Rule: intercept.rule.Name, Mode: string(ModeIntercept),
+			Action: ConnectMITM, Rule: intercept.rule.Name,
+			Source: SourceRule, Mode: string(ModeIntercept),
 			AllowPrivate: allowPrivate, MinTLSVersion: resolveMinTLS(minTLS),
 		}
 	}
@@ -168,13 +181,15 @@ func (e *Engine) decide(host string, port int, tunnelPortLimit bool) ConnectResu
 		return ConnectResult{
 			Action: ConnectDeny,
 			Rule:   hostOnlyDeny.rule.Name,
+			Source: SourceRule,
 			Mode:   string(ModeDeny),
 			Reason: "denied by rule " + hostOnlyDeny.rule.Name,
 		}
 	}
 	if hostOnly != nil {
 		return ConnectResult{
-			Action: ConnectTunnel, Rule: hostOnly.rule.Name, Mode: string(ModeTunnel),
+			Action: ConnectTunnel, Rule: hostOnly.rule.Name,
+			Source: SourceRule, Mode: string(ModeTunnel),
 			AllowPrivate: allowPrivate, MinTLSVersion: resolveMinTLS(minTLS),
 		}
 	}
@@ -182,7 +197,7 @@ func (e *Engine) decide(host string, port int, tunnelPortLimit bool) ConnectResu
 	// Step 4.
 	if pathScoped {
 		return ConnectResult{
-			Action: ConnectMITM, Mode: ModeImplicitAllow,
+			Action: ConnectMITM, Source: SourceImplicitAllow, Mode: string(ModeIntercept),
 			AllowPrivate: allowPrivate, MinTLSVersion: resolveMinTLS(minTLS),
 		}
 	}
@@ -209,7 +224,8 @@ func (e *Engine) fallthroughDecision(port int, tunnelPortLimit bool) ConnectResu
 	if e.fallthrough_ == FallthroughDeny {
 		return ConnectResult{
 			Action:        ConnectDeny,
-			Mode:          ModeFallthrough,
+			Source:        SourceFallthrough,
+			Mode:          string(ModeDeny),
 			Reason:        "no rule matches this host and fallthrough is \"deny\"",
 			MinTLSVersion: DefaultMinTLSVersion,
 		}
@@ -217,12 +233,16 @@ func (e *Engine) fallthroughDecision(port int, tunnelPortLimit bool) ConnectResu
 	if tunnelPortLimit && port != DefaultTunnelPort {
 		return ConnectResult{
 			Action:        ConnectDeny,
-			Mode:          ModeFallthrough,
+			Source:        SourceFallthrough,
+			Mode:          string(ModeDeny),
 			Reason:        "fallthrough tunnelling is limited to port 443; add a rule with an explicit \"ports\" list to allow this port",
 			MinTLSVersion: DefaultMinTLSVersion,
 		}
 	}
-	return ConnectResult{Action: ConnectTunnel, Mode: ModeFallthrough, MinTLSVersion: DefaultMinTLSVersion}
+	return ConnectResult{
+		Action: ConnectTunnel, Source: SourceFallthrough, Mode: string(ModeTunnel),
+		MinTLSVersion: DefaultMinTLSVersion,
+	}
 }
 
 // RequestAction is what the proxy does with an intercepted request.
@@ -239,6 +259,9 @@ const (
 type Decision struct {
 	Action RequestAction
 	Rule   string
+	// Source and Mode are the same two axes ConnectResult carries: what
+	// decided, and what the proxy does with the request.
+	Source string
 	Mode   string
 	// Inject is the header mutation to apply, nil when there is none.
 	Inject *Inject
@@ -268,6 +291,7 @@ func (e *Engine) Evaluate(host string, port int, method, requestPath string) Dec
 			return Decision{
 				Action: RequestDeny,
 				Rule:   c.rule.Name,
+				Source: SourceRule,
 				Mode:   string(ModeDeny),
 				Reason: "denied by rule " + c.rule.Name,
 			}
@@ -281,12 +305,15 @@ func (e *Engine) Evaluate(host string, port int, method, requestPath string) Dec
 		return Decision{
 			Action: RequestForward,
 			Rule:   intercept.rule.Name,
+			Source: SourceRule,
 			Mode:   string(ModeIntercept),
 			Inject: intercept.rule.Inject,
 		}
 	}
 
-	return Decision{Action: RequestForward, Mode: ModeImplicitAllow}
+	// The connection was terminated to see this request, so the mode is
+	// intercept even though no rule named it.
+	return Decision{Action: RequestForward, Source: SourceImplicitAllow, Mode: string(ModeIntercept)}
 }
 
 // matchesRequest reports whether the rule applies to this request.

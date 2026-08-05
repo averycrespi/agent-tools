@@ -173,6 +173,11 @@ duration, bytes, credential, injection and the failure reason — lives in the
 expanded row. When the two dashboards disagree on any of that, one of them is
 wrong.
 
+The Rule column shows the matched rule, or the source when no rule decided, so
+it is never blank on the rows that most need explaining. The Mode column is
+always what the proxy did — `intercept`, `tunnel` or `deny` — never the
+attribution.
+
 Cell values are plain text, never pill badges. mcp-broker's audit log renders
 its source, verdict and status columns as text and carries the state in the row
 tint, so mode, outcome and a rule's `allow_private` read the same way here.

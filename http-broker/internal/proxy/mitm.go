@@ -46,7 +46,8 @@ func (p *Proxy) serveMITM(w http.ResponseWriter, r *http.Request, id, host strin
 	if err != nil {
 		p.audit.Record(Event{
 			ID: id, Start: start, Interception: "mitm", Host: host, Port: port,
-			Status: http.StatusInternalServerError, MatchedRule: decision.Rule, Mode: decision.Mode,
+			Status: http.StatusInternalServerError, MatchedRule: decision.Rule,
+			Source: decision.Source, Mode: decision.Mode,
 			Outcome: OutcomeError, Error: "issuing a leaf certificate failed", DurationMS: sinceMS(start),
 		})
 		p.refuse(w, http.StatusInternalServerError, ReasonUpstreamFailure, "could not issue a certificate for this host")
@@ -76,7 +77,7 @@ func (p *Proxy) serveMITM(w http.ResponseWriter, r *http.Request, id, host strin
 			"host", host, "port", port, "error", err)
 		p.audit.Record(Event{
 			ID: id, Start: start, Interception: "mitm", Host: host, Port: port,
-			MatchedRule: decision.Rule, Mode: decision.Mode, Outcome: OutcomeError,
+			MatchedRule: decision.Rule, Source: decision.Source, Mode: decision.Mode, Outcome: OutcomeError,
 			Error:      "client TLS handshake failed (a certificate-pinning client needs a mode:\"tunnel\" rule)",
 			DurationMS: sinceMS(start),
 		})

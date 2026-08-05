@@ -51,13 +51,14 @@
 
   const filters = () => ({
     host: $("filter-host").value.trim(),
+    source: $("filter-source").value,
     mode: $("filter-mode").value,
     outcome: $("filter-outcome").value,
   });
 
   const filtersActive = () => {
     const f = filters();
-    return !!(f.host || f.mode || f.outcome);
+    return !!(f.host || f.source || f.mode || f.outcome);
   };
 
   function updateResetButton() {
@@ -66,6 +67,7 @@
 
   function clearFilters() {
     $("filter-host").value = "";
+    $("filter-source").value = "";
     $("filter-mode").value = "";
     $("filter-outcome").value = "";
     updateResetButton();
@@ -84,6 +86,7 @@
     ) {
       return false;
     }
+    if (f.source && rec.source !== f.source) return false;
     if (f.mode && rec.mode !== f.mode) return false;
     if (f.outcome && rec.outcome !== f.outcome) return false;
     return true;
@@ -127,7 +130,9 @@
     tr.append(
       cell(stamp(rec.ts)),
       cell(rec.host),
-      cell(rec.matched_rule),
+      // A row no rule decided shows what did decide it, rather than a dash
+      // that says nothing.
+      cell(rec.matched_rule || rec.source),
       cell(rec.mode),
       cell(rec.outcome),
       cell(rec.status || ""),
@@ -201,6 +206,7 @@
         "Decision",
         lines([
           ["Rule", rec.matched_rule || "none"],
+          ["Source", rec.source],
           ["Mode", rec.mode],
           ["Credential", rec.credential_ref],
           ["Headers injected", rec.injection],
@@ -369,6 +375,7 @@
     const f = filters();
     const params = new URLSearchParams();
     if (f.host) params.set("host", f.host);
+    if (f.source) params.set("source", f.source);
     if (f.mode) params.set("mode", f.mode);
     if (f.outcome) params.set("outcome", f.outcome);
     params.set("limit", String(PAGE_SIZE));
@@ -577,6 +584,7 @@
     }
 
     $("filter-host").addEventListener("input", debounceFilters);
+    $("filter-source").addEventListener("change", filtersChanged);
     $("filter-mode").addEventListener("change", filtersChanged);
     $("filter-outcome").addEventListener("change", filtersChanged);
     $("reset-filters").addEventListener("click", resetFilters);

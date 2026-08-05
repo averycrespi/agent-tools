@@ -96,10 +96,11 @@ func (p *Proxy) handleAbsolute(w http.ResponseWriter, r *http.Request) {
 			ID: id, Start: start, Interception: "http",
 			Method: r.Method, Host: host, Port: port, Path: r.URL.Path,
 			Query: redactQuery(r.URL.RawQuery), Status: http.StatusForbidden,
-			MatchedRule: decision.Rule, Mode: decision.Mode, Outcome: OutcomeBlocked,
-			Error: sanitizeDetail(decision.Reason), DurationMS: sinceMS(start),
+			MatchedRule: decision.Rule, Source: decision.Source, Mode: decision.Mode,
+			Outcome: OutcomeBlocked,
+			Error:   sanitizeDetail(decision.Reason), DurationMS: sinceMS(start),
 		})
-		p.refuse(w, http.StatusForbidden, denyReason(decision.Mode), decision.Reason)
+		p.refuse(w, http.StatusForbidden, denyReason(decision.Source), decision.Reason)
 		return
 
 	case rules.ConnectTunnel:
@@ -170,7 +171,7 @@ func (p *Proxy) forwardPlain(w http.ResponseWriter, r *http.Request, host string
 		ID: newRequestID(), Start: start, Interception: "http",
 		Method: r.Method, Host: host, Port: port, Path: r.URL.Path,
 		Query:       redactQuery(r.URL.RawQuery),
-		MatchedRule: decision.Rule, Mode: decision.Mode,
+		MatchedRule: decision.Rule, Source: decision.Source, Mode: decision.Mode,
 	}
 
 	body := countBody(r)
@@ -232,6 +233,7 @@ func (p *Proxy) handleIntercepted(
 
 	decision := engine.Evaluate(host, port, r.Method, r.URL.Path)
 	event.MatchedRule = decision.Rule
+	event.Source = decision.Source
 	event.Mode = decision.Mode
 
 	if decision.Action == rules.RequestDeny {

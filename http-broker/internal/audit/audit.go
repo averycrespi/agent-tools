@@ -44,6 +44,7 @@ type Record struct {
 	BytesIn       int64
 	BytesOut      int64
 	MatchedRule   string
+	Source        string
 	Mode          string
 	Injection     string
 	CredentialRef string
@@ -66,6 +67,7 @@ CREATE TABLE IF NOT EXISTS audit_records (
 	bytes_in       INTEGER,
 	bytes_out      INTEGER,
 	matched_rule   TEXT,
+	source         TEXT,
 	mode           TEXT,
 	injection      TEXT,
 	credential_ref TEXT,
@@ -80,14 +82,20 @@ CREATE INDEX IF NOT EXISTS idx_audit_outcome ON audit_records(outcome);
 // migrateSQL holds additive migrations. Each runs on every open and its error
 // is discarded, which is how an "add column that may already exist" migration
 // stays idempotent without a version table.
-var migrateSQL = []string{}
+var migrateSQL = []string{
+	// source split out of mode: mode used to carry "fallthrough" and
+	// "implicit-allow", which meant a row no rule decided could not also say
+	// what the proxy did. Rows written before the split have a NULL source and
+	// a mode holding the old attribution value.
+	"ALTER TABLE audit_records ADD COLUMN source TEXT",
+}
 
 const insertSQL = `
 INSERT INTO audit_records (
 	id, ts, interception, method, host, port, path, query, status,
-	duration_ms, bytes_in, bytes_out, matched_rule, mode, injection,
+	duration_ms, bytes_in, bytes_out, matched_rule, source, mode, injection,
 	credential_ref, outcome, error
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 // maxQueryBytes bounds the stored query string.
@@ -179,7 +187,7 @@ func (l *Logger) Record(rec Record) error {
 		rec.ID, rec.Timestamp.UnixMilli(), rec.Interception,
 		nullable(rec.Method), rec.Host, rec.Port, nullable(rec.Path), nullable(rec.Query),
 		rec.Status, rec.DurationMS, rec.BytesIn, rec.BytesOut,
-		nullable(rec.MatchedRule), nullable(rec.Mode), nullable(rec.Injection),
+		nullable(rec.MatchedRule), nullable(rec.Source), nullable(rec.Mode), nullable(rec.Injection),
 		nullable(rec.CredentialRef), rec.Outcome, nullable(rec.Error),
 	)
 	subs := make([]*subscriberEntry, len(l.subscribers))
@@ -233,6 +241,7 @@ func (l *Logger) Subscribe(fn func(Record)) func() {
 type QueryOpts struct {
 	Host    string
 	Outcome string
+	Source  string
 	Mode    string
 	Rule    string
 	Limit   int
@@ -269,6 +278,10 @@ func (l *Logger) Query(ctx context.Context, opts QueryOpts) ([]Record, int, erro
 		where += " AND outcome = ?"
 		args = append(args, opts.Outcome)
 	}
+	if opts.Source != "" {
+		where += " AND source = ?"
+		args = append(args, opts.Source)
+	}
 	if opts.Mode != "" {
 		where += " AND mode = ?"
 		args = append(args, opts.Mode)
@@ -296,7 +309,7 @@ func (l *Logger) Query(ctx context.Context, opts QueryOpts) ([]Record, int, erro
 	// value is a bound parameter.
 	rows, err := l.db.QueryContext(ctx, `
 		SELECT id, ts, interception, method, host, port, path, query, status,
-		       duration_ms, bytes_in, bytes_out, matched_rule, mode, injection,
+		       duration_ms, bytes_in, bytes_out, matched_rule, source, mode, injection,
 		       credential_ref, outcome, error
 		FROM audit_records `+where+`
 		ORDER BY ts DESC, id DESC
@@ -322,15 +335,15 @@ func (l *Logger) Query(ctx context.Context, opts QueryOpts) ([]Record, int, erro
 
 func scanRecord(rows *sql.Rows) (Record, error) {
 	var (
-		rec                                                        Record
-		ts                                                         int64
-		method, path, query, matchedRule, mode, injection, credRef sql.NullString
-		errStr                                                     sql.NullString
+		rec                                                                Record
+		ts                                                                 int64
+		method, path, query, matchedRule, source, mode, injection, credRef sql.NullString
+		errStr                                                             sql.NullString
 	)
 	if err := rows.Scan(
 		&rec.ID, &ts, &rec.Interception, &method, &rec.Host, &rec.Port, &path, &query,
 		&rec.Status, &rec.DurationMS, &rec.BytesIn, &rec.BytesOut,
-		&matchedRule, &mode, &injection, &credRef, &rec.Outcome, &errStr,
+		&matchedRule, &source, &mode, &injection, &credRef, &rec.Outcome, &errStr,
 	); err != nil {
 		return Record{}, fmt.Errorf("scanning an audit row: %w", err)
 	}
@@ -340,6 +353,7 @@ func scanRecord(rows *sql.Rows) (Record, error) {
 	rec.Path = path.String
 	rec.Query = query.String
 	rec.MatchedRule = matchedRule.String
+	rec.Source = source.String
 	rec.Mode = mode.String
 	rec.Injection = injection.String
 	rec.CredentialRef = credRef.String

@@ -29,7 +29,7 @@ func auditRows(t *testing.T, s *stack) []string {
 	defer func() { _ = db.Close() }()
 
 	rows, err := db.Query(`SELECT id, interception, method, host, port, path, query,
-		status, matched_rule, mode, injection, credential_ref, outcome, error
+		status, matched_rule, source, mode, injection, credential_ref, outcome, error
 		FROM audit_records ORDER BY ts`)
 	if err != nil {
 		t.Fatalf("querying the audit database: %v", err)
@@ -38,8 +38,8 @@ func auditRows(t *testing.T, s *stack) []string {
 
 	var out []string
 	for rows.Next() {
-		vals := make([]any, 14)
-		ptrs := make([]any, 14)
+		vals := make([]any, 15)
+		ptrs := make([]any, 15)
 		for i := range vals {
 			ptrs[i] = &vals[i]
 		}
@@ -436,6 +436,15 @@ func TestAuditBlockedOutcomes(t *testing.T) {
 	}
 	if !strings.Contains(joined, "no rule matches this host") {
 		t.Errorf("a fallthrough refusal should record its reason:\n%s", joined)
+	}
+	// Source and mode are separate columns, adjacent in the row dump as
+	// "matched_rule|source|mode". Both refusals deny; they differ in what
+	// decided, and neither row may lose the other axis.
+	if !strings.Contains(joined, "ads|rule|deny") {
+		t.Errorf("a rule refusal should record source=rule and mode=deny:\n%s", joined)
+	}
+	if !strings.Contains(joined, "fallthrough|deny") {
+		t.Errorf("a fallthrough refusal should record source=fallthrough and mode=deny:\n%s", joined)
 	}
 }
 

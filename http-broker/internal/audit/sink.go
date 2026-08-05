@@ -48,6 +48,7 @@ func fromEvent(e proxy.Event) Record {
 		BytesIn:       e.BytesIn,
 		BytesOut:      e.BytesOut,
 		MatchedRule:   e.MatchedRule,
+		Source:        e.Source,
 		Mode:          e.Mode,
 		Injection:     e.Injection,
 		CredentialRef: e.CredentialRef,

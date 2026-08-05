@@ -100,9 +100,10 @@ func TestQueryFilters(t *testing.T) {
 	logger, _ := open(t)
 
 	rows := []audit.Record{
-		{ID: "1", Interception: "mitm", Host: "a.example.com", Port: 443, Outcome: "allowed", Mode: "intercept", MatchedRule: "r1"},
-		{ID: "2", Interception: "mitm", Host: "b.example.com", Port: 443, Outcome: "blocked", Mode: "deny", MatchedRule: "r2"},
-		{ID: "3", Interception: "mitm", Host: "a.example.com", Port: 443, Outcome: "blocked", Mode: "deny", MatchedRule: "r1"},
+		{ID: "1", Interception: "mitm", Host: "a.example.com", Port: 443, Outcome: "allowed", Source: "rule", Mode: "intercept", MatchedRule: "r1"},
+		{ID: "2", Interception: "mitm", Host: "b.example.com", Port: 443, Outcome: "blocked", Source: "rule", Mode: "deny", MatchedRule: "r2"},
+		{ID: "3", Interception: "mitm", Host: "a.example.com", Port: 443, Outcome: "blocked", Source: "rule", Mode: "deny", MatchedRule: "r1"},
+		{ID: "4", Interception: "tunnel", Host: "c.example.com", Port: 443, Outcome: "blocked", Source: "fallthrough", Mode: "deny"},
 	}
 	for _, r := range rows {
 		r.Timestamp = time.Now()
@@ -119,10 +120,14 @@ func TestQueryFilters(t *testing.T) {
 		{"by host", audit.QueryOpts{Host: "a.example.com"}, 2},
 		// The dashboard's host box says "contains", so the filter must match on
 		// a substring rather than on the whole host.
-		{"by host substring", audit.QueryOpts{Host: "example.com"}, 3},
+		{"by host substring", audit.QueryOpts{Host: "example.com"}, 4},
 		{"by host prefix", audit.QueryOpts{Host: "b."}, 1},
-		{"by outcome", audit.QueryOpts{Outcome: "blocked"}, 2},
-		{"by mode", audit.QueryOpts{Mode: "deny"}, 2},
+		{"by outcome", audit.QueryOpts{Outcome: "blocked"}, 3},
+		{"by mode", audit.QueryOpts{Mode: "deny"}, 3},
+		// Source and mode are independent: three denies, one of which no rule
+		// decided.
+		{"by source", audit.QueryOpts{Source: "fallthrough"}, 1},
+		{"source and mode", audit.QueryOpts{Source: "rule", Mode: "deny"}, 2},
 		{"by rule", audit.QueryOpts{Rule: "r1"}, 2},
 		{"combined", audit.QueryOpts{Host: "a.example.com", Outcome: "blocked"}, 1},
 		{"mode and outcome", audit.QueryOpts{Mode: "intercept", Outcome: "blocked"}, 0},

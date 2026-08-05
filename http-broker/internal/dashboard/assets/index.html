@@ -45,13 +45,17 @@
             placeholder="Host contains..."
             aria-label="Filter by host"
           />
+          <select id="filter-source" aria-label="Filter by source">
+            <option value="">Source: any</option>
+            <option value="rule">rule</option>
+            <option value="fallthrough">fallthrough</option>
+            <option value="implicit-allow">implicit-allow</option>
+          </select>
           <select id="filter-mode" aria-label="Filter by mode">
             <option value="">Mode: any</option>
             <option value="intercept">intercept</option>
             <option value="tunnel">tunnel</option>
             <option value="deny">deny</option>
-            <option value="fallthrough">fallthrough</option>
-            <option value="implicit-allow">implicit-allow</option>
           </select>
           <select id="filter-outcome" aria-label="Filter by outcome">
             <option value="">Outcome: any</option>

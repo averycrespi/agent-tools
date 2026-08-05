@@ -50,7 +50,7 @@ serves a route this table omits.
 | `GET /dashboard/app.js`          | token | Dashboard script.                                                                                           |
 | `GET /dashboard/styles.css`      | token | Dashboard styles.                                                                                           |
 | `GET /dashboard/favicon.svg`     | token | Dashboard icon.                                                                                             |
-| `GET /dashboard/api/audit`       | token | Audit history. Filters: `host`, `outcome`, `mode`, `rule`, `limit`, `offset`.                               |
+| `GET /dashboard/api/audit`       | token | Audit history. Filters: `host`, `outcome`, `source`, `mode`, `rule`, `limit`, `offset`.                     |
 | `GET /dashboard/api/rules`       | token | The active ruleset and fallthrough policy.                                                                  |
 | `GET /dashboard/api/credentials` | token | Credential **names, sources and bound hosts**. Never a value.                                               |
 | `GET /dashboard/api/events`      | token | Server-sent events: one `audit` event per new request.                                                      |
@@ -60,8 +60,18 @@ method returns 405 from the mux rather than relying on a handler to reject it.
 
 `host` is a substring match, so `github` finds `api.github.com`. Wildcard
 characters are escaped, so `%` matches a literal percent sign. `outcome`,
-`mode` and `rule` are exact: the UI drives them from dropdowns over a fixed set
-of values.
+`source`, `mode` and `rule` are exact: the UI drives them from dropdowns over a
+fixed set of values.
+
+`source` and `mode` are separate axes. `source` is what decided — `rule`,
+`fallthrough`, or `implicit-allow` — and `matched_rule` names the rule when the
+source is `rule`. `mode` is what the proxy then did with the bytes:
+`intercept`, `tunnel` or `deny`. Both are always set on any row that reached a
+policy decision; a refusal before policy (a failed proxy auth, a malformed
+request line) has neither.
+
+Rows written before the two were split carry the old merged value: a NULL
+`source` and a `mode` holding `fallthrough` or `implicit-allow`.
 
 ## What the API deliberately does not expose
 

@@ -35,32 +35,38 @@ func TestConnectDecision(t *testing.T) {
 		port       int
 		wantAction rules.ConnectAction
 		wantRule   string
+		wantSource string
 		wantMode   string
 	}{
 		{
 			name: "step 2: an intercept match forces MITM even though it is path-scoped",
 			host: "api.github.com", port: 443,
-			wantAction: rules.ConnectMITM, wantRule: "gh", wantMode: "intercept",
+			wantAction: rules.ConnectMITM, wantRule: "gh",
+			wantSource: "rule", wantMode: "intercept",
 		},
 		{
 			name: "step 3: host-only tunnel applies at CONNECT",
 			host: "cdn.pinned-sdk.com", port: 443,
-			wantAction: rules.ConnectTunnel, wantRule: "pinned", wantMode: "tunnel",
+			wantAction: rules.ConnectTunnel, wantRule: "pinned",
+			wantSource: "rule", wantMode: "tunnel",
 		},
 		{
 			name: "step 3: host-only deny rejects before any dial",
 			host: "ads.doubleclick.net", port: 443,
-			wantAction: rules.ConnectDeny, wantRule: "ads", wantMode: "deny",
+			wantAction: rules.ConnectDeny, wantRule: "ads",
+			wantSource: "rule", wantMode: "deny",
 		},
 		{
+			// Source and mode are separate axes: no rule decided, and the
+			// connection is still terminated.
 			name: "step 4: only a path-scoped deny matches, so MITM and decide per request",
 			host: "api.example.com", port: 443,
-			wantAction: rules.ConnectMITM, wantMode: "implicit-allow",
+			wantAction: rules.ConnectMITM, wantSource: "implicit-allow", wantMode: "intercept",
 		},
 		{
 			name: "step 5: no rule matches, fallthrough tunnel",
 			host: "unmatched.example.com", port: 443,
-			wantAction: rules.ConnectTunnel, wantMode: "fallthrough",
+			wantAction: rules.ConnectTunnel, wantSource: "fallthrough", wantMode: "tunnel",
 		},
 	}
 
@@ -72,6 +78,9 @@ func TestConnectDecision(t *testing.T) {
 			}
 			if got.Rule != tc.wantRule {
 				t.Errorf("Rule = %q, want %q", got.Rule, tc.wantRule)
+			}
+			if got.Source != tc.wantSource {
+				t.Errorf("Source = %q, want %q", got.Source, tc.wantSource)
 			}
 			if got.Mode != tc.wantMode {
 				t.Errorf("Mode = %q, want %q", got.Mode, tc.wantMode)
@@ -88,8 +97,11 @@ func TestConnectDecisionFallthroughDeny(t *testing.T) {
 	if got.Action != rules.ConnectDeny {
 		t.Errorf("Action = %q, want deny", got.Action)
 	}
-	if got.Mode != "fallthrough" {
-		t.Errorf("Mode = %q, want fallthrough", got.Mode)
+	if got.Source != "fallthrough" {
+		t.Errorf("Source = %q, want fallthrough", got.Source)
+	}
+	if got.Mode != "deny" {
+		t.Errorf("Mode = %q, want deny: the source says who decided, the mode says what happened", got.Mode)
 	}
 	if !strings.Contains(got.Reason, "fallthrough") {
 		t.Errorf("Reason %q should explain that fallthrough denied it", got.Reason)
@@ -136,8 +148,8 @@ func TestTunnelPorts(t *testing.T) {
 		}
 		// The rule does not apply to 8443, so the fallthrough policy decides —
 		// the rule is not consulted and does not appear in the attribution.
-		if got.Mode != "fallthrough" {
-			t.Errorf("Mode = %q, want fallthrough: a port-scoped rule that excludes this port simply does not apply", got.Mode)
+		if got.Source != "fallthrough" {
+			t.Errorf("Source = %q, want fallthrough: a port-scoped rule that excludes this port simply does not apply", got.Source)
 		}
 	})
 
@@ -152,8 +164,11 @@ func TestTunnelPorts(t *testing.T) {
 		if got.Action != rules.ConnectTunnel {
 			t.Errorf("Action = %q, want tunnel: the deny rule is scoped to 8443, so 443 falls through", got.Action)
 		}
-		if got.Mode != "fallthrough" {
-			t.Errorf("Mode = %q, want fallthrough", got.Mode)
+		if got.Source != "fallthrough" {
+			t.Errorf("Source = %q, want fallthrough", got.Source)
+		}
+		if got.Mode != "tunnel" {
+			t.Errorf("Mode = %q, want tunnel: the fallthrough policy relayed it", got.Mode)
 		}
 		if got.Rule != "" {
 			t.Errorf("Rule = %q, want empty: no rule applied", got.Rule)
@@ -211,8 +226,8 @@ func TestPlainHTTPFallthroughIgnoresThePortLimit(t *testing.T) {
 		if got.Action != rules.ConnectTunnel {
 			t.Errorf("port %d: Action = %q, want the fallthrough policy to forward it", port, got.Action)
 		}
-		if got.Mode != "fallthrough" {
-			t.Errorf("port %d: Mode = %q, want fallthrough", port, got.Mode)
+		if got.Source != "fallthrough" {
+			t.Errorf("port %d: Source = %q, want fallthrough", port, got.Source)
 		}
 	}
 
@@ -330,8 +345,11 @@ func TestEvaluateImplicitAllow(t *testing.T) {
 	if got.Action != rules.RequestForward {
 		t.Errorf("Action = %q, want forward", got.Action)
 	}
-	if got.Mode != "implicit-allow" {
-		t.Errorf("Mode = %q, want implicit-allow", got.Mode)
+	if got.Source != "implicit-allow" {
+		t.Errorf("Source = %q, want implicit-allow", got.Source)
+	}
+	if got.Mode != "intercept" {
+		t.Errorf("Mode = %q, want intercept: the connection was terminated to see this request", got.Mode)
 	}
 	if got.Inject != nil {
 		t.Error("an implicit-allow request must carry no injection")

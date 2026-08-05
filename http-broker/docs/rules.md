@@ -73,9 +73,16 @@ on any port the rule admits.
    never depends on file order.
 4. Otherwise only path-scoped `deny` rules match: intercept and decide per
    request. A request matching no rule is forwarded **uninjected** and audited
-   `mode=implicit-allow` — the host is already known to policy, so
+   `source=implicit-allow` — the host is already known to policy, so
    `fallthrough` does not apply.
-5. No rule matches the host: the `fallthrough` policy decides.
+5. No rule matches the host: the `fallthrough` policy decides, and the row is
+   audited `source=fallthrough`.
+
+The audit log records the two halves of that separately: `source` is what
+decided (`rule`, `fallthrough` or `implicit-allow`, with `matched_rule` naming
+the rule) and `mode` is what the proxy then did (`intercept`, `tunnel` or
+`deny`). A fallthrough decision therefore still says whether the connection was
+relayed or refused.
 
 ### Ports
 

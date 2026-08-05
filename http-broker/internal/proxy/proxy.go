@@ -59,19 +59,23 @@ type AuditSink interface {
 
 // Event is one auditable request or tunnel.
 type Event struct {
-	ID            string
-	Start         time.Time
-	Interception  string // "tunnel" or "mitm"
-	Method        string
-	Host          string
-	Port          int
-	Path          string
-	Query         string
-	Status        int
-	DurationMS    int64
-	BytesIn       int64
-	BytesOut      int64
-	MatchedRule   string
+	ID           string
+	Start        time.Time
+	Interception string // "tunnel" or "mitm"
+	Method       string
+	Host         string
+	Port         int
+	Path         string
+	Query        string
+	Status       int
+	DurationMS   int64
+	BytesIn      int64
+	BytesOut     int64
+	MatchedRule  string
+	// Source is what decided — a rule, the fallthrough policy, or an implicit
+	// allow — and Mode is what this proxy did with the bytes. Two axes, so a
+	// row decided by policy rather than by a rule still says what happened.
+	Source        string
 	Mode          string
 	Injection     string
 	CredentialRef string
@@ -238,10 +242,11 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	case rules.ConnectDeny:
 		p.audit.Record(Event{
 			ID: id, Start: start, Interception: "tunnel", Host: host, Port: port,
-			Status: http.StatusForbidden, MatchedRule: decision.Rule, Mode: decision.Mode,
+			Status: http.StatusForbidden, MatchedRule: decision.Rule,
+			Source: decision.Source, Mode: decision.Mode,
 			Outcome: OutcomeBlocked, Error: sanitizeDetail(decision.Reason), DurationMS: sinceMS(start),
 		})
-		p.refuse(w, http.StatusForbidden, denyReason(decision.Mode), decision.Reason)
+		p.refuse(w, http.StatusForbidden, denyReason(decision.Source), decision.Reason)
 		return
 
 	case rules.ConnectTunnel:
@@ -254,10 +259,10 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// denyReason maps a decision mode to a stable reason string.
-func denyReason(mode string) string {
-	switch mode {
-	case rules.ModeFallthrough:
+// denyReason maps what decided a refusal to a stable reason string.
+func denyReason(source string) string {
+	switch source {
+	case rules.SourceFallthrough:
 		return ReasonFallthroughDeny
 	default:
 		return ReasonRuleDeny
@@ -302,7 +307,7 @@ func (p *Proxy) serveTunnel(w http.ResponseWriter, r *http.Request, id, host str
 	// those columns stay empty rather than being guessed at (AC-4).
 	p.audit.Record(Event{
 		ID: id, Start: start, Interception: "tunnel", Host: host, Port: port,
-		MatchedRule: decision.Rule, Mode: decision.Mode, Outcome: OutcomeAllowed,
+		MatchedRule: decision.Rule, Source: decision.Source, Mode: decision.Mode, Outcome: OutcomeAllowed,
 		BytesOut: sent, BytesIn: received, DurationMS: sinceMS(start),
 	})
 }
@@ -314,7 +319,7 @@ func (p *Proxy) recordDialFailure(id string, start time.Time, interception, host
 	}
 	p.audit.Record(Event{
 		ID: id, Start: start, Interception: interception, Host: host, Port: port,
-		MatchedRule: decision.Rule, Mode: decision.Mode, Outcome: outcome,
+		MatchedRule: decision.Rule, Source: decision.Source, Mode: decision.Mode, Outcome: outcome,
 		// Sanitised like every other audit error path, so the invariant holds
 		// uniformly rather than depending on which failure fired.
 		Status: dialStatus(err), Error: sanitizeDetail(err.Error()), DurationMS: sinceMS(start),
