@@ -97,7 +97,7 @@ func (p *Proxy) handleAbsolute(w http.ResponseWriter, r *http.Request) {
 			Method: r.Method, Host: host, Port: port, Path: r.URL.Path,
 			Query: redactQuery(r.URL.RawQuery), Status: http.StatusForbidden,
 			MatchedRule: decision.Rule, Mode: decision.Mode, Outcome: OutcomeBlocked,
-			DurationMS: sinceMS(start),
+			Error: sanitizeDetail(decision.Reason), DurationMS: sinceMS(start),
 		})
 		p.refuse(w, http.StatusForbidden, denyReason(decision.Mode), decision.Reason)
 		return
@@ -237,6 +237,9 @@ func (p *Proxy) handleIntercepted(
 	if decision.Action == rules.RequestDeny {
 		event.Status = http.StatusForbidden
 		event.Outcome = OutcomeBlocked
+		// The reason is what the dashboard shows when someone opens a blocked
+		// row. Without it a deny is a row with no explanation on it.
+		event.Error = sanitizeDetail(decision.Reason)
 		event.DurationMS = sinceMS(start)
 		p.audit.Record(event)
 		p.refuse(w, http.StatusForbidden, ReasonRuleDeny, decision.Reason)

@@ -429,6 +429,14 @@ func TestAuditBlockedOutcomes(t *testing.T) {
 	if !strings.Contains(joined, "fallthrough") {
 		t.Errorf("a fallthrough refusal should be attributed as such:\n%s", joined)
 	}
+	// The reason is the only thing that tells an operator reading the dashboard
+	// why a row is blocked. Both refusals must carry theirs.
+	if !strings.Contains(joined, "denied by rule ads") {
+		t.Errorf("a rule refusal should record its reason:\n%s", joined)
+	}
+	if !strings.Contains(joined, "no rule matches this host") {
+		t.Errorf("a fallthrough refusal should record its reason:\n%s", joined)
+	}
 }
 
 // TestAuditCredentialFailureTags is AC-8 and AC-9: the two credential failure

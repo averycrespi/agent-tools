@@ -239,7 +239,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		p.audit.Record(Event{
 			ID: id, Start: start, Interception: "tunnel", Host: host, Port: port,
 			Status: http.StatusForbidden, MatchedRule: decision.Rule, Mode: decision.Mode,
-			Outcome: OutcomeBlocked, DurationMS: sinceMS(start),
+			Outcome: OutcomeBlocked, Error: sanitizeDetail(decision.Reason), DurationMS: sinceMS(start),
 		})
 		p.refuse(w, http.StatusForbidden, denyReason(decision.Mode), decision.Reason)
 		return
