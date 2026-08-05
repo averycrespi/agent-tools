@@ -33,6 +33,14 @@ CA_SOURCE="$HOME/.local/share/http-broker/ca.pem"
 CA_DEST="${HTTP_BROKER_CA_DEST:-/usr/local/share/ca-certificates/http-broker.crt}"
 UPDATE_CA="${HTTP_BROKER_UPDATE_CA:-update-ca-certificates}"
 
+# The system bundle, which the refresh below merges the broker CA into. Runtimes
+# that treat a CA variable as their whole trust set must point here and not at
+# CA_DEST: a single-cert file makes the broker CA the ONLY trusted one, so every
+# host presenting its real certificate fails to verify. Python's ssl and
+# requests both replace like that, and under fallthrough "tunnel" that is all
+# traffic.
+CA_BUNDLE="${HTTP_BROKER_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}"
+
 # The system trust store is root-owned and `sb` runs provisioning scripts as
 # the unprivileged guest user, so both trust-store steps need escalation. The
 # guest has passwordless sudo. Set HTTP_BROKER_SUDO to empty to skip it, which
@@ -74,10 +82,26 @@ done
 echo "Installing the http-broker CA to $CA_DEST"
 $SUDO install -D -m 0644 "$CA_SOURCE" "$CA_DEST"
 
-if command -v "$UPDATE_CA" >/dev/null 2>&1; then
-	$SUDO "$UPDATE_CA" >/dev/null
-else
-	echo "warning: $UPDATE_CA not found; the system trust store was not refreshed" >&2
+if ! command -v "$UPDATE_CA" >/dev/null 2>&1; then
+	echo "error: $UPDATE_CA not found; the system trust store cannot be refreshed" >&2
+	exit 1
+fi
+$SUDO "$UPDATE_CA" >/dev/null
+
+# The refresh must have merged the CA into the bundle every variable below
+# names. Without it, interception fails for every host, and only once a rule
+# exists to reveal it — so fail here instead of writing a broken shell block.
+if ! awk '/-----BEGIN CERTIFICATE-----/ {body = 1; next} /-----END CERTIFICATE-----/ {body = 0} body' \
+	"$CA_SOURCE" | grep -qxFf - "$CA_BUNDLE"; then
+	cat >&2 <<EOF
+error: $CA_BUNDLE does not contain the http-broker CA
+
+$UPDATE_CA ran but the CA installed at $CA_DEST did not reach the bundle.
+Every runtime below trusts that bundle, so an intercepted connection would
+fail to verify. Check that $CA_DEST has a .crt extension, which
+update-ca-certificates requires.
+EOF
+	exit 1
 fi
 
 # --- Write the marker-fenced shell block ---------------------------------
@@ -118,12 +142,20 @@ export no_proxy="\$NO_PROXY"
 
 # Six variables, because no single one reaches every runtime: SSL_CERT_FILE
 # alone does not cover Node, Python requests, curl, git, or Deno.
-export SSL_CERT_FILE="$CA_DEST"
+#
+# These five name the system bundle, which now contains the broker CA. A
+# runtime that treats the variable as its entire trust set — Python's ssl and
+# requests do — would otherwise trust the broker CA alone and reject every
+# host presenting its real certificate.
+export SSL_CERT_FILE="$CA_BUNDLE"
+export REQUESTS_CA_BUNDLE="$CA_BUNDLE"
+export CURL_CA_BUNDLE="$CA_BUNDLE"
+export GIT_SSL_CAINFO="$CA_BUNDLE"
+export DENO_CERT="$CA_BUNDLE"
+
+# NODE_EXTRA_CA_CERTS appends to Node's built-in roots, so it names the CA
+# alone. Pointing it at the bundle would re-add every system root.
 export NODE_EXTRA_CA_CERTS="$CA_DEST"
-export REQUESTS_CA_BUNDLE="$CA_DEST"
-export CURL_CA_BUNDLE="$CA_DEST"
-export GIT_SSL_CAINFO="$CA_DEST"
-export DENO_CERT="$CA_DEST"
 $MARKER_END
 EOF
 

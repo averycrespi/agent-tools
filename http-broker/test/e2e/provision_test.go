@@ -14,9 +14,30 @@ import (
 	"time"
 )
 
-// runProvision runs the provisioning script against a temporary HOME and a
-// mocked trust-store root, returning the generated ~/.bashrc.
-func runProvision(t *testing.T, home, caDest string) string {
+// seedBundle writes a stand-in for the system CA bundle that update-ca-
+// certificates has already merged the broker CA into.
+func seedBundle(t *testing.T, home string) string {
+	t.Helper()
+
+	ca, err := os.ReadFile(filepath.Join(home, ".local", "share", "http-broker", "ca.pem"))
+	if err != nil {
+		t.Fatalf("reading the seeded CA: %v", err)
+	}
+
+	bundle := filepath.Join(t.TempDir(), "ca-certificates.crt")
+	body := "-----BEGIN CERTIFICATE-----\nsome-other-root\n-----END CERTIFICATE-----\n" + string(ca)
+	if err := os.WriteFile(bundle, []byte(body), 0o644); err != nil {
+		t.Fatalf("writing the bundle: %v", err)
+	}
+	return bundle
+}
+
+// runProvision runs the provisioning script against a temporary HOME, a mocked
+// trust-store root and a mocked system bundle, returning the generated
+// ~/.bashrc. The bundle is a parameter rather than seeded per call because its
+// path appears in the generated block, so two runs must be given the same one
+// to compare.
+func runProvision(t *testing.T, home, caDest, bundle string) string {
 	t.Helper()
 
 	script := filepath.Join(mustFindModuleRoot(), "http-broker",
@@ -26,6 +47,7 @@ func runProvision(t *testing.T, home, caDest string) string {
 	cmd.Env = append(os.Environ(),
 		"HOME="+home,
 		"HTTP_BROKER_CA_DEST="+caDest,
+		"HTTP_BROKER_CA_BUNDLE="+bundle,
 		// A no-op stand-in for update-ca-certificates, which needs root.
 		"HTTP_BROKER_UPDATE_CA=true",
 		// No escalation: this writes into a temporary directory as the test
@@ -76,8 +98,10 @@ func TestProvisionScript(t *testing.T) {
 	home := seedProvisionHome(t)
 	caDest := filepath.Join(t.TempDir(), "ca-certificates", "http-broker.crt")
 
-	first := runProvision(t, home, caDest)
-	second := runProvision(t, home, caDest)
+	bundle := seedBundle(t, home)
+
+	first := runProvision(t, home, caDest, bundle)
+	second := runProvision(t, home, caDest, bundle)
 
 	// Idempotent: two runs leave exactly one marker block.
 	const marker = "# >>> http-broker >>>"
@@ -117,6 +141,80 @@ func TestProvisionScript(t *testing.T) {
 	}
 }
 
+// TestProvisionTrustsTheSystemBundle pins where each CA variable points.
+//
+// The variables that runtimes treat as a replacement for their whole trust set
+// must name the system bundle, which already contains the broker CA. Naming the
+// single broker cert instead makes it the ONLY trusted CA, so every host
+// presenting its real certificate fails verification — Python's ssl and
+// requests both do exactly that, and under fallthrough "tunnel" that is all
+// traffic. NODE_EXTRA_CA_CERTS is the exception: it appends, so it names the
+// single cert.
+func TestProvisionTrustsTheSystemBundle(t *testing.T) {
+	home := seedProvisionHome(t)
+	caDest := filepath.Join(t.TempDir(), "ca-certificates", "http-broker.crt")
+	bundle := seedBundle(t, home)
+
+	bashrc := runProvision(t, home, caDest, bundle)
+
+	for _, name := range []string{
+		"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+		"GIT_SSL_CAINFO", "DENO_CERT",
+	} {
+		if got := extractExport(t, bashrc, name); got != bundle {
+			t.Errorf("%s = %q, want the system bundle %q — naming the single broker cert "+
+				"makes it the only trusted CA", name, got, bundle)
+		}
+	}
+
+	if got := extractExport(t, bashrc, "NODE_EXTRA_CA_CERTS"); got != caDest {
+		t.Errorf("NODE_EXTRA_CA_CERTS = %q, want the single cert %q — it appends to "+
+			"Node's built-ins", got, caDest)
+	}
+}
+
+// TestProvisionFailsWhenTheBundleLacksTheCA covers the other half: trust now
+// comes from the bundle, so a bundle the broker CA never reached would break
+// interception everywhere, and only once a rule exists to reveal it.
+func TestProvisionFailsWhenTheBundleLacksTheCA(t *testing.T) {
+	home := seedProvisionHome(t)
+	caDest := filepath.Join(t.TempDir(), "ca-certificates", "http-broker.crt")
+
+	bundle := filepath.Join(t.TempDir(), "ca-certificates.crt")
+	other := "-----BEGIN CERTIFICATE-----\nsome-other-root\n-----END CERTIFICATE-----\n"
+	if err := os.WriteFile(bundle, []byte(other), 0o644); err != nil {
+		t.Fatalf("writing the bundle: %v", err)
+	}
+
+	script := filepath.Join(mustFindModuleRoot(), "http-broker",
+		"examples", "provision", "configure-http-broker.sh")
+
+	cmd := exec.Command("bash", script)
+	cmd.Env = append(os.Environ(),
+		"HOME="+home,
+		"HTTP_BROKER_CA_DEST="+caDest,
+		"HTTP_BROKER_CA_BUNDLE="+bundle,
+		"HTTP_BROKER_UPDATE_CA=true",
+		"HTTP_BROKER_SUDO=",
+	)
+
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("the script should fail when the bundle does not contain the CA:\n%s", out)
+	}
+	if !strings.Contains(string(out), bundle) {
+		t.Errorf("the error should name the bundle so the operator knows what to check:\n%s", out)
+	}
+
+	// A half-configured shell is worse than an unconfigured one: it would point
+	// every runtime at a bundle that cannot verify an intercepted connection.
+	if data, err := os.ReadFile(filepath.Join(home, ".bashrc")); err == nil {
+		if strings.Contains(string(data), "HTTP_PROXY") {
+			t.Error("the script wrote the shell block despite failing the bundle check")
+		}
+	}
+}
+
 // TestProvisionEscalatesForTheTrustStore pins that both privileged steps run
 // through an escalation prefix. `sb` runs provisioning scripts as the
 // unprivileged guest user, and /usr/local/share/ca-certificates is root-owned,
@@ -150,6 +248,7 @@ func TestProvisionEscalatesForTheTrustStore(t *testing.T) {
 		"HOME="+home,
 		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"HTTP_BROKER_CA_DEST="+caDest,
+		"HTTP_BROKER_CA_BUNDLE="+seedBundle(t, home),
 		"HTTP_BROKER_UPDATE_CA=update-ca-stand-in",
 		"HTTP_BROKER_SUDO="+sudoStub,
 	)
@@ -205,7 +304,7 @@ func TestNeighbourToolsReachable(t *testing.T) {
 
 	home := seedProvisionHome(t)
 	caDest := filepath.Join(t.TempDir(), "ca-certificates", "http-broker.crt")
-	bashrc := runProvision(t, home, caDest)
+	bashrc := runProvision(t, home, caDest, seedBundle(t, home))
 
 	// Parse NO_PROXY out of the generated block rather than restating it, so
 	// this test fails if the script's carve-out changes.
