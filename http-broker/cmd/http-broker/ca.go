@@ -39,7 +39,7 @@ var caExportCmd = &cobra.Command{
 		if err := os.WriteFile(caExportOut, authority.RootPEM(), 0o644); err != nil { //nolint:gosec // the CA certificate is public by design
 			return fmt.Errorf("writing %s: %w", caExportOut, err)
 		}
-		cmd.Printf("wrote %s\n", caExportOut)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", caExportOut)
 		return nil
 	},
 }
@@ -69,8 +69,8 @@ var caRotateCmd = &cobra.Command{
 			return err
 		}
 
-		cmd.Printf("rotated CA: %s\n", paths.CACert())
-		cmd.Println("re-run provisioning in every sandbox, then send SIGHUP to a running serve")
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "rotated CA: %s\n", paths.CACert())
+		cmd.PrintErrln("re-run provisioning in every sandbox, then send SIGHUP to a running serve")
 		return nil
 	},
 }
@@ -80,7 +80,7 @@ var caPathCmd = &cobra.Command{
 	Short: "Print the CA certificate path",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		cmd.Println(paths.CACert())
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), paths.CACert())
 		return nil
 	},
 }

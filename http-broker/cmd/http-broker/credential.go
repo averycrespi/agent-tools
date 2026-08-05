@@ -64,7 +64,7 @@ var credentialSetCmd = &cobra.Command{
 		if err := credentials.NewKeychain().Set(name, value, credentialSetHosts); err != nil {
 			return err
 		}
-		cmd.Printf("stored %q for %s\n", name, strings.Join(credentialSetHosts, ", "))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "stored %q for %s\n", name, strings.Join(credentialSetHosts, ", "))
 		return nil
 	},
 }
@@ -85,7 +85,7 @@ var credentialRmCmd = &cobra.Command{
 		if err := credentials.NewKeychain().Delete(args[0]); err != nil {
 			return err
 		}
-		cmd.Printf("removed %q\n", args[0])
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "removed %q\n", args[0])
 		return nil
 	},
 }

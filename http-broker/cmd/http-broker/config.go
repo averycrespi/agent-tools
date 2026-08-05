@@ -18,7 +18,7 @@ var configPathCmd = &cobra.Command{
 	Short: "Print the effective config file path",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		cmd.Println(configPath())
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), configPath())
 		return nil
 	},
 }
@@ -36,7 +36,7 @@ var configShowCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		cmd.Println(string(out))
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), string(out))
 		return nil
 	},
 }
@@ -52,7 +52,7 @@ var configRefreshCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		cmd.Println(fmt.Sprintf("wrote %s", written))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", written)
 		return nil
 	},
 }

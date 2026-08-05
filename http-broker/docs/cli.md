@@ -67,6 +67,10 @@ prompt lands in shell history and scrollback.
 | `token proxy-credential` | Print the `Proxy-Authorization` value clients send. |
 | `token rotate`           | Generate a new token, invalidating the old one.     |
 
+Values print to stdout, so `$(http-broker token show)` works. Advice that
+follows a value — "re-run provisioning" after a rotate — goes to stderr, so it
+never lands in the substitution.
+
 ## `ca`
 
 | Command               | Effect                                                                                                                    |

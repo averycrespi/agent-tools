@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/averycrespi/agent-tools/http-broker/internal/auth"
@@ -22,7 +24,7 @@ var tokenShowCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		cmd.Println(token)
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), token)
 		return nil
 	},
 }
@@ -36,7 +38,7 @@ var tokenProxyURLCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		cmd.Println(auth.ProxyCredential(token))
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), auth.ProxyCredential(token))
 		return nil
 	},
 }
@@ -56,7 +58,7 @@ var tokenRotateCmd = &cobra.Command{
 		if err := auth.Write(auth.TokenPath(), token); err != nil {
 			return err
 		}
-		cmd.Println(token)
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), token)
 		cmd.PrintErrln("re-run provisioning in every sandbox, then send SIGHUP to a running serve")
 		return nil
 	},

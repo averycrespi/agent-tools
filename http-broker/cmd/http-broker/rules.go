@@ -24,7 +24,7 @@ var rulesPathCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		cmd.Println(config.EffectiveRulesPath(configPath(), cfg))
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), config.EffectiveRulesPath(configPath(), cfg))
 		return nil
 	},
 }
@@ -46,7 +46,7 @@ var rulesShowCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		cmd.Println(string(out))
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), string(out))
 		return nil
 	},
 }
@@ -75,7 +75,7 @@ var rulesCheckCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
-		cmd.Printf("%s: ok (%d rules, fallthrough %q)\n",
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: ok (%d rules, fallthrough %q)\n",
 			path, len(engine.RuleNames()), engine.Fallthrough())
 		return nil
 	},
@@ -92,7 +92,7 @@ var rulesRefreshCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		cmd.Printf("wrote %s\n", written)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", written)
 		return nil
 	},
 }
