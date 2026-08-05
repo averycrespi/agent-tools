@@ -8,13 +8,18 @@ MITM HTTP/HTTPS forward proxy that injects credentials for sandboxed agents.
 make build              # go build -o http-broker ./cmd/http-broker
 make install            # go install ./cmd/http-broker
 make test               # go test -race ./...
-make test-e2e           # go test -race -tags=e2e -timeout=60s ./test/e2e/...
+make test-e2e           # go test -race -tags=e2e -timeout=300s ./test/e2e/...
 make lint               # go tool golangci-lint run ./...
 make audit              # tidy + fmt + lint + test + govulncheck
 ```
 
 Run `make audit` before committing. E2E tests use `//go:build e2e`, live in
 `test/e2e/`, and drive the real binary as a subprocess.
+
+The e2e suite takes about three minutes: several tests wait out a fixed
+ten-second deadline rather than racing a condition, so the wall time is mostly
+sleeping. Hence `-timeout=300s` — a shorter one fails the suite without
+anything being wrong.
 
 ## Architecture
 
