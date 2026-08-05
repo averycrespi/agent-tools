@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -225,9 +226,14 @@ func (l *Logger) Subscribe(fn func(Record)) func() {
 }
 
 // QueryOpts filters and paginates a history query.
+//
+// Host is a substring match, like mcp-broker's tool filter and like what the
+// dashboard's own placeholder promises. Every other filter is exact: they are
+// driven by dropdowns over a fixed set of values.
 type QueryOpts struct {
 	Host    string
 	Outcome string
+	Mode    string
 	Rule    string
 	Limit   int
 	Offset  int
@@ -240,18 +246,32 @@ const DefaultLimit = 100
 // pull the whole database into memory.
 const MaxLimit = 1000
 
+// likeEscaper quotes the characters SQLite's LIKE treats as wildcards.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// escapeLikePattern makes a user-supplied substring match literally.
+//
+// Without it a host filter of "%" is a wildcard that matches every row, which
+// is not what someone typing into a "host contains" box asked for.
+// TestQueryFilterValuesAreBound pins the "%" case.
+func escapeLikePattern(s string) string { return likeEscaper.Replace(s) }
+
 // Query returns matching records newest first, plus the total match count.
 func (l *Logger) Query(ctx context.Context, opts QueryOpts) ([]Record, int, error) {
 	where := "WHERE 1=1"
 	var args []any
 
 	if opts.Host != "" {
-		where += " AND host = ?"
-		args = append(args, opts.Host)
+		where += ` AND host LIKE '%' || ? || '%' ESCAPE '\'`
+		args = append(args, escapeLikePattern(opts.Host))
 	}
 	if opts.Outcome != "" {
 		where += " AND outcome = ?"
 		args = append(args, opts.Outcome)
+	}
+	if opts.Mode != "" {
+		where += " AND mode = ?"
+		args = append(args, opts.Mode)
 	}
 	if opts.Rule != "" {
 		where += " AND matched_rule = ?"

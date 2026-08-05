@@ -50,13 +50,18 @@ serves a route this table omits.
 | `GET /dashboard/app.js`          | token | Dashboard script.                                                                                           |
 | `GET /dashboard/styles.css`      | token | Dashboard styles.                                                                                           |
 | `GET /dashboard/favicon.svg`     | token | Dashboard icon.                                                                                             |
-| `GET /dashboard/api/audit`       | token | Audit history. Filters: `host`, `outcome`, `rule`, `limit`, `offset`.                                       |
+| `GET /dashboard/api/audit`       | token | Audit history. Filters: `host`, `outcome`, `mode`, `rule`, `limit`, `offset`.                               |
 | `GET /dashboard/api/rules`       | token | The active ruleset and fallthrough policy.                                                                  |
 | `GET /dashboard/api/credentials` | token | Credential **names, sources and bound hosts**. Never a value.                                               |
 | `GET /dashboard/api/events`      | token | Server-sent events: one `audit` event per new request.                                                      |
 
 Every route is registered with an explicit `GET` method pattern, so any other
 method returns 405 from the mux rather than relying on a handler to reject it.
+
+`host` is a substring match, so `github` finds `api.github.com`. Wildcard
+characters are escaped, so `%` matches a literal percent sign. `outcome`,
+`mode` and `rule` are exact: the UI drives them from dropdowns over a fixed set
+of values.
 
 ## What the API deliberately does not expose
 

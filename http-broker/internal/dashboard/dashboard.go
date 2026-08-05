@@ -268,6 +268,7 @@ func (d *Dashboard) handleAudit(w http.ResponseWriter, r *http.Request) {
 	opts := audit.QueryOpts{
 		Host:    r.URL.Query().Get("host"),
 		Outcome: r.URL.Query().Get("outcome"),
+		Mode:    r.URL.Query().Get("mode"),
 		Rule:    r.URL.Query().Get("rule"),
 		Limit:   intParam(r, "limit", audit.DefaultLimit),
 		Offset:  intParam(r, "offset", 0),
