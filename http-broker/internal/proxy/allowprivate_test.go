@@ -240,12 +240,12 @@ func TestTransportForUnknownFloorIsStrict(t *testing.T) {
 // TestTLSFloorIsNegotiated proves the floors take effect on the wire, not just
 // in the config struct.
 //
-// The server caps at TLS 1.2, which is common corporate ALB behaviour. Against it the 1.3
-// transport must fail during version negotiation, and the 1.2 transport must get
-// far enough to validate the certificate — which then fails, because the test
-// server's cert is self-signed and verification is deliberately still on. The
-// two failures are distinguishable, and that difference is the assertion: a
-// certificate error means version negotiation succeeded.
+// The server caps at TLS 1.2, which is common corporate ALB behaviour. Against
+// it the 1.3 transport must fail during version negotiation, and the 1.2
+// transport must get far enough to validate the certificate — which then fails,
+// because the test server's cert is self-signed and verification is deliberately
+// still on. The two failures are distinguishable, and that difference is the
+// assertion: a certificate error means version negotiation succeeded.
 func TestTLSFloorIsNegotiated(t *testing.T) {
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

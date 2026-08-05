@@ -631,7 +631,8 @@ func TestDialAllowPrivateStillRefusesOtherClasses(t *testing.T) {
 }
 
 // TestDialWithoutAllowPrivateRefusesPrivateAddress is the default: absent the
-// flag, nothing changes. This is the case that produced the original private-address block.
+// flag, nothing changes. This is the case that produced the original
+// private-address block.
 func TestDialWithoutAllowPrivateRefusesPrivateAddress(t *testing.T) {
 	rec := &recordingDialer{}
 	d := netguard.NewWith(rec.dial, staticResolver{"internal.test": {"10.0.0.7"}})

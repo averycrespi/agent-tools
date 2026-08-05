@@ -157,8 +157,9 @@ multicast, unspecified, the reserved ranges and the cloud-metadata addresses
 stay refused, so `169.254.169.254` is never reachable through policy. The dial
 still goes to the resolved-and-validated address, never the hostname.
 
-It is as wide as the glob that carries it: `svc-prod.ds.aws.example.com` grants one
-host, `**.example.com` grants everything DNS puts under `example.com`. Keep it narrow.
+It is as wide as the glob that carries it: `svc-prod.ds.aws.example.com` grants
+one host, `**.example.com` grants everything DNS puts under `example.com`. Keep
+it narrow.
 
 Three rules of use:
 
