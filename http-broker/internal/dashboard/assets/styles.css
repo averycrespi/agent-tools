@@ -296,6 +296,13 @@ tbody tr:hover td {
   color: var(--product-accent-2);
 }
 
+/* A private-space grant is a widened dial permission, so it reads as a warning
+   rather than as neutral metadata. */
+.badge.private {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+}
+
 .meta {
   color: var(--muted);
   font-family: var(--font-sans);

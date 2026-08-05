@@ -581,3 +581,90 @@ func parseAll(ss []string) []netip.Addr {
 	}
 	return out
 }
+
+// TestDialAllowPrivatePermitsPrivateAddress is the internal-service case: a
+// host a rule marked allow_private may resolve into RFC 1918 space, and the
+// dial still goes to the validated address rather than the name.
+func TestDialAllowPrivatePermitsPrivateAddress(t *testing.T) {
+	rec := &recordingDialer{}
+	d := netguard.NewWith(rec.dial, staticResolver{"internal.test": {"10.0.0.7"}})
+
+	ctx := netguard.WithAllowPrivate(context.Background(), true)
+	if _, err := d.DialContext(ctx, "tcp", "internal.test:443"); err != nil {
+		t.Fatalf("DialContext = %v, want a private address allowed under allow_private", err)
+	}
+	if got := rec.last(); got != "10.0.0.7:443" {
+		t.Errorf("dialled %q, want the resolved address 10.0.0.7:443", got)
+	}
+}
+
+// TestDialAllowPrivateStillRefusesOtherClasses pins the width of the grant:
+// allow_private relaxes RFC 1918 and RFC 4193 only. Every other class stays
+// refused, or the flag would be an SSRF off switch.
+func TestDialAllowPrivateStillRefusesOtherClasses(t *testing.T) {
+	for name, addr := range map[string]string{
+		"loopback":       "127.0.0.1",
+		"link-local":     "169.254.1.1",
+		"imds":           "169.254.169.254",
+		"ecs-metadata":   "169.254.170.2",
+		"ipv6-imds":      "fd00:ec2::254",
+		"cgnat-reserved": "100.100.100.200",
+		"unspecified":    "0.0.0.0",
+		"nat64-loopback": "64:ff9b::7f00:1",
+	} {
+		rec := &recordingDialer{}
+		d := netguard.NewWith(rec.dial, staticResolver{"internal.test": {addr}})
+
+		ctx := netguard.WithAllowPrivate(context.Background(), true)
+		_, err := d.DialContext(ctx, "tcp", "internal.test:443")
+		if err == nil {
+			t.Errorf("%s (%s): allowed, want it refused even under allow_private", name, addr)
+			continue
+		}
+		if !errors.Is(err, netguard.ErrBlocked) {
+			t.Errorf("%s (%s): error %v, want it to wrap ErrBlocked", name, addr, err)
+		}
+		if got := rec.calls.Load(); got != 0 {
+			t.Errorf("%s (%s): dialled %d times, want 0", name, addr, got)
+		}
+	}
+}
+
+// TestDialWithoutAllowPrivateRefusesPrivateAddress is the default: absent the
+// flag, nothing changes. This is the case that produced the original private-address block.
+func TestDialWithoutAllowPrivateRefusesPrivateAddress(t *testing.T) {
+	rec := &recordingDialer{}
+	d := netguard.NewWith(rec.dial, staticResolver{"internal.test": {"10.0.0.7"}})
+
+	_, err := d.DialContext(context.Background(), "tcp", "internal.test:443")
+	if err == nil {
+		t.Fatal("a private address should be refused without allow_private")
+	}
+	if !errors.Is(err, netguard.ErrBlocked) {
+		t.Fatalf("error %v, want it to wrap ErrBlocked", err)
+	}
+}
+
+// TestDialAllowPrivateAppliesToIPv6ULA covers the v6 half of IsPrivate, which
+// is fc00::/7 rather than an RFC 1918 range.
+func TestDialAllowPrivateAppliesToIPv6ULA(t *testing.T) {
+	rec := &recordingDialer{}
+	d := netguard.NewWith(rec.dial, staticResolver{"internal.test": {"fd12:3456::1"}})
+
+	ctx := netguard.WithAllowPrivate(context.Background(), true)
+	if _, err := d.DialContext(ctx, "tcp", "internal.test:443"); err != nil {
+		t.Fatalf("DialContext = %v, want a ULA address allowed under allow_private", err)
+	}
+}
+
+// TestDialAllowPrivateWithIPLiteral covers the literal path, which skips
+// resolution and checks the address directly.
+func TestDialAllowPrivateWithIPLiteral(t *testing.T) {
+	rec := &recordingDialer{}
+	d := netguard.NewWith(rec.dial, staticResolver{})
+
+	ctx := netguard.WithAllowPrivate(context.Background(), true)
+	if _, err := d.DialContext(ctx, "tcp", "10.0.0.7:443"); err != nil {
+		t.Fatalf("DialContext = %v, want a private literal allowed under allow_private", err)
+	}
+}

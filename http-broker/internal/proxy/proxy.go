@@ -271,7 +271,8 @@ func denyReason(mode string) string {
 func (p *Proxy) serveTunnel(w http.ResponseWriter, r *http.Request, id, host string, port int, decision rules.ConnectResult, start time.Time) {
 	target := net.JoinHostPort(host, strconv.Itoa(port))
 
-	upstream, err := p.dialer.DialContext(r.Context(), "tcp", target)
+	ctx := netguard.WithAllowPrivate(r.Context(), decision.AllowPrivate)
+	upstream, err := p.dialer.DialContext(ctx, "tcp", target)
 	if err != nil {
 		p.recordDialFailure(id, start, "tunnel", host, port, decision, err)
 		p.refuseDial(w, err)

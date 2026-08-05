@@ -16,6 +16,7 @@ Policy lives in `~/.config/http-broker/rules.json`. Validate with
       "path": "...",
       "method": "...",
       "ports": [443],
+      "allow_private": false,
       "inject": { "set": { "Header": "${cred.name}" }, "remove": ["Header"] }
     }
   ]
@@ -128,13 +129,49 @@ never reach the wire.
 A credential value is inserted literally and never rescanned, so a value that
 happens to contain `${cred.other}` cannot pull in a second credential.
 
+## Internal hosts
+
+`netguard` refuses any dial into RFC 1918 or RFC 4193 private space, so an
+internal service is unreachable until a rule says otherwise:
+
+```json
+{
+  "name": "svc-prod",
+  "host": "svc-prod.ds.aws.example.com",
+  "mode": "intercept",
+  "allow_private": true,
+  "inject": { "set": { "Authorization": "Bearer ${cred.svc_api}" } }
+}
+```
+
+The grant relaxes **only** the private-address class. Loopback, link-local,
+multicast, unspecified, the reserved ranges and the cloud-metadata addresses
+stay refused, so `169.254.169.254` is never reachable through policy. The dial
+still goes to the resolved-and-validated address, never the hostname.
+
+It is as wide as the glob that carries it: `svc-prod.ds.aws.example.com` grants one
+host, `**.example.com` grants everything DNS puts under `example.com`. Keep it narrow.
+
+Three rules of use:
+
+- **Host-only rules only.** The dial is per host and port, so `allow_private`
+  alongside a `path` or `method` would claim to be narrower than it is. It is
+  rejected at load.
+- **`intercept` and `tunnel` only.** A `deny` rule never dials, so the grant
+  would be inert.
+- **Decided at CONNECT, over every matching rule.** If any rule matching the
+  host and port grants it, the connection has it — file order never decides.
+  This is also why it cannot vary per request: connections are pooled by host
+  and port, so the first request's grant would otherwise bind the rest.
+
 ## Load-time validation
 
 Rejected with an actionable message: a missing `host`, `name` or `mode`; a
 `tunnel` rule carrying `path` or `method`; duplicate names; an unknown mode; a
 bad glob; a port out of range; `inject` on a non-`intercept` rule; two
-identically written host-only rules of differing mode; and a host glob that
-reduces to a public suffix.
+identically written host-only rules of differing mode; a host glob that
+reduces to a public suffix; and `allow_private` on a `deny` rule or on a rule
+carrying `path` or `method`.
 
 **Warned, not rejected:** a rule whose host glob is broader than a referenced
 credential's bound hosts. Requests it matches outside that binding will be

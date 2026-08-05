@@ -574,3 +574,78 @@ func TestPathNormalizationHandlesEncodedTraversal(t *testing.T) {
 		}
 	}
 }
+
+// TestConnectDecisionAllowPrivate covers the grant reaching the dial decision.
+func TestConnectDecisionAllowPrivate(t *testing.T) {
+	t.Run("set by the matching rule", func(t *testing.T) {
+		e := engine(t, "tunnel", rules.Rule{
+			Name: "svc-prod", Host: "svc-prod.ds.aws.example.com",
+			Mode: rules.ModeIntercept, AllowPrivate: true,
+		})
+		if got := e.ConnectDecision("svc-prod.ds.aws.example.com", 443); !got.AllowPrivate {
+			t.Errorf("AllowPrivate = false, want true for a rule that sets it")
+		}
+	})
+
+	t.Run("absent by default", func(t *testing.T) {
+		e := engine(t, "tunnel", rules.Rule{
+			Name: "gh", Host: "api.github.com", Mode: rules.ModeIntercept,
+		})
+		if got := e.ConnectDecision("api.github.com", 443); got.AllowPrivate {
+			t.Errorf("AllowPrivate = true, want false for a rule that does not set it")
+		}
+	})
+
+	t.Run("absent on a fallthrough decision", func(t *testing.T) {
+		e := engine(t, "tunnel")
+		if got := e.ConnectDecision("unmatched.example.com", 443); got.AllowPrivate {
+			t.Errorf("AllowPrivate = true, want false when no rule matches")
+		}
+	})
+
+	t.Run("not granted by a port the rule excludes", func(t *testing.T) {
+		e := engine(t, "tunnel", rules.Rule{
+			Name: "svc-prod", Host: "svc-prod.ds.aws.example.com", Ports: []int{443},
+			Mode: rules.ModeIntercept, AllowPrivate: true,
+		})
+		if got := e.ConnectDecision("svc-prod.ds.aws.example.com", 8443); got.AllowPrivate {
+			t.Errorf("AllowPrivate = true, want false on a port the rule excludes")
+		}
+	})
+}
+
+// TestConnectDecisionAllowPrivateIsOrderIndependent is the invariant that
+// matters most here: overlapping globs must not make file order decide whether
+// a private dial is permitted, exactly as they must not decide deny-vs-tunnel.
+func TestConnectDecisionAllowPrivateIsOrderIndependent(t *testing.T) {
+	broad := rules.Rule{Name: "broad", Host: "**.aws.example.com", Mode: rules.ModeIntercept}
+	narrow := rules.Rule{
+		Name: "narrow", Host: "svc-prod.ds.aws.example.com",
+		Mode: rules.ModeIntercept, AllowPrivate: true,
+	}
+
+	for _, order := range [][]rules.Rule{{broad, narrow}, {narrow, broad}} {
+		e := engine(t, "tunnel", order...)
+		got := e.ConnectDecision("svc-prod.ds.aws.example.com", 443)
+		if !got.AllowPrivate {
+			t.Errorf("rules in order [%s %s]: AllowPrivate = false, want true — any matching rule granting it is enough",
+				order[0].Name, order[1].Name)
+		}
+	}
+}
+
+// TestConnectDecisionAllowPrivateNotLeakedToOtherHosts pins the grant to the
+// glob that carries it: a sibling host matched only by the broad rule gets
+// nothing.
+func TestConnectDecisionAllowPrivateNotLeakedToOtherHosts(t *testing.T) {
+	e := engine(t, "tunnel",
+		rules.Rule{Name: "broad", Host: "**.aws.example.com", Mode: rules.ModeIntercept},
+		rules.Rule{
+			Name: "narrow", Host: "svc-prod.ds.aws.example.com",
+			Mode: rules.ModeIntercept, AllowPrivate: true,
+		},
+	)
+	if got := e.ConnectDecision("other.aws.example.com", 443); got.AllowPrivate {
+		t.Errorf("AllowPrivate = true for other.aws.example.com, want false: only the narrow rule grants it")
+	}
+}

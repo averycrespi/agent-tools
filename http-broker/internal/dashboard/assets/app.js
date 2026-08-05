@@ -12,7 +12,10 @@
   const cell = (value, className) => {
     const td = document.createElement("td");
     if (className) td.className = className;
-    td.textContent = value === null || value === undefined || value === "" ? "—" : String(value);
+    td.textContent =
+      value === null || value === undefined || value === ""
+        ? "—"
+        : String(value);
     return td;
   };
 
@@ -84,7 +87,8 @@
       } else {
         for (const rec of data.records) tbody.appendChild(trafficRow(rec));
       }
-      $("traffic-meta").textContent = `${data.records ? data.records.length : 0} shown of ${data.total} total`;
+      $("traffic-meta").textContent =
+        `${data.records ? data.records.length : 0} shown of ${data.total} total`;
     } catch (err) {
       setEmpty(tbody, 11, `Could not load traffic: ${err.message}`);
     }
@@ -95,9 +99,14 @@
     tbody.replaceChildren();
     try {
       const data = await getJSON("/dashboard/api/rules");
-      $("rules-fallthrough").textContent = `Unmatched hosts: ${data.fallthrough}`;
+      $("rules-fallthrough").textContent =
+        `Unmatched hosts: ${data.fallthrough}`;
       if (!data.rules || data.rules.length === 0) {
-        setEmpty(tbody, 7, "No rules configured. Every host follows the fallthrough policy.");
+        setEmpty(
+          tbody,
+          8,
+          "No rules configured. Every host follows the fallthrough policy.",
+        );
         return;
       }
       for (const r of data.rules) {
@@ -105,15 +114,17 @@
         tr.appendChild(cell(r.name));
         tr.appendChild(badge(r.mode, "mode"));
         tr.appendChild(cell(r.host, "host"));
+        tr.appendChild(badge(r.allow_private ? "private ok" : "", "private"));
         tr.appendChild(cell(r.path, "path"));
         tr.appendChild(cell(r.method));
         tr.appendChild(cell(r.ports ? r.ports.join(", ") : ""));
-        const injects = r.inject && r.inject.set ? Object.keys(r.inject.set).join(", ") : "";
+        const injects =
+          r.inject && r.inject.set ? Object.keys(r.inject.set).join(", ") : "";
         tr.appendChild(cell(injects));
         tbody.appendChild(tr);
       }
     } catch (err) {
-      setEmpty(tbody, 7, `Could not load rules: ${err.message}`);
+      setEmpty(tbody, 8, `Could not load rules: ${err.message}`);
     }
   }
 
@@ -167,7 +178,8 @@
       const empty = tbody.querySelector(".empty");
       if (empty) tbody.replaceChildren();
       tbody.prepend(trafficRow(rec));
-      while (tbody.children.length > MAX_LIVE_ROWS) tbody.lastElementChild.remove();
+      while (tbody.children.length > MAX_LIVE_ROWS)
+        tbody.lastElementChild.remove();
     });
   }
 

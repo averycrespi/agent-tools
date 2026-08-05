@@ -45,6 +45,30 @@ func TestLoadValidation(t *testing.T) {
 			wantInError: []string{"tunnel-with-method", "host-only"},
 		},
 		{
+			name: "allow_private on a deny rule",
+			doc: doc(rules.Rule{
+				Name: "deny-private", Host: "internal.example.com",
+				Mode: rules.ModeDeny, AllowPrivate: true,
+			}),
+			wantInError: []string{"deny-private", "allow_private", "intercept"},
+		},
+		{
+			name: "allow_private on a path-scoped rule",
+			doc: doc(rules.Rule{
+				Name: "path-private", Host: "internal.example.com", Path: "/x",
+				Mode: rules.ModeIntercept, AllowPrivate: true,
+			}),
+			wantInError: []string{"path-private", "allow_private", "host-only"},
+		},
+		{
+			name: "allow_private on a method-scoped rule",
+			doc: doc(rules.Rule{
+				Name: "method-private", Host: "internal.example.com", Method: "GET",
+				Mode: rules.ModeIntercept, AllowPrivate: true,
+			}),
+			wantInError: []string{"method-private", "allow_private", "host-only"},
+		},
+		{
 			name: "duplicate rule names",
 			doc: doc(
 				rules.Rule{Name: "dup", Host: "a.example.com", Mode: rules.ModeTunnel},
@@ -161,6 +185,15 @@ func TestLoadAcceptsValidDocuments(t *testing.T) {
 			rules.Rule{Name: "b", Host: "api.github.com", Mode: rules.ModeTunnel},
 		)},
 		{"explicit ports", doc(rules.Rule{Name: "alt", Host: "api.example.com", Ports: []int{443, 8443}, Mode: rules.ModeTunnel})},
+		{"host-only intercept with allow_private", doc(rules.Rule{
+			Name: "svc-prod", Host: "svc-prod.ds.aws.example.com", Mode: rules.ModeIntercept,
+			AllowPrivate: true,
+			Inject:       &rules.Inject{Set: map[string]string{"Authorization": "Bearer ${cred.svc_api}"}},
+		})},
+		{"host-only tunnel with allow_private", doc(rules.Rule{
+			Name: "internal-relay", Host: "db.internal.example.com", Mode: rules.ModeTunnel,
+			AllowPrivate: true,
+		})},
 		{"deny fallthrough", rules.Document{Fallthrough: rules.FallthroughDeny}},
 	}
 

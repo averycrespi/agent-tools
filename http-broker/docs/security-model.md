@@ -42,18 +42,24 @@ loopback.
    body, a response body, or a header value. Query strings are stored with
    credential-shaped parameters redacted, including the AWS and Google
    presigned-URL names.
-7. **Upstream dials are guarded on both paths.** The tunnel relay and the MITM
+7. **Private space is reachable only for hosts a rule names.** `allow_private`
+   on a host-only rule relaxes the RFC 1918 and RFC 4193 refusal for that
+   rule's hosts, and nothing else: loopback, link-local, multicast,
+   unspecified, reserved ranges and cloud-metadata addresses stay refused, and
+   the dial still targets the resolved-and-validated address. The grant is
+   decided at CONNECT over every matching rule, so rule order cannot change it.
+8. **Upstream dials are guarded on both paths.** The tunnel relay and the MITM
    transport share one guard covering cloud metadata, loopback, private,
    carrier-grade NAT, link-local, multicast, unspecified and reserved ranges;
    alternate IP encodings; IPv6 transition forms that embed an IPv4 address;
    and DNS rebinding, by validating every resolved address and dialling only
    addresses from that validated set.
-8. **Upstream TLS is strict.** System trust store, verification on, TLS 1.3
+9. **Upstream TLS is strict.** System trust store, verification on, TLS 1.3
    minimum. Interception does not weaken the connection that actually carries
    the credential.
-9. **The dashboard is read-only.** No endpoint writes config, rules, or
-   credentials.
-10. **A failed reload keeps the previous policy serving.** A typo cannot take
+10. **The dashboard is read-only.** No endpoint writes config, rules, or
+    credentials.
+11. **A failed reload keeps the previous policy serving.** A typo cannot take
     the sandbox's network down.
 
 ## Out of scope

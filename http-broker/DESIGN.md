@@ -138,6 +138,36 @@ All templates for a rule are expanded and host-checked before any header is
 written. A single failure discards the whole in-progress request, so a
 partially injected request can never reach the wire.
 
+### Internal hosts are reachable only by naming them
+
+`netguard` refuses every dial into RFC 1918 and RFC 4193 private space, which
+also refuses the internal services an agent most often needs a credential for.
+An internal ALB and an SSRF attempt are indistinguishable by address; only a
+rule that names the host can tell them apart.
+
+So a rule may set `"allow_private": true`, and that grant relaxes exactly the
+private-address class for the hosts its glob matches. Loopback, link-local,
+multicast, unspecified, the reserved prefixes and the explicit cloud-metadata
+addresses stay refused, and the dial still goes to the resolved-and-validated
+address rather than the hostname, so the DNS-rebinding guarantee is unchanged.
+The predecessor's `allowPrivate` disabled every check except IMDS; this is
+deliberately not that.
+
+Three properties make the grant safe to reason about:
+
+- **It is written on a host-only rule.** The dial is per host and port, so a
+  path- or method-scoped grant would read as narrower than it is. Load-time
+  validation rejects that form rather than silently widening it.
+- **It is decided at CONNECT, over every matching rule.** `http.Transport`
+  pools connections by host and port and knows nothing about context, so a
+  per-request grant would bind only whichever request dialled first.
+  Accumulating it over all matching rules also keeps file order out of it, the
+  same reason deny beats intercept.
+- **It is not implied by `mode`.** An intercept rule means "inject a credential
+  here", which is a different claim from "this host lives inside my network".
+  Fusing them would grant private resolution to every intercepted host,
+  including ones whose rules were written years earlier for unrelated reasons.
+
 ### The dashboard opens itself, but only from a terminal
 
 `serve` prints the dashboard URL with a `?token=` parameter and opens it in a

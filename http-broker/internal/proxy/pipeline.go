@@ -109,7 +109,7 @@ func (p *Proxy) handleAbsolute(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case rules.ConnectMITM:
-		p.handleIntercepted(w, r, host, port, "http", engine)
+		p.handleIntercepted(w, r, host, port, "http", engine, decision.AllowPrivate)
 		return
 	}
 }
@@ -161,6 +161,9 @@ func countBody(r *http.Request) *countingBody {
 // injecting, which is what a tunnel decision means when there is no TLS.
 func (p *Proxy) forwardPlain(w http.ResponseWriter, r *http.Request, host string, port int, decision rules.ConnectResult) {
 	start := time.Now()
+
+	// Forwarding untouched still dials, so the grant applies here too.
+	r = r.WithContext(netguard.WithAllowPrivate(r.Context(), decision.AllowPrivate))
 	event := Event{
 		ID: newRequestID(), Start: start, Interception: "http",
 		Method: r.Method, Host: host, Port: port, Path: r.URL.Path,
@@ -201,8 +204,18 @@ func (p *Proxy) forwardPlain(w http.ResponseWriter, r *http.Request, host string
 // host and port come from the CONNECT target on the MITM path and from the
 // absolute-form URL on the plain-HTTP path. Either way they are authoritative
 // over anything the request's own Host header says (D10).
-func (p *Proxy) handleIntercepted(w http.ResponseWriter, r *http.Request, host string, port int, scheme string, engine *rules.Engine) {
+func (p *Proxy) handleIntercepted(
+	w http.ResponseWriter, r *http.Request, host string, port int, scheme string,
+	engine *rules.Engine, allowPrivate bool,
+) {
 	start := time.Now()
+
+	// The grant is applied to the context here, once, so both the upstream
+	// request built below and any dial it triggers carry it. It comes from the
+	// CONNECT-time decision rather than this request's rule: the transport
+	// pools connections by host and port, so a per-request grant would bind
+	// only whichever request dialled first.
+	r = r.WithContext(netguard.WithAllowPrivate(r.Context(), allowPrivate))
 	id := newRequestID()
 
 	event := Event{

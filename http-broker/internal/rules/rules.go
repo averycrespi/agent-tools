@@ -65,6 +65,18 @@ type Rule struct {
 	Ports  []int   `json:"ports,omitempty"`
 	Mode   Mode    `json:"mode"`
 	Inject *Inject `json:"inject,omitempty"`
+	// AllowPrivate permits this rule's hosts to resolve into RFC 1918 or RFC
+	// 4193 private space, which netguard otherwise refuses.
+	//
+	// It exists because an internal service is a legitimate target for
+	// injection — often the main one — and the guard cannot tell a corporate
+	// ALB from an SSRF attempt by address alone. Only a rule naming the host
+	// can, so the grant is written where the host is.
+	//
+	// It relaxes exactly that one address class. Loopback, link-local,
+	// multicast, unspecified, the reserved prefixes and the cloud-metadata
+	// addresses stay refused, so this can never be an SSRF off switch.
+	AllowPrivate bool `json:"allow_private,omitempty"`
 }
 
 // Document is the top-level rules.json shape.
@@ -188,6 +200,27 @@ func compileRule(r Rule) (*compiled, error) {
 
 	if r.Mode != ModeIntercept && r.Inject != nil {
 		return nil, &LoadError{Rule: r.Name, Detail: fmt.Sprintf(`"inject" requires mode "intercept", not %q`, r.Mode)}
+	}
+
+	if r.AllowPrivate {
+		// A deny rule dials nothing, so the grant would be inert; saying so is
+		// better than accepting a line that reads like it does something.
+		if r.Mode == ModeDeny {
+			return nil, &LoadError{
+				Rule:   r.Name,
+				Detail: `"allow_private" requires mode "intercept" or "tunnel": a "deny" rule never dials, so the grant would do nothing`,
+			}
+		}
+		// The grant takes effect on a dial, which is per host and port. Written
+		// on a path- or method-scoped rule it would read as covering only that
+		// path while actually covering every request to the host, so the
+		// misleading form is rejected rather than silently widened.
+		if !r.HostOnly() {
+			return nil, &LoadError{
+				Rule:   r.Name,
+				Detail: `"allow_private" must be written on a host-only rule: the grant applies to the upstream dial, which is per host and port, so scoping it by path or method would claim to be narrower than it is`,
+			}
+		}
 	}
 
 	// Normalise before the suffix check, or "*.COM" and "*.com." would each

@@ -41,6 +41,17 @@ type ConnectResult struct {
 	// Reason is a short operator-facing explanation, used in the
 	// X-Http-Broker-Reason header on a refusal.
 	Reason string
+	// AllowPrivate reports whether any rule matching this host and port grants
+	// the dial permission to reach RFC 1918 or RFC 4193 private space.
+	//
+	// It is computed over every matching rule rather than taken from the rule
+	// that won, for the same reason deny beats intercept: with overlapping
+	// globs, reading it off the winner would let file order decide whether a
+	// private dial is permitted. "Any matching rule grants it" is
+	// order-independent, and it matches what is actually being granted — a
+	// dial to a host and port, which is not divisible by path or method. Rules
+	// carrying the flag are required to be host-only for that reason.
+	AllowPrivate bool
 }
 
 // ConnectDecision decides what to do with a CONNECT to host:port.
@@ -88,6 +99,7 @@ func (e *Engine) decide(host string, port int, tunnelPortLimit bool) ConnectResu
 		hostOnlyDeny *compiled
 		hostOnly     *compiled
 		pathScoped   bool
+		allowPrivate bool
 	)
 
 	for _, c := range e.rules {
@@ -96,6 +108,12 @@ func (e *Engine) decide(host string, port int, tunnelPortLimit bool) ConnectResu
 		// that would ignore what they wrote.
 		if !c.host.Match(host) || !c.admitsPort(port) {
 			continue
+		}
+
+		// Accumulated across every matching rule, before the switch picks a
+		// winner: a rule that loses the action decision still grants this.
+		if c.rule.AllowPrivate {
+			allowPrivate = true
 		}
 
 		switch {
@@ -128,7 +146,10 @@ func (e *Engine) decide(host string, port int, tunnelPortLimit bool) ConnectResu
 
 	// Step 2.
 	if intercept != nil {
-		return ConnectResult{Action: ConnectMITM, Rule: intercept.rule.Name, Mode: string(ModeIntercept)}
+		return ConnectResult{
+			Action: ConnectMITM, Rule: intercept.rule.Name, Mode: string(ModeIntercept),
+			AllowPrivate: allowPrivate,
+		}
 	}
 
 	// Step 3. Deny first, so the outcome does not depend on rule order.
@@ -141,12 +162,15 @@ func (e *Engine) decide(host string, port int, tunnelPortLimit bool) ConnectResu
 		}
 	}
 	if hostOnly != nil {
-		return ConnectResult{Action: ConnectTunnel, Rule: hostOnly.rule.Name, Mode: string(ModeTunnel)}
+		return ConnectResult{
+			Action: ConnectTunnel, Rule: hostOnly.rule.Name, Mode: string(ModeTunnel),
+			AllowPrivate: allowPrivate,
+		}
 	}
 
 	// Step 4.
 	if pathScoped {
-		return ConnectResult{Action: ConnectMITM, Mode: ModeImplicitAllow}
+		return ConnectResult{Action: ConnectMITM, Mode: ModeImplicitAllow, AllowPrivate: allowPrivate}
 	}
 
 	// Step 5.

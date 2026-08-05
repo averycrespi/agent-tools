@@ -10,7 +10,13 @@
   <body>
     <header class="topbar">
       <div class="brand">
-        <img src="/dashboard/favicon.svg" alt="" width="24" height="24" class="brand-icon" />
+        <img
+          src="/dashboard/favicon.svg"
+          alt=""
+          width="24"
+          height="24"
+          class="brand-icon"
+        />
         <h1>HTTP Broker</h1>
       </div>
       <div class="status">
@@ -20,16 +26,25 @@
     </header>
 
     <nav class="tabs" role="tablist">
-      <button class="tab selected" data-panel="traffic" role="tab">Traffic</button>
+      <button class="tab selected" data-panel="traffic" role="tab">
+        Traffic
+      </button>
       <button class="tab" data-panel="rules" role="tab">Rules</button>
-      <button class="tab" data-panel="credentials" role="tab">Credentials</button>
+      <button class="tab" data-panel="credentials" role="tab">
+        Credentials
+      </button>
     </nav>
 
     <main>
       <section class="panel" id="panel-traffic">
         <div class="filters">
           <span class="filter-label">Filter:</span>
-          <input id="filter-host" type="text" placeholder="host contains..." aria-label="Filter by host" />
+          <input
+            id="filter-host"
+            type="text"
+            placeholder="host contains..."
+            aria-label="Filter by host"
+          />
           <select id="filter-outcome" aria-label="Filter by outcome">
             <option value="">any outcome</option>
             <option value="allowed">allowed</option>
@@ -42,9 +57,17 @@
           <table>
             <thead>
               <tr>
-                <th>Time</th><th>Outcome</th><th>Host</th><th>Port</th>
-                <th>Method</th><th>Path</th><th>Status</th><th>Rule</th>
-                <th>Mode</th><th>Credential</th><th>ms</th>
+                <th>Time</th>
+                <th>Outcome</th>
+                <th>Host</th>
+                <th>Port</th>
+                <th>Method</th>
+                <th>Path</th>
+                <th>Status</th>
+                <th>Rule</th>
+                <th>Mode</th>
+                <th>Credential</th>
+                <th>ms</th>
               </tr>
             </thead>
             <tbody id="traffic-rows"></tbody>
@@ -58,7 +81,16 @@
         <div class="table-scroll">
           <table>
             <thead>
-              <tr><th>Name</th><th>Mode</th><th>Host</th><th>Path</th><th>Method</th><th>Ports</th><th>Injects</th></tr>
+              <tr>
+                <th>Name</th>
+                <th>Mode</th>
+                <th>Host</th>
+                <th>Private</th>
+                <th>Path</th>
+                <th>Method</th>
+                <th>Ports</th>
+                <th>Injects</th>
+              </tr>
             </thead>
             <tbody id="rules-rows"></tbody>
           </table>
@@ -66,10 +98,18 @@
       </section>
 
       <section class="panel hidden" id="panel-credentials">
-        <p class="meta">Names and host bindings only. Values are never sent to this page.</p>
+        <p class="meta">
+          Names and host bindings only. Values are never sent to this page.
+        </p>
         <div class="table-scroll">
           <table>
-            <thead><tr><th>Name</th><th>Source</th><th>Bound hosts</th></tr></thead>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Source</th>
+                <th>Bound hosts</th>
+              </tr>
+            </thead>
             <tbody id="credential-rows"></tbody>
           </table>
         </div>

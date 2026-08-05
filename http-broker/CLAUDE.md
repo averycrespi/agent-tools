@@ -56,7 +56,17 @@ These are load-bearing. Changing one needs a matching change to `DESIGN.md`.
   matches — a deny rule that loads cleanly and silently never fires.
 - **Both dial paths go through `netguard`.** The tunnel relay and the MITM
   transport. The predecessor guarded only its transport and called a bare
-  `net.Dial` on the tunnel, leaving cloud metadata reachable.
+  `net.Dial` on the tunnel, leaving cloud metadata reachable. A rule's
+  `allow_private` grant must reach both, or one path refuses what the other
+  permits.
+- **`allow_private` relaxes one address class and is decided at CONNECT.** RFC
+  1918 and RFC 4193 only; loopback, link-local, multicast, unspecified,
+  reserved and IMDS addresses stay refused, and `checkAddr` still recurses into
+  embedded IPv4 with the grant applied. It is taken over _every_ rule matching
+  the host and port, not from the rule that won the action decision, because
+  `http.Transport` pools connections by host and port — a per-request grant
+  would bind only whichever request dialled first. Rules carrying it are
+  required to be host-only for the same reason.
 - **`ExpandAll` resolves and host-checks every credential before writing any
   header.** A caller that writes headers only from a successful return cannot
   dispatch a partially injected request.

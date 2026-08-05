@@ -4,10 +4,16 @@
 // Ported from the agent-gateway branch of this repository
 // (origin/agent-gateway, internal/netguard), with three changes:
 //
-//   - The allowPrivate escape hatch is gone. The source let configuration
-//     disable every check except the IMDS one; nothing in this tool's design
-//     needs that, and a knob that turns off SSRF protection is a knob that
-//     eventually gets turned on.
+//   - The source's allowPrivate escape hatch was removed, then deliberately
+//     reintroduced in a much narrower form as WithAllowPrivate. The original
+//     disabled every check except the IMDS one, which is the knob-that-gets-
+//     turned-on problem. This one relaxes exactly the IsPrivate class — RFC
+//     1918 and RFC 4193 — and nothing else: loopback, link-local, multicast,
+//     unspecified, the reserved prefixes, the explicit IMDS addresses, and the
+//     embedded-IPv4 decoding all still refuse. It is reachable only from a
+//     rule that names a host and sets "allow_private", because a proxy whose
+//     purpose is injecting credentials into services an agent must reach
+//     cannot categorically refuse the internal ones.
 //   - Hosts written in an alternate IP encoding (decimal, hex, octal, or a
 //     short dotted form such as "127.1") are rejected outright rather than
 //     left to fail DNS resolution by accident. Relying on the resolver to
@@ -95,12 +101,45 @@ var embeddedIPv4Prefixes = []struct {
 	{netip.MustParsePrefix("2001::/32"), 12},      // RFC 4380 Teredo (client address)
 }
 
+// allowPrivateKey is the context key carrying a rule's allow_private grant.
+//
+// A context value rather than a Dialer field because one *http.Transport is
+// shared by every intercepted connection: a field would be global to the
+// process, and a per-dial argument cannot reach DialContext through
+// http.Transport at all.
+type allowPrivateKey struct{}
+
+// WithAllowPrivate marks ctx as permitted to dial an address in RFC 1918 or
+// RFC 4193 private space.
+//
+// The grant is per-connection and comes from the CONNECT-time rule decision,
+// never from a per-request one. http.Transport pools connections by host and
+// port and knows nothing about context, so a connection dialled under one
+// request's grant is reused by later requests: a per-request grant would be
+// enforced only on whichever request happened to dial first.
+func WithAllowPrivate(ctx context.Context, allow bool) context.Context {
+	return context.WithValue(ctx, allowPrivateKey{}, allow)
+}
+
+// allowPrivateFrom reports whether ctx carries the grant. Absent means no.
+func allowPrivateFrom(ctx context.Context) bool {
+	allow, ok := ctx.Value(allowPrivateKey{}).(bool)
+	return ok && allow
+}
+
 // CheckAddr returns a non-nil error if addr must not be dialled.
 //
 // It is written to be called on an address that DNS has already resolved, so
 // hostname-based SSRF ("metadata.google.internal") is covered the same way a
 // literal IMDS address is.
-func CheckAddr(addr netip.Addr) error {
+func CheckAddr(addr netip.Addr) error { return checkAddr(addr, false) }
+
+// checkAddr is CheckAddr with the allow_private grant applied.
+//
+// allowPrivate suppresses exactly one branch below. Every other class, and the
+// recursive check of an embedded IPv4 address, is unaffected — a NAT64-encoded
+// loopback address stays refused whatever policy says.
+func checkAddr(addr netip.Addr, allowPrivate bool) error {
 	if !addr.IsValid() {
 		return fmt.Errorf("%w: invalid address", ErrBlocked)
 	}
@@ -118,7 +157,7 @@ func CheckAddr(addr netip.Addr) error {
 	// Decode IPv6 transition forms before the predicate checks: the embedded
 	// IPv4 address is what the packet actually reaches.
 	if inner, ok := embeddedIPv4(addr); ok {
-		if err := CheckAddr(inner); err != nil {
+		if err := checkAddr(inner, allowPrivate); err != nil {
 			return fmt.Errorf("%s embeds a blocked address: %w", addr, err)
 		}
 	}
@@ -136,8 +175,11 @@ func CheckAddr(addr netip.Addr) error {
 		return fmt.Errorf("%w: %s is an interface-local multicast address", ErrBlocked, addr)
 	case addr.IsMulticast():
 		return fmt.Errorf("%w: %s is a multicast address", ErrBlocked, addr)
-	case addr.IsPrivate():
-		// RFC 1918 for v4, RFC 4193 unique-local (fc00::/7) for v6.
+	case addr.IsPrivate() && !allowPrivate:
+		// RFC 1918 for v4, RFC 4193 unique-local (fc00::/7) for v6. This is the
+		// only branch allow_private suppresses. The explicit IMDS list above
+		// still catches fd00:ec2::254, which is inside fc00::/7, so a grant
+		// here cannot expose AWS's IPv6 metadata service.
 		return fmt.Errorf("%w: %s is a private address", ErrBlocked, addr)
 	case addr.IsUnspecified():
 		// 0.0.0.0 and :: route to loopback at the kernel level.
@@ -342,6 +384,8 @@ func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Con
 		return nil, fmt.Errorf("netguard: split host/port %q: %w", addr, err)
 	}
 
+	allowPrivate := allowPrivateFrom(ctx)
+
 	// A test exemption is an exact target match and nothing else.
 	if d.isExempt(addr) {
 		return d.dial(ctx, network, addr)
@@ -354,7 +398,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Con
 	// An IP literal needs no resolution; check it directly so a rebinding
 	// resolver is never consulted for something already concrete.
 	if ip, parseErr := netip.ParseAddr(strings.Trim(host, "[]")); parseErr == nil {
-		if err := CheckAddr(ip); err != nil {
+		if err := checkAddr(ip, allowPrivate); err != nil {
 			return nil, err
 		}
 		return d.dial(ctx, network, net.JoinHostPort(ip.Unmap().String(), port))
@@ -369,7 +413,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Con
 	}
 
 	for _, a := range addrs {
-		if err := CheckAddr(a); err != nil {
+		if err := checkAddr(a, allowPrivate); err != nil {
 			return nil, fmt.Errorf("netguard: dial %q refused: %w", host, err)
 		}
 	}

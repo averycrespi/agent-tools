@@ -74,6 +74,13 @@ CA is picked up on the next provision.
         "remove": ["X-Agent-Hint"]
       }
     },
+    {
+      "name": "internal-api",
+      "host": "api.internal.example.com",
+      "mode": "intercept",
+      "allow_private": true,
+      "inject": { "set": { "Authorization": "Bearer ${cred.internal}" } }
+    },
     { "name": "pinned-sdk", "host": "*.pinned-sdk.com", "mode": "tunnel" },
     { "name": "no-ads", "host": "*.doubleclick.net", "mode": "deny" }
   ]
@@ -86,6 +93,11 @@ procedure.
 
 **Deny beats intercept regardless of rule order**, so reordering the file for
 readability cannot change whether a credential reaches a path.
+
+Dials into private address space are refused unless a host-only rule sets
+`"allow_private": true`, which is how an internal service is reached. It relaxes
+that one address class for the hosts its glob matches — loopback, link-local and
+cloud-metadata addresses stay refused — so keep the glob narrow.
 
 ## Credentials
 

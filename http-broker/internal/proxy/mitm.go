@@ -84,7 +84,10 @@ func (p *Proxy) serveMITM(w http.ResponseWriter, r *http.Request, id, host strin
 	}
 	defer func() { _ = tlsConn.Close() }()
 
-	handler := &mitmHandler{proxy: p, host: host, port: port, engine: engine}
+	handler := &mitmHandler{
+		proxy: p, host: host, port: port, engine: engine,
+		allowPrivate: decision.AllowPrivate,
+	}
 
 	if tlsConn.ConnectionState().NegotiatedProtocol == "h2" {
 		p.serveH2(tlsConn, handler)
@@ -194,8 +197,12 @@ type mitmHandler struct {
 	host   string
 	port   int
 	engine *rules.Engine
+	// allowPrivate is the CONNECT-time grant, held alongside the engine
+	// snapshot for the same reason: a decision made once per connection must
+	// not be re-derived per request, or a reload could make the two disagree.
+	allowPrivate bool
 }
 
 func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h.proxy.handleIntercepted(w, r, h.host, h.port, "https", h.engine)
+	h.proxy.handleIntercepted(w, r, h.host, h.port, "https", h.engine, h.allowPrivate)
 }
