@@ -167,16 +167,17 @@ The traffic view is mcp-broker's audit log: 20 rows a page with prev/next, a
 live strip that toggles between Live, Paused and a "return to live view"
 banner, filters that apply as you type (300ms debounce) with a Reset button
 that disables itself when nothing is set, outcome-tinted rows, and rows that
-expand into a detail panel. The visible columns are Time, Host, Rule, Mode,
+expand into a detail panel. The visible columns are Time, Host, Source, Mode,
 Outcome and Status; everything else — method, path, query, port, interception,
 duration, bytes, credential, injection and the failure reason — lives in the
 expanded row. When the two dashboards disagree on any of that, one of them is
 wrong.
 
-The Rule column shows the matched rule, or the source when no rule decided, so
-it is never blank on the rows that most need explaining. The Mode column is
-always what the proxy did — `intercept`, `tunnel` or `deny` — never the
-attribution.
+The Source column shows the rule that decided, or `fallthrough` /
+`implicit-allow` when no rule did, so it is never blank on the rows that most
+need explaining. It is named for what it holds: a rule is a source, but
+fallthrough is not a rule. The Mode column is always what the proxy did —
+`intercept`, `tunnel` or `deny` — never the attribution.
 
 Cell values are plain text, never pill badges. mcp-broker's audit log renders
 its source, verdict and status columns as text and carries the state in the row

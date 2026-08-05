@@ -130,8 +130,9 @@
     tr.append(
       cell(stamp(rec.ts)),
       cell(rec.host),
-      // A row no rule decided shows what did decide it, rather than a dash
-      // that says nothing.
+      // The Source column: the rule that decided, or what decided instead. A
+      // rule is a source, so the rule name goes here rather than in a column
+      // that would be blank on every row policy decided.
       cell(rec.matched_rule || rec.source),
       cell(rec.mode),
       cell(rec.outcome),
