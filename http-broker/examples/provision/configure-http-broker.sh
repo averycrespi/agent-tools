@@ -33,6 +33,15 @@ CA_SOURCE="$HOME/.local/share/http-broker/ca.pem"
 CA_DEST="${HTTP_BROKER_CA_DEST:-/usr/local/share/ca-certificates/http-broker.crt}"
 UPDATE_CA="${HTTP_BROKER_UPDATE_CA:-update-ca-certificates}"
 
+# The system trust store is root-owned and `sb` runs provisioning scripts as
+# the unprivileged guest user, so both trust-store steps need escalation. The
+# guest has passwordless sudo. Set HTTP_BROKER_SUDO to empty to skip it, which
+# is what the test suite does when writing into a temporary directory.
+SUDO="${HTTP_BROKER_SUDO-sudo}"
+if [[ $EUID -eq 0 ]]; then
+	SUDO=""
+fi
+
 # The host, as seen from inside the Lima guest.
 BROKER_HOST="${HTTP_BROKER_HOST:-host.lima.internal}"
 PROXY_PORT="${HTTP_BROKER_PROXY_PORT:-8220}"
@@ -63,10 +72,10 @@ done
 # consult neither.
 
 echo "Installing the http-broker CA to $CA_DEST"
-install -D -m 0644 "$CA_SOURCE" "$CA_DEST"
+$SUDO install -D -m 0644 "$CA_SOURCE" "$CA_DEST"
 
 if command -v "$UPDATE_CA" >/dev/null 2>&1; then
-	"$UPDATE_CA" >/dev/null
+	$SUDO "$UPDATE_CA" >/dev/null
 else
 	echo "warning: $UPDATE_CA not found; the system trust store was not refreshed" >&2
 fi

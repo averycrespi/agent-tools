@@ -28,6 +28,9 @@ func runProvision(t *testing.T, home, caDest string) string {
 		"HTTP_BROKER_CA_DEST="+caDest,
 		// A no-op stand-in for update-ca-certificates, which needs root.
 		"HTTP_BROKER_UPDATE_CA=true",
+		// No escalation: this writes into a temporary directory as the test
+		// user. TestProvisionEscalatesForTheTrustStore covers the escalation.
+		"HTTP_BROKER_SUDO=",
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -111,6 +114,60 @@ func TestProvisionScript(t *testing.T) {
 	// shell startup so rotation is picked up by re-provisioning alone.
 	if strings.Contains(second, "test-token-value") {
 		t.Error("the generated block embeds the token literally; it should read the file at shell startup")
+	}
+}
+
+// TestProvisionEscalatesForTheTrustStore pins that both privileged steps run
+// through an escalation prefix. `sb` runs provisioning scripts as the
+// unprivileged guest user, and /usr/local/share/ca-certificates is root-owned,
+// so an unescalated install fails with permission denied on a real sandbox.
+func TestProvisionEscalatesForTheTrustStore(t *testing.T) {
+	home := seedProvisionHome(t)
+	caDest := filepath.Join(t.TempDir(), "ca-certificates", "http-broker.crt")
+
+	bin := t.TempDir()
+
+	// A stand-in for sudo that records its arguments, then runs them.
+	logPath := filepath.Join(bin, "sudo.log")
+	sudoStub := filepath.Join(bin, "sudo-stub")
+	stubBody := fmt.Sprintf("#!/bin/bash\nprintf '%%s\\n' \"$*\" >>%q\nexec \"$@\"\n", logPath)
+	if err := os.WriteFile(sudoStub, []byte(stubBody), 0o700); err != nil {
+		t.Fatalf("writing the sudo stub: %v", err)
+	}
+
+	// A no-op stand-in for update-ca-certificates, on PATH so the script's
+	// command -v check finds it.
+	refreshStub := filepath.Join(bin, "update-ca-stand-in")
+	if err := os.WriteFile(refreshStub, []byte("#!/bin/bash\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("writing the trust-store refresh stub: %v", err)
+	}
+
+	script := filepath.Join(mustFindModuleRoot(), "http-broker",
+		"examples", "provision", "configure-http-broker.sh")
+
+	cmd := exec.Command("bash", script)
+	cmd.Env = append(os.Environ(),
+		"HOME="+home,
+		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"HTTP_BROKER_CA_DEST="+caDest,
+		"HTTP_BROKER_UPDATE_CA=update-ca-stand-in",
+		"HTTP_BROKER_SUDO="+sudoStub,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("running the provisioning script: %v\n%s", err, out)
+	}
+
+	recorded, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("the script never invoked the escalation prefix: %v", err)
+	}
+	got := string(recorded)
+
+	if !strings.Contains(got, "install") || !strings.Contains(got, caDest) {
+		t.Errorf("the CA install did not run through the escalation prefix:\n%s", got)
+	}
+	if !strings.Contains(got, "update-ca-stand-in") {
+		t.Errorf("the trust-store refresh did not run through the escalation prefix:\n%s", got)
 	}
 }
 
