@@ -2,14 +2,17 @@ package proxy
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"io"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -192,4 +195,94 @@ func newTunnelProxy(t *testing.T, sink AuditSink, dialer *netguard.Dialer, allow
 		HeaderTimeout: 5 * time.Second,
 		TunnelIdle:    5 * time.Second,
 	})
+}
+
+// TestTransportForFloor pins the transport pool: each floor gets a transport
+// carrying it, and the same floor gets the same transport, so connection
+// pooling is not defeated by handing out a fresh one per request.
+func TestTransportForFloor(t *testing.T) {
+	p := newAllowPrivateProxy(t, &recordingSink{}, netguard.NewWith(nil, privateResolver{}), false)
+
+	for _, floor := range []uint16{tls.VersionTLS12, tls.VersionTLS13} {
+		tr := p.transportFor(floor)
+		if tr == nil {
+			t.Fatalf("transportFor(%#x) = nil", floor)
+		}
+		if got := tr.TLSClientConfig.MinVersion; got != floor {
+			t.Errorf("transportFor(%#x) has MinVersion %#x", floor, got)
+		}
+		if tr.TLSClientConfig.InsecureSkipVerify {
+			t.Errorf("transportFor(%#x) skips verification; the floor must not weaken verification", floor)
+		}
+		if again := p.transportFor(floor); again != tr {
+			t.Errorf("transportFor(%#x) returned a different transport on the second call", floor)
+		}
+	}
+
+	if p.transportFor(tls.VersionTLS12) == p.transportFor(tls.VersionTLS13) {
+		t.Error("both floors share one transport, so one of them is not enforced")
+	}
+}
+
+// TestTransportForUnknownFloorIsStrict is the fail-closed case: anything the
+// pool does not recognise gets the default floor, never a weaker one.
+func TestTransportForUnknownFloorIsStrict(t *testing.T) {
+	p := newAllowPrivateProxy(t, &recordingSink{}, netguard.NewWith(nil, privateResolver{}), false)
+
+	for _, floor := range []uint16{0, tls.VersionTLS10, tls.VersionTLS11, 0xffff} {
+		if got := p.transportFor(floor).TLSClientConfig.MinVersion; got != rules.DefaultMinTLSVersion {
+			t.Errorf("transportFor(%#x) has MinVersion %#x, want the %#x default",
+				floor, got, uint16(rules.DefaultMinTLSVersion))
+		}
+	}
+}
+
+// TestTLSFloorIsNegotiated proves the floors take effect on the wire, not just
+// in the config struct.
+//
+// The server caps at TLS 1.2, which is common corporate ALB behaviour. Against it the 1.3
+// transport must fail during version negotiation, and the 1.2 transport must get
+// far enough to validate the certificate — which then fails, because the test
+// server's cert is self-signed and verification is deliberately still on. The
+// two failures are distinguishable, and that difference is the assertion: a
+// certificate error means version negotiation succeeded.
+func TestTLSFloorIsNegotiated(t *testing.T) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv.TLS = &tls.Config{MaxVersion: tls.VersionTLS12}
+	// Both cases fail the handshake on purpose; without this the server logs
+	// each one and the test output stops being pristine.
+	srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+	srv.StartTLS()
+	defer srv.Close()
+
+	p := newAllowPrivateProxy(t, &recordingSink{}, netguard.New(BaseDialer()), false)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name      string
+		floor     uint16
+		wantInErr string
+	}{
+		{"1.3 floor cannot negotiate with a 1.2 server", tls.VersionTLS13, "protocol version"},
+		{"1.2 floor negotiates and then checks the certificate", tls.VersionTLS12, "certificate"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := p.transportFor(tc.floor).Clone()
+			tr.DialContext = nil // reach the loopback test server; the guard refuses it by design
+
+			_, err := tr.RoundTrip(req.Clone(context.Background()))
+			if err == nil {
+				t.Fatal("want an error: the test server's certificate is self-signed")
+			}
+			if !strings.Contains(err.Error(), tc.wantInErr) {
+				t.Errorf("error %q, want it to mention %q", err, tc.wantInErr)
+			}
+		})
+	}
 }

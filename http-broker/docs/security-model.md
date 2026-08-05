@@ -54,9 +54,11 @@ loopback.
    alternate IP encodings; IPv6 transition forms that embed an IPv4 address;
    and DNS rebinding, by validating every resolved address and dialling only
    addresses from that validated set.
-9. **Upstream TLS is strict.** System trust store, verification on, TLS 1.3
-   minimum. Interception does not weaken the connection that actually carries
-   the credential.
+9. **Upstream TLS is verified, always.** System trust store, verification on,
+   TLS 1.3 by default. A rule may lower its own hosts to `min_tls_version:
+"1.2"` when an upstream cannot negotiate 1.3; nothing lets a rule disable
+   certificate verification, and 1.0 and 1.1 are unavailable. Interception does
+   not weaken the connection that actually carries the credential.
 10. **The dashboard is read-only.** No endpoint writes config, rules, or
     credentials.
 11. **A failed reload keeps the previous policy serving.** A typo cannot take

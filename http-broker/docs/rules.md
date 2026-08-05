@@ -17,6 +17,7 @@ Policy lives in `~/.config/http-broker/rules.json`. Validate with
       "method": "...",
       "ports": [443],
       "allow_private": false,
+      "min_tls_version": "1.2|1.3",
       "inject": { "set": { "Header": "${cred.name}" }, "remove": ["Header"] }
     }
   ]
@@ -164,14 +165,44 @@ Three rules of use:
   This is also why it cannot vary per request: connections are pooled by host
   and port, so the first request's grant would otherwise bind the rest.
 
+## Upstream TLS floor
+
+The proxy negotiates **TLS 1.3 only** by default, which is stricter than much of
+the internet. An AWS ALB on an older security policy tops out at 1.2 and closes
+the connection instead of sending a version alert, so the failure arrives as a
+bare `EOF` in the audit log rather than anything legible.
+
+Lower the floor for the hosts that need it, not globally:
+
+```json
+{
+  "name": "svc-prod",
+  "host": "svc-prod.ds.aws.example.com",
+  "mode": "intercept",
+  "allow_private": true,
+  "min_tls_version": "1.2",
+  "inject": { "set": { "Authorization": "Bearer ${cred.svc_api}" } }
+}
+```
+
+Accepted values are `"1.2"` and `"1.3"`. TLS 1.0 and 1.1 are deliberately
+unavailable. **Verification is unaffected at every floor** — the certificate
+must still chain to the system trust store, so this is not `--insecure`.
+
+`intercept` only: a tunnel relays the client's own handshake untouched and a
+`deny` rule connects to nothing, so on either the field would be inert. Host-only
+only, and among overlapping rules the **lowest** floor wins, so a broad rule
+added later cannot silently raise the floor and break a host that needs 1.2.
+
 ## Load-time validation
 
 Rejected with an actionable message: a missing `host`, `name` or `mode`; a
 `tunnel` rule carrying `path` or `method`; duplicate names; an unknown mode; a
 bad glob; a port out of range; `inject` on a non-`intercept` rule; two
 identically written host-only rules of differing mode; a host glob that
-reduces to a public suffix; and `allow_private` on a `deny` rule or on a rule
-carrying `path` or `method`.
+reduces to a public suffix; `allow_private` on a `deny` rule or on a rule
+carrying `path` or `method`; and `min_tls_version` with an unsupported value, on
+a non-`intercept` rule, or on a rule carrying `path` or `method`.
 
 **Warned, not rejected:** a rule whose host glob is broader than a referenced
 credential's bound hosts. Requests it matches outside that binding will be

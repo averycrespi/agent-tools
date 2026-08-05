@@ -86,7 +86,7 @@ func (p *Proxy) serveMITM(w http.ResponseWriter, r *http.Request, id, host strin
 
 	handler := &mitmHandler{
 		proxy: p, host: host, port: port, engine: engine,
-		allowPrivate: decision.AllowPrivate,
+		policy: policyFor(decision),
 	}
 
 	if tlsConn.ConnectionState().NegotiatedProtocol == "h2" {
@@ -197,12 +197,28 @@ type mitmHandler struct {
 	host   string
 	port   int
 	engine *rules.Engine
-	// allowPrivate is the CONNECT-time grant, held alongside the engine
-	// snapshot for the same reason: a decision made once per connection must
-	// not be re-derived per request, or a reload could make the two disagree.
+	// policy is the CONNECT-time dial and TLS decision, held alongside the
+	// engine snapshot for the same reason: a decision made once per connection
+	// must not be re-derived per request, or a reload could make the two
+	// disagree.
+	policy connPolicy
+}
+
+// connPolicy is what the CONNECT decision fixes for a connection's upstream
+// side. Both fields are per-connection by necessity, not by preference:
+// http.Transport pools by host and port, so neither the netguard grant nor the
+// TLS floor can vary per request without becoming whichever request dialled
+// first.
+type connPolicy struct {
 	allowPrivate bool
+	minTLS       uint16
+}
+
+// policyFor extracts the connection policy from a CONNECT decision.
+func policyFor(d rules.ConnectResult) connPolicy {
+	return connPolicy{allowPrivate: d.AllowPrivate, minTLS: d.MinTLSVersion}
 }
 
 func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h.proxy.handleIntercepted(w, r, h.host, h.port, "https", h.engine, h.allowPrivate)
+	h.proxy.handleIntercepted(w, r, h.host, h.port, "https", h.engine, h.policy)
 }

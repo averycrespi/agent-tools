@@ -116,7 +116,9 @@ type Proxy struct {
 	// value until someone restarts it.
 	token atomic.Pointer[string]
 
-	transport *http.Transport
+	// transports holds one upstream transport per TLS floor. See
+	// newUpstreamTransports for why the floor cannot be per-request.
+	transports map[uint16]*http.Transport
 
 	// hijacked counts relays that http.Server.Shutdown cannot see. A CONNECT
 	// is removed from the server's active-connection set the moment it is
@@ -165,7 +167,7 @@ func New(opts Options) *Proxy {
 		tunnelIdle:    opts.TunnelIdle,
 	}
 	p.SetToken(opts.Token)
-	p.transport = p.newUpstreamTransport()
+	p.transports = p.newUpstreamTransports()
 	return p
 }
 

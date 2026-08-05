@@ -52,6 +52,13 @@ type ConnectResult struct {
 	// dial to a host and port, which is not divisible by path or method. Rules
 	// carrying the flag are required to be host-only for that reason.
 	AllowPrivate bool
+	// MinTLSVersion is the upstream TLS floor for this connection: the lowest
+	// floor any matching rule names, or DefaultMinTLSVersion when none do.
+	//
+	// Lowest rather than highest, so a broad rule added later cannot silently
+	// raise the floor back and break a host that needs 1.2 — and, as with
+	// AllowPrivate, so file order never decides.
+	MinTLSVersion uint16
 }
 
 // ConnectDecision decides what to do with a CONNECT to host:port.
@@ -100,6 +107,7 @@ func (e *Engine) decide(host string, port int, tunnelPortLimit bool) ConnectResu
 		hostOnly     *compiled
 		pathScoped   bool
 		allowPrivate bool
+		minTLS       uint16
 	)
 
 	for _, c := range e.rules {
@@ -114,6 +122,9 @@ func (e *Engine) decide(host string, port int, tunnelPortLimit bool) ConnectResu
 		// winner: a rule that loses the action decision still grants this.
 		if c.rule.AllowPrivate {
 			allowPrivate = true
+		}
+		if v := c.rule.ResolvedMinTLSVersion(); minTLS == 0 || v < minTLS {
+			minTLS = v
 		}
 
 		switch {
@@ -148,7 +159,7 @@ func (e *Engine) decide(host string, port int, tunnelPortLimit bool) ConnectResu
 	if intercept != nil {
 		return ConnectResult{
 			Action: ConnectMITM, Rule: intercept.rule.Name, Mode: string(ModeIntercept),
-			AllowPrivate: allowPrivate,
+			AllowPrivate: allowPrivate, MinTLSVersion: resolveMinTLS(minTLS),
 		}
 	}
 
@@ -164,17 +175,28 @@ func (e *Engine) decide(host string, port int, tunnelPortLimit bool) ConnectResu
 	if hostOnly != nil {
 		return ConnectResult{
 			Action: ConnectTunnel, Rule: hostOnly.rule.Name, Mode: string(ModeTunnel),
-			AllowPrivate: allowPrivate,
+			AllowPrivate: allowPrivate, MinTLSVersion: resolveMinTLS(minTLS),
 		}
 	}
 
 	// Step 4.
 	if pathScoped {
-		return ConnectResult{Action: ConnectMITM, Mode: ModeImplicitAllow, AllowPrivate: allowPrivate}
+		return ConnectResult{
+			Action: ConnectMITM, Mode: ModeImplicitAllow,
+			AllowPrivate: allowPrivate, MinTLSVersion: resolveMinTLS(minTLS),
+		}
 	}
 
 	// Step 5.
 	return e.fallthroughDecision(port, tunnelPortLimit)
+}
+
+// resolveMinTLS substitutes the default for "no rule named one".
+func resolveMinTLS(v uint16) uint16 {
+	if v == 0 {
+		return DefaultMinTLSVersion
+	}
+	return v
 }
 
 // fallthroughDecision applies the unmatched-host policy.
@@ -186,19 +208,21 @@ func (e *Engine) decide(host string, port int, tunnelPortLimit bool) ConnectResu
 func (e *Engine) fallthroughDecision(port int, tunnelPortLimit bool) ConnectResult {
 	if e.fallthrough_ == FallthroughDeny {
 		return ConnectResult{
-			Action: ConnectDeny,
-			Mode:   ModeFallthrough,
-			Reason: "no rule matches this host and fallthrough is \"deny\"",
+			Action:        ConnectDeny,
+			Mode:          ModeFallthrough,
+			Reason:        "no rule matches this host and fallthrough is \"deny\"",
+			MinTLSVersion: DefaultMinTLSVersion,
 		}
 	}
 	if tunnelPortLimit && port != DefaultTunnelPort {
 		return ConnectResult{
-			Action: ConnectDeny,
-			Mode:   ModeFallthrough,
-			Reason: "fallthrough tunnelling is limited to port 443; add a rule with an explicit \"ports\" list to allow this port",
+			Action:        ConnectDeny,
+			Mode:          ModeFallthrough,
+			Reason:        "fallthrough tunnelling is limited to port 443; add a rule with an explicit \"ports\" list to allow this port",
+			MinTLSVersion: DefaultMinTLSVersion,
 		}
 	}
-	return ConnectResult{Action: ConnectTunnel, Mode: ModeFallthrough}
+	return ConnectResult{Action: ConnectTunnel, Mode: ModeFallthrough, MinTLSVersion: DefaultMinTLSVersion}
 }
 
 // RequestAction is what the proxy does with an intercepted request.

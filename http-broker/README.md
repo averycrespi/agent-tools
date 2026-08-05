@@ -79,6 +79,7 @@ CA is picked up on the next provision.
       "host": "api.internal.example.com",
       "mode": "intercept",
       "allow_private": true,
+      "min_tls_version": "1.2",
       "inject": { "set": { "Authorization": "Bearer ${cred.internal}" } }
     },
     { "name": "pinned-sdk", "host": "*.pinned-sdk.com", "mode": "tunnel" },
@@ -98,6 +99,10 @@ Dials into private address space are refused unless a host-only rule sets
 `"allow_private": true`, which is how an internal service is reached. It relaxes
 that one address class for the hosts its glob matches — loopback, link-local and
 cloud-metadata addresses stay refused — so keep the glob narrow.
+
+Upstream TLS is 1.3 by default. A host that cannot negotiate it — an ALB on an
+older security policy, for instance — needs `"min_tls_version": "1.2"` on its
+rule. Certificate verification is on at every floor.
 
 ## Credentials
 

@@ -59,6 +59,12 @@ These are load-bearing. Changing one needs a matching change to `DESIGN.md`.
   `net.Dial` on the tunnel, leaving cloud metadata reachable. A rule's
   `allow_private` grant must reach both, or one path refuses what the other
   permits.
+- **One upstream transport per TLS floor, selected at CONNECT.** `tls.Config`
+  lives on the transport, not the request, so a rule's `min_tls_version` cannot
+  ride the request context the way `allow_private` does. `transportFor` falls
+  back to the strictest floor for an unrecognised value, and no floor ever
+  disables certificate verification. Adding a floor means adding it to both
+  `supportedTLSFloors` and `internal/rules`' accepted values.
 - **`allow_private` relaxes one address class and is decided at CONNECT.** RFC
   1918 and RFC 4193 only; loopback, link-local, multicast, unspecified,
   reserved and IMDS addresses stay refused, and `checkAddr` still recurses into

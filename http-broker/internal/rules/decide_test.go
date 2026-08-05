@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"crypto/tls"
 	"net/url"
 	"strings"
 	"testing"
@@ -647,5 +648,70 @@ func TestConnectDecisionAllowPrivateNotLeakedToOtherHosts(t *testing.T) {
 	)
 	if got := e.ConnectDecision("other.aws.example.com", 443); got.AllowPrivate {
 		t.Errorf("AllowPrivate = true for other.aws.example.com, want false: only the narrow rule grants it")
+	}
+}
+
+// TestConnectDecisionMinTLSVersion covers the floor reaching the transport
+// choice, including the default when no rule names one.
+func TestConnectDecisionMinTLSVersion(t *testing.T) {
+	t.Run("defaults to 1.3 when unset", func(t *testing.T) {
+		e := engine(t, "tunnel", rules.Rule{
+			Name: "gh", Host: "api.github.com", Mode: rules.ModeIntercept,
+		})
+		if got := e.ConnectDecision("api.github.com", 443); got.MinTLSVersion != tls.VersionTLS13 {
+			t.Errorf("MinTLSVersion = %#x, want TLS 1.3 (%#x)", got.MinTLSVersion, tls.VersionTLS13)
+		}
+	})
+
+	t.Run("set by the matching rule", func(t *testing.T) {
+		e := engine(t, "tunnel", rules.Rule{
+			Name: "svc-prod", Host: "svc-prod.ds.aws.example.com", Mode: rules.ModeIntercept,
+			MinTLSVersion: "1.2",
+		})
+		if got := e.ConnectDecision("svc-prod.ds.aws.example.com", 443); got.MinTLSVersion != tls.VersionTLS12 {
+			t.Errorf("MinTLSVersion = %#x, want TLS 1.2 (%#x)", got.MinTLSVersion, tls.VersionTLS12)
+		}
+	})
+
+	t.Run("defaults to 1.3 on a fallthrough decision", func(t *testing.T) {
+		e := engine(t, "tunnel")
+		if got := e.ConnectDecision("unmatched.example.com", 443); got.MinTLSVersion != tls.VersionTLS13 {
+			t.Errorf("MinTLSVersion = %#x, want TLS 1.3 (%#x)", got.MinTLSVersion, tls.VersionTLS13)
+		}
+	})
+}
+
+// TestConnectDecisionMinTLSVersionIsOrderIndependent pins the same property
+// allow_private has: with overlapping globs, the lowest floor among matching
+// rules wins, so reordering the file cannot change what is negotiated.
+func TestConnectDecisionMinTLSVersionIsOrderIndependent(t *testing.T) {
+	strict := rules.Rule{Name: "broad", Host: "**.aws.example.com", Mode: rules.ModeIntercept}
+	relaxed := rules.Rule{
+		Name: "narrow", Host: "svc-prod.ds.aws.example.com", Mode: rules.ModeIntercept,
+		MinTLSVersion: "1.2",
+	}
+
+	for _, order := range [][]rules.Rule{{strict, relaxed}, {relaxed, strict}} {
+		e := engine(t, "tunnel", order...)
+		got := e.ConnectDecision("svc-prod.ds.aws.example.com", 443)
+		if got.MinTLSVersion != tls.VersionTLS12 {
+			t.Errorf("rules in order [%s %s]: MinTLSVersion = %#x, want TLS 1.2 — the lowest matching floor wins",
+				order[0].Name, order[1].Name, got.MinTLSVersion)
+		}
+	}
+}
+
+// TestConnectDecisionMinTLSVersionNotLeakedToOtherHosts keeps the relaxation on
+// the glob that carries it.
+func TestConnectDecisionMinTLSVersionNotLeakedToOtherHosts(t *testing.T) {
+	e := engine(t, "tunnel",
+		rules.Rule{Name: "broad", Host: "**.aws.example.com", Mode: rules.ModeIntercept},
+		rules.Rule{
+			Name: "narrow", Host: "svc-prod.ds.aws.example.com", Mode: rules.ModeIntercept,
+			MinTLSVersion: "1.2",
+		},
+	)
+	if got := e.ConnectDecision("other.aws.example.com", 443); got.MinTLSVersion != tls.VersionTLS13 {
+		t.Errorf("MinTLSVersion = %#x for other.aws.example.com, want the 1.3 default", got.MinTLSVersion)
 	}
 }

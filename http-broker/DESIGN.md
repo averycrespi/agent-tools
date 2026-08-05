@@ -168,6 +168,25 @@ Three properties make the grant safe to reason about:
   Fusing them would grant private resolution to every intercepted host,
   including ones whose rules were written years earlier for unrelated reasons.
 
+### The TLS floor is per rule, not global
+
+Upstream TLS defaults to 1.3, which is stricter than most deployed servers. An
+ALB on `ELBSecurityPolicy-2016-08` caps at 1.2 and drops a 1.3-only ClientHello
+without an alert, so the symptom is a bare `EOF` that names nothing.
+
+Lowering the floor globally would weaken every upstream to fix one host, so a
+rule may set `"min_tls_version": "1.2"` for the hosts it names. Verification is
+untouched at every floor: a rule can change which TLS versions are negotiated,
+never whether the certificate is checked. TLS 1.0 and 1.1 are not offered at all.
+
+`tls.Config` lives on the transport rather than the request, so unlike
+`allow_private` this cannot ride the request context. The proxy holds one
+transport per supported floor and the CONNECT decision selects one. That also
+keeps connection pooling intact, which a per-request transport would destroy —
+and it is the same reason the floor is fixed per connection rather than per
+request. Among overlapping rules the lowest floor wins, so a broad rule added
+later cannot raise the floor back and break a host that needs 1.2.
+
 ### The dashboard opens itself, but only from a terminal
 
 `serve` prints the dashboard URL with a `?token=` parameter and opens it in a

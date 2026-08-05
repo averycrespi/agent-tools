@@ -6,6 +6,7 @@
 package rules
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
@@ -77,6 +78,37 @@ type Rule struct {
 	// multicast, unspecified, the reserved prefixes and the cloud-metadata
 	// addresses stay refused, so this can never be an SSRF off switch.
 	AllowPrivate bool `json:"allow_private,omitempty"`
+	// MinTLSVersion lowers the upstream TLS floor for this rule's hosts, as
+	// "1.2" or "1.3". Empty means the default, which is 1.3.
+	//
+	// The default is stricter than most of the internet: an AWS ALB on an older
+	// security policy tops out at TLS 1.2 and closes the connection rather than
+	// sending a version alert, so the failure arrives as a bare EOF. Rather
+	// than lower the floor for every upstream, a rule naming the host can opt
+	// that host down. Verification is unaffected — the certificate must still
+	// chain to the system trust store either way.
+	MinTLSVersion string `json:"min_tls_version,omitempty"`
+}
+
+// TLS floor values a rule may name, and the default when it names none.
+const (
+	// DefaultMinTLSVersion is the floor for any host no rule lowers (D12).
+	DefaultMinTLSVersion = tls.VersionTLS13
+)
+
+// minTLSVersions is the accepted set. TLS 1.0 and 1.1 are deliberately absent:
+// they are deprecated, and a rule field is not a reason to make them reachable.
+var minTLSVersions = map[string]uint16{
+	"1.2": tls.VersionTLS12,
+	"1.3": tls.VersionTLS13,
+}
+
+// ResolvedMinTLSVersion returns the rule's floor, or the default when unset.
+func (r Rule) ResolvedMinTLSVersion() uint16 {
+	if v, ok := minTLSVersions[r.MinTLSVersion]; ok {
+		return v
+	}
+	return DefaultMinTLSVersion
 }
 
 // Document is the top-level rules.json shape.
@@ -200,6 +232,33 @@ func compileRule(r Rule) (*compiled, error) {
 
 	if r.Mode != ModeIntercept && r.Inject != nil {
 		return nil, &LoadError{Rule: r.Name, Detail: fmt.Sprintf(`"inject" requires mode "intercept", not %q`, r.Mode)}
+	}
+
+	if r.MinTLSVersion != "" {
+		if _, ok := minTLSVersions[r.MinTLSVersion]; !ok {
+			return nil, &LoadError{
+				Rule:   r.Name,
+				Detail: fmt.Sprintf(`unknown "min_tls_version" %q: must be "1.2" or "1.3"`, r.MinTLSVersion),
+			}
+		}
+		// Only interception makes a TLS connection on the agent's behalf. A
+		// tunnel relays the client's own handshake untouched, and a deny rule
+		// connects to nothing, so on either the field would be inert.
+		if r.Mode != ModeIntercept {
+			return nil, &LoadError{
+				Rule:   r.Name,
+				Detail: fmt.Sprintf(`"min_tls_version" requires mode "intercept", not %q: only interception makes the upstream TLS connection`, r.Mode),
+			}
+		}
+		// The floor is a property of the upstream connection, which is per host
+		// and port, so it cannot be scoped by path or method — same reasoning as
+		// allow_private.
+		if !r.HostOnly() {
+			return nil, &LoadError{
+				Rule:   r.Name,
+				Detail: `"min_tls_version" must be written on a host-only rule: the floor applies to the upstream connection, which is per host and port, so scoping it by path or method would claim to be narrower than it is`,
+			}
+		}
 	}
 
 	if r.AllowPrivate {

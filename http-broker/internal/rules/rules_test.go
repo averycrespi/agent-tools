@@ -69,6 +69,30 @@ func TestLoadValidation(t *testing.T) {
 			wantInError: []string{"method-private", "allow_private", "host-only"},
 		},
 		{
+			name: "min_tls_version with an unsupported value",
+			doc: doc(rules.Rule{
+				Name: "old-tls", Host: "internal.example.com",
+				Mode: rules.ModeIntercept, MinTLSVersion: "1.0",
+			}),
+			wantInError: []string{"old-tls", "min_tls_version", "1.2", "1.3"},
+		},
+		{
+			name: "min_tls_version on a tunnel rule",
+			doc: doc(rules.Rule{
+				Name: "tunnel-tls", Host: "internal.example.com",
+				Mode: rules.ModeTunnel, MinTLSVersion: "1.2",
+			}),
+			wantInError: []string{"tunnel-tls", "min_tls_version", "intercept"},
+		},
+		{
+			name: "min_tls_version on a path-scoped rule",
+			doc: doc(rules.Rule{
+				Name: "path-tls", Host: "internal.example.com", Path: "/x",
+				Mode: rules.ModeIntercept, MinTLSVersion: "1.2",
+			}),
+			wantInError: []string{"path-tls", "min_tls_version", "host-only"},
+		},
+		{
 			name: "duplicate rule names",
 			doc: doc(
 				rules.Rule{Name: "dup", Host: "a.example.com", Mode: rules.ModeTunnel},
@@ -193,6 +217,14 @@ func TestLoadAcceptsValidDocuments(t *testing.T) {
 		{"host-only tunnel with allow_private", doc(rules.Rule{
 			Name: "internal-relay", Host: "db.internal.example.com", Mode: rules.ModeTunnel,
 			AllowPrivate: true,
+		})},
+		{"intercept with a 1.2 floor", doc(rules.Rule{
+			Name: "svc-prod", Host: "svc-prod.ds.aws.example.com", Mode: rules.ModeIntercept,
+			MinTLSVersion: "1.2", AllowPrivate: true,
+		})},
+		{"intercept with an explicit 1.3 floor", doc(rules.Rule{
+			Name: "strict", Host: "api.example.com", Mode: rules.ModeIntercept,
+			MinTLSVersion: "1.3",
 		})},
 		{"deny fallthrough", rules.Document{Fallthrough: rules.FallthroughDeny}},
 	}

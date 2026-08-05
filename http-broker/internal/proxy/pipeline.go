@@ -109,7 +109,7 @@ func (p *Proxy) handleAbsolute(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case rules.ConnectMITM:
-		p.handleIntercepted(w, r, host, port, "http", engine, decision.AllowPrivate)
+		p.handleIntercepted(w, r, host, port, "http", engine, policyFor(decision))
 		return
 	}
 }
@@ -162,7 +162,9 @@ func countBody(r *http.Request) *countingBody {
 func (p *Proxy) forwardPlain(w http.ResponseWriter, r *http.Request, host string, port int, decision rules.ConnectResult) {
 	start := time.Now()
 
-	// Forwarding untouched still dials, so the grant applies here too.
+	// Forwarding untouched still dials, so the grant applies here too. The TLS
+	// floor does not: this path speaks plain HTTP upstream, so it takes the
+	// default transport and never negotiates a version.
 	r = r.WithContext(netguard.WithAllowPrivate(r.Context(), decision.AllowPrivate))
 	event := Event{
 		ID: newRequestID(), Start: start, Interception: "http",
@@ -182,7 +184,7 @@ func (p *Proxy) forwardPlain(w http.ResponseWriter, r *http.Request, host string
 		return
 	}
 
-	resp, err := p.transport.RoundTrip(upstreamReq)
+	resp, err := p.transportFor(rules.DefaultMinTLSVersion).RoundTrip(upstreamReq)
 	if err != nil {
 		p.recordRoundTripFailure(&event, err)
 		p.refuseRoundTrip(w, err)
@@ -206,7 +208,7 @@ func (p *Proxy) forwardPlain(w http.ResponseWriter, r *http.Request, host string
 // over anything the request's own Host header says (D10).
 func (p *Proxy) handleIntercepted(
 	w http.ResponseWriter, r *http.Request, host string, port int, scheme string,
-	engine *rules.Engine, allowPrivate bool,
+	engine *rules.Engine, policy connPolicy,
 ) {
 	start := time.Now()
 
@@ -214,8 +216,9 @@ func (p *Proxy) handleIntercepted(
 	// request built below and any dial it triggers carry it. It comes from the
 	// CONNECT-time decision rather than this request's rule: the transport
 	// pools connections by host and port, so a per-request grant would bind
-	// only whichever request dialled first.
-	r = r.WithContext(netguard.WithAllowPrivate(r.Context(), allowPrivate))
+	// only whichever request dialled first. The TLS floor comes from the same
+	// decision, for the same reason, and selects the transport below.
+	r = r.WithContext(netguard.WithAllowPrivate(r.Context(), policy.allowPrivate))
 	id := newRequestID()
 
 	event := Event{
@@ -267,7 +270,7 @@ func (p *Proxy) handleIntercepted(
 		return
 	}
 
-	resp, err := p.transport.RoundTrip(upstreamReq)
+	resp, err := p.transportFor(policy.minTLS).RoundTrip(upstreamReq)
 	if err != nil {
 		p.recordRoundTripFailure(&event, err)
 		p.refuseRoundTrip(w, err)

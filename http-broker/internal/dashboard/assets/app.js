@@ -115,6 +115,9 @@
         tr.appendChild(badge(r.mode, "mode"));
         tr.appendChild(cell(r.host, "host"));
         tr.appendChild(badge(r.allow_private ? "private ok" : "", "private"));
+        tr.appendChild(
+          badge(r.min_tls_version === "1.2" ? "TLS 1.2" : "", "private"),
+        );
         tr.appendChild(cell(r.path, "path"));
         tr.appendChild(cell(r.method));
         tr.appendChild(cell(r.ports ? r.ports.join(", ") : ""));
@@ -124,7 +127,7 @@
         tbody.appendChild(tr);
       }
     } catch (err) {
-      setEmpty(tbody, 8, `Could not load rules: ${err.message}`);
+      setEmpty(tbody, 9, `Could not load rules: ${err.message}`);
     }
   }
 
