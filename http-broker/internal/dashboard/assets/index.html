@@ -26,7 +26,7 @@
     </header>
 
     <nav class="tabs" role="tablist">
-      <button class="tab selected" data-panel="traffic" role="tab">
+      <button class="tab active" data-panel="traffic" role="tab">
         Traffic
       </button>
       <button class="tab" data-panel="rules" role="tab">Rules</button>
@@ -42,43 +42,56 @@
           <input
             id="filter-host"
             type="text"
-            placeholder="host contains..."
+            placeholder="Host contains..."
             aria-label="Filter by host"
           />
+          <select id="filter-mode" aria-label="Filter by mode">
+            <option value="">Mode: any</option>
+            <option value="intercept">intercept</option>
+            <option value="tunnel">tunnel</option>
+            <option value="deny">deny</option>
+            <option value="fallthrough">fallthrough</option>
+            <option value="implicit-allow">implicit-allow</option>
+          </select>
           <select id="filter-outcome" aria-label="Filter by outcome">
-            <option value="">any outcome</option>
+            <option value="">Outcome: any</option>
             <option value="allowed">allowed</option>
             <option value="blocked">blocked</option>
             <option value="error">error</option>
           </select>
-          <button id="apply-filters">Apply</button>
+          <button id="reset-filters" class="filter-reset" disabled>
+            Reset
+          </button>
         </div>
-        <div class="table-scroll">
-          <table>
+        <div class="strip" id="traffic-strip"></div>
+        <div class="table-scroll" id="traffic-table-wrap">
+          <table class="expandable">
             <thead>
               <tr>
                 <th>Time</th>
-                <th>Outcome</th>
                 <th>Host</th>
-                <th>Port</th>
-                <th>Method</th>
-                <th>Path</th>
-                <th>Status</th>
                 <th>Rule</th>
                 <th>Mode</th>
-                <th>Credential</th>
-                <th>ms</th>
+                <th>Outcome</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody id="traffic-rows"></tbody>
           </table>
         </div>
-        <p class="meta" id="traffic-meta"></p>
+        <p class="empty-state" id="traffic-empty" hidden></p>
+        <div class="pagination" id="traffic-pagination" hidden>
+          <span class="page-info" id="traffic-page-info"></span>
+          <div class="pagination-btns">
+            <button id="traffic-prev" disabled>Prev</button>
+            <button id="traffic-next" disabled>Next</button>
+          </div>
+        </div>
       </section>
 
       <section class="panel hidden" id="panel-rules">
         <p class="meta" id="rules-fallthrough"></p>
-        <div class="table-scroll">
+        <div class="table-scroll" id="rules-table-wrap">
           <table>
             <thead>
               <tr>
@@ -86,7 +99,6 @@
                 <th>Mode</th>
                 <th>Host</th>
                 <th>Private</th>
-                <th>TLS</th>
                 <th>Path</th>
                 <th>Method</th>
                 <th>Ports</th>
@@ -96,13 +108,14 @@
             <tbody id="rules-rows"></tbody>
           </table>
         </div>
+        <p class="empty-state" id="rules-empty" hidden></p>
       </section>
 
       <section class="panel hidden" id="panel-credentials">
         <p class="meta">
           Names and host bindings only. Values are never sent to this page.
         </p>
-        <div class="table-scroll">
+        <div class="table-scroll" id="credentials-table-wrap">
           <table>
             <thead>
               <tr>
@@ -114,6 +127,7 @@
             <tbody id="credential-rows"></tbody>
           </table>
         </div>
+        <p class="empty-state" id="credentials-empty" hidden></p>
       </section>
     </main>
 

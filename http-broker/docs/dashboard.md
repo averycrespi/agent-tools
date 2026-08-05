@@ -82,3 +82,12 @@ channel and the broadcast is non-blocking: a browser tab that stops reading
 loses events rather than applying back-pressure to the proxy's request path.
 
 A keepalive comment is sent every 15 seconds so an idle stream is not closed.
+
+The traffic view prepends a streamed record only when it is on the first page,
+unpaused, and the record matches the active filters — so a live event can never
+appear to contradict a filter. Anything else is counted and reported in the
+strip above the table as new records waiting.
+
+Expanding a row pauses the feed, because a prepend would otherwise shift the
+row out from under the reader. Collapsing it resumes, unless the feed was
+already paused with the Pause button.

@@ -1,21 +1,42 @@
 // Read-only dashboard. Every request here is a GET; nothing on this page can
 // change policy. Rules are edited in rules.json and reloaded with SIGHUP.
+//
+// The traffic view is deliberately the same shape as mcp-broker's audit log:
+// one page at a time, a live strip that can be paused, filters that apply as
+// you type, and rows that expand to the detail the columns leave out. Values
+// from the audit log are attacker-influenced, so every one of them is written
+// with textContent — this file builds DOM, it never assembles HTML strings.
 (() => {
   "use strict";
 
-  const MAX_LIVE_ROWS = 500;
+  // One page of traffic, matching mcp-broker's audit log.
+  const PAGE_SIZE = 20;
+  const TRAFFIC_COLUMNS = 6;
+  const FILTER_DEBOUNCE_MS = 300;
+  const PANELS = ["traffic", "rules", "credentials"];
 
   const $ = (id) => document.getElementById(id);
 
-  // text() rather than innerHTML anywhere a value from the audit log is
-  // rendered: hosts, paths and query strings are attacker-influenced.
+  let activePanel = "traffic";
+
+  // Traffic state. offset and total drive pagination; paused, pausedByExpand
+  // and newCount drive the live strip.
+  let records = [];
+  let total = 0;
+  let offset = 0;
+  let expandedIdx = -1;
+  let paused = false;
+  let pausedByExpand = false;
+  let newCount = 0;
+  let filterTimer = null;
+
+  const dash = (value) =>
+    value === null || value === undefined || value === "" ? "—" : String(value);
+
   const cell = (value, className) => {
     const td = document.createElement("td");
     if (className) td.className = className;
-    td.textContent =
-      value === null || value === undefined || value === ""
-        ? "—"
-        : String(value);
+    td.textContent = dash(value);
     return td;
   };
 
@@ -32,36 +53,324 @@
     return td;
   };
 
-  const shortTime = (iso) => {
+  // Date as well as time: a dashboard left open overnight otherwise shows two
+  // days of traffic with nothing to tell them apart.
+  const stamp = (iso) => {
     if (!iso) return "—";
     const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleTimeString();
+    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
   };
 
-  function trafficRow(rec) {
+  // --- Filters ---
+
+  const filters = () => ({
+    host: $("filter-host").value.trim(),
+    mode: $("filter-mode").value,
+    outcome: $("filter-outcome").value,
+  });
+
+  const filtersActive = () => {
+    const f = filters();
+    return !!(f.host || f.mode || f.outcome);
+  };
+
+  function updateResetButton() {
+    $("reset-filters").disabled = !filtersActive();
+  }
+
+  function clearFilters() {
+    $("filter-host").value = "";
+    $("filter-mode").value = "";
+    $("filter-outcome").value = "";
+    updateResetButton();
+  }
+
+  // matchesFilters mirrors the server's WHERE clause so a streamed record is
+  // only prepended when a refetch would have returned it. Host is a
+  // case-insensitive substring there, so it is one here too.
+  function matchesFilters(rec) {
+    const f = filters();
+    if (
+      f.host &&
+      !String(rec.host || "")
+        .toLowerCase()
+        .includes(f.host.toLowerCase())
+    ) {
+      return false;
+    }
+    if (f.mode && rec.mode !== f.mode) return false;
+    if (f.outcome && rec.outcome !== f.outcome) return false;
+    return true;
+  }
+
+  function filtersChanged() {
+    offset = 0;
+    updateResetButton();
+    loadTraffic();
+  }
+
+  function debounceFilters() {
+    clearTimeout(filterTimer);
+    updateResetButton();
+    filterTimer = setTimeout(filtersChanged, FILTER_DEBOUNCE_MS);
+  }
+
+  function resetFilters() {
+    clearFilters();
+    offset = 0;
+    paused = false;
+    pausedByExpand = false;
+    loadTraffic();
+  }
+
+  // --- Rows ---
+
+  // Row tint follows the outcome, so a page of traffic reads at a glance.
+  function rowClass(rec) {
+    if (rec.outcome === "error") return "row-error";
+    if (rec.outcome === "blocked") return "row-blocked";
+    return "row-allowed";
+  }
+
+  function trafficRow(rec, idx) {
     const tr = document.createElement("tr");
-    tr.appendChild(cell(shortTime(rec.ts)));
-    tr.appendChild(badge(rec.outcome, rec.outcome));
-    tr.appendChild(cell(rec.host, "host"));
-    tr.appendChild(cell(rec.port));
-    tr.appendChild(cell(rec.method));
-    tr.appendChild(cell(rec.path, "path"));
-    tr.appendChild(cell(rec.status || ""));
-    tr.appendChild(cell(rec.matched_rule));
-    tr.appendChild(badge(rec.mode, "mode"));
-    tr.appendChild(cell(rec.credential_ref, "cred"));
-    tr.appendChild(cell(rec.duration_ms));
+    tr.className = rowClass(rec);
+    tr.dataset.idx = String(idx);
+    tr.tabIndex = 0;
+    tr.setAttribute("aria-expanded", "false");
+    tr.append(
+      cell(stamp(rec.ts)),
+      cell(rec.host, "host"),
+      cell(rec.matched_rule),
+      badge(rec.mode, "mode"),
+      badge(rec.outcome, rec.outcome),
+      cell(rec.status || ""),
+    );
     return tr;
   }
 
-  function setEmpty(tbody, colspan, message) {
+  // lines drops empty values, so a field never renders "Query: —".
+  function lines(pairs) {
+    const out = [];
+    for (const [label, value] of pairs) {
+      if (value === null || value === undefined || value === "") continue;
+      out.push(`${label}: ${value}`);
+    }
+    return out;
+  }
+
+  function detailField(label, body, kind) {
+    const field = document.createElement("div");
+    field.className = `detail-field${kind ? " " + kind : ""}`;
+    const heading = document.createElement("div");
+    heading.className = "detail-label";
+    heading.textContent = label;
+    const value = document.createElement("pre");
+    value.className = "detail-value";
+    value.textContent = body.join("\n");
+    field.append(heading, value);
+    return field;
+  }
+
+  // failureLines is why the expanded row exists for anything that went wrong:
+  // outcome, status and the recorded reason, which is the only place a deny or
+  // a refused dial explains itself.
+  function failureLines(rec) {
+    const body = lines([
+      ["Outcome", rec.outcome],
+      ["Status", rec.status || ""],
+      ["Reason", rec.error],
+    ]);
+    if (!rec.error) {
+      body.push(
+        rec.outcome === "error"
+          ? "No further detail was recorded for this failure."
+          : "No reason was recorded. Rows written before reasons were audited look like this.",
+      );
+    }
+    return body;
+  }
+
+  function detailRow(rec, idx) {
     const tr = document.createElement("tr");
+    tr.id = `traffic-detail-${idx}`;
+    tr.className = `${rowClass(rec)} detail-row`;
     const td = document.createElement("td");
-    td.colSpan = colspan;
-    td.className = "empty";
-    td.textContent = message;
+    td.colSpan = TRAFFIC_COLUMNS;
+
+    const content = document.createElement("div");
+    content.className = "detail-content";
+    content.append(
+      detailField(
+        "Request",
+        lines([
+          ["Method", rec.method],
+          ["Path", rec.path],
+          ["Query", rec.query],
+          ["Target", `${rec.host}:${rec.port}`],
+          ["Interception", rec.interception],
+        ]),
+      ),
+      detailField(
+        "Decision",
+        lines([
+          ["Rule", rec.matched_rule || "none"],
+          ["Mode", rec.mode],
+          ["Credential", rec.credential_ref],
+          ["Headers injected", rec.injection],
+        ]),
+      ),
+      detailField(
+        "Transfer",
+        lines([
+          ["Status", rec.status || ""],
+          [
+            "Duration",
+            rec.duration_ms === null || rec.duration_ms === undefined
+              ? ""
+              : `${rec.duration_ms} ms`,
+          ],
+          ["Bytes in", rec.bytes_in],
+          ["Bytes out", rec.bytes_out],
+        ]),
+      ),
+    );
+    if (rec.outcome !== "allowed" || rec.error) {
+      content.append(detailField("Failure", failureLines(rec), "failure"));
+    }
+
+    td.appendChild(content);
     tr.appendChild(td);
-    tbody.appendChild(tr);
+    return tr;
+  }
+
+  function collapseDetail() {
+    if (expandedIdx < 0) return;
+    const open = $(`traffic-detail-${expandedIdx}`);
+    if (open) open.remove();
+    const source = $("traffic-rows").querySelector(
+      `tr[data-idx="${expandedIdx}"]`,
+    );
+    if (source) source.setAttribute("aria-expanded", "false");
+    expandedIdx = -1;
+  }
+
+  function toggleDetail(idx) {
+    const wasExpanded = expandedIdx === idx;
+    collapseDetail();
+
+    if (wasExpanded) {
+      // Resume only if this expansion is what paused the feed; a deliberate
+      // pause survives an expand and collapse.
+      if (pausedByExpand) togglePause();
+      return;
+    }
+
+    // Pause while a row is open. A live prepend shifts every row index, so the
+    // alternative is collapsing the row the reader just opened.
+    if (!paused) {
+      paused = true;
+      pausedByExpand = true;
+      updateStrip();
+    }
+
+    const source = $("traffic-rows").querySelector(`tr[data-idx="${idx}"]`);
+    if (!source) return;
+    expandedIdx = idx;
+    source.setAttribute("aria-expanded", "true");
+    source.after(detailRow(records[idx], idx));
+  }
+
+  // --- Live strip ---
+
+  function stripButton(label, onClick) {
+    const button = document.createElement("button");
+    button.className = "strip-btn";
+    button.textContent = label;
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  // updateStrip rewrites the strip from the current state. Three states:
+  //   Live    — page 1, no filter, not paused.
+  //   Paused  — paused, whether by the button or by an open row.
+  //   Banner  — filtered or paginated, so out of the live view.
+  function updateStrip() {
+    const strip = $("traffic-strip");
+    strip.replaceChildren();
+    if (activePanel !== "traffic") return;
+
+    if (paused) {
+      const inner = document.createElement("div");
+      inner.className = "strip-inner";
+      const label = document.createElement("span");
+      label.textContent =
+        "⏸ Paused" +
+        (pausedByExpand ? " — row expanded" : "") +
+        (newCount > 0 ? ` — ${newCount} new` : "");
+      inner.append(label, stripButton("▶ Resume", togglePause));
+      strip.appendChild(inner);
+      return;
+    }
+
+    if (offset > 0 || filtersActive()) {
+      const banner = document.createElement("button");
+      banner.className = "strip-banner";
+      banner.textContent =
+        (newCount > 0 ? `${newCount} new records — ` : "") +
+        "return to live view";
+      banner.addEventListener("click", resetFilters);
+      strip.appendChild(banner);
+      return;
+    }
+
+    const inner = document.createElement("div");
+    inner.className = "strip-inner";
+    const dot = document.createElement("span");
+    dot.className = "strip-dot";
+    const label = document.createElement("span");
+    label.textContent = "Live";
+    inner.append(dot, label, stripButton("❚❚ Pause", togglePause));
+    strip.appendChild(inner);
+  }
+
+  function togglePause() {
+    if (paused) {
+      paused = false;
+      pausedByExpand = false;
+      loadTraffic(); // clears newCount and redraws the strip
+    } else {
+      paused = true;
+      updateStrip();
+    }
+  }
+
+  // --- Loading ---
+
+  function setEmpty(name, message) {
+    const empty = $(`${name}-empty`);
+    empty.textContent = message;
+    empty.hidden = false;
+    $(`${name}-table-wrap`).hidden = true;
+  }
+
+  function clearEmpty(name) {
+    $(`${name}-empty`).hidden = true;
+    $(`${name}-table-wrap`).hidden = false;
+  }
+
+  function updatePagination() {
+    const pagination = $("traffic-pagination");
+    if (records.length === 0) {
+      pagination.hidden = true;
+      return;
+    }
+    pagination.hidden = false;
+    const start = offset + 1;
+    const end = Math.min(offset + records.length, total);
+    $("traffic-page-info").textContent = `Showing ${start}-${end} of ${total}`;
+    $("traffic-prev").disabled = offset === 0;
+    $("traffic-next").disabled = offset + PAGE_SIZE >= total;
   }
 
   async function getJSON(path) {
@@ -71,27 +380,50 @@
   }
 
   async function loadTraffic() {
+    const f = filters();
     const params = new URLSearchParams();
-    const host = $("filter-host").value.trim();
-    const outcome = $("filter-outcome").value;
-    if (host) params.set("host", host);
-    if (outcome) params.set("outcome", outcome);
+    if (f.host) params.set("host", f.host);
+    if (f.mode) params.set("mode", f.mode);
+    if (f.outcome) params.set("outcome", f.outcome);
+    params.set("limit", String(PAGE_SIZE));
+    params.set("offset", String(offset));
+
+    // A refetch drops the open row and the "new" counter, so an expand-induced
+    // pause has nothing left to protect.
+    newCount = 0;
+    expandedIdx = -1;
+    if (pausedByExpand) {
+      paused = false;
+      pausedByExpand = false;
+    }
+    updateResetButton();
 
     const tbody = $("traffic-rows");
-    tbody.replaceChildren();
-
     try {
       const data = await getJSON(`/dashboard/api/audit?${params}`);
-      if (!data.records || data.records.length === 0) {
-        setEmpty(tbody, 11, "No matching requests yet.");
+      records = data.records || [];
+      total = data.total || 0;
+      tbody.replaceChildren();
+
+      if (records.length === 0) {
+        setEmpty("traffic", "No matching requests yet.");
       } else {
-        for (const rec of data.records) tbody.appendChild(trafficRow(rec));
+        clearEmpty("traffic");
+        records.forEach((rec, idx) => tbody.appendChild(trafficRow(rec, idx)));
       }
-      $("traffic-meta").textContent =
-        `${data.records ? data.records.length : 0} shown of ${data.total} total`;
     } catch (err) {
-      setEmpty(tbody, 11, `Could not load traffic: ${err.message}`);
+      records = [];
+      total = 0;
+      tbody.replaceChildren();
+      setEmpty("traffic", `Could not load traffic: ${err.message}`);
     }
+    updatePagination();
+    updateStrip();
+  }
+
+  function page(delta) {
+    offset = Math.max(0, offset + delta * PAGE_SIZE);
+    loadTraffic();
   }
 
   async function loadRules() {
@@ -103,31 +435,32 @@
         `Unmatched hosts: ${data.fallthrough}`;
       if (!data.rules || data.rules.length === 0) {
         setEmpty(
-          tbody,
-          8,
+          "rules",
           "No rules configured. Every host follows the fallthrough policy.",
         );
         return;
       }
+      clearEmpty("rules");
       for (const r of data.rules) {
         const tr = document.createElement("tr");
-        tr.appendChild(cell(r.name));
-        tr.appendChild(badge(r.mode, "mode"));
-        tr.appendChild(cell(r.host, "host"));
-        tr.appendChild(badge(r.allow_private ? "private ok" : "", "private"));
-        tr.appendChild(
-          badge(r.min_tls_version === "1.2" ? "TLS 1.2" : "", "private"),
+        tr.append(
+          cell(r.name),
+          badge(r.mode, "mode"),
+          cell(r.host, "host"),
+          badge(r.allow_private ? "private ok" : "", "private"),
+          cell(r.path, "path"),
+          cell(r.method),
+          cell(r.ports ? r.ports.join(", ") : ""),
+          cell(
+            r.inject && r.inject.set
+              ? Object.keys(r.inject.set).join(", ")
+              : "",
+          ),
         );
-        tr.appendChild(cell(r.path, "path"));
-        tr.appendChild(cell(r.method));
-        tr.appendChild(cell(r.ports ? r.ports.join(", ") : ""));
-        const injects =
-          r.inject && r.inject.set ? Object.keys(r.inject.set).join(", ") : "";
-        tr.appendChild(cell(injects));
         tbody.appendChild(tr);
       }
     } catch (err) {
-      setEmpty(tbody, 9, `Could not load rules: ${err.message}`);
+      setEmpty("rules", `Could not load rules: ${err.message}`);
     }
   }
 
@@ -137,19 +470,68 @@
     try {
       const data = await getJSON("/dashboard/api/credentials");
       if (!data.credentials || data.credentials.length === 0) {
-        setEmpty(tbody, 3, "No credentials configured.");
+        setEmpty("credentials", "No credentials configured.");
         return;
       }
+      clearEmpty("credentials");
       for (const c of data.credentials) {
         const tr = document.createElement("tr");
-        tr.appendChild(cell(c.name, "cred"));
-        tr.appendChild(cell(c.source));
-        tr.appendChild(cell(c.hosts ? c.hosts.join(", ") : "", "host"));
+        tr.append(
+          cell(c.name, "cred"),
+          cell(c.source),
+          cell(c.hosts ? c.hosts.join(", ") : "", "host"),
+        );
         tbody.appendChild(tr);
       }
     } catch (err) {
-      setEmpty(tbody, 3, `Could not load credentials: ${err.message}`);
+      setEmpty("credentials", `Could not load credentials: ${err.message}`);
     }
+  }
+
+  // --- Live feed ---
+
+  // handleRecord applies one streamed record:
+  //   Traffic panel inactive        → ignore.
+  //   Live, page 1, matching filter → prepend, drop the last row.
+  //   Anything else                 → count it and say so in the strip.
+  function handleRecord(rec) {
+    if (activePanel !== "traffic") return;
+
+    const matches = matchesFilters(rec);
+    if (matches) total++;
+    if (offset !== 0 || paused || !matches) {
+      newCount++;
+      updateStrip();
+      return;
+    }
+
+    // Expanding pauses the feed, so no row should be open here; collapse
+    // defensively in case an event was already in flight when it opened.
+    collapseDetail();
+
+    const tbody = $("traffic-rows");
+    if (records.length === 0) clearEmpty("traffic");
+
+    // Shift the existing indices so they still point into records after the
+    // unshift below.
+    for (const row of tbody.querySelectorAll("tr[data-idx]")) {
+      row.dataset.idx = String(Number(row.dataset.idx) + 1);
+    }
+
+    records.unshift(rec);
+    if (records.length > PAGE_SIZE) records.pop();
+
+    const row = trafficRow(rec, 0);
+    tbody.prepend(row);
+    while (tbody.children.length > PAGE_SIZE) tbody.lastElementChild.remove();
+
+    row.classList.add("row-new");
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => row.classList.remove("row-new"));
+    });
+
+    updatePagination();
+    updateStrip();
   }
 
   function connectStream() {
@@ -174,39 +556,70 @@
       } catch {
         return;
       }
-      // Only prepend to the unfiltered view, so a live event cannot appear to
-      // contradict an active filter.
-      if ($("filter-host").value.trim() || $("filter-outcome").value) return;
-      const tbody = $("traffic-rows");
-      const empty = tbody.querySelector(".empty");
-      if (empty) tbody.replaceChildren();
-      tbody.prepend(trafficRow(rec));
-      while (tbody.children.length > MAX_LIVE_ROWS)
-        tbody.lastElementChild.remove();
+      handleRecord(rec);
     });
   }
 
+  // --- Panels ---
+
   function selectPanel(name) {
+    activePanel = name;
     for (const tab of document.querySelectorAll(".tab")) {
-      tab.classList.toggle("selected", tab.dataset.panel === name);
+      tab.classList.toggle("active", tab.dataset.panel === name);
     }
     for (const panel of document.querySelectorAll(".panel")) {
       panel.classList.toggle("hidden", panel.id !== `panel-${name}`);
     }
+
+    if (location.hash !== `#${name}`) {
+      history.replaceState(null, "", `#${name}`);
+    }
+
+    if (name === "traffic") {
+      offset = 0;
+      loadTraffic();
+    }
     if (name === "rules") loadRules();
     if (name === "credentials") loadCredentials();
+    updateStrip();
   }
 
   document.addEventListener("DOMContentLoaded", () => {
     for (const tab of document.querySelectorAll(".tab")) {
       tab.addEventListener("click", () => selectPanel(tab.dataset.panel));
     }
-    $("apply-filters").addEventListener("click", loadTraffic);
-    $("filter-host").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") loadTraffic();
+
+    $("filter-host").addEventListener("input", debounceFilters);
+    $("filter-mode").addEventListener("change", filtersChanged);
+    $("filter-outcome").addEventListener("change", filtersChanged);
+    $("reset-filters").addEventListener("click", resetFilters);
+    $("traffic-prev").addEventListener("click", () => page(-1));
+    $("traffic-next").addEventListener("click", () => page(1));
+
+    // Delegated so the handler survives every re-render, and so a row added by
+    // the live feed needs no wiring of its own.
+    const tbody = $("traffic-rows");
+    const rowFor = (target) =>
+      target.closest ? target.closest("tr[data-idx]") : null;
+    tbody.addEventListener("click", (event) => {
+      const row = rowFor(event.target);
+      if (row) toggleDetail(Number(row.dataset.idx));
+    });
+    tbody.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const row = rowFor(event.target);
+      if (!row) return;
+      event.preventDefault();
+      toggleDetail(Number(row.dataset.idx));
     });
 
-    loadTraffic();
+    const fromHash = location.hash.replace(/^#/, "");
+    selectPanel(PANELS.includes(fromHash) ? fromHash : "traffic");
+    window.addEventListener("hashchange", () => {
+      const name = location.hash.replace(/^#/, "");
+      if (PANELS.includes(name) && name !== activePanel) selectPanel(name);
+    });
+
     connectStream();
   });
 })();

@@ -11,6 +11,12 @@
   box-sizing: border-box;
 }
 
+/* The page hides the pagination bar with the hidden attribute, and its own
+   display: flex would otherwise win against the user-agent rule. */
+[hidden] {
+  display: none !important;
+}
+
 :root {
   color-scheme: dark;
   --bg: #080b10;
@@ -135,7 +141,7 @@ body {
   color: var(--text);
 }
 
-.tab.selected {
+.tab.active {
   color: var(--product-accent);
   border-bottom-color: var(--product-accent);
 }
@@ -211,8 +217,13 @@ main {
   cursor: pointer;
 }
 
-.filters button:hover {
+.filters button:hover:not(:disabled) {
   border-color: var(--muted);
+}
+
+.filters button:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 /* Tables. Wide tables scroll inside their own container; the body never does. */
@@ -240,10 +251,6 @@ th {
   color: var(--muted);
   border-bottom: 1px solid var(--line);
   background: var(--panel-sunken);
-  /* Sticky is the one deliberate departure from mcp-broker's audit table: the
-     traffic view streams and grows without bound. It is invisible at rest. */
-  position: sticky;
-  top: 0;
 }
 
 td {
@@ -314,11 +321,214 @@ tbody tr:hover td {
   margin: 0 0 0.75rem;
 }
 
-.empty {
+.empty-state {
   color: var(--muted);
   font-family: var(--font-sans);
   font-size: 0.875rem;
   padding: 2rem;
   text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(16, 23, 34, 0.92);
+}
+
+/* Live-feed strip. Sits between the filters and the table, and keeps its
+   height when empty so the table does not jump as the state changes. */
+.strip {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.strip-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+}
+
+.strip-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--good);
+  flex-shrink: 0;
+}
+
+.strip-btn {
+  padding: 0.2rem 0.625rem;
+  background: rgba(16, 23, 34, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.strip-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.strip-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 8px;
+  color: var(--warn);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.strip-banner:hover {
+  background: rgba(245, 158, 11, 0.14);
+}
+
+/* Expandable rows */
+table.expandable tbody tr {
+  cursor: pointer;
+}
+
+table.expandable tbody tr:focus-visible {
+  outline: 2px solid rgba(34, 211, 238, 0.4);
+  outline-offset: -2px;
+}
+
+/* Row tint follows the outcome, so a page reads at a glance. */
+tr.row-allowed td {
+  background: rgba(34, 197, 94, 0.12);
+}
+
+tr.row-blocked td {
+  background: rgba(245, 158, 11, 0.12);
+}
+
+tr.row-error td {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+tbody tr.row-allowed:hover td {
+  background: rgba(34, 197, 94, 0.2);
+}
+
+tbody tr.row-blocked:hover td {
+  background: rgba(245, 158, 11, 0.2);
+}
+
+tbody tr.row-error:hover td {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+/* New-row highlight: a quiet tint that fades out over a second. */
+tr.row-new td {
+  background-color: rgba(34, 211, 238, 0.16);
+  transition: background-color 1s ease-out;
+}
+
+/* Expanded detail */
+tr.detail-row {
+  cursor: default;
+}
+
+tr.detail-row td {
+  padding: 0.75rem 1rem;
   white-space: normal;
+  border-bottom: 2px solid var(--line);
+}
+
+.detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.detail-label {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.detail-field.failure .detail-label {
+  color: var(--bad);
+}
+
+.detail-value {
+  margin: 0;
+  background: var(--panel-sunken);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.5rem 0.625rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--muted);
+  overflow-x: auto;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.detail-field.failure .detail-value {
+  border-color: rgba(239, 68, 68, 0.35);
+  color: var(--text);
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.pagination .page-info {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.pagination-btns {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.pagination-btns button {
+  padding: 0.35rem 0.875rem;
+  background: rgba(16, 23, 34, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.pagination-btns button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.pagination-btns button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }

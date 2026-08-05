@@ -155,17 +155,34 @@ scale, header, tab bar, filter row, table treatment and badges in
 one product. **Change one, change the other**, and verify by running both and
 comparing computed styles rather than by reading the CSS.
 
-Only these differ on purpose:
+The traffic view is mcp-broker's audit log: 20 rows a page with prev/next, a
+live strip that toggles between Live, Paused and a "return to live view"
+banner, filters that apply as you type (300ms debounce) with a Reset button
+that disables itself when nothing is set, outcome-tinted rows, and rows that
+expand into a detail panel. The visible columns are Time, Host, Rule, Mode,
+Outcome and Status; everything else — method, path, query, port, interception,
+duration, bytes, credential, injection and the failure reason — lives in the
+expanded row. When the two dashboards disagree on any of that, one of them is
+wrong.
 
-- **Product accent.** mcp-broker is green/amber; http-broker is cyan/violet
-  (`--product-accent #22d3ee`, `--product-accent-2 #a78bfa`). The body's radial
-  background tints and the tab focus ring follow the accent.
-- **Sticky table headers.** The traffic view streams without bound, so `th` is
-  `position: sticky`. Invisible at rest, so it does not break the match.
+Only the product accent differs on purpose: mcp-broker is green/amber,
+http-broker is cyan/violet (`--product-accent #22d3ee`, `--product-accent-2
+#a78bfa`). The body's radial background tints and the tab focus ring follow the
+accent.
 
 Sizes are rem, matching mcp-broker: `h1` 1.25rem/700/0.04em, `th`
 0.6875rem/600 uppercase, `td` and badges 0.8125rem/0.6875rem mono, status label
 0.75rem mono. Do not reintroduce px sizing or a `body { font-size }`.
+
+Two behaviours are load-bearing rather than cosmetic:
+
+- **Expanding a row pauses the feed.** A live prepend shifts every row index,
+  so without the pause the row a reader just opened collapses under them.
+  `pausedByExpand` distinguishes it from the Pause button, so collapsing
+  resumes but a deliberate pause survives an expand. mcp-broker does the same.
+- **The page builds DOM, never HTML strings.** Hosts, paths and reasons are
+  attacker-influenced. mcp-broker's audit code uses `innerHTML` with an `esc()`
+  helper; do not port that shape here.
 
 `favicon.svg` is the header logo too — the header `<img>` points at it, so they
 cannot drift. Keep it in the shared family: a `#0b111a` 64x64 tile with `rx=14`
