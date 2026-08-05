@@ -1,18 +1,15 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/averycrespi/agent-tools/http-broker/internal/config"
 	"github.com/averycrespi/agent-tools/http-broker/internal/credentials"
 	"github.com/averycrespi/agent-tools/http-broker/internal/hostmatch"
 	"github.com/averycrespi/agent-tools/http-broker/internal/hostnorm"
@@ -23,7 +20,9 @@ var credentialCmd = &cobra.Command{
 	Short: "Manage credentials injected into intercepted requests",
 	Long: "Credentials live in the OS keychain, each stored with the host globs it may\n" +
 		"be sent to. Rules reference them as ${cred.<name>}.\n\n" +
-		"Values are never printed by any subcommand.",
+		"Values are never printed by any subcommand. To see which credentials the\n" +
+		"running policy references and what they are bound to, use the dashboard's\n" +
+		"Credentials view.",
 }
 
 var credentialSetHosts []string
@@ -66,46 +65,6 @@ var credentialSetCmd = &cobra.Command{
 			return err
 		}
 		cmd.Printf("stored %q for %s\n", name, strings.Join(credentialSetHosts, ", "))
-		return nil
-	},
-}
-
-var credentialListJSON bool
-
-var credentialListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List credential names, sources, and bound hosts",
-	Long: "Lists every credential referenced by the rules file, plus every configured\n" +
-		"env_credentials entry, with the hosts each is bound to.\n\n" +
-		"Values are never printed.",
-	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		cfg, err := config.Load(configPath())
-		if err != nil {
-			return err
-		}
-
-		metas, err := collectCredentialMetadata(cfg)
-		if err != nil {
-			return err
-		}
-
-		if credentialListJSON {
-			out, err := json.MarshalIndent(metas, "", "  ")
-			if err != nil {
-				return fmt.Errorf("rendering JSON: %w", err)
-			}
-			cmd.Println(string(out))
-			return nil
-		}
-
-		if len(metas) == 0 {
-			cmd.Println("no credentials configured")
-			return nil
-		}
-		for _, m := range metas {
-			cmd.Printf("%-24s %-16s %s\n", m.Name, m.Source, strings.Join(m.Hosts, ", "))
-		}
 		return nil
 	},
 }
@@ -172,77 +131,9 @@ func validateHostGlobs(hosts []string) error {
 	return nil
 }
 
-// collectCredentialMetadata gathers metadata for every credential the running
-// configuration knows about, without reading any value into the output.
-func collectCredentialMetadata(cfg config.Config) ([]credentials.Metadata, error) {
-	var metas []credentials.Metadata
-
-	envSpecs := make(map[string]credentials.EnvSpec, len(cfg.EnvCredentials))
-	for name, ec := range cfg.EnvCredentials {
-		envSpecs[name] = credentials.EnvSpec{Var: ec.Var, Hosts: ec.Hosts}
-	}
-	env := credentials.NewEnv(envSpecs)
-	for _, name := range env.Names() {
-		meta, err := env.Describe(name)
-		if err != nil {
-			return nil, fmt.Errorf("describing env credential %q: %w", name, err)
-		}
-		metas = append(metas, meta)
-	}
-
-	// Keychain items are only discoverable by name, so the rules file is what
-	// tells us which names to ask about.
-	keychain := credentials.NewKeychain()
-	for _, name := range referencedCredentialNames(cfg) {
-		if _, isEnv := envSpecs[name]; isEnv {
-			continue
-		}
-		meta, err := keychain.Describe(name)
-		if err != nil {
-			// A referenced-but-absent credential is worth showing rather than
-			// hiding: it is exactly the misconfiguration that produces a 403.
-			metas = append(metas, credentials.Metadata{Name: name, Source: "keychain (unavailable)"})
-			continue
-		}
-		metas = append(metas, meta)
-	}
-
-	sort.Slice(metas, func(i, j int) bool { return metas[i].Name < metas[j].Name })
-	return metas, nil
-}
-
-// referencedCredentialNames returns the credential names the rules file
-// references, sorted.
-func referencedCredentialNames(cfg config.Config) []string {
-	path := config.EffectiveRulesPath(configPath(), cfg)
-	doc, err := config.LoadRulesFile(path)
-	if err != nil {
-		return nil
-	}
-
-	seen := make(map[string]struct{})
-	for _, rule := range doc.Rules {
-		if rule.Inject == nil {
-			continue
-		}
-		for _, name := range credentials.ReferencesIn(rule.Inject.Set) {
-			seen[name] = struct{}{}
-		}
-	}
-
-	out := make([]string, 0, len(seen))
-	for name := range seen {
-		out = append(out, name)
-	}
-	sort.Strings(out)
-	return out
-}
-
 func init() {
 	credentialSetCmd.Flags().StringArrayVar(&credentialSetHosts, "host", nil,
 		"host glob this credential may be sent to (repeatable, at least one required)")
-	credentialListCmd.Flags().BoolVar(&credentialListJSON, "json", false, "output as JSON")
-
-	credentialCmd.AddCommand(credentialSetCmd, credentialListCmd, credentialRmCmd)
+	credentialCmd.AddCommand(credentialSetCmd, credentialRmCmd)
 	rootCmd.AddCommand(credentialCmd)
 }

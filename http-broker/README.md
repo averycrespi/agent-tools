@@ -94,7 +94,6 @@ request whose host falls outside them is refused with 403 and audited.
 
 ```bash
 printf %s "$TOKEN" | http-broker credential set gh_bot --host api.github.com
-http-broker credential list      # names, sources and bound hosts only
 http-broker credential rm gh_bot
 ```
 

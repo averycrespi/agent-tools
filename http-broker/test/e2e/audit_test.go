@@ -7,8 +7,6 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -212,7 +210,7 @@ func waitForBytesOut(t *testing.T, s *stack) int64 {
 }
 
 // TestNoLeak is AC-10 and the no-leak half of AC-8: an injected credential
-// value must appear in none of the four sinks, and neither must an arbitrary
+// value must appear in none of the three sinks, and neither must an arbitrary
 // non-credential header the client sent.
 func TestNoLeak(t *testing.T) {
 	const (
@@ -281,6 +279,11 @@ func TestNoLeak(t *testing.T) {
 				t.Errorf("sentinel %q appeared in %s:\n%s", sentinel, route, body)
 			}
 		}
+		// The credentials view is the one surface that still names credentials,
+		// so assert it does: a view that listed nothing would sweep vacuously.
+		if route == "/dashboard/api/credentials" && !strings.Contains(body, "tok") {
+			t.Errorf("%s should still name the credential, so this sweep is not vacuous:\n%s", route, body)
+		}
 	}
 
 	events := readSSE(t, s, 3*time.Second)
@@ -291,17 +294,6 @@ func TestNoLeak(t *testing.T) {
 		if strings.Contains(events, sentinel) {
 			t.Errorf("sentinel %q appeared in the SSE feed:\n%s", sentinel, events)
 		}
-	}
-
-	// Sink 4: CLI output.
-	out := runCLI(t, s, "credential", "list")
-	for _, sentinel := range []string{credSentinel, headerSentinel} {
-		if strings.Contains(out, sentinel) {
-			t.Errorf("sentinel %q appeared in `credential list` output:\n%s", sentinel, out)
-		}
-	}
-	if !strings.Contains(out, "tok") {
-		t.Errorf("`credential list` should still name the credential, so this sweep is not vacuous:\n%s", out)
 	}
 }
 
@@ -347,22 +339,6 @@ func readSSE(t *testing.T, s *stack, window time.Duration) string {
 		}
 	}
 	return collected.String()
-}
-
-// runCLI runs an http-broker subcommand against the stack's config.
-func runCLI(t *testing.T, s *stack, args ...string) string {
-	t.Helper()
-
-	cmd := exec.Command(brokerBinary, args...)
-	cmd.Env = append(os.Environ(),
-		"XDG_CONFIG_HOME="+filepath.Dir(s.configDir),
-		"XDG_DATA_HOME="+filepath.Dir(s.dataDir),
-	)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Logf("`http-broker %s` exited with %v (output kept for the sweep)", strings.Join(args, " "), err)
-	}
-	return string(out)
 }
 
 // TestQueryRedaction is D14: credential-shaped query parameters are stored

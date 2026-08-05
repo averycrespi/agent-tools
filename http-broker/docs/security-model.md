@@ -36,7 +36,7 @@ loopback.
 4. **Deny beats intercept, regardless of rule order.** Reordering `rules.json`
    for readability cannot change whether a credential reaches a path.
 5. **Credential values never leave the process.** Not in a log line, not in an
-   audit row, not in a dashboard response, not in `credential list` output.
+   audit row, and not in a dashboard response.
    Enforced by tests that inject a sentinel and sweep every sink.
 6. **The audit log cannot become a leak channel.** No column can hold a request
    body, a response body, or a header value. Query strings are stored with

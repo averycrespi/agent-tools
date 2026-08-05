@@ -54,11 +54,10 @@ every host, or that reduces to a public suffix, is rejected.
 The value is read from stdin and a terminal is refused: a secret typed at a
 prompt lands in shell history and scrollback.
 
-| Command                    | Effect                                         |
-| -------------------------- | ---------------------------------------------- |
-| `credential set <name>`    | Store a credential and its bound hosts.        |
-| `credential list [--json]` | Names, sources and bound hosts. Never a value. |
-| `credential rm <name>`     | Remove a credential.                           |
+| Command                 | Effect                                  |
+| ----------------------- | --------------------------------------- |
+| `credential set <name>` | Store a credential and its bound hosts. |
+| `credential rm <name>`  | Remove a credential.                    |
 
 ## `token`
 

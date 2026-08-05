@@ -62,9 +62,10 @@ The first time the agent reads a credential, macOS may show an "allow access"
 dialog. Under launchd nobody is watching, so it looks like a hang: requests
 needing that credential fail with a keychain error until someone answers.
 
-Grant **Always Allow** on first use. To trigger the prompt deliberately, run
-`http-broker credential list` from a terminal in the same login session
-before relying on the agent.
+Grant **Always Allow** on first use. To trigger the prompt deliberately, open
+the dashboard's Credentials view once the agent is running: it reads each
+referenced item through the agent's own process, so the grant applies to the
+process that needs it.
 
 ## Detecting a wedged proxy
 
