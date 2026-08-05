@@ -2487,6 +2487,10 @@
       var auditRecords = [];
       var expandedAuditIdx = -1;
       var auditPaused = false;
+      // Set when the pause was induced by expanding a row rather than by the
+      // Pause button, so collapsing that row resumes but a deliberate pause
+      // survives an expand/collapse.
+      var auditPausedByExpand = false;
       var auditNewCount = 0;
 
       function auditGrantProvided(rec) {
@@ -2580,7 +2584,17 @@
         // If clicking the same row, just collapse
         if (expandedAuditIdx === idx) {
           expandedAuditIdx = -1;
+          // Resume only if this expansion is what paused the feed.
+          if (auditPausedByExpand) auditTogglePause();
           return;
+        }
+
+        // Pause while a row is open. A live prepend shifts every row index, so
+        // the alternative is collapsing the row the reader just opened.
+        if (!auditPaused) {
+          auditPaused = true;
+          auditPausedByExpand = true;
+          updateAuditStrip();
         }
 
         expandedAuditIdx = idx;
@@ -2766,9 +2780,14 @@
         var pagination = document.getElementById("audit-pagination");
         var tableWrap = document.querySelector(".audit-table-wrap");
 
-        // Any refetch clears the "new" counter and resets expansion.
+        // Any refetch clears the "new" counter and resets expansion. With no
+        // open row left, an expand-induced pause has nothing to protect.
         auditNewCount = 0;
         expandedAuditIdx = -1;
+        if (auditPausedByExpand) {
+          auditPaused = false;
+          auditPausedByExpand = false;
+        }
         updateAuditResetButton();
 
         fetch("api/audit?" + params.toString())
@@ -2850,6 +2869,7 @@
           strip.innerHTML =
             '<div class="audit-strip-inner">' +
             "<span>⏸ Paused" +
+            (auditPausedByExpand ? " — row expanded" : "") +
             (auditNewCount > 0 ? " — " + auditNewCount + " new" : "") +
             "</span>" +
             '<button class="audit-strip-btn" onclick="auditTogglePause()">&#9654; Resume</button>' +
@@ -2876,6 +2896,7 @@
       function auditTogglePause() {
         if (auditPaused) {
           auditPaused = false;
+          auditPausedByExpand = false;
           loadAudit(); // resets auditNewCount and calls updateAuditStrip
         } else {
           auditPaused = true;
