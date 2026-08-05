@@ -36,14 +36,23 @@
         --red: var(--bad);
         --amber: var(--product-accent-2);
         --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        --font-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+        --font-sans:
+          ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
       }
 
       body {
         font-family: var(--font-sans);
         background:
-          radial-gradient(circle at 14% 10%, rgba(34, 197, 94, 0.1), transparent 32rem),
-          radial-gradient(circle at 84% 18%, rgba(245, 158, 11, 0.08), transparent 28rem),
+          radial-gradient(
+            circle at 14% 10%,
+            rgba(34, 197, 94, 0.1),
+            transparent 32rem
+          ),
+          radial-gradient(
+            circle at 84% 18%,
+            rgba(245, 158, 11, 0.08),
+            transparent 28rem
+          ),
           var(--bg-base);
         color: var(--text-primary);
         min-height: 100vh;
@@ -98,7 +107,6 @@
         color: var(--text-secondary);
         font-family: var(--font-mono);
       }
-
 
       /* Tab bar */
       .tab-bar {
@@ -1624,7 +1632,6 @@
         osc2.stop(now + 0.3);
       }
 
-
       // --- Approvals ---
       var queue = document.getElementById("queue");
       var empty = document.getElementById("empty");
@@ -2097,7 +2104,8 @@
             '">' +
             esc(status.status) +
             "</span></div>";
-          html += '<span class="provider-count">' + items.length + " tools</span>";
+          html +=
+            '<span class="provider-count">' + items.length + " tools</span>";
           html += "</button>";
           html += '<div class="provider-capabilities hidden">';
           if (status.status === "failed") {
@@ -2441,11 +2449,23 @@
                   "</div>";
               }
               html += '<div class="grant-meta">';
-              html += '<div class="grant-meta-item"><span class="grant-meta-label">Expires</span><span class="grant-meta-value">' + esc(grantTime(grant.expires_at)) + "</span></div>";
-              html += '<div class="grant-meta-item"><span class="grant-meta-label">Created</span><span class="grant-meta-value">' + esc(grantTime(grant.created_at)) + "</span></div>";
-              html += '<div class="grant-meta-item"><span class="grant-meta-label">ID</span><span class="grant-meta-value">' + esc(grant.id || "-") + "</span></div>";
+              html +=
+                '<div class="grant-meta-item"><span class="grant-meta-label">Expires</span><span class="grant-meta-value">' +
+                esc(grantTime(grant.expires_at)) +
+                "</span></div>";
+              html +=
+                '<div class="grant-meta-item"><span class="grant-meta-label">Created</span><span class="grant-meta-value">' +
+                esc(grantTime(grant.created_at)) +
+                "</span></div>";
+              html +=
+                '<div class="grant-meta-item"><span class="grant-meta-label">ID</span><span class="grant-meta-value">' +
+                esc(grant.id || "-") +
+                "</span></div>";
               if (grant.revoked_at) {
-                html += '<div class="grant-meta-item"><span class="grant-meta-label">Revoked</span><span class="grant-meta-value">' + esc(grantTime(grant.revoked_at)) + "</span></div>";
+                html +=
+                  '<div class="grant-meta-item"><span class="grant-meta-label">Revoked</span><span class="grant-meta-value">' +
+                  esc(grantTime(grant.revoked_at)) +
+                  "</span></div>";
               }
               html += "</div>";
               html += '<div class="grant-rules">';
