@@ -102,6 +102,23 @@ func TestLogger_QueryWithFilter(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, total)
 	require.Len(t, records, 2)
+
+	// LIKE metacharacters are quoted, so they match literally instead of
+	// standing for "any characters" and "any character".
+	for _, tc := range []struct {
+		filter string
+		want   int
+	}{
+		{"%", 0},      // not "every row"
+		{"git%b", 0},  // not "github.*b"
+		{"githu_", 0}, // not "github"
+		{"_", 1},      // the underscore in github.get_pr
+		{"get_pr", 1}, // and it still matches when it is really there
+	} {
+		_, total, err := l.Query(context.Background(), QueryOpts{Tool: tc.filter, Limit: 10})
+		require.NoError(t, err)
+		require.Equalf(t, tc.want, total, "filter %q must match literally, not as a wildcard", tc.filter)
+	}
 }
 
 func TestLogger_QueryWithDecisionFilters(t *testing.T) {

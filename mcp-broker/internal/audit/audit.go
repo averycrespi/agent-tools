@@ -223,6 +223,16 @@ func sourceCondition(source string) string {
 	}
 }
 
+// likeEscaper quotes the characters SQLite's LIKE treats as wildcards.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// escapeLikePattern makes the tool filter match literally.
+//
+// Without it a filter of "%" is a wildcard matching every row, and "_" matches
+// any single character — not what someone typing into a "Tool contains" box
+// asked for. Pairs with the ESCAPE clause on the query.
+func escapeLikePattern(s string) string { return likeEscaper.Replace(s) }
+
 // Query returns audit records matching the given filters.
 func (l *Logger) Query(ctx context.Context, opts QueryOpts) ([]Record, int, error) {
 	l.mu.Lock()
@@ -232,8 +242,8 @@ func (l *Logger) Query(ctx context.Context, opts QueryOpts) ([]Record, int, erro
 	var queryArgs []any
 
 	if opts.Tool != "" {
-		conditions = append(conditions, "tool LIKE '%' || ? || '%'")
-		queryArgs = append(queryArgs, opts.Tool)
+		conditions = append(conditions, `tool LIKE '%' || ? || '%' ESCAPE '\'`)
+		queryArgs = append(queryArgs, escapeLikePattern(opts.Tool))
 	}
 	if opts.Source != "" {
 		if condition := sourceCondition(opts.Source); condition != "" {
