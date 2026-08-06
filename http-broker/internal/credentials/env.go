@@ -52,7 +52,7 @@ func (e *Env) spec(name string) (EnvSpec, bool) {
 }
 
 // Kind implements Source.
-func (e *Env) Kind() string { return "env_credentials" }
+func (e *Env) Kind() string { return SourceEnv }
 
 // Names returns the configured credential names, sorted. `serve` uses this for
 // its startup warning.

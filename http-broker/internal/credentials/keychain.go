@@ -41,7 +41,7 @@ type Keychain struct {
 func NewKeychain() *Keychain { return &Keychain{service: paths.AppName} }
 
 // Kind implements Source.
-func (k *Keychain) Kind() string { return "keychain" }
+func (k *Keychain) Kind() string { return SourceKeychain }
 
 // Get implements Source.
 //
