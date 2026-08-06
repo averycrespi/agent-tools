@@ -2,6 +2,9 @@ package main
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -47,6 +50,38 @@ func infoFor(t *testing.T, infos []dashboard.CredentialInfo, name string) dashbo
 	}
 	t.Fatalf("no row for %q in %+v", name, infos)
 	return dashboard.CredentialInfo{}
+}
+
+// TestCredentialListerNeverUsesTheStore is the portable half of the read-only
+// guard. TestDashboardReadOnly hashes the index across a route sweep, but that
+// only catches a mutating describe where a keychain exists: Store.Describe
+// writes on a keychain hit, and a host with no Secret Service answers every
+// lookup with ErrUnavailable, which writes nothing. This check runs anywhere.
+func TestCredentialListerNeverUsesTheStore(t *testing.T) {
+	// The AST, not the file text: a comment naming the type is fine — this
+	// file and credlister.go both explain the rule — and `rules.Store` in
+	// serve.go is a different type entirely.
+	banned := map[string]bool{"Store": true, "NewStore": true, "NewStoreWith": true}
+
+	for _, path := range []string{"credlister.go", "serve.go"} {
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", path, err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			pkg, ok := sel.X.(*ast.Ident)
+			if !ok || pkg.Name != "credentials" || !banned[sel.Sel.Name] {
+				return true
+			}
+			t.Errorf("%s uses credentials.%s; the dashboard must describe through the bare Keychain, "+
+				"because Store.Describe re-registers the name in the index", path, sel.Sel.Name)
+			return true
+		})
+	}
 }
 
 func TestCredentialInfos(t *testing.T) {

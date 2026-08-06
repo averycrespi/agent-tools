@@ -68,6 +68,12 @@ func (e *Env) Names() []string {
 	return out
 }
 
+// Has reports whether a name is configured, without building the name list.
+func (e *Env) Has(name string) bool {
+	_, ok := e.spec(name)
+	return ok
+}
+
 // Get implements Source.
 func (e *Env) Get(name string) (Record, error) {
 	spec, ok := e.spec(name)

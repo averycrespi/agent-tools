@@ -62,7 +62,13 @@ keeps the stored value and changes only the hosts.
 | `credential list`                     | List stored credentials, their sources, and hosts.   |
 | `credential get <name>`               | Show one credential, re-registering it in the index. |
 | `credential rebind <name> --host ...` | Change the hosts an existing credential may go to.   |
-| `credential rm <name>`                | Remove a credential.                                 |
+| `credential rm <name>`                | Remove a credential from the keychain and the index. |
+
+`rm` only says `removed` when something was actually deleted. A name nothing
+holds reports that nothing was removed, and a name `config.json` owns through
+`env_credentials` is refused outright — that credential is still being injected,
+and the fix is to delete its entry from `config.json` and `SIGHUP`. Revocation
+is the one place a command must not report success it did not achieve.
 
 ```bash
 http-broker credential rebind gh_bot --host api.github.com --host uploads.github.com

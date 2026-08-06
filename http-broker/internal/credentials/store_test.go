@@ -196,10 +196,46 @@ func TestStore(t *testing.T) {
 			t.Fatalf("index = %v, want the stale entry removed", got)
 		}
 
-		// Held by neither store: deleting twice is not an error, and is not
-		// reported as a stale cleanup either.
-		if err := store.Delete("ghost"); err != nil {
-			t.Fatalf("deleting an unknown name = %v, want nil", err)
+		// Held by neither store: deleting twice is still not fatal, but it is
+		// not a deletion either, so it must not be reportable as one.
+		err = store.Delete("ghost")
+		if !errors.Is(err, credentials.ErrNothingRemoved) {
+			t.Fatalf("deleting an unknown name = %v, want ErrNothingRemoved", err)
+		}
+		if errors.Is(err, credentials.ErrStaleIndexEntry) {
+			t.Fatal("a name nothing held must not be reported as a stale-entry cleanup")
+		}
+	})
+
+	t.Run("delete_of_an_env_managed_name_is_refused", func(t *testing.T) {
+		t.Setenv("ENV_TOKEN", "ENV-VALUE")
+		env := credentials.NewEnv(map[string]credentials.EnvSpec{
+			"env_own": {Var: "ENV_TOKEN", Hosts: []string{"api.stripe.com"}},
+		})
+		store, _, _ := newTestStore(t, env)
+
+		// config.json owns it, so there is nothing here to delete and the
+		// credential keeps resolving. Returning nil would tell an operator
+		// revoking a leaked token that it worked.
+		err := store.Delete("env_own")
+		if !errors.Is(err, credentials.ErrEnvManaged) {
+			t.Fatalf("Delete of an env-only name = %v, want ErrEnvManaged", err)
+		}
+	})
+
+	t.Run("describe_treats_an_unset_env_variable_as_unavailable", func(t *testing.T) {
+		env := credentials.NewEnv(map[string]credentials.EnvSpec{
+			"gh_bot": {Var: "DEFINITELY_NOT_SET_HTTP_BROKER_STORE", Hosts: []string{"api.github.com"}},
+		})
+		store, k, _ := newTestStore(t, env)
+		k.errs["Describe"] = fmt.Errorf("%w: locked", credentials.ErrUnavailable)
+
+		// Resolver.lookup calls Env.Get, which refuses an unset variable. If
+		// Describe reported env_credentials here it would name a source the
+		// request cannot use.
+		_, err := store.Describe("gh_bot")
+		if !errors.Is(err, credentials.ErrUnavailable) {
+			t.Fatalf("Describe with an unset env variable = %v, want ErrUnavailable", err)
 		}
 	})
 

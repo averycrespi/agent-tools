@@ -132,6 +132,15 @@ var credentialSetCmd = &cobra.Command{
 			return err
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "stored %q for %s\n", name, strings.Join(credentialSetHosts, ", "))
+		// Storing over an env_credentials name of the same name changes which
+		// value the proxy injects. This is the moment that happens, so it is
+		// the moment to say so — `get`'s warning only reaches someone who
+		// thinks to run it afterwards.
+		if _, shadowed := credentials.SourceFor(true, store.EnvManaged(name)); shadowed {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+				"warning: config.json also configures an env_credentials entry named %q, which this now shadows.\n"+
+					"  The keychain wins at resolution, so the value just stored is the one injected.\n", name)
+		}
 		if err != nil {
 			// The requested action succeeded and only the listing is missing.
 			// Exiting non-zero would invite a re-run of a command whose piped
@@ -154,13 +163,23 @@ var credentialRmCmd = &cobra.Command{
 			return err
 		}
 
-		switch err := store.Delete(args[0]); {
+		name := args[0]
+		switch err := store.Delete(name); {
 		case err == nil:
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "removed %q\n", args[0])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "removed %q\n", name)
 		case errors.Is(err, credentials.ErrStaleIndexEntry):
 			// The name was indexed but the keychain held nothing. Saying
 			// "removed" would claim a secret was revoked that was already gone.
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "removed stale index entry %q\n", args[0])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "removed stale index entry %q\n", name)
+		case errors.Is(err, credentials.ErrNothingRemoved):
+			// Not an error — deleting twice is fine — but not a deletion
+			// either. An operator revoking a leaked token after a typo must not
+			// read "removed" and stop there.
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
+				"no credential named %q in the keychain or the index; nothing was removed\n", name)
+		case errors.Is(err, credentials.ErrEnvManaged):
+			return fmt.Errorf("%q is an env_credentials entry, which config.json owns, so there is nothing here to remove and it is still being injected.\n"+
+				"  Delete its entry from config.json, then:\n  kill -HUP $(pgrep -f 'http-broker serve')", name)
 		default:
 			return err
 		}
@@ -280,6 +299,11 @@ var credentialRebindCmd = &cobra.Command{
 		if errors.Is(err, credentials.ErrEnvManaged) {
 			return fmt.Errorf("%q is an env_credentials entry, which config.json owns; edit its hosts there, then:\n  kill -HUP $(pgrep -f 'http-broker serve')", name)
 		}
+		if errors.Is(err, credentials.ErrNotFound) {
+			return fmt.Errorf("no credential named %q to rebind: the keychain holds no item by that name, "+
+				"and config.json configures no env_credentials entry for it%s",
+				name, storeItFirst(name))
+		}
 		if err != nil && !errors.Is(err, credentials.ErrIndexNotUpdated) {
 			return err
 		}
@@ -293,6 +317,14 @@ var credentialRebindCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// storeItFirst appends the remedy for a name nothing holds, following the
+// pattern keychainRemediation established: the advice lives outside the format
+// string, so the format does not end in punctuation.
+func storeItFirst(name string) string {
+	return ".\n" +
+		"  Store one with `http-broker credential set " + name + " --host <host>`."
 }
 
 // renderCredentials writes the NAME / SOURCE / HOSTS / BYTES table.

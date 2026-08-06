@@ -20,9 +20,15 @@ var (
 
 	// ErrStaleIndexEntry means Delete found no keychain item but did remove the
 	// name from the index. Non-fatal: the caller reports a stale-entry cleanup
-	// rather than a delete. This distinguishes that case from deleting a name
-	// held by neither store, which returns nil.
+	// rather than a delete.
 	ErrStaleIndexEntry = errors.New("removed a stale index entry; no keychain item existed")
+
+	// ErrNothingRemoved means Delete found the name in neither the keychain nor
+	// the index, so nothing was deleted. Non-fatal — deleting twice is still not
+	// an error — but the caller must not report it as a deletion. A revocation
+	// that says "removed" over a typo is how a live token gets recorded as
+	// revoked.
+	ErrNothingRemoved = errors.New("no credential by that name in the keychain or the index")
 )
 
 // Source names for display, and the one place the precedence rule lives.
@@ -127,8 +133,14 @@ func (s *Store) Set(name, value string, hosts []string) error {
 // index entry, which the next `list` prunes.
 //
 // A name the keychain does not hold still has its index entry removed, and
-// that case returns ErrStaleIndexEntry. A name held by neither returns nil, so
-// deleting twice is not an error.
+// that case returns ErrStaleIndexEntry.
+//
+// Only an actual deletion returns nil. A name nothing held returns
+// ErrNothingRemoved, and a name only env_credentials holds returns
+// ErrEnvManaged — neither is fatal, but reporting either as a deletion would
+// tell an operator revoking a leaked token that it worked. That is the same
+// outcome the keychain-before-index ordering above exists to prevent, reached
+// from the other direction.
 func (s *Store) Delete(name string) error {
 	err := s.keychain.Delete(name)
 	missing := errors.Is(err, ErrNotFound)
@@ -147,10 +159,18 @@ func (s *Store) Delete(name string) error {
 		}
 	}
 
-	if missing && indexed {
+	switch {
+	case !missing:
+		return nil
+	case indexed:
 		return fmt.Errorf("%w: %q", ErrStaleIndexEntry, name)
+	case s.EnvManaged(name):
+		// config.json owns it, so there is nothing here to delete and the
+		// credential keeps resolving. Mirrors Rebind's refusal.
+		return fmt.Errorf("%w: %q", ErrEnvManaged, name)
+	default:
+		return fmt.Errorf("%w: %q", ErrNothingRemoved, name)
 	}
-	return nil
 }
 
 // Rebind re-scopes an existing credential to a new host list, returning the
@@ -227,6 +247,16 @@ func (s *Store) Describe(name string) (Metadata, error) {
 	if s.env != nil {
 		meta, err := s.env.Describe(name)
 		switch {
+		case err == nil && meta.Bytes == 0:
+			// Configured, but the variable is unset or empty — exactly what
+			// Env.Get refuses with ErrUnavailable. Describe reports metadata
+			// regardless, so without this check `get` would name a source the
+			// request cannot actually use, and `list` would succeed where the
+			// resolver would fail.
+			if unavailable == nil {
+				unavailable = fmt.Errorf("%w: env_credentials.%s names a variable that is unset or empty in this process",
+					ErrUnavailable, name)
+			}
 		case err == nil:
 			return meta, nil
 		case errors.Is(err, ErrNotFound):
@@ -286,8 +316,11 @@ func (s *Store) List() (Listing, error) {
 
 	if s.env != nil {
 		for _, name := range s.env.Names() {
-			// A keychain entry of the same name shadows this one, and the
-			// shadowed row is not shown twice.
+			// A keychain entry of the same name shadows this one. The listed
+			// check below already covers it, since a keychain-sourced row was
+			// recorded there; this call is kept as the one expression of the
+			// precedence rule the CLI relies on, so the rule cannot be
+			// reimplemented here by a later edit.
 			if source, _ := SourceFor(fromKeychain[name], true); source == SourceKeychain {
 				continue
 			}
@@ -331,5 +364,5 @@ func (s *Store) EnvManaged(name string) bool {
 	if s.env == nil {
 		return false
 	}
-	return slices.Contains(s.env.Names(), name)
+	return s.env.Has(name)
 }

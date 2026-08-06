@@ -2,12 +2,17 @@ package main
 
 import (
 	"slices"
-	"sort"
 
 	"github.com/averycrespi/agent-tools/http-broker/internal/config"
 	"github.com/averycrespi/agent-tools/http-broker/internal/credentials"
 	"github.com/averycrespi/agent-tools/http-broker/internal/dashboard"
 )
+
+// This file must never describe a credential through credentials.Store: its
+// Describe re-registers the name in the index by design, and the dashboard is
+// read-only. Describe through the bare Keychain instead.
+// TestCredentialListerNeverUsesTheStore enforces this on every platform;
+// TestDashboardReadOnly catches it only where a keychain exists.
 
 // credentialInfos builds the dashboard's credential rows.
 //
@@ -64,7 +69,8 @@ func credentialInfos(
 		infos = append(infos, info)
 	}
 
-	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
+	// Already sorted: names was sorted and compacted above, and rows are
+	// appended in that order.
 	return infos
 }
 

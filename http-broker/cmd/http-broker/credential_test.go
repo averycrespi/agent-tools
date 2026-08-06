@@ -397,14 +397,61 @@ func TestCredential(t *testing.T) {
 			t.Fatalf("stdout = %q, want %q", stdout, want)
 		}
 
-		// A name held by neither store is not an error, and is not reported as
-		// a stale cleanup either.
+		// A name held by neither store still exits 0, but must not claim a
+		// deletion: an operator revoking a leaked token after a typo would
+		// read "removed" and stop there.
 		stdout, _, err = cli.run(t, "", "rm", "ghost")
 		if err != nil {
 			t.Fatalf("second rm: %v", err)
 		}
-		if want := `removed "ghost"`; !strings.Contains(stdout, want) {
+		if want := "nothing was removed"; !strings.Contains(stdout, want) {
 			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
+		if strings.Contains(stdout, `removed "ghost"`) {
+			t.Fatalf("stdout = %q claims a deletion that did not happen", stdout)
+		}
+	})
+
+	t.Run("rm_of_an_env_managed_name_is_refused", func(t *testing.T) {
+		t.Setenv("ENV_TOKEN", "ENV-VALUE")
+		env := credentials.NewEnv(map[string]credentials.EnvSpec{
+			"env_own": {Var: "ENV_TOKEN", Hosts: []string{"api.stripe.com"}},
+		})
+		cli := newCredentialCLI(t, env)
+
+		stdout, _, err := cli.run(t, "", "rm", "env_own")
+		if err == nil {
+			t.Fatal("rm of an env_credentials name returned nil; the credential is still being injected")
+		}
+		if strings.Contains(stdout, "removed") {
+			t.Fatalf("stdout = %q claims a removal that did not happen", stdout)
+		}
+		for _, want := range []string{"config.json", "kill -HUP"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("error %q should name %q", err, want)
+			}
+		}
+	})
+
+	t.Run("set_warns_when_it_shadows_an_env_entry", func(t *testing.T) {
+		t.Setenv("SHADOWED_TOKEN", "ENV-VALUE")
+		env := credentials.NewEnv(map[string]credentials.EnvSpec{
+			"gh_bot": {Var: "SHADOWED_TOKEN", Hosts: []string{"api.github.com"}},
+		})
+		cli := newCredentialCLI(t, env)
+
+		stdout, stderr, err := cli.run(t, cliSecret, "set", "gh_bot", "--host", "api.github.com")
+		if err != nil {
+			t.Fatalf("set: %v", err)
+		}
+		if !strings.Contains(stdout, `stored "gh_bot"`) {
+			t.Fatalf("stdout = %q, want the success line", stdout)
+		}
+		if !strings.Contains(stderr, "shadow") {
+			t.Fatalf("stderr = %q, want a warning that this shadows the env entry", stderr)
+		}
+		if strings.Contains(stdout+stderr, cliSecret) {
+			t.Fatalf("the value was printed: %q", stdout+stderr)
 		}
 	})
 

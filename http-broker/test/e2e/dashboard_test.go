@@ -119,7 +119,9 @@ func TestDashboardReadOnly(t *testing.T) {
 	// credentials.Store.Describe re-registers a name on a keychain *hit*, and
 	// Store.List prunes on a *not found* — on a host with no Secret Service
 	// every lookup is ErrUnavailable instead, which by design writes nothing.
-	// So this fires on macOS; on Linux the grep in V-4.3 is what holds.
+	// So this fires on macOS; everywhere else
+	// TestCredentialListerNeverUsesTheStore in cmd/http-broker is what holds
+	// the invariant.
 	seedCredentialIndex(t, s, "seeded")
 
 	before := stateSnapshot(t, s)

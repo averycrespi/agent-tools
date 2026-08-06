@@ -94,6 +94,12 @@ These are load-bearing. Changing one needs a matching change to `DESIGN.md`.
   injectable, so an operator revoking a leaked token would be told it worked and
   be wrong. Keychain-first leaves at worst a stale index entry, which the next
   `list` prunes.
+- **Only an actual deletion reports one.** `Store.Delete` returns
+  `ErrNothingRemoved` for a name nothing held and `ErrEnvManaged` for one
+  `config.json` owns; neither is fatal, and neither may print `removed`. A
+  revocation that claims success over a typo or an `env_credentials` name leaves
+  a live token recorded as revoked, which is the same outcome the write ordering
+  above exists to prevent.
 - **No path prunes an index entry on `ErrUnavailable`.** A listing fails whole
   instead. The mistake is one character — `err != nil` where
   `errors.Is(err, ErrNotFound)` belongs — and it destroys the one piece of state
