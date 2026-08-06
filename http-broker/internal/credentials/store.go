@@ -173,7 +173,7 @@ func (s *Store) Rebind(name string, hosts []string) ([]string, error) {
 
 	record, err := s.keychain.Get(name)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) && s.hasEnv(name) {
+		if errors.Is(err, ErrNotFound) && s.EnvManaged(name) {
 			// Only when env is the source that would actually win. A keychain
 			// entry shadowing an env one is rebound normally below, because
 			// that is the value the proxy injects — pointing the operator at
@@ -313,8 +313,12 @@ func (s *Store) List() (Listing, error) {
 	return Listing{Credentials: rows, Pruned: pruned}, nil
 }
 
-// hasEnv reports whether env_credentials configures this name.
-func (s *Store) hasEnv(name string) bool {
+// EnvManaged reports whether env_credentials configures this name.
+//
+// `credential get` needs it to warn that a keychain entry is shadowing an env
+// one. It answers only "does env hold this name?" — the precedence decision
+// itself stays in SourceFor, which the caller passes this to.
+func (s *Store) EnvManaged(name string) bool {
 	if s.env == nil {
 		return false
 	}
