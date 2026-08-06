@@ -8,10 +8,10 @@ This repo is opinionated. It provides sandboxed execution and broker-backed exte
 
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
+- **[HTTP Broker](#http-broker)** — MITM HTTP/HTTPS forward proxy that injects credentials for sandboxed agents
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
 - **[Telegram MCP](#telegram-mcp)** — Minimal stdio MCP server for sending Telegram notifications
-- **[HTTP Broker](#http-broker)** — MITM HTTP/HTTPS forward proxy that injects credentials for sandboxed agents
 
 ## How the Tools Fit Together
 
@@ -41,10 +41,10 @@ make check
 # Or, to install individual tools
 cd sandbox-manager && make install
 cd mcp-broker && make install
+cd http-broker && make install
 cd local-git-mcp && make install
 cd local-gomod-proxy && make install
 cd telegram-mcp && make install
-cd http-broker && make install
 ```
 
 ## Tools
@@ -77,6 +77,26 @@ AI agents need to call external APIs (GitHub, Jira, Slack), but giving a sandbox
 - A web dashboard handles approval requests in real time and surfaces the configured rules, discovered tools, and searchable audit log.
 
 See the [mcp-broker README](mcp-broker/README.md) for more information.
+
+### HTTP Broker
+
+`mcp-broker` keeps secrets out of the sandbox for MCP tool calls. An agent that reaches for `curl`, an SDK, or any ordinary HTTP client is back to holding its own.
+
+`http-broker` applies the same premise to raw HTTP. It is a host-native forward proxy that decides per connection whether to intercept, tunnel, or deny, injects credentials the sandbox never holds, and records every request to an audit log surfaced through a read-only dashboard.
+
+```json
+{
+  "name": "github-issues",
+  "host": "api.github.com",
+  "path": "/repos/*/*/issues",
+  "mode": "intercept",
+  "inject": { "set": { "Authorization": "Bearer ${cred.gh_bot}" } }
+}
+```
+
+Every credential carries bound hosts, so a rule-authoring slip cannot send a token somewhere it does not belong.
+
+Enforcement is **cooperative** — it rests on the sandbox honouring `HTTP_PROXY`/`HTTPS_PROXY`, so it is not a containment boundary. See the [http-broker README](http-broker/README.md) and its [security model](http-broker/docs/security-model.md) for what it does and does not guarantee.
 
 ### Local Git MCP
 
@@ -115,26 +135,6 @@ Agents sometimes need a direct way to notify the human operator when work finish
 - No general Telegram client features — no arbitrary recipients, media upload, receiving messages, or chat administration.
 
 See the [telegram-mcp README](telegram-mcp/README.md) for more information.
-
-### HTTP Broker
-
-`mcp-broker` keeps secrets out of the sandbox for MCP tool calls. An agent that reaches for `curl`, an SDK, or any ordinary HTTP client is back to holding its own.
-
-`http-broker` applies the same premise to raw HTTP. It is a host-native forward proxy that decides per connection whether to intercept, tunnel, or deny, injects credentials the sandbox never holds, and records every request to an audit log surfaced through a read-only dashboard.
-
-```json
-{
-  "name": "github-issues",
-  "host": "api.github.com",
-  "path": "/repos/*/*/issues",
-  "mode": "intercept",
-  "inject": { "set": { "Authorization": "Bearer ${cred.gh_bot}" } }
-}
-```
-
-Every credential carries bound hosts, so a rule-authoring slip cannot send a token somewhere it does not belong.
-
-Enforcement is **cooperative** — it rests on the sandbox honouring `HTTP_PROXY`/`HTTPS_PROXY`, so it is not a containment boundary. See the [http-broker README](http-broker/README.md) and its [security model](http-broker/docs/security-model.md) for what it does and does not guarantee.
 
 ## Deprecated Tools
 
