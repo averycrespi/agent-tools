@@ -56,7 +56,7 @@ type RulesLister interface {
 
 // CredentialLister exposes credential names and bindings, never values.
 type CredentialLister interface {
-	List() []CredentialInfo
+	List() CredentialListing
 }
 
 // CredentialInfo is what the dashboard may show about a credential.
@@ -69,6 +69,20 @@ type CredentialInfo struct {
 	Name   string   `json:"name"`
 	Source string   `json:"source"`
 	Hosts  []string `json:"hosts"`
+	// Referenced reports whether any rule in the active policy injects this
+	// credential. A stored credential no rule references is dead weight; a
+	// referenced one that is missing produces a 403.
+	Referenced bool `json:"referenced"`
+}
+
+// CredentialListing is what handleCredentials serialises.
+//
+// IndexError carries a failure to read the credential index to the UI rather
+// than silently shortening the list. Neither type has a field able to hold a
+// credential value.
+type CredentialListing struct {
+	Credentials []CredentialInfo `json:"credentials"`
+	IndexError  string           `json:"index_error,omitempty"`
 }
 
 // CAProvider supplies the certificate served at /ca.pem.
@@ -302,7 +316,7 @@ func (d *Dashboard) handleRules(w http.ResponseWriter, _ *http.Request) {
 
 // handleCredentials returns credential names and bindings, never values.
 func (d *Dashboard) handleCredentials(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, map[string]any{"credentials": d.credentials.List()})
+	writeJSON(w, d.credentials.List())
 }
 
 // handleEvents streams new audit records over SSE.

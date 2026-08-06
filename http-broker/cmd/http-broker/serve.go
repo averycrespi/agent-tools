@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -484,43 +483,27 @@ func shutdownAll(st *stack, servers ...*http.Server) error {
 // Values never enter this path: it builds dashboard.CredentialInfo, which has
 // no value field, from configuration and from Keychain.Describe, which returns
 // metadata only.
+//
+// It describes through the bare Keychain, never through credentials.Store,
+// whose Describe re-registers the name in the index by design. The dashboard
+// is read-only, and TestDashboardReadOnly seeds an index entry specifically so
+// that a mutating call here would be caught.
 func (st *stack) credentialLister() dashboard.CredentialLister {
-	return credentialListerFunc(func() []dashboard.CredentialInfo {
+	return credentialListerFunc(func() dashboard.CredentialListing {
 		cfg := st.config()
-		infos := make([]dashboard.CredentialInfo, 0, len(cfg.EnvCredentials))
-		for name, ec := range cfg.EnvCredentials {
-			infos = append(infos, dashboard.CredentialInfo{
-				Name: name, Source: "env_credentials", Hosts: ec.Hosts,
-			})
-		}
-
 		keychain := credentials.NewKeychain()
-		for _, name := range st.rules.Engine().ReferencedCredentials() {
-			if _, isEnv := cfg.EnvCredentials[name]; isEnv {
-				continue
-			}
-			// Describe returns bound hosts and a byte count, never a value.
-			// An unreachable item is shown as such rather than omitted: a
-			// referenced-but-missing credential is the misconfiguration that
-			// produces a 403, so hiding it would hide the diagnosis.
-			meta, err := keychain.Describe(name)
-			if err != nil {
-				infos = append(infos, dashboard.CredentialInfo{Name: name, Source: "keychain (unavailable)"})
-				continue
-			}
-			infos = append(infos, dashboard.CredentialInfo{
-				Name: meta.Name, Source: meta.Source, Hosts: meta.Hosts,
-			})
-		}
-
-		sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
-		return infos
+		return credentialListing(
+			credentials.NewIndex(),
+			st.rules.Engine().ReferencedCredentials(),
+			cfg.EnvCredentials,
+			keychain.Describe,
+		)
 	})
 }
 
-type credentialListerFunc func() []dashboard.CredentialInfo
+type credentialListerFunc func() dashboard.CredentialListing
 
-func (f credentialListerFunc) List() []dashboard.CredentialInfo { return f() }
+func (f credentialListerFunc) List() dashboard.CredentialListing { return f() }
 
 func logLevel(level string) slog.Level {
 	switch level {

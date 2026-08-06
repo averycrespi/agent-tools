@@ -53,12 +53,28 @@ func dashboardRoutes(t *testing.T) []string {
 }
 
 // stateSnapshot hashes everything the dashboard must not be able to change.
+//
+// The credential index is in the list because the dashboard reads it, and the
+// obvious way to describe a credential — credentials.Store.Describe —
+// re-registers the name as a side effect. Paths are built from the stack's own
+// fields rather than the paths package: the XDG variables are exported only
+// into the subprocess's environment, so calling paths here would resolve
+// against the developer's real home.
 func stateSnapshot(t *testing.T, s *stack) string {
 	t.Helper()
 
 	h := sha256.New()
-	for _, path := range []string{s.configPath, s.rulesPath, filepath.Join(s.configDir, "auth-token")} {
+	for _, path := range []string{
+		s.configPath,
+		s.rulesPath,
+		filepath.Join(s.configDir, "auth-token"),
+		filepath.Join(s.dataDir, "credentials.json"),
+	} {
 		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			// Tests that never seed an index have none to protect.
+			continue
+		}
 		if err != nil {
 			t.Fatalf("reading %s: %v", path, err)
 		}
@@ -66,6 +82,18 @@ func stateSnapshot(t *testing.T, s *stack) string {
 		_, _ = h.Write(data)
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// seedCredentialIndex writes a names-only credential index into the stack's
+// data directory.
+func seedCredentialIndex(t *testing.T, s *stack, names ...string) {
+	t.Helper()
+
+	if err := os.MkdirAll(s.dataDir, 0o750); err != nil {
+		t.Fatalf("creating %s: %v", s.dataDir, err)
+	}
+	doc := map[string]any{"version": 1, "names": names}
+	writeJSON(t, filepath.Join(s.dataDir, "credentials.json"), doc)
 }
 
 // TestDashboardReadOnly is AC-12 / V-17: driving every documented route, with
@@ -80,6 +108,19 @@ func TestDashboardReadOnly(t *testing.T) {
 		},
 		Env: map[string]string{"TOK": "SENTINEL-DASH"},
 	})
+
+	// Seed the credential index before snapshotting. Without a name in it
+	// there is nothing for a mutating dashboard call to change, and the
+	// before/after hashes would match no matter what the dashboard did.
+	// Written directly, holding names only, so this touches no keychain and
+	// respects the suite's env_credentials-only rule.
+	//
+	// Reach: this catches a mutating describe only where a keychain exists.
+	// credentials.Store.Describe re-registers a name on a keychain *hit*, and
+	// Store.List prunes on a *not found* — on a host with no Secret Service
+	// every lookup is ErrUnavailable instead, which by design writes nothing.
+	// So this fires on macOS; on Linux the grep in V-4.3 is what holds.
+	seedCredentialIndex(t, s, "seeded")
 
 	before := stateSnapshot(t, s)
 	routes := dashboardRoutes(t)
