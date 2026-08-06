@@ -461,9 +461,17 @@
 
   async function loadCredentials() {
     const tbody = $("credential-rows");
+    const indexError = $("credentials-index-error");
     tbody.replaceChildren();
+    indexError.hidden = true;
     try {
       const data = await getJSON("/dashboard/api/credentials");
+      // A credential index that could not be read shortens this table. Saying
+      // so beats a list that looks complete while missing entries.
+      if (data.index_error) {
+        indexError.textContent = data.index_error;
+        indexError.hidden = false;
+      }
       if (!data.credentials || data.credentials.length === 0) {
         setEmpty("credentials", "No credentials configured.");
         return;
@@ -475,6 +483,10 @@
           cell(c.name),
           cell(c.source),
           cell(c.hosts ? c.hosts.join(", ") : ""),
+          // Plain true/false, not a chip that vanishes when false: an absent
+          // chip reads as missing data rather than as "no", the same reason
+          // allow_private is rendered this way above.
+          cell(c.referenced ? "true" : "false"),
         );
         tbody.appendChild(tr);
       }

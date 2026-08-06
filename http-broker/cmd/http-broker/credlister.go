@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"slices"
 	"sort"
 
@@ -86,8 +85,9 @@ func credentialListing(
 	if err != nil {
 		return dashboard.CredentialListing{
 			Credentials: credentialInfos(nil, referenced, env, describe),
-			// The index holds names only, so this can never carry a value.
-			IndexError: fmt.Sprintf("could not read the credential index %s: %v", index.Path(), err),
+			// The error already names the path and the reason, and the index
+			// holds names only, so this can never carry a value.
+			IndexError: err.Error(),
 		}
 	}
 	return dashboard.CredentialListing{Credentials: credentialInfos(indexed, referenced, env, describe)}
