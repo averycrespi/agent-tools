@@ -49,6 +49,13 @@ func TokenFile() string { return filepath.Join(ConfigDir(), "auth-token") }
 // AuditDB returns the path to the SQLite audit log.
 func AuditDB() string { return filepath.Join(DataDir(), "audit.db") }
 
+// CredentialIndex returns the path to the credential name index.
+//
+// It lives under the data home because it is derived state: the OS keychain
+// cannot be enumerated, so the index records which names were stored. Deleting
+// it loses no secret and is repaired by `http-broker credential get <name>`.
+func CredentialIndex() string { return filepath.Join(DataDir(), "credentials.json") }
+
 // CAKey returns the path to the MITM certificate authority private key.
 func CAKey() string { return filepath.Join(DataDir(), "ca.key") }
 

@@ -22,6 +22,7 @@ func TestXDGOverrides(t *testing.T) {
 		{"RulesFile", paths.RulesFile(), "/c/http-broker/rules.json"},
 		{"TokenFile", paths.TokenFile(), "/c/http-broker/auth-token"},
 		{"AuditDB", paths.AuditDB(), "/d/http-broker/audit.db"},
+		{"CredentialIndex", paths.CredentialIndex(), "/d/http-broker/credentials.json"},
 		{"CAKey", paths.CAKey(), "/d/http-broker/ca.key"},
 		{"CACert", paths.CACert(), "/d/http-broker/ca.pem"},
 	}
