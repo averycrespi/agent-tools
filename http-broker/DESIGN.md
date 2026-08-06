@@ -125,6 +125,33 @@ plaintext-on-disk outcome this design rejects. `env_credentials` exists so the
 test suite never touches a real keychain and headless Linux stays workable; it
 carries the same host binding, and `serve` warns about it at startup.
 
+### The credential index exists because the keychain cannot be enumerated
+
+The keychain API gets, sets, and deletes an item by name; it cannot answer
+"what did I store?". So `credential list` has nothing to list from, and a
+credential stored months ago is invisible until someone remembers its name. A
+JSON file at `~/.local/share/http-broker/credentials.json` records the names.
+
+**It holds names only.** Bound hosts stay in the keychain envelope, which
+remains the sole authority on scope. A host list duplicated in the index could
+disagree with the one actually enforced, and the displayed copy would be the
+convincing wrong one — the same reason the envelope carries hosts in the first
+place rather than `config.json`.
+
+**`ErrUnavailable` is never treated as absent.** A locked or unreachable
+keychain fails a listing whole rather than pruning the names it could not
+confirm. Pruning on it would delete operator state over a transient failure,
+and the index is the one thing that cannot be rebuilt from the keychain.
+Failing whole also beats a partial listing, which reads as a complete one.
+
+**`get` re-registers, so index loss is recoverable.** Deleting the file loses no
+secret; `credential get <name>` describes the keychain item and puts the name
+back. That is what makes the index safe to treat as derived state rather than
+as a second source of truth. It also sets the write order everywhere: the
+keychain is written before the index, so a crash between the two leaves at
+worst a stale name, never a secret still injectable but missing from every
+view.
+
 ### Host binding is a second, independent check
 
 The rule's `host` glob decides _whether a rule fires_. The credential's bound

@@ -69,15 +69,12 @@ func (i *Index) Names() ([]string, error) {
 
 	var doc indexDoc
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("the credential index %s is not valid JSON: %w\n"+
-			"  It holds credential names only, never values, so deleting the file is safe.\n"+
-			"  Re-register a name afterwards with `http-broker credential get <name>`.", i.path, err)
+		return nil, fmt.Errorf("the credential index %s is not valid JSON: %w%s",
+			i.path, err, indexRemediation())
 	}
 	if doc.Version != indexVersion {
-		return nil, fmt.Errorf("the credential index %s has version %d, but this build understands version %d\n"+
-			"  It holds credential names only, never values, so deleting the file is safe.\n"+
-			"  Re-register a name afterwards with `http-broker credential get <name>`.",
-			i.path, doc.Version, indexVersion)
+		return nil, fmt.Errorf("the credential index %s has version %d, but this build understands version %d%s",
+			i.path, doc.Version, indexVersion, indexRemediation())
 	}
 
 	return normalizeNames(doc.Names), nil
@@ -148,6 +145,18 @@ func (i *Index) write(names []string) error {
 		return fmt.Errorf("writing the credential index %s: %w", i.path, err)
 	}
 	return nil
+}
+
+// indexRemediation appends actionable advice to an unreadable-index failure,
+// following the pattern keychainRemediation established.
+//
+// The advice matters because the reflex on a corrupt state file is to preserve
+// it. Here the file is derived state holding no secret, so deleting it costs
+// nothing but the names, and those come back one `credential get` at a time.
+func indexRemediation() string {
+	return "\n" +
+		"  It holds credential names only, never values, so deleting the file is safe.\n" +
+		"  Re-register a name afterwards with `http-broker credential get <name>`."
 }
 
 // normalizeNames sorts and deduplicates, so the file's byte content depends on

@@ -84,6 +84,34 @@ These are load-bearing. Changing one needs a matching change to `DESIGN.md`.
 - **`ExpandAll` resolves and host-checks every credential before writing any
   header.** A caller that writes headers only from a successful return cannot
   dispatch a partially injected request.
+- **`credentials.Store` is the only credential write path.** The CLI never calls
+  `Keychain` directly. A credential now lives in two places that must agree —
+  the keychain holding the value and its binding, the index holding the name —
+  and one write path is what keeps them from drifting.
+- **`Store.Delete` writes the keychain before the index**, as `Set` does. The
+  reverse order would let a crash between the two leave a name gone from `list`,
+  `get`, and the dashboard while the secret was still in the keychain and still
+  injectable, so an operator revoking a leaked token would be told it worked and
+  be wrong. Keychain-first leaves at worst a stale index entry, which the next
+  `list` prunes.
+- **No path prunes an index entry on `ErrUnavailable`.** A listing fails whole
+  instead. The mistake is one character — `err != nil` where
+  `errors.Is(err, ErrNotFound)` belongs — and it destroys the one piece of state
+  that cannot be rebuilt from the keychain.
+- **The index is derived state, rebuildable with `credential get`.** It holds
+  names only; deleting it loses no secret. Nothing may read a host list from it,
+  for display or for enforcement — the keychain envelope is the sole authority
+  on scope.
+- **`credentials.SourceFor` is the only place the keychain-beats-env rule
+  lives.** The CLI's `list`/`get` and the dashboard's `credentialInfos` both call
+  it, so the two cannot disagree about which source a request would actually
+  use, for the same reason `internal/glob` keeps a single translation.
+- **The dashboard reads the index but never through `Store`.** `Store.Describe`
+  re-registers the name by design, which would make a read-only page mutate
+  state. `credlister.go` describes through the bare `Keychain`, and
+  `TestDashboardReadOnly` seeds an index entry so a mutating call is caught —
+  note that guard only fires where a keychain exists, since on a host without
+  one every lookup is `ErrUnavailable`, which writes nothing.
 - **Deny beats intercept, and deny beats tunnel among overlapping host-only
   rules.** Rule order must never change enforcement. Deny therefore defaults to
   _any_ port, like intercept: a narrower default silently reinstated the

@@ -111,6 +111,8 @@ request whose host falls outside them is refused with 403 and audited.
 
 ```bash
 printf %s "$TOKEN" | http-broker credential set gh_bot --host api.github.com
+http-broker credential list
+http-broker credential rebind gh_bot --host api.github.com --host uploads.github.com
 http-broker credential rm gh_bot
 ```
 
@@ -118,6 +120,16 @@ The rule's `host` glob decides whether a rule fires. The credential's bound
 globs decide whether that credential may go to that host. Both must pass —
 without the second check a single rule-authoring slip sends a real token
 wherever the rule now matches.
+
+No subcommand prints a value. `list` and `get` show a name, its source, its
+bound hosts, and the byte count of the stored value. A rebind reaches a running
+proxy within 30s, or immediately with
+`kill -HUP $(pgrep -f 'http-broker serve')`.
+
+The keychain cannot be enumerated, so stored names are recorded in
+`~/.local/share/http-broker/credentials.json`. That file holds names only, and
+deleting it loses no secret — `http-broker credential get <name>` re-registers
+one.
 
 ### Keychain versus `env_credentials`
 
@@ -250,14 +262,14 @@ end state.
 
 ## Commands
 
-| Command                                | Purpose                                        |
-| -------------------------------------- | ---------------------------------------------- |
-| `serve [--no-open]`                    | Run the proxy and dashboard in the foreground. |
-| `config path\|show\|refresh`           | Inspect and backfill `config.json`.            |
-| `rules path\|show\|check\|refresh`     | Inspect and validate `rules.json`.             |
-| `credential set\|list\|rm`             | Manage credentials and their host bindings.    |
-| `token show\|rotate\|proxy-credential` | Manage the shared bearer token.                |
-| `ca export\|rotate\|path`              | Manage the interception CA.                    |
+| Command                                 | Purpose                                        |
+| --------------------------------------- | ---------------------------------------------- |
+| `serve [--no-open]`                     | Run the proxy and dashboard in the foreground. |
+| `config path\|show\|refresh`            | Inspect and backfill `config.json`.            |
+| `rules path\|show\|check\|refresh`      | Inspect and validate `rules.json`.             |
+| `credential set\|list\|get\|rebind\|rm` | Manage credentials and their host bindings.    |
+| `token show\|rotate\|proxy-credential`  | Manage the shared bearer token.                |
+| `ca export\|rotate\|path`               | Manage the interception CA.                    |
 
 See [docs/cli.md](docs/cli.md).
 

@@ -274,10 +274,7 @@ func (s *Store) List() (Listing, error) {
 		case errors.Is(err, ErrNotFound):
 			pruned = append(pruned, name)
 		default:
-			return Listing{}, fmt.Errorf("%w\n"+
-				"  Nothing was pruned from the credential index. A name with an env_credentials\n"+
-				"  fallback may still be injecting, so a failed list is not evidence that the\n"+
-				"  proxy has stopped serving requests.", err)
+			return Listing{}, fmt.Errorf("%w%s", err, listUnavailableCaveat())
 		}
 	}
 
@@ -311,6 +308,18 @@ func (s *Store) List() (Listing, error) {
 
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
 	return Listing{Credentials: rows, Pruned: pruned}, nil
+}
+
+// listUnavailableCaveat appends what a failed listing does and does not mean.
+//
+// Without it the natural reading of a failed `list` is that credentials have
+// stopped working, which would send an operator restarting a proxy that is
+// still injecting fine through env_credentials.
+func listUnavailableCaveat() string {
+	return "\n" +
+		"  Nothing was pruned from the credential index. A name with an env_credentials\n" +
+		"  fallback may still be injecting, so a failed list is not evidence that the\n" +
+		"  proxy has stopped serving requests."
 }
 
 // EnvManaged reports whether env_credentials configures this name.

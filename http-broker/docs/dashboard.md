@@ -52,7 +52,7 @@ serves a route this table omits.
 | `GET /dashboard/favicon.svg`     | token | Dashboard icon.                                                                                             |
 | `GET /dashboard/api/audit`       | token | Audit history. Filters: `host`, `outcome`, `source`, `mode`, `rule`, `limit`, `offset`.                     |
 | `GET /dashboard/api/rules`       | token | The active ruleset and fallthrough policy.                                                                  |
-| `GET /dashboard/api/credentials` | token | Credential **names, sources and bound hosts**. Never a value.                                               |
+| `GET /dashboard/api/credentials` | token | Credential **names, sources and bound hosts**, plus `referenced` and `index_error`. Never a value.          |
 | `GET /dashboard/api/events`      | token | Server-sent events: one `audit` event per new request.                                                      |
 
 Every route is registered with an explicit `GET` method pattern, so any other
@@ -72,6 +72,18 @@ request line) has neither.
 
 Rows written before the two were split carry the old merged value: a NULL
 `source` and a `mode` holding `fallthrough` or `implicit-allow`.
+
+`/dashboard/api/credentials` unions three name sets: the credential index, the
+names `rules.json` references, and the `env_credentials` keys. Each row carries
+`referenced`, which is true when a rule injects that name — a stored credential
+no rule references is dead weight, and a referenced one that is missing is what
+produces a 403. A name held by both the keychain and `env_credentials` reports
+the keychain, because that is the source the proxy resolves through.
+
+`index_error` is present only when the credential index could not be read. The
+listing still returns the referenced and `env_credentials` rows, and the page
+shows the error above the table: a credentials table that looks complete while
+missing entries is worse than one that says what it could not read.
 
 ## What the API deliberately does not expose
 

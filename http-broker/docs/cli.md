@@ -42,7 +42,8 @@ restart. `SIGINT`/`SIGTERM` shut down gracefully with a 10-second drain window.
 
 ## `credential`
 
-Values are never printed by any subcommand.
+Values are never printed by any subcommand. `list` and `get` show a name, its
+source, its bound hosts, and the byte count of the stored value.
 
 ```bash
 printf %s "$TOKEN" | http-broker credential set gh_bot --host api.github.com
@@ -52,12 +53,45 @@ printf %s "$TOKEN" | http-broker credential set gh_bot --host api.github.com
 every host, or that reduces to a public suffix, is rejected.
 
 The value is read from stdin and a terminal is refused: a secret typed at a
-prompt lands in shell history and scrollback.
+prompt lands in shell history and scrollback. `rebind` does not read stdin: it
+keeps the stored value and changes only the hosts.
 
-| Command                 | Effect                                  |
-| ----------------------- | --------------------------------------- |
-| `credential set <name>` | Store a credential and its bound hosts. |
-| `credential rm <name>`  | Remove a credential.                    |
+| Command                               | Effect                                               |
+| ------------------------------------- | ---------------------------------------------------- |
+| `credential set <name>`               | Store a credential and its bound hosts.              |
+| `credential list`                     | List stored credentials, their sources, and hosts.   |
+| `credential get <name>`               | Show one credential, re-registering it in the index. |
+| `credential rebind <name> --host ...` | Change the hosts an existing credential may go to.   |
+| `credential rm <name>`                | Remove a credential.                                 |
+
+```bash
+http-broker credential rebind gh_bot --host api.github.com --host uploads.github.com
+```
+
+A running proxy applies a rebind within 30s, the credential cache TTL. To apply
+it immediately:
+
+```bash
+kill -HUP $(pgrep -f 'http-broker serve')
+```
+
+### The credential index
+
+The OS keychain cannot be enumerated, so the names of stored credentials are
+recorded in `~/.local/share/http-broker/credentials.json`. That file holds names
+only — never a value, and never a host list, since the keychain envelope stays
+the sole authority on scope.
+
+It is derived state. Deleting it loses no secret, and `credential get <name>`
+re-registers a name. Because an empty index does not mean nothing is stored,
+`list` says so explicitly: look at the names `rules.json` references, and at the
+dashboard's Credentials view, for what to re-register.
+
+`list` prunes an index entry whose keychain item is gone and reports it on
+stderr. It never prunes when the keychain cannot be reached — that failure exits
+1 instead, because "could not ask" is not "not there". A name with an
+`env_credentials` fallback may still be injecting in that case, so a failed
+`list` is not evidence the proxy has stopped serving.
 
 ## `token`
 
