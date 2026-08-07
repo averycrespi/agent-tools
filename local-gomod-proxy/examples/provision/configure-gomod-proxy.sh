@@ -25,7 +25,11 @@
 #       trust store via sudo update-ca-certificates (Lima sandboxes have
 #       passwordless sudo).
 #   (b) writes a marker-fenced GOPROXY block to ~/.bashrc.
-# Both steps are idempotent.
+#
+# Re-running this script is safe: the cert install is skipped when the installed
+# cert already matches, and the ~/.bashrc block is replaced wholesale rather
+# than left alone, so a change to its contents in a newer version of this script
+# reaches an already-provisioned sandbox.
 #
 # Rotation: if the host regenerates state (annual cert expiry, or manual via
 # rm -rf $state_dir which refreshes both cert AND credentials), re-run
@@ -77,11 +81,20 @@ fi
 
 MARKER_START="# >>> local-gomod-proxy >>>"
 MARKER_END="# <<< local-gomod-proxy <<<"
+BASHRC="$HOME/.bashrc"
 
-if ! grep -qF "$MARKER_START" "$HOME/.bashrc" 2>/dev/null; then
+touch "$BASHRC"
+
+# Remove any previous block, then append the current one. Editing in place
+# would drift as the block's contents change between versions.
+if grep -qF "$MARKER_START" "$BASHRC"; then
+	echo "Replacing the existing local-gomod-proxy block in ~/.bashrc"
+	sed -i "/^${MARKER_START}$/,/^${MARKER_END}$/d" "$BASHRC"
+else
 	echo "Configuring local-gomod-proxy in ~/.bashrc"
-	cat >>"$HOME/.bashrc" <<EOF
+fi
 
+cat >>"$BASHRC" <<EOF
 $MARKER_START
 # Route Go module resolution through the host's local-gomod-proxy over HTTPS.
 # The proxy's self-signed cert is installed into the sandbox's system trust
@@ -96,6 +109,5 @@ export GOSUMDB=off
 unset GOPRIVATE
 $MARKER_END
 EOF
-else
-	echo "local-gomod-proxy already configured in ~/.bashrc"
-fi
+
+echo "Configured. Open a new shell, or run: source $BASHRC"

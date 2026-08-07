@@ -30,7 +30,8 @@ Scripts run in the listed order.
 
 - Prefer self-containment: assume a bare Ubuntu sandbox with `sudo`, `apt-get`, and `bash` available, and install anything else you need.
 - If a script depends on a non-trivial tool that has its own example script (e.g. asdf), it's okay to require that tool to be installed first — but the script must check for it upfront and fail fast with an error that names the missing prerequisite.
-- Be idempotent: guard installs with `command_exists`, `dpkg -s`, or equivalent, and print an "already installed/configured" message when the work is already done. Prefer `if/else` branches over early `exit 0` so later steps in the script still run.
+- Be idempotent: guard installs with `command_exists`, `dpkg -s`, or equivalent, and print an "already installed" message when the work is already done. Prefer `if/else` branches over early `exit 0` so later steps in the script still run.
+- Converge configuration rather than skipping it. A block written to `~/.bashrc` must be marker-fenced and replaced wholesale on every run, not guarded by a "marker already present" check — otherwise a change to the block in a newer version of the script never reaches an already-provisioned sandbox. `install-asdf.sh` shows the shape; the root `CLAUDE.md` has the full convention.
 - Pin versions for bootstrap infrastructure (installer URLs, prebuilt binaries). Use `latest` for tooling that a version manager (e.g. asdf) is meant to track.
 - Use `set -euo pipefail` and quote variables.
 - Keep scripts single-purpose — one script per tool or concern.

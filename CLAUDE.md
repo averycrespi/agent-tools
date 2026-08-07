@@ -41,6 +41,33 @@ For Cobra commands, avoid exposing generic argument validation errors such as `a
 Prefer command-specific `Args` functions that name missing arguments and include the command usage or a short example when quoting/order matters.
 Let Cobra print execution errors once; don't wrap `Execute()` with a second stderr print unless `SilenceErrors` is enabled.
 
+## Provisioning Scripts
+
+Example provisioning scripts live in each tool's `examples/provision/` and run under `sb provision`, which re-runs every script on each invocation. Write them to converge, not to skip.
+
+A script that edits a shell startup file (`~/.bashrc`) must fence its block between `# >>> <name> >>>` and `# <<< <name> <<<` markers and **replace that block wholesale on every run**:
+
+```bash
+touch "$BASHRC"
+if grep -qF "$MARKER_START" "$BASHRC"; then
+	sed -i "/^${MARKER_START}$/,/^${MARKER_END}$/d" "$BASHRC"
+fi
+cat >>"$BASHRC" <<EOF
+$MARKER_START
+...
+$MARKER_END
+EOF
+```
+
+Do not guard the write with `if ! grep -qF "$MARKER_START"`, which makes the block write-once. The contents change between versions — hostnames, ports, added exports — and a write-once block leaves an already-provisioned sandbox on the old ones forever, with no error to reveal it. `configure-http-broker.sh` is the reference implementation.
+
+Two things follow from this shape:
+
+- **Interpolate paths, read secrets at runtime.** Export a token as `$(cat "$TOKEN_FILE")` so shell startup reads the current file, rather than baking the value in. Rotation on the host then needs only the `copy_paths` refresh, and the block never holds a secret.
+- **Replacing moves the block to the end of the file.** Content outside the markers is preserved but ordering relative to it is not, so a block must not depend on a later line in `~/.bashrc`.
+
+Installs and system-level steps stay guarded, since they are expensive and not version-sensitive in the same way: check `command_exists`/`dpkg -s` before installing, and compare before rewriting a trust-store cert. Prefer scripts that are self-contained (work on a bare sandbox) and single-purpose; a script depending on another must check for the prerequisite upfront and fail fast.
+
 ## Doc Purposes
 
 Each doc has a distinct audience and scope — don't duplicate content between them.

@@ -22,10 +22,13 @@
 #
 # This script writes a marker-fenced env block to ~/.bashrc that exports
 # MCP_BROKER_URL and MCP_BROKER_TOKEN. Wire those into your agent's MCP
-# config (e.g. Claude Code's `claude mcp add`). The block is idempotent —
-# re-running this script after the token rotates is safe; the export reads
-# the token from the file at shell startup, so a re-provision (which
-# refreshes the file via copy_paths) is enough to pick up rotation.
+# config (e.g. Claude Code's `claude mcp add`).
+#
+# Re-running this script is safe: the block is replaced wholesale rather than
+# left alone, so a change to its contents in a newer version of this script
+# reaches an already-provisioned sandbox. Token rotation needs no rewrite
+# either way — the export reads the token from the file at shell startup, so a
+# re-provision (which refreshes the file via copy_paths) is enough.
 
 set -euo pipefail
 
@@ -45,11 +48,20 @@ fi
 
 MARKER_START="# >>> mcp-broker >>>"
 MARKER_END="# <<< mcp-broker <<<"
+BASHRC="$HOME/.bashrc"
 
-if ! grep -qF "$MARKER_START" "$HOME/.bashrc" 2>/dev/null; then
+touch "$BASHRC"
+
+# Remove any previous block, then append the current one. Editing in place
+# would drift as the block's contents change between versions.
+if grep -qF "$MARKER_START" "$BASHRC"; then
+	echo "Replacing the existing mcp-broker block in ~/.bashrc"
+	sed -i "/^${MARKER_START}$/,/^${MARKER_END}$/d" "$BASHRC"
+else
 	echo "Adding mcp-broker config to ~/.bashrc"
-	cat >>"$HOME/.bashrc" <<EOF
+fi
 
+cat >>"$BASHRC" <<EOF
 $MARKER_START
 # Point agent MCP clients at the host's mcp-broker. Lima's default
 # user-mode networking forwards host.lima.internal to the host loopback,
@@ -61,6 +73,5 @@ export MCP_BROKER_URL="http://host.lima.internal:8200/mcp"
 export MCP_BROKER_TOKEN="\$(tr -d '\n' < \$HOME/.config/mcp-broker/auth-token)"
 $MARKER_END
 EOF
-else
-	echo "mcp-broker already configured in ~/.bashrc"
-fi
+
+echo "Configured. Open a new shell, or run: source $BASHRC"

@@ -44,4 +44,4 @@ internal/
 - Lima template is embedded via `//go:embed` in `internal/sandbox`
 - The host UID is injected into the Lima template for mount permission compatibility; Lima does not support injecting the host GID
 - gosec `nolint` directives on `os/exec`, file permissions, and `os.Open` are intentional for a CLI tool
-- Example provisioning scripts live in `examples/provision/`; prefer self-contained (works on a bare sandbox), always idempotent (guard installs with `command_exists`/`dpkg -s`), single-purpose. Scripts that depend on another example script must check for the prerequisite upfront and fail fast with a clear error
+- Example provisioning scripts live in `examples/provision/`; prefer self-contained (works on a bare sandbox), single-purpose, and safe to re-run. Guard installs with `command_exists`/`dpkg -s`, but converge config rather than skipping it — a `~/.bashrc` block is marker-fenced and replaced wholesale on every run, never guarded by a marker-present check. See the root `CLAUDE.md` for the full convention. Scripts that depend on another example script must check for the prerequisite upfront and fail fast with a clear error
