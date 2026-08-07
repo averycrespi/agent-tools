@@ -137,7 +137,15 @@ export https_proxy="\$HTTP_PROXY"
 # Carve out the host itself. mcp-broker (:8200) and local-gomod-proxy (:7070)
 # are reached over the same loopback forward, and routing them through this
 # proxy would make it a single point of failure for both.
-export NO_PROXY="${BROKER_HOST},localhost,127.0.0.1,::1"
+#
+# The two wildcard bind addresses are carved out because a server that listens
+# on every interface reports its address as [::]:port or 0.0.0.0:port, and
+# clients in the same process dial exactly that string. Go's net/http excludes
+# loopback IPs on its own but treats the unspecified address as remote, so a
+# test server bound to :0 would otherwise be proxied. The broker runs on the
+# host and cannot reach a guest port under that address, so it rightly refuses
+# and the test sees a 403 in place of its response.
+export NO_PROXY="${BROKER_HOST},localhost,127.0.0.1,::1,::,0.0.0.0"
 export no_proxy="\$NO_PROXY"
 
 # Six variables, because no single one reaches every runtime: SSL_CERT_FILE
