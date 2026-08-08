@@ -11,9 +11,11 @@
 package atomicfile
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // Write writes data to path atomically, creating parent directories as
@@ -61,12 +63,23 @@ func Write(path string, data []byte, perm os.FileMode) error {
 	}
 	committed = true
 
-	// Best-effort fsync of the parent directory so the rename itself is
-	// durable. Not every filesystem supports directory fsync, so a failure
-	// here is not surfaced.
-	if d, err := os.Open(dir); err == nil {
-		_ = d.Sync()
-		_ = d.Close()
+	if err := SyncDirectory(dir); err != nil {
+		return fmt.Errorf("atomicfile: sync parent directory: %w", err)
 	}
 	return nil
+}
+
+// SyncDirectory makes a supported directory-entry change durable. Filesystems
+// that explicitly reject directory fsync are treated as unsupported.
+func SyncDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	syncErr := directory.Sync()
+	closeErr := directory.Close()
+	if syncErr != nil && !errors.Is(syncErr, syscall.EINVAL) && !errors.Is(syncErr, syscall.ENOTSUP) {
+		return syncErr
+	}
+	return closeErr
 }

@@ -1,7 +1,7 @@
 // Package paths resolves the XDG locations http-broker reads and writes.
 //
 // Config-home files are operator-authored (config.json, rules.json) or
-// secret (auth-token); data-home files are generated state (audit.db,
+// secret role credentials; data-home files are generated state (audit.db,
 // ca.key, ca.pem). Keeping the split explicit means a user can delete the
 // data home to reset state without losing their policy.
 package paths
@@ -43,8 +43,20 @@ func ConfigFile() string { return filepath.Join(ConfigDir(), "config.json") }
 // RulesFile returns the default path to rules.json.
 func RulesFile() string { return filepath.Join(ConfigDir(), "rules.json") }
 
-// TokenFile returns the path to the dashboard bearer token.
-func TokenFile() string { return filepath.Join(ConfigDir(), "auth-token") }
+// AgentTokenFile returns the sandbox-facing proxy credential path.
+func AgentTokenFile() string { return filepath.Join(ConfigDir(), "agent-token") }
+
+// AdminTokenFile returns the host-only dashboard credential path.
+func AdminTokenFile() string { return filepath.Join(ConfigDir(), "admin-token") }
+
+// LegacyTokenFile returns the migration-only shared credential path.
+func LegacyTokenFile() string { return filepath.Join(ConfigDir(), "auth-token") }
+
+// TokenLockFile returns the advisory lock used for role-credential mutations.
+func TokenLockFile() string { return filepath.Join(ConfigDir(), ".token.lock") }
+
+// TokenFile returns the migration-only legacy credential path.
+func TokenFile() string { return LegacyTokenFile() }
 
 // AuditDB returns the path to the SQLite audit log.
 func AuditDB() string { return filepath.Join(DataDir(), "audit.db") }
