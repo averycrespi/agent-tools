@@ -396,6 +396,8 @@ func TestDashboard_UnauthorizedPage(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	require.Contains(t, string(body), "Unauthorized")
+	require.Contains(t, string(body), "token show admin")
+	require.Contains(t, string(body), "agent credential cannot authenticate")
 }
 
 func TestHandleTools_SerializesAnnotationsOutputSchemaAndMeta(t *testing.T) {

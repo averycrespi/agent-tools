@@ -32,16 +32,18 @@ mcp-broker is designed for **local use only**. Startup refuses to bind anything 
 
 **What auth provides:**
 
-- A random bearer token required on every MCP and dashboard request (`/healthz` is unauthenticated for local liveness checks)
-- Cookie-based session for the browser dashboard
-- Constant-time token comparison to prevent timing attacks
+- Two distinct bearer credentials: `agent-token` authorizes only exact `/mcp`; `admin-token` authorizes the dashboard, its assets/APIs/SSE/cookie bootstrap, and root/catch-all redirects
+- Public `/healthz` and `/dashboard/unauthorized` endpoints for liveness and login guidance
+- An admin-only `HttpOnly`, `SameSite=Strict` dashboard cookie
+- Constant-time credential comparison
+
+Neither role is a superset of the other. Never put `admin-token` in a sandbox.
 
 **What auth does NOT provide:**
 
-- Protection against an attacker who can read your filesystem (they can read the token file)
+- Protection against an attacker who can read the corresponding credential file
 - TLS/encryption (traffic is plain HTTP on localhost)
-- User accounts or role-based access — there is one token for everything
-- Automatic token rotation (use `mcp-broker token rotate` to rotate manually)
+- Per-agent identities, user accounts, or automatic rotation
 
 **Sandboxed agents** reach the broker via Lima's user-mode networking, which forwards guest connections to `host.lima.internal:8200` to the host's loopback. Set `MCP_BROKER_URL=http://host.lima.internal:8200/mcp` inside the sandbox.
 
@@ -54,8 +56,9 @@ make build
 # Run (creates default config on first run)
 ./mcp-broker serve
 
-# Dashboard URL (with auth token) is printed to stderr on startup
-# MCP endpoint at http://localhost:8200/mcp (requires Bearer token)
+# An interactive terminal prints and may open an admin-token dashboard URL.
+# Non-interactive startup never prints or opens a token-bearing URL.
+# MCP endpoint at http://localhost:8200/mcp (requires the agent Bearer token)
 # Liveness endpoint at http://localhost:8200/healthz returns "ok" without auth
 ```
 
@@ -159,9 +162,9 @@ Config lives at `~/.config/mcp-broker/config.json` (or `$XDG_CONFIG_HOME/mcp-bro
 | `grants.path`              | SQLite grants DB path. Defaults to `$XDG_DATA_HOME/mcp-broker/grants.db`.                |
 | `grants.max_ttl_seconds`   | Maximum mintable grant TTL. Defaults to 604800 seconds (7 days); must be positive.       |
 
-### Reloading rules
+### Reloading rules and role credentials
 
-Policy rules can be reloaded without restarting the broker or reconnecting backend MCP servers. After editing `~/.config/mcp-broker/rules.json`, send `SIGHUP` to the running process:
+Policy rules plus `agent-token` and `admin-token` can be reloaded without restarting the listener or reconnecting backend MCP servers. After editing a reloadable file, send `SIGHUP` to the running process:
 
 ```bash
 kill -HUP $(pgrep -x mcp-broker)
@@ -173,9 +176,9 @@ For the launchd setup, use:
 launchctl kill HUP gui/$UID/dev.agent-tools.mcp-broker
 ```
 
-Only the effective rules file is reloaded. If the reload cannot read `rules.json`, parse JSON, parse the top-level `rules` array, or compile rule argument paths/regexes, the broker logs `rules reload failed` and keeps the previously active rules. New tool calls use successfully reloaded rules; calls that already reached a policy decision, including pending approval requests, keep that decision.
+Rules and authentication reload independently: a broken rules file or invalid/missing credential cannot block a valid safe change to the other state. An invalid, equality-causing, or prior-opposite-role candidate retains that role's previous in-memory value; the pair is published atomically. New requests use successful changes, while decisions already made keep their rules snapshot.
 
-Restart mcp-broker for changes to `servers`, `tool_patches`, `hooks`, `host`, `port`, `rules.path`, `audit.path`, `grants.path`, `grants.max_ttl_seconds`, auth token, Telegram approver settings, approval timeout, log level, `open_browser`, or `max_request_body_bytes`, and after fixing a backend that exhausted startup retries. Minted and revoked grant records take effect on the next MCP request without restart because the broker checks the grants DB per request.
+Restart mcp-broker for changes to `servers`, `tool_patches`, `hooks`, `host`, `port`, `rules.path`, `audit.path`, `grants.path`, `grants.max_ttl_seconds`, Telegram approver settings, approval timeout, log level, `open_browser`, or `max_request_body_bytes`, and after fixing a backend that exhausted startup retries. Minted and revoked grant records take effect on the next MCP request without restart because the broker checks the grants DB per request.
 
 ### Servers
 
@@ -474,58 +477,43 @@ Tool patches are optional load-time transforms for discovered tools. They match 
 
 ## Authentication
 
-On first run, mcp-broker generates a random auth token and saves it to `~/.config/mcp-broker/auth-token`. All endpoints require this token.
+First initialization creates distinct 64-character credentials at `~/.config/mcp-broker/agent-token` and `~/.config/mcp-broker/admin-token` (mode `0600`). If only a valid legacy `auth-token` exists, its normalized value becomes `agent-token`, a fresh distinct admin value is created, and the legacy path is retired after both canonical files are durable. The legacy path is migration input only, never a runtime fallback.
 
-**MCP clients** pass the token as an HTTP header:
+**MCP clients** send `Authorization: Bearer <agent-token>` to exact `/mcp`. **Dashboard clients** use only `admin-token`: an interactive startup may print/open `http://localhost:8200/dashboard/?token=<admin-token>`, which exchanges the query value for the dashboard-scoped cookie and redirects to a clean current URL. Non-interactive startup never prints, logs, or opens that URL. The redirect removes the query from the current URL; it does not promise removal from browser history.
 
-```json
-{
-  "mcpServers": {
-    "broker": {
-      "type": "streamableHttp",
-      "url": "http://localhost:8200/mcp",
-      "headers": {
-        "Authorization": "Bearer <token>"
-      }
-    }
-  }
-}
+```bash
+mcp-broker token show agent   # Print only the selected raw credential
+mcp-broker token show admin
+mcp-broker token rotate agent # Rotate only agent-token; raw value is not printed
+mcp-broker token rotate admin # Rotate only admin-token; raw value is not printed
 ```
+
+Agent rotation is a coordinated cutover, not zero-downtime revocation: rotate the host file, refresh `copy_paths`/re-provision while avoiding new agent starts, send `SIGHUP` promptly, then reconnect clients holding the old value. After activation, old agent credentials fail on new MCP HTTP requests; existing MCP streaming responses may drain. For admin rotation, rotate, send `SIGHUP`, then reopen the dashboard; old credentials and cookies fail on new dashboard requests, while an already-open SSE stream may continue. The untouched role remains valid.
+
+Downgrading to a one-token binary re-merges agent and dashboard authority. A deliberate rollback requires stopping or isolating the broker, reconstructing legacy shared-token state, and treating every sandbox holder as dashboard-authorized until re-upgrade and rotation.
 
 Background clients that must not wait for human approval can add `Mcp-Broker-Approval-Mode: reject` to individual tool calls, or set it as a default HTTP header for that client.
 
-**Dashboard** opens automatically in your browser with the token. On first visit, the broker stores the token in an `HttpOnly`, `SameSite=Strict` cookie, then redirects to the same dashboard URL with the `token` query parameter removed. If you need the URL again, it's printed to stderr every time the broker starts.
-
-**Token rotation:**
-
-```bash
-mcp-broker token rotate    # Generate a new token (invalidates all existing sessions)
-```
-
 ## How the sandbox consumes it
 
-The sandbox needs one file from the host: the auth token (`~/.config/mcp-broker/auth-token`). The sandbox does **not** mount the host's `$HOME` — it must be copied in explicitly.
+The sandbox needs only `~/.config/mcp-broker/agent-token`; never copy, mount, export, or embed `admin-token`. Update existing external `copy_paths` from `auth-token` before the next `sb provision`; already-running guests keep working because migration preserves the old value as the agent credential.
 
 ### With sandbox-manager
 
-Add the token to `copy_paths` and the provisioning script to `scripts` in your `~/.config/sb/config.json`:
-
 ```json
 {
-  "copy_paths": ["~/.config/mcp-broker/auth-token"],
+  "copy_paths": ["~/.config/mcp-broker/agent-token"],
   "scripts": [
     "/path/to/agent-tools/mcp-broker/examples/provision/configure-mcp-broker.sh"
   ]
 }
 ```
 
-The token lands at `~/.config/mcp-broker/auth-token` inside the sandbox. The provisioning script then exports `MCP_BROKER_URL=http://host.lima.internal:8200/mcp` and `MCP_BROKER_TOKEN` (read from the file at shell startup) via a marker-fenced block in `~/.bashrc`. Wire those into your agent's MCP config — for example, `claude mcp add --transport http broker "$MCP_BROKER_URL" --header "Authorization: Bearer $MCP_BROKER_TOKEN"`.
-
-**Token rotation:** re-run `sb provision` after `mcp-broker token rotate` — `copy_paths` re-runs before `scripts`, so the new token flows through transparently. New shells pick up the updated value automatically.
+The provisioning script reads that file at shell startup and exports `MCP_BROKER_URL=http://host.lima.internal:8200/mcp` plus `MCP_BROKER_TOKEN` in a marker-fenced `~/.bashrc` block. Wire those into the agent's MCP config.
 
 ### Without sandbox-manager
 
-Copy the token file into the sandbox via whatever mechanism your setup uses, then run [`examples/provision/configure-mcp-broker.sh`](examples/provision/configure-mcp-broker.sh) — it writes the env-var block to `~/.bashrc`. The script targets bash; adapt the rc-file write for other shells.
+Copy only `agent-token` into the sandbox, then run [`examples/provision/configure-mcp-broker.sh`](examples/provision/configure-mcp-broker.sh). The script targets bash; adapt the rc-file write for other shells.
 
 ## Run as a launchd agent (macOS)
 
@@ -537,7 +525,8 @@ To keep the broker running in the background whenever you're logged in, install 
 mcp-broker serve              # Start the broker
 mcp-broker serve -v           # Enable debug logging
 mcp-broker serve --log-level debug  # Same, with explicit level
-mcp-broker token rotate        # Regenerate auth token
+mcp-broker token show <agent|admin>    # Print only one selected credential
+mcp-broker token rotate <agent|admin>  # Rotate only one role; activate with SIGHUP
 mcp-broker grant mint --name NAME --ttl 1h --rules-file rules.json
 mcp-broker grant list          # List retained active/expired/revoked grants
 mcp-broker grant revoke ID     # Revoke by grant ID or fingerprint

@@ -35,7 +35,7 @@ internal/
   dashboard/            Embedded HTML, SSE updates, implements Approver interface
   telegram/             Telegram Bot API polling approver (opt-in, outbound-only)
   hooks/                Bounded async approval observers and direct command runner
-  auth/                 Bearer token auth: generation, file storage, HTTP middleware
+  auth/                 Role credentials: migration, locking, atomic store, middleware
   broker/               Orchestrator with ServerManager, AuditLogger, Approver, and
                         ApprovalObserver interfaces; MultiApprover fans one broker-owned request
 ```
@@ -69,10 +69,13 @@ The embedded dashboard in `internal/dashboard/index.html` should use the shared 
 - Streamable HTTP session recovery: a terminated or missing MCP session rebuilds and initializes the client, then retries the rejected operation once. `httpBackend` uses an RW mutex plus stale-client identity check so concurrent calls share one reconnect; SSE backends use the same type but have no reconnect function
 - HTTP/SSE backends use plain client first, auto-upgrade to OAuth on 401 — do NOT use `client.NewOAuthStreamableHttpClient` directly as it proactively triggers OAuth flows even on non-OAuth servers
 - OAuth callback port is deterministic per server name (FNV hash → ephemeral port range)
-- Auth token file permissions: `0o600`, parent directories: `0o750`
-- Auth token is 32 random bytes, hex-encoded (64 chars)
-- Token comparison uses `crypto/subtle.ConstantTimeCompare`
-- Dashboard auth uses `mcp-broker-auth` cookie (`HttpOnly`, `SameSite=Strict`)
+- Canonical `agent-token` and `admin-token` files are `0o600` under `0o750` directories; each is 32 random bytes hex-encoded and the pair must remain distinct
+- Legacy `auth-token` is migration-only input that maps to agent; never restore it as request-time or reload fallback
+- `/mcp` accepts agent only; dashboard/root/catch-all accepts admin only; `/healthz` and `/dashboard/unauthorized` are public
+- Role mutations hold the advisory lock and use durable atomic replacement; request paths read one immutable pair and compare in constant time
+- `SIGHUP` reloads rules and role files independently without listener/backend churn; invalid candidates retain only their prior role
+- Dashboard auth uses only admin in the `mcp-broker-auth` cookie (`HttpOnly`, `SameSite=Strict`); printing/opening its tokenized URL requires interactive stdout
+- Provisioning may reference only `agent-token`; `token show` and `token rotate` always require an explicit `agent|admin` argument
 - Telegram approver uses long-polling (`getUpdates?timeout=30`) — no inbound connections needed; correlates responses by Telegram `message_id`
 - `expandEnv` for Telegram token/chat_id is applied at startup in `serve.go` via `os.ExpandEnv`, not in the config package
 - Approval hooks are observers, never approvers: emit only after final `require-approval` passes reject/no-approver gates and immediately before `Approver.Review`; hook status/output must never affect authorization, proxying, or audit

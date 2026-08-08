@@ -18,10 +18,9 @@
     <key>Label</key>
     <string>dev.agent-tools.mcp-broker</string>
 
-    <!-- The no-open flag (third arg below) suppresses the auto-launched
-         dashboard browser tab; under launchd nobody is watching stderr so a
-         popped tab is just noise. The dashboard URL is still printed to
-         .err.log on every start. -->
+    <!-- launchd output is non-interactive, so the broker neither prints nor
+         opens a token-bearing dashboard URL. The no-open flag records that
+         background-service intent explicitly. -->
     <key>ProgramArguments</key>
     <array>
         <string>/Users/USERNAME/go/bin/mcp-broker</string>

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	gomcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/auth"
@@ -153,13 +155,17 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		logger.Warn("legacy config rules ignored because rules file exists", "config_path", cfgPath, "rules_path", rulesResult.Path)
 	}
 
-	// Load or generate auth token.
-	tokenPath := auth.TokenPath()
-	token, err := auth.EnsureToken(tokenPath)
+	// Load or migrate both strictly separated role credentials before binding.
+	tokenPaths := auth.DefaultTokenPaths()
+	tokens, err := auth.EnsureTokenSet(tokenPaths)
 	if err != nil {
-		return fmt.Errorf("loading auth token: %w", err)
+		return fmt.Errorf("loading role credentials: %w", err)
 	}
-	logger.Info("auth token loaded", "path", tokenPath)
+	authStore, err := auth.NewStore(tokens)
+	if err != nil {
+		return fmt.Errorf("creating auth store: %w", err)
+	}
+	logger.Info("role credentials loaded", "agent_path", tokenPaths.Agent, "admin_path", tokenPaths.Admin)
 
 	// Create audit logger
 	auditor, err = audit.NewLogger(cfg.Audit.Path)
@@ -249,7 +255,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           auth.Middleware(token, mux),
+		Handler:           auth.Middleware(authStore, mux),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext: func(net.Listener) context.Context {
 			return lifetimeCtx
@@ -279,22 +285,16 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("listening", "addr", addr)
-		fmt.Fprintf(os.Stderr, "Dashboard: http://localhost:%d/dashboard/?token=%s\n", cfg.Port, token)
 		errCh <- srv.ListenAndServe()
 	}()
 
-	// Open browser if enabled
 	noOpen, _ := cmd.Flags().GetBool("no-open")
-	if cfg.OpenBrowser && !noOpen {
-		dashURL := fmt.Sprintf("http://localhost:%d/dashboard/?token=%s", cfg.Port, token)
-		logger.Debug("opening browser")
-		if err := openBrowser(dashURL); err != nil {
-			logger.Warn("failed to open browser", "error", err)
-		}
-	}
+	announceDashboard(cfg.Port, authStore.Snapshot().Admin, os.Stdout, cfg.OpenBrowser && !noOpen, isInteractiveOutput, openBrowser, logger)
 
 	return serveEventLoop(stop, reload, errCh, logger, func() error {
-		return reloadRulesFromFile(rulesResult.Path, ruleStore, logger)
+		return reloadBrokerState(func() error {
+			return reloadRulesFromFile(rulesResult.Path, ruleStore, logger)
+		}, authStore, tokenPaths, logger)
 	}, shutdown)
 }
 
@@ -324,6 +324,46 @@ func serveEventLoop(stop <-chan os.Signal, reload <-chan os.Signal, errCh <-chan
 			return nil
 		}
 	}
+}
+
+func reloadBrokerState(reloadRules func() error, store *auth.Store, paths auth.TokenPaths, logger *slog.Logger) error {
+	var errs []error
+	if err := reloadRules(); err != nil {
+		errs = append(errs, err)
+	}
+	result := store.Reload(paths)
+	if result.AgentErr != nil {
+		errs = append(errs, fmt.Errorf("reloading agent token: %w", result.AgentErr))
+	}
+	if result.AdminErr != nil {
+		errs = append(errs, fmt.Errorf("reloading admin token: %w", result.AdminErr))
+	}
+	if logger != nil && result.AgentErr == nil && result.AdminErr == nil {
+		logger.Info("role credentials reloaded", "agent_path", paths.Agent, "admin_path", paths.Admin)
+	}
+	return errors.Join(errs...)
+}
+
+func announceDashboard(port int, adminToken string, out io.Writer, open bool, interactive func(io.Writer) bool, opener func(string) error, logger *slog.Logger) {
+	if !interactive(out) {
+		if logger != nil {
+			logger.Debug("not announcing dashboard because output is not interactive", "port", port)
+		}
+		return
+	}
+	dashboardURL := fmt.Sprintf("http://localhost:%d/dashboard/?token=%s", port, adminToken)
+	_, _ = fmt.Fprintf(out, "Dashboard: %s\n", dashboardURL)
+	if !open {
+		return
+	}
+	if err := opener(dashboardURL); err != nil && logger != nil {
+		logger.Warn("opening dashboard in a browser failed", "error", err, "port", port)
+	}
+}
+
+func isInteractiveOutput(out io.Writer) bool {
+	file, ok := out.(*os.File)
+	return ok && term.IsTerminal(int(file.Fd()))
 }
 
 func reloadRulesFromFile(path string, store *rules.Store, logger *slog.Logger) error {

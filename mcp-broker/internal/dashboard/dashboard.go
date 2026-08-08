@@ -435,9 +435,9 @@ h1{color:#c00}code{background:#f4f4f4;padding:2px 6px;border-radius:3px}</style>
 </head><body>
 <h1>Unauthorized</h1>
 <p>You need to authenticate to access the MCP Broker dashboard.</p>
-<p>Open the authenticated URL printed in the broker's startup output:</p>
-<pre>Dashboard: http://localhost:PORT/dashboard/?token=TOKEN</pre>
-<p>This sets a cookie so you won't need to do this again.</p>
+<p>Use the host-only admin credential. Interactive startup announces this URL; for a background service, run <code>mcp-broker token show admin</code> on the host:</p>
+<pre>http://localhost:PORT/dashboard/?token=&lt;admin-token&gt;</pre>
+<p>This sets the dashboard cookie. An agent credential cannot authenticate here.</p>
 </body></html>`)
 }
 

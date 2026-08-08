@@ -22,8 +22,8 @@ upstream rotates its OAuth client registration and tool calls start failing
 with authorization errors. After clearing, restart the broker (or reconnect)
 and the next call to the backend triggers a fresh OAuth flow.
 
-This is distinct from "token rotate", which regenerates the broker's own
-inbound bearer token used by clients and the dashboard.`,
+This is distinct from "token rotate <agent|admin>", which rotates one of the
+broker's strictly separated inbound role credentials.`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		switch len(args) {
 		case 1:

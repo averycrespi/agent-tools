@@ -85,11 +85,11 @@ Each backend server has a name (from config). When tools are discovered, they ar
 
 Primary config lives at `~/.config/mcp-broker/config.json`; base policy rules live in a separate `rules.json` document by default. `config.json` contains backend/server settings and `rules.path`, while `rules.json` contains `{ "rules": [...] }`. On first run, default config and rules files are written. The `Refresh` function loads, overlays defaults for new fields, writes config back, and ensures the companion rules file exists — useful for upgrading config after new features are added.
 
-Most config is loaded once at startup. Policy rule content is the only hot-reloadable configuration: sending `SIGHUP` to the running process reads the effective rules file selected at startup, compiles a complete rules snapshot, and atomically swaps it into the broker and dashboard after validation succeeds. Invalid reloads are non-fatal and leave the previous rules active. Changing `rules.path` itself requires restart.
+Most config is loaded once at startup. Policy rules plus the canonical `agent-token` and `admin-token` files are hot-reloadable with `SIGHUP`. Rules compile into one atomic snapshot. Authentication independently validates both disk candidates against the previous immutable pair, retains any missing/malformed/equality-causing/prior-opposite-role candidate, and atomically publishes one distinct safe pair. A failure in either reload cannot block a valid change in the other. Changing `rules.path` itself requires restart.
 
 The legacy top-level `rules_path` field remains an input-only compatibility alias. `rules.path` takes precedence when both are present, and config refresh serializes only the canonical nested field. Legacy top-level `config.json` rule arrays are migration-only. If legacy embedded rules exist and the effective rules file is missing, they are written to `rules.json`. If both exist, the rules file is authoritative and legacy embedded rules are ignored with a warning.
 
-Backend servers, `tool_patches`, hook definitions/dispatch limits, listener settings, audit path, grants path/max TTL, auth token, Telegram settings, approval timeout, log level, browser opening, and request body limit remain startup-only and require restart. Tool patches are ordered load-time transforms for discovered tools. Tool patch patterns match broker-prefixed tool names with `filepath.Match`; the first matching patch applies. `disabled: true` removes the tool from the broker registry, and `annotations` merges field-by-field into MCP tool annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). `_meta` is passed through unchanged and is not patched.
+Backend servers, `tool_patches`, hook definitions/dispatch limits, listener settings, audit path, grants path/max TTL, Telegram settings, approval timeout, log level, browser opening, and request body limit remain startup-only and require restart. Tool patches are ordered load-time transforms for discovered tools. Tool patch patterns match broker-prefixed tool names with `filepath.Match`; the first matching patch applies. `disabled: true` removes the tool from the broker registry, and `annotations` merges field-by-field into MCP tool annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). `_meta` is passed through unchanged and is not patched.
 
 Defaults:
 
@@ -206,7 +206,9 @@ Environment variables in server config support `$VAR` expansion from the process
 
 ### Auth (`internal/auth`)
 
-Bearer token authentication for the `/mcp` endpoint. Generates a 32-byte random token (hex-encoded, 64 chars) stored with `0600` file permissions (parent directories `0750`). The HTTP middleware validates tokens using `crypto/subtle.ConstantTimeCompare`. Token is generated on first `serve` if it doesn't already exist.
+Auth owns an immutable, atomically published `TokenSet` containing distinct 32-byte hex credentials. Exact `/mcp` compares only `agent-token`; dashboard routes (including assets, APIs, SSE, query-cookie bootstrap, and approval mutation), root, and catch-all redirects compare only `admin-token`. `/healthz` and `/dashboard/unauthorized` are public. Comparisons use `crypto/subtle.ConstantTimeCompare`; canonical files are `0600` under `0750` directories.
+
+Initialization and rotation are serialized by an advisory lock and use durable atomic file replacement. A valid legacy `auth-token` is initialization-only migration input: its normalized value establishes `agent-token`, a fresh admin value is generated, and the legacy path is retired only after both canonical files are durable. It is never consulted by request authentication or normal reload. Interactive output may announce/open an admin-token URL; non-interactive output never receives one.
 
 ### Hooks (`internal/hooks`)
 
@@ -232,7 +234,7 @@ Embedded single-page web application serving:
 - **Grants tab** — read-only active/expired/revoked grant metadata, timestamps, display fingerprint, and compact rules summary. It intentionally has no creation, editing, or revocation controls in v1.
 - **Audit tab** — paginated audit log with compact filters for tool substring, source (`base`, `grant`, `fall-through`, `grant-error`), status, and verdict. The table shows compact source labels while expanded rows show full grant/rule-source attribution. New matching records are prepended in real time when the view is on page 1 and not paused; otherwise an "N new" counter appears with a "return to live view" banner. A pause toggle freezes the live feed without affecting filter or pagination state.
 
-Real-time updates via Server-Sent Events (SSE) on a single `/events` channel. Event types are `new` (pending approval request), `removed` (request resolved), `decided` (decision applied), and `audit` (audit record written). The dashboard also implements the `Approver` interface — the `Review` method blocks until a human makes a decision via the `/api/decide` endpoint. `/api/decide` accepts an optional `reason` for denies; whitespace-only reasons are treated as no explicit reason.
+All dashboard routes are admin-only. Real-time updates via Server-Sent Events (SSE) on a single `/events` channel. Event types are `new` (pending approval request), `removed` (request resolved), `decided` (decision applied), and `audit` (audit record written). The dashboard also implements the `Approver` interface — the `Review` method blocks until a human makes a decision via the `/api/decide` endpoint. `/api/decide` accepts an optional `reason` for denies; whitespace-only reasons are treated as no explicit reason.
 
 ### Broker (`internal/broker`)
 
@@ -250,14 +252,15 @@ The orchestrator. Wires together rules, approval, proxy, and audit. The `Handle`
 
 Cobra-based CLI with commands:
 
-- `serve` — starts the broker (loads config, connects backends, serves HTTP; handles `SIGHUP` for rules-only reload)
+- `serve` — starts the broker and independently reloads rules plus both role credentials on `SIGHUP`
 - `config path` — prints config file location
 - `config refresh` — backfills new defaults and ensures the rules file exists
 - `config edit` — opens config in `$EDITOR`
 - `rules path` — prints the effective base rules file location
 - `rules refresh` — writes the base rules file in canonical form
 - `rules edit` — opens the base rules file in `$EDITOR`
-- `token rotate` — rotates the broker bearer token
+- `token show <agent|admin>` — initializes/migrates credentials and prints only the selected raw value
+- `token rotate <agent|admin>` — atomically rotates only the selected role without printing it; output gives role-specific `SIGHUP` activation guidance
 - `grant mint --name <name> --ttl <duration> --rules-file <path-or-> [--description <text>]` — creates a mandatory-TTL grant and prints the raw token once
 - `grant list` — lists retained grant metadata without tokens or hashes
 - `grant revoke <grant-id-or-fingerprint>` — durably revokes a grant by stable ID or unambiguous fingerprint
@@ -281,11 +284,11 @@ Cobra-based CLI with commands:
 
 **SQLite for audit, not a log file.** Enables querying, pagination, and filtering in the dashboard without external tools. WAL mode handles concurrent reads from the dashboard while the broker writes.
 
-**Bearer token auth for agents, cookie auth for dashboard.** The `/mcp` endpoint requires a bearer token (32 random bytes, hex-encoded, stored with `0600` permissions). The dashboard accepts the token in the startup URL once, persists it to a session cookie (`mcp-broker-auth`, `HttpOnly`, `SameSite=Strict`), then redirects to the same dashboard path without the `token` query parameter so browsers don't keep showing the raw token.
+**Strict role credentials, not a hierarchy.** `/mcp` accepts only the shared agent credential; dashboard/root/catch-all routes accept only the shared admin credential. The dashboard exchanges an interactive admin-token URL for an `mcp-broker-auth` cookie (`HttpOnly`, `SameSite=Strict`) and redirects to a clean current URL. Neither role can cross the boundary, and admin credentials never enter sandboxes or daemon logs.
 
 **Failed backends don't block startup.** If one of several backend servers is unavailable, the broker retries startup connect/discovery with bounded per-backend settings, then starts with the remaining servers rather than failing entirely. Exhausted failures are logged and shown in the dashboard Tools tab. Recovery after exhaustion requires restarting the broker because runtime rediscovery and dynamic MCP tool registration are out of scope.
 
-**Rules reload without backend churn.** Rules are frequent operational edits, so `SIGHUP` reloads only the selected `rules.json` policy document and keeps the HTTP server, backend connections, discovered tools, and listener address unchanged. Reload compiles before swapping and keeps the old snapshot on any error. The `rules.path` setting itself is startup-only and requires restart.
+**Rules and role credentials reload without backend churn.** `SIGHUP` independently reloads rules and both canonical role files while keeping listeners, backends, and long-lived channels. New MCP/dashboard HTTP requests use the new credential; old values are rejected. Existing MCP streaming responses and dashboard SSE may drain. Agent rotation is a coordinated cutover, not zero-downtime revocation. A one-token downgrade explicitly re-merges sandbox and dashboard authority and is not a secure rollback.
 
 **Default verdict is require-approval.** Fail-closed by default — any tool not explicitly allowed requires human approval.
 

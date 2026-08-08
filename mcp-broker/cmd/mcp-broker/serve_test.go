@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,9 +15,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/stretchr/testify/require"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-broker/internal/auth"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/broker"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/config"
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/dashboard"
@@ -286,6 +289,64 @@ func TestReloadRulesFromFileLoadsDefaultRulesDocument(t *testing.T) {
 	result := store.EvaluateWithMetadata("anything", nil)
 	require.Equal(t, rules.RequireApproval, result.Verdict)
 	require.Equal(t, config.DefaultRules(), store.Rules())
+}
+
+func TestReloadBrokerStateAttemptsAuthWhenRulesReloadFails(t *testing.T) {
+	paths := auth.TokenPaths{
+		Agent:  filepath.Join(t.TempDir(), "agent-token"),
+		Admin:  filepath.Join(t.TempDir(), "admin-token"),
+		Legacy: filepath.Join(t.TempDir(), "auth-token"),
+		Lock:   filepath.Join(t.TempDir(), ".token.lock"),
+	}
+	old := auth.TokenSet{Agent: strings.Repeat("a", 64), Admin: strings.Repeat("b", 64)}
+	store, err := auth.NewStore(old)
+	require.NoError(t, err)
+	newAgent := strings.Repeat("c", 64)
+	require.NoError(t, os.WriteFile(paths.Agent, []byte(newAgent), 0o600))
+	require.NoError(t, os.WriteFile(paths.Admin, []byte(old.Admin), 0o600))
+
+	err = reloadBrokerState(func() error { return errors.New("broken rules") }, store, paths, nil)
+
+	require.ErrorContains(t, err, "broken rules")
+	require.Equal(t, auth.TokenSet{Agent: newAgent, Admin: old.Admin}, store.Snapshot())
+}
+
+func TestAnnounceDashboardUsesAdminTokenOnlyForInteractivePTYAndOpening(t *testing.T) {
+	admin := strings.Repeat("b", 64)
+	master, terminal, err := pty.Open()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = master.Close()
+		_ = terminal.Close()
+	})
+	require.True(t, isInteractiveOutput(terminal))
+	var opened string
+
+	announceDashboard(8080, admin, terminal, true, isInteractiveOutput, func(target string) error {
+		opened = target
+		return nil
+	}, nil)
+
+	buffer := make([]byte, 512)
+	count, err := master.Read(buffer)
+	require.NoError(t, err)
+	output := string(buffer[:count])
+	require.Contains(t, output, admin)
+	require.Equal(t, strings.TrimPrefix(strings.TrimSpace(output), "Dashboard: "), opened)
+}
+
+func TestAnnounceDashboardIsSilentAndDoesNotOpenForNonInteractiveOutput(t *testing.T) {
+	admin := strings.Repeat("b", 64)
+	var output bytes.Buffer
+	opened := false
+
+	announceDashboard(8080, admin, &output, true, func(io.Writer) bool { return false }, func(string) error {
+		opened = true
+		return nil
+	}, nil)
+
+	require.Empty(t, output.String())
+	require.False(t, opened)
 }
 
 func TestServeEventLoopReloadSignalDoesNotShutdown(t *testing.T) {

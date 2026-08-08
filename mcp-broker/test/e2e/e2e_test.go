@@ -27,7 +27,7 @@ func TestE2E_SIGTERMClosesDashboardSSEPromptly(t *testing.T) {
 
 	req, err := http.NewRequest(http.MethodGet, s.BrokerURL+"/dashboard/events", nil)
 	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	req.Header.Set("Authorization", "Bearer "+s.AdminToken)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()

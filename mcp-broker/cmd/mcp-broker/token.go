@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -11,33 +10,70 @@ import (
 
 var tokenCmd = &cobra.Command{
 	Use:   "token",
-	Short: "Manage auth token",
+	Short: "Manage role credentials",
+}
+
+var tokenShowCmd = &cobra.Command{
+	Use:   "show <agent|admin>",
+	Short: "Print one role credential",
+	Args:  tokenRoleArgs("show"),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		role, _ := parseTokenRole(args[0])
+		tokens, err := auth.EnsureTokenSet(auth.DefaultTokenPaths())
+		if err != nil {
+			return fmt.Errorf("loading role credentials: %w", err)
+		}
+		selected := tokens.Agent
+		if role == auth.AdminRole {
+			selected = tokens.Admin
+		}
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), selected)
+		return err
+	},
 }
 
 var tokenRotateCmd = &cobra.Command{
-	Use:   "rotate",
-	Short: "Generate a new auth token (invalidates existing clients and dashboard sessions)",
-	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		path := auth.TokenPath()
-
-		// Delete existing token file so EnsureToken generates a new one.
-		// Ignore error if file doesn't exist.
-		_ = os.Remove(path)
-
-		token, err := auth.EnsureToken(path)
-		if err != nil {
-			return fmt.Errorf("generating token: %w", err)
+	Use:   "rotate <agent|admin>",
+	Short: "Rotate one role credential",
+	Args:  tokenRoleArgs("rotate"),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		role, _ := parseTokenRole(args[0])
+		if _, err := auth.RotateToken(auth.DefaultTokenPaths(), role); err != nil {
+			return fmt.Errorf("rotating %s token: %w", role, err)
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "New token written to %s\n", path)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Restart the broker to apply. Update client configs with the new token.\n")
-		// Don't print the token itself — user can cat the file.
-		_ = token
+		paths := auth.DefaultTokenPaths()
+		switch role {
+		case auth.AgentRole:
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Rotated agent token in %s; re-provision agent-token, send SIGHUP promptly, then reconnect old-token clients.\n", paths.Agent)
+		case auth.AdminRole:
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Rotated admin token in %s. Send SIGHUP, then reopen the dashboard to authenticate again.\n", paths.Admin)
+		}
 		return nil
 	},
 }
 
+func tokenRoleArgs(command string) cobra.PositionalArgs {
+	return func(_ *cobra.Command, args []string) error {
+		if len(args) != 1 {
+			return fmt.Errorf("token %s requires exactly one role; usage: mcp-broker token %s <agent|admin>", command, command)
+		}
+		_, err := parseTokenRole(args[0])
+		return err
+	}
+}
+
+func parseTokenRole(value string) (auth.Role, error) {
+	switch auth.Role(value) {
+	case auth.AgentRole:
+		return auth.AgentRole, nil
+	case auth.AdminRole:
+		return auth.AdminRole, nil
+	default:
+		return "", fmt.Errorf("invalid token role %q: expected agent or admin", value)
+	}
+}
+
 func init() {
-	tokenCmd.AddCommand(tokenRotateCmd)
+	tokenCmd.AddCommand(tokenShowCmd, tokenRotateCmd)
 	rootCmd.AddCommand(tokenCmd)
 }

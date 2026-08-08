@@ -3,221 +3,143 @@ package auth
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestEnsureToken_CreatesFileIfMissing(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "auth-token")
-
-	token, err := EnsureToken(path)
-	require.NoError(t, err)
-	require.Len(t, token, 64) // 32 bytes hex-encoded
-
-	// File should exist with 0600 permissions.
-	info, err := os.Stat(path)
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
-
-	// File contents should match returned token.
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	require.Equal(t, token, string(data))
-}
-
-func TestEnsureToken_ReusesExistingFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "auth-token")
-
-	token1, err := EnsureToken(path)
-	require.NoError(t, err)
-
-	token2, err := EnsureToken(path)
-	require.NoError(t, err)
-	require.Equal(t, token1, token2)
-}
-
-func TestEnsureToken_CreatesParentDirs(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "nested", "deep", "auth-token")
-
-	token, err := EnsureToken(path)
-	require.NoError(t, err)
-	require.Len(t, token, 64)
-}
-
-func TestLoadToken_FailsIfFileMissing(t *testing.T) {
-	_, err := LoadToken(filepath.Join(t.TempDir(), "nonexistent"))
-	require.Error(t, err)
-}
-
-func TestMiddleware_AllowsHealthzWithoutAuth(t *testing.T) {
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/healthz", r.URL.Path)
+func TestMiddlewareAllowsPublicEndpointsWithoutAuth(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := Middleware("secret", inner)
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
+	handler := Middleware(testAuthStore(t), inner)
 
-	resp, err := http.Get(srv.URL + "/healthz")
-	require.NoError(t, err)
-	defer resp.Body.Close() //nolint:errcheck // test cleanup
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	for _, path := range []string{"/healthz", "/dashboard/unauthorized"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		require.Equal(t, http.StatusOK, response.Code, path)
+	}
 }
 
-func TestMiddleware_AllowsValidBearerHeader(t *testing.T) {
-	token := "abc123"
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestMiddlewareEnforcesStrictRouteRoles(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := Middleware(token, inner)
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
+	handler := Middleware(testAuthStore(t), inner)
 
-	req, _ := http.NewRequest("GET", srv.URL+"/mcp", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close() //nolint:errcheck // test cleanup
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	tests := []struct {
+		name       string
+		path       string
+		token      string
+		wantStatus int
+	}{
+		{name: "agent on MCP", path: "/mcp", token: testAgent, wantStatus: http.StatusOK},
+		{name: "admin on MCP", path: "/mcp", token: testAdmin, wantStatus: http.StatusUnauthorized},
+		{name: "admin on dashboard", path: "/dashboard/", token: testAdmin, wantStatus: http.StatusOK},
+		{name: "agent on dashboard", path: "/dashboard/", token: testAgent, wantStatus: http.StatusFound},
+		{name: "admin on root catch all", path: "/", token: testAdmin, wantStatus: http.StatusOK},
+		{name: "agent on root catch all", path: "/", token: testAgent, wantStatus: http.StatusUnauthorized},
+		{name: "admin on unknown catch all", path: "/unknown", token: testAdmin, wantStatus: http.StatusOK},
+		{name: "agent on unknown catch all", path: "/unknown", token: testAgent, wantStatus: http.StatusUnauthorized},
+		{name: "missing token on MCP", path: "/mcp", wantStatus: http.StatusUnauthorized},
+		{name: "missing token on dashboard", path: "/dashboard/", wantStatus: http.StatusFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.token != "" {
+				req.Header.Set("Authorization", "Bearer "+tt.token)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, req)
+			require.Equal(t, tt.wantStatus, response.Code)
+			if tt.wantStatus == http.StatusFound && tt.path == "/dashboard/" {
+				require.Equal(t, "/dashboard/unauthorized", response.Header().Get("Location"))
+			}
+		})
+	}
 }
 
-func TestMiddleware_RejectsMissingAuth_MCP(t *testing.T) {
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestMiddlewareRejectsAdminCookieOnMCP(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := Middleware("secret", inner)
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
+	handler := Middleware(testAuthStore(t), inner)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: testAdmin})
+	response := httptest.NewRecorder()
 
-	resp, err := http.Get(srv.URL + "/mcp")
-	require.NoError(t, err)
-	defer resp.Body.Close() //nolint:errcheck // test cleanup
-	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	handler.ServeHTTP(response, req)
+
+	require.Equal(t, http.StatusUnauthorized, response.Code)
 }
 
-func TestMiddleware_RejectsInvalidToken(t *testing.T) {
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestMiddlewareSetsAdminCookieAndRedirectsWithoutQueryToken(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := Middleware("secret", inner)
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
+	handler := Middleware(testAuthStore(t), inner)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/?token="+testAdmin+"&foo=bar", nil)
+	response := httptest.NewRecorder()
 
-	req, _ := http.NewRequest("GET", srv.URL+"/mcp", nil)
-	req.Header.Set("Authorization", "Bearer wrong")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close() //nolint:errcheck // test cleanup
-	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
-}
+	handler.ServeHTTP(response, req)
 
-func TestMiddleware_AllowsValidCookie_Dashboard(t *testing.T) {
-	token := "abc123"
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	handler := Middleware(token, inner)
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
-
-	req, _ := http.NewRequest("GET", srv.URL+"/dashboard/", nil)
-	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close() //nolint:errcheck // test cleanup
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-}
-
-func TestMiddleware_SetsTokenCookieAndRedirects(t *testing.T) {
-	token := "abc123"
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	handler := Middleware(token, inner)
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
-
-	// Don't follow redirects.
-	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
-
-	resp, err := client.Get(srv.URL + "/dashboard/?token=" + token + "&foo=bar")
-	require.NoError(t, err)
-	defer resp.Body.Close() //nolint:errcheck // test cleanup
-	require.Equal(t, http.StatusFound, resp.StatusCode)
-	require.Equal(t, "/dashboard/?foo=bar", resp.Header.Get("Location"))
-
-	// Should have set the cookie.
-	cookies := resp.Cookies()
+	require.Equal(t, http.StatusFound, response.Code)
+	require.Equal(t, "/dashboard/?foo=bar", response.Header().Get("Location"))
+	cookies := response.Result().Cookies()
 	require.Len(t, cookies, 1)
 	require.Equal(t, cookieName, cookies[0].Name)
-	require.Equal(t, token, cookies[0].Value)
+	require.Equal(t, testAdmin, cookies[0].Value)
+	require.Equal(t, "/dashboard/", cookies[0].Path)
 	require.True(t, cookies[0].HttpOnly)
+	require.Equal(t, http.SameSiteStrictMode, cookies[0].SameSite)
 }
 
-func TestMiddleware_TokenQueryRedirectTakesPrecedenceOverCookie(t *testing.T) {
-	token := "abc123"
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestMiddlewareRejectsAgentQueryTokenForDashboard(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := Middleware(token, inner)
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
+	handler := Middleware(testAuthStore(t), inner)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/?token="+testAgent, nil)
+	response := httptest.NewRecorder()
 
-	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
+	handler.ServeHTTP(response, req)
 
-	req, _ := http.NewRequest("GET", srv.URL+"/dashboard/?token="+token+"&foo=bar", nil)
-	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
-	resp, err := client.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close() //nolint:errcheck // test cleanup
-	require.Equal(t, http.StatusFound, resp.StatusCode)
-	require.Equal(t, "/dashboard/?foo=bar", resp.Header.Get("Location"))
-
-	cookies := resp.Cookies()
-	require.Len(t, cookies, 1)
-	require.Equal(t, cookieName, cookies[0].Name)
-	require.Equal(t, token, cookies[0].Value)
+	require.Equal(t, http.StatusFound, response.Code)
+	require.Equal(t, "/dashboard/unauthorized", response.Header().Get("Location"))
+	require.Empty(t, response.Result().Cookies())
 }
 
-func TestMiddleware_RedirectsUnauthDashboard(t *testing.T) {
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestMiddlewareReadsLiveStoreOnEveryRequest(t *testing.T) {
+	store := testAuthStore(t)
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := Middleware("secret", inner)
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
+	handler := Middleware(store, inner)
+	paths := testTokenPaths(t)
+	writeTestToken(t, paths.Agent, testThird)
+	writeTestToken(t, paths.Admin, testAdmin)
 
-	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
+	result := store.Reload(paths)
+	require.NoError(t, result.AgentErr)
 
-	resp, err := client.Get(srv.URL + "/dashboard/")
-	require.NoError(t, err)
-	defer resp.Body.Close() //nolint:errcheck // test cleanup
-	require.Equal(t, http.StatusFound, resp.StatusCode)
-	require.Equal(t, "/dashboard/unauthorized", resp.Header.Get("Location"))
+	oldRequest := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	oldRequest.Header.Set("Authorization", "Bearer "+testAgent)
+	oldResponse := httptest.NewRecorder()
+	handler.ServeHTTP(oldResponse, oldRequest)
+	require.Equal(t, http.StatusUnauthorized, oldResponse.Code)
+
+	newRequest := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	newRequest.Header.Set("Authorization", "Bearer "+testThird)
+	newResponse := httptest.NewRecorder()
+	handler.ServeHTTP(newResponse, newRequest)
+	require.Equal(t, http.StatusOK, newResponse.Code)
 }
 
-func TestMiddleware_AllowsUnauthorizedPage(t *testing.T) {
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	handler := Middleware("secret", inner)
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
-
-	resp, err := http.Get(srv.URL + "/dashboard/unauthorized")
+func testAuthStore(t *testing.T) *Store {
+	t.Helper()
+	store, err := NewStore(TokenSet{Agent: testAgent, Admin: testAdmin})
 	require.NoError(t, err)
-	defer resp.Body.Close() //nolint:errcheck // test cleanup
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	return store
 }

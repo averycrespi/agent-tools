@@ -246,7 +246,11 @@ func testHooks(handlers ...testHookHandlerConfig) *testHooksConfig {
 
 type TestStack struct {
 	BrokerURL     string
-	AuthToken     string
+	AgentToken    string
+	AdminToken    string
+	ConfigDir     string
+	RulesPath     string
+	OutputPath    string
 	Client        *client.Client
 	brokerCmd     *exec.Cmd
 	brokerDone    <-chan error
@@ -286,6 +290,7 @@ type stackOpts struct {
 	Rules       []testRuleConfig
 	ToolPatches []testToolPatchConfig
 	Hooks       *testHooksConfig
+	LegacyToken string
 }
 
 func newTestStack(t *testing.T, opts stackOpts) *TestStack {
@@ -334,11 +339,27 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 		t.Fatalf("write rules: %v", err)
 	}
 
+	if opts.LegacyToken != "" {
+		legacyPath := filepath.Join(tmpDir, "mcp-broker", "auth-token")
+		if err := os.MkdirAll(filepath.Dir(legacyPath), 0o750); err != nil {
+			t.Fatalf("create legacy token directory: %v", err)
+		}
+		if err := os.WriteFile(legacyPath, []byte(opts.LegacyToken), 0o600); err != nil {
+			t.Fatalf("write legacy token: %v", err)
+		}
+	}
+
 	// Start broker subprocess.
 	brokerCmd := exec.Command(brokerBinary, "serve", "--config", cfgPath)
-	brokerCmd.Stdout = os.Stdout
-	brokerCmd.Stderr = os.Stderr
-	// Set XDG_CONFIG_HOME so the broker writes the auth token to a known location.
+	outputPath := filepath.Join(tmpDir, "broker-output.log")
+	outputFile, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatalf("open broker output: %v", err)
+	}
+	t.Cleanup(func() { _ = outputFile.Close() })
+	brokerCmd.Stdout = io.MultiWriter(os.Stdout, outputFile)
+	brokerCmd.Stderr = io.MultiWriter(os.Stderr, outputFile)
+	// Set XDG_CONFIG_HOME so the broker writes role credentials to a known location.
 	brokerCmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+tmpDir)
 	if err := brokerCmd.Start(); err != nil {
 		t.Fatalf("start broker: %v", err)
@@ -372,16 +393,21 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 		t.Fatal("broker not ready within 10s")
 	}
 
-	// Read the auto-generated auth token.
-	tokenData, err := os.ReadFile(filepath.Join(tmpDir, "mcp-broker", "auth-token"))
+	// Read the auto-generated role credentials.
+	agentData, err := os.ReadFile(filepath.Join(tmpDir, "mcp-broker", "agent-token"))
 	if err != nil {
-		t.Fatalf("read auth token: %v", err)
+		t.Fatalf("read agent token: %v", err)
 	}
-	authToken := string(tokenData)
+	adminData, err := os.ReadFile(filepath.Join(tmpDir, "mcp-broker", "admin-token"))
+	if err != nil {
+		t.Fatalf("read admin token: %v", err)
+	}
+	agentToken := string(agentData)
+	adminToken := string(adminData)
 
-	// Connect MCP client.
+	// Connect MCP client with the agent credential.
 	mcpClient, err := client.NewStreamableHttpClient(brokerURL+"/mcp", transport.WithHTTPHeaders(map[string]string{
-		"Authorization": "Bearer " + authToken,
+		"Authorization": "Bearer " + agentToken,
 	}))
 	if err != nil {
 		t.Fatalf("create MCP client: %v", err)
@@ -399,7 +425,11 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 	}
 
 	stack.BrokerURL = brokerURL
-	stack.AuthToken = authToken
+	stack.AgentToken = agentToken
+	stack.AdminToken = adminToken
+	stack.ConfigDir = filepath.Join(tmpDir, "mcp-broker")
+	stack.RulesPath = rulesPath
+	stack.OutputPath = outputPath
 	stack.Client = mcpClient
 	return stack
 }
@@ -416,7 +446,7 @@ type pendingResponse []struct {
 func (s *TestStack) getPending() pendingResponse {
 	s.t.Helper()
 	req, _ := http.NewRequest("GET", s.BrokerURL+"/dashboard/api/pending", nil)
-	req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	req.Header.Set("Authorization", "Bearer "+s.AdminToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		s.t.Fatalf("get pending: %v", err)
@@ -458,7 +488,7 @@ func (s *TestStack) decideWithReason(id, decision, reason string) {
 	body, _ := json.Marshal(payload)
 	req, _ := http.NewRequest("POST", s.BrokerURL+"/dashboard/api/decide", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	req.Header.Set("Authorization", "Bearer "+s.AdminToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		s.t.Fatalf("decide: %v", err)
@@ -485,7 +515,7 @@ type toolsResponse struct {
 func (s *TestStack) getTools() toolsResponse {
 	s.t.Helper()
 	req, _ := http.NewRequest("GET", s.BrokerURL+"/dashboard/api/tools", nil)
-	req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	req.Header.Set("Authorization", "Bearer "+s.AdminToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		s.t.Fatalf("get tools: %v", err)
@@ -519,7 +549,7 @@ func (s *TestStack) getAudit(tool string, limit, offset int) auditResponse {
 		url += "&tool=" + tool
 	}
 	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	req.Header.Set("Authorization", "Bearer "+s.AdminToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		s.t.Fatalf("get audit: %v", err)
