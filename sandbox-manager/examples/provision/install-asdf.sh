@@ -49,6 +49,11 @@ else
 	echo "Adding asdf config to ~/.bashrc"
 fi
 
+# Keep the managed block separate when an existing file lacks a final newline.
+if [[ -s "$BASHRC" && -n "$(tail -c 1 "$BASHRC")" ]]; then
+	printf '\n' >>"$BASHRC"
+fi
+
 # Quoted heredoc: $HOME and $PATH must reach ~/.bashrc unexpanded so they
 # resolve at shell startup. The markers are literal copies of the two above.
 cat >>"$BASHRC" <<'EOF'

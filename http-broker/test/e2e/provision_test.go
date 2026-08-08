@@ -141,6 +141,28 @@ func TestProvisionScript(t *testing.T) {
 	}
 }
 
+func TestProvisionSeparatesBlockFromUnterminatedBashrc(t *testing.T) {
+	home := seedProvisionHome(t)
+	const existing = "export EXISTING=value"
+	if err := os.WriteFile(filepath.Join(home, ".bashrc"), []byte(existing), 0o644); err != nil {
+		t.Fatalf("seeding .bashrc: %v", err)
+	}
+
+	caDest := filepath.Join(t.TempDir(), "ca-certificates", "http-broker.crt")
+	bundle := seedBundle(t, home)
+	first := runProvision(t, home, caDest, bundle)
+
+	const marker = "# >>> http-broker >>>"
+	if !strings.HasPrefix(first, existing+"\n"+marker) {
+		t.Fatalf("the managed block was not separated from an unterminated existing line:\n%q", first)
+	}
+
+	second := runProvision(t, home, caDest, bundle)
+	if first != second {
+		t.Error("a second run changed the safely separated .bashrc")
+	}
+}
+
 // TestProvisionTrustsTheSystemBundle pins where each CA variable points.
 //
 // The variables that runtimes treat as a replacement for their whole trust set

@@ -94,6 +94,11 @@ else
 	echo "Configuring local-gomod-proxy in ~/.bashrc"
 fi
 
+# Keep the managed block separate when an existing file lacks a final newline.
+if [[ -s "$BASHRC" && -n "$(tail -c 1 "$BASHRC")" ]]; then
+	printf '\n' >>"$BASHRC"
+fi
+
 cat >>"$BASHRC" <<EOF
 $MARKER_START
 # Route Go module resolution through the host's local-gomod-proxy over HTTPS.

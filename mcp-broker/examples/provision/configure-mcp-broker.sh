@@ -61,6 +61,11 @@ else
 	echo "Adding mcp-broker config to ~/.bashrc"
 fi
 
+# Keep the managed block separate when an existing file lacks a final newline.
+if [[ -s "$BASHRC" && -n "$(tail -c 1 "$BASHRC")" ]]; then
+	printf '\n' >>"$BASHRC"
+fi
+
 cat >>"$BASHRC" <<EOF
 $MARKER_START
 # Point agent MCP clients at the host's mcp-broker. Lima's default

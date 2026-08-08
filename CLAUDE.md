@@ -52,6 +52,9 @@ touch "$BASHRC"
 if grep -qF "$MARKER_START" "$BASHRC"; then
 	sed -i "/^${MARKER_START}$/,/^${MARKER_END}$/d" "$BASHRC"
 fi
+if [[ -s "$BASHRC" && -n "$(tail -c 1 "$BASHRC")" ]]; then
+	printf '\n' >>"$BASHRC"
+fi
 cat >>"$BASHRC" <<EOF
 $MARKER_START
 ...
@@ -59,7 +62,7 @@ $MARKER_END
 EOF
 ```
 
-Do not guard the write with `if ! grep -qF "$MARKER_START"`, which makes the block write-once. The contents change between versions — hostnames, ports, added exports — and a write-once block leaves an already-provisioned sandbox on the old ones forever, with no error to reveal it. `configure-http-broker.sh` is the reference implementation.
+The conditional `printf` keeps the marker on its own line when an existing file lacks a final newline without adding blank lines on repeated runs. Do not guard the write with `if ! grep -qF "$MARKER_START"`, which makes the block write-once. The contents change between versions — hostnames, ports, added exports — and a write-once block leaves an already-provisioned sandbox on the old ones forever, with no error to reveal it. `configure-http-broker.sh` is the reference implementation.
 
 Two things follow from this shape:
 

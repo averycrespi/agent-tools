@@ -121,6 +121,11 @@ else
 	echo "Adding the http-broker block to $BASHRC"
 fi
 
+# Keep the managed block separate when an existing file lacks a final newline.
+if [[ -s "$BASHRC" && -n "$(tail -c 1 "$BASHRC")" ]]; then
+	printf '\n' >>"$BASHRC"
+fi
+
 cat >>"$BASHRC" <<EOF
 $MARKER_START
 # Managed by configure-http-broker.sh. Edits are lost on re-provision.
