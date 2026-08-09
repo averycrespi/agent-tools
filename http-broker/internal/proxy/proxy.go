@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/averycrespi/agent-tools/http-broker/internal/auth"
@@ -97,7 +96,7 @@ type Options struct {
 	Resolver      *credentials.Resolver
 	Dialer        *netguard.Dialer
 	Audit         AuditSink
-	Token         string
+	Auth          *auth.Store
 	Logger        *slog.Logger
 	HeaderTimeout time.Duration
 	TunnelIdle    time.Duration
@@ -114,11 +113,9 @@ type Proxy struct {
 	headerTimeout time.Duration
 	tunnelIdle    time.Duration
 
-	// token is swapped on SIGHUP rather than captured at construction. A
-	// leaked token is answered by `token rotate` plus a reload, and that
-	// procedure is worthless if the running process keeps honouring the old
-	// value until someone restarts it.
-	token atomic.Pointer[string]
+	// auth publishes one immutable pair on SIGHUP; proxy requests select only
+	// the agent credential from that shared snapshot.
+	auth *auth.Store
 
 	// transports holds one upstream transport per TLS floor. See
 	// newUpstreamTransports for why the floor cannot be per-request.
@@ -169,22 +166,18 @@ func New(opts Options) *Proxy {
 		log:           opts.Logger,
 		headerTimeout: opts.HeaderTimeout,
 		tunnelIdle:    opts.TunnelIdle,
+		auth:          opts.Auth,
 	}
-	p.SetToken(opts.Token)
 	p.transports = p.newUpstreamTransports()
 	return p
 }
 
-// SetToken replaces the token the proxy authenticates against. Called on
-// SIGHUP so a rotated token takes effect without a restart.
-func (p *Proxy) SetToken(token string) { p.token.Store(&token) }
-
-// authToken returns the token in force for this request.
+// authToken returns the agent credential in force for this request.
 func (p *Proxy) authToken() string {
-	if t := p.token.Load(); t != nil {
-		return *t
+	if p.auth == nil {
+		return ""
 	}
-	return ""
+	return p.auth.Snapshot().Agent
 }
 
 type discardSink struct{}

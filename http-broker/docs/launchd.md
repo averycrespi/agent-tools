@@ -28,16 +28,15 @@ curl -s http://127.0.0.1:8221/healthz   # => ok
 tail -f ~/Library/Logs/http-broker.err.log
 ```
 
-## Reload rules without restarting
+## Reload runtime state without restarting
 
 ```bash
 launchctl kill HUP "gui/$(id -u)/dev.agent-tools.http-broker"
 ```
 
-`SIGHUP` re-reads `config.json`, `rules.json`, the auth token and the CA. Each
-step keeps its previous state on failure, so a typo leaves the previous ruleset
-serving traffic and logs an error — check the log after every reload. Listener
-addresses are not reloadable; changing one needs a restart.
+`SIGHUP` re-reads `config.json`, `rules.json`, `agent-token`, `admin-token`, and the CA. Authentication is attempted independently even when another step fails. An invalid role candidate retains that role's previous value while a valid safe change to the other role applies. Check the log after every reload. Listener addresses are not reloadable.
+
+For agent rotation, update external `copy_paths` to `agent-token`, rotate, re-provision while avoiding new client starts, send `SIGHUP` promptly, then reconnect old-token clients. Keep `admin-token` on the host. Admin rotation requires `SIGHUP` and reopening the dashboard. launchd output is non-interactive, so startup never prints or opens the admin-token URL; `/healthz` remains public.
 
 **Prefer `SIGHUP` over a restart.** Proxy variables are baked into every
 sandbox's shell, so a restart points them all at a dead socket for its

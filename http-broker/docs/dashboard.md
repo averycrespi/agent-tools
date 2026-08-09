@@ -15,16 +15,15 @@ the proxy allows.
 by hand:
 
 ```bash
-open "http://127.0.0.1:8221/dashboard/?token=$(http-broker token show)"
+open "http://127.0.0.1:8221/dashboard/?token=$(http-broker token show admin)"
 ```
 
-The token is exchanged for an `http-broker-auth` cookie and dropped from the URL,
-so it does not linger in browser history. The cookie is scoped to `/dashboard/`.
+Only `admin-token` works in the query, Bearer header, or `http-broker-auth` cookie; an agent credential receives 401. The bootstrap redirect removes the query from the current URL, without promising removal from browser history. The cookie is scoped to `/dashboard/`, `HttpOnly`, and `SameSite=Strict`. Tokenized URLs are printed/opened only from an interactive terminal.
 
 The listener root redirects to `/dashboard/`, carrying a `?token=` parameter
 over if one was given, so the bare address is not a dead end.
 
-Requests may also authenticate with `Authorization: Bearer <token>`.
+Requests may also authenticate with `Authorization: Bearer <admin-token>`.
 
 Everything the dashboard serves lives under `/dashboard/`, matching
 `mcp-broker`. That tool shares one port between `/mcp` and its dashboard, so the
@@ -41,22 +40,21 @@ asserts that no on-disk state changed. **A route added to the code must be
 added here, or it will never be swept.** A companion test fails if the code
 serves a route this table omits.
 
-| Route                            | Auth  | Returns                                                                                                     |
-| -------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------- |
-| `GET /`                          | none  | 302 to `/dashboard/`, carrying `?token=` over if present. Exposes nothing itself.                           |
-| `GET /healthz`                   | none  | `ok`. The liveness probe an external monitor uses to detect a wedged-but-listening proxy.                   |
-| `GET /ca.pem`                    | none  | The CA certificate. Unauthenticated because provisioning fetches it before any token exists in the sandbox. |
-| `GET /dashboard/`                | token | The dashboard page.                                                                                         |
-| `GET /dashboard/app.js`          | token | Dashboard script.                                                                                           |
-| `GET /dashboard/styles.css`      | token | Dashboard styles.                                                                                           |
-| `GET /dashboard/favicon.svg`     | token | Dashboard icon.                                                                                             |
-| `GET /dashboard/api/audit`       | token | Audit history. Filters: `host`, `outcome`, `source`, `mode`, `rule`, `limit`, `offset`.                     |
-| `GET /dashboard/api/rules`       | token | The active ruleset and fallthrough policy.                                                                  |
-| `GET /dashboard/api/credentials` | token | Credential **names, sources and bound hosts**, plus `referenced` and `index_error`. Never a value.          |
-| `GET /dashboard/api/events`      | token | Server-sent events: one `audit` event per new request.                                                      |
+| Route                            | Auth        | Returns                                                                                                     |
+| -------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
+| `GET /`                          | none        | 302 to `/dashboard/`, carrying `?token=` over if present. Exposes nothing itself.                           |
+| `GET /healthz`                   | none        | `ok`. The liveness probe an external monitor uses to detect a wedged-but-listening proxy.                   |
+| `GET /ca.pem`                    | none        | The CA certificate. Unauthenticated because provisioning fetches it before any token exists in the sandbox. |
+| `GET /dashboard/`                | admin token | The dashboard page.                                                                                         |
+| `GET /dashboard/app.js`          | admin token | Dashboard script.                                                                                           |
+| `GET /dashboard/styles.css`      | admin token | Dashboard styles.                                                                                           |
+| `GET /dashboard/favicon.svg`     | admin token | Dashboard icon.                                                                                             |
+| `GET /dashboard/api/audit`       | admin token | Audit history. Filters: `host`, `outcome`, `source`, `mode`, `rule`, `limit`, `offset`.                     |
+| `GET /dashboard/api/rules`       | admin token | The active ruleset and fallthrough policy.                                                                  |
+| `GET /dashboard/api/credentials` | admin token | Credential **names, sources and bound hosts**, plus `referenced` and `index_error`. Never a value.          |
+| `GET /dashboard/api/events`      | admin token | Server-sent events: one `audit` event per new request.                                                      |
 
-Every route is registered with an explicit `GET` method pattern, so any other
-method returns 405 from the mux rather than relying on a handler to reject it.
+Every route is registered with an explicit `GET` method pattern, so any other method returns 405 from the mux rather than relying on a handler to reject it. After admin rotation and `SIGHUP`, old credentials and cookies fail on new requests, while an already-authenticated SSE feed may remain open.
 
 `host` is a substring match, so `github` finds `api.github.com`. Wildcard
 characters are escaped, so `%` matches a literal percent sign. `outcome`,

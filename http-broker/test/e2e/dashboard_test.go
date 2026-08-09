@@ -67,7 +67,8 @@ func stateSnapshot(t *testing.T, s *stack) string {
 	for _, path := range []string{
 		s.configPath,
 		s.rulesPath,
-		filepath.Join(s.configDir, "auth-token"),
+		filepath.Join(s.configDir, "agent-token"),
+		filepath.Join(s.configDir, "admin-token"),
 		filepath.Join(s.dataDir, "credentials.json"),
 	} {
 		data, err := os.ReadFile(path)
@@ -155,7 +156,7 @@ func TestDashboardReadOnly(t *testing.T) {
 				if err != nil {
 					t.Fatalf("building %s %s: %v", method, route, err)
 				}
-				req.Header.Set("Authorization", "Bearer "+s.token)
+				req.Header.Set("Authorization", "Bearer "+s.adminToken)
 
 				resp, err := client.Do(req)
 				if err != nil {
@@ -258,7 +259,7 @@ func TestDashboardRoutesAreDocumented(t *testing.T) {
 			continue
 		}
 		req, _ := http.NewRequest(http.MethodGet, s.dashURL(route), nil)
-		req.Header.Set("Authorization", "Bearer "+s.token)
+		req.Header.Set("Authorization", "Bearer "+s.adminToken)
 		resp, err := (&http.Client{Timeout: 10e9}).Do(req)
 		if err != nil {
 			t.Fatalf("GET %s: %v", route, err)
@@ -296,7 +297,7 @@ func authedGet(t *testing.T, s *stack, route string) (*http.Response, string) {
 	if err != nil {
 		t.Fatalf("building the request: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+s.token)
+	req.Header.Set("Authorization", "Bearer "+s.adminToken)
 
 	resp, err := (&http.Client{Timeout: 10e9}).Do(req)
 	if err != nil {

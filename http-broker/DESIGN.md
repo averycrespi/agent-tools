@@ -39,10 +39,8 @@ toward `deny` with an explicit allowlist is the intended end state.
 
 One binary, two loopback listeners.
 
-- **`:8220`** accepts HTTP `CONNECT` and absolute-form plain HTTP.
-- **`:8221`** serves the read-only dashboard and its SSE feed under
-  `/dashboard/`, plus the unauthenticated `/ca.pem` and `/healthz` at the root.
-  The root itself redirects to `/dashboard/`.
+- **`:8220`** accepts HTTP `CONNECT` and absolute-form plain HTTP authenticated only by `agent-token` (Basic or Bearer).
+- **`:8221`** serves the read-only dashboard and SSE under `/dashboard/`, authenticated only by `admin-token`. `/`, `/ca.pem`, and `/healthz` remain public.
 
 **Two ports, not one.** `mcp-broker` shares a port because MCP and its
 dashboard are both ordinary HTTP. A forward proxy is not, and sharing would
@@ -66,13 +64,19 @@ internal/
   netguard/            SSRF and cloud-metadata guard for both dial paths
   ca/                  root CA and leaf issuance
   credentials/         resolution and host binding
-  auth/                token storage plus the two auth checks
+  auth/                role lifecycle, migration, atomic store, auth checks
   proxy/               CONNECT handling, tunnel relay, MITM, request pipeline
   audit/               SQLite store
   dashboard/           embedded read-only UI
 ```
 
 ## Key design decisions
+
+### Strict role credentials with deterministic migration
+
+Each installation has exactly one shared agent credential for sandbox proxy access and one separate admin credential for host dashboard access. Neither is a superset. Canonical `agent-token` and `admin-token` files are distinct 64-character lowercase hex values, mode `0600` under a `0750` config directory. A valid legacy `auth-token` is initialization-only input preserved exactly (after whitespace normalization) as agent; a fresh admin value is created and the legacy path is retired only after both canonical files are durable. It is never a runtime fallback.
+
+Initialization and selected-role rotation hold an advisory lock and use crash-safe atomic file replacement. `SIGHUP` independently validates both role candidates against the prior immutable pair and publishes one complete safe snapshot. Invalid/missing/equality-causing/prior-opposite-role values retain only that role's old value. Authentication reload runs even if config, rules, credentials, or CA reload fails.
 
 ### Three modes, one rules list
 
@@ -216,23 +220,17 @@ later cannot raise the floor back and break a host that needs 1.2.
 
 ### The dashboard opens itself, but only from a terminal
 
-`serve` prints the dashboard URL with a `?token=` parameter and opens it in a
-browser, matching `mcp-broker`. The dashboard swaps the token for a cookie and
-redirects to the same path without it, so the token never enters browser
-history.
+Interactive `serve` prints and may open a URL carrying only `admin-token`. The dashboard exchanges it for an `HttpOnly`, `SameSite=Strict` cookie and redirects to a clean current URL; no browser-history guarantee is made.
 
-Both steps are gated on stdout being a terminal, which `mcp-broker` does not do.
-The intended deployment is launchd, where stdout is a log file: printing the URL
-there would persist the token in a world-readable log, and opening a browser at
-every login is the wrong behaviour for a supervised daemon. `--no-open` remains
-the explicit control for interactive runs, and the shipped plist passes it.
+Both printing and opening use the same terminal predicate. Under launchd stdout is a log file, so neither occurs and no role credential enters daemon output. `--no-open` remains the explicit interactive control.
 
 ### Recovery is a rules edit, not a process kill
 
 Proxy variables are baked into every sandbox's shell, so killing `serve` points
 them all at a dead socket and causes total network loss — worse than the
-misbehaviour prompting the kill. The kill switch is an all-tunnel `rules.json`
-plus `SIGHUP`.
+misbehaviour prompting the kill. The kill switch is an all-tunnel `rules.json` plus `SIGHUP`.
+
+Rotation affects newly authenticated boundaries only. After agent activation, new CONNECT and absolute-form requests reject the old value, while traffic inside established tunnel or MITM CONNECT connections continues. After admin activation, new dashboard requests reject old Bearer values/cookies, while existing SSE may continue. A one-token downgrade necessarily re-merges sandbox and dashboard authority and is not a secure rollback.
 
 ## Prior art
 

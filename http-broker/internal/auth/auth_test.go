@@ -3,76 +3,11 @@ package auth_test
 import (
 	"encoding/base64"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/http-broker/internal/auth"
 )
-
-func TestEnsureTokenGeneratesOnce(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "auth-token")
-
-	first, err := auth.EnsureToken(path)
-	if err != nil {
-		t.Fatalf("EnsureToken: %v", err)
-	}
-	if len(first) != 64 {
-		t.Errorf("token length = %d, want 64 hex characters", len(first))
-	}
-
-	second, err := auth.EnsureToken(path)
-	if err != nil {
-		t.Fatalf("second EnsureToken: %v", err)
-	}
-	if second != first {
-		t.Error("EnsureToken should return the existing token, not generate a new one")
-	}
-}
-
-func TestTokenFileMode(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "auth-token")
-
-	if _, err := auth.EnsureToken(path); err != nil {
-		t.Fatalf("EnsureToken: %v", err)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("token file mode = %v, want 0600", perm)
-	}
-}
-
-func TestEnsureTokenRejectsEmptyFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "auth-token")
-	if err := os.WriteFile(path, []byte("   \n"), 0o600); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	if _, err := auth.EnsureToken(path); err == nil {
-		t.Error("an empty token file should be an error, not an empty token that matches nothing")
-	}
-}
-
-func TestGenerateIsRandom(t *testing.T) {
-	seen := make(map[string]struct{})
-	for range 100 {
-		token, err := auth.Generate()
-		if err != nil {
-			t.Fatalf("Generate: %v", err)
-		}
-		if _, dup := seen[token]; dup {
-			t.Fatal("Generate returned a duplicate token")
-		}
-		seen[token] = struct{}{}
-	}
-}
 
 func TestCheckProxyAuth(t *testing.T) {
 	const token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -103,7 +38,7 @@ func TestCheckProxyAuth(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := auth.CheckProxyAuth(tc.header, token); got != tc.want {
-				t.Errorf("CheckProxyAuth(%q) = %v, want %v", tc.header, got, tc.want)
+				t.Errorf("case %q result = %v, want %v", tc.name, got, tc.want)
 			}
 		})
 	}
@@ -176,7 +111,7 @@ func TestProxyCredentialRoundTrips(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	if string(decoded) != "x:"+token {
-		t.Errorf("decoded credential = %q, want %q", decoded, "x:"+token)
+		t.Error("decoded proxy credential did not contain the expected username and token")
 	}
 	if !auth.CheckProxyAuth(header, token) {
 		t.Error("ProxyCredential output should satisfy CheckProxyAuth")

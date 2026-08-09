@@ -69,20 +69,21 @@ func init() {
 // the listeners keep serving across a reload, so the running proxy and
 // dashboard must see the new values rather than the ones captured at startup.
 type stack struct {
-	log       *slog.Logger
-	rules     *rules.Store
-	authority *ca.Authority
-	resolver  *credentials.Resolver
-	env       *credentials.Env
-	envNames  []string
-	audit     *audit.Logger
-	proxy     *proxy.Proxy
-	dashboard *dashboard.Dashboard
+	log        *slog.Logger
+	rules      *rules.Store
+	authority  *ca.Authority
+	resolver   *credentials.Resolver
+	env        *credentials.Env
+	envNames   []string
+	audit      *audit.Logger
+	proxy      *proxy.Proxy
+	dashboard  *dashboard.Dashboard
+	auth       *auth.Store
+	tokenPaths auth.TokenPaths
 
-	// mu guards the fields a reload replaces and a request path reads.
-	mu    sync.RWMutex
-	cfg   config.Config
-	token string
+	// mu guards the configuration a reload replaces and request paths read.
+	mu  sync.RWMutex
+	cfg config.Config
 }
 
 // config returns the configuration currently in force.
@@ -93,7 +94,7 @@ func (st *stack) config() config.Config {
 }
 
 func runServe(ctx context.Context, out interface{ Write([]byte) (int, error) }, openDashboard bool) error {
-	st, err := buildStack(out)
+	st, err := buildStack(ctx, out)
 	if err != nil {
 		return err
 	}
@@ -128,7 +129,7 @@ func runServe(ctx context.Context, out interface{ Write([]byte) (int, error) }, 
 	return serveEventLoop(ctx, st, proxyServer, healthServer)
 }
 
-func buildStack(out interface{ Write([]byte) (int, error) }) (*stack, error) {
+func buildStack(ctx context.Context, out interface{ Write([]byte) (int, error) }) (*stack, error) {
 	cfg, err := config.Load(configPath())
 	if err != nil {
 		return nil, err
@@ -150,7 +151,12 @@ func buildStack(out interface{ Write([]byte) (int, error) }) (*stack, error) {
 		return nil, err
 	}
 
-	token, err := auth.EnsureToken(auth.TokenPath())
+	tokenPaths := auth.DefaultTokenPaths()
+	tokens, err := auth.EnsureTokenSetContext(ctx, tokenPaths)
+	if err != nil {
+		return nil, err
+	}
+	authStore, err := auth.NewStore(tokens)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +188,8 @@ func buildStack(out interface{ Write([]byte) (int, error) }) (*stack, error) {
 
 	return &stack{
 		cfg: cfg, log: log, rules: store, authority: authority,
-		resolver: resolver, env: env, token: token, envNames: env.Names(), audit: auditLog,
+		resolver: resolver, env: env, auth: authStore, tokenPaths: tokenPaths,
+		envNames: env.Names(), audit: auditLog,
 	}, nil
 }
 
@@ -215,16 +222,9 @@ func newProxy(st *stack) *proxy.Proxy {
 		Resolver:  st.resolver,
 		Dialer:    dialer,
 		Audit:     audit.NewSink(st.audit, st.log),
-		Token:     st.authToken(),
+		Auth:      st.auth,
 		Logger:    st.log,
 	})
-}
-
-// authToken returns the token currently in force.
-func (st *stack) authToken() string {
-	st.mu.RLock()
-	defer st.mu.RUnlock()
-	return st.token
 }
 
 func startProxy(st *stack) (*http.Server, net.Listener, error) {
@@ -264,7 +264,7 @@ func startDashboard(st *stack) (*http.Server, net.Listener, error) {
 		return nil, nil, fmt.Errorf("binding the dashboard listener on %s: %w", cfg.Dashboard.Addr(), err)
 	}
 
-	st.dashboard = dashboard.New(st.audit, st.rules, st.credentialLister(), st.authority, st.authToken(), st.log)
+	st.dashboard = dashboard.New(st.audit, st.rules, st.credentialLister(), st.authority, st.auth, st.log)
 	server := &http.Server{Handler: st.dashboard.Handler(), ReadHeaderTimeout: proxy.DefaultHeaderTimeout}
 	go func() {
 		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -277,33 +277,38 @@ func startDashboard(st *stack) (*http.Server, net.Listener, error) {
 // announceDashboard prints the dashboard URL and, unless disabled, opens it in
 // a browser.
 //
-// The URL carries `?token=`, which the dashboard exchanges for a cookie and
-// then redirects away from, so the token does not linger in browser history.
-// Printing the URL is what makes a failed browser launch recoverable.
+// The URL carries the admin credential, which the dashboard exchanges for a
+// cookie before redirecting to a clean current URL. Printing it is what makes a
+// failed browser launch recoverable; no browser-history guarantee is implied.
 //
 // Both the printing and the opening require stdout to be a terminal. `serve` is
 // normally supervised by launchd, where opening a browser at login is wrong and
 // stdout is a log file the token would persist in.
 func announceDashboard(st *stack, addr net.Addr, out io.Writer, open bool) {
-	f, ok := out.(*os.File)
-	if !ok || !term.IsTerminal(int(f.Fd())) {
+	announceDashboardWith(st, addr, out, open, isInteractiveOutput, openBrowser)
+}
+
+func announceDashboardWith(st *stack, addr net.Addr, out io.Writer, open bool, interactive func(io.Writer) bool, opener func(string) error) {
+	if !interactive(out) {
 		st.log.Debug("not announcing the dashboard URL because stdout is not a terminal",
 			"dashboard", addr.String())
 		return
 	}
 
-	dashURL := dashboardURL(addr, st.authToken())
-	// A failed write to stdout is not worth failing startup over.
+	dashURL := dashboardURL(addr, st.auth.Snapshot().Admin)
 	_, _ = fmt.Fprintf(out, "Dashboard: %s\n", dashURL)
 	if !open {
 		return
 	}
-	if err := openBrowser(dashURL); err != nil {
-		// The URL is already on stdout, so a failed launch is recoverable.
-		// Never log the URL itself: it carries the token.
+	if err := opener(dashURL); err != nil {
 		st.log.Warn("opening the dashboard in a browser failed",
 			"error", err, "dashboard", addr.String())
 	}
+}
+
+func isInteractiveOutput(out io.Writer) bool {
+	file, ok := out.(*os.File)
+	return ok && term.IsTerminal(int(file.Fd()))
 }
 
 // dashboardURL builds the token-bearing URL for the bound dashboard address.
@@ -352,7 +357,7 @@ func serveEventLoop(ctx context.Context, st *stack, servers ...*http.Server) err
 	}
 }
 
-// reload re-reads config, rules, credentials, the auth token and the CA
+// reload re-reads config, rules, credentials, both role credentials, and the CA
 // without restarting.
 //
 // Each step keeps its previous state on failure. A typo in rules.json must not
@@ -363,6 +368,17 @@ func serveEventLoop(ctx context.Context, st *stack, servers ...*http.Server) err
 // socket would point every provisioned sandbox at a dead port, which is the
 // restart this exists to avoid. A changed address is logged and ignored.
 func (st *stack) reload() {
+	authResult := st.auth.Reload(st.tokenPaths)
+	if authResult.AgentErr != nil {
+		st.log.Error("reload: agent token unchanged", "error", authResult.AgentErr)
+	}
+	if authResult.AdminErr != nil {
+		st.log.Error("reload: admin token unchanged", "error", authResult.AdminErr)
+	}
+	if authResult.AgentErr == nil || authResult.AdminErr == nil {
+		st.log.Info("reload: role credentials checked", "agent_path", st.tokenPaths.Agent, "admin_path", st.tokenPaths.Admin)
+	}
+
 	cfg, err := config.Load(configPath())
 	if err != nil {
 		st.log.Error("reload: config unchanged", "error", err)
@@ -381,22 +397,6 @@ func (st *stack) reload() {
 
 	if err := st.authority.Reload(); err != nil {
 		st.log.Error("reload: CA unchanged", "error", err)
-	}
-
-	// The token is re-read from disk, not kept from startup. `token rotate`
-	// followed by SIGHUP is the documented response to a leaked token, and it
-	// is worthless if the running process still honours the old value.
-	if token, err := auth.LoadToken(auth.TokenPath()); err != nil {
-		st.log.Error("reload: auth token unchanged", "error", err)
-	} else if token != st.authToken() {
-		st.setToken(token)
-		if st.proxy != nil {
-			st.proxy.SetToken(token)
-		}
-		if st.dashboard != nil {
-			st.dashboard.SetToken(token)
-		}
-		st.log.Info("reload: auth token rotated; sandboxes must be re-provisioned")
 	}
 
 	prev := st.config()
@@ -426,12 +426,6 @@ func (st *stack) setConfig(cfg config.Config) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.cfg = cfg
-}
-
-func (st *stack) setToken(token string) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.token = token
 }
 
 func shutdownAll(st *stack, servers ...*http.Server) error {

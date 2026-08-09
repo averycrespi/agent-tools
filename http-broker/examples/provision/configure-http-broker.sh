@@ -3,8 +3,8 @@
 # http-broker, and to trust the certificate it presents.
 #
 # Depends on the host running http-broker (via `http-broker serve` or the
-# launchd agent; see docs/launchd.md). That process writes an auth token to
-# $HOME/.config/http-broker/auth-token and a CA certificate to
+# launchd agent; see docs/launchd.md). That process writes the agent credential to
+# $HOME/.config/http-broker/agent-token and a CA certificate to
 # $HOME/.local/share/http-broker/ca.pem on the host.
 #
 # The sandbox needs both files. This script does NOT fetch them over the
@@ -12,7 +12,7 @@
 # `copy_paths` must ship them in:
 #
 #   "copy_paths": [
-#     "~/.config/http-broker/auth-token",
+#     "~/.config/http-broker/agent-token",
 #     "~/.local/share/http-broker/ca.pem"
 #   ]
 #
@@ -26,7 +26,7 @@
 
 set -euo pipefail
 
-TOKEN_FILE="$HOME/.config/http-broker/auth-token"
+TOKEN_FILE="$HOME/.config/http-broker/agent-token"
 CA_SOURCE="$HOME/.local/share/http-broker/ca.pem"
 
 # Where the guest trust store lives. Ubuntu is the sandbox-manager guest image.
@@ -63,7 +63,7 @@ This file is created on the host by http-broker and must be copied into the
 sandbox by sandbox-manager's copy_paths config:
 
   "copy_paths": [
-    "~/.config/http-broker/auth-token",
+    "~/.config/http-broker/agent-token",
     "~/.local/share/http-broker/ca.pem"
   ]
 

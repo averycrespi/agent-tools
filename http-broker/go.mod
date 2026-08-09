@@ -3,11 +3,13 @@ module github.com/averycrespi/agent-tools/http-broker
 go 1.25.11
 
 require (
+	github.com/creack/pty v1.1.24
 	github.com/gofrs/flock v0.13.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/ncruces/go-sqlite3 v0.35.0
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/spf13/cobra v1.10.2
+	github.com/stretchr/testify v1.11.1
 	github.com/zalando/go-keyring v0.2.7
 	golang.org/x/net v0.56.0
 	golang.org/x/term v0.44.0
@@ -186,7 +188,6 @@ require (
 	github.com/ssgreg/nlreturn/v2 v2.2.1 // indirect
 	github.com/stbenjam/no-sprintf-host-port v0.3.1 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/subosito/gotenv v1.4.1 // indirect
 	github.com/tetafro/godot v1.5.6 // indirect
 	github.com/timakin/bodyclose v0.0.0-20260129054331-73d1f95b84b4 // indirect

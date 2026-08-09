@@ -6,16 +6,26 @@ import (
 	"log/slog"
 	"net"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/creack/pty"
+
+	"github.com/averycrespi/agent-tools/http-broker/internal/auth"
 	"github.com/averycrespi/agent-tools/http-broker/internal/dashboard"
 )
 
-func testStack(token string) *stack {
+func testStack(t *testing.T) *stack {
+	t.Helper()
+	store, err := auth.NewStore(auth.TokenSet{Agent: strings.Repeat("a", 64), Admin: strings.Repeat("b", 64)})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
 	return &stack{
-		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		token: token,
+		log:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		auth: store,
 	}
 }
 
@@ -66,10 +76,89 @@ func TestDashboardURLEscapesTheToken(t *testing.T) {
 func TestAnnounceDashboardStaysQuietWhenNotATerminal(t *testing.T) {
 	for _, open := range []bool{true, false} {
 		var buf bytes.Buffer
-		announceDashboard(testStack("deadbeef"), testDashAddr, &buf, open)
+		opened := false
+		announceDashboardWith(testStack(t), testDashAddr, &buf, open, isInteractiveOutput, func(string) error {
+			opened = true
+			return nil
+		})
 		if buf.Len() != 0 {
-			t.Errorf("open=%v: wrote %q, want nothing", open, buf.String())
+			t.Errorf("open=%v: wrote output, want nothing", open)
 		}
+		if opened {
+			t.Errorf("open=%v: launched a browser for non-terminal output", open)
+		}
+	}
+}
+
+func TestAnnounceDashboardUsesAdminCredentialOnInteractivePTY(t *testing.T) {
+	master, terminal, err := pty.Open()
+	if err != nil {
+		t.Fatalf("open pty: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = master.Close()
+		_ = terminal.Close()
+	})
+	if !isInteractiveOutput(terminal) {
+		t.Fatal("PTY was not recognized as interactive output")
+	}
+	st := testStack(t)
+	opened := ""
+	announceDashboardWith(st, testDashAddr, terminal, true, isInteractiveOutput, func(target string) error {
+		opened = target
+		return nil
+	})
+	buffer := make([]byte, 512)
+	count, err := master.Read(buffer)
+	if err != nil {
+		t.Fatalf("read pty: %v", err)
+	}
+	output := string(buffer[:count])
+	admin := st.auth.Snapshot().Admin
+	if !strings.Contains(output, admin) {
+		t.Fatal("interactive dashboard URL did not contain the admin credential")
+	}
+	if strings.Contains(output, st.auth.Snapshot().Agent) {
+		t.Fatal("interactive dashboard URL contained the agent credential")
+	}
+	if strings.TrimPrefix(strings.TrimSpace(output), "Dashboard: ") != opened {
+		t.Fatal("printed and opened dashboard URLs differed")
+	}
+}
+
+func TestReloadAttemptsRoleCredentialsBeforeInvalidConfigReturns(t *testing.T) {
+	dir := t.TempDir()
+	paths := auth.TokenPaths{
+		Agent:  filepath.Join(dir, "agent-token"),
+		Admin:  filepath.Join(dir, "admin-token"),
+		Legacy: filepath.Join(dir, "auth-token"),
+		Lock:   filepath.Join(dir, ".token.lock"),
+	}
+	old := auth.TokenSet{Agent: strings.Repeat("a", 64), Admin: strings.Repeat("b", 64)}
+	store, err := auth.NewStore(old)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	newAgent := strings.Repeat("c", 64)
+	if err := os.WriteFile(paths.Agent, []byte(newAgent), 0o600); err != nil {
+		t.Fatalf("write agent token: %v", err)
+	}
+	if err := os.WriteFile(paths.Admin, []byte(old.Admin), 0o600); err != nil {
+		t.Fatalf("write admin token: %v", err)
+	}
+	st := &stack{log: slog.New(slog.NewTextHandler(io.Discard, nil)), auth: store, tokenPaths: paths}
+	previousConfig := cfgFile
+	cfgFile = filepath.Join(dir, "config-is-a-directory")
+	if err := os.Mkdir(cfgFile, 0o750); err != nil {
+		t.Fatalf("create invalid config path: %v", err)
+	}
+	t.Cleanup(func() { cfgFile = previousConfig })
+
+	st.reload()
+
+	got := store.Snapshot()
+	if got.Agent != newAgent || got.Admin != old.Admin {
+		t.Fatal("valid agent change did not apply before unrelated config reload failure")
 	}
 }
 

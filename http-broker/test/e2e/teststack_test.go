@@ -101,6 +101,8 @@ type stackOptions struct {
 	// certificate is enough — no code change and no verification-weakening
 	// switch.
 	UpstreamCA []byte
+	// LegacyToken seeds migration-only shared credential state.
+	LegacyToken string
 	// AllowAddrs are exact "host:port" targets the address guard should skip.
 	//
 	// Every mock upstream a test can start listens on loopback, which the
@@ -117,7 +119,8 @@ type stack struct {
 	dashPort   int
 	configDir  string
 	dataDir    string
-	token      string
+	agentToken string
+	adminToken string
 	cmd        *exec.Cmd
 	logPath    string
 	caPool     *x509.CertPool
@@ -179,6 +182,11 @@ func startStack(t *testing.T, opts stackOptions) *stack {
 	}
 	s.cfgDoc = cfg
 	writeJSON(t, s.configPath, cfg)
+	if opts.LegacyToken != "" {
+		if err := os.WriteFile(filepath.Join(configDir, "auth-token"), []byte(opts.LegacyToken), 0o600); err != nil {
+			t.Fatalf("write legacy token: %v", err)
+		}
+	}
 
 	rules := opts.Rules
 	if rules == nil {
@@ -225,7 +233,8 @@ func startStack(t *testing.T, opts stackOptions) *stack {
 	})
 
 	s.waitReady()
-	s.token = s.readToken()
+	s.agentToken = s.readToken("agent")
+	s.adminToken = s.readToken("admin")
 	s.caPool = s.fetchCAPool()
 	return s
 }
@@ -251,11 +260,11 @@ func (s *stack) waitReady() {
 	s.t.Fatalf("the broker never became ready:\n%s", s.Logs())
 }
 
-func (s *stack) readToken() string {
+func (s *stack) readToken(role string) string {
 	s.t.Helper()
-	data, err := os.ReadFile(filepath.Join(s.configDir, "auth-token"))
+	data, err := os.ReadFile(filepath.Join(s.configDir, role+"-token"))
 	if err != nil {
-		s.t.Fatalf("reading the auth token: %v", err)
+		s.t.Fatalf("reading the %s token: %v", role, err)
 	}
 	return strings.TrimSpace(string(data))
 }
@@ -292,7 +301,11 @@ func (s *stack) proxyAddr() string {
 // proxyURL is the value a sandbox would put in HTTPS_PROXY, with the token
 // embedded as Basic credentials.
 func (s *stack) proxyURL() *url.URL {
-	u, err := url.Parse("http://x:" + s.token + "@" + s.proxyAddr())
+	return s.proxyURLWithToken(s.agentToken)
+}
+
+func (s *stack) proxyURLWithToken(token string) *url.URL {
+	u, err := url.Parse("http://x:" + token + "@" + s.proxyAddr())
 	if err != nil {
 		s.t.Fatalf("building the proxy URL: %v", err)
 	}
@@ -302,7 +315,11 @@ func (s *stack) proxyURL() *url.URL {
 // client returns an HTTP client that routes through the proxy and trusts the
 // test CA, which is what a provisioned sandbox looks like.
 func (s *stack) client() *http.Client {
-	proxyURL := s.proxyURL()
+	return s.clientWithToken(s.agentToken)
+}
+
+func (s *stack) clientWithToken(token string) *http.Client {
+	proxyURL := s.proxyURLWithToken(token)
 	return &http.Client{
 		Timeout: 20 * time.Second,
 		Transport: s.track(&http.Transport{
@@ -344,7 +361,7 @@ func (s *stack) connectKeepingConn(target string) (net.Conn, *http.Response) {
 	s.t.Cleanup(func() { _ = conn.Close() })
 
 	req := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s\r\n\r\n",
-		target, target, basicCredential(s.token))
+		target, target, basicCredential(s.agentToken))
 	if _, err := conn.Write([]byte(req)); err != nil {
 		s.t.Fatalf("writing CONNECT: %v", err)
 	}
@@ -359,18 +376,21 @@ func (s *stack) connectKeepingConn(target string) (net.Conn, *http.Response) {
 	return conn, resp
 }
 
-// rotateToken runs `http-broker token rotate` against the running stack's
-// config directory — the documented first step of the compromise response —
-// and returns the new token.
-func (s *stack) rotateToken() string {
+// rotateToken runs the selected role rotation against the running stack.
+func (s *stack) rotateToken(role string) string {
 	s.t.Helper()
 
-	cmd := exec.Command(brokerBinary, "token", "rotate")
+	cmd := exec.Command(brokerBinary, "token", "rotate", role)
 	cmd.Env = append(os.Environ(), s.xdgEnv...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		s.t.Fatalf("rotating the token: %v\n%s", err, out)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		s.t.Fatalf("rotating the %s token failed", role)
 	}
-	return s.readToken()
+	rotated := s.readToken(role)
+	if strings.Contains(string(output), rotated) {
+		s.t.Fatalf("rotating the %s token printed the raw replacement credential", role)
+	}
+	return rotated
 }
 
 // writeConfig applies an edit to config.json without restarting.
@@ -419,7 +439,19 @@ func (s *stack) Logs() string {
 	if err != nil {
 		return ""
 	}
-	return string(data)
+	logs := string(data)
+	values := []string{s.agentToken, s.adminToken}
+	for _, role := range []string{"agent", "admin"} {
+		if token, err := os.ReadFile(filepath.Join(s.configDir, role+"-token")); err == nil {
+			values = append(values, strings.TrimSpace(string(token)))
+		}
+	}
+	for _, value := range values {
+		if value != "" {
+			logs = strings.ReplaceAll(logs, value, "<redacted-role-credential>")
+		}
+	}
+	return logs
 }
 
 func (s *stack) stop() {

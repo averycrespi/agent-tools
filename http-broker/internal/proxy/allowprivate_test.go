@@ -16,12 +16,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/http-broker/internal/auth"
 	"github.com/averycrespi/agent-tools/http-broker/internal/netguard"
 	"github.com/averycrespi/agent-tools/http-broker/internal/rules"
 )
 
 // privateResolver answers every name with one RFC 1918 address, so a dial only
 // happens if the guard was told to permit private space.
+const proxyTestToken = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 type privateResolver struct{}
 
 func (privateResolver) LookupNetIP(_ context.Context, _, _ string) ([]netip.Addr, error) {
@@ -71,7 +74,7 @@ func TestAllowPrivateReachesTheDial(t *testing.T) {
 			req.URL = &url.URL{Scheme: "http", Host: "internal.test", Path: "/thing"}
 			req.RequestURI = "http://internal.test/thing"
 			req.Header.Set("Proxy-Authorization", "Basic "+
-				base64.StdEncoding.EncodeToString([]byte("broker:test-token")))
+				base64.StdEncoding.EncodeToString([]byte("broker:"+proxyTestToken)))
 
 			rec := httptest.NewRecorder()
 			p.ServeHTTP(rec, req)
@@ -121,7 +124,7 @@ func TestAllowPrivateTunnelDialCarriesTheGrant(t *testing.T) {
 			req := httptest.NewRequest(http.MethodConnect, "//internal.test:443", nil)
 			req.Host = "internal.test:443"
 			req.Header.Set("Proxy-Authorization", "Basic "+
-				base64.StdEncoding.EncodeToString([]byte("broker:test-token")))
+				base64.StdEncoding.EncodeToString([]byte("broker:"+proxyTestToken)))
 
 			p.ServeHTTP(httptest.NewRecorder(), req)
 
@@ -163,7 +166,7 @@ func newAllowPrivateProxy(t *testing.T, sink AuditSink, dialer *netguard.Dialer,
 		Rules:         store,
 		Dialer:        dialer,
 		Audit:         sink,
-		Token:         "test-token",
+		Auth:          proxyTestAuthStore(t),
 		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		HeaderTimeout: 5 * time.Second,
 		TunnelIdle:    5 * time.Second,
@@ -190,11 +193,20 @@ func newTunnelProxy(t *testing.T, sink AuditSink, dialer *netguard.Dialer, allow
 		Rules:         store,
 		Dialer:        dialer,
 		Audit:         sink,
-		Token:         "test-token",
+		Auth:          proxyTestAuthStore(t),
 		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		HeaderTimeout: 5 * time.Second,
 		TunnelIdle:    5 * time.Second,
 	})
+}
+
+func proxyTestAuthStore(t *testing.T) *auth.Store {
+	t.Helper()
+	store, err := auth.NewStore(auth.TokenSet{Agent: proxyTestToken, Admin: strings.Repeat("b", 64)})
+	if err != nil {
+		t.Fatalf("building auth store: %v", err)
+	}
+	return store
 }
 
 // TestTransportForFloor pins the transport pool: each floor gets a transport

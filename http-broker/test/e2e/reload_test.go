@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -184,63 +186,109 @@ func TestReloadKeepsALiveConnectionOnItsRuleset(t *testing.T) {
 	}
 }
 
-// TestTokenRotationTakesEffectOnReload is the compromise response documented in
-// docs/security-model.md: `token rotate`, re-provision, SIGHUP.
-//
-// The token used to be captured once at startup, so a reload left the leaked
-// value working and 407'd every re-provisioned sandbox — the procedure did
-// nothing until someone restarted the process.
-func TestTokenRotationTakesEffectOnReload(t *testing.T) {
+// TestRoleRotationReloadsIndependentlyAndRetainsInvalidCandidate pins the
+// role-specific compromise response and auth reload independence.
+func TestRoleRotationReloadsIndependentlyAndRetainsInvalidCandidate(t *testing.T) {
 	s := startStack(t, stackOptions{Rules: rulesDoc("tunnel")})
+	oldAgent := s.agentToken
+	oldAdmin := s.adminToken
 
-	old := s.token
-	fresh := s.rotateToken()
-	if fresh == old {
-		t.Fatal("token rotate returned the same token")
+	freshAgent := s.rotateToken("agent")
+	if freshAgent == oldAgent {
+		t.Fatal("agent rotation did not change the credential")
 	}
-
 	s.reload()
 
-	// The leaked token no longer authenticates.
+	assertConnectAuthStatus(t, s, oldAgent, http.StatusProxyAuthRequired)
+	assertConnectAccepted(t, s, freshAgent)
+	assertAbsoluteAuthStatus(t, s, oldAgent, http.StatusProxyAuthRequired)
+	if got := dashboardAuthStatus(t, s, oldAdmin); got != http.StatusOK {
+		t.Fatalf("untouched admin credential status = %d, want 200", got)
+	}
+
+	freshAdmin := s.rotateToken("admin")
+	if freshAdmin == oldAdmin {
+		t.Fatal("admin rotation did not change the credential")
+	}
+	s.reload()
+	if got := dashboardAuthStatus(t, s, oldAdmin); got != http.StatusUnauthorized {
+		t.Fatalf("old admin credential status = %d, want 401", got)
+	}
+	if got := dashboardAuthStatus(t, s, freshAdmin); got != http.StatusOK {
+		t.Fatalf("new admin credential status = %d, want 200", got)
+	}
+	assertConnectAccepted(t, s, freshAgent)
+
+	finalAdmin := strings.Repeat("e", 64)
+	if err := os.WriteFile(filepath.Join(s.configDir, "agent-token"), []byte("malformed"), 0o600); err != nil {
+		t.Fatalf("write malformed agent candidate: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(s.configDir, "admin-token"), []byte(finalAdmin), 0o600); err != nil {
+		t.Fatalf("write final admin candidate: %v", err)
+	}
+	s.writeRulesRaw(`{"rules":[`)
+	s.reload()
+	assertConnectAccepted(t, s, freshAgent)
+	if got := dashboardAuthStatus(t, s, finalAdmin); got != http.StatusOK {
+		t.Fatalf("valid admin change beside invalid agent/rules status = %d, want 200", got)
+	}
+	if got := dashboardAuthStatus(t, s, freshAdmin); got != http.StatusUnauthorized {
+		t.Fatalf("prior admin credential status = %d, want 401", got)
+	}
+}
+
+func assertConnectAuthStatus(t *testing.T, s *stack, token string, want int) {
+	t.Helper()
 	conn := dialProxy(t, s)
-	writeRaw(t, conn, fmt.Sprintf("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\nProxy-Authorization: %s\r\n\r\n",
-		basicCredential(old)))
-	resp, err := readResponse(conn)
+	writeRaw(t, conn, fmt.Sprintf("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\nProxy-Authorization: %s\r\n\r\n", basicCredential(token)))
+	response, err := readResponse(conn)
 	if err != nil {
-		t.Fatalf("reading the response: %v", err)
+		t.Fatalf("reading CONNECT response: %v", err)
 	}
-	if resp.StatusCode != http.StatusProxyAuthRequired {
-		t.Errorf("old token: status = %d, want 407 (logs:\n%s)", resp.StatusCode, s.Logs())
+	if response.StatusCode != want {
+		t.Fatalf("CONNECT status = %d, want %d", response.StatusCode, want)
 	}
+}
 
-	// And a re-provisioned sandbox works. The dial fails because nothing is
-	// listening on example.com here, so the proof is that the refusal is no
-	// longer an authentication failure.
-	fresh2 := dialProxy(t, s)
-	writeRaw(t, fresh2, fmt.Sprintf("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\nProxy-Authorization: %s\r\n\r\n",
-		basicCredential(fresh)))
-	freshResp, err := readResponse(fresh2)
+func assertConnectAccepted(t *testing.T, s *stack, token string) {
+	t.Helper()
+	conn := dialProxy(t, s)
+	writeRaw(t, conn, fmt.Sprintf("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\nProxy-Authorization: %s\r\n\r\n", basicCredential(token)))
+	response, err := readResponse(conn)
 	if err != nil {
-		t.Fatalf("reading the response: %v", err)
+		t.Fatalf("reading CONNECT response: %v", err)
 	}
-	if freshResp.StatusCode == http.StatusProxyAuthRequired {
-		t.Errorf("new token: status = 407, want the rotated token to be accepted (logs:\n%s)", s.Logs())
+	if response.StatusCode == http.StatusProxyAuthRequired {
+		t.Fatal("accepted agent credential received 407")
 	}
+}
 
-	// The dashboard follows the same token.
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, s.dashURL("/dashboard/api/rules"), nil)
+func assertAbsoluteAuthStatus(t *testing.T, s *stack, token string, want int) {
+	t.Helper()
+	conn := dialProxy(t, s)
+	writeRaw(t, conn, fmt.Sprintf("GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\nProxy-Authorization: %s\r\nConnection: close\r\n\r\n", basicCredential(token)))
+	response, err := readResponse(conn)
 	if err != nil {
-		t.Fatalf("building the request: %v", err)
+		t.Fatalf("reading absolute-form response: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+old)
-	dashResp, err := http.DefaultClient.Do(req)
+	if response.StatusCode != want {
+		t.Fatalf("absolute-form status = %d, want %d", response.StatusCode, want)
+	}
+}
+
+func dashboardAuthStatus(t *testing.T, s *stack, token string) int {
+	t.Helper()
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, s.dashURL("/dashboard/api/rules"), nil)
+	if err != nil {
+		t.Fatalf("building dashboard request: %v", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("dashboard request: %v", err)
 	}
-	defer func() { _ = dashResp.Body.Close() }()
-	if dashResp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("dashboard with the old token: status = %d, want 401", dashResp.StatusCode)
-	}
+	defer func() { _ = response.Body.Close() }()
+	return response.StatusCode
 }
 
 // TestEnvCredentialReload covers the other half of a SIGHUP: an edited

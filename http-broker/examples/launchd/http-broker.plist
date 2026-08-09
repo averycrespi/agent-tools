@@ -19,9 +19,9 @@
     <key>Label</key>
     <string>dev.agent-tools.http-broker</string>
 
-    <!-- The no-open flag below is belt and braces: `serve` only opens a browser
-         when stdout is a terminal, and under launchd it is a log file. Passing
-         the flag states the intent rather than relying on that check.
+    <!-- The no-open flag below is belt and braces: non-terminal launchd output
+         suppresses both printing the admin-token dashboard URL and opening a
+         browser. Passing the flag states the intent rather than relying on that check.
 
          Note for editors: XML forbids a double hyphen inside a comment, so the
          flag cannot be written out in full here. -->

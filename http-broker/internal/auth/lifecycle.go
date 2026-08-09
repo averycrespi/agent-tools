@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/gofrs/flock"
 
@@ -50,8 +52,13 @@ func DefaultTokenPaths() TokenPaths {
 }
 
 // EnsureTokenSet initializes or migrates the canonical role credentials.
-func EnsureTokenSet(paths TokenPaths) (tokens TokenSet, err error) {
-	unlock, err := lockTokenPaths(paths)
+func EnsureTokenSet(paths TokenPaths) (TokenSet, error) {
+	return EnsureTokenSetContext(context.Background(), paths)
+}
+
+// EnsureTokenSetContext initializes or migrates credentials with bounded lock acquisition.
+func EnsureTokenSetContext(ctx context.Context, paths TokenPaths) (tokens TokenSet, err error) {
+	unlock, err := lockTokenPaths(ctx, paths)
 	if err != nil {
 		return TokenSet{}, err
 	}
@@ -65,12 +72,17 @@ func EnsureTokenSet(paths TokenPaths) (tokens TokenSet, err error) {
 }
 
 // RotateToken atomically replaces only the selected canonical credential.
-func RotateToken(paths TokenPaths, role Role) (tokens TokenSet, err error) {
+func RotateToken(paths TokenPaths, role Role) (TokenSet, error) {
+	return RotateTokenContext(context.Background(), paths, role)
+}
+
+// RotateTokenContext rotates one role with bounded lock acquisition.
+func RotateTokenContext(ctx context.Context, paths TokenPaths, role Role) (tokens TokenSet, err error) {
 	if role != AgentRole && role != AdminRole {
 		return TokenSet{}, fmt.Errorf("invalid token role %q", role)
 	}
 
-	unlock, err := lockTokenPaths(paths)
+	unlock, err := lockTokenPaths(ctx, paths)
 	if err != nil {
 		return TokenSet{}, err
 	}
@@ -97,6 +109,9 @@ func RotateToken(paths TokenPaths, role Role) (tokens TokenSet, err error) {
 	} else {
 		tokens = TokenSet{Agent: agent, Admin: admin}
 	}
+	if err := retireLegacy(paths); err != nil {
+		return TokenSet{}, err
+	}
 
 	switch role {
 	case AgentRole:
@@ -111,9 +126,6 @@ func RotateToken(paths TokenPaths, role Role) (tokens TokenSet, err error) {
 		}
 	}
 	if err != nil {
-		return TokenSet{}, err
-	}
-	if err := retireLegacy(paths); err != nil {
 		return TokenSet{}, err
 	}
 	return tokens, nil
@@ -178,13 +190,21 @@ func ensureTokenSetLocked(paths TokenPaths) (TokenSet, error) {
 	return tokens, nil
 }
 
-func lockTokenPaths(paths TokenPaths) (func() error, error) {
+const tokenLockTimeout = 10 * time.Second
+
+func lockTokenPaths(ctx context.Context, paths TokenPaths) (func() error, error) {
 	if err := os.MkdirAll(filepath.Dir(paths.Lock), 0o750); err != nil {
 		return nil, fmt.Errorf("creating token directory: %w", err)
 	}
 	fileLock := flock.New(paths.Lock)
-	if err := fileLock.Lock(); err != nil {
+	lockCtx, cancel := context.WithTimeout(ctx, tokenLockTimeout)
+	defer cancel()
+	locked, err := fileLock.TryLockContext(lockCtx, 10*time.Millisecond)
+	if err != nil {
 		return nil, fmt.Errorf("locking token files: %w", err)
+	}
+	if !locked {
+		return nil, errors.New("locking token files: lock not acquired")
 	}
 	return func() error {
 		if err := fileLock.Unlock(); err != nil {

@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/averycrespi/agent-tools/http-broker/internal/auth"
 )
 
 // hostileTargets are paths a redirect must never reflect. A path like
@@ -98,7 +100,7 @@ func TestRootRedirectStaysOnTheDashboard(t *testing.T) {
 // TestRootRedirects drives the handler, so the registered route and the
 // Location header are both covered rather than just the helper.
 func TestRootRedirects(t *testing.T) {
-	d := New(nil, nil, nil, nil, "deadbeef", nil)
+	d := New(nil, nil, nil, nil, dashboardTestStore(t), nil)
 	srv := httptest.NewServer(d.Handler())
 	defer srv.Close()
 
@@ -132,8 +134,40 @@ func TestRootRedirects(t *testing.T) {
 // TestUnknownRootPathIs404 pins the reason the root is registered as "/{$}"
 // rather than "/": a subtree pattern would serve the dashboard page for every
 // unmatched path.
+func TestDashboardAcceptsOnlyAdminRole(t *testing.T) {
+	d := New(nil, nil, nil, nil, dashboardTestStore(t), nil)
+	handler := d.Handler()
+	for _, tt := range []struct {
+		name       string
+		token      string
+		wantStatus int
+	}{
+		{name: "admin", token: strings.Repeat("b", 64), wantStatus: http.StatusOK},
+		{name: "agent", token: strings.Repeat("a", 64), wantStatus: http.StatusUnauthorized},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, Prefix, nil)
+			request.Header.Set("Authorization", "Bearer "+tt.token)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", response.Code, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func dashboardTestStore(t *testing.T) *auth.Store {
+	t.Helper()
+	store, err := auth.NewStore(auth.TokenSet{Agent: strings.Repeat("a", 64), Admin: strings.Repeat("b", 64)})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	return store
+}
+
 func TestUnknownRootPathIs404(t *testing.T) {
-	d := New(nil, nil, nil, nil, "deadbeef", nil)
+	d := New(nil, nil, nil, nil, dashboardTestStore(t), nil)
 	srv := httptest.NewServer(d.Handler())
 	defer srv.Close()
 

@@ -76,16 +76,20 @@ func seedProvisionHome(t *testing.T) string {
 	t.Helper()
 
 	home := t.TempDir()
-	tokenPath := filepath.Join(home, ".config", "http-broker", "auth-token")
+	tokenPath := filepath.Join(home, ".config", "http-broker", "agent-token")
+	adminPath := filepath.Join(home, ".config", "http-broker", "admin-token")
 	caPath := filepath.Join(home, ".local", "share", "http-broker", "ca.pem")
 
-	for _, p := range []string{tokenPath, caPath} {
+	for _, p := range []string{tokenPath, adminPath, caPath} {
 		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
 	}
 	if err := os.WriteFile(tokenPath, []byte("test-token-value\n"), 0o600); err != nil {
 		t.Fatalf("writing the token: %v", err)
+	}
+	if err := os.WriteFile(adminPath, []byte("dashboard-only-sentinel\n"), 0o600); err != nil {
+		t.Fatalf("writing the admin token: %v", err)
 	}
 	if err := os.WriteFile(caPath, []byte("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----\n"), 0o644); err != nil {
 		t.Fatalf("writing the CA: %v", err)
@@ -138,6 +142,27 @@ func TestProvisionScript(t *testing.T) {
 	// shell startup so rotation is picked up by re-provisioning alone.
 	if strings.Contains(second, "test-token-value") {
 		t.Error("the generated block embeds the token literally; it should read the file at shell startup")
+	}
+	if !strings.Contains(second, ".config/http-broker/agent-token") {
+		t.Error("the generated block does not read the canonical agent token")
+	}
+	if strings.Contains(second, "admin-token") {
+		t.Error("the generated block references the host-only dashboard credential")
+	}
+	if strings.Contains(second, "dashboard-only-sentinel") {
+		t.Error("the generated block emitted the host-only dashboard credential value")
+	}
+
+	script := filepath.Join(mustFindModuleRoot(), "http-broker", "examples", "provision", "configure-http-broker.sh")
+	source, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatalf("reading the provisioning script: %v", err)
+	}
+	if strings.Contains(string(source), "admin-token") {
+		t.Error("the provisioning script references the host-only dashboard credential")
+	}
+	if strings.Contains(string(source), "auth-token") {
+		t.Error("the provisioning script references the migration-only legacy path")
 	}
 }
 

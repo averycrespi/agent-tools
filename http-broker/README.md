@@ -21,8 +21,9 @@ make install     # go install ./cmd/http-broker
 ## Quick start
 
 ```bash
-# 1. Start the proxy. First run generates config, rules, a CA, and a token.
-#    The dashboard opens in a browser; pass --no-open to skip that.
+# 1. Start the proxy. First run generates config, rules, a CA, and distinct
+#    agent/admin credentials. An interactive terminal may open the dashboard;
+#    pass --no-open to skip it.
 http-broker serve
 
 # 2. Store a credential, bound to the hosts it may be sent to.
@@ -46,13 +47,12 @@ The provisioning script does **not** fetch anything over the network.
 
 ```json
 "copy_paths": [
-  "~/.config/http-broker/auth-token",
+  "~/.config/http-broker/agent-token",
   "~/.local/share/http-broker/ca.pem"
 ]
 ```
 
-`sb provision` re-runs `copy_paths` before the scripts, so a rotated token or
-CA is picked up on the next provision.
+Only `agent-token` enters sandboxes; `admin-token` stays on the host. On upgrade, a valid legacy `auth-token` is preserved as the canonical agent value, a distinct admin value is generated, and the legacy path is retired. Update external `copy_paths` before the next provision; already-running guests retain the preserved value.
 
 ## Rules
 
@@ -212,14 +212,18 @@ provisioning is re-run in each one. Re-provision every sandbox, then `SIGHUP`.
 
 Rotate when the key may have leaked, not as routine maintenance.
 
-### Token rotation
+### Role credential rotation
 
 ```bash
-http-broker token rotate
+http-broker token rotate agent
+http-broker token rotate admin
 ```
 
-Re-provision every sandbox, then `SIGHUP`. Until a sandbox is re-provisioned,
-its requests get 407.
+Agent rotation is a coordinated cutover, not zero-downtime revocation: rotate the host file, refresh `copy_paths`/re-provision while avoiding new client starts, send `SIGHUP` promptly, then reconnect clients with the old value. New CONNECT and absolute-form requests reject the old credential after activation; traffic inside established tunnel or MITM CONNECT connections continues.
+
+For admin rotation, rotate, send `SIGHUP`, then reopen the dashboard. Old Bearer credentials and cookies fail on new dashboard requests, while an already-open SSE stream may continue. The untouched role remains valid. `SIGHUP` checks both role files independently even when config, rules, or CA reload fails; an invalid candidate retains only that role's previous in-memory value.
+
+Downgrading to a one-token binary re-merges proxy and dashboard authority. A deliberate rollback requires stopping or isolating the broker, reconstructing shared-token state, and treating every sandbox holder as dashboard-authorized until re-upgrade and rotation.
 
 ## Known limitations
 
@@ -268,7 +272,9 @@ end state.
 | `config path\|show\|refresh`            | Inspect and backfill `config.json`.            |
 | `rules path\|show\|check\|refresh`      | Inspect and validate `rules.json`.             |
 | `credential set\|list\|get\|rebind\|rm` | Manage credentials and their host bindings.    |
-| `token show\|rotate\|proxy-credential`  | Manage the shared bearer token.                |
+| `token show <agent\|admin>`             | Print one selected role credential.            |
+| `token rotate <agent\|admin>`           | Rotate one role and print activation guidance. |
+| `token proxy-credential`                | Print an agent-derived proxy credential.       |
 | `ca export\|rotate\|path`               | Manage the interception CA.                    |
 
 See [docs/cli.md](docs/cli.md).

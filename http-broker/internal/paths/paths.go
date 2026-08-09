@@ -55,9 +55,6 @@ func LegacyTokenFile() string { return filepath.Join(ConfigDir(), "auth-token") 
 // TokenLockFile returns the advisory lock used for role-credential mutations.
 func TokenLockFile() string { return filepath.Join(ConfigDir(), ".token.lock") }
 
-// TokenFile returns the migration-only legacy credential path.
-func TokenFile() string { return LegacyTokenFile() }
-
 // AuditDB returns the path to the SQLite audit log.
 func AuditDB() string { return filepath.Join(DataDir(), "audit.db") }
 

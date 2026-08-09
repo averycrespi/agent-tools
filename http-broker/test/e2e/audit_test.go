@@ -129,7 +129,7 @@ func TestAuditRecordsRefusedRequests(t *testing.T) {
 	// Authenticated CONNECT to a target that cannot be parsed.
 	bad := dialProxy(t, s)
 	writeRaw(t, bad, fmt.Sprintf("CONNECT not-a-target HTTP/1.1\r\nHost: not-a-target\r\nProxy-Authorization: %s\r\n\r\n",
-		basicCredential(s.token)))
+		basicCredential(s.agentToken)))
 	if resp, err := readResponse(bad); err != nil {
 		t.Fatalf("reading the response: %v", err)
 	} else if resp.StatusCode != http.StatusBadRequest {
@@ -309,7 +309,7 @@ func readSSE(t *testing.T, s *stack, window time.Duration) string {
 	if err != nil {
 		t.Fatalf("building the SSE request: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+s.token)
+	req.Header.Set("Authorization", "Bearer "+s.adminToken)
 
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {

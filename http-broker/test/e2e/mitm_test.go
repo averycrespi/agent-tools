@@ -473,7 +473,7 @@ func TestAbsoluteFormHTTPSIsRefused(t *testing.T) {
 	conn := dialProxy(t, s)
 	target := hostPort(host, port)
 	writeRaw(t, conn, fmt.Sprintf("GET https://%s/secret HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s\r\n\r\n",
-		target, target, basicCredential(s.token)))
+		target, target, basicCredential(s.agentToken)))
 
 	resp, err := readResponse(conn)
 	if err != nil {

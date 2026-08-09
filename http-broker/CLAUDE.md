@@ -42,7 +42,7 @@ internal/
   netguard/            SSRF guard shared by both dial paths
   ca/                  root CA and leaf issuance
   credentials/         resolution and host binding
-  auth/                token storage + the two auth checks
+  auth/                role lifecycle, migration, atomic store + checks
   proxy/               CONNECT, tunnel relay, MITM, request pipeline
   audit/               SQLite store
   dashboard/           embedded read-only UI
@@ -130,6 +130,8 @@ These are load-bearing. Changing one needs a matching change to `DESIGN.md`.
   snapshot its CONNECT decision was made against, so a SIGHUP mid-connection
   cannot make the connect-time and per-request decisions disagree. The README
   documents what this means for the kill switch.
+- **Role credentials are strict and pair-atomic.** Proxy paths select only agent; dashboard paths select only admin from one immutable store. Canonical files are distinct `agent-token`/`admin-token`; legacy `auth-token` is migration-only and never a request/reload fallback. Auth reload is attempted before and independently of config/rules/CA failure.
+- **Rotation reauthenticates new boundaries only.** New CONNECT and absolute-form requests use the current agent value; established tunnel/MITM traffic continues. New dashboard requests use current admin; existing SSE may continue. A one-token downgrade re-merges authority.
 - **No audit column may carry a body, a header value, or a credential.**
   `TestNoBodyOrHeaderColumns` fails if a field named like one is added.
 - **The dashboard is read-only.** Every route is registered `GET <path>`.
@@ -168,11 +170,7 @@ These are load-bearing. Changing one needs a matching change to `DESIGN.md`.
 - **Audit records need an ID.** CONNECT-path events once had none, so every row
   shared an empty primary key and SQLite kept only the first. The store assigns
   a fallback, but set one at the source.
-- **The dashboard URL is only printed to a terminal.** `announceDashboard`
-  returns early unless stdout is an `*os.File` that passes
-  `term.IsTerminal`, because the URL carries the token and launchd's stdout is a
-  log file. Tests pass a buffer, so they take that path — asserting on printed
-  output needs a pty, not a `bytes.Buffer`.
+- **The dashboard URL is only printed/opened from a terminal.** `announceDashboard` uses one interactive predicate for both because the URL carries only the admin credential and launchd stdout is a log file. The redirect removes it from the current URL but does not promise browser-history erasure. Tests use a pty for positive output and a buffer for negative output.
 - **`golangci-lint` can OOM at default concurrency here.** Use
   `GOGC=50 go tool golangci-lint run --concurrency=2 ./...`.
 

@@ -19,7 +19,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"sync/atomic"
 	"time"
 
 	"github.com/averycrespi/agent-tools/http-broker/internal/audit"
@@ -98,36 +97,31 @@ type Dashboard struct {
 	ca          CAProvider
 	log         *slog.Logger
 
-	// token is swapped on SIGHUP, for the same reason the proxy's is: a
-	// rotated token must take effect without a restart.
-	token atomic.Pointer[string]
+	// auth publishes one immutable pair on SIGHUP; dashboard requests select
+	// only the admin credential from that shared snapshot.
+	auth *auth.Store
 }
 
 // New returns a Dashboard.
 func New(
 	auditor AuditQuerier, rulesList RulesLister, creds CredentialLister,
-	caProvider CAProvider, token string, logger *slog.Logger,
+	caProvider CAProvider, authStore *auth.Store, logger *slog.Logger,
 ) *Dashboard {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	d := &Dashboard{
+	return &Dashboard{
 		audit: auditor, rules: rulesList, credentials: creds,
-		ca: caProvider, log: logger,
+		ca: caProvider, auth: authStore, log: logger,
 	}
-	d.SetToken(token)
-	return d
 }
 
-// SetToken replaces the token the dashboard authenticates against.
-func (d *Dashboard) SetToken(token string) { d.token.Store(&token) }
-
-// authToken returns the token in force for this request.
+// authToken returns the admin credential in force for this request.
 func (d *Dashboard) authToken() string {
-	if t := d.token.Load(); t != nil {
-		return *t
+	if d.auth == nil {
+		return ""
 	}
-	return ""
+	return d.auth.Snapshot().Admin
 }
 
 // Handler returns the mux for the dashboard listener.
@@ -188,7 +182,7 @@ func rootRedirectTarget(token string) string {
 //
 // A ?token= query parameter sets a cookie and redirects, so an operator can
 // open the dashboard from a link without a browser extension. The redirect
-// drops the token from the URL so it does not linger in history.
+// removes the token from the current URL; browser history behavior varies.
 func (d *Dashboard) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := d.authToken()

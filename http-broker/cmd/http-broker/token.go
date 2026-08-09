@@ -10,58 +10,84 @@ import (
 
 var tokenCmd = &cobra.Command{
 	Use:   "token",
-	Short: "Manage the shared bearer token",
-	Long: "One token authenticates both listeners: the proxy accepts it as a\n" +
-		"Proxy-Authorization credential, the dashboard as a Bearer header or cookie.",
+	Short: "Manage role credentials",
+	Long:  "The agent credential authenticates the proxy; the admin credential authenticates the dashboard.",
 }
 
 var tokenShowCmd = &cobra.Command{
-	Use:   "show",
-	Short: "Print the current token, generating one if absent",
-	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		token, err := auth.EnsureToken(auth.TokenPath())
+	Use:   "show <agent|admin>",
+	Short: "Print one selected role credential",
+	Args:  tokenRoleArgs("show"),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		role, _ := parseTokenRole(args[0])
+		tokens, err := auth.EnsureTokenSetContext(commandContext(cmd), auth.DefaultTokenPaths())
 		if err != nil {
-			return err
+			return fmt.Errorf("loading role credentials: %w", err)
 		}
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), token)
-		return nil
+		selected := tokens.Agent
+		if role == auth.AdminRole {
+			selected = tokens.Admin
+		}
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), selected)
+		return err
 	},
 }
 
 var tokenProxyURLCmd = &cobra.Command{
 	Use:   "proxy-credential",
-	Short: "Print the Proxy-Authorization header value clients should send",
+	Short: "Print the agent-derived Proxy-Authorization header value",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		token, err := auth.EnsureToken(auth.TokenPath())
+		tokens, err := auth.EnsureTokenSetContext(commandContext(cmd), auth.DefaultTokenPaths())
 		if err != nil {
-			return err
+			return fmt.Errorf("loading role credentials: %w", err)
 		}
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), auth.ProxyCredential(token))
-		return nil
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), auth.ProxyCredential(tokens.Agent))
+		return err
 	},
 }
 
 var tokenRotateCmd = &cobra.Command{
-	Use:   "rotate",
-	Short: "Generate a new token, invalidating the old one",
-	Long: "Replaces the token. Every sandbox and dashboard session using the old one\n" +
-		"stops working immediately: re-run provisioning in each sandbox, then send\n" +
-		"SIGHUP to a running serve.",
-	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		token, err := auth.Generate()
-		if err != nil {
-			return err
+	Use:   "rotate <agent|admin>",
+	Short: "Rotate one selected role credential",
+	Long:  "Rotate one role and activate it with SIGHUP. New CONNECT, absolute-form proxy, and dashboard requests reject the old role value; established tunnel/MITM traffic and dashboard SSE may continue. Agent rotation is a coordinated re-provisioning cutover, not zero-downtime revocation.",
+	Args:  tokenRoleArgs("rotate"),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		role, _ := parseTokenRole(args[0])
+		if _, err := auth.RotateTokenContext(commandContext(cmd), auth.DefaultTokenPaths(), role); err != nil {
+			return fmt.Errorf("rotating %s token: %w", role, err)
 		}
-		if err := auth.Write(auth.TokenPath(), token); err != nil {
-			return err
+		paths := auth.DefaultTokenPaths()
+		var outputErr error
+		switch role {
+		case auth.AgentRole:
+			_, outputErr = fmt.Fprintf(cmd.OutOrStdout(), "Rotated agent token in %s; re-provision agent-token, send SIGHUP promptly, then reconnect old-token clients.\n", paths.Agent)
+		case auth.AdminRole:
+			_, outputErr = fmt.Fprintf(cmd.OutOrStdout(), "Rotated admin token in %s. Send SIGHUP, then reopen the dashboard to authenticate again.\n", paths.Admin)
 		}
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), token)
-		cmd.PrintErrln("re-run provisioning in every sandbox, then send SIGHUP to a running serve")
-		return nil
+		return outputErr
 	},
+}
+
+func tokenRoleArgs(command string) cobra.PositionalArgs {
+	return func(_ *cobra.Command, args []string) error {
+		if len(args) != 1 {
+			return fmt.Errorf("token %s requires exactly one role; usage: http-broker token %s <agent|admin>", command, command)
+		}
+		_, err := parseTokenRole(args[0])
+		return err
+	}
+}
+
+func parseTokenRole(value string) (auth.Role, error) {
+	switch auth.Role(value) {
+	case auth.AgentRole:
+		return auth.AgentRole, nil
+	case auth.AdminRole:
+		return auth.AdminRole, nil
+	default:
+		return "", fmt.Errorf("invalid token role %q: expected agent or admin", value)
+	}
 }
 
 func init() {

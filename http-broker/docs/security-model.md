@@ -4,17 +4,14 @@
 
 Four parties, and what each is trusted with.
 
-| Party                   | Trusted with                                                                          | Not trusted with                                               |
-| ----------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| **The host**            | The CA private key, the OS keychain, `config.json`, `rules.json`, the audit database. | —                                                              |
-| **http-broker**         | Reading credentials, terminating TLS for intercepted hosts, injecting headers.        | —                                                              |
-| **The sandboxed agent** | Reaching the proxy with a shared bearer token.                                        | Any credential value. Any policy decision. The CA private key. |
-| **Upstream services**   | Receiving injected credentials, subject to each credential's host binding.            | Being reached at all unless policy allows it.                  |
+| Party                   | Trusted with                                                                          | Not trusted with                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| **The host**            | The CA private key, the OS keychain, `config.json`, `rules.json`, the audit database. | —                                                                                     |
+| **http-broker**         | Reading credentials, terminating TLS for intercepted hosts, injecting headers.        | —                                                                                     |
+| **The sandboxed agent** | Reaching the proxy with the shared agent credential.                                  | Admin credential, dashboard state, credential values, policy changes, CA private key. |
+| **Upstream services**   | Receiving injected credentials, subject to each credential's host binding.            | Being reached at all unless policy allows it.                                         |
 
-The boundary that matters is between the agent and the credential. The agent
-holds a proxy token, which authenticates it to the proxy and nothing else. A
-stolen proxy token lets an attacker use policy as written — it does not reveal
-a single credential value, and it cannot widen policy.
+The agent holds only `agent-token`, which authenticates CONNECT and absolute-form proxy requests and nothing else. `admin-token` stays on the host and alone authenticates dashboard routes. Neither role is a superset. A stolen agent credential lets an attacker use policy as written, but cannot read dashboard metadata, reveal credential values, or widen policy.
 
 **The proxy listener is loopback-only and enforced as such at startup.** That
 network boundary is load-bearing; the bearer token is defence in depth.
@@ -63,6 +60,8 @@ loopback.
     credentials.
 11. **A failed reload keeps the previous policy serving.** A typo cannot take
     the sandbox's network down.
+12. **Role authority is strict and confined.** The proxy compares only the agent credential; the dashboard query/Bearer/cookie flow compares only admin. `/`, `/healthz`, and `/ca.pem` are intentional public exceptions. Admin credentials never enter provisioning or daemon logs.
+13. **Credential state converges safely.** Canonical role files are distinct and atomically replaced under an advisory lock. Legacy `auth-token` is initialization-only migration input preserved as agent, then retired; it is never a runtime fallback. `SIGHUP` publishes one immutable pair and applies a valid role change even if another role or unrelated reload fails.
 
 ## Out of scope
 
@@ -82,8 +81,7 @@ These are **not** guarantees. Do not rely on them.
   bytes; only host, port, byte counts and duration are recorded.
 - **No human-in-the-loop approval.** That belongs where arguments are visible,
   which is `mcp-broker`.
-- **No per-agent identity.** One shared token. Every sandbox with it has the
-  same policy.
+- **No per-agent identity.** One shared agent token serves every sandbox, plus one separate shared admin token for the host dashboard.
 - **No request-body inspection or matching**, and therefore no protection
   against exfiltration through a request body to an allowed host.
 - **No response rewriting, redirect following, or rate limiting.**
@@ -94,18 +92,17 @@ These are **not** guarantees. Do not rely on them.
 
 ## Compromise response
 
-### A leaked bearer token
+### A leaked agent credential
 
-The token authenticates to the proxy. Anyone holding it can use policy as
-written — they cannot read a credential or change policy.
+Anyone holding it can use proxy policy as written, but cannot authenticate to the dashboard. Coordinate the cutover: `http-broker token rotate agent`, refresh/copy and re-provision `agent-token` while avoiding new client starts, send `SIGHUP` promptly, then reconnect clients holding the old value. New CONNECT and absolute-form requests reject the old credential after activation; existing tunnel and MITM CONNECT traffic continues. Review the audit log. This is not zero-downtime revocation.
 
-```bash
-http-broker token rotate
-```
+### A leaked admin credential
 
-Then re-provision every sandbox and `SIGHUP` the running process. Until a
-sandbox is re-provisioned its requests get 407. Review the audit log for
-requests you cannot account for.
+Run `http-broker token rotate admin`, send `SIGHUP`, then reopen the dashboard. The old Bearer value and cookies fail on new dashboard requests, although an already-open SSE stream may continue. Agent proxy access is untouched.
+
+### Downgrade warning
+
+A one-token binary necessarily re-merges proxy and dashboard authority. A deliberate downgrade requires stopping or isolating the broker, reconstructing legacy shared-token state, and treating every sandbox holder as dashboard-authorized until re-upgrade and rotation.
 
 ### A leaked `ca.key`
 

@@ -11,14 +11,9 @@ launchd; see [launchd.md](launchd.md).
 | ----------- | -------------------------------------------------- |
 | `--no-open` | Do not open the dashboard in a browser at startup. |
 
-On startup the dashboard URL is printed with a `?token=` parameter and opened in
-a browser. Both steps require stdout to be a terminal: under launchd stdout is a
-log file, so printing would persist the token and opening a browser at login is
-wrong. The token is exchanged for a cookie and redirected out of the URL on
-first load, so it does not linger in browser history.
+Interactive startup prints and may open a URL carrying only `admin-token`. Both steps require terminal stdout, so daemon output never receives a token-bearing URL. The dashboard exchanges it for a scoped cookie and redirects to a clean current URL; no browser-history guarantee is implied. `/`, `/healthz`, and `/ca.pem` remain public.
 
-Signals: `SIGHUP` reloads `config.json`, `rules.json`, the auth token and the
-CA, and clears the credential cache, keeping previous state on failure. The
+`SIGHUP` reloads `config.json`, `rules.json`, both role files, the CA, and clears the credential cache. Authentication reload is attempted independently even when config/rules/CA reload fails. A missing, malformed, equality-causing, or prior-opposite-role candidate retains that role's previous in-memory value, while a valid safe change to the other role applies atomically. The
 listener addresses are the exception — moving a bound socket would point every
 sandbox at a dead port, so a changed address is logged and ignored until a
 restart. `SIGINT`/`SIGTERM` shut down gracefully with a 10-second drain window.
@@ -101,15 +96,17 @@ stderr. It never prunes when the keychain cannot be reached — that failure exi
 
 ## `token`
 
-| Command                  | Effect                                              |
-| ------------------------ | --------------------------------------------------- |
-| `token show`             | Print the token, generating one if absent.          |
-| `token proxy-credential` | Print the `Proxy-Authorization` value clients send. |
-| `token rotate`           | Generate a new token, invalidating the old one.     |
+| Command                       | Effect                                                               |
+| ----------------------------- | -------------------------------------------------------------------- |
+| `token show <agent\|admin>`   | Print only the selected raw value, initializing or migrating first.  |
+| `token proxy-credential`      | Print agent-token as the Basic `Proxy-Authorization` value; no args. |
+| `token rotate <agent\|admin>` | Atomically replace only one role without printing the raw value.     |
 
-Values print to stdout, so `$(http-broker token show)` works. Advice that
-follows a value — "re-run provisioning" after a rotate — goes to stderr, so it
-never lands in the substitution.
+`show` and `rotate` require exactly one valid role and return command-specific errors for missing, extra, or unknown arguments.
+
+Agent activation is coordinated: rotate, refresh/copy and re-provision `agent-token` while avoiding new client starts, send `SIGHUP` promptly, then reconnect old-token clients. After reload, old credentials fail on new CONNECT and absolute-form requests, but traffic inside an established tunnel or MITM CONNECT continues. This is not zero-downtime revocation.
+
+Admin activation is rotate, `SIGHUP`, then reopen/re-authenticate the dashboard. Old Bearer credentials and cookies fail on new dashboard requests; an already-open SSE stream may continue. The untouched role remains valid.
 
 ## `ca`
 
