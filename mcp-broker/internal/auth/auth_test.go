@@ -96,6 +96,20 @@ func TestMiddlewareSetsAdminCookieAndRedirectsWithoutQueryToken(t *testing.T) {
 	require.Equal(t, http.SameSiteStrictMode, cookies[0].SameSite)
 }
 
+func TestMiddlewareCanonicalizesExactDashboardBootstrapForCookieScope(t *testing.T) {
+	handler := Middleware(testAuthStore(t), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "/dashboard?token="+testAdmin, nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusFound, response.Code)
+	require.Equal(t, "/dashboard/", response.Header().Get("Location"))
+	require.Len(t, response.Result().Cookies(), 1)
+}
+
 func TestMiddlewareRejectsAgentQueryTokenForDashboard(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

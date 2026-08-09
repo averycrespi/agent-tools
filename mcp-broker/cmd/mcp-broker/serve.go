@@ -157,7 +157,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	// Load or migrate both strictly separated role credentials before binding.
 	tokenPaths := auth.DefaultTokenPaths()
-	tokens, err := auth.EnsureTokenSet(tokenPaths)
+	tokens, err := auth.EnsureTokenSetContext(commandContext(cmd), tokenPaths)
 	if err != nil {
 		return fmt.Errorf("loading role credentials: %w", err)
 	}

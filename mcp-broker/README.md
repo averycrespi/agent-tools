@@ -257,7 +257,7 @@ Hooks are startup-configured, asynchronous observers for approval notifications.
 }
 ```
 
-Omitting `hooks`, using `"hooks": {}`, or configuring an empty event list starts no hook workers and preserves normal broker behavior. `mcp-broker config refresh` writes the canonical defaults and empty event list. Hook changes require a broker restart; `SIGHUP` reloads policy rules only.
+Omitting `hooks`, using `"hooks": {}`, or configuring an empty event list starts no hook workers and preserves normal broker behavior. `mcp-broker config refresh` writes the canonical defaults and empty event list. Hook changes require a broker restart; `SIGHUP` reloads policy rules plus both role credentials.
 
 Each handler is a direct executable plus argument vector. The broker does not invoke a shell or substitute request data into the command or arguments. To use shell syntax deliberately, configure a shell explicitly, for example `"command": "/bin/sh", "args": ["-c", "..."]`. Relative executable paths use the broker working directory. Bare names are resolved through the broker process's startup `PATH`; a handler's `PATH` overlay affects the child environment, not executable lookup.
 
@@ -372,7 +372,7 @@ MCP tool call requests may include `Mcp-Broker-Approval-Mode` to control what ha
 
 ### Grants
 
-Grants are temporary bearer tokens that prepend a small rule set to the normal policy for one request. They are useful when you want to intentionally allow or deny a narrow workflow for a bounded time without editing the base rules. Grants are authorization overlays, not authentication: clients must still send the normal `Authorization: Bearer <broker-token>` header.
+Grants are temporary bearer tokens that prepend a small rule set to the normal policy for one request. They are useful when you want to intentionally allow or deny a narrow workflow for a bounded time without editing the base rules. Grants are authorization overlays, not authentication: clients must still send the normal `Authorization: Bearer <agent-token>` header.
 
 Mint a grant offline with a required name, TTL, and JSON rules file:
 
@@ -400,7 +400,7 @@ The full token is printed exactly once by `grant mint`; store it securely. The g
 Use a grant on an MCP tool call by adding exactly one header:
 
 ```text
-Authorization: Bearer <broker-token>
+Authorization: Bearer <agent-token>
 Mcp-Broker-Grant: <grant-token>
 ```
 

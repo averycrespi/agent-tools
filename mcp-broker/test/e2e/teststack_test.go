@@ -87,6 +87,8 @@ type toolDef struct {
 	StructuredResponse any
 	ResultIsError      bool
 	CallFailure        bool
+	Started            chan<- struct{}
+	Release            <-chan struct{}
 	Annotations        *gomcp.ToolAnnotation
 	OutputSchema       *gomcp.ToolOutputSchema
 	Meta               *gomcp.Meta
@@ -116,6 +118,12 @@ func startMockBackend(t *testing.T, tools []toolDef) string {
 		srv.AddTool(
 			tool,
 			func(_ context.Context, req gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+				if td.Started != nil {
+					td.Started <- struct{}{}
+				}
+				if td.Release != nil {
+					<-td.Release
+				}
 				if td.CallFailure {
 					return nil, fmt.Errorf("synthetic backend call failure")
 				}
@@ -357,8 +365,8 @@ func newTestStack(t *testing.T, opts stackOpts) *TestStack {
 		t.Fatalf("open broker output: %v", err)
 	}
 	t.Cleanup(func() { _ = outputFile.Close() })
-	brokerCmd.Stdout = io.MultiWriter(os.Stdout, outputFile)
-	brokerCmd.Stderr = io.MultiWriter(os.Stderr, outputFile)
+	brokerCmd.Stdout = outputFile
+	brokerCmd.Stderr = outputFile
 	// Set XDG_CONFIG_HOME so the broker writes role credentials to a known location.
 	brokerCmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+tmpDir)
 	if err := brokerCmd.Start(); err != nil {

@@ -76,6 +76,8 @@ The embedded dashboard in `internal/dashboard/index.html` should use the shared 
 - `SIGHUP` reloads rules and role files independently without listener/backend churn; invalid candidates retain only their prior role
 - Dashboard auth uses only admin in the `mcp-broker-auth` cookie (`HttpOnly`, `SameSite=Strict`); printing/opening its tokenized URL requires interactive stdout
 - Provisioning may reference only `agent-token`; `token show` and `token rotate` always require an explicit `agent|admin` argument
+- Agent rotation is coordinated: rotate, refresh/re-provision, SIGHUP promptly, then reconnect old-token clients. New MCP/dashboard requests reauthenticate; existing MCP responses and dashboard SSE may drain
+- A one-token downgrade re-merges sandbox and dashboard authority and is never a secure rollback
 - Telegram approver uses long-polling (`getUpdates?timeout=30`) — no inbound connections needed; correlates responses by Telegram `message_id`
 - `expandEnv` for Telegram token/chat_id is applied at startup in `serve.go` via `os.ExpandEnv`, not in the config package
 - Approval hooks are observers, never approvers: emit only after final `require-approval` passes reject/no-approver gates and immediately before `Approver.Review`; hook status/output must never affect authorization, proxying, or audit

@@ -55,8 +55,10 @@ func TestE2E_StrictRoleBoundaryAndPublicEndpoints(t *testing.T) {
 func TestE2E_DashboardBootstrapCookieContainsOnlyAdminToken(t *testing.T) {
 	s := newTestStack(t, stackOpts{Tools: defaultTools})
 	client := noRedirectClient()
-	resp, err := client.Get(s.BrokerURL + "/dashboard/?token=" + s.AdminToken + "&view=audit")
-	require.NoError(t, err)
+	resp, err := client.Get(s.BrokerURL + "/dashboard?token=" + s.AdminToken + "&view=audit")
+	if err != nil {
+		t.Fatal("admin dashboard bootstrap request failed")
+	}
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusFound, resp.StatusCode)
 	require.Equal(t, "/dashboard/?view=audit", resp.Header.Get("Location"))
@@ -73,7 +75,9 @@ func TestE2E_DashboardBootstrapCookieContainsOnlyAdminToken(t *testing.T) {
 	require.Equal(t, http.StatusFound, requestStatus(t, s.BrokerURL+"/dashboard/api/tools", http.MethodGet, "", "", &http.Cookie{Name: cookie.Name, Value: s.AgentToken}))
 
 	agentBootstrap, err := client.Get(s.BrokerURL + "/dashboard/?token=" + s.AgentToken)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal("agent dashboard bootstrap request failed")
+	}
 	defer agentBootstrap.Body.Close()
 	require.Equal(t, http.StatusFound, agentBootstrap.StatusCode)
 	require.Equal(t, "/dashboard/unauthorized", agentBootstrap.Header.Get("Location"))
@@ -130,6 +134,38 @@ func TestE2E_AdminRotationLeavesAuthenticatedSSEOpenButRejectsNewRequests(t *tes
 	line, err := reader.ReadString('\n')
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(line, "data: "))
+}
+
+func TestE2E_AgentRotationLetsAuthenticatedMCPResponseDrain(t *testing.T) {
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	s := newTestStack(t, stackOpts{
+		Tools: []toolDef{{Name: "slow", Response: `{"ok":true}`, Started: started, Release: release}},
+		Rules: []testRuleConfig{{Tool: "*", Verdict: "allow"}},
+	})
+	callDone := make(chan error, 1)
+	go func() {
+		_, err := s.callTool("echo.slow", nil)
+		callDone <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("backend call did not start")
+	}
+	oldAgent := s.AgentToken
+	newAgent := strings.Repeat("c", 64)
+	require.NoError(t, os.WriteFile(filepath.Join(s.ConfigDir, "agent-token"), []byte(newAgent), 0o600))
+	require.NoError(t, s.brokerCmd.Process.Signal(syscall.SIGHUP))
+	waitForStatus(t, s.BrokerURL+"/mcp", http.MethodGet, oldAgent, http.StatusUnauthorized)
+
+	close(release)
+	select {
+	case err := <-callDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("authenticated MCP response did not drain after agent rotation")
+	}
 }
 
 func TestE2E_IndependentRoleReloadAndFailureRetention(t *testing.T) {

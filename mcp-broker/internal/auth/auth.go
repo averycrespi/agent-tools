@@ -72,6 +72,9 @@ func Middleware(store *Store, next http.Handler) http.Handler {
 
 func redirectWithoutToken(w http.ResponseWriter, r *http.Request) {
 	clean := *r.URL
+	if clean.Path == "/dashboard" {
+		clean.Path = "/dashboard/"
+	}
 	query := clean.Query()
 	query.Del("token")
 	clean.RawQuery = query.Encode()
