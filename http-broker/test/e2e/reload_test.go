@@ -211,8 +211,8 @@ func TestRoleRotationReloadsIndependentlyAndRetainsInvalidCandidate(t *testing.T
 		t.Fatal("admin rotation did not change the credential")
 	}
 	s.reload()
-	if got := dashboardAuthStatus(t, s, oldAdmin); got != http.StatusUnauthorized {
-		t.Fatalf("old admin credential status = %d, want 401", got)
+	if got := dashboardAuthStatus(t, s, oldAdmin); got != http.StatusFound {
+		t.Fatalf("old admin credential status = %d, want 302", got)
 	}
 	if got := dashboardAuthStatus(t, s, freshAdmin); got != http.StatusOK {
 		t.Fatalf("new admin credential status = %d, want 200", got)
@@ -232,8 +232,8 @@ func TestRoleRotationReloadsIndependentlyAndRetainsInvalidCandidate(t *testing.T
 	if got := dashboardAuthStatus(t, s, finalAdmin); got != http.StatusOK {
 		t.Fatalf("valid admin change beside invalid agent/rules status = %d, want 200", got)
 	}
-	if got := dashboardAuthStatus(t, s, freshAdmin); got != http.StatusUnauthorized {
-		t.Fatalf("prior admin credential status = %d, want 401", got)
+	if got := dashboardAuthStatus(t, s, freshAdmin); got != http.StatusFound {
+		t.Fatalf("prior admin credential status = %d, want 302", got)
 	}
 }
 
@@ -300,7 +300,7 @@ func dashboardAuthStatus(t *testing.T, s *stack, token string) int {
 		t.Fatalf("building dashboard request: %v", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
-	response, err := http.DefaultClient.Do(request)
+	response, err := noRedirectClient().Do(request)
 	if err != nil {
 		t.Fatalf("dashboard request: %v", err)
 	}

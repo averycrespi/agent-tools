@@ -11,7 +11,7 @@ launchd; see [launchd.md](launchd.md).
 | ----------- | -------------------------------------------------- |
 | `--no-open` | Do not open the dashboard in a browser at startup. |
 
-Interactive startup prints and may open a URL carrying only `admin-token`. Both steps require terminal stdout, so daemon output never receives a token-bearing URL. The dashboard exchanges it for a scoped cookie and redirects to a clean current URL; no browser-history guarantee is implied. `/`, `/healthz`, and `/ca.pem` remain public.
+Interactive startup prints and may open a URL carrying only `admin-token`. Both steps require terminal stdout, so daemon output never receives a token-bearing URL. The dashboard exchanges it for a scoped cookie and redirects to a clean current URL; no browser-history guarantee is implied. `/`, `/healthz`, `/ca.pem`, and the host-authentication guidance at `/dashboard/unauthorized` remain public.
 
 `SIGHUP` reloads `config.json`, `rules.json`, both role files, the CA, and clears the credential cache. Authentication reload is attempted independently even when config/rules/CA reload fails. A missing, malformed, equality-causing, or prior-opposite-role candidate retains that role's previous in-memory value, while a valid safe change to the other role applies atomically. The
 listener addresses are the exception — moving a bound socket would point every

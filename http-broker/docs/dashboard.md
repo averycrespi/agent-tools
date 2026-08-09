@@ -18,7 +18,7 @@ by hand:
 open "http://127.0.0.1:8221/dashboard/?token=$(http-broker token show admin)"
 ```
 
-Only `admin-token` works in the query, Bearer header, or `http-broker-auth` cookie; an agent credential receives 401. The bootstrap redirect removes the query from the current URL, without promising removal from browser history. The cookie is scoped to `/dashboard/`, `HttpOnly`, and `SameSite=Strict`. Tokenized URLs are printed/opened only from an interactive terminal.
+Only `admin-token` works in the query, Bearer header, or `http-broker-auth` cookie. A request without it—including one carrying an agent credential—redirects to the public `/dashboard/unauthorized` page, which explains how to authenticate from the host. The bootstrap redirect removes the query from the current URL, without promising removal from browser history. The cookie is scoped to `/dashboard/`, `HttpOnly`, and `SameSite=Strict`. Tokenized URLs are printed/opened only from an interactive terminal.
 
 The listener root redirects to `/dashboard/`, carrying a `?token=` parameter
 over if one was given, so the bare address is not a dead end.
@@ -45,7 +45,9 @@ serves a route this table omits.
 | `GET /`                          | none        | 302 to `/dashboard/`, carrying `?token=` over if present. Exposes nothing itself.                           |
 | `GET /healthz`                   | none        | `ok`. The liveness probe an external monitor uses to detect a wedged-but-listening proxy.                   |
 | `GET /ca.pem`                    | none        | The CA certificate. Unauthenticated because provisioning fetches it before any token exists in the sandbox. |
-| `GET /dashboard/`                | admin token | The dashboard page.                                                                                         |
+| `GET /dashboard/unauthorized`    | none        | Host guidance for authenticating with the admin credential.                                                 |
+| `GET /dashboard`                 | admin token | Redirects authenticated requests to `/dashboard/` and others directly to the guidance page.                 |
+| `GET /dashboard/`                | admin token | The dashboard page. Unauthenticated requests redirect to the guidance page.                                 |
 | `GET /dashboard/app.js`          | admin token | Dashboard script.                                                                                           |
 | `GET /dashboard/styles.css`      | admin token | Dashboard styles.                                                                                           |
 | `GET /dashboard/favicon.svg`     | admin token | Dashboard icon.                                                                                             |

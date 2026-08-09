@@ -34,6 +34,8 @@ var assets embed.FS
 // assets reference it, so it is not free to change in one place only.
 const Prefix = "/dashboard/"
 
+const unauthorizedPath = Prefix + "unauthorized"
+
 // sseBuffer is how many events a slow client may fall behind before its
 // events start being dropped.
 const sseBuffer = 16
@@ -134,10 +136,11 @@ func (d *Dashboard) Handler() http.Handler {
 
 	// Unauthenticated. /healthz is the liveness probe an external monitor
 	// needs (AC-19); /ca.pem is fetched by provisioning before any token
-	// exists in the sandbox. Both stay at the root: they are consumed by
-	// scripts and monitors, not by the dashboard.
+	// exists in the sandbox. The unauthorized page explains how a host operator
+	// can authenticate without exposing dashboard state.
 	mux.HandleFunc("GET /healthz", d.handleHealthz)
 	mux.HandleFunc("GET /ca.pem", d.handleCA)
+	mux.HandleFunc("GET "+unauthorizedPath, d.handleUnauthorized)
 
 	// The bare listener address is a dead end otherwise. "/{$}" matches the
 	// root exactly, so an unknown path is a mux 404 rather than the page.
@@ -146,6 +149,7 @@ func (d *Dashboard) Handler() http.Handler {
 	// Authenticated, read-only. Prefixed to match mcp-broker, where the
 	// dashboard shares a port with /mcp and the prefix is load-bearing. Here
 	// it buys consistency rather than disambiguation.
+	mux.HandleFunc("GET /dashboard", d.requireAuth(d.handleDashboardRoot))
 	mux.HandleFunc("GET "+Prefix, d.requireAuth(d.handleIndex))
 	mux.HandleFunc("GET "+Prefix+"app.js", d.requireAuth(d.handleAsset("assets/app.js", "text/javascript; charset=utf-8")))
 	mux.HandleFunc("GET "+Prefix+"styles.css", d.requireAuth(d.handleAsset("assets/styles.css", "text/css; charset=utf-8")))
@@ -212,8 +216,7 @@ func (d *Dashboard) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		if !auth.CheckDashboardAuth(r, token) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="http-broker"`)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			http.Redirect(w, r, unauthorizedPath, http.StatusFound)
 			return
 		}
 		next(w, r)
@@ -247,6 +250,25 @@ func (d *Dashboard) handleCA(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/x-pem-file")
 	w.Header().Set("Content-Disposition", `attachment; filename="http-broker-ca.pem"`)
 	_, _ = w.Write(d.ca.RootPEM())
+}
+
+func (d *Dashboard) handleDashboardRoot(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, Prefix, http.StatusFound)
+}
+
+func (d *Dashboard) handleUnauthorized(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = fmt.Fprint(w, `<!DOCTYPE html>
+<html><head><title>Unauthorized - HTTP Broker</title>
+<style>body{font-family:system-ui,sans-serif;max-width:600px;margin:80px auto;padding:0 20px;color:#333}
+h1{color:#c00}code{background:#f4f4f4;padding:2px 6px;border-radius:3px}</style>
+</head><body>
+<h1>Unauthorized</h1>
+<p>You need to authenticate to access the HTTP Broker dashboard.</p>
+<p>Use the host-only admin credential. Interactive startup announces this URL; for a background service, run <code>http-broker token show admin</code> on the host:</p>
+<pre>http://localhost:PORT/dashboard/?token=&lt;admin-token&gt;</pre>
+<p>This sets the dashboard cookie. An agent credential cannot authenticate here.</p>
+</body></html>`)
 }
 
 func (d *Dashboard) handleIndex(w http.ResponseWriter, _ *http.Request) {

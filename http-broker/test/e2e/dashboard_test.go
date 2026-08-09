@@ -185,14 +185,15 @@ func TestDashboardReadOnly(t *testing.T) {
 	}
 }
 
-// TestDashboardAuth is AC-12's other half: every route except /ca.pem and
-// /healthz requires the token, and the root only redirects.
+// TestDashboardAuth is AC-12's other half: only the explicit public routes
+// work without a token; the root and protected dashboard routes redirect.
 func TestDashboardAuth(t *testing.T) {
 	s := startStack(t, stackOptions{})
 
-	public := map[string]bool{"/ca.pem": true, "/healthz": true}
-	// The listener root serves nothing to authenticate; it only redirects.
-	redirects := map[string]bool{"/": true}
+	public := map[string]bool{"/ca.pem": true, "/healthz": true, "/dashboard/unauthorized": true}
+	// The listener root and protected dashboard routes serve nothing without
+	// authentication; they redirect to a fixed same-origin target.
+	redirects := map[string]bool{"/": true, "/dashboard": true}
 	client := &http.Client{
 		Timeout: 10e9,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -218,14 +219,13 @@ func TestDashboardAuth(t *testing.T) {
 			}
 			continue
 		}
-		if redirects[route] {
+		if redirects[route] || strings.HasPrefix(route, "/dashboard/") {
 			if resp.StatusCode != http.StatusFound {
 				t.Errorf("%s status = %d, want 302 without a token", route, resp.StatusCode)
 			}
-			continue
-		}
-		if resp.StatusCode != http.StatusUnauthorized {
-			t.Errorf("%s status = %d, want 401 without a token", route, resp.StatusCode)
+			if route != "/" && resp.Header.Get("Location") != "/dashboard/unauthorized" {
+				t.Errorf("%s Location = %q, want /dashboard/unauthorized", route, resp.Header.Get("Location"))
+			}
 		}
 	}
 }
@@ -244,7 +244,7 @@ func TestDashboardRoutesAreDocumented(t *testing.T) {
 	served := []string{
 		"/dashboard/", "/dashboard/app.js", "/dashboard/styles.css", "/dashboard/favicon.svg",
 		"/dashboard/api/audit", "/dashboard/api/rules", "/dashboard/api/credentials",
-		"/dashboard/api/events",
+		"/dashboard", "/dashboard/api/events", "/dashboard/unauthorized",
 		"/", "/ca.pem", "/healthz",
 	}
 	for _, route := range served {

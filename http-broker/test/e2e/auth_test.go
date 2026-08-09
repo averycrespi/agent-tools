@@ -22,11 +22,11 @@ func TestStrictRoleBoundaryAndPublicDashboardEndpoints(t *testing.T) {
 	if got := dashboardAuthStatus(t, s, s.adminToken); got != http.StatusOK {
 		t.Fatalf("admin dashboard status = %d, want 200", got)
 	}
-	if got := dashboardAuthStatus(t, s, s.agentToken); got != http.StatusUnauthorized {
-		t.Fatalf("agent dashboard status = %d, want 401", got)
+	if got := dashboardAuthStatus(t, s, s.agentToken); got != http.StatusFound {
+		t.Fatalf("agent dashboard status = %d, want 302", got)
 	}
 	for _, path := range []string{
-		"/dashboard/", "/dashboard/app.js", "/dashboard/styles.css", "/dashboard/favicon.svg",
+		"/dashboard", "/dashboard/", "/dashboard/app.js", "/dashboard/styles.css", "/dashboard/favicon.svg",
 		"/dashboard/api/audit", "/dashboard/api/rules", "/dashboard/api/credentials", "/dashboard/api/events",
 	} {
 		request, err := http.NewRequest(http.MethodGet, s.dashURL(path), nil)
@@ -39,8 +39,11 @@ func TestStrictRoleBoundaryAndPublicDashboardEndpoints(t *testing.T) {
 			t.Fatalf("agent request to %s: %v", path, err)
 		}
 		_ = response.Body.Close()
-		if response.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("agent request to %s status = %d, want 401", path, response.StatusCode)
+		if response.StatusCode != http.StatusFound {
+			t.Fatalf("agent request to %s status = %d, want 302", path, response.StatusCode)
+		}
+		if response.Header.Get("Location") != "/dashboard/unauthorized" {
+			t.Fatalf("agent request to %s Location = %q, want /dashboard/unauthorized", path, response.Header.Get("Location"))
 		}
 	}
 	assertProxyHeaderStatus(t, s, "Bearer "+s.adminToken, http.StatusProxyAuthRequired)
@@ -54,6 +57,7 @@ func TestStrictRoleBoundaryAndPublicDashboardEndpoints(t *testing.T) {
 		{path: "/", want: http.StatusFound},
 		{path: "/healthz", want: http.StatusOK},
 		{path: "/ca.pem", want: http.StatusOK},
+		{path: "/dashboard/unauthorized", want: http.StatusOK},
 	} {
 		response, err := noRedirectClient().Get(s.dashURL(tt.path))
 		if err != nil {
@@ -101,8 +105,8 @@ func TestDashboardCookieBootstrapUsesOnlyAdminCredential(t *testing.T) {
 		t.Fatal("agent-valued cookie request failed")
 	}
 	_ = agentCookieResponse.Body.Close()
-	if agentCookieResponse.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("agent-valued cookie status = %d, want 401", agentCookieResponse.StatusCode)
+	if agentCookieResponse.StatusCode != http.StatusFound {
+		t.Fatalf("agent-valued cookie status = %d, want 302", agentCookieResponse.StatusCode)
 	}
 
 	agentResponse, err := client.Get(s.dashURL("/dashboard/?token=" + s.agentToken))
@@ -110,8 +114,8 @@ func TestDashboardCookieBootstrapUsesOnlyAdminCredential(t *testing.T) {
 		t.Fatalf("agent bootstrap: %v", err)
 	}
 	defer agentResponse.Body.Close()
-	if agentResponse.StatusCode != http.StatusUnauthorized || len(agentResponse.Cookies()) != 0 {
-		t.Fatalf("agent bootstrap status/cookies = %d/%d, want 401/0", agentResponse.StatusCode, len(agentResponse.Cookies()))
+	if agentResponse.StatusCode != http.StatusFound || len(agentResponse.Cookies()) != 0 {
+		t.Fatalf("agent bootstrap status/cookies = %d/%d, want 302/0", agentResponse.StatusCode, len(agentResponse.Cookies()))
 	}
 }
 
@@ -167,8 +171,8 @@ func TestAdminRotationLeavesAuthenticatedSSEOpen(t *testing.T) {
 	oldAdmin := s.adminToken
 	freshAdmin := s.rotateToken("admin")
 	s.reload()
-	if got := dashboardAuthStatus(t, s, oldAdmin); got != http.StatusUnauthorized {
-		t.Fatalf("old admin status = %d, want 401", got)
+	if got := dashboardAuthStatus(t, s, oldAdmin); got != http.StatusFound {
+		t.Fatalf("old admin status = %d, want 302", got)
 	}
 	if got := dashboardAuthStatus(t, s, freshAdmin); got != http.StatusOK {
 		t.Fatalf("new admin status = %d, want 200", got)
@@ -180,8 +184,8 @@ func TestAdminRotationLeavesAuthenticatedSSEOpen(t *testing.T) {
 		t.Fatal("old admin cookie request failed")
 	}
 	_ = oldCookieResponse.Body.Close()
-	if oldCookieResponse.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("old admin cookie status = %d, want 401", oldCookieResponse.StatusCode)
+	if oldCookieResponse.StatusCode != http.StatusFound {
+		t.Fatalf("old admin cookie status = %d, want 302", oldCookieResponse.StatusCode)
 	}
 
 	assertProxyHeaderStatus(t, s, "", http.StatusProxyAuthRequired)

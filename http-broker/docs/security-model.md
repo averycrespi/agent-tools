@@ -60,7 +60,7 @@ loopback.
     credentials.
 11. **A failed reload keeps the previous policy serving.** A typo cannot take
     the sandbox's network down.
-12. **Role authority is strict and confined.** The proxy compares only the agent credential; the dashboard query/Bearer/cookie flow compares only admin. `/`, `/healthz`, and `/ca.pem` are intentional public exceptions. Admin credentials never enter provisioning or daemon logs.
+12. **Role authority is strict and confined.** The proxy compares only the agent credential; the dashboard query/Bearer/cookie flow compares only admin. `/`, `/healthz`, `/ca.pem`, and the host-authentication guidance at `/dashboard/unauthorized` are intentional public exceptions. Admin credentials never enter provisioning or daemon logs.
 13. **Credential state converges safely.** Canonical role files are distinct and atomically replaced under an advisory lock. Legacy `auth-token` is initialization-only migration input preserved as agent, then retired; it is never a runtime fallback. `SIGHUP` publishes one immutable pair and applies a valid role change even if another role or unrelated reload fails.
 
 ## Out of scope

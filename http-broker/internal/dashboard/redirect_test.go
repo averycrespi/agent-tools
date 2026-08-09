@@ -143,17 +143,64 @@ func TestDashboardAcceptsOnlyAdminRole(t *testing.T) {
 		wantStatus int
 	}{
 		{name: "admin", token: strings.Repeat("b", 64), wantStatus: http.StatusOK},
-		{name: "agent", token: strings.Repeat("a", 64), wantStatus: http.StatusUnauthorized},
+		{name: "agent", token: strings.Repeat("a", 64), wantStatus: http.StatusFound},
+		{name: "missing", wantStatus: http.StatusFound},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, Prefix, nil)
-			request.Header.Set("Authorization", "Bearer "+tt.token)
+			if tt.token != "" {
+				request.Header.Set("Authorization", "Bearer "+tt.token)
+			}
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
 			if response.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", response.Code, tt.wantStatus)
 			}
+			if tt.wantStatus == http.StatusFound && response.Header().Get("Location") != Prefix+"unauthorized" {
+				t.Fatalf("Location = %q, want %q", response.Header().Get("Location"), Prefix+"unauthorized")
+			}
 		})
+	}
+}
+
+func TestSlashlessDashboardRedirectsDirectlyToUnauthorizedPage(t *testing.T) {
+	d := New(nil, nil, nil, nil, dashboardTestStore(t), nil)
+	request := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+	response := httptest.NewRecorder()
+
+	d.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusFound)
+	}
+	if got := response.Header().Get("Location"); got != unauthorizedPath {
+		t.Fatalf("Location = %q, want %q", got, unauthorizedPath)
+	}
+}
+
+func TestUnauthorizedPageExplainsAdminAuthentication(t *testing.T) {
+	d := New(nil, nil, nil, nil, dashboardTestStore(t), nil)
+	request := httptest.NewRequest(http.MethodGet, Prefix+"unauthorized", nil)
+	response := httptest.NewRecorder()
+
+	d.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+	if got := response.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want text/html; charset=utf-8", got)
+	}
+	for _, text := range []string{
+		"Unauthorized",
+		"You need to authenticate to access the HTTP Broker dashboard.",
+		"http-broker token show admin",
+		"http://localhost:PORT/dashboard/?token=&lt;admin-token&gt;",
+		"An agent credential cannot authenticate here.",
+	} {
+		if !strings.Contains(response.Body.String(), text) {
+			t.Errorf("body does not contain %q", text)
+		}
 	}
 }
 

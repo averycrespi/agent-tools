@@ -40,7 +40,7 @@ toward `deny` with an explicit allowlist is the intended end state.
 One binary, two loopback listeners.
 
 - **`:8220`** accepts HTTP `CONNECT` and absolute-form plain HTTP authenticated only by `agent-token` (Basic or Bearer).
-- **`:8221`** serves the read-only dashboard and SSE under `/dashboard/`, authenticated only by `admin-token`. `/`, `/ca.pem`, and `/healthz` remain public.
+- **`:8221`** serves the read-only dashboard and SSE under `/dashboard/`, authenticated only by `admin-token`. `/`, `/ca.pem`, `/healthz`, and the host-authentication guidance at `/dashboard/unauthorized` remain public.
 
 **Two ports, not one.** `mcp-broker` shares a port because MCP and its
 dashboard are both ordinary HTTP. A forward proxy is not, and sharing would
