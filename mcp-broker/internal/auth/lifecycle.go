@@ -142,6 +142,20 @@ func ensureTokenSetLocked(paths TokenPaths) (TokenSet, error) {
 
 	if agentExists && adminExists {
 		tokens := TokenSet{Agent: agent, Admin: admin}
+		if agent == admin {
+			legacy, legacyExists, legacyErr := loadOptionalToken(paths.Legacy)
+			if legacyErr != nil || !legacyExists || legacy != agent {
+				return TokenSet{}, validateTokenSet(tokens)
+			}
+			admin, err = generateDistinctToken(agent)
+			if err != nil {
+				return TokenSet{}, err
+			}
+			if err := writeToken(paths.Admin, admin); err != nil {
+				return TokenSet{}, err
+			}
+			tokens.Admin = admin
+		}
 		if err := validateTokenSet(tokens); err != nil {
 			return TokenSet{}, err
 		}
@@ -169,7 +183,7 @@ func ensureTokenSetLocked(paths TokenPaths) (TokenSet, error) {
 		}
 	}
 
-	if !adminExists {
+	if !adminExists || admin == agent {
 		admin, err = generateDistinctToken(agent)
 		if err != nil {
 			return TokenSet{}, err

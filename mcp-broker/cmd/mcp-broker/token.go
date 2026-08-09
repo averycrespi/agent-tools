@@ -71,7 +71,7 @@ func parseTokenRole(value string) (auth.Role, error) {
 	case auth.AdminRole:
 		return auth.AdminRole, nil
 	default:
-		return "", fmt.Errorf("invalid token role %q: expected agent or admin", value)
+		return "", fmt.Errorf("invalid token role: expected agent or admin")
 	}
 }
 

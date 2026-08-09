@@ -28,9 +28,11 @@ func TestTokenRoleCommandsRequireExplicitValidRole(t *testing.T) {
 			require.ErrorContains(t, err, "<agent|admin>")
 		})
 		t.Run(command.name+" invalid", func(t *testing.T) {
-			err := command.args(nil, []string{"operator"})
+			tokenShapedArgument := strings.Repeat("a", 64)
+			err := command.args(nil, []string{tokenShapedArgument})
 			require.ErrorContains(t, err, "invalid token role")
 			require.ErrorContains(t, err, "agent or admin")
+			require.NotContains(t, err.Error(), tokenShapedArgument)
 		})
 		for _, role := range []string{"agent", "admin"} {
 			t.Run(command.name+" "+role, func(t *testing.T) {

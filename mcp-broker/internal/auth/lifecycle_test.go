@@ -101,6 +101,33 @@ func TestEnsureTokenSetUsesLegacyWhenOnlyAdminIsCanonical(t *testing.T) {
 	requireTokenFile(t, paths.Agent, testAgent)
 }
 
+func TestEnsureTokenSetRepairsAdminEqualToLegacyDuringMigration(t *testing.T) {
+	paths := testTokenPaths(t)
+	writeTestToken(t, paths.Legacy, testAgent)
+	writeTestToken(t, paths.Admin, testAgent)
+
+	tokens, err := EnsureTokenSet(paths)
+
+	require.NoError(t, err)
+	assertTokenEqual(t, tokens.Agent, testAgent, "migration did not preserve the legacy agent credential")
+	assertTokenDifferent(t, tokens.Admin, testAgent, "migration did not replace the conflicting admin credential")
+	require.NoFileExists(t, paths.Legacy)
+}
+
+func TestEnsureTokenSetRepairsCrashStateWithEqualCanonicalPairAndLegacy(t *testing.T) {
+	paths := testTokenPaths(t)
+	writeTestToken(t, paths.Legacy, testAgent)
+	writeTestToken(t, paths.Agent, testAgent)
+	writeTestToken(t, paths.Admin, testAgent)
+
+	tokens, err := EnsureTokenSet(paths)
+
+	require.NoError(t, err)
+	assertTokenEqual(t, tokens.Agent, testAgent, "crash recovery changed the canonical agent credential")
+	assertTokenDifferent(t, tokens.Admin, testAgent, "crash recovery did not replace the conflicting admin credential")
+	require.NoFileExists(t, paths.Legacy)
+}
+
 func TestEnsureTokenSetCanonicalPairWinsOverStaleLegacy(t *testing.T) {
 	paths := testTokenPaths(t)
 	writeTestToken(t, paths.Agent, testAgent)

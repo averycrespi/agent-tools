@@ -237,6 +237,23 @@ func TestRoleRotationReloadsIndependentlyAndRetainsInvalidCandidate(t *testing.T
 	}
 }
 
+func TestRoleReloadAppliesWhenCAReloadFails(t *testing.T) {
+	s := startStack(t, stackOptions{Rules: rulesDoc("tunnel")})
+	oldAgent := s.agentToken
+	freshAgent := s.rotateToken("agent")
+	if err := os.WriteFile(filepath.Join(s.dataDir, "ca.key"), []byte("malformed"), 0o600); err != nil {
+		t.Fatalf("write malformed CA key: %v", err)
+	}
+
+	s.reload()
+
+	assertConnectAuthStatus(t, s, oldAgent, http.StatusProxyAuthRequired)
+	assertConnectAccepted(t, s, freshAgent)
+	if !strings.Contains(s.Logs(), "CA unchanged") {
+		t.Fatal("reload did not report the independent CA failure")
+	}
+}
+
 func assertConnectAuthStatus(t *testing.T, s *stack, token string, want int) {
 	t.Helper()
 	conn := dialProxy(t, s)

@@ -30,9 +30,13 @@ func TestTokenRoleCommandsRequireExplicitValidRole(t *testing.T) {
 			}
 		})
 		t.Run(command.name+" invalid", func(t *testing.T) {
-			err := command.args(nil, []string{"operator"})
+			tokenShapedArgument := strings.Repeat("a", 64)
+			err := command.args(nil, []string{tokenShapedArgument})
 			if err == nil || !strings.Contains(err.Error(), "invalid token role") || !strings.Contains(err.Error(), "agent or admin") {
 				t.Fatalf("invalid-role error is not explicit: %v", err)
+			}
+			if strings.Contains(err.Error(), tokenShapedArgument) {
+				t.Fatal("invalid-role error disclosed the supplied argument")
 			}
 		})
 		for _, role := range []string{"agent", "admin"} {
