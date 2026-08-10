@@ -1350,11 +1350,10 @@
     </div>
 
     <div class="tab-bar">
-      <button
-        class="tab active"
-        onclick="switchTab('approvals')"
-        id="tab-approvals"
-      >
+      <button class="tab active" onclick="switchTab('audit')" id="tab-audit">
+        Traffic
+      </button>
+      <button class="tab" onclick="switchTab('approvals')" id="tab-approvals">
         Approvals
         <span class="tab-badge hidden" id="pending-badge">0</span>
       </button>
@@ -1367,79 +1366,11 @@
       <button class="tab" onclick="switchTab('grants')" id="tab-grants">
         Grants
       </button>
-      <button class="tab" onclick="switchTab('audit')" id="tab-audit">
-        Audit Log
-      </button>
     </div>
 
     <div class="content">
-      <!-- Approvals Tab -->
-      <div class="tab-content active" id="content-approvals">
-        <div class="section-title">Pending Requests</div>
-        <div id="queue"></div>
-        <div id="empty" class="empty-state">No pending requests</div>
-        <div
-          class="decisions-section"
-          id="decisions-section"
-          style="display: none"
-        >
-          <div class="section-title">Recent Decisions</div>
-          <div id="history"></div>
-        </div>
-      </div>
-
-      <!-- Tools Tab -->
-      <div class="tab-content" id="content-tools">
-        <div class="section-title">Discovered Tools</div>
-        <div id="tools-list"></div>
-        <div id="tools-empty" class="empty-state" style="display: none">
-          No tools discovered
-        </div>
-      </div>
-
-      <!-- Rules Tab -->
-      <div class="tab-content" id="content-rules">
-        <div class="section-title">Rules (evaluated first-match-wins)</div>
-        <div id="rules-list"></div>
-        <div id="rules-empty" class="empty-state" style="display: none">
-          No rules configured
-        </div>
-        <div class="fallthrough-row">
-          <div class="fallthrough-box" id="fallthrough-always-box">
-            <div class="fallthrough-box-title">Always fall through</div>
-            <div class="fallthrough-box-caption">
-              These tools fall through to the default verdict:
-              <code>require-approval</code>.
-            </div>
-            <div
-              class="fallthrough-box-items"
-              id="fallthrough-always-list"
-            ></div>
-          </div>
-          <div class="fallthrough-box" id="fallthrough-may-box">
-            <div class="fallthrough-box-title">
-              May fall through (depending on arguments)
-            </div>
-            <div class="fallthrough-box-caption">
-              These tools may fall through to the default verdict:
-              <code>require-approval</code>, depending on call arguments.
-            </div>
-            <div class="fallthrough-box-items" id="fallthrough-may-list"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Grants Tab -->
-      <div class="tab-content" id="content-grants">
-        <div class="section-title">Grants</div>
-        <div id="grants-list"></div>
-        <div id="grants-empty" class="empty-state" style="display: none">
-          No grants retained
-        </div>
-      </div>
-
-      <!-- Audit Log Tab -->
-      <div class="tab-content" id="content-audit">
+      <!-- Traffic Tab -->
+      <div class="tab-content active" id="content-audit">
         <div class="audit-filters">
           <span class="audit-filter-label">Filter:</span>
           <input
@@ -1510,12 +1441,78 @@
           </div>
         </div>
       </div>
+
+      <!-- Approvals Tab -->
+      <div class="tab-content" id="content-approvals">
+        <div class="section-title">Pending Requests</div>
+        <div id="queue"></div>
+        <div id="empty" class="empty-state">No pending requests</div>
+        <div
+          class="decisions-section"
+          id="decisions-section"
+          style="display: none"
+        >
+          <div class="section-title">Recent Decisions</div>
+          <div id="history"></div>
+        </div>
+      </div>
+
+      <!-- Tools Tab -->
+      <div class="tab-content" id="content-tools">
+        <div class="section-title">Discovered Tools</div>
+        <div id="tools-list"></div>
+        <div id="tools-empty" class="empty-state" style="display: none">
+          No tools discovered
+        </div>
+      </div>
+
+      <!-- Rules Tab -->
+      <div class="tab-content" id="content-rules">
+        <div class="section-title">Rules (evaluated first-match-wins)</div>
+        <div id="rules-list"></div>
+        <div id="rules-empty" class="empty-state" style="display: none">
+          No rules configured
+        </div>
+        <div class="fallthrough-row">
+          <div class="fallthrough-box" id="fallthrough-always-box">
+            <div class="fallthrough-box-title">Always fall through</div>
+            <div class="fallthrough-box-caption">
+              These tools fall through to the default verdict:
+              <code>require-approval</code>.
+            </div>
+            <div
+              class="fallthrough-box-items"
+              id="fallthrough-always-list"
+            ></div>
+          </div>
+          <div class="fallthrough-box" id="fallthrough-may-box">
+            <div class="fallthrough-box-title">
+              May fall through (depending on arguments)
+            </div>
+            <div class="fallthrough-box-caption">
+              These tools may fall through to the default verdict:
+              <code>require-approval</code>, depending on call arguments.
+            </div>
+            <div class="fallthrough-box-items" id="fallthrough-may-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Grants Tab -->
+      <div class="tab-content" id="content-grants">
+        <div class="section-title">Grants</div>
+        <div id="grants-list"></div>
+        <div id="grants-empty" class="empty-state" style="display: none">
+          No grants retained
+        </div>
+      </div>
     </div>
 
     <script>
       // --- Tab switching ---
-      var TAB_NAMES = ["approvals", "tools", "rules", "grants", "audit"];
-      var activeTab = "approvals";
+      var TAB_NAMES = ["audit", "approvals", "tools", "rules", "grants"];
+      var DEFAULT_TAB = "audit";
+      var activeTab = DEFAULT_TAB;
 
       function switchTab(name) {
         document.querySelectorAll(".tab").forEach(function (t) {
@@ -1541,13 +1538,6 @@
         }
         updateAuditStrip();
       }
-
-      (function restoreTabFromHash() {
-        var name = location.hash.replace(/^#/, "");
-        if (TAB_NAMES.indexOf(name) !== -1 && name !== "approvals") {
-          switchTab(name);
-        }
-      })();
 
       window.addEventListener("hashchange", function () {
         var name = location.hash.replace(/^#/, "");
@@ -2991,6 +2981,14 @@
           updateAuditStrip();
         }
       }
+
+      // --- Init ---
+      // Runs last: switchTab loads the active tab's data, which reads state
+      // declared above (audit paging, filters), so it must not run earlier.
+      (function restoreTabFromHash() {
+        var name = location.hash.replace(/^#/, "");
+        switchTab(TAB_NAMES.indexOf(name) !== -1 ? name : DEFAULT_TAB);
+      })();
     </script>
   </body>
 </html>
