@@ -50,6 +50,9 @@ func TestProvisionScriptUsesOnlyAgentTokenAndConverges(t *testing.T) {
 	if !strings.Contains(second, ".config/mcp-broker/agent-token") {
 		t.Fatal("managed block does not read the canonical agent token")
 	}
+	if !strings.Contains(second, `export MCP_BROKER_ENDPOINT="http://host.lima.internal:8200"`) {
+		t.Fatal("managed block does not export the broker base URL")
+	}
 	if strings.Contains(second, "admin-token") {
 		t.Fatal("managed block references the dashboard-only credential")
 	}

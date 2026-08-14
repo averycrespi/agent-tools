@@ -45,7 +45,7 @@ Neither role is a superset of the other. Never put `admin-token` in a sandbox.
 - TLS/encryption (traffic is plain HTTP on localhost)
 - Per-agent identities, user accounts, or automatic rotation
 
-**Sandboxed agents** reach the broker via Lima's user-mode networking, which forwards guest connections to `host.lima.internal:8200` to the host's loopback. Set `MCP_BROKER_URL=http://host.lima.internal:8200/mcp` inside the sandbox.
+**Sandboxed agents** reach the broker via Lima's user-mode networking, which forwards guest connections to `host.lima.internal:8200` to the host's loopback. Set `MCP_BROKER_ENDPOINT=http://host.lima.internal:8200` inside the sandbox.
 
 ## Quick start
 
@@ -509,7 +509,7 @@ The sandbox needs only `~/.config/mcp-broker/agent-token`; never copy, mount, ex
 }
 ```
 
-The provisioning script reads that file at shell startup and exports `MCP_BROKER_URL=http://host.lima.internal:8200/mcp` plus `MCP_BROKER_TOKEN` in a marker-fenced `~/.bashrc` block. Wire those into the agent's MCP config.
+The provisioning script reads that file at shell startup and exports `MCP_BROKER_ENDPOINT=http://host.lima.internal:8200` plus `MCP_BROKER_AGENT_TOKEN` in a marker-fenced `~/.bashrc` block. Wire those into the agent's MCP config.
 
 ### Without sandbox-manager
 

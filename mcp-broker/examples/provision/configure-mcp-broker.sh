@@ -21,8 +21,8 @@
 # provision. The dashboard-only credential must never be copied into a sandbox.
 #
 # This script writes a marker-fenced env block to ~/.bashrc that exports
-# MCP_BROKER_URL and MCP_BROKER_TOKEN. Wire those into your agent's MCP
-# config (e.g. Claude Code's `claude mcp add`).
+# MCP_BROKER_ENDPOINT and MCP_BROKER_AGENT_TOKEN. Wire those into your agent's
+# MCP config (e.g. Claude Code's `claude mcp add`).
 #
 # Re-running this script is safe: the block is replaced wholesale rather than
 # left alone, so a change to its contents in a newer version of this script
@@ -71,11 +71,11 @@ $MARKER_START
 # Point agent MCP clients at the host's mcp-broker. Lima's default
 # user-mode networking forwards host.lima.internal to the host loopback,
 # where the broker listens on :8200.
-export MCP_BROKER_URL="http://host.lima.internal:8200/mcp"
+export MCP_BROKER_ENDPOINT="http://host.lima.internal:8200"
 # Bearer token was copied in from the host by sandbox-manager's copy_paths.
 # Reading it here (rather than embedding the value) means token rotation is
 # picked up automatically after the next sb provision.
-export MCP_BROKER_TOKEN="\$(tr -d '\n' < \$HOME/.config/mcp-broker/agent-token)"
+export MCP_BROKER_AGENT_TOKEN="\$(tr -d '\n' < \$HOME/.config/mcp-broker/agent-token)"
 $MARKER_END
 EOF
 
