@@ -259,10 +259,7 @@ func parseLineFramedOutput(out []byte) ([]string, bool) {
 	if len(out) == 0 || out[len(out)-1] != '\n' {
 		return nil, false
 	}
-	text := string(out[:len(out)-1])
-	if strings.HasSuffix(text, "\r") {
-		text = strings.TrimSuffix(text, "\r")
-	}
+	text := strings.TrimSuffix(string(out[:len(out)-1]), "\r")
 	if text == "" {
 		return nil, true
 	}
