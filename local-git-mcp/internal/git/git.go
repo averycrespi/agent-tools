@@ -246,7 +246,7 @@ func (c *Client) resolveRemoteURLs(ctx context.Context, repoPath, remote string,
 	args = append(args, "--", remote)
 	out, err := c.runDir(ctx, repoPath, "git", args...)
 	if err != nil {
-		return nil, fmt.Errorf("remote %q is not configured", remote)
+		return nil, fmt.Errorf("remote %q is not configured: %w", remote, err)
 	}
 	urls, ok := parseLineFramedOutput(out)
 	if !ok {
@@ -278,7 +278,7 @@ func (c *Client) validateStructuredRef(ctx context.Context, repoPath, field, ref
 		return fmt.Errorf("%s must be a fully qualified branch or tag ref", field)
 	}
 	if _, err := c.runDir(ctx, repoPath, "git", "check-ref-format", ref); err != nil {
-		return fmt.Errorf("%s is not a valid Git ref", field)
+		return fmt.Errorf("%s is not a valid Git ref: %w", field, err)
 	}
 	return nil
 }

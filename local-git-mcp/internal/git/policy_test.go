@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -289,22 +290,58 @@ func TestRemoteOperations_RejectHTTPUserinfoWithoutLeakingURL(t *testing.T) {
 
 func TestRemoteOperations_RejectResolvedHTTPUserinfoWithoutLeakingURL(t *testing.T) {
 	secretURL := "https://alice:super-secret@example.com/acme/repo.git"
-	operationRan := false
-	c := mustNewClient(t, &mockRunner{
-		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
-			if len(args) > 0 && args[0] == "fetch" {
-				operationRan = true
-			}
-			return []byte(secretURL + "\n"), nil
+	operations := []struct {
+		name string
+		run  func(*Client) error
+	}{
+		{
+			name: "push",
+			run: func(c *Client) error {
+				_, err := c.Push(context.Background(), "/repo", "origin", "https://example.com/acme/repo.git", "refs/heads/main", "refs/heads/main", false)
+				return err
+			},
 		},
-	})
+		{
+			name: "fetch",
+			run: func(c *Client) error {
+				_, err := c.Fetch(context.Background(), "/repo", "origin", "https://example.com/acme/repo.git", "")
+				return err
+			},
+		},
+		{
+			name: "pull",
+			run: func(c *Client) error {
+				_, err := c.Pull(context.Background(), "/repo", "origin", "https://example.com/acme/repo.git", "", false)
+				return err
+			},
+		},
+	}
 
-	_, err := c.Fetch(context.Background(), "/repo", "origin", "https://example.com/acme/repo.git", "")
+	for _, op := range operations {
+		t.Run(op.name, func(t *testing.T) {
+			operationRan := false
+			c := mustNewClient(t, &mockRunner{
+				runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+					switch args[0] {
+					case "check-ref-format":
+						return nil, nil
+					case "remote":
+						return []byte(secretURL + "\n"), nil
+					default:
+						operationRan = true
+						return nil, nil
+					}
+				},
+			})
 
-	require.Error(t, err)
-	assert.NotContains(t, err.Error(), secretURL)
-	assert.NotContains(t, err.Error(), "super-secret")
-	assert.False(t, operationRan)
+			err := op.run(c)
+
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), secretURL)
+			assert.NotContains(t, err.Error(), "super-secret")
+			assert.False(t, operationRan)
+		})
+	}
 }
 
 func TestRemoteOperations_RejectCredentialURLAsRemoteWithoutLeakingIt(t *testing.T) {
@@ -323,6 +360,21 @@ func TestRemoteOperations_RejectCredentialURLAsRemoteWithoutLeakingIt(t *testing
 	assert.NotContains(t, err.Error(), secretURL)
 	assert.NotContains(t, err.Error(), "super-secret")
 	assert.False(t, calledGit)
+}
+
+func TestRemoteVerification_PreservesLookupContextErrors(t *testing.T) {
+	c, err := NewClientWithTimeout(&mockRunner{
+		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}, nil, true, time.Millisecond)
+	require.NoError(t, err)
+
+	_, err = c.Fetch(context.Background(), "/repo", "origin", "ssh://example.com/repo.git", "")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestRemoteOperations_AcceptSCPStyleSSHUsername(t *testing.T) {
