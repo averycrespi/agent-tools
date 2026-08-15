@@ -75,14 +75,16 @@ func callServerTool(t *testing.T, client *serverTestGitClient, name string, args
 
 func TestServerInputValidationRejectsInvalidArgumentsBeforeHandlerSideEffects(t *testing.T) {
 	tests := []struct {
-		name     string
-		toolName string
-		args     map[string]any
+		name      string
+		toolName  string
+		args      map[string]any
+		wantError string
 	}{
 		{
-			name:     "unknown argument",
-			toolName: "list_remotes",
-			args:     map[string]any{"repo_path": "/repo", "policy_hint": "ignored"},
+			name:      "unknown argument",
+			toolName:  "list_remotes",
+			args:      map[string]any{"repo_path": "/repo", "policy_hint": "ignored"},
+			wantError: "Properties:[policy_hint]",
 		},
 		{
 			name:     "missing required",
@@ -94,6 +96,7 @@ func TestServerInputValidationRejectsInvalidArgumentsBeforeHandlerSideEffects(t 
 				"source_ref":      "refs/heads/topic",
 				"destination_ref": "refs/heads/main",
 			},
+			wantError: "Missing:[force]",
 		},
 		{
 			name:     "wrong required type",
@@ -106,6 +109,7 @@ func TestServerInputValidationRejectsInvalidArgumentsBeforeHandlerSideEffects(t 
 				"destination_ref": "refs/heads/main",
 				"force":           "false",
 			},
+			wantError: "Got:string Want:[boolean]",
 		},
 		{
 			name:     "clone unknown argument",
@@ -115,6 +119,7 @@ func TestServerInputValidationRejectsInvalidArgumentsBeforeHandlerSideEffects(t 
 				"destination_dir": "/work",
 				"policy_hint":     true,
 			},
+			wantError: "Properties:[policy_hint]",
 		},
 	}
 
@@ -125,6 +130,11 @@ func TestServerInputValidationRejectsInvalidArgumentsBeforeHandlerSideEffects(t 
 			result := callServerTool(t, client, tt.toolName, tt.args)
 
 			assert.True(t, result.IsError)
+			require.NotEmpty(t, result.Content)
+			content, ok := result.Content[0].(gomcp.TextContent)
+			require.Truef(t, ok, "expected TextContent, got %T", result.Content[0])
+			assert.Contains(t, content.Text, "input schema validation failed")
+			assert.Contains(t, content.Text, tt.wantError)
 			assert.False(t, client.validateCalled)
 			assert.False(t, client.operationCalled)
 		})
