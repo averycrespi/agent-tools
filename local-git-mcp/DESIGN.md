@@ -20,14 +20,14 @@ Every git subprocess receives the MCP request context plus a per-command timeout
 
 Six tools. Existing repo-scoped tools require a `repo_path` parameter that is validated to be an existing git repository. `clone_github_repo` instead takes a GitHub repository slug and an allowed destination parent because the target repo does not exist yet.
 
-| Tool                | Description                           | Parameters                                                                                               | Annotation   |
-| ------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------ |
-| `push`              | Push commits to remote                | `repo_path`, `remote` (default: origin), `refspec` (optional), `force` (bool, uses `--force-with-lease`) | destructive  |
-| `pull`              | Pull from remote                      | `repo_path`, `remote` (default: origin), `branch` (optional), `rebase` (bool, default: false)            | additive     |
-| `fetch`             | Fetch from remote without merging     | `repo_path`, `remote` (default: origin), `refspec` (optional)                                            | idempotent   |
-| `clone_github_repo` | Clone a GitHub repo over SSH          | `repository`, `destination_dir`                                                                          | additive     |
-| `list_remote_refs`  | List refs (branches/tags) on a remote | `repo_path`, `remote` (default: origin)                                                                  | read         |
-| `list_remotes`      | Show configured remotes and URLs      | `repo_path`                                                                                              | read (local) |
+| Tool                | Description                           | Parameters                                                                    | Annotation   |
+| ------------------- | ------------------------------------- | ----------------------------------------------------------------------------- | ------------ |
+| `push`              | Push one structured ref update        | `repo_path`, `remote`, `remote_url`, `source_ref`, `destination_ref`, `force` | destructive  |
+| `pull`              | Pull from remote                      | `repo_path`, `remote`, `remote_url`, `branch` (optional), `rebase` (optional) | additive     |
+| `fetch`             | Fetch from remote without merging     | `repo_path`, `remote`, `remote_url`, `refspec` (optional)                     | idempotent   |
+| `clone_github_repo` | Clone a GitHub repo over SSH          | `repository`, `destination_dir`                                               | additive     |
+| `list_remote_refs`  | List refs (branches/tags) on a remote | `repo_path`, `remote` (default: origin)                                       | read         |
+| `list_remotes`      | Show configured remotes and URLs      | `repo_path`                                                                   | read (local) |
 
 ### Annotations
 
@@ -46,10 +46,12 @@ Each tool declares MCP `ToolAnnotation` hints so callers can reason about safety
 - **`repo_path`** (required for repo-scoped tools) — absolute path to a git repository on the host. Must be absolute (relative paths are rejected) and must resolve to the same location as, or inside, one of the symlink-resolved allowed path prefixes supplied at startup. Validated before every repo-scoped operation: must be allowed, must exist, and must contain a git repo (`git rev-parse --git-dir`).
 - **`repository`** (required for `clone_github_repo`) — GitHub repository slug in `owner/repo` form. Full URLs, HTTPS URLs, SSH URLs, path traversal, extra path components, whitespace, and malformed values are rejected. The tool derives the SSH URL as `git@github.com:owner/repo.git`.
 - **`destination_dir`** (required for `clone_github_repo`) — absolute existing parent directory on the host. Must be a directory and must not itself be a symlink. Symlinks are resolved before containment checks, and the resolved destination must be equal to or inside a symlink-resolved allowed path prefix. The target path is derived as `<resolved-destination>/<repo>` and the call fails if that path already exists.
-- **`remote`** (optional, default: "origin") — the configured remote name to operate on. Raw transport URLs are rejected; callers must use a remote already configured in the repository.
-- **`refspec`** (optional) — git refspec for push/fetch (e.g., `refs/heads/main`). URL-shaped refspecs are rejected.
-- **`branch`** (optional) — branch name for pull.
-- **`force`** (optional, push only) — when true, uses `--force-with-lease` (never bare `--force`).
+- **`remote`** — required for push, fetch, and pull; optional with default `origin` only for `list_remote_refs`. It is a configured remote name, never a raw transport URL.
+- **`remote_url`** — required for push, fetch, and pull. It is the exact operation-specific effective URL asserted for broker policy and verified before the operation; it is not used as the Git transport operand.
+- **`source_ref` and `destination_ref`** (required for push) — nonempty, fully qualified branch or tag refs under `refs/heads/` or `refs/tags/`. Each passes `git check-ref-format`; the client constructs exactly one `<source_ref>:<destination_ref>` refspec. Deletion, matching, wildcard, force-prefixed, malformed, and unsupported-namespace forms are rejected.
+- **`refspec`** (optional, fetch only) — git refspec to fetch. URL-shaped refspecs are rejected.
+- **`branch`** (optional, pull only) — branch name for pull.
+- **`force`** (required, push only) — `false` performs an ordinary push; `true` uses `--force-with-lease` (never bare `--force`).
 - **`rebase`** (optional, pull only) — when true, uses `--rebase`.
 
 ## Project structure
@@ -93,7 +95,18 @@ Repo-scoped tool calls validate `repo_path` before executing:
 3. **Allowed path** — the resolved `repo_path` must equal or descend from a resolved allowed prefix. Sibling prefixes are not accepted: `/repo2` is outside allowed prefix `/repo`. A symlink inside an allowed prefix that points outside the prefix is rejected.
 4. **Is a git repo** — `git -C <resolved-path> rev-parse --git-dir` must succeed.
 
-Remote operations also validate `remote` with `git remote get-url -- <name>` before running `push`, `pull`, `fetch`, or `ls-remote`. This keeps host credentials scoped to remotes the repository already declares instead of letting callers supply arbitrary git transport URLs.
+Every tool publishes a closed input schema with `additionalProperties: false`, and the MCP server enables runtime input-schema validation. Unknown top-level arguments and missing or wrongly typed required fields are rejected before handler-side repository validation or any Git/clone operation. Direct handlers also distinguish an explicit required `force: false` from an absent or mistyped value.
+
+### Remote destination verification
+
+Remote operations accept only configured remote names. `list_remote_refs` keeps the existence-only lookup `git remote get-url -- <name>`. Push, fetch, and pull additionally require a caller-declared `remote_url` and verify it before the operation:
+
+- Push runs `git remote get-url --push --all -- <remote>`, requires exactly one line (including rejecting duplicate destinations), and compares that effective push URL exactly.
+- Fetch and pull run `git remote get-url -- <remote>` and compare Git's first effective fetch URL exactly.
+- Zero, multiple, malformed, mismatching, or credential-bearing URL results stop before the requested operation.
+- A successful operation still executes through `-- <remote>`, preserving named-remote ref mappings and behavior. `remote_url` is never substituted into the push, fetch, or pull command.
+
+Comparison removes only Git's line terminator. It does not normalize transport, host case, `.git` suffixes, slashes, percent encoding, or otherwise equivalent URL forms.
 
 `clone_github_repo` validates clone-specific inputs before executing:
 
@@ -104,7 +117,7 @@ Remote operations also validate `remote` with `git remote get-url -- <name>` bef
 5. **Nonexistent target** — `<resolved-destination>/<repo>` must not exist.
 6. **Post-clone repo validation** — after `git clone -- git@github.com:owner/repo.git <target>`, `git -C <target> rev-parse --git-dir` must succeed before the tool returns success.
 
-Errors are returned as MCP tool error responses. Git's stderr is included in the error message so agents get actionable feedback (e.g., "remote not found", "permission denied").
+Errors are returned as MCP tool error responses. Git's stderr is included for ordinary operation failures so agents get actionable feedback (e.g., "permission denied"). Remote-verification and structured-ref errors are intentionally generic so credential-bearing URLs and unsafe caller values are not reproduced.
 
 No retries or special error recovery — git's exit code and output are passed through faithfully. If a command exceeds its timeout or the MCP request context is canceled, the command is canceled and the tool returns the context error.
 
@@ -113,6 +126,10 @@ No retries or special error recovery — git's exit code and output are passed t
 local-git-mcp restricts repository operations and clone destinations to explicit host path prefixes supplied at startup. This prevents sandboxed callers from asking the host-side server to operate on unrelated repositories or clone into unrelated directories that are not shared with the sandbox or should not be exposed.
 
 Callers that intentionally want unrestricted host-path access must pass `--allow-all-paths`.
+
+`remote_url` is broker-visible policy and audit data. Supplied or resolved HTTP(S) URLs containing URI userinfo—username-only or username/password—are rejected without echoing the URL. Callers must never submit secrets in `remote_url`; use SSH or an external credential helper. SCP-style SSH usernames such as `git@github.com:owner/repo.git` remain valid.
+
+Destination verification is a cooperative policy boundary, not adversarial endpoint containment. It links broker-visible assertions to Git's ordinary effective configuration and catches mistakes, but does not pin execution to the asserted URL or defend against hostile repository configuration, URL rewrites, remote helpers, redirects, DNS behavior, hooks, credential helpers, or configuration changes between verification and execution.
 
 ## Tech stack
 

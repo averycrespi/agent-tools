@@ -121,18 +121,31 @@ Each `RuleConfig` has optional `reason` and `args` fields. `reason` is primarily
 
 ```json
 {
-  "tool": "local-git.push",
-  "verdict": "allow",
-  "args": [
-    { "path": "remote", "match": "origin" },
-    { "path": "commit.message", "match": { "regex": "^feat:" } }
+  "rules": [
+    {
+      "tool": "local-git.push",
+      "verdict": "allow",
+      "args": [
+        { "path": "remote", "match": "origin" },
+        {
+          "path": "remote_url",
+          "match": { "regex": "^git@github\\.com:acme/[A-Za-z0-9._-]+\\.git$" }
+        },
+        { "path": "source_ref", "match": { "regex": "^refs/heads/[^:]+$" } },
+        { "path": "destination_ref", "match": "refs/heads/main" },
+        { "path": "force", "match": "false" }
+      ]
+    },
+    { "tool": "local-git.push", "verdict": "require-approval" }
   ]
 }
 ```
 
-This rule allows `push` only when `remote` is exactly `"origin"` and `commit.message` starts with `"feat:"`. Any other `push` call fails to match this rule and falls through to the next.
+This rule uses only declared push arguments. It allows an ordinary update to `main` through `origin` when the exact effective push URL belongs to the anchored `acme` organization pattern; any other push falls through to explicit approval. `remote_url` is supplied from Git's operation-specific effective URL, exact-verified by local-git-mcp, broker-visible, and forbidden from containing HTTP(S) userinfo.
 
-**Path syntax.** `path` is a dot-separated sequence of segments. Each segment is either a string key (object navigation) or a decimal integer (array index). Examples: `remote`, `commit.message`, `command.0`. No wildcards in v1. Empty segments (`a..b`) and the empty path (`""`) are rejected at engine construction.
+Backend verification makes normal configured Git behavior correspond to the broker assertion, supporting cooperative policy mediation. It does not contain hostile Git configuration, URL rewrites, remote helpers, redirects, or configuration changes after verification.
+
+**Path syntax.** `path` is a dot-separated sequence of segments. Each segment is either a string key (object navigation) or a decimal integer (array index). Examples: `remote`, `destination_ref`, `command.0`. No wildcards in v1. Empty segments (`a..b`) and the empty path (`""`) are rejected at engine construction.
 
 **Resolution.** Each segment is applied in turn to the current node:
 
@@ -151,7 +164,7 @@ If resolution fails for any reason, the pattern fails, the rule fails to match, 
 - **Exact:** bare JSON string in `match`. The resolved value must equal that string exactly.
 - **Regex:** `{ "regex": "<RE2 pattern>" }` in `match`. The resolved value is tested against a compiled RE2 regex.
 
-Regex semantics use Go's `regexp` package (RE2). **Regexes are not auto-anchored.** A pattern `{"regex": "origin"}` matches `"my-origin-fork"` — this is the documented footgun. Authors should use `^...$` for full-match semantics. Auto-wrapping was considered and rejected: it deviates from standard regex conventions and surprises authors who know regex.
+Regex semantics use Go's `regexp` package (RE2). **Regexes are not auto-anchored.** A pattern `{"regex": "origin"}` matches `"my-origin-fork"` — this is the documented footgun. Authors should use `^...$` for full-match semantics and must anchor `remote_url` allow-rule patterns. Auto-wrapping was considered and rejected: it deviates from standard regex conventions and surprises authors who know regex.
 
 **Validation timing.** Paths and regexes are compiled at engine construction (`rules.New`). Invalid paths (empty segments) and invalid regex syntax surface as errors there, not at evaluation time. This keeps startup-time failure messages predictable and avoids surprising log noise during traffic.
 

@@ -435,21 +435,27 @@ Rules can optionally constrain on argument values using the `args` field. All pa
     {
       "tool": "local-git.push",
       "verdict": "allow",
-      "args": [{ "path": "remote", "match": "origin" }]
-    },
-    {
-      "tool": "local-git.push",
-      "verdict": "deny",
-      "args": [{ "path": "commit.message", "match": { "regex": "^chore:" } }]
+      "args": [
+        { "path": "remote", "match": "origin" },
+        {
+          "path": "remote_url",
+          "match": { "regex": "^git@github\\.com:acme/[A-Za-z0-9._-]+\\.git$" }
+        },
+        { "path": "source_ref", "match": { "regex": "^refs/heads/[^:]+$" } },
+        { "path": "destination_ref", "match": "refs/heads/main" },
+        { "path": "force", "match": "false" }
+      ]
     },
     { "tool": "local-git.push", "verdict": "require-approval" }
   ]
 }
 ```
 
-`path` is a dot-separated field path (e.g. `remote`, `commit.message`, `command.0`). `match` is either a bare string for exact matching or `{"regex": "<RE2 pattern>"}` for regex matching. If a path cannot be resolved (missing key, wrong type, out-of-range index), the rule does not match and evaluation continues.
+These are declared `local-git.push` arguments rather than policy-only metadata. local-git-mcp exact-verifies `remote_url` against Git's operation-specific effective URL before executing through the named remote. The value is broker-visible and may be audited, so it must never contain HTTP(S) userinfo; use SSH or a credential helper. This verification supports cooperative policy mediation and is not containment against hostile Git configuration or post-verification changes.
 
-Note: regexes are not auto-anchored — use `^...$` for full-match semantics.
+`path` is a dot-separated field path (e.g. `remote`, `destination_ref`, `command.0`). `match` is either a bare string for exact matching or `{"regex": "<RE2 pattern>"}` for regex matching. If a path cannot be resolved (missing key, wrong type, out-of-range index), the rule does not match and evaluation continues.
+
+Note: regexes are not auto-anchored — use `^...$` for full-match semantics. Always anchor `remote_url` allow-rule patterns.
 
 ### Tool patches
 

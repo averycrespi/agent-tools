@@ -37,6 +37,20 @@ Repo-scoped tools require a `repo_path` parameter — an absolute path to a git 
 
 Tools that accept `remote` require a configured remote name such as `origin`; raw transport URLs such as `https://...`, `ssh://...`, and `file://...` are rejected.
 
+### Remote-operation contract
+
+`push` requires `repo_path`, `remote`, `remote_url`, `source_ref`, `destination_ref`, and an explicit `force` boolean. Both refs must be nonempty, fully qualified refs under `refs/heads/` or `refs/tags/`; the server validates them and constructs the single `<source_ref>:<destination_ref>` refspec. `force: false` performs an ordinary push, while `force: true` uses exactly `--force-with-lease`. Raw push `refspec` values and defaults for `remote` or `force` are not supported.
+
+`fetch` and `pull` require `repo_path`, `remote`, and `remote_url`. Fetch keeps its optional `refspec`; pull keeps its optional `branch` and `rebase` fields. These operations do not default `remote`. `list_remote_refs` still defaults `remote` to `origin`.
+
+`remote_url` is a policy-visible assertion, not the transport operand. For push, the server resolves all effective push URLs and requires exactly one exact match. For fetch and pull, it compares the first effective fetch URL. Comparisons are byte-for-byte with no URL normalization, and successful commands still execute through the configured remote name. Use `list_remotes` or the corresponding `git remote get-url` command to obtain the operation-specific value.
+
+This is an intentional breaking API change. All six tools reject unknown top-level arguments, missing required fields, and wrongly typed fields before invoking their handlers.
+
+`remote_url` is visible to mcp-broker policy and audit processing. Never submit an HTTP(S) URL containing URI userinfo, including username-only or username/password forms; use SSH or an external credential helper instead. local-git-mcp rejects credential-bearing supplied and resolved HTTP(S) URLs without echoing them in tool errors.
+
+Destination verification supports cooperative policy mediation: it catches mistakes and links broker-visible arguments to Git's ordinary effective configuration. It does not pin the transport or contain hostile Git configuration, URL rewrites, remote helpers, redirects, or configuration changes after verification.
+
 ## Quick start
 
 ```bash
