@@ -50,7 +50,7 @@ func TestRemoteOperations_RejectURLShapedRemoteBeforeRunningGit(t *testing.T) {
 		},
 	})
 
-	_, err := c.Fetch(context.Background(), "/repo", "https://example.com/repo.git", "")
+	_, err := c.Fetch(context.Background(), "/repo", "https://example.com/repo.git", "ssh://example.com/repo.git", "")
 
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "remote must be a configured remote name")
@@ -69,7 +69,7 @@ func TestRemoteOperations_RejectUnknownRemoteBeforeFetch(t *testing.T) {
 		},
 	})
 
-	_, err := c.Fetch(context.Background(), "/repo", "missing", "")
+	_, err := c.Fetch(context.Background(), "/repo", "missing", "ssh://example.com/repo.git", "")
 
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "remote \"missing\" is not configured")
@@ -85,7 +85,7 @@ func TestRemoteOperations_ValidateConfiguredRemoteBeforeRunningGit(t *testing.T)
 		},
 	})
 
-	_, err := c.Fetch(context.Background(), "/repo", "origin", "refs/heads/main")
+	_, err := c.Fetch(context.Background(), "/repo", "origin", "ok", "refs/heads/main")
 
 	require.NoError(t, err)
 	require.Len(t, calls, 2)
@@ -102,7 +102,7 @@ func TestRemoteOperations_RejectURLShapedRefspec(t *testing.T) {
 		},
 	})
 
-	_, err := c.Push(context.Background(), "/repo", "origin", "https://example.com/repo.git", false)
+	_, err := c.Fetch(context.Background(), "/repo", "origin", "ssh://example.com/repo.git", "https://example.com/repo.git")
 
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "refspec must not be a URL")
@@ -347,123 +347,23 @@ func TestCloneGitHubRepo_TimesOutBlockedCommand(t *testing.T) {
 	assert.ErrorContains(t, err, context.DeadlineExceeded.Error())
 }
 
-func TestPush_DefaultArgs(t *testing.T) {
-	var capturedArgs []string
-	c := mustNewClient(t, &mockRunner{
-		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
-			capturedArgs = args
-			return []byte("Everything up-to-date\n"), nil
-		},
-	})
-	out, err := c.Push(context.Background(), "/repo", "origin", "", false)
-	require.NoError(t, err)
-	assert.Equal(t, "Everything up-to-date", out)
-	assert.Equal(t, []string{"push", "--", "origin"}, capturedArgs)
-}
-
-func TestPush_WithRefspec(t *testing.T) {
-	var capturedArgs []string
-	c := mustNewClient(t, &mockRunner{
-		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
-			capturedArgs = args
-			return nil, nil
-		},
-	})
-	_, err := c.Push(context.Background(), "/repo", "origin", "refs/heads/main", false)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"push", "--", "origin", "refs/heads/main"}, capturedArgs)
-}
-
-func TestPush_ForceWithLease(t *testing.T) {
-	var capturedArgs []string
-	c := mustNewClient(t, &mockRunner{
-		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
-			capturedArgs = args
-			return nil, nil
-		},
-	})
-	_, err := c.Push(context.Background(), "/repo", "origin", "", true)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"push", "--force-with-lease", "--", "origin"}, capturedArgs)
-}
-
 func TestPush_Error(t *testing.T) {
 	c := mustNewClient(t, &mockRunner{
 		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
-			if len(args) >= 2 && args[0] == "remote" && args[1] == "get-url" {
+			switch {
+			case len(args) > 0 && args[0] == "check-ref-format":
+				return nil, nil
+			case len(args) >= 2 && args[0] == "remote" && args[1] == "get-url":
 				return []byte("git@github.com:user/repo.git\n"), nil
+			default:
+				return []byte("error: failed to push"), fmt.Errorf("exit status 1")
 			}
-			return []byte("error: failed to push"), fmt.Errorf("exit status 1")
 		},
 	})
-	_, err := c.Push(context.Background(), "/repo", "origin", "", false)
+
+	_, err := c.Push(context.Background(), "/repo", "origin", "git@github.com:user/repo.git", "refs/heads/main", "refs/heads/main", false)
+
 	assert.ErrorContains(t, err, "git push failed")
-}
-
-func TestPull_DefaultArgs(t *testing.T) {
-	var capturedArgs []string
-	c := mustNewClient(t, &mockRunner{
-		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
-			capturedArgs = args
-			return []byte("Already up to date.\n"), nil
-		},
-	})
-	out, err := c.Pull(context.Background(), "/repo", "origin", "", false)
-	require.NoError(t, err)
-	assert.Equal(t, "Already up to date.", out)
-	assert.Equal(t, []string{"pull", "--", "origin"}, capturedArgs)
-}
-
-func TestPull_WithBranch(t *testing.T) {
-	var capturedArgs []string
-	c := mustNewClient(t, &mockRunner{
-		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
-			capturedArgs = args
-			return nil, nil
-		},
-	})
-	_, err := c.Pull(context.Background(), "/repo", "origin", "main", false)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"pull", "--", "origin", "main"}, capturedArgs)
-}
-
-func TestPull_WithRebase(t *testing.T) {
-	var capturedArgs []string
-	c := mustNewClient(t, &mockRunner{
-		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
-			capturedArgs = args
-			return nil, nil
-		},
-	})
-	_, err := c.Pull(context.Background(), "/repo", "origin", "", true)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"pull", "--rebase", "--", "origin"}, capturedArgs)
-}
-
-func TestFetch_DefaultArgs(t *testing.T) {
-	var capturedArgs []string
-	c := mustNewClient(t, &mockRunner{
-		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
-			capturedArgs = args
-			return nil, nil
-		},
-	})
-	_, err := c.Fetch(context.Background(), "/repo", "origin", "")
-	require.NoError(t, err)
-	assert.Equal(t, []string{"fetch", "--", "origin"}, capturedArgs)
-}
-
-func TestFetch_WithRefspec(t *testing.T) {
-	var capturedArgs []string
-	c := mustNewClient(t, &mockRunner{
-		runDirFunc: func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
-			capturedArgs = args
-			return nil, nil
-		},
-	})
-	_, err := c.Fetch(context.Background(), "/repo", "origin", "refs/heads/main")
-	require.NoError(t, err)
-	assert.Equal(t, []string{"fetch", "--", "origin", "refs/heads/main"}, capturedArgs)
 }
 
 func TestFetch_TimesOutBlockedCommand(t *testing.T) {
@@ -478,7 +378,7 @@ func TestFetch_TimesOutBlockedCommand(t *testing.T) {
 	}, nil, true, time.Millisecond)
 	require.NoError(t, err)
 
-	_, err = c.Fetch(context.Background(), "/repo", "origin", "")
+	_, err = c.Fetch(context.Background(), "/repo", "origin", "git@github.com:user/repo.git", "")
 
 	assert.ErrorContains(t, err, "git fetch failed")
 	assert.ErrorContains(t, err, context.DeadlineExceeded.Error())

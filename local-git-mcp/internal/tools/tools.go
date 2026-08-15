@@ -44,9 +44,9 @@ var (
 type GitClient interface {
 	ValidateRepo(ctx context.Context, repoPath string) (string, error)
 	CloneGitHubRepo(ctx context.Context, repository, destinationDir string) (string, error)
-	Push(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error)
-	Pull(ctx context.Context, repoPath, remote, branch string, rebase bool) (string, error)
-	Fetch(ctx context.Context, repoPath, remote, refspec string) (string, error)
+	Push(ctx context.Context, repoPath, remote, remoteURL, sourceRef, destinationRef string, force bool) (string, error)
+	Pull(ctx context.Context, repoPath, remote, remoteURL, branch string, rebase bool) (string, error)
+	Fetch(ctx context.Context, repoPath, remote, remoteURL, refspec string) (string, error)
 	ListRemoteRefs(ctx context.Context, repoPath, remote string) ([]git.Ref, error)
 	ListRemotes(ctx context.Context, repoPath string) ([]git.Remote, error)
 }
@@ -66,79 +66,59 @@ func (h *Handler) Tools() []gomcp.Tool {
 	return []gomcp.Tool{
 		{
 			Name:        "push",
-			Description: "Push commits to a remote repository",
+			Description: "Push one structured ref update through a verified configured remote",
 			Annotations: annDestructive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
-					"repo_path": map[string]any{
-						"type":        "string",
-						"description": "Absolute path to the git repository",
-					},
-					"remote": map[string]any{
-						"type":        "string",
-						"description": "Remote name (default: origin)",
-					},
-					"refspec": map[string]any{
-						"type":        "string",
-						"description": "Refspec to push (e.g., refs/heads/main)",
-					},
+					"repo_path":       stringProperty("Absolute path to the git repository"),
+					"remote":          stringProperty("Configured remote name"),
+					"remote_url":      stringProperty("Exact effective push URL asserted for policy verification"),
+					"source_ref":      stringProperty("Fully qualified source ref under refs/heads/ or refs/tags/"),
+					"destination_ref": stringProperty("Fully qualified destination ref under refs/heads/ or refs/tags/"),
 					"force": map[string]any{
 						"type":        "boolean",
-						"description": "Force push using --force-with-lease",
+						"description": "Use --force-with-lease when true",
 					},
 				},
-				Required: []string{"repo_path"},
+				Required:             []string{"repo_path", "remote", "remote_url", "source_ref", "destination_ref", "force"},
+				AdditionalProperties: false,
 			},
 		},
 		{
 			Name:        "pull",
-			Description: "Pull from a remote repository",
+			Description: "Pull through a verified configured remote",
 			Annotations: annAdditive,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
-					"repo_path": map[string]any{
-						"type":        "string",
-						"description": "Absolute path to the git repository",
-					},
-					"remote": map[string]any{
-						"type":        "string",
-						"description": "Remote name (default: origin)",
-					},
-					"branch": map[string]any{
-						"type":        "string",
-						"description": "Branch name to pull",
-					},
+					"repo_path":  stringProperty("Absolute path to the git repository"),
+					"remote":     stringProperty("Configured remote name"),
+					"remote_url": stringProperty("Exact effective fetch URL asserted for policy verification"),
+					"branch":     stringProperty("Branch name to pull"),
 					"rebase": map[string]any{
 						"type":        "boolean",
 						"description": "Use --rebase instead of merge",
 					},
 				},
-				Required: []string{"repo_path"},
+				Required:             []string{"repo_path", "remote", "remote_url"},
+				AdditionalProperties: false,
 			},
 		},
 		{
 			Name:        "fetch",
-			Description: "Fetch from a remote without merging",
+			Description: "Fetch through a verified configured remote without merging",
 			Annotations: annIdempotent,
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
-					"repo_path": map[string]any{
-						"type":        "string",
-						"description": "Absolute path to the git repository",
-					},
-					"remote": map[string]any{
-						"type":        "string",
-						"description": "Remote name (default: origin)",
-					},
-					"refspec": map[string]any{
-						"type":        "string",
-						"description": "Refspec to fetch",
-					},
+					"repo_path":  stringProperty("Absolute path to the git repository"),
+					"remote":     stringProperty("Configured remote name"),
+					"remote_url": stringProperty("Exact effective fetch URL asserted for policy verification"),
+					"refspec":    stringProperty("Optional refspec to fetch"),
 				},
-				Required: []string{"repo_path"},
+				Required:             []string{"repo_path", "remote", "remote_url"},
+				AdditionalProperties: false,
 			},
 		},
 		{
@@ -148,16 +128,11 @@ func (h *Handler) Tools() []gomcp.Tool {
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
-					"repository": map[string]any{
-						"type":        "string",
-						"description": "GitHub repository in owner/repo form",
-					},
-					"destination_dir": map[string]any{
-						"type":        "string",
-						"description": "Absolute path to an allowed parent directory for the clone",
-					},
+					"repository":      stringProperty("GitHub repository in owner/repo form"),
+					"destination_dir": stringProperty("Absolute path to an allowed parent directory for the clone"),
 				},
-				Required: []string{"repository", "destination_dir"},
+				Required:             []string{"repository", "destination_dir"},
+				AdditionalProperties: false,
 			},
 		},
 		{
@@ -167,16 +142,11 @@ func (h *Handler) Tools() []gomcp.Tool {
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
-					"repo_path": map[string]any{
-						"type":        "string",
-						"description": "Absolute path to the git repository",
-					},
-					"remote": map[string]any{
-						"type":        "string",
-						"description": "Remote name (default: origin)",
-					},
+					"repo_path": stringProperty("Absolute path to the git repository"),
+					"remote":    stringProperty("Remote name (default: origin)"),
 				},
-				Required: []string{"repo_path"},
+				Required:             []string{"repo_path"},
+				AdditionalProperties: false,
 			},
 		},
 		{
@@ -186,15 +156,17 @@ func (h *Handler) Tools() []gomcp.Tool {
 			InputSchema: gomcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
-					"repo_path": map[string]any{
-						"type":        "string",
-						"description": "Absolute path to the git repository",
-					},
+					"repo_path": stringProperty("Absolute path to the git repository"),
 				},
-				Required: []string{"repo_path"},
+				Required:             []string{"repo_path"},
+				AdditionalProperties: false,
 			},
 		},
 	}
+}
+
+func stringProperty(description string) map[string]any {
+	return map[string]any{"type": "string", "description": description}
 }
 
 // Handle dispatches an MCP tool call to the appropriate git operation.
@@ -202,13 +174,13 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 	args := req.GetArguments()
 
 	if req.Params.Name == "clone_github_repo" {
-		repository, _ := args["repository"].(string)
-		if repository == "" {
-			return gomcp.NewToolResultError("repository is required"), nil
+		repository, err := requiredString(args, "repository")
+		if err != nil {
+			return gomcp.NewToolResultError(err.Error()), nil
 		}
-		destinationDir, _ := args["destination_dir"].(string)
-		if destinationDir == "" {
-			return gomcp.NewToolResultError("destination_dir is required"), nil
+		destinationDir, err := requiredString(args, "destination_dir")
+		if err != nil {
+			return gomcp.NewToolResultError(err.Error()), nil
 		}
 		repoPath, err := h.git.CloneGitHubRepo(ctx, repository, destinationDir)
 		if err != nil {
@@ -218,47 +190,81 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 		return gomcp.NewToolResultText(string(out)), nil
 	}
 
-	repoPath, _ := args["repo_path"].(string)
-	if repoPath == "" {
-		return gomcp.NewToolResultError("repo_path is required"), nil
-	}
-
-	validatedRepoPath, err := h.git.ValidateRepo(ctx, repoPath)
+	repoPath, err := requiredString(args, "repo_path")
 	if err != nil {
 		return gomcp.NewToolResultError(err.Error()), nil
 	}
 
 	switch req.Params.Name {
 	case "push":
-		remote := stringOrDefault(args, "remote", "origin")
-		refspec, _ := args["refspec"].(string)
-		force, _ := args["force"].(bool)
-		out, err := h.git.Push(ctx, validatedRepoPath, remote, refspec, force)
+		remote, err := requiredString(args, "remote")
+		if err != nil {
+			return gomcp.NewToolResultError(err.Error()), nil
+		}
+		remoteURL, err := requiredString(args, "remote_url")
+		if err != nil {
+			return gomcp.NewToolResultError(err.Error()), nil
+		}
+		sourceRef, err := requiredString(args, "source_ref")
+		if err != nil {
+			return gomcp.NewToolResultError(err.Error()), nil
+		}
+		destinationRef, err := requiredString(args, "destination_ref")
+		if err != nil {
+			return gomcp.NewToolResultError(err.Error()), nil
+		}
+		force, err := requiredBool(args, "force")
+		if err != nil {
+			return gomcp.NewToolResultError(err.Error()), nil
+		}
+		validatedRepoPath, result := h.validateRepo(ctx, repoPath)
+		if result != nil {
+			return result, nil
+		}
+		out, err := h.git.Push(ctx, validatedRepoPath, remote, remoteURL, sourceRef, destinationRef, force)
 		if err != nil {
 			return gomcp.NewToolResultError(err.Error()), nil
 		}
 		return gomcp.NewToolResultText(out), nil
 
 	case "pull":
-		remote := stringOrDefault(args, "remote", "origin")
+		remote, remoteURL, result := requiredRemoteAssertion(args)
+		if result != nil {
+			return result, nil
+		}
 		branch, _ := args["branch"].(string)
 		rebase, _ := args["rebase"].(bool)
-		out, err := h.git.Pull(ctx, validatedRepoPath, remote, branch, rebase)
+		validatedRepoPath, result := h.validateRepo(ctx, repoPath)
+		if result != nil {
+			return result, nil
+		}
+		out, err := h.git.Pull(ctx, validatedRepoPath, remote, remoteURL, branch, rebase)
 		if err != nil {
 			return gomcp.NewToolResultError(err.Error()), nil
 		}
 		return gomcp.NewToolResultText(out), nil
 
 	case "fetch":
-		remote := stringOrDefault(args, "remote", "origin")
+		remote, remoteURL, result := requiredRemoteAssertion(args)
+		if result != nil {
+			return result, nil
+		}
 		refspec, _ := args["refspec"].(string)
-		out, err := h.git.Fetch(ctx, validatedRepoPath, remote, refspec)
+		validatedRepoPath, result := h.validateRepo(ctx, repoPath)
+		if result != nil {
+			return result, nil
+		}
+		out, err := h.git.Fetch(ctx, validatedRepoPath, remote, remoteURL, refspec)
 		if err != nil {
 			return gomcp.NewToolResultError(err.Error()), nil
 		}
 		return gomcp.NewToolResultText(out), nil
 
 	case "list_remote_refs":
+		validatedRepoPath, result := h.validateRepo(ctx, repoPath)
+		if result != nil {
+			return result, nil
+		}
 		remote := stringOrDefault(args, "remote", "origin")
 		refs, err := h.git.ListRemoteRefs(ctx, validatedRepoPath, remote)
 		if err != nil {
@@ -268,6 +274,10 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 		return gomcp.NewToolResultText(string(out)), nil
 
 	case "list_remotes":
+		validatedRepoPath, result := h.validateRepo(ctx, repoPath)
+		if result != nil {
+			return result, nil
+		}
 		remotes, err := h.git.ListRemotes(ctx, validatedRepoPath)
 		if err != nil {
 			return gomcp.NewToolResultError(err.Error()), nil
@@ -278,6 +288,42 @@ func (h *Handler) Handle(ctx context.Context, req gomcp.CallToolRequest) (*gomcp
 	default:
 		return gomcp.NewToolResultError(fmt.Sprintf("unknown tool: %s", req.Params.Name)), nil
 	}
+}
+
+func (h *Handler) validateRepo(ctx context.Context, repoPath string) (string, *gomcp.CallToolResult) {
+	validatedRepoPath, err := h.git.ValidateRepo(ctx, repoPath)
+	if err != nil {
+		return "", gomcp.NewToolResultError(err.Error())
+	}
+	return validatedRepoPath, nil
+}
+
+func requiredRemoteAssertion(args map[string]any) (string, string, *gomcp.CallToolResult) {
+	remote, err := requiredString(args, "remote")
+	if err != nil {
+		return "", "", gomcp.NewToolResultError(err.Error())
+	}
+	remoteURL, err := requiredString(args, "remote_url")
+	if err != nil {
+		return "", "", gomcp.NewToolResultError(err.Error())
+	}
+	return remote, remoteURL, nil
+}
+
+func requiredString(args map[string]any, key string) (string, error) {
+	value, ok := args[key].(string)
+	if !ok || value == "" {
+		return "", fmt.Errorf("%s is required and must be a nonempty string", key)
+	}
+	return value, nil
+}
+
+func requiredBool(args map[string]any, key string) (bool, error) {
+	value, ok := args[key].(bool)
+	if !ok {
+		return false, fmt.Errorf("%s is required and must be a boolean", key)
+	}
+	return value, nil
 }
 
 func stringOrDefault(args map[string]any, key, defaultVal string) string {

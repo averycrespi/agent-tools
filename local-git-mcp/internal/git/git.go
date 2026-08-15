@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,23 +76,27 @@ func (c *Client) CloneGitHubRepo(ctx context.Context, repository, destinationDir
 	return targetPath, nil
 }
 
-// Push pushes commits to a remote.
+// Push pushes one structured ref update to a verified configured remote.
 // If force is true, uses --force-with-lease.
-func (c *Client) Push(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error) {
-	if err := validateRefspec(refspec); err != nil {
+func (c *Client) Push(ctx context.Context, repoPath, remote, remoteURL, sourceRef, destinationRef string, force bool) (string, error) {
+	if err := validateRemoteAssertion(remote, remoteURL); err != nil {
 		return "", err
 	}
-	if err := c.validateRemoteName(ctx, repoPath, remote); err != nil {
+	if err := c.validateStructuredRef(ctx, repoPath, "source_ref", sourceRef); err != nil {
 		return "", err
 	}
+	if err := c.validateStructuredRef(ctx, repoPath, "destination_ref", destinationRef); err != nil {
+		return "", err
+	}
+	if err := c.verifyPushRemoteURL(ctx, repoPath, remote, remoteURL); err != nil {
+		return "", err
+	}
+
 	args := []string{"push"}
 	if force {
 		args = append(args, "--force-with-lease")
 	}
-	args = append(args, "--", remote)
-	if refspec != "" {
-		args = append(args, refspec)
-	}
+	args = append(args, "--", remote, sourceRef+":"+destinationRef)
 	out, err := c.runDir(ctx, repoPath, "git", args...)
 	if err != nil {
 		return "", fmt.Errorf("git push failed: %s", commandErrorMessage(out, err))
@@ -99,10 +104,13 @@ func (c *Client) Push(ctx context.Context, repoPath, remote, refspec string, for
 	return strings.TrimSpace(string(out)), nil
 }
 
-// Pull pulls from a remote.
+// Pull pulls from a verified configured remote.
 // If rebase is true, uses --rebase.
-func (c *Client) Pull(ctx context.Context, repoPath, remote, branch string, rebase bool) (string, error) {
-	if err := c.validateRemoteName(ctx, repoPath, remote); err != nil {
+func (c *Client) Pull(ctx context.Context, repoPath, remote, remoteURL, branch string, rebase bool) (string, error) {
+	if err := validateRemoteAssertion(remote, remoteURL); err != nil {
+		return "", err
+	}
+	if err := c.verifyFetchRemoteURL(ctx, repoPath, remote, remoteURL); err != nil {
 		return "", err
 	}
 	args := []string{"pull"}
@@ -120,12 +128,15 @@ func (c *Client) Pull(ctx context.Context, repoPath, remote, branch string, reba
 	return strings.TrimSpace(string(out)), nil
 }
 
-// Fetch fetches from a remote without merging.
-func (c *Client) Fetch(ctx context.Context, repoPath, remote, refspec string) (string, error) {
+// Fetch fetches from a verified configured remote without merging.
+func (c *Client) Fetch(ctx context.Context, repoPath, remote, remoteURL, refspec string) (string, error) {
 	if err := validateRefspec(refspec); err != nil {
 		return "", err
 	}
-	if err := c.validateRemoteName(ctx, repoPath, remote); err != nil {
+	if err := validateRemoteAssertion(remote, remoteURL); err != nil {
+		return "", err
+	}
+	if err := c.verifyFetchRemoteURL(ctx, repoPath, remote, remoteURL); err != nil {
 		return "", err
 	}
 	args := []string{"fetch", "--", remote}
@@ -163,22 +174,135 @@ func (c *Client) ListRemoteRefs(ctx context.Context, repoPath, remote string) ([
 }
 
 func (c *Client) validateRemoteName(ctx context.Context, repoPath, remote string) error {
-	if remote == "" {
-		return fmt.Errorf("remote is required")
+	if err := validateConfiguredRemoteName(remote); err != nil {
+		return err
 	}
-	if isURLShaped(remote) {
-		return fmt.Errorf("remote must be a configured remote name, not a URL: %s", remote)
+	_, err := c.resolveRemoteURLs(ctx, repoPath, remote, false)
+	return err
+}
+
+func validateRemoteAssertion(remote, remoteURL string) error {
+	if err := validateConfiguredRemoteName(remote); err != nil {
+		return err
 	}
-	out, err := c.runDir(ctx, repoPath, "git", "remote", "get-url", "--", remote)
-	if err != nil {
-		return fmt.Errorf("remote %q is not configured: %s", remote, commandErrorMessage(out, err))
+	if remoteURL == "" {
+		return fmt.Errorf("remote_url is required")
+	}
+	if hasHTTPUserinfo(remoteURL) {
+		return fmt.Errorf("remote_url must not contain HTTP(S) userinfo")
 	}
 	return nil
 }
 
+func validateConfiguredRemoteName(remote string) error {
+	if remote == "" {
+		return fmt.Errorf("remote is required")
+	}
+	if isURLShaped(remote) {
+		return fmt.Errorf("remote must be a configured remote name, not a URL")
+	}
+	return nil
+}
+
+func (c *Client) verifyPushRemoteURL(ctx context.Context, repoPath, remote, expectedURL string) error {
+	urls, err := c.resolveRemoteURLs(ctx, repoPath, remote, true)
+	if err != nil {
+		return err
+	}
+	if len(urls) != 1 {
+		return fmt.Errorf("remote must resolve to exactly one push URL")
+	}
+	if hasHTTPUserinfo(urls[0]) {
+		return fmt.Errorf("configured push URL must not contain HTTP(S) userinfo")
+	}
+	if urls[0] != expectedURL {
+		return fmt.Errorf("remote_url does not match the configured push URL")
+	}
+	return nil
+}
+
+func (c *Client) verifyFetchRemoteURL(ctx context.Context, repoPath, remote, expectedURL string) error {
+	urls, err := c.resolveRemoteURLs(ctx, repoPath, remote, false)
+	if err != nil {
+		return err
+	}
+	if len(urls) != 1 {
+		return fmt.Errorf("remote must resolve to exactly one fetch URL")
+	}
+	if hasHTTPUserinfo(urls[0]) {
+		return fmt.Errorf("configured fetch URL must not contain HTTP(S) userinfo")
+	}
+	if urls[0] != expectedURL {
+		return fmt.Errorf("remote_url does not match the configured fetch URL")
+	}
+	return nil
+}
+
+func (c *Client) resolveRemoteURLs(ctx context.Context, repoPath, remote string, push bool) ([]string, error) {
+	args := []string{"remote", "get-url"}
+	if push {
+		args = append(args, "--push", "--all")
+	}
+	args = append(args, "--", remote)
+	out, err := c.runDir(ctx, repoPath, "git", args...)
+	if err != nil {
+		return nil, fmt.Errorf("remote %q is not configured", remote)
+	}
+	urls, ok := parseLineFramedOutput(out)
+	if !ok {
+		return nil, fmt.Errorf("remote URL lookup returned malformed output")
+	}
+	return urls, nil
+}
+
+func parseLineFramedOutput(out []byte) ([]string, bool) {
+	if len(out) == 0 || out[len(out)-1] != '\n' {
+		return nil, false
+	}
+	text := string(out[:len(out)-1])
+	if strings.HasSuffix(text, "\r") {
+		text = strings.TrimSuffix(text, "\r")
+	}
+	if text == "" {
+		return nil, true
+	}
+	lines := strings.Split(text, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimSuffix(lines[i], "\r")
+		if lines[i] == "" {
+			return nil, false
+		}
+	}
+	return lines, true
+}
+
+func (c *Client) validateStructuredRef(ctx context.Context, repoPath, field, ref string) error {
+	if !isSupportedStructuredRef(ref) {
+		return fmt.Errorf("%s must be a fully qualified branch or tag ref", field)
+	}
+	if _, err := c.runDir(ctx, repoPath, "git", "check-ref-format", ref); err != nil {
+		return fmt.Errorf("%s is not a valid Git ref", field)
+	}
+	return nil
+}
+
+func isSupportedStructuredRef(ref string) bool {
+	for _, prefix := range []string{"refs/heads/", "refs/tags/"} {
+		if strings.HasPrefix(ref, prefix) && len(ref) > len(prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasHTTPUserinfo(value string) bool {
+	parsed, err := url.Parse(value)
+	return err == nil && (strings.EqualFold(parsed.Scheme, "http") || strings.EqualFold(parsed.Scheme, "https")) && parsed.User != nil
+}
+
 func validateRefspec(refspec string) error {
 	if isURLShaped(refspec) {
-		return fmt.Errorf("refspec must not be a URL: %s", refspec)
+		return fmt.Errorf("refspec must not be a URL")
 	}
 	return nil
 }

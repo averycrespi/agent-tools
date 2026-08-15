@@ -16,9 +16,9 @@ import (
 type mockGitClient struct {
 	validateRepoFunc   func(ctx context.Context, repoPath string) (string, error)
 	cloneGitHubFunc    func(ctx context.Context, repository, destinationDir string) (string, error)
-	pushFunc           func(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error)
-	pullFunc           func(ctx context.Context, repoPath, remote, branch string, rebase bool) (string, error)
-	fetchFunc          func(ctx context.Context, repoPath, remote, refspec string) (string, error)
+	pushFunc           func(ctx context.Context, repoPath, remote, remoteURL, sourceRef, destinationRef string, force bool) (string, error)
+	pullFunc           func(ctx context.Context, repoPath, remote, remoteURL, branch string, rebase bool) (string, error)
+	fetchFunc          func(ctx context.Context, repoPath, remote, remoteURL, refspec string) (string, error)
 	listRemoteRefsFunc func(ctx context.Context, repoPath, remote string) ([]git.Ref, error)
 	listRemotesFunc    func(ctx context.Context, repoPath string) ([]git.Remote, error)
 }
@@ -37,23 +37,23 @@ func (m *mockGitClient) CloneGitHubRepo(ctx context.Context, repository, destina
 	return "", nil
 }
 
-func (m *mockGitClient) Push(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error) {
+func (m *mockGitClient) Push(ctx context.Context, repoPath, remote, remoteURL, sourceRef, destinationRef string, force bool) (string, error) {
 	if m.pushFunc != nil {
-		return m.pushFunc(ctx, repoPath, remote, refspec, force)
+		return m.pushFunc(ctx, repoPath, remote, remoteURL, sourceRef, destinationRef, force)
 	}
 	return "", nil
 }
 
-func (m *mockGitClient) Pull(ctx context.Context, repoPath, remote, branch string, rebase bool) (string, error) {
+func (m *mockGitClient) Pull(ctx context.Context, repoPath, remote, remoteURL, branch string, rebase bool) (string, error) {
 	if m.pullFunc != nil {
-		return m.pullFunc(ctx, repoPath, remote, branch, rebase)
+		return m.pullFunc(ctx, repoPath, remote, remoteURL, branch, rebase)
 	}
 	return "", nil
 }
 
-func (m *mockGitClient) Fetch(ctx context.Context, repoPath, remote, refspec string) (string, error) {
+func (m *mockGitClient) Fetch(ctx context.Context, repoPath, remote, remoteURL, refspec string) (string, error) {
 	if m.fetchFunc != nil {
-		return m.fetchFunc(ctx, repoPath, remote, refspec)
+		return m.fetchFunc(ctx, repoPath, remote, remoteURL, refspec)
 	}
 	return "", nil
 }
@@ -176,19 +176,19 @@ func TestCloneGitHubRepoHandler_Error(t *testing.T) {
 
 func TestPushHandler_Success(t *testing.T) {
 	h := NewHandler(&mockGitClient{
-		pushFunc: func(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error) {
+		pushFunc: func(ctx context.Context, repoPath, remote, remoteURL, sourceRef, destinationRef string, force bool) (string, error) {
 			assert.Equal(t, "/my/repo", repoPath)
 			assert.Equal(t, "origin", remote)
-			assert.Equal(t, "", refspec)
+			assert.Equal(t, "git@github.com:acme/repo.git", remoteURL)
+			assert.Equal(t, "refs/heads/topic", sourceRef)
+			assert.Equal(t, "refs/heads/main", destinationRef)
 			assert.False(t, force)
 			return "Everything up-to-date", nil
 		},
 	})
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "push"
-	req.Params.Arguments = map[string]any{
-		"repo_path": "/my/repo",
-	}
+	req.Params.Arguments = validPushArguments("/my/repo")
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
@@ -203,16 +203,14 @@ func TestPushHandler_ForwardsRequestContext(t *testing.T) {
 			assert.Equal(t, "abc123", ctx.Value(key))
 			return repoPath, nil
 		},
-		pushFunc: func(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error) {
+		pushFunc: func(ctx context.Context, repoPath, remote, remoteURL, sourceRef, destinationRef string, force bool) (string, error) {
 			assert.Equal(t, "abc123", ctx.Value(key))
 			return "Everything up-to-date", nil
 		},
 	})
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "push"
-	req.Params.Arguments = map[string]any{
-		"repo_path": "/my/repo",
-	}
+	req.Params.Arguments = validPushArguments("/my/repo")
 
 	_, err := h.Handle(ctx, req)
 
@@ -225,16 +223,14 @@ func TestPushHandler_UsesValidatedRepoPath(t *testing.T) {
 			assert.Equal(t, "/my/repo/../repo", repoPath)
 			return "/my/repo", nil
 		},
-		pushFunc: func(ctx context.Context, repoPath, remote, refspec string, force bool) (string, error) {
+		pushFunc: func(ctx context.Context, repoPath, remote, remoteURL, sourceRef, destinationRef string, force bool) (string, error) {
 			assert.Equal(t, "/my/repo", repoPath)
 			return "Everything up-to-date", nil
 		},
 	})
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "push"
-	req.Params.Arguments = map[string]any{
-		"repo_path": "/my/repo/../repo",
-	}
+	req.Params.Arguments = validPushArguments("/my/repo/../repo")
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
@@ -268,7 +264,9 @@ func TestPushHandler_MissingRepoPath(t *testing.T) {
 
 func TestPullHandler_WithRebase(t *testing.T) {
 	h := NewHandler(&mockGitClient{
-		pullFunc: func(ctx context.Context, repoPath, remote, branch string, rebase bool) (string, error) {
+		pullFunc: func(ctx context.Context, repoPath, remote, remoteURL, branch string, rebase bool) (string, error) {
+			assert.Equal(t, "upstream", remote)
+			assert.Equal(t, "ssh://example.com/repo.git", remoteURL)
 			assert.True(t, rebase)
 			assert.Equal(t, "main", branch)
 			return "Already up to date.", nil
@@ -277,9 +275,11 @@ func TestPullHandler_WithRebase(t *testing.T) {
 	req := gomcp.CallToolRequest{}
 	req.Params.Name = "pull"
 	req.Params.Arguments = map[string]any{
-		"repo_path": "/my/repo",
-		"branch":    "main",
-		"rebase":    true,
+		"repo_path":  "/my/repo",
+		"remote":     "upstream",
+		"remote_url": "ssh://example.com/repo.git",
+		"branch":     "main",
+		"rebase":     true,
 	}
 	result, err := h.Handle(context.Background(), req)
 	require.NoError(t, err)

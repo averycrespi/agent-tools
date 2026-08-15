@@ -30,11 +30,7 @@ var rootCmd = &cobra.Command{
 		}
 		warnIfAllowAllPaths(allowAllPaths)
 		handler := tools.NewHandler(gitClient)
-
-		srv := mcpserver.NewMCPServer("local-git-mcp", "0.1.0")
-		for _, tool := range handler.Tools() {
-			srv.AddTool(tool, handler.Handle)
-		}
+		srv := newMCPServer(handler)
 
 		slog.Info("starting local-git-mcp stdio server")
 		return mcpserver.ServeStdio(srv)
@@ -45,6 +41,19 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Flags().BoolVar(&allowAllPaths, "allow-all-paths", false, "allow access to any absolute git repository path")
 	rootCmd.Flags().DurationVar(&gitTimeout, "git-timeout", git.DefaultCommandTimeout, "maximum duration for each git command (0 disables timeout)")
+}
+
+func newMCPServer(handler *tools.Handler) *mcpserver.MCPServer {
+	srv := mcpserver.NewMCPServer(
+		"local-git-mcp",
+		"0.1.0",
+		mcpserver.WithStrictInputSchemaDefault(),
+		mcpserver.WithInputSchemaValidation(),
+	)
+	for _, tool := range handler.Tools() {
+		srv.AddTool(tool, handler.Handle)
+	}
+	return srv
 }
 
 func warnIfAllowAllPaths(allow bool) {
