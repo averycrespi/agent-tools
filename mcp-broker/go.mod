@@ -5,7 +5,7 @@ go 1.25.11
 require (
 	github.com/creack/pty v1.1.24
 	github.com/gofrs/flock v0.13.0
-	github.com/mark3labs/mcp-go v0.54.1
+	github.com/mark3labs/mcp-go v0.57.0
 	github.com/ncruces/go-sqlite3 v0.35.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
