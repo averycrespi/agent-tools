@@ -55,6 +55,7 @@ The embedded dashboard in `internal/dashboard/index.html` should use the shared 
 - Errors are wrapped with context: `fmt.Errorf("doing X: %w", err)`
 - Listener binds loopback only. `serve.go` calls `server.ValidateLoopbackAddr` before `ListenAndServe`, which rejects anything but `127.0.0.0/8`, `::1`, or `localhost`. The bearer token is defense-in-depth; the network boundary is the load-bearing security boundary. Sandboxed agents reach the broker via Lima's user-mode forwarding of `host.lima.internal` to the host's loopback — do not relax this to support non-loopback binds
 - `/mcp` requests are wrapped by `limitRequestBody`; keep body-limit changes scoped to MCP requests so dashboard/API routes are unaffected
+- `/mcp` is also wrapped by `rewriteLimaHost`, which rewrites a `Host` of `host.lima.internal` to `localhost` so mcp-go's DNS-rebinding guard does not 403 sandbox traffic. Keep the match exact and the scope on `/mcp`; do not swap it for `mcpserver.WithDisableLocalhostProtection`, which drops the guard for every `Host`
 - Audit write errors are intentionally discarded (`_ =`) — the pipeline should not fail because audit failed
 - Logger nil handling is package-specific: broker/dashboard tolerate nil, while manager/backend construction expects a real logger. Do not add new nil-logger call paths without either guarding calls or providing a default logger.
 - `expandEnv` in server package uses `os.ExpandEnv` — supports `$VAR` and `${VAR}` anywhere in the value (e.g., `"Bearer $TOKEN"`)

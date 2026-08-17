@@ -153,6 +153,40 @@ func TestLimitRequestBodyDisabledWhenZero(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, rec.Code)
 }
 
+func TestRewriteLimaHost(t *testing.T) {
+	tests := []struct {
+		name string
+		host string
+		want string
+	}{
+		{name: "lima host with port", host: "host.lima.internal:8200", want: "localhost:8200"},
+		{name: "lima host without port", host: "host.lima.internal", want: "localhost"},
+		{name: "lima host mixed case", host: "Host.Lima.Internal:8200", want: "localhost:8200"},
+		{name: "localhost untouched", host: "localhost:8200", want: "localhost:8200"},
+		{name: "loopback ip untouched", host: "127.0.0.1:8200", want: "127.0.0.1:8200"},
+		{name: "other host untouched", host: "evil.example.com:8200", want: "evil.example.com:8200"},
+		{name: "lima suffix not matched", host: "not-host.lima.internal:8200", want: "not-host.lima.internal:8200"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got string
+			handler := rewriteLimaHost(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got = r.Host
+				w.WriteHeader(http.StatusNoContent)
+			}))
+
+			req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+			req.Host = tt.host
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusNoContent, rec.Code)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestReloadRulesFromFileUpdatesSharedBrokerAndDashboard(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rules.json")
 	require.NoError(t, config.SaveRulesFile(path, []config.RuleConfig{{Tool: "github.*", Verdict: "allow", Reason: "reloaded"}}))

@@ -238,7 +238,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	// Mount MCP at /mcp
 	streamHandler := mcpserver.NewStreamableHTTPServer(mcpSrv)
-	mux.Handle("/mcp", limitRequestBody(cfg.MaxRequestBodyBytes, streamHandler))
+	mux.Handle("/mcp", limitRequestBody(cfg.MaxRequestBodyBytes, rewriteLimaHost(streamHandler)))
 
 	// Mount dashboard at /dashboard
 	dashHandler := dash.Handler()
@@ -383,6 +383,36 @@ func reloadRulesFromFile(path string, store *rules.Store, logger *slog.Logger) e
 func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte("ok\n"))
+}
+
+// limaInternalHost is the hostname Lima's user-mode networking gives the host
+// from inside a guest VM.
+const limaInternalHost = "host.lima.internal"
+
+// rewriteLimaHost rewrites a Host header of host.lima.internal to localhost,
+// keeping the port when one is present.
+//
+// mcp-go's streamable HTTP handler rejects a request with 403 when the
+// connection's local address is loopback but the Host header is not, as DNS
+// rebinding protection. Lima forwards guest traffic into the host's loopback
+// while preserving the original Host, so every request from a sandbox trips the
+// guard. Rewriting Host is what the SDK recommends over disabling the guard,
+// which would drop the protection for every Host instead of this one.
+func rewriteLimaHost(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, port, err := net.SplitHostPort(r.Host)
+		if err != nil {
+			host, port = r.Host, ""
+		}
+		if strings.EqualFold(host, limaInternalHost) {
+			if port == "" {
+				r.Host = "localhost"
+			} else {
+				r.Host = net.JoinHostPort("localhost", port)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func limitRequestBody(maxBytes int64, next http.Handler) http.Handler {
