@@ -1,16 +1,19 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/events"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 )
 
@@ -108,6 +111,12 @@ func (fakeSessions) Logout(session string) error {
 		return admin.ErrAuthenticationRequired
 	}
 	return nil
+}
+func (fakeSessions) Subscribe(session string) (<-chan struct{}, error) {
+	if session != "session" {
+		return nil, admin.ErrAuthenticationRequired
+	}
+	return make(chan struct{}), nil
 }
 func (fakeSessions) Status() contract.LimitStatus { return contract.LimitStatus{InUse: 1, Limit: 128} }
 
@@ -247,6 +256,93 @@ func TestStaticShellHasRestrictiveCSPAndNoExternalActiveContent(t *testing.T) {
 	}
 }
 
+type streamWriter struct {
+	mu      sync.Mutex
+	header  http.Header
+	body    bytes.Buffer
+	status  int
+	flushed chan struct{}
+}
+
+func newStreamWriter() *streamWriter {
+	return &streamWriter{header: make(http.Header), flushed: make(chan struct{}, 8)}
+}
+func (writer *streamWriter) Header() http.Header { return writer.header }
+func (writer *streamWriter) WriteHeader(status int) {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	if writer.status == 0 {
+		writer.status = status
+	}
+}
+func (writer *streamWriter) Write(contents []byte) (int, error) {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	return writer.body.Write(contents)
+}
+func (writer *streamWriter) Flush() {
+	select {
+	case writer.flushed <- struct{}{}:
+	default:
+	}
+}
+func (writer *streamWriter) snapshot() (int, string) {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	return writer.status, writer.body.String()
+}
+
+func TestEventStreamIsInvalidationOnlyAndRejectsReplay(t *testing.T) {
+	credentials := &fakeCredentials{items: []contract.AdminCredential{credential()}}
+	hub := events.New()
+	t.Cleanup(hub.Shutdown)
+	keepalive := make(chan time.Time, 1)
+	handler := New(Options{
+		Credentials: credentials, Sessions: fakeSessions{}, Events: hub, Invalidate: hub.Publish,
+		NewKeepalive: func() (<-chan time.Time, func()) { return keepalive, func() {} },
+	})
+	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	invalid := perform(boundary, http.MethodGet, "/api/v1/events", "", map[string]string{"Authorization": "Bearer " + testBearer, "Last-Event-ID": "old"})
+	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), "malformed_request") {
+		t.Fatalf("Last-Event-ID: %d %s", invalid.Code, invalid.Body.String())
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil).WithContext(ctx)
+	request.Host = contract.DefaultAuthority
+	request.Header.Set("Authorization", "Bearer "+testBearer)
+	writer := newStreamWriter()
+	done := make(chan struct{})
+	go func() {
+		boundary.ServeHTTP(writer, request)
+		close(done)
+	}()
+	<-writer.flushed
+	hub.Publish(contract.Invalidation{Kind: contract.InvalidationBackups, ResourceID: ptr(testID)})
+	<-writer.flushed
+	keepalive <- time.Time{}
+	<-writer.flushed
+	cancel()
+	<-done
+
+	status, body := writer.snapshot()
+	if status != http.StatusOK || writer.header.Get("Content-Type") != contract.MediaTypeEventStream || writer.header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("handshake: %d %v", status, writer.header)
+	}
+	if strings.HasPrefix(body, "id:") || strings.Contains(body, "\nid:") || strings.Contains(body, testBearer) || !strings.Contains(body, "event: invalidate\ndata: {\"kind\":\"backups\",\"resource_id\":\""+testID+"\"}") || strings.Count(body, ": keepalive") != 2 {
+		t.Fatalf("unsafe event stream: %q", body)
+	}
+	if hub.Status().InUse != 0 {
+		t.Fatalf("stream permit leaked: %+v", hub.Status())
+	}
+}
+
+func ptr(value string) *string { return &value }
+
 func TestBackupResourcesAreIdempotentBoundedAndNoStore(t *testing.T) {
 	t.Parallel()
 	credentials := &fakeCredentials{items: []contract.AdminCredential{credential()}}
@@ -265,7 +361,7 @@ func TestBackupResourcesAreIdempotentBoundedAndNoStore(t *testing.T) {
 		t.Fatalf("create: %d %v %s", created.Code, created.Header(), created.Body.String())
 	}
 	replayed := perform(boundary, http.MethodPost, "/api/v1/backups", `{}`, headers)
-	if replayed.Code != 200 || replayed.Body.String() != created.Body.String() || len(invalidations) != 1 {
+	if replayed.Code != 200 || replayed.Body.String() != created.Body.String() || len(invalidations) != 2 {
 		t.Fatalf("replay: %d %s invalidations=%d", replayed.Code, replayed.Body.String(), len(invalidations))
 	}
 	listed := perform(boundary, http.MethodGet, "/api/v1/backups?limit=50", "", map[string]string{"Authorization": "Bearer " + testBearer})
@@ -278,7 +374,7 @@ func TestBackupResourcesAreIdempotentBoundedAndNoStore(t *testing.T) {
 		t.Fatalf("get: %d %s", got.Code, got.Body.String())
 	}
 	deleted := perform(boundary, http.MethodDelete, "/api/v1/backups/"+id, `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON})
-	if deleted.Code != 204 || len(invalidations) != 2 || invalidations[1].Kind != contract.InvalidationBackups {
+	if deleted.Code != 204 || len(invalidations) != 4 || invalidations[2].Kind != contract.InvalidationBackups {
 		t.Fatalf("delete: %d %s invalidations=%v", deleted.Code, deleted.Body.String(), invalidations)
 	}
 }

@@ -153,6 +153,87 @@ func TestBoundaryAdminWorkRejectsNPlusOneWithoutQueuing(t *testing.T) {
 	group.Wait()
 }
 
+func TestEventStreamsDoNotConsumeAuthenticatedAdminWorkCapacity(t *testing.T) {
+	t.Parallel()
+	started := make(chan struct{}, 16)
+	release := make(chan struct{})
+	boundary, err := New(Options{
+		Authority: contract.DefaultAuthority,
+		Authenticate: func(ctx context.Context, _ *http.Request, _ contract.CredentialAuthority) (context.Context, error) {
+			return ctx, nil
+		},
+		Next: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.URL.Path == "/api/v1/events" {
+				started <- struct{}{}
+				<-release
+			}
+			writer.WriteHeader(http.StatusNoContent)
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var group sync.WaitGroup
+	for range 16 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			request := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil)
+			request.Host = contract.DefaultAuthority
+			boundary.ServeHTTP(httptest.NewRecorder(), request)
+		}()
+	}
+	for range 16 {
+		<-started
+	}
+	status := httptest.NewRequest(http.MethodGet, "/api/v1/system-status", nil)
+	status.Host = contract.DefaultAuthority
+	response := httptest.NewRecorder()
+	boundary.ServeHTTP(response, status)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status while events saturated = %d", response.Code)
+	}
+	close(release)
+	group.Wait()
+}
+
+func TestDrainingRejectsNewWorkButKeepsHealthAndStatus(t *testing.T) {
+	t.Parallel()
+	boundary, err := New(Options{
+		Authority: contract.DefaultAuthority,
+		Ready:     func() bool { return false }, Draining: func() bool { return true },
+		Authenticate: func(ctx context.Context, request *http.Request, _ contract.CredentialAuthority) (context.Context, error) {
+			if request.Header.Get("Authorization") == "" {
+				return ctx, Error{Code: contract.ProblemAuthenticationRequired}
+			}
+			return ctx, nil
+		},
+		Next: http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) { writer.WriteHeader(http.StatusNoContent) }),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]int{"/livez": 200, "/readyz": 503, "/api/v1/system-status": 204, "/api/v1/backups": 503} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Host = contract.DefaultAuthority
+		if strings.HasPrefix(path, "/api/") {
+			request.Header.Set("Authorization", "Bearer valid")
+		}
+		response := httptest.NewRecorder()
+		boundary.ServeHTTP(response, request)
+		if response.Code != want {
+			t.Errorf("%s = %d, want %d: %s", path, response.Code, want, response.Body.String())
+		}
+	}
+	unauthenticated := httptest.NewRequest(http.MethodGet, "/api/v1/backups", nil)
+	unauthenticated.Host = contract.DefaultAuthority
+	response := httptest.NewRecorder()
+	boundary.ServeHTTP(response, unauthenticated)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("drain bypassed authentication: %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestOpenListenerProbesBeforeBinding(t *testing.T) {
 	t.Parallel()
 	var probed atomic.Bool

@@ -19,6 +19,7 @@ type AuthenticateFunc func(context.Context, *http.Request, contract.CredentialAu
 type Options struct {
 	Authority    string
 	Ready        func() bool
+	Draining     func() bool
 	Authenticate AuthenticateFunc
 	Next         http.Handler
 }
@@ -27,6 +28,7 @@ type Boundary struct {
 	authority    string
 	origin       string
 	ready        func() bool
+	draining     func() bool
 	authenticate AuthenticateFunc
 	next         http.Handler
 	regular      chan struct{}
@@ -73,10 +75,14 @@ func New(options Options) (*Boundary, error) {
 	if options.Next == nil {
 		options.Next = http.NotFoundHandler()
 	}
+	if options.Draining == nil {
+		options.Draining = func() bool { return false }
+	}
 	return &Boundary{
 		authority:    options.Authority,
 		origin:       "http://" + options.Authority,
 		ready:        options.Ready,
+		draining:     options.Draining,
 		authenticate: options.Authenticate,
 		next:         options.Next,
 		regular:      makePermit("http_regular"),
@@ -110,7 +116,11 @@ func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Re
 		writeProblem(writer, contract.ProblemResourceLimit)
 		return
 	}
-	defer func() { release(permit) }()
+	defer func() {
+		if permit != nil {
+			release(permit)
+		}
+	}()
 
 	if request.URL.Path == "/livez" {
 		writeJSON(writer, http.StatusOK, map[string]string{"status": "live"})
@@ -124,7 +134,6 @@ func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Re
 		}
 		return
 	}
-
 	ctx := request.Context()
 	if requiresAuthentication(route.Authority) {
 		if boundary.authenticate == nil {
@@ -149,7 +158,15 @@ func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Re
 			}
 			release(permit)
 			permit = boundary.admin
+			if route.Pattern == "/api/v1/events" {
+				release(permit)
+				permit = nil
+			}
 		}
+	}
+	if boundary.draining() && request.URL.Path != "/api/v1/system-status" {
+		writeProblem(writer, contract.ProblemShuttingDown)
+		return
 	}
 	boundary.next.ServeHTTP(writer, request.WithContext(ctx))
 }

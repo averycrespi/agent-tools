@@ -222,7 +222,7 @@ func (service *Service) prepareCredential(expiresAt *time.Time) (credentialCandi
 	return credentialCandidate{metadata: metadata, verifier: verifier, bearer: bearer}, nil
 }
 
-func (service *Service) subscribeCredentialInvalidations(callback func(*string)) func() {
+func (service *Service) SubscribeCredentialInvalidations(callback func(*string)) func() {
 	service.invalidationMu.Lock()
 	id := service.nextInvalidation
 	service.nextInvalidation++

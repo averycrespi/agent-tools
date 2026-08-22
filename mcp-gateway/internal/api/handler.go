@@ -21,6 +21,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/events"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 )
 
@@ -36,6 +37,7 @@ type SessionService interface {
 	Exchange(context.Context, string) (admin.CreatedSession, error)
 	Authenticate(context.Context, string, string, string, bool) (contract.AdminCredential, error)
 	Logout(string) error
+	Subscribe(string) (<-chan struct{}, error)
 	Status() contract.LimitStatus
 }
 
@@ -46,13 +48,20 @@ type BackupService interface {
 	Delete(context.Context, string) error
 }
 
+type EventService interface {
+	Subscribe(string, <-chan struct{}) (*events.Subscription, error)
+}
+
 type OAuthStateValidator func(context.Context, string) bool
 
 type Options struct {
 	Credentials   CredentialService
 	Sessions      SessionService
 	Backups       BackupService
+	Events        EventService
 	Invalidate    func(contract.Invalidation)
+	NewKeepalive  func() (<-chan time.Time, func())
+	Origin        string
 	Status        func() contract.SystemStatus
 	ValidateOAuth OAuthStateValidator
 }
@@ -61,7 +70,10 @@ type Handler struct {
 	credentials   CredentialService
 	sessions      SessionService
 	backups       BackupService
+	events        EventService
 	invalidate    func(contract.Invalidation)
+	newKeepalive  func() (<-chan time.Time, func())
+	origin        string
 	status        func() contract.SystemStatus
 	validateOAuth OAuthStateValidator
 }
@@ -87,7 +99,16 @@ func New(options Options) *Handler {
 	if options.ValidateOAuth == nil {
 		options.ValidateOAuth = func(context.Context, string) bool { return false }
 	}
-	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, invalidate: options.Invalidate, status: options.Status, validateOAuth: options.ValidateOAuth}
+	if options.NewKeepalive == nil {
+		options.NewKeepalive = func() (<-chan time.Time, func()) {
+			ticker := time.NewTicker(contract.SSEKeepaliveInterval)
+			return ticker.C, ticker.Stop
+		}
+	}
+	if options.Origin == "" {
+		options.Origin = contract.CanonicalOrigin
+	}
+	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, validateOAuth: options.ValidateOAuth}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -118,7 +139,7 @@ func (handler *Handler) Authenticate(ctx context.Context, request *http.Request,
 		if !sessionPresent || bearerPresent {
 			return ctx, httpboundary.Error{Code: contract.ProblemAuthenticationRequired}
 		}
-		if request.Header.Get("Origin") != contract.CanonicalOrigin {
+		if request.Header.Get("Origin") != handler.origin {
 			return ctx, httpboundary.Error{Code: contract.ProblemForbiddenOrigin}
 		}
 		credential, authErr := handler.sessions.Authenticate(ctx, "", sessionID, request.Header.Get("X-CSRF-Token"), unsafe(request.Method))
@@ -135,7 +156,7 @@ func (handler *Handler) Authenticate(ctx context.Context, request *http.Request,
 			}
 			result = authentication{credential: credential, bearer: bearer}
 		case sessionPresent:
-			if request.Header.Get("Origin") != contract.CanonicalOrigin {
+			if request.Header.Get("Origin") != handler.origin {
 				return ctx, httpboundary.Error{Code: contract.ProblemForbiddenOrigin}
 			}
 			credential, authErr := handler.sessions.Authenticate(ctx, "", sessionID, request.Header.Get("X-CSRF-Token"), unsafe(request.Method))
@@ -188,6 +209,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.getBackup(writer, request)
 	case strings.HasPrefix(path, "/api/v1/backups/") && request.Method == http.MethodDelete:
 		handler.deleteBackup(writer, request)
+	case path == "/api/v1/events" && request.Method == http.MethodGet:
+		handler.streamEvents(writer, request)
 	default:
 		writeProblem(writer, contract.ProblemNotFound)
 	}
@@ -316,6 +339,7 @@ func (handler *Handler) createCredential(writer http.ResponseWriter, request *ht
 		writeServiceError(writer, err)
 		return
 	}
+	handler.emit(contract.Invalidation{Kind: contract.InvalidationAdminCredentials, ResourceID: &created.ID})
 	writeJSON(writer, http.StatusCreated, created)
 }
 
@@ -393,9 +417,9 @@ func (handler *Handler) createBackup(writer http.ResponseWriter, request *http.R
 	status := http.StatusCreated
 	if replay {
 		status = http.StatusOK
-	} else if handler.invalidate != nil {
+	} else {
 		id := item.ID
-		handler.invalidate(contract.Invalidation{Kind: contract.InvalidationBackups, ResourceID: &id})
+		handler.emit(contract.Invalidation{Kind: contract.InvalidationBackups, ResourceID: &id})
 	}
 	writeJSON(writer, status, item)
 }
@@ -422,10 +446,93 @@ func (handler *Handler) deleteBackup(writer http.ResponseWriter, request *http.R
 		writeServiceError(writer, err)
 		return
 	}
-	if handler.invalidate != nil {
-		handler.invalidate(contract.Invalidation{Kind: contract.InvalidationBackups, ResourceID: &id})
-	}
+	handler.emit(contract.Invalidation{Kind: contract.InvalidationBackups, ResourceID: &id})
 	writer.WriteHeader(http.StatusNoContent)
+}
+
+func (handler *Handler) streamEvents(writer http.ResponseWriter, request *http.Request) {
+	if handler.events == nil || !bodyless(request) || len(request.URL.Query()) != 0 || len(request.Header.Values("Last-Event-ID")) != 0 {
+		writeProblem(writer, contract.ProblemMalformedRequest)
+		return
+	}
+	flusher, ok := writer.(http.Flusher)
+	if !ok {
+		writeProblem(writer, contract.ProblemStorageUnavailable)
+		return
+	}
+	authenticated, ok := request.Context().Value(authContextKey{}).(authentication)
+	if !ok {
+		writeProblem(writer, contract.ProblemAuthenticationRequired)
+		return
+	}
+	var terminal <-chan struct{}
+	if authenticated.viaSession {
+		var err error
+		terminal, err = handler.sessions.Subscribe(authenticated.sessionID)
+		if err != nil {
+			writeServiceError(writer, err)
+			return
+		}
+	}
+	subscription, err := handler.events.Subscribe(authenticated.credential.ID, terminal)
+	if err != nil {
+		writeServiceError(writer, err)
+		return
+	}
+	defer subscription.Close()
+
+	writer.Header().Set("Content-Type", contract.MediaTypeEventStream)
+	writer.Header().Set("Connection", "keep-alive")
+	writer.WriteHeader(http.StatusOK)
+	if !writeSSE(writer, flusher, []byte(": keepalive\n\n")) {
+		return
+	}
+	keepalive, stop := handler.newKeepalive()
+	defer stop()
+	for {
+		select {
+		case event, open := <-subscription.Events():
+			if !open {
+				return
+			}
+			payload, marshalErr := json.Marshal(event)
+			if marshalErr != nil {
+				return
+			}
+			frame := append([]byte("event: invalidate\ndata: "), payload...)
+			frame = append(frame, '\n', '\n')
+			if len(frame) > limitValue("sse_frame_bytes") || !writeSSE(writer, flusher, frame) {
+				return
+			}
+		case <-keepalive:
+			if !writeSSE(writer, flusher, []byte(": keepalive\n\n")) {
+				return
+			}
+		case <-subscription.Done():
+			return
+		case <-request.Context().Done():
+			return
+		}
+	}
+}
+
+func writeSSE(writer http.ResponseWriter, flusher http.Flusher, frame []byte) bool {
+	_ = http.NewResponseController(writer).SetWriteDeadline(time.Now().Add(contract.SSEBlockedWriteDeadline))
+	if _, err := writer.Write(frame); err != nil {
+		return false
+	}
+	flusher.Flush()
+	return true
+}
+
+func (handler *Handler) emit(event contract.Invalidation) {
+	if handler.invalidate == nil {
+		return
+	}
+	handler.invalidate(event)
+	if event.Kind != contract.InvalidationSystemStatus {
+		handler.invalidate(contract.Invalidation{Kind: contract.InvalidationSystemStatus})
+	}
 }
 
 func parseBearer(values []string) (string, bool, error) {
@@ -621,10 +728,12 @@ func writeServiceError(writer http.ResponseWriter, err error) {
 		writeProblem(writer, contract.ProblemInvalidIdempotencyKey)
 	case errors.Is(err, admin.ErrInvalidExpiry):
 		writeProblem(writer, contract.ProblemMalformedRequest)
-	case errors.Is(err, admin.ErrResourceLimit), errors.Is(err, admin.ErrSessionLimit), errors.Is(err, backup.ErrResourceLimit):
+	case errors.Is(err, admin.ErrResourceLimit), errors.Is(err, admin.ErrSessionLimit), errors.Is(err, backup.ErrResourceLimit), errors.Is(err, events.ErrStreamLimit):
 		writeProblem(writer, contract.ProblemResourceLimit)
 	case errors.Is(err, admin.ErrLastNonExpiring):
 		writeProblem(writer, contract.ProblemConflict)
+	case errors.Is(err, events.ErrShuttingDown), errors.Is(err, admin.ErrShuttingDown):
+		writeProblem(writer, contract.ProblemShuttingDown)
 	default:
 		writeProblem(writer, contract.ProblemStorageUnavailable)
 	}

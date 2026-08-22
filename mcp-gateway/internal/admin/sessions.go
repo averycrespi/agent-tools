@@ -74,7 +74,7 @@ func NewSessionManager(service *Service, clock Clock, entropy io.Reader) *Sessio
 		limit:    limit.Maximum,
 		sessions: make(map[string]*activeSession),
 	}
-	manager.unsubscribe = service.subscribeCredentialInvalidations(manager.invalidateCredential)
+	manager.unsubscribe = service.SubscribeCredentialInvalidations(manager.invalidateCredential)
 	return manager
 }
 

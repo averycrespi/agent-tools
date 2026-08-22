@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -121,6 +122,20 @@ func TestBinaryRunnerCapturesSeparateRealProcessResults(t *testing.T) {
 	require.Equal(t, []byte("stderr"), result.Stderr)
 	require.False(t, result.StdoutTruncated)
 	require.False(t, result.StderrTruncated)
+}
+
+func TestBinaryRunnerCanSignalAStartedProcess(t *testing.T) {
+	t.Parallel()
+	runner, err := NewBinaryRunner(2*time.Second, 1024)
+	require.NoError(t, err)
+	process, err := runner.Start(context.Background(), "sh", "-c", `trap 'exit 0' TERM; printf ready; while :; do :; done`)
+	require.NoError(t, err)
+	<-process.StdoutReady()
+	require.NoError(t, process.Signal(syscall.SIGTERM))
+	result, err := process.Wait()
+	require.NoError(t, err)
+	require.Equal(t, 0, result.ExitCode)
+	require.Equal(t, []byte("ready"), result.Stdout)
 }
 
 func TestBinaryRunnerBoundsEachOutputStream(t *testing.T) {

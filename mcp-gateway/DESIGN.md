@@ -187,15 +187,23 @@ Deterministic injected tests cover Darwin and Linux mappings, prompt dismissal, 
 
 ## Deterministic test foundation
 
-Shared tests use mutex-safe fake time and finite deterministic entropy, real owner-only `0700` temporary data roots with symlink/type/owner/mode validation, and a streaming canary scanner that detects cross-buffer leaks without returning the canary in errors. The common real-binary runner requires a positive timeout and per-stream byte cap, captures stdout and stderr separately, reports truncation and exit status, and cancels its direct child when its context expires. Component-specific fault hooks, protocol fixtures, barriers, and process-group shutdown behavior remain with their owning packages.
+Shared tests use mutex-safe fake time and finite deterministic entropy, real owner-only `0700` temporary data roots with symlink/type/owner/mode validation, and a streaming canary scanner that detects cross-buffer leaks without returning the canary in errors. The common real-binary runner requires a positive timeout and per-stream byte cap, captures stdout and stderr separately, reports truncation and exit status, cancels its direct child when its context expires, and can signal a bounded started process for lifecycle tests. Component-specific fault hooks, protocol fixtures, and barriers remain with their owning packages.
 
 ## Implemented HTTP and control boundary
 
 `serve` verifies stopped-process ownership and storage, takes one secret-free keyring capability snapshot, and only then opens the exact configured numeric IPv4 loopback listener. The boundary validates request target, header, forwarding, Host, Origin, route, and method constraints before authentication or body work. Health, ordinary, control-auth, and authenticated-admin permits are independent and nonblocking; authenticated control work transfers permits without allowing ordinary traffic to consume recovery capacity.
 
-The minimum control API implements bearer-to-session exchange, session logout, bounded credential create/list/read/revoke, and the closed system-status representation. Bearer and cookie authority cannot be combined. Cookie requests require the exact Origin, and unsafe cookie requests require the session CSRF value and JSON media type. JSON parsing bounds body size and nesting and rejects invalid UTF-8, duplicate members, unknown members, and trailing input. Credential collection cursors are bounded and collection-bound; no implemented resource uses ETag or durable idempotency. API responses are `no-store`, problems retain the fixed safe envelope, and no response enables CORS.
+The control API implements bearer-to-session exchange, session logout, bounded credential and backup create/list/read/delete operations, invalidation events, and the closed system-status representation. Bearer and cookie authority cannot be combined. Cookie requests require the exact configured Origin, and unsafe cookie requests require the session CSRF value and JSON media type. JSON parsing bounds body size and nesting and rejects invalid UTF-8, duplicate members, unknown members, and trailing input. Credential and backup cursors are bounded and collection-bound; only backup creation uses durable, authority-bound idempotency. No implemented resource uses ETag. API responses are `no-store`, problems retain the fixed safe envelope, and no response enables CORS.
 
 The public shell and local stylesheet are embedded, contain no external active content, and use the fixed restrictive CSP. The injected OAuth-state seam is mounted at `/oauth/callback`; production wiring always returns the safe invalid/expired-state problem.
+
+## Events, composed limits, and lifecycle
+
+The authenticated event hub admits 16 streams with 16 buffered invalidations each. Publication is nonblocking and carries only the closed safe `admin_credentials`, `system_status`, and `backups` representation. Frames have no ID, cursor, replay, or storage authority. Connect and reconnect begin with no history; a full buffer disconnects the slow stream so its client recovers by reloading authenticated snapshots. A 15-second comment keepalive and per-write deadline bound dead peers. Request cancellation, session terminal state, parent-bearer invalidation, and shutdown close the stream and release its permit.
+
+Event streams release authenticated-admin admission after authentication because their own registry supplies the lifetime bound; saturation therefore cannot consume the status/recovery pool. Live status composes the independent HTTP, session, MCP, event, backup, keyring-work, candidate, credential, idempotency, backup-record, and database occupancies. Every admission and retained-record cap is compiled, rejects before expensive allocation without queuing, and releases on every terminal path.
+
+The first `SIGINT` or `SIGTERM` atomically enters drain, makes readiness false, rejects new work other than health and authenticated status, invalidates the keyring consumer epoch, and closes events, MCP compatibility state, and admin sessions. HTTP shutdown then has the fixed ten-second bound. A second signal invokes immediate forced exit rather than waiting for context-free work. Graceful completion removes the durable run marker; forced/unclean termination leaves it for the next startup's full storage verification. Runtime registries are never serialized, so no session or in-flight work resumes.
 
 ## Implemented MCP ingress
 
@@ -207,7 +215,7 @@ Legacy `2025-11-25` initialization reserves one of 128 slots before entropy or s
 
 ## Current executable state
 
-The executable exposes stopped-process `initialize`, `admin-reset`, `restore --verify-current`, and verified backup replacement, plus `serve` for the verified HTTP/control foundation. Initialization/reset/restore publish raw authority only to the controlling terminal or a new owner-only file; normal output remains safe machine JSON. Public health, authenticated admin credential/session/status/backup resources, the minimal static shell, the reserved rejecting OAuth callback, and dual-era authenticated MCP adapters are implemented. Production `/mcp` remains deny-all. Event streaming and coordinated two-stage shutdown remain unavailable until their owning S1 milestones are complete.
+The executable exposes stopped-process `initialize`, `admin-reset`, `restore --verify-current`, and verified backup replacement, plus `serve` for the verified HTTP/control foundation. Initialization/reset/restore publish raw authority only to the controlling terminal or a new owner-only file; normal output remains safe machine JSON. Public health, authenticated admin credential/session/status/backup/event resources, the minimal static shell, the reserved rejecting OAuth callback, isolated dual-era MCP adapters, composed fixed limits, and coordinated two-stage shutdown are implemented. Production `/mcp` remains deny-all.
 
 ## Non-goals
 

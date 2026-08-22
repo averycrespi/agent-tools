@@ -84,7 +84,7 @@ See the [mcp-broker README](mcp-broker/README.md) for more information.
 
 `mcp-gateway` is the clean-start successor being built beside MCP Broker. Its S1 foundation defines a strict loopback HTTP/MCP boundary, durable control state, separate admin and agent authority, explicit OS-keyring capability, verified recovery, and fixed nonblocking limits.
 
-The current executable is an inert deny-by-default scaffold: it does not yet listen, issue authority, register downstream servers, route tools, or expose product workflows. See the [mcp-gateway README](mcp-gateway/README.md) and [design](mcp-gateway/DESIGN.md) for the implemented status and intended S1 boundary.
+The completed S1 executable initializes owner-only state, listens on one exact numeric IPv4 loopback authority, serves authenticated admin/session/status/backup/event resources, isolates modern and legacy MCP protocol handling behind production deny-all agent authentication, and provides verified offline recovery with bounded two-stage shutdown. It does not register downstream servers, issue production agent authority, route tools, or expose product workflows. See the [mcp-gateway README](mcp-gateway/README.md) and [design](mcp-gateway/DESIGN.md) for operation and security boundaries.
 
 ### HTTP Broker
 

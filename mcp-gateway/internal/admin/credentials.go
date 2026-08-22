@@ -93,6 +93,16 @@ func (service *Service) List(ctx context.Context) ([]contract.AdminCredential, e
 	return items, err
 }
 
+func (service *Service) Status(ctx context.Context) contract.LimitStatus {
+	items, err := service.List(ctx)
+	var inUse int64
+	if err == nil {
+		inUse = int64(len(items))
+	}
+	limit, _ := contract.FixedLimitByName("admin_credentials")
+	return contract.LimitStatus{InUse: inUse, Limit: limit.Maximum, Saturated: inUse >= limit.Maximum}
+}
+
 func (service *Service) Revoke(ctx context.Context, id string) error {
 	revoked := false
 	err := service.store.Mutate(ctx, func(transaction *sql.Tx) error {

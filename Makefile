@@ -4,7 +4,7 @@ UNAME_S := $(shell uname -s)
 .PHONY: install install-dev setup build test lint fmt tidy check audit $(TOOLS)
 
 install:
-	@for dir in $(TOOLS); do $(MAKE) -C $$dir install; done
+	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir install; done
 
 install-dev:
 	npm install
@@ -19,19 +19,19 @@ endif
 	$(MAKE) install
 
 build:
-	@for dir in $(TOOLS); do $(MAKE) -C $$dir build; done
+	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir build; done
 
 test:
-	@for dir in $(TOOLS); do $(MAKE) -C $$dir test; done
+	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir test; done
 
 lint:
-	@for dir in $(TOOLS); do $(MAKE) -C $$dir lint; done
+	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir lint; done
 
 fmt:
-	@for dir in $(TOOLS); do $(MAKE) -C $$dir fmt; done
+	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir fmt; done
 
 tidy:
-	@for dir in $(TOOLS); do $(MAKE) -C $$dir tidy; done
+	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir tidy; done
 
 check:
 	npm run format:check
@@ -39,4 +39,4 @@ check:
 	$(MAKE) test
 
 audit:
-	@for dir in $(TOOLS); do $(MAKE) -C $$dir audit; done
+	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir audit; done

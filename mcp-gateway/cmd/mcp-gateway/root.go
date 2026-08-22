@@ -16,6 +16,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/api"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/events"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
@@ -111,6 +112,14 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	credentials := admin.NewService(store, dependencies.clock, dependencies.entropy)
 	sessions := admin.NewSessionManager(credentials, dependencies.clock, dependencies.entropy)
 	defer sessions.Shutdown()
+	eventHub := events.New()
+	defer eventHub.Shutdown()
+	unsubscribeEvents := credentials.SubscribeCredentialInvalidations(func(id *string) {
+		eventHub.InvalidateCredential(id)
+		eventHub.Publish(contract.Invalidation{Kind: contract.InvalidationAdminCredentials, ResourceID: id})
+		eventHub.Publish(contract.Invalidation{Kind: contract.InvalidationSystemStatus})
+	})
+	defer unsubscribeEvents()
 	backupManager, err := backup.New(backup.Options{Store: store, Layout: ownership.Layout(), Clock: dependencies.clock, Entropy: dependencies.entropy})
 	if err != nil {
 		return false, err
@@ -119,9 +128,10 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if err != nil {
 		return false, err
 	}
+	keyringCoordinator := keyring.NewCoordinator(provider, store, dependencies.clock, dependencies.entropy)
 	startedAt := dependencies.clock.Now().UTC().Format(time.RFC3339Nano)
 	capabilitySnapshot := contract.KeyringUnsupported
-	var ready atomic.Bool
+	var ready, draining atomic.Bool
 	var boundary *httpboundary.Boundary
 	ingress := mcpingress.New(mcpingress.Options{
 		Authenticator: mcpingress.DenyAllAuthenticator{},
@@ -133,6 +143,9 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		Credentials: credentials,
 		Sessions:    sessions,
 		Backups:     backupManager,
+		Events:      eventHub,
+		Invalidate:  eventHub.Publish,
+		Origin:      "http://" + authority,
 		Status: func() contract.SystemStatus {
 			current, identityErr := store.Identity(context.Background())
 			if identityErr != nil {
@@ -140,13 +153,21 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 			}
 			mcpWork, mcpStreams, legacySessions := ingress.Status()
 			status := baseSystemStatus(
-				startedAt, current, store.Latched(), capabilitySnapshot, provider.WorkStatus(), sessions.Status(),
+				startedAt, current, store.Latched(), draining.Load(), capabilitySnapshot, provider.WorkStatus(), sessions.Status(),
 				mcpWork, mcpStreams, legacySessions,
 			)
 			status.Backup = backupManager.Status()
 			status.Limits.BackupWork = backupManager.WorkStatus()
 			status.Limits.BackupRecords = backupManager.RecordStatus()
 			status.Limits.IdempotencyRecords = backupManager.IdempotencyStatus()
+			status.Limits.EventStreams = eventHub.Status()
+			status.Limits.AdminCredentials = credentials.Status(context.Background())
+			if candidates, candidateErr := keyringCoordinator.CandidateStatus(context.Background()); candidateErr == nil {
+				status.Limits.KeyringCandidates = candidates
+			}
+			if databaseBytes, databaseErr := store.DatabaseStatus(context.Background()); databaseErr == nil {
+				status.Limits.DatabaseBytes = databaseBytes
+			}
 			if boundary != nil {
 				status.Limits.HTTPRegular, status.Limits.HTTPControlAuth, status.Limits.HTTPAdmin, status.Limits.HTTPHealth = boundary.AdmissionStatus()
 			}
@@ -156,6 +177,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	boundary, err = httpboundary.New(httpboundary.Options{
 		Authority: authority,
 		Ready:     ready.Load,
+		Draining:  draining.Load,
 		Authenticate: func(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
 			if authority == contract.AuthorityAgent {
 				return ingress.Authenticate(ctx, request, authority)
@@ -206,7 +228,12 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 			return true, err
 		}
 	case <-ctx.Done():
+		draining.Store(true)
 		ready.Store(false)
+		keyringCoordinator.Drain()
+		eventHub.Shutdown()
+		ingress.Shutdown()
+		sessions.Shutdown()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), contract.GracefulShutdownDeadline)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
@@ -229,6 +256,7 @@ func baseSystemStatus(
 	startedAt string,
 	identity storage.Identity,
 	latched bool,
+	draining bool,
 	capability contract.KeyringCapability,
 	keyringWork, adminSessions, mcpWork, mcpStreams, legacySessions contract.LimitStatus,
 ) contract.SystemStatus {
@@ -237,6 +265,9 @@ func baseSystemStatus(
 	ready := true
 	if latched {
 		state, process, ready = contract.SQLiteLatched, contract.ProcessStorageFailed, false
+	}
+	if draining {
+		process, ready = contract.ProcessDraining, false
 	}
 	limits := contract.LimitsStatus{
 		MCPWork: mcpWork, MCPStreams: mcpStreams, AdminSessions: adminSessions,

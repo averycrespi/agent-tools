@@ -50,7 +50,9 @@ The package directories begin as documented seams and gain implementation only i
 - Raw secrets never enter SQLite, configuration, argv, logs, metrics, URLs, events, backups, browser storage, or read APIs.
 - SQLite security mutations arm durable intent before beginning and fail closed on uncertain outcomes. No online repair or replay.
 - Keyring startup probing is secret-free and presents no prompt. Get/Set/Delete may interact or outlive cancellation as a documented MVP limitation; admit only one globally, retain its slot until return, and never fall back to plaintext.
-- Limits are compiled constants, acquired in the documented order, and reject without queuing.
+- Limits are compiled constants, acquired in the documented order, and reject without queuing. Event streams release authenticated-admin admission after authentication and retain only their own bounded stream/buffer permits so they cannot starve status or recovery.
+- SSE is invalidation-only: no IDs, replay, cursor, secret, or authority. Overflow disconnects the stream; clients recover through authenticated snapshot reads.
+- The first process signal drains and closes ephemeral registries within the fixed deadline; the second forces exit. Drain the keyring coordinator before closing storage so late context-free results cannot commit.
 - Runtime state is never serialized or resumed after restart.
 - Test subprocesses use `testutil.BinaryRunner` with a positive configured timeout and per-stream byte cap. It captures stdout/stderr separately, reports truncation, and guarantees direct-child cancellation; component-specific process-group behavior belongs with that component.
 - The official MCP SDK sits behind Gateway-owned authentication, classification, binding, limits, and lifecycle.

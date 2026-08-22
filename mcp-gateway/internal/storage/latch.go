@@ -172,6 +172,20 @@ func readConnectionPragma(connection *sqlite3.Conn, query string) (int64, error)
 	return value, nil
 }
 
+func (store *Store) DatabaseStatus(ctx context.Context) (contract.LimitStatus, error) {
+	var pageCount, pageSize int64
+	if err := store.database.QueryRowContext(ctx, `
+		SELECT (SELECT page_count FROM pragma_page_count),
+		       (SELECT page_size FROM pragma_page_size)`).Scan(&pageCount, &pageSize); err != nil {
+		return contract.LimitStatus{}, fmt.Errorf("read database occupancy: %w", err)
+	}
+	if pageCount < 0 || pageSize <= 0 {
+		return contract.LimitStatus{}, ErrInvalidDatabase
+	}
+	inUse := pageCount * pageSize
+	return contract.LimitStatus{InUse: inUse, Limit: store.databaseLimit, Saturated: inUse >= store.databaseLimit}, nil
+}
+
 func (store *Store) configureSizeLimit(ctx context.Context) error {
 	var pageSize int64
 	if err := store.database.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&pageSize); err != nil {

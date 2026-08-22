@@ -4,7 +4,7 @@ MCP Gateway is a locally secure, deny-by-default service foundation for governin
 
 ## Current status
 
-The current executable implements the S1 filesystem, SQLite, admin authority, typed keyring/generation, strict loopback HTTP, minimum control API, isolated dual-era MCP ingress, and verified backup/restore foundations. It opens only the configured numeric IPv4 loopback listener, exposes public health and a minimal static shell, and serves authenticated admin credential/session/status/backup resources. Production `/mcp` remains deny-all; downstream servers, principals, grants, tool routing, invocation, events, and product UI workflows are not implemented.
+The current executable implements the complete S1 filesystem, SQLite, admin authority, typed keyring/generation, strict loopback HTTP, control API, isolated dual-era MCP ingress, verified backup/restore, invalidation events, fixed admission, and lifecycle foundations. It opens only the configured numeric IPv4 loopback listener, exposes public health and a minimal static shell, and serves authenticated admin credential/session/status/backup/event resources. Production `/mcp` remains deny-all; downstream servers, principals, grants, tool routing, invocation, and product UI workflows are not implemented.
 
 ## Development
 
@@ -55,15 +55,23 @@ mcp-gateway serve --data-dir /path/to/mcp-gateway-data
 
 Use `--listen 127.0.0.1:<port>` to select another numeric IPv4 loopback authority. Host aliases, wildcard and non-loopback binds, forwarding headers, alternate Host values, cross-origin requests, CORS, unknown paths, and unsupported methods are rejected. Successful startup emits one safe JSON line containing the authority and installation ID; detailed status requires admin authentication.
 
-`GET /livez` reports only process liveness and `GET /readyz` reports only ready/not-ready. The online S1 control surface exchanges an admin bearer at `POST /api/v1/admin-sessions`, manages bounded admin credential metadata at `/api/v1/admin-credentials`, and exposes `GET /api/v1/system-status`. Browser sessions are host-only, `HttpOnly`, `SameSite=Strict`, require the exact Origin, and require JSON plus CSRF on unsafe methods. Every API response is `no-store`, no endpoint emits CORS headers or ETags, and a newly created bearer appears only in its authenticated creation response.
+`GET /livez` reports only process liveness and `GET /readyz` reports only ready/not-ready. The online S1 control surface exchanges an admin bearer at `POST /api/v1/admin-sessions`, manages bounded admin credential metadata at `/api/v1/admin-credentials`, and exposes `GET /api/v1/system-status`. A browser client signs in by posting exact `{}` with the bearer, then keeps the returned CSRF value only in memory and uses the host-only, `HttpOnly`, `SameSite=Strict` session cookie. Session requests require the exact configured Origin; unsafe requests additionally require JSON and the CSRF header. Logout, expiry, parent revocation, shutdown, and restart close the session. Every API response is `no-store`, no endpoint emits CORS headers or ETags, and a newly created bearer appears only in its authenticated creation response.
 
-The embedded `/` shell has a restrictive self-only content security policy and no product workflow. `/oauth/callback` is reserved but always rejects state in the production S1 wiring. Authenticated `/api/v1/backups` supports bounded create/list/read/delete operations; creation requires a 1–128 byte visible-ASCII `Idempotency-Key`, and retries by the same admin authority return the original safe metadata. Event streaming remains reserved and unavailable until its owning milestone.
+The embedded `/` shell has a restrictive self-only content security policy and no product workflow. `/oauth/callback` is reserved but always rejects state in the production S1 wiring. Authenticated `/api/v1/backups` supports bounded create/list/read/delete operations; creation requires a 1–128 byte visible-ASCII `Idempotency-Key`, and retries by the same admin authority return the original safe metadata.
+
+Authenticated `GET /api/v1/events` is a best-effort SSE freshness channel. It emits only `admin_credentials`, `system_status`, and `backups` invalidations, never secrets or event IDs. There is no replay cursor: reconnecting clients must reload authenticated snapshots. Sixteen streams with sixteen buffered invalidations each are admitted globally; slow consumers are disconnected rather than allowed to queue unbounded work. Streams close with their session or bearer and on shutdown.
 
 ## MCP ingress
 
 Production agent authentication is deny-all, so no deployed `/mcp` request reaches protocol classification. The replaceable authenticated seam nevertheless isolates the two supported wire eras for later slices: `2026-07-28` is stateless and requires matching `Mcp-Protocol-Version` and per-request `_meta.protocolVersion`; `2025-11-25` uses bounded, in-memory sessions bound to the reauthenticated principal and credential. Modern requests never accept legacy session state, malformed modern claims never downgrade, and all legacy sessions disappear on invalidation, expiry, deletion, shutdown, or restart. No tools or list-change capability are advertised.
 
 MCP work, MCP streams, and legacy sessions have independent compiled nonblocking limits of 32, 32, and 128. Saturation rejects immediately instead of queuing. Positive protocol fixtures use only an injected test authenticator; the executable does not issue or accept production agent authority.
+
+## Fixed limits and shutdown
+
+All limits are compiled and reject excess work without queuing. Principal live bounds are 128 ordinary HTTP requests, 32 control-auth attempts, 16 authenticated admin operations, 8 health requests, 128 admin sessions, 32 MCP operations, 32 MCP streams, 128 legacy sessions, 16 event streams, one backup operation, and one context-free keyring operation. Retained bounds include 128 admin credentials, 64 backups, 1,024 backup idempotency records for 24 hours, 64 keyring candidates per owner/kind, and a 1 GiB SQLite database. Detailed occupancy and saturation are visible only in authenticated system status.
+
+The first `SIGINT` or `SIGTERM` makes readiness false, rejects new non-recovery work, drains keyring consumers, and closes sessions, MCP state, and event streams before a shutdown bounded to ten seconds. A second signal exits immediately. Graceful shutdown removes the durable run marker; an unclean or forced restart retains it and performs full SQLite identity, pragma, migration, size, and integrity verification before becoming ready. No session, stream, or in-flight work resumes after any restart.
 
 ## Keyring capability and generations
 
@@ -89,9 +97,7 @@ mcp-gateway restore 01ARZ3NDEKTSV4RRFFQ69G5FAV \
 
 Restore verifies the artifact ID, installation binding, schema, source revision, size, SHA-256, and full SQLite integrity; stages one complete database; revokes every restored admin verifier; publishes and activates one new non-expiring bearer; removes old WAL/SHM sidecars; and atomically selects the replacement. It never restores sessions, MCP state, keyring values, or in-flight work. A successful result has `mode:"backup"` and includes `backup_id`; normal `serve` startup must still verify the replacement before readiness.
 
-To verify and clear the current stopped generation without replacement, run:
-
-Run `restore --verify-current` only after stopping every Gateway process that owns the installation:
+To verify and clear the current stopped generation without replacement, run `restore --verify-current` only after stopping every Gateway process that owns the installation:
 
 ```bash
 mcp-gateway restore --verify-current --data-dir /path/to/mcp-gateway-data
@@ -113,10 +119,14 @@ The command requires an owner-only installation, acquires its exclusive process 
 
 Failures emit one safe JSON line and exit with status 1. `gateway_running` means another process owns the installation; `secret_output_unavailable` means the one-time sink could not be completed; and storage failures intentionally hide filesystem and SQLite details.
 
+## Coexistence with MCP Broker
+
+MCP Gateway is installed and operated independently beside MCP Broker. It does not read or migrate Broker configuration, SQLite state, role tokens, sessions, or audit records. Use distinct listen authorities; choosing Gateway's default `127.0.0.1:8210` does not alter Broker. Gateway remains the clean-start successor foundation, while Broker continues to provide its existing routing and approval product behavior.
+
 ## Security boundary
 
 The completed S1 service is designed to bind one exact numeric IPv4 loopback authority, defaulting to `127.0.0.1:8210`, and to reject all unrecognized paths, methods, credential domains, forwarding headers, and protocol claims. Raw authority must never be stored in configuration, URLs, logs, browser storage, SQLite, backups, or read APIs.
 
 Loopback limits network reachability; it does not isolate processes running as the same operating-system user. Treat untrusted same-user processes as able to attempt connections to the Gateway.
 
-The executable remains deny-by-default: production MCP authentication and all downstream routing are unavailable while later S1 milestones add event and coordinated shutdown boundaries. See [DESIGN.md](DESIGN.md) for the intended system contract and [CLAUDE.md](CLAUDE.md) for development conventions.
+The executable remains deny-by-default: production MCP authentication and all downstream routing are unavailable. See [DESIGN.md](DESIGN.md) for the system contract and [CLAUDE.md](CLAUDE.md) for development conventions.
