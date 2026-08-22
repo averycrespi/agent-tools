@@ -4,7 +4,7 @@ MCP Gateway is a locally secure, deny-by-default service foundation for governin
 
 ## Current status
 
-The current executable implements the S1 filesystem, SQLite, admin authority, typed keyring/generation, strict loopback HTTP, and minimum control API foundations. It opens only the configured numeric IPv4 loopback listener, exposes public health and a minimal static shell, and serves authenticated admin credential/session/status resources. Production `/mcp` remains deny-all; downstream servers, principals, grants, tool routing, invocation, backup resources, events, and product UI workflows are not implemented.
+The current executable implements the S1 filesystem, SQLite, admin authority, typed keyring/generation, strict loopback HTTP, minimum control API, and isolated dual-era MCP ingress foundations. It opens only the configured numeric IPv4 loopback listener, exposes public health and a minimal static shell, and serves authenticated admin credential/session/status resources. Production `/mcp` remains deny-all; downstream servers, principals, grants, tool routing, invocation, backup resources, events, and product UI workflows are not implemented.
 
 ## Development
 
@@ -59,6 +59,12 @@ Use `--listen 127.0.0.1:<port>` to select another numeric IPv4 loopback authorit
 
 The embedded `/` shell has a restrictive self-only content security policy and no product workflow. `/oauth/callback` is reserved but always rejects state in the production S1 wiring. Backup/event paths remain reserved and unavailable until their owning milestones.
 
+## MCP ingress
+
+Production agent authentication is deny-all, so no deployed `/mcp` request reaches protocol classification. The replaceable authenticated seam nevertheless isolates the two supported wire eras for later slices: `2026-07-28` is stateless and requires matching `Mcp-Protocol-Version` and per-request `_meta.protocolVersion`; `2025-11-25` uses bounded, in-memory sessions bound to the reauthenticated principal and credential. Modern requests never accept legacy session state, malformed modern claims never downgrade, and all legacy sessions disappear on invalidation, expiry, deletion, shutdown, or restart. No tools or list-change capability are advertised.
+
+MCP work, MCP streams, and legacy sessions have independent compiled nonblocking limits of 32, 32, and 128. Saturation rejects immediately instead of queuing. Positive protocol fixtures use only an injected test authenticator; the executable does not issue or accept production agent authority.
+
 ## Keyring capability and generations
 
 Gateway wraps `go-keyring` with the closed capability states `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, and `unsupported`. Its secret-free startup probe performs no Get/Set/Delete or prompt presentation, but `ready` is only a snapshot: later operations may invoke OS-managed interaction, fail, or outlive cancellation because `go-keyring` v0.2.7 is context-free. Returned errors fail dependent work closed, and Gateway never falls back to configuration or plaintext files.
@@ -99,4 +105,4 @@ The completed S1 service is designed to bind one exact numeric IPv4 loopback aut
 
 Loopback limits network reachability; it does not isolate processes running as the same operating-system user. Treat untrusted same-user processes as able to attempt connections to the Gateway.
 
-The executable remains deny-by-default: production MCP authentication and all downstream routing are still unavailable while later S1 milestones add the isolated MCP, backup, event, and coordinated shutdown boundaries. See [DESIGN.md](DESIGN.md) for the intended system contract and [CLAUDE.md](CLAUDE.md) for development conventions.
+The executable remains deny-by-default: production MCP authentication and all downstream routing are unavailable while later S1 milestones add backup, event, and coordinated shutdown boundaries. See [DESIGN.md](DESIGN.md) for the intended system contract and [CLAUDE.md](CLAUDE.md) for development conventions.

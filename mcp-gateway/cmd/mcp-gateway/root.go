@@ -17,6 +17,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/spf13/cobra"
@@ -117,6 +118,12 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	capabilitySnapshot := contract.KeyringUnsupported
 	var ready atomic.Bool
 	var boundary *httpboundary.Boundary
+	ingress := mcpingress.New(mcpingress.Options{
+		Authenticator: mcpingress.DenyAllAuthenticator{},
+		Now:           dependencies.clock.Now,
+		Entropy:       dependencies.entropy,
+	})
+	defer ingress.Shutdown()
 	apiHandler := api.New(api.Options{
 		Credentials: credentials,
 		Sessions:    sessions,
@@ -125,7 +132,11 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 			if identityErr != nil {
 				current = identity
 			}
-			status := baseSystemStatus(startedAt, current, store.Latched(), capabilitySnapshot, provider.WorkStatus(), sessions.Status())
+			mcpWork, mcpStreams, legacySessions := ingress.Status()
+			status := baseSystemStatus(
+				startedAt, current, store.Latched(), capabilitySnapshot, provider.WorkStatus(), sessions.Status(),
+				mcpWork, mcpStreams, legacySessions,
+			)
 			if boundary != nil {
 				status.Limits.HTTPRegular, status.Limits.HTTPControlAuth, status.Limits.HTTPAdmin, status.Limits.HTTPHealth = boundary.AdmissionStatus()
 			}
@@ -133,7 +144,21 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		},
 	})
 	boundary, err = httpboundary.New(httpboundary.Options{
-		Authority: authority, Ready: ready.Load, Authenticate: apiHandler.Authenticate, Next: apiHandler,
+		Authority: authority,
+		Ready:     ready.Load,
+		Authenticate: func(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
+			if authority == contract.AuthorityAgent {
+				return ingress.Authenticate(ctx, request, authority)
+			}
+			return apiHandler.Authenticate(ctx, request, authority)
+		},
+		Next: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.URL.Path == "/mcp" {
+				ingress.ServeHTTP(writer, request)
+				return
+			}
+			apiHandler.ServeHTTP(writer, request)
+		}),
 	})
 	if err != nil {
 		return false, err
@@ -190,7 +215,13 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	return true, nil
 }
 
-func baseSystemStatus(startedAt string, identity storage.Identity, latched bool, capability contract.KeyringCapability, keyringWork, adminSessions contract.LimitStatus) contract.SystemStatus {
+func baseSystemStatus(
+	startedAt string,
+	identity storage.Identity,
+	latched bool,
+	capability contract.KeyringCapability,
+	keyringWork, adminSessions, mcpWork, mcpStreams, legacySessions contract.LimitStatus,
+) contract.SystemStatus {
 	state := contract.SQLiteReady
 	process := contract.ProcessReady
 	ready := true
@@ -198,8 +229,8 @@ func baseSystemStatus(startedAt string, identity storage.Identity, latched bool,
 		state, process, ready = contract.SQLiteLatched, contract.ProcessStorageFailed, false
 	}
 	limits := contract.LimitsStatus{
-		MCPWork: fixedStatus("mcp_work", 0), MCPStreams: fixedStatus("mcp_streams", 0), AdminSessions: adminSessions,
-		LegacySessions: fixedStatus("legacy_sessions", 0), EventStreams: fixedStatus("event_streams", 0), BackupWork: fixedStatus("backup_work", 0),
+		MCPWork: mcpWork, MCPStreams: mcpStreams, AdminSessions: adminSessions,
+		LegacySessions: legacySessions, EventStreams: fixedStatus("event_streams", 0), BackupWork: fixedStatus("backup_work", 0),
 		BackupRecords: fixedStatus("backup_records", 0), AdminCredentials: fixedStatus("admin_credentials", 0), IdempotencyRecords: fixedStatus("idempotency_records", 0),
 		KeyringCandidates: fixedStatus("keyring_candidates", 0), KeyringWork: keyringWork, DatabaseBytes: fixedStatus("database_bytes", 0),
 	}

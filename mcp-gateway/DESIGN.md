@@ -193,9 +193,17 @@ The minimum control API implements bearer-to-session exchange, session logout, b
 
 The public shell and local stylesheet are embedded, contain no external active content, and use the fixed restrictive CSP. The injected OAuth-state seam is mounted at `/oauth/callback`; production wiring always returns the safe invalid/expired-state problem.
 
+## Implemented MCP ingress
+
+Agent authentication runs before MCP body reads, era classification, and session lookup. Production uses a deny-all authenticator; positive fixtures inject opaque principal/credential/expiry bindings. Admin bearer prefixes are rejected as the wrong credential domain, while missing, malformed, unknown, and expired agent credentials remain non-enumerating.
+
+Gateway validates the modern `2026-07-28` header/body protocol mirror and dispatches only sessionless POST requests to the official SDK's stateless transport. Per-request client metadata replaces initialization state in this era. Modern requests reject legacy session IDs, cannot fall through to legacy classification, propagate request cancellation, and advertise neither tools nor list-change capability.
+
+Legacy `2025-11-25` initialization reserves one of 128 slots before entropy or state publication, then uses a stateful official-SDK adapter with a Gateway-generated opaque session ID. Every later POST, GET, or DELETE requires the exact legacy protocol header, the session ID, and a reauthenticated binding matching both principal and credential. Idle/absolute expiry, credential expiry or invalidation, DELETE, shutdown, and restart close or discard the in-memory session and release capacity. Modern, legacy, MCP-work, and MCP-stream state remain separate; 32 work and 32 stream permits reject without queuing.
+
 ## Current executable state
 
-The executable exposes stopped-process `initialize`, `admin-reset`, and `restore --verify-current`, plus `serve` for the verified HTTP/control foundation. Initialization/reset publish raw authority only to the controlling terminal or a new owner-only file; normal output remains safe machine JSON. Public health, authenticated admin credential/session/status resources, the minimal static shell, and the reserved rejecting OAuth callback are implemented. Production `/mcp`, backup resources, event streaming, and coordinated two-stage shutdown remain unavailable until their owning S1 milestones are complete.
+The executable exposes stopped-process `initialize`, `admin-reset`, and `restore --verify-current`, plus `serve` for the verified HTTP/control foundation. Initialization/reset publish raw authority only to the controlling terminal or a new owner-only file; normal output remains safe machine JSON. Public health, authenticated admin credential/session/status resources, the minimal static shell, the reserved rejecting OAuth callback, and dual-era authenticated MCP adapters are implemented. Production `/mcp` remains deny-all. Backup resources, event streaming, and coordinated two-stage shutdown remain unavailable until their owning S1 milestones are complete.
 
 ## Non-goals
 
