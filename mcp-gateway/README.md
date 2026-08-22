@@ -4,7 +4,7 @@ MCP Gateway is a locally secure, deny-by-default service foundation for governin
 
 ## Current status
 
-The current executable implements the S1 filesystem, SQLite, admin authority, typed keyring/generation, strict loopback HTTP, minimum control API, and isolated dual-era MCP ingress foundations. It opens only the configured numeric IPv4 loopback listener, exposes public health and a minimal static shell, and serves authenticated admin credential/session/status resources. Production `/mcp` remains deny-all; downstream servers, principals, grants, tool routing, invocation, backup resources, events, and product UI workflows are not implemented.
+The current executable implements the S1 filesystem, SQLite, admin authority, typed keyring/generation, strict loopback HTTP, minimum control API, isolated dual-era MCP ingress, and verified backup/restore foundations. It opens only the configured numeric IPv4 loopback listener, exposes public health and a minimal static shell, and serves authenticated admin credential/session/status/backup resources. Production `/mcp` remains deny-all; downstream servers, principals, grants, tool routing, invocation, events, and product UI workflows are not implemented.
 
 ## Development
 
@@ -57,7 +57,7 @@ Use `--listen 127.0.0.1:<port>` to select another numeric IPv4 loopback authorit
 
 `GET /livez` reports only process liveness and `GET /readyz` reports only ready/not-ready. The online S1 control surface exchanges an admin bearer at `POST /api/v1/admin-sessions`, manages bounded admin credential metadata at `/api/v1/admin-credentials`, and exposes `GET /api/v1/system-status`. Browser sessions are host-only, `HttpOnly`, `SameSite=Strict`, require the exact Origin, and require JSON plus CSRF on unsafe methods. Every API response is `no-store`, no endpoint emits CORS headers or ETags, and a newly created bearer appears only in its authenticated creation response.
 
-The embedded `/` shell has a restrictive self-only content security policy and no product workflow. `/oauth/callback` is reserved but always rejects state in the production S1 wiring. Backup/event paths remain reserved and unavailable until their owning milestones.
+The embedded `/` shell has a restrictive self-only content security policy and no product workflow. `/oauth/callback` is reserved but always rejects state in the production S1 wiring. Authenticated `/api/v1/backups` supports bounded create/list/read/delete operations; creation requires a 1–128 byte visible-ASCII `Idempotency-Key`, and retries by the same admin authority return the original safe metadata. Event streaming remains reserved and unavailable until its owning milestone.
 
 ## MCP ingress
 
@@ -75,7 +75,21 @@ Secrets are split into bounded encoded chunks and become readable only after a d
 
 `make test-keyring-native` uses an isolated D-Bus session and temporary home with Secret Service on Linux. On macOS it changes the login keychain search state only when `MCP_GATEWAY_DISPOSABLE_MACOS_KEYCHAIN=1` explicitly confirms a disposable user context, then restores that state. Otherwise it reports an explicit prerequisite skip rather than touching the user's keychain or Gateway namespace.
 
-## Offline storage verification
+## Verified backup and offline recovery
+
+Backup creation uses SQLite's online backup API, closes and integrity-checks the staged database, records installation/schema/source-revision metadata and SHA-256, and atomically publishes one owner-only generation. At most one backup is created at a time and 64 published generations are retained; excess work rejects without queuing. Backups contain SQLite non-secret state only—no raw admin bearer, keyring value, session, stream, or in-flight runtime state.
+
+Restore one published generation only after stopping Gateway, and publish replacement admin authority to a new owner-only sink:
+
+```bash
+mcp-gateway restore 01ARZ3NDEKTSV4RRFFQ69G5FAV \
+  --data-dir /path/to/mcp-gateway-data \
+  --secret-output /safe/new/restored-admin-bearer
+```
+
+Restore verifies the artifact ID, installation binding, schema, source revision, size, SHA-256, and full SQLite integrity; stages one complete database; revokes every restored admin verifier; publishes and activates one new non-expiring bearer; removes old WAL/SHM sidecars; and atomically selects the replacement. It never restores sessions, MCP state, keyring values, or in-flight work. A successful result has `mode:"backup"` and includes `backup_id`; normal `serve` startup must still verify the replacement before readiness.
+
+To verify and clear the current stopped generation without replacement, run:
 
 Run `restore --verify-current` only after stopping every Gateway process that owns the installation:
 
@@ -105,4 +119,4 @@ The completed S1 service is designed to bind one exact numeric IPv4 loopback aut
 
 Loopback limits network reachability; it does not isolate processes running as the same operating-system user. Treat untrusted same-user processes as able to attempt connections to the Gateway.
 
-The executable remains deny-by-default: production MCP authentication and all downstream routing are unavailable while later S1 milestones add backup, event, and coordinated shutdown boundaries. See [DESIGN.md](DESIGN.md) for the intended system contract and [CLAUDE.md](CLAUDE.md) for development conventions.
+The executable remains deny-by-default: production MCP authentication and all downstream routing are unavailable while later S1 milestones add event and coordinated shutdown boundaries. See [DESIGN.md](DESIGN.md) for the intended system contract and [CLAUDE.md](CLAUDE.md) for development conventions.

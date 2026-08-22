@@ -14,6 +14,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/api"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
@@ -50,7 +51,7 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 	command.AddCommand(
 		newAdminAuthorityCmd("initialize", dependencies),
 		newAdminAuthorityCmd("admin-reset", dependencies),
-		newRestoreCmd(storage.VerifyCurrent),
+		newRestoreCmd(dependencies),
 		newServeCmd(dependencies),
 	)
 	return command
@@ -110,6 +111,10 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	credentials := admin.NewService(store, dependencies.clock, dependencies.entropy)
 	sessions := admin.NewSessionManager(credentials, dependencies.clock, dependencies.entropy)
 	defer sessions.Shutdown()
+	backupManager, err := backup.New(backup.Options{Store: store, Layout: ownership.Layout(), Clock: dependencies.clock, Entropy: dependencies.entropy})
+	if err != nil {
+		return false, err
+	}
 	provider, err := keyring.NewProvider(identity.InstallationID)
 	if err != nil {
 		return false, err
@@ -127,6 +132,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	apiHandler := api.New(api.Options{
 		Credentials: credentials,
 		Sessions:    sessions,
+		Backups:     backupManager,
 		Status: func() contract.SystemStatus {
 			current, identityErr := store.Identity(context.Background())
 			if identityErr != nil {
@@ -137,6 +143,10 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 				startedAt, current, store.Latched(), capabilitySnapshot, provider.WorkStatus(), sessions.Status(),
 				mcpWork, mcpStreams, legacySessions,
 			)
+			status.Backup = backupManager.Status()
+			status.Limits.BackupWork = backupManager.WorkStatus()
+			status.Limits.BackupRecords = backupManager.RecordStatus()
+			status.Limits.IdempotencyRecords = backupManager.IdempotencyStatus()
 			if boundary != nil {
 				status.Limits.HTTPRegular, status.Limits.HTTPControlAuth, status.Limits.HTTPAdmin, status.Limits.HTTPHealth = boundary.AdmissionStatus()
 			}
@@ -386,27 +396,46 @@ func adminCommandErrorCode(err error) string {
 	}
 }
 
-func newRestoreCmd(verifyCurrent func(context.Context, string) (storage.Identity, error)) *cobra.Command {
-	var dataDir string
+func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
+	var dataDir, secretOutput string
 	var verify bool
 	command := &cobra.Command{
-		Use:   "restore",
+		Use:   "restore [backup-id]",
 		Short: "Verify or restore a stopped Gateway database",
 		Args: func(command *cobra.Command, args []string) error {
-			if len(args) != 0 {
+			validVerify := verify && len(args) == 0
+			validBackup := !verify && len(args) == 1 && backup.ValidID(args[0])
+			if !validVerify && !validBackup {
 				return writeCommandFailure(command, "restore", "invalid_command")
 			}
 			return nil
 		},
-		RunE: func(command *cobra.Command, _ []string) error {
-			if !verify || dataDir == "" {
+		RunE: func(command *cobra.Command, args []string) error {
+			if dataDir == "" || (verify && secretOutput != "") {
 				return writeCommandFailure(command, "restore", "invalid_command")
 			}
-			identity, err := verifyCurrent(command.Context(), dataDir)
+			var identity storage.Identity
+			var err error
+			mode, backupID := "verify_current", ""
+			if verify {
+				identity, err = storage.VerifyCurrent(command.Context(), dataDir)
+			} else {
+				mode, backupID = "backup", args[0]
+				sink := admin.NewTerminalSecretSink()
+				if secretOutput != "" {
+					sink = admin.NewFileSecretSink(secretOutput)
+				}
+				identity, err = backup.Restore(command.Context(), backup.RestoreOptions{Root: dataDir, BackupID: backupID, Sink: sink, Clock: dependencies.clock, Entropy: dependencies.entropy})
+			}
 			if err != nil {
 				code := "storage_unavailable"
-				if errors.Is(err, gatewaypaths.ErrInUse) {
+				switch {
+				case errors.Is(err, gatewaypaths.ErrInUse):
 					code = "gateway_running"
+				case errors.Is(err, backup.ErrNotFound), errors.Is(err, backup.ErrInvalidArtifact):
+					code = "invalid_backup"
+				case errors.Is(err, admin.ErrSecretPublication):
+					code = "secret_output_unavailable"
 				}
 				return writeCommandFailure(command, "restore", code)
 			}
@@ -416,13 +445,8 @@ func newRestoreCmd(verifyCurrent func(context.Context, string) (storage.Identity
 				Mode           string `json:"mode"`
 				InstallationID string `json:"installation_id"`
 				Revision       string `json:"revision"`
-			}{
-				OK:             true,
-				Operation:      "restore",
-				Mode:           "verify_current",
-				InstallationID: identity.InstallationID,
-				Revision:       fmt.Sprintf("%d", identity.Revision),
-			}
+				BackupID       string `json:"backup_id,omitempty"`
+			}{true, "restore", mode, identity.InstallationID, fmt.Sprintf("%d", identity.Revision), backupID}
 			if err := json.NewEncoder(command.OutOrStdout()).Encode(result); err != nil {
 				return commandFailure{}
 			}
@@ -431,6 +455,7 @@ func newRestoreCmd(verifyCurrent func(context.Context, string) (storage.Identity
 	}
 	command.Flags().BoolVar(&verify, "verify-current", false, "verify and clear a stopped installation's storage latch")
 	command.Flags().StringVar(&dataDir, "data-dir", "", "owner-only Gateway data directory")
+	command.Flags().StringVar(&secretOutput, "secret-output", "", "new owner-only file for the replacement admin bearer")
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
 		return writeCommandFailure(command, "restore", "invalid_command")
 	})

@@ -157,7 +157,11 @@ SQLite uses application ID `MGW1`, an immutable installation ULID, decimal revis
 
 Security mutations are admitted through one nonblocking slot. Before a transaction begins, Gateway writes an installation-bound owner-only intent through temp write, file sync, atomic rename, and directory sync. A known commit or rollback moves the intent through a synced tombstone deletion. Marker I/O failures, storage-class statement failures, busy begin, commit errors, and post-commit uncertainty latch mutations; elapsed time, restart, or successful reads cannot clear the latch.
 
-`restore --verify-current` reacquires stopped-process ownership, requires the current schema, runs full verification, closes SQLite, and only then durably removes marker artifacts. It emits one safe machine JSON result and does not make the service ready; normal startup must verify the generation again. Backup replacement remains owned by M7.
+`restore --verify-current` reacquires stopped-process ownership, requires the current schema, runs full verification, closes SQLite, and only then durably removes marker artifacts. It emits one safe machine JSON result and does not make the service ready; normal startup must verify the generation again.
+
+On-demand backup uses SQLite's online backup API under one nonblocking global work slot. Gateway stages an owner-only closed generation, verifies identity/schema/revision/full integrity and the 1 GiB bound, computes SHA-256, writes safe internal metadata, and atomically publishes it under a 26-character ID. The artifact-bound authority/key digest provides durable retry identity without storing a bearer or replaying a secret; 64 retained artifacts are the fixed record bound.
+
+Backup restore holds stopped-process ownership, validates the published artifact and current installation binding, copies one complete generation, and resets all restored admin verifiers on the staged database only after publishing a replacement non-expiring bearer. A checkpointed staged database atomically replaces the active generation without prior WAL/SHM sidecars. Sessions, protocol state, events, and keyring values are never restored. Marker clearing and readiness still require completed replacement verification and a fresh normal startup.
 
 ## Admin authority lifecycle
 
@@ -203,7 +207,7 @@ Legacy `2025-11-25` initialization reserves one of 128 slots before entropy or s
 
 ## Current executable state
 
-The executable exposes stopped-process `initialize`, `admin-reset`, and `restore --verify-current`, plus `serve` for the verified HTTP/control foundation. Initialization/reset publish raw authority only to the controlling terminal or a new owner-only file; normal output remains safe machine JSON. Public health, authenticated admin credential/session/status resources, the minimal static shell, the reserved rejecting OAuth callback, and dual-era authenticated MCP adapters are implemented. Production `/mcp` remains deny-all. Backup resources, event streaming, and coordinated two-stage shutdown remain unavailable until their owning S1 milestones are complete.
+The executable exposes stopped-process `initialize`, `admin-reset`, `restore --verify-current`, and verified backup replacement, plus `serve` for the verified HTTP/control foundation. Initialization/reset/restore publish raw authority only to the controlling terminal or a new owner-only file; normal output remains safe machine JSON. Public health, authenticated admin credential/session/status/backup resources, the minimal static shell, the reserved rejecting OAuth callback, and dual-era authenticated MCP adapters are implemented. Production `/mcp` remains deny-all. Event streaming and coordinated two-stage shutdown remain unavailable until their owning S1 milestones are complete.
 
 ## Non-goals
 

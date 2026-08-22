@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 )
@@ -52,6 +53,42 @@ func (credentials *fakeCredentials) List(context.Context) ([]contract.AdminCrede
 }
 func (credentials *fakeCredentials) Revoke(context.Context, string) error { return nil }
 
+type fakeBackups struct {
+	items []contract.Backup
+}
+
+func (backups *fakeBackups) Create(_ context.Context, authorityID, key string) (contract.Backup, bool, error) {
+	if key == "bad key" {
+		return contract.Backup{}, false, backup.ErrInvalidIdempotency
+	}
+	for _, item := range backups.items {
+		if key == "retry" {
+			return item, true, nil
+		}
+	}
+	item := contract.Backup{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", CreatedAt: "2026-08-22T18:00:00Z", InstallationID: testID, SchemaVersion: "3", SourceRevision: "1", SizeBytes: 4096, SHA256: strings.Repeat("a", 64)}
+	backups.items = append(backups.items, item)
+	return item, false, nil
+}
+func (backups *fakeBackups) List(context.Context) ([]contract.Backup, error) {
+	return append([]contract.Backup(nil), backups.items...), nil
+}
+func (backups *fakeBackups) Get(_ context.Context, id string) (contract.Backup, error) {
+	for _, item := range backups.items {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return contract.Backup{}, backup.ErrNotFound
+}
+func (backups *fakeBackups) Delete(_ context.Context, id string) error {
+	if len(backups.items) == 0 || backups.items[0].ID != id {
+		return backup.ErrNotFound
+	}
+	backups.items = nil
+	return nil
+}
+
 type fakeSessions struct{}
 
 func (fakeSessions) Exchange(context.Context, string) (admin.CreatedSession, error) {
@@ -81,7 +118,7 @@ func credential() contract.AdminCredential {
 func newTestHandler(t *testing.T) http.Handler {
 	t.Helper()
 	credentials := &fakeCredentials{items: []contract.AdminCredential{credential()}}
-	handler := New(Options{Credentials: credentials, Sessions: fakeSessions{}, Status: func() contract.SystemStatus {
+	handler := New(Options{Credentials: credentials, Sessions: fakeSessions{}, Backups: &fakeBackups{}, Status: func() contract.SystemStatus {
 		return contract.SystemStatus{
 			Process:   contract.ProcessStatus{State: contract.ProcessReady, Ready: true, StartedAt: "2026-08-22T18:00:00Z"},
 			SQLite:    contract.SQLiteStatus{State: contract.SQLiteReady, SchemaVersion: "3", Revision: "1"},
@@ -207,6 +244,62 @@ func TestStaticShellHasRestrictiveCSPAndNoExternalActiveContent(t *testing.T) {
 	asset := perform(handler, http.MethodGet, "/assets/app.css", "", nil)
 	if asset.Code != 200 || asset.Header().Get("Content-Type") != "text/css; charset=utf-8" {
 		t.Fatalf("asset: %d %v", asset.Code, asset.Header())
+	}
+}
+
+func TestBackupResourcesAreIdempotentBoundedAndNoStore(t *testing.T) {
+	t.Parallel()
+	credentials := &fakeCredentials{items: []contract.AdminCredential{credential()}}
+	backups := &fakeBackups{}
+	var invalidations []contract.Invalidation
+	handler := New(Options{Credentials: credentials, Sessions: fakeSessions{}, Backups: backups, Invalidate: func(event contract.Invalidation) {
+		invalidations = append(invalidations, event)
+	}})
+	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
+	if err != nil {
+		t.Fatal(err)
+	}
+	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "Idempotency-Key": "retry"}
+	created := perform(boundary, http.MethodPost, "/api/v1/backups", `{}`, headers)
+	if created.Code != 201 || created.Header().Get("Cache-Control") != "no-store" || created.Header().Get("ETag") != "" {
+		t.Fatalf("create: %d %v %s", created.Code, created.Header(), created.Body.String())
+	}
+	replayed := perform(boundary, http.MethodPost, "/api/v1/backups", `{}`, headers)
+	if replayed.Code != 200 || replayed.Body.String() != created.Body.String() || len(invalidations) != 1 {
+		t.Fatalf("replay: %d %s invalidations=%d", replayed.Code, replayed.Body.String(), len(invalidations))
+	}
+	listed := perform(boundary, http.MethodGet, "/api/v1/backups?limit=50", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	if listed.Code != 200 || !strings.Contains(listed.Body.String(), `"next_cursor":null`) {
+		t.Fatalf("list: %d %s", listed.Code, listed.Body.String())
+	}
+	id := backups.items[0].ID
+	got := perform(boundary, http.MethodGet, "/api/v1/backups/"+id, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	if got.Code != 200 || got.Header().Get("ETag") != "" {
+		t.Fatalf("get: %d %s", got.Code, got.Body.String())
+	}
+	deleted := perform(boundary, http.MethodDelete, "/api/v1/backups/"+id, `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON})
+	if deleted.Code != 204 || len(invalidations) != 2 || invalidations[1].Kind != contract.InvalidationBackups {
+		t.Fatalf("delete: %d %s invalidations=%v", deleted.Code, deleted.Body.String(), invalidations)
+	}
+}
+
+func TestBackupCreateRequiresValidIdempotencyKeyAndExactBody(t *testing.T) {
+	t.Parallel()
+	handler := newTestHandler(t)
+	base := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
+	missing := perform(handler, http.MethodPost, "/api/v1/backups", `{}`, base)
+	if missing.Code != 400 || !strings.Contains(missing.Body.String(), "invalid_idempotency_key") {
+		t.Fatalf("missing key: %d %s", missing.Code, missing.Body.String())
+	}
+	base["Idempotency-Key"] = "retry"
+	invalidBody := perform(handler, http.MethodPost, "/api/v1/backups", `{"extra":true}`, base)
+	if invalidBody.Code != 400 || !strings.Contains(invalidBody.Body.String(), "invalid_json") {
+		t.Fatalf("invalid body: %d %s", invalidBody.Code, invalidBody.Body.String())
+	}
+	base["Idempotency-Key"] = "bad key"
+	invalidKey := perform(handler, http.MethodPost, "/api/v1/backups", `{}`, base)
+	if invalidKey.Code != 400 || !strings.Contains(invalidKey.Body.String(), "invalid_idempotency_key") {
+		t.Fatalf("invalid key: %d %s", invalidKey.Code, invalidKey.Body.String())
 	}
 }
 

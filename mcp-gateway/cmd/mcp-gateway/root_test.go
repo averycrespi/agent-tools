@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
@@ -87,6 +88,43 @@ func TestRestoreVerifyCurrentEmitsOneSafeMachineResult(t *testing.T) {
 		"installation_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		"revision":        "0",
 	}, result)
+}
+
+func TestRestoreBackupEmitsSafeResultAndReplacementSecret(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "gateway")
+	initialSecret := filepath.Join(t.TempDir(), "initial")
+	command := newRootCmd()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"initialize", "--data-dir", root, "--secret-output", initialSecret})
+	require.NoError(t, command.ExecuteContext(ctx))
+
+	ownership, err := gatewaypaths.Acquire(root)
+	require.NoError(t, err)
+	store, err := storage.Open(ctx, ownership)
+	require.NoError(t, err)
+	manager, err := backup.New(backup.Options{Store: store, Layout: ownership.Layout(), Clock: systemClock{}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x55}, 128))})
+	require.NoError(t, err)
+	artifact, _, err := manager.Create(ctx, "authority", "restore-command")
+	require.NoError(t, err)
+	require.NoError(t, store.Close())
+	require.NoError(t, ownership.Close())
+
+	secret := filepath.Join(t.TempDir(), "replacement")
+	stdout := new(bytes.Buffer)
+	command = newRootCmd()
+	command.SetOut(stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"restore", artifact.ID, "--data-dir", root, "--secret-output", secret})
+	require.NoError(t, command.ExecuteContext(ctx))
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+	assert.Equal(t, "backup", result["mode"])
+	assert.Equal(t, artifact.ID, result["backup_id"])
+	published, err := os.ReadFile(secret)
+	require.NoError(t, err)
+	assert.NotContains(t, stdout.String(), string(bytes.TrimSpace(published)))
 }
 
 func TestRestoreRejectsInvalidInvocationWithSafeMachineResult(t *testing.T) {

@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 )
@@ -38,11 +39,20 @@ type SessionService interface {
 	Status() contract.LimitStatus
 }
 
+type BackupService interface {
+	Create(context.Context, string, string) (contract.Backup, bool, error)
+	List(context.Context) ([]contract.Backup, error)
+	Get(context.Context, string) (contract.Backup, error)
+	Delete(context.Context, string) error
+}
+
 type OAuthStateValidator func(context.Context, string) bool
 
 type Options struct {
 	Credentials   CredentialService
 	Sessions      SessionService
+	Backups       BackupService
+	Invalidate    func(contract.Invalidation)
 	Status        func() contract.SystemStatus
 	ValidateOAuth OAuthStateValidator
 }
@@ -50,6 +60,8 @@ type Options struct {
 type Handler struct {
 	credentials   CredentialService
 	sessions      SessionService
+	backups       BackupService
+	invalidate    func(contract.Invalidation)
 	status        func() contract.SystemStatus
 	validateOAuth OAuthStateValidator
 }
@@ -75,7 +87,7 @@ func New(options Options) *Handler {
 	if options.ValidateOAuth == nil {
 		options.ValidateOAuth = func(context.Context, string) bool { return false }
 	}
-	return &Handler{credentials: options.Credentials, sessions: options.Sessions, status: options.Status, validateOAuth: options.ValidateOAuth}
+	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, invalidate: options.Invalidate, status: options.Status, validateOAuth: options.ValidateOAuth}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -168,6 +180,14 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		writeJSON(writer, http.StatusOK, handler.status())
+	case path == "/api/v1/backups" && request.Method == http.MethodGet:
+		handler.listBackups(writer, request)
+	case path == "/api/v1/backups" && request.Method == http.MethodPost:
+		handler.createBackup(writer, request)
+	case strings.HasPrefix(path, "/api/v1/backups/") && request.Method == http.MethodGet:
+		handler.getBackup(writer, request)
+	case strings.HasPrefix(path, "/api/v1/backups/") && request.Method == http.MethodDelete:
+		handler.deleteBackup(writer, request)
 	default:
 		writeProblem(writer, contract.ProblemNotFound)
 	}
@@ -323,6 +343,91 @@ func (handler *Handler) revokeCredential(writer http.ResponseWriter, request *ht
 	writer.WriteHeader(http.StatusNoContent)
 }
 
+func (handler *Handler) listBackups(writer http.ResponseWriter, request *http.Request) {
+	if handler.backups == nil || !bodyless(request) {
+		writeProblem(writer, contract.ProblemMalformedRequest)
+		return
+	}
+	limit, after, problem := parseCollectionQuery(request.URL.Query(), "backups")
+	if problem != "" {
+		writeProblem(writer, problem)
+		return
+	}
+	items, err := handler.backups.List(request.Context())
+	if err != nil {
+		writeServiceError(writer, err)
+		return
+	}
+	sort.Slice(items, func(left, right int) bool { return items[left].ID < items[right].ID })
+	start := sort.Search(len(items), func(index int) bool { return items[index].ID > after })
+	end := start + limit
+	var next *string
+	if end < len(items) {
+		value := encodeCursor("backups", items[end-1].ID)
+		next = &value
+	} else {
+		end = len(items)
+	}
+	writeJSON(writer, http.StatusOK, contract.Collection[contract.Backup]{Items: items[start:end], NextCursor: next})
+}
+
+func (handler *Handler) createBackup(writer http.ResponseWriter, request *http.Request) {
+	if handler.backups == nil || !decodeEmptyObject(writer, request) {
+		return
+	}
+	key := request.Header.Get("Idempotency-Key")
+	if key == "" {
+		writeProblem(writer, contract.ProblemInvalidIdempotencyKey)
+		return
+	}
+	authenticated, ok := request.Context().Value(authContextKey{}).(authentication)
+	if !ok {
+		writeProblem(writer, contract.ProblemAuthenticationRequired)
+		return
+	}
+	item, replay, err := handler.backups.Create(request.Context(), authenticated.credential.ID, key)
+	if err != nil {
+		writeServiceError(writer, err)
+		return
+	}
+	status := http.StatusCreated
+	if replay {
+		status = http.StatusOK
+	} else if handler.invalidate != nil {
+		id := item.ID
+		handler.invalidate(contract.Invalidation{Kind: contract.InvalidationBackups, ResourceID: &id})
+	}
+	writeJSON(writer, status, item)
+}
+
+func (handler *Handler) getBackup(writer http.ResponseWriter, request *http.Request) {
+	if handler.backups == nil || !bodyless(request) || len(request.URL.Query()) != 0 {
+		writeProblem(writer, contract.ProblemMalformedRequest)
+		return
+	}
+	item, err := handler.backups.Get(request.Context(), strings.TrimPrefix(request.URL.Path, "/api/v1/backups/"))
+	if err != nil {
+		writeServiceError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, item)
+}
+
+func (handler *Handler) deleteBackup(writer http.ResponseWriter, request *http.Request) {
+	if handler.backups == nil || !decodeEmptyObject(writer, request) {
+		return
+	}
+	id := strings.TrimPrefix(request.URL.Path, "/api/v1/backups/")
+	if err := handler.backups.Delete(request.Context(), id); err != nil {
+		writeServiceError(writer, err)
+		return
+	}
+	if handler.invalidate != nil {
+		handler.invalidate(contract.Invalidation{Kind: contract.InvalidationBackups, ResourceID: &id})
+	}
+	writer.WriteHeader(http.StatusNoContent)
+}
+
 func parseBearer(values []string) (string, bool, error) {
 	if len(values) == 0 {
 		return "", false, nil
@@ -356,9 +461,14 @@ func parseCollectionQuery(query url.Values, collection string) (int, string, con
 		}
 	}
 	limit := contract.AdminListPageDefault
+	limitName := "admin_list_page"
+	if collection == "backups" {
+		limit = contract.BackupListPageDefault
+		limitName = "backup_list_page"
+	}
 	if text := query.Get("limit"); text != "" {
 		value, err := strconv.Atoi(text)
-		maximum, _ := contract.FixedLimitByName("admin_list_page")
+		maximum, _ := contract.FixedLimitByName(limitName)
 		if err != nil || value < 1 || int64(value) > maximum.Maximum {
 			return 0, "", contract.ProblemMalformedRequest
 		}
@@ -505,11 +615,13 @@ func boundaryError(err error) error {
 
 func writeServiceError(writer http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, admin.ErrNotFound):
+	case errors.Is(err, admin.ErrNotFound), errors.Is(err, backup.ErrNotFound):
 		writeProblem(writer, contract.ProblemNotFound)
+	case errors.Is(err, backup.ErrInvalidIdempotency):
+		writeProblem(writer, contract.ProblemInvalidIdempotencyKey)
 	case errors.Is(err, admin.ErrInvalidExpiry):
 		writeProblem(writer, contract.ProblemMalformedRequest)
-	case errors.Is(err, admin.ErrResourceLimit), errors.Is(err, admin.ErrSessionLimit):
+	case errors.Is(err, admin.ErrResourceLimit), errors.Is(err, admin.ErrSessionLimit), errors.Is(err, backup.ErrResourceLimit):
 		writeProblem(writer, contract.ProblemResourceLimit)
 	case errors.Is(err, admin.ErrLastNonExpiring):
 		writeProblem(writer, contract.ProblemConflict)
