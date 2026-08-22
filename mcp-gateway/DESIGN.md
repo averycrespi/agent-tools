@@ -158,13 +158,23 @@ Security mutations are admitted through one nonblocking slot. Before a transacti
 
 `restore --verify-current` reacquires stopped-process ownership, requires the current schema, runs full verification, closes SQLite, and only then durably removes marker artifacts. It emits one safe machine JSON result and does not make the service ready; normal startup must verify the generation again. Backup replacement remains owned by M7.
 
+## Admin authority lifecycle
+
+Admin bearer creation uses 32 bytes of entropy and the fixed `mgw_admin_` domain prefix. SQLite stores only a domain-separated SHA-256 verifier, a separately domain-separated 16-character fingerprint, metadata, status, and revision. Authentication distinguishes the reserved agent prefix before performing constant-time verifier comparisons; unknown and malformed admin values remain non-enumerating.
+
+`initialize` and `admin-reset` require stopped-process ownership. They complete an approved one-time sink before entering the latched security mutation. Initialization activates only an empty authority set. Reset revokes every prior active verifier and inserts one replacement in the same revisioned transaction. Sink failure leaves all persisted authority unchanged, while an activation failure cannot make an unpublished bearer usable. Command JSON, standard error, argv, logs, and SQLite never contain the raw bearer.
+
+Credential creation validates optional expiry against the compiled five-minute and one-year bounds before consuming entropy. Metadata reads derive expiry from the injected clock; authentication compares all active verifier candidates in constant time and rejects expired, revoked, unknown, malformed, and wrong-domain values safely. Revocation transactionally preserves at least one active non-expiring authority. At the 128-record cap, creation/reset prunes the oldest revoked or expired records by creation time and ID; it rejects without queuing when every record remains active.
+
+Bearer exchange reserves one of 128 in-memory session slots before generating independent 32-byte session and CSRF values. Sessions use a host-only `mcp_gateway_session` cookie with `Path=/`, `HttpOnly`, and `SameSite=Strict`; no `Domain` is present, and `Secure` is omitted only for the fixed plain-loopback transport. Activity refreshes the 30-minute idle bound without extending the eight-hour absolute bound. Logout, idle/absolute or parent expiry, parent revocation, reset, and shutdown remove the slot and synchronously close its subscription channel. Ambiguous bearer-plus-cookie authority and incorrect session-bound CSRF fail without changing activity. No session state survives manager or process restart.
+
 ## Deterministic test foundation
 
 Shared tests use mutex-safe fake time and finite deterministic entropy, real owner-only `0700` temporary data roots with symlink/type/owner/mode validation, and a streaming canary scanner that detects cross-buffer leaks without returning the canary in errors. The common real-binary runner requires a positive timeout and per-stream byte cap, captures stdout and stderr separately, reports truncation and exit status, and cancels its direct child when its context expires. Component-specific fault hooks, protocol fixtures, barriers, and process-group shutdown behavior remain with their owning packages.
 
 ## Current executable state
 
-The executable exposes only `restore --verify-current` from the storage milestone and starts no listener. Initialization, admin authority, service startup, and online APIs remain unavailable until their owning S1 milestones are complete. This prevents partially composed security boundaries from becoming a usable service.
+The executable exposes stopped-process `initialize`, `admin-reset`, and `restore --verify-current` and starts no listener. Initialization/reset publish raw authority only to the controlling terminal or a new owner-only file; normal output remains safe machine JSON. Online credential/session APIs and service startup remain unavailable until their owning S1 milestones are complete. This prevents partially composed network security boundaries from becoming a usable service.
 
 ## Non-goals
 

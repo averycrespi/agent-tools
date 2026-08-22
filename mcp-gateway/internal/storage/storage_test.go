@@ -45,7 +45,7 @@ func TestInitializeCreatesVerifiedGatewayDatabase(t *testing.T) {
 
 	versions, err := store.MigrationVersions(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, []int{1}, versions)
+	assert.Equal(t, []int{1, 2}, versions)
 	assertFileMode(t, ownership.Layout().Database, 0o600)
 }
 
@@ -134,7 +134,26 @@ func TestOpenMigratesCommittedPriorSchemaFixture(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, testInstallationID, identity.InstallationID)
 	assert.Equal(t, CurrentSchema, identity.SchemaVersion)
-	assert.Equal(t, []int{1}, mustMigrationVersions(t, store, ctx))
+	assert.Equal(t, []int{1, 2}, mustMigrationVersions(t, store, ctx))
+}
+
+func TestOpenMigratesCommittedAdminSchemaFixture(t *testing.T) {
+	ctx := context.Background()
+	ownership := newOwnership(t)
+	copyFixture(t, "testdata/schema-v1.db", ownership.Layout().Database)
+
+	store, err := Open(ctx, ownership)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close()) }()
+
+	identity, err := store.Identity(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, CurrentSchema, identity.SchemaVersion)
+	assert.Equal(t, []int{1, 2}, mustMigrationVersions(t, store, ctx))
+	var credentialTable string
+	require.NoError(t, store.database.QueryRowContext(ctx, `
+		SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'admin_credentials'`).Scan(&credentialTable))
+	assert.Equal(t, "admin_credentials", credentialTable)
 }
 
 func TestInitializeRejectsInvalidOrExistingInstallations(t *testing.T) {

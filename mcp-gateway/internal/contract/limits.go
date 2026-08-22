@@ -9,17 +9,19 @@ const (
 )
 
 const (
-	HeaderReadDeadline        = 5 * time.Second
-	APIHandlerDeadline        = 30 * time.Second
-	SQLiteBusyDeadline        = 2 * time.Second
-	SSEKeepaliveInterval      = 15 * time.Second
-	SSEBlockedWriteDeadline   = 15 * time.Second
-	LegacyIdleLifetime        = 30 * time.Minute
-	LegacyAbsoluteLifetime    = 8 * time.Hour
-	GracefulShutdownDeadline  = 10 * time.Second
-	IdempotencyRetention      = 24 * time.Hour
-	CredentialMinimumLifetime = 5 * time.Minute
-	CredentialMaximumLifetime = 365 * 24 * time.Hour
+	HeaderReadDeadline           = 5 * time.Second
+	APIHandlerDeadline           = 30 * time.Second
+	SQLiteBusyDeadline           = 2 * time.Second
+	SSEKeepaliveInterval         = 15 * time.Second
+	SSEBlockedWriteDeadline      = 15 * time.Second
+	AdminSessionIdleLifetime     = 30 * time.Minute
+	AdminSessionAbsoluteLifetime = 8 * time.Hour
+	LegacyIdleLifetime           = 30 * time.Minute
+	LegacyAbsoluteLifetime       = 8 * time.Hour
+	GracefulShutdownDeadline     = 10 * time.Second
+	IdempotencyRetention         = 24 * time.Hour
+	CredentialMinimumLifetime    = 5 * time.Minute
+	CredentialMaximumLifetime    = 365 * 24 * time.Hour
 )
 
 type FixedLimit struct {

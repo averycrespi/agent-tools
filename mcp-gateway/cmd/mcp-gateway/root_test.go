@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -13,15 +14,51 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRootCommandExposesOnlyOwnedOfflineRecovery(t *testing.T) {
+func TestRootCommandExposesOwnedOfflineCommands(t *testing.T) {
 	cmd := newRootCmd()
 
 	require.Equal(t, "mcp-gateway", cmd.Use)
 	require.Contains(t, cmd.Short, "deny-by-default")
-	require.Len(t, cmd.Commands(), 1)
-	require.Equal(t, "restore", cmd.Commands()[0].Name())
+	require.Len(t, cmd.Commands(), 3)
+	assert.Equal(t, []string{"admin-reset", "initialize", "restore"}, []string{
+		cmd.Commands()[0].Name(), cmd.Commands()[1].Name(), cmd.Commands()[2].Name(),
+	})
 	require.True(t, cmd.SilenceUsage)
 	require.True(t, cmd.SilenceErrors)
+}
+
+func TestInitializeAndResetEmitSafeResultsAndPublishSecretsOnce(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "gateway")
+	initialSecret := filepath.Join(t.TempDir(), "initial-secret")
+	stdout := new(bytes.Buffer)
+	command := newRootCmd()
+	command.SetOut(stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"initialize", "--data-dir", root, "--secret-output", initialSecret})
+	require.NoError(t, command.ExecuteContext(ctx))
+
+	var initialized map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &initialized))
+	assert.Equal(t, true, initialized["ok"])
+	assert.Equal(t, "initialize", initialized["operation"])
+	assert.Equal(t, "1", initialized["revision"])
+	initialBearer, err := os.ReadFile(initialSecret)
+	require.NoError(t, err)
+	assert.NotContains(t, stdout.String(), string(bytes.TrimSpace(initialBearer)))
+
+	resetSecret := filepath.Join(t.TempDir(), "reset-secret")
+	stdout.Reset()
+	command = newRootCmd()
+	command.SetOut(stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"admin-reset", "--data-dir", root, "--secret-output", resetSecret})
+	require.NoError(t, command.ExecuteContext(ctx))
+	assert.JSONEq(t, `{"ok":true,"operation":"admin-reset","installation_id":"`+initialized["installation_id"].(string)+`","revision":"2"}`, stdout.String())
+	resetBearer, err := os.ReadFile(resetSecret)
+	require.NoError(t, err)
+	assert.NotEqual(t, initialBearer, resetBearer)
+	assert.NotContains(t, stdout.String(), string(bytes.TrimSpace(resetBearer)))
 }
 
 func TestRestoreVerifyCurrentEmitsOneSafeMachineResult(t *testing.T) {

@@ -19,7 +19,7 @@ import (
 
 const (
 	ApplicationID           = 0x4d475731
-	CurrentSchema           = 1
+	CurrentSchema           = 2
 	BusyTimeoutMilliseconds = 2000
 	connectionLimit         = 4
 )
@@ -35,7 +35,7 @@ var (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-var migrationNames = [...]string{"001_initial.sql"}
+var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql"}
 
 type Identity struct {
 	InstallationID string
@@ -205,6 +205,21 @@ func (store *Store) Identity(ctx context.Context) (Identity, error) {
 	}
 	identity.Revision = uint64(revision)
 	return identity, nil
+}
+
+func (store *Store) View(ctx context.Context, view func(*sql.Tx) error) error {
+	transaction, err := store.database.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return fmt.Errorf("begin storage view: %w", err)
+	}
+	defer func() { _ = transaction.Rollback() }()
+	if err := view(transaction); err != nil {
+		return err
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit storage view: %w", err)
+	}
+	return nil
 }
 
 func (store *Store) Settings(ctx context.Context) (Settings, error) {

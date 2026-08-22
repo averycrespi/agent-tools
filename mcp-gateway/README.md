@@ -4,7 +4,7 @@ MCP Gateway is a locally secure, deny-by-default service foundation for governin
 
 ## Current status
 
-The current executable implements the S1 filesystem and SQLite foundation plus stopped-process verification. It does not open a listener, create admin authority, or implement downstream servers, principals, grants, tool routing, invocation, or product UI workflows. Those capabilities must not be inferred from the storage foundation.
+The current executable implements the S1 filesystem and SQLite foundation, stopped-process verification, and offline admin initialization/reset. It does not open a listener or implement online credential/session APIs, downstream servers, principals, grants, tool routing, invocation, or product UI workflows. Those capabilities must not be inferred from the offline foundation.
 
 ## Development
 
@@ -26,9 +26,27 @@ make install
 mcp-gateway --help
 ```
 
+## Offline admin authority
+
+Initialize a new installation and publish its one-time admin bearer to a new owner-only file:
+
+```bash
+mcp-gateway initialize --data-dir /path/to/mcp-gateway-data --secret-output /safe/new/bearer-file
+```
+
+Omit `--secret-output` only in an interactive terminal; the bearer then goes to the controlling terminal, never standard output or standard error. The output file is created exclusively at mode `0600` and contains exactly the bearer and one newline. The command publishes the bearer before activating its verifier, stores only a domain-separated verifier and safe fingerprint, and emits one safe JSON result on standard output.
+
+Rotate all admin authority while the Gateway is stopped:
+
+```bash
+mcp-gateway admin-reset --data-dir /path/to/mcp-gateway-data --secret-output /safe/new/replacement-file
+```
+
+A successful reset revokes every prior admin bearer and activates the published replacement in one storage transaction. A failed secret publication activates nothing; existing known authority remains valid.
+
 ## Offline storage verification
 
-`restore --verify-current` is the only operational command currently exposed. Run it only after stopping every Gateway process that owns the installation:
+Run `restore --verify-current` only after stopping every Gateway process that owns the installation:
 
 ```bash
 mcp-gateway restore --verify-current --data-dir /path/to/mcp-gateway-data
@@ -46,9 +64,9 @@ On success it emits one JSON line:
 }
 ```
 
-The command requires an owner-only installation, acquires its exclusive process lock, verifies the Gateway identity, current schema and migration history, configured SQLite durability and size bounds, and full database integrity. Only then does it durably clear an armed or malformed mutation marker. A normal startup is still required after verification; the `serve` and `initialize` commands arrive with their owning S1 milestones and are not implemented yet.
+The command requires an owner-only installation, acquires its exclusive process lock, verifies the Gateway identity, current schema and migration history, configured SQLite durability and size bounds, and full database integrity. Only then does it durably clear an armed or malformed mutation marker. A normal startup is still required after verification; `serve` arrives with its owning S1 milestone and is not implemented yet.
 
-Failures emit one safe JSON line and exit with status 1. `gateway_running` means another process owns the installation; `storage_unavailable` intentionally hides filesystem and SQLite details.
+Failures emit one safe JSON line and exit with status 1. `gateway_running` means another process owns the installation; `secret_output_unavailable` means the one-time sink could not be completed; and storage failures intentionally hide filesystem and SQLite details.
 
 ## Security boundary
 
