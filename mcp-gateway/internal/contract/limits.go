@@ -65,6 +65,15 @@ func FixedLimits() []FixedLimit {
 	return append([]FixedLimit(nil), fixedLimits...)
 }
 
+func FixedLimitByName(name string) (FixedLimit, bool) {
+	for _, limit := range fixedLimits {
+		if limit.Name == name {
+			return limit, true
+		}
+	}
+	return FixedLimit{}, false
+}
+
 func (limit FixedLimit) Allows(value int64) bool {
 	return value >= 0 && value <= limit.Maximum
 }

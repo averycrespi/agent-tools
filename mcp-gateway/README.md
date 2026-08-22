@@ -4,7 +4,7 @@ MCP Gateway is a locally secure, deny-by-default service foundation for governin
 
 ## Current status
 
-The current executable is an inert S1 foundation. It exposes CLI help but does not open a listener, create authority, or implement downstream servers, principals, grants, tool routing, invocation, or product UI workflows. Those capabilities must not be inferred from the scaffold.
+The current executable implements the S1 filesystem and SQLite foundation plus stopped-process verification. It does not open a listener, create admin authority, or implement downstream servers, principals, grants, tool routing, invocation, or product UI workflows. Those capabilities must not be inferred from the storage foundation.
 
 ## Development
 
@@ -25,6 +25,30 @@ Install the binary with:
 make install
 mcp-gateway --help
 ```
+
+## Offline storage verification
+
+`restore --verify-current` is the only operational command currently exposed. Run it only after stopping every Gateway process that owns the installation:
+
+```bash
+mcp-gateway restore --verify-current --data-dir /path/to/mcp-gateway-data
+```
+
+On success it emits one JSON line:
+
+```json
+{
+  "ok": true,
+  "operation": "restore",
+  "mode": "verify_current",
+  "installation_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "revision": "0"
+}
+```
+
+The command requires an owner-only installation, acquires its exclusive process lock, verifies the Gateway identity, current schema and migration history, configured SQLite durability and size bounds, and full database integrity. Only then does it durably clear an armed or malformed mutation marker. A normal startup is still required after verification; the `serve` and `initialize` commands arrive with their owning S1 milestones and are not implemented yet.
+
+Failures emit one safe JSON line and exit with status 1. `gateway_running` means another process owns the installation; `storage_unavailable` intentionally hides filesystem and SQLite details.
 
 ## Security boundary
 

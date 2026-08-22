@@ -155,7 +155,12 @@ func TestFixedLimitsAcceptNAndRejectNPlusOne(t *testing.T) {
 		require.True(t, limit.Allows(maximum), limit.Name)
 		require.False(t, limit.Allows(maximum+1), limit.Name)
 		require.False(t, limit.Allows(-1), limit.Name)
+		lookedUp, ok := FixedLimitByName(limit.Name)
+		require.True(t, ok, limit.Name)
+		require.Equal(t, limit, lookedUp, limit.Name)
 	}
+	_, ok := FixedLimitByName("unknown")
+	require.False(t, ok)
 }
 
 func TestFixedDurationsAndRangesMatchTheS1Contract(t *testing.T) {

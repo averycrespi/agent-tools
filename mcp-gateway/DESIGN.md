@@ -148,13 +148,23 @@ Cursor mechanics apply only to `GET /api/v1/admin-credentials` and `GET /api/v1/
 
 Admin bearer values use prefix `mgw_admin_`, reserved agent bearer values use `mgw_agent_`, and the session cookie is `mcp_gateway_session`. The only approved raw-secret sinks are `controlling_terminal` and `owner_only_file`; the latter is a newly created, non-symlink-following `0600` file containing exactly the secret and one newline. Standard output and standard error are not secret sinks.
 
+## Storage generation and recovery
+
+An installation is one canonical owner-only `0700` directory guarded by a nonblocking exclusive process lock. A durable run marker distinguishes clean shutdown from an unclean stop; either startup path performs live identity, migration, pragma, and integrity verification before the store can be ready.
+
+SQLite uses application ID `MGW1`, an immutable installation ULID, decimal revision, and an ordered embedded migration history. Every connection installs a two-second busy policy, enables foreign keys, verifies WAL and `synchronous=FULL`, and derives `max_page_count` from the compiled 1 GiB database limit and that connection's actual page size. Foreign, newer, partial, corrupt, unsafe-permission, and over-limit generations fail closed.
+
+Security mutations are admitted through one nonblocking slot. Before a transaction begins, Gateway writes an installation-bound owner-only intent through temp write, file sync, atomic rename, and directory sync. A known commit or rollback moves the intent through a synced tombstone deletion. Marker I/O failures, storage-class statement failures, busy begin, commit errors, and post-commit uncertainty latch mutations; elapsed time, restart, or successful reads cannot clear the latch.
+
+`restore --verify-current` reacquires stopped-process ownership, requires the current schema, runs full verification, closes SQLite, and only then durably removes marker artifacts. It emits one safe machine JSON result and does not make the service ready; normal startup must verify the generation again. Backup replacement remains owned by M7.
+
 ## Deterministic test foundation
 
 Shared tests use mutex-safe fake time and finite deterministic entropy, real owner-only `0700` temporary data roots with symlink/type/owner/mode validation, and a streaming canary scanner that detects cross-buffer leaks without returning the canary in errors. The common real-binary runner requires a positive timeout and per-stream byte cap, captures stdout and stderr separately, reports truncation and exit status, and cancels its direct child when its context expires. Component-specific fault hooks, protocol fixtures, barriers, and process-group shutdown behavior remain with their owning packages.
 
-## Initial executable state
+## Current executable state
 
-The M1 scaffold contains no operational subcommands and starts no listener. This prevents partially composed security boundaries from becoming a usable service. Later S1 milestones add commands only with their owning storage, authority, and lifecycle checks.
+The executable exposes only `restore --verify-current` from the storage milestone and starts no listener. Initialization, admin authority, service startup, and online APIs remain unavailable until their owning S1 milestones are complete. This prevents partially composed security boundaries from becoming a usable service.
 
 ## Non-goals
 
