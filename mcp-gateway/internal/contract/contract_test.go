@@ -144,6 +144,7 @@ func TestFixedLimitsAcceptNAndRejectNPlusOne(t *testing.T) {
 		"keyring_secret_bytes":         256 * 1024,
 		"keyring_chunk_bytes":          3000,
 		"keyring_candidates":           64,
+		"keyring_work":                 1,
 	}
 
 	limits := FixedLimits()
@@ -246,7 +247,7 @@ func TestSafeResourceJSONShapesAreExact(t *testing.T) {
 	requireJSONKeys(t, status, "process", "sqlite", "keyring", "limits", "backup", "protocols")
 	requireJSONKeys(t, status.Limits,
 		"http_regular", "http_control_auth", "http_admin", "http_health", "mcp_work", "mcp_streams", "admin_sessions", "legacy_sessions",
-		"event_streams", "backup_work", "backup_records", "admin_credentials", "idempotency_records", "keyring_candidates", "database_bytes",
+		"event_streams", "backup_work", "backup_records", "admin_credentials", "idempotency_records", "keyring_candidates", "keyring_work", "database_bytes",
 	)
 	requireJSONKeys(t, ProblemEnvelope{Status: 400, Code: ProblemMalformedRequest, Title: "The request is invalid."}, "status", "code", "title")
 }

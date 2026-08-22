@@ -10,6 +10,7 @@ make install            # go install ./cmd/mcp-gateway
 make test               # go test -race ./...
 make test-integration   # go test -race -tags=integration ./...
 make test-e2e           # go test -race -tags=e2e -timeout=60s ./test/e2e/...
+make test-keyring-native # isolated native backend or explicit prerequisite skip
 make lint               # go tool golangci-lint run ./...
 make fmt                # go tool goimports -w .
 make tidy               # go mod tidy && go mod verify
@@ -47,7 +48,7 @@ The package directories begin as documented seams and gain implementation only i
 - Production MCP authentication is deny-all. Positive tests inject an authenticator; never add production principals or grants in S1.
 - Raw secrets never enter SQLite, configuration, argv, logs, metrics, URLs, events, backups, browser storage, or read APIs.
 - SQLite security mutations arm durable intent before beginning and fail closed on uncertain outcomes. No online repair or replay.
-- Keyring capability states remain explicit and noninteractive. Never fall back to plaintext.
+- Keyring startup probing is secret-free and presents no prompt. Get/Set/Delete may interact or outlive cancellation as a documented MVP limitation; admit only one globally, retain its slot until return, and never fall back to plaintext.
 - Limits are compiled constants, acquired in the documented order, and reject without queuing.
 - Runtime state is never serialized or resumed after restart.
 - Test subprocesses use `testutil.BinaryRunner` with a positive configured timeout and per-stream byte cap. It captures stdout/stderr separately, reports truncation, and guarantees direct-child cancellation; component-specific process-group behavior belongs with that component.

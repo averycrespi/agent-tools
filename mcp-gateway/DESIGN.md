@@ -12,7 +12,7 @@ This document is the source of truth for intended Gateway behavior. The S1 imple
 - Own every route and method explicitly. Unknown paths are `404`, known paths with unsupported methods are `405`, and production `/mcp` remains deny-all until a separately authenticated agent boundary is available.
 - Keep admin and agent credentials, middleware, identifiers, and invalidation paths separate. Raw secrets may appear only at an approved one-time sink.
 - Treat SQLite availability and integrity as security state. Security-critical writes fail closed, uncertain durability latches storage, and recovery is stopped-process only.
-- Treat OS keyring support as an explicit typed capability. There is no plaintext fallback and no interactive prompt on service paths.
+- Treat OS keyring support as an explicit typed capability. Startup probing performs no secret operation or prompt presentation. Later `go-keyring` operations may invoke OS interaction or outlive cancellation as an accepted MVP limitation, but there is no plaintext fallback.
 - Keep all registries and admission controls bounded and nonblocking. Restart discards sessions, streams, subscribers, and in-flight work.
 
 ## Process shape
@@ -135,6 +135,7 @@ Every maximum accepts N and rejects N+1. Values below zero are invalid. These ar
 | `keyring_secret_bytes`         |     262144 |
 | `keyring_chunk_bytes`          |       3000 |
 | `keyring_candidates`           |         64 |
+| `keyring_work`                 |          1 |
 
 Credential and backup collection pages default to 50. Idempotency keys are 1–128 visible ASCII bytes. Credential expiry is five minutes through 365 days after creation. Fixed deadlines are: header read five seconds, API handler 30 seconds, SQLite busy two seconds, SSE keepalive and blocked write 15 seconds, legacy idle 30 minutes, legacy absolute eight hours, graceful shutdown 10 seconds, and idempotency retention 24 hours.
 
@@ -142,7 +143,7 @@ Credential and backup collection pages default to 50. Idempotency keys are 1–1
 
 `AdminCredential` is exactly `{id,fingerprint,created_at,expires_at,non_expiring,status,revision}`; its creation form adds one-time `bearer`. Credential status is the closed set `active`, `revoked`, or `expired`. `Backup` is exactly `{id,created_at,installation_id,schema_version,source_revision,size_bytes,sha256}`. Collections are exactly `{items,next_cursor}`.
 
-`SystemStatus` is exactly `{process,sqlite,keyring,limits,backup,protocols}`. Process state is `uninitialized`, `starting`, `ready`, `storage_failed`, or `draining`; SQLite state is `uninitialized`, `ready`, or `latched`; keyring capability is `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, or `unsupported`; and backup state is `idle` or `creating`. The closed `limits` object contains `http_regular`, `http_control_auth`, `http_admin`, `http_health`, `mcp_work`, `mcp_streams`, `admin_sessions`, `legacy_sessions`, `event_streams`, `backup_work`, `backup_records`, `admin_credentials`, `idempotency_records`, `keyring_candidates`, and `database_bytes`; every entry is exactly `{in_use,limit,saturated}`. Protocol status is modern `2026-07-28`, legacy `2025-11-25`, and agent auth `deny_all`.
+`SystemStatus` is exactly `{process,sqlite,keyring,limits,backup,protocols}`. Process state is `uninitialized`, `starting`, `ready`, `storage_failed`, or `draining`; SQLite state is `uninitialized`, `ready`, or `latched`; keyring capability is `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, or `unsupported`; and backup state is `idle` or `creating`. The closed `limits` object contains `http_regular`, `http_control_auth`, `http_admin`, `http_health`, `mcp_work`, `mcp_streams`, `admin_sessions`, `legacy_sessions`, `event_streams`, `backup_work`, `backup_records`, `admin_credentials`, `idempotency_records`, `keyring_candidates`, `keyring_work`, and `database_bytes`; every entry is exactly `{in_use,limit,saturated}`. Protocol status is modern `2026-07-28`, legacy `2025-11-25`, and agent auth `deny_all`.
 
 Cursor mechanics apply only to `GET /api/v1/admin-credentials` and `GET /api/v1/backups`. Durable idempotency applies only to `POST /api/v1/backups`. No S1 resource uses ETag, and the event stream has no replay mechanism. Invalidation kinds are the closed set `admin_credentials`, `system_status`, and `backups`.
 
@@ -167,6 +168,18 @@ Admin bearer creation uses 32 bytes of entropy and the fixed `mgw_admin_` domain
 Credential creation validates optional expiry against the compiled five-minute and one-year bounds before consuming entropy. Metadata reads derive expiry from the injected clock; authentication compares all active verifier candidates in constant time and rejects expired, revoked, unknown, malformed, and wrong-domain values safely. Revocation transactionally preserves at least one active non-expiring authority. At the 128-record cap, creation/reset prunes the oldest revoked or expired records by creation time and ID; it rejects without queuing when every record remains active.
 
 Bearer exchange reserves one of 128 in-memory session slots before generating independent 32-byte session and CSRF values. Sessions use a host-only `mcp_gateway_session` cookie with `Path=/`, `HttpOnly`, and `SameSite=Strict`; no `Domain` is present, and `Secure` is omitted only for the fixed plain-loopback transport. Activity refreshes the 30-minute idle bound without extending the eight-hour absolute bound. Logout, idle/absolute or parent expiry, parent revocation, reset, and shutdown remove the slot and synchronously close its subscription channel. Ambiguous bearer-plus-cookie authority and incorrect session-bound CSRF fail without changing activity. No session state survives manager or process restart.
+
+## Keyring capability and generation cutover
+
+The `go-keyring` process-global functions sit behind instance-local adapters. Gateway's secret-free startup probe invokes no Get/Set/Delete or prompt presentation: Linux inspects the session D-Bus Secret Service, attempts only a nonpresenting unlock and dismisses any returned prompt object; macOS checks default-keychain metadata with bounded, output-discarding `security` commands. The snapshot is one of `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, or `unsupported`, with a safe remediation code; it does not predict whether a later operation will interact. Missing items remain distinct from backend absence, and unknown native failures become unavailable without preserving native diagnostics.
+
+Any Get/Set/Delete may invoke OS-managed interaction, fail, or outlive cancellation because `go-keyring` v0.2.7 is context-free. One process-global nonblocking `keyring_work` permit bounds outstanding operations; saturation rejects immediately and cancellation does not release the slot before the backend call returns. This accepted MVP limitation never permits file/configuration fallback. The MVP is unsuitable for unattended credential access; hardening is required before unattended deployment or after any unexpected dialog, cancellation-surviving call, or keyring-induced service blockage.
+
+A keyring namespace binds the installation ULID, an immutable Gateway-derived resource-owner ULID, and one closed kind: `static_credential`, `oauth_client`, or `oauth_tokens`. Secret payloads are limited to 256 KiB, base64url encoded into stored values no larger than 3,000 bytes, and identified outside the provider only by random opaque handles. Chunks are written before a versioned owner/kind/handle/length/SHA-256 manifest, so no partial generation reads. Read verifies every binding, bound, decoded length, and digest; deletion handles complete or interrupted generations.
+
+SQLite registers a non-authoritative candidate before the first keyring write, making crash leftovers discoverable without persisting secret bytes. After writing and reading back a complete generation, one latched transaction advances the Gateway revision, selects its opaque handle as authority, and moves the prior handle to bounded cleanup metadata. At most 64 candidates exist per owner/kind. Startup or replacement cleanup removes only non-authoritative candidates; interruption before commit preserves old authority, while interruption after commit exposes only the new complete generation.
+
+Deterministic injected tests cover Darwin and Linux mappings, prompt dismissal, generation faults, N/N+1 candidates, and every cutover boundary. The native target uses an isolated Linux D-Bus/home/Secret Service environment when its prerequisites exist. macOS keychain search/default state is changed only in an explicitly confirmed disposable login context and is restored afterward; ordinary hosts receive a clear prerequisite skip.
 
 ## Deterministic test foundation
 

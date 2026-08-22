@@ -74,6 +74,7 @@ type LimitsStatus struct {
 	AdminCredentials   LimitStatus `json:"admin_credentials"`
 	IdempotencyRecords LimitStatus `json:"idempotency_records"`
 	KeyringCandidates  LimitStatus `json:"keyring_candidates"`
+	KeyringWork        LimitStatus `json:"keyring_work"`
 	DatabaseBytes      LimitStatus `json:"database_bytes"`
 }
 

@@ -4,7 +4,7 @@ MCP Gateway is a locally secure, deny-by-default service foundation for governin
 
 ## Current status
 
-The current executable implements the S1 filesystem and SQLite foundation, stopped-process verification, and offline admin initialization/reset. It does not open a listener or implement online credential/session APIs, downstream servers, principals, grants, tool routing, invocation, or product UI workflows. Those capabilities must not be inferred from the offline foundation.
+The current executable implements the S1 filesystem and SQLite foundation, stopped-process verification, offline admin initialization/reset, and the internal typed keyring/generation foundation. It does not open a listener or implement online credential/session APIs, downstream servers, principals, grants, tool routing, invocation, or product UI workflows. Those capabilities must not be inferred from the offline foundation.
 
 ## Development
 
@@ -13,6 +13,7 @@ Requirements: Go 1.25.13 or later, GNU Make, and the repository's development to
 ```bash
 make build
 make test
+make test-keyring-native # isolated native backend, or an explicit prerequisite skip
 make lint
 make audit
 ```
@@ -43,6 +44,16 @@ mcp-gateway admin-reset --data-dir /path/to/mcp-gateway-data --secret-output /sa
 ```
 
 A successful reset revokes every prior admin bearer and activates the published replacement in one storage transaction. A failed secret publication activates nothing; existing known authority remains valid.
+
+## Keyring capability and generations
+
+Gateway wraps `go-keyring` with the closed capability states `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, and `unsupported`. Its secret-free startup probe performs no Get/Set/Delete or prompt presentation, but `ready` is only a snapshot: later operations may invoke OS-managed interaction, fail, or outlive cancellation because `go-keyring` v0.2.7 is context-free. Returned errors fail dependent work closed, and Gateway never falls back to configuration or plaintext files.
+
+One process-global, nonblocking `keyring_work` slot permits a single operation. Saturation rejects immediately, and cancellation does not release the slot until the backend call actually returns. This MVP is unsuitable for unattended credential access; guaranteed-nonprompting/context-bounded operations are deferred until before unattended deployment or the first observed unexpected dialog, cancellation-surviving call, or keyring-induced service blockage.
+
+Secrets are split into bounded encoded chunks and become readable only after a digest-bound manifest is written. SQLite stores an opaque handle, installation/resource-owner ULIDs, one closed kind (`static_credential`, `oauth_client`, or `oauth_tokens`), revision, and bounded candidate cleanup metadata—never secret bytes. A candidate becomes authoritative only in the SQLite cutover transaction; interrupted candidates remain non-authoritative and are bounded to 64 per owner/kind.
+
+`make test-keyring-native` uses an isolated D-Bus session and temporary home with Secret Service on Linux. On macOS it changes the login keychain search state only when `MCP_GATEWAY_DISPOSABLE_MACOS_KEYCHAIN=1` explicitly confirms a disposable user context, then restores that state. Otherwise it reports an explicit prerequisite skip rather than touching the user's keychain or Gateway namespace.
 
 ## Offline storage verification
 

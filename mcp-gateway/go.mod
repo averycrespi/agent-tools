@@ -3,6 +3,7 @@ module github.com/averycrespi/agent-tools/mcp-gateway
 go 1.25.13
 
 require (
+	github.com/godbus/dbus/v5 v5.2.2
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/ncruces/go-sqlite3 v0.35.0
 	github.com/spf13/cobra v1.10.2
@@ -84,7 +85,6 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/go-xmlfmt/xmlfmt v1.1.3 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
-	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/godoc-lint/godoc-lint v0.11.2 // indirect
 	github.com/gofrs/flock v0.13.0 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect

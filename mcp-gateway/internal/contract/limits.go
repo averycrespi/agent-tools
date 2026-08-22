@@ -61,6 +61,7 @@ var fixedLimits = []FixedLimit{
 	{Name: "keyring_secret_bytes", Maximum: 256 * 1024},
 	{Name: "keyring_chunk_bytes", Maximum: 3000},
 	{Name: "keyring_candidates", Maximum: 64},
+	{Name: "keyring_work", Maximum: 1},
 }
 
 func FixedLimits() []FixedLimit {
