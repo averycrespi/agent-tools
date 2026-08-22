@@ -1,2 +1,4 @@
 .claude/
+.design/
+.handoffs/
 sandbox-manager/internal/sandbox/files/lima.yaml

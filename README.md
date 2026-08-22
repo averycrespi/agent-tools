@@ -8,6 +8,7 @@ This repo is opinionated. It provides sandboxed execution and broker-backed exte
 
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
+- **[MCP Gateway](#mcp-gateway)** — Locally secure, deny-by-default MCP service foundation
 - **[HTTP Broker](#http-broker)** — MITM HTTP/HTTPS forward proxy that injects credentials for sandboxed agents
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
@@ -41,6 +42,7 @@ make check
 # Or, to install individual tools
 cd sandbox-manager && make install
 cd mcp-broker && make install
+cd mcp-gateway && make install
 cd http-broker && make install
 cd local-git-mcp && make install
 cd local-gomod-proxy && make install
@@ -77,6 +79,12 @@ AI agents need to call external APIs (GitHub, Jira, Slack), but giving a sandbox
 - A web dashboard handles approval requests in real time and surfaces the configured rules, discovered tools, and searchable audit log.
 
 See the [mcp-broker README](mcp-broker/README.md) for more information.
+
+### MCP Gateway
+
+`mcp-gateway` is the clean-start successor being built beside MCP Broker. Its S1 foundation defines a strict loopback HTTP/MCP boundary, durable control state, separate admin and agent authority, explicit OS-keyring capability, verified recovery, and fixed nonblocking limits.
+
+The current executable is an inert deny-by-default scaffold: it does not yet listen, issue authority, register downstream servers, route tools, or expose product workflows. See the [mcp-gateway README](mcp-gateway/README.md) and [design](mcp-gateway/DESIGN.md) for the implemented status and intended S1 boundary.
 
 ### HTTP Broker
 
