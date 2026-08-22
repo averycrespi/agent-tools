@@ -43,7 +43,8 @@ The package directories begin as documented seams and gain implementation only i
 ## Invariants
 
 - `internal/contract` is the only source for S1 routes, problems, limits, media/protocol values, resource shapes, and approved secret sinks; do not duplicate them in later packages.
-- Exact default authority is `127.0.0.1:8210`; do not broaden accepted bind or Host forms.
+- Exact default authority is `127.0.0.1:8210`; do not broaden accepted bind or Host forms. Keep validation and route classification ahead of authentication/body work, and preserve the control-auth to admin-work nonblocking permit transfer.
+- API JSON must remain size/depth bounded and reject invalid UTF-8, duplicate members, unknown members, and trailing values. Every API response is `no-store` and no response enables CORS.
 - Keep admin and agent credential domains, middleware, identifiers, and invalidation channels separate.
 - Production MCP authentication is deny-all. Positive tests inject an authenticator; never add production principals or grants in S1.
 - Raw secrets never enter SQLite, configuration, argv, logs, metrics, URLs, events, backups, browser storage, or read APIs.

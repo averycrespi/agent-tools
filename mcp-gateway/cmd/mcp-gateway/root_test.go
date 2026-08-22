@@ -19,9 +19,9 @@ func TestRootCommandExposesOwnedOfflineCommands(t *testing.T) {
 
 	require.Equal(t, "mcp-gateway", cmd.Use)
 	require.Contains(t, cmd.Short, "deny-by-default")
-	require.Len(t, cmd.Commands(), 3)
-	assert.Equal(t, []string{"admin-reset", "initialize", "restore"}, []string{
-		cmd.Commands()[0].Name(), cmd.Commands()[1].Name(), cmd.Commands()[2].Name(),
+	require.Len(t, cmd.Commands(), 4)
+	assert.Equal(t, []string{"admin-reset", "initialize", "restore", "serve"}, []string{
+		cmd.Commands()[0].Name(), cmd.Commands()[1].Name(), cmd.Commands()[2].Name(), cmd.Commands()[3].Name(),
 	})
 	require.True(t, cmd.SilenceUsage)
 	require.True(t, cmd.SilenceErrors)

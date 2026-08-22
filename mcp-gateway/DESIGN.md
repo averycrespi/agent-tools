@@ -185,9 +185,17 @@ Deterministic injected tests cover Darwin and Linux mappings, prompt dismissal, 
 
 Shared tests use mutex-safe fake time and finite deterministic entropy, real owner-only `0700` temporary data roots with symlink/type/owner/mode validation, and a streaming canary scanner that detects cross-buffer leaks without returning the canary in errors. The common real-binary runner requires a positive timeout and per-stream byte cap, captures stdout and stderr separately, reports truncation and exit status, and cancels its direct child when its context expires. Component-specific fault hooks, protocol fixtures, barriers, and process-group shutdown behavior remain with their owning packages.
 
+## Implemented HTTP and control boundary
+
+`serve` verifies stopped-process ownership and storage, takes one secret-free keyring capability snapshot, and only then opens the exact configured numeric IPv4 loopback listener. The boundary validates request target, header, forwarding, Host, Origin, route, and method constraints before authentication or body work. Health, ordinary, control-auth, and authenticated-admin permits are independent and nonblocking; authenticated control work transfers permits without allowing ordinary traffic to consume recovery capacity.
+
+The minimum control API implements bearer-to-session exchange, session logout, bounded credential create/list/read/revoke, and the closed system-status representation. Bearer and cookie authority cannot be combined. Cookie requests require the exact Origin, and unsafe cookie requests require the session CSRF value and JSON media type. JSON parsing bounds body size and nesting and rejects invalid UTF-8, duplicate members, unknown members, and trailing input. Credential collection cursors are bounded and collection-bound; no implemented resource uses ETag or durable idempotency. API responses are `no-store`, problems retain the fixed safe envelope, and no response enables CORS.
+
+The public shell and local stylesheet are embedded, contain no external active content, and use the fixed restrictive CSP. The injected OAuth-state seam is mounted at `/oauth/callback`; production wiring always returns the safe invalid/expired-state problem.
+
 ## Current executable state
 
-The executable exposes stopped-process `initialize`, `admin-reset`, and `restore --verify-current` and starts no listener. Initialization/reset publish raw authority only to the controlling terminal or a new owner-only file; normal output remains safe machine JSON. Online credential/session APIs and service startup remain unavailable until their owning S1 milestones are complete. This prevents partially composed network security boundaries from becoming a usable service.
+The executable exposes stopped-process `initialize`, `admin-reset`, and `restore --verify-current`, plus `serve` for the verified HTTP/control foundation. Initialization/reset publish raw authority only to the controlling terminal or a new owner-only file; normal output remains safe machine JSON. Public health, authenticated admin credential/session/status resources, the minimal static shell, and the reserved rejecting OAuth callback are implemented. Production `/mcp`, backup resources, event streaming, and coordinated two-stage shutdown remain unavailable until their owning S1 milestones are complete.
 
 ## Non-goals
 

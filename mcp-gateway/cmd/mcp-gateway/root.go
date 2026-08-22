@@ -7,9 +7,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/api"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/spf13/cobra"
@@ -43,8 +50,186 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 		newAdminAuthorityCmd("initialize", dependencies),
 		newAdminAuthorityCmd("admin-reset", dependencies),
 		newRestoreCmd(storage.VerifyCurrent),
+		newServeCmd(dependencies),
 	)
 	return command
+}
+
+func newServeCmd(dependencies offlineDependencies) *cobra.Command {
+	var dataDir string
+	var authority string
+	command := &cobra.Command{
+		Use:   "serve",
+		Short: "Serve the verified local Gateway boundary",
+		Args: func(command *cobra.Command, args []string) error {
+			if len(args) != 0 {
+				return writeCommandFailure(command, "serve", "invalid_command")
+			}
+			return nil
+		},
+		RunE: func(command *cobra.Command, _ []string) error {
+			if dataDir == "" {
+				return writeCommandFailure(command, "serve", "invalid_command")
+			}
+			started, err := executeServe(command, dataDir, authority, dependencies)
+			if err == nil {
+				return nil
+			}
+			if started {
+				_, _ = fmt.Fprintln(command.ErrOrStderr(), "mcp-gateway serve stopped")
+				return commandFailure{}
+			}
+			return writeCommandFailure(command, "serve", serveErrorCode(err))
+		},
+	}
+	command.Flags().StringVar(&dataDir, "data-dir", "", "owner-only Gateway data directory")
+	command.Flags().StringVar(&authority, "listen", contract.DefaultAuthority, "exact numeric IPv4 loopback authority")
+	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
+		return writeCommandFailure(command, "serve", "invalid_command")
+	})
+	return command
+}
+
+func executeServe(command *cobra.Command, dataDir, authority string, dependencies offlineDependencies) (bool, error) {
+	ctx := command.Context()
+	ownership, err := gatewaypaths.Acquire(dataDir)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = ownership.Close() }()
+	store, err := storage.Open(ctx, ownership)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = store.Close() }()
+	identity, err := store.Identity(ctx)
+	if err != nil {
+		return false, err
+	}
+	credentials := admin.NewService(store, dependencies.clock, dependencies.entropy)
+	sessions := admin.NewSessionManager(credentials, dependencies.clock, dependencies.entropy)
+	defer sessions.Shutdown()
+	provider, err := keyring.NewProvider(identity.InstallationID)
+	if err != nil {
+		return false, err
+	}
+	startedAt := dependencies.clock.Now().UTC().Format(time.RFC3339Nano)
+	capabilitySnapshot := contract.KeyringUnsupported
+	var ready atomic.Bool
+	var boundary *httpboundary.Boundary
+	apiHandler := api.New(api.Options{
+		Credentials: credentials,
+		Sessions:    sessions,
+		Status: func() contract.SystemStatus {
+			current, identityErr := store.Identity(context.Background())
+			if identityErr != nil {
+				current = identity
+			}
+			status := baseSystemStatus(startedAt, current, store.Latched(), capabilitySnapshot, provider.WorkStatus(), sessions.Status())
+			if boundary != nil {
+				status.Limits.HTTPRegular, status.Limits.HTTPControlAuth, status.Limits.HTTPAdmin, status.Limits.HTTPHealth = boundary.AdmissionStatus()
+			}
+			return status
+		},
+	})
+	boundary, err = httpboundary.New(httpboundary.Options{
+		Authority: authority, Ready: ready.Load, Authenticate: apiHandler.Authenticate, Next: apiHandler,
+	})
+	if err != nil {
+		return false, err
+	}
+	listener, capability, err := httpboundary.OpenListener(ctx, authority, func(ctx context.Context) (contract.KeyringCapability, error) {
+		return provider.Probe(ctx).State, nil
+	})
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = listener.Close() }()
+	capabilitySnapshot = capability
+	server := &http.Server{
+		Handler:           boundary,
+		ReadHeaderTimeout: contract.HeaderReadDeadline,
+		ReadTimeout:       contract.APIHandlerDeadline,
+		WriteTimeout:      contract.APIHandlerDeadline,
+		MaxHeaderBytes:    limitMaximum("request_header_bytes"),
+	}
+	ready.Store(true)
+	result := struct {
+		OK             bool   `json:"ok"`
+		Operation      string `json:"operation"`
+		Authority      string `json:"authority"`
+		InstallationID string `json:"installation_id"`
+	}{true, "serve", authority, identity.InstallationID}
+	if err := json.NewEncoder(command.OutOrStdout()).Encode(result); err != nil {
+		return false, err
+	}
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(listener) }()
+	select {
+	case err := <-serveDone:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return true, err
+		}
+	case <-ctx.Done():
+		ready.Store(false)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), contract.GracefulShutdownDeadline)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			return true, err
+		}
+		if err := <-serveDone; err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return true, err
+		}
+	}
+	if err := store.Close(); err != nil {
+		return true, err
+	}
+	if err := ownership.MarkClean(); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+func baseSystemStatus(startedAt string, identity storage.Identity, latched bool, capability contract.KeyringCapability, keyringWork, adminSessions contract.LimitStatus) contract.SystemStatus {
+	state := contract.SQLiteReady
+	process := contract.ProcessReady
+	ready := true
+	if latched {
+		state, process, ready = contract.SQLiteLatched, contract.ProcessStorageFailed, false
+	}
+	limits := contract.LimitsStatus{
+		MCPWork: fixedStatus("mcp_work", 0), MCPStreams: fixedStatus("mcp_streams", 0), AdminSessions: adminSessions,
+		LegacySessions: fixedStatus("legacy_sessions", 0), EventStreams: fixedStatus("event_streams", 0), BackupWork: fixedStatus("backup_work", 0),
+		BackupRecords: fixedStatus("backup_records", 0), AdminCredentials: fixedStatus("admin_credentials", 0), IdempotencyRecords: fixedStatus("idempotency_records", 0),
+		KeyringCandidates: fixedStatus("keyring_candidates", 0), KeyringWork: keyringWork, DatabaseBytes: fixedStatus("database_bytes", 0),
+	}
+	return contract.SystemStatus{
+		Process: contract.ProcessStatus{State: process, Ready: ready, StartedAt: startedAt},
+		SQLite:  contract.SQLiteStatus{State: state, SchemaVersion: fmt.Sprintf("%d", identity.SchemaVersion), Revision: fmt.Sprintf("%d", identity.Revision), Latched: latched},
+		Keyring: contract.KeyringStatus{Capability: capability}, Limits: limits, Backup: contract.BackupStatus{State: contract.BackupIdle},
+		Protocols: contract.ProtocolStatus{Modern: contract.ModernProtocolVersion, Legacy: contract.LegacyProtocolVersion, AgentAuth: contract.AgentAuthDenyAll},
+	}
+}
+
+func fixedStatus(name string, inUse int64) contract.LimitStatus {
+	value, _ := contract.FixedLimitByName(name)
+	return contract.LimitStatus{InUse: inUse, Limit: value.Maximum, Saturated: inUse >= value.Maximum}
+}
+
+func limitMaximum(name string) int {
+	value, _ := contract.FixedLimitByName(name)
+	return int(value.Maximum)
+}
+
+func serveErrorCode(err error) string {
+	switch {
+	case errors.Is(err, gatewaypaths.ErrInUse):
+		return "gateway_running"
+	case strings.Contains(err.Error(), "authority"):
+		return "invalid_authority"
+	default:
+		return "storage_unavailable"
+	}
 }
 
 func newAdminAuthorityCmd(operation string, dependencies offlineDependencies) *cobra.Command {

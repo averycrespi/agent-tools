@@ -4,7 +4,7 @@ MCP Gateway is a locally secure, deny-by-default service foundation for governin
 
 ## Current status
 
-The current executable implements the S1 filesystem and SQLite foundation, stopped-process verification, offline admin initialization/reset, and the internal typed keyring/generation foundation. It does not open a listener or implement online credential/session APIs, downstream servers, principals, grants, tool routing, invocation, or product UI workflows. Those capabilities must not be inferred from the offline foundation.
+The current executable implements the S1 filesystem, SQLite, admin authority, typed keyring/generation, strict loopback HTTP, and minimum control API foundations. It opens only the configured numeric IPv4 loopback listener, exposes public health and a minimal static shell, and serves authenticated admin credential/session/status resources. Production `/mcp` remains deny-all; downstream servers, principals, grants, tool routing, invocation, backup resources, events, and product UI workflows are not implemented.
 
 ## Development
 
@@ -45,6 +45,20 @@ mcp-gateway admin-reset --data-dir /path/to/mcp-gateway-data --secret-output /sa
 
 A successful reset revokes every prior admin bearer and activates the published replacement in one storage transaction. A failed secret publication activates nothing; existing known authority remains valid.
 
+## Local service and control API
+
+Start a verified installation on the exact default authority:
+
+```bash
+mcp-gateway serve --data-dir /path/to/mcp-gateway-data
+```
+
+Use `--listen 127.0.0.1:<port>` to select another numeric IPv4 loopback authority. Host aliases, wildcard and non-loopback binds, forwarding headers, alternate Host values, cross-origin requests, CORS, unknown paths, and unsupported methods are rejected. Successful startup emits one safe JSON line containing the authority and installation ID; detailed status requires admin authentication.
+
+`GET /livez` reports only process liveness and `GET /readyz` reports only ready/not-ready. The online S1 control surface exchanges an admin bearer at `POST /api/v1/admin-sessions`, manages bounded admin credential metadata at `/api/v1/admin-credentials`, and exposes `GET /api/v1/system-status`. Browser sessions are host-only, `HttpOnly`, `SameSite=Strict`, require the exact Origin, and require JSON plus CSRF on unsafe methods. Every API response is `no-store`, no endpoint emits CORS headers or ETags, and a newly created bearer appears only in its authenticated creation response.
+
+The embedded `/` shell has a restrictive self-only content security policy and no product workflow. `/oauth/callback` is reserved but always rejects state in the production S1 wiring. Backup/event paths remain reserved and unavailable until their owning milestones.
+
 ## Keyring capability and generations
 
 Gateway wraps `go-keyring` with the closed capability states `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, and `unsupported`. Its secret-free startup probe performs no Get/Set/Delete or prompt presentation, but `ready` is only a snapshot: later operations may invoke OS-managed interaction, fail, or outlive cancellation because `go-keyring` v0.2.7 is context-free. Returned errors fail dependent work closed, and Gateway never falls back to configuration or plaintext files.
@@ -75,7 +89,7 @@ On success it emits one JSON line:
 }
 ```
 
-The command requires an owner-only installation, acquires its exclusive process lock, verifies the Gateway identity, current schema and migration history, configured SQLite durability and size bounds, and full database integrity. Only then does it durably clear an armed or malformed mutation marker. A normal startup is still required after verification; `serve` arrives with its owning S1 milestone and is not implemented yet.
+The command requires an owner-only installation, acquires its exclusive process lock, verifies the Gateway identity, current schema and migration history, configured SQLite durability and size bounds, and full database integrity. Only then does it durably clear an armed or malformed mutation marker. A normal `serve` startup is still required after verification.
 
 Failures emit one safe JSON line and exit with status 1. `gateway_running` means another process owns the installation; `secret_output_unavailable` means the one-time sink could not be completed; and storage failures intentionally hide filesystem and SQLite details.
 
@@ -85,4 +99,4 @@ The completed S1 service is designed to bind one exact numeric IPv4 loopback aut
 
 Loopback limits network reachability; it does not isolate processes running as the same operating-system user. Treat untrusted same-user processes as able to attempt connections to the Gateway.
 
-The executable remains deny-by-default while the control, storage, keyring, HTTP, and MCP boundaries are added and verified in later S1 milestones. See [DESIGN.md](DESIGN.md) for the intended system contract and [CLAUDE.md](CLAUDE.md) for development conventions.
+The executable remains deny-by-default: production MCP authentication and all downstream routing are still unavailable while later S1 milestones add the isolated MCP, backup, event, and coordinated shutdown boundaries. See [DESIGN.md](DESIGN.md) for the intended system contract and [CLAUDE.md](CLAUDE.md) for development conventions.
