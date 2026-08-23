@@ -50,14 +50,54 @@ func VerifyCurrent(ctx context.Context, root string) (Identity, error) {
 		_ = store.Close()
 		return Identity{}, err
 	}
+	marker := newMutationMarker(layout, nil)
+	recovery, err := marker.recovery(identity.InstallationID)
+	if err != nil {
+		_ = store.Close()
+		return Identity{}, fmt.Errorf("%w: inspect mutation recovery action: %w", ErrStorageLatched, err)
+	}
+	if recovery != nil {
+		if err := restoreKeyringAuthorityFence(ctx, store, recovery); err != nil {
+			_ = store.Close()
+			return Identity{}, fmt.Errorf("%w: restore keyring authority fence: %w", ErrStorageLatched, err)
+		}
+		identity, err = store.Identity(ctx)
+		if err != nil {
+			_ = store.Close()
+			return Identity{}, err
+		}
+	}
 	if err := store.Close(); err != nil {
 		return Identity{}, err
 	}
-	if err := newMutationMarker(layout, nil).clearVerified(identity.InstallationID); err != nil {
+	if err := marker.clearVerified(identity.InstallationID); err != nil {
 		return Identity{}, fmt.Errorf("%w: clear verified mutation marker: %w", ErrStorageLatched, err)
 	}
 	if err := ownership.MarkClean(); err != nil {
 		return Identity{}, fmt.Errorf("mark verified maintenance clean: %w", err)
 	}
 	return identity, nil
+}
+
+func restoreKeyringAuthorityFence(
+	ctx context.Context,
+	store *Store,
+	recovery *keyringFenceActivation,
+) error {
+	transaction, err := store.database.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if _, err := transaction.ExecContext(ctx, `
+		INSERT OR IGNORE INTO keyring_authority_fences (owner, kind)
+		VALUES (?, ?)`, recovery.Owner, recovery.Kind); err != nil {
+		_ = transaction.Rollback()
+		return err
+	}
+	if _, err := transaction.ExecContext(ctx, `
+		UPDATE gateway_meta SET revision = revision + 1 WHERE singleton = 1`); err != nil {
+		_ = transaction.Rollback()
+		return err
+	}
+	return transaction.Commit()
 }

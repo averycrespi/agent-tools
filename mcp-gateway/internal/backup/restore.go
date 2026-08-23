@@ -13,12 +13,22 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
 
+type restoreFaultPoint string
+
+const (
+	restoreFaultAfterCopy      restoreFaultPoint = "after_copy"
+	restoreFaultAfterMigration restoreFaultPoint = "after_migration"
+	restoreFaultAfterRekey     restoreFaultPoint = "after_rekey"
+	restoreFaultBeforeInstall  restoreFaultPoint = "before_install"
+)
+
 type RestoreOptions struct {
 	Root     string
 	BackupID string
 	Sink     admin.SecretSink
 	Clock    admin.Clock
 	Entropy  io.Reader
+	fault    func(restoreFaultPoint) error
 }
 
 // Restore validates and rekeys one complete backup generation while holding stopped-process ownership.
@@ -55,9 +65,6 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 	_ = os.Remove(staged)
 	_ = os.Remove(staged + "-wal")
 	_ = os.Remove(staged + "-shm")
-	if err := copyOwnerOnly(filepath.Join(layout.Backups, options.BackupID, databaseFile), staged); err != nil {
-		return storage.Identity{}, err
-	}
 	cleanup := true
 	defer func() {
 		if cleanup {
@@ -69,8 +76,18 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 			_ = os.Remove(staged + ".mutation.cleared")
 		}
 	}()
+	if err := copyOwnerOnly(filepath.Join(layout.Backups, options.BackupID, databaseFile), staged); err != nil {
+		return storage.Identity{}, err
+	}
+	if err := injectRestoreFault(options.fault, restoreFaultAfterCopy); err != nil {
+		return storage.Identity{}, err
+	}
 	replacement, err := storage.OpenReplacement(ctx, ownership, staged)
 	if err != nil {
+		return storage.Identity{}, err
+	}
+	if err := injectRestoreFault(options.fault, restoreFaultAfterMigration); err != nil {
+		_ = replacement.Close()
 		return storage.Identity{}, err
 	}
 	closed := false
@@ -81,6 +98,9 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 	}()
 	service := admin.NewService(replacement, options.Clock, options.Entropy)
 	if _, err := service.Reset(ctx, options.Sink); err != nil {
+		return storage.Identity{}, err
+	}
+	if err := injectRestoreFault(options.fault, restoreFaultAfterRekey); err != nil {
 		return storage.Identity{}, err
 	}
 	identity, err := replacement.Identity(ctx)
@@ -100,6 +120,9 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 	if _, err := storage.VerifyBackup(ctx, staged); err != nil {
 		return storage.Identity{}, err
 	}
+	if err := injectRestoreFault(options.fault, restoreFaultBeforeInstall); err != nil {
+		return storage.Identity{}, err
+	}
 	if err := storage.InstallReplacement(ownership, staged); err != nil {
 		return storage.Identity{}, err
 	}
@@ -111,6 +134,16 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 		return storage.Identity{}, err
 	}
 	return identity, nil
+}
+
+func injectRestoreFault(fault func(restoreFaultPoint) error, point restoreFaultPoint) error {
+	if fault == nil {
+		return nil
+	}
+	if err := fault(point); err != nil {
+		return fmt.Errorf("restore fault at %s: %w", point, err)
+	}
+	return nil
 }
 
 func copyOwnerOnly(source, destination string) error {

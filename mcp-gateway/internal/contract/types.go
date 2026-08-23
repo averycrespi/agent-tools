@@ -60,22 +60,33 @@ type LimitStatus struct {
 }
 
 type LimitsStatus struct {
-	HTTPRegular        LimitStatus `json:"http_regular"`
-	HTTPControlAuth    LimitStatus `json:"http_control_auth"`
-	HTTPAdmin          LimitStatus `json:"http_admin"`
-	HTTPHealth         LimitStatus `json:"http_health"`
-	MCPWork            LimitStatus `json:"mcp_work"`
-	MCPStreams         LimitStatus `json:"mcp_streams"`
-	AdminSessions      LimitStatus `json:"admin_sessions"`
-	LegacySessions     LimitStatus `json:"legacy_sessions"`
-	EventStreams       LimitStatus `json:"event_streams"`
-	BackupWork         LimitStatus `json:"backup_work"`
-	BackupRecords      LimitStatus `json:"backup_records"`
-	AdminCredentials   LimitStatus `json:"admin_credentials"`
-	IdempotencyRecords LimitStatus `json:"idempotency_records"`
-	KeyringCandidates  LimitStatus `json:"keyring_candidates"`
-	KeyringWork        LimitStatus `json:"keyring_work"`
-	DatabaseBytes      LimitStatus `json:"database_bytes"`
+	HTTPRegular           LimitStatus `json:"http_regular"`
+	HTTPControlAuth       LimitStatus `json:"http_control_auth"`
+	HTTPAdmin             LimitStatus `json:"http_admin"`
+	HTTPHealth            LimitStatus `json:"http_health"`
+	MCPWork               LimitStatus `json:"mcp_work"`
+	MCPStreams            LimitStatus `json:"mcp_streams"`
+	AdminSessions         LimitStatus `json:"admin_sessions"`
+	LegacySessions        LimitStatus `json:"legacy_sessions"`
+	EventStreams          LimitStatus `json:"event_streams"`
+	BackupWork            LimitStatus `json:"backup_work"`
+	BackupRecords         LimitStatus `json:"backup_records"`
+	AdminCredentials      LimitStatus `json:"admin_credentials"`
+	IdempotencyRecords    LimitStatus `json:"idempotency_records"`
+	KeyringCandidates     LimitStatus `json:"keyring_candidates"`
+	KeyringWork           LimitStatus `json:"keyring_work"`
+	DatabaseBytes         LimitStatus `json:"database_bytes"`
+	ServerIdentities      LimitStatus `json:"server_identities"`
+	Servers               LimitStatus `json:"servers"`
+	DownstreamRuntimes    LimitStatus `json:"downstream_runtimes"`
+	ServerReconciliations LimitStatus `json:"server_reconciliations"`
+	CatalogTraversals     LimitStatus `json:"catalog_traversals"`
+	OAuthFlows            LimitStatus `json:"oauth_flows"`
+	OAuthCallbackWork     LimitStatus `json:"oauth_callback_work"`
+	S2IdempotencyRecords  LimitStatus `json:"s2_idempotency_records"`
+	ActiveTools           LimitStatus `json:"active_tools"`
+	DurableToolIdentities LimitStatus `json:"durable_tool_identities"`
+	DownstreamDispatch    LimitStatus `json:"downstream_dispatch"`
 }
 
 type BackupStatus struct {

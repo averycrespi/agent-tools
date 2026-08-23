@@ -15,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var acceptedFixtureTime = time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+
 type captureSink struct{ bearer string }
 
 func (sink *captureSink) Publish(value string) error {
@@ -76,6 +78,97 @@ func TestRestoreReplacesCompleteGenerationAndRekeysAdminAuthority(t *testing.T) 
 	assert.ErrorIs(t, err, admin.ErrAuthenticationRequired)
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.Close())
+}
+
+func TestRestoreMigratesAcceptedS1SchemaThreeBackupBeforePublication(t *testing.T) {
+	ctx := context.Background()
+	root, originalBearer := installAcceptedS1BackupFixture(t)
+	replacementSink := new(captureSink)
+	identity, err := Restore(ctx, RestoreOptions{
+		Root: root, BackupID: "01ARZ3NDEKTSV4RRFFQ69G5FAW", Sink: replacementSink,
+		Clock: fixedClock{acceptedFixtureTime}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x71}, 256)),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, storage.CurrentSchema, identity.SchemaVersion)
+	assert.NotEmpty(t, replacementSink.bearer)
+
+	ownership, err := gatewaypaths.Acquire(root)
+	require.NoError(t, err)
+	store, err := storage.Open(ctx, ownership)
+	require.NoError(t, err)
+	opened, err := store.Identity(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, storage.CurrentSchema, opened.SchemaVersion)
+	service := admin.NewService(store, fixedClock{acceptedFixtureTime}, bytes.NewReader(nil))
+	_, err = service.Authenticate(ctx, replacementSink.bearer)
+	require.NoError(t, err)
+	_, err = service.Authenticate(ctx, originalBearer)
+	assert.ErrorIs(t, err, admin.ErrAuthenticationRequired)
+	require.NoError(t, store.Close())
+	require.NoError(t, ownership.Close())
+}
+
+func TestAcceptedS1RestoreCrashPointsLeaveCurrentGenerationAuthoritative(t *testing.T) {
+	for _, point := range []restoreFaultPoint{
+		restoreFaultAfterCopy,
+		restoreFaultAfterMigration,
+		restoreFaultAfterRekey,
+		restoreFaultBeforeInstall,
+	} {
+		t.Run(string(point), func(t *testing.T) {
+			root, originalBearer := installAcceptedS1BackupFixture(t)
+			sink := new(captureSink)
+			_, err := Restore(context.Background(), RestoreOptions{
+				Root: root, BackupID: "01ARZ3NDEKTSV4RRFFQ69G5FAW", Sink: sink,
+				Clock: fixedClock{acceptedFixtureTime}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x72}, 256)),
+				fault: func(actual restoreFaultPoint) error {
+					if actual == point {
+						return assert.AnError
+					}
+					return nil
+				},
+			})
+			require.Error(t, err)
+
+			ownership, acquireErr := gatewaypaths.Acquire(root)
+			require.NoError(t, acquireErr)
+			store, openErr := storage.Open(context.Background(), ownership)
+			require.NoError(t, openErr)
+			service := admin.NewService(store, fixedClock{acceptedFixtureTime}, bytes.NewReader(nil))
+			_, authErr := service.Authenticate(context.Background(), originalBearer)
+			require.NoError(t, authErr)
+			require.NoError(t, store.Close())
+			require.NoError(t, ownership.Close())
+			_, statErr := os.Lstat(filepath.Join(root, gatewaypaths.DatabaseName) + ".restore")
+			assert.ErrorIs(t, statErr, os.ErrNotExist)
+		})
+	}
+}
+
+func installAcceptedS1BackupFixture(t *testing.T) (string, string) {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "gateway")
+	require.NoError(t, os.Mkdir(root, 0o700))
+	ownership, err := gatewaypaths.Acquire(root)
+	require.NoError(t, err)
+	store, err := storage.Initialize(context.Background(), ownership, backupTestInstallationID)
+	require.NoError(t, err)
+	sink := new(captureSink)
+	_, err = admin.NewService(store, fixedClock{acceptedFixtureTime}, bytes.NewReader(bytes.Repeat([]byte{0x70}, 256))).Initialize(context.Background(), sink)
+	require.NoError(t, err)
+	layout := ownership.Layout()
+	require.NoError(t, store.Close())
+	require.NoError(t, ownership.Close())
+
+	fixture := filepath.Join("testdata", "01ARZ3NDEKTSV4RRFFQ69G5FAW")
+	target := filepath.Join(layout.Backups, "01ARZ3NDEKTSV4RRFFQ69G5FAW")
+	require.NoError(t, os.MkdirAll(target, 0o700))
+	for _, name := range []string{databaseFile, metadataFile} {
+		contents, readErr := os.ReadFile(filepath.Join(fixture, name))
+		require.NoError(t, readErr)
+		require.NoError(t, os.WriteFile(filepath.Join(target, name), contents, 0o600))
+	}
+	return root, sink.bearer
 }
 
 func TestRestoreRefusesRunningOrTamperedArtifact(t *testing.T) {

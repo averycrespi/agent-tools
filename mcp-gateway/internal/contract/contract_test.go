@@ -28,7 +28,7 @@ func TestRoutesMatchTheS1Contract(t *testing.T) {
 		{Pattern: "/api/v1/events", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	}
 
-	require.Equal(t, expected, Routes())
+	require.Equal(t, expected, Routes()[:len(expected)], "S1 routes must remain the table prefix")
 	for _, route := range expected {
 		require.Equal(t, joinMethods(route.Methods), route.Allow())
 	}
@@ -36,7 +36,7 @@ func TestRoutesMatchTheS1Contract(t *testing.T) {
 	routes := Routes()
 	routes[0].Methods[0] = "POST"
 	routes[0].Pattern = "/changed"
-	require.Equal(t, expected, Routes(), "callers must not be able to mutate the canonical table")
+	require.Equal(t, expected, Routes()[:len(expected)], "callers must not be able to mutate the canonical S1 table")
 }
 
 func TestRouteForPathClassifiesOnlyOwnedPaths(t *testing.T) {
@@ -65,7 +65,7 @@ func TestRouteForPathClassifiesOnlyOwnedPaths(t *testing.T) {
 	}
 
 	for _, path := range []string{
-		"/assets", "/assets/", "/unknown", "/api/v1/admin-credentials/", "/api/v1/admin-credentials/a/b", "/api/v1/backups/a/b", "/mcp/",
+		"", "mcp", "/assets", "/assets/", "/unknown", "/api/v1/admin-credentials/", "/api/v1/admin-credentials/a/b", "/api/v1/backups/a/b", "/mcp/",
 	} {
 		_, ok := RouteForPath(path)
 		require.False(t, ok, path)
@@ -99,7 +99,7 @@ func TestProblemsMatchTheSafeEnvelopeContract(t *testing.T) {
 		{Status: 503, Code: ProblemShuttingDown, Title: "The service is shutting down."},
 	}
 
-	require.Equal(t, expected, Problems())
+	require.Equal(t, expected, Problems()[:len(expected)], "S1 problems must remain the table prefix")
 	for _, problem := range expected {
 		actual, ok := ProblemForCode(problem.Code)
 		require.True(t, ok)
@@ -148,8 +148,8 @@ func TestFixedLimitsAcceptNAndRejectNPlusOne(t *testing.T) {
 	}
 
 	limits := FixedLimits()
-	require.Len(t, limits, len(expected))
-	for _, limit := range limits {
+	require.GreaterOrEqual(t, len(limits), len(expected))
+	for _, limit := range limits[:len(expected)] {
 		maximum, ok := expected[limit.Name]
 		require.True(t, ok, limit.Name)
 		require.Equal(t, maximum, limit.Maximum, limit.Name)
@@ -187,10 +187,10 @@ func TestResourceMechanicsAreTargeted(t *testing.T) {
 	t.Parallel()
 
 	mechanics := ResourceMechanics()
-	require.Len(t, mechanics, 12)
+	require.GreaterOrEqual(t, len(mechanics), 12)
 
 	var cursored, idempotent int
-	for _, mechanic := range mechanics {
+	for _, mechanic := range mechanics[:12] {
 		if mechanic.Cursor {
 			cursored++
 			require.Equal(t, "GET", mechanic.Method)
@@ -214,7 +214,7 @@ func TestMediaTypesAndApprovedSecretSinksAreClosed(t *testing.T) {
 	require.Equal(t, "application/json", MediaTypeJSON)
 	require.Equal(t, "application/problem+json", MediaTypeProblemJSON)
 	require.Equal(t, "text/event-stream", MediaTypeEventStream)
-	require.Equal(t, []SecretSink{SecretSinkControllingTerminal, SecretSinkOwnerOnlyFile}, ApprovedSecretSinks())
+	require.Equal(t, []SecretSink{SecretSinkControllingTerminal, SecretSinkOwnerOnlyFile}, ApprovedSecretSinks()[:2], "S1 sinks must remain the table prefix")
 	require.Equal(t, uint32(0o600), uint32(SecretOutputFileMode))
 	require.Equal(t, "\n", SecretOutputTerminator)
 	require.NotContains(t, ApprovedSecretSinks(), SecretSink("stdout"))
@@ -248,6 +248,8 @@ func TestSafeResourceJSONShapesAreExact(t *testing.T) {
 	requireJSONKeys(t, status.Limits,
 		"http_regular", "http_control_auth", "http_admin", "http_health", "mcp_work", "mcp_streams", "admin_sessions", "legacy_sessions",
 		"event_streams", "backup_work", "backup_records", "admin_credentials", "idempotency_records", "keyring_candidates", "keyring_work", "database_bytes",
+		"server_identities", "servers", "downstream_runtimes", "server_reconciliations", "catalog_traversals", "oauth_flows", "oauth_callback_work",
+		"s2_idempotency_records", "active_tools", "durable_tool_identities", "downstream_dispatch",
 	)
 	requireJSONKeys(t, ProblemEnvelope{Status: 400, Code: ProblemMalformedRequest, Title: "The request is invalid."}, "status", "code", "title")
 }

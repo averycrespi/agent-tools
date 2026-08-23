@@ -31,6 +31,19 @@ type CutoverResult struct {
 	Revision string
 }
 
+type AuthorityUpdate struct {
+	Owner                  string
+	Kind                   RecordKind
+	Handle                 *Handle
+	PriorPublishedRevision string
+	ExactPublishedRevision string
+	ValidateOnly           bool
+	ExactInvalidation      bool
+}
+
+// AuthorityCallback runs inside the coordinator's marker-armed transaction and must not open a nested Store.Mutate.
+type AuthorityCallback func(context.Context, *sql.Tx, AuthorityUpdate) (string, error)
+
 type cutoverHooks struct {
 	afterCandidate func() error
 	afterWrite     func() error
@@ -76,6 +89,15 @@ func (coordinator *Coordinator) Replace(
 	namespace Namespace,
 	secret []byte,
 ) (CutoverResult, error) {
+	return coordinator.ReplaceFenced(ctx, namespace, secret, nil)
+}
+
+func (coordinator *Coordinator) ReplaceFenced(
+	ctx context.Context,
+	namespace Namespace,
+	secret []byte,
+	callback AuthorityCallback,
+) (CutoverResult, error) {
 	if !coordinator.acquireOperation() {
 		return CutoverResult{}, ErrWorkLimit
 	}
@@ -85,6 +107,57 @@ func (coordinator *Coordinator) Replace(
 	if err != nil {
 		return CutoverResult{}, err
 	}
+	return coordinator.replaceFencedAdmitted(ctx, namespace, secret, callback, epoch, false)
+}
+
+func (coordinator *Coordinator) ReplaceFencedAfterAuthorizationSuccess(
+	ctx context.Context,
+	namespace Namespace,
+	secret []byte,
+	callback AuthorityCallback,
+) (CutoverResult, error) {
+	if !coordinator.acquireOperation() {
+		return CutoverResult{}, ErrWorkLimit
+	}
+	defer coordinator.releaseOperation()
+
+	epoch, err := coordinator.activeEpoch()
+	if err != nil {
+		return CutoverResult{}, err
+	}
+	if err := coordinator.validateNamespace(ctx, namespace); err != nil {
+		return CutoverResult{}, err
+	}
+	if err := coordinator.fenceAuthority(ctx, namespace, epoch, callback); err != nil {
+		return CutoverResult{}, err
+	}
+
+	result, candidateErr := coordinator.replaceFencedAdmitted(ctx, namespace, secret, callback, epoch, true)
+	if candidateErr == nil {
+		candidateErr = coordinator.activateAuthority(ctx, namespace, epoch, callback, result.Revision)
+	}
+	if candidateErr == nil {
+		_ = coordinator.cleanupCandidates(ctx, namespace, epoch)
+		return result, nil
+	}
+
+	_, invalidationErr := coordinator.invalidateAuthority(
+		ctx, namespace, epoch, callback, result.Revision, true,
+	)
+	if invalidationErr == nil {
+		_ = coordinator.cleanupCandidates(ctx, namespace, epoch)
+	}
+	return CutoverResult{}, errors.Join(candidateErr, invalidationErr)
+}
+
+func (coordinator *Coordinator) replaceFencedAdmitted(
+	ctx context.Context,
+	namespace Namespace,
+	secret []byte,
+	callback AuthorityCallback,
+	epoch uint64,
+	keepFenced bool,
+) (CutoverResult, error) {
 	if err := coordinator.validateNamespace(ctx, namespace); err != nil {
 		return CutoverResult{}, err
 	}
@@ -122,17 +195,60 @@ func (coordinator *Coordinator) Replace(
 		if err == nil {
 			err = ErrIncompleteGeneration
 		}
+		coordinator.discardFailedCandidate(ctx, namespace, handle, epoch)
 		return CutoverResult{}, err
 	}
 
 	if err := coordinator.ensureActive(epoch); err != nil {
 		return CutoverResult{}, err
 	}
-	revision, err := coordinator.commitCandidate(ctx, namespace, handle, epoch)
+	revision, err := coordinator.commitCandidate(ctx, namespace, handle, epoch, callback, keepFenced)
+	result := CutoverResult{Handle: handle, Revision: revision}
+	if err != nil {
+		if !errors.Is(err, storage.ErrStorageLatched) && !errors.Is(err, ErrDraining) {
+			coordinator.discardFailedCandidate(ctx, namespace, handle, epoch)
+		}
+		return result, err
+	}
+	if err := runCutoverHook(coordinator.hooks.afterCommit); err != nil {
+		return result, err
+	}
+	if !keepFenced {
+		_ = coordinator.cleanupCandidates(ctx, namespace, epoch)
+	}
+	return result, nil
+}
+
+func (coordinator *Coordinator) InvalidateFenced(
+	ctx context.Context,
+	namespace Namespace,
+	callback AuthorityCallback,
+) (CutoverResult, error) {
+	return coordinator.invalidateFenced(ctx, namespace, callback, "")
+}
+
+func (coordinator *Coordinator) invalidateFenced(
+	ctx context.Context,
+	namespace Namespace,
+	callback AuthorityCallback,
+	priorPublishedRevision string,
+) (CutoverResult, error) {
+	if !coordinator.acquireOperation() {
+		return CutoverResult{}, ErrWorkLimit
+	}
+	defer coordinator.releaseOperation()
+	epoch, err := coordinator.activeEpoch()
 	if err != nil {
 		return CutoverResult{}, err
 	}
-	result := CutoverResult{Handle: handle, Revision: strconv.FormatUint(revision, 10)}
+	if err := coordinator.validateNamespace(ctx, namespace); err != nil {
+		return CutoverResult{}, err
+	}
+	revision, err := coordinator.invalidateAuthority(ctx, namespace, epoch, callback, priorPublishedRevision, false)
+	if err != nil {
+		return CutoverResult{}, err
+	}
+	result := CutoverResult{Revision: revision}
 	if err := runCutoverHook(coordinator.hooks.afterCommit); err != nil {
 		return result, err
 	}
@@ -162,12 +278,24 @@ func (coordinator *Coordinator) ReadActive(
 	if err != nil {
 		return nil, CutoverResult{}, err
 	}
+	if coordinator.store != nil && coordinator.store.Latched() {
+		return nil, CutoverResult{}, storage.ErrStorageLatched
+	}
 	if err := coordinator.validateNamespace(ctx, namespace); err != nil {
 		return nil, CutoverResult{}, err
 	}
 	var handleValue string
 	var revision uint64
 	err = coordinator.store.View(ctx, func(transaction *sql.Tx) error {
+		var fenced int
+		if err := transaction.QueryRowContext(ctx, `
+			SELECT count(*) FROM keyring_authority_fences
+			WHERE owner = ? AND kind = ?`, namespace.owner, namespace.kind).Scan(&fenced); err != nil {
+			return err
+		}
+		if fenced != 0 {
+			return ErrNoAuthority
+		}
 		return transaction.QueryRowContext(ctx, `
 			SELECT handle, revision FROM keyring_authorities
 			WHERE owner = ? AND kind = ?`, namespace.owner, namespace.kind).Scan(&handleValue, &revision)
@@ -188,6 +316,9 @@ func (coordinator *Coordinator) ReadActive(
 	}
 	if err := coordinator.ensureActive(epoch); err != nil {
 		return nil, CutoverResult{}, err
+	}
+	if coordinator.store.Latched() {
+		return nil, CutoverResult{}, storage.ErrStorageLatched
 	}
 	return secret, CutoverResult{Handle: handle, Revision: strconv.FormatUint(revision, 10)}, nil
 }
@@ -273,18 +404,122 @@ func (coordinator *Coordinator) registerCandidate(ctx context.Context, namespace
 	})
 }
 
+func (coordinator *Coordinator) fenceAuthority(
+	ctx context.Context,
+	namespace Namespace,
+	epoch uint64,
+	callback AuthorityCallback,
+) error {
+	coordinator.stateMu.Lock()
+	defer coordinator.stateMu.Unlock()
+	if coordinator.draining || coordinator.epoch != epoch {
+		return ErrDraining
+	}
+	return coordinator.store.Mutate(ctx, func(transaction *sql.Tx) error {
+		if callback != nil {
+			revision, err := callback(ctx, transaction, AuthorityUpdate{
+				Owner: namespace.owner, Kind: namespace.kind, ValidateOnly: true,
+			})
+			if err != nil {
+				return err
+			}
+			if !validNonnegativeRevision(revision) {
+				return fmt.Errorf("authority callback returned an invalid revision")
+			}
+		}
+		var priorHandle string
+		priorErr := transaction.QueryRowContext(ctx, `
+			SELECT handle FROM keyring_authorities
+			WHERE owner = ? AND kind = ?`, namespace.owner, namespace.kind).Scan(&priorHandle)
+		if priorErr != nil && !errors.Is(priorErr, sql.ErrNoRows) {
+			return fmt.Errorf("read prior keyring authority: %w", priorErr)
+		}
+		if priorErr == nil {
+			if _, err := transaction.ExecContext(ctx, `
+				DELETE FROM keyring_authorities
+				WHERE owner = ? AND kind = ?`, namespace.owner, namespace.kind); err != nil {
+				return fmt.Errorf("fence prior keyring authority: %w", err)
+			}
+			if _, err := transaction.ExecContext(ctx, `
+				INSERT OR IGNORE INTO keyring_candidates (owner, kind, handle, created_at)
+				VALUES (?, ?, ?, ?)`, namespace.owner, namespace.kind, priorHandle, coordinator.clock.Now().UTC()); err != nil {
+				return fmt.Errorf("retain fenced keyring generation for cleanup: %w", err)
+			}
+		}
+		if _, err := transaction.ExecContext(ctx, `
+			INSERT OR IGNORE INTO keyring_authority_fences (owner, kind)
+			VALUES (?, ?)`, namespace.owner, namespace.kind); err != nil {
+			return fmt.Errorf("record keyring authority fence: %w", err)
+		}
+		if _, err := transaction.ExecContext(ctx, `
+			UPDATE gateway_meta SET revision = revision + 1 WHERE singleton = 1`); err != nil {
+			return fmt.Errorf("increment keyring fence revision: %w", err)
+		}
+		return nil
+	})
+}
+
+func (coordinator *Coordinator) activateAuthority(
+	ctx context.Context,
+	namespace Namespace,
+	epoch uint64,
+	callback AuthorityCallback,
+	publishedRevision string,
+) error {
+	coordinator.stateMu.Lock()
+	defer coordinator.stateMu.Unlock()
+	if coordinator.draining || coordinator.epoch != epoch {
+		return ErrDraining
+	}
+	return coordinator.store.ActivateKeyringAuthority(ctx, namespace.owner, string(namespace.kind), func(transaction *sql.Tx) error {
+		if callback != nil {
+			validatedRevision, err := callback(ctx, transaction, AuthorityUpdate{
+				Owner: namespace.owner, Kind: namespace.kind, ValidateOnly: true,
+				ExactPublishedRevision: publishedRevision,
+			})
+			if err != nil {
+				return err
+			}
+			if validatedRevision != publishedRevision || !validRevision(validatedRevision) {
+				return fmt.Errorf("authority callback did not validate the published revision")
+			}
+		}
+		result, err := transaction.ExecContext(ctx, `
+			DELETE FROM keyring_authority_fences
+			WHERE owner = ? AND kind = ?`, namespace.owner, namespace.kind)
+		if err != nil {
+			return fmt.Errorf("activate keyring authority: %w", err)
+		}
+		removed, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if removed != 1 {
+			return ErrNoAuthority
+		}
+		if _, err := transaction.ExecContext(ctx, `
+			UPDATE gateway_meta SET revision = revision + 1 WHERE singleton = 1`); err != nil {
+			return fmt.Errorf("increment keyring activation revision: %w", err)
+		}
+		return nil
+	})
+}
+
 func (coordinator *Coordinator) commitCandidate(
 	ctx context.Context,
 	namespace Namespace,
 	handle Handle,
 	epoch uint64,
-) (uint64, error) {
+	callback AuthorityCallback,
+	keepFenced bool,
+) (string, error) {
 	coordinator.stateMu.Lock()
 	defer coordinator.stateMu.Unlock()
 	if coordinator.draining || coordinator.epoch != epoch {
-		return 0, ErrDraining
+		return "", ErrDraining
 	}
 	var revision uint64
+	var domainRevision string
 	err := coordinator.store.Mutate(ctx, func(transaction *sql.Tx) error {
 		var exists int
 		if err := transaction.QueryRowContext(ctx, `
@@ -322,18 +557,117 @@ func (coordinator *Coordinator) commitCandidate(
 			RETURNING revision`).Scan(&revision); err != nil {
 			return fmt.Errorf("increment keyring authority revision: %w", err)
 		}
+		authorityRevision := revision
+		if callback != nil {
+			candidate := handle
+			published, err := callback(ctx, transaction, AuthorityUpdate{
+				Owner: namespace.owner, Kind: namespace.kind, Handle: &candidate,
+			})
+			if err != nil {
+				return err
+			}
+			if !validRevision(published) {
+				return fmt.Errorf("authority callback returned an invalid revision")
+			}
+			domainRevision = published
+			parsedRevision, parseErr := strconv.ParseUint(published, 10, 64)
+			if parseErr != nil {
+				return fmt.Errorf("parse authority callback revision: %w", parseErr)
+			}
+			authorityRevision = parsedRevision
+		}
 		if _, err := transaction.ExecContext(ctx, `
 			INSERT INTO keyring_authorities (owner, kind, handle, revision)
 			VALUES (?, ?, ?, ?)
 			ON CONFLICT (owner, kind) DO UPDATE SET
 				handle = excluded.handle,
 				revision = excluded.revision`,
-			namespace.owner, namespace.kind, string(handle), revision); err != nil {
+			namespace.owner, namespace.kind, string(handle), authorityRevision); err != nil {
 			return fmt.Errorf("commit keyring authority: %w", err)
+		}
+		if !keepFenced {
+			if _, err := transaction.ExecContext(ctx, `
+				DELETE FROM keyring_authority_fences
+				WHERE owner = ? AND kind = ?`, namespace.owner, namespace.kind); err != nil {
+				return fmt.Errorf("clear prior keyring authority fence: %w", err)
+			}
 		}
 		return runCutoverHook(coordinator.hooks.beforeCommit)
 	})
-	return revision, err
+	if err != nil {
+		if callback != nil && domainRevision != "" && errors.Is(err, storage.ErrStorageLatched) {
+			return domainRevision, err
+		}
+		return "", err
+	}
+	if callback != nil {
+		return domainRevision, nil
+	}
+	return strconv.FormatUint(revision, 10), nil
+}
+
+func (coordinator *Coordinator) invalidateAuthority(
+	ctx context.Context,
+	namespace Namespace,
+	epoch uint64,
+	callback AuthorityCallback,
+	priorPublishedRevision string,
+	exact bool,
+) (string, error) {
+	coordinator.stateMu.Lock()
+	defer coordinator.stateMu.Unlock()
+	if coordinator.draining || coordinator.epoch != epoch {
+		return "", ErrDraining
+	}
+	var revision uint64
+	var domainRevision string
+	err := coordinator.store.Mutate(ctx, func(transaction *sql.Tx) error {
+		var priorHandle string
+		priorErr := transaction.QueryRowContext(ctx, `
+			SELECT handle FROM keyring_authorities
+			WHERE owner = ? AND kind = ?`, namespace.owner, namespace.kind).Scan(&priorHandle)
+		if priorErr != nil && !errors.Is(priorErr, sql.ErrNoRows) {
+			return fmt.Errorf("read prior keyring authority: %w", priorErr)
+		}
+		if priorErr == nil {
+			if _, err := transaction.ExecContext(ctx, `
+				DELETE FROM keyring_authorities
+				WHERE owner = ? AND kind = ?`, namespace.owner, namespace.kind); err != nil {
+				return fmt.Errorf("invalidate keyring authority: %w", err)
+			}
+			if _, err := transaction.ExecContext(ctx, `
+				INSERT OR IGNORE INTO keyring_candidates (owner, kind, handle, created_at)
+				VALUES (?, ?, ?, ?)`, namespace.owner, namespace.kind, priorHandle, coordinator.clock.Now().UTC()); err != nil {
+				return fmt.Errorf("retain invalidated generation for cleanup: %w", err)
+			}
+		}
+		if err := transaction.QueryRowContext(ctx, `
+			UPDATE gateway_meta SET revision = revision + 1 WHERE singleton = 1
+			RETURNING revision`).Scan(&revision); err != nil {
+			return fmt.Errorf("increment keyring authority revision: %w", err)
+		}
+		if callback != nil {
+			published, err := callback(ctx, transaction, AuthorityUpdate{
+				Owner: namespace.owner, Kind: namespace.kind, PriorPublishedRevision: priorPublishedRevision,
+				ExactInvalidation: exact,
+			})
+			if err != nil {
+				return err
+			}
+			if !validRevision(published) {
+				return fmt.Errorf("authority callback returned an invalid revision")
+			}
+			domainRevision = published
+		}
+		return runCutoverHook(coordinator.hooks.beforeCommit)
+	})
+	if err != nil {
+		return "", err
+	}
+	if callback != nil {
+		return domainRevision, nil
+	}
+	return strconv.FormatUint(revision, 10), nil
 }
 
 func (coordinator *Coordinator) candidates(ctx context.Context, namespace Namespace) ([]Handle, error) {
@@ -441,6 +775,18 @@ func (coordinator *Coordinator) ensureActive(epoch uint64) error {
 		return ErrDraining
 	}
 	return nil
+}
+
+func validRevision(value string) bool {
+	return value != "0" && validNonnegativeRevision(value)
+}
+
+func validNonnegativeRevision(value string) bool {
+	if value == "" || (len(value) > 1 && value[0] == '0') {
+		return false
+	}
+	_, err := strconv.ParseUint(value, 10, 64)
+	return err == nil
 }
 
 func runCutoverHook(hook func() error) error {

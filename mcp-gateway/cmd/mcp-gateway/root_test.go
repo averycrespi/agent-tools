@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
@@ -26,6 +27,40 @@ func TestRootCommandExposesOwnedOfflineCommands(t *testing.T) {
 	})
 	require.True(t, cmd.SilenceUsage)
 	require.True(t, cmd.SilenceErrors)
+}
+
+func TestBaseSystemStatusIncludesS2OccupancyLimits(t *testing.T) {
+	status := baseSystemStatus(
+		"2026-08-22T00:00:00Z",
+		storage.Identity{InstallationID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", SchemaVersion: 3},
+		false,
+		false,
+		contract.KeyringReady,
+		contract.LimitStatus{},
+		contract.LimitStatus{},
+		contract.LimitStatus{},
+		contract.LimitStatus{},
+		contract.LimitStatus{},
+	)
+
+	limits := map[string]contract.LimitStatus{
+		"server_identities":       status.Limits.ServerIdentities,
+		"servers":                 status.Limits.Servers,
+		"downstream_runtimes":     status.Limits.DownstreamRuntimes,
+		"server_reconciliations":  status.Limits.ServerReconciliations,
+		"catalog_traversals":      status.Limits.CatalogTraversals,
+		"oauth_flows":             status.Limits.OAuthFlows,
+		"oauth_callback_work":     status.Limits.OAuthCallbackWork,
+		"s2_idempotency_records":  status.Limits.S2IdempotencyRecords,
+		"active_tools":            status.Limits.ActiveTools,
+		"durable_tool_identities": status.Limits.DurableToolIdentities,
+		"downstream_dispatch":     status.Limits.DownstreamDispatch,
+	}
+	for name, occupancy := range limits {
+		fixed, ok := contract.FixedLimitByName(name)
+		require.True(t, ok, name)
+		require.Equal(t, contract.LimitStatus{Limit: fixed.Maximum}, occupancy, name)
+	}
 }
 
 func TestInitializeAndResetEmitSafeResultsAndPublishSecretsOnce(t *testing.T) {

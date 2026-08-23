@@ -16,13 +16,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/events"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
 
 type CredentialService interface {
@@ -615,89 +615,20 @@ func decodeStrictBody(writer http.ResponseWriter, request *http.Request, destina
 		writeProblem(writer, contract.ProblemUnsupportedMediaType)
 		return false
 	}
-	maximum := int64(limitValue("api_json_body_bytes"))
-	contents, err := io.ReadAll(io.LimitReader(request.Body, maximum+1))
-	if err != nil {
-		writeProblem(writer, contract.ProblemInvalidJSON)
-		return false
-	}
-	if int64(len(contents)) > maximum {
+	err = strictjson.DecodeReader(request.Body, destination, strictjson.Options{
+		MaxBytes:             int64(limitValue("api_json_body_bytes")),
+		MaxDepth:             limitValue("json_depth"),
+		RejectUnknownMembers: true,
+	})
+	if errors.Is(err, strictjson.ErrTooLarge) {
 		writeProblem(writer, contract.ProblemBodyTooLarge)
 		return false
 	}
-	if !utf8.Valid(contents) || validateJSON(contents) != nil {
-		writeProblem(writer, contract.ProblemInvalidJSON)
-		return false
-	}
-	decoder := json.NewDecoder(bytes.NewReader(contents))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(destination); err != nil {
-		writeProblem(writer, contract.ProblemInvalidJSON)
-		return false
-	}
-	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+	if err != nil {
 		writeProblem(writer, contract.ProblemInvalidJSON)
 		return false
 	}
 	return true
-}
-
-func validateJSON(contents []byte) error {
-	decoder := json.NewDecoder(bytes.NewReader(contents))
-	if err := validateValue(decoder, 0); err != nil {
-		return err
-	}
-	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return errors.New("trailing JSON")
-	}
-	return nil
-}
-
-func validateValue(decoder *json.Decoder, depth int) error {
-	if depth > limitValue("json_depth") {
-		return errors.New("JSON nesting limit")
-	}
-	token, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-	delimiter, ok := token.(json.Delim)
-	if !ok {
-		return nil
-	}
-	switch delimiter {
-	case '{':
-		seen := make(map[string]struct{})
-		for decoder.More() {
-			keyToken, err := decoder.Token()
-			if err != nil {
-				return err
-			}
-			key, ok := keyToken.(string)
-			if !ok {
-				return errors.New("object key is not a string")
-			}
-			if _, duplicate := seen[key]; duplicate {
-				return errors.New("duplicate object member")
-			}
-			seen[key] = struct{}{}
-			if err := validateValue(decoder, depth+1); err != nil {
-				return err
-			}
-		}
-		_, err = decoder.Token()
-		return err
-	case '[':
-		for decoder.More() {
-			if err := validateValue(decoder, depth+1); err != nil {
-				return err
-			}
-		}
-		_, err = decoder.Token()
-		return err
-	default:
-		return errors.New("unexpected JSON delimiter")
-	}
 }
 
 func bodyless(request *http.Request) bool {

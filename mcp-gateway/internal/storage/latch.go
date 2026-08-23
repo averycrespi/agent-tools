@@ -39,8 +39,15 @@ var (
 )
 
 type markerDocument struct {
-	InstallationID string `json:"installation_id"`
-	State          string `json:"state"`
+	InstallationID string                  `json:"installation_id"`
+	State          string                  `json:"state"`
+	Recovery       *keyringFenceActivation `json:"recovery,omitempty"`
+}
+
+type keyringFenceActivation struct {
+	Action string `json:"action"`
+	Owner  string `json:"owner"`
+	Kind   string `json:"kind"`
 }
 
 type mutationMarker struct {
@@ -66,6 +73,28 @@ func (store *Store) Latched() bool {
 }
 
 func (store *Store) Mutate(ctx context.Context, mutate func(*sql.Tx) error) error {
+	return store.mutate(ctx, nil, mutate)
+}
+
+// ActivateKeyringAuthority removes a durable authority fence. Stopped recovery
+// restores that fence if the activation commit has an uncertain outcome.
+func (store *Store) ActivateKeyringAuthority(
+	ctx context.Context,
+	owner string,
+	kind string,
+	mutate func(*sql.Tx) error,
+) error {
+	if !validKeyringOwner(owner) || !validKeyringRecordKind(kind) {
+		return fmt.Errorf("invalid keyring authority activation")
+	}
+	return store.mutate(ctx, &keyringFenceActivation{
+		Action: "restore_keyring_authority_fence",
+		Owner:  owner,
+		Kind:   kind,
+	}, mutate)
+}
+
+func (store *Store) mutate(ctx context.Context, recovery *keyringFenceActivation, mutate func(*sql.Tx) error) error {
 	select {
 	case store.mutationSlot <- struct{}{}:
 		defer func() { <-store.mutationSlot }()
@@ -83,7 +112,7 @@ func (store *Store) Mutate(ctx context.Context, mutate func(*sql.Tx) error) erro
 	if err != nil {
 		return store.latch(err)
 	}
-	if err := store.marker.arm(identity.InstallationID); err != nil {
+	if err := store.marker.arm(identity.InstallationID, recovery); err != nil {
 		return store.latch(err)
 	}
 
@@ -304,7 +333,7 @@ func (marker mutationMarker) hasArtifacts() (bool, error) {
 	return marked, nil
 }
 
-func (marker mutationMarker) arm(installationID string) error {
+func (marker mutationMarker) arm(installationID string, recovery *keyringFenceActivation) error {
 	marked, err := marker.hasArtifacts()
 	if err != nil {
 		return err
@@ -326,7 +355,7 @@ func (marker mutationMarker) arm(installationID string) error {
 			_ = os.Remove(marker.temporary)
 		}
 	}()
-	contents, err := json.Marshal(markerDocument{InstallationID: installationID, State: "armed"})
+	contents, err := json.Marshal(markerDocument{InstallationID: installationID, State: "armed", Recovery: recovery})
 	if err != nil {
 		return fmt.Errorf("encode mutation marker: %w", err)
 	}
@@ -419,6 +448,48 @@ func (marker mutationMarker) verifyBindingOrMalformed(installationID string) err
 	return nil
 }
 
+func (marker mutationMarker) recovery(installationID string) (*keyringFenceActivation, error) {
+	var recovered *keyringFenceActivation
+	for _, path := range marker.paths() {
+		if err := gatewaypaths.ValidateOwnerOnlyFile(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, err
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		contents, readErr := io.ReadAll(io.LimitReader(file, markerBytesMaximum+1))
+		closeErr := file.Close()
+		if readErr != nil || closeErr != nil {
+			return nil, errors.Join(readErr, closeErr)
+		}
+		if len(contents) > markerBytesMaximum {
+			return nil, fmt.Errorf("mutation marker is too large")
+		}
+		var document markerDocument
+		if err := json.Unmarshal(contents, &document); err != nil {
+			continue
+		}
+		if document.State != "armed" || document.InstallationID != installationID || document.Recovery == nil {
+			continue
+		}
+		candidate := document.Recovery
+		if candidate.Action != "restore_keyring_authority_fence" ||
+			!validKeyringOwner(candidate.Owner) || !validKeyringRecordKind(candidate.Kind) {
+			return nil, fmt.Errorf("mutation marker has an invalid recovery action")
+		}
+		if recovered != nil && *recovered != *candidate {
+			return nil, fmt.Errorf("mutation marker recovery actions disagree")
+		}
+		copy := *candidate
+		recovered = &copy
+	}
+	return recovered, nil
+}
+
 func (marker mutationMarker) clearVerified(installationID string) error {
 	if err := marker.verifyBindingOrMalformed(installationID); err != nil {
 		return err
@@ -432,6 +503,19 @@ func (marker mutationMarker) clearVerified(installationID string) error {
 		return fmt.Errorf("sync verified marker removal: %w", err)
 	}
 	return nil
+}
+
+func validKeyringOwner(owner string) bool {
+	return installationIDPattern.MatchString(owner) && owner[0] >= '0' && owner[0] <= '7'
+}
+
+func validKeyringRecordKind(kind string) bool {
+	switch kind {
+	case "static_credential", "oauth_client", "oauth_tokens":
+		return true
+	default:
+		return false
+	}
 }
 
 func (marker mutationMarker) inject(point FaultPoint) error {

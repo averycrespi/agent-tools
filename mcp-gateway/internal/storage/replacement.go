@@ -52,10 +52,25 @@ func OpenReplacement(ctx context.Context, ownership *gatewaypaths.Ownership, pat
 	if err := gatewaypaths.ValidateOwnerOnlyFile(path); err != nil {
 		return nil, fmt.Errorf("%w: replacement path: %w", ErrInvalidDatabase, err)
 	}
+	version, err := inspectDatabase(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if version < 3 || version > CurrentSchema {
+		return nil, fmt.Errorf("%w: replacement schema %d is not supported", ErrInvalidDatabase, version)
+	}
 	layout.Database = path
 	layout.MutationMarker = path + ".mutation"
 	store, err := openConfigured(ctx, layout, testOptions{})
 	if err != nil {
+		return nil, err
+	}
+	if err := store.configureSizeLimit(ctx); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	if err := store.migrate(ctx, version); err != nil {
+		_ = store.Close()
 		return nil, err
 	}
 	if err := store.verify(ctx); err != nil {

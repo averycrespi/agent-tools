@@ -41,7 +41,7 @@ func (store *Store) BackupTo(ctx context.Context, destination string) error {
 	return nil
 }
 
-// VerifyBackup validates a closed backup without changing or migrating it.
+// VerifyBackup validates a closed current or accepted S1 schema-3 backup without changing it.
 func VerifyBackup(ctx context.Context, path string) (Identity, error) {
 	if err := gatewaypaths.ValidateOwnerOnlyFile(path); err != nil {
 		return Identity{}, fmt.Errorf("%w: backup path: %w", ErrInvalidDatabase, err)
@@ -67,7 +67,7 @@ func VerifyBackup(ctx context.Context, path string) (Identity, error) {
 	if err := database.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
 		return Identity{}, fmt.Errorf("%w: check backup integrity: %w", ErrInvalidDatabase, err)
 	}
-	if applicationID != ApplicationID || schema != CurrentSchema || !installationIDPattern.MatchString(installationID) || revision < 0 || integrity != "ok" {
+	if applicationID != ApplicationID || schema < 3 || schema > CurrentSchema || !installationIDPattern.MatchString(installationID) || revision < 0 || integrity != "ok" {
 		return Identity{}, fmt.Errorf("%w: backup identity or integrity mismatch", ErrInvalidDatabase)
 	}
 	return Identity{InstallationID: installationID, SchemaVersion: schema, Revision: uint64(revision)}, nil

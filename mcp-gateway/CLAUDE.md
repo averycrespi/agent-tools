@@ -23,9 +23,11 @@ Run `make audit` before committing. Unit tests are colocated and race-enabled. I
 
 ```text
 cmd/mcp-gateway/        Cobra composition root only
-internal/contract/      Immutable S1 routes, problems, limits, and representations
+internal/contract/      Immutable S1/S2 routes, problems, limits, states, and representations
+internal/strictjson/    Dependency-neutral bounded strict JSON and canonical equality
 internal/paths/         Owner-only paths and process ownership
 internal/storage/       SQLite identity, migrations, durability, latch
+internal/servers/       Durable S2 identities, desired authority, operations, cursors, idempotency
 internal/admin/         Admin bearer and in-memory session authority
 internal/api/           Strict resources, JSON, and safe problems
 internal/httpboundary/  Listener, route ownership, and early validation
@@ -42,7 +44,8 @@ The package directories begin as documented seams and gain implementation only i
 
 ## Invariants
 
-- `internal/contract` is the only source for S1 routes, problems, limits, media/protocol values, resource shapes, and approved secret sinks; do not duplicate them in later packages.
+- `internal/contract` is the only source for S1/S2 routes, problems, limits/deadlines, media/protocol values, resource/union shapes, closed states/reasons/events, mechanics, and approved secret sinks; do not duplicate them in later packages.
+- `internal/strictjson` is the dependency-neutral parser for API, downstream, OAuth, and catalog boundaries. Supply explicit positive size/depth bounds; closed destinations reject unknown members. Do not reintroduce package-local permissive decoders or equality that depends on object member order.
 - Exact default authority is `127.0.0.1:8210`; do not broaden accepted bind or Host forms. Keep validation and route classification ahead of authentication/body work, and preserve the control-auth to admin-work nonblocking permit transfer.
 - API JSON must remain size/depth bounded and reject invalid UTF-8, duplicate members, unknown members, and trailing values. Every API response is `no-store` and no response enables CORS.
 - Keep admin and agent credential domains, middleware, identifiers, and invalidation channels separate.
@@ -53,10 +56,12 @@ The package directories begin as documented seams and gain implementation only i
 - Limits are compiled constants, acquired in the documented order, and reject without queuing. Event streams release authenticated-admin admission after authentication and retain only their own bounded stream/buffer permits so they cannot starve status or recovery.
 - SSE is invalidation-only: no IDs, replay, cursor, secret, or authority. Overflow disconnects the stream; clients recover through authenticated snapshot reads.
 - The first process signal drains and closes ephemeral registries within the fixed deadline; the second forces exit. Drain the keyring coordinator before closing storage so late context-free results cannot commit.
+- `internal/servers` is the only owner of S2 SQL. Its sanitized contract-typed desired input cannot carry secret payloads; SQLite may contain only safe desired/tombstone facts, independent authority revisions and opaque handles, operation history/watermarks, and safe-reference idempotency metadata.
+- Every standalone server-domain mutation uses `storage.Store.Mutate`. Keyring publication/invalidation is the sole exception: a repository callback updates authority metadata directly on the coordinator-owned existing `*sql.Tx` under captured desired, credential, optional registration, and drain fences. That callback must never call `Store.Mutate`. Keep keyring, process, network, OAuth, initialization, discovery, and transport work outside mutation admission; map a latched store fail closed and never repair online.
 - Runtime state is never serialized or resumed after restart.
 - Test subprocesses use `testutil.BinaryRunner` with a positive configured timeout and per-stream byte cap. It captures stdout/stderr separately, reports truncation, and guarantees direct-child cancellation; component-specific process-group behavior belongs with that component.
 - The official MCP SDK sits behind Gateway-owned authentication, classification, binding, limits, and lifecycle.
-- Do not add downstream server, principal, grant, routing, invocation, OAuth-flow, or product-UI packages during S1.
+- The current S2 checkpoint implements the closed vocabulary, shared strict JSON, durable server/operation/idempotency authority foundation, and transaction-fenced server-scoped keyring publication/invalidation. Do not infer API serving, process/network work, OAuth orchestration, catalog traversal, runtime scheduling, routing, invocation, or product-UI behavior; add behavior only in its owning task.
 
 ## Dependency flow
 

@@ -74,8 +74,20 @@ const (
 	InvalidationAdminCredentials InvalidationKind = "admin_credentials" //nolint:gosec // Public event kind, not a credential.
 	InvalidationSystemStatus     InvalidationKind = "system_status"
 	InvalidationBackups          InvalidationKind = "backups"
+	InvalidationServers          InvalidationKind = "servers"
+	InvalidationServerOperations InvalidationKind = "server_operations"
+	InvalidationServerAuthFlows  InvalidationKind = "server_auth_flows"
+	InvalidationCatalog          InvalidationKind = "catalog"
 )
 
 func InvalidationKinds() []InvalidationKind {
-	return []InvalidationKind{InvalidationAdminCredentials, InvalidationSystemStatus, InvalidationBackups}
+	return []InvalidationKind{
+		InvalidationAdminCredentials,
+		InvalidationSystemStatus,
+		InvalidationBackups,
+		InvalidationServers,
+		InvalidationServerOperations,
+		InvalidationServerAuthFlows,
+		InvalidationCatalog,
+	}
 }

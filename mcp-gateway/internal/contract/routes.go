@@ -1,4 +1,4 @@
-// Package contract defines the fixed, test-visible S1 boundary shared by later Gateway packages.
+// Package contract defines the fixed, test-visible S1/S2 boundary shared by later Gateway packages.
 package contract
 
 import "strings"
@@ -40,6 +40,16 @@ var routes = []Route{
 	{Pattern: "/api/v1/backups", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/backups/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/events", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/servers", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/servers/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/servers/{id}/operations", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/servers/{id}/operations/{operation_id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/servers/{id}/credential-replacements", Methods: []string{"POST"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/servers/{id}/auth-flows", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/servers/{id}/auth-flows/{flow_id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/catalog", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/servers/{id}/descriptors", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/servers/{id}/descriptors/{tool_id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 }
 
 func Routes() []Route {
@@ -70,22 +80,27 @@ func joinMethods(methods []string) string {
 }
 
 func matchesRoute(pattern, path string) bool {
-	switch pattern {
-	case "/assets/*":
-		return strings.HasPrefix(path, "/assets/") && len(path) > len("/assets/")
-	case "/api/v1/admin-credentials/{id}":
-		return matchesOneSegment(path, "/api/v1/admin-credentials/")
-	case "/api/v1/backups/{id}":
-		return matchesOneSegment(path, "/api/v1/backups/")
-	default:
-		return path == pattern
-	}
-}
-
-func matchesOneSegment(path, prefix string) bool {
-	if !strings.HasPrefix(path, prefix) {
+	if path == "" || !strings.HasPrefix(path, "/") {
 		return false
 	}
-	remainder := strings.TrimPrefix(path, prefix)
-	return remainder != "" && !strings.Contains(remainder, "/")
+	if pattern == "/assets/*" {
+		return strings.HasPrefix(path, "/assets/") && len(path) > len("/assets/")
+	}
+	patternSegments := strings.Split(strings.TrimPrefix(pattern, "/"), "/")
+	pathSegments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(patternSegments) != len(pathSegments) {
+		return false
+	}
+	for index, segment := range patternSegments {
+		if strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
+			if pathSegments[index] == "" {
+				return false
+			}
+			continue
+		}
+		if segment != pathSegments[index] {
+			return false
+		}
+	}
+	return true
 }

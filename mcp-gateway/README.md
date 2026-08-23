@@ -4,7 +4,7 @@ MCP Gateway is a locally secure, deny-by-default service foundation for governin
 
 ## Current status
 
-The current executable implements the complete S1 filesystem, SQLite, admin authority, typed keyring/generation, strict loopback HTTP, control API, isolated dual-era MCP ingress, verified backup/restore, invalidation events, fixed admission, and lifecycle foundations. It opens only the configured numeric IPv4 loopback listener, exposes public health and a minimal static shell, and serves authenticated admin credential/session/status/backup/event resources. Production `/mcp` remains deny-all; downstream servers, principals, grants, tool routing, invocation, and product UI workflows are not implemented.
+The current executable implements the complete S1 filesystem, SQLite, admin authority, typed keyring/generation, strict loopback HTTP, control API, isolated dual-era MCP ingress, verified backup/restore, invalidation events, fixed admission, and lifecycle foundations. The S2 foundation now adds the closed dynamic-server contract, shared bounded strict JSON, a durable server-domain repository for immutable identities/tombstones, sanitized desired definitions, independent authority revision metadata, operation history, snapshot watermarks, and bounded idempotency, plus transaction-fenced server credential publication and invalidation. It opens only the configured numeric IPv4 loopback listener, exposes public health and a minimal static shell, and serves authenticated S1 admin credential/session/status/backup/event resources. The server repository is not yet wired to control API routes or runtime reconstruction. Production `/mcp` remains deny-all; downstream lifecycle, process/network work, OAuth orchestration, catalog traversal, principals, grants, tool routing, invocation, and product UI workflows are not implemented.
 
 ## Development
 
@@ -19,6 +19,8 @@ make audit
 ```
 
 From the repository root, `make build`, `make test`, and `make check` include MCP Gateway.
+
+The shared `internal/strictjson` parser requires explicit byte/depth bounds, rejects invalid UTF-8, duplicate members, excessive depth or size, trailing values, and unknown members for closed destinations, and supplies object-order-independent canonical equality while preserving array order. `internal/contract` remains the sole S1/S2 vocabulary owner.
 
 Install the binary with:
 
@@ -69,7 +71,9 @@ MCP work, MCP streams, and legacy sessions have independent compiled nonblocking
 
 ## Fixed limits and shutdown
 
-All limits are compiled and reject excess work without queuing. Principal live bounds are 128 ordinary HTTP requests, 32 control-auth attempts, 16 authenticated admin operations, 8 health requests, 128 admin sessions, 32 MCP operations, 32 MCP streams, 128 legacy sessions, 16 event streams, one backup operation, and one context-free keyring operation. Retained bounds include 128 admin credentials, 64 backups, 1,024 backup idempotency records for 24 hours, 64 keyring candidates per owner/kind, and a 1 GiB SQLite database. Detailed occupancy and saturation are visible only in authenticated system status.
+All limits are compiled and reject excess work without queuing. Principal live S1 bounds are 128 ordinary HTTP requests, 32 control-auth attempts, 16 authenticated admin operations, 8 health requests, 128 admin sessions, 32 MCP operations, 32 MCP streams, 128 legacy sessions, 16 event streams, one backup operation, and one context-free keyring operation. Retained S1 bounds include 128 admin credentials, 64 backups, 1,024 backup idempotency records for 24 hours, 64 keyring candidates per owner/kind, and a 1 GiB SQLite database.
+
+The S2 contract additionally fixes 1,024 server identities, 64 nondeleted and 32 enabled servers, 32 runtimes, four global/one per-server reconciliations, four catalog traversals, 16 global/one per-server OAuth flows, eight callback exchanges, 32 global/four per-server dispatches, 256 active tools per server and 2,048 globally, and 512 durable tool identities per server and 4,096 globally. The durable repository enforces the identity, nondeleted/enabled-server, 64-terminal-operation, and 1,024-record S2 idempotency bounds. System-status composition remains zero for these S2 occupancies until the control/runtime wiring lands; durable records create no runtime work.
 
 The first `SIGINT` or `SIGTERM` makes readiness false, rejects new non-recovery work, drains keyring consumers, and closes sessions, MCP state, and event streams before a shutdown bounded to ten seconds. A second signal exits immediately. Graceful shutdown removes the durable run marker; an unclean or forced restart retains it and performs full SQLite identity, pragma, migration, size, and integrity verification before becoming ready. No session, stream, or in-flight work resumes after any restart.
 
@@ -79,7 +83,9 @@ Gateway wraps `go-keyring` with the closed capability states `ready`, `absent`, 
 
 One process-global, nonblocking `keyring_work` slot permits a single operation. Saturation rejects immediately, and cancellation does not release the slot until the backend call actually returns. This MVP is unsuitable for unattended credential access; guaranteed-nonprompting/context-bounded operations are deferred until before unattended deployment or the first observed unexpected dialog, cancellation-surviving call, or keyring-induced service blockage.
 
-Secrets are split into bounded encoded chunks and become readable only after a digest-bound manifest is written. SQLite stores an opaque handle, installation/resource-owner ULIDs, one closed kind (`static_credential`, `oauth_client`, or `oauth_tokens`), revision, and bounded candidate cleanup metadata—never secret bytes. A candidate becomes authoritative only in the SQLite cutover transaction; interrupted candidates remain non-authoritative and are bounded to 64 per owner/kind.
+The closed raw-secret destinations preserve the S1 one-time `controlling_terminal` and `owner_only_file` sinks and declare only the future S2 write-only ingress points `admin_credential_replacement`, `dcr_client_secret`, `authorization_code_token_response`, `refresh_response`, and `authoritative_generation_refresh_copy`. Declaring them does not implement credential replacement or OAuth work.
+
+Secrets are split into bounded encoded chunks and become readable only after a digest-bound manifest is written. SQLite stores an opaque handle, installation/resource-owner ULIDs, one closed kind (`static_credential`, `oauth_client`, or `oauth_tokens`), revision, and bounded candidate cleanup metadata—never secret bytes. For server-scoped generations, the coordinator invokes a repository callback on its existing marker-armed transaction, so the verified candidate and exactly one independent credential-kind revision become current together under captured desired, credential, optional registration, and drain fences. Invalidation commits the kind revision and null authority before best-effort generation deletion. Ordinary replacement preserves old-or-new authority; the explicit post-authorization-server-success failure path invalidates both old and candidate authority before cleanup. Interrupted or stale candidates remain non-authoritative and are bounded to 64 per owner/kind.
 
 `make test-keyring-native` uses an isolated D-Bus session and temporary home with Secret Service on Linux. On macOS it changes the login keychain search state only when `MCP_GATEWAY_DISPOSABLE_MACOS_KEYCHAIN=1` explicitly confirms a disposable user context, then restores that state. Otherwise it reports an explicit prerequisite skip rather than touching the user's keychain or Gateway namespace.
 
@@ -95,7 +101,7 @@ mcp-gateway restore 01ARZ3NDEKTSV4RRFFQ69G5FAV \
   --secret-output /safe/new/restored-admin-bearer
 ```
 
-Restore verifies the artifact ID, installation binding, schema, source revision, size, SHA-256, and full SQLite integrity; stages one complete database; revokes every restored admin verifier; publishes and activates one new non-expiring bearer; removes old WAL/SHM sidecars; and atomically selects the replacement. It never restores sessions, MCP state, keyring values, or in-flight work. A successful result has `mode:"backup"` and includes `backup_id`; normal `serve` startup must still verify the replacement before readiness.
+Restore verifies the artifact ID, installation binding, supported schema, source revision, size, SHA-256, and full SQLite integrity; stages one complete database; forward-migrates an accepted S1 schema-3 backup before rekey or generation replacement; revokes every restored admin verifier; publishes and activates one new non-expiring bearer; removes old WAL/SHM sidecars; and atomically selects the replacement. Current backups include safe S2 desired/tombstone, authority-revision, operation, and idempotency rows, but never runtime facts, OAuth transients, raw secrets, sessions, MCP state, keyring values, or in-flight work. A successful result has `mode:"backup"` and includes `backup_id`; normal `serve` startup must still verify the replacement before readiness.
 
 To verify and clear the current stopped generation without replacement, run `restore --verify-current` only after stopping every Gateway process that owns the installation:
 

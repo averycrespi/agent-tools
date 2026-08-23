@@ -19,7 +19,7 @@ import (
 
 const (
 	ApplicationID           = 0x4d475731
-	CurrentSchema           = 3
+	CurrentSchema           = 4
 	BusyTimeoutMilliseconds = 2000
 	connectionLimit         = 4
 )
@@ -35,7 +35,7 @@ var (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql"}
+var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql"}
 
 type Identity struct {
 	InstallationID string
@@ -69,6 +69,16 @@ type testOptions struct {
 
 func Initialize(ctx context.Context, ownership *gatewaypaths.Ownership, installationID string) (*Store, error) {
 	return initializeWithOptions(ctx, ownership, installationID, testOptions{})
+}
+
+// InitializeWithFaultInjection is an internal test seam for deterministic marker and commit faults.
+func InitializeWithFaultInjection(
+	ctx context.Context,
+	ownership *gatewaypaths.Ownership,
+	installationID string,
+	fault func(FaultPoint) error,
+) (*Store, error) {
+	return initializeWithOptions(ctx, ownership, installationID, testOptions{fault: fault})
 }
 
 func initializeWithOptions(ctx context.Context, ownership *gatewaypaths.Ownership, installationID string, options testOptions) (*Store, error) {

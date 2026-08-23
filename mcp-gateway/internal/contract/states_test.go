@@ -14,6 +14,6 @@ func TestClosedStateSetsMatchTheS1Contract(t *testing.T) {
 	require.Equal(t, []SQLiteState{SQLiteUninitialized, SQLiteReady, SQLiteLatched}, SQLiteStates())
 	require.Equal(t, []KeyringCapability{KeyringReady, KeyringAbsent, KeyringLocked, KeyringInteractionRequired, KeyringUnavailable, KeyringUnsupported}, KeyringCapabilities())
 	require.Equal(t, []BackupState{BackupIdle, BackupCreating}, BackupStates())
-	require.Equal(t, []InvalidationKind{InvalidationAdminCredentials, InvalidationSystemStatus, InvalidationBackups}, InvalidationKinds())
+	require.Equal(t, []InvalidationKind{InvalidationAdminCredentials, InvalidationSystemStatus, InvalidationBackups}, InvalidationKinds()[:3], "S1 invalidations must remain the table prefix")
 	require.Equal(t, AgentAuthDenyAll, AgentAuthMode("deny_all"))
 }

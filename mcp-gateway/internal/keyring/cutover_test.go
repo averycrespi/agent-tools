@@ -3,9 +3,11 @@ package keyring
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -13,9 +15,362 @@ import (
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
+	"github.com/ncruces/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestFencedPublicationCommitsGenerationAndDomainMetadataAtomically(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newCutoverStore(t)
+	adapter := newMemoryAdapter()
+	provider, err := newProviderWithAdapter(testInstallationID, adapter)
+	require.NoError(t, err)
+	coordinator := NewCoordinator(
+		provider,
+		store,
+		testutil.NewFakeClock(time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)),
+		testutil.NewFakeEntropy(uniqueEntropy(1)),
+	)
+	namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordStaticCredential)
+	require.NoError(t, err)
+	require.NoError(t, insertCredentialDomain(t, store, namespace))
+
+	result, err := coordinator.ReplaceFenced(ctx, namespace, []byte("server static canary"), func(
+		ctx context.Context,
+		transaction *sql.Tx,
+		update AuthorityUpdate,
+	) (string, error) {
+		require.Equal(t, testOwnerID, update.Owner)
+		require.Equal(t, RecordStaticCredential, update.Kind)
+		require.NotNil(t, update.Handle)
+		var revision int64
+		require.NoError(t, transaction.QueryRowContext(ctx, `
+			UPDATE server_credentials SET revision = revision + 1, handle = ?
+			WHERE server_id = ? AND kind = ? AND revision = 0
+			RETURNING revision`, string(*update.Handle), update.Owner, update.Kind).Scan(&revision))
+		return strconv.FormatInt(revision, 10), nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "1", result.Revision)
+
+	active, metadata, err := coordinator.ReadActive(ctx, namespace)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("server static canary"), active)
+	assert.Equal(t, result, metadata)
+	require.NoError(t, store.View(ctx, func(transaction *sql.Tx) error {
+		var revision int64
+		var handle string
+		return transaction.QueryRowContext(ctx, `
+			SELECT revision, handle FROM server_credentials
+			WHERE server_id = ? AND kind = ?`, testOwnerID, RecordStaticCredential).Scan(&revision, &handle)
+	}))
+}
+
+func TestFencedInvalidationCommitsNonauthorityBeforeCleanup(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newCutoverStore(t)
+	adapter := newMemoryAdapter()
+	provider, err := newProviderWithAdapter(testInstallationID, adapter)
+	require.NoError(t, err)
+	coordinator := NewCoordinator(
+		provider,
+		store,
+		testutil.NewFakeClock(time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)),
+		testutil.NewFakeEntropy(uniqueEntropy(1)),
+	)
+	namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordOAuthTokens)
+	require.NoError(t, err)
+	require.NoError(t, insertCredentialDomain(t, store, namespace))
+
+	_, err = coordinator.ReplaceFenced(ctx, namespace, []byte("old token set"), credentialDomainCallback(t, 0))
+	require.NoError(t, err)
+	invalidated, err := coordinator.InvalidateFenced(ctx, namespace, credentialDomainCallback(t, 1))
+	require.NoError(t, err)
+	assert.Equal(t, "2", invalidated.Revision)
+	assert.Empty(t, invalidated.Handle)
+	_, _, err = coordinator.ReadActive(ctx, namespace)
+	assert.ErrorIs(t, err, ErrNoAuthority)
+	require.NoError(t, store.View(ctx, func(transaction *sql.Tx) error {
+		var revision int64
+		var handle sql.NullString
+		if err := transaction.QueryRowContext(ctx, `
+			SELECT revision, handle FROM server_credentials
+			WHERE server_id = ? AND kind = ?`, namespace.Owner(), namespace.Kind()).Scan(&revision, &handle); err != nil {
+			return err
+		}
+		assert.Equal(t, int64(2), revision)
+		assert.False(t, handle.Valid)
+		return nil
+	}))
+	status, err := coordinator.CandidateStatus(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, status.InUse)
+	assert.Empty(t, adapter.values())
+}
+
+func TestPostAuthorizationSuccessInstallFailureInvalidatesOldAndCandidate(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newCutoverStore(t)
+	adapter := newMemoryAdapter()
+	provider, err := newProviderWithAdapter(testInstallationID, adapter)
+	require.NoError(t, err)
+	coordinator := NewCoordinator(
+		provider,
+		store,
+		testutil.NewFakeClock(time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)),
+		testutil.NewFakeEntropy(uniqueEntropy(2)),
+	)
+	namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordOAuthTokens)
+	require.NoError(t, err)
+	require.NoError(t, insertCredentialDomain(t, store, namespace))
+	_, err = coordinator.ReplaceFenced(ctx, namespace, []byte("old token set"), credentialDomainCallback(t, 0))
+	require.NoError(t, err)
+	adapter.failSetAt = adapter.setCalls + 1
+
+	_, err = coordinator.ReplaceFencedAfterAuthorizationSuccess(
+		ctx, namespace, []byte("new token set"), credentialDomainCallback(t, 1),
+	)
+	require.Error(t, err)
+	_, _, readErr := coordinator.ReadActive(ctx, namespace)
+	assert.ErrorIs(t, readErr, ErrNoAuthority)
+	require.NoError(t, store.View(ctx, func(transaction *sql.Tx) error {
+		var revision int64
+		var handle sql.NullString
+		if queryErr := transaction.QueryRowContext(ctx, `
+			SELECT revision, handle FROM server_credentials
+			WHERE server_id = ? AND kind = ?`, namespace.Owner(), namespace.Kind()).Scan(&revision, &handle); queryErr != nil {
+			return queryErr
+		}
+		assert.Equal(t, int64(2), revision)
+		assert.False(t, handle.Valid)
+		return nil
+	}))
+	assert.Empty(t, adapter.values())
+}
+
+func TestPostAuthorizationSuccessPostCommitFailureInvalidatesPublishedCandidate(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newCutoverStore(t)
+	adapter := newMemoryAdapter()
+	provider, err := newProviderWithAdapter(testInstallationID, adapter)
+	require.NoError(t, err)
+	clock := testutil.NewFakeClock(time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC))
+	namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordOAuthTokens)
+	require.NoError(t, err)
+	require.NoError(t, insertCredentialDomain(t, store, namespace))
+	baseline := NewCoordinator(provider, store, clock, testutil.NewFakeEntropy(uniqueEntropy(1)))
+	_, err = baseline.ReplaceFenced(ctx, namespace, []byte("old token set"), credentialDomainCallback(t, 0))
+	require.NoError(t, err)
+	candidate := newCoordinatorWithHooks(
+		provider,
+		store,
+		clock,
+		testutil.NewFakeEntropy(bytes.Repeat([]byte{0x51}, generationEntropyBytes)),
+		cutoverHooks{afterCommit: injectedCrash},
+	)
+
+	_, err = candidate.ReplaceFencedAfterAuthorizationSuccess(
+		ctx, namespace, []byte("new token set"), credentialDomainCallback(t, 1),
+	)
+	assert.ErrorIs(t, err, errInjectedCrash)
+	_, _, readErr := baseline.ReadActive(ctx, namespace)
+	assert.ErrorIs(t, readErr, ErrNoAuthority)
+	require.NoError(t, store.View(ctx, func(transaction *sql.Tx) error {
+		var revision int64
+		var handle sql.NullString
+		if queryErr := transaction.QueryRowContext(ctx, `
+			SELECT revision, handle FROM server_credentials
+			WHERE server_id = ? AND kind = ?`, namespace.Owner(), namespace.Kind()).Scan(&revision, &handle); queryErr != nil {
+			return queryErr
+		}
+		assert.Equal(t, int64(3), revision)
+		assert.False(t, handle.Valid)
+		return nil
+	}))
+}
+
+func TestOrdinaryCallbackFailureKeepsOldAuthorityAndCleansCandidate(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newCutoverStore(t)
+	adapter := newMemoryAdapter()
+	provider, err := newProviderWithAdapter(testInstallationID, adapter)
+	require.NoError(t, err)
+	clock := testutil.NewFakeClock(time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC))
+	namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordStaticCredential)
+	require.NoError(t, err)
+	require.NoError(t, insertCredentialDomain(t, store, namespace))
+	baseline := NewCoordinator(provider, store, clock, testutil.NewFakeEntropy(uniqueEntropy(1)))
+	old, err := baseline.ReplaceFenced(ctx, namespace, []byte("old authority"), credentialDomainCallback(t, 0))
+	require.NoError(t, err)
+	candidate := NewCoordinator(
+		provider,
+		store,
+		clock,
+		testutil.NewFakeEntropy(bytes.Repeat([]byte{0x61}, generationEntropyBytes)),
+	)
+
+	_, err = candidate.ReplaceFenced(ctx, namespace, []byte("new authority"), func(
+		context.Context, *sql.Tx, AuthorityUpdate,
+	) (string, error) {
+		return "", errInjectedCrash
+	})
+	assert.ErrorIs(t, err, errInjectedCrash)
+	active, metadata, err := baseline.ReadActive(ctx, namespace)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("old authority"), active)
+	assert.Equal(t, old, metadata)
+	status, err := baseline.CandidateStatus(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, status.InUse)
+	for item := range adapter.values() {
+		assert.Contains(t, item, string(old.Handle))
+	}
+}
+
+func TestPostAuthorizationSuccessCallbackFailureLeavesNoAuthority(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newCutoverStore(t)
+	adapter := newMemoryAdapter()
+	provider, err := newProviderWithAdapter(testInstallationID, adapter)
+	require.NoError(t, err)
+	clock := testutil.NewFakeClock(time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC))
+	namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordOAuthTokens)
+	require.NoError(t, err)
+	require.NoError(t, insertCredentialDomain(t, store, namespace))
+	baseline := NewCoordinator(provider, store, clock, testutil.NewFakeEntropy(uniqueEntropy(1)))
+	_, err = baseline.ReplaceFenced(ctx, namespace, []byte("old token set"), credentialDomainCallback(t, 0))
+	require.NoError(t, err)
+	candidate := NewCoordinator(
+		provider,
+		store,
+		clock,
+		testutil.NewFakeEntropy(bytes.Repeat([]byte{0x62}, generationEntropyBytes)),
+	)
+	invalidate := credentialDomainCallback(t, 1)
+	callback := func(ctx context.Context, transaction *sql.Tx, update AuthorityUpdate) (string, error) {
+		if update.Handle != nil {
+			return "", errInjectedCrash
+		}
+		return invalidate(ctx, transaction, update)
+	}
+
+	_, err = candidate.ReplaceFencedAfterAuthorizationSuccess(ctx, namespace, []byte("new token set"), callback)
+	assert.ErrorIs(t, err, errInjectedCrash)
+	_, _, readErr := baseline.ReadActive(ctx, namespace)
+	assert.ErrorIs(t, readErr, ErrNoAuthority)
+	status, err := baseline.CandidateStatus(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, status.InUse)
+	assert.Empty(t, adapter.values())
+}
+
+func TestFencedKindsAdvanceIndependentDomainRevisions(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newCutoverStore(t)
+	adapter := newMemoryAdapter()
+	provider, err := newProviderWithAdapter(testInstallationID, adapter)
+	require.NoError(t, err)
+	clock := testutil.NewFakeClock(time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC))
+	coordinator := NewCoordinator(provider, store, clock, testutil.NewFakeEntropy(uniqueEntropy(4)))
+	firstNamespace, err := NewNamespace(testInstallationID, testOwnerID, RecordStaticCredential)
+	require.NoError(t, err)
+	require.NoError(t, insertCredentialDomain(t, store, firstNamespace))
+
+	for _, kind := range []RecordKind{RecordStaticCredential, RecordOAuthClient, RecordOAuthTokens} {
+		namespace, namespaceErr := NewNamespace(testInstallationID, testOwnerID, kind)
+		require.NoError(t, namespaceErr)
+		result, replaceErr := coordinator.ReplaceFenced(ctx, namespace, []byte("complete "+string(kind)), credentialDomainCallback(t, 0))
+		require.NoError(t, replaceErr)
+		assert.Equal(t, "1", result.Revision)
+	}
+	staticResult, err := coordinator.ReplaceFenced(ctx, firstNamespace, []byte("static replacement"), credentialDomainCallback(t, 1))
+	require.NoError(t, err)
+	assert.Equal(t, "2", staticResult.Revision)
+	_, activeMetadata, err := coordinator.ReadActive(ctx, firstNamespace)
+	require.NoError(t, err)
+	assert.Equal(t, "2", activeMetadata.Revision)
+	require.NoError(t, store.View(ctx, func(transaction *sql.Tx) error {
+		rows, queryErr := transaction.QueryContext(ctx, `
+			SELECT kind, revision FROM server_credentials
+			WHERE server_id = ? ORDER BY kind`, testOwnerID)
+		if queryErr != nil {
+			return queryErr
+		}
+		defer func() { _ = rows.Close() }()
+		count := 0
+		for rows.Next() {
+			var kind string
+			var revision int64
+			if scanErr := rows.Scan(&kind, &revision); scanErr != nil {
+				return scanErr
+			}
+			if kind == string(RecordStaticCredential) {
+				assert.Equal(t, int64(2), revision, kind)
+			} else {
+				assert.Equal(t, int64(1), revision, kind)
+			}
+			count++
+		}
+		assert.Equal(t, 3, count)
+		return rows.Err()
+	}))
+}
+
+func TestFencedCallbackCrashKeepsGenerationAndDomainMetadataOldOrNew(t *testing.T) {
+	for name, hooks := range map[string]cutoverHooks{
+		"before commit": {beforeCommit: injectedCrash},
+		"after commit":  {afterCommit: injectedCrash},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			store, _ := newCutoverStore(t)
+			adapter := newMemoryAdapter()
+			provider, err := newProviderWithAdapter(testInstallationID, adapter)
+			require.NoError(t, err)
+			clock := testutil.NewFakeClock(time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC))
+			namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordStaticCredential)
+			require.NoError(t, err)
+			require.NoError(t, insertCredentialDomain(t, store, namespace))
+			baseline := NewCoordinator(provider, store, clock, testutil.NewFakeEntropy(uniqueEntropy(1)))
+			old, err := baseline.ReplaceFenced(ctx, namespace, []byte("old authority"), credentialDomainCallback(t, 0))
+			require.NoError(t, err)
+			candidate := newCoordinatorWithHooks(
+				provider,
+				store,
+				clock,
+				testutil.NewFakeEntropy(bytes.Repeat([]byte{0x63}, generationEntropyBytes)),
+				hooks,
+			)
+
+			result, err := candidate.ReplaceFenced(ctx, namespace, []byte("new authority"), credentialDomainCallback(t, 1))
+			assert.ErrorIs(t, err, errInjectedCrash)
+			active, metadata, err := baseline.ReadActive(ctx, namespace)
+			require.NoError(t, err)
+			expected := old
+			expectedSecret := []byte("old authority")
+			if hooks.afterCommit != nil {
+				expected = result
+				expectedSecret = []byte("new authority")
+			}
+			assert.Equal(t, expectedSecret, active)
+			assert.Equal(t, expected, metadata)
+			require.NoError(t, store.View(ctx, func(transaction *sql.Tx) error {
+				var revision int64
+				var handle string
+				if queryErr := transaction.QueryRowContext(ctx, `
+					SELECT revision, handle FROM server_credentials
+					WHERE server_id = ? AND kind = ?`, namespace.Owner(), namespace.Kind()).Scan(&revision, &handle); queryErr != nil {
+					return queryErr
+				}
+				assert.Equal(t, expected.Revision, strconv.FormatInt(revision, 10))
+				assert.Equal(t, string(expected.Handle), handle)
+				return nil
+			}))
+			require.NoError(t, baseline.CleanupCandidates(ctx, namespace))
+		})
+	}
+}
 
 func TestCandidateCutoverCrashPointsKeepOldOrNewCompleteAuthority(t *testing.T) {
 	for name, hooks := range map[string]cutoverHooks{
@@ -111,6 +466,89 @@ func TestCutoverAuthorityRemainsOldOrNewAfterStoreReopen(t *testing.T) {
 	}
 }
 
+func TestLateDesiredFenceRejectsCandidateAndPreservesOldAuthority(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newCutoverStore(t)
+	adapter := newMemoryAdapter()
+	provider, err := newProviderWithAdapter(testInstallationID, adapter)
+	require.NoError(t, err)
+	clock := testutil.NewFakeClock(time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC))
+	namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordStaticCredential)
+	require.NoError(t, err)
+	require.NoError(t, insertCredentialDomain(t, store, namespace))
+	baseline := NewCoordinator(provider, store, clock, testutil.NewFakeEntropy(uniqueEntropy(1)))
+	old, err := baseline.ReplaceFenced(ctx, namespace, []byte("old authority"), credentialDomainCallback(t, 0))
+	require.NoError(t, err)
+	candidate := newCoordinatorWithHooks(
+		provider,
+		store,
+		clock,
+		testutil.NewFakeEntropy(bytes.Repeat([]byte{0x71}, generationEntropyBytes)),
+		cutoverHooks{afterWrite: func() error {
+			return store.Mutate(ctx, func(transaction *sql.Tx) error {
+				_, updateErr := transaction.ExecContext(ctx, `
+					UPDATE servers SET desired_revision = desired_revision + 1 WHERE id = ?`, namespace.Owner())
+				return updateErr
+			})
+		}},
+	)
+	callback := func(ctx context.Context, transaction *sql.Tx, update AuthorityUpdate) (string, error) {
+		var desiredRevision int64
+		if queryErr := transaction.QueryRowContext(ctx, `
+			SELECT desired_revision FROM servers WHERE id = ?`, update.Owner).Scan(&desiredRevision); queryErr != nil {
+			return "", queryErr
+		}
+		if desiredRevision != 1 {
+			return "", errLateFence
+		}
+		return credentialDomainCallback(t, 1)(ctx, transaction, update)
+	}
+
+	_, err = candidate.ReplaceFenced(ctx, namespace, []byte("late authority"), callback)
+	assert.ErrorIs(t, err, errLateFence)
+	active, metadata, err := baseline.ReadActive(ctx, namespace)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("old authority"), active)
+	assert.Equal(t, old, metadata)
+	status, err := baseline.CandidateStatus(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, status.InUse)
+}
+
+func TestLateAuthorityInvalidationRejectsCandidate(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newCutoverStore(t)
+	adapter := newMemoryAdapter()
+	provider, err := newProviderWithAdapter(testInstallationID, adapter)
+	require.NoError(t, err)
+	clock := testutil.NewFakeClock(time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC))
+	namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordOAuthTokens)
+	require.NoError(t, err)
+	require.NoError(t, insertCredentialDomain(t, store, namespace))
+	baseline := NewCoordinator(provider, store, clock, testutil.NewFakeEntropy(uniqueEntropy(1)))
+	_, err = baseline.ReplaceFenced(ctx, namespace, []byte("old token set"), credentialDomainCallback(t, 0))
+	require.NoError(t, err)
+	candidate := newCoordinatorWithHooks(
+		provider,
+		store,
+		clock,
+		testutil.NewFakeEntropy(bytes.Repeat([]byte{0x72}, generationEntropyBytes)),
+		cutoverHooks{afterWrite: func() error {
+			_, invalidateErr := baseline.InvalidateFenced(ctx, namespace, credentialDomainCallback(t, 1))
+			return invalidateErr
+		}},
+	)
+
+	_, err = candidate.ReplaceFenced(ctx, namespace, []byte("late token set"), credentialDomainCallback(t, 1))
+	require.Error(t, err)
+	_, _, readErr := baseline.ReadActive(ctx, namespace)
+	assert.ErrorIs(t, readErr, ErrNoAuthority)
+	status, err := baseline.CandidateStatus(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, status.InUse)
+	assert.Empty(t, adapter.values())
+}
+
 func TestDrainFencesGenerationThatReturnsAfterBackendWork(t *testing.T) {
 	for name, configure := range map[string]func(*memoryAdapter, chan struct{}, chan struct{}){
 		"set": func(adapter *memoryAdapter, started, release chan struct{}) {
@@ -170,6 +608,38 @@ func TestDrainFencesGenerationThatReturnsAfterBackendWork(t *testing.T) {
 			assert.Empty(t, adapter.values())
 		})
 	}
+}
+
+func TestStorageLatchFencesActiveReadThatReturnsLate(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newCutoverStore(t)
+	adapter := newMemoryAdapter()
+	provider, err := newProviderWithAdapter(testInstallationID, adapter)
+	require.NoError(t, err)
+	coordinator := NewCoordinator(
+		provider,
+		store,
+		testutil.NewFakeClock(time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)),
+		testutil.NewFakeEntropy(uniqueEntropy(1)),
+	)
+	namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordStaticCredential)
+	require.NoError(t, err)
+	_, err = coordinator.Replace(ctx, namespace, []byte("current authority"))
+	require.NoError(t, err)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	adapter.blockNextGet(started, release)
+	result := make(chan error, 1)
+	go func() {
+		_, _, readErr := coordinator.ReadActive(ctx, namespace)
+		result <- readErr
+	}()
+	<-started
+
+	err = store.Mutate(ctx, func(*sql.Tx) error { return sqlite3.IOERR })
+	assert.ErrorIs(t, err, storage.ErrStorageLatched)
+	close(release)
+	assert.ErrorIs(t, <-result, storage.ErrStorageLatched)
 }
 
 func TestDrainFencesActiveReadThatReturnsLate(t *testing.T) {
@@ -270,6 +740,7 @@ func TestSuccessfulCutoverAdvancesRevisionAndLeavesOnlyNewGeneration(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, secondSecret, active)
 	assert.Equal(t, second, metadata)
+	require.NoError(t, store.BackupTo(ctx, filepath.Join(root, "authority-backup.db")))
 	for _, canary := range [][]byte{firstSecret, secondSecret} {
 		assertCanaryAbsentFromDataRoot(t, root, canary)
 	}
@@ -364,6 +835,73 @@ func TestCandidateRegistryRejectsNPlusOneWithoutEntropyOrKeyringWork(t *testing.
 	assert.True(t, status.Saturated)
 }
 
+func credentialDomainCallback(t *testing.T, expectedRevision int64) AuthorityCallback {
+	t.Helper()
+	return func(ctx context.Context, transaction *sql.Tx, update AuthorityUpdate) (string, error) {
+		var revision int64
+		var handle any
+		if update.Handle != nil {
+			handle = string(*update.Handle)
+		}
+		expected := expectedRevision
+		if update.PriorPublishedRevision != "" {
+			parsed, err := strconv.ParseInt(update.PriorPublishedRevision, 10, 64)
+			if err != nil {
+				return "", err
+			}
+			expected = parsed
+		}
+		if update.ValidateOnly {
+			if err := transaction.QueryRowContext(ctx, `
+				SELECT revision FROM server_credentials
+				WHERE server_id = ? AND kind = ?`, update.Owner, update.Kind).Scan(&revision); err != nil {
+				return "", err
+			}
+			if revision != expected {
+				return "", sql.ErrNoRows
+			}
+			return strconv.FormatInt(revision, 10), nil
+		}
+		if err := transaction.QueryRowContext(ctx, `
+			UPDATE server_credentials SET revision = revision + 1, handle = ?
+			WHERE server_id = ? AND kind = ? AND revision = ?
+			RETURNING revision`, handle, update.Owner, update.Kind, expected).Scan(&revision); err != nil {
+			return "", err
+		}
+		return strconv.FormatInt(revision, 10), nil
+	}
+}
+
+func insertCredentialDomain(t *testing.T, store *storage.Store, namespace Namespace) error {
+	t.Helper()
+	return store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+		if _, err := transaction.Exec(`
+			INSERT INTO server_identities (id, namespace, created_at)
+			VALUES (?, 'keyring-test', ?)`, namespace.Owner(), now); err != nil {
+			return err
+		}
+		if _, err := transaction.Exec(`
+			INSERT INTO servers (
+				id, display_name, desired_state, desired_revision, transport_json,
+				created_at, updated_at, deleted_at
+			) VALUES (?, 'Keyring Test', 'disabled', 1, '{}', ?, ?, NULL)`, namespace.Owner(), now, now); err != nil {
+			return err
+		}
+		for _, kind := range []RecordKind{RecordStaticCredential, RecordOAuthClient, RecordOAuthTokens} {
+			if _, err := transaction.Exec(`
+				INSERT INTO server_credentials (server_id, kind, revision, handle)
+				VALUES (?, ?, 0, NULL)`, namespace.Owner(), kind); err != nil {
+				return err
+			}
+		}
+		_, err := transaction.Exec(`
+			INSERT INTO server_oauth_registrations (server_id, revision)
+			VALUES (?, 0)`, namespace.Owner())
+		return err
+	})
+}
+
 func newCutoverStore(t *testing.T) (*storage.Store, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -387,7 +925,10 @@ func uniqueEntropy(count int) []byte {
 	return entropy
 }
 
-var errInjectedCrash = errors.New("injected crash")
+var (
+	errInjectedCrash = errors.New("injected crash")
+	errLateFence     = errors.New("late desired fence")
+)
 
 func injectedCrash() error { return errInjectedCrash }
 
