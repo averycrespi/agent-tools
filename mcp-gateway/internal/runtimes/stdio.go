@@ -188,13 +188,13 @@ func (runtime *StdioRuntime) Stop(ctx context.Context) bool {
 	if !runtime.supervisor.signalGroup(runtime.command.Process, runtime.processGroup, false) {
 		return runtime.hasExited()
 	}
-	if runtime.waitForExit(ctx, 3*time.Second) {
+	if runtime.waitForExit(ctx, contract.StdioGracefulStopDeadline) {
 		return true
 	}
 	if !runtime.supervisor.signalGroup(runtime.command.Process, runtime.processGroup, true) {
 		return runtime.hasExited()
 	}
-	return runtime.waitForExit(ctx, 2*time.Second)
+	return runtime.waitForExit(ctx, contract.StdioForcedStopDeadline)
 }
 
 func (runtime *StdioRuntime) StopNow() {
