@@ -99,6 +99,7 @@ type Options struct {
 	RuntimeStatus    func(string) RuntimeStatus
 	TriggerServer    func(string, *string, bool)
 	CatalogTraversal func(string) contract.LimitStatus
+	DispatchStatus   func(string) contract.LimitStatus
 }
 
 type Handler struct {
@@ -120,6 +121,7 @@ type Handler struct {
 	runtimeStatus    func(string) RuntimeStatus
 	triggerServer    func(string, *string, bool)
 	catalogTraversal func(string) contract.LimitStatus
+	dispatchStatus   func(string) contract.LimitStatus
 }
 
 //go:embed static/*
@@ -162,7 +164,10 @@ func New(options Options) *Handler {
 	if options.CatalogTraversal == nil {
 		options.CatalogTraversal = func(string) contract.LimitStatus { return contract.LimitStatus{Limit: 1} }
 	}
-	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal}
+	if options.DispatchStatus == nil {
+		options.DispatchStatus = func(string) contract.LimitStatus { return limitStatus("per_server_downstream_dispatch") }
+	}
+	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {

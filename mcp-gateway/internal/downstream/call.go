@@ -36,6 +36,7 @@ type Call struct {
 	cancellationSent bool
 	handedOff        bool
 	requestID        uint64
+	parameterHeaders map[string]string
 	cancelLocal      context.CancelFunc
 }
 
@@ -45,6 +46,10 @@ type toolsCallParams struct {
 }
 
 func (runtime *Runtime) NewCall(upstreamName string, validatedArguments json.RawMessage) (*Call, error) {
+	return runtime.NewCallWithHeaders(upstreamName, validatedArguments, nil)
+}
+
+func (runtime *Runtime) NewCallWithHeaders(upstreamName string, validatedArguments json.RawMessage, parameterHeaders map[string]string) (*Call, error) {
 	if upstreamName == "" || !utf8.ValidString(upstreamName) || int64(len(upstreamName)) > limit("external_tool_name_bytes") || !jsonObject(validatedArguments) {
 		return nil, ErrInvalidMessage
 	}
@@ -58,7 +63,7 @@ func (runtime *Runtime) NewCall(upstreamName string, validatedArguments json.Raw
 	if err != nil || int64(len(params)) > limit("downstream_mcp_body_bytes") {
 		return nil, ErrInvalidMessage
 	}
-	return &Call{runtime: runtime, upstreamName: upstreamName, params: params}, nil
+	return &Call{runtime: runtime, upstreamName: upstreamName, params: params, parameterHeaders: cloneParameterHeaders(parameterHeaders)}, nil
 }
 
 func (call *Call) Execute(ctx context.Context) CallResult {
@@ -130,11 +135,12 @@ func (call *Call) perform(ctx context.Context) (Response, error) {
 		}
 	}
 	requestID, wire, err := coordinator.rawRequest(ctx, "tools/call", params, RequestOptions{
-		ProtocolVersion: version,
-		Name:            call.upstreamName,
-		SessionID:       sessionID,
-		RequestID:       call.setRequestID,
-		MarkHandoff:     call.markHandoff,
+		ProtocolVersion:  version,
+		Name:             call.upstreamName,
+		SessionID:        sessionID,
+		RequestID:        call.setRequestID,
+		ParameterHeaders: cloneParameterHeaders(call.parameterHeaders),
+		MarkHandoff:      call.markHandoff,
 	})
 	if err != nil {
 		return Response{}, err
@@ -144,6 +150,17 @@ func (call *Call) perform(ctx context.Context) (Response, error) {
 		return Response{}, ErrSessionLost
 	}
 	return decodeNegotiationResponse(requestID, wire)
+}
+
+func cloneParameterHeaders(source map[string]string) map[string]string {
+	if len(source) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(source))
+	for name, value := range source {
+		result[name] = value
+	}
+	return result
 }
 
 func (call *Call) setRequestID(requestID uint64) {

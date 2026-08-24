@@ -2,12 +2,14 @@ package catalog
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -143,6 +145,93 @@ func TestActiveRegistryCapacityReservationIsAtomicAcrossServers(t *testing.T) {
 		commits++
 	}
 	assert.Equal(t, 1, commits)
+}
+
+func TestActiveRegistryPublishesCurrentRouteWithPinnedHeaderBindingsAndInvalidatesOldCapability(t *testing.T) {
+	repository, serverRepository, _, _ := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	registry, err := NewActiveRegistry(repository, &catalogClock{now: catalogTime}, activeProcessID)
+	require.NoError(t, err)
+	runtime, transport := newRouteRuntime(t)
+	raw := RawTool{UpstreamName: "one", ExternalName: "sample.one", Descriptor: json.RawMessage(`{"name":"one","inputSchema":{"type":"object","properties":{"region":{"type":"string","x-mcp-header":"X-Region"}}}}`)}
+	normalized, err := NormalizeTool(raw, NormalizeOptions{ServerID: server.ID, AllowHeaderBindings: true})
+	require.NoError(t, err)
+	status, err := registry.Publish(context.Background(), Publication{Fence: catalogFence(server.ID, "0"), RuntimeID: "runtime-1", RuntimeGeneration: 1, Candidate: NormalizedCandidate{Tools: []NormalizedTool{normalized}, RawCount: 1, Pages: 1}, Current: func() bool { return true }, Runtime: runtime})
+	require.NoError(t, err)
+	require.NotNil(t, status.Revision)
+	page, err := registry.List(nil, 10)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	capability, ok := registry.Routes().Resolve(page.Items[0].Resource.ID)
+	require.True(t, ok)
+	lease, err := capability.Acquire(context.Background())
+	require.NoError(t, err)
+	result := lease.Execute(context.Background(), json.RawMessage(`{"region":"us-west1"}`))
+	require.NoError(t, result.Err)
+	assert.Equal(t, map[string]string{"X-Region": "us-west1"}, transport.last().ParameterHeaders)
+
+	lease, err = capability.Acquire(context.Background())
+	require.NoError(t, err)
+	assert.True(t, registry.MarkStale(server.ID, "runtime-1", 1))
+	result = lease.Execute(context.Background(), json.RawMessage(`{"region":"us-east1"}`))
+	assert.Equal(t, downstream.FailurePreStart, result.Failure)
+	var rejection *downstream.PreStartRejection
+	require.ErrorAs(t, result.Err, &rejection)
+	assert.Equal(t, downstream.RejectionStale, rejection.Reason)
+	_, err = capability.Acquire(context.Background())
+	require.ErrorAs(t, err, &rejection)
+	assert.True(t, registry.Withdraw(server.ID, "runtime-1", contract.ActiveCatalogUnavailable))
+	_, ok = registry.Routes().Resolve(page.Items[0].Resource.ID)
+	assert.False(t, ok)
+	_, err = capability.Acquire(context.Background())
+	require.ErrorAs(t, err, &rejection)
+	assert.Equal(t, downstream.RejectionWithdrawn, rejection.Reason)
+}
+
+type routeTransport struct {
+	mu       sync.Mutex
+	messages []downstream.Message
+}
+
+func (transport *routeTransport) Kind() downstream.TransportKind { return downstream.TransportHTTP }
+func (transport *routeTransport) Exchange(_ context.Context, message downstream.Message) (downstream.WireResponse, error) {
+	if message.MarkHandoff != nil {
+		message.MarkHandoff()
+	}
+	transport.mu.Lock()
+	transport.messages = append(transport.messages, message)
+	transport.mu.Unlock()
+	var request struct {
+		ID uint64 `json:"id"`
+	}
+	_ = json.Unmarshal(message.Payload, &request)
+	member := `"result":{"content":[],"isError":false}`
+	if message.Method == "server/discover" {
+		member = `"result":{"ttlMs":0,"cacheScope":"public","supportedVersions":["2026-07-28"],"capabilities":{}}`
+	}
+	body := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,%s}`, request.ID, member)
+	return downstream.WireResponse{StatusCode: 200, ContentType: "application/json", Body: []byte(body)}, nil
+}
+func (transport *routeTransport) Notify(context.Context, downstream.Message) (downstream.WireResponse, error) {
+	return downstream.WireResponse{StatusCode: 202, ContentType: "application/json"}, nil
+}
+func (transport *routeTransport) Close(context.Context) error { return nil }
+func (transport *routeTransport) last() downstream.Message {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	return transport.messages[len(transport.messages)-1]
+}
+
+func newRouteRuntime(t *testing.T) (*downstream.Runtime, *routeTransport) {
+	t.Helper()
+	transport := new(routeTransport)
+	negotiator, err := downstream.NewNegotiator(func(context.Context) (*downstream.Coordinator, error) {
+		return downstream.NewCoordinator(transport)
+	})
+	require.NoError(t, err)
+	runtime, err := negotiator.Negotiate(context.Background(), downstream.ModeModern)
+	require.NoError(t, err)
+	return runtime, transport
 }
 
 func TestActiveRegistryStaleRetentionWithdrawalAndCursorGeneration(t *testing.T) {

@@ -183,6 +183,34 @@ func TestLeaseExecutesExactlyOnceAndReleasesInServerThenGlobalOrder(t *testing.T
 	assert.Contains(t, string(transport.messages[0].Payload), `"name":"upstream.tool"`)
 }
 
+func TestLeaseRevalidatesAgainAtExecutionAndMirrorsOnlyValidatedArgumentHeaders(t *testing.T) {
+	dispatcher, err := NewDispatcher()
+	require.NoError(t, err)
+	transport := &callTransport{kind: TransportHTTP, response: callSuccess(1)}
+	availability := Current
+	capability, err := dispatcher.Publish(testBinding("server-1", "tool-1"), runtimeForCall(t, EraModern, "", transport), func(context.Context, Binding) Availability { return availability }, func(arguments json.RawMessage) (map[string]string, error) {
+		assert.JSONEq(t, `{"region":"us-west1"}`, string(arguments))
+		return map[string]string{"X-Region": "us-west1"}, nil
+	})
+	require.NoError(t, err)
+	lease, err := capability.Acquire(context.Background())
+	require.NoError(t, err)
+	result := lease.Execute(context.Background(), json.RawMessage(`{"region":"us-west1"}`))
+	require.NoError(t, result.Err)
+	require.Len(t, transport.messages, 1)
+	assert.Equal(t, map[string]string{"X-Region": "us-west1"}, transport.messages[0].ParameterHeaders)
+
+	lease, err = capability.Acquire(context.Background())
+	require.NoError(t, err)
+	availability = Stale
+	result = lease.Execute(context.Background(), json.RawMessage(`{"region":"us-west1"}`))
+	assert.Equal(t, FailurePreStart, result.Failure)
+	var rejection *PreStartRejection
+	require.ErrorAs(t, result.Err, &rejection)
+	assert.Equal(t, RejectionStale, rejection.Reason)
+	assert.Len(t, transport.messages, 1)
+}
+
 func TestLeaseCancellationBeforeExecutionReleasesAndRemainsPreStart(t *testing.T) {
 	dispatcher, err := NewDispatcher()
 	require.NoError(t, err)

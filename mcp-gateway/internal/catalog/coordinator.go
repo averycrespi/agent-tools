@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"sync"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 )
@@ -180,7 +182,8 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 	if err != nil {
 		return coordinator.failure(candidate, catalogFailureReason(err))
 	}
-	normalized := NormalizeCandidate(raw, NormalizeOptions{ServerID: candidate.Server.ID, AllowHeaderBindings: true})
+	runtime, _ := client.(*downstream.Runtime)
+	normalized := NormalizeCandidate(raw, NormalizeOptions{ServerID: candidate.Server.ID, AllowHeaderBindings: allowsHeaderBindings(candidate, runtime)})
 	durable, err := coordinator.repository.Status(ctx, candidate.Server.ID)
 	if err != nil {
 		return coordinator.failure(candidate, contract.ReasonConnectivity)
@@ -191,7 +194,7 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 	}
 	status, err := coordinator.active.Publish(ctx, Publication{
 		Fence:     coordinator.commitFence(candidate, revision),
-		RuntimeID: candidate.RuntimeID, RuntimeGeneration: candidate.Generation, Candidate: normalized,
+		RuntimeID: candidate.RuntimeID, RuntimeGeneration: candidate.Generation, Candidate: normalized, Runtime: runtime,
 		Current: func() bool { return coordinator.live(candidate) },
 	})
 	if err != nil {
@@ -269,6 +272,16 @@ func (coordinator *Coordinator) schedule(candidate runtimes.Candidate) {
 		go coordinator.Refresh(coordinator.ctx, current)
 	})
 	coordinator.timers[serverID] = timer
+}
+
+func allowsHeaderBindings(candidate runtimes.Candidate, runtime *downstream.Runtime) bool {
+	if runtime == nil || runtime.Era() != downstream.EraModern {
+		return false
+	}
+	var transport struct {
+		Kind contract.TransportKind `json:"kind"`
+	}
+	return json.Unmarshal(candidate.Server.Transport, &transport) == nil && transport.Kind == contract.TransportStreamableHTTP
 }
 
 func catalogFailureReason(err error) contract.PublicReason {

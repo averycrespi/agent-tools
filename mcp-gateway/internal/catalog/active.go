@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 )
 
@@ -18,6 +19,7 @@ type Publication struct {
 	RuntimeGeneration uint64
 	Candidate         NormalizedCandidate
 	Current           func() bool
+	Runtime           *downstream.Runtime
 }
 
 type ActiveStatus struct {
@@ -46,12 +48,14 @@ type ActiveTool struct {
 }
 
 type activeServerSnapshot struct {
-	RuntimeID         string
-	RuntimeGeneration uint64
-	State             contract.ActiveCatalogState
-	Revision          *string
-	IssueCount        int64
-	Tools             []ActiveTool
+	RuntimeID           string
+	RuntimeGeneration   uint64
+	DesiredRevision     string
+	CredentialRevisions contract.CredentialRevisions
+	State               contract.ActiveCatalogState
+	Revision            *string
+	IssueCount          int64
+	Tools               []ActiveTool
 }
 
 type ActiveRegistry struct {
@@ -63,13 +67,21 @@ type ActiveRegistry struct {
 	counter   uint64
 	changedAt *string
 	servers   map[string]activeServerSnapshot
+	routes    *RouteRegistry
+	draining  bool
 }
 
 func NewActiveRegistry(repository *Repository, clock Clock, processID string) (*ActiveRegistry, error) {
 	if repository == nil || clock == nil || processID == "" {
 		return nil, errors.New("active catalog repository, clock, and process ID are required")
 	}
-	return &ActiveRegistry{repository: repository, clock: clock, processID: processID, servers: make(map[string]activeServerSnapshot)}, nil
+	registry := &ActiveRegistry{repository: repository, clock: clock, processID: processID, servers: make(map[string]activeServerSnapshot)}
+	routes, err := newRouteRegistry(registry)
+	if err != nil {
+		return nil, err
+	}
+	registry.routes = routes
+	return registry, nil
 }
 
 func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publication) (ActiveStatus, error) {
@@ -81,6 +93,9 @@ func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publica
 	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
+	if registry.draining {
+		return ActiveStatus{}, servers.ErrStaleRevision
+	}
 	projected := registry.activeToolCountLocked() - int64(len(registry.servers[publication.Fence.ServerID].Tools)) + int64(len(publication.Candidate.Tools))
 	if projected > fixedLimit("active_tools") {
 		return ActiveStatus{}, servers.ErrResourceLimit
@@ -109,13 +124,24 @@ func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publica
 	for _, record := range records {
 		tools = append(tools, ActiveTool{Record: cloneDescriptorRecord(record), Bindings: bindings[record.Resource.UpstreamName]})
 	}
+	revision := ""
+	if durable.Revision != nil {
+		revision = *durable.Revision
+	}
+	oldRoutes, err := registry.routes.replace(publication, tools, revision)
+	if err != nil {
+		registry.withdrawLocked(publication.Fence.ServerID, publication.RuntimeID, contract.ActiveCatalogUnavailable)
+		return ActiveStatus{}, err
+	}
 	snapshot := activeServerSnapshot{
 		RuntimeID: publication.RuntimeID, RuntimeGeneration: publication.RuntimeGeneration,
+		DesiredRevision: publication.Fence.ExpectedDesiredRevision, CredentialRevisions: publication.Fence.ExpectedCredentialRevisions,
 		State: contract.ActiveCatalogCurrent, Revision: cloneActiveString(durable.Revision),
 		IssueCount: durable.IssueCount, Tools: tools,
 	}
 	registry.servers[publication.Fence.ServerID] = snapshot
 	registry.advanceLocked()
+	go withdrawCapabilities(context.WithoutCancel(ctx), oldRoutes)
 	return activeStatus(snapshot), nil
 }
 
@@ -158,6 +184,7 @@ func (registry *ActiveRegistry) MarkUnavailable(serverID, runtimeID string, issu
 	if current.State == contract.ActiveCatalogUnavailable && current.Revision == nil && len(current.Tools) == 0 && current.IssueCount == issueCount {
 		return true
 	}
+	oldRoutes := registry.routes.withdraw(serverID, runtimeID)
 	current.RuntimeID = runtimeID
 	current.State = contract.ActiveCatalogUnavailable
 	current.Revision = nil
@@ -165,7 +192,60 @@ func (registry *ActiveRegistry) MarkUnavailable(serverID, runtimeID string, issu
 	current.IssueCount = issueCount
 	registry.servers[serverID] = current
 	registry.advanceLocked()
+	go withdrawCapabilities(context.Background(), oldRoutes)
 	return true
+}
+
+func (registry *ActiveRegistry) Routes() *RouteRegistry { return registry.routes }
+
+func (registry *ActiveRegistry) Drain() {
+	registry.mu.Lock()
+	if registry.draining {
+		registry.mu.Unlock()
+		return
+	}
+	registry.draining = true
+	oldRoutes := registry.routes.withdrawAll()
+	changed := false
+	for serverID, snapshot := range registry.servers {
+		if snapshot.State == contract.ActiveCatalogAbsent || snapshot.State == contract.ActiveCatalogUnavailable {
+			continue
+		}
+		snapshot.State = contract.ActiveCatalogUnavailable
+		snapshot.Revision = nil
+		snapshot.Tools = nil
+		registry.servers[serverID] = snapshot
+		changed = true
+	}
+	if changed {
+		registry.advanceLocked()
+	}
+	registry.mu.Unlock()
+	withdrawCapabilities(context.Background(), oldRoutes)
+}
+
+func (registry *ActiveRegistry) revalidate(_ context.Context, binding downstream.Binding) downstream.Availability {
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	if registry.draining {
+		return downstream.Draining
+	}
+	snapshot, ok := registry.servers[binding.ServerID]
+	if !ok || snapshot.State == contract.ActiveCatalogAbsent || snapshot.State == contract.ActiveCatalogUnavailable {
+		return downstream.Unavailable
+	}
+	if snapshot.State == contract.ActiveCatalogStale {
+		return downstream.Stale
+	}
+	if snapshot.RuntimeID != binding.RuntimeID || snapshot.DesiredRevision != binding.DesiredRevision || snapshot.CredentialRevisions != binding.CredentialRevisions || snapshot.Revision == nil || *snapshot.Revision != binding.CatalogRevision {
+		return downstream.Stale
+	}
+	for _, tool := range snapshot.Tools {
+		if tool.Record.Resource.ID == binding.ToolID && tool.Record.Resource.UpstreamName == binding.UpstreamName {
+			return downstream.Current
+		}
+	}
+	return downstream.Unavailable
 }
 
 func (registry *ActiveRegistry) Status(serverID string) ActiveStatus {
@@ -268,6 +348,8 @@ func (registry *ActiveRegistry) withdrawLocked(serverID, runtimeID string, state
 	if current.RuntimeID != runtimeID {
 		return false
 	}
+	oldRoutes := registry.routes.withdraw(serverID, runtimeID)
+	go withdrawCapabilities(context.Background(), oldRoutes)
 	if current.State == state && len(current.Tools) == 0 && current.Revision == nil {
 		return true
 	}

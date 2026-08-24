@@ -57,6 +57,7 @@ type Binding struct {
 }
 
 type Revalidate func(context.Context, Binding) Availability
+type ParameterHeaderProvider func(json.RawMessage) (map[string]string, error)
 
 type Dispatcher struct {
 	mu              sync.Mutex
@@ -77,6 +78,7 @@ type Capability struct {
 	binding    Binding
 	runtime    *Runtime
 	revalidate Revalidate
+	headers    ParameterHeaderProvider
 	leases     map[*Lease]struct{}
 	current    bool
 }
@@ -103,11 +105,15 @@ func NewDispatcher() (*Dispatcher, error) {
 	return &Dispatcher{global: make(chan struct{}, int(global.Maximum)), serverLimit: int(perServer.Maximum), servers: make(map[string]*serverAdmission)}, nil
 }
 
-func (dispatcher *Dispatcher) Publish(binding Binding, runtime *Runtime, revalidate Revalidate) (*Capability, error) {
-	if !validBinding(binding) || runtime == nil || revalidate == nil {
+func (dispatcher *Dispatcher) Publish(binding Binding, runtime *Runtime, revalidate Revalidate, providers ...ParameterHeaderProvider) (*Capability, error) {
+	if !validBinding(binding) || runtime == nil || revalidate == nil || len(providers) > 1 || len(providers) == 1 && providers[0] == nil {
 		return nil, ErrInvalidMessage
 	}
-	return &Capability{dispatcher: dispatcher, binding: binding, runtime: runtime, revalidate: revalidate, leases: make(map[*Lease]struct{}), current: true}, nil
+	var headers ParameterHeaderProvider
+	if len(providers) == 1 {
+		headers = providers[0]
+	}
+	return &Capability{dispatcher: dispatcher, binding: binding, runtime: runtime, revalidate: revalidate, headers: headers, leases: make(map[*Lease]struct{}), current: true}, nil
 }
 
 func (dispatcher *Dispatcher) Status() contract.LimitStatus {
@@ -201,12 +207,14 @@ func (capability *Capability) Acquire(ctx context.Context) (*Lease, error) {
 	return lease, nil
 }
 
+func (capability *Capability) Fence() {
+	capability.mu.Lock()
+	capability.current = false
+	capability.mu.Unlock()
+}
+
 func (capability *Capability) Withdraw(ctx context.Context) error {
 	capability.mu.Lock()
-	if !capability.current {
-		capability.mu.Unlock()
-		return nil
-	}
 	capability.current = false
 	leases := make([]*Lease, 0, len(capability.leases))
 	for lease := range capability.leases {
@@ -239,7 +247,29 @@ func (lease *Lease) Execute(ctx context.Context, validatedArguments json.RawMess
 		return CallResult{Failure: FailurePreStart, Err: ErrLeaseCancelled}
 	}
 	lease.mu.Unlock()
-	call, err := lease.capability.runtime.NewCall(lease.capability.binding.UpstreamName, validatedArguments)
+	capability := lease.capability
+	if availability := capability.revalidate(ctx, capability.binding); availability != Current {
+		lease.release()
+		return CallResult{Failure: FailurePreStart, Err: reject(availabilityReason(availability))}
+	}
+	capability.mu.Lock()
+	current := capability.current
+	headers := capability.headers
+	capability.mu.Unlock()
+	if !current {
+		lease.release()
+		return CallResult{Failure: FailurePreStart, Err: reject(RejectionWithdrawn)}
+	}
+	var parameterHeaders map[string]string
+	var err error
+	if headers != nil {
+		parameterHeaders, err = headers(validatedArguments)
+		if err != nil {
+			lease.release()
+			return CallResult{Failure: FailurePreStart, Err: err}
+		}
+	}
+	call, err := capability.runtime.NewCallWithHeaders(capability.binding.UpstreamName, validatedArguments, parameterHeaders)
 	if err != nil {
 		lease.release()
 		return CallResult{Failure: FailurePreStart, Err: err}

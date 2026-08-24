@@ -225,6 +225,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		},
 		TriggerServer:    runtimeManager.Trigger,
 		CatalogTraversal: func(string) contract.LimitStatus { return contract.LimitStatus{Limit: 1} },
+		DispatchStatus:   activeCatalog.Routes().ServerStatus,
 		Status: func() contract.SystemStatus {
 			current, identityErr := store.Identity(context.Background())
 			if identityErr != nil {
@@ -256,6 +257,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 			}
 			status.Limits.ActiveTools = activeCatalog.Occupancy()
 			status.Limits.CatalogTraversals = catalogTraverser.Status()
+			status.Limits.DownstreamDispatch = activeCatalog.Routes().Status()
 			status.Limits.AdminCredentials = credentials.Status(context.Background())
 			if candidates, candidateErr := keyringCoordinator.CandidateStatus(context.Background()); candidateErr == nil {
 				status.Limits.KeyringCandidates = candidates
@@ -331,6 +333,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		ready.Store(false)
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), contract.GracefulShutdownDeadline)
 		defer cancel()
+		activeCatalog.Drain()
 		runtimeDrain := runtimeManager.Drain(shutdownCtx)
 		flowService.Shutdown()
 		refreshService.Shutdown()

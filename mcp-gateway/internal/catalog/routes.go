@@ -1,0 +1,124 @@
+package catalog
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"sync"
+
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
+)
+
+type routeEntry struct {
+	serverID   string
+	runtimeID  string
+	capability *downstream.Capability
+}
+
+type RouteRegistry struct {
+	mu         sync.RWMutex
+	dispatcher *downstream.Dispatcher
+	active     *ActiveRegistry
+	tools      map[string]routeEntry
+}
+
+func newRouteRegistry(active *ActiveRegistry) (*RouteRegistry, error) {
+	dispatcher, err := downstream.NewDispatcher()
+	if err != nil {
+		return nil, err
+	}
+	return &RouteRegistry{dispatcher: dispatcher, active: active, tools: make(map[string]routeEntry)}, nil
+}
+
+func (registry *RouteRegistry) Resolve(toolID string) (*downstream.Capability, bool) {
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	entry, ok := registry.tools[toolID]
+	return entry.capability, ok
+}
+
+func (registry *RouteRegistry) Status() contract.LimitStatus { return registry.dispatcher.Status() }
+func (registry *RouteRegistry) ServerStatus(serverID string) contract.LimitStatus {
+	return registry.dispatcher.ServerStatus(serverID)
+}
+
+func (registry *RouteRegistry) replace(publication Publication, tools []ActiveTool, revision string) ([]*downstream.Capability, error) {
+	prepared := make(map[string]routeEntry, len(tools))
+	if publication.Runtime != nil {
+		for _, tool := range tools {
+			binding := downstream.Binding{ServerID: publication.Fence.ServerID, ToolID: tool.Record.Resource.ID, UpstreamName: tool.Record.Resource.UpstreamName, RuntimeID: publication.RuntimeID, DesiredRevision: publication.Fence.ExpectedDesiredRevision, CredentialRevisions: publication.Fence.ExpectedCredentialRevisions, CatalogRevision: revision}
+			bindings := cloneBindings(tool.Bindings)
+			capability, err := registry.dispatcher.Publish(binding, publication.Runtime, registry.active.revalidate, func(arguments json.RawMessage) (map[string]string, error) {
+				values, err := decodeValidatedArguments(arguments)
+				if err != nil {
+					return nil, err
+				}
+				return MirrorHeaders(bindings, values)
+			})
+			if err != nil {
+				return nil, err
+			}
+			prepared[binding.ToolID] = routeEntry{serverID: binding.ServerID, runtimeID: binding.RuntimeID, capability: capability}
+		}
+	}
+	registry.mu.Lock()
+	old := registry.removeServerLocked(publication.Fence.ServerID, "")
+	for toolID, entry := range prepared {
+		registry.tools[toolID] = entry
+	}
+	registry.mu.Unlock()
+	return old, nil
+}
+
+func (registry *RouteRegistry) withdraw(serverID, runtimeID string) []*downstream.Capability {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	return registry.removeServerLocked(serverID, runtimeID)
+}
+
+func (registry *RouteRegistry) withdrawAll() []*downstream.Capability {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	result := make([]*downstream.Capability, 0, len(registry.tools))
+	for toolID, entry := range registry.tools {
+		entry.capability.Fence()
+		result = append(result, entry.capability)
+		delete(registry.tools, toolID)
+	}
+	return result
+}
+
+func (registry *RouteRegistry) removeServerLocked(serverID, runtimeID string) []*downstream.Capability {
+	result := make([]*downstream.Capability, 0)
+	for toolID, entry := range registry.tools {
+		if entry.serverID != serverID || runtimeID != "" && entry.runtimeID != runtimeID {
+			continue
+		}
+		entry.capability.Fence()
+		result = append(result, entry.capability)
+		delete(registry.tools, toolID)
+	}
+	return result
+}
+
+func decodeValidatedArguments(arguments json.RawMessage) (map[string]any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(arguments))
+	decoder.UseNumber()
+	var values map[string]any
+	if err := decoder.Decode(&values); err != nil || values == nil {
+		return nil, downstream.ErrInvalidMessage
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return nil, downstream.ErrInvalidMessage
+	}
+	return values, nil
+}
+
+func withdrawCapabilities(ctx context.Context, capabilities []*downstream.Capability) {
+	for _, capability := range capabilities {
+		_ = capability.Withdraw(ctx)
+	}
+}
