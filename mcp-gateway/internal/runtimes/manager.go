@@ -88,6 +88,7 @@ type Options struct {
 	Authority  AuthorityResolver
 	Catalog    CatalogCoordinator
 	Scheduler  Scheduler
+	Invalidate func(contract.Invalidation)
 }
 
 type Manager struct {
@@ -97,6 +98,7 @@ type Manager struct {
 	authority   AuthorityResolver
 	catalog     CatalogCoordinator
 	scheduler   Scheduler
+	invalidate  func(contract.Invalidation)
 	ctx         context.Context
 	cancel      context.CancelFunc
 	entries     map[string]*entry
@@ -167,13 +169,15 @@ func New(options Options) (*Manager, error) {
 		return nil, errors.New("server reconciliation limit is missing")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Manager{repository: options.Repository, driver: options.Driver, authority: options.Authority, catalog: options.Catalog, scheduler: options.Scheduler, ctx: ctx, cancel: cancel, entries: make(map[string]*entry), globalLimit: limit.Maximum}, nil
+	return &Manager{repository: options.Repository, driver: options.Driver, authority: options.Authority, catalog: options.Catalog, scheduler: options.Scheduler, invalidate: options.Invalidate, ctx: ctx, cancel: cancel, entries: make(map[string]*entry), globalLimit: limit.Maximum}, nil
 }
 
 func (manager *Manager) Start(ctx context.Context) error {
 	if err := manager.repository.InterruptNonterminal(ctx); err != nil {
 		return err
 	}
+	manager.publish(contract.InvalidationServerOperations, nil)
+	manager.publish(contract.InvalidationSystemStatus, nil)
 	var cursor *servers.SnapshotCursor
 	for {
 		page, err := manager.repository.ListServers(ctx, cursor, contract.S2ListPageDefault)
@@ -190,6 +194,7 @@ func (manager *Manager) Start(ctx context.Context) error {
 				manager.initializeFailure(server.ID, contract.ReasonConnectivity)
 				continue
 			}
+			manager.publish(contract.InvalidationServerOperations, &operation.Operation.ID)
 			manager.Trigger(server.ID, &operation.Operation.ID, true)
 		}
 		if page.Next == nil {
@@ -205,6 +210,7 @@ func (manager *Manager) initializeFailure(serverID string, reason contract.Publi
 	current := manager.entryLocked(serverID)
 	current.status.State = contract.RuntimeDegraded
 	current.status.Reason = &reason
+	manager.publish(contract.InvalidationServers, &serverID)
 }
 
 func (manager *Manager) initializeInactive(server servers.Server) {
@@ -216,6 +222,7 @@ func (manager *Manager) initializeInactive(server servers.Server) {
 		state = contract.RuntimeDeleted
 	}
 	current.status.State = state
+	manager.publish(contract.InvalidationServers, &server.ID)
 }
 
 func (manager *Manager) Trigger(serverID string, operationID *string, resetBackoff bool) {
@@ -267,6 +274,8 @@ func (manager *Manager) startAvailableLocked() {
 		current.operationID = nil
 		current.status.State = contract.RuntimeActivating
 		current.status.Reconciliation = contract.LimitStatus{InUse: 1, Limit: 1, Saturated: true}
+		manager.publish(contract.InvalidationServers, &serverID)
+		manager.publish(contract.InvalidationSystemStatus, nil)
 		go manager.reconcile(serverID, generation, operationID)
 	}
 }
@@ -397,6 +406,8 @@ func (manager *Manager) finishSuccess(serverID string, generation uint64, operat
 	}
 	current.retryAttempt = 0
 	manager.releaseLocked(current)
+	manager.publish(contract.InvalidationServers, &serverID)
+	manager.publish(contract.InvalidationSystemStatus, nil)
 }
 
 func (manager *Manager) finishFailure(serverID string, generation uint64, operationID *string, state contract.RuntimeState, credential contract.ServerCredentialState, catalog contract.ActiveCatalogState, reason contract.PublicReason, retry bool) {
@@ -426,6 +437,8 @@ func (manager *Manager) finishFailure(serverID string, generation uint64, operat
 	if retry && !manager.draining {
 		manager.scheduleRetryLocked(serverID, current)
 	}
+	manager.publish(contract.InvalidationServers, &serverID)
+	manager.publish(contract.InvalidationSystemStatus, nil)
 }
 
 func (manager *Manager) transitionCurrent(serverID string, generation uint64, operationID string, state contract.ServerOperationState, reason *contract.PublicReason) (servers.Operation, error) {
@@ -435,7 +448,12 @@ func (manager *Manager) transitionCurrent(serverID string, generation uint64, op
 	if current == nil || current.generation != generation || manager.draining {
 		return servers.Operation{}, servers.ErrStaleRevision
 	}
-	return manager.repository.TransitionOperation(context.Background(), operationID, state, reason)
+	operation, err := manager.repository.TransitionOperation(context.Background(), operationID, state, reason)
+	if err == nil {
+		manager.publish(contract.InvalidationServerOperations, &operationID)
+		manager.publish(contract.InvalidationSystemStatus, nil)
+	}
+	return operation, err
 }
 
 func (manager *Manager) generationCurrent(serverID string, generation uint64) bool {
@@ -521,6 +539,19 @@ func (manager *Manager) AdmissionStatus() contract.LimitStatus {
 	return contract.LimitStatus{InUse: manager.globalInUse, Limit: manager.globalLimit, Saturated: manager.globalInUse >= manager.globalLimit}
 }
 
+func (manager *Manager) RuntimeStatus() contract.LimitStatus {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	var inUse int64
+	for _, current := range manager.entries {
+		if current.status.RuntimeID != nil && current.status.State == contract.RuntimeActive {
+			inUse++
+		}
+	}
+	limit, _ := contract.FixedLimitByName("downstream_runtimes")
+	return contract.LimitStatus{InUse: inUse, Limit: limit.Maximum, Saturated: inUse >= limit.Maximum}
+}
+
 func (manager *Manager) Shutdown() {
 	manager.mu.Lock()
 	if manager.draining {
@@ -539,6 +570,12 @@ func (manager *Manager) Shutdown() {
 	}
 	manager.cancel()
 	manager.mu.Unlock()
+}
+
+func (manager *Manager) publish(kind contract.InvalidationKind, resourceID *string) {
+	if manager.invalidate != nil {
+		manager.invalidate(contract.Invalidation{Kind: kind, ResourceID: cloneString(resourceID)})
+	}
 }
 
 func cloneString(value *string) *string {

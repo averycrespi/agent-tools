@@ -3,13 +3,17 @@ package backup
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
+	serverdomain "github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,6 +80,57 @@ func TestRestoreReplacesCompleteGenerationAndRekeysAdminAuthority(t *testing.T) 
 	assert.ErrorIs(t, err, admin.ErrAuthenticationRequired)
 	_, err = service.Authenticate(ctx, laterSink.bearer)
 	assert.ErrorIs(t, err, admin.ErrAuthenticationRequired)
+	require.NoError(t, store.Close())
+	require.NoError(t, ownership.Close())
+}
+
+func TestRestorePreservesS2AuthorityAndInterruptsWorkBeforeReconstruction(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "gateway")
+	require.NoError(t, os.Mkdir(root, 0o700))
+	ownership, err := gatewaypaths.Acquire(root)
+	require.NoError(t, err)
+	store, err := storage.Initialize(ctx, ownership, backupTestInstallationID)
+	require.NoError(t, err)
+	clock := fixedClock{value: acceptedFixtureTime}
+	_, err = admin.NewService(store, clock, bytes.NewReader(bytes.Repeat([]byte{0x50}, 1024))).Initialize(ctx, new(captureSink))
+	require.NoError(t, err)
+	repository, err := serverdomain.New(store, clock, bytes.NewReader(bytes.Repeat([]byte{0x51}, 1024)))
+	require.NoError(t, err)
+	requestHash := sha256.Sum256([]byte("s2-restore"))
+	created, err := repository.Create(ctx, serverdomain.CreateRequest{Definition: serverdomain.Definition{Namespace: "restored", DisplayName: "Restored", Enabled: true, Transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{}}}, Idempotency: &serverdomain.IdempotencyRequest{AuthorityID: backupTestInstallationID, Method: "POST", Route: "/api/v1/servers", Key: "s2-restore-key", RequestHash: requestHash}})
+	require.NoError(t, err)
+	require.NotNil(t, created.Operation)
+	backupManager, err := New(Options{Store: store, Layout: ownership.Layout(), Clock: clock, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x52}, 1024))})
+	require.NoError(t, err)
+	artifact, _, err := backupManager.Create(ctx, "authority", "s2-restore")
+	require.NoError(t, err)
+	require.NoError(t, store.Close())
+	require.NoError(t, ownership.Close())
+
+	_, err = Restore(ctx, RestoreOptions{Root: root, BackupID: artifact.ID, Sink: new(captureSink), Clock: clock, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x53}, 1024))})
+	require.NoError(t, err)
+	ownership, err = gatewaypaths.Acquire(root)
+	require.NoError(t, err)
+	store, err = storage.Open(ctx, ownership)
+	require.NoError(t, err)
+	repository, err = serverdomain.New(store, clock, bytes.NewReader(bytes.Repeat([]byte{0x54}, 1024)))
+	require.NoError(t, err)
+	restored, err := repository.Get(ctx, created.Server.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.DesiredServerEnabled, restored.DesiredState)
+	operation, err := repository.GetOperation(ctx, created.Operation.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.OperationScheduled, operation.State)
+
+	runtimeManager, err := runtimes.New(runtimes.Options{Repository: repository})
+	require.NoError(t, err)
+	require.NoError(t, runtimeManager.Start(ctx))
+	runtimeManager.Shutdown()
+	operation, err = repository.GetOperation(ctx, created.Operation.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.OperationInterrupted, operation.State)
+	assert.NotEqual(t, contract.RuntimeActive, runtimeManager.Status(created.Server.ID).State)
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.Close())
 }

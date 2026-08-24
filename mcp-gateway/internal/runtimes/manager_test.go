@@ -324,6 +324,42 @@ func TestManagerUsesExactRetryScheduleAndExplicitReset(t *testing.T) {
 	receiveCandidate(t, resetDriver.calls)
 }
 
+func TestManagerPublishesSafeInvalidationsAfterTransitions(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newBlockingDriver()
+	invalidations := make(chan contract.Invalidation, 16)
+	manager, err := New(Options{Repository: repository, Driver: driver, Invalidate: func(invalidation contract.Invalidation) { invalidations <- invalidation }})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	created, err := repository.CreateOperation(context.Background(), servers.OperationRequest{ServerID: serverID, Kind: contract.OperationActivate, ExpectedDesiredRevision: "1"})
+	require.NoError(t, err)
+	manager.Trigger(serverID, &created.Operation.ID, false)
+	_ = receiveCandidate(t, driver.started)
+	driver.release <- activeOutcome()
+
+	seen := make(map[contract.InvalidationKind]bool)
+	deadline := time.After(time.Second)
+	for !seen[contract.InvalidationServers] || !seen[contract.InvalidationServerOperations] || !seen[contract.InvalidationSystemStatus] {
+		select {
+		case invalidation := <-invalidations:
+			seen[invalidation.Kind] = true
+			if invalidation.ResourceID != nil {
+				assert.NotContains(t, *invalidation.ResourceID, "connectivity")
+			}
+		case <-deadline:
+			t.Fatalf("missing invalidations: %#v", seen)
+		}
+	}
+	require.Eventually(t, func() bool {
+		operation, getErr := repository.GetOperation(context.Background(), created.Operation.ID)
+		return getErr == nil && operation.State == contract.OperationSucceeded
+	}, time.Second, time.Millisecond)
+}
+
 func TestManagerDrainFencesLateDriverPublication(t *testing.T) {
 	repository := newFakeRepository(1)
 	driver := newBlockingDriver()

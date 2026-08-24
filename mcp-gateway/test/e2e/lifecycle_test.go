@@ -84,6 +84,59 @@ func TestServeSignalDrainRestartAndForcedExit(t *testing.T) {
 	require.NoError(t, err, "post-force restart: %s", result.Stderr)
 }
 
+func TestEnabledServerFailureDoesNotRedefineReadiness(t *testing.T) {
+	ctx := context.Background()
+	binary := buildGateway(t, ctx)
+	root := filepath.Join(t.TempDir(), "gateway")
+	secretPath := filepath.Join(t.TempDir(), "admin")
+	runner, err := testutil.NewBinaryRunner(15*time.Second, 64*1024)
+	require.NoError(t, err)
+	initialized, err := runner.Run(ctx, binary, "initialize", "--data-dir", root, "--secret-output", secretPath)
+	require.NoError(t, err, "initialize: %s", initialized.Stderr)
+	bearer := readBearer(t, secretPath)
+	authority := unusedAuthority(t)
+	client := &http.Client{Timeout: 2 * time.Second}
+	process := startGateway(t, runner, ctx, binary, root, authority)
+
+	created := requestGateway(t, client, http.MethodPost, authority, "/api/v1/servers", `{"namespace":"failing","display_name":"Failing","enabled":true,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}}`, map[string]string{"Authorization": "Bearer " + bearer, "Content-Type": contract.MediaTypeJSON, "Idempotency-Key": "failing-server"})
+	require.Equal(t, http.StatusCreated, created.StatusCode)
+	var creation struct {
+		Server struct {
+			ID string `json:"id"`
+		} `json:"server"`
+	}
+	require.NoError(t, json.NewDecoder(created.Body).Decode(&creation))
+	_ = created.Body.Close()
+
+	require.Eventually(t, func() bool {
+		response := requestGateway(t, client, http.MethodGet, authority, "/api/v1/servers/"+creation.Server.ID, "", map[string]string{"Authorization": "Bearer " + bearer})
+		defer func() { _ = response.Body.Close() }()
+		var server struct {
+			Runtime struct {
+				State  contract.RuntimeState  `json:"state"`
+				Reason *contract.PublicReason `json:"reason"`
+			} `json:"runtime"`
+		}
+		return response.StatusCode == http.StatusOK && json.NewDecoder(response.Body).Decode(&server) == nil && server.Runtime.State == contract.RuntimeDegraded && server.Runtime.Reason != nil && *server.Runtime.Reason == contract.ReasonProtocolUnsupported
+	}, 3*time.Second, 10*time.Millisecond)
+	ready := requestGateway(t, client, http.MethodGet, authority, "/readyz", "", nil)
+	assert.Equal(t, http.StatusOK, ready.StatusCode)
+	_ = ready.Body.Close()
+	statusResponse := requestGateway(t, client, http.MethodGet, authority, "/api/v1/system-status", "", map[string]string{"Authorization": "Bearer " + bearer})
+	require.Equal(t, http.StatusOK, statusResponse.StatusCode)
+	var status contract.SystemStatus
+	require.NoError(t, json.NewDecoder(statusResponse.Body).Decode(&status))
+	_ = statusResponse.Body.Close()
+	assert.Equal(t, int64(1), status.Limits.ServerIdentities.InUse)
+	assert.Equal(t, int64(1), status.Limits.Servers.InUse)
+	assert.Equal(t, int64(1), status.Limits.S2IdempotencyRecords.InUse)
+	assert.Zero(t, status.Limits.DownstreamRuntimes.InUse)
+
+	require.NoError(t, process.Signal(syscall.SIGTERM))
+	result, err := process.Wait()
+	require.NoError(t, err, "shutdown stderr: %s", result.Stderr)
+}
+
 func startGateway(t *testing.T, runner *testutil.BinaryRunner, ctx context.Context, binary, root, authority string) *testutil.RunningProcess {
 	t.Helper()
 	process, err := runner.Start(ctx, binary, "serve", "--data-dir", root, "--listen", authority)

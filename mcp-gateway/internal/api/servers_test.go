@@ -160,6 +160,27 @@ func TestServerCreateReplayGetAndDisplayPatch(t *testing.T) {
 	assert.Contains(t, patch.Body.String(), `"operation":null`)
 }
 
+func TestServerResourceUsesSafeProcessLocalRuntimeStatus(t *testing.T) {
+	service := new(fakeServerService)
+	service.server = storedServer(serverdomain.Definition{Namespace: "alpha", DisplayName: "Alpha", Enabled: true, Transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{}}})
+	reason := contract.ReasonConnectivity
+	runtimeID := "runtime-safe-id"
+	handler := New(Options{
+		Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Servers: service,
+		RuntimeStatus: func(string) RuntimeStatus {
+			return RuntimeStatus{State: contract.RuntimeRetryWait, Reason: &reason, RuntimeID: &runtimeID, CredentialState: contract.ServerCredentialUnavailable, CatalogState: contract.ActiveCatalogStale, Reconciliation: contract.LimitStatus{InUse: 1, Limit: 1, Saturated: true}}
+		},
+	})
+	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
+	require.NoError(t, err)
+	response := perform(boundary, http.MethodGet, "/api/v1/servers/"+testID, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	assert.Contains(t, response.Body.String(), `"state":"retry_wait","reason":"connectivity","runtime_id":"runtime-safe-id"`)
+	assert.Contains(t, response.Body.String(), `"reconciliation":{"in_use":1,"limit":1,"saturated":true}`)
+	assert.Contains(t, response.Body.String(), `"credential_state":"unavailable"`)
+	assert.Contains(t, response.Body.String(), `"active_state":"stale"`)
+}
+
 func TestServerMutationsTriggerReconciliationOnlyForBehavioralWork(t *testing.T) {
 	transport := contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{}}
 	var triggered []string

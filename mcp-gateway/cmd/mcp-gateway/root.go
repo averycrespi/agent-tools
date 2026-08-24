@@ -115,7 +115,9 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if err != nil {
 		return false, err
 	}
-	runtimeManager, err := runtimes.New(runtimes.Options{Repository: serverRepository})
+	eventHub := events.New()
+	defer eventHub.Shutdown()
+	runtimeManager, err := runtimes.New(runtimes.Options{Repository: serverRepository, Invalidate: eventHub.Publish})
 	if err != nil {
 		return false, err
 	}
@@ -123,8 +125,6 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	credentials := admin.NewService(store, dependencies.clock, dependencies.entropy)
 	sessions := admin.NewSessionManager(credentials, dependencies.clock, dependencies.entropy)
 	defer sessions.Shutdown()
-	eventHub := events.New()
-	defer eventHub.Shutdown()
 	unsubscribeEvents := credentials.SubscribeCredentialInvalidations(func(id *string) {
 		eventHub.InvalidateCredential(id)
 		eventHub.Publish(contract.Invalidation{Kind: contract.InvalidationAdminCredentials, ResourceID: id})
@@ -159,7 +159,11 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		Origin:         "http://" + authority,
 		Servers:        serverRepository,
 		OperationState: runtimeManager.OperationState,
-		TriggerServer:  runtimeManager.Trigger,
+		RuntimeStatus: func(serverID string) api.RuntimeStatus {
+			status := runtimeManager.Status(serverID)
+			return api.RuntimeStatus{State: status.State, Reason: status.Reason, RuntimeID: status.RuntimeID, CredentialState: status.CredentialState, CatalogState: status.CatalogState, Reconciliation: status.Reconciliation}
+		},
+		TriggerServer: runtimeManager.Trigger,
 		Status: func() contract.SystemStatus {
 			current, identityErr := store.Identity(context.Background())
 			if identityErr != nil {
@@ -175,6 +179,15 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 			status.Limits.BackupRecords = backupManager.RecordStatus()
 			status.Limits.IdempotencyRecords = backupManager.IdempotencyStatus()
 			status.Limits.EventStreams = eventHub.Status()
+			status.Limits.ServerReconciliations = runtimeManager.AdmissionStatus()
+			status.Limits.DownstreamRuntimes = runtimeManager.RuntimeStatus()
+			if identities, activeServers, registryErr := serverRepository.RegistryStatus(context.Background()); registryErr == nil {
+				status.Limits.ServerIdentities = identities
+				status.Limits.Servers = activeServers
+			}
+			if idempotency, idempotencyErr := serverRepository.IdempotencyStatus(context.Background()); idempotencyErr == nil {
+				status.Limits.S2IdempotencyRecords = idempotency
+			}
 			status.Limits.AdminCredentials = credentials.Status(context.Background())
 			if candidates, candidateErr := keyringCoordinator.CandidateStatus(context.Background()); candidateErr == nil {
 				status.Limits.KeyringCandidates = candidates

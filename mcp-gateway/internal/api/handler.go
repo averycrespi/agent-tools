@@ -55,6 +55,15 @@ type EventService interface {
 
 type OAuthStateValidator func(context.Context, string) bool
 
+type RuntimeStatus struct {
+	State           contract.RuntimeState
+	Reason          *contract.PublicReason
+	RuntimeID       *string
+	CredentialState contract.ServerCredentialState
+	CatalogState    contract.ActiveCatalogState
+	Reconciliation  contract.LimitStatus
+}
+
 type Options struct {
 	Credentials    CredentialService
 	Sessions       SessionService
@@ -67,6 +76,7 @@ type Options struct {
 	ValidateOAuth  OAuthStateValidator
 	Servers        ServerService
 	OperationState OperationStateProvider
+	RuntimeStatus  func(string) RuntimeStatus
 	TriggerServer  func(string, *string, bool)
 }
 
@@ -82,6 +92,7 @@ type Handler struct {
 	validateOAuth  OAuthStateValidator
 	servers        ServerService
 	operationState OperationStateProvider
+	runtimeStatus  func(string) RuntimeStatus
 	triggerServer  func(string, *string, bool)
 }
 
@@ -120,7 +131,12 @@ func New(options Options) *Handler {
 			return serverdomain.OperationTriggerState{RuntimeState: contract.RuntimeInactive, CredentialState: contract.ServerCredentialNotRequired, CatalogState: contract.ActiveCatalogAbsent}
 		}
 	}
-	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, validateOAuth: options.ValidateOAuth, servers: options.Servers, operationState: options.OperationState, triggerServer: options.TriggerServer}
+	if options.RuntimeStatus == nil {
+		options.RuntimeStatus = func(string) RuntimeStatus {
+			return RuntimeStatus{State: contract.RuntimeInactive, CatalogState: contract.ActiveCatalogAbsent, Reconciliation: limitStatus("per_server_reconciliation")}
+		}
+	}
+	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, validateOAuth: options.ValidateOAuth, servers: options.Servers, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {

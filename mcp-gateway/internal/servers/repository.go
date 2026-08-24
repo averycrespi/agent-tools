@@ -61,6 +61,22 @@ func (repository *Repository) NewID() (string, error) {
 	return admin.NewID(repository.clock.Now(), repository.entropy)
 }
 
+func (repository *Repository) RegistryStatus(ctx context.Context) (contract.LimitStatus, contract.LimitStatus, error) {
+	var identities, activeServers int64
+	err := repository.store.View(ctx, func(transaction *sql.Tx) error {
+		if err := transaction.QueryRowContext(ctx, `SELECT count(*) FROM server_identities`).Scan(&identities); err != nil {
+			return fmt.Errorf("count server identities: %w", err)
+		}
+		if err := transaction.QueryRowContext(ctx, `SELECT count(*) FROM servers WHERE desired_state != 'deleted'`).Scan(&activeServers); err != nil {
+			return fmt.Errorf("count servers: %w", err)
+		}
+		return nil
+	})
+	identityLimit := mustLimit("server_identities")
+	serverLimit := mustLimit("servers")
+	return contract.LimitStatus{InUse: identities, Limit: identityLimit, Saturated: identities >= identityLimit}, contract.LimitStatus{InUse: activeServers, Limit: serverLimit, Saturated: activeServers >= serverLimit}, mapViewError(err)
+}
+
 func formatTime(value time.Time) string {
 	return value.UTC().Format(timestampLayout)
 }

@@ -285,18 +285,25 @@ func (handler *Handler) serverResource(ctx context.Context, stored serverdomain.
 			credentialState = contract.ServerCredentialReady
 		}
 	}
-	runtimeState := contract.RuntimeInactive
+	runtime := handler.runtimeStatus(stored.ID)
+	if runtime.CredentialState != "" && (!transportRequiresCredential(transport) || runtime.CredentialState != contract.ServerCredentialNotRequired) {
+		credentialState = runtime.CredentialState
+	}
 	durableCatalogState := contract.DurableCatalogEmpty
 	if stored.DesiredState == contract.DesiredServerDeleted {
-		runtimeState = contract.RuntimeDeleted
+		runtime.State = contract.RuntimeDeleted
+		runtime.Reason = nil
+		runtime.RuntimeID = nil
+		runtime.CredentialState = credentialState
+		runtime.CatalogState = contract.ActiveCatalogAbsent
 		durableCatalogState = contract.DurableCatalogRetired
 	}
 	return contract.Server{
 		ID: stored.ID, Namespace: stored.Namespace, DisplayName: stored.DisplayName, DesiredState: stored.DesiredState,
 		DesiredRevision: stored.DesiredRevision, Transport: transport, CredentialRevisions: authority.CredentialRevisions,
 		CredentialState: credentialState,
-		Runtime:         contract.ServerRuntime{State: runtimeState, Reconciliation: limitStatus("per_server_reconciliation"), Dispatch: limitStatus("per_server_downstream_dispatch")},
-		Catalog:         contract.ServerCatalog{DurableState: durableCatalogState, ActiveState: contract.ActiveCatalogAbsent, Traversal: contract.LimitStatus{Limit: 1}},
+		Runtime:         contract.ServerRuntime{State: runtime.State, Reason: runtime.Reason, RuntimeID: runtime.RuntimeID, Reconciliation: runtime.Reconciliation, Dispatch: limitStatus("per_server_downstream_dispatch")},
+		Catalog:         contract.ServerCatalog{DurableState: durableCatalogState, ActiveState: runtime.CatalogState, Traversal: contract.LimitStatus{Limit: 1}},
 		CreatedAt:       stored.CreatedAt, UpdatedAt: stored.UpdatedAt, DeletedAt: stored.DeletedAt,
 	}, nil
 }

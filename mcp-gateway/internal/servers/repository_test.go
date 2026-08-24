@@ -83,6 +83,28 @@ func TestRepositoryUsesS1ULIDsAndPermanentNamespaceTombstones(t *testing.T) {
 	assert.Equal(t, "2", replay.Server.DesiredRevision)
 }
 
+func TestRegistryStatusCountsPermanentIdentitiesAndNondeletedServers(t *testing.T) {
+	repository, _, _ := newRepository(t, new(sequenceReader))
+	identities, activeServers, err := repository.RegistryStatus(context.Background())
+	require.NoError(t, err)
+	assert.Zero(t, identities.InUse)
+	assert.Zero(t, activeServers.InUse)
+
+	created, err := repository.Create(context.Background(), CreateRequest{Definition: Definition{Namespace: "occupancy", DisplayName: "Occupancy", Enabled: false, Transport: testStdioTransport()}, Idempotency: idempotency("occupancy-create", "occupancy-create", "")})
+	require.NoError(t, err)
+	identities, activeServers, err = repository.RegistryStatus(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), identities.InUse)
+	assert.Equal(t, int64(1), activeServers.InUse)
+
+	_, err = repository.Delete(context.Background(), created.Server.ID, created.Server.DesiredRevision)
+	require.NoError(t, err)
+	identities, activeServers, err = repository.RegistryStatus(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), identities.InUse)
+	assert.Zero(t, activeServers.InUse)
+}
+
 func TestDesiredRevisionsCanonicalizePatchAndDelete(t *testing.T) {
 	repository, _, _ := newRepository(t, new(sequenceReader))
 	created, err := repository.Create(context.Background(), CreateRequest{
