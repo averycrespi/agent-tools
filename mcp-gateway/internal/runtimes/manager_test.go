@@ -131,7 +131,7 @@ type blockingDriver struct {
 func newBlockingDriver() *blockingDriver {
 	return &blockingDriver{started: make(chan Candidate, 32), release: make(chan Outcome, 32), cleaned: make(chan Candidate, 32)}
 }
-func (driver *blockingDriver) Reconcile(ctx context.Context, candidate Candidate) Outcome {
+func (driver *blockingDriver) Reconcile(ctx context.Context, candidate Candidate, _ *MaterialLease) Outcome {
 	driver.started <- candidate
 	select {
 	case outcome := <-driver.release:
@@ -154,11 +154,111 @@ func (authority *recordingAuthority) Resolve(_ context.Context, candidate Candid
 
 type immediateDriver struct{ called chan Candidate }
 
-func (driver *immediateDriver) Reconcile(_ context.Context, candidate Candidate) Outcome {
+func (driver *immediateDriver) Reconcile(_ context.Context, candidate Candidate, _ *MaterialLease) Outcome {
 	driver.called <- candidate
 	return activeOutcome()
 }
 func (*immediateDriver) Stop(context.Context, Candidate) bool { return true }
+
+type leasingAuthority struct{}
+
+func (leasingAuthority) Resolve(_ context.Context, candidate Candidate) AuthorityOutcome {
+	lease, _ := NewMaterialLease(candidate.Key(), map[contract.ServerCredentialKind][]byte{contract.ServerCredentialStatic: []byte("manager-canary")})
+	return AuthorityOutcome{CredentialState: contract.ServerCredentialReady, Lease: lease}
+}
+
+type ownerDriver struct {
+	owner    *RuntimeOwner
+	admitted chan Candidate
+}
+
+func (driver *ownerDriver) Reconcile(_ context.Context, candidate Candidate, lease *MaterialLease) Outcome {
+	_, err := driver.owner.Admit(candidate, lease, nil)
+	if err != nil {
+		return Outcome{State: contract.RuntimeDegraded}
+	}
+	driver.admitted <- candidate
+	return activeOutcome()
+}
+
+func (driver *ownerDriver) Stop(_ context.Context, candidate Candidate) bool {
+	return driver.owner.Release(candidate.Key(), true)
+}
+
+func TestManagerTransfersAuthorityLeaseToDriver(t *testing.T) {
+	repository := newFakeRepository(1)
+	var serverID string
+	for id, server := range repository.servers {
+		serverID = id
+		server.Transport = []byte(`{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{"TOKEN":"api"}}`)
+		repository.servers[id] = server
+	}
+	driver := &ownerDriver{owner: NewRuntimeOwner(), admitted: make(chan Candidate, 1)}
+	manager, err := New(Options{Repository: repository, Authority: leasingAuthority{}, Driver: driver})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+
+	manager.Trigger(serverID, nil, false)
+	candidate := receiveCandidate(t, driver.admitted)
+	material, ok := driver.owner.Material(candidate.Key(), contract.ServerCredentialStatic)
+	require.True(t, ok)
+	assert.Equal(t, "manager-canary", string(material))
+}
+
+type stalingLeaseAuthority struct {
+	manager  *Manager
+	lease    *MaterialLease
+	key      CandidateKey
+	resolved chan struct{}
+	stale    func(*Manager, string)
+}
+
+func (authority *stalingLeaseAuthority) Resolve(_ context.Context, candidate Candidate) AuthorityOutcome {
+	authority.key = candidate.Key()
+	authority.lease, _ = NewMaterialLease(authority.key, map[contract.ServerCredentialKind][]byte{contract.ServerCredentialStatic: []byte("stale-canary")})
+	authority.stale(authority.manager, candidate.Server.ID)
+	close(authority.resolved)
+	return AuthorityOutcome{CredentialState: contract.ServerCredentialReady, Lease: authority.lease}
+}
+
+func TestManagerClearsLeaseWhenCandidateStalesBeforeDriver(t *testing.T) {
+	tests := []struct {
+		name  string
+		stale func(*Manager, string)
+	}{
+		{name: "generation", stale: func(manager *Manager, serverID string) { manager.Fence(serverID) }},
+		{name: "drain", stale: func(manager *Manager, _ string) { manager.Drain(context.Background()) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repository := newFakeRepository(1)
+			var serverID string
+			for id, server := range repository.servers {
+				serverID = id
+				server.Transport = []byte(`{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{"TOKEN":"api"}}`)
+				repository.servers[id] = server
+			}
+			authority := &stalingLeaseAuthority{resolved: make(chan struct{}), stale: test.stale}
+			driver := &immediateDriver{called: make(chan Candidate, 1)}
+			manager, err := New(Options{Repository: repository, Authority: authority, Driver: driver})
+			require.NoError(t, err)
+			authority.manager = manager
+			defer manager.Shutdown()
+
+			manager.Trigger(serverID, nil, false)
+			<-authority.resolved
+
+			require.Eventually(t, func() bool { return manager.AdmissionStatus().InUse == 0 }, time.Second, time.Millisecond)
+			select {
+			case <-driver.called:
+				t.Fatal("driver received material for a stale candidate")
+			default:
+			}
+			_, transferred := authority.lease.transfer(authority.key)
+			assert.False(t, transferred)
+		})
+	}
+}
 
 func TestManagerRejectsInvalidPersistedTransportBeforeExternalWork(t *testing.T) {
 	repository := newFakeRepository(1)
@@ -206,7 +306,7 @@ type contextStopDriver struct {
 	stopping chan Candidate
 }
 
-func (driver *contextStopDriver) Reconcile(context.Context, Candidate) Outcome {
+func (driver *contextStopDriver) Reconcile(context.Context, Candidate, *MaterialLease) Outcome {
 	return activeOutcome()
 }
 func (driver *contextStopDriver) Stop(ctx context.Context, candidate Candidate) bool {
@@ -226,7 +326,7 @@ func newLifecycleDriver() *lifecycleDriver {
 	return &lifecycleDriver{started: make(chan Candidate, 16), startResult: make(chan Outcome, 16), stopping: make(chan Candidate, 16), stopResult: make(chan bool, 16)}
 }
 
-func (driver *lifecycleDriver) Reconcile(_ context.Context, candidate Candidate) Outcome {
+func (driver *lifecycleDriver) Reconcile(_ context.Context, candidate Candidate, _ *MaterialLease) Outcome {
 	driver.started <- candidate
 	return <-driver.startResult
 }
@@ -804,7 +904,7 @@ type outcomeDriver struct {
 	calls    chan Candidate
 }
 
-func (driver *outcomeDriver) Reconcile(_ context.Context, candidate Candidate) Outcome {
+func (driver *outcomeDriver) Reconcile(_ context.Context, candidate Candidate, _ *MaterialLease) Outcome {
 	driver.calls <- candidate
 	driver.mu.Lock()
 	defer driver.mu.Unlock()

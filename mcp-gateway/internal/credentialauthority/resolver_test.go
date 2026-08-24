@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -24,20 +25,129 @@ const (
 
 var testNow = time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
 
-func TestResolverValidatesExactStaticSlotsAndBinding(t *testing.T) {
-	handle := testHandle(t, 1)
-	contents, err := servercredentials.EncodeStaticGeneration(map[string]string{"api": "secret"})
+func TestResolverAcquiresStaticAndBearerMaterialOnce(t *testing.T) {
+	tests := []struct {
+		name      string
+		transport contract.Transport
+		values    map[string]string
+	}{
+		{name: "stdio", transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/server", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{"TOKEN": "api"}}, values: map[string]string{"api": "stdio-canary"}},
+		{name: "bearer", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://resource.example/mcp", ProtocolMode: contract.ProtocolModern, Authentication: contract.BearerAuthentication{Mode: contract.AuthenticationBearer}}, values: map[string]string{"bearer": "bearer-canary"}},
+	}
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handle := testHandle(t, byte(index+1))
+			contents, err := servercredentials.EncodeStaticGeneration(test.values)
+			require.NoError(t, err)
+			candidate := activationCandidate(t, test.transport, servers.AuthorityMetadata{CredentialRevisions: contract.CredentialRevisions{StaticCredential: "1"}, StaticCredentialHandle: pointer(string(handle))})
+			repository := &resolverRepository{server: candidate.Server, authority: candidate.Authority}
+			coordinator := &resolverCoordinator{values: map[keyring.RecordKind]resolverRead{keyring.RecordStaticCredential: {contents: contents, result: keyring.CutoverResult{Handle: handle, Revision: "1"}}}}
+			resolver, err := New(repository, coordinator, testInstallationID, func() time.Time { return testNow })
+			require.NoError(t, err)
+
+			outcome := resolver.Resolve(context.Background(), candidate)
+
+			assert.Equal(t, contract.ServerCredentialReady, outcome.CredentialState)
+			require.NotNil(t, outcome.Lease)
+			assert.NotContains(t, fmt.Sprintf("%+v", outcome), "canary")
+			assert.Equal(t, 1, coordinator.calls)
+			owner := runtimes.NewRuntimeOwner()
+			key, err := owner.Admit(candidate, outcome.Lease, nil)
+			require.NoError(t, err)
+			material, ok := owner.Material(key, contract.ServerCredentialStatic)
+			require.True(t, ok)
+			decoded, err := servercredentials.DecodeStaticGeneration(material)
+			require.NoError(t, err)
+			assert.Equal(t, test.values, decoded.Values)
+			assert.True(t, owner.Release(key, true))
+			assert.Equal(t, make([]byte, len(material)), material)
+		})
+	}
+}
+
+func TestResolverRejectsInvalidStaticGenerationWithoutLeasingMaterial(t *testing.T) {
+	tests := []struct {
+		name   string
+		values map[string]string
+		handle byte
+	}{
+		{name: "missing slot", values: map[string]string{"other": "canary"}, handle: 3},
+		{name: "extra slot", values: map[string]string{"api": "canary", "other": "canary"}, handle: 4},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handle := testHandle(t, test.handle)
+			contents, err := servercredentials.EncodeStaticGeneration(test.values)
+			require.NoError(t, err)
+			transport := contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/server", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{"TOKEN": "api"}}
+			candidate := activationCandidate(t, transport, servers.AuthorityMetadata{CredentialRevisions: contract.CredentialRevisions{StaticCredential: "1"}, StaticCredentialHandle: pointer(string(handle))})
+			repository := &resolverRepository{server: candidate.Server, authority: candidate.Authority}
+			coordinator := &resolverCoordinator{values: map[keyring.RecordKind]resolverRead{keyring.RecordStaticCredential: {contents: contents, result: keyring.CutoverResult{Handle: handle, Revision: "1"}}}}
+			resolver, err := New(repository, coordinator, testInstallationID, func() time.Time { return testNow })
+			require.NoError(t, err)
+
+			outcome := resolver.Resolve(context.Background(), candidate)
+
+			assert.Equal(t, contract.ServerCredentialUnavailable, outcome.CredentialState)
+			assert.Nil(t, outcome.Lease)
+			assert.Equal(t, 1, coordinator.calls)
+		})
+	}
+}
+
+func TestResolverRejectsForeignAndMissingStaticAuthority(t *testing.T) {
+	transport := contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://resource.example/mcp", ProtocolMode: contract.ProtocolModern, Authentication: contract.BearerAuthentication{Mode: contract.AuthenticationBearer}}
+	missing := activationCandidate(t, transport, servers.AuthorityMetadata{})
+	missingCoordinator := &resolverCoordinator{err: errors.New("must not read")}
+	missingResolver, err := New(&resolverRepository{server: missing.Server, authority: missing.Authority}, missingCoordinator, testInstallationID, func() time.Time { return testNow })
 	require.NoError(t, err)
-	coordinator := &resolverCoordinator{values: map[keyring.RecordKind]resolverRead{keyring.RecordStaticCredential: {contents: contents, result: keyring.CutoverResult{Handle: handle, Revision: "1"}}}}
-	resolver, err := New(&resolverRepository{}, coordinator, testInstallationID, func() time.Time { return testNow })
-	require.NoError(t, err)
-	transport := marshalTransport(t, contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/server", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{"TOKEN": "api"}})
-	candidate := runtimes.Candidate{Server: servers.Server{ID: testServerID, Transport: transport}, Authority: servers.AuthorityMetadata{CredentialRevisions: contract.CredentialRevisions{StaticCredential: "1"}, StaticCredentialHandle: pointer(string(handle))}}
-	assert.Equal(t, contract.ServerCredentialReady, resolver.Resolve(context.Background(), candidate).CredentialState)
-	candidate.Authority.StaticCredentialHandle = pointer(string(testHandle(t, 2)))
-	outcome := resolver.Resolve(context.Background(), candidate)
-	assert.Equal(t, contract.RuntimeAuthenticationRequired, outcome.State)
+	outcome := missingResolver.Resolve(context.Background(), missing)
 	assert.Equal(t, contract.ServerCredentialAbsent, outcome.CredentialState)
+	assert.Equal(t, 0, missingCoordinator.calls)
+
+	expectedHandle := testHandle(t, 5)
+	foreignHandle := testHandle(t, 6)
+	contents, err := servercredentials.EncodeStaticGeneration(map[string]string{"bearer": "foreign-canary"})
+	require.NoError(t, err)
+	candidate := activationCandidate(t, transport, servers.AuthorityMetadata{CredentialRevisions: contract.CredentialRevisions{StaticCredential: "1"}, StaticCredentialHandle: pointer(string(expectedHandle))})
+	coordinator := &resolverCoordinator{values: map[keyring.RecordKind]resolverRead{keyring.RecordStaticCredential: {contents: contents, result: keyring.CutoverResult{Handle: foreignHandle, Revision: "1"}}}}
+	resolver, err := New(&resolverRepository{server: candidate.Server, authority: candidate.Authority}, coordinator, testInstallationID, func() time.Time { return testNow })
+	require.NoError(t, err)
+	outcome = resolver.Resolve(context.Background(), candidate)
+	assert.Equal(t, contract.ServerCredentialAbsent, outcome.CredentialState)
+	assert.Nil(t, outcome.Lease)
+	assert.Equal(t, 1, coordinator.calls)
+}
+
+func TestResolverRejectsStaticMaterialWhenSafeFenceChangesAfterRead(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*resolverRepository)
+	}{
+		{name: "desired", mutate: func(repository *resolverRepository) { repository.server.DesiredRevision = "2" }},
+		{name: "credential", mutate: func(repository *resolverRepository) { repository.authority.CredentialRevisions.StaticCredential = "2" }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handle := testHandle(t, 7)
+			contents, err := servercredentials.EncodeStaticGeneration(map[string]string{"bearer": "stale-canary"})
+			require.NoError(t, err)
+			transport := contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://resource.example/mcp", ProtocolMode: contract.ProtocolModern, Authentication: contract.BearerAuthentication{Mode: contract.AuthenticationBearer}}
+			candidate := activationCandidate(t, transport, servers.AuthorityMetadata{CredentialRevisions: contract.CredentialRevisions{StaticCredential: "1"}, StaticCredentialHandle: pointer(string(handle))})
+			repository := &resolverRepository{server: candidate.Server, authority: candidate.Authority}
+			coordinator := &resolverCoordinator{values: map[keyring.RecordKind]resolverRead{keyring.RecordStaticCredential: {contents: contents, result: keyring.CutoverResult{Handle: handle, Revision: "1"}}}, afterRead: func() { test.mutate(repository) }}
+			resolver, err := New(repository, coordinator, testInstallationID, func() time.Time { return testNow })
+			require.NoError(t, err)
+
+			outcome := resolver.Resolve(context.Background(), candidate)
+
+			assert.Equal(t, contract.ServerCredentialUnavailable, outcome.CredentialState)
+			require.NotNil(t, outcome.Reason)
+			assert.Equal(t, contract.ReasonSuperseded, *outcome.Reason)
+			assert.Nil(t, outcome.Lease)
+			assert.Equal(t, 1, coordinator.calls)
+		})
+	}
 }
 
 func TestResolverValidatesOAuthRegistrationClientTokenAndExpiry(t *testing.T) {
@@ -77,6 +187,7 @@ func TestResolverPreservesKeyringCapabilityClassesAndAdmission(t *testing.T) {
 		{err: &keyring.CapabilityError{Capability: keyring.Capability{State: contract.KeyringUnavailable}}, credential: contract.ServerCredentialUnavailable, reason: contract.ReasonKeyringUnavailable, retry: true},
 		{err: &keyring.CapabilityError{Capability: keyring.Capability{State: contract.KeyringUnsupported}}, credential: contract.ServerCredentialUnsupported, reason: contract.ReasonKeyringUnsupported},
 		{err: keyring.ErrWorkLimit, credential: contract.ServerCredentialUnavailable, reason: contract.ReasonResourceLimit, retry: true},
+		{err: context.Canceled, credential: contract.ServerCredentialUnavailable, reason: contract.ReasonKeyringUnavailable},
 	}
 	transport := marshalTransport(t, contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://resource.example/mcp", ProtocolMode: contract.ProtocolModern, Authentication: contract.BearerAuthentication{Mode: contract.AuthenticationBearer}})
 	for _, test := range states {
@@ -90,17 +201,35 @@ func TestResolverPreservesKeyringCapabilityClassesAndAdmission(t *testing.T) {
 }
 
 func TestResolverSkipsKeyringForCredentialFreeTransport(t *testing.T) {
-	coordinator := &resolverCoordinator{err: errors.New("must not read")}
-	resolver, err := New(&resolverRepository{}, coordinator, testInstallationID, func() time.Time { return testNow })
-	require.NoError(t, err)
-	transport := marshalTransport(t, contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "http://127.0.0.1:9000/mcp", ProtocolMode: contract.ProtocolModern, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}})
-	outcome := resolver.Resolve(context.Background(), runtimes.Candidate{Server: servers.Server{ID: testServerID, Transport: transport}})
-	assert.Equal(t, contract.ServerCredentialNotRequired, outcome.CredentialState)
-	assert.Equal(t, 0, coordinator.calls)
+	transports := []contract.Transport{
+		contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/server", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{}},
+		contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "http://127.0.0.1:9000/mcp", ProtocolMode: contract.ProtocolModern, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}},
+	}
+	for _, transport := range transports {
+		coordinator := &resolverCoordinator{err: errors.New("must not read")}
+		candidate := activationCandidate(t, transport, servers.AuthorityMetadata{})
+		repository := &resolverRepository{server: candidate.Server, authority: candidate.Authority}
+		resolver, err := New(repository, coordinator, testInstallationID, func() time.Time { return testNow })
+		require.NoError(t, err)
+		outcome := resolver.Resolve(context.Background(), candidate)
+		assert.Equal(t, contract.ServerCredentialNotRequired, outcome.CredentialState)
+		assert.Nil(t, outcome.Lease)
+		assert.Equal(t, 0, coordinator.calls)
+	}
 }
 
 type resolverRepository struct {
+	server       servers.Server
+	authority    servers.AuthorityMetadata
 	registration servers.OAuthRegistrationAuthority
+}
+
+func (repository *resolverRepository) Get(context.Context, string) (servers.Server, error) {
+	return repository.server, nil
+}
+
+func (repository *resolverRepository) Authority(context.Context, string) (servers.AuthorityMetadata, error) {
+	return repository.authority, nil
 }
 
 func (repository *resolverRepository) OAuthRegistration(context.Context, string) (servers.OAuthRegistrationAuthority, error) {
@@ -113,9 +242,10 @@ type resolverRead struct {
 }
 
 type resolverCoordinator struct {
-	values map[keyring.RecordKind]resolverRead
-	err    error
-	calls  int
+	values    map[keyring.RecordKind]resolverRead
+	err       error
+	calls     int
+	afterRead func()
 }
 
 func (coordinator *resolverCoordinator) ReadActive(_ context.Context, namespace keyring.Namespace) ([]byte, keyring.CutoverResult, error) {
@@ -124,7 +254,21 @@ func (coordinator *resolverCoordinator) ReadActive(_ context.Context, namespace 
 		return nil, keyring.CutoverResult{}, coordinator.err
 	}
 	value := coordinator.values[namespace.Kind()]
-	return append([]byte(nil), value.contents...), value.result, nil
+	contents := append([]byte(nil), value.contents...)
+	if coordinator.afterRead != nil {
+		coordinator.afterRead()
+	}
+	return contents, value.result, nil
+}
+
+func activationCandidate(t *testing.T, transport contract.Transport, authority servers.AuthorityMetadata) runtimes.Candidate {
+	t.Helper()
+	return runtimes.Candidate{
+		Server:     servers.Server{ID: testServerID, DesiredState: contract.DesiredServerEnabled, DesiredRevision: "1", Transport: marshalTransport(t, transport)},
+		Authority:  authority,
+		RuntimeID:  "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+		Generation: 1,
+	}
 }
 
 func marshalTransport(t *testing.T, value any) json.RawMessage {

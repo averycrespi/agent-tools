@@ -32,7 +32,7 @@ type Scheduler interface {
 }
 
 type Driver interface {
-	Reconcile(context.Context, Candidate) Outcome
+	Reconcile(context.Context, Candidate, *MaterialLease) Outcome
 	Stop(context.Context, Candidate) bool
 }
 
@@ -71,6 +71,7 @@ type AuthorityOutcome struct {
 	CredentialState contract.ServerCredentialState
 	Reason          *contract.PublicReason
 	Retryable       bool
+	Lease           *MaterialLease
 }
 
 type CatalogOutcome struct {
@@ -216,7 +217,7 @@ func (publisher *memoryPublisher) Publish(candidate Candidate) bool {
 
 type unavailableDriver struct{}
 
-func (unavailableDriver) Reconcile(context.Context, Candidate) Outcome {
+func (unavailableDriver) Reconcile(context.Context, Candidate, *MaterialLease) Outcome {
 	reason := contract.ReasonProtocolUnsupported
 	return Outcome{State: contract.RuntimeDegraded, CredentialState: contract.ServerCredentialNotRequired, CatalogState: contract.ActiveCatalogAbsent, Reason: &reason}
 }
@@ -537,10 +538,17 @@ func (manager *Manager) reconcile(serverID string, generation uint64, operationI
 	}
 	defer manager.clearActivating(candidate)
 	authorityOutcome := manager.authority.Resolve(manager.ctx, candidate)
+	if authorityOutcome.Lease != nil {
+		defer authorityOutcome.Lease.Clear()
+	}
 	outcome := Outcome{State: authorityOutcome.State, CredentialState: authorityOutcome.CredentialState, CatalogState: contract.ActiveCatalogAbsent, Reason: authorityOutcome.Reason, Retryable: authorityOutcome.Retryable}
 	started := false
 	if authorityOutcome.State == "" {
-		outcome = manager.driver.Reconcile(manager.ctx, candidate)
+		if !manager.Current(candidate) {
+			manager.finishStale(serverID, generation)
+			return
+		}
+		outcome = manager.driver.Reconcile(manager.ctx, candidate, authorityOutcome.Lease)
 		started = true
 		if outcome.CredentialState == "" {
 			outcome.CredentialState = authorityOutcome.CredentialState

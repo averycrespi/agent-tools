@@ -132,6 +132,8 @@ func (lease *MaterialLease) transfer(key CandidateKey) (*materialBundle, bool) {
 	return bundle, true
 }
 
+func (*MaterialLease) String() string { return "material-lease" }
+
 func (lease *MaterialLease) Transferred() bool {
 	if lease == nil {
 		return false

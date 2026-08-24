@@ -15,6 +15,8 @@ import (
 )
 
 type Repository interface {
+	Get(context.Context, string) (servers.Server, error)
+	Authority(context.Context, string) (servers.AuthorityMetadata, error)
 	OAuthRegistration(context.Context, string) (servers.OAuthRegistrationAuthority, error)
 }
 
@@ -73,7 +75,36 @@ func (resolver *Resolver) resolveStatic(ctx context.Context, candidate runtimes.
 	if err != nil || !sameSlots(generation.Values, slots) {
 		return rejected(contract.ServerCredentialUnavailable, contract.ReasonKeyringUnavailable, false)
 	}
-	return runtimes.AuthorityOutcome{CredentialState: contract.ServerCredentialReady}
+	if !resolver.staticCurrent(ctx, candidate) {
+		return rejected(contract.ServerCredentialUnavailable, contract.ReasonSuperseded, false)
+	}
+	lease, err := runtimes.NewMaterialLease(candidate.Key(), map[contract.ServerCredentialKind][]byte{contract.ServerCredentialStatic: contents})
+	if err != nil {
+		return rejected(contract.ServerCredentialUnavailable, contract.ReasonKeyringUnavailable, false)
+	}
+	return runtimes.AuthorityOutcome{CredentialState: contract.ServerCredentialReady, Lease: lease}
+}
+
+func (resolver *Resolver) staticCurrent(ctx context.Context, candidate runtimes.Candidate) bool {
+	server, err := resolver.repository.Get(ctx, candidate.Server.ID)
+	if err != nil {
+		return false
+	}
+	authority, err := resolver.repository.Authority(ctx, candidate.Server.ID)
+	if err != nil {
+		return false
+	}
+	current := candidate
+	current.Server = server
+	current.Authority = authority
+	return current.Key() == candidate.Key() && sameStringPointer(authority.StaticCredentialHandle, candidate.Authority.StaticCredentialHandle)
+}
+
+func sameStringPointer(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func (resolver *Resolver) resolveOAuth(ctx context.Context, candidate runtimes.Candidate) runtimes.AuthorityOutcome {
