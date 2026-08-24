@@ -13,9 +13,10 @@ import (
 )
 
 type routeEntry struct {
-	serverID   string
-	runtimeID  string
-	capability *downstream.Capability
+	serverID          string
+	runtimeID         string
+	runtimeGeneration uint64
+	capability        *downstream.Capability
 }
 
 type RouteRegistry struct {
@@ -34,6 +35,8 @@ func newRouteRegistry(active *ActiveRegistry) (*RouteRegistry, error) {
 }
 
 func (registry *RouteRegistry) Resolve(toolID string) (*downstream.Capability, bool) {
+	registry.active.mu.RLock()
+	defer registry.active.mu.RUnlock()
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
 	entry, ok := registry.tools[toolID]
@@ -49,7 +52,7 @@ func (registry *RouteRegistry) replace(publication Publication, tools []ActiveTo
 	prepared := make(map[string]routeEntry, len(tools))
 	if publication.Runtime != nil {
 		for _, tool := range tools {
-			binding := downstream.Binding{ServerID: publication.Fence.ServerID, ToolID: tool.Record.Resource.ID, UpstreamName: tool.Record.Resource.UpstreamName, RuntimeID: publication.RuntimeID, DesiredRevision: publication.Fence.ExpectedDesiredRevision, CredentialRevisions: publication.Fence.ExpectedCredentialRevisions, CatalogRevision: revision}
+			binding := downstream.Binding{ServerID: publication.Fence.ServerID, ToolID: tool.Record.Resource.ID, UpstreamName: tool.Record.Resource.UpstreamName, RuntimeID: publication.RuntimeID, RuntimeGeneration: publication.RuntimeGeneration, DesiredRevision: publication.Fence.ExpectedDesiredRevision, CredentialRevisions: publication.Fence.ExpectedCredentialRevisions, CatalogRevision: revision}
 			bindings := cloneBindings(tool.Bindings)
 			capability, err := registry.dispatcher.Publish(binding, publication.Runtime, registry.active.revalidate, func(arguments json.RawMessage) (map[string]string, error) {
 				values, err := decodeValidatedArguments(arguments)
@@ -61,11 +64,11 @@ func (registry *RouteRegistry) replace(publication Publication, tools []ActiveTo
 			if err != nil {
 				return nil, err
 			}
-			prepared[binding.ToolID] = routeEntry{serverID: binding.ServerID, runtimeID: binding.RuntimeID, capability: capability}
+			prepared[binding.ToolID] = routeEntry{serverID: binding.ServerID, runtimeID: binding.RuntimeID, runtimeGeneration: binding.RuntimeGeneration, capability: capability}
 		}
 	}
 	registry.mu.Lock()
-	old := registry.removeServerLocked(publication.Fence.ServerID, "")
+	old := registry.removeServerLocked(publication.Fence.ServerID, "", 0)
 	for toolID, entry := range prepared {
 		registry.tools[toolID] = entry
 	}
@@ -73,10 +76,10 @@ func (registry *RouteRegistry) replace(publication Publication, tools []ActiveTo
 	return old, nil
 }
 
-func (registry *RouteRegistry) withdraw(serverID, runtimeID string) []*downstream.Capability {
+func (registry *RouteRegistry) withdraw(serverID, runtimeID string, runtimeGeneration uint64) []*downstream.Capability {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
-	return registry.removeServerLocked(serverID, runtimeID)
+	return registry.removeServerLocked(serverID, runtimeID, runtimeGeneration)
 }
 
 func (registry *RouteRegistry) withdrawAll() []*downstream.Capability {
@@ -91,10 +94,10 @@ func (registry *RouteRegistry) withdrawAll() []*downstream.Capability {
 	return result
 }
 
-func (registry *RouteRegistry) removeServerLocked(serverID, runtimeID string) []*downstream.Capability {
+func (registry *RouteRegistry) removeServerLocked(serverID, runtimeID string, runtimeGeneration uint64) []*downstream.Capability {
 	result := make([]*downstream.Capability, 0)
 	for toolID, entry := range registry.tools {
-		if entry.serverID != serverID || runtimeID != "" && entry.runtimeID != runtimeID {
+		if entry.serverID != serverID || runtimeID != "" && entry.runtimeID != runtimeID || runtimeGeneration != 0 && entry.runtimeGeneration != runtimeGeneration {
 			continue
 		}
 		entry.capability.Fence()

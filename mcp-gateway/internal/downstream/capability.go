@@ -51,6 +51,7 @@ type Binding struct {
 	ToolID              string
 	UpstreamName        string
 	RuntimeID           string
+	RuntimeGeneration   uint64
 	DesiredRevision     string
 	CredentialRevisions contract.CredentialRevisions
 	CatalogRevision     string

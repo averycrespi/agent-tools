@@ -39,7 +39,6 @@ type Driver interface {
 type ActivePublisher interface {
 	Fence(string, uint64)
 	Withdraw(Candidate)
-	Publish(Candidate) bool
 }
 
 type AuthorityResolver interface {
@@ -181,11 +180,10 @@ func (absentCatalog) Activate(context.Context, Candidate) CatalogOutcome {
 type memoryPublisher struct {
 	mu     sync.Mutex
 	fences map[string]uint64
-	active map[string]Candidate
 }
 
 func newMemoryPublisher() *memoryPublisher {
-	return &memoryPublisher{fences: make(map[string]uint64), active: make(map[string]Candidate)}
+	return &memoryPublisher{fences: make(map[string]uint64)}
 }
 
 func (publisher *memoryPublisher) Fence(serverID string, generation uint64) {
@@ -194,27 +192,9 @@ func (publisher *memoryPublisher) Fence(serverID string, generation uint64) {
 	if generation > publisher.fences[serverID] {
 		publisher.fences[serverID] = generation
 	}
-	delete(publisher.active, serverID)
 }
 
-func (publisher *memoryPublisher) Withdraw(candidate Candidate) {
-	publisher.mu.Lock()
-	defer publisher.mu.Unlock()
-	current, ok := publisher.active[candidate.Server.ID]
-	if ok && current.Key() == candidate.Key() {
-		delete(publisher.active, candidate.Server.ID)
-	}
-}
-
-func (publisher *memoryPublisher) Publish(candidate Candidate) bool {
-	publisher.mu.Lock()
-	defer publisher.mu.Unlock()
-	if publisher.fences[candidate.Server.ID] != candidate.Generation {
-		return false
-	}
-	publisher.active[candidate.Server.ID] = candidate
-	return true
-}
+func (*memoryPublisher) Withdraw(Candidate) {}
 
 type unavailableDriver struct{}
 
@@ -742,23 +722,12 @@ func (manager *Manager) finishSuccess(serverID string, generation uint64, operat
 		manager.finishFailure(serverID, generation, operationID, state, credentialState, contract.ActiveCatalogUnavailable, failure.Reason, failure.Retryable)
 		return
 	}
-	published := false
 	if candidate != nil && outcome.State == contract.RuntimeActive {
-		if !manager.publisher.Publish(*candidate) {
-			manager.mu.Unlock()
-			if !manager.stopCandidate(*candidate) {
-				manager.rememberBlockedStop(serverID, *candidate)
-			}
-			manager.finishStale(serverID, generation)
-			return
-		}
-		published = true
 		current.active = cloneCandidate(candidate)
 	}
 	if operationID != nil {
 		if _, err := manager.repository.TransitionOperation(context.Background(), *operationID, contract.OperationSucceeded, outcome.Reason); err != nil {
-			if published {
-				manager.publisher.Withdraw(*candidate)
+			if candidate != nil && outcome.State == contract.RuntimeActive {
 				current.active = nil
 			}
 			manager.mu.Unlock()

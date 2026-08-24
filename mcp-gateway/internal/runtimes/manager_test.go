@@ -336,21 +336,18 @@ func (driver *lifecycleDriver) Stop(_ context.Context, candidate Candidate) bool
 	return <-driver.stopResult
 }
 
-func TestCredentialCutoverFenceWithdrawsPublishedRouteSynchronously(t *testing.T) {
+func TestCredentialCutoverFenceAdvancesWithoutIndependentActiveState(t *testing.T) {
 	serverID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	publisher := newMemoryPublisher()
 	candidate := Candidate{Server: servers.Server{ID: serverID}, RuntimeID: "runtime-before-replacement", Generation: 1}
 	publisher.Fence(serverID, 1)
-	require.True(t, publisher.Publish(candidate))
 	manager := &Manager{publisher: publisher, entries: map[string]*entry{serverID: {generation: 1, active: &candidate}}}
 
 	manager.Fence(serverID)
 
 	publisher.mu.Lock()
-	_, active := publisher.active[serverID]
 	generation := publisher.fences[serverID]
 	publisher.mu.Unlock()
-	assert.False(t, active)
 	assert.Equal(t, uint64(2), generation)
 	assert.Equal(t, "runtime-before-replacement", manager.entries[serverID].active.RuntimeID)
 }
@@ -377,16 +374,6 @@ func (publisher *recordingPublisher) Fence(serverID string, generation uint64) {
 func (publisher *recordingPublisher) Withdraw(candidate Candidate) {
 	publisher.delegate.Withdraw(candidate)
 	publisher.events <- publisherEvent{step: "withdraw", candidate: candidate}
-}
-
-func (publisher *recordingPublisher) Publish(candidate Candidate) bool {
-	published := publisher.delegate.Publish(candidate)
-	step := "publish_rejected"
-	if published {
-		step = "publish"
-	}
-	publisher.events <- publisherEvent{step: step, candidate: candidate}
-	return published
 }
 
 func receivePublisherEvent(t *testing.T, events <-chan publisherEvent) publisherEvent {
@@ -532,8 +519,6 @@ func establishActiveRuntime(t *testing.T, manager *Manager, driver *lifecycleDri
 	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
 	candidate := receiveCandidate(t, driver.started)
 	driver.startResult <- activeOutcome()
-	event := receivePublisherEvent(t, publisher.events)
-	assert.Equal(t, "publish", event.step)
 	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeActive }, time.Second, time.Millisecond)
 	return candidate
 }
@@ -625,8 +610,6 @@ func TestManagerWithdrawsAndVerifiesStopBeforeReplacementPublicationAndSuccess(t
 	replacement := receiveCandidate(t, driver.started)
 	assert.NotEqual(t, active.RuntimeID, replacement.RuntimeID)
 	driver.startResult <- activeOutcome()
-	published := receivePublisherEvent(t, publisher.events)
-	assert.Equal(t, "publish", published.step)
 	succeeded := <-repository.transitions
 	assert.Equal(t, contract.OperationSucceeded, succeeded.State)
 	assert.Equal(t, replacement.RuntimeID, *manager.Status(serverID).RuntimeID)
@@ -818,8 +801,7 @@ func TestBlockedStopDoesNotBlockUnrelatedServerActivation(t *testing.T) {
 	other := receiveCandidate(t, driver.started)
 	assert.Equal(t, ids[1], other.Server.ID)
 	driver.startResult <- activeOutcome()
-	assert.Equal(t, "publish", receivePublisherEvent(t, publisher.events).step)
-	assert.Equal(t, contract.RuntimeActive, manager.Status(ids[1]).State)
+	require.Eventually(t, func() bool { return manager.Status(ids[1]).State == contract.RuntimeActive }, time.Second, time.Millisecond)
 	driver.stopResult <- true
 }
 
@@ -871,7 +853,7 @@ func TestRuntimeFailureWithdrawsBeforeRetryAndRejectsStaleFailure(t *testing.T) 
 	replacement := receiveCandidate(t, driver.started)
 	assert.NotEqual(t, active.RuntimeID, replacement.RuntimeID)
 	driver.startResult <- activeOutcome()
-	assert.Equal(t, "publish", receivePublisherEvent(t, publisher.events).step)
+	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeActive }, time.Second, time.Millisecond)
 	assert.False(t, manager.RuntimeFailed(active, contract.ReasonProcessExited))
 	assert.Equal(t, replacement.RuntimeID, *manager.Status(serverID).RuntimeID)
 }
@@ -1116,8 +1098,6 @@ func TestManagerDrainWithdrawsAllAndStopsConcurrentlyOutsideAdmission(t *testing
 		current.status.State = contract.RuntimeActive
 		current.status.RuntimeID = &candidate.RuntimeID
 		publisher.delegate.Fence(serverID, candidate.Generation)
-		assert.True(t, publisher.Publish(candidate))
-		_ = receivePublisherEvent(t, publisher.events)
 	}
 	manager.mu.Unlock()
 

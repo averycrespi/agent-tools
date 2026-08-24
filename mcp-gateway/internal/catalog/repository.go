@@ -69,37 +69,73 @@ func NewRepository(store *storage.Store, clock Clock, entropy io.Reader) (*Repos
 	return &Repository{store: store, clock: clock, entropy: entropy}, nil
 }
 
-func (repository *Repository) Commit(ctx context.Context, fence CommitFence, candidate NormalizedCandidate) (DurableStatus, error) {
+func prepareCommit(fence CommitFence, candidate NormalizedCandidate) ([]NormalizedTool, int64, error) {
 	if fence.ServerID == "" || fence.ExpectedDesiredRevision == "" || fence.ExpectedRegistrationRevision == "" || fence.ExpectedCatalogRevision == "" {
-		return DurableStatus{}, servers.ErrStaleRevision
+		return nil, 0, servers.ErrStaleRevision
 	}
 	if int64(len(candidate.Tools)) > fixedLimit("active_tools_per_server") {
-		return DurableStatus{}, servers.ErrResourceLimit
+		return nil, 0, servers.ErrResourceLimit
 	}
 	validated := make([]NormalizedTool, len(candidate.Tools))
 	seen := make(map[string]struct{}, len(candidate.Tools))
 	for index, tool := range candidate.Tools {
 		if tool.Key.ServerID != fence.ServerID {
-			return DurableStatus{}, servers.ErrInvalidInput
+			return nil, 0, servers.ErrInvalidInput
 		}
 		if _, duplicate := seen[tool.Key.UpstreamName]; duplicate {
-			return DurableStatus{}, servers.ErrInvalidInput
+			return nil, 0, servers.ErrInvalidInput
 		}
 		seen[tool.Key.UpstreamName] = struct{}{}
 		rebuilt, err := NormalizeTool(RawTool{UpstreamName: tool.Key.UpstreamName, ExternalName: tool.ExternalName, Descriptor: tool.Canonical}, NormalizeOptions{ServerID: fence.ServerID, AllowHeaderBindings: true})
 		if err != nil || rebuilt.Fingerprint != tool.Fingerprint || !bytes.Equal(rebuilt.Canonical, tool.Canonical) {
-			return DurableStatus{}, servers.ErrInvalidInput
+			return nil, 0, servers.ErrInvalidInput
 		}
 		validated[index] = rebuilt
 	}
 	for _, issue := range candidate.Issues {
 		if issue != IssueDescriptorInvalid {
-			return DurableStatus{}, servers.ErrInvalidInput
+			return nil, 0, servers.ErrInvalidInput
 		}
 	}
-	issueCount := int64(len(candidate.Issues))
+	return validated, int64(len(candidate.Issues)), nil
+}
+
+func (repository *Repository) projectCommit(ctx context.Context, fence CommitFence, candidate NormalizedCandidate) error {
+	validated, _, err := prepareCommit(fence, candidate)
+	if err != nil {
+		return err
+	}
+	err = repository.store.View(ctx, func(transaction *sql.Tx) error {
+		if err := validateCommitFence(ctx, transaction, fence); err != nil {
+			return err
+		}
+		current, err := statusTx(ctx, transaction, fence.ServerID)
+		if err != nil {
+			return err
+		}
+		currentRevision := "0"
+		if current.Revision != nil {
+			currentRevision = *current.Revision
+		}
+		if currentRevision != fence.ExpectedCatalogRevision {
+			return servers.ErrStaleRevision
+		}
+		newNames, err := missingIdentityNames(ctx, transaction, fence.ServerID, validated)
+		if err != nil {
+			return err
+		}
+		return checkIdentityCapacity(ctx, transaction, fence.ServerID, int64(len(newNames)))
+	})
+	return mapStoreError(err)
+}
+
+func (repository *Repository) Commit(ctx context.Context, fence CommitFence, candidate NormalizedCandidate) (DurableStatus, error) {
+	validated, issueCount, err := prepareCommit(fence, candidate)
+	if err != nil {
+		return DurableStatus{}, err
+	}
 	var status DurableStatus
-	err := repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
+	err = repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
 		if err := validateCommitFence(ctx, transaction, fence); err != nil {
 			return err
 		}

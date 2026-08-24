@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -98,6 +99,102 @@ func TestActiveRegistryPerServerCapacityRejectsBeforeDurableMutation(t *testing.
 	require.NoError(t, err)
 	assert.Nil(t, durable.Revision)
 	assert.Equal(t, activeProcessID+"-0", registry.Summary().ActiveGeneration)
+}
+
+func TestActiveRegistryDurableCapacityReservationPrecedesMutation(t *testing.T) {
+	repository, serverRepository, clock, store := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		for index := range fixedLimit("durable_tool_identities_per_server") {
+			_, err := transaction.Exec(`INSERT INTO durable_tool_identities (id, server_id, upstream_name, external_name, first_seen_at) VALUES (?, ?, ?, ?, ?)`, fmt.Sprintf("00000000000000000000%06d", index), server.ID, fmt.Sprintf("existing_%03d", index), fmt.Sprintf("sample.existing_%03d", index), catalogTime.Format(time.RFC3339Nano))
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	mutationEntered := make(chan struct{})
+	releaseMutation := make(chan struct{})
+	mutationDone := make(chan error, 1)
+	go func() {
+		mutationDone <- store.Mutate(context.Background(), func(*sql.Tx) error {
+			close(mutationEntered)
+			<-releaseMutation
+			return nil
+		})
+	}()
+	<-mutationEntered
+
+	_, err = registry.Publish(context.Background(), Publication{Fence: catalogFence(server.ID, "0"), RuntimeID: "runtime-1", RuntimeGeneration: 1, Candidate: candidateFor(t, server.ID, "sample", "new"), Current: func() bool { return true }})
+
+	assert.ErrorIs(t, err, servers.ErrResourceLimit)
+	assert.Equal(t, activeProcessID+"-0", registry.Summary().ActiveGeneration)
+	durable, statusErr := repository.Status(context.Background(), server.ID)
+	require.NoError(t, statusErr)
+	assert.Nil(t, durable.Revision)
+	close(releaseMutation)
+	require.NoError(t, <-mutationDone)
+}
+
+func TestActiveRegistryInstallBarrierKeepsRoutesAndSummaryOld(t *testing.T) {
+	repository, serverRepository, clock, _ := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	runtime, _ := newRouteRuntime(t)
+	installEntered := make(chan struct{})
+	releaseInstall := make(chan struct{})
+	registry.beforeInstall = func() {
+		durable, statusErr := repository.Status(context.Background(), server.ID)
+		if assert.NoError(t, statusErr) && assert.NotNil(t, durable.Revision) {
+			assert.Equal(t, "1", *durable.Revision)
+		}
+		assert.Equal(t, activeProcessID+"-0", registry.generationLocked())
+		registry.routes.mu.RLock()
+		assert.Empty(t, registry.routes.tools)
+		registry.routes.mu.RUnlock()
+		close(installEntered)
+		<-releaseInstall
+	}
+	published := make(chan error, 1)
+	go func() {
+		_, publishErr := registry.Publish(context.Background(), Publication{Fence: catalogFence(server.ID, "0"), RuntimeID: "runtime-1", RuntimeGeneration: 1, Candidate: candidateFor(t, server.ID, "sample", "one"), Current: func() bool { return true }, Runtime: runtime})
+		published <- publishErr
+	}()
+	<-installEntered
+	close(releaseInstall)
+	require.NoError(t, <-published)
+	assert.Equal(t, activeProcessID+"-1", registry.Summary().ActiveGeneration)
+	page, err := registry.List(nil, 1)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	_, ok := registry.Routes().Resolve(page.Items[0].Resource.ID)
+	assert.True(t, ok)
+}
+
+func TestActiveRegistryExactRuntimeGenerationFencesWithdrawal(t *testing.T) {
+	repository, serverRepository, clock, _ := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	runtime, _ := newRouteRuntime(t)
+	_, err = registry.Publish(context.Background(), Publication{Fence: catalogFence(server.ID, "0"), RuntimeID: "runtime-1", RuntimeGeneration: 2, Candidate: candidateFor(t, server.ID, "sample", "one"), Current: func() bool { return true }, Runtime: runtime})
+	require.NoError(t, err)
+	page, err := registry.List(nil, 1)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	capability, ok := registry.Routes().Resolve(page.Items[0].Resource.ID)
+	require.True(t, ok)
+
+	assert.False(t, registry.WithdrawExact(server.ID, "runtime-1", 1, contract.ActiveCatalogUnavailable))
+	assert.Equal(t, contract.ActiveCatalogCurrent, registry.Status(server.ID).State)
+	lease, err := capability.Acquire(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, lease.Execute(context.Background(), json.RawMessage(`{}`)).Err)
+	assert.True(t, registry.WithdrawExact(server.ID, "runtime-1", 2, contract.ActiveCatalogUnavailable))
+	assert.Equal(t, contract.ActiveCatalogUnavailable, registry.Status(server.ID).State)
 }
 
 func TestActiveRegistryCapacityReservationIsAtomicAcrossServers(t *testing.T) {
@@ -309,6 +406,35 @@ func newRouteRuntime(t *testing.T) (*downstream.Runtime, *routeTransport) {
 	runtime, err := negotiator.Negotiate(context.Background(), downstream.ModeModern)
 	require.NoError(t, err)
 	return runtime, transport
+}
+
+func TestActiveRegistryAggregateCountsStayConsistentAcrossTwoServers(t *testing.T) {
+	repository, serverRepository, clock, _ := newCatalogRepository(t)
+	serverA := createCatalogServer(t, serverRepository, "a")
+	serverB := createCatalogServer(t, serverRepository, "b")
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	candidate := candidateFor(t, serverA.ID, "a", "one", "two")
+	candidate.Issues = []IssueClass{IssueDescriptorInvalid}
+	status, err := registry.Publish(context.Background(), Publication{Fence: catalogFence(serverA.ID, "0"), RuntimeID: "runtime-a", RuntimeGeneration: 1, Candidate: candidate, Current: func() bool { return true }})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), status.ToolCount)
+	assert.Equal(t, int64(1), status.IssueCount)
+	assert.Equal(t, int64(2), registry.Occupancy().InUse)
+	assert.True(t, registry.MarkUnavailableExact(serverB.ID, "runtime-b", 1, 2))
+	summary := registry.Summary()
+	assert.Equal(t, contract.AggregateCatalogDegraded, summary.ActiveState)
+	assert.Equal(t, int64(3), summary.IssueCount)
+	page, err := registry.List(nil, 10)
+	require.NoError(t, err)
+	assert.Len(t, page.Items, 2)
+	assert.Equal(t, summary, page.Summary)
+
+	assert.True(t, registry.WithdrawExact(serverA.ID, "runtime-a", 1, contract.ActiveCatalogUnavailable))
+	assert.Equal(t, int64(0), registry.Occupancy().InUse)
+	summary = registry.Summary()
+	assert.Equal(t, contract.AggregateCatalogEmpty, summary.ActiveState)
+	assert.Equal(t, int64(3), summary.IssueCount)
 }
 
 func TestActiveRegistryStaleRetentionWithdrawalAndCursorGeneration(t *testing.T) {

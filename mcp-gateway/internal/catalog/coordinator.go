@@ -134,7 +134,7 @@ func (coordinator *Coordinator) Withdraw(candidate runtimes.Candidate, state con
 	}
 	delete(coordinator.candidates, candidate.Server.ID)
 	coordinator.mu.Unlock()
-	coordinator.active.Withdraw(candidate.Server.ID, candidate.RuntimeID, state)
+	coordinator.active.WithdrawExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, state)
 }
 
 func (coordinator *Coordinator) Shutdown() {
@@ -170,7 +170,7 @@ func (coordinator *Coordinator) ServerStatus(serverID string) contract.LimitStat
 
 func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.Candidate) runtimes.CatalogOutcome {
 	if !coordinator.live(candidate) {
-		coordinator.active.Withdraw(candidate.Server.ID, candidate.RuntimeID, contract.ActiveCatalogUnavailable)
+		coordinator.active.WithdrawExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, contract.ActiveCatalogUnavailable)
 		return unavailableCatalogOutcome(contract.ReasonSuperseded)
 	}
 	client, ok := coordinator.client(candidate)
@@ -219,7 +219,7 @@ func (coordinator *Coordinator) failure(candidate runtimes.Candidate, reason con
 				_, err = coordinator.repository.SetState(coordinator.ctx, coordinator.commitFence(candidate, revision), contract.DurableCatalogStale, issues)
 			}
 			if err == nil {
-				coordinator.active.MarkStale(candidate.Server.ID, candidate.RuntimeID, issues)
+				coordinator.active.MarkStaleExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, issues)
 				return runtimes.CatalogOutcome{State: contract.ActiveCatalogStale, Reason: &reason}
 			}
 		} else if err == nil {
@@ -227,9 +227,9 @@ func (coordinator *Coordinator) failure(candidate runtimes.Candidate, reason con
 		}
 	}
 	if live {
-		coordinator.active.MarkUnavailable(candidate.Server.ID, candidate.RuntimeID, 1)
+		coordinator.active.MarkUnavailableExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, 1)
 	} else {
-		coordinator.active.Withdraw(candidate.Server.ID, candidate.RuntimeID, contract.ActiveCatalogUnavailable)
+		coordinator.active.WithdrawExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, contract.ActiveCatalogUnavailable)
 	}
 	return runtimes.CatalogOutcome{State: contract.ActiveCatalogUnavailable, Reason: &reason}
 }
