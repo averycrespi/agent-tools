@@ -283,6 +283,18 @@ func (manager *Manager) initializeInactive(server servers.Server) {
 	manager.publish(contract.InvalidationServers, &server.ID)
 }
 
+func (manager *Manager) SetCredentialState(serverID string, state contract.ServerCredentialState, withdraw bool) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	current := manager.entryLocked(serverID)
+	current.status.CredentialState = state
+	if withdraw {
+		current.generation++
+		manager.publisher.Fence(serverID, current.generation)
+	}
+	manager.publish(contract.InvalidationServers, &serverID)
+}
+
 func (manager *Manager) Fence(serverID string) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()

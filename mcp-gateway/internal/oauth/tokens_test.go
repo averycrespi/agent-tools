@@ -3,6 +3,7 @@ package oauth
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,6 +47,29 @@ func TestTokenResponseStrictMatrixAndScopeSemantics(t *testing.T) {
 			assert.Equal(t, test.specified, parsed.scopeSpecified)
 		})
 	}
+}
+
+func TestTokenRefreshEligibilityUsesBoundedLifetimeLead(t *testing.T) {
+	issued := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name     string
+		lifetime time.Duration
+		before   time.Duration
+		want     bool
+	}{
+		{name: "five second floor before", lifetime: 20 * time.Second, before: 6 * time.Second},
+		{name: "five second floor boundary", lifetime: 20 * time.Second, before: 5 * time.Second, want: true},
+		{name: "ten percent boundary", lifetime: 5 * time.Minute, before: 30 * time.Second, want: true},
+		{name: "sixty second cap before", lifetime: 2 * time.Hour, before: 61 * time.Second},
+		{name: "sixty second cap boundary", lifetime: 2 * time.Hour, before: 60 * time.Second, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			expires := issued.Add(test.lifetime).Format(time.RFC3339Nano)
+			generation := TokenGeneration{IssuedAt: issued.Format(time.RFC3339Nano), ExpiresAt: &expires}
+			assert.Equal(t, test.want, TokenRefreshEligible(generation, issued.Add(test.lifetime-test.before)))
+		})
+	}
+	assert.False(t, TokenRefreshEligible(TokenGeneration{IssuedAt: issued.Format(time.RFC3339Nano)}, issued.Add(time.Hour)))
 }
 
 func TestTokenGenerationCodecRejectsUnknownAndNoncanonicalScope(t *testing.T) {

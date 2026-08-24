@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
 
@@ -132,14 +133,19 @@ func scopeSubset(values, requested []string) bool {
 }
 
 func encodeTokenGeneration(bundle flowBundle, token parsedTokenResponse, issuedAt time.Time) ([]byte, error) {
+	binding := TokenGeneration{ServerID: bundle.serverID, Issuer: bundle.registration.Issuer, RegistrationRevision: bundle.registration.Revision, Resource: bundle.graph.Resource}
+	return encodeBoundTokenGeneration(binding, token, issuedAt)
+}
+
+func encodeBoundTokenGeneration(binding TokenGeneration, token parsedTokenResponse, issuedAt time.Time) ([]byte, error) {
 	var expiresAt *string
 	if token.expiresAt != nil {
 		value := token.expiresAt.UTC().Format(time.RFC3339Nano)
 		expiresAt = &value
 	}
 	generation := TokenGeneration{
-		Version: tokenGenerationVersion, ServerID: bundle.serverID, Issuer: bundle.registration.Issuer,
-		RegistrationRevision: bundle.registration.Revision, Resource: bundle.graph.Resource,
+		Version: tokenGenerationVersion, ServerID: binding.ServerID, Issuer: binding.Issuer,
+		RegistrationRevision: binding.RegistrationRevision, Resource: binding.Resource,
 		AccessToken: token.accessToken, RefreshToken: token.refreshToken, Scopes: append([]string(nil), token.scopes...), ScopeSpecified: token.scopeSpecified,
 		IssuedAt: issuedAt.UTC().Format(time.RFC3339Nano), ExpiresAt: expiresAt,
 	}
@@ -194,6 +200,52 @@ func equalStrings(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+func TokenRefreshEligible(generation TokenGeneration, now time.Time) bool {
+	if generation.ExpiresAt == nil {
+		return false
+	}
+	issuedAt, issuedErr := time.Parse(time.RFC3339Nano, generation.IssuedAt)
+	expiresAt, expiresErr := time.Parse(time.RFC3339Nano, *generation.ExpiresAt)
+	if issuedErr != nil || expiresErr != nil || !expiresAt.After(issuedAt) {
+		return false
+	}
+	lead := expiresAt.Sub(issuedAt) / 10
+	if lead < 5*time.Second {
+		lead = 5 * time.Second
+	}
+	if lead > time.Minute {
+		lead = time.Minute
+	}
+	return !now.Before(expiresAt.Add(-lead))
+}
+
+func refreshTokenRequest(refreshToken string, registration servers.OAuthRegistrationAuthority, resource string, clientSecret []byte) (http.Header, []byte, error) {
+	if refreshToken == "" || resource == "" {
+		return nil, nil, ErrTokenRejected
+	}
+	values := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {refreshToken}, "resource": {resource}}
+	header := http.Header{"Accept": []string{contract.MediaTypeJSON}, "Content-Type": []string{"application/x-www-form-urlencoded"}, "User-Agent": []string{""}}
+	switch registration.TokenEndpointAuthMethod {
+	case contract.TokenEndpointAuthClientSecretBasic:
+		if len(clientSecret) == 0 {
+			return nil, nil, ErrTokenRejected
+		}
+		credentials := url.QueryEscape(registration.ClientID) + ":" + url.QueryEscape(string(clientSecret))
+		header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(credentials)))
+	case contract.TokenEndpointAuthClientSecretPost:
+		if len(clientSecret) == 0 {
+			return nil, nil, ErrTokenRejected
+		}
+		values.Set("client_id", registration.ClientID)
+		values.Set("client_secret", string(clientSecret))
+	case contract.TokenEndpointAuthNone:
+		values.Set("client_id", registration.ClientID)
+	default:
+		return nil, nil, ErrTokenRejected
+	}
+	return header, []byte(values.Encode()), nil
 }
 
 func tokenRequest(code string, bundle flowBundle, clientSecret []byte) (http.Header, []byte, error) {

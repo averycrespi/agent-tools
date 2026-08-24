@@ -167,6 +167,11 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		return false, err
 	}
 	defer flowService.Shutdown()
+	refreshService, err := oauth.NewRefreshService(serverRepository, keyringCoordinator, oauthResolver, remoteFactory, identity.InstallationID, dependencies.clock.Now, runtimeManager.SetCredentialState, func(serverID string) { runtimeManager.Trigger(serverID, nil, true) })
+	if err != nil {
+		return false, err
+	}
+	defer refreshService.Shutdown()
 	var boundary *httpboundary.Boundary
 	ingress := mcpingress.New(mcpingress.Options{
 		Authenticator: mcpingress.DenyAllAuthenticator{},
@@ -294,6 +299,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		defer cancel()
 		runtimeDrain := runtimeManager.Drain(shutdownCtx)
 		flowService.Shutdown()
+		refreshService.Shutdown()
 		keyringCoordinator.Drain()
 		eventHub.Shutdown()
 		ingress.Shutdown()

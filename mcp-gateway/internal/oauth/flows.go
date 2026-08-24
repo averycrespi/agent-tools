@@ -90,6 +90,7 @@ type FlowService struct {
 	entropyMu      sync.Mutex
 	mu             sync.Mutex
 	byState        map[string]flowBundle
+	pendingStepUp  map[string]FlowRequest
 }
 
 func NewFlowService(store *servers.Repository, resolver *Resolver, registrar *Registrar, factory *remote.Factory, secrets *keyring.Coordinator, installationID string, entropy io.Reader, callbackURL string, now func() time.Time) (*FlowService, error) {
@@ -102,7 +103,7 @@ func NewFlowService(store *servers.Repository, resolver *Resolver, registrar *Re
 }
 
 func newFlowService(store flowStore, resolver flowResolver, registrar flowRegistrar, entropy io.Reader, callbackURL string, now func() time.Time) *FlowService {
-	return &FlowService{store: store, resolver: resolver, registrar: registrar, entropy: entropy, callbackURL: callbackURL, now: now, byState: make(map[string]flowBundle)}
+	return &FlowService{store: store, resolver: resolver, registrar: registrar, entropy: entropy, callbackURL: callbackURL, now: now, byState: make(map[string]flowBundle), pendingStepUp: make(map[string]FlowRequest)}
 }
 
 func (service *FlowService) configureCallback(requester machineRequester, secrets tokenSecretStore, installationID string) {
@@ -137,7 +138,41 @@ func (service *FlowService) Shutdown() {
 }
 
 func (service *FlowService) CreateInitial(ctx context.Context, serverID, expectedDesiredRevision string) (contract.AuthFlowCreation, error) {
-	return service.Create(ctx, FlowRequest{ServerID: serverID, ExpectedDesiredRevision: expectedDesiredRevision})
+	request := FlowRequest{ServerID: serverID, ExpectedDesiredRevision: expectedDesiredRevision}
+	service.mu.Lock()
+	if pending, ok := service.pendingStepUp[serverID]; ok {
+		request.ChallengeMetadata = append([]string(nil), pending.ChallengeMetadata...)
+		request.ChallengeScopes = append([]string(nil), pending.ChallengeScopes...)
+		request.PriorRequestedScopes = append([]string(nil), pending.PriorRequestedScopes...)
+		delete(service.pendingStepUp, serverID)
+	}
+	service.mu.Unlock()
+	return service.Create(ctx, request)
+}
+
+func (service *FlowService) StageStepUp(serverID string, challengeMetadata, priorScopes, challengeScopes []string) error {
+	if service == nil || serverID == "" || len(challengeScopes) == 0 || len(challengeMetadata) > 8 {
+		return ErrFlowRejected
+	}
+	for _, metadata := range challengeMetadata {
+		if metadata == "" || int64(len(metadata)) > limit("oauth_url_bytes") {
+			return ErrFlowRejected
+		}
+	}
+	for _, group := range [][]string{priorScopes, challengeScopes} {
+		for _, scope := range group {
+			if _, err := parseScope(scope); err != nil || strings.Contains(scope, " ") {
+				return ErrFlowRejected
+			}
+		}
+	}
+	if _, err := requestedScopes(FlowRequest{PriorRequestedScopes: priorScopes, ChallengeScopes: challengeScopes}, false, Graph{}); err != nil {
+		return ErrFlowRejected
+	}
+	service.mu.Lock()
+	service.pendingStepUp[serverID] = FlowRequest{ServerID: serverID, ChallengeMetadata: append([]string(nil), challengeMetadata...), ChallengeScopes: append([]string(nil), challengeScopes...), PriorRequestedScopes: append([]string(nil), priorScopes...)}
+	service.mu.Unlock()
+	return nil
 }
 
 func (service *FlowService) Create(ctx context.Context, request FlowRequest) (contract.AuthFlowCreation, error) {
@@ -317,6 +352,7 @@ func (service *FlowService) clearAll() {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	clear(service.byState)
+	clear(service.pendingStepUp)
 }
 
 func requestedScopes(request FlowRequest, requestOffline bool, graph Graph) ([]string, error) {

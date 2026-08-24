@@ -20,6 +20,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestWithOperationHoldsGlobalAdmissionAcrossCallerWork(t *testing.T) {
+	store, _ := newCutoverStore(t)
+	provider, err := NewProviderForTest(testInstallationID, NewMemoryAdapterForTest())
+	require.NoError(t, err)
+	coordinator := NewCoordinator(provider, store, testutil.NewFakeClock(time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)), testutil.NewFakeEntropy(uniqueEntropy(1)))
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- coordinator.WithOperation(context.Background(), func(*Operation) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+	namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordOAuthTokens)
+	require.NoError(t, err)
+	_, _, err = coordinator.ReadActive(context.Background(), namespace)
+	assert.ErrorIs(t, err, ErrWorkLimit)
+	close(release)
+	require.NoError(t, <-done)
+}
+
 func TestFencedPublicationCommitsGenerationAndDomainMetadataAtomically(t *testing.T) {
 	ctx := context.Background()
 	store, _ := newCutoverStore(t)

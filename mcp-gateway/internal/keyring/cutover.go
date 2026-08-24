@@ -117,15 +117,37 @@ func (coordinator *Coordinator) ReplaceFencedAfterAuthorizationSuccess(
 	secret []byte,
 	callback AuthorityCallback,
 ) (CutoverResult, error) {
-	if !coordinator.acquireOperation() {
-		return CutoverResult{}, ErrWorkLimit
+	var result CutoverResult
+	err := coordinator.WithOperation(ctx, func(operation *Operation) error {
+		var replaceErr error
+		result, replaceErr = operation.ReplaceFencedAfterAuthorizationSuccess(ctx, namespace, secret, callback)
+		return replaceErr
+	})
+	return result, err
+}
+
+type Operation struct {
+	coordinator *Coordinator
+	epoch       uint64
+}
+
+func (coordinator *Coordinator) WithOperation(ctx context.Context, use func(*Operation) error) error {
+	if use == nil || !coordinator.acquireOperation() {
+		return ErrWorkLimit
 	}
 	defer coordinator.releaseOperation()
-
 	epoch, err := coordinator.activeEpoch()
 	if err != nil {
-		return CutoverResult{}, err
+		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return use(&Operation{coordinator: coordinator, epoch: epoch})
+}
+
+func (operation *Operation) ReplaceFencedAfterAuthorizationSuccess(ctx context.Context, namespace Namespace, secret []byte, callback AuthorityCallback) (CutoverResult, error) {
+	coordinator, epoch := operation.coordinator, operation.epoch
 	if err := coordinator.validateNamespace(ctx, namespace); err != nil {
 		return CutoverResult{}, err
 	}
@@ -133,7 +155,6 @@ func (coordinator *Coordinator) ReplaceFencedAfterAuthorizationSuccess(
 		_, invalidationErr := coordinator.invalidateAuthority(ctx, namespace, epoch, callback, "", true)
 		return CutoverResult{}, errors.Join(err, invalidationErr)
 	}
-
 	result, candidateErr := coordinator.replaceFencedAdmitted(ctx, namespace, secret, callback, epoch, true)
 	if candidateErr == nil {
 		candidateErr = coordinator.activateAuthority(ctx, namespace, epoch, callback, result.Revision)
@@ -142,14 +163,21 @@ func (coordinator *Coordinator) ReplaceFencedAfterAuthorizationSuccess(
 		_ = coordinator.cleanupCandidates(ctx, namespace, epoch)
 		return result, nil
 	}
-
-	_, invalidationErr := coordinator.invalidateAuthority(
-		ctx, namespace, epoch, callback, result.Revision, true,
-	)
+	_, invalidationErr := coordinator.invalidateAuthority(ctx, namespace, epoch, callback, result.Revision, true)
 	if invalidationErr == nil {
 		_ = coordinator.cleanupCandidates(ctx, namespace, epoch)
 	}
 	return CutoverResult{}, errors.Join(candidateErr, invalidationErr)
+}
+
+func (operation *Operation) InvalidateFenced(ctx context.Context, namespace Namespace, callback AuthorityCallback) (CutoverResult, error) {
+	revision, err := operation.coordinator.invalidateAuthority(ctx, namespace, operation.epoch, callback, "", false)
+	return CutoverResult{Revision: revision}, err
+}
+
+func (operation *Operation) InvalidateFencedExact(ctx context.Context, namespace Namespace, callback AuthorityCallback) (CutoverResult, error) {
+	revision, err := operation.coordinator.invalidateAuthority(ctx, namespace, operation.epoch, callback, "", true)
+	return CutoverResult{Revision: revision}, err
 }
 
 func (coordinator *Coordinator) replaceFencedAdmitted(
@@ -268,18 +296,19 @@ func (coordinator *Coordinator) Drain() {
 	coordinator.epoch++
 }
 
-func (coordinator *Coordinator) ReadActive(
-	ctx context.Context,
-	namespace Namespace,
-) ([]byte, CutoverResult, error) {
-	if !coordinator.acquireOperation() {
-		return nil, CutoverResult{}, ErrWorkLimit
-	}
-	defer coordinator.releaseOperation()
-	epoch, err := coordinator.activeEpoch()
-	if err != nil {
-		return nil, CutoverResult{}, err
-	}
+func (coordinator *Coordinator) ReadActive(ctx context.Context, namespace Namespace) ([]byte, CutoverResult, error) {
+	var secret []byte
+	var result CutoverResult
+	err := coordinator.WithOperation(ctx, func(operation *Operation) error {
+		var readErr error
+		secret, result, readErr = operation.ReadActive(ctx, namespace)
+		return readErr
+	})
+	return secret, result, err
+}
+
+func (operation *Operation) ReadActive(ctx context.Context, namespace Namespace) ([]byte, CutoverResult, error) {
+	coordinator, epoch := operation.coordinator, operation.epoch
 	if coordinator.store != nil && coordinator.store.Latched() {
 		return nil, CutoverResult{}, storage.ErrStorageLatched
 	}
@@ -288,7 +317,7 @@ func (coordinator *Coordinator) ReadActive(
 	}
 	var handleValue string
 	var revision uint64
-	err = coordinator.store.View(ctx, func(transaction *sql.Tx) error {
+	err := coordinator.store.View(ctx, func(transaction *sql.Tx) error {
 		var fenced int
 		if err := transaction.QueryRowContext(ctx, `
 			SELECT count(*) FROM keyring_authority_fences
