@@ -28,7 +28,7 @@ internal/strictjson/    Dependency-neutral bounded strict JSON and canonical equ
 internal/paths/         Owner-only paths and process ownership
 internal/storage/       SQLite identity, migrations, durability, latch
 internal/servers/       Durable S2 identities, desired authority, operations, cursors, idempotency
-internal/runtimes/      Process-local serialized reconciliation, retries, status, and runtime driver seam
+internal/runtimes/      Process-local reconciliation plus bounded direct stdio supervision
 internal/admin/         Admin bearer and in-memory session authority
 internal/api/           Strict resources, JSON, and safe problems
 internal/httpboundary/  Listener, route ownership, and early validation
@@ -59,10 +59,10 @@ The package directories begin as documented seams and gain implementation only i
 - The first process signal drains and closes ephemeral registries within the fixed deadline; the second forces exit. Drain the keyring coordinator before closing storage so late context-free results cannot commit.
 - `internal/servers` is the only owner of S2 SQL. Its sanitized contract-typed desired input cannot carry secret payloads; SQLite may contain only safe desired/tombstone facts, independent authority revisions and opaque handles, operation history/watermarks, and safe-reference idempotency metadata.
 - Every standalone server-domain mutation uses `storage.Store.Mutate`. Keyring publication/invalidation is the sole exception: a repository callback updates authority metadata directly on the coordinator-owned existing `*sql.Tx` under captured desired, credential, optional registration, and drain fences. That callback must never call `Store.Mutate`. Keep keyring, process, network, OAuth, initialization, discovery, and transport work outside mutation admission; map a latched store fail closed and never repair online.
-- Runtime state is never serialized or resumed after restart.
+- Runtime state is never serialized or resumed after restart. Direct stdio execution uses only a validated absolute executable, literal arguments, exact working directory, clean declared/runtime-secret environment, and a fresh process group; ownership and retained diagnostics stay process-local and raw output never reaches public or durable sinks.
 - Test subprocesses use `testutil.BinaryRunner` with a positive configured timeout and per-stream byte cap. It captures stdout/stderr separately, reports truncation, and guarantees direct-child cancellation; component-specific process-group behavior belongs with that component.
 - The official MCP SDK sits behind Gateway-owned authentication, classification, binding, limits, and lifecycle.
-- The current S2 checkpoint implements the closed vocabulary, shared strict JSON, durable server/operation/idempotency authority foundation, transaction-fenced server-scoped keyring publication/invalidation, desired-server plus explicit-operation APIs, and transport-neutral runtime reconciliation/retry scheduling. Do not infer process/network work, OAuth orchestration, catalog traversal, concrete downstream activation, routing, invocation, or product-UI behavior; add behavior only in its owning task.
+- The current S2 checkpoint implements the closed vocabulary, shared strict JSON, durable server/operation/idempotency authority foundation, transaction-fenced server-scoped keyring publication/invalidation, desired-server plus explicit-operation APIs, transport-neutral runtime reconciliation/retry scheduling, and the bounded direct stdio supervisor. The supervisor is not yet production activation: do not infer stop-before-start wiring, network work, OAuth orchestration, catalog traversal, concrete downstream activation, routing, invocation, or product-UI behavior; add behavior only in its owning task.
 
 ## Dependency flow
 
