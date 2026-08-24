@@ -2,6 +2,7 @@ package runtimes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -14,13 +15,14 @@ import (
 )
 
 type fakeRepository struct {
-	mu          sync.Mutex
-	servers     map[string]servers.Server
-	authorities map[string]servers.AuthorityMetadata
-	operations  map[string]servers.Operation
-	nextID      int
-	interrupted bool
-	transitions chan servers.Operation
+	mu               sync.Mutex
+	servers          map[string]servers.Server
+	authorities      map[string]servers.AuthorityMetadata
+	operations       map[string]servers.Operation
+	nextID           int
+	interrupted      bool
+	transitions      chan servers.Operation
+	beforeTransition func(contract.ServerOperationState) error
 }
 
 func newFakeRepository(count int) *fakeRepository {
@@ -83,6 +85,14 @@ func (repository *fakeRepository) GetOperation(_ context.Context, id string) (se
 	return operation, nil
 }
 func (repository *fakeRepository) TransitionOperation(_ context.Context, id string, state contract.ServerOperationState, reason *contract.PublicReason) (servers.Operation, error) {
+	repository.mu.Lock()
+	hook := repository.beforeTransition
+	repository.mu.Unlock()
+	if hook != nil {
+		if err := hook(state); err != nil {
+			return servers.Operation{}, err
+		}
+	}
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
 	operation, ok := repository.operations[id]
@@ -523,6 +533,42 @@ func establishActiveRuntime(t *testing.T, manager *Manager, driver *lifecycleDri
 	return candidate
 }
 
+type finalizationCatalog struct {
+	mu        sync.Mutex
+	routable  bool
+	installed chan Candidate
+	withdrawn chan Candidate
+}
+
+func newFinalizationCatalog() *finalizationCatalog {
+	return &finalizationCatalog{installed: make(chan Candidate, 1), withdrawn: make(chan Candidate, 1)}
+}
+
+func (catalog *finalizationCatalog) Activate(_ context.Context, candidate Candidate) CatalogOutcome {
+	catalog.mu.Lock()
+	catalog.routable = true
+	catalog.mu.Unlock()
+	catalog.installed <- candidate
+	return CatalogOutcome{State: contract.ActiveCatalogCurrent}
+}
+
+func (catalog *finalizationCatalog) Refresh(ctx context.Context, candidate Candidate) CatalogOutcome {
+	return catalog.Activate(ctx, candidate)
+}
+
+func (catalog *finalizationCatalog) Withdraw(candidate Candidate, _ contract.ActiveCatalogState) {
+	catalog.mu.Lock()
+	catalog.routable = false
+	catalog.mu.Unlock()
+	catalog.withdrawn <- candidate
+}
+
+func (catalog *finalizationCatalog) routeVisible() bool {
+	catalog.mu.Lock()
+	defer catalog.mu.Unlock()
+	return catalog.routable
+}
+
 type refreshCatalog struct {
 	refreshStarted chan Candidate
 	release        chan CatalogOutcome
@@ -576,6 +622,155 @@ func TestManagerRefreshCatalogOperationSkipsLifecycleAndCompletesAttachedWork(t 
 		t.Fatal("refresh unexpectedly stopped the runtime")
 	default:
 	}
+}
+
+func TestManagerFinalizesStatusAndHintsBeforeOperationSuccess(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	catalog := newFinalizationCatalog()
+	publisher := newRecordingPublisher()
+	var invalidationMu sync.Mutex
+	invalidations := make([]contract.Invalidation, 0, 8)
+	serverHint := make(chan struct{})
+	releaseServerHint := make(chan struct{})
+	var serverHintOnce sync.Once
+	catalogHintSeen := false
+	manager, err := New(Options{Repository: repository, Driver: driver, Catalog: catalog, Publisher: publisher, Invalidate: func(invalidation contract.Invalidation) {
+		invalidationMu.Lock()
+		invalidations = append(invalidations, invalidation)
+		if invalidation.Kind == contract.InvalidationCatalog {
+			catalogHintSeen = true
+		}
+		blockServerHint := invalidation.Kind == contract.InvalidationServers && catalogHintSeen
+		invalidationMu.Unlock()
+		if blockServerHint {
+			serverHintOnce.Do(func() {
+				close(serverHint)
+				<-releaseServerHint
+			})
+		}
+	}})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	operation, err := repository.CreateOperation(context.Background(), servers.OperationRequest{ServerID: serverID, Kind: contract.OperationActivate, ExpectedDesiredRevision: "1"})
+	require.NoError(t, err)
+	manager.Trigger(serverID, &operation.Operation.ID, false)
+	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, contract.OperationRunning, (<-repository.transitions).State)
+	candidate := receiveCandidate(t, driver.started)
+	invalidationMu.Lock()
+	invalidations = nil
+	invalidationMu.Unlock()
+	driver.startResult <- activeOutcome()
+	assert.Equal(t, candidate.RuntimeID, receiveCandidate(t, catalog.installed).RuntimeID)
+	select {
+	case <-serverHint:
+	case <-time.After(time.Second):
+		t.Fatal("manager status hint did not follow catalog installation")
+	}
+	assert.True(t, catalog.routeVisible())
+	status := manager.Status(serverID)
+	assert.Equal(t, contract.RuntimeActive, status.State)
+	assert.Equal(t, contract.ActiveCatalogCurrent, status.CatalogState)
+	assert.Equal(t, candidate.RuntimeID, *status.RuntimeID)
+	invalidationMu.Lock()
+	kinds := make([]contract.InvalidationKind, 0, len(invalidations))
+	for _, invalidation := range invalidations {
+		kinds = append(kinds, invalidation.Kind)
+	}
+	invalidationMu.Unlock()
+	assert.Contains(t, kinds, contract.InvalidationCatalog)
+	assert.Contains(t, kinds, contract.InvalidationServers)
+	assert.NotContains(t, kinds, contract.InvalidationServerOperations)
+	current, err := repository.GetOperation(context.Background(), operation.Operation.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.OperationRunning, current.State)
+
+	close(releaseServerHint)
+	assert.Equal(t, contract.OperationSucceeded, (<-repository.transitions).State)
+	require.Eventually(t, func() bool {
+		invalidationMu.Lock()
+		defer invalidationMu.Unlock()
+		for _, invalidation := range invalidations {
+			if invalidation.Kind == contract.InvalidationServerOperations {
+				return true
+			}
+		}
+		return false
+	}, time.Second, time.Millisecond)
+}
+
+func TestManagerOperationPersistenceRollbackWithdrawsBeforeUnconfirmedStop(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	catalog := newFinalizationCatalog()
+	publisher := newRecordingPublisher()
+	invalidations := make(chan contract.Invalidation, 32)
+	manager, err := New(Options{Repository: repository, Driver: driver, Catalog: catalog, Publisher: publisher, Invalidate: func(invalidation contract.Invalidation) { invalidations <- invalidation }})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	operation, err := repository.CreateOperation(context.Background(), servers.OperationRequest{ServerID: serverID, Kind: contract.OperationActivate, ExpectedDesiredRevision: "1"})
+	require.NoError(t, err)
+	repository.beforeTransition = func(state contract.ServerOperationState) error {
+		if state == contract.OperationSucceeded {
+			return errors.New("storage latch")
+		}
+		return nil
+	}
+	manager.Trigger(serverID, &operation.Operation.ID, false)
+	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, contract.OperationRunning, (<-repository.transitions).State)
+	candidate := receiveCandidate(t, driver.started)
+	for len(invalidations) > 0 {
+		<-invalidations
+	}
+	driver.startResult <- activeOutcome()
+	assert.Equal(t, candidate.RuntimeID, receiveCandidate(t, catalog.installed).RuntimeID)
+	rollbackFence := receivePublisherEvent(t, publisher.events)
+	assert.Equal(t, "fence", rollbackFence.step)
+	withdrawn := receiveCandidate(t, catalog.withdrawn)
+	assert.Equal(t, candidate.RuntimeID, withdrawn.RuntimeID)
+	assert.False(t, catalog.routeVisible())
+	stopping := receiveCandidate(t, driver.stopping)
+	assert.Equal(t, candidate.RuntimeID, stopping.RuntimeID)
+	driver.stopResult <- false
+	require.Eventually(t, func() bool {
+		status := manager.Status(serverID)
+		return status.State == contract.RuntimeDegraded && status.Reason != nil && *status.Reason == contract.ReasonStopUnconfirmed && status.CatalogState == contract.ActiveCatalogUnavailable && status.RuntimeID == nil
+	}, time.Second, time.Millisecond)
+	manager.mu.Lock()
+	blocked := cloneCandidate(manager.entries[serverID].blockedStop)
+	pending := manager.entries[serverID].pending
+	manager.mu.Unlock()
+	require.NotNil(t, blocked)
+	assert.Equal(t, candidate.RuntimeID, blocked.RuntimeID)
+	assert.False(t, pending)
+	current, err := repository.GetOperation(context.Background(), operation.Operation.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.OperationRunning, current.State)
+	select {
+	case next := <-driver.started:
+		t.Fatalf("replacement started after unconfirmed rollback stop: %s", next.RuntimeID)
+	default:
+	}
+	seenCatalog, seenServer, seenOperation := false, false, false
+	for len(invalidations) > 0 {
+		invalidation := <-invalidations
+		seenCatalog = seenCatalog || invalidation.Kind == contract.InvalidationCatalog
+		seenServer = seenServer || invalidation.Kind == contract.InvalidationServers
+		seenOperation = seenOperation || invalidation.Kind == contract.InvalidationServerOperations
+	}
+	assert.True(t, seenCatalog)
+	assert.True(t, seenServer)
+	assert.False(t, seenOperation)
 }
 
 func TestManagerWithdrawsAndVerifiesStopBeforeReplacementPublicationAndSuccess(t *testing.T) {
@@ -1048,7 +1243,7 @@ func TestManagerPublishesSafeInvalidationsAfterTransitions(t *testing.T) {
 
 	seen := make(map[contract.InvalidationKind]bool)
 	deadline := time.After(time.Second)
-	for !seen[contract.InvalidationServers] || !seen[contract.InvalidationServerOperations] || !seen[contract.InvalidationSystemStatus] {
+	for !seen[contract.InvalidationCatalog] || !seen[contract.InvalidationServers] || !seen[contract.InvalidationServerOperations] || !seen[contract.InvalidationSystemStatus] {
 		select {
 		case invalidation := <-invalidations:
 			seen[invalidation.Kind] = true

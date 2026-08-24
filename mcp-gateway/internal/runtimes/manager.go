@@ -624,11 +624,15 @@ func (manager *Manager) stopPrevious(serverID string) bool {
 	return true
 }
 
-func (manager *Manager) stopCandidate(candidate Candidate) bool {
+func (manager *Manager) withdrawCandidate(candidate Candidate) {
 	if refresher, ok := manager.catalog.(CatalogRefresher); ok {
 		refresher.Withdraw(candidate, contract.ActiveCatalogUnavailable)
 	}
 	manager.publisher.Withdraw(candidate)
+}
+
+func (manager *Manager) stopCandidate(candidate Candidate) bool {
+	manager.withdrawCandidate(candidate)
 	return manager.driver.Stop(context.Background(), candidate)
 }
 
@@ -725,20 +729,6 @@ func (manager *Manager) finishSuccess(serverID string, generation uint64, operat
 	if candidate != nil && outcome.State == contract.RuntimeActive {
 		current.active = cloneCandidate(candidate)
 	}
-	if operationID != nil {
-		if _, err := manager.repository.TransitionOperation(context.Background(), *operationID, contract.OperationSucceeded, outcome.Reason); err != nil {
-			if candidate != nil && outcome.State == contract.RuntimeActive {
-				current.active = nil
-			}
-			manager.mu.Unlock()
-			if candidate != nil && !manager.stopCandidate(*candidate) {
-				manager.rememberBlockedStop(serverID, *candidate)
-			}
-			manager.finishStale(serverID, generation)
-			return
-		}
-		manager.publish(contract.InvalidationServerOperations, operationID)
-	}
 	current.status.State = outcome.State
 	current.status.Reason = cloneReason(outcome.Reason)
 	current.status.CredentialState = outcome.CredentialState
@@ -748,10 +738,67 @@ func (manager *Manager) finishSuccess(serverID string, generation uint64, operat
 		current.status.RuntimeID = cloneString(&candidate.RuntimeID)
 	}
 	current.retryAttempt = 0
-	manager.releaseLocked(current)
-	manager.publish(contract.InvalidationServers, &serverID)
-	manager.publish(contract.InvalidationSystemStatus, nil)
 	manager.mu.Unlock()
+
+	manager.publish(contract.InvalidationCatalog, &serverID)
+	manager.publish(contract.InvalidationServers, &serverID)
+
+	manager.mu.Lock()
+	current = manager.entries[serverID]
+	if current == nil || current.generation != generation || manager.draining {
+		if current != nil && candidate != nil && current.active != nil && current.active.Key() == candidate.Key() {
+			current.active = nil
+			current.status.RuntimeID = nil
+		}
+		manager.mu.Unlock()
+		if candidate != nil {
+			if !manager.stopCandidate(*candidate) {
+				manager.rememberBlockedStop(serverID, *candidate)
+			}
+		}
+		manager.finishStale(serverID, generation)
+		return
+	}
+	if operationID != nil {
+		if _, err := manager.repository.TransitionOperation(context.Background(), *operationID, contract.OperationSucceeded, outcome.Reason); err != nil {
+			current.generation++
+			manager.publisher.Fence(serverID, current.generation)
+			current.active = nil
+			current.status.State = contract.RuntimeDegraded
+			reason := contract.ReasonConnectivity
+			current.status.Reason = &reason
+			current.status.CatalogState = contract.ActiveCatalogUnavailable
+			current.status.RuntimeID = nil
+			manager.releaseLocked(current)
+			manager.mu.Unlock()
+			if candidate != nil {
+				manager.withdrawCandidate(*candidate)
+			}
+			manager.publish(contract.InvalidationCatalog, &serverID)
+			manager.publish(contract.InvalidationServers, &serverID)
+			manager.publish(contract.InvalidationSystemStatus, nil)
+			if candidate != nil && !manager.driver.Stop(context.Background(), *candidate) {
+				manager.mu.Lock()
+				current = manager.entryLocked(serverID)
+				current.blockedStop = cloneCandidate(candidate)
+				stopReason := contract.ReasonStopUnconfirmed
+				current.status.State = contract.RuntimeDegraded
+				current.status.Reason = &stopReason
+				current.status.CatalogState = contract.ActiveCatalogUnavailable
+				current.status.RuntimeID = nil
+				manager.mu.Unlock()
+				manager.publish(contract.InvalidationServers, &serverID)
+				manager.publish(contract.InvalidationSystemStatus, nil)
+			}
+			return
+		}
+	}
+	manager.releaseLocked(current)
+	manager.mu.Unlock()
+	if operationID != nil {
+		manager.publish(contract.InvalidationServerOperations, operationID)
+	}
+	manager.publish(contract.InvalidationSystemStatus, nil)
 }
 
 func (manager *Manager) finishFailure(serverID string, generation uint64, operationID *string, state contract.RuntimeState, credential contract.ServerCredentialState, catalog contract.ActiveCatalogState, reason contract.PublicReason, retry bool) {
