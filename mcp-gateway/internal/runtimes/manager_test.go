@@ -20,10 +20,11 @@ type fakeRepository struct {
 	operations  map[string]servers.Operation
 	nextID      int
 	interrupted bool
+	transitions chan servers.Operation
 }
 
 func newFakeRepository(count int) *fakeRepository {
-	repository := &fakeRepository{servers: make(map[string]servers.Server), authorities: make(map[string]servers.AuthorityMetadata), operations: make(map[string]servers.Operation)}
+	repository := &fakeRepository{servers: make(map[string]servers.Server), authorities: make(map[string]servers.AuthorityMetadata), operations: make(map[string]servers.Operation), transitions: make(chan servers.Operation, 64)}
 	for index := 0; index < count; index++ {
 		id := fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5F%02d", index)
 		repository.servers[id] = servers.Server{ID: id, Namespace: fmt.Sprintf("server-%d", index), DisplayName: "Server", DesiredState: contract.DesiredServerEnabled, DesiredRevision: "1", CreatedAt: "2026-08-23T00:00:00Z", UpdatedAt: "2026-08-23T00:00:00Z"}
@@ -90,6 +91,7 @@ func (repository *fakeRepository) TransitionOperation(_ context.Context, id stri
 	}
 	operation.State, operation.Reason = state, reason
 	repository.operations[id] = operation
+	repository.transitions <- operation
 	return operation, nil
 }
 func (repository *fakeRepository) InterruptNonterminal(context.Context) error {
@@ -104,6 +106,14 @@ func (repository *fakeRepository) NewID() (string, error) {
 	repository.nextID++
 	return fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G7F%02d", repository.nextID), nil
 }
+func (repository *fakeRepository) setDesiredState(id string, state contract.DesiredServerState) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	server := repository.servers[id]
+	server.DesiredState = state
+	repository.servers[id] = server
+}
+
 func (repository *fakeRepository) setRevision(id, revision string) {
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
@@ -130,8 +140,75 @@ func (driver *blockingDriver) Reconcile(ctx context.Context, candidate Candidate
 		return Outcome{}
 	}
 }
-func (driver *blockingDriver) Cleanup(_ context.Context, candidate Candidate) {
+func (driver *blockingDriver) Stop(_ context.Context, candidate Candidate) bool {
 	driver.cleaned <- candidate
+	return true
+}
+
+type lifecycleDriver struct {
+	started     chan Candidate
+	startResult chan Outcome
+	stopping    chan Candidate
+	stopResult  chan bool
+}
+
+func newLifecycleDriver() *lifecycleDriver {
+	return &lifecycleDriver{started: make(chan Candidate, 16), startResult: make(chan Outcome, 16), stopping: make(chan Candidate, 16), stopResult: make(chan bool, 16)}
+}
+
+func (driver *lifecycleDriver) Reconcile(_ context.Context, candidate Candidate) Outcome {
+	driver.started <- candidate
+	return <-driver.startResult
+}
+
+func (driver *lifecycleDriver) Stop(_ context.Context, candidate Candidate) bool {
+	driver.stopping <- candidate
+	return <-driver.stopResult
+}
+
+type publisherEvent struct {
+	step      string
+	candidate Candidate
+}
+
+type recordingPublisher struct {
+	delegate *memoryPublisher
+	events   chan publisherEvent
+}
+
+func newRecordingPublisher() *recordingPublisher {
+	return &recordingPublisher{delegate: newMemoryPublisher(), events: make(chan publisherEvent, 32)}
+}
+
+func (publisher *recordingPublisher) Fence(serverID string, generation uint64) {
+	publisher.delegate.Fence(serverID, generation)
+	publisher.events <- publisherEvent{step: "fence", candidate: Candidate{Server: servers.Server{ID: serverID}, Generation: generation}}
+}
+
+func (publisher *recordingPublisher) Withdraw(candidate Candidate) {
+	publisher.delegate.Withdraw(candidate)
+	publisher.events <- publisherEvent{step: "withdraw", candidate: candidate}
+}
+
+func (publisher *recordingPublisher) Publish(candidate Candidate) bool {
+	published := publisher.delegate.Publish(candidate)
+	step := "publish_rejected"
+	if published {
+		step = "publish"
+	}
+	publisher.events <- publisherEvent{step: step, candidate: candidate}
+	return published
+}
+
+func receivePublisherEvent(t *testing.T, events <-chan publisherEvent) publisherEvent {
+	t.Helper()
+	select {
+	case event := <-events:
+		return event
+	case <-time.After(time.Second):
+		t.Fatal("publisher event was not received")
+		return publisherEvent{}
+	}
 }
 
 func activeOutcome() Outcome {
@@ -219,6 +296,247 @@ func TestManagerRejectsStalePublicationAndReconcilesLatestRevision(t *testing.T)
 	assert.Equal(t, latest.RuntimeID, *manager.Status(id).RuntimeID)
 }
 
+func establishActiveRuntime(t *testing.T, manager *Manager, driver *lifecycleDriver, publisher *recordingPublisher, serverID string) Candidate {
+	t.Helper()
+	manager.Trigger(serverID, nil, true)
+	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	candidate := receiveCandidate(t, driver.started)
+	driver.startResult <- activeOutcome()
+	event := receivePublisherEvent(t, publisher.events)
+	assert.Equal(t, "publish", event.step)
+	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeActive }, time.Second, time.Millisecond)
+	return candidate
+}
+
+func TestManagerWithdrawsAndVerifiesStopBeforeReplacementPublicationAndSuccess(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	publisher := newRecordingPublisher()
+	manager, err := New(Options{Repository: repository, Driver: driver, Publisher: publisher})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	active := establishActiveRuntime(t, manager, driver, publisher, serverID)
+	operation, err := repository.CreateOperation(context.Background(), servers.OperationRequest{ServerID: serverID, Kind: contract.OperationReload, ExpectedDesiredRevision: "2"})
+	require.NoError(t, err)
+	repository.setRevision(serverID, "2")
+	manager.Trigger(serverID, &operation.Operation.ID, true)
+	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	running := <-repository.transitions
+	assert.Equal(t, contract.OperationRunning, running.State)
+	withdraw := receivePublisherEvent(t, publisher.events)
+	assert.Equal(t, "withdraw", withdraw.step)
+	stopping := receiveCandidate(t, driver.stopping)
+	assert.Equal(t, active.RuntimeID, stopping.RuntimeID)
+	select {
+	case candidate := <-driver.started:
+		t.Fatalf("replacement started before verified stop: %s", candidate.RuntimeID)
+	default:
+	}
+	driver.stopResult <- true
+	replacement := receiveCandidate(t, driver.started)
+	assert.NotEqual(t, active.RuntimeID, replacement.RuntimeID)
+	driver.startResult <- activeOutcome()
+	published := receivePublisherEvent(t, publisher.events)
+	assert.Equal(t, "publish", published.step)
+	succeeded := <-repository.transitions
+	assert.Equal(t, contract.OperationSucceeded, succeeded.State)
+	assert.Equal(t, replacement.RuntimeID, *manager.Status(serverID).RuntimeID)
+}
+
+func TestSupersededCandidateWithUnconfirmedStopCannotStartLatestReplacement(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	publisher := newRecordingPublisher()
+	manager, err := New(Options{Repository: repository, Driver: driver, Publisher: publisher})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	manager.Trigger(serverID, nil, true)
+	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	candidate := receiveCandidate(t, driver.started)
+	repository.setRevision(serverID, "2")
+	manager.Trigger(serverID, nil, true)
+	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	driver.startResult <- activeOutcome()
+	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, candidate.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
+	driver.stopResult <- false
+	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, candidate.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
+	driver.stopResult <- false
+	require.Eventually(t, func() bool {
+		status := manager.Status(serverID)
+		return status.State == contract.RuntimeDegraded && status.Reason != nil && *status.Reason == contract.ReasonStopUnconfirmed
+	}, time.Second, time.Millisecond)
+	select {
+	case replacement := <-driver.started:
+		t.Fatalf("latest replacement started without candidate cleanup: %s", replacement.RuntimeID)
+	default:
+	}
+}
+
+func TestManagerStopUnconfirmedWithdrawsAndStartsNoReplacement(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	publisher := newRecordingPublisher()
+	manager, err := New(Options{Repository: repository, Driver: driver, Publisher: publisher})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	_ = establishActiveRuntime(t, manager, driver, publisher, serverID)
+	operation, err := repository.CreateOperation(context.Background(), servers.OperationRequest{ServerID: serverID, Kind: contract.OperationReload, ExpectedDesiredRevision: "2"})
+	require.NoError(t, err)
+	repository.setRevision(serverID, "2")
+	manager.Trigger(serverID, &operation.Operation.ID, true)
+	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, contract.OperationRunning, (<-repository.transitions).State)
+	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
+	_ = receiveCandidate(t, driver.stopping)
+	driver.stopResult <- false
+	require.Eventually(t, func() bool {
+		status := manager.Status(serverID)
+		return status.State == contract.RuntimeDegraded && status.Reason != nil && *status.Reason == contract.ReasonStopUnconfirmed
+	}, time.Second, time.Millisecond)
+	assert.Equal(t, int64(1), manager.RuntimeStatus().InUse)
+	failed := <-repository.transitions
+	assert.Equal(t, contract.OperationFailed, failed.State)
+	assert.Equal(t, contract.ReasonStopUnconfirmed, *failed.Reason)
+	select {
+	case candidate := <-driver.started:
+		t.Fatalf("replacement started after unconfirmed stop: %s", candidate.RuntimeID)
+	default:
+	}
+}
+
+func TestManagerDisableAndDeleteStopWithoutReplacement(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		desired contract.DesiredServerState
+		want    contract.RuntimeState
+	}{
+		{name: "disabled", desired: contract.DesiredServerDisabled, want: contract.RuntimeInactive},
+		{name: "deleted", desired: contract.DesiredServerDeleted, want: contract.RuntimeDeleted},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repository := newFakeRepository(1)
+			driver := newLifecycleDriver()
+			publisher := newRecordingPublisher()
+			manager, err := New(Options{Repository: repository, Driver: driver, Publisher: publisher})
+			require.NoError(t, err)
+			defer manager.Shutdown()
+			var serverID string
+			for serverID = range repository.servers {
+				break
+			}
+			_ = establishActiveRuntime(t, manager, driver, publisher, serverID)
+			repository.setDesiredState(serverID, test.desired)
+			manager.Trigger(serverID, nil, true)
+			assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+			assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
+			_ = receiveCandidate(t, driver.stopping)
+			driver.stopResult <- true
+			require.Eventually(t, func() bool { return manager.Status(serverID).State == test.want }, time.Second, time.Millisecond)
+			select {
+			case candidate := <-driver.started:
+				t.Fatalf("runtime started for %s server: %s", test.desired, candidate.RuntimeID)
+			default:
+			}
+		})
+	}
+}
+
+func TestManagerDisplayOnlyRevisionChangePreservesActiveRuntime(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	publisher := newRecordingPublisher()
+	manager, err := New(Options{Repository: repository, Driver: driver, Publisher: publisher})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	active := establishActiveRuntime(t, manager, driver, publisher, serverID)
+	repository.setRevision(serverID, "2")
+	assert.Equal(t, active.RuntimeID, *manager.Status(serverID).RuntimeID)
+	select {
+	case event := <-publisher.events:
+		t.Fatalf("display-only change affected publication: %s", event.step)
+	case candidate := <-driver.stopping:
+		t.Fatalf("display-only change stopped runtime: %s", candidate.RuntimeID)
+	default:
+	}
+}
+
+func TestBlockedStopDoesNotBlockUnrelatedServerActivation(t *testing.T) {
+	repository := newFakeRepository(2)
+	driver := newLifecycleDriver()
+	publisher := newRecordingPublisher()
+	manager, err := New(Options{Repository: repository, Driver: driver, Publisher: publisher})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	ids := make([]string, 0, 2)
+	for serverID := range repository.servers {
+		ids = append(ids, serverID)
+	}
+	_ = establishActiveRuntime(t, manager, driver, publisher, ids[0])
+	repository.setRevision(ids[0], "2")
+	manager.Trigger(ids[0], nil, true)
+	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
+	_ = receiveCandidate(t, driver.stopping)
+	manager.Trigger(ids[1], nil, true)
+	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	other := receiveCandidate(t, driver.started)
+	assert.Equal(t, ids[1], other.Server.ID)
+	driver.startResult <- activeOutcome()
+	assert.Equal(t, "publish", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, contract.RuntimeActive, manager.Status(ids[1]).State)
+	driver.stopResult <- true
+}
+
+func TestRuntimeFailureWithdrawsBeforeRetryAndRejectsStaleFailure(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	publisher := newRecordingPublisher()
+	scheduler := newFakeScheduler()
+	manager, err := New(Options{Repository: repository, Driver: driver, Publisher: publisher, Scheduler: scheduler})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	active := establishActiveRuntime(t, manager, driver, publisher, serverID)
+	assert.False(t, manager.RuntimeFailed(serverID, "stale-runtime", contract.ReasonProcessExited))
+	assert.True(t, manager.RuntimeFailed(serverID, active.RuntimeID, contract.ReasonProcessExited))
+	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
+	stopping := receiveCandidate(t, driver.stopping)
+	assert.Equal(t, active.RuntimeID, stopping.RuntimeID)
+	driver.stopResult <- true
+	require.Eventually(t, func() bool {
+		status := manager.Status(serverID)
+		return status.State == contract.RuntimeRetryWait && status.Reason != nil && *status.Reason == contract.ReasonProcessExited
+	}, time.Second, time.Millisecond)
+	assert.Equal(t, time.Second, scheduler.fire(t, 0))
+	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	replacement := receiveCandidate(t, driver.started)
+	assert.NotEqual(t, active.RuntimeID, replacement.RuntimeID)
+	driver.startResult <- activeOutcome()
+	assert.Equal(t, "publish", receivePublisherEvent(t, publisher.events).step)
+}
+
 type fakeTimer struct {
 	callback func()
 	stopped  bool
@@ -274,7 +592,7 @@ func (driver *outcomeDriver) Reconcile(_ context.Context, candidate Candidate) O
 	driver.outcomes = driver.outcomes[1:]
 	return outcome
 }
-func (*outcomeDriver) Cleanup(context.Context, Candidate) {}
+func (*outcomeDriver) Stop(context.Context, Candidate) bool { return true }
 
 func TestManagerUsesExactRetryScheduleAndExplicitReset(t *testing.T) {
 	reason := contract.ReasonConnectivity
