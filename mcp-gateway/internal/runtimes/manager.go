@@ -99,6 +99,11 @@ type Options struct {
 	Publisher  ActivePublisher
 }
 
+type DrainResult struct {
+	Verified    int
+	Unconfirmed int
+}
+
 type Manager struct {
 	mu          sync.Mutex
 	repository  Repository
@@ -115,6 +120,7 @@ type Manager struct {
 	globalLimit int64
 	drainEpoch  uint64
 	draining    bool
+	drainDone   chan DrainResult
 }
 
 type entry struct {
@@ -750,24 +756,72 @@ func (manager *Manager) RuntimeStatus() contract.LimitStatus {
 	return contract.LimitStatus{InUse: inUse, Limit: limit.Maximum, Saturated: inUse >= limit.Maximum}
 }
 
-func (manager *Manager) Shutdown() {
+func (manager *Manager) Drain(ctx context.Context) <-chan DrainResult {
 	manager.mu.Lock()
-	if manager.draining {
+	if manager.drainDone != nil {
+		done := manager.drainDone
 		manager.mu.Unlock()
-		return
+		return done
 	}
 	manager.draining = true
 	manager.drainEpoch++
-	for _, current := range manager.entries {
+	manager.drainDone = make(chan DrainResult, 1)
+	done := manager.drainDone
+	candidates := make([]Candidate, 0, len(manager.entries))
+	seen := make(map[string]struct{}, len(manager.entries))
+	for serverID, current := range manager.entries {
 		current.generation++
+		manager.publisher.Fence(serverID, current.generation)
 		current.pending = false
 		if current.timer != nil {
 			current.timer.Stop()
 			current.timer = nil
 		}
+		owned := current.active != nil || current.blockedStop != nil
+		for _, candidate := range []*Candidate{current.active, current.blockedStop} {
+			if candidate == nil {
+				continue
+			}
+			manager.publisher.Withdraw(*candidate)
+			if _, duplicate := seen[candidate.RuntimeID]; !duplicate {
+				seen[candidate.RuntimeID] = struct{}{}
+				candidates = append(candidates, *candidate)
+			}
+		}
+		current.active = nil
+		current.blockedStop = nil
+		current.status.RuntimeID = nil
+		if owned {
+			reason := contract.ReasonStopUnconfirmed
+			current.status.State = contract.RuntimeDegraded
+			current.status.Reason = &reason
+		}
 	}
 	manager.cancel()
 	manager.mu.Unlock()
+
+	go func() {
+		results := make(chan bool, len(candidates))
+		for _, candidate := range candidates {
+			candidate := candidate
+			go func() { results <- manager.driver.Stop(ctx, candidate) }()
+		}
+		result := DrainResult{}
+		for range candidates {
+			if <-results {
+				result.Verified++
+			} else {
+				result.Unconfirmed++
+			}
+		}
+		done <- result
+		close(done)
+	}()
+	return done
+}
+
+func (manager *Manager) Shutdown() {
+	manager.Drain(context.Background())
 }
 
 func (manager *Manager) publish(kind contract.InvalidationKind, resourceID *string) {

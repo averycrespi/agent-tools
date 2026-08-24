@@ -145,6 +145,19 @@ func (driver *blockingDriver) Stop(_ context.Context, candidate Candidate) bool 
 	return true
 }
 
+type contextStopDriver struct {
+	stopping chan Candidate
+}
+
+func (driver *contextStopDriver) Reconcile(context.Context, Candidate) Outcome {
+	return activeOutcome()
+}
+func (driver *contextStopDriver) Stop(ctx context.Context, candidate Candidate) bool {
+	driver.stopping <- candidate
+	<-ctx.Done()
+	return false
+}
+
 type lifecycleDriver struct {
 	started     chan Candidate
 	startResult chan Outcome
@@ -726,6 +739,69 @@ func TestManagerDrainFencesLateDriverPublication(t *testing.T) {
 	cleaned := receiveCandidate(t, driver.cleaned)
 	assert.Equal(t, candidate.RuntimeID, cleaned.RuntimeID)
 	assert.NotEqual(t, contract.RuntimeActive, manager.Status(id).State)
+}
+
+func TestManagerDrainWithdrawsAllAndStopsConcurrentlyOutsideAdmission(t *testing.T) {
+	repository := newFakeRepository(4)
+	driver := newLifecycleDriver()
+	publisher := newRecordingPublisher()
+	manager, err := New(Options{Repository: repository, Driver: driver, Publisher: publisher})
+	require.NoError(t, err)
+	manager.mu.Lock()
+	manager.globalInUse = manager.globalLimit
+	for serverID, server := range repository.servers {
+		current := manager.entryLocked(serverID)
+		current.generation = 1
+		candidate := Candidate{Server: server, RuntimeID: "runtime-" + serverID, Generation: 1}
+		current.active = &candidate
+		current.status.State = contract.RuntimeActive
+		current.status.RuntimeID = &candidate.RuntimeID
+		publisher.delegate.Fence(serverID, candidate.Generation)
+		assert.True(t, publisher.Publish(candidate))
+		_ = receivePublisherEvent(t, publisher.events)
+	}
+	manager.mu.Unlock()
+
+	done := manager.Drain(context.Background())
+	for range 4 {
+		assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+		assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
+	}
+	stopping := make(map[string]bool)
+	for range 4 {
+		stopping[receiveCandidate(t, driver.stopping).RuntimeID] = true
+	}
+	assert.Len(t, stopping, 4)
+	for range 3 {
+		driver.stopResult <- true
+	}
+	driver.stopResult <- false
+	result := <-done
+	assert.Equal(t, DrainResult{Verified: 3, Unconfirmed: 1}, result)
+	assert.Zero(t, manager.RuntimeStatus().InUse)
+}
+
+func TestManagerDrainDeadlineClassifiesUnconfirmedWithoutExtending(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := &contextStopDriver{stopping: make(chan Candidate, 1)}
+	manager, err := New(Options{Repository: repository, Driver: driver})
+	require.NoError(t, err)
+	var serverID string
+	var server servers.Server
+	for serverID, server = range repository.servers {
+		break
+	}
+	candidate := Candidate{Server: server, RuntimeID: "runtime-deadline", Generation: 1}
+	manager.mu.Lock()
+	current := manager.entryLocked(serverID)
+	current.active = &candidate
+	current.generation = 1
+	manager.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := manager.Drain(ctx)
+	assert.Equal(t, candidate.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
+	cancel()
+	assert.Equal(t, DrainResult{Unconfirmed: 1}, <-done)
 }
 
 func TestManagerStartupInterruptsAndReconstructsOnlyEnabledServers(t *testing.T) {

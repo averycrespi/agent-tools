@@ -252,6 +252,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if err := json.NewEncoder(command.OutOrStdout()).Encode(result); err != nil {
 		return false, err
 	}
+	runtimeClean := true
 	select {
 	case err := <-serveDone:
 		if !errors.Is(err, http.ErrServerClosed) {
@@ -260,15 +261,21 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	case <-ctx.Done():
 		draining.Store(true)
 		ready.Store(false)
-		runtimeManager.Shutdown()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), contract.GracefulShutdownDeadline)
+		defer cancel()
+		runtimeDrain := runtimeManager.Drain(shutdownCtx)
 		keyringCoordinator.Drain()
 		eventHub.Shutdown()
 		ingress.Shutdown()
 		sessions.Shutdown()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), contract.GracefulShutdownDeadline)
-		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			return true, err
+		}
+		select {
+		case result := <-runtimeDrain:
+			runtimeClean = result.Unconfirmed == 0
+		case <-shutdownCtx.Done():
+			runtimeClean = false
 		}
 		if err := <-serveDone; err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return true, err
@@ -277,8 +284,10 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if err := store.Close(); err != nil {
 		return true, err
 	}
-	if err := ownership.MarkClean(); err != nil {
-		return true, err
+	if runtimeClean {
+		if err := ownership.MarkClean(); err != nil {
+			return true, err
+		}
 	}
 	return true, nil
 }
