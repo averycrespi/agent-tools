@@ -155,6 +155,11 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if err != nil {
 		return false, err
 	}
+	disconnectService, err := oauth.NewDisconnectService(serverRepository, keyringCoordinator, oauthResolver, remoteFactory, identity.InstallationID)
+	if err != nil {
+		return false, err
+	}
+	runtimeManager.SetCredentialLifecycle(disconnectService)
 	oauthRegistrar, err := oauth.NewRegistrar(remoteFactory, serverRepository, keyringCoordinator, identity.InstallationID, dependencies.clock.Now, func() bool { return !draining.Load() })
 	if err != nil {
 		return false, err

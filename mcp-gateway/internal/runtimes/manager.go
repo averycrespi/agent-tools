@@ -50,6 +50,16 @@ type CatalogCoordinator interface {
 	Activate(context.Context, Candidate) CatalogOutcome
 }
 
+type CredentialLifecycle interface {
+	ReconcileCredentials(context.Context, servers.Operation, servers.Server, servers.AuthorityMetadata, contract.ServerCredentialState) (CredentialLifecycleOutcome, bool)
+}
+
+type CredentialLifecycleOutcome struct {
+	CredentialState contract.ServerCredentialState
+	Reason          *contract.PublicReason
+	CleanupPending  bool
+}
+
 type AuthorityOutcome struct {
 	State           contract.RuntimeState
 	CredentialState contract.ServerCredentialState
@@ -90,13 +100,14 @@ type Status struct {
 }
 
 type Options struct {
-	Repository Repository
-	Driver     Driver
-	Authority  AuthorityResolver
-	Catalog    CatalogCoordinator
-	Scheduler  Scheduler
-	Invalidate func(contract.Invalidation)
-	Publisher  ActivePublisher
+	Repository  Repository
+	Driver      Driver
+	Authority   AuthorityResolver
+	Catalog     CatalogCoordinator
+	Credentials CredentialLifecycle
+	Scheduler   Scheduler
+	Invalidate  func(contract.Invalidation)
+	Publisher   ActivePublisher
 }
 
 type DrainResult struct {
@@ -110,6 +121,7 @@ type Manager struct {
 	driver      Driver
 	authority   AuthorityResolver
 	catalog     CatalogCoordinator
+	credentials CredentialLifecycle
 	scheduler   Scheduler
 	invalidate  func(contract.Invalidation)
 	publisher   ActivePublisher
@@ -227,7 +239,7 @@ func New(options Options) (*Manager, error) {
 		return nil, errors.New("server reconciliation limit is missing")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Manager{repository: options.Repository, driver: options.Driver, authority: options.Authority, catalog: options.Catalog, scheduler: options.Scheduler, invalidate: options.Invalidate, publisher: options.Publisher, ctx: ctx, cancel: cancel, entries: make(map[string]*entry), globalLimit: limit.Maximum}, nil
+	return &Manager{repository: options.Repository, driver: options.Driver, authority: options.Authority, catalog: options.Catalog, credentials: options.Credentials, scheduler: options.Scheduler, invalidate: options.Invalidate, publisher: options.Publisher, ctx: ctx, cancel: cancel, entries: make(map[string]*entry), globalLimit: limit.Maximum}, nil
 }
 
 func (manager *Manager) Start(ctx context.Context) error {
@@ -281,6 +293,12 @@ func (manager *Manager) initializeInactive(server servers.Server) {
 	}
 	current.status.State = state
 	manager.publish(contract.InvalidationServers, &server.ID)
+}
+
+func (manager *Manager) SetCredentialLifecycle(lifecycle CredentialLifecycle) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	manager.credentials = lifecycle
 }
 
 func (manager *Manager) SetCredentialState(serverID string, state contract.ServerCredentialState, withdraw bool) {
@@ -363,14 +381,17 @@ func (manager *Manager) startAvailableLocked() {
 }
 
 func (manager *Manager) reconcile(serverID string, generation uint64, operationID *string) {
+	var operation *servers.Operation
 	if operationID != nil {
-		if _, err := manager.transitionCurrent(serverID, generation, *operationID, contract.OperationRunning, nil); err != nil {
-			operation, getErr := manager.repository.GetOperation(manager.ctx, *operationID)
-			if getErr != nil || operation.State != contract.OperationRunning {
+		transitioned, err := manager.transitionCurrent(serverID, generation, *operationID, contract.OperationRunning, nil)
+		if err != nil {
+			transitioned, err = manager.repository.GetOperation(manager.ctx, *operationID)
+			if err != nil || transitioned.State != contract.OperationRunning {
 				manager.finishStale(serverID, generation)
 				return
 			}
 		}
+		operation = &transitioned
 	}
 	if !manager.stopPrevious(serverID) {
 		manager.finishFailure(serverID, generation, operationID, contract.RuntimeDegraded, contract.ServerCredentialUnavailable, contract.ActiveCatalogAbsent, contract.ReasonStopUnconfirmed, false)
@@ -385,6 +406,24 @@ func (manager *Manager) reconcile(serverID string, generation uint64, operationI
 	if err != nil {
 		manager.finishFailure(serverID, generation, operationID, contract.RuntimeDegraded, contract.ServerCredentialUnavailable, contract.ActiveCatalogAbsent, contract.ReasonKeyringUnavailable, true)
 		return
+	}
+	if operation != nil && manager.credentials != nil {
+		manager.mu.Lock()
+		credentialState := manager.entryLocked(serverID).status.CredentialState
+		manager.mu.Unlock()
+		credentialOutcome, handled := manager.credentials.ReconcileCredentials(manager.ctx, *operation, server, authority, credentialState)
+		if handled {
+			state := contract.RuntimeInactive
+			if server.DesiredState == contract.DesiredServerDeleted {
+				state = contract.RuntimeDeleted
+			}
+			if credentialOutcome.CleanupPending {
+				manager.finishFailure(serverID, generation, operationID, state, contract.ServerCredentialCleanupPending, contract.ActiveCatalogAbsent, contract.ReasonCleanupPending, false)
+				return
+			}
+			manager.finishSuccess(serverID, generation, operationID, Outcome{State: state, CredentialState: credentialOutcome.CredentialState, CatalogState: contract.ActiveCatalogAbsent, Reason: credentialOutcome.Reason}, nil)
+			return
+		}
 	}
 	if server.DesiredState != contract.DesiredServerEnabled {
 		state := contract.RuntimeInactive
@@ -555,7 +594,7 @@ func (manager *Manager) finishSuccess(serverID string, generation uint64, operat
 		current.active = cloneCandidate(candidate)
 	}
 	if operationID != nil {
-		if _, err := manager.repository.TransitionOperation(context.Background(), *operationID, contract.OperationSucceeded, nil); err != nil {
+		if _, err := manager.repository.TransitionOperation(context.Background(), *operationID, contract.OperationSucceeded, outcome.Reason); err != nil {
 			if published {
 				manager.publisher.Withdraw(*candidate)
 				current.active = nil

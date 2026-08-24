@@ -169,31 +169,33 @@ func (operation *refreshOperationFake) InvalidateFencedExact(context.Context, ke
 }
 
 type refreshRequesterFake struct {
-	mu          sync.Mutex
-	calls       int
-	status      int
-	header      http.Header
-	body        []byte
-	err         error
-	handoff     bool
-	started     chan struct{}
-	release     chan struct{}
-	requestBody []byte
+	mu            sync.Mutex
+	calls         int
+	status        int
+	header        http.Header
+	body          []byte
+	err           error
+	handoff       bool
+	started       chan struct{}
+	release       chan struct{}
+	requestBody   []byte
+	requestBodies [][]byte
 }
 
 func (requester *refreshRequesterFake) Request(_ context.Context, _ string, _ bool, _ http.Header, body []byte, _ int64, before func()) (int, http.Header, []byte, error) {
 	requester.mu.Lock()
 	requester.calls++
 	requester.requestBody = append([]byte(nil), body...)
+	requester.requestBodies = append(requester.requestBodies, append([]byte(nil), body...))
 	requester.mu.Unlock()
-	if requester.handoff {
+	if requester.handoff && before != nil {
 		before()
 	}
 	if requester.started != nil {
 		requester.started <- struct{}{}
 		<-requester.release
 	}
-	if !requester.handoff && requester.err == nil {
+	if !requester.handoff && requester.err == nil && before != nil {
 		before()
 	}
 	return requester.status, requester.header.Clone(), append([]byte(nil), requester.body...), requester.err

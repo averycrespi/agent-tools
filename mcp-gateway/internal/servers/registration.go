@@ -76,6 +76,40 @@ func (repository *Repository) OAuthRegistration(ctx context.Context, serverID st
 	return registration, mapViewError(err)
 }
 
+func (repository *Repository) InvalidateOAuthRegistrationForDelete(ctx context.Context, serverID, expectedRevision string) (string, error) {
+	if !validID(serverID) {
+		return "", ErrNotFound
+	}
+	expected, err := parseRevision(expectedRevision)
+	if err != nil {
+		return "", ErrStaleRevision
+	}
+	var revision int64
+	err = repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
+		var state contract.DesiredServerState
+		if err := transaction.QueryRowContext(ctx, `SELECT desired_state FROM servers WHERE id = ?`, serverID).Scan(&state); err != nil {
+			return err
+		}
+		if state != contract.DesiredServerDeleted {
+			return ErrInvalidOperation
+		}
+		if err := transaction.QueryRowContext(ctx, `
+			UPDATE server_oauth_registrations SET
+				revision = revision + 1, mode = NULL, issuer = NULL, client_id = NULL,
+				callback_url = NULL, resource_url = NULL, token_endpoint_auth_method = NULL,
+				created_at = NULL, client_secret_expires_at = NULL
+			WHERE server_id = ? AND revision = ? AND revision > 0
+			RETURNING revision`, serverID, expected).Scan(&revision); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrStaleRevision
+			}
+			return err
+		}
+		return nil
+	})
+	return formatRevision(revision), mapMutationError(err)
+}
+
 func (repository *Repository) PublishPublicRegistration(ctx context.Context, fence RegistrationFence, registration OAuthRegistrationAuthority) (OAuthRegistrationAuthority, error) {
 	if err := validateRegistrationFence(fence); err != nil || registration.ClientSecretExpiresAt != nil {
 		return OAuthRegistrationAuthority{}, ErrInvalidInput

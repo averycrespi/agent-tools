@@ -82,6 +82,11 @@ func (repository *Repository) CreateOperation(ctx context.Context, request Opera
 				return nil
 			}
 		}
+		if request.Kind == contract.OperationDisconnectCredentials {
+			if err := supersedeAuthFlowsTx(ctx, transaction, request.ServerID, now); err != nil {
+				return err
+			}
+		}
 		authority, err := authorityTx(ctx, transaction, request.ServerID)
 		if err != nil {
 			return err

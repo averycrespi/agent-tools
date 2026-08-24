@@ -180,6 +180,10 @@ func (operation *Operation) InvalidateFencedExact(ctx context.Context, namespace
 	return CutoverResult{Revision: revision}, err
 }
 
+func (operation *Operation) CleanupCandidates(ctx context.Context, namespace Namespace) error {
+	return operation.coordinator.cleanupCandidates(ctx, namespace, operation.epoch)
+}
+
 func (coordinator *Coordinator) replaceFencedAdmitted(
 	ctx context.Context,
 	namespace Namespace,
