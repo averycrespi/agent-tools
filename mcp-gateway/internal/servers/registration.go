@@ -218,7 +218,7 @@ func validateRegistrationCurrent(ctx context.Context, transaction *sql.Tx, fence
 		return err
 	}
 	confidentialStatic := registration.Mode == contract.RegistrationStatic && (registration.TokenEndpointAuthMethod == contract.TokenEndpointAuthClientSecretBasic || registration.TokenEndpointAuthMethod == contract.TokenEndpointAuthClientSecretPost)
-	if state == contract.DesiredServerDeleted || currentDesired != desired || currentRegistration != expectedRegistration || currentClient != client || handle.Valid != (confidentialStatic && currentClient > 0) || !registrationMatchesDesired([]byte(transportJSON), registration) {
+	if state == contract.DesiredServerDeleted || currentDesired != desired || currentRegistration != expectedRegistration || currentClient != client || handle.Valid != (confidentialStatic && currentClient > 0) || !RegistrationMatchesDesired([]byte(transportJSON), registration) {
 		return ErrStaleRevision
 	}
 	if fence.ExpectedAuthFlowID != "" {
@@ -237,7 +237,7 @@ func validateRegistrationCurrent(ctx context.Context, transaction *sql.Tx, fence
 	return nil
 }
 
-func registrationMatchesDesired(contents []byte, authority OAuthRegistrationAuthority) bool {
+func RegistrationMatchesDesired(contents []byte, authority OAuthRegistrationAuthority) bool {
 	var transport struct {
 		Kind           contract.TransportKind `json:"kind"`
 		URL            string                 `json:"url"`

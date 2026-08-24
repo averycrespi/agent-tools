@@ -16,6 +16,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/api"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/credentialauthority"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/events"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
@@ -124,7 +125,6 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if err != nil {
 		return false, err
 	}
-	defer runtimeManager.Shutdown()
 	credentials := admin.NewService(store, dependencies.clock, dependencies.entropy)
 	sessions := admin.NewSessionManager(credentials, dependencies.clock, dependencies.entropy)
 	defer sessions.Shutdown()
@@ -143,6 +143,13 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		return false, err
 	}
 	keyringCoordinator := keyring.NewCoordinator(provider, store, dependencies.clock, dependencies.entropy)
+	defer keyringCoordinator.Drain()
+	defer runtimeManager.Shutdown()
+	authorityResolver, err := credentialauthority.New(serverRepository, keyringCoordinator, identity.InstallationID, dependencies.clock.Now)
+	if err != nil {
+		return false, err
+	}
+	runtimeManager.SetAuthorityResolver(authorityResolver)
 	replacementService, err := servercredentials.New(serverRepository, keyringCoordinator, identity.InstallationID, runtimeManager.Fence, func(serverID string) { runtimeManager.Trigger(serverID, nil, true) })
 	if err != nil {
 		return false, err

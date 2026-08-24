@@ -1,0 +1,224 @@
+// Package credentialauthority validates current server-scoped authority before activation.
+package credentialauthority
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"time"
+
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/oauth"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servercredentials"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
+)
+
+type Repository interface {
+	OAuthRegistration(context.Context, string) (servers.OAuthRegistrationAuthority, error)
+}
+
+type Coordinator interface {
+	ReadActive(context.Context, keyring.Namespace) ([]byte, keyring.CutoverResult, error)
+}
+
+type Resolver struct {
+	repository     Repository
+	coordinator    Coordinator
+	installationID string
+	now            func() time.Time
+}
+
+func New(repository Repository, coordinator Coordinator, installationID string, now func() time.Time) (*Resolver, error) {
+	if repository == nil || coordinator == nil || now == nil {
+		return nil, errors.New("credential authority dependencies are incomplete")
+	}
+	if _, err := keyring.NewNamespace(installationID, installationID, keyring.RecordStaticCredential); err != nil {
+		return nil, err
+	}
+	return &Resolver{repository: repository, coordinator: coordinator, installationID: installationID, now: now}, nil
+}
+
+func (resolver *Resolver) Resolve(ctx context.Context, candidate runtimes.Candidate) runtimes.AuthorityOutcome {
+	configuration, err := parseRequirements(candidate.Server.Transport)
+	if err != nil {
+		return rejected(contract.ServerCredentialUnavailable, contract.ReasonConfigurationInvalid, false)
+	}
+	switch configuration.mode {
+	case requirementNone:
+		return runtimes.AuthorityOutcome{CredentialState: contract.ServerCredentialNotRequired}
+	case requirementStatic:
+		return resolver.resolveStatic(ctx, candidate, configuration.slots)
+	case requirementOAuth:
+		return resolver.resolveOAuth(ctx, candidate)
+	default:
+		return rejected(contract.ServerCredentialUnavailable, contract.ReasonConfigurationInvalid, false)
+	}
+}
+
+func (resolver *Resolver) resolveStatic(ctx context.Context, candidate runtimes.Candidate, slots map[string]struct{}) runtimes.AuthorityOutcome {
+	authority := candidate.Authority
+	if authority.StaticCredentialHandle == nil || authority.CredentialRevisions.StaticCredential == "0" {
+		return rejected(contract.ServerCredentialAbsent, contract.ReasonCredentialAbsent, false)
+	}
+	contents, result, err := resolver.read(ctx, candidate.Server.ID, keyring.RecordStaticCredential)
+	if err != nil {
+		return mapReadError(err)
+	}
+	defer clear(contents)
+	if string(result.Handle) != *authority.StaticCredentialHandle || result.Revision != authority.CredentialRevisions.StaticCredential {
+		return rejected(contract.ServerCredentialAbsent, contract.ReasonCredentialAbsent, false)
+	}
+	generation, err := servercredentials.DecodeStaticGeneration(contents)
+	if err != nil || !sameSlots(generation.Values, slots) {
+		return rejected(contract.ServerCredentialUnavailable, contract.ReasonKeyringUnavailable, false)
+	}
+	return runtimes.AuthorityOutcome{CredentialState: contract.ServerCredentialReady}
+}
+
+func (resolver *Resolver) resolveOAuth(ctx context.Context, candidate runtimes.Candidate) runtimes.AuthorityOutcome {
+	authority := candidate.Authority
+	registration, err := resolver.repository.OAuthRegistration(ctx, candidate.Server.ID)
+	if err != nil || registration.Revision == "0" || registration.Revision != authority.RegistrationRevision || !servers.RegistrationMatchesDesired(candidate.Server.Transport, registration) {
+		return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonCredentialAbsent, false)
+	}
+	if registration.ClientSecretExpiresAt != nil {
+		expires, parseErr := time.Parse(time.RFC3339Nano, *registration.ClientSecretExpiresAt)
+		if parseErr != nil || !resolver.now().Before(expires) {
+			return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonRegistrationExpired, false)
+		}
+	}
+	if registration.TokenEndpointAuthMethod != contract.TokenEndpointAuthNone {
+		if authority.OAuthClientHandle == nil || authority.CredentialRevisions.OAuthClient == "0" {
+			return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonCredentialAbsent, false)
+		}
+		secret, result, readErr := resolver.read(ctx, candidate.Server.ID, keyring.RecordOAuthClient)
+		if readErr != nil {
+			return mapReadError(readErr)
+		}
+		valid := len(secret) != 0 && string(result.Handle) == *authority.OAuthClientHandle && result.Revision == authority.CredentialRevisions.OAuthClient
+		clear(secret)
+		if !valid {
+			return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonCredentialAbsent, false)
+		}
+	}
+	if authority.OAuthTokensHandle == nil || authority.CredentialRevisions.OAuthTokens == "0" {
+		return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonCredentialAbsent, false)
+	}
+	contents, result, readErr := resolver.read(ctx, candidate.Server.ID, keyring.RecordOAuthTokens)
+	if readErr != nil {
+		return mapReadError(readErr)
+	}
+	defer clear(contents)
+	if string(result.Handle) != *authority.OAuthTokensHandle || result.Revision != authority.CredentialRevisions.OAuthTokens {
+		return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonCredentialAbsent, false)
+	}
+	tokens, decodeErr := oauth.DecodeTokenGeneration(contents)
+	if decodeErr != nil || tokens.ServerID != candidate.Server.ID || tokens.Issuer != registration.Issuer || tokens.RegistrationRevision != registration.Revision || tokens.Resource != registration.ResourceURL {
+		return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonOAuthRejected, false)
+	}
+	if tokens.ExpiresAt != nil {
+		expires, parseErr := time.Parse(time.RFC3339Nano, *tokens.ExpiresAt)
+		if parseErr != nil || !resolver.now().Before(expires) {
+			return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonOAuthExpired, false)
+		}
+	}
+	return runtimes.AuthorityOutcome{CredentialState: contract.ServerCredentialReady}
+}
+
+func (resolver *Resolver) read(ctx context.Context, serverID string, kind keyring.RecordKind) ([]byte, keyring.CutoverResult, error) {
+	namespace, err := keyring.NewNamespace(resolver.installationID, serverID, kind)
+	if err != nil {
+		return nil, keyring.CutoverResult{}, err
+	}
+	return resolver.coordinator.ReadActive(ctx, namespace)
+}
+
+type requirementMode uint8
+
+const (
+	requirementNone requirementMode = iota
+	requirementStatic
+	requirementOAuth
+)
+
+type requirements struct {
+	mode  requirementMode
+	slots map[string]struct{}
+}
+
+func parseRequirements(contents []byte) (requirements, error) {
+	var envelope struct {
+		Kind              contract.TransportKind `json:"kind"`
+		SecretEnvironment map[string]string      `json:"secret_environment"`
+		Authentication    struct {
+			Mode contract.AuthenticationMode `json:"mode"`
+		} `json:"authentication"`
+	}
+	if err := json.Unmarshal(contents, &envelope); err != nil {
+		return requirements{}, err
+	}
+	switch envelope.Kind {
+	case contract.TransportStdio:
+		slots := make(map[string]struct{})
+		for _, slot := range envelope.SecretEnvironment {
+			slots[slot] = struct{}{}
+		}
+		if len(slots) == 0 {
+			return requirements{mode: requirementNone}, nil
+		}
+		return requirements{mode: requirementStatic, slots: slots}, nil
+	case contract.TransportStreamableHTTP:
+		switch envelope.Authentication.Mode {
+		case contract.AuthenticationNone:
+			return requirements{mode: requirementNone}, nil
+		case contract.AuthenticationBearer:
+			return requirements{mode: requirementStatic, slots: map[string]struct{}{"bearer": {}}}, nil
+		case contract.AuthenticationOAuth:
+			return requirements{mode: requirementOAuth}, nil
+		}
+	}
+	return requirements{}, errors.New("unsupported credential requirements")
+}
+
+func sameSlots(values map[string]string, slots map[string]struct{}) bool {
+	if len(values) != len(slots) {
+		return false
+	}
+	for slot := range slots {
+		if values[slot] == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func rejected(state contract.ServerCredentialState, reason contract.PublicReason, retry bool) runtimes.AuthorityOutcome {
+	return runtimes.AuthorityOutcome{State: contract.RuntimeAuthenticationRequired, CredentialState: state, Reason: &reason, Retryable: retry}
+}
+
+func mapReadError(err error) runtimes.AuthorityOutcome {
+	if errors.Is(err, keyring.ErrWorkLimit) {
+		return rejected(contract.ServerCredentialUnavailable, contract.ReasonResourceLimit, true)
+	}
+	if errors.Is(err, keyring.ErrNoAuthority) || errors.Is(err, keyring.ErrNotFound) {
+		return rejected(contract.ServerCredentialAbsent, contract.ReasonCredentialAbsent, false)
+	}
+	var capability *keyring.CapabilityError
+	if errors.As(err, &capability) {
+		switch capability.Capability.State {
+		case contract.KeyringAbsent:
+			return rejected(contract.ServerCredentialAbsent, contract.ReasonKeyringAbsent, false)
+		case contract.KeyringLocked:
+			return rejected(contract.ServerCredentialLocked, contract.ReasonKeyringLocked, false)
+		case contract.KeyringInteractionRequired:
+			return rejected(contract.ServerCredentialInteractionRequired, contract.ReasonKeyringInteractionRequired, false)
+		case contract.KeyringUnsupported:
+			return rejected(contract.ServerCredentialUnsupported, contract.ReasonKeyringUnsupported, false)
+		default:
+			return rejected(contract.ServerCredentialUnavailable, contract.ReasonKeyringUnavailable, true)
+		}
+	}
+	return rejected(contract.ServerCredentialUnavailable, contract.ReasonKeyringUnavailable, false)
+}

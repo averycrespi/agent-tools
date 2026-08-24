@@ -277,6 +277,9 @@ func (manager *Manager) Start(ctx context.Context) error {
 func (manager *Manager) initializeFailure(serverID string, reason contract.PublicReason) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	if manager.draining {
+		return
+	}
 	current := manager.entryLocked(serverID)
 	current.status.State = contract.RuntimeDegraded
 	current.status.Reason = &reason
@@ -286,6 +289,9 @@ func (manager *Manager) initializeFailure(serverID string, reason contract.Publi
 func (manager *Manager) initializeInactive(server servers.Server) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	if manager.draining {
+		return
+	}
 	current := manager.entryLocked(server.ID)
 	state := contract.RuntimeInactive
 	if server.DesiredState == contract.DesiredServerDeleted {
@@ -293,6 +299,15 @@ func (manager *Manager) initializeInactive(server servers.Server) {
 	}
 	current.status.State = state
 	manager.publish(contract.InvalidationServers, &server.ID)
+}
+
+func (manager *Manager) SetAuthorityResolver(resolver AuthorityResolver) {
+	if resolver == nil {
+		return
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	manager.authority = resolver
 }
 
 func (manager *Manager) SetCredentialLifecycle(lifecycle CredentialLifecycle) {
@@ -304,6 +319,9 @@ func (manager *Manager) SetCredentialLifecycle(lifecycle CredentialLifecycle) {
 func (manager *Manager) SetCredentialState(serverID string, state contract.ServerCredentialState, withdraw bool) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	if manager.draining {
+		return
+	}
 	current := manager.entryLocked(serverID)
 	current.status.CredentialState = state
 	if withdraw {
@@ -392,6 +410,15 @@ func (manager *Manager) reconcile(serverID string, generation uint64, operationI
 			}
 		}
 		operation = &transitioned
+		if transitioned.Kind == contract.OperationDisconnectCredentials || transitioned.Kind == contract.OperationDelete {
+			manager.mu.Lock()
+			current := manager.entries[serverID]
+			if current != nil && current.generation == generation && !manager.draining {
+				current.status.CredentialState = contract.ServerCredentialDisconnecting
+				manager.publish(contract.InvalidationServers, &serverID)
+			}
+			manager.mu.Unlock()
+		}
 	}
 	if !manager.stopPrevious(serverID) {
 		manager.finishFailure(serverID, generation, operationID, contract.RuntimeDegraded, contract.ServerCredentialUnavailable, contract.ActiveCatalogAbsent, contract.ReasonStopUnconfirmed, false)

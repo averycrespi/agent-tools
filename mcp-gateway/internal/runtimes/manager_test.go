@@ -823,6 +823,15 @@ func TestManagerDrainDeadlineClassifiesUnconfirmedWithoutExtending(t *testing.T)
 	assert.Equal(t, DrainResult{Unconfirmed: 1}, <-done)
 }
 
+func TestManagerDrainRejectsLateCredentialStatus(t *testing.T) {
+	manager, err := New(Options{Repository: newFakeRepository(0)})
+	require.NoError(t, err)
+	manager.SetCredentialState("server", contract.ServerCredentialRefreshing, true)
+	<-manager.Drain(context.Background())
+	manager.SetCredentialState("server", contract.ServerCredentialReady, false)
+	assert.Equal(t, contract.ServerCredentialRefreshing, manager.Status("server").CredentialState)
+}
+
 func TestManagerStartupInterruptsAndReconstructsOnlyEnabledServers(t *testing.T) {
 	repository := newFakeRepository(2)
 	var disabledID string
