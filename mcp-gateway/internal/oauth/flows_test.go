@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -138,6 +139,15 @@ type flowStoreFake struct {
 
 func (store *flowStoreFake) CreateAuthFlow(context.Context, servers.AuthFlowCreateRequest) (servers.AuthFlowCreateResult, error) {
 	return store.created, nil
+}
+func (store *flowStoreFake) BeginAuthFlowExchange(context.Context, servers.OAuthTokenFence) (servers.AuthFlow, error) {
+	return store.created.Flow, nil
+}
+func (store *flowStoreFake) ValidateAuthFlowExchange(context.Context, servers.OAuthTokenFence) error {
+	return nil
+}
+func (store *flowStoreFake) OAuthTokenAuthorityCallback(servers.OAuthTokenFence) (keyring.AuthorityCallback, error) {
+	return nil, nil
 }
 func (store *flowStoreFake) Authority(context.Context, string) (servers.AuthorityMetadata, error) {
 	authority := store.created.Authority

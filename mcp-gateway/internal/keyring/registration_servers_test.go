@@ -1,9 +1,12 @@
 package keyring_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -73,6 +76,80 @@ func TestConfidentialRegistrationLostResponseReconstructsCommittedAuthority(t *t
 	require.NoError(t, err)
 	assert.Equal(t, []byte("committed-client-secret"), loaded)
 	assert.Equal(t, "1", active.Revision)
+}
+
+func TestInitialOAuthTokenPublicationActivatesAuthorityAndFlowAtomically(t *testing.T) {
+	repository, store, coordinator, _, _, server, closeHarness := newServerCutoverHarness(t, nil)
+	defer closeHarness()
+	server = patchDynamicOAuthServer(t, repository, server)
+	flow, err := repository.CreateAuthFlow(context.Background(), servers.AuthFlowCreateRequest{ServerID: server.ID, ExpectedDesiredRevision: server.DesiredRevision})
+	require.NoError(t, err)
+	registration := registrationAuthority(contract.TokenEndpointAuthNone)
+	registration.ClientSecretExpiresAt = nil
+	_, err = repository.PublishPublicRegistration(context.Background(), servers.RegistrationFence{ServerID: server.ID, ExpectedDesiredRevision: server.DesiredRevision, ExpectedRegistrationRevision: "0", ExpectedOAuthClientRevision: "0", ExpectedAuthFlowID: flow.Flow.ID}, registration)
+	require.NoError(t, err)
+	_, err = repository.MarkAuthFlowAwaiting(context.Background(), flow.Flow.ID, server.DesiredRevision, "1")
+	require.NoError(t, err)
+	fence := servers.OAuthTokenFence{ServerID: server.ID, FlowID: flow.Flow.ID, ExpectedDesiredRevision: server.DesiredRevision, ExpectedRegistrationRevision: "1", ExpectedOAuthClientRevision: "0", ExpectedOAuthTokensRevision: "0"}
+	_, err = repository.BeginAuthFlowExchange(context.Background(), fence)
+	require.NoError(t, err)
+	callback, err := repository.OAuthTokenAuthorityCallback(fence)
+	require.NoError(t, err)
+	namespace, err := keyring.NewNamespace(serverTestInstallationID, server.ID, keyring.RecordOAuthTokens)
+	require.NoError(t, err)
+	secret := []byte(`{"version":1,"access_token":"token-canary"}`)
+	result, err := coordinator.ReplaceFencedAfterAuthorizationSuccess(context.Background(), namespace, secret, callback)
+	require.NoError(t, err)
+	assert.Equal(t, "1", result.Revision)
+	stored, err := repository.GetAuthFlow(context.Background(), server.ID, flow.Flow.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.AuthFlowSucceeded, stored.State)
+	authority, err := repository.Authority(context.Background(), server.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "1", authority.CredentialRevisions.OAuthTokens)
+	loaded, active, err := coordinator.ReadActive(context.Background(), namespace)
+	require.NoError(t, err)
+	assert.Equal(t, secret, loaded)
+	assert.Equal(t, "1", active.Revision)
+	backup := filepath.Join(t.TempDir(), "token-safe.db")
+	require.NoError(t, store.BackupTo(context.Background(), backup))
+	contents, err := os.ReadFile(backup)
+	require.NoError(t, err)
+	assert.False(t, bytes.Contains(contents, []byte("token-canary")))
+}
+
+func TestInitialOAuthTokenPostCommitFailureLeavesNoAuthorityAndFailsFlow(t *testing.T) {
+	repository, store, baseline, _, _, server, closeHarness := newServerCutoverHarness(t, nil)
+	defer closeHarness()
+	server = patchDynamicOAuthServer(t, repository, server)
+	flow, err := repository.CreateAuthFlow(context.Background(), servers.AuthFlowCreateRequest{ServerID: server.ID, ExpectedDesiredRevision: server.DesiredRevision})
+	require.NoError(t, err)
+	registration := registrationAuthority(contract.TokenEndpointAuthNone)
+	registration.ClientSecretExpiresAt = nil
+	_, err = repository.PublishPublicRegistration(context.Background(), servers.RegistrationFence{ServerID: server.ID, ExpectedDesiredRevision: server.DesiredRevision, ExpectedRegistrationRevision: "0", ExpectedOAuthClientRevision: "0", ExpectedAuthFlowID: flow.Flow.ID}, registration)
+	require.NoError(t, err)
+	_, err = repository.MarkAuthFlowAwaiting(context.Background(), flow.Flow.ID, server.DesiredRevision, "1")
+	require.NoError(t, err)
+	fence := servers.OAuthTokenFence{ServerID: server.ID, FlowID: flow.Flow.ID, ExpectedDesiredRevision: server.DesiredRevision, ExpectedRegistrationRevision: "1", ExpectedOAuthClientRevision: "0", ExpectedOAuthTokensRevision: "0"}
+	_, err = repository.BeginAuthFlowExchange(context.Background(), fence)
+	require.NoError(t, err)
+	callback, err := repository.OAuthTokenAuthorityCallback(fence)
+	require.NoError(t, err)
+	lost := errors.New("injected post-commit failure")
+	coordinator := keyring.NewCoordinatorWithAfterCommitForTest(baseline.ProviderForTest(), store, serverTestClock{}, new(serverTestEntropy), func() error { return lost })
+	namespace, err := keyring.NewNamespace(serverTestInstallationID, server.ID, keyring.RecordOAuthTokens)
+	require.NoError(t, err)
+	_, err = coordinator.ReplaceFencedAfterAuthorizationSuccess(context.Background(), namespace, []byte(`{"version":1,"access_token":"unusable-token"}`), callback)
+	assert.ErrorIs(t, err, lost)
+	stored, err := repository.GetAuthFlow(context.Background(), server.ID, flow.Flow.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.AuthFlowFailed, stored.State)
+	authority, err := repository.Authority(context.Background(), server.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "2", authority.CredentialRevisions.OAuthTokens)
+	assert.Nil(t, authority.OAuthTokensHandle)
+	_, _, err = baseline.ReadActive(context.Background(), namespace)
+	assert.ErrorIs(t, err, keyring.ErrNoAuthority)
 }
 
 func TestRegistrationCandidateRejectsDesiredDriftAndDrainWithoutAuthority(t *testing.T) {

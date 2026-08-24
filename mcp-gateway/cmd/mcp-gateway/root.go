@@ -154,7 +154,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if err != nil {
 		return false, err
 	}
-	flowService, err := oauth.NewFlowService(serverRepository, oauthResolver, oauthRegistrar, dependencies.entropy, "http://"+authority+"/oauth/callback", dependencies.clock.Now)
+	flowService, err := oauth.NewFlowService(serverRepository, oauthResolver, oauthRegistrar, remoteFactory, keyringCoordinator, identity.InstallationID, dependencies.entropy, "http://"+authority+"/oauth/callback", dependencies.clock.Now)
 	if err != nil {
 		return false, err
 	}
@@ -178,6 +178,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		Origin:         "http://" + authority,
 		Servers:        serverRepository,
 		AuthFlows:      flowService,
+		OAuthCallback:  flowService,
 		OperationState: runtimeManager.OperationState,
 		RuntimeStatus: func(serverID string) api.RuntimeStatus {
 			status := runtimeManager.Status(serverID)
@@ -202,6 +203,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 			status.Limits.ServerReconciliations = runtimeManager.AdmissionStatus()
 			status.Limits.DownstreamRuntimes = runtimeManager.RuntimeStatus()
 			status.Limits.OAuthFlows = flowService.Status(context.Background())
+			status.Limits.OAuthCallbackWork = flowService.CallbackStatus()
 			if identities, activeServers, registryErr := serverRepository.RegistryStatus(context.Background()); registryErr == nil {
 				status.Limits.ServerIdentities = identities
 				status.Limits.Servers = activeServers

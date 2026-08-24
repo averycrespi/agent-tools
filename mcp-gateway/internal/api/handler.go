@@ -22,6 +22,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/events"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/oauth"
 	serverdomain "github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
@@ -53,7 +54,9 @@ type EventService interface {
 	Subscribe(string, <-chan struct{}) (*events.Subscription, error)
 }
 
-type OAuthStateValidator func(context.Context, string) bool
+type OAuthCallbackService interface {
+	HandleCallback(context.Context, string) oauth.CallbackResult
+}
 
 type RuntimeStatus struct {
 	State           contract.RuntimeState
@@ -73,7 +76,7 @@ type Options struct {
 	NewKeepalive   func() (<-chan time.Time, func())
 	Origin         string
 	Status         func() contract.SystemStatus
-	ValidateOAuth  OAuthStateValidator
+	OAuthCallback  OAuthCallbackService
 	Servers        ServerService
 	AuthFlows      AuthFlowService
 	OperationState OperationStateProvider
@@ -82,20 +85,20 @@ type Options struct {
 }
 
 type Handler struct {
-	credentials    CredentialService
-	sessions       SessionService
-	backups        BackupService
-	events         EventService
-	invalidate     func(contract.Invalidation)
-	newKeepalive   func() (<-chan time.Time, func())
-	origin         string
-	status         func() contract.SystemStatus
-	validateOAuth  OAuthStateValidator
-	servers        ServerService
-	authFlows      AuthFlowService
-	operationState OperationStateProvider
-	runtimeStatus  func(string) RuntimeStatus
-	triggerServer  func(string, *string, bool)
+	credentials     CredentialService
+	sessions        SessionService
+	backups         BackupService
+	events          EventService
+	invalidate      func(contract.Invalidation)
+	newKeepalive    func() (<-chan time.Time, func())
+	origin          string
+	status          func() contract.SystemStatus
+	callbackService OAuthCallbackService
+	servers         ServerService
+	authFlows       AuthFlowService
+	operationState  OperationStateProvider
+	runtimeStatus   func(string) RuntimeStatus
+	triggerServer   func(string, *string, bool)
 }
 
 //go:embed static/*
@@ -116,9 +119,6 @@ func New(options Options) *Handler {
 	if options.Status == nil {
 		options.Status = func() contract.SystemStatus { return contract.SystemStatus{} }
 	}
-	if options.ValidateOAuth == nil {
-		options.ValidateOAuth = func(context.Context, string) bool { return false }
-	}
 	if options.NewKeepalive == nil {
 		options.NewKeepalive = func() (<-chan time.Time, func()) {
 			ticker := time.NewTicker(contract.SSEKeepaliveInterval)
@@ -138,7 +138,7 @@ func New(options Options) *Handler {
 			return RuntimeStatus{State: contract.RuntimeInactive, CatalogState: contract.ActiveCatalogAbsent, Reconciliation: limitStatus("per_server_reconciliation")}
 		}
 	}
-	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, validateOAuth: options.ValidateOAuth, servers: options.Servers, authFlows: options.AuthFlows, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer}
+	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, authFlows: options.AuthFlows, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -282,13 +282,45 @@ func (handler *Handler) serveStatic(writer http.ResponseWriter, name, contentTyp
 }
 
 func (handler *Handler) oauthCallback(writer http.ResponseWriter, request *http.Request) {
-	state := request.URL.Query().Get("state")
-	if state == "" || !handler.validateOAuth(request.Context(), state) {
-		writeProblem(writer, contract.ProblemInvalidOAuthState)
-		return
+	result := oauth.CallbackResult{Outcome: oauth.CallbackInvalid}
+	if handler.callbackService != nil {
+		result = handler.callbackService.HandleCallback(request.Context(), request.URL.RawQuery)
 	}
-	writer.WriteHeader(http.StatusNoContent)
+	status, body := http.StatusBadRequest, callbackFailedHTML
+	switch result.Outcome {
+	case oauth.CallbackSucceeded:
+		status, body = http.StatusOK, callbackSucceededHTML
+		if result.FlowID != "" {
+			handler.emit(contract.Invalidation{Kind: contract.InvalidationServerAuthFlows, ResourceID: &result.FlowID})
+		}
+		if result.ServerID != "" {
+			handler.emit(contract.Invalidation{Kind: contract.InvalidationServers, ResourceID: &result.ServerID})
+			handler.trigger(result.ServerID, nil, true)
+		}
+	case oauth.CallbackTransient:
+		status, body = http.StatusServiceUnavailable, callbackTransientHTML
+	case oauth.CallbackInvalid:
+		if result.FlowID != "" {
+			handler.emit(contract.Invalidation{Kind: contract.InvalidationServerAuthFlows, ResourceID: &result.FlowID})
+		}
+		if result.ServerID != "" {
+			handler.emit(contract.Invalidation{Kind: contract.InvalidationServers, ResourceID: &result.ServerID})
+			handler.trigger(result.ServerID, nil, true)
+		}
+	}
+	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writer.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+	writer.Header().Set("Referrer-Policy", "no-referrer")
+	writer.Header().Set("X-Content-Type-Options", "nosniff")
+	writer.WriteHeader(status)
+	_, _ = writer.Write([]byte(body))
 }
+
+const (
+	callbackSucceededHTML = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Authorization complete</title></head><body>Authorization complete. You may close this window.</body></html>\n"
+	callbackFailedHTML    = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Authorization failed</title></head><body>Authorization failed. Return to Gateway and start a new authorization flow.</body></html>\n"
+	callbackTransientHTML = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Gateway unavailable</title></head><body>Gateway is temporarily unavailable. Retry the authorization callback.</body></html>\n"
+)
 
 func (handler *Handler) exchange(writer http.ResponseWriter, request *http.Request) {
 	if !decodeEmptyObject(writer, request) {

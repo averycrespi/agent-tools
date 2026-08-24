@@ -55,6 +55,9 @@ func (repository *Repository) CredentialAuthorityCallback(fence CredentialFence)
 		if update.ValidateOnly && (update.Handle != nil || update.PriorPublishedRevision != "" || update.ExactInvalidation) {
 			return "", ErrInvalidInput
 		}
+		if update.ActivateOnly && !update.ValidateOnly {
+			return "", ErrInvalidInput
+		}
 		if update.ExactPublishedRevision != "" && !update.ValidateOnly {
 			return "", ErrInvalidInput
 		}

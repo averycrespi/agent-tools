@@ -15,6 +15,9 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/events"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/oauth"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -222,16 +225,46 @@ func TestCredentialCreateUsesStrictJSON(t *testing.T) {
 	}
 }
 
-func TestOAuthCallbackIsDenyByDefaultAndDoesNotEchoInput(t *testing.T) {
-	t.Parallel()
-	handler := newTestHandler(t)
-	response := perform(handler, http.MethodGet, "/oauth/callback?state=canary-secret&code=also-secret", "", nil)
-	if response.Code != 400 || !strings.Contains(response.Body.String(), "invalid_oauth_state") {
-		t.Fatalf("callback: %d %s", response.Code, response.Body.String())
+func TestOAuthCallbackUsesFixedNonreflectingHTML(t *testing.T) {
+	tests := []struct {
+		name    string
+		result  oauth.CallbackResult
+		status  int
+		content string
+	}{
+		{name: "default deny", status: http.StatusBadRequest, content: "Authorization failed"},
+		{name: "success", result: oauth.CallbackResult{Outcome: oauth.CallbackSucceeded, ServerID: testID, FlowID: "01ARZ3NDEKTSV4RRFFQ69G5FAA"}, status: http.StatusOK, content: "Authorization complete"},
+		{name: "invalid", result: oauth.CallbackResult{Outcome: oauth.CallbackInvalid}, status: http.StatusBadRequest, content: "Authorization failed"},
+		{name: "transient", result: oauth.CallbackResult{Outcome: oauth.CallbackTransient}, status: http.StatusServiceUnavailable, content: "Gateway is temporarily unavailable"},
 	}
-	if strings.Contains(response.Body.String(), "canary-secret") || strings.Contains(response.Body.String(), "also-secret") {
-		t.Fatalf("callback echoed input: %s", response.Body.String())
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var callback OAuthCallbackService
+			if test.name != "default deny" {
+				callback = callbackFake{result: test.result}
+			}
+			handler := New(Options{OAuthCallback: callback})
+			boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
+			require.NoError(t, err)
+			response := perform(boundary, http.MethodGet, "/oauth/callback?state=canary-secret&code=also-secret&error_description=dependency-secret", "", nil)
+			require.Equal(t, test.status, response.Code, response.Body.String())
+			assert.Contains(t, response.Body.String(), test.content)
+			assert.Equal(t, "text/html; charset=utf-8", response.Header().Get("Content-Type"))
+			assert.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+			assert.Equal(t, "default-src 'none'; frame-ancestors 'none'", response.Header().Get("Content-Security-Policy"))
+			assert.Equal(t, "no-referrer", response.Header().Get("Referrer-Policy"))
+			assert.Equal(t, "nosniff", response.Header().Get("X-Content-Type-Options"))
+			for _, canary := range []string{"canary-secret", "also-secret", "dependency-secret"} {
+				assert.NotContains(t, response.Body.String(), canary)
+			}
+		})
 	}
+}
+
+type callbackFake struct{ result oauth.CallbackResult }
+
+func (callback callbackFake) HandleCallback(context.Context, string) oauth.CallbackResult {
+	return callback.result
 }
 
 func TestStaticShellHasRestrictiveCSPAndNoExternalActiveContent(t *testing.T) {

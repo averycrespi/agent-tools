@@ -14,6 +14,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 )
 
@@ -30,6 +32,9 @@ type FlowRequest struct {
 type flowStore interface {
 	CreateAuthFlow(context.Context, servers.AuthFlowCreateRequest) (servers.AuthFlowCreateResult, error)
 	Authority(context.Context, string) (servers.AuthorityMetadata, error)
+	BeginAuthFlowExchange(context.Context, servers.OAuthTokenFence) (servers.AuthFlow, error)
+	ValidateAuthFlowExchange(context.Context, servers.OAuthTokenFence) error
+	OAuthTokenAuthorityCallback(servers.OAuthTokenFence) (keyring.AuthorityCallback, error)
 	MarkAuthFlowAwaiting(context.Context, string, string, string) (servers.AuthFlow, error)
 	TransitionAuthFlow(context.Context, string, contract.AuthFlowState, *contract.PublicReason) (servers.AuthFlow, error)
 	CancelAuthFlow(context.Context, string, string) (servers.AuthFlow, error)
@@ -46,6 +51,11 @@ type flowResolver interface {
 
 type flowRegistrar interface {
 	Register(context.Context, RegistrationRequest) (servers.OAuthRegistrationAuthority, error)
+}
+
+type tokenSecretStore interface {
+	ReadActive(context.Context, keyring.Namespace) ([]byte, keyring.CutoverResult, error)
+	ReplaceFencedAfterAuthorizationSuccess(context.Context, keyring.Namespace, []byte, keyring.AuthorityCallback) (keyring.CutoverResult, error)
 }
 
 type flowBundle struct {
@@ -69,28 +79,60 @@ type FlowService struct {
 	callbackURL string
 	now         func() time.Time
 
-	entropyMu sync.Mutex
-	mu        sync.Mutex
-	byState   map[string]flowBundle
+	requester      machineRequester
+	secrets        tokenSecretStore
+	installationID string
+	callbackSlots  chan struct{}
+	callbackMu     sync.Mutex
+	callbackCtx    context.Context
+	callbackCancel context.CancelFunc
+	callbackDrain  bool
+	entropyMu      sync.Mutex
+	mu             sync.Mutex
+	byState        map[string]flowBundle
 }
 
-func NewFlowService(store *servers.Repository, resolver *Resolver, registrar *Registrar, entropy io.Reader, callbackURL string, now func() time.Time) (*FlowService, error) {
-	if store == nil || resolver == nil || registrar == nil || entropy == nil || now == nil || !validCallbackURL(callbackURL) {
+func NewFlowService(store *servers.Repository, resolver *Resolver, registrar *Registrar, factory *remote.Factory, secrets *keyring.Coordinator, installationID string, entropy io.Reader, callbackURL string, now func() time.Time) (*FlowService, error) {
+	if store == nil || resolver == nil || registrar == nil || factory == nil || secrets == nil || installationID == "" || entropy == nil || now == nil || !validCallbackURL(callbackURL) {
 		return nil, ErrFlowRejected
 	}
-	return newFlowService(store, resolver, registrar, entropy, callbackURL, now), nil
+	service := newFlowService(store, resolver, registrar, entropy, callbackURL, now)
+	service.configureCallback(hardenedRequester{factory: factory}, secrets, installationID)
+	return service, nil
 }
 
 func newFlowService(store flowStore, resolver flowResolver, registrar flowRegistrar, entropy io.Reader, callbackURL string, now func() time.Time) *FlowService {
 	return &FlowService{store: store, resolver: resolver, registrar: registrar, entropy: entropy, callbackURL: callbackURL, now: now, byState: make(map[string]flowBundle)}
 }
 
+func (service *FlowService) configureCallback(requester machineRequester, secrets tokenSecretStore, installationID string) {
+	service.requester = requester
+	service.secrets = secrets
+	service.installationID = installationID
+	limit, _ := contract.FixedLimitByName("oauth_callback_work")
+	service.callbackSlots = make(chan struct{}, int(limit.Maximum))
+	service.callbackCtx, service.callbackCancel = context.WithCancel(context.Background())
+}
+
 func (service *FlowService) Start(ctx context.Context) error {
 	service.clearAll()
+	service.callbackMu.Lock()
+	if service.callbackCancel != nil {
+		service.callbackCancel()
+	}
+	service.callbackCtx, service.callbackCancel = context.WithCancel(context.Background())
+	service.callbackDrain = false
+	service.callbackMu.Unlock()
 	return service.store.InterruptAuthFlows(ctx)
 }
 
 func (service *FlowService) Shutdown() {
+	service.callbackMu.Lock()
+	service.callbackDrain = true
+	if service.callbackCancel != nil {
+		service.callbackCancel()
+	}
+	service.callbackMu.Unlock()
 	service.clearAll()
 }
 

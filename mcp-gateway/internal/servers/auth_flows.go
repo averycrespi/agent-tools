@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 )
 
 const authFlowCollection = "server_auth_flows"
@@ -50,6 +51,15 @@ type AuthFlowCreateResult struct {
 type AuthFlowPage struct {
 	Items []AuthFlow
 	Next  *SnapshotCursor
+}
+
+type OAuthTokenFence struct {
+	ServerID                     string
+	FlowID                       string
+	ExpectedDesiredRevision      string
+	ExpectedRegistrationRevision string
+	ExpectedOAuthClientRevision  string
+	ExpectedOAuthTokensRevision  string
 }
 
 func (repository *Repository) CreateAuthFlow(ctx context.Context, request AuthFlowCreateRequest) (AuthFlowCreateResult, error) {
@@ -223,6 +233,162 @@ func validateAuthFlowAuthority(authentication contract.OAuthAuthentication, auth
 		return nil
 	default:
 		return ErrInvalidOperation
+	}
+	return nil
+}
+
+func (repository *Repository) BeginAuthFlowExchange(ctx context.Context, fence OAuthTokenFence) (AuthFlow, error) {
+	parsed, err := parseOAuthTokenFence(fence)
+	if err != nil {
+		return AuthFlow{}, err
+	}
+	var result AuthFlow
+	err = repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
+		flow, err := authFlowByIDTx(ctx, transaction, fence.FlowID)
+		if err != nil || flow.ServerID != fence.ServerID || flow.State != contract.AuthFlowAwaitingCallback {
+			return ErrStaleRevision
+		}
+		expiresAt, err := parseTime(flow.ExpiresAt)
+		if err != nil {
+			return err
+		}
+		if !repository.clock.Now().Before(expiresAt) {
+			finishedAt := formatTime(repository.clock.Now())
+			if _, err := transaction.ExecContext(ctx, `UPDATE server_auth_flows SET flow_state = 'expired', reason = 'oauth_expired', finished_at = ? WHERE id = ?`, finishedAt, flow.ID); err != nil {
+				return err
+			}
+			return ErrStaleRevision
+		}
+		if err := validateOAuthTokenFenceTx(ctx, transaction, fence, parsed, contract.AuthFlowAwaitingCallback, repository.clock.Now()); err != nil {
+			return err
+		}
+		if _, err := transaction.ExecContext(ctx, `UPDATE server_auth_flows SET flow_state = 'exchanging' WHERE id = ?`, flow.ID); err != nil {
+			return fmt.Errorf("begin OAuth token exchange: %w", err)
+		}
+		result, err = authFlowByIDTx(ctx, transaction, flow.ID)
+		return err
+	})
+	return result, mapMutationError(err)
+}
+
+func (repository *Repository) ValidateAuthFlowExchange(ctx context.Context, fence OAuthTokenFence) error {
+	parsed, err := parseOAuthTokenFence(fence)
+	if err != nil {
+		return err
+	}
+	err = repository.store.View(ctx, func(transaction *sql.Tx) error {
+		return validateOAuthTokenFenceTx(ctx, transaction, fence, parsed, contract.AuthFlowExchanging, repository.clock.Now())
+	})
+	return mapViewError(err)
+}
+
+func (repository *Repository) OAuthTokenAuthorityCallback(fence OAuthTokenFence) (keyring.AuthorityCallback, error) {
+	parsed, err := parseOAuthTokenFence(fence)
+	if err != nil {
+		return nil, err
+	}
+	base, err := repository.CredentialAuthorityCallback(CredentialFence{
+		ServerID: fence.ServerID, Kind: contract.ServerCredentialOAuthTokens,
+		ExpectedDesiredRevision: fence.ExpectedDesiredRevision, ExpectedCredentialRevision: fence.ExpectedOAuthTokensRevision,
+		ExpectedRegistrationRevision: fence.ExpectedRegistrationRevision,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return func(ctx context.Context, transaction *sql.Tx, update keyring.AuthorityUpdate) (string, error) {
+		if transaction == nil || update.Owner != fence.ServerID || update.Kind != keyring.RecordOAuthTokens {
+			return "", ErrInvalidInput
+		}
+		exactInvalidation := update.ExactInvalidation && update.Handle == nil
+		if !exactInvalidation {
+			current := parsed
+			if update.ExactPublishedRevision != "" {
+				current.tokens++
+			}
+			if err := validateOAuthTokenFenceTx(ctx, transaction, fence, current, contract.AuthFlowExchanging, repository.clock.Now()); err != nil {
+				return "", err
+			}
+		}
+		revision, err := base(ctx, transaction, update)
+		if err != nil {
+			return "", err
+		}
+		if update.ActivateOnly {
+			now := formatTime(repository.clock.Now())
+			result, err := transaction.ExecContext(ctx, `
+				UPDATE server_auth_flows SET flow_state = 'succeeded', reason = NULL, finished_at = ?
+				WHERE id = ? AND server_id = ? AND flow_state = 'exchanging'`, now, fence.FlowID, fence.ServerID)
+			if err != nil {
+				return "", err
+			}
+			changed, err := result.RowsAffected()
+			if err != nil || changed != 1 {
+				return "", ErrStaleRevision
+			}
+		}
+		if exactInvalidation {
+			reason := contract.ReasonOAuthRejected
+			_, err := transaction.ExecContext(ctx, `
+				UPDATE server_auth_flows SET flow_state = 'failed', reason = ?, finished_at = ?
+				WHERE id = ? AND server_id = ? AND flow_state = 'exchanging'`, reason, formatTime(repository.clock.Now()), fence.FlowID, fence.ServerID)
+			if err != nil {
+				return "", err
+			}
+		}
+		return revision, nil
+	}, nil
+}
+
+type parsedOAuthTokenFence struct {
+	desired, registration, client, tokens int64
+}
+
+func parseOAuthTokenFence(fence OAuthTokenFence) (parsedOAuthTokenFence, error) {
+	if !validID(fence.ServerID) || !validID(fence.FlowID) {
+		return parsedOAuthTokenFence{}, ErrNotFound
+	}
+	values := []*int64{}
+	parsed := parsedOAuthTokenFence{}
+	values = append(values, &parsed.desired, &parsed.registration, &parsed.client, &parsed.tokens)
+	texts := []string{fence.ExpectedDesiredRevision, fence.ExpectedRegistrationRevision, fence.ExpectedOAuthClientRevision, fence.ExpectedOAuthTokensRevision}
+	for index, text := range texts {
+		value, err := parseRevision(text)
+		if err != nil || index == 0 && value < 1 {
+			return parsedOAuthTokenFence{}, ErrStaleRevision
+		}
+		*values[index] = value
+	}
+	return parsed, nil
+}
+
+func validateOAuthTokenFenceTx(ctx context.Context, transaction *sql.Tx, fence OAuthTokenFence, parsed parsedOAuthTokenFence, expectedState contract.AuthFlowState, now time.Time) error {
+	var desired, registration, client, tokens int64
+	var desiredState contract.DesiredServerState
+	if err := transaction.QueryRowContext(ctx, `SELECT desired_revision, desired_state FROM servers WHERE id = ?`, fence.ServerID).Scan(&desired, &desiredState); err != nil {
+		return ErrStaleRevision
+	}
+	var secretExpires sql.NullString
+	if err := transaction.QueryRowContext(ctx, `SELECT revision, client_secret_expires_at FROM server_oauth_registrations WHERE server_id = ?`, fence.ServerID).Scan(&registration, &secretExpires); err != nil {
+		return ErrStaleRevision
+	}
+	if secretExpires.Valid {
+		expiresAt, err := parseTime(secretExpires.String)
+		if err != nil || !now.Before(expiresAt) {
+			return ErrStaleRevision
+		}
+	}
+	if err := transaction.QueryRowContext(ctx, `SELECT revision FROM server_credentials WHERE server_id = ? AND kind = 'oauth_client'`, fence.ServerID).Scan(&client); err != nil {
+		return ErrStaleRevision
+	}
+	if err := transaction.QueryRowContext(ctx, `SELECT revision FROM server_credentials WHERE server_id = ? AND kind = 'oauth_tokens'`, fence.ServerID).Scan(&tokens); err != nil {
+		return ErrStaleRevision
+	}
+	flow, err := authFlowByIDTx(ctx, transaction, fence.FlowID)
+	if err != nil || flow.ServerID != fence.ServerID || flow.State != expectedState || flow.TargetDesiredRevision != fence.ExpectedDesiredRevision || flow.RegistrationRevision != fence.ExpectedRegistrationRevision {
+		return ErrStaleRevision
+	}
+	if desiredState == contract.DesiredServerDeleted || desired != parsed.desired || registration != parsed.registration || client != parsed.client || tokens != parsed.tokens {
+		return ErrStaleRevision
 	}
 	return nil
 }

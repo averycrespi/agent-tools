@@ -84,6 +84,23 @@ func TestAuthFlowFencesRegistrationPublicationAfterSupersession(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestBeginAuthFlowExchangeRechecksEveryCapturedAuthority(t *testing.T) {
+	repository, _, _ := newRepository(t, new(sequenceReader))
+	server := mustCreateOAuthServer(t, repository, "flow-exchange-fence", contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic})
+	created, err := repository.CreateAuthFlow(context.Background(), AuthFlowCreateRequest{ServerID: server.ID, ExpectedDesiredRevision: "1"})
+	require.NoError(t, err)
+	_, err = repository.PublishPublicRegistration(context.Background(), RegistrationFence{ServerID: server.ID, ExpectedDesiredRevision: "1", ExpectedRegistrationRevision: "0", ExpectedOAuthClientRevision: "0", ExpectedAuthFlowID: created.Flow.ID}, testRegistrationAuthority(contract.RegistrationDynamic, contract.TokenEndpointAuthNone))
+	require.NoError(t, err)
+	_, err = repository.MarkAuthFlowAwaiting(context.Background(), created.Flow.ID, "1", "1")
+	require.NoError(t, err)
+	fence := OAuthTokenFence{ServerID: server.ID, FlowID: created.Flow.ID, ExpectedDesiredRevision: "1", ExpectedRegistrationRevision: "1", ExpectedOAuthClientRevision: "0", ExpectedOAuthTokensRevision: "0"}
+	exchanging, err := repository.BeginAuthFlowExchange(context.Background(), fence)
+	require.NoError(t, err)
+	assert.Equal(t, contract.AuthFlowExchanging, exchanging.State)
+	_, err = repository.BeginAuthFlowExchange(context.Background(), fence)
+	assert.ErrorIs(t, err, ErrStaleRevision)
+}
+
 func TestAuthFlowExchangingConflictsAndGlobalAdmissionIsImmediate(t *testing.T) {
 	repository, store, _ := newRepository(t, new(sequenceReader))
 	server := mustCreateOAuthServer(t, repository, "flow-conflict", contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic})

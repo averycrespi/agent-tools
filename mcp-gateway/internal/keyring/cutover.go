@@ -38,6 +38,7 @@ type AuthorityUpdate struct {
 	PriorPublishedRevision string
 	ExactPublishedRevision string
 	ValidateOnly           bool
+	ActivateOnly           bool
 	ExactInvalidation      bool
 }
 
@@ -129,7 +130,8 @@ func (coordinator *Coordinator) ReplaceFencedAfterAuthorizationSuccess(
 		return CutoverResult{}, err
 	}
 	if err := coordinator.fenceAuthority(ctx, namespace, epoch, callback); err != nil {
-		return CutoverResult{}, err
+		_, invalidationErr := coordinator.invalidateAuthority(ctx, namespace, epoch, callback, "", true)
+		return CutoverResult{}, errors.Join(err, invalidationErr)
 	}
 
 	result, candidateErr := coordinator.replaceFencedAdmitted(ctx, namespace, secret, callback, epoch, true)
@@ -474,7 +476,7 @@ func (coordinator *Coordinator) activateAuthority(
 	return coordinator.store.ActivateKeyringAuthority(ctx, namespace.owner, string(namespace.kind), func(transaction *sql.Tx) error {
 		if callback != nil {
 			validatedRevision, err := callback(ctx, transaction, AuthorityUpdate{
-				Owner: namespace.owner, Kind: namespace.kind, ValidateOnly: true,
+				Owner: namespace.owner, Kind: namespace.kind, ValidateOnly: true, ActivateOnly: true,
 				ExactPublishedRevision: publishedRevision,
 			})
 			if err != nil {
