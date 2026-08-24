@@ -99,6 +99,245 @@ func TestCoordinatorExplicitRefreshJoinsCurrentTraversal(t *testing.T) {
 	assert.Equal(t, 1, client.callCount())
 }
 
+func TestCoordinatorInitialAndNoPriorRefreshFailuresRemainHealthyAndRecoverable(t *testing.T) {
+	for _, intent := range []runtimes.CatalogTraversalIntent{runtimes.CatalogTraversalInitial, runtimes.CatalogTraversalRefresh} {
+		t.Run(string(intent), func(t *testing.T) {
+			repository, serverRepository, clock, _ := newCatalogRepository(t)
+			server := createCatalogServer(t, serverRepository, "sample")
+			registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+			require.NoError(t, err)
+			client := &coordinatorClient{err: ErrUnavailable}
+			scheduler := newCatalogScheduler()
+			candidate := coordinatorCandidate(t, serverRepository, server)
+			coordinator, err := NewCoordinator(CoordinatorOptions{InstallationID: catalogInstallationID, Repository: repository, Active: registry, Traverser: NewTraverser(), Clock: clock, Scheduler: scheduler, Client: func(runtimes.Candidate) (PageClient, bool) { return client, true }, Current: func(runtimes.Candidate) bool { return true }})
+			require.NoError(t, err)
+			var outcome runtimes.CatalogOutcome
+			if intent == runtimes.CatalogTraversalInitial {
+				outcome = coordinator.Activate(context.Background(), candidate)
+			} else {
+				outcome = coordinator.Refresh(context.Background(), candidate)
+			}
+			assert.Equal(t, intent, outcome.Intent)
+			assert.Equal(t, runtimes.CatalogRuntimeHealthy, outcome.RuntimeHealth)
+			assert.Equal(t, contract.ActiveCatalogUnavailable, outcome.State)
+			assert.Equal(t, contract.ActiveCatalogUnavailable, registry.Status(server.ID).State)
+			assert.Zero(t, registry.Status(server.ID).ToolCount)
+			durable, statusErr := repository.Status(context.Background(), server.ID)
+			require.NoError(t, statusErr)
+			assert.Equal(t, contract.DurableCatalogUnavailable, durable.State)
+			require.Len(t, scheduler.calls, 1)
+		})
+	}
+}
+
+func TestCoordinatorPollAndExplicitRefreshShareOneExactTraversal(t *testing.T) {
+	repository, serverRepository, clock, _ := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	client := &coordinatorClient{result: json.RawMessage(`{"tools":[{"name":"one","inputSchema":{"type":"object"}}]}`)}
+	scheduler := newCatalogScheduler()
+	candidate := coordinatorCandidate(t, serverRepository, server)
+	coordinator, err := NewCoordinator(CoordinatorOptions{InstallationID: catalogInstallationID, Repository: repository, Active: registry, Traverser: NewTraverser(), Clock: clock, Scheduler: scheduler, Client: func(runtimes.Candidate) (PageClient, bool) { return client, true }, Current: func(runtimes.Candidate) bool { return true }})
+	require.NoError(t, err)
+	require.Equal(t, contract.ActiveCatalogCurrent, coordinator.Activate(context.Background(), candidate).State)
+	client.mu.Lock()
+	client.started = make(chan struct{})
+	started := client.started
+	client.release = make(chan struct{})
+	release := client.release
+	client.mu.Unlock()
+
+	go scheduler.call(0).timer.callback()
+	<-started
+	explicit := make(chan runtimes.CatalogOutcome, 1)
+	go func() { explicit <- coordinator.Refresh(context.Background(), candidate) }()
+	close(release)
+	outcome := <-explicit
+
+	assert.Equal(t, runtimes.CatalogTraversalPoll, outcome.Intent)
+	assert.Equal(t, contract.ActiveCatalogCurrent, outcome.State)
+	assert.Equal(t, 2, client.callCount())
+	require.Eventually(t, func() bool { return scheduler.count() == 2 }, time.Second, time.Millisecond)
+}
+
+func TestCatalogRuntimeFailureClassificationIsClosed(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		state  contract.RuntimeState
+		reason contract.PublicReason
+		lost   bool
+	}{
+		{name: "authentication", err: downstream.ErrAuthenticationRejected, state: contract.RuntimeAuthenticationRequired, reason: contract.ReasonAuthenticationRejected, lost: true},
+		{name: "session", err: downstream.ErrSessionLost, state: contract.RuntimeDegraded, reason: contract.ReasonConnectivity, lost: true},
+		{name: "transport", err: downstream.ErrTransportClosed, state: contract.RuntimeDegraded, reason: contract.ReasonConnectivity, lost: true},
+		{name: "remote", err: downstream.ErrRemoteUnavailable, state: contract.RuntimeDegraded, reason: contract.ReasonConnectivity, lost: true},
+		{name: "protocol", err: downstream.ErrInvalidMessage, state: contract.RuntimeDegraded, reason: contract.ReasonProtocolInvalid, lost: true},
+		{name: "waiter_cancel", err: context.Canceled},
+		{name: "healthy_catalog", err: ErrUnavailable},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			failure := catalogRuntimeFailure(errors.Join(ErrUnavailable, &requestFailure{err: test.err}), &coordinatorClient{})
+			if !test.lost {
+				assert.Nil(t, failure)
+				return
+			}
+			require.NotNil(t, failure)
+			assert.True(t, failure.RuntimeLost)
+			assert.Equal(t, test.state, failure.State)
+			assert.Equal(t, test.reason, failure.Reason)
+		})
+	}
+}
+
+func TestCoordinatorRuntimeLossWithdrawsPriorSnapshotAndStopsPolling(t *testing.T) {
+	repository, serverRepository, clock, _ := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	client := &coordinatorClient{result: json.RawMessage(`{"tools":[{"name":"one","inputSchema":{"type":"object"}}]}`)}
+	scheduler := newCatalogScheduler()
+	candidate := coordinatorCandidate(t, serverRepository, server)
+	coordinator, err := NewCoordinator(CoordinatorOptions{InstallationID: catalogInstallationID, Repository: repository, Active: registry, Traverser: NewTraverser(), Clock: clock, Scheduler: scheduler, Client: func(runtimes.Candidate) (PageClient, bool) { return client, true }, Current: func(runtimes.Candidate) bool { return true }})
+	require.NoError(t, err)
+	require.Equal(t, contract.ActiveCatalogCurrent, coordinator.Activate(context.Background(), candidate).State)
+	client.mu.Lock()
+	client.err = downstream.ErrSessionLost
+	client.mu.Unlock()
+
+	failure := coordinator.Refresh(context.Background(), candidate)
+
+	assert.Equal(t, contract.ActiveCatalogUnavailable, failure.State)
+	assert.Equal(t, contract.ReasonConnectivity, *failure.Reason)
+	assert.Equal(t, contract.ActiveCatalogUnavailable, registry.Status(server.ID).State)
+	assert.Zero(t, registry.Status(server.ID).ToolCount)
+	assert.True(t, scheduler.last().stopped)
+	assert.Equal(t, 1, scheduler.count())
+}
+
+func TestCoordinatorCancelledWaiterDoesNotCancelExactTraversal(t *testing.T) {
+	repository, serverRepository, clock, _ := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	client := &coordinatorClient{result: json.RawMessage(`{"tools":[]}`), started: make(chan struct{}), release: make(chan struct{})}
+	candidate := coordinatorCandidate(t, serverRepository, server)
+	coordinator, err := NewCoordinator(CoordinatorOptions{InstallationID: catalogInstallationID, Repository: repository, Active: registry, Traverser: NewTraverser(), Clock: clock, Scheduler: newCatalogScheduler(), Client: func(runtimes.Candidate) (PageClient, bool) { return client, true }, Current: func(runtimes.Candidate) bool { return true }})
+	require.NoError(t, err)
+	first := make(chan runtimes.CatalogOutcome, 1)
+	started := client.started
+	go func() { first <- coordinator.Refresh(context.Background(), candidate) }()
+	<-started
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	cancelled := coordinator.Refresh(cancelledCtx, candidate)
+
+	require.NotNil(t, cancelled.Reason)
+	assert.Equal(t, contract.ReasonCancelled, *cancelled.Reason)
+	assert.Equal(t, int64(1), coordinator.ServerStatus(server.ID).InUse)
+	assert.Equal(t, 1, client.callCount())
+	close(client.release)
+	assert.Equal(t, contract.ActiveCatalogCurrent, (<-first).State)
+}
+
+func TestCoordinatorMismatchedCandidateNeverJoinsCurrentTraversal(t *testing.T) {
+	repository, serverRepository, clock, _ := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	client := &coordinatorClient{result: json.RawMessage(`{"tools":[]}`), started: make(chan struct{}), release: make(chan struct{})}
+	candidate := coordinatorCandidate(t, serverRepository, server)
+	coordinator, err := NewCoordinator(CoordinatorOptions{InstallationID: catalogInstallationID, Repository: repository, Active: registry, Traverser: NewTraverser(), Clock: clock, Scheduler: newCatalogScheduler(), Client: func(runtimes.Candidate) (PageClient, bool) { return client, true }, Current: func(runtimes.Candidate) bool { return true }})
+	require.NoError(t, err)
+	first := make(chan runtimes.CatalogOutcome, 1)
+	started := client.started
+	go func() { first <- coordinator.Refresh(context.Background(), candidate) }()
+	<-started
+	replacement := candidate
+	replacement.RuntimeID = "runtime-2"
+	replacement.Generation++
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	mismatch := coordinator.Refresh(ctx, replacement)
+
+	require.NotNil(t, mismatch.Reason)
+	assert.Equal(t, contract.ReasonSuperseded, *mismatch.Reason)
+	assert.Equal(t, 1, client.callCount())
+	close(client.release)
+	assert.Equal(t, contract.ActiveCatalogCurrent, (<-first).State)
+}
+
+func TestCoordinatorRuntimeLossIsolatedFromSecondServer(t *testing.T) {
+	repository, serverRepository, clock, _ := newCatalogRepository(t)
+	serverA := createCatalogServer(t, serverRepository, "a")
+	serverB := createCatalogServer(t, serverRepository, "b")
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	clients := map[string]*coordinatorClient{
+		serverA.ID: {result: json.RawMessage(`{"tools":[{"name":"one","inputSchema":{"type":"object"}}]}`)},
+		serverB.ID: {result: json.RawMessage(`{"tools":[{"name":"two","inputSchema":{"type":"object"}}]}`)},
+	}
+	scheduler := newCatalogScheduler()
+	candidateA := coordinatorCandidate(t, serverRepository, serverA)
+	candidateB := coordinatorCandidate(t, serverRepository, serverB)
+	candidateB.RuntimeID = "runtime-2"
+	coordinator, err := NewCoordinator(CoordinatorOptions{InstallationID: catalogInstallationID, Repository: repository, Active: registry, Traverser: NewTraverser(), Clock: clock, Scheduler: scheduler, Client: func(candidate runtimes.Candidate) (PageClient, bool) { return clients[candidate.Server.ID], true }, Current: func(runtimes.Candidate) bool { return true }})
+	require.NoError(t, err)
+	require.Equal(t, contract.ActiveCatalogCurrent, coordinator.Activate(context.Background(), candidateA).State)
+	require.Equal(t, contract.ActiveCatalogCurrent, coordinator.Activate(context.Background(), candidateB).State)
+	clients[serverA.ID].mu.Lock()
+	clients[serverA.ID].err = downstream.ErrTransportClosed
+	clients[serverA.ID].mu.Unlock()
+
+	failure := coordinator.Refresh(context.Background(), candidateA)
+
+	assert.Equal(t, runtimes.CatalogRuntimeLost, failure.RuntimeHealth)
+	assert.Equal(t, contract.ActiveCatalogUnavailable, registry.Status(serverA.ID).State)
+	assert.Equal(t, contract.ActiveCatalogCurrent, registry.Status(serverB.ID).State)
+	assert.Equal(t, int64(1), registry.Status(serverB.ID).ToolCount)
+	assert.Equal(t, contract.AggregateCatalogDegraded, registry.Summary().ActiveState)
+	assert.Equal(t, int64(1), registry.Occupancy().InUse)
+}
+
+func TestCoordinatorWithdrawnWorkMustFinishBeforeReplacementTraversal(t *testing.T) {
+	repository, serverRepository, clock, _ := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	oldClient := &coordinatorClient{result: json.RawMessage(`{"tools":[]}`), started: make(chan struct{}), release: make(chan struct{})}
+	newClient := &coordinatorClient{result: json.RawMessage(`{"tools":[]}`)}
+	oldCandidate := coordinatorCandidate(t, serverRepository, server)
+	newCandidate := oldCandidate
+	newCandidate.RuntimeID = "runtime-2"
+	newCandidate.Generation++
+	coordinator, err := NewCoordinator(CoordinatorOptions{InstallationID: catalogInstallationID, Repository: repository, Active: registry, Traverser: NewTraverser(), Clock: clock, Scheduler: newCatalogScheduler(), Client: func(candidate runtimes.Candidate) (PageClient, bool) {
+		if candidate.RuntimeID == oldCandidate.RuntimeID {
+			return oldClient, true
+		}
+		return newClient, true
+	}, Current: func(runtimes.Candidate) bool { return true }})
+	require.NoError(t, err)
+	oldResult := make(chan runtimes.CatalogOutcome, 1)
+	oldStarted := oldClient.started
+	go func() { oldResult <- coordinator.Refresh(context.Background(), oldCandidate) }()
+	<-oldStarted
+	coordinator.Withdraw(oldCandidate, contract.ActiveCatalogUnavailable)
+
+	blockedReplacement := coordinator.Refresh(context.Background(), newCandidate)
+
+	require.NotNil(t, blockedReplacement.Reason)
+	assert.Equal(t, contract.ReasonSuperseded, *blockedReplacement.Reason)
+	assert.Zero(t, newClient.callCount())
+	close(oldClient.release)
+	<-oldResult
+	assert.Equal(t, contract.ActiveCatalogCurrent, coordinator.Refresh(context.Background(), newCandidate).State)
+	assert.Equal(t, 1, newClient.callCount())
+}
+
 func TestCoordinatorHealthyFailureRetainsStaleAndWithdrawalCancelsTimer(t *testing.T) {
 	repository, serverRepository, clock, _ := newCatalogRepository(t)
 	server := createCatalogServer(t, serverRepository, "sample")

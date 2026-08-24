@@ -93,11 +93,29 @@ const (
 	CatalogPostCommitStorage CatalogPostCommitCause = "storage"
 )
 
+type CatalogTraversalIntent string
+
+const (
+	CatalogTraversalInitial CatalogTraversalIntent = "initial"
+	CatalogTraversalRefresh CatalogTraversalIntent = "refresh"
+	CatalogTraversalPoll    CatalogTraversalIntent = "poll"
+)
+
+type CatalogRuntimeHealth string
+
+const (
+	CatalogRuntimeHealthy CatalogRuntimeHealth = "healthy"
+	CatalogRuntimeLost    CatalogRuntimeHealth = "lost"
+)
+
 type CatalogOutcome struct {
-	State  contract.ActiveCatalogState
-	Reason *contract.PublicReason
-	Phase  CatalogPublicationPhase
-	Cause  CatalogPostCommitCause
+	State          contract.ActiveCatalogState
+	Reason         *contract.PublicReason
+	Phase          CatalogPublicationPhase
+	Cause          CatalogPostCommitCause
+	Intent         CatalogTraversalIntent
+	RuntimeHealth  CatalogRuntimeHealth
+	RuntimeFailure *FailureDisposition
 }
 
 type Candidate struct {
@@ -407,6 +425,9 @@ func (manager *Manager) refreshCatalogOperation(serverID string, generation uint
 		return
 	}
 	outcome := refresher.Refresh(manager.ctx, candidate)
+	if outcome.RuntimeFailure != nil {
+		manager.ReportRuntimeFailure(candidate, *outcome.RuntimeFailure)
+	}
 	if outcome.Phase == CatalogPublicationDurableOnly {
 		if outcome.Cause != CatalogPostCommitDrain {
 			manager.publish(contract.InvalidationCatalog, &serverID)
@@ -579,6 +600,15 @@ func (manager *Manager) reconcile(serverID string, generation uint64, operationI
 			}
 			if catalog.Reason != nil {
 				outcome.Reason = catalog.Reason
+			}
+			if catalog.RuntimeFailure != nil {
+				outcome.State = catalog.RuntimeFailure.State
+				outcome.Reason = &catalog.RuntimeFailure.Reason
+				outcome.Retryable = catalog.RuntimeFailure.Retryable
+				outcome.CatalogState = contract.ActiveCatalogUnavailable
+				if catalog.RuntimeFailure.State == contract.RuntimeAuthenticationRequired {
+					outcome.CredentialState = contract.ServerCredentialUnavailable
+				}
 			}
 			if catalog.Phase == CatalogPublicationDurableOnly {
 				manager.finishDurableOnly(serverID, generation, operationID, candidate, catalog, outcome.CredentialState)

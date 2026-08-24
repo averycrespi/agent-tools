@@ -253,7 +253,7 @@ func (repository *Repository) SetState(ctx context.Context, fence CommitFence, s
 		if _, err := transaction.ExecContext(ctx, `DELETE FROM server_catalog_issues WHERE server_id = ?`, fence.ServerID); err != nil {
 			return err
 		}
-		if issueCount > 0 {
+		if issueCount > 0 && currentRevision != "0" {
 			if _, err := transaction.ExecContext(ctx, `INSERT INTO server_catalog_issues (server_id, catalog_revision, issue_class, occurrences) VALUES (?, ?, 'descriptor_invalid', ?)`, fence.ServerID, currentRevision, issueCount); err != nil {
 				return err
 			}

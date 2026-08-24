@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -533,6 +534,12 @@ func establishActiveRuntime(t *testing.T, manager *Manager, driver *lifecycleDri
 	return candidate
 }
 
+type outcomeCatalog struct{ outcome CatalogOutcome }
+
+func (catalog outcomeCatalog) Activate(context.Context, Candidate) CatalogOutcome {
+	return catalog.outcome
+}
+
 type durableOnlyCatalog struct {
 	outcome   CatalogOutcome
 	onPublish func()
@@ -639,6 +646,55 @@ func TestManagerRefreshCatalogOperationSkipsLifecycleAndCompletesAttachedWork(t 
 		t.Fatal("refresh unexpectedly stopped the runtime")
 	default:
 	}
+}
+
+func TestManagerKeepsHealthyRuntimeOnInitialCatalogFailure(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	reason := contract.ReasonConnectivity
+	catalog := outcomeCatalog{outcome: CatalogOutcome{State: contract.ActiveCatalogUnavailable, Reason: &reason, Intent: CatalogTraversalInitial, RuntimeHealth: CatalogRuntimeHealthy}}
+	manager, err := New(Options{Repository: repository, Driver: driver, Catalog: catalog})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	manager.Trigger(serverID, nil, false)
+	candidate := receiveCandidate(t, driver.started)
+	driver.startResult <- activeOutcome()
+	require.Eventually(t, func() bool {
+		status := manager.Status(serverID)
+		return status.State == contract.RuntimeActive && status.CatalogState == contract.ActiveCatalogUnavailable && status.RuntimeID != nil && *status.RuntimeID == candidate.RuntimeID
+	}, time.Second, time.Millisecond)
+	select {
+	case stopped := <-driver.stopping:
+		t.Fatalf("healthy runtime stopped after initial catalog failure: %s", stopped.RuntimeID)
+	default:
+	}
+}
+
+func TestManagerConsumesCatalogRuntimeLossWithoutTransientActivation(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	failure := ClassifyFailure(downstream.ErrSessionLost)
+	catalog := outcomeCatalog{outcome: CatalogOutcome{State: contract.ActiveCatalogUnavailable, Reason: &failure.Reason, Intent: CatalogTraversalInitial, RuntimeHealth: CatalogRuntimeLost, RuntimeFailure: &failure}}
+	manager, err := New(Options{Repository: repository, Driver: driver, Catalog: catalog, Scheduler: newFakeScheduler()})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	manager.Trigger(serverID, nil, false)
+	candidate := receiveCandidate(t, driver.started)
+	driver.startResult <- activeOutcome()
+	assert.Equal(t, candidate.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
+	driver.stopResult <- true
+	require.Eventually(t, func() bool {
+		status := manager.Status(serverID)
+		return status.State == contract.RuntimeRetryWait && status.CatalogState == contract.ActiveCatalogUnavailable && status.RuntimeID == nil
+	}, time.Second, time.Millisecond)
 }
 
 func TestManagerPostCommitCauseTablePreservesOperationAndCleanupPolicy(t *testing.T) {

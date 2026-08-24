@@ -34,9 +34,10 @@ type CoordinatorOptions struct {
 }
 
 type refreshWork struct {
-	done   chan struct{}
-	cancel context.CancelFunc
-	result runtimes.CatalogOutcome
+	done      chan struct{}
+	cancel    context.CancelFunc
+	candidate runtimes.Candidate
+	result    runtimes.CatalogOutcome
 }
 
 type Coordinator struct {
@@ -83,41 +84,51 @@ func NextPoll(now time.Time, offset time.Duration) time.Time {
 }
 
 func (coordinator *Coordinator) Activate(ctx context.Context, candidate runtimes.Candidate) runtimes.CatalogOutcome {
-	return coordinator.Refresh(ctx, candidate)
+	return coordinator.run(ctx, candidate, runtimes.CatalogTraversalInitial)
 }
 
 func (coordinator *Coordinator) Refresh(ctx context.Context, candidate runtimes.Candidate) runtimes.CatalogOutcome {
+	return coordinator.run(ctx, candidate, runtimes.CatalogTraversalRefresh)
+}
+
+func (coordinator *Coordinator) run(ctx context.Context, candidate runtimes.Candidate, intent runtimes.CatalogTraversalIntent) runtimes.CatalogOutcome {
 	serverID := candidate.Server.ID
 	coordinator.mu.Lock()
 	if coordinator.stopped {
 		coordinator.mu.Unlock()
-		return unavailableCatalogOutcome(contract.ReasonInterrupted)
+		return catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonInterrupted)
 	}
 	if current := coordinator.work[serverID]; current != nil {
+		if current.candidate.Key() != candidate.Key() {
+			coordinator.mu.Unlock()
+			return catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonSuperseded)
+		}
 		done := current.done
 		coordinator.mu.Unlock()
 		select {
 		case <-done:
 			return current.result
 		case <-ctx.Done():
-			return unavailableCatalogOutcome(contract.ReasonCancelled)
+			return catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonCancelled)
 		}
 	}
 	workCtx, cancel := context.WithCancel(coordinator.ctx)
-	current := &refreshWork{done: make(chan struct{}), cancel: cancel}
+	current := &refreshWork{done: make(chan struct{}), cancel: cancel, candidate: candidate}
 	coordinator.work[serverID] = current
 	coordinator.candidates[serverID] = candidate
 	coordinator.mu.Unlock()
 
-	result := coordinator.execute(workCtx, candidate)
+	result := coordinator.execute(workCtx, candidate, intent)
 	cancel()
 	coordinator.mu.Lock()
 	current.result = result
-	delete(coordinator.work, serverID)
+	if coordinator.work[serverID] == current {
+		delete(coordinator.work, serverID)
+	}
 	close(current.done)
 	stopped := coordinator.stopped
 	coordinator.mu.Unlock()
-	if !stopped && coordinator.live(candidate) {
+	if !stopped && result.RuntimeHealth != runtimes.CatalogRuntimeLost && coordinator.live(candidate) {
 		coordinator.schedule(candidate)
 	}
 	return result
@@ -134,14 +145,18 @@ func (coordinator *Coordinator) Withdraw(candidate runtimes.Candidate, state con
 
 func (coordinator *Coordinator) detach(candidate runtimes.Candidate) {
 	coordinator.mu.Lock()
-	if timer := coordinator.timers[candidate.Server.ID]; timer != nil {
-		timer.Stop()
-		delete(coordinator.timers, candidate.Server.ID)
+	serverID := candidate.Server.ID
+	current, currentExists := coordinator.candidates[serverID]
+	if currentExists && current.Key() == candidate.Key() {
+		if timer := coordinator.timers[serverID]; timer != nil {
+			timer.Stop()
+			delete(coordinator.timers, serverID)
+		}
+		delete(coordinator.candidates, serverID)
 	}
-	if work := coordinator.work[candidate.Server.ID]; work != nil {
+	if work := coordinator.work[serverID]; work != nil && work.candidate.Key() == candidate.Key() {
 		work.cancel()
 	}
-	delete(coordinator.candidates, candidate.Server.ID)
 	coordinator.mu.Unlock()
 }
 
@@ -176,24 +191,25 @@ func (coordinator *Coordinator) ServerStatus(serverID string) contract.LimitStat
 	return contract.LimitStatus{InUse: inUse, Limit: 1, Saturated: inUse == 1}
 }
 
-func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.Candidate) runtimes.CatalogOutcome {
+func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.Candidate, intent runtimes.CatalogTraversalIntent) runtimes.CatalogOutcome {
 	if !coordinator.live(candidate) {
 		coordinator.active.WithdrawExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, contract.ActiveCatalogUnavailable)
-		return unavailableCatalogOutcome(contract.ReasonSuperseded)
+		return catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonSuperseded)
 	}
 	client, ok := coordinator.client(candidate)
 	if !ok {
-		return coordinator.failure(candidate, contract.ReasonProtocolUnsupported)
+		failure := runtimes.ClassifyFailure(downstream.ErrUnsupportedProtocol)
+		return coordinator.failure(candidate, intent, downstream.ErrUnsupportedProtocol, &failure)
 	}
 	raw, err := coordinator.traverser.Traverse(ctx, client, candidate.Server.Namespace)
 	if err != nil {
-		return coordinator.failure(candidate, catalogFailureReason(err))
+		return coordinator.failure(candidate, intent, err, catalogRuntimeFailure(err, client))
 	}
 	runtime, _ := client.(*downstream.Runtime)
 	normalized := NormalizeCandidate(raw, NormalizeOptions{ServerID: candidate.Server.ID, AllowHeaderBindings: allowsHeaderBindings(candidate, runtime)})
 	durable, err := coordinator.repository.Status(ctx, candidate.Server.ID)
 	if err != nil {
-		return coordinator.failure(candidate, contract.ReasonConnectivity)
+		return coordinator.failure(candidate, intent, servers.ErrStorageUnavailable, nil)
 	}
 	revision := "0"
 	if durable.Revision != nil {
@@ -208,43 +224,59 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 		var publicationFailure *PublicationFailure
 		if errors.As(err, &publicationFailure) {
 			reason, cause := postCommitFailure(publicationFailure)
-			return runtimes.CatalogOutcome{State: coordinator.active.Status(candidate.Server.ID).State, Reason: &reason, Phase: runtimes.CatalogPublicationDurableOnly, Cause: cause}
+			return runtimes.CatalogOutcome{State: coordinator.active.Status(candidate.Server.ID).State, Reason: &reason, Phase: runtimes.CatalogPublicationDurableOnly, Cause: cause, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy}
 		}
-		return coordinator.failure(candidate, catalogFailureReason(err))
+		return coordinator.failure(candidate, intent, err, nil)
 	}
-	return runtimes.CatalogOutcome{State: status.State, Phase: runtimes.CatalogPublicationInstalled}
+	return runtimes.CatalogOutcome{State: status.State, Phase: runtimes.CatalogPublicationInstalled, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy}
 }
 
-func (coordinator *Coordinator) failure(candidate runtimes.Candidate, reason contract.PublicReason) runtimes.CatalogOutcome {
+func (coordinator *Coordinator) failure(candidate runtimes.Candidate, intent runtimes.CatalogTraversalIntent, err error, runtimeFailure *runtimes.FailureDisposition) runtimes.CatalogOutcome {
+	reason := catalogFailureReason(err)
 	live := coordinator.live(candidate)
-	if live {
-		active := coordinator.active.Status(candidate.Server.ID)
-		durable, err := coordinator.repository.Status(coordinator.ctx, candidate.Server.ID)
-		revision := "0"
-		if err == nil && durable.Revision != nil {
-			revision = *durable.Revision
+	if runtimeFailure != nil && runtimeFailure.RuntimeLost {
+		reason = runtimeFailure.Reason
+		if live {
+			coordinator.setFailureState(candidate, contract.DurableCatalogUnavailable)
+			coordinator.active.MarkUnavailableExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, 1)
+		} else {
+			coordinator.active.WithdrawExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, contract.ActiveCatalogUnavailable)
 		}
+		coordinator.detach(candidate)
+		failure := *runtimeFailure
+		return runtimes.CatalogOutcome{State: contract.ActiveCatalogUnavailable, Reason: &reason, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeLost, RuntimeFailure: &failure}
+	}
+	if live && intent != runtimes.CatalogTraversalInitial {
+		active := coordinator.active.Status(candidate.Server.ID)
 		if active.State == contract.ActiveCatalogCurrent || active.State == contract.ActiveCatalogStale {
-			const issues = int64(1)
-			if durable.State == contract.DurableCatalogStale && durable.IssueCount == issues {
-				err = nil
-			} else {
-				_, err = coordinator.repository.SetState(coordinator.ctx, coordinator.commitFence(candidate, revision), contract.DurableCatalogStale, issues)
+			if coordinator.setFailureState(candidate, contract.DurableCatalogStale) && coordinator.active.MarkStaleExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, 1) {
+				return runtimes.CatalogOutcome{State: contract.ActiveCatalogStale, Reason: &reason, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy}
 			}
-			if err == nil {
-				coordinator.active.MarkStaleExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, issues)
-				return runtimes.CatalogOutcome{State: contract.ActiveCatalogStale, Reason: &reason}
-			}
-		} else if err == nil {
-			_, _ = coordinator.repository.SetState(coordinator.ctx, coordinator.commitFence(candidate, revision), contract.DurableCatalogUnavailable, 1)
 		}
 	}
 	if live {
+		coordinator.setFailureState(candidate, contract.DurableCatalogUnavailable)
 		coordinator.active.MarkUnavailableExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, 1)
 	} else {
 		coordinator.active.WithdrawExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, contract.ActiveCatalogUnavailable)
 	}
-	return runtimes.CatalogOutcome{State: contract.ActiveCatalogUnavailable, Reason: &reason}
+	return runtimes.CatalogOutcome{State: contract.ActiveCatalogUnavailable, Reason: &reason, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy}
+}
+
+func (coordinator *Coordinator) setFailureState(candidate runtimes.Candidate, state contract.DurableCatalogState) bool {
+	durable, err := coordinator.repository.Status(coordinator.ctx, candidate.Server.ID)
+	if err != nil {
+		return false
+	}
+	revision := "0"
+	if durable.Revision != nil {
+		revision = *durable.Revision
+	}
+	if durable.State == state && durable.IssueCount == 1 {
+		return true
+	}
+	_, err = coordinator.repository.SetState(coordinator.ctx, coordinator.commitFence(candidate, revision), state, 1)
+	return err == nil
 }
 
 func (coordinator *Coordinator) commitFence(candidate runtimes.Candidate, revision string) CommitFence {
@@ -254,7 +286,7 @@ func (coordinator *Coordinator) commitFence(candidate runtimes.Candidate, revisi
 func (coordinator *Coordinator) live(candidate runtimes.Candidate) bool {
 	coordinator.mu.Lock()
 	current, exists := coordinator.candidates[candidate.Server.ID]
-	live := !coordinator.stopped && exists && current.RuntimeID == candidate.RuntimeID && current.Generation == candidate.Generation
+	live := !coordinator.stopped && exists && current.Key() == candidate.Key()
 	coordinator.mu.Unlock()
 	return live && coordinator.current(candidate)
 }
@@ -279,9 +311,11 @@ func (coordinator *Coordinator) schedule(candidate runtimes.Candidate) {
 			return
 		}
 		delete(coordinator.timers, serverID)
-		current := coordinator.candidates[serverID]
+		current, exists := coordinator.candidates[serverID]
 		coordinator.mu.Unlock()
-		go coordinator.Refresh(coordinator.ctx, current)
+		if exists {
+			coordinator.run(coordinator.ctx, current, runtimes.CatalogTraversalPoll)
+		}
 	})
 	coordinator.timers[serverID] = timer
 }
@@ -322,6 +356,23 @@ func postCommitFailure(failure *PublicationFailure) (contract.PublicReason, runt
 	}
 }
 
-func unavailableCatalogOutcome(reason contract.PublicReason) runtimes.CatalogOutcome {
-	return runtimes.CatalogOutcome{State: contract.ActiveCatalogUnavailable, Reason: &reason}
+func catalogRuntimeFailure(err error, client PageClient) *runtimes.FailureDisposition {
+	var requestFailure *requestFailure
+	if !errors.As(err, &requestFailure) || errors.Is(requestFailure.err, context.Canceled) || errors.Is(requestFailure.err, context.DeadlineExceeded) {
+		return nil
+	}
+	_, concreteRuntime := client.(*downstream.Runtime)
+	knownFatal := errors.Is(requestFailure.err, downstream.ErrAuthenticationRejected) || errors.Is(requestFailure.err, downstream.ErrSessionLost) || errors.Is(requestFailure.err, downstream.ErrTransportClosed) || errors.Is(requestFailure.err, downstream.ErrRemoteUnavailable) || errors.Is(requestFailure.err, downstream.ErrInvalidMessage) || errors.Is(requestFailure.err, downstream.ErrResponseMismatch)
+	if !concreteRuntime && !knownFatal {
+		return nil
+	}
+	failure := runtimes.ClassifyFailure(requestFailure.err)
+	if !failure.RuntimeLost {
+		return nil
+	}
+	return &failure
+}
+
+func catalogOutcome(intent runtimes.CatalogTraversalIntent, state contract.ActiveCatalogState, reason contract.PublicReason) runtimes.CatalogOutcome {
+	return runtimes.CatalogOutcome{State: state, Reason: &reason, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy}
 }

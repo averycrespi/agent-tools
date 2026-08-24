@@ -24,6 +24,11 @@ var (
 	ErrUnavailable    = errors.New("catalog traversal is unavailable")
 )
 
+type requestFailure struct{ err error }
+
+func (failure *requestFailure) Error() string { return failure.err.Error() }
+func (failure *requestFailure) Unwrap() error { return failure.err }
+
 type PageClient interface {
 	Request(context.Context, string, json.RawMessage, string) (downstream.Response, error)
 }
@@ -100,8 +105,11 @@ func (traverser *Traverser) traverse(ctx context.Context, client PageClient, nam
 		pageCtx, cancel := traverser.deadline(ctx, contract.CatalogPageDeadline)
 		response, err := client.Request(pageCtx, "tools/list", params, "")
 		cancel()
-		if err != nil || response.Error != nil {
-			return Candidate{}, errors.Join(ErrUnavailable, err)
+		if err != nil {
+			return Candidate{}, errors.Join(ErrUnavailable, &requestFailure{err: err})
+		}
+		if response.Error != nil {
+			return Candidate{}, ErrUnavailable
 		}
 		page, err := decodePage(response.Result)
 		if err != nil {
