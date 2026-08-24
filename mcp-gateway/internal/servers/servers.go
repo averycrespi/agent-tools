@@ -1,6 +1,7 @@
 package servers
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -31,6 +32,13 @@ func (repository *Repository) Create(ctx context.Context, request CreateRequest)
 	if !validID(serverID) {
 		return CreateResult{}, fmt.Errorf("%w: server ID", ErrInvalidInput)
 	}
+	var operationID string
+	if request.Definition.Enabled {
+		operationID, err = repository.NewID()
+		if err != nil {
+			return CreateResult{}, err
+		}
+	}
 
 	var result CreateResult
 	err = repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
@@ -40,7 +48,7 @@ func (repository *Repository) Create(ctx context.Context, request CreateRequest)
 			return lookupErr
 		}
 		if found {
-			result = CreateResult{Server: *snapshot.Server, Result: stored, Replayed: true}
+			result = CreateResult{Server: *snapshot.Server, Operation: snapshot.ServerMutationWork, Result: stored, Replayed: true}
 			return nil
 		}
 		if err := admitIdempotencyTx(ctx, transaction, now); err != nil {
@@ -103,15 +111,23 @@ func (repository *Repository) Create(ctx context.Context, request CreateRequest)
 			VALUES (?, 0)`, serverID); err != nil {
 			return fmt.Errorf("initialize operation watermark: %w", err)
 		}
-		stored = IdempotencyResult{Kind: "server", ServerID: serverID, DesiredRevision: "1"}
 		server, err := serverByIDTx(ctx, transaction, serverID)
 		if err != nil {
 			return err
 		}
-		if err := insertIdempotencyTx(ctx, transaction, request.Idempotency, stored, idempotencySnapshot{Server: &server}, now); err != nil {
+		var operation *Operation
+		if request.Definition.Enabled {
+			created, createErr := insertOperationTx(ctx, transaction, operationID, serverID, contract.OperationActivate, server.DesiredRevision, now)
+			if createErr != nil {
+				return createErr
+			}
+			operation = &created
+		}
+		stored = IdempotencyResult{Kind: "server", ServerID: serverID, DesiredRevision: "1"}
+		if err := insertIdempotencyTx(ctx, transaction, request.Idempotency, stored, idempotencySnapshot{Server: &server, ServerMutationWork: operation}, now); err != nil {
 			return err
 		}
-		result = CreateResult{Server: server, Result: stored}
+		result = CreateResult{Server: server, Operation: operation, Result: stored}
 		return nil
 	})
 	return result, mapMutationError(err)
@@ -130,31 +146,35 @@ func (repository *Repository) Get(ctx context.Context, serverID string) (Server,
 	return server, mapViewError(err)
 }
 
-func (repository *Repository) Patch(ctx context.Context, serverID, expectedRevision string, patch Patch) (Server, error) {
+func (repository *Repository) Patch(ctx context.Context, serverID, expectedRevision string, patch Patch) (PatchResult, error) {
 	if !validID(serverID) {
-		return Server{}, ErrNotFound
+		return PatchResult{}, ErrNotFound
 	}
 	expected, err := parseRevision(expectedRevision)
 	if err != nil || expected < 1 {
-		return Server{}, ErrStaleRevision
+		return PatchResult{}, ErrStaleRevision
 	}
 	if patch.DisplayName == nil && patch.Enabled == nil && patch.Transport == nil {
-		return Server{}, ErrInvalidInput
+		return PatchResult{}, ErrInvalidInput
 	}
 	if patch.DisplayName != nil {
 		if _, err := validateDefinition(Definition{Namespace: "valid", DisplayName: *patch.DisplayName, Transport: minimalStdioTransport()}); err != nil {
-			return Server{}, err
+			return PatchResult{}, err
 		}
 	}
 	var transport []byte
 	if patch.Transport != nil {
 		transport, err = canonicalTransport(patch.Transport)
 		if err != nil {
-			return Server{}, err
+			return PatchResult{}, err
 		}
 	}
+	operationID, err := repository.NewID()
+	if err != nil {
+		return PatchResult{}, err
+	}
 
-	var updated Server
+	var result PatchResult
 	err = repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
 		current, getErr := serverByIDTx(ctx, transaction, serverID)
 		if getErr != nil {
@@ -186,17 +206,37 @@ func (repository *Repository) Patch(ctx context.Context, serverID, expectedRevis
 		if patch.Transport != nil {
 			transportValue = transport
 		}
+		behavioral := state != current.DesiredState || !bytes.Equal(transportValue, current.Transport)
+		now := repository.clock.Now()
 		if _, err := transaction.ExecContext(ctx, `
 			UPDATE servers SET
 				display_name = ?, desired_state = ?, desired_revision = desired_revision + 1,
 				transport_json = ?, updated_at = ?
-			WHERE id = ?`, displayName, state, string(transportValue), formatTime(repository.clock.Now()), serverID); err != nil {
+			WHERE id = ?`, displayName, state, string(transportValue), formatTime(now), serverID); err != nil {
 			return fmt.Errorf("patch server definition: %w", err)
 		}
-		updated, getErr = serverByIDTx(ctx, transaction, serverID)
-		return getErr
+		updated, getErr := serverByIDTx(ctx, transaction, serverID)
+		if getErr != nil {
+			return getErr
+		}
+		result.Server = updated
+		if behavioral {
+			if supersedeErr := supersedeNonterminalTx(ctx, transaction, serverID, now); supersedeErr != nil {
+				return supersedeErr
+			}
+			kind := contract.OperationActivate
+			if updated.DesiredState == contract.DesiredServerDisabled {
+				kind = contract.OperationDisable
+			}
+			operation, operationErr := insertOperationTx(ctx, transaction, operationID, serverID, kind, updated.DesiredRevision, now)
+			if operationErr != nil {
+				return operationErr
+			}
+			result.Operation = &operation
+		}
+		return nil
 	})
-	return updated, mapMutationError(err)
+	return result, mapMutationError(err)
 }
 
 func (repository *Repository) Delete(ctx context.Context, serverID, expectedRevision string) (DeleteResult, error) {
@@ -206,6 +246,10 @@ func (repository *Repository) Delete(ctx context.Context, serverID, expectedRevi
 	expected, err := parseRevision(expectedRevision)
 	if err != nil || expected < 1 {
 		return DeleteResult{}, ErrStaleRevision
+	}
+	operationID, err := repository.NewID()
+	if err != nil {
+		return DeleteResult{}, err
 	}
 	var result DeleteResult
 	err = repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
@@ -218,7 +262,11 @@ func (repository *Repository) Delete(ctx context.Context, serverID, expectedRevi
 			return ErrStaleRevision
 		}
 		if current.DesiredState == contract.DesiredServerDeleted {
-			result = DeleteResult{Server: current, Replayed: true}
+			operation, operationErr := operationForTargetTx(ctx, transaction, serverID, contract.OperationDelete, current.DesiredRevision)
+			if operationErr != nil {
+				return operationErr
+			}
+			result = DeleteResult{Server: current, Operation: &operation, Replayed: true}
 			return nil
 		}
 		now := formatTime(repository.clock.Now())
@@ -229,8 +277,18 @@ func (repository *Repository) Delete(ctx context.Context, serverID, expectedRevi
 			return fmt.Errorf("tombstone server: %w", err)
 		}
 		current, getErr = serverByIDTx(ctx, transaction, serverID)
-		result = DeleteResult{Server: current}
-		return getErr
+		if getErr != nil {
+			return getErr
+		}
+		if supersedeErr := supersedeNonterminalTx(ctx, transaction, serverID, repository.clock.Now()); supersedeErr != nil {
+			return supersedeErr
+		}
+		operation, operationErr := insertOperationTx(ctx, transaction, operationID, serverID, contract.OperationDelete, current.DesiredRevision, repository.clock.Now())
+		if operationErr != nil {
+			return operationErr
+		}
+		result = DeleteResult{Server: current, Operation: &operation}
+		return nil
 	})
 	return result, mapMutationError(err)
 }
@@ -286,7 +344,7 @@ func (repository *Repository) ListServers(ctx context.Context, cursor *SnapshotC
 
 func minimalStdioTransport() contract.StdioTransport {
 	return contract.StdioTransport{
-		Kind: contract.TransportStdio, Arguments: []string{}, Environment: map[string]string{}, SecretEnvironment: map[string]string{},
+		Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{},
 	}
 }
 

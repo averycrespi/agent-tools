@@ -9,6 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,11 +32,14 @@ var (
 	ErrResourceLimit        = errors.New("server-domain resource limit is reached")
 	ErrStaleRevision        = errors.New("server desired or authority revision is stale")
 	ErrInvalidTransition    = errors.New("server operation transition is invalid")
+	ErrInvalidOperation     = errors.New("server operation is not admissible")
+	ErrOperationConflict    = errors.New("server has conflicting work")
 	ErrIdempotencyConflict  = errors.New("S2 idempotency key conflicts with prior work")
 	ErrStaleCursor          = errors.New("server-domain cursor snapshot is stale")
 	ErrStorageUnavailable   = errors.New("server-domain storage is unavailable")
 
-	namespacePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+	namespacePattern  = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+	secretSlotPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 )
 
 const timestampLayout = "2006-01-02T15:04:05.000000000Z07:00"
@@ -105,11 +111,180 @@ func canonicalTransport(transport contract.Transport) ([]byte, error) {
 	if transport == nil {
 		return nil, fmt.Errorf("%w: transport", ErrInvalidInput)
 	}
+	var err error
+	switch value := transport.(type) {
+	case contract.StdioTransport:
+		err = validateStdioTransport(value)
+	case contract.StreamableHTTPTransport:
+		err = validateHTTPTransport(value)
+	default:
+		err = fmt.Errorf("unsupported transport type %T", transport)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: transport: %w", ErrInvalidInput, err)
+	}
 	encoded, err := json.Marshal(transport)
 	if err != nil {
 		return nil, fmt.Errorf("%w: transport: %w", ErrInvalidInput, err)
 	}
 	return canonicalJSON(encoded)
+}
+
+func validateStdioTransport(transport contract.StdioTransport) error {
+	if transport.Kind != contract.TransportStdio || !validAbsolutePath(transport.Executable) || !validAbsolutePath(transport.WorkingDirectory) {
+		return errors.New("stdio path or kind is invalid")
+	}
+	if len(transport.Arguments) > int(mustLimit("stdio_arguments")) || len(transport.Environment) > int(mustLimit("stdio_environment_entries")) || len(transport.SecretEnvironment) > int(mustLimit("stdio_secret_environment_entries")) {
+		return errors.New("stdio collection limit exceeded")
+	}
+	totalArguments := 0
+	for _, argument := range transport.Arguments {
+		if !utf8.ValidString(argument) || strings.ContainsRune(argument, 0) || int64(len(argument)) > mustLimit("stdio_argument_bytes") {
+			return errors.New("stdio argument is invalid")
+		}
+		totalArguments += len(argument)
+	}
+	if int64(totalArguments) > mustLimit("stdio_arguments_bytes") {
+		return errors.New("stdio argument bytes exceeded")
+	}
+	for name, value := range transport.Environment {
+		if !validEnvironmentName(name) || !utf8.ValidString(value) || strings.ContainsRune(value, 0) || int64(len(value)) > mustLimit("stdio_environment_value_bytes") {
+			return errors.New("stdio environment is invalid")
+		}
+		if _, secret := transport.SecretEnvironment[name]; secret {
+			return errors.New("stdio environment source is ambiguous")
+		}
+	}
+	for name, slot := range transport.SecretEnvironment {
+		if !validEnvironmentName(name) || !secretSlotPattern.MatchString(slot) {
+			return errors.New("stdio secret environment is invalid")
+		}
+	}
+	return nil
+}
+
+func validAbsolutePath(value string) bool {
+	return utf8.ValidString(value) && value != "" && filepath.IsAbs(value) && filepath.Clean(value) == value && !strings.ContainsRune(value, 0) && int64(len(value)) <= mustLimit("stdio_path_bytes")
+}
+
+func validEnvironmentName(value string) bool {
+	return utf8.ValidString(value) && value != "" && !strings.ContainsAny(value, "=\x00") && int64(len(value)) <= mustLimit("stdio_environment_name_bytes")
+}
+
+func validateHTTPTransport(transport contract.StreamableHTTPTransport) error {
+	if transport.Kind != contract.TransportStreamableHTTP {
+		return errors.New("HTTP transport kind is invalid")
+	}
+	if _, err := contract.ParseProtocolMode(string(transport.ProtocolMode)); err != nil {
+		return err
+	}
+	endpoint, err := parseEndpointURL(transport.URL)
+	if err != nil {
+		return err
+	}
+	mode := authenticationMode(transport.Authentication)
+	if _, err := contract.ParseAuthenticationMode(string(mode)); err != nil {
+		return err
+	}
+	if endpoint.Scheme == "http" && (mode != contract.AuthenticationNone || !isLoopbackLiteral(endpoint.Hostname())) {
+		return errors.New("plain HTTP requires unauthenticated loopback IP")
+	}
+	if mode == contract.AuthenticationOAuth && endpoint.Scheme != "https" {
+		return errors.New("OAuth requires HTTPS")
+	}
+	return validateHTTPAuthentication(transport.Authentication)
+}
+
+func authenticationMode(authentication contract.HTTPAuthentication) contract.AuthenticationMode {
+	switch value := authentication.(type) {
+	case contract.NoAuthentication:
+		return value.Mode
+	case contract.BearerAuthentication:
+		return value.Mode
+	case contract.OAuthAuthentication:
+		return value.Mode
+	default:
+		return ""
+	}
+}
+
+func validateHTTPAuthentication(authentication contract.HTTPAuthentication) error {
+	switch value := authentication.(type) {
+	case contract.NoAuthentication:
+		if value.Mode != contract.AuthenticationNone {
+			return errors.New("authentication union mismatch")
+		}
+	case contract.BearerAuthentication:
+		if value.Mode != contract.AuthenticationBearer {
+			return errors.New("authentication union mismatch")
+		}
+	case contract.OAuthAuthentication:
+		if value.Mode != contract.AuthenticationOAuth {
+			return errors.New("authentication union mismatch")
+		}
+		if len(value.TrustedOrigins) > 64 {
+			return errors.New("too many trusted origins")
+		}
+		seen := make(map[string]struct{}, len(value.TrustedOrigins))
+		for _, origin := range value.TrustedOrigins {
+			parsed, err := url.Parse(origin)
+			if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") || parsed.String() != origin {
+				return errors.New("trusted origin is invalid")
+			}
+			if _, duplicate := seen[origin]; duplicate {
+				return errors.New("trusted origin is duplicated")
+			}
+			seen[origin] = struct{}{}
+		}
+		return validateRegistration(value.Registration)
+	default:
+		return errors.New("authentication union is invalid")
+	}
+	return nil
+}
+
+func validateRegistration(registration contract.OAuthRegistration) error {
+	var issuer *string
+	switch value := registration.(type) {
+	case contract.StaticOAuthRegistration:
+		if value.Mode != contract.RegistrationStatic || value.ClientID == "" || !utf8.ValidString(value.ClientID) || int64(len(value.ClientID)) > mustLimit("oauth_client_id_bytes") {
+			return errors.New("static registration is invalid")
+		}
+		if _, err := contract.ParseTokenEndpointAuthMethod(string(value.TokenEndpointAuthMethod)); err != nil {
+			return err
+		}
+		issuer = value.Issuer
+	case contract.DynamicOAuthRegistration:
+		if value.Mode != contract.RegistrationDynamic {
+			return errors.New("dynamic registration is invalid")
+		}
+		issuer = value.Issuer
+	default:
+		return errors.New("registration union is invalid")
+	}
+	if issuer != nil {
+		parsed, err := url.Parse(*issuer)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" || parsed.String() != *issuer || int64(len(*issuer)) > mustLimit("oauth_url_bytes") {
+			return errors.New("issuer is invalid")
+		}
+	}
+	return nil
+}
+
+func parseEndpointURL(value string) (*url.URL, error) {
+	if !utf8.ValidString(value) || value == "" || int64(len(value)) > mustLimit("resource_url_bytes") {
+		return nil, errors.New("resource URL is invalid")
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.String() != value {
+		return nil, errors.New("resource URL is invalid")
+	}
+	return parsed, nil
+}
+
+func isLoopbackLiteral(host string) bool {
+	address := net.ParseIP(host)
+	return address != nil && address.IsLoopback()
 }
 
 func validID(value string) bool {

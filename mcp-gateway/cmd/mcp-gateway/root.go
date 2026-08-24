@@ -21,6 +21,8 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -109,6 +111,15 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if err != nil {
 		return false, err
 	}
+	serverRepository, err := servers.New(store, dependencies.clock, dependencies.entropy)
+	if err != nil {
+		return false, err
+	}
+	runtimeManager, err := runtimes.New(runtimes.Options{Repository: serverRepository})
+	if err != nil {
+		return false, err
+	}
+	defer runtimeManager.Shutdown()
 	credentials := admin.NewService(store, dependencies.clock, dependencies.entropy)
 	sessions := admin.NewSessionManager(credentials, dependencies.clock, dependencies.entropy)
 	defer sessions.Shutdown()
@@ -140,12 +151,15 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	})
 	defer ingress.Shutdown()
 	apiHandler := api.New(api.Options{
-		Credentials: credentials,
-		Sessions:    sessions,
-		Backups:     backupManager,
-		Events:      eventHub,
-		Invalidate:  eventHub.Publish,
-		Origin:      "http://" + authority,
+		Credentials:    credentials,
+		Sessions:       sessions,
+		Backups:        backupManager,
+		Events:         eventHub,
+		Invalidate:     eventHub.Publish,
+		Origin:         "http://" + authority,
+		Servers:        serverRepository,
+		OperationState: runtimeManager.OperationState,
+		TriggerServer:  runtimeManager.Trigger,
 		Status: func() contract.SystemStatus {
 			current, identityErr := store.Identity(context.Background())
 			if identityErr != nil {
@@ -211,6 +225,11 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		MaxHeaderBytes:    limitMaximum("request_header_bytes"),
 	}
 	ready.Store(true)
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(listener) }()
+	if err := runtimeManager.Start(ctx); err != nil {
+		return true, err
+	}
 	result := struct {
 		OK             bool   `json:"ok"`
 		Operation      string `json:"operation"`
@@ -220,8 +239,6 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if err := json.NewEncoder(command.OutOrStdout()).Encode(result); err != nil {
 		return false, err
 	}
-	serveDone := make(chan error, 1)
-	go func() { serveDone <- server.Serve(listener) }()
 	select {
 	case err := <-serveDone:
 		if !errors.Is(err, http.ErrServerClosed) {
@@ -230,6 +247,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	case <-ctx.Done():
 		draining.Store(true)
 		ready.Store(false)
+		runtimeManager.Shutdown()
 		keyringCoordinator.Drain()
 		eventHub.Shutdown()
 		ingress.Shutdown()

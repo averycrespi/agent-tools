@@ -28,6 +28,7 @@ internal/strictjson/    Dependency-neutral bounded strict JSON and canonical equ
 internal/paths/         Owner-only paths and process ownership
 internal/storage/       SQLite identity, migrations, durability, latch
 internal/servers/       Durable S2 identities, desired authority, operations, cursors, idempotency
+internal/runtimes/      Process-local serialized reconciliation, retries, status, and runtime driver seam
 internal/admin/         Admin bearer and in-memory session authority
 internal/api/           Strict resources, JSON, and safe problems
 internal/httpboundary/  Listener, route ownership, and early validation
@@ -61,7 +62,7 @@ The package directories begin as documented seams and gain implementation only i
 - Runtime state is never serialized or resumed after restart.
 - Test subprocesses use `testutil.BinaryRunner` with a positive configured timeout and per-stream byte cap. It captures stdout/stderr separately, reports truncation, and guarantees direct-child cancellation; component-specific process-group behavior belongs with that component.
 - The official MCP SDK sits behind Gateway-owned authentication, classification, binding, limits, and lifecycle.
-- The current S2 checkpoint implements the closed vocabulary, shared strict JSON, durable server/operation/idempotency authority foundation, and transaction-fenced server-scoped keyring publication/invalidation. Do not infer API serving, process/network work, OAuth orchestration, catalog traversal, runtime scheduling, routing, invocation, or product-UI behavior; add behavior only in its owning task.
+- The current S2 checkpoint implements the closed vocabulary, shared strict JSON, durable server/operation/idempotency authority foundation, transaction-fenced server-scoped keyring publication/invalidation, desired-server plus explicit-operation APIs, and transport-neutral runtime reconciliation/retry scheduling. Do not infer process/network work, OAuth orchestration, catalog traversal, concrete downstream activation, routing, invocation, or product-UI behavior; add behavior only in its owning task.
 
 ## Dependency flow
 

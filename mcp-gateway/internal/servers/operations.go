@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 )
@@ -16,7 +17,14 @@ func (repository *Repository) CreateOperation(ctx context.Context, request Opera
 	if !validID(request.ServerID) {
 		return OperationResult{}, ErrNotFound
 	}
-	if _, err := contract.ParseServerOperationKind(string(request.Kind)); err != nil {
+	if request.TriggerState != nil {
+		if _, err := contract.ParseExplicitServerOperationKind(string(request.Kind)); err != nil {
+			return OperationResult{}, ErrInvalidOperation
+		}
+	} else if _, err := contract.ParseServerOperationKind(string(request.Kind)); err != nil {
+		return OperationResult{}, ErrInvalidInput
+	}
+	if request.TriggerState != nil && request.Idempotency == nil {
 		return OperationResult{}, ErrInvalidInput
 	}
 	if request.Idempotency != nil {
@@ -59,6 +67,20 @@ func (repository *Repository) CreateOperation(ctx context.Context, request Opera
 		}
 		if request.ExpectedDesiredRevision != "" && request.ExpectedDesiredRevision != server.DesiredRevision {
 			return ErrStaleRevision
+		}
+		if request.TriggerState != nil {
+			attached, admissionErr := admitExplicitOperationTx(ctx, transaction, server, request.Kind, *request.TriggerState)
+			if admissionErr != nil {
+				return admissionErr
+			}
+			if attached != nil {
+				stored := IdempotencyResult{Kind: "operation", ServerID: request.ServerID, OperationID: &attached.ID, DesiredRevision: server.DesiredRevision}
+				if err := insertIdempotencyTx(ctx, transaction, request.Idempotency, stored, idempotencySnapshot{Operation: attached}, now); err != nil {
+					return err
+				}
+				result = OperationResult{Operation: *attached, Result: stored}
+				return nil
+			}
 		}
 		authority, err := authorityTx(ctx, transaction, request.ServerID)
 		if err != nil {
@@ -115,6 +137,138 @@ func (repository *Repository) CreateOperation(ctx context.Context, request Opera
 		return nil
 	})
 	return result, mapMutationError(err)
+}
+
+func admitExplicitOperationTx(
+	ctx context.Context,
+	transaction *sql.Tx,
+	server Server,
+	kind contract.ServerOperationKind,
+	state OperationTriggerState,
+) (*Operation, error) {
+	if _, err := contract.ParseRuntimeState(string(state.RuntimeState)); err != nil {
+		return nil, ErrInvalidInput
+	}
+	if _, err := contract.ParseServerCredentialState(string(state.CredentialState)); err != nil {
+		return nil, ErrInvalidInput
+	}
+	if _, err := contract.ParseActiveCatalogState(string(state.CatalogState)); err != nil {
+		return nil, ErrInvalidInput
+	}
+	if state.RuntimeReason != nil {
+		if _, err := contract.ParsePublicReason(string(*state.RuntimeReason)); err != nil {
+			return nil, ErrInvalidInput
+		}
+	}
+
+	rows, err := transaction.QueryContext(ctx, operationSelect+`
+		WHERE server_id = ? AND state IN ('scheduled', 'running')
+		ORDER BY insertion_sequence, id`, server.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list conflicting server operations: %w", err)
+	}
+	nonterminal := make([]Operation, 0, 1)
+	for rows.Next() {
+		operation, scanErr := scanOperation(rows)
+		if scanErr != nil {
+			_ = rows.Close()
+			return nil, scanErr
+		}
+		nonterminal = append(nonterminal, operation)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if kind == contract.OperationRefreshCatalog && len(nonterminal) == 1 && nonterminal[0].Kind == contract.OperationRefreshCatalog && nonterminal[0].TargetDesiredRevision == server.DesiredRevision {
+		return &nonterminal[0], nil
+	}
+	if len(nonterminal) != 0 {
+		return nil, ErrOperationConflict
+	}
+
+	switch kind {
+	case contract.OperationReload:
+		if server.DesiredState != contract.DesiredServerEnabled || (state.RuntimeState != contract.RuntimeInactive && state.RuntimeState != contract.RuntimeActive) {
+			return nil, ErrInvalidOperation
+		}
+	case contract.OperationRetry:
+		retryable := (server.DesiredState == contract.DesiredServerEnabled && (state.RuntimeState == contract.RuntimeRetryWait || state.RuntimeState == contract.RuntimeDegraded || state.RuntimeState == contract.RuntimeAuthenticationRequired)) || state.CredentialState == contract.ServerCredentialCleanupPending
+		if (server.DesiredState == contract.DesiredServerDisabled || server.DesiredState == contract.DesiredServerDeleted) && state.RuntimeReason != nil && *state.RuntimeReason == contract.ReasonStopUnconfirmed {
+			retryable = true
+		}
+		if !retryable {
+			return nil, ErrInvalidOperation
+		}
+	case contract.OperationRefreshCatalog:
+		if server.DesiredState != contract.DesiredServerEnabled || state.RuntimeState != contract.RuntimeActive || (state.CatalogState != contract.ActiveCatalogCurrent && state.CatalogState != contract.ActiveCatalogStale) {
+			return nil, ErrInvalidOperation
+		}
+	case contract.OperationDisconnectCredentials:
+		if server.DesiredState == contract.DesiredServerDeleted {
+			return nil, ErrInvalidOperation
+		}
+		authority, authorityErr := authorityTx(ctx, transaction, server.ID)
+		if authorityErr != nil {
+			return nil, authorityErr
+		}
+		if authority.CredentialRevisions.StaticCredential == "0" && authority.CredentialRevisions.OAuthClient == "0" && authority.CredentialRevisions.OAuthTokens == "0" {
+			return nil, ErrInvalidOperation
+		}
+	default:
+		return nil, ErrInvalidOperation
+	}
+	return nil, nil
+}
+
+func insertOperationTx(
+	ctx context.Context,
+	transaction *sql.Tx,
+	operationID, serverID string,
+	kind contract.ServerOperationKind,
+	targetDesiredRevision string,
+	now time.Time,
+) (Operation, error) {
+	authority, err := authorityTx(ctx, transaction, serverID)
+	if err != nil {
+		return Operation{}, err
+	}
+	desiredRevision, err := strconv.ParseInt(targetDesiredRevision, 10, 64)
+	if err != nil {
+		return Operation{}, fmt.Errorf("parse operation target desired revision: %w", err)
+	}
+	staticRevision, err := strconv.ParseInt(authority.CredentialRevisions.StaticCredential, 10, 64)
+	if err != nil {
+		return Operation{}, err
+	}
+	oauthClientRevision, err := strconv.ParseInt(authority.CredentialRevisions.OAuthClient, 10, 64)
+	if err != nil {
+		return Operation{}, err
+	}
+	oauthTokensRevision, err := strconv.ParseInt(authority.CredentialRevisions.OAuthTokens, 10, 64)
+	if err != nil {
+		return Operation{}, err
+	}
+	if _, err := transaction.ExecContext(ctx, `
+		INSERT INTO server_operations (
+			id, server_id, kind, target_desired_revision,
+			target_static_credential_revision, target_oauth_client_revision,
+			target_oauth_tokens_revision, state, reason, created_at, started_at, finished_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', NULL, ?, NULL, NULL)`,
+		operationID, serverID, kind, desiredRevision, staticRevision, oauthClientRevision,
+		oauthTokensRevision, formatTime(now)); err != nil {
+		return Operation{}, fmt.Errorf("insert server operation: %w", err)
+	}
+	return operationByIDTx(ctx, transaction, operationID)
+}
+
+func operationForTargetTx(ctx context.Context, transaction *sql.Tx, serverID string, kind contract.ServerOperationKind, revision string) (Operation, error) {
+	operation, err := scanOperation(transaction.QueryRowContext(ctx, operationSelect+`
+		WHERE server_id = ? AND kind = ? AND target_desired_revision = ?
+		ORDER BY insertion_sequence LIMIT 1`, serverID, kind, revision))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Operation{}, ErrNotFound
+	}
+	return operation, err
 }
 
 func (repository *Repository) GetOperation(ctx context.Context, operationID string) (Operation, error) {
@@ -185,6 +339,46 @@ func (repository *Repository) TransitionOperation(
 		return nil
 	})
 	return updated, mapMutationError(err)
+}
+
+func supersedeNonterminalTx(ctx context.Context, transaction *sql.Tx, serverID string, now time.Time) error {
+	rows, err := transaction.QueryContext(ctx, `
+		SELECT id FROM server_operations
+		WHERE server_id = ? AND state IN ('scheduled', 'running')
+		ORDER BY insertion_sequence, id`, serverID)
+	if err != nil {
+		return fmt.Errorf("list superseded operations: %w", err)
+	}
+	operationIDs := make([]string, 0)
+	for rows.Next() {
+		var operationID string
+		if err := rows.Scan(&operationID); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		operationIDs = append(operationIDs, operationID)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(operationIDs) == 0 {
+		return nil
+	}
+	if _, err := transaction.ExecContext(ctx, `
+		UPDATE server_operations SET state = 'superseded', reason = 'superseded', finished_at = ?
+		WHERE server_id = ? AND state IN ('scheduled', 'running')`, formatTime(now), serverID); err != nil {
+		return fmt.Errorf("supersede server operations: %w", err)
+	}
+	for _, operationID := range operationIDs {
+		operation, err := operationByIDTx(ctx, transaction, operationID)
+		if err != nil {
+			return err
+		}
+		if err := updateOperationIdempotencySnapshotTx(ctx, transaction, operation); err != nil {
+			return err
+		}
+	}
+	return pruneTerminalOperationsTx(ctx, transaction, serverID)
 }
 
 func (repository *Repository) InterruptNonterminal(ctx context.Context) error {

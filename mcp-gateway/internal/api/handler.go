@@ -22,6 +22,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/events"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
+	serverdomain "github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
 
@@ -55,27 +56,33 @@ type EventService interface {
 type OAuthStateValidator func(context.Context, string) bool
 
 type Options struct {
-	Credentials   CredentialService
-	Sessions      SessionService
-	Backups       BackupService
-	Events        EventService
-	Invalidate    func(contract.Invalidation)
-	NewKeepalive  func() (<-chan time.Time, func())
-	Origin        string
-	Status        func() contract.SystemStatus
-	ValidateOAuth OAuthStateValidator
+	Credentials    CredentialService
+	Sessions       SessionService
+	Backups        BackupService
+	Events         EventService
+	Invalidate     func(contract.Invalidation)
+	NewKeepalive   func() (<-chan time.Time, func())
+	Origin         string
+	Status         func() contract.SystemStatus
+	ValidateOAuth  OAuthStateValidator
+	Servers        ServerService
+	OperationState OperationStateProvider
+	TriggerServer  func(string, *string, bool)
 }
 
 type Handler struct {
-	credentials   CredentialService
-	sessions      SessionService
-	backups       BackupService
-	events        EventService
-	invalidate    func(contract.Invalidation)
-	newKeepalive  func() (<-chan time.Time, func())
-	origin        string
-	status        func() contract.SystemStatus
-	validateOAuth OAuthStateValidator
+	credentials    CredentialService
+	sessions       SessionService
+	backups        BackupService
+	events         EventService
+	invalidate     func(contract.Invalidation)
+	newKeepalive   func() (<-chan time.Time, func())
+	origin         string
+	status         func() contract.SystemStatus
+	validateOAuth  OAuthStateValidator
+	servers        ServerService
+	operationState OperationStateProvider
+	triggerServer  func(string, *string, bool)
 }
 
 //go:embed static/*
@@ -108,7 +115,12 @@ func New(options Options) *Handler {
 	if options.Origin == "" {
 		options.Origin = contract.CanonicalOrigin
 	}
-	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, validateOAuth: options.ValidateOAuth}
+	if options.OperationState == nil {
+		options.OperationState = func(context.Context, string) serverdomain.OperationTriggerState {
+			return serverdomain.OperationTriggerState{RuntimeState: contract.RuntimeInactive, CredentialState: contract.ServerCredentialNotRequired, CatalogState: contract.ActiveCatalogAbsent}
+		}
+	}
+	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, validateOAuth: options.ValidateOAuth, servers: options.Servers, operationState: options.OperationState, triggerServer: options.TriggerServer}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -211,6 +223,21 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.deleteBackup(writer, request)
 	case path == "/api/v1/events" && request.Method == http.MethodGet:
 		handler.streamEvents(writer, request)
+	case path == "/api/v1/servers" && handler.servers != nil:
+		handler.serversCollection(writer, request)
+	case strings.HasPrefix(path, "/api/v1/servers/") && handler.servers != nil:
+		segments := strings.Split(strings.TrimPrefix(path, "/api/v1/servers/"), "/")
+		switch {
+		case len(segments) == 1 && segments[0] != "":
+			handler.serverMember(writer, request, segments[0])
+		case len(segments) == 2 && segments[0] != "" && segments[1] == "operations":
+			handler.operationsCollection(writer, request, segments[0])
+		case len(segments) == 3 && segments[0] != "" && segments[1] == "operations" && segments[2] != "":
+			handler.operationMember(writer, request, segments[0], segments[2])
+		default:
+			writeProblem(writer, contract.ProblemNotFound)
+		}
+		return
 	default:
 		writeProblem(writer, contract.ProblemNotFound)
 	}

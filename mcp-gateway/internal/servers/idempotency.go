@@ -56,8 +56,9 @@ func validateIdempotencyRequest(request *IdempotencyRequest) error {
 }
 
 type idempotencySnapshot struct {
-	Server    *Server    `json:"server,omitempty"`
-	Operation *Operation `json:"operation,omitempty"`
+	Server             *Server    `json:"server,omitempty"`
+	Operation          *Operation `json:"operation,omitempty"`
+	ServerMutationWork *Operation `json:"server_operation,omitempty"`
 }
 
 func lookupIdempotencyTx(
@@ -239,8 +240,11 @@ func validateIdempotencySnapshot(result IdempotencyResult, snapshot idempotencyS
 			snapshot.Server.DesiredRevision != result.DesiredRevision || result.OperationID != nil {
 			return fmt.Errorf("%w: server idempotency result", ErrInvalidInput)
 		}
+		if snapshot.ServerMutationWork != nil && (snapshot.ServerMutationWork.ServerID != result.ServerID || snapshot.ServerMutationWork.TargetDesiredRevision != result.DesiredRevision) {
+			return fmt.Errorf("%w: server mutation operation result", ErrInvalidInput)
+		}
 	case "operation":
-		if snapshot.Server != nil || snapshot.Operation == nil || result.OperationID == nil ||
+		if snapshot.Server != nil || snapshot.ServerMutationWork != nil || snapshot.Operation == nil || result.OperationID == nil ||
 			snapshot.Operation.ID != *result.OperationID || snapshot.Operation.ServerID != result.ServerID ||
 			snapshot.Operation.TargetDesiredRevision != result.DesiredRevision {
 			return fmt.Errorf("%w: operation idempotency result", ErrInvalidInput)

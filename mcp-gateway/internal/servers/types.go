@@ -61,14 +61,21 @@ type CreateRequest struct {
 }
 
 type CreateResult struct {
-	Server   Server
-	Result   IdempotencyResult
-	Replayed bool
+	Server    Server
+	Operation *Operation
+	Result    IdempotencyResult
+	Replayed  bool
+}
+
+type PatchResult struct {
+	Server
+	Operation *Operation
 }
 
 type DeleteResult struct {
-	Server   Server
-	Replayed bool
+	Server    Server
+	Operation *Operation
+	Replayed  bool
 }
 
 type AuthorityMetadata struct {
@@ -107,12 +114,20 @@ type Operation struct {
 	FinishedAt                *string
 }
 
+type OperationTriggerState struct {
+	RuntimeState    contract.RuntimeState
+	RuntimeReason   *contract.PublicReason
+	CredentialState contract.ServerCredentialState
+	CatalogState    contract.ActiveCatalogState
+}
+
 type OperationRequest struct {
 	ID                      string
 	ServerID                string
 	Kind                    contract.ServerOperationKind
 	ExpectedDesiredRevision string
 	Idempotency             *IdempotencyRequest
+	TriggerState            *OperationTriggerState
 }
 
 type OperationResult struct {

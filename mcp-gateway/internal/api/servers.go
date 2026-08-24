@@ -1,0 +1,537 @@
+package api
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	serverdomain "github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
+)
+
+type ServerService interface {
+	Create(context.Context, serverdomain.CreateRequest) (serverdomain.CreateResult, error)
+	Get(context.Context, string) (serverdomain.Server, error)
+	Patch(context.Context, string, string, serverdomain.Patch) (serverdomain.PatchResult, error)
+	Delete(context.Context, string, string) (serverdomain.DeleteResult, error)
+	ListServers(context.Context, *serverdomain.SnapshotCursor, int) (serverdomain.ServerPage, error)
+	Authority(context.Context, string) (serverdomain.AuthorityMetadata, error)
+	CreateOperation(context.Context, serverdomain.OperationRequest) (serverdomain.OperationResult, error)
+	GetOperation(context.Context, string) (serverdomain.Operation, error)
+	ListOperations(context.Context, string, *serverdomain.SnapshotCursor, int) (serverdomain.OperationPage, error)
+}
+
+type OperationStateProvider func(context.Context, string) serverdomain.OperationTriggerState
+
+type rawServerCreate struct {
+	Namespace   string          `json:"namespace"`
+	DisplayName string          `json:"display_name"`
+	Enabled     bool            `json:"enabled"`
+	Transport   json.RawMessage `json:"transport"`
+}
+
+type rawServerPatch struct {
+	DisplayName *string          `json:"display_name,omitempty"`
+	Enabled     *bool            `json:"enabled,omitempty"`
+	Transport   *json.RawMessage `json:"transport,omitempty"`
+}
+
+type transportKind struct {
+	Kind contract.TransportKind `json:"kind"`
+}
+
+type rawHTTPTransport struct {
+	Kind           contract.TransportKind `json:"kind"`
+	URL            string                 `json:"url"`
+	ProtocolMode   contract.ProtocolMode  `json:"protocol_mode"`
+	Authentication json.RawMessage        `json:"authentication"`
+}
+
+type authenticationMode struct {
+	Mode contract.AuthenticationMode `json:"mode"`
+}
+
+type rawOAuthAuthentication struct {
+	Mode                 contract.AuthenticationMode `json:"mode"`
+	Registration         json.RawMessage             `json:"registration"`
+	TrustedOrigins       []string                    `json:"trusted_origins"`
+	RequestOfflineAccess bool                        `json:"request_offline_access"`
+}
+
+type registrationMode struct {
+	Mode contract.RegistrationMode `json:"mode"`
+}
+
+func (handler *Handler) serversCollection(writer http.ResponseWriter, request *http.Request) {
+	switch request.Method {
+	case http.MethodGet:
+		handler.listServers(writer, request)
+	case http.MethodPost:
+		handler.createServer(writer, request)
+	default:
+		writeProblem(writer, contract.ProblemNotFound)
+	}
+}
+
+func (handler *Handler) serverMember(writer http.ResponseWriter, request *http.Request, serverID string) {
+	switch request.Method {
+	case http.MethodGet:
+		handler.getServer(writer, request, serverID)
+	case http.MethodPatch:
+		handler.patchServer(writer, request, serverID)
+	case http.MethodDelete:
+		handler.deleteServer(writer, request, serverID)
+	default:
+		writeProblem(writer, contract.ProblemNotFound)
+	}
+}
+
+func (handler *Handler) createServer(writer http.ResponseWriter, request *http.Request) {
+	var raw rawServerCreate
+	if !decodeStrictBody(writer, request, &raw) {
+		return
+	}
+	transport, err := decodeTransport(raw.Transport)
+	if err != nil {
+		writeProblem(writer, contract.ProblemInvalidServerConfiguration)
+		return
+	}
+	key, ok := idempotencyKey(writer, request)
+	if !ok {
+		return
+	}
+	authenticated, ok := request.Context().Value(authContextKey{}).(authentication)
+	if !ok {
+		writeProblem(writer, contract.ProblemAuthenticationRequired)
+		return
+	}
+	definition := serverdomain.Definition{Namespace: raw.Namespace, DisplayName: raw.DisplayName, Enabled: raw.Enabled, Transport: transport}
+	canonical, _ := json.Marshal(contract.ServerCreate{Namespace: raw.Namespace, DisplayName: raw.DisplayName, Enabled: raw.Enabled, Transport: transport})
+	result, err := handler.servers.Create(request.Context(), serverdomain.CreateRequest{Definition: definition, Idempotency: &serverdomain.IdempotencyRequest{
+		AuthorityID: authenticated.credential.ID, Method: request.Method, Route: "/api/v1/servers", Key: key, RequestHash: sha256.Sum256(canonical),
+	}})
+	if err != nil {
+		writeServerError(writer, err)
+		return
+	}
+	resource, err := handler.serverResource(request.Context(), result.Server)
+	if err != nil {
+		writeServerError(writer, err)
+		return
+	}
+	mutation := contract.ServerMutation{Server: resource, Operation: operationResource(result.Operation)}
+	writer.Header().Set("ETag", contract.ServerETag(resource.ID, resource.DesiredRevision))
+	writer.Header().Set("Location", "/api/v1/servers/"+resource.ID)
+	status := http.StatusCreated
+	if result.Replayed {
+		status = http.StatusOK
+	} else {
+		handler.emit(contract.Invalidation{Kind: contract.InvalidationServers, ResourceID: &resource.ID})
+		if result.Operation != nil {
+			handler.emit(contract.Invalidation{Kind: contract.InvalidationServerOperations, ResourceID: &result.Operation.ID})
+			handler.trigger(resource.ID, &result.Operation.ID, true)
+		}
+	}
+	writeJSON(writer, status, mutation)
+}
+
+func (handler *Handler) getServer(writer http.ResponseWriter, request *http.Request, serverID string) {
+	if !bodyless(request) || len(request.URL.Query()) != 0 {
+		writeProblem(writer, contract.ProblemMalformedRequest)
+		return
+	}
+	stored, err := handler.servers.Get(request.Context(), serverID)
+	if err != nil {
+		writeServerError(writer, err)
+		return
+	}
+	resource, err := handler.serverResource(request.Context(), stored)
+	if err != nil {
+		writeServerError(writer, err)
+		return
+	}
+	writer.Header().Set("ETag", contract.ServerETag(resource.ID, resource.DesiredRevision))
+	writeJSON(writer, http.StatusOK, resource)
+}
+
+func (handler *Handler) patchServer(writer http.ResponseWriter, request *http.Request, serverID string) {
+	var raw rawServerPatch
+	if !decodeStrictBody(writer, request, &raw) {
+		return
+	}
+	if raw.DisplayName == nil && raw.Enabled == nil && raw.Transport == nil {
+		writeProblem(writer, contract.ProblemInvalidJSON)
+		return
+	}
+	revision, ok := serverPrecondition(writer, request, serverID)
+	if !ok {
+		return
+	}
+	patch := serverdomain.Patch{DisplayName: raw.DisplayName, Enabled: raw.Enabled}
+	if raw.Transport != nil {
+		transport, err := decodeTransport(*raw.Transport)
+		if err != nil {
+			writeProblem(writer, contract.ProblemInvalidServerConfiguration)
+			return
+		}
+		patch.Transport = transport
+	}
+	result, err := handler.servers.Patch(request.Context(), serverID, revision, patch)
+	if err != nil {
+		writeServerError(writer, err)
+		return
+	}
+	resource, err := handler.serverResource(request.Context(), result.Server)
+	if err != nil {
+		writeServerError(writer, err)
+		return
+	}
+	writer.Header().Set("ETag", contract.ServerETag(resource.ID, resource.DesiredRevision))
+	handler.emit(contract.Invalidation{Kind: contract.InvalidationServers, ResourceID: &resource.ID})
+	if result.Operation != nil {
+		handler.emit(contract.Invalidation{Kind: contract.InvalidationServerOperations, ResourceID: &result.Operation.ID})
+		handler.trigger(resource.ID, &result.Operation.ID, true)
+	}
+	writeJSON(writer, http.StatusOK, contract.ServerMutation{Server: resource, Operation: operationResource(result.Operation)})
+}
+
+func (handler *Handler) deleteServer(writer http.ResponseWriter, request *http.Request, serverID string) {
+	if !decodeEmptyObject(writer, request) {
+		return
+	}
+	revision, ok := serverPrecondition(writer, request, serverID)
+	if !ok {
+		return
+	}
+	result, err := handler.servers.Delete(request.Context(), serverID, revision)
+	if err != nil {
+		writeServerError(writer, err)
+		return
+	}
+	resource, err := handler.serverResource(request.Context(), result.Server)
+	if err != nil {
+		writeServerError(writer, err)
+		return
+	}
+	writer.Header().Set("ETag", contract.ServerETag(resource.ID, resource.DesiredRevision))
+	status := http.StatusAccepted
+	if result.Replayed {
+		status = http.StatusOK
+	} else {
+		handler.emit(contract.Invalidation{Kind: contract.InvalidationServers, ResourceID: &resource.ID})
+		if result.Operation != nil {
+			handler.emit(contract.Invalidation{Kind: contract.InvalidationServerOperations, ResourceID: &result.Operation.ID})
+			handler.trigger(resource.ID, &result.Operation.ID, true)
+		}
+	}
+	writeJSON(writer, status, contract.ServerMutation{Server: resource, Operation: operationResource(result.Operation)})
+}
+
+func (handler *Handler) listServers(writer http.ResponseWriter, request *http.Request) {
+	if !bodyless(request) {
+		writeProblem(writer, contract.ProblemMalformedRequest)
+		return
+	}
+	limit, cursor, problem := parseServerQuery(request.URL.Query())
+	if problem != "" {
+		writeProblem(writer, problem)
+		return
+	}
+	page, err := handler.servers.ListServers(request.Context(), cursor, limit)
+	if err != nil {
+		writeServerError(writer, err)
+		return
+	}
+	items := make([]contract.Server, 0, len(page.Items))
+	for _, stored := range page.Items {
+		resource, resourceErr := handler.serverResource(request.Context(), stored)
+		if resourceErr != nil {
+			writeServerError(writer, resourceErr)
+			return
+		}
+		items = append(items, resource)
+	}
+	var next *string
+	if page.Next != nil {
+		value := encodeServerCursor(*page.Next)
+		next = &value
+	}
+	writeJSON(writer, http.StatusOK, contract.Collection[contract.Server]{Items: items, NextCursor: next})
+}
+
+func (handler *Handler) serverResource(ctx context.Context, stored serverdomain.Server) (contract.Server, error) {
+	authority, err := handler.servers.Authority(ctx, stored.ID)
+	if err != nil {
+		return contract.Server{}, err
+	}
+	var transport contract.Transport
+	if stored.Transport != nil {
+		transport, err = decodeTransport(stored.Transport)
+		if err != nil {
+			return contract.Server{}, err
+		}
+	}
+	credentialState := contract.ServerCredentialNotRequired
+	if transportRequiresCredential(transport) {
+		credentialState = contract.ServerCredentialAbsent
+		if authority.CredentialRevisions.StaticCredential != "0" || authority.CredentialRevisions.OAuthTokens != "0" {
+			credentialState = contract.ServerCredentialReady
+		}
+	}
+	runtimeState := contract.RuntimeInactive
+	durableCatalogState := contract.DurableCatalogEmpty
+	if stored.DesiredState == contract.DesiredServerDeleted {
+		runtimeState = contract.RuntimeDeleted
+		durableCatalogState = contract.DurableCatalogRetired
+	}
+	return contract.Server{
+		ID: stored.ID, Namespace: stored.Namespace, DisplayName: stored.DisplayName, DesiredState: stored.DesiredState,
+		DesiredRevision: stored.DesiredRevision, Transport: transport, CredentialRevisions: authority.CredentialRevisions,
+		CredentialState: credentialState,
+		Runtime:         contract.ServerRuntime{State: runtimeState, Reconciliation: limitStatus("per_server_reconciliation"), Dispatch: limitStatus("per_server_downstream_dispatch")},
+		Catalog:         contract.ServerCatalog{DurableState: durableCatalogState, ActiveState: contract.ActiveCatalogAbsent, Traversal: contract.LimitStatus{Limit: 1}},
+		CreatedAt:       stored.CreatedAt, UpdatedAt: stored.UpdatedAt, DeletedAt: stored.DeletedAt,
+	}, nil
+}
+
+func decodeTransport(contents []byte) (contract.Transport, error) {
+	var discriminator transportKind
+	if err := decodeDiscriminator(contents, &discriminator); err != nil {
+		return nil, err
+	}
+	switch discriminator.Kind {
+	case contract.TransportStdio:
+		var value contract.StdioTransport
+		if err := decodeNested(contents, &value); err != nil {
+			return nil, err
+		}
+		return value, nil
+	case contract.TransportStreamableHTTP:
+		var raw rawHTTPTransport
+		if err := decodeNested(contents, &raw); err != nil {
+			return nil, err
+		}
+		authentication, err := decodeAuthentication(raw.Authentication)
+		if err != nil {
+			return nil, err
+		}
+		return contract.StreamableHTTPTransport{Kind: raw.Kind, URL: raw.URL, ProtocolMode: raw.ProtocolMode, Authentication: authentication}, nil
+	default:
+		return nil, errors.New("unknown transport kind")
+	}
+}
+
+func decodeAuthentication(contents []byte) (contract.HTTPAuthentication, error) {
+	var discriminator authenticationMode
+	if err := decodeDiscriminator(contents, &discriminator); err != nil {
+		return nil, err
+	}
+	switch discriminator.Mode {
+	case contract.AuthenticationNone:
+		var value contract.NoAuthentication
+		if err := decodeNested(contents, &value); err != nil {
+			return nil, err
+		}
+		return value, nil
+	case contract.AuthenticationBearer:
+		var value contract.BearerAuthentication
+		if err := decodeNested(contents, &value); err != nil {
+			return nil, err
+		}
+		return value, nil
+	case contract.AuthenticationOAuth:
+		var raw rawOAuthAuthentication
+		if err := decodeNested(contents, &raw); err != nil {
+			return nil, err
+		}
+		registration, err := decodeRegistration(raw.Registration)
+		if err != nil {
+			return nil, err
+		}
+		return contract.OAuthAuthentication{Mode: raw.Mode, Registration: registration, TrustedOrigins: raw.TrustedOrigins, RequestOfflineAccess: raw.RequestOfflineAccess}, nil
+	default:
+		return nil, errors.New("unknown authentication mode")
+	}
+}
+
+func decodeRegistration(contents []byte) (contract.OAuthRegistration, error) {
+	var discriminator registrationMode
+	if err := decodeDiscriminator(contents, &discriminator); err != nil {
+		return nil, err
+	}
+	switch discriminator.Mode {
+	case contract.RegistrationStatic:
+		var value contract.StaticOAuthRegistration
+		if err := decodeNested(contents, &value); err != nil {
+			return nil, err
+		}
+		return value, nil
+	case contract.RegistrationDynamic:
+		var value contract.DynamicOAuthRegistration
+		if err := decodeNested(contents, &value); err != nil {
+			return nil, err
+		}
+		return value, nil
+	default:
+		return nil, errors.New("unknown registration mode")
+	}
+}
+
+func decodeDiscriminator(contents []byte, destination any) error {
+	return strictjson.Decode(contents, destination, strictjson.Options{MaxBytes: int64(limitValue("api_json_body_bytes")), MaxDepth: limitValue("json_depth")})
+}
+
+func decodeNested(contents []byte, destination any) error {
+	return strictjson.Decode(contents, destination, strictjson.Options{MaxBytes: int64(limitValue("api_json_body_bytes")), MaxDepth: limitValue("json_depth"), RejectUnknownMembers: true})
+}
+
+func (handler *Handler) trigger(serverID string, operationID *string, reset bool) {
+	if handler.triggerServer != nil {
+		handler.triggerServer(serverID, operationID, reset)
+	}
+}
+
+func operationResource(operation *serverdomain.Operation) *contract.ServerOperation {
+	if operation == nil {
+		return nil
+	}
+	return &contract.ServerOperation{ID: operation.ID, ServerID: operation.ServerID, Kind: operation.Kind, TargetDesiredRevision: operation.TargetDesiredRevision, TargetCredentialRevisions: operation.TargetCredentialRevisions, State: operation.State, Reason: operation.Reason, CreatedAt: operation.CreatedAt, StartedAt: operation.StartedAt, FinishedAt: operation.FinishedAt}
+}
+
+func transportRequiresCredential(transport contract.Transport) bool {
+	switch value := transport.(type) {
+	case contract.StdioTransport:
+		return len(value.SecretEnvironment) != 0
+	case contract.StreamableHTTPTransport:
+		return authenticationModeForTransport(value.Authentication) != contract.AuthenticationNone
+	default:
+		return false
+	}
+}
+
+func authenticationModeForTransport(authentication contract.HTTPAuthentication) contract.AuthenticationMode {
+	switch value := authentication.(type) {
+	case contract.NoAuthentication:
+		return value.Mode
+	case contract.BearerAuthentication:
+		return value.Mode
+	case contract.OAuthAuthentication:
+		return value.Mode
+	default:
+		return ""
+	}
+}
+
+func serverPrecondition(writer http.ResponseWriter, request *http.Request, serverID string) (string, bool) {
+	values := request.Header.Values("If-Match")
+	if len(values) == 0 {
+		writeProblem(writer, contract.ProblemPreconditionRequired)
+		return "", false
+	}
+	if len(values) != 1 {
+		writeProblem(writer, contract.ProblemStaleRevision)
+		return "", false
+	}
+	prefix := `"server-` + serverID + `-`
+	value := values[0]
+	if !strings.HasPrefix(value, prefix) || !strings.HasSuffix(value, `"`) {
+		writeProblem(writer, contract.ProblemStaleRevision)
+		return "", false
+	}
+	revision := strings.TrimSuffix(strings.TrimPrefix(value, prefix), `"`)
+	if revision == "" || (len(revision) > 1 && revision[0] == '0') {
+		writeProblem(writer, contract.ProblemStaleRevision)
+		return "", false
+	}
+	if _, err := strconv.ParseUint(revision, 10, 64); err != nil {
+		writeProblem(writer, contract.ProblemStaleRevision)
+		return "", false
+	}
+	return revision, true
+}
+
+func idempotencyKey(writer http.ResponseWriter, request *http.Request) (string, bool) {
+	values := request.Header.Values("Idempotency-Key")
+	if len(values) != 1 || values[0] == "" || len(values[0]) > limitValue("idempotency_key_bytes") {
+		writeProblem(writer, contract.ProblemInvalidIdempotencyKey)
+		return "", false
+	}
+	for _, character := range values[0] {
+		if character < 0x21 || character > 0x7e {
+			writeProblem(writer, contract.ProblemInvalidIdempotencyKey)
+			return "", false
+		}
+	}
+	return values[0], true
+}
+
+func parseServerQuery(query url.Values) (int, *serverdomain.SnapshotCursor, contract.ProblemCode) {
+	for key, values := range query {
+		if (key != "cursor" && key != "limit") || len(values) != 1 {
+			return 0, nil, contract.ProblemMalformedRequest
+		}
+	}
+	limit := contract.S2ListPageDefault
+	if text := query.Get("limit"); text != "" {
+		value, err := strconv.Atoi(text)
+		if err != nil || value < 1 || value > limitValue("s2_list_page") {
+			return 0, nil, contract.ProblemMalformedRequest
+		}
+		limit = value
+	}
+	var cursor *serverdomain.SnapshotCursor
+	if text := query.Get("cursor"); text != "" {
+		if len(text) > limitValue("cursor_bytes") {
+			return 0, nil, contract.ProblemInvalidCursor
+		}
+		contents, err := base64.RawURLEncoding.DecodeString(text)
+		var decoded serverdomain.SnapshotCursor
+		if err != nil || json.Unmarshal(contents, &decoded) != nil {
+			return 0, nil, contract.ProblemInvalidCursor
+		}
+		cursor = &decoded
+	}
+	return limit, cursor, ""
+}
+
+func encodeServerCursor(cursor serverdomain.SnapshotCursor) string {
+	contents, _ := json.Marshal(cursor)
+	return base64.RawURLEncoding.EncodeToString(contents)
+}
+
+func limitStatus(name string) contract.LimitStatus {
+	limit, _ := contract.FixedLimitByName(name)
+	return contract.LimitStatus{Limit: limit.Maximum}
+}
+
+func writeServerError(writer http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, serverdomain.ErrNotFound):
+		writeProblem(writer, contract.ProblemNotFound)
+	case errors.Is(err, serverdomain.ErrInvalidInput):
+		writeProblem(writer, contract.ProblemInvalidServerConfiguration)
+	case errors.Is(err, serverdomain.ErrIdentityUnavailable), errors.Is(err, serverdomain.ErrNamespaceUnavailable):
+		writeProblem(writer, contract.ProblemNamespaceUnavailable)
+	case errors.Is(err, serverdomain.ErrResourceLimit):
+		writeProblem(writer, contract.ProblemResourceLimit)
+	case errors.Is(err, serverdomain.ErrStaleRevision):
+		writeProblem(writer, contract.ProblemStaleRevision)
+	case errors.Is(err, serverdomain.ErrIdempotencyConflict):
+		writeProblem(writer, contract.ProblemIdempotencyConflict)
+	case errors.Is(err, serverdomain.ErrInvalidOperation):
+		writeProblem(writer, contract.ProblemInvalidOperation)
+	case errors.Is(err, serverdomain.ErrOperationConflict):
+		writeProblem(writer, contract.ProblemOperationConflict)
+	case errors.Is(err, serverdomain.ErrStaleCursor):
+		writeProblem(writer, contract.ProblemStaleCursor)
+	default:
+		writeProblem(writer, contract.ProblemStorageUnavailable)
+	}
+}

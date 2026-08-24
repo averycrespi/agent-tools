@@ -112,6 +112,66 @@ func TestDesiredRevisionsCanonicalizePatchAndDelete(t *testing.T) {
 	assert.NotNil(t, deleted.Server.DeletedAt)
 }
 
+func TestDesiredMutationsCreateOnlyBehavioralOperations(t *testing.T) {
+	repository, _, _ := newRepository(t, new(sequenceReader))
+	enabledCreate := CreateRequest{Definition: Definition{Namespace: "enabled", DisplayName: "Enabled", Enabled: true, Transport: testStdioTransport()}, Idempotency: idempotency("create-enabled", "create-enabled", "")}
+	created, err := repository.Create(context.Background(), enabledCreate)
+	require.NoError(t, err)
+	require.NotNil(t, created.Operation)
+	assert.Equal(t, contract.OperationActivate, created.Operation.Kind)
+	replayed, err := repository.Create(context.Background(), enabledCreate)
+	require.NoError(t, err)
+	require.NotNil(t, replayed.Operation)
+	assert.Equal(t, created.Operation.ID, replayed.Operation.ID)
+
+	disabled := mustCreateServer(t, repository, "behavior", false)
+	name := "Display only"
+	display, err := repository.Patch(context.Background(), disabled.ID, "1", Patch{DisplayName: &name})
+	require.NoError(t, err)
+	assert.Nil(t, display.Operation)
+
+	enabled := true
+	behavioral, err := repository.Patch(context.Background(), disabled.ID, "2", Patch{Enabled: &enabled})
+	require.NoError(t, err)
+	require.NotNil(t, behavioral.Operation)
+	assert.Equal(t, contract.OperationActivate, behavioral.Operation.Kind)
+	assert.Equal(t, "3", behavioral.Operation.TargetDesiredRevision)
+
+	deleted, err := repository.Delete(context.Background(), disabled.ID, "3")
+	require.NoError(t, err)
+	require.NotNil(t, deleted.Operation)
+	assert.Equal(t, contract.OperationDelete, deleted.Operation.Kind)
+	replay, err := repository.Delete(context.Background(), disabled.ID, "4")
+	require.NoError(t, err)
+	assert.True(t, replay.Replayed)
+	require.NotNil(t, replay.Operation)
+	assert.Equal(t, deleted.Operation.ID, replay.Operation.ID)
+}
+
+func TestDesiredTransportValidationRejectsSecretAndRemoteBoundaryViolations(t *testing.T) {
+	repository, _, _ := newRepository(t, new(sequenceReader))
+	tests := []struct {
+		name      string
+		transport contract.Transport
+	}{
+		{name: "relative executable", transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "server", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{}}},
+		{name: "ambiguous secret environment", transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{"TOKEN": "not-secret"}, SecretEnvironment: map[string]string{"TOKEN": "token"}}},
+		{name: "remote plain HTTP", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "http://example.com/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}}},
+		{name: "bearer loopback plain HTTP", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "http://127.0.0.1:9000/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.BearerAuthentication{Mode: contract.AuthenticationBearer}}},
+		{name: "URL query", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://example.com/mcp?secret=value", ProtocolMode: contract.ProtocolAuto, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}}},
+	}
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			key := "invalid-" + strconv.Itoa(index)
+			_, err := repository.Create(context.Background(), CreateRequest{Definition: Definition{Namespace: "invalid", DisplayName: "Invalid", Transport: test.transport}, Idempotency: idempotency(key, key, "")})
+			assert.ErrorIs(t, err, ErrInvalidInput)
+		})
+	}
+
+	_, err := repository.Create(context.Background(), CreateRequest{Definition: Definition{Namespace: "loopback", DisplayName: "Loopback", Transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "http://127.0.0.1:9000/mcp", ProtocolMode: contract.ProtocolModern, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}}}, Idempotency: idempotency("valid-loopback", "valid-loopback", "")})
+	require.NoError(t, err)
+}
+
 func TestZeroRegistrationFenceAndIndependentCredentialMetadata(t *testing.T) {
 	repository, store, _ := newRepository(t, new(sequenceReader))
 	created := mustCreateServer(t, repository, "authority", false)
@@ -253,6 +313,91 @@ func TestCredentialAuthorityCallbackUsesExistingTransactionAndIndependentFences(
 		return callbackErr
 	})
 	assert.ErrorIs(t, err, ErrStaleRevision)
+}
+
+func TestExplicitOperationAdmissionReplayAttachmentAndSupersession(t *testing.T) {
+	repository, _, _ := newRepository(t, new(sequenceReader))
+	created, err := repository.Create(context.Background(), CreateRequest{
+		Definition:  Definition{Namespace: "triggers", DisplayName: "Triggers", Enabled: true, Transport: testStdioTransport()},
+		Idempotency: idempotency("create-triggers", "create-triggers", ""),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.Operation)
+	_, err = repository.TransitionOperation(context.Background(), created.Operation.ID, contract.OperationRunning, nil)
+	require.NoError(t, err)
+	_, err = repository.TransitionOperation(context.Background(), created.Operation.ID, contract.OperationSucceeded, nil)
+	require.NoError(t, err)
+
+	inactive := &OperationTriggerState{RuntimeState: contract.RuntimeInactive, CredentialState: contract.ServerCredentialNotRequired, CatalogState: contract.ActiveCatalogAbsent}
+	reloadRequest := OperationRequest{ServerID: created.Server.ID, Kind: contract.OperationReload, ExpectedDesiredRevision: "1", TriggerState: inactive, Idempotency: idempotency("reload", "reload", contract.ServerETag(created.Server.ID, "1"))}
+	reload, err := repository.CreateOperation(context.Background(), reloadRequest)
+	require.NoError(t, err)
+	replayed, err := repository.CreateOperation(context.Background(), reloadRequest)
+	require.NoError(t, err)
+	assert.True(t, replayed.Replayed)
+	assert.Equal(t, reload.Operation.ID, replayed.Operation.ID)
+
+	conflict := reloadRequest
+	conflict.Idempotency = idempotency("reload-conflict", "reload", contract.ServerETag(created.Server.ID, "1"))
+	_, err = repository.CreateOperation(context.Background(), conflict)
+	assert.ErrorIs(t, err, ErrOperationConflict)
+
+	_, err = repository.TransitionOperation(context.Background(), reload.Operation.ID, contract.OperationRunning, nil)
+	require.NoError(t, err)
+	_, err = repository.TransitionOperation(context.Background(), reload.Operation.ID, contract.OperationSucceeded, nil)
+	require.NoError(t, err)
+
+	active := &OperationTriggerState{RuntimeState: contract.RuntimeActive, CredentialState: contract.ServerCredentialNotRequired, CatalogState: contract.ActiveCatalogCurrent}
+	refreshRequest := OperationRequest{ServerID: created.Server.ID, Kind: contract.OperationRefreshCatalog, ExpectedDesiredRevision: "1", TriggerState: active, Idempotency: idempotency("refresh", "refresh", contract.ServerETag(created.Server.ID, "1"))}
+	refresh, err := repository.CreateOperation(context.Background(), refreshRequest)
+	require.NoError(t, err)
+	attachedRequest := refreshRequest
+	attachedRequest.Idempotency = idempotency("refresh-attached", "refresh", contract.ServerETag(created.Server.ID, "1"))
+	attached, err := repository.CreateOperation(context.Background(), attachedRequest)
+	require.NoError(t, err)
+	assert.False(t, attached.Replayed)
+	assert.Equal(t, refresh.Operation.ID, attached.Operation.ID)
+
+	disabled := false
+	patched, err := repository.Patch(context.Background(), created.Server.ID, "1", Patch{Enabled: &disabled})
+	require.NoError(t, err)
+	require.NotNil(t, patched.Operation)
+	assert.Equal(t, contract.OperationDisable, patched.Operation.Kind)
+	superseded, err := repository.GetOperation(context.Background(), refresh.Operation.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.OperationSuperseded, superseded.State)
+	assert.Equal(t, contract.ReasonSuperseded, *superseded.Reason)
+
+	_, err = repository.TransitionOperation(context.Background(), patched.Operation.ID, contract.OperationRunning, nil)
+	require.NoError(t, err)
+	_, err = repository.TransitionOperation(context.Background(), patched.Operation.ID, contract.OperationSucceeded, nil)
+	require.NoError(t, err)
+	invalidRetry := OperationRequest{ServerID: created.Server.ID, Kind: contract.OperationRetry, ExpectedDesiredRevision: "2", TriggerState: inactive, Idempotency: idempotency("invalid-retry", "retry", contract.ServerETag(created.Server.ID, "2"))}
+	_, err = repository.CreateOperation(context.Background(), invalidRetry)
+	assert.ErrorIs(t, err, ErrInvalidOperation)
+}
+
+func TestExplicitOperationClosedAdmissibility(t *testing.T) {
+	repository, _, _ := newRepository(t, new(sequenceReader))
+	server := mustCreateServer(t, repository, "admission", false)
+	states := []struct {
+		name  string
+		kind  contract.ServerOperationKind
+		state OperationTriggerState
+		err   error
+	}{
+		{name: "reload disabled", kind: contract.OperationReload, state: OperationTriggerState{RuntimeState: contract.RuntimeInactive, CredentialState: contract.ServerCredentialNotRequired, CatalogState: contract.ActiveCatalogAbsent}, err: ErrInvalidOperation},
+		{name: "retry inactive", kind: contract.OperationRetry, state: OperationTriggerState{RuntimeState: contract.RuntimeInactive, CredentialState: contract.ServerCredentialNotRequired, CatalogState: contract.ActiveCatalogAbsent}, err: ErrInvalidOperation},
+		{name: "refresh inactive", kind: contract.OperationRefreshCatalog, state: OperationTriggerState{RuntimeState: contract.RuntimeInactive, CredentialState: contract.ServerCredentialNotRequired, CatalogState: contract.ActiveCatalogAbsent}, err: ErrInvalidOperation},
+		{name: "disconnect absent", kind: contract.OperationDisconnectCredentials, state: OperationTriggerState{RuntimeState: contract.RuntimeInactive, CredentialState: contract.ServerCredentialAbsent, CatalogState: contract.ActiveCatalogAbsent}, err: ErrInvalidOperation},
+	}
+	for index, test := range states {
+		t.Run(test.name, func(t *testing.T) {
+			key := "admission-" + strconv.Itoa(index)
+			_, err := repository.CreateOperation(context.Background(), OperationRequest{ServerID: server.ID, Kind: test.kind, ExpectedDesiredRevision: "1", TriggerState: &test.state, Idempotency: idempotency(key, key, contract.ServerETag(server.ID, "1"))})
+			assert.ErrorIs(t, err, test.err)
+		})
+	}
 }
 
 func TestOperationTransitionsInterruptionPruningAndSnapshotStaleness(t *testing.T) {
