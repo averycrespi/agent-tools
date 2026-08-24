@@ -283,6 +283,14 @@ func (manager *Manager) initializeInactive(server servers.Server) {
 	manager.publish(contract.InvalidationServers, &server.ID)
 }
 
+func (manager *Manager) Fence(serverID string) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	current := manager.entryLocked(serverID)
+	current.generation++
+	manager.publisher.Fence(serverID, current.generation)
+}
+
 func (manager *Manager) Trigger(serverID string, operationID *string, resetBackoff bool) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()

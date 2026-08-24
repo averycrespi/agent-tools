@@ -24,6 +24,7 @@ import (
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servercredentials"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/spf13/cobra"
@@ -142,6 +143,10 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		return false, err
 	}
 	keyringCoordinator := keyring.NewCoordinator(provider, store, dependencies.clock, dependencies.entropy)
+	replacementService, err := servercredentials.New(serverRepository, keyringCoordinator, identity.InstallationID, runtimeManager.Fence, func(serverID string) { runtimeManager.Trigger(serverID, nil, true) })
+	if err != nil {
+		return false, err
+	}
 	startedAt := dependencies.clock.Now().UTC().Format(time.RFC3339Nano)
 	capabilitySnapshot := contract.KeyringUnsupported
 	var ready, draining atomic.Bool
@@ -179,6 +184,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		Servers:        serverRepository,
 		AuthFlows:      flowService,
 		OAuthCallback:  flowService,
+		Replacements:   replacementService,
 		OperationState: runtimeManager.OperationState,
 		RuntimeStatus: func(serverID string) api.RuntimeStatus {
 			status := runtimeManager.Status(serverID)

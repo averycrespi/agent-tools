@@ -179,6 +179,25 @@ func (driver *lifecycleDriver) Stop(_ context.Context, candidate Candidate) bool
 	return <-driver.stopResult
 }
 
+func TestCredentialCutoverFenceWithdrawsPublishedRouteSynchronously(t *testing.T) {
+	serverID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	publisher := newMemoryPublisher()
+	candidate := Candidate{Server: servers.Server{ID: serverID}, RuntimeID: "runtime-before-replacement", Generation: 1}
+	publisher.Fence(serverID, 1)
+	require.True(t, publisher.Publish(candidate))
+	manager := &Manager{publisher: publisher, entries: map[string]*entry{serverID: {generation: 1, active: &candidate}}}
+
+	manager.Fence(serverID)
+
+	publisher.mu.Lock()
+	_, active := publisher.active[serverID]
+	generation := publisher.fences[serverID]
+	publisher.mu.Unlock()
+	assert.False(t, active)
+	assert.Equal(t, uint64(2), generation)
+	assert.Equal(t, "runtime-before-replacement", manager.entries[serverID].active.RuntimeID)
+}
+
 type publisherEvent struct {
 	step      string
 	candidate Candidate

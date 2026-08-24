@@ -183,7 +183,8 @@ func validateRegistrationCurrent(ctx context.Context, transaction *sql.Tx, fence
 	if err := transaction.QueryRowContext(ctx, `SELECT revision, handle FROM server_credentials WHERE server_id = ? AND kind = ?`, fence.ServerID, contract.ServerCredentialOAuthClient).Scan(&currentClient, &handle); err != nil {
 		return err
 	}
-	if state == contract.DesiredServerDeleted || currentDesired != desired || currentRegistration != expectedRegistration || currentClient != client || handle.Valid || !registrationMatchesDesired([]byte(transportJSON), registration) {
+	confidentialStatic := registration.Mode == contract.RegistrationStatic && (registration.TokenEndpointAuthMethod == contract.TokenEndpointAuthClientSecretBasic || registration.TokenEndpointAuthMethod == contract.TokenEndpointAuthClientSecretPost)
+	if state == contract.DesiredServerDeleted || currentDesired != desired || currentRegistration != expectedRegistration || currentClient != client || handle.Valid != (confidentialStatic && currentClient > 0) || !registrationMatchesDesired([]byte(transportJSON), registration) {
 		return ErrStaleRevision
 	}
 	if fence.ExpectedAuthFlowID != "" {

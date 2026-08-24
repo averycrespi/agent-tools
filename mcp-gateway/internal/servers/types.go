@@ -100,6 +100,25 @@ type CredentialFence struct {
 	ExpectedRegistrationRevision string
 }
 
+type CredentialReplacementRequest struct {
+	ServerID                   string
+	Kind                       contract.ServerCredentialKind
+	ExpectedDesiredRevision    string
+	ExpectedCredentialRevision string
+	Slots                      []string
+}
+
+type CredentialReplacementPlan struct {
+	Fence       CredentialFence
+	OperationID string
+	Slots       []string
+}
+
+type CredentialReplacementPublication struct {
+	Revision  string
+	Operation Operation
+}
+
 type Operation struct {
 	InsertionSequence         int64
 	ID                        string
