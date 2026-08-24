@@ -8,11 +8,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -68,6 +71,12 @@ func TestStdioFixtureProcess(t *testing.T) {
 		_, _ = fmt.Fprintln(os.Stdout, `{}`)
 	case "partial":
 		_, _ = fmt.Fprint(os.Stdout, `{}`)
+	case "cooperative":
+		_, _ = io.Copy(io.Discard, os.Stdin)
+	case "ignore-term":
+		signal.Ignore(syscall.SIGTERM)
+		_, _ = fmt.Fprintln(os.Stdout, `{}`)
+		select {}
 	case "exit":
 		code, _ := strconv.Atoi(arguments[1])
 		os.Exit(code)
@@ -216,6 +225,53 @@ func TestStdioSupervisorAdmitsThirtyTwoWithoutAWaiter(t *testing.T) {
 	for _, runtime := range runtimes {
 		_ = receiveExit(t, runtime.Done())
 	}
+	assert.Zero(t, supervisor.Status().InUse)
+}
+
+func TestStdioStopUsesGracefulInputAndVerifiedProcessGroup(t *testing.T) {
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	runtime, err := NewStdioSupervisor(nil).Start(context.Background(), fixtureDefinition(executable, "cooperative"))
+	require.NoError(t, err)
+	assert.True(t, runtime.Stop(context.Background()))
+	assert.Zero(t, runtime.supervisor.Status().InUse)
+}
+
+func TestStdioStopForcesReapAfterExactGraceWindow(t *testing.T) {
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	supervisor := NewStdioSupervisor(nil)
+	var durations []time.Duration
+	supervisor.after = func(duration time.Duration) <-chan time.Time {
+		durations = append(durations, duration)
+		if duration == 3*time.Second {
+			ready := make(chan time.Time)
+			close(ready)
+			return ready
+		}
+		return time.After(duration)
+	}
+	runtime, err := supervisor.Start(context.Background(), fixtureDefinition(executable, "ignore-term"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte(`{}`), receiveFrame(t, runtime.Frames()))
+	assert.True(t, runtime.Stop(context.Background()))
+	assert.Equal(t, []time.Duration{3 * time.Second, 2 * time.Second}, durations)
+	assert.Zero(t, supervisor.Status().InUse)
+}
+
+func TestStdioStopRejectsChangedProcessGroupAndAllowsCleanupRetry(t *testing.T) {
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	supervisor := NewStdioSupervisor(nil)
+	runtime, err := supervisor.Start(context.Background(), fixtureDefinition(executable, "ignore-term"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte(`{}`), receiveFrame(t, runtime.Frames()))
+	actualSignal := supervisor.signalGroup
+	supervisor.signalGroup = func(*os.Process, int, bool) bool { return false }
+	assert.False(t, runtime.Stop(context.Background()))
+	assert.Equal(t, int64(1), supervisor.Status().InUse)
+	supervisor.signalGroup = actualSignal
+	assert.True(t, runtime.Stop(context.Background()))
 	assert.Zero(t, supervisor.Status().InUse)
 }
 

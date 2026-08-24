@@ -14,10 +14,22 @@ func configureStdioProcess(command *exec.Cmd) {
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-func killStdioProcessGroup(process *os.Process) {
+func captureStdioProcessGroup(process *os.Process) (int, bool) {
 	if process == nil {
-		return
+		return 0, false
 	}
-	_ = syscall.Kill(-process.Pid, syscall.SIGKILL)
-	_ = process.Kill()
+	groupID, err := syscall.Getpgid(process.Pid)
+	return groupID, err == nil && groupID == process.Pid
+}
+
+func signalStdioProcessGroup(process *os.Process, expectedGroupID int, force bool) bool {
+	groupID, verified := captureStdioProcessGroup(process)
+	if !verified || groupID != expectedGroupID {
+		return false
+	}
+	signal := syscall.SIGTERM
+	if force {
+		signal = syscall.SIGKILL
+	}
+	return syscall.Kill(-groupID, signal) == nil
 }

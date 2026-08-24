@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -41,28 +42,32 @@ type StdioExit struct {
 }
 
 type StdioSupervisor struct {
-	mu       sync.Mutex
-	runtimes map[string]*StdioRuntime
-	now      func() time.Time
-	limit    int64
+	mu           sync.Mutex
+	runtimes     map[string]*StdioRuntime
+	now          func() time.Time
+	after        func(time.Duration) <-chan time.Time
+	captureGroup func(*os.Process) (int, bool)
+	signalGroup  func(*os.Process, int, bool) bool
+	limit        int64
 }
 
 type StdioRuntime struct {
-	mu          sync.Mutex
-	supervisor  *StdioSupervisor
-	id          string
-	command     *exec.Cmd
-	stdin       io.WriteCloser
-	stdout      io.ReadCloser
-	stderr      io.ReadCloser
-	frames      chan []byte
-	done        chan StdioExit
-	finished    chan struct{}
-	cancel      context.CancelFunc
-	failure     *contract.PublicReason
-	diagnostics []byte
-	exited      bool
-	stopOnce    sync.Once
+	mu           sync.Mutex
+	supervisor   *StdioSupervisor
+	id           string
+	command      *exec.Cmd
+	processGroup int
+	stdin        io.WriteCloser
+	stdout       io.ReadCloser
+	stderr       io.ReadCloser
+	frames       chan []byte
+	done         chan StdioExit
+	finished     chan struct{}
+	cancel       context.CancelFunc
+	failure      *contract.PublicReason
+	diagnostics  []byte
+	exited       bool
+	stopMu       sync.Mutex
 }
 
 type byteRateLimiter struct {
@@ -79,7 +84,7 @@ func NewStdioSupervisor(now func() time.Time) *StdioSupervisor {
 		now = time.Now
 	}
 	limit, _ := contract.FixedLimitByName("downstream_runtimes")
-	return &StdioSupervisor{runtimes: make(map[string]*StdioRuntime), now: now, limit: limit.Maximum}
+	return &StdioSupervisor{runtimes: make(map[string]*StdioRuntime), now: now, after: time.After, captureGroup: captureStdioProcessGroup, signalGroup: signalStdioProcessGroup, limit: limit.Maximum}
 }
 
 func (supervisor *StdioSupervisor) Start(ctx context.Context, definition StdioDefinition) (*StdioRuntime, error) {
@@ -127,8 +132,16 @@ func (supervisor *StdioSupervisor) Start(ctx context.Context, definition StdioDe
 		return nil, ErrStdioStartFailed
 	}
 
+	groupID, verified := supervisor.captureGroup(command.Process)
+	if !verified {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stderr.Close()
+		supervisor.release(definition.RuntimeID, nil)
+		return nil, ErrStdioStartFailed
+	}
 	runtimeCtx, cancel := context.WithCancel(context.Background())
-	runtime := &StdioRuntime{supervisor: supervisor, id: definition.RuntimeID, command: command, stdin: stdin, stdout: stdout, stderr: stderr, frames: make(chan []byte, 16), done: make(chan StdioExit, 1), finished: make(chan struct{}), cancel: cancel}
+	runtime := &StdioRuntime{supervisor: supervisor, id: definition.RuntimeID, command: command, processGroup: groupID, stdin: stdin, stdout: stdout, stderr: stderr, frames: make(chan []byte, 16), done: make(chan StdioExit, 1), finished: make(chan struct{}), cancel: cancel}
 	supervisor.mu.Lock()
 	supervisor.runtimes[definition.RuntimeID] = runtime
 	supervisor.mu.Unlock()
@@ -164,17 +177,50 @@ func (runtime *StdioRuntime) Input() io.WriteCloser  { return runtime.stdin }
 
 func (runtime *StdioRuntime) CloseInput() error { return runtime.stdin.Close() }
 
+func (runtime *StdioRuntime) Stop(ctx context.Context) bool {
+	runtime.stopMu.Lock()
+	defer runtime.stopMu.Unlock()
+	if runtime.hasExited() {
+		return true
+	}
+	runtime.cancel()
+	_ = runtime.stdin.Close()
+	if !runtime.supervisor.signalGroup(runtime.command.Process, runtime.processGroup, false) {
+		return runtime.hasExited()
+	}
+	if runtime.waitForExit(ctx, 3*time.Second) {
+		return true
+	}
+	if !runtime.supervisor.signalGroup(runtime.command.Process, runtime.processGroup, true) {
+		return runtime.hasExited()
+	}
+	return runtime.waitForExit(ctx, 2*time.Second)
+}
+
 func (runtime *StdioRuntime) StopNow() {
-	runtime.stopOnce.Do(func() {
-		runtime.mu.Lock()
-		defer runtime.mu.Unlock()
-		if runtime.exited {
-			return
-		}
-		runtime.cancel()
-		_ = runtime.stdin.Close()
-		killStdioProcessGroup(runtime.command.Process)
-	})
+	go runtime.Stop(context.Background())
+}
+
+func (runtime *StdioRuntime) hasExited() bool {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return runtime.exited
+}
+
+func (runtime *StdioRuntime) waitForExit(ctx context.Context, timeout time.Duration) bool {
+	select {
+	case <-runtime.finished:
+		return true
+	default:
+	}
+	select {
+	case <-runtime.finished:
+		return true
+	case <-runtime.supervisor.after(timeout):
+		return false
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (runtime *StdioRuntime) supervise(ctx context.Context) {

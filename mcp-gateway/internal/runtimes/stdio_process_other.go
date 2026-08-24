@@ -11,8 +11,6 @@ func stdioProcessGroupsSupported() bool { return false }
 
 func configureStdioProcess(*exec.Cmd) {}
 
-func killStdioProcessGroup(process *os.Process) {
-	if process != nil {
-		_ = process.Kill()
-	}
-}
+func captureStdioProcessGroup(*os.Process) (int, bool) { return 0, false }
+
+func signalStdioProcessGroup(*os.Process, int, bool) bool { return false }

@@ -418,6 +418,39 @@ func TestManagerStopUnconfirmedWithdrawsAndStartsNoReplacement(t *testing.T) {
 	}
 }
 
+func TestDisabledStopUnconfirmedRetryPerformsCleanupOnly(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	publisher := newRecordingPublisher()
+	manager, err := New(Options{Repository: repository, Driver: driver, Publisher: publisher})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	_ = establishActiveRuntime(t, manager, driver, publisher, serverID)
+	repository.setDesiredState(serverID, contract.DesiredServerDisabled)
+	manager.Trigger(serverID, nil, true)
+	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
+	_ = receiveCandidate(t, driver.stopping)
+	driver.stopResult <- false
+	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeDegraded }, time.Second, time.Millisecond)
+
+	manager.Trigger(serverID, nil, true)
+	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
+	_ = receiveCandidate(t, driver.stopping)
+	driver.stopResult <- true
+	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeInactive }, time.Second, time.Millisecond)
+	select {
+	case candidate := <-driver.started:
+		t.Fatalf("cleanup retry started a disabled runtime: %s", candidate.RuntimeID)
+	default:
+	}
+}
+
 func TestManagerDisableAndDeleteStopWithoutReplacement(t *testing.T) {
 	for _, test := range []struct {
 		name    string
