@@ -20,6 +20,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
@@ -243,8 +244,7 @@ func validateHTTPAuthentication(authentication contract.HTTPAuthentication) erro
 		}
 		seen := make(map[string]struct{}, len(value.TrustedOrigins))
 		for _, origin := range value.TrustedOrigins {
-			parsed, err := url.Parse(origin)
-			if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") || parsed.String() != origin {
+			if _, err := remote.ParseOrigin(origin); err != nil {
 				return errors.New("trusted origin is invalid")
 			}
 			if _, duplicate := seen[origin]; duplicate {
@@ -280,7 +280,7 @@ func validateRegistration(registration contract.OAuthRegistration) error {
 	}
 	if issuer != nil {
 		parsed, err := url.Parse(*issuer)
-		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" || parsed.String() != *issuer || int64(len(*issuer)) > mustLimit("oauth_url_bytes") {
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.String() != *issuer || strings.ToLower(parsed.Hostname()) != parsed.Hostname() || parsed.Port() == "443" || int64(len(*issuer)) > mustLimit("oauth_url_bytes") {
 			return errors.New("issuer is invalid")
 		}
 	}
@@ -292,7 +292,7 @@ func parseEndpointURL(value string) (*url.URL, error) {
 		return nil, errors.New("resource URL is invalid")
 	}
 	parsed, err := url.Parse(value)
-	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.String() != value {
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.String() != value || strings.ToLower(parsed.Hostname()) != parsed.Hostname() || parsed.Scheme == "https" && parsed.Port() == "443" || parsed.Scheme == "http" && parsed.Port() == "80" {
 		return nil, errors.New("resource URL is invalid")
 	}
 	return parsed, nil

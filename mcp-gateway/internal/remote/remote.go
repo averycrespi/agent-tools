@@ -29,6 +29,7 @@ var (
 type Policy struct {
 	AllowLoopbackHTTP bool
 	AllowRestricted   bool
+	AllowQuery        bool
 }
 
 type Endpoint struct {
@@ -78,13 +79,41 @@ func ParseEndpoint(raw string, allowLoopbackHTTP bool) (Endpoint, error) {
 	return Parse(raw, Policy{AllowLoopbackHTTP: allowLoopbackHTTP})
 }
 
+func ParseOrigin(raw string) (string, error) {
+	urlLimit, ok := contract.FixedLimitByName("oauth_url_bytes")
+	if !ok || raw == "" || int64(len(raw)) > urlLimit.Maximum {
+		return "", ErrInvalidURL
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Opaque != "" || parsed.User != nil || parsed.Path != "" || parsed.RawPath != "" || parsed.RawQuery != "" || parsed.Fragment != "" || strings.ToLower(parsed.Hostname()) != parsed.Hostname() {
+		return "", ErrInvalidURL
+	}
+	if _, addressErr := netip.ParseAddr(parsed.Hostname()); addressErr == nil || !validHost(parsed.Hostname()) {
+		return "", ErrInvalidURL
+	}
+	if parsed.Port() != "" {
+		port, portErr := strconv.ParseUint(parsed.Port(), 10, 16)
+		if portErr != nil || port == 0 || port == 443 {
+			return "", ErrInvalidURL
+		}
+	}
+	canonical := "https://" + canonicalHost(parsed)
+	if raw != canonical {
+		return "", ErrInvalidURL
+	}
+	return canonical, nil
+}
+
 func Parse(raw string, policy Policy) (Endpoint, error) {
 	limit, _ := contract.FixedLimitByName("resource_url_bytes")
 	if raw == "" || int64(len(raw)) > limit.Maximum {
 		return Endpoint{}, ErrInvalidURL
 	}
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Opaque != "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Host == "" || parsed.Path == "" || parsed.Path[0] != '/' {
+	if err != nil || parsed.Opaque != "" || parsed.User != nil || (!policy.AllowQuery && parsed.RawQuery != "") || parsed.Fragment != "" || parsed.Host == "" || parsed.Path == "" || parsed.Path[0] != '/' {
+		return Endpoint{}, ErrInvalidURL
+	}
+	if queryLimit, ok := contract.FixedLimitByName("oauth_query_bytes"); parsed.RawQuery != "" && (!ok || int64(len(parsed.RawQuery)) > queryLimit.Maximum) {
 		return Endpoint{}, ErrInvalidURL
 	}
 	if !validHost(parsed.Hostname()) {

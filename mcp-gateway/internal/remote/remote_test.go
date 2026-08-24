@@ -45,6 +45,20 @@ func TestParseEndpointEnforcesCanonicalHTTPSAndExactLoopbackException(t *testing
 	assert.True(t, allowedAddress(netip.MustParseAddr("10.0.0.1"), trusted.allowRestricted))
 }
 
+func TestParseOriginAndMetadataQueryPolicy(t *testing.T) {
+	origin, err := ParseOrigin("https://example.com:8443")
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com:8443", origin)
+	for _, invalid := range []string{"https://EXAMPLE.com", "https://example.com:443", "https://example.com/", "https://127.0.0.1", "http://example.com"} {
+		_, err = ParseOrigin(invalid)
+		assert.ErrorIs(t, err, ErrInvalidURL, invalid)
+	}
+	_, err = Parse("https://example.com/metadata?tenant=one", Policy{AllowQuery: true})
+	require.NoError(t, err)
+	_, err = Parse("https://example.com/metadata?tenant=one", Policy{})
+	assert.ErrorIs(t, err, ErrInvalidURL)
+}
+
 func TestFactoryPinsFreshValidatedAddressAndRejectsReservedAnswers(t *testing.T) {
 	endpoint, err := ParseEndpoint("https://example.com/mcp", false)
 	require.NoError(t, err)

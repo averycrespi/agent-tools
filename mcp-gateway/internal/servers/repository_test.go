@@ -25,6 +25,8 @@ const testInstallationID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 var testTime = time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
 
+func stringPointer(value string) *string { return &value }
+
 type mutableClock struct{ now time.Time }
 
 func (clock *mutableClock) Now() time.Time { return clock.now }
@@ -181,6 +183,9 @@ func TestDesiredTransportValidationRejectsSecretAndRemoteBoundaryViolations(t *t
 		{name: "remote plain HTTP", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "http://example.com/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}}},
 		{name: "bearer loopback plain HTTP", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "http://127.0.0.1:9000/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.BearerAuthentication{Mode: contract.AuthenticationBearer}}},
 		{name: "URL query", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://example.com/mcp?secret=value", ProtocolMode: contract.ProtocolAuto, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}}},
+		{name: "noncanonical trusted origin", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://example.com/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.OAuthAuthentication{Mode: contract.AuthenticationOAuth, Registration: contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic}, TrustedOrigins: []string{"https://EXAMPLE.com"}}}},
+		{name: "trusted origin path", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://example.com/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.OAuthAuthentication{Mode: contract.AuthenticationOAuth, Registration: contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic}, TrustedOrigins: []string{"https://trusted.example/"}}}},
+		{name: "query-bearing issuer", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://example.com/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.OAuthAuthentication{Mode: contract.AuthenticationOAuth, Registration: contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic, Issuer: stringPointer("https://issuer.example?tenant=one")}}}},
 	}
 	for index, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
