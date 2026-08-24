@@ -13,7 +13,6 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	serverdomain "github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
-	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
 
 type ServerService interface {
@@ -41,32 +40,6 @@ type rawServerPatch struct {
 	DisplayName *string          `json:"display_name,omitempty"`
 	Enabled     *bool            `json:"enabled,omitempty"`
 	Transport   *json.RawMessage `json:"transport,omitempty"`
-}
-
-type transportKind struct {
-	Kind contract.TransportKind `json:"kind"`
-}
-
-type rawHTTPTransport struct {
-	Kind           contract.TransportKind `json:"kind"`
-	URL            string                 `json:"url"`
-	ProtocolMode   contract.ProtocolMode  `json:"protocol_mode"`
-	Authentication json.RawMessage        `json:"authentication"`
-}
-
-type authenticationMode struct {
-	Mode contract.AuthenticationMode `json:"mode"`
-}
-
-type rawOAuthAuthentication struct {
-	Mode                 contract.AuthenticationMode `json:"mode"`
-	Registration         json.RawMessage             `json:"registration"`
-	TrustedOrigins       []string                    `json:"trusted_origins"`
-	RequestOfflineAccess bool                        `json:"request_offline_access"`
-}
-
-type registrationMode struct {
-	Mode contract.RegistrationMode `json:"mode"`
 }
 
 func (handler *Handler) serversCollection(writer http.ResponseWriter, request *http.Request) {
@@ -98,7 +71,7 @@ func (handler *Handler) createServer(writer http.ResponseWriter, request *http.R
 	if !decodeStrictBody(writer, request, &raw) {
 		return
 	}
-	transport, err := decodeTransport(raw.Transport)
+	transport, err := serverdomain.DecodeTransport(raw.Transport)
 	if err != nil {
 		writeProblem(writer, contract.ProblemInvalidServerConfiguration)
 		return
@@ -176,7 +149,7 @@ func (handler *Handler) patchServer(writer http.ResponseWriter, request *http.Re
 	}
 	patch := serverdomain.Patch{DisplayName: raw.DisplayName, Enabled: raw.Enabled}
 	if raw.Transport != nil {
-		transport, err := decodeTransport(*raw.Transport)
+		transport, err := serverdomain.DecodeTransport(*raw.Transport)
 		if err != nil {
 			writeProblem(writer, contract.ProblemInvalidServerConfiguration)
 			return
@@ -281,7 +254,7 @@ func (handler *Handler) serverResource(ctx context.Context, stored serverdomain.
 	}
 	var transport contract.Transport
 	if stored.Transport != nil {
-		transport, err = decodeTransport(stored.Transport)
+		transport, err = serverdomain.DecodeTransport(stored.Transport)
 		if err != nil {
 			return contract.Server{}, err
 		}
@@ -333,97 +306,6 @@ func (handler *Handler) serverResource(ctx context.Context, stored serverdomain.
 		Catalog:         durableCatalog,
 		CreatedAt:       stored.CreatedAt, UpdatedAt: stored.UpdatedAt, DeletedAt: stored.DeletedAt,
 	}, nil
-}
-
-func decodeTransport(contents []byte) (contract.Transport, error) {
-	var discriminator transportKind
-	if err := decodeDiscriminator(contents, &discriminator); err != nil {
-		return nil, err
-	}
-	switch discriminator.Kind {
-	case contract.TransportStdio:
-		var value contract.StdioTransport
-		if err := decodeNested(contents, &value); err != nil {
-			return nil, err
-		}
-		return value, nil
-	case contract.TransportStreamableHTTP:
-		var raw rawHTTPTransport
-		if err := decodeNested(contents, &raw); err != nil {
-			return nil, err
-		}
-		authentication, err := decodeAuthentication(raw.Authentication)
-		if err != nil {
-			return nil, err
-		}
-		return contract.StreamableHTTPTransport{Kind: raw.Kind, URL: raw.URL, ProtocolMode: raw.ProtocolMode, Authentication: authentication}, nil
-	default:
-		return nil, errors.New("unknown transport kind")
-	}
-}
-
-func decodeAuthentication(contents []byte) (contract.HTTPAuthentication, error) {
-	var discriminator authenticationMode
-	if err := decodeDiscriminator(contents, &discriminator); err != nil {
-		return nil, err
-	}
-	switch discriminator.Mode {
-	case contract.AuthenticationNone:
-		var value contract.NoAuthentication
-		if err := decodeNested(contents, &value); err != nil {
-			return nil, err
-		}
-		return value, nil
-	case contract.AuthenticationBearer:
-		var value contract.BearerAuthentication
-		if err := decodeNested(contents, &value); err != nil {
-			return nil, err
-		}
-		return value, nil
-	case contract.AuthenticationOAuth:
-		var raw rawOAuthAuthentication
-		if err := decodeNested(contents, &raw); err != nil {
-			return nil, err
-		}
-		registration, err := decodeRegistration(raw.Registration)
-		if err != nil {
-			return nil, err
-		}
-		return contract.OAuthAuthentication{Mode: raw.Mode, Registration: registration, TrustedOrigins: raw.TrustedOrigins, RequestOfflineAccess: raw.RequestOfflineAccess}, nil
-	default:
-		return nil, errors.New("unknown authentication mode")
-	}
-}
-
-func decodeRegistration(contents []byte) (contract.OAuthRegistration, error) {
-	var discriminator registrationMode
-	if err := decodeDiscriminator(contents, &discriminator); err != nil {
-		return nil, err
-	}
-	switch discriminator.Mode {
-	case contract.RegistrationStatic:
-		var value contract.StaticOAuthRegistration
-		if err := decodeNested(contents, &value); err != nil {
-			return nil, err
-		}
-		return value, nil
-	case contract.RegistrationDynamic:
-		var value contract.DynamicOAuthRegistration
-		if err := decodeNested(contents, &value); err != nil {
-			return nil, err
-		}
-		return value, nil
-	default:
-		return nil, errors.New("unknown registration mode")
-	}
-}
-
-func decodeDiscriminator(contents []byte, destination any) error {
-	return strictjson.Decode(contents, destination, strictjson.Options{MaxBytes: int64(limitValue("api_json_body_bytes")), MaxDepth: limitValue("json_depth")})
-}
-
-func decodeNested(contents []byte, destination any) error {
-	return strictjson.Decode(contents, destination, strictjson.Options{MaxBytes: int64(limitValue("api_json_body_bytes")), MaxDepth: limitValue("json_depth"), RejectUnknownMembers: true})
 }
 
 func (handler *Handler) trigger(serverID string, operationID *string, reset bool) {

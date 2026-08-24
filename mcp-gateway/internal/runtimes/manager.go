@@ -487,6 +487,12 @@ func (manager *Manager) reconcile(serverID string, generation uint64, operationI
 		manager.finishFailure(serverID, generation, operationID, contract.RuntimeDegraded, contract.ServerCredentialUnavailable, contract.ActiveCatalogAbsent, contract.ReasonConnectivity, false)
 		return
 	}
+	if server.DesiredState != contract.DesiredServerDeleted {
+		if _, err := servers.DecodeTransport(server.Transport); err != nil {
+			manager.finishFailure(serverID, generation, operationID, contract.RuntimeDegraded, contract.ServerCredentialUnavailable, contract.ActiveCatalogAbsent, contract.ReasonConfigurationInvalid, false)
+			return
+		}
+	}
 	authority, err := manager.repository.Authority(manager.ctx, serverID)
 	if err != nil {
 		manager.finishFailure(serverID, generation, operationID, contract.RuntimeDegraded, contract.ServerCredentialUnavailable, contract.ActiveCatalogAbsent, contract.ReasonKeyringUnavailable, true)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"sync"
 	"time"
@@ -278,10 +277,12 @@ func allowsHeaderBindings(candidate runtimes.Candidate, runtime *downstream.Runt
 	if runtime == nil || runtime.Era() != downstream.EraModern {
 		return false
 	}
-	var transport struct {
-		Kind contract.TransportKind `json:"kind"`
+	transport, err := servers.DecodeTransport(candidate.Server.Transport)
+	if err != nil {
+		return false
 	}
-	return json.Unmarshal(candidate.Server.Transport, &transport) == nil && transport.Kind == contract.TransportStreamableHTTP
+	_, ok := transport.(contract.StreamableHTTPTransport)
+	return ok
 }
 
 func catalogFailureReason(err error) contract.PublicReason {

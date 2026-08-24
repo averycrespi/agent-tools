@@ -3,7 +3,6 @@ package servers
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -175,43 +174,19 @@ func authFlowConfiguration(server Server) (AuthFlowOAuthConfiguration, error) {
 	if server.DesiredState == contract.DesiredServerDeleted {
 		return AuthFlowOAuthConfiguration{}, ErrInvalidOperation
 	}
-	var raw struct {
-		Kind           contract.TransportKind `json:"kind"`
-		URL            string                 `json:"url"`
-		Authentication struct {
-			Mode                 contract.AuthenticationMode `json:"mode"`
-			Registration         json.RawMessage             `json:"registration"`
-			TrustedOrigins       []string                    `json:"trusted_origins"`
-			RequestOfflineAccess bool                        `json:"request_offline_access"`
-		} `json:"authentication"`
-	}
-	if err := json.Unmarshal(server.Transport, &raw); err != nil || raw.Kind != contract.TransportStreamableHTTP || raw.Authentication.Mode != contract.AuthenticationOAuth {
+	decoded, err := DecodeTransport(server.Transport)
+	if err != nil {
 		return AuthFlowOAuthConfiguration{}, ErrInvalidOperation
 	}
-	var discriminator struct {
-		Mode contract.RegistrationMode `json:"mode"`
-	}
-	if err := json.Unmarshal(raw.Authentication.Registration, &discriminator); err != nil {
+	transport, ok := decoded.(contract.StreamableHTTPTransport)
+	if !ok {
 		return AuthFlowOAuthConfiguration{}, ErrInvalidOperation
 	}
-	var registration contract.OAuthRegistration
-	switch discriminator.Mode {
-	case contract.RegistrationStatic:
-		var value contract.StaticOAuthRegistration
-		if err := json.Unmarshal(raw.Authentication.Registration, &value); err != nil {
-			return AuthFlowOAuthConfiguration{}, ErrInvalidOperation
-		}
-		registration = value
-	case contract.RegistrationDynamic:
-		var value contract.DynamicOAuthRegistration
-		if err := json.Unmarshal(raw.Authentication.Registration, &value); err != nil {
-			return AuthFlowOAuthConfiguration{}, ErrInvalidOperation
-		}
-		registration = value
-	default:
+	authentication, ok := transport.Authentication.(contract.OAuthAuthentication)
+	if !ok {
 		return AuthFlowOAuthConfiguration{}, ErrInvalidOperation
 	}
-	return AuthFlowOAuthConfiguration{Resource: raw.URL, Authentication: contract.OAuthAuthentication{Mode: raw.Authentication.Mode, Registration: registration, TrustedOrigins: raw.Authentication.TrustedOrigins, RequestOfflineAccess: raw.Authentication.RequestOfflineAccess}}, nil
+	return AuthFlowOAuthConfiguration{Resource: transport.URL, Authentication: authentication}, nil
 }
 
 func validateAuthFlowAuthority(authentication contract.OAuthAuthentication, authority AuthorityMetadata) error {

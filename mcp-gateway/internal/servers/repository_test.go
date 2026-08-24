@@ -27,6 +27,46 @@ var testTime = time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
 
 func stringPointer(value string) *string { return &value }
 
+func TestDecodeTransportRejectsMalformedClosedUnionsAndSemantics(t *testing.T) {
+	valid := []struct {
+		name string
+		raw  string
+		want any
+	}{
+		{name: "stdio", raw: `{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}`, want: contract.StdioTransport{}},
+		{name: "HTTP none", raw: `{"kind":"streamable_http","url":"http://127.0.0.1:9000/mcp","protocol_mode":"modern","authentication":{"mode":"none"}}`, want: contract.StreamableHTTPTransport{}},
+		{name: "HTTP bearer", raw: `{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"legacy","authentication":{"mode":"bearer"}}`, want: contract.StreamableHTTPTransport{}},
+		{name: "HTTP static OAuth", raw: `{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"auto","authentication":{"mode":"oauth","registration":{"mode":"static","client_id":"client","token_endpoint_auth_method":"none"},"trusted_origins":[],"request_offline_access":false}}`, want: contract.StreamableHTTPTransport{}},
+		{name: "HTTP dynamic OAuth", raw: `{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"modern","authentication":{"mode":"oauth","registration":{"mode":"dynamic"},"trusted_origins":[],"request_offline_access":false}}`, want: contract.StreamableHTTPTransport{}},
+	}
+	for _, test := range valid {
+		t.Run(test.name, func(t *testing.T) {
+			decoded, err := DecodeTransport([]byte(test.raw))
+			require.NoError(t, err)
+			assert.IsType(t, test.want, decoded)
+		})
+	}
+
+	invalid := []struct {
+		name string
+		raw  string
+	}{
+		{name: "unknown transport", raw: `{"kind":"websocket"}`},
+		{name: "unknown stdio member", raw: `{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{},"extra":true}`},
+		{name: "relative stdio path", raw: `{"kind":"stdio","executable":"server","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}`},
+		{name: "unknown authentication", raw: `{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"modern","authentication":{"mode":"basic"}}`},
+		{name: "authentication union mismatch", raw: `{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"modern","authentication":{"mode":"none","registration":{"mode":"dynamic"}}}`},
+		{name: "unknown registration", raw: `{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"modern","authentication":{"mode":"oauth","registration":{"mode":"manual"},"trusted_origins":[],"request_offline_access":false}}`},
+		{name: "OAuth over HTTP", raw: `{"kind":"streamable_http","url":"http://127.0.0.1:9000/mcp","protocol_mode":"modern","authentication":{"mode":"oauth","registration":{"mode":"dynamic"},"trusted_origins":[],"request_offline_access":false}}`},
+	}
+	for _, test := range invalid {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := DecodeTransport([]byte(test.raw))
+			assert.ErrorIs(t, err, ErrInvalidInput)
+		})
+	}
+}
+
 type mutableClock struct{ now time.Time }
 
 func (clock *mutableClock) Now() time.Time { return clock.now }

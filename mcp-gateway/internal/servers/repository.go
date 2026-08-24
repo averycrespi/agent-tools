@@ -114,6 +114,126 @@ func canonicalJSON(contents []byte) ([]byte, error) {
 	return canonical, nil
 }
 
+type transportDiscriminator struct {
+	Kind contract.TransportKind `json:"kind"`
+}
+
+type httpTransportEnvelope struct {
+	Kind           contract.TransportKind `json:"kind"`
+	URL            string                 `json:"url"`
+	ProtocolMode   contract.ProtocolMode  `json:"protocol_mode"`
+	Authentication json.RawMessage        `json:"authentication"`
+}
+
+type authenticationDiscriminator struct {
+	Mode contract.AuthenticationMode `json:"mode"`
+}
+
+type oauthAuthenticationEnvelope struct {
+	Mode                 contract.AuthenticationMode `json:"mode"`
+	Registration         json.RawMessage             `json:"registration"`
+	TrustedOrigins       []string                    `json:"trusted_origins"`
+	RequestOfflineAccess bool                        `json:"request_offline_access"`
+}
+
+type registrationDiscriminator struct {
+	Mode contract.RegistrationMode `json:"mode"`
+}
+
+func DecodeTransport(contents []byte) (contract.Transport, error) {
+	options := strictjson.Options{MaxBytes: mustLimit("api_json_body_bytes"), MaxDepth: int(mustLimit("json_depth"))}
+	closed := options
+	closed.RejectUnknownMembers = true
+	invalid := func(err error) (contract.Transport, error) {
+		return nil, fmt.Errorf("%w: transport: %w", ErrInvalidInput, err)
+	}
+	var discriminator transportDiscriminator
+	if err := strictjson.Decode(contents, &discriminator, options); err != nil {
+		return invalid(err)
+	}
+	var transport contract.Transport
+	switch discriminator.Kind {
+	case contract.TransportStdio:
+		var value contract.StdioTransport
+		if err := strictjson.Decode(contents, &value, closed); err != nil {
+			return invalid(err)
+		}
+		transport = value
+	case contract.TransportStreamableHTTP:
+		var raw httpTransportEnvelope
+		if err := strictjson.Decode(contents, &raw, closed); err != nil {
+			return invalid(err)
+		}
+		authentication, err := decodeHTTPAuthentication(raw.Authentication, options, closed)
+		if err != nil {
+			return invalid(err)
+		}
+		transport = contract.StreamableHTTPTransport{Kind: raw.Kind, URL: raw.URL, ProtocolMode: raw.ProtocolMode, Authentication: authentication}
+	default:
+		return invalid(errors.New("unknown transport kind"))
+	}
+	if err := validateTransport(transport); err != nil {
+		return invalid(err)
+	}
+	return transport, nil
+}
+
+func decodeHTTPAuthentication(contents []byte, options, closed strictjson.Options) (contract.HTTPAuthentication, error) {
+	var discriminator authenticationDiscriminator
+	if err := strictjson.Decode(contents, &discriminator, options); err != nil {
+		return nil, err
+	}
+	switch discriminator.Mode {
+	case contract.AuthenticationNone:
+		var value contract.NoAuthentication
+		if err := strictjson.Decode(contents, &value, closed); err != nil {
+			return nil, err
+		}
+		return value, nil
+	case contract.AuthenticationBearer:
+		var value contract.BearerAuthentication
+		if err := strictjson.Decode(contents, &value, closed); err != nil {
+			return nil, err
+		}
+		return value, nil
+	case contract.AuthenticationOAuth:
+		var raw oauthAuthenticationEnvelope
+		if err := strictjson.Decode(contents, &raw, closed); err != nil {
+			return nil, err
+		}
+		registration, err := decodeOAuthRegistration(raw.Registration, options, closed)
+		if err != nil {
+			return nil, err
+		}
+		return contract.OAuthAuthentication{Mode: raw.Mode, Registration: registration, TrustedOrigins: raw.TrustedOrigins, RequestOfflineAccess: raw.RequestOfflineAccess}, nil
+	default:
+		return nil, errors.New("unknown authentication mode")
+	}
+}
+
+func decodeOAuthRegistration(contents []byte, options, closed strictjson.Options) (contract.OAuthRegistration, error) {
+	var discriminator registrationDiscriminator
+	if err := strictjson.Decode(contents, &discriminator, options); err != nil {
+		return nil, err
+	}
+	switch discriminator.Mode {
+	case contract.RegistrationStatic:
+		var value contract.StaticOAuthRegistration
+		if err := strictjson.Decode(contents, &value, closed); err != nil {
+			return nil, err
+		}
+		return value, nil
+	case contract.RegistrationDynamic:
+		var value contract.DynamicOAuthRegistration
+		if err := strictjson.Decode(contents, &value, closed); err != nil {
+			return nil, err
+		}
+		return value, nil
+	default:
+		return nil, errors.New("unknown registration mode")
+	}
+}
+
 func validateDefinition(definition Definition) ([]byte, error) {
 	if !namespacePattern.MatchString(definition.Namespace) || definition.Namespace == "mcp_gateway" {
 		return nil, fmt.Errorf("%w: namespace", ErrInvalidInput)
@@ -128,23 +248,30 @@ func canonicalTransport(transport contract.Transport) ([]byte, error) {
 	if transport == nil {
 		return nil, fmt.Errorf("%w: transport", ErrInvalidInput)
 	}
-	var err error
-	switch value := transport.(type) {
-	case contract.StdioTransport:
-		err = validateStdioTransport(value)
-	case contract.StreamableHTTPTransport:
-		err = validateHTTPTransport(value)
-	default:
-		err = fmt.Errorf("unsupported transport type %T", transport)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("%w: transport: %w", ErrInvalidInput, err)
-	}
 	encoded, err := json.Marshal(transport)
 	if err != nil {
 		return nil, fmt.Errorf("%w: transport: %w", ErrInvalidInput, err)
 	}
+	decoded, err := DecodeTransport(encoded)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err = json.Marshal(decoded)
+	if err != nil {
+		return nil, fmt.Errorf("%w: transport: %w", ErrInvalidInput, err)
+	}
 	return canonicalJSON(encoded)
+}
+
+func validateTransport(transport contract.Transport) error {
+	switch value := transport.(type) {
+	case contract.StdioTransport:
+		return validateStdioTransport(value)
+	case contract.StreamableHTTPTransport:
+		return validateHTTPTransport(value)
+	default:
+		return fmt.Errorf("unsupported transport type %T", transport)
+	}
 }
 
 func validateStdioTransport(transport contract.StdioTransport) error {

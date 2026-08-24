@@ -3,14 +3,12 @@ package servers
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"sync"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
-	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
 
 func (repository *Repository) PrepareCredentialReplacement(ctx context.Context, request CredentialReplacementRequest) (CredentialReplacementPlan, error) {
@@ -125,19 +123,8 @@ func validateCredentialReplacementTx(ctx context.Context, transaction *sql.Tx, p
 }
 
 func validateReplacementMode(contents []byte, kind contract.ServerCredentialKind, suppliedSlots []string) error {
-	options := strictjson.Options{MaxBytes: mustLimit("api_json_body_bytes"), MaxDepth: int(mustLimit("json_depth")), RejectUnknownMembers: true}
-	var envelope struct {
-		Kind           contract.TransportKind `json:"kind"`
-		Authentication json.RawMessage        `json:"authentication"`
-		SecretSlots    map[string]string      `json:"secret_environment"`
-		Executable     json.RawMessage        `json:"executable"`
-		Arguments      json.RawMessage        `json:"arguments"`
-		Working        json.RawMessage        `json:"working_directory"`
-		Environment    json.RawMessage        `json:"environment"`
-		URL            json.RawMessage        `json:"url"`
-		Protocol       json.RawMessage        `json:"protocol_mode"`
-	}
-	if err := strictjson.Decode(contents, &envelope, options); err != nil {
+	decoded, err := DecodeTransport(contents)
+	if err != nil {
 		return ErrInvalidInput
 	}
 	slots := append([]string(nil), suppliedSlots...)
@@ -148,20 +135,17 @@ func validateReplacementMode(contents []byte, kind contract.ServerCredentialKind
 			return ErrInvalidOperation
 		}
 		var expected []string
-		switch envelope.Kind {
-		case contract.TransportStdio:
-			seen := make(map[string]struct{}, len(envelope.SecretSlots))
-			for _, slot := range envelope.SecretSlots {
+		switch transport := decoded.(type) {
+		case contract.StdioTransport:
+			seen := make(map[string]struct{}, len(transport.SecretEnvironment))
+			for _, slot := range transport.SecretEnvironment {
 				seen[slot] = struct{}{}
 			}
 			for slot := range seen {
 				expected = append(expected, slot)
 			}
-		case contract.TransportStreamableHTTP:
-			var auth struct {
-				Mode contract.AuthenticationMode `json:"mode"`
-			}
-			if strictjson.Decode(envelope.Authentication, &auth, options) != nil || auth.Mode != contract.AuthenticationBearer {
+		case contract.StreamableHTTPTransport:
+			if _, ok := transport.Authentication.(contract.BearerAuthentication); !ok {
 				return ErrInvalidOperation
 			}
 			expected = []string{"bearer"}
@@ -173,20 +157,19 @@ func validateReplacementMode(contents []byte, kind contract.ServerCredentialKind
 			return ErrInvalidOperation
 		}
 	case contract.ServerCredentialOAuthClient:
-		if len(suppliedSlots) != 0 || envelope.Kind != contract.TransportStreamableHTTP {
+		if len(suppliedSlots) != 0 {
 			return ErrInvalidOperation
 		}
-		var auth struct {
-			Mode                 contract.AuthenticationMode `json:"mode"`
-			Registration         json.RawMessage             `json:"registration"`
-			TrustedOrigins       []string                    `json:"trusted_origins"`
-			RequestOfflineAccess bool                        `json:"request_offline_access"`
-		}
-		if strictjson.Decode(envelope.Authentication, &auth, options) != nil || auth.Mode != contract.AuthenticationOAuth {
+		transport, ok := decoded.(contract.StreamableHTTPTransport)
+		if !ok {
 			return ErrInvalidOperation
 		}
-		var registration contract.StaticOAuthRegistration
-		if strictjson.Decode(auth.Registration, &registration, options) != nil || registration.Mode != contract.RegistrationStatic || (registration.TokenEndpointAuthMethod != contract.TokenEndpointAuthClientSecretBasic && registration.TokenEndpointAuthMethod != contract.TokenEndpointAuthClientSecretPost) {
+		authentication, ok := transport.Authentication.(contract.OAuthAuthentication)
+		if !ok {
+			return ErrInvalidOperation
+		}
+		registration, ok := authentication.Registration.(contract.StaticOAuthRegistration)
+		if !ok || (registration.TokenEndpointAuthMethod != contract.TokenEndpointAuthClientSecretBasic && registration.TokenEndpointAuthMethod != contract.TokenEndpointAuthClientSecretPost) {
 			return ErrInvalidOperation
 		}
 	default:

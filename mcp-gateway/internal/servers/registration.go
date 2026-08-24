@@ -3,7 +3,6 @@ package servers
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
-	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
 
 type OAuthRegistrationAuthority struct {
@@ -238,34 +236,26 @@ func validateRegistrationCurrent(ctx context.Context, transaction *sql.Tx, fence
 }
 
 func RegistrationMatchesDesired(contents []byte, authority OAuthRegistrationAuthority) bool {
-	var transport struct {
-		Kind           contract.TransportKind `json:"kind"`
-		URL            string                 `json:"url"`
-		ProtocolMode   contract.ProtocolMode  `json:"protocol_mode"`
-		Authentication struct {
-			Mode                 contract.AuthenticationMode `json:"mode"`
-			Registration         json.RawMessage             `json:"registration"`
-			TrustedOrigins       []string                    `json:"trusted_origins"`
-			RequestOfflineAccess bool                        `json:"request_offline_access"`
-		} `json:"authentication"`
-	}
-	options := strictjson.Options{MaxBytes: mustLimit("api_json_body_bytes"), MaxDepth: int(mustLimit("json_depth")), RejectUnknownMembers: true}
-	if err := strictjson.Decode(contents, &transport, options); err != nil || transport.Kind != contract.TransportStreamableHTTP || transport.URL != authority.ResourceURL || transport.Authentication.Mode != contract.AuthenticationOAuth {
+	decoded, err := DecodeTransport(contents)
+	if err != nil {
 		return false
 	}
-	switch authority.Mode {
-	case contract.RegistrationStatic:
-		var desired contract.StaticOAuthRegistration
-		if err := strictjson.Decode(transport.Authentication.Registration, &desired, options); err != nil || desired.Mode != contract.RegistrationStatic || desired.ClientID != authority.ClientID || desired.TokenEndpointAuthMethod != authority.TokenEndpointAuthMethod {
+	transport, ok := decoded.(contract.StreamableHTTPTransport)
+	if !ok || transport.URL != authority.ResourceURL {
+		return false
+	}
+	authentication, ok := transport.Authentication.(contract.OAuthAuthentication)
+	if !ok {
+		return false
+	}
+	switch desired := authentication.Registration.(type) {
+	case contract.StaticOAuthRegistration:
+		if authority.Mode != contract.RegistrationStatic || desired.ClientID != authority.ClientID || desired.TokenEndpointAuthMethod != authority.TokenEndpointAuthMethod {
 			return false
 		}
 		return desired.Issuer == nil || *desired.Issuer == authority.Issuer
-	case contract.RegistrationDynamic:
-		var desired contract.DynamicOAuthRegistration
-		if err := strictjson.Decode(transport.Authentication.Registration, &desired, options); err != nil || desired.Mode != contract.RegistrationDynamic {
-			return false
-		}
-		return desired.Issuer == nil || *desired.Issuer == authority.Issuer
+	case contract.DynamicOAuthRegistration:
+		return authority.Mode == contract.RegistrationDynamic && (desired.Issuer == nil || *desired.Issuer == authority.Issuer)
 	default:
 		return false
 	}

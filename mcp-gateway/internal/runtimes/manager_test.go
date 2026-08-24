@@ -27,7 +27,7 @@ func newFakeRepository(count int) *fakeRepository {
 	repository := &fakeRepository{servers: make(map[string]servers.Server), authorities: make(map[string]servers.AuthorityMetadata), operations: make(map[string]servers.Operation), transitions: make(chan servers.Operation, 64)}
 	for index := 0; index < count; index++ {
 		id := fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5F%02d", index)
-		repository.servers[id] = servers.Server{ID: id, Namespace: fmt.Sprintf("server-%d", index), DisplayName: "Server", DesiredState: contract.DesiredServerEnabled, DesiredRevision: "1", CreatedAt: "2026-08-23T00:00:00Z", UpdatedAt: "2026-08-23T00:00:00Z"}
+		repository.servers[id] = servers.Server{ID: id, Namespace: fmt.Sprintf("server-%d", index), DisplayName: "Server", DesiredState: contract.DesiredServerEnabled, DesiredRevision: "1", Transport: []byte(`{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}`), CreatedAt: "2026-08-23T00:00:00Z", UpdatedAt: "2026-08-23T00:00:00Z"}
 		repository.authorities[id] = zeroAuthority()
 	}
 	return repository
@@ -143,6 +143,63 @@ func (driver *blockingDriver) Reconcile(ctx context.Context, candidate Candidate
 func (driver *blockingDriver) Stop(_ context.Context, candidate Candidate) bool {
 	driver.cleaned <- candidate
 	return true
+}
+
+type recordingAuthority struct{ called chan Candidate }
+
+func (authority *recordingAuthority) Resolve(_ context.Context, candidate Candidate) AuthorityOutcome {
+	authority.called <- candidate
+	return AuthorityOutcome{CredentialState: contract.ServerCredentialNotRequired}
+}
+
+type immediateDriver struct{ called chan Candidate }
+
+func (driver *immediateDriver) Reconcile(_ context.Context, candidate Candidate) Outcome {
+	driver.called <- candidate
+	return activeOutcome()
+}
+func (*immediateDriver) Stop(context.Context, Candidate) bool { return true }
+
+func TestManagerRejectsInvalidPersistedTransportBeforeExternalWork(t *testing.T) {
+	repository := newFakeRepository(1)
+	var serverID string
+	for id, server := range repository.servers {
+		serverID = id
+		server.Transport = []byte(`{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{},"unknown":true}`)
+		repository.servers[id] = server
+	}
+	authority := &recordingAuthority{called: make(chan Candidate, 1)}
+	driver := &immediateDriver{called: make(chan Candidate, 1)}
+	manager, err := New(Options{Repository: repository, Authority: authority, Driver: driver})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	operation, err := repository.CreateOperation(context.Background(), servers.OperationRequest{ServerID: serverID, Kind: contract.OperationActivate, ExpectedDesiredRevision: "1"})
+	require.NoError(t, err)
+
+	manager.Trigger(serverID, &operation.Operation.ID, true)
+
+	var terminal servers.Operation
+	for range 2 {
+		select {
+		case transitioned := <-repository.transitions:
+			terminal = transitioned
+		case <-time.After(time.Second):
+			t.Fatal("operation transition was not received")
+		}
+	}
+	assert.Equal(t, contract.OperationFailed, terminal.State)
+	require.NotNil(t, terminal.Reason)
+	assert.Equal(t, contract.ReasonConfigurationInvalid, *terminal.Reason)
+	select {
+	case <-authority.called:
+		t.Fatal("credential authority was consulted for invalid persisted transport")
+	default:
+	}
+	select {
+	case <-driver.called:
+		t.Fatal("runtime driver was called for invalid persisted transport")
+	default:
+	}
 }
 
 type contextStopDriver struct {

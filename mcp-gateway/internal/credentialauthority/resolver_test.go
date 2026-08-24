@@ -78,7 +78,7 @@ func TestResolverPreservesKeyringCapabilityClassesAndAdmission(t *testing.T) {
 		{err: &keyring.CapabilityError{Capability: keyring.Capability{State: contract.KeyringUnsupported}}, credential: contract.ServerCredentialUnsupported, reason: contract.ReasonKeyringUnsupported},
 		{err: keyring.ErrWorkLimit, credential: contract.ServerCredentialUnavailable, reason: contract.ReasonResourceLimit, retry: true},
 	}
-	transport := marshalTransport(t, contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "http://127.0.0.1:9000/mcp", ProtocolMode: contract.ProtocolModern, Authentication: contract.BearerAuthentication{Mode: contract.AuthenticationBearer}})
+	transport := marshalTransport(t, contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://resource.example/mcp", ProtocolMode: contract.ProtocolModern, Authentication: contract.BearerAuthentication{Mode: contract.AuthenticationBearer}})
 	for _, test := range states {
 		resolver, err := New(&resolverRepository{}, &resolverCoordinator{err: test.err}, testInstallationID, func() time.Time { return testNow })
 		require.NoError(t, err)

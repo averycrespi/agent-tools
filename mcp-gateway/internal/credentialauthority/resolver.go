@@ -3,7 +3,6 @@ package credentialauthority
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"time"
 
@@ -149,33 +148,27 @@ type requirements struct {
 }
 
 func parseRequirements(contents []byte) (requirements, error) {
-	var envelope struct {
-		Kind              contract.TransportKind `json:"kind"`
-		SecretEnvironment map[string]string      `json:"secret_environment"`
-		Authentication    struct {
-			Mode contract.AuthenticationMode `json:"mode"`
-		} `json:"authentication"`
-	}
-	if err := json.Unmarshal(contents, &envelope); err != nil {
+	transport, err := servers.DecodeTransport(contents)
+	if err != nil {
 		return requirements{}, err
 	}
-	switch envelope.Kind {
-	case contract.TransportStdio:
+	switch value := transport.(type) {
+	case contract.StdioTransport:
 		slots := make(map[string]struct{})
-		for _, slot := range envelope.SecretEnvironment {
+		for _, slot := range value.SecretEnvironment {
 			slots[slot] = struct{}{}
 		}
 		if len(slots) == 0 {
 			return requirements{mode: requirementNone}, nil
 		}
 		return requirements{mode: requirementStatic, slots: slots}, nil
-	case contract.TransportStreamableHTTP:
-		switch envelope.Authentication.Mode {
-		case contract.AuthenticationNone:
+	case contract.StreamableHTTPTransport:
+		switch value.Authentication.(type) {
+		case contract.NoAuthentication:
 			return requirements{mode: requirementNone}, nil
-		case contract.AuthenticationBearer:
+		case contract.BearerAuthentication:
 			return requirements{mode: requirementStatic, slots: map[string]struct{}{"bearer": {}}}, nil
-		case contract.AuthenticationOAuth:
+		case contract.OAuthAuthentication:
 			return requirements{mode: requirementOAuth}, nil
 		}
 	}

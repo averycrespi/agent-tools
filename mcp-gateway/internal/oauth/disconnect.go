@@ -3,7 +3,6 @@ package oauth
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -265,17 +264,12 @@ func cleanupKinds(kind contract.ServerOperationKind, server servers.Server, auth
 }
 
 func cleanupOAuthConfiguration(server servers.Server, registration servers.OAuthRegistrationAuthority) (servers.AuthFlowOAuthConfiguration, bool) {
-	if len(server.Transport) != 0 {
-		var envelope struct {
-			Kind           contract.TransportKind `json:"kind"`
-			URL            string                 `json:"url"`
-			Authentication struct {
-				Mode           contract.AuthenticationMode `json:"mode"`
-				TrustedOrigins []string                    `json:"trusted_origins"`
-			} `json:"authentication"`
-		}
-		if json.Unmarshal(server.Transport, &envelope) == nil && envelope.Kind == contract.TransportStreamableHTTP && envelope.Authentication.Mode == contract.AuthenticationOAuth {
-			return servers.AuthFlowOAuthConfiguration{Resource: envelope.URL, Authentication: contract.OAuthAuthentication{Mode: contract.AuthenticationOAuth, TrustedOrigins: envelope.Authentication.TrustedOrigins}}, true
+	if decoded, err := servers.DecodeTransport(server.Transport); err == nil {
+		if transport, ok := decoded.(contract.StreamableHTTPTransport); ok {
+			if authentication, ok := transport.Authentication.(contract.OAuthAuthentication); ok {
+				projected := contract.OAuthAuthentication{Mode: contract.AuthenticationOAuth, TrustedOrigins: authentication.TrustedOrigins}
+				return servers.AuthFlowOAuthConfiguration{Resource: transport.URL, Authentication: projected}, true
+			}
 		}
 	}
 	return servers.AuthFlowOAuthConfiguration{Resource: registration.ResourceURL, Authentication: contract.OAuthAuthentication{Mode: contract.AuthenticationOAuth}}, registration.Revision != "" && registration.Revision != "0"
