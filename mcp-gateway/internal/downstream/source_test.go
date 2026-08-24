@@ -23,7 +23,7 @@ func TestProductionDownstreamCannotUsePermissiveHTTPOrSDKTransports(t *testing.T
 		}
 		contents, readErr := os.ReadFile(filepath.Join(root, entry.Name()))
 		require.NoError(t, readErr)
-		for _, prohibited := range []string{"http.DefaultClient", "http.Get(", "http.Post(", "CommandTransport", "Client.Connect", "ClientSession.ListTools"} {
+		for _, prohibited := range []string{"http.DefaultClient", "http.Get(", "http.Post(", "CommandTransport", "Client.Connect", "ClientSession.ListTools", "subscriptions/listen", "notifications/tools/list_changed", "mcp.NewClient("} {
 			assert.NotContains(t, string(contents), prohibited, "%s contains prohibited transport path", entry.Name())
 		}
 	}

@@ -32,11 +32,20 @@ type Message struct {
 	Method           string
 	ProtocolVersion  string
 	Name             string
+	SessionID        string
 	ParameterHeaders map[string]string
 }
 
+type WireResponse struct {
+	StatusCode  int
+	ContentType string
+	Body        []byte
+	SessionIDs  []string
+}
+
 type Transport interface {
-	Exchange(context.Context, Message) ([]byte, error)
+	Exchange(context.Context, Message) (WireResponse, error)
+	Notify(context.Context, Message) (WireResponse, error)
 	Close(context.Context) error
 }
 
@@ -65,6 +74,19 @@ type requestEnvelope struct {
 	Params  json.RawMessage `json:"params"`
 }
 
+type notificationEnvelope struct {
+	JSONRPC string          `json:"jsonrpc"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params"`
+}
+
+type RequestOptions struct {
+	ProtocolVersion  string
+	Name             string
+	SessionID        string
+	ParameterHeaders map[string]string
+}
+
 type responseEnvelope struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      uint64          `json:"id"`
@@ -80,32 +102,67 @@ func NewCoordinator(transport Transport) (*Coordinator, error) {
 }
 
 func (coordinator *Coordinator) Request(ctx context.Context, method string, params json.RawMessage, protocolVersion, name string) (Response, error) {
+	return coordinator.RequestWithOptions(ctx, method, params, RequestOptions{ProtocolVersion: protocolVersion, Name: name})
+}
+
+func (coordinator *Coordinator) RequestWithOptions(ctx context.Context, method string, params json.RawMessage, options RequestOptions) (Response, error) {
+	requestID, wire, err := coordinator.rawRequest(ctx, method, params, options)
+	if err != nil {
+		return Response{}, err
+	}
+	if wire.StatusCode != 0 && (wire.StatusCode < 200 || wire.StatusCode > 299) {
+		return Response{}, ErrInvalidMessage
+	}
+	if wire.StatusCode != 0 {
+		mediaType, _, mediaErr := mime.ParseMediaType(wire.ContentType)
+		if mediaErr != nil || mediaType != contract.MediaTypeJSON && mediaType != contract.MediaTypeEventStream {
+			return Response{}, ErrInvalidMessage
+		}
+	}
+	return decodeResponse(requestID, wire.Body)
+}
+
+func (coordinator *Coordinator) rawRequest(ctx context.Context, method string, params json.RawMessage, options RequestOptions) (uint64, WireResponse, error) {
 	coordinator.mu.Lock()
 	if coordinator.closed {
 		coordinator.mu.Unlock()
-		return Response{}, ErrTransportClosed
+		return 0, WireResponse{}, ErrTransportClosed
 	}
 	if method == "" || !validJSON(params) {
 		coordinator.mu.Unlock()
-		return Response{}, ErrInvalidMessage
+		return 0, WireResponse{}, ErrInvalidMessage
 	}
 	coordinator.nextID++
 	requestID := coordinator.nextID
 	coordinator.mu.Unlock()
 	payload, err := json.Marshal(requestEnvelope{JSONRPC: "2.0", ID: requestID, Method: method, Params: append(json.RawMessage(nil), params...)})
-	if err != nil {
-		return Response{}, ErrInvalidMessage
+	if err != nil || int64(len(payload)) > limit("downstream_mcp_body_bytes") {
+		return 0, WireResponse{}, ErrInvalidMessage
 	}
-	maximum := limit("downstream_mcp_body_bytes")
-	if int64(len(payload)) > maximum {
-		return Response{}, ErrInvalidMessage
+	wire, err := coordinator.transport.Exchange(ctx, Message{Payload: payload, Method: method, ProtocolVersion: options.ProtocolVersion, Name: options.Name, SessionID: options.SessionID, ParameterHeaders: options.ParameterHeaders})
+	return requestID, wire, err
+}
+
+func (coordinator *Coordinator) Notify(ctx context.Context, method string, params json.RawMessage, options RequestOptions) (WireResponse, error) {
+	coordinator.mu.Lock()
+	closed := coordinator.closed
+	coordinator.mu.Unlock()
+	if closed {
+		return WireResponse{}, ErrTransportClosed
 	}
-	raw, err := coordinator.transport.Exchange(ctx, Message{Payload: payload, Method: method, ProtocolVersion: protocolVersion, Name: name})
-	if err != nil {
-		return Response{}, err
+	if method == "" || !validJSON(params) {
+		return WireResponse{}, ErrInvalidMessage
 	}
+	payload, err := json.Marshal(notificationEnvelope{JSONRPC: "2.0", Method: method, Params: append(json.RawMessage(nil), params...)})
+	if err != nil || int64(len(payload)) > limit("downstream_mcp_body_bytes") {
+		return WireResponse{}, ErrInvalidMessage
+	}
+	return coordinator.transport.Notify(ctx, Message{Payload: payload, Method: method, ProtocolVersion: options.ProtocolVersion, Name: options.Name, SessionID: options.SessionID, ParameterHeaders: options.ParameterHeaders})
+}
+
+func decodeResponse(requestID uint64, raw []byte) (Response, error) {
 	var response responseEnvelope
-	if err := strictjson.Decode(raw, &response, strictjson.Options{MaxBytes: maximum, MaxDepth: int(limit("json_depth")), RejectUnknownMembers: true}); err != nil {
+	if err := strictjson.Decode(raw, &response, strictjson.Options{MaxBytes: limit("downstream_mcp_body_bytes"), MaxDepth: int(limit("json_depth")), RejectUnknownMembers: true}); err != nil {
 		return Response{}, ErrInvalidMessage
 	}
 	if response.JSONRPC != "2.0" || response.ID != requestID || (response.Error == nil) == (len(response.Result) == 0) {
@@ -152,33 +209,43 @@ func NewStdioTransport(runtime StdioRuntime) (*StdioTransport, error) {
 	return &StdioTransport{runtime: runtime}, nil
 }
 
-func (transport *StdioTransport) Exchange(ctx context.Context, message Message) ([]byte, error) {
-	transport.mu.Lock()
-	closed := transport.closed
-	transport.mu.Unlock()
-	if closed || int64(len(message.Payload)) > limit("stdio_protocol_frame_bytes") || bytes.ContainsRune(message.Payload, '\n') {
-		return nil, ErrTransportClosed
-	}
+func (transport *StdioTransport) Exchange(ctx context.Context, message Message) (WireResponse, error) {
 	transport.exchangeMu.Lock()
 	defer transport.exchangeMu.Unlock()
-	transport.mu.Lock()
-	closed = transport.closed
-	transport.mu.Unlock()
-	if closed {
-		return nil, ErrTransportClosed
-	}
-	if _, err := transport.runtime.Input().Write(append(append([]byte(nil), message.Payload...), '\n')); err != nil {
-		return nil, ErrTransportClosed
+	if err := transport.writeMessage(message); err != nil {
+		return WireResponse{}, err
 	}
 	select {
 	case frame, ok := <-transport.runtime.Frames():
 		if !ok || int64(len(frame)) > limit("stdio_protocol_frame_bytes") {
-			return nil, ErrTransportClosed
+			return WireResponse{}, ErrTransportClosed
 		}
-		return append([]byte(nil), frame...), nil
+		return WireResponse{Body: append([]byte(nil), frame...)}, nil
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return WireResponse{}, ctx.Err()
 	}
+}
+
+func (transport *StdioTransport) Notify(_ context.Context, message Message) (WireResponse, error) {
+	transport.exchangeMu.Lock()
+	defer transport.exchangeMu.Unlock()
+	if err := transport.writeMessage(message); err != nil {
+		return WireResponse{}, err
+	}
+	return WireResponse{}, nil
+}
+
+func (transport *StdioTransport) writeMessage(message Message) error {
+	transport.mu.Lock()
+	closed := transport.closed
+	transport.mu.Unlock()
+	if closed || int64(len(message.Payload)) > limit("stdio_protocol_frame_bytes") || bytes.ContainsRune(message.Payload, '\n') {
+		return ErrTransportClosed
+	}
+	if _, err := transport.runtime.Input().Write(append(append([]byte(nil), message.Payload...), '\n')); err != nil {
+		return ErrTransportClosed
+	}
+	return nil
 }
 
 func (transport *StdioTransport) Close(ctx context.Context) error {
@@ -213,11 +280,19 @@ func NewHTTPTransport(factory *remote.Factory, endpoint remote.Endpoint, authori
 	return &HTTPTransport{factory: factory, endpoint: endpoint, auth: authorization, rootCtx: rootCtx, rootCancel: rootCancel}, nil
 }
 
-func (transport *HTTPTransport) Exchange(ctx context.Context, message Message) ([]byte, error) {
+func (transport *HTTPTransport) Exchange(ctx context.Context, message Message) (WireResponse, error) {
+	return transport.exchange(ctx, message)
+}
+
+func (transport *HTTPTransport) Notify(ctx context.Context, message Message) (WireResponse, error) {
+	return transport.exchange(ctx, message)
+}
+
+func (transport *HTTPTransport) exchange(ctx context.Context, message Message) (WireResponse, error) {
 	transport.mu.Lock()
 	if transport.closed {
 		transport.mu.Unlock()
-		return nil, ErrTransportClosed
+		return WireResponse{}, ErrTransportClosed
 	}
 	exchangeCtx, cancel := context.WithCancel(ctx)
 	stopRootCancel := context.AfterFunc(transport.rootCtx, cancel)
@@ -240,38 +315,38 @@ func (transport *HTTPTransport) Exchange(ctx context.Context, message Message) (
 	if transport.auth != "" {
 		header.Set("Authorization", transport.auth)
 	}
+	if message.SessionID != "" {
+		header.Set("Mcp-Session-Id", message.SessionID)
+	}
 	seenParameters := make(map[string]struct{}, len(message.ParameterHeaders))
 	for name, value := range message.ParameterHeaders {
 		folded := strings.ToLower(name)
 		if !headerToken.MatchString(name) || strings.ContainsAny(value, "\r\n") || int64(len(value)) > limit("request_header_value_bytes") {
-			return nil, ErrInvalidMessage
+			return WireResponse{}, ErrInvalidMessage
 		}
 		if _, duplicate := seenParameters[folded]; duplicate {
-			return nil, ErrInvalidMessage
+			return WireResponse{}, ErrInvalidMessage
 		}
 		seenParameters[folded] = struct{}{}
 		header.Set("Mcp-Param-"+name, value)
 	}
 	response, err := transport.factory.Open(exchangeCtx, remote.Request{Endpoint: transport.endpoint, Method: http.MethodPost, Header: header, Body: message.Payload, MaxBody: limit("downstream_mcp_body_bytes")})
 	if err != nil {
-		return nil, err
+		return WireResponse{}, err
 	}
 	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode < 200 || response.StatusCode > 299 {
-		return nil, ErrInvalidMessage
+	contentType := response.Header.Get("Content-Type")
+	mediaType, _, mediaErr := mime.ParseMediaType(contentType)
+	var body []byte
+	if mediaErr == nil && mediaType == contract.MediaTypeEventStream {
+		body, err = parseSSEReader(response.Body)
+	} else {
+		body, err = readBounded(response.Body, limit("downstream_mcp_body_bytes"))
 	}
-	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if err != nil {
-		return nil, ErrInvalidMessage
+		return WireResponse{}, err
 	}
-	switch mediaType {
-	case contract.MediaTypeJSON:
-		return readBounded(response.Body, limit("downstream_mcp_body_bytes"))
-	case contract.MediaTypeEventStream:
-		return parseSSEReader(response.Body)
-	default:
-		return nil, ErrInvalidMessage
-	}
+	return WireResponse{StatusCode: response.StatusCode, ContentType: contentType, Body: body, SessionIDs: append([]string(nil), response.Header.Values("Mcp-Session-Id")...)}, nil
 }
 
 func (transport *HTTPTransport) Close(context.Context) error {

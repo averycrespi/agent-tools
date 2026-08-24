@@ -22,11 +22,14 @@ type captureTransport struct {
 	respond func(requestEnvelope) []byte
 }
 
-func (transport *captureTransport) Exchange(_ context.Context, message Message) ([]byte, error) {
+func (transport *captureTransport) Exchange(_ context.Context, message Message) (WireResponse, error) {
 	transport.message = message
 	var request requestEnvelope
 	_ = json.Unmarshal(message.Payload, &request)
-	return transport.respond(request), nil
+	return WireResponse{Body: transport.respond(request)}, nil
+}
+func (*captureTransport) Notify(context.Context, Message) (WireResponse, error) {
+	return WireResponse{}, nil
 }
 func (*captureTransport) Close(context.Context) error { return nil }
 
@@ -90,10 +93,11 @@ func TestHTTPTransportSendsOnlyClosedGatewayHeadersAndAcceptsBoundedJSONOrSSE(t 
 }
 
 type fakeStdio struct {
-	frames  chan []byte
-	input   *bytes.Buffer
-	stopped bool
-	mu      sync.Mutex
+	frames     chan []byte
+	input      *bytes.Buffer
+	stopResult bool
+	stopped    bool
+	mu         sync.Mutex
 }
 
 func (runtime *fakeStdio) Frames() <-chan []byte { return runtime.frames }
@@ -102,7 +106,7 @@ func (runtime *fakeStdio) Stop(context.Context) bool {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	runtime.stopped = true
-	return true
+	return runtime.stopResult
 }
 
 type nopWriteCloser struct{ io.Writer }
@@ -133,7 +137,7 @@ func TestHTTPTransportReturnsFirstSSEEventAndClosesBlockedBody(t *testing.T) {
 	require.NoError(t, err)
 	response, err := transport.Exchange(context.Background(), Message{Payload: []byte(`{}`), Method: "server/discover"})
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"jsonrpc":"2.0","id":1,"result":{}}`, string(response))
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":1,"result":{}}`, string(response.Body))
 	close(probeClose)
 	select {
 	case <-closed:
@@ -188,13 +192,13 @@ func TestSSEParsingBoundsOneJSONEvent(t *testing.T) {
 }
 
 func TestStdioTransportUsesBoundedNDJSONAndRequiresStopProof(t *testing.T) {
-	runtime := &fakeStdio{frames: make(chan []byte, 1), input: new(bytes.Buffer)}
+	runtime := &fakeStdio{frames: make(chan []byte, 1), input: new(bytes.Buffer), stopResult: true}
 	transport, err := NewStdioTransport(runtime)
 	require.NoError(t, err)
 	runtime.frames <- []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`)
 	response, err := transport.Exchange(context.Background(), Message{Payload: []byte(`{"jsonrpc":"2.0","id":1,"method":"x","params":{}}`)})
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"jsonrpc":"2.0","id":1,"result":{}}`, string(response))
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":1,"result":{}}`, string(response.Body))
 	assert.True(t, strings.HasSuffix(runtime.input.String(), "\n"))
 	require.NoError(t, transport.Close(context.Background()))
 	assert.True(t, runtime.stopped)
