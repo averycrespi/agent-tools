@@ -143,6 +143,7 @@ type Manager struct {
 
 type entry struct {
 	generation   uint64
+	activating   *Candidate
 	active       *Candidate
 	blockedStop  *Candidate
 	running      bool
@@ -198,7 +199,7 @@ func (publisher *memoryPublisher) Withdraw(candidate Candidate) {
 	publisher.mu.Lock()
 	defer publisher.mu.Unlock()
 	current, ok := publisher.active[candidate.Server.ID]
-	if ok && current.RuntimeID == candidate.RuntimeID {
+	if ok && current.Key() == candidate.Key() {
 		delete(publisher.active, candidate.Server.ID)
 	}
 }
@@ -404,7 +405,7 @@ func (manager *Manager) refreshCatalogOperation(serverID string, generation uint
 	outcome := refresher.Refresh(manager.ctx, candidate)
 	manager.mu.Lock()
 	current := manager.entries[serverID]
-	stillCurrent := current != nil && current.generation == generation && current.active != nil && current.active.RuntimeID == candidate.RuntimeID && !manager.draining
+	stillCurrent := current != nil && current.generation == generation && current.active != nil && current.active.Key() == candidate.Key() && !manager.draining
 	if stillCurrent {
 		current.status.CatalogState = outcome.State
 		manager.publish(contract.InvalidationServers, &serverID)
@@ -530,6 +531,11 @@ func (manager *Manager) reconcile(serverID string, generation uint64, operationI
 		return
 	}
 	candidate := Candidate{Server: server, Authority: authority, RuntimeID: runtimeID, OperationID: cloneString(operationID), Generation: generation, DrainEpoch: manager.currentDrainEpoch()}
+	if !manager.recordActivating(candidate) {
+		manager.finishStale(serverID, generation)
+		return
+	}
+	defer manager.clearActivating(candidate)
 	authorityOutcome := manager.authority.Resolve(manager.ctx, candidate)
 	outcome := Outcome{State: authorityOutcome.State, CredentialState: authorityOutcome.CredentialState, CatalogState: contract.ActiveCatalogAbsent, Reason: authorityOutcome.Reason, Retryable: authorityOutcome.Retryable}
 	started := false
@@ -622,7 +628,7 @@ func (manager *Manager) stopPrevious(serverID string) bool {
 	}
 	manager.mu.Lock()
 	current = manager.entries[serverID]
-	if current != nil && current.blockedStop != nil && current.blockedStop.RuntimeID == previous.RuntimeID {
+	if current != nil && current.blockedStop != nil && current.blockedStop.Key() == previous.Key() {
 		current.blockedStop = nil
 	}
 	manager.mu.Unlock()
@@ -655,10 +661,28 @@ func (manager *Manager) Current(candidate Candidate) bool {
 	if current == nil || current.generation != candidate.Generation || manager.draining {
 		return false
 	}
-	if current.active != nil {
-		return current.active.RuntimeID == candidate.RuntimeID
+	key := candidate.Key()
+	return current.activating != nil && current.activating.Key() == key || current.active != nil && current.active.Key() == key
+}
+
+func (manager *Manager) recordActivating(candidate Candidate) bool {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	current := manager.entries[candidate.Server.ID]
+	if current == nil || current.generation != candidate.Generation || manager.drainEpoch != candidate.DrainEpoch || manager.draining || current.activating != nil {
+		return false
 	}
-	return current.running
+	current.activating = cloneCandidate(&candidate)
+	return true
+}
+
+func (manager *Manager) clearActivating(candidate Candidate) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	current := manager.entries[candidate.Server.ID]
+	if current != nil && current.activating != nil && current.activating.Key() == candidate.Key() {
+		current.activating = nil
+	}
 }
 
 func (manager *Manager) current(serverID string, generation, drainEpoch uint64) bool {
@@ -854,10 +878,11 @@ func (manager *Manager) OperationState(_ context.Context, serverID string) serve
 	return servers.OperationTriggerState{RuntimeState: status.State, RuntimeReason: status.Reason, CredentialState: status.CredentialState, CatalogState: status.CatalogState}
 }
 
-func (manager *Manager) RuntimeFailed(serverID, runtimeID string, reason contract.PublicReason) bool {
+func (manager *Manager) RuntimeFailed(candidate Candidate, reason contract.PublicReason) bool {
 	manager.mu.Lock()
+	serverID := candidate.Server.ID
 	current := manager.entries[serverID]
-	if current == nil || current.active == nil || current.active.RuntimeID != runtimeID || manager.draining {
+	if current == nil || current.active == nil || current.active.Key() != candidate.Key() || manager.draining {
 		manager.mu.Unlock()
 		return false
 	}

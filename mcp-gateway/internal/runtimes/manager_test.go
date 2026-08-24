@@ -315,6 +315,47 @@ func receiveCandidate(t *testing.T, channel <-chan Candidate) Candidate {
 	}
 }
 
+func TestManagerCurrentRequiresExactActivatingCandidate(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newBlockingDriver()
+	manager, err := New(Options{Repository: repository, Driver: driver})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for id, server := range repository.servers {
+		serverID = id
+		server.Transport = []byte(`{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{"TOKEN":"api"}}`)
+		repository.servers[id] = server
+	}
+	manager.Trigger(serverID, nil, false)
+	candidate := receiveCandidate(t, driver.started)
+	require.True(t, manager.Current(candidate))
+
+	mismatches := []Candidate{
+		candidate,
+		candidate,
+		candidate,
+		candidate,
+		candidate,
+		candidate,
+		candidate,
+		candidate,
+	}
+	mismatches[0].Server.ID = "different-server"
+	mismatches[1].Server.DesiredRevision = "2"
+	mismatches[2].Server.Transport = append([]byte(nil), candidate.Server.Transport...)
+	mismatches[2].Server.Transport[1] = 'X'
+	mismatches[3].Server.DesiredState = contract.DesiredServerDisabled
+	mismatches[4].Authority.CredentialRevisions.StaticCredential = "1"
+	mismatches[5].RuntimeID = "different-runtime"
+	mismatches[6].Generation++
+	mismatches[7].DrainEpoch++
+	for _, mismatch := range mismatches {
+		assert.False(t, manager.Current(mismatch))
+	}
+	driver.release <- activeOutcome()
+}
+
 func TestManagerSerializesPerServerAndAdmitsFourGloballyWithoutWaiters(t *testing.T) {
 	repository := newFakeRepository(5)
 	driver := newBlockingDriver()
@@ -695,8 +736,10 @@ func TestRuntimeFailureWithdrawsBeforeRetryAndRejectsStaleFailure(t *testing.T) 
 		break
 	}
 	active := establishActiveRuntime(t, manager, driver, publisher, serverID)
-	assert.False(t, manager.RuntimeFailed(serverID, "stale-runtime", contract.ReasonProcessExited))
-	assert.True(t, manager.RuntimeFailed(serverID, active.RuntimeID, contract.ReasonProcessExited))
+	stale := active
+	stale.Generation++
+	assert.False(t, manager.RuntimeFailed(stale, contract.ReasonProcessExited))
+	assert.True(t, manager.RuntimeFailed(active, contract.ReasonProcessExited))
 	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
 	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
 	stopping := receiveCandidate(t, driver.stopping)
