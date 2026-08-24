@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"time"
+	"unicode/utf8"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
@@ -119,7 +120,15 @@ func (resolver *Resolver) resolveOAuth(ctx context.Context, candidate runtimes.C
 			return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonRegistrationExpired, false)
 		}
 	}
-	if registration.TokenEndpointAuthMethod != contract.TokenEndpointAuthNone {
+	if authority.OAuthTokensHandle == nil || authority.CredentialRevisions.OAuthTokens == "0" {
+		return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonCredentialAbsent, false)
+	}
+	materials := make(map[contract.ServerCredentialKind][]byte, 2)
+	if registration.TokenEndpointAuthMethod == contract.TokenEndpointAuthNone {
+		if authority.OAuthClientHandle != nil {
+			return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonCredentialAbsent, false)
+		}
+	} else {
 		if authority.OAuthClientHandle == nil || authority.CredentialRevisions.OAuthClient == "0" {
 			return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonCredentialAbsent, false)
 		}
@@ -127,14 +136,15 @@ func (resolver *Resolver) resolveOAuth(ctx context.Context, candidate runtimes.C
 		if readErr != nil {
 			return mapReadError(readErr)
 		}
-		valid := len(secret) != 0 && string(result.Handle) == *authority.OAuthClientHandle && result.Revision == authority.CredentialRevisions.OAuthClient
-		clear(secret)
-		if !valid {
+		defer clear(secret)
+		if string(result.Handle) != *authority.OAuthClientHandle || result.Revision != authority.CredentialRevisions.OAuthClient {
 			return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonCredentialAbsent, false)
 		}
-	}
-	if authority.OAuthTokensHandle == nil || authority.CredentialRevisions.OAuthTokens == "0" {
-		return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonCredentialAbsent, false)
+		clientLimit, ok := contract.FixedLimitByName("oauth_client_secret_bytes")
+		if !ok || len(secret) == 0 || !utf8.Valid(secret) || int64(len(secret)) > clientLimit.Maximum {
+			return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonOAuthRejected, false)
+		}
+		materials[contract.ServerCredentialOAuthClient] = secret
 	}
 	contents, result, readErr := resolver.read(ctx, candidate.Server.ID, keyring.RecordOAuthTokens)
 	if readErr != nil {
@@ -154,7 +164,44 @@ func (resolver *Resolver) resolveOAuth(ctx context.Context, candidate runtimes.C
 			return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonOAuthExpired, false)
 		}
 	}
-	return runtimes.AuthorityOutcome{CredentialState: contract.ServerCredentialReady}
+	if !resolver.oauthCurrent(ctx, candidate, registration) {
+		return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonSuperseded, false)
+	}
+	materials[contract.ServerCredentialOAuthTokens] = contents
+	lease, err := runtimes.NewMaterialLease(candidate.Key(), materials)
+	if err != nil {
+		return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonKeyringUnavailable, false)
+	}
+	return runtimes.AuthorityOutcome{CredentialState: contract.ServerCredentialReady, Lease: lease}
+}
+
+func (resolver *Resolver) oauthCurrent(ctx context.Context, candidate runtimes.Candidate, registration servers.OAuthRegistrationAuthority) bool {
+	server, err := resolver.repository.Get(ctx, candidate.Server.ID)
+	if err != nil {
+		return false
+	}
+	authority, err := resolver.repository.Authority(ctx, candidate.Server.ID)
+	if err != nil {
+		return false
+	}
+	currentRegistration, err := resolver.repository.OAuthRegistration(ctx, candidate.Server.ID)
+	if err != nil || !sameRegistration(currentRegistration, registration) {
+		return false
+	}
+	current := candidate
+	current.Server = server
+	current.Authority = authority
+	if current.Key() != candidate.Key() || !sameStringPointer(authority.OAuthTokensHandle, candidate.Authority.OAuthTokensHandle) {
+		return false
+	}
+	if registration.TokenEndpointAuthMethod == contract.TokenEndpointAuthNone {
+		return authority.OAuthClientHandle == nil && candidate.Authority.OAuthClientHandle == nil
+	}
+	return sameStringPointer(authority.OAuthClientHandle, candidate.Authority.OAuthClientHandle)
+}
+
+func sameRegistration(left, right servers.OAuthRegistrationAuthority) bool {
+	return left.Revision == right.Revision && left.Mode == right.Mode && left.Issuer == right.Issuer && left.ClientID == right.ClientID && left.CallbackURL == right.CallbackURL && left.ResourceURL == right.ResourceURL && left.TokenEndpointAuthMethod == right.TokenEndpointAuthMethod && left.CreatedAt == right.CreatedAt && sameStringPointer(left.ClientSecretExpiresAt, right.ClientSecretExpiresAt)
 }
 
 func (resolver *Resolver) read(ctx context.Context, serverID string, kind keyring.RecordKind) ([]byte, keyring.CutoverResult, error) {
