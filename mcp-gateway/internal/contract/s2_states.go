@@ -150,6 +150,18 @@ func ParseServerCredentialState(value string) (ServerCredentialState, error) {
 	return parseClosed(value, []ServerCredentialState{ServerCredentialNotRequired, ServerCredentialReady, ServerCredentialAbsent, ServerCredentialLocked, ServerCredentialInteractionRequired, ServerCredentialUnavailable, ServerCredentialUnsupported, ServerCredentialRefreshing, ServerCredentialReauthenticationRequired, ServerCredentialDisconnecting, ServerCredentialCleanupPending})
 }
 
+type DescriptorRetiredFilter string
+
+const (
+	DescriptorRetiredInclude DescriptorRetiredFilter = "include"
+	DescriptorRetiredExclude DescriptorRetiredFilter = "exclude"
+	DescriptorRetiredOnly    DescriptorRetiredFilter = "only"
+)
+
+func ParseDescriptorRetiredFilter(value string) (DescriptorRetiredFilter, error) {
+	return parseClosed(value, []DescriptorRetiredFilter{DescriptorRetiredInclude, DescriptorRetiredExclude, DescriptorRetiredOnly})
+}
+
 type DurableCatalogState string
 
 const (

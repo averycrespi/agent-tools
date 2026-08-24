@@ -297,21 +297,34 @@ func (handler *Handler) serverResource(ctx context.Context, stored serverdomain.
 	if runtime.CredentialState != "" && (!transportRequiresCredential(transport) || runtime.CredentialState != contract.ServerCredentialNotRequired) {
 		credentialState = runtime.CredentialState
 	}
-	durableCatalogState := contract.DurableCatalogEmpty
+	durableCatalog := contract.ServerCatalog{DurableState: contract.DurableCatalogEmpty, ActiveState: runtime.CatalogState, Traversal: contract.LimitStatus{Limit: 1}}
+	if handler.catalog != nil {
+		status, statusErr := handler.catalog.Status(ctx, stored.ID)
+		if statusErr != nil {
+			return contract.Server{}, statusErr
+		}
+		durableCatalog.DurableState = status.State
+		durableCatalog.DurableRevision = status.Revision
+		durableCatalog.DurableToolCount = status.ToolCount
+		durableCatalog.LastSuccessAt = status.LastSuccessAt
+	}
 	if stored.DesiredState == contract.DesiredServerDeleted {
 		runtime.State = contract.RuntimeDeleted
 		runtime.Reason = nil
 		runtime.RuntimeID = nil
 		runtime.CredentialState = credentialState
 		runtime.CatalogState = contract.ActiveCatalogAbsent
-		durableCatalogState = contract.DurableCatalogRetired
+		durableCatalog.DurableState = contract.DurableCatalogRetired
+		durableCatalog.ActiveState = contract.ActiveCatalogAbsent
+		durableCatalog.ActiveRevision = nil
+		durableCatalog.ActiveToolCount = 0
 	}
 	return contract.Server{
 		ID: stored.ID, Namespace: stored.Namespace, DisplayName: stored.DisplayName, DesiredState: stored.DesiredState,
 		DesiredRevision: stored.DesiredRevision, Transport: transport, CredentialRevisions: authority.CredentialRevisions,
 		CredentialState: credentialState,
 		Runtime:         contract.ServerRuntime{State: runtime.State, Reason: runtime.Reason, RuntimeID: runtime.RuntimeID, Reconciliation: runtime.Reconciliation, Dispatch: limitStatus("per_server_downstream_dispatch")},
-		Catalog:         contract.ServerCatalog{DurableState: durableCatalogState, ActiveState: runtime.CatalogState, Traversal: contract.LimitStatus{Limit: 1}},
+		Catalog:         durableCatalog,
 		CreatedAt:       stored.CreatedAt, UpdatedAt: stored.UpdatedAt, DeletedAt: stored.DeletedAt,
 	}, nil
 }

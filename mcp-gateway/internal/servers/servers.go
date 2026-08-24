@@ -116,6 +116,13 @@ func (repository *Repository) Create(ctx context.Context, request CreateRequest)
 			VALUES (?, 0)`, serverID); err != nil {
 			return fmt.Errorf("initialize auth-flow watermark: %w", err)
 		}
+		if _, err := transaction.ExecContext(ctx, `
+			INSERT INTO server_catalogs (
+				server_id, durable_revision, durable_state, durable_tool_count,
+				issue_count, last_success_at
+			) VALUES (?, 0, 'empty', 0, 0, NULL)`, serverID); err != nil {
+			return fmt.Errorf("initialize server catalog: %w", err)
+		}
 		server, err := serverByIDTx(ctx, transaction, serverID)
 		if err != nil {
 			return err

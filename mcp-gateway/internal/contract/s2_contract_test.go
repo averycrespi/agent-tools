@@ -119,6 +119,11 @@ func TestS2ClosedVocabulariesRejectUnknownValues(t *testing.T) {
 		{"reason", []string{"configuration_invalid", "resource_limit", "connectivity", "tls_failed", "protocol_unsupported", "protocol_invalid", "authentication_rejected", "credential_absent", "keyring_absent", "keyring_locked", "keyring_interaction_required", "keyring_unavailable", "keyring_unsupported", "oauth_rejected", "oauth_expired", "registration_expired", "process_exited", "output_limit", "stop_unconfirmed", "catalog_invalid", "catalog_limit", "catalog_stale", "superseded", "cancelled", "interrupted", "revocation_failed", "revocation_unsupported", "cleanup_pending"}, func(value string) error { _, err := ParsePublicReason(value); return err }},
 	}
 	require.Equal(t, []ServerOperationKind{OperationReload, OperationRetry, OperationRefreshCatalog, OperationDisconnectCredentials}, ExplicitServerOperationKinds())
+	for _, value := range []string{"include", "exclude", "only"} {
+		parsed, err := ParseDescriptorRetiredFilter(value)
+		require.NoError(t, err)
+		require.Equal(t, value, string(parsed))
+	}
 	for _, value := range []string{"reload", "retry", "refresh_catalog", "disconnect_credentials"} {
 		_, err := ParseExplicitServerOperationKind(value)
 		require.NoError(t, err, value)

@@ -15,6 +15,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/api"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/credentialauthority"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/events"
@@ -119,6 +120,10 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if err != nil {
 		return false, err
 	}
+	catalogRepository, err := catalog.NewRepository(store, dependencies.clock, dependencies.entropy)
+	if err != nil {
+		return false, err
+	}
 	eventHub := events.New()
 	defer eventHub.Shutdown()
 	runtimeManager, err := runtimes.New(runtimes.Options{Repository: serverRepository, Invalidate: eventHub.Publish})
@@ -202,6 +207,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		AuthFlows:      flowService,
 		OAuthCallback:  flowService,
 		Replacements:   replacementService,
+		Catalog:        catalogRepository,
 		OperationState: runtimeManager.OperationState,
 		RuntimeStatus: func(serverID string) api.RuntimeStatus {
 			status := runtimeManager.Status(serverID)
@@ -233,6 +239,9 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 			}
 			if idempotency, idempotencyErr := serverRepository.IdempotencyStatus(context.Background()); idempotencyErr == nil {
 				status.Limits.S2IdempotencyRecords = idempotency
+			}
+			if identities, identityErr := catalogRepository.IdentityStatus(context.Background()); identityErr == nil {
+				status.Limits.DurableToolIdentities = identities
 			}
 			status.Limits.AdminCredentials = credentials.Status(context.Background())
 			if candidates, candidateErr := keyringCoordinator.CandidateStatus(context.Background()); candidateErr == nil {

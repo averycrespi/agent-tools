@@ -32,7 +32,10 @@ func TestS2SchemaAndBackupContainNoSecretOrTransientRepresentation(t *testing.T)
 	require.NoError(t, store.View(context.Background(), func(transaction *sql.Tx) error {
 		rows, err := transaction.Query(`
 			SELECT name FROM sqlite_schema
-			WHERE type = 'table' AND (name LIKE 'server_%' OR name = 'servers' OR name = 's2_idempotency')
+			WHERE type = 'table' AND (
+				name LIKE 'server_%' OR name = 'servers' OR name = 's2_idempotency' OR
+				name IN ('durable_tool_identities', 'tool_descriptors')
+			)
 			ORDER BY name`)
 		if err != nil {
 			return err

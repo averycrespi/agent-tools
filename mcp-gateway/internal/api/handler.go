@@ -19,6 +19,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/events"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
@@ -54,6 +55,12 @@ type EventService interface {
 	Subscribe(string, <-chan struct{}) (*events.Subscription, error)
 }
 
+type CatalogService interface {
+	Status(context.Context, string) (catalog.DurableStatus, error)
+	GetDescriptor(context.Context, string, string) (contract.ToolDescriptor, error)
+	ListDescriptors(context.Context, string, contract.DescriptorRetiredFilter, *catalog.DescriptorCursor, int) (catalog.DescriptorPage, error)
+}
+
 type OAuthCallbackService interface {
 	HandleCallback(context.Context, string) oauth.CallbackResult
 }
@@ -80,6 +87,7 @@ type Options struct {
 	Servers        ServerService
 	AuthFlows      AuthFlowService
 	Replacements   CredentialReplacementService
+	Catalog        CatalogService
 	OperationState OperationStateProvider
 	RuntimeStatus  func(string) RuntimeStatus
 	TriggerServer  func(string, *string, bool)
@@ -98,6 +106,7 @@ type Handler struct {
 	servers         ServerService
 	authFlows       AuthFlowService
 	replacements    CredentialReplacementService
+	catalog         CatalogService
 	operationState  OperationStateProvider
 	runtimeStatus   func(string) RuntimeStatus
 	triggerServer   func(string, *string, bool)
@@ -140,7 +149,7 @@ func New(options Options) *Handler {
 			return RuntimeStatus{State: contract.RuntimeInactive, CatalogState: contract.ActiveCatalogAbsent, Reconciliation: limitStatus("per_server_reconciliation")}
 		}
 	}
-	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, authFlows: options.AuthFlows, replacements: options.Replacements, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer}
+	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -245,7 +254,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.streamEvents(writer, request)
 	case path == "/api/v1/servers" && handler.servers != nil:
 		handler.serversCollection(writer, request)
-	case strings.HasPrefix(path, "/api/v1/servers/") && (handler.servers != nil || handler.authFlows != nil || handler.replacements != nil):
+	case strings.HasPrefix(path, "/api/v1/servers/") && (handler.servers != nil || handler.authFlows != nil || handler.replacements != nil || handler.catalog != nil):
 		segments := strings.Split(strings.TrimPrefix(path, "/api/v1/servers/"), "/")
 		switch {
 		case len(segments) == 1 && segments[0] != "":
@@ -256,6 +265,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			handler.operationMember(writer, request, segments[0], segments[2])
 		case handler.replacements != nil && len(segments) == 2 && segments[0] != "" && segments[1] == "credential-replacements":
 			handler.credentialReplacements(writer, request, segments[0])
+		case handler.catalog != nil && len(segments) == 2 && segments[0] != "" && segments[1] == "descriptors":
+			handler.descriptorsCollection(writer, request, segments[0])
+		case handler.catalog != nil && len(segments) == 3 && segments[0] != "" && segments[1] == "descriptors" && segments[2] != "":
+			handler.descriptorMember(writer, request, segments[0], segments[2])
 		case handler.authFlows != nil && len(segments) == 2 && segments[0] != "" && segments[1] == "auth-flows":
 			handler.authFlowsCollection(writer, request, segments[0])
 		case handler.authFlows != nil && len(segments) == 3 && segments[0] != "" && segments[1] == "auth-flows" && segments[2] != "":
