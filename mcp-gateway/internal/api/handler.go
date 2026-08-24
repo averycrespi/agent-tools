@@ -61,6 +61,12 @@ type CatalogService interface {
 	ListDescriptors(context.Context, string, contract.DescriptorRetiredFilter, *catalog.DescriptorCursor, int) (catalog.DescriptorPage, error)
 }
 
+type ActiveCatalogService interface {
+	Status(string) catalog.ActiveStatus
+	List(*catalog.ActiveCursor, int) (catalog.ActivePage, error)
+	Occupancy() contract.LimitStatus
+}
+
 type OAuthCallbackService interface {
 	HandleCallback(context.Context, string) oauth.CallbackResult
 }
@@ -88,6 +94,7 @@ type Options struct {
 	AuthFlows      AuthFlowService
 	Replacements   CredentialReplacementService
 	Catalog        CatalogService
+	ActiveCatalog  ActiveCatalogService
 	OperationState OperationStateProvider
 	RuntimeStatus  func(string) RuntimeStatus
 	TriggerServer  func(string, *string, bool)
@@ -107,6 +114,7 @@ type Handler struct {
 	authFlows       AuthFlowService
 	replacements    CredentialReplacementService
 	catalog         CatalogService
+	activeCatalog   ActiveCatalogService
 	operationState  OperationStateProvider
 	runtimeStatus   func(string) RuntimeStatus
 	triggerServer   func(string, *string, bool)
@@ -149,7 +157,7 @@ func New(options Options) *Handler {
 			return RuntimeStatus{State: contract.RuntimeInactive, CatalogState: contract.ActiveCatalogAbsent, Reconciliation: limitStatus("per_server_reconciliation")}
 		}
 	}
-	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer}
+	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -252,6 +260,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.deleteBackup(writer, request)
 	case path == "/api/v1/events" && request.Method == http.MethodGet:
 		handler.streamEvents(writer, request)
+	case path == "/api/v1/catalog" && handler.activeCatalog != nil:
+		handler.activeCatalogCollection(writer, request)
 	case path == "/api/v1/servers" && handler.servers != nil:
 		handler.serversCollection(writer, request)
 	case strings.HasPrefix(path, "/api/v1/servers/") && (handler.servers != nil || handler.authFlows != nil || handler.replacements != nil || handler.catalog != nil):

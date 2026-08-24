@@ -124,6 +124,14 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if err != nil {
 		return false, err
 	}
+	catalogProcessID, err := serverRepository.NewID()
+	if err != nil {
+		return false, err
+	}
+	activeCatalog, err := catalog.NewActiveRegistry(catalogRepository, dependencies.clock, catalogProcessID)
+	if err != nil {
+		return false, err
+	}
 	eventHub := events.New()
 	defer eventHub.Shutdown()
 	runtimeManager, err := runtimes.New(runtimes.Options{Repository: serverRepository, Invalidate: eventHub.Publish})
@@ -208,6 +216,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		OAuthCallback:  flowService,
 		Replacements:   replacementService,
 		Catalog:        catalogRepository,
+		ActiveCatalog:  activeCatalog,
 		OperationState: runtimeManager.OperationState,
 		RuntimeStatus: func(serverID string) api.RuntimeStatus {
 			status := runtimeManager.Status(serverID)
@@ -243,6 +252,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 			if identities, identityErr := catalogRepository.IdentityStatus(context.Background()); identityErr == nil {
 				status.Limits.DurableToolIdentities = identities
 			}
+			status.Limits.ActiveTools = activeCatalog.Occupancy()
 			status.Limits.AdminCredentials = credentials.Status(context.Background())
 			if candidates, candidateErr := keyringCoordinator.CandidateStatus(context.Background()); candidateErr == nil {
 				status.Limits.KeyringCandidates = candidates

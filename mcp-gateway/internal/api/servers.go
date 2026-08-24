@@ -298,6 +298,12 @@ func (handler *Handler) serverResource(ctx context.Context, stored serverdomain.
 		credentialState = runtime.CredentialState
 	}
 	durableCatalog := contract.ServerCatalog{DurableState: contract.DurableCatalogEmpty, ActiveState: runtime.CatalogState, Traversal: contract.LimitStatus{Limit: 1}}
+	if handler.activeCatalog != nil {
+		active := handler.activeCatalog.Status(stored.ID)
+		durableCatalog.ActiveState = active.State
+		durableCatalog.ActiveRevision = active.Revision
+		durableCatalog.ActiveToolCount = active.ToolCount
+	}
 	if handler.catalog != nil {
 		status, statusErr := handler.catalog.Status(ctx, stored.ID)
 		if statusErr != nil {
