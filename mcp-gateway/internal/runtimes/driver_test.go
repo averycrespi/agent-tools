@@ -5,8 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
@@ -31,11 +36,64 @@ func newDriverStdioRuntime(stop bool) *driverStdioRuntime {
 	return &driverStdioRuntime{frames: make(chan []byte), input: new(driverWriteCloser), stop: stop}
 }
 
+func newDriverStdioRuntimeWithFrames(stop bool, frames ...string) *driverStdioRuntime {
+	runtime := &driverStdioRuntime{frames: make(chan []byte, len(frames)), input: new(driverWriteCloser), stop: stop}
+	for _, frame := range frames {
+		runtime.frames <- []byte(frame)
+	}
+	return runtime
+}
+
 func (runtime *driverStdioRuntime) Frames() <-chan []byte { return runtime.frames }
 func (runtime *driverStdioRuntime) Input() io.WriteCloser { return runtime.input }
 func (runtime *driverStdioRuntime) Stop(context.Context) bool {
 	runtime.stopCalls++
 	return runtime.stop
+}
+
+type driverScriptedTransport struct {
+	mu       sync.Mutex
+	delegate downstream.Transport
+	messages []downstream.Message
+	closed   bool
+}
+
+func (transport *driverScriptedTransport) Kind() downstream.TransportKind {
+	return transport.delegate.Kind()
+}
+func (transport *driverScriptedTransport) Exchange(_ context.Context, message downstream.Message) (downstream.WireResponse, error) {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	transport.messages = append(transport.messages, message)
+	member := `{"result":{"ttlMs":0,"cacheScope":"public","supportedVersions":["2026-07-28"],"capabilities":{}}}`
+	switch message.Method {
+	case "initialize":
+		member = `{"result":{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"fixture","version":"1"}}}`
+	case "tools/list":
+		member = `{"result":{"tools":[]}}`
+	}
+	return driverJSONResponse(message, member), nil
+}
+func (*driverScriptedTransport) Notify(context.Context, downstream.Message) (downstream.WireResponse, error) {
+	return downstream.WireResponse{StatusCode: 202, ContentType: "application/json"}, nil
+}
+func (transport *driverScriptedTransport) Close(ctx context.Context) error {
+	transport.mu.Lock()
+	transport.closed = true
+	transport.mu.Unlock()
+	return transport.delegate.Close(ctx)
+}
+
+func driverJSONResponse(message downstream.Message, member string) downstream.WireResponse {
+	var request struct {
+		ID uint64 `json:"id"`
+	}
+	_ = json.Unmarshal(message.Payload, &request)
+	return downstream.WireResponse{Body: []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,%s}`, request.ID, member[1:len(member)-1]))}
+}
+
+func driverCoordinatorFactory(transport downstream.Transport) (*downstream.Coordinator, error) {
+	return downstream.NewCoordinator(&driverScriptedTransport{delegate: transport})
 }
 
 func TestConcreteDriverOwnsStdioBeforeConstructionAndStopsExactly(t *testing.T) {
@@ -55,17 +113,18 @@ func TestConcreteDriverOwnsStdioBeforeConstructionAndStopsExactly(t *testing.T) 
 			require.True(t, ok)
 			assert.Equal(t, RuntimeConstructing, phase)
 			definition = received
+			definition.Secrets = cloneStrings(received.Secrets)
 			return process, nil
 		},
-		HTTPFactory: remote.New(remote.Options{}),
+		HTTPFactory:    remote.New(remote.Options{}),
+		NewCoordinator: driverCoordinatorFactory,
 	})
 	require.NoError(t, err)
 
 	outcome := driver.Reconcile(context.Background(), candidate, lease)
 
-	assert.Equal(t, contract.RuntimeDegraded, outcome.State)
-	require.NotNil(t, outcome.Reason)
-	assert.Equal(t, contract.ReasonProtocolUnsupported, *outcome.Reason)
+	assert.Equal(t, contract.RuntimeActive, outcome.State)
+	assert.Nil(t, outcome.Reason)
 	assert.Equal(t, candidate.RuntimeID, definition.RuntimeID)
 	assert.Equal(t, "/bin/server", definition.Executable)
 	assert.Equal(t, []string{"--flag"}, definition.Arguments)
@@ -74,7 +133,10 @@ func TestConcreteDriverOwnsStdioBeforeConstructionAndStopsExactly(t *testing.T) 
 	assert.Equal(t, map[string]string{"api": "stdio-canary"}, definition.Secrets)
 	phase, ok := owner.Phase(candidate.Key())
 	require.True(t, ok)
-	assert.Equal(t, RuntimeNegotiating, phase)
+	assert.Equal(t, RuntimeCataloging, phase)
+	runtime, ok := driver.Runtime(candidate)
+	require.True(t, ok)
+	assert.Equal(t, downstream.EraModern, runtime.Era())
 	coordinator, ok := driver.Coordinator(candidate)
 	require.True(t, ok)
 	assert.Equal(t, downstream.TransportStdio, coordinator.Kind())
@@ -120,10 +182,10 @@ func TestConcreteDriverConstructsHardenedHTTPAuthorization(t *testing.T) {
 			}
 			driver, err := NewConcreteDriver(ConcreteDriverOptions{Owner: NewRuntimeOwner(), StartStdio: func(context.Context, StdioDefinition) (downstream.StdioRuntime, error) {
 				return nil, errors.New("unexpected stdio")
-			}, HTTPFactory: remote.New(remote.Options{})})
+			}, HTTPFactory: remote.New(remote.Options{}), NewCoordinator: driverCoordinatorFactory})
 			require.NoError(t, err)
 			outcome := driver.Reconcile(context.Background(), candidate, lease)
-			assert.Equal(t, contract.RuntimeDegraded, outcome.State)
+			assert.Equal(t, contract.RuntimeActive, outcome.State)
 			coordinator, ok := driver.Coordinator(candidate)
 			require.True(t, ok)
 			assert.Equal(t, downstream.TransportHTTP, coordinator.Kind())
@@ -139,6 +201,178 @@ func TestConcreteDriverConstructsHardenedHTTPAuthorization(t *testing.T) {
 	}
 }
 
+func TestConcreteDriverNegotiatesEveryHTTPModeAndUsesSelectedRuntime(t *testing.T) {
+	modes := []struct {
+		mode contract.ProtocolMode
+		era  downstream.Era
+	}{
+		{mode: contract.ProtocolModern, era: downstream.EraModern},
+		{mode: contract.ProtocolLegacy, era: downstream.EraLegacy},
+		{mode: contract.ProtocolAuto, era: downstream.EraLegacy},
+	}
+	for index, test := range modes {
+		t.Run(string(test.mode), func(t *testing.T) {
+			type requestRecord struct {
+				method  string
+				version string
+				session string
+			}
+			var mu sync.Mutex
+			requests := make([]requestRecord, 0, 4)
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				var envelope struct {
+					ID     uint64 `json:"id"`
+					Method string `json:"method"`
+				}
+				_ = json.NewDecoder(request.Body).Decode(&envelope)
+				mu.Lock()
+				requests = append(requests, requestRecord{method: envelope.Method, version: request.Header.Get("Mcp-Protocol-Version"), session: request.Header.Get("Mcp-Session-Id")})
+				mu.Unlock()
+				writer.Header().Set("Content-Type", "application/json")
+				switch envelope.Method {
+				case "server/discover":
+					if test.mode == contract.ProtocolAuto {
+						_, _ = fmt.Fprintf(writer, `{"jsonrpc":"2.0","id":%d,"error":{"code":-32601,"message":"Method not found"}}`, envelope.ID)
+						return
+					}
+					_, _ = fmt.Fprintf(writer, `{"jsonrpc":"2.0","id":%d,"result":{"ttlMs":0,"cacheScope":"public","supportedVersions":["2026-07-28"],"capabilities":{}}}`, envelope.ID)
+				case "initialize":
+					writer.Header().Set("Mcp-Session-Id", "session-"+string(test.mode))
+					_, _ = fmt.Fprintf(writer, `{"jsonrpc":"2.0","id":%d,"result":{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"fixture","version":"1"}}}`, envelope.ID)
+				case "notifications/initialized":
+					writer.Header().Set("Mcp-Session-Id", "session-"+string(test.mode))
+					writer.WriteHeader(http.StatusAccepted)
+				case "tools/list":
+					if test.era == downstream.EraLegacy {
+						writer.Header().Set("Mcp-Session-Id", "session-"+string(test.mode))
+					}
+					_, _ = fmt.Fprintf(writer, `{"jsonrpc":"2.0","id":%d,"result":{"tools":[]}}`, envelope.ID)
+				}
+			}))
+			defer server.Close()
+			candidate := ownerCandidate(200+index, contract.TransportStreamableHTTP)
+			candidate.Server.Transport = mustDriverTransport(t, contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: server.URL + "/mcp", ProtocolMode: test.mode, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}})
+			driver, err := NewConcreteDriver(ConcreteDriverOptions{
+				Owner: NewRuntimeOwner(),
+				StartStdio: func(context.Context, StdioDefinition) (downstream.StdioRuntime, error) {
+					return nil, errors.New("unexpected stdio")
+				},
+				HTTPFactory: remote.New(remote.Options{}),
+			})
+			require.NoError(t, err)
+
+			outcome := driver.Reconcile(context.Background(), candidate, nil)
+
+			assert.Equal(t, contract.RuntimeActive, outcome.State)
+			runtime, ok := driver.Runtime(candidate)
+			require.True(t, ok)
+			assert.Equal(t, test.era, runtime.Era())
+			response, err := runtime.Request(context.Background(), "tools/list", json.RawMessage(`{"cursor":""}`), "")
+			require.NoError(t, err)
+			assert.JSONEq(t, `{"tools":[]}`, string(response.Result))
+			mu.Lock()
+			captured := append([]requestRecord(nil), requests...)
+			mu.Unlock()
+			require.NotEmpty(t, captured)
+			assert.Equal(t, "tools/list", captured[len(captured)-1].method)
+			if test.era == downstream.EraLegacy {
+				assert.Equal(t, contract.LegacyProtocolVersion, captured[len(captured)-1].version)
+				assert.Equal(t, "session-"+string(test.mode), captured[len(captured)-1].session)
+			} else {
+				assert.Equal(t, contract.ModernProtocolVersion, captured[len(captured)-1].version)
+				assert.Empty(t, captured[len(captured)-1].session)
+			}
+			assert.True(t, driver.Stop(context.Background(), candidate))
+		})
+	}
+}
+
+func TestConcreteDriverHTTPAutoFallbackEvidenceMatrix(t *testing.T) {
+	tests := []struct {
+		name        string
+		status      int
+		contentType string
+		body        string
+		allowed     bool
+	}{
+		{name: "JSON method absent", status: http.StatusOK, contentType: "application/json", body: `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}`, allowed: true},
+		{name: "JSON null data", status: http.StatusOK, contentType: "application/json; charset=utf-8", body: `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found","data":null}}`, allowed: true},
+		{name: "exact unsupported method text", status: http.StatusBadRequest, contentType: "text/plain; charset=utf-8", body: "JSON RPC not handled: \"server/discover\" unsupported\n", allowed: true},
+		{name: "exact unsupported version text", status: http.StatusBadRequest, contentType: "text/plain", body: "Bad Request: Unsupported protocol version\n", allowed: true},
+		{name: "unknown method status", status: http.StatusNotFound, contentType: "application/json", body: `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}`},
+		{name: "wrong JSON status", status: http.StatusBadRequest, contentType: "application/json", body: `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}`},
+		{name: "wrong text status", status: http.StatusOK, contentType: "text/plain", body: "Bad Request: Unsupported protocol version\n"},
+		{name: "non-null method data", status: http.StatusOK, contentType: "application/json", body: `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found","data":{}}}`},
+		{name: "SSE method absent", status: http.StatusOK, contentType: "text/event-stream", body: `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}`},
+		{name: "malformed media", status: http.StatusOK, contentType: "application/json; bad", body: `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}`},
+		{name: "authentication failure", status: http.StatusUnauthorized, contentType: "application/json", body: `{}`},
+		{name: "rate limit", status: http.StatusTooManyRequests, contentType: "application/json", body: `{}`},
+		{name: "server failure", status: http.StatusInternalServerError, contentType: "application/json", body: `{}`},
+		{name: "adjacent text", status: http.StatusBadRequest, contentType: "text/plain", body: "Bad Request: Unsupported protocol version"},
+	}
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var mu sync.Mutex
+			requestCount := 0
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				mu.Lock()
+				requestCount++
+				sequence := requestCount
+				mu.Unlock()
+				if sequence == 1 {
+					writer.Header().Set("Content-Type", test.contentType)
+					writer.WriteHeader(test.status)
+					_, _ = writer.Write([]byte(test.body))
+					return
+				}
+				var envelope struct {
+					ID     uint64 `json:"id"`
+					Method string `json:"method"`
+				}
+				_ = json.NewDecoder(request.Body).Decode(&envelope)
+				writer.Header().Set("Content-Type", "application/json")
+				writer.Header().Set("Mcp-Session-Id", "fallback-session")
+				if envelope.Method == "initialize" {
+					_, _ = fmt.Fprintf(writer, `{"jsonrpc":"2.0","id":%d,"result":{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"fixture","version":"1"}}}`, envelope.ID)
+					return
+				}
+				writer.WriteHeader(http.StatusAccepted)
+			}))
+			defer server.Close()
+			candidate := ownerCandidate(400+index, contract.TransportStreamableHTTP)
+			candidate.Server.Transport = mustDriverTransport(t, contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: server.URL + "/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}})
+			driver, err := NewConcreteDriver(ConcreteDriverOptions{
+				Owner: NewRuntimeOwner(),
+				StartStdio: func(context.Context, StdioDefinition) (downstream.StdioRuntime, error) {
+					return nil, errors.New("unexpected stdio")
+				},
+				HTTPFactory: remote.New(remote.Options{}),
+			})
+			require.NoError(t, err)
+
+			outcome := driver.Reconcile(context.Background(), candidate, nil)
+
+			if !test.allowed {
+				assert.Equal(t, contract.RuntimeDegraded, outcome.State)
+				_, ok := driver.Runtime(candidate)
+				assert.False(t, ok)
+				mu.Lock()
+				assert.Equal(t, 1, requestCount)
+				mu.Unlock()
+				return
+			}
+			assert.Equal(t, contract.RuntimeActive, outcome.State)
+			runtime, ok := driver.Runtime(candidate)
+			require.True(t, ok)
+			assert.Equal(t, downstream.EraLegacy, runtime.Era())
+			mu.Lock()
+			assert.Equal(t, 3, requestCount)
+			mu.Unlock()
+			assert.True(t, driver.Stop(context.Background(), candidate))
+		})
+	}
+}
+
 func TestConcreteDriverSharesMixedRuntimeCapacity(t *testing.T) {
 	owner := NewRuntimeOwner()
 	driver, err := NewConcreteDriver(ConcreteDriverOptions{
@@ -146,7 +380,8 @@ func TestConcreteDriverSharesMixedRuntimeCapacity(t *testing.T) {
 		StartStdio: func(context.Context, StdioDefinition) (downstream.StdioRuntime, error) {
 			return newDriverStdioRuntime(true), nil
 		},
-		HTTPFactory: remote.New(remote.Options{}),
+		HTTPFactory:    remote.New(remote.Options{}),
+		NewCoordinator: driverCoordinatorFactory,
 	})
 	require.NoError(t, err)
 	candidates := make([]Candidate, 0, 32)
@@ -156,7 +391,7 @@ func TestConcreteDriverSharesMixedRuntimeCapacity(t *testing.T) {
 			candidate.Server.Transport = []byte(`{"kind":"stdio","executable":"/bin/server","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}`)
 		}
 		outcome := driver.Reconcile(context.Background(), candidate, nil)
-		assert.Equal(t, contract.RuntimeDegraded, outcome.State)
+		assert.Equal(t, contract.RuntimeActive, outcome.State)
 		candidates = append(candidates, candidate)
 	}
 	assert.True(t, owner.Status().Saturated)
@@ -169,6 +404,91 @@ func TestConcreteDriverSharesMixedRuntimeCapacity(t *testing.T) {
 		assert.True(t, driver.Stop(context.Background(), candidate))
 	}
 	assert.Equal(t, int64(0), owner.Status().InUse)
+}
+
+func TestConcreteDriverAutoFallbackUsesFreshRootOwnedRuntimeAndExactLookup(t *testing.T) {
+	owner := NewRuntimeOwner()
+	candidate := ownerCandidate(78, contract.TransportStdio)
+	candidate.Server.Transport = []byte(`{"kind":"stdio","executable":"/bin/server","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}`)
+	processes := []*driverStdioRuntime{
+		newDriverStdioRuntimeWithFrames(true, `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}`),
+		newDriverStdioRuntimeWithFrames(true,
+			`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"fixture","version":"1"}}}`,
+			`{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}`,
+		),
+	}
+	type contextKey string
+	const rootKey contextKey = "runtime-root"
+	starts := 0
+	driver, err := NewConcreteDriver(ConcreteDriverOptions{
+		Owner: owner,
+		StartStdio: func(ctx context.Context, _ StdioDefinition) (downstream.StdioRuntime, error) {
+			assert.Equal(t, "root", ctx.Value(rootKey))
+			if starts == 1 {
+				assert.Equal(t, 1, processes[0].stopCalls, "fallback started before verified probe reap")
+			}
+			process := processes[starts]
+			starts++
+			return process, nil
+		},
+		HTTPFactory: remote.New(remote.Options{}),
+		NewNegotiator: func(open downstream.OpenCoordinator) (*downstream.Negotiator, error) {
+			return downstream.NewNegotiatorWithDeadline(open, func(ctx context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
+				return context.WithCancel(context.WithValue(ctx, rootKey, "initialization"))
+			})
+		},
+	})
+	require.NoError(t, err)
+
+	outcome := driver.Reconcile(context.WithValue(context.Background(), rootKey, "root"), candidate, nil)
+
+	assert.Equal(t, contract.RuntimeActive, outcome.State)
+	assert.Equal(t, 2, starts)
+	runtime, ok := driver.Runtime(candidate)
+	require.True(t, ok)
+	assert.Equal(t, downstream.EraLegacy, runtime.Era())
+	response, err := runtime.Request(context.Background(), "tools/list", json.RawMessage(`{"cursor":""}`), "")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"tools":[]}`, string(response.Result))
+	mismatches := []Candidate{candidate, candidate, candidate, candidate}
+	mismatches[0].RuntimeID += "-stale"
+	mismatches[1].Generation++
+	mismatches[2].DrainEpoch++
+	mismatches[3].Server.DesiredRevision += "-stale"
+	for _, mismatch := range mismatches {
+		_, found := driver.Runtime(mismatch)
+		assert.False(t, found)
+	}
+	assert.True(t, driver.Stop(context.Background(), candidate))
+	assert.Equal(t, 1, processes[1].stopCalls)
+}
+
+func TestConcreteDriverAutoFallbackBlocksReplacementAfterUnconfirmedProbeStop(t *testing.T) {
+	owner := NewRuntimeOwner()
+	candidate := ownerCandidate(77, contract.TransportStdio)
+	candidate.Server.Transport = []byte(`{"kind":"stdio","executable":"/bin/server","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}`)
+	process := newDriverStdioRuntimeWithFrames(false, `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}`)
+	starts := 0
+	driver, err := NewConcreteDriver(ConcreteDriverOptions{
+		Owner: owner,
+		StartStdio: func(context.Context, StdioDefinition) (downstream.StdioRuntime, error) {
+			starts++
+			return process, nil
+		},
+		HTTPFactory: remote.New(remote.Options{}),
+	})
+	require.NoError(t, err)
+
+	outcome := driver.Reconcile(context.Background(), candidate, nil)
+
+	assert.Equal(t, contract.RuntimeDegraded, outcome.State)
+	assert.Equal(t, 1, starts)
+	assert.Equal(t, 2, process.stopCalls)
+	phase, ok := owner.Phase(candidate.Key())
+	require.True(t, ok)
+	assert.Equal(t, RuntimeBlockedStop, phase)
+	_, ok = driver.Runtime(candidate)
+	assert.False(t, ok)
 }
 
 func TestConcreteDriverReleasesVerifiedConstructionFailure(t *testing.T) {

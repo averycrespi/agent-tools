@@ -232,6 +232,16 @@ func TestNegotiatorRequiresVerifiedProbeStopBeforeLegacyConstruction(t *testing.
 	assert.Equal(t, 1, opened)
 }
 
+func TestSelectedRuntimeRetainsUnconfirmedCloseEvidence(t *testing.T) {
+	transport := &scriptedTransport{exchanges: []func(Message) WireResponse{modernSuccess}, closeErr: ErrStopUnconfirmed}
+	negotiator := newScriptedNegotiator(t, transport)
+	runtime, err := negotiator.Negotiate(context.Background(), ModeModern)
+	require.NoError(t, err)
+
+	assert.ErrorIs(t, runtime.Close(context.Background()), ErrStopUnconfirmed)
+	assert.ErrorIs(t, runtime.Close(context.Background()), ErrStopUnconfirmed)
+}
+
 func TestAutoHTTPFallbackUsesFreshTransportAndBindsLegacySession(t *testing.T) {
 	type captured struct {
 		body    string

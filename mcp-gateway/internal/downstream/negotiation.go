@@ -49,12 +49,15 @@ type Negotiator struct {
 
 type Runtime struct {
 	mu           sync.Mutex
+	closeMu      sync.Mutex
 	era          Era
 	coordinator  *Coordinator
 	sessionID    string
 	activeCalls  map[*Call]struct{}
 	callDeadline DeadlineFunc
 	closed       bool
+	closeDone    bool
+	closeErr     error
 }
 
 type clientImplementation struct {
@@ -293,10 +296,13 @@ func (runtime *Runtime) Request(ctx context.Context, method string, params json.
 }
 
 func (runtime *Runtime) Close(ctx context.Context) error {
+	runtime.closeMu.Lock()
+	defer runtime.closeMu.Unlock()
 	runtime.mu.Lock()
-	if runtime.closed {
+	if runtime.closeDone {
+		err := runtime.closeErr
 		runtime.mu.Unlock()
-		return nil
+		return err
 	}
 	runtime.closed = true
 	coordinator := runtime.coordinator
@@ -308,7 +314,12 @@ func (runtime *Runtime) Close(ctx context.Context) error {
 	for _, call := range calls {
 		_ = call.requestCancellation(ctx)
 	}
-	return coordinator.Close(ctx)
+	err := coordinator.Close(ctx)
+	runtime.mu.Lock()
+	runtime.closeDone = true
+	runtime.closeErr = err
+	runtime.mu.Unlock()
+	return err
 }
 
 func (runtime *Runtime) registerCall(call *Call) bool {

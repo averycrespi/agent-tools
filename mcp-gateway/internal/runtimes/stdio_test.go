@@ -3,6 +3,7 @@
 package runtimes
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -80,6 +81,34 @@ func TestStdioFixtureProcess(t *testing.T) {
 	case "exit":
 		code, _ := strconv.Atoi(arguments[1])
 		os.Exit(code)
+	case "mcp":
+		fallback := false
+		if arguments[1] == "auto" {
+			if _, err := os.Stat(arguments[2]); err != nil {
+				fallback = true
+				_ = os.WriteFile(arguments[2], []byte("probe"), 0o600)
+			}
+		}
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			var request struct {
+				ID     uint64 `json:"id"`
+				Method string `json:"method"`
+			}
+			_ = json.Unmarshal(scanner.Bytes(), &request)
+			switch request.Method {
+			case "server/discover":
+				if fallback {
+					_, _ = fmt.Fprintf(os.Stdout, `{"jsonrpc":"2.0","id":%d,"error":{"code":-32601,"message":"Method not found"}}`+"\n", request.ID)
+				} else {
+					_, _ = fmt.Fprintf(os.Stdout, `{"jsonrpc":"2.0","id":%d,"result":{"ttlMs":0,"cacheScope":"public","supportedVersions":["2026-07-28"],"capabilities":{}}}`+"\n", request.ID)
+				}
+			case "initialize":
+				_, _ = fmt.Fprintf(os.Stdout, `{"jsonrpc":"2.0","id":%d,"result":{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"fixture","version":"1"}}}`+"\n", request.ID)
+			case "tools/list":
+				_, _ = fmt.Fprintf(os.Stdout, `{"jsonrpc":"2.0","id":%d,"result":{"tools":[{"name":"fixture","description":"selected runtime","inputSchema":{"type":"object"}}]}}`+"\n", request.ID)
+			}
+		}
 	default:
 		os.Exit(91)
 	}
