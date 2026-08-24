@@ -143,17 +143,18 @@ type Manager struct {
 }
 
 type entry struct {
-	generation   uint64
-	activating   *Candidate
-	active       *Candidate
-	blockedStop  *Candidate
-	running      bool
-	pending      bool
-	operationID  *string
-	timer        Timer
-	timerVersion uint64
-	retryAttempt int
-	status       Status
+	generation     uint64
+	activating     *Candidate
+	active         *Candidate
+	blockedStop    *Candidate
+	runtimeFailure *FailureDisposition
+	running        bool
+	pending        bool
+	operationID    *string
+	timer          Timer
+	timerVersion   uint64
+	retryAttempt   int
+	status         Status
 }
 
 type systemScheduler struct{}
@@ -681,6 +682,7 @@ func (manager *Manager) recordActivating(candidate Candidate) bool {
 		return false
 	}
 	current.activating = cloneCandidate(&candidate)
+	current.runtimeFailure = nil
 	return true
 }
 
@@ -690,6 +692,7 @@ func (manager *Manager) clearActivating(candidate Candidate) {
 	current := manager.entries[candidate.Server.ID]
 	if current != nil && current.activating != nil && current.activating.Key() == candidate.Key() {
 		current.activating = nil
+		current.runtimeFailure = nil
 	}
 }
 
@@ -717,6 +720,26 @@ func (manager *Manager) finishSuccess(serverID string, generation uint64, operat
 			}
 		}
 		manager.finishStale(serverID, generation)
+		return
+	}
+	if candidate != nil && current.runtimeFailure != nil {
+		failure := *current.runtimeFailure
+		current.runtimeFailure = nil
+		manager.mu.Unlock()
+		if !manager.stopCandidate(*candidate) {
+			manager.rememberBlockedStop(serverID, *candidate)
+			manager.finishFailure(serverID, generation, operationID, contract.RuntimeDegraded, outcome.CredentialState, outcome.CatalogState, contract.ReasonStopUnconfirmed, false)
+			return
+		}
+		state := failure.State
+		if failure.Retryable {
+			state = contract.RuntimeRetryWait
+		}
+		credentialState := outcome.CredentialState
+		if failure.State == contract.RuntimeAuthenticationRequired {
+			credentialState = contract.ServerCredentialUnavailable
+		}
+		manager.finishFailure(serverID, generation, operationID, state, credentialState, contract.ActiveCatalogUnavailable, failure.Reason, failure.Retryable)
 		return
 	}
 	published := false
@@ -887,12 +910,29 @@ func (manager *Manager) OperationState(_ context.Context, serverID string) serve
 }
 
 func (manager *Manager) RuntimeFailed(candidate Candidate, reason contract.PublicReason) bool {
+	return manager.ReportRuntimeFailure(candidate, FailureDisposition{State: contract.RuntimeDegraded, Reason: reason, Retryable: true, RuntimeLost: true})
+}
+
+func (manager *Manager) ReportRuntimeFailure(candidate Candidate, failure FailureDisposition) bool {
+	if !validRuntimeFailure(failure) {
+		return false
+	}
 	manager.mu.Lock()
 	serverID := candidate.Server.ID
 	current := manager.entries[serverID]
-	if current == nil || current.active == nil || current.active.Key() != candidate.Key() || manager.draining {
+	if current == nil || manager.draining {
 		manager.mu.Unlock()
 		return false
+	}
+	if current.active == nil || current.active.Key() != candidate.Key() {
+		if current.activating == nil || current.activating.Key() != candidate.Key() || current.runtimeFailure != nil {
+			manager.mu.Unlock()
+			return false
+		}
+		cloned := failure
+		current.runtimeFailure = &cloned
+		manager.mu.Unlock()
+		return true
 	}
 	failed := cloneCandidate(current.active)
 	current.active = nil
@@ -900,16 +940,20 @@ func (manager *Manager) RuntimeFailed(candidate Candidate, reason contract.Publi
 	generation := current.generation
 	manager.publisher.Fence(serverID, generation)
 	current.status.State = contract.RuntimeStopping
-	current.status.Reason = &reason
+	current.status.Reason = &failure.Reason
 	current.status.RuntimeID = nil
+	current.status.CatalogState = contract.ActiveCatalogUnavailable
+	if failure.State == contract.RuntimeAuthenticationRequired {
+		current.status.CredentialState = contract.ServerCredentialUnavailable
+	}
 	manager.publish(contract.InvalidationServers, &serverID)
 	manager.publish(contract.InvalidationSystemStatus, nil)
 	manager.mu.Unlock()
-	go manager.finishRuntimeFailure(serverID, generation, *failed, reason)
+	go manager.finishRuntimeFailure(serverID, generation, *failed, failure)
 	return true
 }
 
-func (manager *Manager) finishRuntimeFailure(serverID string, generation uint64, failed Candidate, reason contract.PublicReason) {
+func (manager *Manager) finishRuntimeFailure(serverID string, generation uint64, failed Candidate, failure FailureDisposition) {
 	if !manager.stopCandidate(failed) {
 		manager.rememberBlockedStop(serverID, failed)
 		manager.mu.Lock()
@@ -929,9 +973,12 @@ func (manager *Manager) finishRuntimeFailure(serverID string, generation uint64,
 	if current == nil || current.generation != generation || manager.draining {
 		return
 	}
-	current.status.State = contract.RuntimeRetryWait
-	current.status.Reason = &reason
-	manager.scheduleRetryLocked(serverID, current)
+	current.status.State = failure.State
+	current.status.Reason = &failure.Reason
+	if failure.Retryable {
+		current.status.State = contract.RuntimeRetryWait
+		manager.scheduleRetryLocked(serverID, current)
+	}
 	manager.publish(contract.InvalidationServers, &serverID)
 	manager.publish(contract.InvalidationSystemStatus, nil)
 }

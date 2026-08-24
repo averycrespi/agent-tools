@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"mime"
+	"net/http"
 	"sync"
 	"time"
 
@@ -50,6 +51,7 @@ type Negotiator struct {
 type Runtime struct {
 	mu           sync.Mutex
 	closeMu      sync.Mutex
+	failureOnce  sync.Once
 	era          Era
 	coordinator  *Coordinator
 	sessionID    string
@@ -58,6 +60,7 @@ type Runtime struct {
 	closed       bool
 	closeDone    bool
 	closeErr     error
+	failures     chan error
 }
 
 type clientImplementation struct {
@@ -246,7 +249,7 @@ func negotiateLegacy(ctx context.Context, coordinator *Coordinator) (*Runtime, e
 }
 
 func newRuntime(era Era, coordinator *Coordinator, sessionID string) *Runtime {
-	return &Runtime{era: era, coordinator: coordinator, sessionID: sessionID, activeCalls: make(map[*Call]struct{}), callDeadline: context.WithTimeout}
+	return &Runtime{era: era, coordinator: coordinator, sessionID: sessionID, activeCalls: make(map[*Call]struct{}), callDeadline: context.WithTimeout, failures: make(chan error, 1)}
 }
 
 func (runtime *Runtime) Era() Era {
@@ -260,6 +263,8 @@ func (runtime *Runtime) SessionID() string {
 	defer runtime.mu.Unlock()
 	return runtime.sessionID
 }
+
+func (runtime *Runtime) Failures() <-chan error { return runtime.failures }
 
 func (runtime *Runtime) Request(ctx context.Context, method string, params json.RawMessage, name string) (Response, error) {
 	runtime.mu.Lock()
@@ -286,13 +291,36 @@ func (runtime *Runtime) Request(ctx context.Context, method string, params json.
 	}
 	requestID, wire, err := coordinator.rawRequest(ctx, method, params, RequestOptions{ProtocolVersion: version, Name: name, SessionID: sessionID})
 	if err != nil {
+		if ctx.Err() == nil {
+			runtime.reportFailure(err)
+		}
 		return Response{}, err
 	}
+	if wire.StatusCode == http.StatusUnauthorized || wire.StatusCode == http.StatusForbidden {
+		runtime.reportFailure(ErrAuthenticationRejected)
+		return Response{}, ErrAuthenticationRejected
+	}
+	if wire.StatusCode == http.StatusRequestTimeout || wire.StatusCode == http.StatusTooEarly || wire.StatusCode == http.StatusTooManyRequests || wire.StatusCode >= http.StatusInternalServerError {
+		runtime.reportFailure(ErrRemoteUnavailable)
+		return Response{}, ErrRemoteUnavailable
+	}
 	if !runtimeSessionCurrent(era, sessionID, wire) {
+		runtime.reportFailure(ErrSessionLost)
 		_ = runtime.Close(ctx)
 		return Response{}, ErrSessionLost
 	}
-	return decodeNegotiationResponse(requestID, wire)
+	response, err := decodeNegotiationResponse(requestID, wire)
+	if err != nil {
+		runtime.reportFailure(err)
+	}
+	return response, err
+}
+
+func (runtime *Runtime) reportFailure(err error) {
+	if err == nil {
+		return
+	}
+	runtime.failureOnce.Do(func() { runtime.failures <- err })
 }
 
 func (runtime *Runtime) Close(ctx context.Context) error {

@@ -27,6 +27,7 @@ func (*driverWriteCloser) Close() error { return nil }
 
 type driverStdioRuntime struct {
 	frames    chan []byte
+	done      chan StdioExit
 	input     *driverWriteCloser
 	stop      bool
 	stopCalls int
@@ -44,8 +45,9 @@ func newDriverStdioRuntimeWithFrames(stop bool, frames ...string) *driverStdioRu
 	return runtime
 }
 
-func (runtime *driverStdioRuntime) Frames() <-chan []byte { return runtime.frames }
-func (runtime *driverStdioRuntime) Input() io.WriteCloser { return runtime.input }
+func (runtime *driverStdioRuntime) Frames() <-chan []byte  { return runtime.frames }
+func (runtime *driverStdioRuntime) Done() <-chan StdioExit { return runtime.done }
+func (runtime *driverStdioRuntime) Input() io.WriteCloser  { return runtime.input }
 func (runtime *driverStdioRuntime) Stop(context.Context) bool {
 	runtime.stopCalls++
 	return runtime.stop
@@ -287,6 +289,60 @@ func TestConcreteDriverNegotiatesEveryHTTPModeAndUsesSelectedRuntime(t *testing.
 	}
 }
 
+func TestConcreteDriverReportsHTTPSessionLossOnce(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var envelope struct {
+			ID     uint64 `json:"id"`
+			Method string `json:"method"`
+		}
+		_ = json.NewDecoder(request.Body).Decode(&envelope)
+		writer.Header().Set("Content-Type", "application/json")
+		switch envelope.Method {
+		case "initialize":
+			writer.Header().Set("Mcp-Session-Id", "session-1")
+			_, _ = fmt.Fprintf(writer, `{"jsonrpc":"2.0","id":%d,"result":{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"fixture","version":"1"}}}`, envelope.ID)
+		case "notifications/initialized":
+			writer.Header().Set("Mcp-Session-Id", "session-1")
+			writer.WriteHeader(http.StatusAccepted)
+		case "tools/list":
+			writer.Header().Set("Mcp-Session-Id", "session-2")
+			_, _ = fmt.Fprintf(writer, `{"jsonrpc":"2.0","id":%d,"result":{"tools":[]}}`, envelope.ID)
+		}
+	}))
+	defer server.Close()
+	candidate := ownerCandidate(399, contract.TransportStreamableHTTP)
+	candidate.Server.Transport = mustDriverTransport(t, contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: server.URL + "/mcp", ProtocolMode: contract.ProtocolLegacy, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}})
+	reports := make(chan FailureDisposition, 2)
+	driver, err := NewConcreteDriver(ConcreteDriverOptions{
+		Owner: NewRuntimeOwner(),
+		StartStdio: func(context.Context, StdioDefinition) (downstream.StdioRuntime, error) {
+			return nil, errors.New("unexpected stdio")
+		},
+		HTTPFactory: remote.New(remote.Options{}),
+		ReportFailure: func(received Candidate, failure FailureDisposition) bool {
+			assert.Equal(t, candidate.Key(), received.Key())
+			reports <- failure
+			return true
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, contract.RuntimeActive, driver.Reconcile(context.Background(), candidate, nil).State)
+	runtime, ok := driver.Runtime(candidate)
+	require.True(t, ok)
+
+	_, err = runtime.Request(context.Background(), "tools/list", json.RawMessage(`{"cursor":""}`), "")
+	assert.ErrorIs(t, err, downstream.ErrSessionLost)
+	failure := <-reports
+	assert.Equal(t, contract.ReasonConnectivity, failure.Reason)
+	assert.True(t, failure.Retryable)
+	select {
+	case duplicate := <-reports:
+		t.Fatalf("duplicate failure report: %+v", duplicate)
+	default:
+	}
+	assert.True(t, driver.Stop(context.Background(), candidate))
+}
+
 func TestConcreteDriverHTTPAutoFallbackEvidenceMatrix(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -489,6 +545,42 @@ func TestConcreteDriverAutoFallbackBlocksReplacementAfterUnconfirmedProbeStop(t 
 	assert.Equal(t, RuntimeBlockedStop, phase)
 	_, ok = driver.Runtime(candidate)
 	assert.False(t, ok)
+}
+
+func TestConcreteDriverReportsSelectedFailureOnceForExactCandidate(t *testing.T) {
+	candidate := ownerCandidate(76, contract.TransportStdio)
+	candidate.Server.Transport = []byte(`{"kind":"stdio","executable":"/bin/server","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}`)
+	process := newDriverStdioRuntime(true)
+	process.done = make(chan StdioExit, 2)
+	reports := make(chan FailureDisposition, 2)
+	driver, err := NewConcreteDriver(ConcreteDriverOptions{
+		Owner: NewRuntimeOwner(),
+		StartStdio: func(context.Context, StdioDefinition) (downstream.StdioRuntime, error) {
+			return process, nil
+		},
+		HTTPFactory:    remote.New(remote.Options{}),
+		NewCoordinator: driverCoordinatorFactory,
+		ReportFailure: func(received Candidate, failure FailureDisposition) bool {
+			assert.Equal(t, candidate.Key(), received.Key())
+			reports <- failure
+			return true
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, contract.RuntimeActive, driver.Reconcile(context.Background(), candidate, nil).State)
+
+	process.done <- StdioExit{Reason: contract.ReasonOutputLimit, Retryable: true}
+	process.done <- StdioExit{Reason: contract.ReasonProcessExited, Retryable: true}
+
+	failure := <-reports
+	assert.Equal(t, contract.ReasonOutputLimit, failure.Reason)
+	assert.True(t, failure.Retryable)
+	select {
+	case duplicate := <-reports:
+		t.Fatalf("duplicate failure report: %+v", duplicate)
+	default:
+	}
+	assert.True(t, driver.Stop(context.Background(), candidate))
 }
 
 func TestConcreteDriverReleasesVerifiedConstructionFailure(t *testing.T) {

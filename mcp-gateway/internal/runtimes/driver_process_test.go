@@ -39,6 +39,7 @@ func TestConcreteDriverNegotiatesRealStdioAndCatalogRequest(t *testing.T) {
 			})
 			supervisor := NewStdioSupervisor(nil)
 			starts := 0
+			reports := make(chan FailureDisposition, 1)
 			driver, err := NewConcreteDriver(ConcreteDriverOptions{
 				Owner: NewRuntimeOwner(),
 				StartStdio: func(ctx context.Context, definition StdioDefinition) (downstream.StdioRuntime, error) {
@@ -49,6 +50,10 @@ func TestConcreteDriverNegotiatesRealStdioAndCatalogRequest(t *testing.T) {
 					return supervisor.Start(ctx, definition)
 				},
 				HTTPFactory: remote.New(remote.Options{}),
+				ReportFailure: func(Candidate, FailureDisposition) bool {
+					reports <- FailureDisposition{RuntimeLost: true}
+					return true
+				},
 			})
 			require.NoError(t, err)
 
@@ -64,6 +69,11 @@ func TestConcreteDriverNegotiatesRealStdioAndCatalogRequest(t *testing.T) {
 			assert.Contains(t, string(response.Result), `"name":"fixture"`)
 			assert.True(t, driver.Stop(context.Background(), candidate))
 			assert.Equal(t, int64(0), supervisor.Status().InUse)
+			select {
+			case <-reports:
+				t.Fatal("deliberate stop reported a runtime failure")
+			default:
+			}
 		})
 	}
 }

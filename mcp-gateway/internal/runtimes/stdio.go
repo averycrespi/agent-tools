@@ -256,9 +256,9 @@ func (runtime *StdioRuntime) supervise(ctx context.Context) {
 		}
 		runtime.mu.Unlock()
 		runtime.supervisor.release(runtime.id, runtime)
-		close(runtime.frames)
 		runtime.done <- StdioExit{Reason: reason, Retryable: true}
 		close(runtime.done)
+		close(runtime.frames)
 		close(runtime.finished)
 	}()
 }

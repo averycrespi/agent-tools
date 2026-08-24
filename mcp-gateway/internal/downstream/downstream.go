@@ -21,10 +21,12 @@ import (
 )
 
 var (
-	ErrInvalidMessage   = errors.New("downstream message is invalid")
-	ErrResponseMismatch = errors.New("downstream response does not match request")
-	ErrTransportClosed  = errors.New("downstream transport is closed")
-	ErrStopUnconfirmed  = errors.New("downstream stop is unconfirmed")
+	ErrInvalidMessage         = errors.New("downstream message is invalid")
+	ErrResponseMismatch       = errors.New("downstream response does not match request")
+	ErrTransportClosed        = errors.New("downstream transport is closed")
+	ErrStopUnconfirmed        = errors.New("downstream stop is unconfirmed")
+	ErrAuthenticationRejected = errors.New("downstream authentication is rejected")
+	ErrRemoteUnavailable      = errors.New("downstream remote service is unavailable")
 )
 
 type Message struct {

@@ -839,7 +839,24 @@ func TestRuntimeFailureWithdrawsBeforeRetryAndRejectsStaleFailure(t *testing.T) 
 	stale := active
 	stale.Generation++
 	assert.False(t, manager.RuntimeFailed(stale, contract.ReasonProcessExited))
-	assert.True(t, manager.RuntimeFailed(active, contract.ReasonProcessExited))
+	results := make(chan bool, 32)
+	var reports sync.WaitGroup
+	for range 32 {
+		reports.Add(1)
+		go func() {
+			defer reports.Done()
+			results <- manager.RuntimeFailed(active, contract.ReasonProcessExited)
+		}()
+	}
+	reports.Wait()
+	close(results)
+	accepted := 0
+	for result := range results {
+		if result {
+			accepted++
+		}
+	}
+	assert.Equal(t, 1, accepted)
 	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
 	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
 	stopping := receiveCandidate(t, driver.stopping)
@@ -847,7 +864,7 @@ func TestRuntimeFailureWithdrawsBeforeRetryAndRejectsStaleFailure(t *testing.T) 
 	driver.stopResult <- true
 	require.Eventually(t, func() bool {
 		status := manager.Status(serverID)
-		return status.State == contract.RuntimeRetryWait && status.Reason != nil && *status.Reason == contract.ReasonProcessExited
+		return status.State == contract.RuntimeRetryWait && status.Reason != nil && *status.Reason == contract.ReasonProcessExited && status.CatalogState == contract.ActiveCatalogUnavailable
 	}, time.Second, time.Millisecond)
 	assert.Equal(t, time.Second, scheduler.fire(t, 0))
 	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
@@ -855,6 +872,74 @@ func TestRuntimeFailureWithdrawsBeforeRetryAndRejectsStaleFailure(t *testing.T) 
 	assert.NotEqual(t, active.RuntimeID, replacement.RuntimeID)
 	driver.startResult <- activeOutcome()
 	assert.Equal(t, "publish", receivePublisherEvent(t, publisher.events).step)
+	assert.False(t, manager.RuntimeFailed(active, contract.ReasonProcessExited))
+	assert.Equal(t, replacement.RuntimeID, *manager.Status(serverID).RuntimeID)
+}
+
+func TestRuntimeFailureDuringActivationUsesExactNonretryableDisposition(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	scheduler := newFakeScheduler()
+	manager, err := New(Options{Repository: repository, Driver: driver, Scheduler: scheduler})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	manager.Trigger(serverID, nil, true)
+	candidate := receiveCandidate(t, driver.started)
+	assert.False(t, manager.ReportRuntimeFailure(candidate, FailureDisposition{RuntimeLost: true}))
+	failure := FailureDisposition{State: contract.RuntimeAuthenticationRequired, Reason: contract.ReasonAuthenticationRejected, RuntimeLost: true}
+	assert.True(t, manager.ReportRuntimeFailure(candidate, failure))
+	assert.False(t, manager.ReportRuntimeFailure(candidate, failure))
+	driver.startResult <- activeOutcome()
+	stopping := receiveCandidate(t, driver.stopping)
+	assert.Equal(t, candidate.Key(), stopping.Key())
+	driver.stopResult <- true
+	require.Eventually(t, func() bool {
+		status := manager.Status(serverID)
+		return status.State == contract.RuntimeAuthenticationRequired && status.Reason != nil && *status.Reason == contract.ReasonAuthenticationRejected && status.CredentialState == contract.ServerCredentialUnavailable && status.CatalogState == contract.ActiveCatalogUnavailable
+	}, time.Second, time.Millisecond)
+	select {
+	case <-scheduler.notify:
+		t.Fatal("nonretryable runtime failure scheduled a retry")
+	default:
+	}
+}
+
+func TestRuntimeFailureStopUnconfirmedNeverRetries(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	publisher := newRecordingPublisher()
+	scheduler := newFakeScheduler()
+	manager, err := New(Options{Repository: repository, Driver: driver, Publisher: publisher, Scheduler: scheduler})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	active := establishActiveRuntime(t, manager, driver, publisher, serverID)
+	require.True(t, manager.ReportRuntimeFailure(active, FailureDisposition{State: contract.RuntimeDegraded, Reason: contract.ReasonProcessExited, Retryable: true, RuntimeLost: true}))
+	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, active.Key(), receiveCandidate(t, driver.stopping).Key())
+	driver.stopResult <- false
+	require.Eventually(t, func() bool {
+		status := manager.Status(serverID)
+		return status.State == contract.RuntimeDegraded && status.Reason != nil && *status.Reason == contract.ReasonStopUnconfirmed
+	}, time.Second, time.Millisecond)
+	select {
+	case <-scheduler.notify:
+		t.Fatal("unconfirmed stop scheduled a retry")
+	default:
+	}
+	select {
+	case replacement := <-driver.started:
+		t.Fatalf("unconfirmed stop started replacement %s", replacement.RuntimeID)
+	default:
+	}
 }
 
 type fakeTimer struct {

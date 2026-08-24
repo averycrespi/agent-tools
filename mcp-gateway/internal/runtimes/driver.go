@@ -15,6 +15,7 @@ import (
 type StdioStarter func(context.Context, StdioDefinition) (downstream.StdioRuntime, error)
 type CoordinatorFactory func(downstream.Transport) (*downstream.Coordinator, error)
 type NegotiatorFactory func(downstream.OpenCoordinator) (*downstream.Negotiator, error)
+type FailureReporter func(Candidate, FailureDisposition) bool
 
 type ConcreteDriverOptions struct {
 	Owner          *RuntimeOwner
@@ -22,6 +23,7 @@ type ConcreteDriverOptions struct {
 	HTTPFactory    *remote.Factory
 	NewCoordinator CoordinatorFactory
 	NewNegotiator  NegotiatorFactory
+	ReportFailure  FailureReporter
 }
 
 type ConcreteDriver struct {
@@ -31,6 +33,7 @@ type ConcreteDriver struct {
 	httpFactory    *remote.Factory
 	newCoordinator CoordinatorFactory
 	newNegotiator  NegotiatorFactory
+	reportFailure  FailureReporter
 	handles        map[CandidateKey]*concreteHandle
 }
 
@@ -41,6 +44,11 @@ type concreteHandle struct {
 	runtime        *downstream.Runtime
 	stop           func(context.Context) bool
 	closeAttempted bool
+	stopping       bool
+	released       bool
+	failureOnce    sync.Once
+	failureCancel  context.CancelFunc
+	stdioDone      <-chan StdioExit
 	authorization  string
 }
 
@@ -54,7 +62,10 @@ func NewConcreteDriver(options ConcreteDriverOptions) (*ConcreteDriver, error) {
 	if options.NewNegotiator == nil {
 		options.NewNegotiator = downstream.NewNegotiator
 	}
-	return &ConcreteDriver{owner: options.Owner, startStdio: options.StartStdio, httpFactory: options.HTTPFactory, newCoordinator: options.NewCoordinator, newNegotiator: options.NewNegotiator, handles: make(map[CandidateKey]*concreteHandle)}, nil
+	if options.ReportFailure == nil {
+		options.ReportFailure = func(Candidate, FailureDisposition) bool { return false }
+	}
+	return &ConcreteDriver{owner: options.Owner, startStdio: options.StartStdio, httpFactory: options.HTTPFactory, newCoordinator: options.NewCoordinator, newNegotiator: options.NewNegotiator, reportFailure: options.ReportFailure, handles: make(map[CandidateKey]*concreteHandle)}, nil
 }
 
 func (driver *ConcreteDriver) Reconcile(ctx context.Context, candidate Candidate, lease *MaterialLease) Outcome {
@@ -103,6 +114,7 @@ func (driver *ConcreteDriver) Reconcile(ctx context.Context, candidate Candidate
 		driver.cleanupConstruction(ctx, key)
 		return constructionFailure(errors.New("candidate ownership changed during negotiation"))
 	}
+	driver.watchFailures(candidate, key, selected)
 	return Outcome{State: contract.RuntimeActive, CredentialState: contract.ServerCredentialReady, CatalogState: contract.ActiveCatalogAbsent}
 }
 
@@ -148,7 +160,11 @@ func (driver *ConcreteDriver) constructStdio(ctx context.Context, candidate Cand
 		}
 		return nil, err
 	}
-	return driver.installTransport(candidate.Key(), transport, "", process.Stop)
+	var done <-chan StdioExit
+	if source, ok := process.(interface{ Done() <-chan StdioExit }); ok {
+		done = source.Done()
+	}
+	return driver.installTransport(candidate.Key(), transport, "", process.Stop, done)
 }
 
 func (driver *ConcreteDriver) constructHTTP(candidate Candidate, desired contract.StreamableHTTPTransport) (*downstream.Coordinator, error) {
@@ -184,11 +200,11 @@ func (driver *ConcreteDriver) constructHTTP(candidate Candidate, desired contrac
 	if err != nil {
 		return nil, err
 	}
-	return driver.installTransport(candidate.Key(), transport, authorization, func(ctx context.Context) bool { return transport.Close(ctx) == nil })
+	return driver.installTransport(candidate.Key(), transport, authorization, func(ctx context.Context) bool { return transport.Close(ctx) == nil }, nil)
 }
 
-func (driver *ConcreteDriver) installTransport(key CandidateKey, transport downstream.Transport, authorization string, stop func(context.Context) bool) (*downstream.Coordinator, error) {
-	handle := &concreteHandle{transport: transport, stop: stop, authorization: authorization}
+func (driver *ConcreteDriver) installTransport(key CandidateKey, transport downstream.Transport, authorization string, stop func(context.Context) bool, stdioDone <-chan StdioExit) (*downstream.Coordinator, error) {
+	handle := &concreteHandle{transport: transport, stop: stop, stdioDone: stdioDone, authorization: authorization}
 	if !driver.storeHandle(key, handle) {
 		_ = transport.Close(context.Background())
 		return nil, ErrCandidateOwned
@@ -212,9 +228,10 @@ func (driver *ConcreteDriver) discardVerifiedProbe(key CandidateKey, coordinator
 	}
 	handle.mu.Lock()
 	defer handle.mu.Unlock()
-	if handle.coordinator != coordinator || handle.runtime != nil {
+	if handle.coordinator != coordinator || handle.runtime != nil || handle.released {
 		return false
 	}
+	handle.released = true
 	delete(driver.handles, key)
 	return true
 }
@@ -236,6 +253,67 @@ func (driver *ConcreteDriver) attachRuntime(key CandidateKey, runtime *downstrea
 	}
 	handle.runtime = runtime
 	return true
+}
+
+func (driver *ConcreteDriver) watchFailures(candidate Candidate, key CandidateKey, runtime *downstream.Runtime) {
+	driver.mu.Lock()
+	handle := driver.handles[key]
+	driver.mu.Unlock()
+	if handle == nil {
+		return
+	}
+	watchCtx, cancel := context.WithCancel(context.Background())
+	handle.mu.Lock()
+	if handle.stopping || handle.runtime != runtime {
+		handle.mu.Unlock()
+		cancel()
+		return
+	}
+	handle.failureCancel = cancel
+	stdioDone := handle.stdioDone
+	handle.mu.Unlock()
+	go func() {
+		select {
+		case <-watchCtx.Done():
+			return
+		case exit, ok := <-stdioDone:
+			if ok {
+				driver.reportHandleFailure(candidate, key, handle, FailureDisposition{State: contract.RuntimeDegraded, Reason: exit.Reason, Retryable: exit.Retryable, RuntimeLost: true})
+			}
+		case err := <-runtime.Failures():
+			if stdioDone != nil {
+				select {
+				case exit, ok := <-stdioDone:
+					if ok {
+						driver.reportHandleFailure(candidate, key, handle, FailureDisposition{State: contract.RuntimeDegraded, Reason: exit.Reason, Retryable: exit.Retryable, RuntimeLost: true})
+					}
+					return
+				default:
+				}
+			}
+			driver.reportHandleFailure(candidate, key, handle, ClassifyFailure(err))
+		}
+	}()
+}
+
+func (driver *ConcreteDriver) reportHandleFailure(candidate Candidate, key CandidateKey, handle *concreteHandle, failure FailureDisposition) {
+	driver.mu.Lock()
+	current := driver.handles[key] == handle
+	driver.mu.Unlock()
+	if !current {
+		return
+	}
+	handle.mu.Lock()
+	stopping := handle.stopping
+	handle.mu.Unlock()
+	if stopping || !validRuntimeFailure(failure) {
+		return
+	}
+	handle.failureOnce.Do(func() {
+		if !driver.reportFailure(candidate, failure) {
+			driver.Stop(context.Background(), candidate)
+		}
+	})
 }
 
 func negotiationMode(desired contract.Transport) downstream.Mode {
@@ -291,6 +369,13 @@ func (driver *ConcreteDriver) stop(ctx context.Context, key CandidateKey) bool {
 	}
 	handle.mu.Lock()
 	defer handle.mu.Unlock()
+	if handle.released {
+		return false
+	}
+	handle.stopping = true
+	if handle.failureCancel != nil {
+		handle.failureCancel()
+	}
 	verified := false
 	switch {
 	case !handle.closeAttempted && handle.runtime != nil:
@@ -304,6 +389,7 @@ func (driver *ConcreteDriver) stop(ctx context.Context, key CandidateKey) bool {
 	if !verified {
 		return false
 	}
+	handle.released = true
 	driver.mu.Lock()
 	if driver.handles[key] == handle {
 		delete(driver.handles, key)
@@ -337,15 +423,8 @@ func (driver *ConcreteDriver) Coordinator(candidate Candidate) (*downstream.Coor
 }
 
 func constructionFailure(err error) Outcome {
-	reason := contract.ReasonConnectivity
-	retry := true
-	if errors.Is(err, ErrRuntimeOwnerLimit) {
-		reason = contract.ReasonResourceLimit
-	} else if errors.Is(err, ErrMaterialLease) || errors.Is(err, servers.ErrInvalidInput) || errors.Is(err, remote.ErrInvalidURL) {
-		reason = contract.ReasonConfigurationInvalid
-		retry = false
-	}
-	return Outcome{State: contract.RuntimeDegraded, CredentialState: contract.ServerCredentialUnavailable, CatalogState: contract.ActiveCatalogAbsent, Reason: &reason, Retryable: retry}
+	failure := ClassifyFailure(err)
+	return Outcome{State: failure.State, CredentialState: contract.ServerCredentialUnavailable, CatalogState: contract.ActiveCatalogAbsent, Reason: &failure.Reason, Retryable: failure.Retryable}
 }
 
 func cloneStrings(values map[string]string) map[string]string {

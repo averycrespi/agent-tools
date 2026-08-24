@@ -232,6 +232,73 @@ func TestNegotiatorRequiresVerifiedProbeStopBeforeLegacyConstruction(t *testing.
 	assert.Equal(t, 1, opened)
 }
 
+func TestSelectedRuntimeReportsFirstFatalRequestFailureOnce(t *testing.T) {
+	transport := &scriptedTransport{exchanges: []func(Message) WireResponse{
+		modernSuccess,
+		func(message Message) WireResponse { return jsonResponse(message, `{"result":`) },
+		func(message Message) WireResponse { return jsonResponse(message, `{"result":`) },
+	}}
+	negotiator := newScriptedNegotiator(t, transport)
+	runtime, err := negotiator.Negotiate(context.Background(), ModeModern)
+	require.NoError(t, err)
+
+	_, err = runtime.Request(context.Background(), "tools/list", json.RawMessage(`{"cursor":""}`), "")
+	assert.Error(t, err)
+	failure := <-runtime.Failures()
+	assert.ErrorIs(t, failure, ErrInvalidMessage)
+	_, _ = runtime.Request(context.Background(), "tools/list", json.RawMessage(`{"cursor":""}`), "")
+	select {
+	case duplicate := <-runtime.Failures():
+		t.Fatalf("duplicate runtime failure: %v", duplicate)
+	default:
+	}
+}
+
+func TestSelectedRuntimeDoesNotReportHealthyApplicationFailure(t *testing.T) {
+	transport := &scriptedTransport{exchanges: []func(Message) WireResponse{
+		modernSuccess,
+		func(message Message) WireResponse {
+			return jsonResponse(message, `{"error":{"code":-32601,"message":"catalog unavailable"}}`)
+		},
+	}}
+	negotiator := newScriptedNegotiator(t, transport)
+	runtime, err := negotiator.Negotiate(context.Background(), ModeModern)
+	require.NoError(t, err)
+
+	response, err := runtime.Request(context.Background(), "tools/list", json.RawMessage(`{"cursor":""}`), "")
+	require.NoError(t, err)
+	require.NotNil(t, response.Error)
+	select {
+	case failure := <-runtime.Failures():
+		t.Fatalf("healthy application failure reported runtime loss: %v", failure)
+	default:
+	}
+}
+
+func TestSelectedRuntimeClassifiesFatalHTTPStatus(t *testing.T) {
+	tests := []struct {
+		status int
+		want   error
+	}{
+		{status: http.StatusUnauthorized, want: ErrAuthenticationRejected},
+		{status: http.StatusForbidden, want: ErrAuthenticationRejected},
+		{status: http.StatusTooManyRequests, want: ErrRemoteUnavailable},
+		{status: http.StatusInternalServerError, want: ErrRemoteUnavailable},
+	}
+	for _, test := range tests {
+		t.Run(fmt.Sprint(test.status), func(t *testing.T) {
+			transport := &scriptedTransport{exchanges: []func(Message) WireResponse{modernSuccess, staticResponse(test.status, "application/json", `{}`)}}
+			negotiator := newScriptedNegotiator(t, transport)
+			runtime, err := negotiator.Negotiate(context.Background(), ModeModern)
+			require.NoError(t, err)
+
+			_, err = runtime.Request(context.Background(), "tools/list", json.RawMessage(`{"cursor":""}`), "")
+			assert.ErrorIs(t, err, test.want)
+			assert.ErrorIs(t, <-runtime.Failures(), test.want)
+		})
+	}
+}
+
 func TestSelectedRuntimeRetainsUnconfirmedCloseEvidence(t *testing.T) {
 	transport := &scriptedTransport{exchanges: []func(Message) WireResponse{modernSuccess}, closeErr: ErrStopUnconfirmed}
 	negotiator := newScriptedNegotiator(t, transport)
