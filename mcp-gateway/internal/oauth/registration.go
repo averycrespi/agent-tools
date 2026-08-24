@@ -28,6 +28,7 @@ type RegistrationRequest struct {
 	ExpectedDesiredRevision      string
 	ExpectedRegistrationRevision string
 	ExpectedOAuthClientRevision  string
+	ExpectedAuthFlowID           string
 	Registration                 contract.OAuthRegistration
 	Graph                        Graph
 	CallbackURL                  string
@@ -117,7 +118,7 @@ func (registrar *Registrar) Register(ctx context.Context, request RegistrationRe
 	if request.ServerID == "" || request.Graph.Resource == "" || request.Graph.Issuer == "" || !validCallbackURL(request.CallbackURL) {
 		return servers.OAuthRegistrationAuthority{}, ErrRegistrationRejected
 	}
-	fence := servers.RegistrationFence{ServerID: request.ServerID, ExpectedDesiredRevision: request.ExpectedDesiredRevision, ExpectedRegistrationRevision: request.ExpectedRegistrationRevision, ExpectedOAuthClientRevision: request.ExpectedOAuthClientRevision}
+	fence := servers.RegistrationFence{ServerID: request.ServerID, ExpectedDesiredRevision: request.ExpectedDesiredRevision, ExpectedRegistrationRevision: request.ExpectedRegistrationRevision, ExpectedOAuthClientRevision: request.ExpectedOAuthClientRevision, ExpectedAuthFlowID: request.ExpectedAuthFlowID}
 	created := registrar.now().UTC()
 	if request.ExpectedRegistrationRevision != "0" {
 		existing, err := registrar.store.OAuthRegistration(ctx, request.ServerID)

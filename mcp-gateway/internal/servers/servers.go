@@ -111,6 +111,11 @@ func (repository *Repository) Create(ctx context.Context, request CreateRequest)
 			VALUES (?, 0)`, serverID); err != nil {
 			return fmt.Errorf("initialize operation watermark: %w", err)
 		}
+		if _, err := transaction.ExecContext(ctx, `
+			INSERT INTO server_auth_flow_watermarks (server_id, pruning_generation)
+			VALUES (?, 0)`, serverID); err != nil {
+			return fmt.Errorf("initialize auth-flow watermark: %w", err)
+		}
 		server, err := serverByIDTx(ctx, transaction, serverID)
 		if err != nil {
 			return err
@@ -224,6 +229,9 @@ func (repository *Repository) Patch(ctx context.Context, serverID, expectedRevis
 			if supersedeErr := supersedeNonterminalTx(ctx, transaction, serverID, now); supersedeErr != nil {
 				return supersedeErr
 			}
+			if supersedeErr := supersedeAuthFlowsTx(ctx, transaction, serverID, now); supersedeErr != nil {
+				return supersedeErr
+			}
 			kind := contract.OperationActivate
 			if updated.DesiredState == contract.DesiredServerDisabled {
 				kind = contract.OperationDisable
@@ -280,7 +288,11 @@ func (repository *Repository) Delete(ctx context.Context, serverID, expectedRevi
 		if getErr != nil {
 			return getErr
 		}
-		if supersedeErr := supersedeNonterminalTx(ctx, transaction, serverID, repository.clock.Now()); supersedeErr != nil {
+		nowValue := repository.clock.Now()
+		if supersedeErr := supersedeNonterminalTx(ctx, transaction, serverID, nowValue); supersedeErr != nil {
+			return supersedeErr
+		}
+		if supersedeErr := supersedeAuthFlowsTx(ctx, transaction, serverID, nowValue); supersedeErr != nil {
 			return supersedeErr
 		}
 		operation, operationErr := insertOperationTx(ctx, transaction, operationID, serverID, contract.OperationDelete, current.DesiredRevision, repository.clock.Now())

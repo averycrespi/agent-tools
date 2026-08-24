@@ -45,7 +45,7 @@ func TestInitializeCreatesVerifiedGatewayDatabase(t *testing.T) {
 
 	versions, err := store.MigrationVersions(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, []int{1, 2, 3, 4}, versions)
+	assert.Equal(t, []int{1, 2, 3, 4, 5}, versions)
 	assertFileMode(t, ownership.Layout().Database, 0o600)
 }
 
@@ -134,7 +134,7 @@ func TestOpenMigratesCommittedPriorSchemaFixture(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, testInstallationID, identity.InstallationID)
 	assert.Equal(t, CurrentSchema, identity.SchemaVersion)
-	assert.Equal(t, []int{1, 2, 3, 4}, mustMigrationVersions(t, store, ctx))
+	assert.Equal(t, []int{1, 2, 3, 4, 5}, mustMigrationVersions(t, store, ctx))
 }
 
 func TestOpenMigratesCommittedAdminSchemaFixture(t *testing.T) {
@@ -149,7 +149,7 @@ func TestOpenMigratesCommittedAdminSchemaFixture(t *testing.T) {
 	identity, err := store.Identity(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, CurrentSchema, identity.SchemaVersion)
-	assert.Equal(t, []int{1, 2, 3, 4}, mustMigrationVersions(t, store, ctx))
+	assert.Equal(t, []int{1, 2, 3, 4, 5}, mustMigrationVersions(t, store, ctx))
 	var credentialTable string
 	require.NoError(t, store.database.QueryRowContext(ctx, `
 		SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'admin_credentials'`).Scan(&credentialTable))
@@ -168,7 +168,7 @@ func TestOpenMigratesCommittedKeyringSchemaFixture(t *testing.T) {
 	identity, err := store.Identity(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, CurrentSchema, identity.SchemaVersion)
-	assert.Equal(t, []int{1, 2, 3, 4}, mustMigrationVersions(t, store, ctx))
+	assert.Equal(t, []int{1, 2, 3, 4, 5}, mustMigrationVersions(t, store, ctx))
 	for _, table := range []string{"keyring_authorities", "keyring_candidates"} {
 		var actual string
 		require.NoError(t, store.database.QueryRowContext(ctx, `
@@ -189,8 +189,8 @@ func TestOpenMigratesAcceptedS1SchemaThreeFixture(t *testing.T) {
 	identity, err := store.Identity(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, CurrentSchema, identity.SchemaVersion)
-	assert.Equal(t, []int{1, 2, 3, 4}, mustMigrationVersions(t, store, ctx))
-	for _, table := range []string{"keyring_authority_fences", "server_identities", "servers", "server_credentials", "server_oauth_registrations", "server_operations", "server_operation_watermarks", "s2_idempotency"} {
+	assert.Equal(t, []int{1, 2, 3, 4, 5}, mustMigrationVersions(t, store, ctx))
+	for _, table := range []string{"keyring_authority_fences", "server_identities", "servers", "server_credentials", "server_oauth_registrations", "server_operations", "server_operation_watermarks", "server_auth_flows", "server_auth_flow_watermarks", "s2_idempotency"} {
 		var actual string
 		require.NoError(t, store.database.QueryRowContext(ctx, `
 			SELECT name FROM sqlite_schema WHERE type = 'table' AND name = ?`, table).Scan(&actual))

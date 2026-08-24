@@ -196,6 +196,10 @@ func (handler *Handler) patchServer(writer http.ResponseWriter, request *http.Re
 	writer.Header().Set("ETag", contract.ServerETag(resource.ID, resource.DesiredRevision))
 	handler.emit(contract.Invalidation{Kind: contract.InvalidationServers, ResourceID: &resource.ID})
 	if result.Operation != nil {
+		if handler.authFlows != nil {
+			handler.authFlows.FenceServer(serverID)
+			handler.emit(contract.Invalidation{Kind: contract.InvalidationServerAuthFlows})
+		}
 		handler.emit(contract.Invalidation{Kind: contract.InvalidationServerOperations, ResourceID: &result.Operation.ID})
 		handler.trigger(resource.ID, &result.Operation.ID, true)
 	}
@@ -227,6 +231,10 @@ func (handler *Handler) deleteServer(writer http.ResponseWriter, request *http.R
 	} else {
 		handler.emit(contract.Invalidation{Kind: contract.InvalidationServers, ResourceID: &resource.ID})
 		if result.Operation != nil {
+			if handler.authFlows != nil {
+				handler.authFlows.FenceServer(serverID)
+				handler.emit(contract.Invalidation{Kind: contract.InvalidationServerAuthFlows})
+			}
 			handler.emit(contract.Invalidation{Kind: contract.InvalidationServerOperations, ResourceID: &result.Operation.ID})
 			handler.trigger(resource.ID, &result.Operation.ID, true)
 		}
@@ -536,6 +544,8 @@ func writeServerError(writer http.ResponseWriter, err error) {
 		writeProblem(writer, contract.ProblemInvalidOperation)
 	case errors.Is(err, serverdomain.ErrOperationConflict):
 		writeProblem(writer, contract.ProblemOperationConflict)
+	case errors.Is(err, serverdomain.ErrOAuthFlowActive):
+		writeProblem(writer, contract.ProblemOAuthFlowActive)
 	case errors.Is(err, serverdomain.ErrStaleCursor):
 		writeProblem(writer, contract.ProblemStaleCursor)
 	default:

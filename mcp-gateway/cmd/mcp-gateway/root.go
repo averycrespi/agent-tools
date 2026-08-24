@@ -20,7 +20,9 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/oauth"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -143,6 +145,23 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	startedAt := dependencies.clock.Now().UTC().Format(time.RFC3339Nano)
 	capabilitySnapshot := contract.KeyringUnsupported
 	var ready, draining atomic.Bool
+	remoteFactory := remote.New(remote.Options{})
+	oauthResolver, err := oauth.NewResolver(remoteFactory)
+	if err != nil {
+		return false, err
+	}
+	oauthRegistrar, err := oauth.NewRegistrar(remoteFactory, serverRepository, keyringCoordinator, identity.InstallationID, dependencies.clock.Now, func() bool { return !draining.Load() })
+	if err != nil {
+		return false, err
+	}
+	flowService, err := oauth.NewFlowService(serverRepository, oauthResolver, oauthRegistrar, dependencies.entropy, "http://"+authority+"/oauth/callback", dependencies.clock.Now)
+	if err != nil {
+		return false, err
+	}
+	if err := flowService.Start(ctx); err != nil {
+		return false, err
+	}
+	defer flowService.Shutdown()
 	var boundary *httpboundary.Boundary
 	ingress := mcpingress.New(mcpingress.Options{
 		Authenticator: mcpingress.DenyAllAuthenticator{},
@@ -158,6 +177,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		Invalidate:     eventHub.Publish,
 		Origin:         "http://" + authority,
 		Servers:        serverRepository,
+		AuthFlows:      flowService,
 		OperationState: runtimeManager.OperationState,
 		RuntimeStatus: func(serverID string) api.RuntimeStatus {
 			status := runtimeManager.Status(serverID)
@@ -181,6 +201,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 			status.Limits.EventStreams = eventHub.Status()
 			status.Limits.ServerReconciliations = runtimeManager.AdmissionStatus()
 			status.Limits.DownstreamRuntimes = runtimeManager.RuntimeStatus()
+			status.Limits.OAuthFlows = flowService.Status(context.Background())
 			if identities, activeServers, registryErr := serverRepository.RegistryStatus(context.Background()); registryErr == nil {
 				status.Limits.ServerIdentities = identities
 				status.Limits.Servers = activeServers
@@ -264,6 +285,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), contract.GracefulShutdownDeadline)
 		defer cancel()
 		runtimeDrain := runtimeManager.Drain(shutdownCtx)
+		flowService.Shutdown()
 		keyringCoordinator.Drain()
 		eventHub.Shutdown()
 		ingress.Shutdown()

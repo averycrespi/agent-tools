@@ -34,6 +34,7 @@ type RegistrationFence struct {
 	ExpectedDesiredRevision      string
 	ExpectedRegistrationRevision string
 	ExpectedOAuthClientRevision  string
+	ExpectedAuthFlowID           string
 }
 
 func (repository *Repository) OAuthRegistration(ctx context.Context, serverID string) (OAuthRegistrationAuthority, error) {
@@ -156,6 +157,9 @@ func validateRegistrationFence(fence RegistrationFence) error {
 	if _, err := parseRevision(fence.ExpectedOAuthClientRevision); err != nil {
 		return ErrStaleRevision
 	}
+	if fence.ExpectedAuthFlowID != "" && !validID(fence.ExpectedAuthFlowID) {
+		return ErrStaleRevision
+	}
 	return nil
 }
 
@@ -181,6 +185,19 @@ func validateRegistrationCurrent(ctx context.Context, transaction *sql.Tx, fence
 	}
 	if state == contract.DesiredServerDeleted || currentDesired != desired || currentRegistration != expectedRegistration || currentClient != client || handle.Valid || !registrationMatchesDesired([]byte(transportJSON), registration) {
 		return ErrStaleRevision
+	}
+	if fence.ExpectedAuthFlowID != "" {
+		var flowState contract.AuthFlowState
+		var flowServerID string
+		var flowDesired int64
+		if err := transaction.QueryRowContext(ctx, `
+			SELECT server_id, flow_state, target_desired_revision
+			FROM server_auth_flows WHERE id = ?`, fence.ExpectedAuthFlowID).Scan(&flowServerID, &flowState, &flowDesired); err != nil {
+			return ErrStaleRevision
+		}
+		if flowServerID != fence.ServerID || flowState != contract.AuthFlowPreparing || flowDesired != desired {
+			return ErrStaleRevision
+		}
 	}
 	return nil
 }

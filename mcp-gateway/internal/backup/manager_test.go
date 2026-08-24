@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -48,7 +49,7 @@ func TestCreatePublishesVerifiedOwnerOnlyGeneration(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, replay)
 	assert.Equal(t, backupTestInstallationID, created.InstallationID)
-	assert.Equal(t, "4", created.SchemaVersion)
+	assert.Equal(t, strconv.Itoa(storage.CurrentSchema), created.SchemaVersion)
 	assert.NotEmpty(t, created.SHA256)
 	assert.Positive(t, created.SizeBytes)
 

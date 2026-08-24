@@ -75,6 +75,7 @@ type Options struct {
 	Status         func() contract.SystemStatus
 	ValidateOAuth  OAuthStateValidator
 	Servers        ServerService
+	AuthFlows      AuthFlowService
 	OperationState OperationStateProvider
 	RuntimeStatus  func(string) RuntimeStatus
 	TriggerServer  func(string, *string, bool)
@@ -91,6 +92,7 @@ type Handler struct {
 	status         func() contract.SystemStatus
 	validateOAuth  OAuthStateValidator
 	servers        ServerService
+	authFlows      AuthFlowService
 	operationState OperationStateProvider
 	runtimeStatus  func(string) RuntimeStatus
 	triggerServer  func(string, *string, bool)
@@ -136,7 +138,7 @@ func New(options Options) *Handler {
 			return RuntimeStatus{State: contract.RuntimeInactive, CatalogState: contract.ActiveCatalogAbsent, Reconciliation: limitStatus("per_server_reconciliation")}
 		}
 	}
-	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, validateOAuth: options.ValidateOAuth, servers: options.Servers, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer}
+	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, validateOAuth: options.ValidateOAuth, servers: options.Servers, authFlows: options.AuthFlows, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -250,6 +252,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			handler.operationsCollection(writer, request, segments[0])
 		case len(segments) == 3 && segments[0] != "" && segments[1] == "operations" && segments[2] != "":
 			handler.operationMember(writer, request, segments[0], segments[2])
+		case handler.authFlows != nil && len(segments) == 2 && segments[0] != "" && segments[1] == "auth-flows":
+			handler.authFlowsCollection(writer, request, segments[0])
+		case handler.authFlows != nil && len(segments) == 3 && segments[0] != "" && segments[1] == "auth-flows" && segments[2] != "":
+			handler.authFlowMember(writer, request, segments[0], segments[2])
 		default:
 			writeProblem(writer, contract.ProblemNotFound)
 		}
