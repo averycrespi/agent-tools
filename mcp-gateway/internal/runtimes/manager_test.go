@@ -533,6 +533,23 @@ func establishActiveRuntime(t *testing.T, manager *Manager, driver *lifecycleDri
 	return candidate
 }
 
+type durableOnlyCatalog struct {
+	outcome   CatalogOutcome
+	onPublish func()
+	abandoned chan Candidate
+}
+
+func (catalog *durableOnlyCatalog) Activate(context.Context, Candidate) CatalogOutcome {
+	if catalog.onPublish != nil {
+		catalog.onPublish()
+	}
+	return catalog.outcome
+}
+
+func (catalog *durableOnlyCatalog) Abandon(candidate Candidate) {
+	catalog.abandoned <- candidate
+}
+
 type finalizationCatalog struct {
 	mu        sync.Mutex
 	routable  bool
@@ -621,6 +638,95 @@ func TestManagerRefreshCatalogOperationSkipsLifecycleAndCompletesAttachedWork(t 
 	case <-driver.stopping:
 		t.Fatal("refresh unexpectedly stopped the runtime")
 	default:
+	}
+}
+
+func TestManagerPostCommitCauseTablePreservesOperationAndCleanupPolicy(t *testing.T) {
+	tests := []struct {
+		name              string
+		cause             CatalogPostCommitCause
+		expectedOperation contract.ServerOperationState
+		expectedReason    contract.PublicReason
+		expectCatalogHint bool
+		unconfirmed       bool
+		fence             bool
+		drain             bool
+	}{
+		{name: "stale", cause: CatalogPostCommitStale, expectedOperation: contract.OperationSuperseded, expectedReason: contract.ReasonSuperseded, expectCatalogHint: true, fence: true},
+		{name: "storage", cause: CatalogPostCommitStorage, expectedOperation: contract.OperationRunning, expectedReason: contract.ReasonConnectivity, expectCatalogHint: true},
+		{name: "storage_stop_unconfirmed", cause: CatalogPostCommitStorage, expectedOperation: contract.OperationRunning, expectedReason: contract.ReasonStopUnconfirmed, expectCatalogHint: true, unconfirmed: true},
+		{name: "drain", cause: CatalogPostCommitDrain, expectedOperation: contract.OperationRunning, expectedReason: contract.ReasonInterrupted, drain: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repository := newFakeRepository(1)
+			driver := newLifecycleDriver()
+			catalog := &durableOnlyCatalog{outcome: CatalogOutcome{State: contract.ActiveCatalogAbsent, Phase: CatalogPublicationDurableOnly, Cause: test.cause}, abandoned: make(chan Candidate, 1)}
+			invalidations := make(chan contract.Invalidation, 32)
+			manager, err := New(Options{Repository: repository, Driver: driver, Catalog: catalog, Invalidate: func(invalidation contract.Invalidation) { invalidations <- invalidation }})
+			require.NoError(t, err)
+			defer manager.Shutdown()
+			var serverID string
+			for serverID = range repository.servers {
+				break
+			}
+			if test.fence {
+				catalog.onPublish = func() { manager.Fence(serverID) }
+			}
+			if test.drain {
+				catalog.onPublish = func() { manager.Drain(context.Background()) }
+			}
+			operation, createErr := repository.CreateOperation(context.Background(), servers.OperationRequest{ServerID: serverID, Kind: contract.OperationActivate, ExpectedDesiredRevision: "1"})
+			require.NoError(t, createErr)
+			manager.Trigger(serverID, &operation.Operation.ID, false)
+			assert.Equal(t, contract.OperationRunning, (<-repository.transitions).State)
+			candidate := receiveCandidate(t, driver.started)
+			for len(invalidations) > 0 {
+				<-invalidations
+			}
+			driver.startResult <- activeOutcome()
+			assert.Equal(t, candidate.RuntimeID, receiveCandidate(t, catalog.abandoned).RuntimeID)
+			assert.Equal(t, candidate.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
+			driver.stopResult <- !test.unconfirmed
+			require.Eventually(t, func() bool {
+				current, getErr := repository.GetOperation(context.Background(), operation.Operation.ID)
+				return getErr == nil && current.State == test.expectedOperation
+			}, time.Second, time.Millisecond)
+			if test.expectedOperation == contract.OperationSuperseded {
+				current, getErr := repository.GetOperation(context.Background(), operation.Operation.ID)
+				require.NoError(t, getErr)
+				require.NotNil(t, current.Reason)
+				assert.Equal(t, test.expectedReason, *current.Reason)
+			}
+			if test.unconfirmed {
+				require.Eventually(t, func() bool {
+					status := manager.Status(serverID)
+					return status.Reason != nil && *status.Reason == contract.ReasonStopUnconfirmed
+				}, time.Second, time.Millisecond)
+			}
+			seenCatalog, seenOperation := false, false
+			relevantKinds := make([]contract.InvalidationKind, 0, len(invalidations))
+			for len(invalidations) > 0 {
+				invalidation := <-invalidations
+				seenCatalog = seenCatalog || invalidation.Kind == contract.InvalidationCatalog
+				seenOperation = seenOperation || invalidation.Kind == contract.InvalidationServerOperations
+				if invalidation.Kind == contract.InvalidationCatalog || invalidation.Kind == contract.InvalidationServerOperations || invalidation.Kind == contract.InvalidationServers {
+					relevantKinds = append(relevantKinds, invalidation.Kind)
+				}
+			}
+			assert.Equal(t, test.expectCatalogHint, seenCatalog)
+			assert.Equal(t, test.expectedOperation == contract.OperationSuperseded, seenOperation)
+			if test.expectCatalogHint {
+				require.NotEmpty(t, relevantKinds)
+				assert.Equal(t, contract.InvalidationCatalog, relevantKinds[0])
+			}
+			if !test.unconfirmed && !test.drain && test.cause == CatalogPostCommitStorage {
+				require.Eventually(t, func() bool {
+					status := manager.Status(serverID)
+					return status.Reason != nil && *status.Reason == test.expectedReason
+				}, time.Second, time.Millisecond)
+			}
+		})
 	}
 }
 

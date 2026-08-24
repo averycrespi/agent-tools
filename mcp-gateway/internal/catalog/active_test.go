@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -136,6 +137,97 @@ func TestActiveRegistryDurableCapacityReservationPrecedesMutation(t *testing.T) 
 	assert.Nil(t, durable.Revision)
 	close(releaseMutation)
 	require.NoError(t, <-mutationDone)
+}
+
+func TestActiveRegistryPostCommitCauseTableRetainsDurableOnlyEvidence(t *testing.T) {
+	tests := []struct {
+		name  string
+		cause PublicationFailureCause
+		arm   func(*ActiveRegistry)
+	}{
+		{name: "stale", cause: PublicationFailureStale, arm: func(*ActiveRegistry) {}},
+		{name: "repository_read", cause: PublicationFailureStorage, arm: func(registry *ActiveRegistry) {
+			registry.beforeDescriptorRead = func() error { return errors.New("read latch") }
+		}},
+		{name: "drain", cause: PublicationFailureDrain, arm: func(registry *ActiveRegistry) {
+			registry.afterCommit = func() {
+				done := make(chan struct{})
+				go func() {
+					registry.Drain()
+					close(done)
+				}()
+				require.Eventually(t, registry.draining.Load, time.Second, time.Millisecond)
+				t.Cleanup(func() { <-done })
+			}
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repository, serverRepository, clock, _ := newCatalogRepository(t)
+			server := createCatalogServer(t, serverRepository, "sample")
+			registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+			require.NoError(t, err)
+			checks := 0
+			test.arm(registry)
+			_, err = registry.Publish(context.Background(), Publication{Fence: catalogFence(server.ID, "0"), RuntimeID: "runtime-1", RuntimeGeneration: 1, Candidate: candidateFor(t, server.ID, "sample", "one"), Current: func() bool {
+				checks++
+				return test.cause != PublicationFailureStale || checks != 2
+			}})
+			var failure *PublicationFailure
+			require.ErrorAs(t, err, &failure)
+			assert.Equal(t, PublicationPhaseDurableOnly, failure.Phase)
+			assert.Equal(t, test.cause, failure.Cause)
+			durable, statusErr := repository.Status(context.Background(), server.ID)
+			require.NoError(t, statusErr)
+			require.NotNil(t, durable.Revision)
+			assert.Equal(t, "1", *durable.Revision)
+			assert.Equal(t, contract.ActiveCatalogAbsent, registry.Status(server.ID).State)
+			assert.Equal(t, activeProcessID+"-0", registry.Summary().ActiveGeneration)
+			page, listErr := registry.List(nil, 10)
+			require.NoError(t, listErr)
+			assert.Empty(t, page.Items)
+			descriptors, listErr := repository.ListDescriptors(context.Background(), server.ID, contract.DescriptorRetiredExclude, nil, 10)
+			require.NoError(t, listErr)
+			require.Len(t, descriptors.Items, 1)
+			_, routable := registry.Routes().Resolve(descriptors.Items[0].Resource.ID)
+			assert.False(t, routable)
+			if test.cause == PublicationFailureDrain {
+				assert.False(t, registry.MarkUnavailableExact(server.ID, "runtime-1", 1, 1))
+				assert.False(t, registry.WithdrawExact(server.ID, "runtime-1", 1, contract.ActiveCatalogUnavailable))
+				assert.Equal(t, activeProcessID+"-0", registry.Summary().ActiveGeneration)
+			}
+		})
+	}
+}
+
+func TestActiveRegistryCrashAfterCommitRestartsWithDurableOnlyEvidence(t *testing.T) {
+	repository, serverRepository, clock, _ := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	operation, err := serverRepository.CreateOperation(context.Background(), servers.OperationRequest{ServerID: server.ID, Kind: contract.OperationReload})
+	require.NoError(t, err)
+	_, err = serverRepository.TransitionOperation(context.Background(), operation.Operation.ID, contract.OperationRunning, nil)
+	require.NoError(t, err)
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	registry.afterCommit = func() { panic("simulated crash") }
+	assert.PanicsWithValue(t, "simulated crash", func() {
+		_, _ = registry.Publish(context.Background(), Publication{Fence: catalogFence(server.ID, "0"), RuntimeID: "runtime-1", RuntimeGeneration: 1, Candidate: candidateFor(t, server.ID, "sample", "one"), Current: func() bool { return true }})
+	})
+	durable, err := repository.Status(context.Background(), server.ID)
+	require.NoError(t, err)
+	require.NotNil(t, durable.Revision)
+	assert.Equal(t, "1", *durable.Revision)
+
+	restarted, err := NewActiveRegistry(repository, clock, "restarted")
+	require.NoError(t, err)
+	assert.Equal(t, contract.ActiveCatalogAbsent, restarted.Status(server.ID).State)
+	assert.Equal(t, "restarted-0", restarted.Summary().ActiveGeneration)
+	assert.Zero(t, restarted.Occupancy().InUse)
+	require.NoError(t, serverRepository.InterruptNonterminal(context.Background()))
+	interrupted, err := serverRepository.GetOperation(context.Background(), operation.Operation.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.OperationInterrupted, interrupted.State)
+	assert.Equal(t, contract.ReasonInterrupted, *interrupted.Reason)
 }
 
 func TestActiveRegistryInstallBarrierKeepsRoutesAndSummaryOld(t *testing.T) {

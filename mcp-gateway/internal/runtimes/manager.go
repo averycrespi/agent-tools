@@ -55,6 +55,10 @@ type CatalogRefresher interface {
 	Withdraw(Candidate, contract.ActiveCatalogState)
 }
 
+type CatalogAbandoner interface {
+	Abandon(Candidate)
+}
+
 type CredentialLifecycle interface {
 	ReconcileCredentials(context.Context, servers.Operation, servers.Server, servers.AuthorityMetadata, contract.ServerCredentialState) (CredentialLifecycleOutcome, bool)
 }
@@ -73,9 +77,27 @@ type AuthorityOutcome struct {
 	Lease           *MaterialLease
 }
 
+type CatalogPublicationPhase string
+
+const (
+	CatalogPublicationNone        CatalogPublicationPhase = ""
+	CatalogPublicationDurableOnly CatalogPublicationPhase = "durable_only"
+	CatalogPublicationInstalled   CatalogPublicationPhase = "installed"
+)
+
+type CatalogPostCommitCause string
+
+const (
+	CatalogPostCommitStale   CatalogPostCommitCause = "stale"
+	CatalogPostCommitDrain   CatalogPostCommitCause = "drain"
+	CatalogPostCommitStorage CatalogPostCommitCause = "storage"
+)
+
 type CatalogOutcome struct {
 	State  contract.ActiveCatalogState
 	Reason *contract.PublicReason
+	Phase  CatalogPublicationPhase
+	Cause  CatalogPostCommitCause
 }
 
 type Candidate struct {
@@ -385,6 +407,21 @@ func (manager *Manager) refreshCatalogOperation(serverID string, generation uint
 		return
 	}
 	outcome := refresher.Refresh(manager.ctx, candidate)
+	if outcome.Phase == CatalogPublicationDurableOnly {
+		if outcome.Cause != CatalogPostCommitDrain {
+			manager.publish(contract.InvalidationCatalog, &serverID)
+		}
+		if outcome.Cause == CatalogPostCommitStale {
+			reason := contract.ReasonSuperseded
+			if outcome.Reason != nil {
+				reason = *outcome.Reason
+			}
+			if _, err := manager.repository.TransitionOperation(context.Background(), operationID, contract.OperationSuperseded, &reason); err == nil {
+				manager.publish(contract.InvalidationServerOperations, &operationID)
+			}
+		}
+		return
+	}
 	manager.mu.Lock()
 	current := manager.entries[serverID]
 	stillCurrent := current != nil && current.generation == generation && current.active != nil && current.active.Key() == candidate.Key() && !manager.draining
@@ -543,6 +580,10 @@ func (manager *Manager) reconcile(serverID string, generation uint64, operationI
 			if catalog.Reason != nil {
 				outcome.Reason = catalog.Reason
 			}
+			if catalog.Phase == CatalogPublicationDurableOnly {
+				manager.finishDurableOnly(serverID, generation, operationID, candidate, catalog, outcome.CredentialState)
+				return
+			}
 		}
 	}
 	currentServer, serverErr := manager.repository.Get(manager.ctx, serverID)
@@ -624,6 +665,13 @@ func (manager *Manager) stopPrevious(serverID string) bool {
 	return true
 }
 
+func (manager *Manager) abandonCandidate(candidate Candidate) {
+	if abandoner, ok := manager.catalog.(CatalogAbandoner); ok {
+		abandoner.Abandon(candidate)
+	}
+	manager.publisher.Withdraw(candidate)
+}
+
 func (manager *Manager) withdrawCandidate(candidate Candidate) {
 	if refresher, ok := manager.catalog.(CatalogRefresher); ok {
 		refresher.Withdraw(candidate, contract.ActiveCatalogUnavailable)
@@ -691,6 +739,56 @@ func (manager *Manager) currentDrainEpoch() uint64 {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	return manager.drainEpoch
+}
+
+func (manager *Manager) finishDurableOnly(serverID string, generation uint64, operationID *string, candidate Candidate, catalog CatalogOutcome, credentialState contract.ServerCredentialState) {
+	reason := contract.ReasonConnectivity
+	switch catalog.Cause {
+	case CatalogPostCommitStale:
+		reason = contract.ReasonSuperseded
+	case CatalogPostCommitDrain:
+		reason = contract.ReasonInterrupted
+	}
+	if catalog.Reason != nil {
+		reason = *catalog.Reason
+	}
+	if catalog.Cause != CatalogPostCommitDrain {
+		manager.publish(contract.InvalidationCatalog, &serverID)
+	}
+	if catalog.Cause == CatalogPostCommitStale && operationID != nil {
+		if _, err := manager.repository.TransitionOperation(context.Background(), *operationID, contract.OperationSuperseded, &reason); err == nil {
+			manager.publish(contract.InvalidationServerOperations, operationID)
+		}
+	}
+	manager.abandonCandidate(candidate)
+	stopped := manager.driver.Stop(context.Background(), candidate)
+
+	manager.mu.Lock()
+	current := manager.entries[serverID]
+	if current != nil {
+		if !stopped {
+			current.blockedStop = cloneCandidate(&candidate)
+			current.pending = false
+			stopReason := contract.ReasonStopUnconfirmed
+			current.status.State = contract.RuntimeDegraded
+			current.status.Reason = &stopReason
+			current.status.CredentialState = credentialState
+			current.status.CatalogState = contract.ActiveCatalogAbsent
+			current.status.RuntimeID = nil
+		} else if catalog.Cause == CatalogPostCommitStorage && current.generation == generation && !manager.draining {
+			current.status.State = contract.RuntimeDegraded
+			current.status.Reason = &reason
+			current.status.CredentialState = credentialState
+			current.status.CatalogState = contract.ActiveCatalogAbsent
+			current.status.RuntimeID = nil
+		}
+	}
+	manager.releaseLocked(current)
+	manager.mu.Unlock()
+	if !stopped && catalog.Cause != CatalogPostCommitDrain {
+		manager.publish(contract.InvalidationServers, &serverID)
+		manager.publish(contract.InvalidationSystemStatus, nil)
+	}
 }
 
 func (manager *Manager) finishSuccess(serverID string, generation uint64, operationID *string, outcome Outcome, candidate *Candidate) {

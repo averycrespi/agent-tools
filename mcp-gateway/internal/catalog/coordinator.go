@@ -123,7 +123,16 @@ func (coordinator *Coordinator) Refresh(ctx context.Context, candidate runtimes.
 	return result
 }
 
+func (coordinator *Coordinator) Abandon(candidate runtimes.Candidate) {
+	coordinator.detach(candidate)
+}
+
 func (coordinator *Coordinator) Withdraw(candidate runtimes.Candidate, state contract.ActiveCatalogState) {
+	coordinator.detach(candidate)
+	coordinator.active.WithdrawExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, state)
+}
+
+func (coordinator *Coordinator) detach(candidate runtimes.Candidate) {
 	coordinator.mu.Lock()
 	if timer := coordinator.timers[candidate.Server.ID]; timer != nil {
 		timer.Stop()
@@ -134,7 +143,6 @@ func (coordinator *Coordinator) Withdraw(candidate runtimes.Candidate, state con
 	}
 	delete(coordinator.candidates, candidate.Server.ID)
 	coordinator.mu.Unlock()
-	coordinator.active.WithdrawExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, state)
 }
 
 func (coordinator *Coordinator) Shutdown() {
@@ -197,9 +205,14 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 		Current: func() bool { return coordinator.live(candidate) },
 	})
 	if err != nil {
+		var publicationFailure *PublicationFailure
+		if errors.As(err, &publicationFailure) {
+			reason, cause := postCommitFailure(publicationFailure)
+			return runtimes.CatalogOutcome{State: coordinator.active.Status(candidate.Server.ID).State, Reason: &reason, Phase: runtimes.CatalogPublicationDurableOnly, Cause: cause}
+		}
 		return coordinator.failure(candidate, catalogFailureReason(err))
 	}
-	return runtimes.CatalogOutcome{State: status.State}
+	return runtimes.CatalogOutcome{State: status.State, Phase: runtimes.CatalogPublicationInstalled}
 }
 
 func (coordinator *Coordinator) failure(candidate runtimes.Candidate, reason contract.PublicReason) runtimes.CatalogOutcome {
@@ -295,6 +308,17 @@ func catalogFailureReason(err error) contract.PublicReason {
 		return contract.ReasonSuperseded
 	default:
 		return contract.ReasonConnectivity
+	}
+}
+
+func postCommitFailure(failure *PublicationFailure) (contract.PublicReason, runtimes.CatalogPostCommitCause) {
+	switch failure.Cause {
+	case PublicationFailureStale:
+		return contract.ReasonSuperseded, runtimes.CatalogPostCommitStale
+	case PublicationFailureDrain:
+		return contract.ReasonInterrupted, runtimes.CatalogPostCommitDrain
+	default:
+		return contract.ReasonConnectivity, runtimes.CatalogPostCommitStorage
 	}
 }
 

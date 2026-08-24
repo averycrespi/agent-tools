@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -37,6 +38,7 @@ func TestCoordinatorActivationPublishesAndSchedulesFromCurrentClock(t *testing.T
 	require.NoError(t, err)
 	outcome := coordinator.Activate(context.Background(), candidate)
 	assert.Equal(t, contract.ActiveCatalogCurrent, outcome.State)
+	assert.Equal(t, runtimes.CatalogPublicationInstalled, outcome.Phase)
 	assert.Equal(t, 1, client.calls)
 	assert.Equal(t, contract.ActiveCatalogCurrent, registry.Status(server.ID).State)
 	require.Len(t, scheduler.calls, 1)
@@ -49,6 +51,31 @@ func TestCoordinatorActivationPublishesAndSchedulesFromCurrentClock(t *testing.T
 	require.Eventually(t, func() bool { return scheduler.count() == 2 }, time.Second, time.Millisecond)
 	expected = NextPoll(clock.now, PollOffset(catalogInstallationID, server.ID)).Sub(clock.now)
 	assert.Equal(t, expected, scheduler.call(1).delay)
+}
+
+func TestCoordinatorReturnsTypedDurableOnlyStorageOutcome(t *testing.T) {
+	repository, serverRepository, clock, _ := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	registry.beforeDescriptorRead = func() error { return errors.New("read latch") }
+	client := &coordinatorClient{result: json.RawMessage(`{"tools":[{"name":"one","inputSchema":{"type":"object"}}]}`)}
+	candidate := coordinatorCandidate(t, serverRepository, server)
+	coordinator, err := NewCoordinator(CoordinatorOptions{InstallationID: catalogInstallationID, Repository: repository, Active: registry, Traverser: NewTraverser(), Clock: clock, Scheduler: newCatalogScheduler(), Client: func(runtimes.Candidate) (PageClient, bool) { return client, true }, Current: func(runtimes.Candidate) bool { return true }})
+	require.NoError(t, err)
+
+	outcome := coordinator.Activate(context.Background(), candidate)
+
+	assert.Equal(t, runtimes.CatalogPublicationDurableOnly, outcome.Phase)
+	assert.Equal(t, runtimes.CatalogPostCommitStorage, outcome.Cause)
+	assert.Equal(t, contract.ReasonConnectivity, *outcome.Reason)
+	assert.Equal(t, contract.ActiveCatalogAbsent, outcome.State)
+	durable, err := repository.Status(context.Background(), server.ID)
+	require.NoError(t, err)
+	require.NotNil(t, durable.Revision)
+	assert.Equal(t, "1", *durable.Revision)
+	assert.Equal(t, activeProcessID+"-0", registry.Summary().ActiveGeneration)
+	coordinator.Abandon(candidate)
 }
 
 func TestCoordinatorExplicitRefreshJoinsCurrentTraversal(t *testing.T) {

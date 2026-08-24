@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -27,6 +28,31 @@ type ActiveStatus struct {
 	Revision   *string
 	ToolCount  int64
 	IssueCount int64
+}
+
+type PublicationPhase string
+
+const PublicationPhaseDurableOnly PublicationPhase = "durable_only"
+
+type PublicationFailureCause string
+
+const (
+	PublicationFailureStale   PublicationFailureCause = "stale"
+	PublicationFailureDrain   PublicationFailureCause = "drain"
+	PublicationFailureStorage PublicationFailureCause = "storage"
+)
+
+type PublicationFailure struct {
+	Phase PublicationPhase
+	Cause PublicationFailureCause
+	Err   error
+}
+
+func (failure *PublicationFailure) Error() string { return failure.Err.Error() }
+func (failure *PublicationFailure) Unwrap() error { return failure.Err }
+
+func durableOnlyFailure(cause PublicationFailureCause, err error) error {
+	return &PublicationFailure{Phase: PublicationPhaseDurableOnly, Cause: cause, Err: err}
 }
 
 type ActiveCursor struct {
@@ -63,13 +89,15 @@ type ActiveRegistry struct {
 	clock      Clock
 	processID  string
 
-	mu            sync.RWMutex
-	counter       uint64
-	changedAt     *string
-	servers       map[string]activeServerSnapshot
-	routes        *RouteRegistry
-	draining      bool
-	beforeInstall func()
+	mu                   sync.RWMutex
+	counter              uint64
+	changedAt            *string
+	servers              map[string]activeServerSnapshot
+	routes               *RouteRegistry
+	draining             atomic.Bool
+	afterCommit          func()
+	beforeDescriptorRead func() error
+	beforeInstall        func()
 }
 
 func NewActiveRegistry(repository *Repository, clock Clock, processID string) (*ActiveRegistry, error) {
@@ -94,7 +122,7 @@ func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publica
 	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
-	if registry.draining {
+	if registry.draining.Load() {
 		return ActiveStatus{}, servers.ErrStaleRevision
 	}
 	projected := registry.activeToolCountLocked() - int64(len(registry.servers[publication.Fence.ServerID].Tools)) + int64(len(publication.Candidate.Tools))
@@ -111,14 +139,23 @@ func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publica
 	if err != nil {
 		return ActiveStatus{}, err
 	}
+	if registry.afterCommit != nil {
+		registry.afterCommit()
+	}
+	if registry.draining.Load() {
+		return ActiveStatus{}, durableOnlyFailure(PublicationFailureDrain, servers.ErrStaleRevision)
+	}
 	if !publication.Current() {
-		registry.withdrawLocked(publication.Fence.ServerID, publication.RuntimeID, publication.RuntimeGeneration, contract.ActiveCatalogAbsent)
-		return ActiveStatus{}, servers.ErrStaleRevision
+		return ActiveStatus{}, durableOnlyFailure(PublicationFailureStale, servers.ErrStaleRevision)
+	}
+	if registry.beforeDescriptorRead != nil {
+		if err := registry.beforeDescriptorRead(); err != nil {
+			return ActiveStatus{}, durableOnlyFailure(PublicationFailureStorage, err)
+		}
 	}
 	records, err := registry.currentDescriptors(ctx, publication.Fence.ServerID)
 	if err != nil {
-		registry.withdrawLocked(publication.Fence.ServerID, publication.RuntimeID, publication.RuntimeGeneration, contract.ActiveCatalogUnavailable)
-		return ActiveStatus{}, err
+		return ActiveStatus{}, durableOnlyFailure(PublicationFailureStorage, err)
 	}
 	bindings := make(map[string][]HeaderBinding, len(publication.Candidate.Tools))
 	for _, tool := range publication.Candidate.Tools {
@@ -135,10 +172,15 @@ func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publica
 	if registry.beforeInstall != nil {
 		registry.beforeInstall()
 	}
+	if registry.draining.Load() {
+		return ActiveStatus{}, durableOnlyFailure(PublicationFailureDrain, servers.ErrStaleRevision)
+	}
+	if !publication.Current() {
+		return ActiveStatus{}, durableOnlyFailure(PublicationFailureStale, servers.ErrStaleRevision)
+	}
 	oldRoutes, err := registry.routes.replace(publication, tools, revision)
 	if err != nil {
-		registry.withdrawLocked(publication.Fence.ServerID, publication.RuntimeID, publication.RuntimeGeneration, contract.ActiveCatalogUnavailable)
-		return ActiveStatus{}, err
+		return ActiveStatus{}, durableOnlyFailure(PublicationFailureStorage, err)
 	}
 	snapshot := activeServerSnapshot{
 		RuntimeID: publication.RuntimeID, RuntimeGeneration: publication.RuntimeGeneration,
@@ -157,8 +199,14 @@ func (registry *ActiveRegistry) MarkStale(serverID, runtimeID string, issueCount
 }
 
 func (registry *ActiveRegistry) MarkStaleExact(serverID, runtimeID string, runtimeGeneration uint64, issueCount int64) bool {
+	if registry.draining.Load() {
+		return false
+	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
+	if registry.draining.Load() {
+		return false
+	}
 	current, ok := registry.servers[serverID]
 	if !ok || current.RuntimeID != runtimeID || runtimeGeneration != 0 && current.RuntimeGeneration != runtimeGeneration || current.State == contract.ActiveCatalogAbsent || current.State == contract.ActiveCatalogUnavailable {
 		return false
@@ -178,11 +226,14 @@ func (registry *ActiveRegistry) Withdraw(serverID, runtimeID string, state contr
 }
 
 func (registry *ActiveRegistry) WithdrawExact(serverID, runtimeID string, runtimeGeneration uint64, state contract.ActiveCatalogState) bool {
-	if state != contract.ActiveCatalogAbsent && state != contract.ActiveCatalogUnavailable {
+	if registry.draining.Load() || state != contract.ActiveCatalogAbsent && state != contract.ActiveCatalogUnavailable {
 		return false
 	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
+	if registry.draining.Load() {
+		return false
+	}
 	return registry.withdrawLocked(serverID, runtimeID, runtimeGeneration, state)
 }
 
@@ -191,11 +242,14 @@ func (registry *ActiveRegistry) MarkUnavailable(serverID, runtimeID string, issu
 }
 
 func (registry *ActiveRegistry) MarkUnavailableExact(serverID, runtimeID string, runtimeGeneration uint64, issueCount int64) bool {
-	if runtimeID == "" || issueCount < 0 {
+	if registry.draining.Load() || runtimeID == "" || issueCount < 0 {
 		return false
 	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
+	if registry.draining.Load() {
+		return false
+	}
 	current, ok := registry.servers[serverID]
 	if ok && (current.RuntimeID != runtimeID || runtimeGeneration != 0 && current.RuntimeGeneration != runtimeGeneration) {
 		return false
@@ -221,12 +275,10 @@ func (registry *ActiveRegistry) MarkUnavailableExact(serverID, runtimeID string,
 func (registry *ActiveRegistry) Routes() *RouteRegistry { return registry.routes }
 
 func (registry *ActiveRegistry) Drain() {
-	registry.mu.Lock()
-	if registry.draining {
-		registry.mu.Unlock()
+	if !registry.draining.CompareAndSwap(false, true) {
 		return
 	}
-	registry.draining = true
+	registry.mu.Lock()
 	oldRoutes := registry.routes.withdrawAll()
 	changed := false
 	for serverID, snapshot := range registry.servers {
@@ -249,7 +301,7 @@ func (registry *ActiveRegistry) Drain() {
 func (registry *ActiveRegistry) revalidate(_ context.Context, binding downstream.Binding) downstream.Availability {
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
-	if registry.draining {
+	if registry.draining.Load() {
 		return downstream.Draining
 	}
 	snapshot, ok := registry.servers[binding.ServerID]
