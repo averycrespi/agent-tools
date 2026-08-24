@@ -86,8 +86,11 @@ func (call *Call) Execute(ctx context.Context) CallResult {
 		_ = call.requestCancellation(context.Background())
 	})
 	response, err := call.perform(executeCtx)
-	if err == nil && executeCtx.Err() != nil {
-		err = executeCtx.Err()
+	if executeCtx.Err() != nil {
+		_ = call.requestCancellation(context.Background())
+		if err == nil {
+			err = executeCtx.Err()
+		}
 	}
 	handedOff := call.finish(true)
 	stopCancellationWatch()
