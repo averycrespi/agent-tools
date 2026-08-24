@@ -145,6 +145,29 @@ func (registry *ActiveRegistry) Withdraw(serverID, runtimeID string, state contr
 	return registry.withdrawLocked(serverID, runtimeID, state)
 }
 
+func (registry *ActiveRegistry) MarkUnavailable(serverID, runtimeID string, issueCount int64) bool {
+	if runtimeID == "" || issueCount < 0 {
+		return false
+	}
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	current, ok := registry.servers[serverID]
+	if ok && current.RuntimeID != runtimeID {
+		return false
+	}
+	if current.State == contract.ActiveCatalogUnavailable && current.Revision == nil && len(current.Tools) == 0 && current.IssueCount == issueCount {
+		return true
+	}
+	current.RuntimeID = runtimeID
+	current.State = contract.ActiveCatalogUnavailable
+	current.Revision = nil
+	current.Tools = nil
+	current.IssueCount = issueCount
+	registry.servers[serverID] = current
+	registry.advanceLocked()
+	return true
+}
+
 func (registry *ActiveRegistry) Status(serverID string) ActiveStatus {
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
@@ -234,7 +257,15 @@ func (registry *ActiveRegistry) currentDescriptors(ctx context.Context, serverID
 
 func (registry *ActiveRegistry) withdrawLocked(serverID, runtimeID string, state contract.ActiveCatalogState) bool {
 	current, ok := registry.servers[serverID]
-	if !ok || current.RuntimeID != runtimeID {
+	if !ok {
+		if state != contract.ActiveCatalogUnavailable || runtimeID == "" {
+			return false
+		}
+		registry.servers[serverID] = activeServerSnapshot{RuntimeID: runtimeID, State: state}
+		registry.advanceLocked()
+		return true
+	}
+	if current.RuntimeID != runtimeID {
 		return false
 	}
 	if current.State == state && len(current.Tools) == 0 && current.Revision == nil {

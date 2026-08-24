@@ -297,7 +297,7 @@ func (handler *Handler) serverResource(ctx context.Context, stored serverdomain.
 	if runtime.CredentialState != "" && (!transportRequiresCredential(transport) || runtime.CredentialState != contract.ServerCredentialNotRequired) {
 		credentialState = runtime.CredentialState
 	}
-	durableCatalog := contract.ServerCatalog{DurableState: contract.DurableCatalogEmpty, ActiveState: runtime.CatalogState, Traversal: contract.LimitStatus{Limit: 1}}
+	durableCatalog := contract.ServerCatalog{DurableState: contract.DurableCatalogEmpty, ActiveState: runtime.CatalogState, Traversal: handler.catalogTraversal(stored.ID)}
 	if handler.activeCatalog != nil {
 		active := handler.activeCatalog.Status(stored.ID)
 		durableCatalog.ActiveState = active.State

@@ -340,6 +340,61 @@ func establishActiveRuntime(t *testing.T, manager *Manager, driver *lifecycleDri
 	return candidate
 }
 
+type refreshCatalog struct {
+	refreshStarted chan Candidate
+	release        chan CatalogOutcome
+	withdrawn      chan Candidate
+}
+
+func newRefreshCatalog() *refreshCatalog {
+	return &refreshCatalog{refreshStarted: make(chan Candidate, 4), release: make(chan CatalogOutcome, 4), withdrawn: make(chan Candidate, 4)}
+}
+func (catalog *refreshCatalog) Activate(context.Context, Candidate) CatalogOutcome {
+	return CatalogOutcome{State: contract.ActiveCatalogCurrent}
+}
+func (catalog *refreshCatalog) Refresh(_ context.Context, candidate Candidate) CatalogOutcome {
+	catalog.refreshStarted <- candidate
+	return <-catalog.release
+}
+func (catalog *refreshCatalog) Withdraw(candidate Candidate, _ contract.ActiveCatalogState) {
+	catalog.withdrawn <- candidate
+}
+
+func TestManagerRefreshCatalogOperationSkipsLifecycleAndCompletesAttachedWork(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	publisher := newRecordingPublisher()
+	catalog := newRefreshCatalog()
+	manager, err := New(Options{Repository: repository, Driver: driver, Publisher: publisher, Catalog: catalog})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	active := establishActiveRuntime(t, manager, driver, publisher, serverID)
+	operation, err := repository.CreateOperation(context.Background(), servers.OperationRequest{ServerID: serverID, Kind: contract.OperationRefreshCatalog, ExpectedDesiredRevision: "1"})
+	require.NoError(t, err)
+	manager.Trigger(serverID, &operation.Operation.ID, false)
+	assert.Equal(t, active.RuntimeID, receiveCandidate(t, catalog.refreshStarted).RuntimeID)
+	assert.Equal(t, contract.OperationRunning, (<-repository.transitions).State)
+	select {
+	case event := <-publisher.events:
+		t.Fatalf("refresh unexpectedly changed runtime publication: %s", event.step)
+	default:
+	}
+	catalog.release <- CatalogOutcome{State: contract.ActiveCatalogCurrent}
+	terminal := <-repository.transitions
+	assert.Equal(t, contract.OperationSucceeded, terminal.State)
+	assert.Equal(t, contract.RuntimeActive, manager.Status(serverID).State)
+	assert.Equal(t, contract.ActiveCatalogCurrent, manager.Status(serverID).CatalogState)
+	select {
+	case <-driver.stopping:
+		t.Fatal("refresh unexpectedly stopped the runtime")
+	default:
+	}
+}
+
 func TestManagerWithdrawsAndVerifiesStopBeforeReplacementPublicationAndSuccess(t *testing.T) {
 	repository := newFakeRepository(1)
 	driver := newLifecycleDriver()

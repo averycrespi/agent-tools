@@ -81,43 +81,45 @@ type RuntimeStatus struct {
 }
 
 type Options struct {
-	Credentials    CredentialService
-	Sessions       SessionService
-	Backups        BackupService
-	Events         EventService
-	Invalidate     func(contract.Invalidation)
-	NewKeepalive   func() (<-chan time.Time, func())
-	Origin         string
-	Status         func() contract.SystemStatus
-	OAuthCallback  OAuthCallbackService
-	Servers        ServerService
-	AuthFlows      AuthFlowService
-	Replacements   CredentialReplacementService
-	Catalog        CatalogService
-	ActiveCatalog  ActiveCatalogService
-	OperationState OperationStateProvider
-	RuntimeStatus  func(string) RuntimeStatus
-	TriggerServer  func(string, *string, bool)
+	Credentials      CredentialService
+	Sessions         SessionService
+	Backups          BackupService
+	Events           EventService
+	Invalidate       func(contract.Invalidation)
+	NewKeepalive     func() (<-chan time.Time, func())
+	Origin           string
+	Status           func() contract.SystemStatus
+	OAuthCallback    OAuthCallbackService
+	Servers          ServerService
+	AuthFlows        AuthFlowService
+	Replacements     CredentialReplacementService
+	Catalog          CatalogService
+	ActiveCatalog    ActiveCatalogService
+	OperationState   OperationStateProvider
+	RuntimeStatus    func(string) RuntimeStatus
+	TriggerServer    func(string, *string, bool)
+	CatalogTraversal func(string) contract.LimitStatus
 }
 
 type Handler struct {
-	credentials     CredentialService
-	sessions        SessionService
-	backups         BackupService
-	events          EventService
-	invalidate      func(contract.Invalidation)
-	newKeepalive    func() (<-chan time.Time, func())
-	origin          string
-	status          func() contract.SystemStatus
-	callbackService OAuthCallbackService
-	servers         ServerService
-	authFlows       AuthFlowService
-	replacements    CredentialReplacementService
-	catalog         CatalogService
-	activeCatalog   ActiveCatalogService
-	operationState  OperationStateProvider
-	runtimeStatus   func(string) RuntimeStatus
-	triggerServer   func(string, *string, bool)
+	credentials      CredentialService
+	sessions         SessionService
+	backups          BackupService
+	events           EventService
+	invalidate       func(contract.Invalidation)
+	newKeepalive     func() (<-chan time.Time, func())
+	origin           string
+	status           func() contract.SystemStatus
+	callbackService  OAuthCallbackService
+	servers          ServerService
+	authFlows        AuthFlowService
+	replacements     CredentialReplacementService
+	catalog          CatalogService
+	activeCatalog    ActiveCatalogService
+	operationState   OperationStateProvider
+	runtimeStatus    func(string) RuntimeStatus
+	triggerServer    func(string, *string, bool)
+	catalogTraversal func(string) contract.LimitStatus
 }
 
 //go:embed static/*
@@ -157,7 +159,10 @@ func New(options Options) *Handler {
 			return RuntimeStatus{State: contract.RuntimeInactive, CatalogState: contract.ActiveCatalogAbsent, Reconciliation: limitStatus("per_server_reconciliation")}
 		}
 	}
-	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer}
+	if options.CatalogTraversal == nil {
+		options.CatalogTraversal = func(string) contract.LimitStatus { return contract.LimitStatus{Limit: 1} }
+	}
+	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {

@@ -191,6 +191,46 @@ func (repository *Repository) Commit(ctx context.Context, fence CommitFence, can
 	return status, mapStoreError(err)
 }
 
+func (repository *Repository) SetState(ctx context.Context, fence CommitFence, state contract.DurableCatalogState, issueCount int64) (DurableStatus, error) {
+	if state != contract.DurableCatalogStale && state != contract.DurableCatalogUnavailable && state != contract.DurableCatalogRetired || issueCount < 0 {
+		return DurableStatus{}, servers.ErrInvalidInput
+	}
+	var status DurableStatus
+	err := repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
+		if err := validateCommitFence(ctx, transaction, fence); err != nil {
+			return err
+		}
+		current, err := statusTx(ctx, transaction, fence.ServerID)
+		if err != nil {
+			return err
+		}
+		currentRevision := "0"
+		if current.Revision != nil {
+			currentRevision = *current.Revision
+		}
+		if currentRevision != fence.ExpectedCatalogRevision {
+			return servers.ErrStaleRevision
+		}
+		if _, err := transaction.ExecContext(ctx, `UPDATE server_catalogs SET durable_state = ?, issue_count = ? WHERE server_id = ?`, state, issueCount, fence.ServerID); err != nil {
+			return err
+		}
+		if _, err := transaction.ExecContext(ctx, `DELETE FROM server_catalog_issues WHERE server_id = ?`, fence.ServerID); err != nil {
+			return err
+		}
+		if issueCount > 0 {
+			if _, err := transaction.ExecContext(ctx, `INSERT INTO server_catalog_issues (server_id, catalog_revision, issue_class, occurrences) VALUES (?, ?, 'descriptor_invalid', ?)`, fence.ServerID, currentRevision, issueCount); err != nil {
+				return err
+			}
+		}
+		if _, err := transaction.ExecContext(ctx, `UPDATE gateway_meta SET revision = revision + 1 WHERE singleton = 1`); err != nil {
+			return err
+		}
+		status, err = statusTx(ctx, transaction, fence.ServerID)
+		return err
+	})
+	return status, mapStoreError(err)
+}
+
 func (repository *Repository) IdentityStatus(ctx context.Context) (contract.LimitStatus, error) {
 	var count int64
 	err := repository.store.View(ctx, func(transaction *sql.Tx) error {

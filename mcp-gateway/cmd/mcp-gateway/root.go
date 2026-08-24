@@ -132,6 +132,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if err != nil {
 		return false, err
 	}
+	catalogTraverser := catalog.NewTraverser()
 	eventHub := events.New()
 	defer eventHub.Shutdown()
 	runtimeManager, err := runtimes.New(runtimes.Options{Repository: serverRepository, Invalidate: eventHub.Publish})
@@ -222,7 +223,8 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 			status := runtimeManager.Status(serverID)
 			return api.RuntimeStatus{State: status.State, Reason: status.Reason, RuntimeID: status.RuntimeID, CredentialState: status.CredentialState, CatalogState: status.CatalogState, Reconciliation: status.Reconciliation}
 		},
-		TriggerServer: runtimeManager.Trigger,
+		TriggerServer:    runtimeManager.Trigger,
+		CatalogTraversal: func(string) contract.LimitStatus { return contract.LimitStatus{Limit: 1} },
 		Status: func() contract.SystemStatus {
 			current, identityErr := store.Identity(context.Background())
 			if identityErr != nil {
@@ -253,6 +255,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 				status.Limits.DurableToolIdentities = identities
 			}
 			status.Limits.ActiveTools = activeCatalog.Occupancy()
+			status.Limits.CatalogTraversals = catalogTraverser.Status()
 			status.Limits.AdminCredentials = credentials.Status(context.Background())
 			if candidates, candidateErr := keyringCoordinator.CandidateStatus(context.Background()); candidateErr == nil {
 				status.Limits.KeyringCandidates = candidates

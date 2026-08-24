@@ -50,6 +50,12 @@ type CatalogCoordinator interface {
 	Activate(context.Context, Candidate) CatalogOutcome
 }
 
+type CatalogRefresher interface {
+	CatalogCoordinator
+	Refresh(context.Context, Candidate) CatalogOutcome
+	Withdraw(Candidate, contract.ActiveCatalogState)
+}
+
 type CredentialLifecycle interface {
 	ReconcileCredentials(context.Context, servers.Operation, servers.Server, servers.AuthorityMetadata, contract.ServerCredentialState) (CredentialLifecycleOutcome, bool)
 }
@@ -340,6 +346,14 @@ func (manager *Manager) Fence(serverID string) {
 }
 
 func (manager *Manager) Trigger(serverID string, operationID *string, resetBackoff bool) {
+	if operationID != nil {
+		operation, err := manager.repository.GetOperation(context.Background(), *operationID)
+		refresher, supported := manager.catalog.(CatalogRefresher)
+		if err == nil && supported && operation.ServerID == serverID && operation.Kind == contract.OperationRefreshCatalog {
+			manager.triggerCatalogRefresh(serverID, *operationID, refresher)
+			return
+		}
+	}
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.draining {
@@ -359,6 +373,50 @@ func (manager *Manager) Trigger(serverID string, operationID *string, resetBacko
 		current.retryAttempt = 0
 	}
 	manager.startAvailableLocked()
+}
+
+func (manager *Manager) triggerCatalogRefresh(serverID, operationID string, refresher CatalogRefresher) {
+	manager.mu.Lock()
+	if manager.draining {
+		manager.mu.Unlock()
+		return
+	}
+	current := manager.entries[serverID]
+	if current == nil || current.active == nil || current.running || current.pending {
+		manager.mu.Unlock()
+		reason := contract.ReasonSuperseded
+		_, _ = manager.repository.TransitionOperation(context.Background(), operationID, contract.OperationFailed, &reason)
+		manager.publish(contract.InvalidationServerOperations, &operationID)
+		return
+	}
+	candidate := *cloneCandidate(current.active)
+	generation := current.generation
+	current.status.CatalogState = contract.ActiveCatalogRefreshing
+	manager.publish(contract.InvalidationServers, &serverID)
+	manager.mu.Unlock()
+	go manager.refreshCatalogOperation(serverID, generation, operationID, candidate, refresher)
+}
+
+func (manager *Manager) refreshCatalogOperation(serverID string, generation uint64, operationID string, candidate Candidate, refresher CatalogRefresher) {
+	if _, err := manager.transitionCurrent(serverID, generation, operationID, contract.OperationRunning, nil); err != nil {
+		return
+	}
+	outcome := refresher.Refresh(manager.ctx, candidate)
+	manager.mu.Lock()
+	current := manager.entries[serverID]
+	stillCurrent := current != nil && current.generation == generation && current.active != nil && current.active.RuntimeID == candidate.RuntimeID && !manager.draining
+	if stillCurrent {
+		current.status.CatalogState = outcome.State
+		manager.publish(contract.InvalidationServers, &serverID)
+	}
+	manager.mu.Unlock()
+	state := contract.OperationSucceeded
+	if !stillCurrent || outcome.State != contract.ActiveCatalogCurrent {
+		state = contract.OperationFailed
+	}
+	if _, err := manager.repository.TransitionOperation(context.Background(), operationID, state, outcome.Reason); err == nil {
+		manager.publish(contract.InvalidationServerOperations, &operationID)
+	}
 }
 
 func (manager *Manager) entryLocked(serverID string) *entry {
@@ -566,6 +624,9 @@ func (manager *Manager) stopPrevious(serverID string) bool {
 }
 
 func (manager *Manager) stopCandidate(candidate Candidate) bool {
+	if refresher, ok := manager.catalog.(CatalogRefresher); ok {
+		refresher.Withdraw(candidate, contract.ActiveCatalogUnavailable)
+	}
 	manager.publisher.Withdraw(candidate)
 	return manager.driver.Stop(context.Background(), candidate)
 }
@@ -579,6 +640,19 @@ func (manager *Manager) rememberBlockedStop(serverID string, candidate Candidate
 
 func sameFence(server servers.Server, authority servers.AuthorityMetadata, current servers.Server, currentAuthority servers.AuthorityMetadata) bool {
 	return server.DesiredState == current.DesiredState && bytes.Equal(server.Transport, current.Transport) && authority.RegistrationRevision == currentAuthority.RegistrationRevision && authority.CredentialRevisions == currentAuthority.CredentialRevisions
+}
+
+func (manager *Manager) Current(candidate Candidate) bool {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	current := manager.entries[candidate.Server.ID]
+	if current == nil || current.generation != candidate.Generation || manager.draining {
+		return false
+	}
+	if current.active != nil {
+		return current.active.RuntimeID == candidate.RuntimeID
+	}
+	return current.running
 }
 
 func (manager *Manager) current(serverID string, generation, drainEpoch uint64) bool {
@@ -907,6 +981,9 @@ func (manager *Manager) Drain(ctx context.Context) <-chan DrainResult {
 }
 
 func (manager *Manager) Shutdown() {
+	if catalog, ok := manager.catalog.(interface{ Shutdown() }); ok {
+		catalog.Shutdown()
+	}
 	manager.Drain(context.Background())
 }
 
