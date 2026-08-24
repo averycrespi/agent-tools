@@ -184,6 +184,25 @@ func TestHTTPTransportCloseCancelsBlockedResponse(t *testing.T) {
 	close(release)
 }
 
+func TestHTTPTransportCloseReportsUnconfirmedWhenActiveWorkOutlivesContext(t *testing.T) {
+	endpoint, err := remote.ParseEndpoint("http://127.0.0.1/mcp", true)
+	require.NoError(t, err)
+	transport, err := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "")
+	require.NoError(t, err)
+	transport.mu.Lock()
+	transport.active = 1
+	transport.idle = make(chan struct{})
+	transport.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.ErrorIs(t, transport.Close(ctx), ErrStopUnconfirmed)
+	transport.mu.Lock()
+	transport.active = 0
+	close(transport.idle)
+	transport.mu.Unlock()
+	require.NoError(t, transport.Close(context.Background()))
+}
+
 func TestSSEParsingBoundsOneJSONEvent(t *testing.T) {
 	value, err := parseSSE([]byte("event: message\ndata: {\"ok\":true}\n\n"))
 	require.NoError(t, err)

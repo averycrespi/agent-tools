@@ -304,6 +304,8 @@ type HTTPTransport struct {
 	auth       string
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
+	active     int
+	idle       chan struct{}
 	closed     bool
 }
 
@@ -333,10 +335,20 @@ func (transport *HTTPTransport) exchange(ctx context.Context, message Message) (
 	}
 	exchangeCtx, cancel := context.WithCancel(ctx)
 	stopRootCancel := context.AfterFunc(transport.rootCtx, cancel)
+	if transport.active == 0 {
+		transport.idle = make(chan struct{})
+	}
+	transport.active++
 	transport.mu.Unlock()
 	defer func() {
 		stopRootCancel()
 		cancel()
+		transport.mu.Lock()
+		transport.active--
+		if transport.active == 0 {
+			close(transport.idle)
+		}
+		transport.mu.Unlock()
 	}()
 	header := make(http.Header)
 	header.Set("Content-Type", contract.MediaTypeJSON)
@@ -386,12 +398,26 @@ func (transport *HTTPTransport) exchange(ctx context.Context, message Message) (
 	return WireResponse{StatusCode: response.StatusCode, ContentType: contentType, Body: body, SessionIDs: append([]string(nil), response.Header.Values("Mcp-Session-Id")...)}, nil
 }
 
-func (transport *HTTPTransport) Close(context.Context) error {
+func (transport *HTTPTransport) Close(ctx context.Context) error {
 	transport.mu.Lock()
-	defer transport.mu.Unlock()
+	if transport.closed && transport.active == 0 {
+		transport.mu.Unlock()
+		return nil
+	}
 	transport.closed = true
 	transport.rootCancel()
-	return nil
+	idle := transport.idle
+	active := transport.active
+	transport.mu.Unlock()
+	if active == 0 {
+		return nil
+	}
+	select {
+	case <-idle:
+		return nil
+	case <-ctx.Done():
+		return ErrStopUnconfirmed
+	}
 }
 
 func parseSSE(contents []byte) ([]byte, error) {
