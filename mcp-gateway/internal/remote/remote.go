@@ -53,11 +53,12 @@ type Factory struct {
 }
 
 type Request struct {
-	Endpoint Endpoint
-	Method   string
-	Header   http.Header
-	Body     []byte
-	MaxBody  int64
+	Endpoint        Endpoint
+	Method          string
+	Header          http.Header
+	Body            []byte
+	MaxBody         int64
+	BeforeRoundTrip func()
 }
 
 type Response struct {
@@ -183,6 +184,14 @@ func (factory *Factory) Open(ctx context.Context, request Request) (*OpenRespons
 		return nil, ErrInvalidURL
 	}
 	httpRequest.Header = cloneHeader(request.Header)
+	if err := requestCtx.Err(); err != nil {
+		cancel()
+		transport.CloseIdleConnections()
+		return nil, err
+	}
+	if request.BeforeRoundTrip != nil {
+		request.BeforeRoundTrip()
+	}
 	response, err := client.Do(httpRequest)
 	if err != nil {
 		cancel()

@@ -34,6 +34,7 @@ type Message struct {
 	Name             string
 	SessionID        string
 	ParameterHeaders map[string]string
+	MarkHandoff      func()
 }
 
 type WireResponse struct {
@@ -43,7 +44,15 @@ type WireResponse struct {
 	SessionIDs  []string
 }
 
+type TransportKind string
+
+const (
+	TransportStdio TransportKind = "stdio"
+	TransportHTTP  TransportKind = "http"
+)
+
 type Transport interface {
+	Kind() TransportKind
 	Exchange(context.Context, Message) (WireResponse, error)
 	Notify(context.Context, Message) (WireResponse, error)
 	Close(context.Context) error
@@ -85,6 +94,8 @@ type RequestOptions struct {
 	Name             string
 	SessionID        string
 	ParameterHeaders map[string]string
+	RequestID        func(uint64)
+	MarkHandoff      func()
 }
 
 type responseEnvelope struct {
@@ -139,7 +150,10 @@ func (coordinator *Coordinator) rawRequest(ctx context.Context, method string, p
 	if err != nil || int64(len(payload)) > limit("downstream_mcp_body_bytes") {
 		return 0, WireResponse{}, ErrInvalidMessage
 	}
-	wire, err := coordinator.transport.Exchange(ctx, Message{Payload: payload, Method: method, ProtocolVersion: options.ProtocolVersion, Name: options.Name, SessionID: options.SessionID, ParameterHeaders: options.ParameterHeaders})
+	if options.RequestID != nil {
+		options.RequestID(requestID)
+	}
+	wire, err := coordinator.transport.Exchange(ctx, Message{Payload: payload, Method: method, ProtocolVersion: options.ProtocolVersion, Name: options.Name, SessionID: options.SessionID, ParameterHeaders: options.ParameterHeaders, MarkHandoff: options.MarkHandoff})
 	return requestID, wire, err
 }
 
@@ -177,6 +191,8 @@ func decodeResponse(requestID uint64, raw []byte) (Response, error) {
 	return Response{Result: append(json.RawMessage(nil), response.Result...), Error: cloneRPCError(response.Error)}, nil
 }
 
+func (coordinator *Coordinator) Kind() TransportKind { return coordinator.transport.Kind() }
+
 func (coordinator *Coordinator) Close(ctx context.Context) error {
 	coordinator.mu.Lock()
 	if coordinator.closed {
@@ -209,9 +225,17 @@ func NewStdioTransport(runtime StdioRuntime) (*StdioTransport, error) {
 	return &StdioTransport{runtime: runtime}, nil
 }
 
+func (*StdioTransport) Kind() TransportKind { return TransportStdio }
+
 func (transport *StdioTransport) Exchange(ctx context.Context, message Message) (WireResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return WireResponse{}, err
+	}
 	transport.exchangeMu.Lock()
 	defer transport.exchangeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return WireResponse{}, err
+	}
 	if err := transport.writeMessage(message); err != nil {
 		return WireResponse{}, err
 	}
@@ -226,9 +250,15 @@ func (transport *StdioTransport) Exchange(ctx context.Context, message Message) 
 	}
 }
 
-func (transport *StdioTransport) Notify(_ context.Context, message Message) (WireResponse, error) {
+func (transport *StdioTransport) Notify(ctx context.Context, message Message) (WireResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return WireResponse{}, err
+	}
 	transport.exchangeMu.Lock()
 	defer transport.exchangeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return WireResponse{}, err
+	}
 	if err := transport.writeMessage(message); err != nil {
 		return WireResponse{}, err
 	}
@@ -242,7 +272,12 @@ func (transport *StdioTransport) writeMessage(message Message) error {
 	if closed || int64(len(message.Payload)) > limit("stdio_protocol_frame_bytes") || bytes.ContainsRune(message.Payload, '\n') {
 		return ErrTransportClosed
 	}
-	if _, err := transport.runtime.Input().Write(append(append([]byte(nil), message.Payload...), '\n')); err != nil {
+	if message.MarkHandoff != nil {
+		message.MarkHandoff()
+	}
+	frame := append(append([]byte(nil), message.Payload...), '\n')
+	written, err := transport.runtime.Input().Write(frame)
+	if err != nil || written != len(frame) {
 		return ErrTransportClosed
 	}
 	return nil
@@ -279,6 +314,8 @@ func NewHTTPTransport(factory *remote.Factory, endpoint remote.Endpoint, authori
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	return &HTTPTransport{factory: factory, endpoint: endpoint, auth: authorization, rootCtx: rootCtx, rootCancel: rootCancel}, nil
 }
+
+func (*HTTPTransport) Kind() TransportKind { return TransportHTTP }
 
 func (transport *HTTPTransport) Exchange(ctx context.Context, message Message) (WireResponse, error) {
 	return transport.exchange(ctx, message)
@@ -330,7 +367,7 @@ func (transport *HTTPTransport) exchange(ctx context.Context, message Message) (
 		seenParameters[folded] = struct{}{}
 		header.Set("Mcp-Param-"+name, value)
 	}
-	response, err := transport.factory.Open(exchangeCtx, remote.Request{Endpoint: transport.endpoint, Method: http.MethodPost, Header: header, Body: message.Payload, MaxBody: limit("downstream_mcp_body_bytes")})
+	response, err := transport.factory.Open(exchangeCtx, remote.Request{Endpoint: transport.endpoint, Method: http.MethodPost, Header: header, Body: message.Payload, MaxBody: limit("downstream_mcp_body_bytes"), BeforeRoundTrip: message.MarkHandoff})
 	if err != nil {
 		return WireResponse{}, err
 	}

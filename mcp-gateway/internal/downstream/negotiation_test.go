@@ -23,6 +23,7 @@ import (
 
 type scriptedTransport struct {
 	mu            sync.Mutex
+	kind          TransportKind
 	exchanges     []func(Message) WireResponse
 	messages      []Message
 	notifications []Message
@@ -30,7 +31,17 @@ type scriptedTransport struct {
 	closed        bool
 }
 
+func (transport *scriptedTransport) Kind() TransportKind {
+	if transport.kind == "" {
+		return TransportStdio
+	}
+	return transport.kind
+}
+
 func (transport *scriptedTransport) Exchange(_ context.Context, message Message) (WireResponse, error) {
+	if message.MarkHandoff != nil {
+		message.MarkHandoff()
+	}
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
 	transport.messages = append(transport.messages, message)

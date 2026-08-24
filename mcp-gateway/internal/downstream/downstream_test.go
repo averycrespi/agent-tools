@@ -22,6 +22,7 @@ type captureTransport struct {
 	respond func(requestEnvelope) []byte
 }
 
+func (*captureTransport) Kind() TransportKind { return TransportStdio }
 func (transport *captureTransport) Exchange(_ context.Context, message Message) (WireResponse, error) {
 	transport.message = message
 	var request requestEnvelope

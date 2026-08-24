@@ -66,6 +66,22 @@ func TestFactoryPinsFreshValidatedAddressAndRejectsReservedAnswers(t *testing.T)
 	assert.EqualError(t, err, "stop")
 }
 
+func TestFactoryMarksImmediatelyBeforeRoundTripperHandoff(t *testing.T) {
+	endpoint, err := ParseEndpoint("https://example.com/mcp", false)
+	require.NoError(t, err)
+	var marked atomic.Bool
+	factory := New(Options{
+		Resolver: fixedResolver{addresses: []netip.Addr{netip.MustParseAddr("93.184.216.34")}},
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			assert.True(t, marked.Load(), "dial began before RoundTripper handoff marker")
+			return nil, errors.New("dial stopped")
+		},
+	})
+	_, err = factory.Exchange(context.Background(), Request{Endpoint: endpoint, Method: http.MethodPost, Header: http.Header{}, MaxBody: 16, BeforeRoundTrip: func() { marked.Store(true) }})
+	assert.Error(t, err)
+	assert.True(t, marked.Load())
+}
+
 func TestFactoryRetainsPlatformTLSVerification(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		_, _ = writer.Write([]byte(`{}`))

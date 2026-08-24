@@ -48,11 +48,13 @@ type Negotiator struct {
 }
 
 type Runtime struct {
-	mu          sync.Mutex
-	era         Era
-	coordinator *Coordinator
-	sessionID   string
-	closed      bool
+	mu           sync.Mutex
+	era          Era
+	coordinator  *Coordinator
+	sessionID    string
+	activeCalls  map[*Call]struct{}
+	callDeadline DeadlineFunc
+	closed       bool
 }
 
 type clientImplementation struct {
@@ -141,7 +143,7 @@ func (negotiator *Negotiator) Negotiate(ctx context.Context, mode Mode) (*Runtim
 		return nil, err
 	}
 	if selected {
-		return &Runtime{era: EraModern, coordinator: coordinator}, nil
+		return newRuntime(EraModern, coordinator, ""), nil
 	}
 	if mode != ModeAuto || !fallback {
 		_ = coordinator.Close(initializationCtx)
@@ -237,7 +239,11 @@ func negotiateLegacy(ctx context.Context, coordinator *Coordinator) (*Runtime, e
 		}
 		return nil, ErrSessionLost
 	}
-	return &Runtime{era: EraLegacy, coordinator: coordinator, sessionID: sessionID}, nil
+	return newRuntime(EraLegacy, coordinator, sessionID), nil
+}
+
+func newRuntime(era Era, coordinator *Coordinator, sessionID string) *Runtime {
+	return &Runtime{era: era, coordinator: coordinator, sessionID: sessionID, activeCalls: make(map[*Call]struct{}), callDeadline: context.WithTimeout}
 }
 
 func (runtime *Runtime) Era() Era {
@@ -294,8 +300,31 @@ func (runtime *Runtime) Close(ctx context.Context) error {
 	}
 	runtime.closed = true
 	coordinator := runtime.coordinator
+	calls := make([]*Call, 0, len(runtime.activeCalls))
+	for call := range runtime.activeCalls {
+		calls = append(calls, call)
+	}
 	runtime.mu.Unlock()
+	for _, call := range calls {
+		_ = call.requestCancellation(ctx)
+	}
 	return coordinator.Close(ctx)
+}
+
+func (runtime *Runtime) registerCall(call *Call) bool {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.closed {
+		return false
+	}
+	runtime.activeCalls[call] = struct{}{}
+	return true
+}
+
+func (runtime *Runtime) unregisterCall(call *Call) {
+	runtime.mu.Lock()
+	delete(runtime.activeCalls, call)
+	runtime.mu.Unlock()
 }
 
 func newModernMeta() modernMeta {
@@ -380,7 +409,8 @@ func validServerImplementation(raw json.RawMessage) bool {
 }
 
 func jsonObject(raw json.RawMessage) bool {
-	return len(raw) >= 2 && raw[0] == '{' && raw[len(raw)-1] == '}' && validJSON(raw)
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) >= 2 && trimmed[0] == '{' && trimmed[len(trimmed)-1] == '}' && validJSON(trimmed)
 }
 
 func containsExactVersion(values []string, expected string) bool {
