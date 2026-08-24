@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -145,6 +146,78 @@ func TestRepositoryStaleAndCapacityFailurePreservePriorSnapshot(t *testing.T) {
 	current, err := repository.ListDescriptors(context.Background(), server.ID, contract.DescriptorRetiredExclude, nil, 10)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"one"}, descriptorNames(current.Items))
+}
+
+func TestRepositoryRejectsEveryStaleAuthorityAndCatalogFenceWithoutMutation(t *testing.T) {
+	repository, serverRepository, _, _ := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	tests := map[string]func(*CommitFence){
+		"registration":      func(fence *CommitFence) { fence.ExpectedRegistrationRevision = "1" },
+		"static credential": func(fence *CommitFence) { fence.ExpectedCredentialRevisions.StaticCredential = "1" },
+		"oauth client":      func(fence *CommitFence) { fence.ExpectedCredentialRevisions.OAuthClient = "1" },
+		"oauth tokens":      func(fence *CommitFence) { fence.ExpectedCredentialRevisions.OAuthTokens = "1" },
+		"catalog":           func(fence *CommitFence) { fence.ExpectedCatalogRevision = "1" },
+	}
+	for name, change := range tests {
+		t.Run(name, func(t *testing.T) {
+			fence := catalogFence(server.ID, "0")
+			change(&fence)
+			_, err := repository.Commit(context.Background(), fence, candidateFor(t, server.ID, "sample", "one"))
+			assert.ErrorIs(t, err, servers.ErrStaleRevision)
+			status, statusErr := repository.Status(context.Background(), server.ID)
+			require.NoError(t, statusErr)
+			assert.Equal(t, DurableStatus{State: contract.DurableCatalogEmpty}, status)
+		})
+	}
+}
+
+func TestRepositoryCommitMarkerUncertaintyRecoversDurableSnapshot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "gateway")
+	require.NoError(t, os.Mkdir(root, 0o700))
+	ownership, err := gatewaypaths.Acquire(root)
+	require.NoError(t, err)
+	armed := false
+	store, err := storage.InitializeWithFaultInjection(context.Background(), ownership, catalogInstallationID, func(point storage.FaultPoint) error {
+		if armed && point == storage.FaultAfterCommit {
+			return errors.New("injected post-commit uncertainty")
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	clock := &catalogClock{now: catalogTime}
+	entropy := new(catalogEntropy)
+	serverRepository, err := servers.New(store, clock, entropy)
+	require.NoError(t, err)
+	repository, err := NewRepository(store, clock, entropy)
+	require.NoError(t, err)
+	server := createCatalogServer(t, serverRepository, "sample")
+	armed = true
+	_, err = repository.Commit(context.Background(), catalogFence(server.ID, "0"), candidateFor(t, server.ID, "sample", "one"))
+	assert.ErrorIs(t, err, servers.ErrStorageUnavailable)
+	assert.True(t, store.Latched())
+	require.NoError(t, store.Close())
+	require.NoError(t, ownership.Close())
+
+	_, err = storage.VerifyCurrent(context.Background(), root)
+	require.NoError(t, err)
+	reopenedOwnership, err := gatewaypaths.Acquire(root)
+	require.NoError(t, err)
+	reopened, err := storage.Open(context.Background(), reopenedOwnership)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = reopened.Close()
+		_ = reopenedOwnership.Close()
+	})
+	recovered, err := NewRepository(reopened, clock, entropy)
+	require.NoError(t, err)
+	status, err := recovered.Status(context.Background(), server.ID)
+	require.NoError(t, err)
+	require.NotNil(t, status.Revision)
+	assert.Equal(t, "1", *status.Revision)
+	assert.Equal(t, contract.DurableCatalogCurrent, status.State)
+	page, err := recovered.ListDescriptors(context.Background(), server.ID, contract.DescriptorRetiredExclude, nil, 10)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"one"}, descriptorNames(page.Items))
 }
 
 func TestRepositoryGlobalIdentityCapacityRejectsWithoutMutation(t *testing.T) {
