@@ -75,10 +75,17 @@ const (
 	RuntimeBlockedStop
 )
 
+type OAuthMaterialMetadata struct {
+	Scopes         []string
+	ScopeSpecified bool
+	ExpiresAt      *string
+}
+
 type MaterialLease struct {
 	mu          sync.Mutex
 	key         CandidateKey
 	values      map[contract.ServerCredentialKind][]byte
+	oauth       *OAuthMaterialMetadata
 	transferred bool
 	cleared     bool
 }
@@ -86,6 +93,7 @@ type MaterialLease struct {
 type materialBundle struct {
 	mu      sync.Mutex
 	values  map[contract.ServerCredentialKind][]byte
+	oauth   *OAuthMaterialMetadata
 	cleared bool
 }
 
@@ -117,6 +125,19 @@ func NewMaterialLease(key CandidateKey, values map[contract.ServerCredentialKind
 	return &MaterialLease{key: key, values: cloned}, nil
 }
 
+func NewOAuthMaterialLease(key CandidateKey, clientSecret, accessToken []byte, metadata OAuthMaterialMetadata) (*MaterialLease, error) {
+	values := map[contract.ServerCredentialKind][]byte{contract.ServerCredentialOAuthTokens: accessToken}
+	if len(clientSecret) != 0 {
+		values[contract.ServerCredentialOAuthClient] = clientSecret
+	}
+	lease, err := NewMaterialLease(key, values)
+	if err != nil {
+		return nil, err
+	}
+	lease.oauth = cloneOAuthMetadata(&metadata)
+	return lease, nil
+}
+
 func (lease *MaterialLease) transfer(key CandidateKey) (*materialBundle, bool) {
 	if lease == nil {
 		return &materialBundle{values: make(map[contract.ServerCredentialKind][]byte)}, true
@@ -126,8 +147,9 @@ func (lease *MaterialLease) transfer(key CandidateKey) (*materialBundle, bool) {
 	if lease.transferred || lease.cleared || lease.key != key {
 		return nil, false
 	}
-	bundle := &materialBundle{values: lease.values}
+	bundle := &materialBundle{values: lease.values, oauth: lease.oauth}
 	lease.values = nil
+	lease.oauth = nil
 	lease.transferred = true
 	return bundle, true
 }
@@ -154,6 +176,7 @@ func (lease *MaterialLease) Clear() bool {
 	}
 	clearMaterial(lease.values)
 	lease.values = nil
+	lease.oauth = nil
 	lease.cleared = true
 	return true
 }
@@ -168,6 +191,15 @@ func (bundle *materialBundle) material(kind contract.ServerCredentialKind) ([]by
 	return value, ok
 }
 
+func (bundle *materialBundle) oauthMetadata() (OAuthMaterialMetadata, bool) {
+	bundle.mu.Lock()
+	defer bundle.mu.Unlock()
+	if bundle.cleared || bundle.oauth == nil {
+		return OAuthMaterialMetadata{}, false
+	}
+	return *cloneOAuthMetadata(bundle.oauth), true
+}
+
 func (bundle *materialBundle) clear() bool {
 	bundle.mu.Lock()
 	defer bundle.mu.Unlock()
@@ -176,8 +208,19 @@ func (bundle *materialBundle) clear() bool {
 	}
 	clearMaterial(bundle.values)
 	bundle.values = nil
+	bundle.oauth = nil
 	bundle.cleared = true
 	return true
+}
+
+func cloneOAuthMetadata(value *OAuthMaterialMetadata) *OAuthMaterialMetadata {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	cloned.Scopes = append([]string(nil), value.Scopes...)
+	cloned.ExpiresAt = cloneString(value.ExpiresAt)
+	return &cloned
 }
 
 func clearMaterial(values map[contract.ServerCredentialKind][]byte) {
@@ -284,6 +327,16 @@ func (owner *RuntimeOwner) Material(key CandidateKey, kind contract.ServerCreden
 		return nil, false
 	}
 	return owned.material.material(kind)
+}
+
+func (owner *RuntimeOwner) OAuthMetadata(key CandidateKey) (OAuthMaterialMetadata, bool) {
+	owner.mu.Lock()
+	owned, ok := owner.owned[key]
+	owner.mu.Unlock()
+	if !ok {
+		return OAuthMaterialMetadata{}, false
+	}
+	return owned.material.oauthMetadata()
 }
 
 func (owner *RuntimeOwner) Release(key CandidateKey, verified bool) bool {

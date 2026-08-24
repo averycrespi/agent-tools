@@ -181,20 +181,21 @@ func TestResolverAcquiresPublicAndConfidentialOAuthMaterialOnce(t *testing.T) {
 			owner := runtimes.NewRuntimeOwner()
 			key, err := owner.Admit(candidate, outcome.Lease, nil)
 			require.NoError(t, err)
-			tokens, ok := owner.Material(key, contract.ServerCredentialOAuthTokens)
+			accessToken, ok := owner.Material(key, contract.ServerCredentialOAuthTokens)
 			require.True(t, ok)
-			decoded, err := oauth.DecodeTokenGeneration(tokens)
-			require.NoError(t, err)
-			assert.Equal(t, "access-canary", decoded.AccessToken)
-			assert.Equal(t, []string{"read"}, decoded.Scopes)
-			assert.True(t, decoded.ScopeSpecified)
+			assert.Equal(t, "access-canary", string(accessToken))
+			metadata, ok := owner.OAuthMetadata(key)
+			require.True(t, ok)
+			assert.Equal(t, []string{"read"}, metadata.Scopes)
+			assert.True(t, metadata.ScopeSpecified)
+			require.NotNil(t, metadata.ExpiresAt)
 			client, hasClient := owner.Material(key, contract.ServerCredentialOAuthClient)
 			assert.Equal(t, method != contract.TokenEndpointAuthNone, hasClient)
 			if hasClient {
 				assert.Equal(t, "client-canary", string(client))
 			}
 			assert.True(t, owner.Release(key, true))
-			assert.Equal(t, make([]byte, len(tokens)), tokens)
+			assert.Equal(t, make([]byte, len(accessToken)), accessToken)
 			if hasClient {
 				assert.Equal(t, make([]byte, len(client)), client)
 			}

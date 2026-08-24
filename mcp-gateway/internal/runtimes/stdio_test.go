@@ -86,6 +86,34 @@ func TestStdioFixtureProcess(t *testing.T) {
 	os.Exit(0)
 }
 
+func TestStdioSupervisorReapsPostSpawnSetupFailure(t *testing.T) {
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	supervisor := NewStdioSupervisor(nil)
+	var process *os.Process
+	supervisor.captureGroup = func(received *os.Process) (int, bool) {
+		process = received
+		return 0, false
+	}
+	defer func() {
+		if process != nil {
+			_ = process.Kill()
+			_, _ = process.Wait()
+		}
+	}()
+
+	_, err = supervisor.Start(context.Background(), StdioDefinition{
+		RuntimeID: "post-spawn-failure", Executable: executable,
+		Arguments:        []string{"-test.run=^TestStdioFixtureProcess$", "--", "ignore-term"},
+		WorkingDirectory: t.TempDir(), Environment: map[string]string{stdioFixtureMarker: "1"},
+	})
+
+	assert.ErrorIs(t, err, ErrStdioStartFailed)
+	require.NotNil(t, process)
+	assert.Error(t, process.Signal(syscall.Signal(0)))
+	assert.Equal(t, int64(0), supervisor.Status().InUse)
+}
+
 func TestStdioSupervisorExecutesExactPathWithCleanRuntimeEnvironment(t *testing.T) {
 	executable, err := os.Executable()
 	require.NoError(t, err)

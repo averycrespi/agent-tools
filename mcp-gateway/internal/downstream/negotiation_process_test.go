@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package downstream
+package downstream_test
 
 import (
 	"bufio"
@@ -12,17 +12,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type cancelAfterExchangeTransport struct {
-	Transport
+	downstream.Transport
 	cancel context.CancelFunc
 }
 
-func (transport cancelAfterExchangeTransport) Exchange(ctx context.Context, message Message) (WireResponse, error) {
+func (transport cancelAfterExchangeTransport) Exchange(ctx context.Context, message downstream.Message) (downstream.WireResponse, error) {
 	response, err := transport.Transport.Exchange(ctx, message)
 	transport.cancel()
 	return response, err
@@ -36,7 +37,7 @@ func TestRealProcessAutoFallbackRequiresProbeReapBeforeLegacyConstruction(t *tes
 	defer cancel()
 	var process *runtimes.StdioRuntime
 	opened := 0
-	negotiator, err := NewNegotiatorWithDeadline(func(context.Context) (*Coordinator, error) {
+	negotiator, err := downstream.NewNegotiatorWithDeadline(func(context.Context) (*downstream.Coordinator, error) {
 		opened++
 		if opened > 1 {
 			t.Fatal("legacy process constructed after unconfirmed probe reap")
@@ -51,17 +52,17 @@ func TestRealProcessAutoFallbackRequiresProbeReapBeforeLegacyConstruction(t *tes
 		if err != nil {
 			return nil, err
 		}
-		stdio, err := NewStdioTransport(process)
+		stdio, err := downstream.NewStdioTransport(process)
 		if err != nil {
 			return nil, err
 		}
-		return NewCoordinator(cancelAfterExchangeTransport{Transport: stdio, cancel: cancel})
+		return downstream.NewCoordinator(cancelAfterExchangeTransport{Transport: stdio, cancel: cancel})
 	}, func(context.Context, time.Duration) (context.Context, context.CancelFunc) {
 		return initializationCtx, func() {}
 	})
 	require.NoError(t, err)
-	_, err = negotiator.Negotiate(context.Background(), ModeAuto)
-	assert.ErrorIs(t, err, ErrStopUnconfirmed)
+	_, err = negotiator.Negotiate(context.Background(), downstream.ModeAuto)
+	assert.ErrorIs(t, err, downstream.ErrStopUnconfirmed)
 	assert.Equal(t, 1, opened)
 	require.NotNil(t, process)
 	select {

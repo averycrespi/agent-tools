@@ -137,6 +137,8 @@ func (supervisor *StdioSupervisor) Start(ctx context.Context, definition StdioDe
 		_ = stdin.Close()
 		_ = stdout.Close()
 		_ = stderr.Close()
+		_ = command.Process.Kill()
+		_, _ = command.Process.Wait()
 		supervisor.release(definition.RuntimeID, nil)
 		return nil, ErrStdioStartFailed
 	}
@@ -237,15 +239,16 @@ func (runtime *StdioRuntime) supervise(ctx context.Context) {
 		runtime.readStderr(ctx, stderrRate)
 	}()
 	go func() {
-		_ = runtime.command.Wait()
+		_, _ = runtime.command.Process.Wait()
+		_ = runtime.stdin.Close()
 		runtime.mu.Lock()
 		runtime.exited = true
 		runtime.mu.Unlock()
+		<-stdoutDone
+		<-stderrDone
 		runtime.cancel()
 		_ = runtime.stdout.Close()
 		_ = runtime.stderr.Close()
-		<-stdoutDone
-		<-stderrDone
 		runtime.mu.Lock()
 		reason := contract.ReasonProcessExited
 		if runtime.failure != nil {

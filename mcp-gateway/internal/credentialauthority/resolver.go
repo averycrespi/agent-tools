@@ -123,7 +123,7 @@ func (resolver *Resolver) resolveOAuth(ctx context.Context, candidate runtimes.C
 	if authority.OAuthTokensHandle == nil || authority.CredentialRevisions.OAuthTokens == "0" {
 		return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonCredentialAbsent, false)
 	}
-	materials := make(map[contract.ServerCredentialKind][]byte, 2)
+	var clientSecret []byte
 	if registration.TokenEndpointAuthMethod == contract.TokenEndpointAuthNone {
 		if authority.OAuthClientHandle != nil {
 			return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonCredentialAbsent, false)
@@ -144,7 +144,7 @@ func (resolver *Resolver) resolveOAuth(ctx context.Context, candidate runtimes.C
 		if !ok || len(secret) == 0 || !utf8.Valid(secret) || int64(len(secret)) > clientLimit.Maximum {
 			return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonOAuthRejected, false)
 		}
-		materials[contract.ServerCredentialOAuthClient] = secret
+		clientSecret = secret
 	}
 	contents, result, readErr := resolver.read(ctx, candidate.Server.ID, keyring.RecordOAuthTokens)
 	if readErr != nil {
@@ -167,8 +167,10 @@ func (resolver *Resolver) resolveOAuth(ctx context.Context, candidate runtimes.C
 	if !resolver.oauthCurrent(ctx, candidate, registration) {
 		return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonSuperseded, false)
 	}
-	materials[contract.ServerCredentialOAuthTokens] = contents
-	lease, err := runtimes.NewMaterialLease(candidate.Key(), materials)
+	accessToken := []byte(tokens.AccessToken)
+	defer clear(accessToken)
+	metadata := runtimes.OAuthMaterialMetadata{Scopes: tokens.Scopes, ScopeSpecified: tokens.ScopeSpecified, ExpiresAt: tokens.ExpiresAt}
+	lease, err := runtimes.NewOAuthMaterialLease(candidate.Key(), clientSecret, accessToken, metadata)
 	if err != nil {
 		return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonKeyringUnavailable, false)
 	}
