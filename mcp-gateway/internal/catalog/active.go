@@ -68,6 +68,16 @@ type ActivePage struct {
 	Next    *ActiveCursor
 }
 
+type CurrentGeneration struct {
+	ProcessGeneration string
+	ActiveGeneration  uint64
+}
+
+type CurrentSnapshot struct {
+	Generation  CurrentGeneration
+	Descriptors []contract.ToolDescriptor
+}
+
 type ActiveTool struct {
 	Record   DescriptorRecord
 	Bindings []HeaderBinding
@@ -369,6 +379,38 @@ func (registry *ActiveRegistry) Summary() contract.CatalogSummary {
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
 	return registry.summaryLocked()
+}
+
+func (registry *ActiveRegistry) CurrentSnapshot() CurrentSnapshot {
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	descriptors := make([]contract.ToolDescriptor, 0, registry.activeToolCountLocked())
+	if !registry.draining.Load() {
+		for _, snapshot := range registry.servers {
+			if snapshot.State != contract.ActiveCatalogCurrent {
+				continue
+			}
+			for _, tool := range snapshot.Tools {
+				descriptors = append(descriptors, cloneDescriptorRecord(tool.Record).Resource)
+			}
+		}
+	}
+	sort.Slice(descriptors, func(left, right int) bool {
+		if descriptors[left].ExternalName != descriptors[right].ExternalName {
+			return descriptors[left].ExternalName < descriptors[right].ExternalName
+		}
+		return descriptors[left].ID < descriptors[right].ID
+	})
+	return CurrentSnapshot{
+		Generation:  CurrentGeneration{ProcessGeneration: registry.processID, ActiveGeneration: registry.counter},
+		Descriptors: descriptors,
+	}
+}
+
+func (registry *ActiveRegistry) IsCurrentGeneration(generation CurrentGeneration) bool {
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	return !registry.draining.Load() && generation.ProcessGeneration == registry.processID && generation.ActiveGeneration == registry.counter
 }
 
 func (registry *ActiveRegistry) Occupancy() contract.LimitStatus {
