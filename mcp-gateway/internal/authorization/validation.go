@@ -26,15 +26,19 @@ func (repository *Repository) ValidateStartup(ctx context.Context, targets Store
 		return errorsInvalidState("grant-target inspector is unavailable")
 	}
 	return repository.view(ctx, func(transaction *sql.Tx) error {
-		if err := validateSingletons(ctx, transaction, targets); err != nil {
-			return err
-		}
-		principalIDs, err := validatePrincipals(ctx, transaction)
-		if err != nil {
-			return err
-		}
-		return validateGrants(ctx, transaction, targets, principalIDs)
+		return validateAuthorityTx(ctx, transaction, targets)
 	})
+}
+
+func validateAuthorityTx(ctx context.Context, transaction *sql.Tx, targets StoredGrantTargetInspector) error {
+	if err := validateSingletons(ctx, transaction, targets); err != nil {
+		return err
+	}
+	principalIDs, err := validatePrincipals(ctx, transaction)
+	if err != nil {
+		return err
+	}
+	return validateGrants(ctx, transaction, targets, principalIDs)
 }
 
 func validateSingletons(ctx context.Context, transaction *sql.Tx, targets StoredGrantTargetInspector) error {
