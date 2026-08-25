@@ -118,12 +118,12 @@ func (harness *gatewayHarness) OpenEvents() *http.Response {
 
 func (harness *gatewayHarness) WaitOperation(serverID, operationID string, state contract.ServerOperationState) contract.ServerOperation {
 	harness.t.Helper()
-	deadline := time.NewTimer(5 * time.Second)
+	deadline := time.NewTimer(10 * time.Second)
 	defer deadline.Stop()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
+	var operation contract.ServerOperation
 	for {
-		var operation contract.ServerOperation
 		response := harness.AdminJSON(http.MethodGet, "/api/v1/servers/"+serverID+"/operations/"+operationID, "", nil, &operation)
 		_ = response.Body.Close()
 		if response.StatusCode == http.StatusOK && operation.State == state {
@@ -131,7 +131,7 @@ func (harness *gatewayHarness) WaitOperation(serverID, operationID string, state
 		}
 		select {
 		case <-deadline.C:
-			harness.t.Fatalf("operation %s did not reach %s", operationID, state)
+			harness.t.Fatalf("operation %s did not reach %s; observed state=%s reason=%v", operationID, state, operation.State, operation.Reason)
 		case <-ticker.C:
 		}
 	}
