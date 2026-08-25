@@ -37,7 +37,7 @@ func (repository *Repository) CreateGrant(
 	}
 	createdAt := formatAuthorizationTime(now)
 	var grant contract.Grant
-	err = repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
+	err = repository.mutateAuthorityTx(ctx, "", func(transaction *sql.Tx) error {
 		if _, err := principalByIDTx(ctx, transaction, request.PrincipalID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrInvalidInput
@@ -88,7 +88,7 @@ func (repository *Repository) DeleteGrant(ctx context.Context, grantID string) e
 	if !validOpaqueID(grantID) {
 		return ErrNotFound
 	}
-	err := repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
+	err := repository.mutateAuthorityTx(ctx, "", func(transaction *sql.Tx) error {
 		if _, _, err := scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), repository.clock.Now()); err != nil {
 			return err
 		}

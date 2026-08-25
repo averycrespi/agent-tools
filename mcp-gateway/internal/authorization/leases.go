@@ -2,6 +2,7 @@ package authorization
 
 import (
 	"context"
+	"database/sql"
 	"sync"
 	"sync/atomic"
 
@@ -138,16 +139,56 @@ func (registry *authorityRegistry) remove(lease *Lease) {
 }
 
 func (registry *authorityRegistry) cancelPending() {
+	registry.cancelMatching(func(*Lease) bool { return true })
+}
+
+func (registry *authorityRegistry) cancelPrincipal(principalID string) {
+	registry.cancelMatching(func(lease *Lease) bool { return lease.binding.PrincipalID == principalID })
+}
+
+func (registry *authorityRegistry) cancelMatching(matches func(*Lease) bool) {
 	registry.mu.Lock()
 	leases := make([]*Lease, 0, len(registry.leases))
 	for lease := range registry.leases {
-		delete(registry.leases, lease)
-		leases = append(leases, lease)
+		if matches(lease) {
+			delete(registry.leases, lease)
+			leases = append(leases, lease)
+		}
 	}
 	registry.mu.Unlock()
 	for _, lease := range leases {
 		lease.cancel()
 	}
+}
+
+func (repository *Repository) mutateAuthorityTx(ctx context.Context, affectedPrincipalID string, mutate func(*sql.Tx) error) error {
+	return repository.mutateAuthority(ctx, affectedPrincipalID, func() error {
+		return repository.store.Mutate(ctx, mutate)
+	})
+}
+
+func (repository *Repository) mutateCredentialCandidate(
+	ctx context.Context,
+	affectedPrincipalID string,
+	candidate storage.AgentCredentialCandidate,
+	mutate func(*sql.Tx) error,
+) error {
+	return repository.mutateAuthority(ctx, affectedPrincipalID, func() error {
+		return repository.store.MutateAgentCredentialCandidate(ctx, candidate, mutate)
+	})
+}
+
+func (repository *Repository) mutateAuthority(ctx context.Context, affectedPrincipalID string, mutate func() error) error {
+	releaseGate, err := repository.authority.tryAcquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer releaseGate()
+	err = mutate()
+	if affectedPrincipalID != "" && (err == nil || repository.store.Latched()) {
+		repository.authority.cancelPrincipal(affectedPrincipalID)
+	}
+	return err
 }
 
 func (repository *Repository) Drain(ctx context.Context) error {

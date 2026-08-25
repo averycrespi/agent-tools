@@ -30,7 +30,7 @@ func (repository *Repository) CreatePrincipal(ctx context.Context, request Creat
 	}
 	timestamp := formatAuthorizationTime(now)
 	var creation contract.PrincipalCreation
-	err = repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
+	err = repository.mutateAuthorityTx(ctx, "", func(transaction *sql.Tx) error {
 		if err := checkPrincipalCreationCapacity(ctx, transaction); err != nil {
 			return err
 		}
@@ -87,7 +87,7 @@ func (repository *Repository) PatchPrincipal(ctx context.Context, principalID st
 		return contract.Principal{}, ErrInvalidInput
 	}
 	var updated contract.Principal
-	err = repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
+	err = repository.mutateAuthorityTx(ctx, principalID, func(transaction *sql.Tx) error {
 		current, err := principalByIDTx(ctx, transaction, principalID)
 		if err != nil {
 			return err

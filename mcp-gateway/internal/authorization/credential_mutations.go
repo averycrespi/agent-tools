@@ -50,7 +50,7 @@ func (repository *Repository) IssueCredential(
 	candidatePrincipalRevision := expected + 1
 	candidateCredentialRevision := currentCredentialRevision + 1
 	var creation contract.AgentCredentialCreation
-	err = repository.store.MutateAgentCredentialCandidate(ctx, storage.AgentCredentialCandidate{
+	err = repository.mutateCredentialCandidate(ctx, principalID, storage.AgentCredentialCandidate{
 		PrincipalID:        principalID,
 		CredentialID:       candidate.id,
 		PrincipalRevision:  candidatePrincipalRevision,
@@ -119,7 +119,7 @@ func (repository *Repository) RevokeCredential(
 		return contract.Principal{}, err
 	}
 	var revoked contract.Principal
-	err = repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
+	err = repository.mutateAuthorityTx(ctx, principalID, func(transaction *sql.Tx) error {
 		principal, err := principalByIDTx(ctx, transaction, principalID)
 		if err != nil {
 			return err
