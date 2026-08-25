@@ -137,6 +137,26 @@ func (service *FlowService) Shutdown() {
 	service.clearAll()
 }
 
+func (service *FlowService) Wait(ctx context.Context) bool {
+	service.Shutdown()
+	acquired := 0
+	for acquired < cap(service.callbackSlots) {
+		select {
+		case service.callbackSlots <- struct{}{}:
+			acquired++
+		case <-ctx.Done():
+			for range acquired {
+				<-service.callbackSlots
+			}
+			return false
+		}
+	}
+	for range acquired {
+		<-service.callbackSlots
+	}
+	return true
+}
+
 func (service *FlowService) CreateInitial(ctx context.Context, serverID, expectedDesiredRevision string) (contract.AuthFlowCreation, error) {
 	request := FlowRequest{ServerID: serverID, ExpectedDesiredRevision: expectedDesiredRevision}
 	service.mu.Lock()

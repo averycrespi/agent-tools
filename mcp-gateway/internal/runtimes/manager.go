@@ -208,6 +208,7 @@ type Manager struct {
 	drainEpoch   uint64
 	draining     bool
 	drainDone    chan DrainResult
+	workers      sync.WaitGroup
 }
 
 type entry struct {
@@ -669,10 +670,7 @@ func (manager *Manager) stopStaleCatalogHandoff(candidate Candidate, operationID
 	}
 	manager.mu.Unlock()
 	if operationID != nil {
-		reason := contract.ReasonSuperseded
-		if _, err := manager.repository.TransitionOperation(context.Background(), *operationID, contract.OperationSuperseded, &reason); err == nil {
-			manager.publish(contract.InvalidationServerOperations, operationID)
-		}
+		manager.transitionSupersededUnlessDraining(*operationID)
 	}
 	manager.finishStale(candidate.Server.ID, candidate.Generation)
 }
@@ -717,7 +715,11 @@ func (manager *Manager) startAvailableLocked() {
 		current.status.Reconciliation = contract.LimitStatus{InUse: 1, Limit: 1, Saturated: true}
 		manager.publish(contract.InvalidationServers, &serverID)
 		manager.publish(contract.InvalidationSystemStatus, nil)
-		go manager.reconcile(serverID, generation, operationID)
+		manager.workers.Add(1)
+		go func() {
+			defer manager.workers.Done()
+			manager.reconcile(serverID, generation, operationID)
+		}()
 	}
 }
 
@@ -1322,6 +1324,18 @@ func (manager *Manager) transitionCurrent(serverID string, generation uint64, op
 	return operation, err
 }
 
+func (manager *Manager) transitionSupersededUnlessDraining(operationID string) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.draining {
+		return
+	}
+	reason := contract.ReasonSuperseded
+	if _, err := manager.repository.TransitionOperation(context.Background(), operationID, contract.OperationSuperseded, &reason); err == nil {
+		manager.publish(contract.InvalidationServerOperations, &operationID)
+	}
+}
+
 func (manager *Manager) generationCurrent(serverID string, generation uint64) bool {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
@@ -1506,8 +1520,12 @@ func (manager *Manager) Drain(ctx context.Context) <-chan DrainResult {
 	manager.drainEpoch++
 	manager.drainDone = make(chan DrainResult, 1)
 	done := manager.drainDone
-	candidates := make([]Candidate, 0, len(manager.entries))
-	seen := make(map[string]struct{}, len(manager.entries))
+	type drainCandidate struct {
+		candidate Candidate
+		stop      bool
+	}
+	candidates := make([]drainCandidate, 0, len(manager.entries))
+	seen := make(map[string]int, len(manager.entries))
 	for serverID, current := range manager.entries {
 		current.generation++
 		manager.publisher.Fence(serverID, current.generation)
@@ -1516,17 +1534,21 @@ func (manager *Manager) Drain(ctx context.Context) <-chan DrainResult {
 			current.timer.Stop()
 			current.timer = nil
 		}
-		owned := current.active != nil || current.blockedStop != nil
-		for _, candidate := range []*Candidate{current.active, current.blockedStop} {
+		owned := current.activating != nil || current.active != nil || current.blockedStop != nil
+		for index, candidate := range []*Candidate{current.activating, current.active, current.blockedStop} {
 			if candidate == nil {
 				continue
 			}
 			manager.publisher.Withdraw(*candidate)
-			if _, duplicate := seen[candidate.RuntimeID]; !duplicate {
-				seen[candidate.RuntimeID] = struct{}{}
-				candidates = append(candidates, *candidate)
+			stop := index != 0
+			if existing, duplicate := seen[candidate.RuntimeID]; duplicate {
+				candidates[existing].stop = candidates[existing].stop || stop
+			} else {
+				seen[candidate.RuntimeID] = len(candidates)
+				candidates = append(candidates, drainCandidate{candidate: *candidate, stop: stop})
 			}
 		}
+		current.activating = nil
 		current.active = nil
 		current.blockedStop = nil
 		current.status.RuntimeID = nil
@@ -1540,14 +1562,33 @@ func (manager *Manager) Drain(ctx context.Context) <-chan DrainResult {
 	manager.mu.Unlock()
 
 	go func() {
-		results := make(chan bool, len(candidates))
+		type stopResult struct {
+			candidate Candidate
+			verified  bool
+		}
+		results := make(chan stopResult, len(candidates))
 		for _, candidate := range candidates {
 			candidate := candidate
-			go func() { results <- manager.driver.Stop(ctx, candidate) }()
+			go func() {
+				verified := false
+				if candidate.stop {
+					verified = manager.driver.Stop(ctx, candidate.candidate)
+				}
+				results <- stopResult{candidate: candidate.candidate, verified: verified}
+			}()
 		}
-		result := DrainResult{}
+		stops := make([]stopResult, 0, len(candidates))
 		for range candidates {
-			if <-results {
+			stops = append(stops, <-results)
+		}
+		ownership, observesOwnership := manager.driver.(interface{ Owned(Candidate) bool })
+		result := DrainResult{}
+		for _, stopped := range stops {
+			verified := stopped.verified
+			if observesOwnership && !ownership.Owned(stopped.candidate) {
+				verified = true
+			}
+			if verified {
 				result.Verified++
 			} else {
 				result.Unconfirmed++
@@ -1557,6 +1598,20 @@ func (manager *Manager) Drain(ctx context.Context) <-chan DrainResult {
 		close(done)
 	}()
 	return done
+}
+
+func (manager *Manager) Wait(ctx context.Context) bool {
+	done := make(chan struct{})
+	go func() {
+		manager.workers.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (manager *Manager) Shutdown() {

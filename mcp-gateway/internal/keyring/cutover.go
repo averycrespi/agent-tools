@@ -300,6 +300,17 @@ func (coordinator *Coordinator) Drain() {
 	coordinator.epoch++
 }
 
+func (coordinator *Coordinator) Wait(ctx context.Context) bool {
+	coordinator.Drain()
+	select {
+	case coordinator.operation <- struct{}{}:
+		<-coordinator.operation
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 func (coordinator *Coordinator) ReadActive(ctx context.Context, namespace Namespace) ([]byte, CutoverResult, error) {
 	var secret []byte
 	var result CutoverResult

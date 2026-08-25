@@ -55,11 +55,14 @@ type Coordinator struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 
-	mu         sync.Mutex
-	work       map[string]*refreshWork
-	timers     map[string]runtimes.Timer
-	candidates map[string]runtimes.Candidate
-	stopped    bool
+	mu           sync.Mutex
+	work         map[string]*refreshWork
+	timers       map[string]runtimes.Timer
+	candidates   map[string]runtimes.Candidate
+	stopped      bool
+	workers      sync.WaitGroup
+	shutdownOnce sync.Once
+	shutdownDone chan struct{}
 }
 
 func NewCoordinator(options CoordinatorOptions) (*Coordinator, error) {
@@ -67,7 +70,7 @@ func NewCoordinator(options CoordinatorOptions) (*Coordinator, error) {
 		return nil, servers.ErrInvalidInput
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Coordinator{installationID: options.InstallationID, repository: options.Repository, active: options.Active, traverser: options.Traverser, clock: options.Clock, scheduler: options.Scheduler, client: options.Client, current: options.Current, complete: options.Complete, ctx: ctx, cancel: cancel, work: make(map[string]*refreshWork), timers: make(map[string]runtimes.Timer), candidates: make(map[string]runtimes.Candidate)}, nil
+	return &Coordinator{installationID: options.InstallationID, repository: options.Repository, active: options.Active, traverser: options.Traverser, clock: options.Clock, scheduler: options.Scheduler, client: options.Client, current: options.Current, complete: options.Complete, ctx: ctx, cancel: cancel, work: make(map[string]*refreshWork), timers: make(map[string]runtimes.Timer), candidates: make(map[string]runtimes.Candidate), shutdownDone: make(chan struct{})}, nil
 }
 
 func PollOffset(installationID, serverID string) time.Duration {
@@ -101,6 +104,8 @@ func (coordinator *Coordinator) run(ctx context.Context, candidate runtimes.Cand
 		coordinator.mu.Unlock()
 		return catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonInterrupted)
 	}
+	coordinator.workers.Add(1)
+	defer coordinator.workers.Done()
 	if current := coordinator.work[serverID]; current != nil {
 		if current.candidate.Key() != candidate.Key() {
 			coordinator.mu.Unlock()
@@ -180,21 +185,35 @@ func (coordinator *Coordinator) detach(candidate runtimes.Candidate) {
 
 func (coordinator *Coordinator) Shutdown() {
 	coordinator.mu.Lock()
-	if coordinator.stopped {
-		coordinator.mu.Unlock()
-		return
+	if !coordinator.stopped {
+		coordinator.stopped = true
+		coordinator.cancel()
+		for _, timer := range coordinator.timers {
+			timer.Stop()
+		}
+		for _, work := range coordinator.work {
+			work.cancel()
+		}
+		coordinator.timers = make(map[string]runtimes.Timer)
+		coordinator.candidates = make(map[string]runtimes.Candidate)
 	}
-	coordinator.stopped = true
-	coordinator.cancel()
-	for _, timer := range coordinator.timers {
-		timer.Stop()
-	}
-	for _, work := range coordinator.work {
-		work.cancel()
-	}
-	coordinator.timers = make(map[string]runtimes.Timer)
-	coordinator.candidates = make(map[string]runtimes.Candidate)
+	coordinator.shutdownOnce.Do(func() {
+		go func() {
+			coordinator.workers.Wait()
+			close(coordinator.shutdownDone)
+		}()
+	})
 	coordinator.mu.Unlock()
+}
+
+func (coordinator *Coordinator) Wait(ctx context.Context) bool {
+	coordinator.Shutdown()
+	select {
+	case <-coordinator.shutdownDone:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (coordinator *Coordinator) Status() contract.LimitStatus { return coordinator.traverser.Status() }

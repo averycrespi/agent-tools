@@ -127,6 +127,24 @@ func (service *RefreshService) Shutdown() {
 	service.mu.Unlock()
 }
 
+func (service *RefreshService) Wait(ctx context.Context) bool {
+	service.Shutdown()
+	service.mu.Lock()
+	done := make([]<-chan struct{}, 0, len(service.calls))
+	for _, call := range service.calls {
+		done = append(done, call.done)
+	}
+	service.mu.Unlock()
+	for _, callDone := range done {
+		select {
+		case <-callDone:
+		case <-ctx.Done():
+			return false
+		}
+	}
+	return true
+}
+
 func (service *RefreshService) Refresh(ctx context.Context, request RefreshRequest) (RefreshResult, error) {
 	return service.runRefresh(ctx, request, nil, false)
 }

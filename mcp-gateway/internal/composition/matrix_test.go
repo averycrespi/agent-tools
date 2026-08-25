@@ -96,6 +96,12 @@ func (runtime *fixtureStdio) Stop(context.Context) bool {
 	return runtime.stop
 }
 
+func (runtime *fixtureStdio) StopCount() int {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return runtime.stops
+}
+
 type compositionTransport struct{ delegate downstream.Transport }
 
 func (transport *compositionTransport) Kind() downstream.TransportKind {
@@ -254,10 +260,122 @@ func TestProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners(t *test
 	_, err = ingress.Authenticate(context.Background(), request, contract.AuthorityAgent)
 	assert.Error(t, err)
 
-	result := <-built.manager.Drain(context.Background())
+	result := <-built.Drain(context.Background())
 	assert.Equal(t, 5, result.Verified)
 	assert.Zero(t, result.Unconfirmed)
-	built.shutdownConstructed()
+}
+
+func TestProductionCompositionDrainWaitsForConstructingCleanupAndIsIdempotent(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	backend := newMemoryBackend()
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	runtime := &fixtureStdio{frames: make(chan []byte), input: new(fixtureInput), stop: true}
+	built, err := newWithHooks(options, constructorHooks{
+		provider: func(installationID string) (*keyring.Provider, error) {
+			return keyring.NewProviderWithBackend(installationID, backend)
+		},
+		startStdio: func(context.Context, runtimes.StdioDefinition) (downstream.StdioRuntime, error) {
+			started <- struct{}{}
+			<-release
+			return runtime, nil
+		},
+		newCoordinator: func(transport downstream.Transport) (*downstream.Coordinator, error) {
+			return downstream.NewCoordinator(&compositionTransport{delegate: transport})
+		},
+	})
+	require.NoError(t, err)
+	defer built.shutdownConstructed()
+	server := createServerWithTransport(t, built.servers, "drain-constructing", contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/fixture/mcp", Arguments: []string{}, WorkingDirectory: "/", Environment: map[string]string{}, SecretEnvironment: map[string]string{}})
+	enableCompositionServer(t, built.servers, server)
+	require.NoError(t, built.Start(context.Background()))
+	<-started
+
+	first := built.Drain(context.Background())
+	second := built.Drain(context.Background())
+	select {
+	case <-first:
+		t.Fatal("drain completed before constructing runtime returned")
+	default:
+	}
+	close(release)
+	assert.Equal(t, runtimes.DrainResult{Verified: 1}, <-first)
+	assert.Equal(t, runtimes.DrainResult{Verified: 1}, <-second)
+	assert.Equal(t, 1, runtime.StopCount())
+	assert.Zero(t, built.RuntimeOccupancy().InUse)
+	assert.False(t, built.callbacks.running())
+	assert.Equal(t, contract.ActiveCatalogAbsent, built.ActiveCatalog().Status(server.ID).State)
+}
+
+func TestProductionCompositionDrainDeadlineFencesLateConstructingCompletion(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	backend := newMemoryBackend()
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	runtime := &fixtureStdio{frames: make(chan []byte), input: new(fixtureInput), stop: true}
+	var invalidations atomic.Int64
+	options.Invalidate = func(contract.Invalidation) { invalidations.Add(1) }
+	built, err := newWithHooks(options, constructorHooks{
+		provider: func(installationID string) (*keyring.Provider, error) {
+			return keyring.NewProviderWithBackend(installationID, backend)
+		},
+		startStdio: func(context.Context, runtimes.StdioDefinition) (downstream.StdioRuntime, error) {
+			started <- struct{}{}
+			<-release
+			return runtime, nil
+		},
+		newCoordinator: func(transport downstream.Transport) (*downstream.Coordinator, error) {
+			return downstream.NewCoordinator(&compositionTransport{delegate: transport})
+		},
+	})
+	require.NoError(t, err)
+	defer built.shutdownConstructed()
+	server := createServerWithTransport(t, built.servers, "drain-deadline", contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/fixture/mcp", Arguments: []string{}, WorkingDirectory: "/", Environment: map[string]string{}, SecretEnvironment: map[string]string{}})
+	enableCompositionServer(t, built.servers, server)
+	require.NoError(t, built.Start(context.Background()))
+	<-started
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := built.Drain(ctx)
+	cancel()
+	assert.Equal(t, runtimes.DrainResult{Unconfirmed: 1}, <-done)
+	afterDrain := invalidations.Load()
+	close(release)
+	require.True(t, built.manager.Wait(context.Background()))
+	assert.Equal(t, afterDrain, invalidations.Load())
+	assert.Equal(t, 1, runtime.StopCount())
+	assert.Zero(t, built.RuntimeOccupancy().InUse)
+	assert.Equal(t, contract.ActiveCatalogAbsent, built.ActiveCatalog().Status(server.ID).State)
+}
+
+func TestProductionCompositionDrainRetainsBlockedHandleAndStopsOnce(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	backend := newMemoryBackend()
+	runtime := &fixtureStdio{frames: make(chan []byte), input: new(fixtureInput), stop: false}
+	built, err := newWithHooks(options, constructorHooks{
+		provider: func(installationID string) (*keyring.Provider, error) {
+			return keyring.NewProviderWithBackend(installationID, backend)
+		},
+		startStdio: func(context.Context, runtimes.StdioDefinition) (downstream.StdioRuntime, error) { return runtime, nil },
+		newCoordinator: func(transport downstream.Transport) (*downstream.Coordinator, error) {
+			return downstream.NewCoordinator(&compositionTransport{delegate: transport})
+		},
+	})
+	require.NoError(t, err)
+	defer built.shutdownConstructed()
+	server := createServerWithTransport(t, built.servers, "drain-blocked", contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/fixture/mcp", Arguments: []string{}, WorkingDirectory: "/", Environment: map[string]string{}, SecretEnvironment: map[string]string{}})
+	enableCompositionServer(t, built.servers, server)
+	require.NoError(t, built.Start(context.Background()))
+	require.Eventually(t, func() bool { return built.RuntimeStatus(server.ID).State == contract.RuntimeActive }, 2*time.Second, time.Millisecond)
+
+	assert.Equal(t, runtimes.DrainResult{Unconfirmed: 1}, <-built.Drain(context.Background()))
+	assert.Equal(t, runtimes.DrainResult{Unconfirmed: 1}, <-built.Drain(context.Background()))
+	assert.Equal(t, 1, runtime.StopCount())
+	assert.Equal(t, int64(1), built.RuntimeOccupancy().InUse)
+	assert.Equal(t, contract.ActiveCatalogUnavailable, built.ActiveCatalog().Status(server.ID).State)
 }
 
 func TestProductionCompositionReportsConstructingAndRetainedBlockedStopFromActualOwner(t *testing.T) {

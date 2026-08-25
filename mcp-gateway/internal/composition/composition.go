@@ -71,6 +71,9 @@ type Composition struct {
 	startFailed       bool
 	accepting         atomic.Bool
 	ready             func() bool
+	drainMu           sync.Mutex
+	drainDone         chan struct{}
+	drainResult       runtimes.DrainResult
 }
 
 func (built *Composition) Servers() *servers.Repository                { return built.servers }
@@ -496,13 +499,41 @@ func (built *Composition) Start(ctx context.Context) error {
 	return nil
 }
 
-func (built *Composition) shutdownConstructed() {
+func (built *Composition) Drain(ctx context.Context) <-chan runtimes.DrainResult {
+	result := make(chan runtimes.DrainResult, 1)
 	if built == nil {
-		return
+		close(result)
+		return result
 	}
+	built.drainMu.Lock()
+	if built.drainDone == nil {
+		built.drainDone = make(chan struct{})
+		built.beginDrain(ctx)
+	}
+	done := built.drainDone
+	built.drainMu.Unlock()
+	go func() {
+		select {
+		case <-done:
+			built.drainMu.Lock()
+			result <- built.drainResult
+			built.drainMu.Unlock()
+		case <-ctx.Done():
+			result <- runtimes.DrainResult{Unconfirmed: 1}
+		}
+		close(result)
+	}()
+	return result
+}
+
+func (built *Composition) beginDrain(ctx context.Context) {
 	built.accepting.Store(false)
-	if built.manager != nil {
-		built.manager.Shutdown()
+	ownedBefore := int64(0)
+	if built.owner != nil {
+		ownedBefore = built.owner.Status().InUse
+	}
+	if built.activeCatalog != nil {
+		built.activeCatalog.Drain()
 	}
 	if built.catalog != nil {
 		built.catalog.Shutdown()
@@ -516,4 +547,60 @@ func (built *Composition) shutdownConstructed() {
 	if built.keyring != nil {
 		built.keyring.Drain()
 	}
+	var managerDone <-chan runtimes.DrainResult
+	if built.manager != nil {
+		managerDone = built.manager.Drain(ctx)
+	}
+	go built.awaitDrain(ctx, ownedBefore, managerDone)
+}
+
+func (built *Composition) awaitDrain(ctx context.Context, ownedBefore int64, managerDone <-chan runtimes.DrainResult) {
+	waits := make(chan bool, 5)
+	waitCount := 0
+	for _, wait := range []func(context.Context) bool{
+		func(ctx context.Context) bool { return built.manager == nil || built.manager.Wait(ctx) },
+		func(ctx context.Context) bool { return built.catalog == nil || built.catalog.Wait(ctx) },
+		func(ctx context.Context) bool { return built.refresh == nil || built.refresh.Wait(ctx) },
+		func(ctx context.Context) bool { return built.flows == nil || built.flows.Wait(ctx) },
+		func(ctx context.Context) bool { return built.keyring == nil || built.keyring.Wait(ctx) },
+	} {
+		waitCount++
+		wait := wait
+		go func() { waits <- wait(ctx) }()
+	}
+	clean := true
+	result := runtimes.DrainResult{}
+	if managerDone != nil {
+		select {
+		case result = <-managerDone:
+		case <-ctx.Done():
+			clean = false
+		}
+	}
+	for range waitCount {
+		if !<-waits {
+			clean = false
+		}
+	}
+	if built.owner != nil {
+		ownedAfter := built.owner.Status().InUse
+		if ownedAfter <= ownedBefore {
+			result.Verified = int(ownedBefore - ownedAfter)
+			result.Unconfirmed = int(ownedAfter)
+		}
+	}
+	if !clean && result.Unconfirmed == 0 {
+		result.Unconfirmed = 1
+	}
+	built.drainMu.Lock()
+	built.drainResult = result
+	close(built.drainDone)
+	built.drainMu.Unlock()
+}
+
+func (built *Composition) shutdownConstructed() {
+	if built == nil {
+		return
+	}
+	<-built.Drain(context.Background())
 }

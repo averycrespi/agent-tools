@@ -412,6 +412,11 @@ func (driver *ConcreteDriver) stop(ctx context.Context, key CandidateKey) bool {
 	return true
 }
 
+func (driver *ConcreteDriver) Owned(candidate Candidate) bool {
+	_, ok := driver.owner.Phase(candidate.Key())
+	return ok
+}
+
 func (driver *ConcreteDriver) Runtime(candidate Candidate) (*downstream.Runtime, bool) {
 	driver.mu.Lock()
 	handle := driver.handles[candidate.Key()]
