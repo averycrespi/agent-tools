@@ -179,7 +179,7 @@ func assertHTTPFixtureWire(t *testing.T, fixture *rawHTTPFixture, mode string) {
 		}
 		for _, event := range events[2:] {
 			assert.Equal(t, "2025-11-25", event.Protocol)
-			assert.Equal(t, fixture.session, event.Session)
+			assert.Equal(t, fixture.Session(), event.Session)
 		}
 	}
 	toolEvents := make([]httpFixtureEvent, 0, 2)

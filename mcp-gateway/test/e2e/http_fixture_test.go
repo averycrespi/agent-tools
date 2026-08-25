@@ -44,10 +44,11 @@ type httpFixtureBarrier struct {
 func (barrier *httpFixtureBarrier) Release() { barrier.once.Do(func() { close(barrier.release) }) }
 
 type rawHTTPFixture struct {
-	t       *testing.T
-	mode    string
-	session string
-	server  *httptest.Server
+	t                 *testing.T
+	mode              string
+	session           string
+	sessionGeneration uint64
+	server            *httptest.Server
 
 	mu           sync.Mutex
 	events       []httpFixtureEvent
@@ -58,7 +59,7 @@ type rawHTTPFixture struct {
 
 func newRawHTTPFixture(t *testing.T, mode string) *rawHTTPFixture {
 	t.Helper()
-	fixture := &rawHTTPFixture{t: t, mode: mode, session: "fixture-session"}
+	fixture := &rawHTTPFixture{t: t, mode: mode}
 	fixture.server = httptest.NewServer(http.HandlerFunc(fixture.serveHTTP))
 	t.Cleanup(fixture.Close)
 	return fixture
@@ -110,6 +111,12 @@ func (fixture *rawHTTPFixture) Events() []httpFixtureEvent {
 	return append([]httpFixtureEvent(nil), fixture.events...)
 }
 
+func (fixture *rawHTTPFixture) Session() string {
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	return fixture.session
+}
+
 func (fixture *rawHTTPFixture) serveHTTP(writer http.ResponseWriter, request *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(request.Body, 256*1024))
 	require.NoError(fixture.t, err)
@@ -136,7 +143,7 @@ func (fixture *rawHTTPFixture) serveHTTP(writer http.ResponseWriter, request *ht
 	} else {
 		barrier = nil
 	}
-	loseSession, mode := fixture.loseSession, fixture.mode
+	loseSession, mode, session := fixture.loseSession, fixture.mode, fixture.session
 	fixture.mu.Unlock()
 	if barrier != nil {
 		select {
@@ -166,17 +173,22 @@ func (fixture *rawHTTPFixture) serveHTTP(writer http.ResponseWriter, request *ht
 		}
 		_, _ = io.WriteString(writer, rpcResult(envelope.ID, `{"ttlMs":0,"cacheScope":"public","supportedVersions":["2026-07-28"],"capabilities":{}}`))
 	case "initialize":
-		writer.Header().Set("Mcp-Session-Id", fixture.session)
+		fixture.mu.Lock()
+		fixture.sessionGeneration++
+		fixture.session = "fixture-session-" + strconv.FormatUint(fixture.sessionGeneration, 10)
+		session = fixture.session
+		fixture.mu.Unlock()
+		writer.Header().Set("Mcp-Session-Id", session)
 		_, _ = io.WriteString(writer, rpcResult(envelope.ID, `{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"http-fixture","version":"1"}}`))
 	case "notifications/initialized":
-		writer.Header().Set("Mcp-Session-Id", fixture.session)
+		writer.Header().Set("Mcp-Session-Id", session)
 		writer.WriteHeader(http.StatusAccepted)
 	case "tools/list":
 		if mode == "auto" {
 			if loseSession {
 				writer.Header().Set("Mcp-Session-Id", "replaced-session")
 			} else {
-				writer.Header().Set("Mcp-Session-Id", fixture.session)
+				writer.Header().Set("Mcp-Session-Id", session)
 			}
 		}
 		if envelope.Params.Cursor == "" {
