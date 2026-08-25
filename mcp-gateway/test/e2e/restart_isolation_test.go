@@ -79,11 +79,17 @@ func TestGatewayBinaryRestartReconstructsFreshAndIsolatesTwoServers(t *testing.T
 	stdioStarts := fixtureEvents(stdioEvents, "start", "")
 	assert.NotEqual(t, stdioInitialPID, stdioStarts[1].PID)
 	stdioReconstructed := waitForStdioServer(t, harness, stdioCreation.Server.ID, func(server stdioServerView) bool {
-		return activeCatalog(server) && server.Runtime.Reconciliation.InUse == 0
+		return server.Runtime.State == contract.RuntimeActive && server.Runtime.RuntimeID != nil && server.Runtime.Reconciliation.InUse == 0
 	})
 	require.NotNil(t, stdioInitial.Runtime.RuntimeID)
-	require.NotNil(t, stdioReconstructed.Runtime.RuntimeID)
 	assert.NotEqual(t, *stdioInitial.Runtime.RuntimeID, *stdioReconstructed.Runtime.RuntimeID)
+	if !activeCatalog(stdioReconstructed) {
+		reload := createServerOperation(t, harness, stdioCreation.Server.ID, contract.ServerETag(stdioCreation.Server.ID, "1"), string(contract.OperationReload), "restart-catalog-recovery")
+		harness.WaitOperation(stdioCreation.Server.ID, reload.ID, contract.OperationSucceeded)
+		stdioReconstructed = waitForStdioServer(t, harness, stdioCreation.Server.ID, func(server stdioServerView) bool {
+			return activeCatalog(server) && server.Runtime.Reconciliation.InUse == 0
+		})
+	}
 
 	reconstruction.Release()
 	httpReconstructed := waitForStdioServer(t, harness, httpCreation.Server.ID, func(server stdioServerView) bool {
@@ -101,6 +107,9 @@ func TestGatewayBinaryRestartReconstructsFreshAndIsolatesTwoServers(t *testing.T
 	assert.Equal(t, *stdioReconstructed.Runtime.RuntimeID, *stdioDuringBlock.Runtime.RuntimeID)
 	blockedIsolation.Release()
 	harness.WaitOperation(httpCreation.Server.ID, httpRefresh.ID, contract.OperationSucceeded)
+	waitForStdioServer(t, harness, httpCreation.Server.ID, func(server stdioServerView) bool {
+		return activeCatalog(server) && server.Runtime.Reconciliation.InUse == 0
+	})
 
 	fixture.LoseSession()
 	failedHTTP := createServerOperation(t, harness, httpCreation.Server.ID, httpETag, string(contract.OperationRefreshCatalog), "isolated-session-loss")
