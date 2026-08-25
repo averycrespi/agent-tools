@@ -9,17 +9,21 @@ import (
 	"path/filepath"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
 
 type restoreFaultPoint string
 
 const (
-	restoreFaultAfterCopy      restoreFaultPoint = "after_copy"
-	restoreFaultAfterMigration restoreFaultPoint = "after_migration"
-	restoreFaultAfterRekey     restoreFaultPoint = "after_rekey"
-	restoreFaultBeforeInstall  restoreFaultPoint = "before_install"
+	restoreFaultAfterCopy         restoreFaultPoint = "after_copy"
+	restoreFaultAfterMigration    restoreFaultPoint = "after_migration"
+	restoreFaultAfterInvalidation restoreFaultPoint = "after_invalidation"
+	restoreFaultAfterRekey        restoreFaultPoint = "after_rekey"
+	restoreFaultAfterCheckpoint   restoreFaultPoint = "after_checkpoint"
+	restoreFaultBeforeInstall     restoreFaultPoint = "before_install"
 )
 
 type RestoreOptions struct {
@@ -96,6 +100,16 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 			_ = replacement.Close()
 		}
 	}()
+	targets, err := servers.New(replacement, options.Clock, options.Entropy)
+	if err != nil {
+		return storage.Identity{}, err
+	}
+	if err := authorization.InvalidateStagedCredentials(ctx, replacement, targets); err != nil {
+		return storage.Identity{}, err
+	}
+	if err := injectRestoreFault(options.fault, restoreFaultAfterInvalidation); err != nil {
+		return storage.Identity{}, err
+	}
 	service := admin.NewService(replacement, options.Clock, options.Entropy)
 	if _, err := service.Reset(ctx, options.Sink); err != nil {
 		return storage.Identity{}, err
@@ -113,11 +127,17 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 	if err := replacement.Checkpoint(ctx); err != nil {
 		return storage.Identity{}, err
 	}
+	if err := injectRestoreFault(options.fault, restoreFaultAfterCheckpoint); err != nil {
+		return storage.Identity{}, err
+	}
 	if err := replacement.Close(); err != nil {
 		return storage.Identity{}, err
 	}
 	closed = true
 	if _, err := storage.VerifyBackup(ctx, staged); err != nil {
+		return storage.Identity{}, err
+	}
+	if err := verifyReplacementAuthority(ctx, ownership, staged, options.Clock, options.Entropy); err != nil {
 		return storage.Identity{}, err
 	}
 	if err := injectRestoreFault(options.fault, restoreFaultBeforeInstall); err != nil {
@@ -134,6 +154,36 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 		return storage.Identity{}, err
 	}
 	return identity, nil
+}
+
+func verifyReplacementAuthority(
+	ctx context.Context,
+	ownership *gatewaypaths.Ownership,
+	staged string,
+	clock admin.Clock,
+	entropy io.Reader,
+) error {
+	replacement, err := storage.OpenReplacement(ctx, ownership, staged)
+	if err != nil {
+		return err
+	}
+	targets, targetsErr := servers.New(replacement, clock, entropy)
+	if targetsErr == nil {
+		var authority *authorization.Repository
+		authority, targetsErr = authorization.New(replacement, clock, entropy)
+		if targetsErr == nil {
+			targetsErr = authority.ValidateStartup(ctx, targets)
+		}
+	}
+	closeErr := replacement.Close()
+	if targetsErr != nil {
+		return targetsErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	_, err = storage.VerifyBackup(ctx, staged)
+	return err
 }
 
 func injectRestoreFault(fault func(restoreFaultPoint) error, point restoreFaultPoint) error {

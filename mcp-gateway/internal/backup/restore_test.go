@@ -6,10 +6,12 @@ import (
 	"crypto/sha256"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
@@ -82,6 +84,113 @@ func TestRestoreReplacesCompleteGenerationAndRekeysAdminAuthority(t *testing.T) 
 	assert.ErrorIs(t, err, admin.ErrAuthenticationRequired)
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.Close())
+}
+
+func TestRestoreInvalidatesAgentCredentialsAndAllowsFreshIssuance(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "gateway")
+	require.NoError(t, os.Mkdir(root, 0o700))
+	ownership, err := gatewaypaths.Acquire(root)
+	require.NoError(t, err)
+	store, err := storage.Initialize(ctx, ownership, backupTestInstallationID)
+	require.NoError(t, err)
+	clock := fixedClock{value: acceptedFixtureTime}
+	initialAdmin := new(captureSink)
+	_, err = admin.NewService(store, clock, bytes.NewReader(bytes.Repeat([]byte{0x81}, 256))).Initialize(ctx, initialAdmin)
+	require.NoError(t, err)
+	authority, err := authorization.New(store, clock, bytes.NewReader(restoreTestEntropy(0x82, 4096)))
+	require.NoError(t, err)
+	created, err := authority.CreatePrincipal(ctx, authorization.CreatePrincipalRequest{
+		DisplayName: "restored agent",
+		Visibility:  contract.VisibilityAll,
+	})
+	require.NoError(t, err)
+	issued, err := authority.IssueCredential(ctx, created.Principal.ID, created.Principal.Revision)
+	require.NoError(t, err)
+	backupBearer := issued.Bearer
+	secondCreated, err := authority.CreatePrincipal(ctx, authorization.CreatePrincipalRequest{
+		DisplayName: "second restored agent",
+		Visibility:  contract.VisibilityAllowedOnly,
+	})
+	require.NoError(t, err)
+	secondIssued, err := authority.IssueCredential(ctx, secondCreated.Principal.ID, secondCreated.Principal.Revision)
+	require.NoError(t, err)
+	policyRevision, err := authority.AuthorizationRevision(ctx)
+	require.NoError(t, err)
+	policy, err := authority.ListGrants(ctx, authorization.GrantFilter{}, nil, 100)
+	require.NoError(t, err)
+	manager, err := New(Options{Store: store, Layout: ownership.Layout(), Clock: clock, Entropy: bytes.NewReader(restoreTestEntropy(0x83, 1024))})
+	require.NoError(t, err)
+	artifact, _, err := manager.Create(ctx, "authority", "credential-restore")
+	require.NoError(t, err)
+	current, err := authority.IssueCredential(ctx, issued.Principal.ID, issued.Principal.Revision)
+	require.NoError(t, err)
+	currentBearer := current.Bearer
+	require.NoError(t, store.Close())
+	require.NoError(t, ownership.Close())
+
+	restoredAdmin := new(captureSink)
+	_, err = Restore(ctx, RestoreOptions{
+		Root: root, BackupID: artifact.ID, Sink: restoredAdmin, Clock: clock,
+		Entropy: bytes.NewReader(restoreTestEntropy(0x84, 4096)),
+	})
+	require.NoError(t, err)
+
+	ownership, err = gatewaypaths.Acquire(root)
+	require.NoError(t, err)
+	store, err = storage.Open(ctx, ownership)
+	require.NoError(t, err)
+	authority, err = authorization.New(store, clock, bytes.NewReader(restoreTestEntropy(0x85, 4096)))
+	require.NoError(t, err)
+	_, err = authority.Authenticate(ctx, backupBearer)
+	assert.ErrorIs(t, err, authorization.ErrAuthenticationRequired)
+	_, err = authority.Authenticate(ctx, currentBearer)
+	assert.ErrorIs(t, err, authorization.ErrAuthenticationRequired)
+	_, err = authority.Authenticate(ctx, secondIssued.Bearer)
+	assert.ErrorIs(t, err, authorization.ErrAuthenticationRequired)
+
+	restoredPrincipal, err := authority.GetPrincipal(ctx, issued.Principal.ID)
+	require.NoError(t, err)
+	assert.Nil(t, restoredPrincipal.Credential)
+	assert.Equal(t, "3", restoredPrincipal.Revision)
+	assert.Equal(t, "2", restoredPrincipal.CredentialRevision)
+	restoredSecond, err := authority.GetPrincipal(ctx, secondIssued.Principal.ID)
+	require.NoError(t, err)
+	assert.Nil(t, restoredSecond.Credential)
+	assert.Equal(t, "3", restoredSecond.Revision)
+	assert.Equal(t, "2", restoredSecond.CredentialRevision)
+	restoredPolicyRevision, err := authority.AuthorizationRevision(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, policyRevision, restoredPolicyRevision)
+	restoredPolicy, err := authority.ListGrants(ctx, authorization.GrantFilter{}, nil, 100)
+	require.NoError(t, err)
+	assert.Equal(t, policy, restoredPolicy)
+	fresh, err := authority.IssueCredential(ctx, restoredPrincipal.ID, restoredPrincipal.Revision)
+	require.NoError(t, err)
+	assert.NotEqual(t, backupBearer, fresh.Bearer)
+	assert.NotEqual(t, currentBearer, fresh.Bearer)
+	lease, err := authority.Authenticate(ctx, fresh.Bearer)
+	require.NoError(t, err)
+	lease.Release()
+
+	resetAdmin := new(captureSink)
+	_, err = admin.NewService(store, clock, bytes.NewReader(bytes.Repeat([]byte{0x86}, 256))).Reset(ctx, resetAdmin)
+	require.NoError(t, err)
+	_, err = admin.NewService(store, clock, bytes.NewReader(nil)).Authenticate(ctx, restoredAdmin.bearer)
+	assert.ErrorIs(t, err, admin.ErrAuthenticationRequired)
+	lease, err = authority.Authenticate(ctx, fresh.Bearer)
+	require.NoError(t, err)
+	lease.Release()
+	require.NoError(t, store.Close())
+	require.NoError(t, ownership.Close())
+}
+
+func restoreTestEntropy(seed byte, size int) []byte {
+	entropy := make([]byte, size)
+	for index := range entropy {
+		entropy[index] = seed + byte(index%251)
+	}
+	return entropy
 }
 
 func TestRestorePreservesS2AuthorityAndInterruptsWorkBeforeReconstruction(t *testing.T) {
@@ -200,6 +309,69 @@ func TestAcceptedS1RestoreCrashPointsLeaveCurrentGenerationAuthoritative(t *test
 	}
 }
 
+func TestRestorePostInvalidationFaultsLeaveCurrentAgentAuthority(t *testing.T) {
+	for _, point := range []restoreFaultPoint{
+		restoreFaultAfterInvalidation,
+		restoreFaultAfterCheckpoint,
+		restoreFaultBeforeInstall,
+	} {
+		t.Run(string(point), func(t *testing.T) {
+			ctx := context.Background()
+			root := filepath.Join(t.TempDir(), "gateway")
+			require.NoError(t, os.Mkdir(root, 0o700))
+			ownership, err := gatewaypaths.Acquire(root)
+			require.NoError(t, err)
+			store, err := storage.Initialize(ctx, ownership, backupTestInstallationID)
+			require.NoError(t, err)
+			clock := fixedClock{value: acceptedFixtureTime}
+			_, err = admin.NewService(store, clock, bytes.NewReader(bytes.Repeat([]byte{0x91}, 256))).Initialize(ctx, new(captureSink))
+			require.NoError(t, err)
+			authority, err := authorization.New(store, clock, bytes.NewReader(restoreTestEntropy(0x92, 4096)))
+			require.NoError(t, err)
+			created, err := authority.CreatePrincipal(ctx, authorization.CreatePrincipalRequest{DisplayName: "live agent", Visibility: contract.VisibilityAll})
+			require.NoError(t, err)
+			backedUp, err := authority.IssueCredential(ctx, created.Principal.ID, created.Principal.Revision)
+			require.NoError(t, err)
+			manager, err := New(Options{Store: store, Layout: ownership.Layout(), Clock: clock, Entropy: bytes.NewReader(restoreTestEntropy(0x93, 1024))})
+			require.NoError(t, err)
+			artifact, _, err := manager.Create(ctx, "authority", "restore-fault")
+			require.NoError(t, err)
+			current, err := authority.IssueCredential(ctx, backedUp.Principal.ID, backedUp.Principal.Revision)
+			require.NoError(t, err)
+			require.NoError(t, store.Close())
+			require.NoError(t, ownership.Close())
+
+			_, err = Restore(ctx, RestoreOptions{
+				Root: root, BackupID: artifact.ID, Sink: new(captureSink), Clock: clock,
+				Entropy: bytes.NewReader(restoreTestEntropy(0x94, 4096)),
+				fault: func(actual restoreFaultPoint) error {
+					if actual == point {
+						return assert.AnError
+					}
+					return nil
+				},
+			})
+			require.Error(t, err)
+
+			ownership, err = gatewaypaths.Acquire(root)
+			require.NoError(t, err)
+			store, err = storage.Open(ctx, ownership)
+			require.NoError(t, err)
+			authority, err = authorization.New(store, clock, bytes.NewReader(restoreTestEntropy(0x95, 4096)))
+			require.NoError(t, err)
+			lease, err := authority.Authenticate(ctx, current.Bearer)
+			require.NoError(t, err)
+			lease.Release()
+			_, err = authority.Authenticate(ctx, backedUp.Bearer)
+			assert.ErrorIs(t, err, authorization.ErrAuthenticationRequired)
+			require.NoError(t, store.Close())
+			require.NoError(t, ownership.Close())
+			_, statErr := os.Lstat(filepath.Join(root, gatewaypaths.DatabaseName) + ".restore")
+			assert.ErrorIs(t, statErr, os.ErrNotExist)
+		})
+	}
+}
+
 func installAcceptedS1BackupFixture(t *testing.T) (string, string) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "gateway")
@@ -224,6 +396,17 @@ func installAcceptedS1BackupFixture(t *testing.T) (string, string) {
 		require.NoError(t, os.WriteFile(filepath.Join(target, name), contents, 0o600))
 	}
 	return root, sink.bearer
+}
+
+func TestRestoreOrchestratesAuthorizationWithoutOwningS3SQL(t *testing.T) {
+	source, err := os.ReadFile("restore.go")
+	require.NoError(t, err)
+	text := string(source)
+	assert.Contains(t, text, "authorization.InvalidateStagedCredentials")
+	assert.Contains(t, text, "authority.ValidateStartup")
+	for _, forbidden := range []string{"UPDATE principals", "INSERT INTO principals", "DELETE FROM grants", "UPDATE authorization_meta"} {
+		assert.False(t, strings.Contains(text, forbidden), forbidden)
+	}
 }
 
 func TestRestoreRefusesRunningOrTamperedArtifact(t *testing.T) {

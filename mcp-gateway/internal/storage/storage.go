@@ -301,10 +301,17 @@ func (store *Store) bootstrap(ctx context.Context, installationID string) error 
 }
 
 func (store *Store) migrate(ctx context.Context, version int) error {
+	return store.migrateThrough(ctx, version, CurrentSchema)
+}
+
+func (store *Store) migrateThrough(ctx context.Context, version, target int) error {
 	if len(migrationNames) != CurrentSchema {
 		return fmt.Errorf("compiled migration list has %d entries, want %d", len(migrationNames), CurrentSchema)
 	}
-	for next := version + 1; next <= CurrentSchema; next++ {
+	if target < version || target > CurrentSchema {
+		return fmt.Errorf("invalid migration target %d from version %d", target, version)
+	}
+	for next := version + 1; next <= target; next++ {
 		contents, err := migrationFiles.ReadFile("migrations/" + migrationNames[next-1])
 		if err != nil {
 			return fmt.Errorf("read migration %d: %w", next, err)
