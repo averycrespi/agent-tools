@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
@@ -22,6 +25,7 @@ type fakePrincipalService struct {
 	limit        int
 	err          error
 	defaultGrant contract.Grant
+	bearerSerial int
 }
 
 func (service *fakePrincipalService) CreatePrincipal(_ context.Context, request authorization.CreatePrincipalRequest) (contract.PrincipalCreation, error) {
@@ -56,6 +60,50 @@ func (service *fakePrincipalService) ListPrincipals(_ context.Context, cursor *a
 	}
 	return page, nil
 }
+func (service *fakePrincipalService) IssueCredential(_ context.Context, id, revision string) (contract.AgentCredentialCreation, error) {
+	if service.err != nil {
+		return contract.AgentCredentialCreation{}, service.err
+	}
+	principal, err := service.credentialPrincipal(id, revision)
+	if err != nil {
+		return contract.AgentCredentialCreation{}, err
+	}
+	service.bearerSerial++
+	principal.Revision = strconv.Itoa(service.bearerSerial + 1)
+	principal.CredentialRevision = strconv.Itoa(service.bearerSerial)
+	principal.Credential = &contract.AgentCredential{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAZ", Fingerprint: "0123456789abcdef", Revision: principal.CredentialRevision, CreatedAt: principal.UpdatedAt}
+	service.items[0] = principal
+	return contract.AgentCredentialCreation{Principal: principal, Bearer: fmt.Sprintf("one-time-bearer-%d", service.bearerSerial)}, nil
+}
+func (service *fakePrincipalService) RevokeCredential(_ context.Context, id, revision string) (contract.Principal, error) {
+	if service.err != nil {
+		return contract.Principal{}, service.err
+	}
+	principal, err := service.credentialPrincipal(id, revision)
+	if err != nil {
+		return contract.Principal{}, err
+	}
+	if principal.Credential == nil {
+		return contract.Principal{}, authorization.ErrConflict
+	}
+	value, _ := strconv.Atoi(principal.Revision)
+	credentialValue, _ := strconv.Atoi(principal.CredentialRevision)
+	principal.Revision = strconv.Itoa(value + 1)
+	principal.CredentialRevision = strconv.Itoa(credentialValue + 1)
+	principal.Credential = nil
+	service.items[0] = principal
+	return principal, nil
+}
+func (service *fakePrincipalService) credentialPrincipal(id, revision string) (contract.Principal, error) {
+	if len(service.items) == 0 || service.items[0].ID != id {
+		return contract.Principal{}, authorization.ErrNotFound
+	}
+	if revision != service.items[0].Revision {
+		return contract.Principal{}, authorization.ErrStaleRevision
+	}
+	return service.items[0], nil
+}
+
 func (service *fakePrincipalService) PatchPrincipal(_ context.Context, id string, request authorization.PatchPrincipalRequest) (contract.Principal, error) {
 	if service.err != nil {
 		return contract.Principal{}, service.err
@@ -132,6 +180,76 @@ func TestPrincipalCreateGetPatchListAndInvalidation(t *testing.T) {
 	assert.Equal(t, []contract.Invalidation{{Kind: contract.InvalidationAuthorization}, {Kind: contract.InvalidationSystemStatus}, {Kind: contract.InvalidationAuthorization}, {Kind: contract.InvalidationSystemStatus}}, invalidations)
 }
 
+func TestPrincipalCredentialIssueReplaceAndRevoke(t *testing.T) {
+	service := &fakePrincipalService{items: []contract.Principal{principalResource()}}
+	var invalidations []contract.Invalidation
+	handler := newPrincipalHandler(t, service, &invalidations)
+	request := func(method, revision string) *httptest.ResponseRecorder {
+		return perform(handler, method, "/api/v1/principals/"+testID+"/credential", `{}`, map[string]string{
+			"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON,
+			"If-Match": contract.PrincipalETag(testID, revision),
+		})
+	}
+	first := request(http.MethodPost, "1")
+	require.Equal(t, http.StatusCreated, first.Code, first.Body.String())
+	assert.Equal(t, contract.PrincipalETag(testID, "2"), first.Header().Get("ETag"))
+	assert.Contains(t, first.Body.String(), `"bearer":"one-time-bearer-1"`)
+	assert.Contains(t, first.Body.String(), `"credential":{"id":`)
+
+	replaced := request(http.MethodPost, "2")
+	require.Equal(t, http.StatusCreated, replaced.Code, replaced.Body.String())
+	assert.Equal(t, contract.PrincipalETag(testID, "3"), replaced.Header().Get("ETag"))
+	assert.Contains(t, replaced.Body.String(), `"bearer":"one-time-bearer-2"`)
+	assert.NotContains(t, replaced.Body.String(), "one-time-bearer-1")
+
+	got := perform(handler, http.MethodGet, "/api/v1/principals/"+testID, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+	assert.NotContains(t, got.Body.String(), "one-time-bearer")
+
+	revoked := request(http.MethodDelete, "3")
+	require.Equal(t, http.StatusOK, revoked.Code, revoked.Body.String())
+	assert.Equal(t, contract.PrincipalETag(testID, "4"), revoked.Header().Get("ETag"))
+	assert.Contains(t, revoked.Body.String(), `"credential":null`)
+	assert.NotContains(t, revoked.Body.String(), "one-time-bearer")
+	assert.Equal(t, []contract.Invalidation{
+		{Kind: contract.InvalidationAuthorization}, {Kind: contract.InvalidationSystemStatus},
+		{Kind: contract.InvalidationAuthorization}, {Kind: contract.InvalidationSystemStatus},
+		{Kind: contract.InvalidationAuthorization}, {Kind: contract.InvalidationSystemStatus},
+	}, invalidations)
+}
+
+func TestPrincipalCredentialValidationAndErrors(t *testing.T) {
+	service := &fakePrincipalService{items: []contract.Principal{principalResource()}}
+	var invalidations []contract.Invalidation
+	handler := newPrincipalHandler(t, service, &invalidations)
+	authJSON := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
+	for _, test := range []struct {
+		name, method, body string
+		headers            map[string]string
+		status             int
+		code               string
+	}{
+		{"nonempty issue", http.MethodPost, `{"extra":true}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "1")}, 400, "invalid_json"},
+		{"missing precondition", http.MethodPost, `{}`, authJSON, 428, "principal_precondition_required"},
+		{"weak precondition", http.MethodDelete, `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": "W/" + contract.PrincipalETag(testID, "1")}, 412, "stale_principal_revision"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := perform(handler, test.method, "/api/v1/principals/"+testID+"/credential", test.body, test.headers)
+			assert.Equal(t, test.status, response.Code, response.Body.String())
+			assert.Contains(t, response.Body.String(), test.code)
+		})
+	}
+	assert.Empty(t, invalidations)
+	service.err = authorization.ErrConflict
+	conflict := perform(handler, http.MethodPost, "/api/v1/principals/"+testID+"/credential", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "1")})
+	assert.Equal(t, http.StatusConflict, conflict.Code)
+	service.err = authorization.ErrStorageUnavailable
+	unavailable := perform(handler, http.MethodPost, "/api/v1/principals/"+testID+"/credential", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "1")})
+	assert.Equal(t, http.StatusServiceUnavailable, unavailable.Code)
+	assert.Contains(t, unavailable.Body.String(), "authorization_unavailable")
+	assert.Empty(t, invalidations)
+}
+
 func TestPrincipalStrictValidationQueryAndPreconditions(t *testing.T) {
 	service := &fakePrincipalService{items: []contract.Principal{principalResource()}}
 	handler := newPrincipalHandler(t, service, nil)
@@ -161,7 +279,6 @@ func TestPrincipalStrictValidationQueryAndPreconditions(t *testing.T) {
 		{"null query", http.MethodGet, "/api/v1/principals?cursor=null", "", map[string]string{"Authorization": "Bearer " + testBearer}, 400, "malformed_request"},
 		{"malformed escape", http.MethodGet, "/api/v1/principals?cursor=%ZZ", "", map[string]string{"Authorization": "Bearer " + testBearer}, 400, "malformed_request"},
 		{"bad cursor", http.MethodGet, "/api/v1/principals?cursor=abc", "", map[string]string{"Authorization": "Bearer " + testBearer}, 400, "invalid_cursor"},
-		{"credential route deferred", http.MethodPost, "/api/v1/principals/" + testID + "/credential", `{}`, authJSON, 404, "not_found"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			response := perform(handler, test.method, test.path, test.body, test.headers)

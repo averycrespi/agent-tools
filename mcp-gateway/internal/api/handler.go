@@ -278,9 +278,12 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.principalsCollection(writer, request)
 	case strings.HasPrefix(path, "/api/v1/principals/") && handler.principals != nil:
 		segments := strings.Split(strings.TrimPrefix(path, "/api/v1/principals/"), "/")
-		if len(segments) == 1 && segments[0] != "" {
+		switch {
+		case len(segments) == 1 && segments[0] != "":
 			handler.principalMember(writer, request, segments[0])
-		} else {
+		case len(segments) == 2 && segments[0] != "" && segments[1] == "credential":
+			handler.principalCredential(writer, request, segments[0])
+		default:
 			writeProblem(writer, contract.ProblemNotFound)
 		}
 	case path == "/api/v1/servers" && handler.servers != nil:

@@ -21,6 +21,8 @@ type PrincipalService interface {
 	GetPrincipal(context.Context, string) (contract.Principal, error)
 	ListPrincipals(context.Context, *authorization.SnapshotCursor, int) (authorization.PrincipalPage, error)
 	PatchPrincipal(context.Context, string, authorization.PatchPrincipalRequest) (contract.Principal, error)
+	IssueCredential(context.Context, string, string) (contract.AgentCredentialCreation, error)
+	RevokeCredential(context.Context, string, string) (contract.Principal, error)
 }
 
 type rawPrincipalCreate struct {
@@ -40,6 +42,42 @@ func (handler *Handler) principalsCollection(writer http.ResponseWriter, request
 		handler.listPrincipals(writer, request)
 	case http.MethodPost:
 		handler.createPrincipal(writer, request)
+	default:
+		writeProblem(writer, contract.ProblemNotFound)
+	}
+}
+
+func (handler *Handler) principalCredential(writer http.ResponseWriter, request *http.Request, principalID string) {
+	if request.URL.RawQuery != "" {
+		writeProblem(writer, contract.ProblemMalformedRequest)
+		return
+	}
+	if !decodeEmptyObject(writer, request) {
+		return
+	}
+	revision, ok := principalPrecondition(writer, request, principalID)
+	if !ok {
+		return
+	}
+	switch request.Method {
+	case http.MethodPost:
+		created, err := handler.principals.IssueCredential(request.Context(), principalID, revision)
+		if err != nil {
+			writePrincipalError(writer, err)
+			return
+		}
+		writer.Header().Set("ETag", contract.PrincipalETag(created.Principal.ID, created.Principal.Revision))
+		handler.emit(contract.Invalidation{Kind: contract.InvalidationAuthorization})
+		writeJSON(writer, http.StatusCreated, created)
+	case http.MethodDelete:
+		principal, err := handler.principals.RevokeCredential(request.Context(), principalID, revision)
+		if err != nil {
+			writePrincipalError(writer, err)
+			return
+		}
+		writer.Header().Set("ETag", contract.PrincipalETag(principal.ID, principal.Revision))
+		handler.emit(contract.Invalidation{Kind: contract.InvalidationAuthorization})
+		writeJSON(writer, http.StatusOK, principal)
 	default:
 		writeProblem(writer, contract.ProblemNotFound)
 	}
