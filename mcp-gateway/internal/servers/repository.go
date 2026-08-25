@@ -59,7 +59,14 @@ func New(store *storage.Store, clock Clock, entropy io.Reader) (*Repository, err
 }
 
 func (repository *Repository) NewID() (string, error) {
-	return admin.NewID(repository.clock.Now(), repository.entropy)
+	id, err := admin.NewID(repository.clock.Now(), repository.entropy)
+	if err != nil {
+		return "", err
+	}
+	if id == contract.SyntheticServerID {
+		return "", fmt.Errorf("%w: generated reserved synthetic identity", ErrIdentityUnavailable)
+	}
+	return id, nil
 }
 
 func (repository *Repository) RegistryStatus(ctx context.Context) (contract.LimitStatus, contract.LimitStatus, error) {

@@ -32,6 +32,9 @@ func (repository *Repository) Create(ctx context.Context, request CreateRequest)
 	if !validID(serverID) {
 		return CreateResult{}, fmt.Errorf("%w: server ID", ErrInvalidInput)
 	}
+	if serverID == contract.SyntheticServerID {
+		return CreateResult{}, ErrIdentityUnavailable
+	}
 	var operationID string
 	if request.Definition.Enabled {
 		operationID, err = repository.NewID()

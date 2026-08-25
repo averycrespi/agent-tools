@@ -1,0 +1,136 @@
+package servers
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestValidateGrantTargetTxDistinguishesSyntheticCurrentMissingAndDeleted(t *testing.T) {
+	repository, store, _ := newRepository(t, new(sequenceReader))
+	current := mustCreateServer(t, repository, "grant-current", false)
+	deleted := mustCreateServer(t, repository, "grant-deleted", false)
+	_, err := repository.Delete(context.Background(), deleted.ID, deleted.DesiredRevision)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name   string
+		id     string
+		kind   GrantTargetKind
+		wanted error
+	}{
+		{name: "synthetic", id: contract.SyntheticServerID, kind: GrantTargetSynthetic},
+		{name: "current server", id: current.ID, kind: GrantTargetServer},
+		{name: "deleted server", id: deleted.ID, wanted: ErrNotFound},
+		{name: "missing server", id: "01J60000000000000000000999", wanted: ErrNotFound},
+		{name: "malformed server", id: "malformed", wanted: ErrNotFound},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.NoError(t, store.View(context.Background(), func(transaction *sql.Tx) error {
+				kind, err := repository.ValidateGrantTargetTx(context.Background(), transaction, test.id)
+				if test.wanted != nil {
+					require.ErrorIs(t, err, test.wanted)
+					return nil
+				}
+				require.NoError(t, err)
+				assert.Equal(t, test.kind, kind)
+				return nil
+			}))
+		})
+	}
+}
+
+func TestValidateGrantTargetTxUsesCallerMutationWithoutNestedAdmission(t *testing.T) {
+	repository, store, _ := newRepository(t, new(sequenceReader))
+	server := mustCreateServer(t, repository, "grant-transaction", false)
+
+	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		kind, err := repository.ValidateGrantTargetTx(context.Background(), transaction, server.ID)
+		require.NoError(t, err)
+		assert.Equal(t, GrantTargetServer, kind)
+		return nil
+	}))
+}
+
+func TestValidateGrantTargetTxMapsTransactionFailuresAndSyntheticCollision(t *testing.T) {
+	repository, store, _ := newRepository(t, new(sequenceReader))
+
+	_, err := repository.ValidateGrantTargetTx(context.Background(), nil, contract.SyntheticServerID)
+	require.ErrorIs(t, err, ErrStorageUnavailable)
+
+	var expired *sql.Tx
+	require.NoError(t, store.View(context.Background(), func(transaction *sql.Tx) error {
+		expired = transaction
+		return nil
+	}))
+	_, err = repository.ValidateGrantTargetTx(context.Background(), expired, "01J60000000000000000000999")
+	require.ErrorIs(t, err, ErrStorageUnavailable)
+
+	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		_, err := transaction.ExecContext(context.Background(), `
+			INSERT INTO server_identities (id, namespace, created_at)
+			VALUES (?, 'synthetic_collision', ?)`, contract.SyntheticServerID, formatTime(testTime))
+		return err
+	}))
+	require.NoError(t, store.View(context.Background(), func(transaction *sql.Tx) error {
+		_, err := repository.ValidateGrantTargetTx(context.Background(), transaction, contract.SyntheticServerID)
+		require.ErrorIs(t, err, ErrIdentityUnavailable)
+		return nil
+	}))
+}
+
+func TestNewIDRejectsReservedSyntheticIdentity(t *testing.T) {
+	repository, _, _ := newRepositoryWithClock(t, &mutableClock{now: time.UnixMilli(0)}, bytes.NewReader(make([]byte, 10)))
+	id, err := repository.NewID()
+	require.ErrorIs(t, err, ErrIdentityUnavailable)
+	assert.Empty(t, id)
+}
+
+func TestSyntheticIdentityCannotEnterS2AndDoesNotAffectS2CapacityOrListing(t *testing.T) {
+	repository, store, _ := newRepository(t, new(sequenceReader))
+	beforeIdentities, beforeServers, err := repository.RegistryStatus(context.Background())
+	require.NoError(t, err)
+	beforePage, err := repository.ListServers(context.Background(), nil, 100)
+	require.NoError(t, err)
+
+	require.NoError(t, store.View(context.Background(), func(transaction *sql.Tx) error {
+		kind, err := repository.ValidateGrantTargetTx(context.Background(), transaction, contract.SyntheticServerID)
+		require.NoError(t, err)
+		assert.Equal(t, GrantTargetSynthetic, kind)
+		return nil
+	}))
+	afterIdentities, afterServers, err := repository.RegistryStatus(context.Background())
+	require.NoError(t, err)
+	afterPage, err := repository.ListServers(context.Background(), nil, 100)
+	require.NoError(t, err)
+	assert.Equal(t, beforeIdentities, afterIdentities)
+	assert.Equal(t, beforeServers, afterServers)
+	assert.Equal(t, beforePage, afterPage)
+
+	_, err = repository.Create(context.Background(), CreateRequest{
+		ID: contract.SyntheticServerID,
+		Definition: Definition{
+			Namespace: "synthetic_explicit", DisplayName: "Synthetic", Enabled: false, Transport: testStdioTransport(),
+		},
+		Idempotency: idempotency("synthetic-explicit", "synthetic-explicit", ""),
+	})
+	assert.ErrorIs(t, err, ErrIdentityUnavailable)
+
+	identities, servers, err := repository.RegistryStatus(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, beforeIdentities, identities)
+	assert.Equal(t, beforeServers, servers)
+}
+
+func TestGrantTargetErrorsRemainDistinct(t *testing.T) {
+	assert.False(t, errors.Is(ErrNotFound, ErrStorageUnavailable))
+	assert.False(t, errors.Is(ErrIdentityUnavailable, ErrStorageUnavailable))
+}
