@@ -114,7 +114,9 @@ Secrets are split into bounded encoded chunks and become readable only after a d
 
 ## Verified backup and offline recovery
 
-Backup creation uses SQLite's online backup API, closes and integrity-checks the staged database, records installation/schema/source-revision metadata and SHA-256, and atomically publishes one owner-only generation. At most one backup is created at a time and 64 published generations are retained; excess work rejects without queuing. Backups contain SQLite non-secret state only—no raw admin bearer, keyring value, session, stream, or in-flight runtime state.
+Backup creation uses SQLite's online backup API, closes and integrity-checks the staged database, records installation/schema/source-revision metadata and SHA-256, and atomically publishes one owner-only generation. At most one backup is created at a time and 64 published generations are retained; excess work rejects without queuing. Backups contain SQLite non-secret state only—no raw admin bearer, agent bearer, keyring value, session, stream, or in-flight runtime state.
+
+The internal principal authority can issue or replace one current non-expiring `mgw_agent_` credential and return its bearer once, or explicitly revoke the current slot. SQLite stores only domain-separated verifier/fingerprint metadata and monotonic principal/credential revisions. Failed preparation or a known rollback preserves prior authority; an unacknowledged commit returns no bearer, latches online authority, and requires stopped verification to invalidate the candidate. Principal/credential control routes and positive production agent authentication remain intentionally unwired until their later checkpoints.
 
 Restore one published generation only after stopping Gateway, and publish replacement admin authority to a new owner-only sink:
 
