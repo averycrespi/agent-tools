@@ -31,13 +31,15 @@ type CoordinatorOptions struct {
 	Scheduler      runtimes.Scheduler
 	Client         ClientProvider
 	Current        RuntimeCurrent
+	Complete       func(runtimes.Candidate, runtimes.CatalogOutcome, *string)
 }
 
 type refreshWork struct {
-	done      chan struct{}
-	cancel    context.CancelFunc
-	candidate runtimes.Candidate
-	result    runtimes.CatalogOutcome
+	done        chan struct{}
+	cancel      context.CancelFunc
+	candidate   runtimes.Candidate
+	operationID *string
+	result      runtimes.CatalogOutcome
 }
 
 type Coordinator struct {
@@ -49,6 +51,7 @@ type Coordinator struct {
 	scheduler      runtimes.Scheduler
 	client         ClientProvider
 	current        RuntimeCurrent
+	complete       func(runtimes.Candidate, runtimes.CatalogOutcome, *string)
 	ctx            context.Context
 	cancel         context.CancelFunc
 
@@ -64,7 +67,7 @@ func NewCoordinator(options CoordinatorOptions) (*Coordinator, error) {
 		return nil, servers.ErrInvalidInput
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Coordinator{installationID: options.InstallationID, repository: options.Repository, active: options.Active, traverser: options.Traverser, clock: options.Clock, scheduler: options.Scheduler, client: options.Client, current: options.Current, ctx: ctx, cancel: cancel, work: make(map[string]*refreshWork), timers: make(map[string]runtimes.Timer), candidates: make(map[string]runtimes.Candidate)}, nil
+	return &Coordinator{installationID: options.InstallationID, repository: options.Repository, active: options.Active, traverser: options.Traverser, clock: options.Clock, scheduler: options.Scheduler, client: options.Client, current: options.Current, complete: options.Complete, ctx: ctx, cancel: cancel, work: make(map[string]*refreshWork), timers: make(map[string]runtimes.Timer), candidates: make(map[string]runtimes.Candidate)}, nil
 }
 
 func PollOffset(installationID, serverID string) time.Duration {
@@ -103,6 +106,13 @@ func (coordinator *Coordinator) run(ctx context.Context, candidate runtimes.Cand
 			coordinator.mu.Unlock()
 			return catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonSuperseded)
 		}
+		if intent == runtimes.CatalogTraversalRefresh && candidate.OperationID != nil {
+			if current.operationID != nil && *current.operationID != *candidate.OperationID {
+				coordinator.mu.Unlock()
+				return catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonSuperseded)
+			}
+			current.operationID = cloneOperationID(candidate.OperationID)
+		}
 		done := current.done
 		coordinator.mu.Unlock()
 		select {
@@ -114,6 +124,9 @@ func (coordinator *Coordinator) run(ctx context.Context, candidate runtimes.Cand
 	}
 	workCtx, cancel := context.WithCancel(coordinator.ctx)
 	current := &refreshWork{done: make(chan struct{}), cancel: cancel, candidate: candidate}
+	if intent == runtimes.CatalogTraversalRefresh {
+		current.operationID = cloneOperationID(candidate.OperationID)
+	}
 	coordinator.work[serverID] = current
 	coordinator.candidates[serverID] = candidate
 	coordinator.mu.Unlock()
@@ -127,7 +140,12 @@ func (coordinator *Coordinator) run(ctx context.Context, candidate runtimes.Cand
 	}
 	close(current.done)
 	stopped := coordinator.stopped
+	complete := coordinator.complete
+	operationID := cloneOperationID(current.operationID)
 	coordinator.mu.Unlock()
+	if !stopped && intent == runtimes.CatalogTraversalPoll && result.OAuthChallenge != nil && complete != nil {
+		complete(candidate, result, operationID)
+	}
 	if !stopped && result.RuntimeHealth != runtimes.CatalogRuntimeLost && result.OAuthChallenge == nil && coordinator.live(candidate) {
 		coordinator.schedule(candidate)
 	}
@@ -238,6 +256,16 @@ func (coordinator *Coordinator) failure(candidate runtimes.Candidate, intent run
 		reason = contract.ReasonAuthenticationRejected
 	}
 	live := coordinator.live(candidate)
+	if challenge != nil {
+		state := contract.ActiveCatalogUnavailable
+		if intent != runtimes.CatalogTraversalInitial {
+			state = coordinator.active.Status(candidate.Server.ID).State
+			if state == contract.ActiveCatalogAbsent {
+				state = contract.ActiveCatalogUnavailable
+			}
+		}
+		return runtimes.CatalogOutcome{State: state, Reason: &reason, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy, OAuthChallenge: challenge}
+	}
 	if runtimeFailure != nil && runtimeFailure.RuntimeLost {
 		reason = runtimeFailure.Reason
 		if live {
@@ -316,6 +344,7 @@ func (coordinator *Coordinator) schedule(candidate runtimes.Candidate) {
 		}
 		delete(coordinator.timers, serverID)
 		current, exists := coordinator.candidates[serverID]
+		current.OperationID = nil
 		coordinator.mu.Unlock()
 		if exists {
 			coordinator.run(coordinator.ctx, current, runtimes.CatalogTraversalPoll)
@@ -379,6 +408,14 @@ func catalogRuntimeFailure(err error, client PageClient) *runtimes.FailureDispos
 		return nil
 	}
 	return &failure
+}
+
+func cloneOperationID(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func catalogOutcome(intent runtimes.CatalogTraversalIntent, state contract.ActiveCatalogState, reason contract.PublicReason) runtimes.CatalogOutcome {

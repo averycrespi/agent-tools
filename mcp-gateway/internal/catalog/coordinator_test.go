@@ -161,6 +161,86 @@ func TestCoordinatorPollAndExplicitRefreshShareOneExactTraversal(t *testing.T) {
 	require.Eventually(t, func() bool { return scheduler.count() == 2 }, time.Second, time.Millisecond)
 }
 
+func TestCoordinatorPollChallengeAttachesExplicitOperationAndCompletesAfterWorkRemoval(t *testing.T) {
+	repository, serverRepository, clock, _ := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	client := &coordinatorClient{result: json.RawMessage(`{"tools":[]}`)}
+	scheduler := newCatalogScheduler()
+	candidate := coordinatorCandidate(t, serverRepository, server)
+	type completion struct {
+		candidate   runtimes.Candidate
+		outcome     runtimes.CatalogOutcome
+		operationID *string
+		inUse       int64
+	}
+	completed := make(chan completion, 1)
+	var coordinator *Coordinator
+	coordinator, err = NewCoordinator(CoordinatorOptions{InstallationID: catalogInstallationID, Repository: repository, Active: registry, Traverser: NewTraverser(), Clock: clock, Scheduler: scheduler, Client: func(runtimes.Candidate) (PageClient, bool) { return client, true }, Current: func(runtimes.Candidate) bool { return true }, Complete: func(candidate runtimes.Candidate, outcome runtimes.CatalogOutcome, operationID *string) {
+		completed <- completion{candidate: candidate, outcome: outcome, operationID: operationID, inUse: coordinator.ServerStatus(server.ID).InUse}
+	}})
+	require.NoError(t, err)
+	require.Equal(t, contract.ActiveCatalogCurrent, coordinator.Activate(context.Background(), candidate).State)
+	disposition := &downstream.OAuthChallengeDisposition{Kind: downstream.OAuthChallengeRefresh, Stage: downstream.OAuthChallengeCatalogFirstPage}
+	started, release := make(chan struct{}), make(chan struct{})
+	client.mu.Lock()
+	client.err = disposition
+	client.started = started
+	client.release = release
+	client.mu.Unlock()
+	go scheduler.call(0).timer.callback()
+	<-started
+	operationID := "operation-1"
+	attachedCandidate := candidate
+	attachedCandidate.OperationID = &operationID
+	attached := make(chan runtimes.CatalogOutcome, 1)
+	go func() { attached <- coordinator.Refresh(context.Background(), attachedCandidate) }()
+	require.Eventually(t, func() bool {
+		coordinator.mu.Lock()
+		defer coordinator.mu.Unlock()
+		work := coordinator.work[server.ID]
+		return work != nil && work.operationID != nil && *work.operationID == operationID
+	}, time.Second, time.Millisecond)
+	conflictingOperationID := "operation-2"
+	conflictingCandidate := candidate
+	conflictingCandidate.OperationID = &conflictingOperationID
+	conflict := coordinator.Refresh(context.Background(), conflictingCandidate)
+	require.NotNil(t, conflict.Reason)
+	assert.Equal(t, contract.ReasonSuperseded, *conflict.Reason)
+	close(release)
+
+	result := <-attached
+	received := <-completed
+	require.NotNil(t, received.operationID)
+	assert.Equal(t, operationID, *received.operationID)
+	assert.Equal(t, int64(0), received.inUse)
+	assert.Same(t, disposition, received.outcome.OAuthChallenge)
+	assert.Same(t, disposition, result.OAuthChallenge)
+	assert.Equal(t, runtimes.CatalogTraversalPoll, result.Intent)
+	assert.Equal(t, contract.ActiveCatalogCurrent, registry.Status(server.ID).State)
+	assert.Equal(t, 1, scheduler.count())
+	select {
+	case duplicate := <-completed:
+		t.Fatalf("duplicate completion for %s", duplicate.candidate.RuntimeID)
+	default:
+	}
+
+	coordinator.Withdraw(candidate, contract.ActiveCatalogUnavailable)
+	clock.now = clock.now.Add(17 * time.Minute)
+	client.mu.Lock()
+	client.err = nil
+	client.result = json.RawMessage(`{"tools":[]}`)
+	client.release = nil
+	client.mu.Unlock()
+	fresh := candidate
+	fresh.RuntimeID = "runtime-2"
+	now := clock.Now()
+	require.Equal(t, contract.ActiveCatalogCurrent, coordinator.Activate(context.Background(), fresh).State)
+	require.Equal(t, 2, scheduler.count())
+	assert.Equal(t, NextPoll(now, PollOffset(catalogInstallationID, server.ID)).Sub(now), scheduler.call(1).delay)
+}
+
 func TestCoordinatorProjectsFirstPageOAuthDispositionWithoutRuntimeLoss(t *testing.T) {
 	repository, serverRepository, clock, _ := newCatalogRepository(t)
 	server := createCatalogServer(t, serverRepository, "sample")
