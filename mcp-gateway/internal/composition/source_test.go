@@ -26,9 +26,9 @@ type productionSource struct {
 func TestProductionSourceOwnershipGuards(t *testing.T) {
 	root := gatewayModuleRoot(t)
 	allowedExec := func(path string) bool {
-		return path == "internal/keyring/probe_darwin.go" || strings.HasPrefix(path, "internal/runtimes/stdio")
+		return path == "internal/keyring/probe_darwin.go" || path == "test/acceptance/acceptance.go" || strings.HasPrefix(path, "internal/runtimes/stdio")
 	}
-	processConstructors := map[string]string{"internal/keyring/probe_darwin.go": "CommandContext", "internal/runtimes/stdio.go": "Command"}
+	processConstructors := map[string]string{"internal/keyring/probe_darwin.go": "CommandContext", "internal/runtimes/stdio.go": "Command", "test/acceptance/acceptance.go": "CommandContext"}
 	allowedHTTP := "internal/remote/remote.go"
 	allowedSDK := map[string]bool{"internal/dependencies/dependencies.go": true, "internal/mcpingress/handler.go": true}
 	for _, source := range productionSources(t, root) {
