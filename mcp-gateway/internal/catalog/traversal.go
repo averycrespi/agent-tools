@@ -106,6 +106,10 @@ func (traverser *Traverser) traverse(ctx context.Context, client PageClient, nam
 		response, err := client.Request(pageCtx, "tools/list", params, "")
 		cancel()
 		if err != nil {
+			var challenge *downstream.OAuthChallengeDisposition
+			if errors.As(err, &challenge) && pageIndex > 0 {
+				err = downstream.ErrAuthenticationRejected
+			}
 			return Candidate{}, errors.Join(ErrUnavailable, &requestFailure{err: err})
 		}
 		if response.Error != nil {

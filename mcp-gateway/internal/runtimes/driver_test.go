@@ -98,6 +98,18 @@ func driverCoordinatorFactory(transport downstream.Transport) (*downstream.Coord
 	return downstream.NewCoordinator(&driverScriptedTransport{delegate: transport})
 }
 
+func TestConstructionFailureCarriesOAuthChallengeDisposition(t *testing.T) {
+	disposition := &downstream.OAuthChallengeDisposition{Kind: downstream.OAuthChallengeRefresh, Stage: downstream.OAuthChallengeModernDiscovery, Metadata: []string{"https://resource.example/metadata"}}
+
+	outcome := constructionFailure(disposition)
+
+	assert.Equal(t, contract.RuntimeAuthenticationRequired, outcome.State)
+	assert.Equal(t, contract.ServerCredentialUnavailable, outcome.CredentialState)
+	assert.Equal(t, contract.ReasonAuthenticationRejected, *outcome.Reason)
+	assert.Same(t, disposition, outcome.OAuthChallenge)
+	assert.False(t, outcome.Retryable)
+}
+
 func TestConcreteDriverOwnsStdioBeforeConstructionAndStopsExactly(t *testing.T) {
 	owner := NewRuntimeOwner()
 	candidate := ownerCandidate(60, contract.TransportStdio)

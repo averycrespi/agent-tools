@@ -161,6 +161,25 @@ func TestCoordinatorPollAndExplicitRefreshShareOneExactTraversal(t *testing.T) {
 	require.Eventually(t, func() bool { return scheduler.count() == 2 }, time.Second, time.Millisecond)
 }
 
+func TestCoordinatorProjectsFirstPageOAuthDispositionWithoutRuntimeLoss(t *testing.T) {
+	repository, serverRepository, clock, _ := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	disposition := &downstream.OAuthChallengeDisposition{Kind: downstream.OAuthChallengeRefresh, Stage: downstream.OAuthChallengeCatalogFirstPage, Metadata: []string{"https://resource.example/metadata"}}
+	client := &coordinatorClient{err: disposition}
+	candidate := coordinatorCandidate(t, serverRepository, server)
+	coordinator, err := NewCoordinator(CoordinatorOptions{InstallationID: catalogInstallationID, Repository: repository, Active: registry, Traverser: NewTraverser(), Clock: clock, Scheduler: newCatalogScheduler(), Client: func(runtimes.Candidate) (PageClient, bool) { return client, true }, Current: func(runtimes.Candidate) bool { return true }})
+	require.NoError(t, err)
+
+	outcome := coordinator.Activate(context.Background(), candidate)
+
+	assert.Equal(t, contract.ActiveCatalogUnavailable, outcome.State)
+	assert.Equal(t, runtimes.CatalogRuntimeHealthy, outcome.RuntimeHealth)
+	assert.Same(t, disposition, outcome.OAuthChallenge)
+	assert.Equal(t, 1, client.callCount())
+}
+
 func TestCatalogRuntimeFailureClassificationIsClosed(t *testing.T) {
 	tests := []struct {
 		name   string

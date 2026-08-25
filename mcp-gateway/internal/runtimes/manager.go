@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 )
 
@@ -116,6 +117,7 @@ type CatalogOutcome struct {
 	Intent         CatalogTraversalIntent
 	RuntimeHealth  CatalogRuntimeHealth
 	RuntimeFailure *FailureDisposition
+	OAuthChallenge *downstream.OAuthChallengeDisposition
 }
 
 type Candidate struct {
@@ -133,6 +135,7 @@ type Outcome struct {
 	CatalogState    contract.ActiveCatalogState
 	Reason          *contract.PublicReason
 	Retryable       bool
+	OAuthChallenge  *downstream.OAuthChallengeDisposition
 }
 
 type Status struct {

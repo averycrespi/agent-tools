@@ -93,6 +93,97 @@ func TestNegotiatorSendsExactModernDiscoveryAndBindsModern(t *testing.T) {
 	assert.Equal(t, contract.ModernProtocolVersion, transport.messages[0].ProtocolVersion)
 }
 
+func TestNegotiatorReturnsTypedOAuthDispositionWithoutInlineReplay(t *testing.T) {
+	tests := []struct {
+		name  string
+		mode  Mode
+		stage OAuthChallengeStage
+		kind  OAuthChallengeKind
+	}{
+		{name: "modern refresh", mode: ModeModern, stage: OAuthChallengeModernDiscovery, kind: OAuthChallengeRefresh},
+		{name: "modern step up", mode: ModeModern, stage: OAuthChallengeModernDiscovery, kind: OAuthChallengeStepUp},
+		{name: "legacy refresh", mode: ModeLegacy, stage: OAuthChallengeLegacyInitialize, kind: OAuthChallengeRefresh},
+		{name: "legacy step up", mode: ModeLegacy, stage: OAuthChallengeLegacyInitialize, kind: OAuthChallengeStepUp},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &scriptedTransport{exchanges: []func(Message) WireResponse{func(Message) WireResponse {
+				return WireResponse{StatusCode: http.StatusUnauthorized, OAuthChallenge: &OAuthChallengeDisposition{Kind: test.kind, Metadata: []string{"https://resource.example/metadata"}}, Body: []byte("secret challenge body")}
+			}}}
+			negotiator := newScriptedNegotiator(t, transport)
+
+			_, err := negotiator.Negotiate(context.Background(), test.mode)
+
+			var disposition *OAuthChallengeDisposition
+			require.ErrorAs(t, err, &disposition)
+			assert.Equal(t, test.kind, disposition.Kind)
+			assert.Equal(t, test.stage, disposition.Stage)
+			assert.Equal(t, []string{"https://resource.example/metadata"}, disposition.Metadata)
+			assert.NotContains(t, disposition.Error(), "secret")
+			assert.Len(t, transport.messages, 1)
+			assert.True(t, transport.closed)
+		})
+	}
+}
+
+func TestNegotiatorDoesNotProjectMalformedOAuthChallenge(t *testing.T) {
+	for _, mode := range []Mode{ModeModern, ModeLegacy} {
+		t.Run(string(mode), func(t *testing.T) {
+			transport := &scriptedTransport{exchanges: []func(Message) WireResponse{func(Message) WireResponse {
+				return WireResponse{StatusCode: http.StatusUnauthorized, Body: []byte("secret malformed challenge")}
+			}}}
+			_, err := newScriptedNegotiator(t, transport).Negotiate(context.Background(), mode)
+			var disposition *OAuthChallengeDisposition
+			assert.False(t, errors.As(err, &disposition))
+			assert.Len(t, transport.messages, 1)
+		})
+	}
+}
+
+func TestRuntimeReturnsFirstPageOAuthDispositionWithoutReportingFatalFailure(t *testing.T) {
+	transport := &scriptedTransport{exchanges: []func(Message) WireResponse{
+		modernSuccess,
+		func(Message) WireResponse {
+			return WireResponse{StatusCode: http.StatusForbidden, OAuthChallenge: &OAuthChallengeDisposition{Kind: OAuthChallengeStepUp, Scopes: []string{"write"}}, Body: []byte("secret challenge body")}
+		},
+	}}
+	runtime, err := newScriptedNegotiator(t, transport).Negotiate(context.Background(), ModeModern)
+	require.NoError(t, err)
+
+	_, err = runtime.Request(context.Background(), "tools/list", json.RawMessage(`{}`), "")
+
+	var disposition *OAuthChallengeDisposition
+	require.ErrorAs(t, err, &disposition)
+	assert.Equal(t, OAuthChallengeCatalogFirstPage, disposition.Stage)
+	assert.Equal(t, OAuthChallengeStepUp, disposition.Kind)
+	assert.Equal(t, []string{"write"}, disposition.Scopes)
+	assert.Len(t, transport.messages, 2)
+	select {
+	case <-runtime.Failures():
+		t.Fatal("projected OAuth challenge reported fatal runtime failure")
+	default:
+	}
+}
+
+func TestNegotiatorProjectsChallengeOnVersionRetryWithoutFurtherReplay(t *testing.T) {
+	transport := &scriptedTransport{exchanges: []func(Message) WireResponse{
+		func(message Message) WireResponse {
+			return jsonResponse(message, `{"error":{"code":-32022,"message":"unsupported protocol version","data":{"supported":["2026-07-28"],"requested":"2026-07-28"}}}`)
+		},
+		func(Message) WireResponse {
+			return WireResponse{StatusCode: http.StatusUnauthorized, OAuthChallenge: &OAuthChallengeDisposition{Kind: OAuthChallengeRefresh}}
+		},
+	}}
+	negotiator := newScriptedNegotiator(t, transport)
+
+	_, err := negotiator.Negotiate(context.Background(), ModeModern)
+
+	var disposition *OAuthChallengeDisposition
+	require.ErrorAs(t, err, &disposition)
+	assert.Equal(t, OAuthChallengeModernDiscovery, disposition.Stage)
+	assert.Len(t, transport.messages, 2)
+}
+
 func TestNegotiatorRetriesModernVersionWithoutLegacyFallback(t *testing.T) {
 	transport := &scriptedTransport{exchanges: []func(Message) WireResponse{
 		func(message Message) WireResponse {

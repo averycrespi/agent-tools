@@ -61,6 +61,32 @@ func TestCoordinatorOwnsMonotonicIDsAndStrictMatchingEnvelopes(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidMessage)
 }
 
+func TestHTTPTransportProjectsOAuthChallengeWithoutRetainingOtherHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("WWW-Authenticate", `Bearer error="invalid_token", resource_metadata="https://resource.example/metadata", error_description="secret canary"`)
+		writer.Header().Set("X-Secret-Challenge", "secret canary")
+		writer.WriteHeader(http.StatusUnauthorized)
+		_, _ = writer.Write([]byte("secret challenge body"))
+	}))
+	defer server.Close()
+	endpoint, err := remote.ParseEndpoint(server.URL+"/mcp", true)
+	require.NoError(t, err)
+	transport, err := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "Bearer old-token")
+	require.NoError(t, err)
+
+	response, err := transport.Exchange(context.Background(), Message{Payload: []byte(`{}`), Method: "server/discover"})
+
+	require.NoError(t, err)
+	require.NotNil(t, response.OAuthChallenge)
+	assert.Equal(t, OAuthChallengeRefresh, response.OAuthChallenge.Kind)
+	assert.Equal(t, []string{"https://resource.example/metadata"}, response.OAuthChallenge.Metadata)
+	assert.Empty(t, response.Body)
+	assert.Empty(t, response.ContentType)
+	assert.Empty(t, response.SessionIDs)
+	assert.NotContains(t, response.OAuthChallenge.Error(), "secret")
+}
+
 func TestHTTPTransportSendsOnlyClosedGatewayHeadersAndAcceptsBoundedJSONOrSSE(t *testing.T) {
 	requests := make(chan *http.Request, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

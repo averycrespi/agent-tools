@@ -40,10 +40,11 @@ type Message struct {
 }
 
 type WireResponse struct {
-	StatusCode  int
-	ContentType string
-	Body        []byte
-	SessionIDs  []string
+	StatusCode     int
+	ContentType    string
+	Body           []byte
+	SessionIDs     []string
+	OAuthChallenge *OAuthChallengeDisposition
 }
 
 type TransportKind string
@@ -386,6 +387,9 @@ func (transport *HTTPTransport) exchange(ctx context.Context, message Message) (
 		return WireResponse{}, err
 	}
 	defer func() { _ = response.Body.Close() }()
+	if challenge := projectOAuthChallenge(response.StatusCode, response.Header.Values("WWW-Authenticate")); challenge != nil {
+		return WireResponse{StatusCode: response.StatusCode, OAuthChallenge: challenge}, nil
+	}
 	contentType := response.Header.Get("Content-Type")
 	mediaType, _, mediaErr := mime.ParseMediaType(contentType)
 	var body []byte

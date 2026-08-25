@@ -423,6 +423,11 @@ func (driver *ConcreteDriver) Coordinator(candidate Candidate) (*downstream.Coor
 }
 
 func constructionFailure(err error) Outcome {
+	var challenge *downstream.OAuthChallengeDisposition
+	if errors.As(err, &challenge) {
+		reason := contract.ReasonAuthenticationRejected
+		return Outcome{State: contract.RuntimeAuthenticationRequired, CredentialState: contract.ServerCredentialUnavailable, CatalogState: contract.ActiveCatalogAbsent, Reason: &reason, OAuthChallenge: challenge}
+	}
 	failure := ClassifyFailure(err)
 	return Outcome{State: failure.State, CredentialState: contract.ServerCredentialUnavailable, CatalogState: contract.ActiveCatalogAbsent, Reason: &failure.Reason, Retryable: failure.Retryable}
 }

@@ -233,6 +233,10 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 
 func (coordinator *Coordinator) failure(candidate runtimes.Candidate, intent runtimes.CatalogTraversalIntent, err error, runtimeFailure *runtimes.FailureDisposition) runtimes.CatalogOutcome {
 	reason := catalogFailureReason(err)
+	var challenge *downstream.OAuthChallengeDisposition
+	if errors.As(err, &challenge) {
+		reason = contract.ReasonAuthenticationRejected
+	}
 	live := coordinator.live(candidate)
 	if runtimeFailure != nil && runtimeFailure.RuntimeLost {
 		reason = runtimeFailure.Reason
@@ -250,7 +254,7 @@ func (coordinator *Coordinator) failure(candidate runtimes.Candidate, intent run
 		active := coordinator.active.Status(candidate.Server.ID)
 		if active.State == contract.ActiveCatalogCurrent || active.State == contract.ActiveCatalogStale {
 			if coordinator.setFailureState(candidate, contract.DurableCatalogStale) && coordinator.active.MarkStaleExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, 1) {
-				return runtimes.CatalogOutcome{State: contract.ActiveCatalogStale, Reason: &reason, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy}
+				return runtimes.CatalogOutcome{State: contract.ActiveCatalogStale, Reason: &reason, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy, OAuthChallenge: challenge}
 			}
 		}
 	}
@@ -260,7 +264,7 @@ func (coordinator *Coordinator) failure(candidate runtimes.Candidate, intent run
 	} else {
 		coordinator.active.WithdrawExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, contract.ActiveCatalogUnavailable)
 	}
-	return runtimes.CatalogOutcome{State: contract.ActiveCatalogUnavailable, Reason: &reason, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy}
+	return runtimes.CatalogOutcome{State: contract.ActiveCatalogUnavailable, Reason: &reason, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy, OAuthChallenge: challenge}
 }
 
 func (coordinator *Coordinator) setFailureState(candidate runtimes.Candidate, state contract.DurableCatalogState) bool {
@@ -359,6 +363,10 @@ func postCommitFailure(failure *PublicationFailure) (contract.PublicReason, runt
 func catalogRuntimeFailure(err error, client PageClient) *runtimes.FailureDisposition {
 	var requestFailure *requestFailure
 	if !errors.As(err, &requestFailure) || errors.Is(requestFailure.err, context.Canceled) || errors.Is(requestFailure.err, context.DeadlineExceeded) {
+		return nil
+	}
+	var challenge *downstream.OAuthChallengeDisposition
+	if errors.As(requestFailure.err, &challenge) {
 		return nil
 	}
 	_, concreteRuntime := client.(*downstream.Runtime)

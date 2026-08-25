@@ -174,6 +174,9 @@ func negotiateModern(ctx context.Context, coordinator *Coordinator) (bool, bool,
 	if err != nil {
 		return false, false, err
 	}
+	if wire.OAuthChallenge != nil {
+		return false, false, wire.OAuthChallenge.at(OAuthChallengeModernDiscovery)
+	}
 	if len(wire.SessionIDs) != 0 {
 		return false, false, ErrSessionLost
 	}
@@ -203,6 +206,9 @@ func negotiateModern(ctx context.Context, coordinator *Coordinator) (bool, bool,
 	if err != nil {
 		return false, false, err
 	}
+	if wire.OAuthChallenge != nil {
+		return false, false, wire.OAuthChallenge.at(OAuthChallengeModernDiscovery)
+	}
 	if len(wire.SessionIDs) != 0 {
 		return false, false, ErrSessionLost
 	}
@@ -222,6 +228,10 @@ func negotiateLegacy(ctx context.Context, coordinator *Coordinator) (*Runtime, e
 	if err != nil {
 		_ = coordinator.Close(ctx)
 		return nil, err
+	}
+	if wire.OAuthChallenge != nil {
+		_ = coordinator.Close(ctx)
+		return nil, wire.OAuthChallenge.at(OAuthChallengeLegacyInitialize)
 	}
 	response, err := decodeNegotiationResponse(requestID, wire)
 	if err != nil || response.Error != nil {
@@ -295,6 +305,9 @@ func (runtime *Runtime) Request(ctx context.Context, method string, params json.
 			runtime.reportFailure(err)
 		}
 		return Response{}, err
+	}
+	if wire.OAuthChallenge != nil && method == "tools/list" {
+		return Response{}, wire.OAuthChallenge.at(OAuthChallengeCatalogFirstPage)
 	}
 	if wire.StatusCode == http.StatusUnauthorized || wire.StatusCode == http.StatusForbidden {
 		runtime.reportFailure(ErrAuthenticationRejected)

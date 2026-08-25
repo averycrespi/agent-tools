@@ -36,6 +36,22 @@ func TestTraversalGoldenModernAndLegacyIsolatesMalformedDescriptors(t *testing.T
 	}
 }
 
+func TestTraversalProjectsOnlyFirstPageOAuthChallenge(t *testing.T) {
+	disposition := &downstream.OAuthChallengeDisposition{Kind: downstream.OAuthChallengeRefresh, Stage: downstream.OAuthChallengeCatalogFirstPage, Metadata: []string{"https://resource.example/metadata"}}
+	first := &challengePageClient{challenge: disposition}
+	_, err := NewTraverser().Traverse(context.Background(), first, "sample")
+	var projected *downstream.OAuthChallengeDisposition
+	require.ErrorAs(t, err, &projected)
+	assert.Same(t, disposition, projected)
+	assert.Equal(t, 1, first.calls)
+
+	later := &challengePageClient{first: json.RawMessage(`{"tools":[],"nextCursor":"next"}`), challenge: disposition}
+	_, err = NewTraverser().Traverse(context.Background(), later, "sample")
+	assert.ErrorIs(t, err, downstream.ErrAuthenticationRejected)
+	assert.False(t, errors.As(err, &projected))
+	assert.Equal(t, 2, later.calls)
+}
+
 func TestTraversalRejectsMalformedPagesCursorsCyclesAndCollisions(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -164,6 +180,20 @@ func (client *scriptedClient) Request(ctx context.Context, method string, params
 	result := client.results[0]
 	client.results = client.results[1:]
 	return downstream.Response{Result: append(json.RawMessage(nil), result...)}, nil
+}
+
+type challengePageClient struct {
+	first     json.RawMessage
+	challenge *downstream.OAuthChallengeDisposition
+	calls     int
+}
+
+func (client *challengePageClient) Request(context.Context, string, json.RawMessage, string) (downstream.Response, error) {
+	client.calls++
+	if client.calls == 1 && client.first != nil {
+		return downstream.Response{Result: client.first}, nil
+	}
+	return downstream.Response{}, client.challenge
 }
 
 type blockingClient struct {
