@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -23,70 +22,77 @@ func (repository *Repository) Evaluate(ctx context.Context, request EvaluationRe
 		return contract.AuthorizationResult{}, ErrAuthorizationUnavailable
 	}
 	evaluatedAt := repository.clock.Now().UTC()
-	result := contract.AuthorizationResult{
-		Decision:    contract.DecisionBlock,
-		EvaluatedAt: formatAuthorizationTime(evaluatedAt),
-	}
+	var result contract.AuthorizationResult
 	err = repository.view(ctx, func(transaction *sql.Tx) error {
-		var revision int64
-		if err := transaction.QueryRowContext(ctx, `SELECT revision FROM authorization_meta WHERE singleton = 1`).Scan(&revision); err != nil {
-			return fmt.Errorf("read authorization revision for evaluation: %w", err)
-		}
-		if revision < 0 {
-			return ErrAuthorizationUnavailable
-		}
-		result.AuthorizationRevision = strconv.FormatInt(revision, 10)
-
-		rows, err := transaction.QueryContext(ctx, `
-			SELECT id, principal_id, effect, server_id, upstream_name,
-			       constraint_json, expires_at, created_at
-			FROM grants
-			WHERE principal_id = ?
-			ORDER BY id
-			LIMIT ?`, request.PrincipalID, mustLimit("grants")+1)
-		if err != nil {
-			return fmt.Errorf("read grants for evaluation: %w", err)
-		}
-		defer func() { _ = rows.Close() }()
-		var smallestAllow, smallestDeny string
-		count := int64(0)
-		for rows.Next() {
-			if count >= mustLimit("grants") {
-				return ErrAuthorizationUnavailable
-			}
-			count++
-			grant, loadErr := loadEvaluationGrant(rows)
-			if loadErr != nil {
-				return ErrAuthorizationUnavailable
-			}
-			if !grant.applies(request.ServerID, request.UpstreamName, evaluatedAt, arguments) {
-				continue
-			}
-			switch grant.effect {
-			case contract.GrantDeny:
-				if smallestDeny == "" || grant.id < smallestDeny {
-					smallestDeny = grant.id
-				}
-			case contract.GrantAllow:
-				if smallestAllow == "" || grant.id < smallestAllow {
-					smallestAllow = grant.id
-				}
-			}
-		}
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("iterate grants for evaluation: %w", err)
-		}
-		if smallestDeny != "" {
-			result.Decision = contract.DecisionDeny
-			result.GrantID = &smallestDeny
-		} else if smallestAllow != "" {
-			result.Decision = contract.DecisionAllow
-			result.GrantID = &smallestAllow
-		}
-		return nil
+		var evaluateErr error
+		result, evaluateErr = evaluateTx(ctx, transaction, request.PrincipalID, request.ServerID, request.UpstreamName, arguments, evaluatedAt)
+		return evaluateErr
 	})
+	return result, err
+}
+
+func evaluateTx(
+	ctx context.Context,
+	transaction *sql.Tx,
+	principalID string,
+	serverID string,
+	upstreamName string,
+	arguments strictjson.Value,
+	evaluatedAt time.Time,
+) (contract.AuthorizationResult, error) {
+	revision, err := authorizationRevisionTx(ctx, transaction)
 	if err != nil {
 		return contract.AuthorizationResult{}, err
+	}
+	result := contract.AuthorizationResult{
+		Decision: contract.DecisionBlock, AuthorizationRevision: revision,
+		EvaluatedAt: formatAuthorizationTime(evaluatedAt),
+	}
+	rows, err := transaction.QueryContext(ctx, `
+		SELECT id, principal_id, effect, server_id, upstream_name,
+		       constraint_json, expires_at, created_at
+		FROM grants
+		WHERE principal_id = ?
+		ORDER BY id
+		LIMIT ?`, principalID, mustLimit("grants")+1)
+	if err != nil {
+		return contract.AuthorizationResult{}, fmt.Errorf("%w: read grants for evaluation: %w", ErrStorageUnavailable, err)
+	}
+	defer func() { _ = rows.Close() }()
+	var smallestAllow, smallestDeny string
+	count := int64(0)
+	for rows.Next() {
+		if count >= mustLimit("grants") {
+			return contract.AuthorizationResult{}, ErrAuthorizationUnavailable
+		}
+		count++
+		grant, loadErr := loadEvaluationGrant(rows)
+		if loadErr != nil {
+			return contract.AuthorizationResult{}, ErrAuthorizationUnavailable
+		}
+		if !grant.applies(serverID, upstreamName, evaluatedAt, arguments) {
+			continue
+		}
+		switch grant.effect {
+		case contract.GrantDeny:
+			if smallestDeny == "" || grant.id < smallestDeny {
+				smallestDeny = grant.id
+			}
+		case contract.GrantAllow:
+			if smallestAllow == "" || grant.id < smallestAllow {
+				smallestAllow = grant.id
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return contract.AuthorizationResult{}, fmt.Errorf("%w: iterate grants for evaluation: %w", ErrStorageUnavailable, err)
+	}
+	if smallestDeny != "" {
+		result.Decision = contract.DecisionDeny
+		result.GrantID = &smallestDeny
+	} else if smallestAllow != "" {
+		result.Decision = contract.DecisionAllow
+		result.GrantID = &smallestAllow
 	}
 	return result, nil
 }

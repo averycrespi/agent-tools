@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
 
 const (
@@ -56,6 +57,18 @@ type EvaluationRequest struct {
 	ServerID     string
 	UpstreamName string
 	Arguments    json.RawMessage
+}
+
+type ResolvedVerification struct {
+	ServerID                      string
+	UpstreamName                  string
+	Arguments                     strictjson.Value
+	ObservedAuthorizationRevision string
+}
+
+type BindingVerification struct {
+	AuthorizationRevision string
+	EvaluatedAt           string
 }
 
 type PrincipalPage struct {
