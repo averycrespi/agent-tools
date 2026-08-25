@@ -51,6 +51,13 @@ type CreateGrantRequest struct {
 
 type CurrentGrantTargetValidator func(context.Context, *sql.Tx, string) (bool, error)
 
+type EvaluationRequest struct {
+	PrincipalID  string
+	ServerID     string
+	UpstreamName string
+	Arguments    json.RawMessage
+}
+
 type PrincipalPage struct {
 	Items []contract.Principal
 	Next  *SnapshotCursor
