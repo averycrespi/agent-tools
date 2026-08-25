@@ -12,6 +12,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSchemaSevenFixtureMigratesWithRealSQLite(t *testing.T) {
+	ctx := context.Background()
+	ownership := newOwnership(t)
+	copyFixture(t, "testdata/schema-v7.db", ownership.Layout().Database)
+
+	store, err := Open(ctx, ownership)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close()) }()
+	assertPopulatedSchemaSevenFacts(t, ctx, store.database)
+	assertSchemaEightFoundation(t, ctx, store.database)
+}
+
 func TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
