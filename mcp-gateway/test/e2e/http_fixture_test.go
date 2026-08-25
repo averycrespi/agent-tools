@@ -34,11 +34,13 @@ type httpFixtureEvent struct {
 }
 
 type httpFixtureBarrier struct {
-	method    string
-	entered   chan struct{}
-	cancelled chan struct{}
-	release   chan struct{}
-	once      sync.Once
+	method          string
+	entered         chan struct{}
+	cancelled       chan struct{}
+	completed       chan struct{}
+	release         chan struct{}
+	holdAfterCancel bool
+	once            sync.Once
 }
 
 func (barrier *httpFixtureBarrier) Release() { barrier.once.Do(func() { close(barrier.release) }) }
@@ -53,6 +55,7 @@ type rawHTTPFixture struct {
 	mu           sync.Mutex
 	events       []httpFixtureEvent
 	barrier      *httpFixtureBarrier
+	barriers     []*httpFixtureBarrier
 	loseSession  bool
 	closeFixture sync.Once
 }
@@ -70,9 +73,9 @@ func (fixture *rawHTTPFixture) URL() string { return fixture.server.URL + "/mcp"
 func (fixture *rawHTTPFixture) Close() {
 	fixture.closeFixture.Do(func() {
 		fixture.mu.Lock()
-		barrier := fixture.barrier
+		barriers := append([]*httpFixtureBarrier(nil), fixture.barriers...)
 		fixture.mu.Unlock()
-		if barrier != nil {
+		for _, barrier := range barriers {
 			barrier.Release()
 		}
 		fixture.server.CloseClientConnections()
@@ -83,14 +86,24 @@ func (fixture *rawHTTPFixture) Close() {
 func (fixture *rawHTTPFixture) Arm(method string) *httpFixtureBarrier {
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
-	barrier := &httpFixtureBarrier{method: method, entered: make(chan struct{}), cancelled: make(chan struct{}), release: make(chan struct{})}
+	barrier := &httpFixtureBarrier{method: method, entered: make(chan struct{}), cancelled: make(chan struct{}), completed: make(chan struct{}), release: make(chan struct{})}
 	fixture.barrier = barrier
+	fixture.barriers = append(fixture.barriers, barrier)
 	return barrier
 }
 
 func (fixture *rawHTTPFixture) ArmBlockedList() (<-chan struct{}, <-chan struct{}) {
 	barrier := fixture.Arm("tools/list")
 	return barrier.entered, barrier.cancelled
+}
+
+func (fixture *rawHTTPFixture) ArmLateBlockedList() *httpFixtureBarrier {
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	barrier := &httpFixtureBarrier{method: "tools/list", entered: make(chan struct{}), cancelled: make(chan struct{}), completed: make(chan struct{}), release: make(chan struct{}), holdAfterCancel: true}
+	fixture.barrier = barrier
+	fixture.barriers = append(fixture.barriers, barrier)
+	return barrier
 }
 
 func (fixture *rawHTTPFixture) SetMode(mode string) {
@@ -139,6 +152,7 @@ func (fixture *rawHTTPFixture) serveHTTP(writer http.ResponseWriter, request *ht
 	fixture.events = append(fixture.events, event)
 	barrier := fixture.barrier
 	if barrier != nil && barrier.method == envelope.Method {
+		fixture.barrier = nil
 		close(barrier.entered)
 	} else {
 		barrier = nil
@@ -149,16 +163,16 @@ func (fixture *rawHTTPFixture) serveHTTP(writer http.ResponseWriter, request *ht
 		select {
 		case <-request.Context().Done():
 			close(barrier.cancelled)
+			if barrier.holdAfterCancel {
+				<-barrier.release
+			}
 		case <-barrier.release:
 		}
-		fixture.mu.Lock()
-		if fixture.barrier == barrier {
-			fixture.barrier = nil
-		}
-		fixture.mu.Unlock()
 		if request.Context().Err() != nil {
+			close(barrier.completed)
 			return
 		}
+		close(barrier.completed)
 	}
 
 	writer.Header().Set("Content-Type", "application/json")

@@ -460,11 +460,12 @@ func TestProductionCompositionReplacementWithdrawsBeforeStopAndConstructsOnlyAft
 	}
 }
 
-func TestProductionCompositionDrainRetainsBlockedHandleAndStopsOnce(t *testing.T) {
+func TestProductionCompositionDrainWithdrawsBeforeBlockedStopAndStopsOnce(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
 	backend := newMemoryBackend()
-	runtime := &fixtureStdio{frames: make(chan []byte), input: new(fixtureInput), stop: false}
+	stopStarted, stopRelease := make(chan struct{}), make(chan struct{})
+	runtime := &controlledStopStdio{fixtureStdio: &fixtureStdio{frames: make(chan []byte), input: new(fixtureInput)}, started: stopStarted, release: stopRelease}
 	built, err := newWithHooks(options, constructorHooks{
 		provider: func(installationID string) (*keyring.Provider, error) {
 			return keyring.NewProviderWithBackend(installationID, backend)
@@ -479,13 +480,26 @@ func TestProductionCompositionDrainRetainsBlockedHandleAndStopsOnce(t *testing.T
 	server := createServerWithTransport(t, built.servers, "drain-blocked", contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/fixture/mcp", Arguments: []string{}, WorkingDirectory: "/", Environment: map[string]string{}, SecretEnvironment: map[string]string{}})
 	enableCompositionServer(t, built.servers, server)
 	require.NoError(t, built.Start(context.Background()))
-	require.Eventually(t, func() bool { return built.RuntimeStatus(server.ID).State == contract.RuntimeActive }, 2*time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return built.RuntimeStatus(server.ID).CatalogState == contract.ActiveCatalogCurrent }, 2*time.Second, time.Millisecond)
+	page, err := built.ActiveCatalog().List(nil, 10)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	resourceID := page.Items[0].Resource.ID
+	beforeGeneration := page.Summary.ActiveGeneration
+	_, routePresent := built.ActiveCatalog().Routes().Resolve(resourceID)
+	require.True(t, routePresent)
 
-	assert.Equal(t, runtimes.DrainResult{Unconfirmed: 1}, <-built.Drain(context.Background()))
+	first := built.Drain(context.Background())
+	<-stopStarted
+	_, routePresent = built.ActiveCatalog().Routes().Resolve(resourceID)
+	assert.False(t, routePresent)
+	assert.NotEqual(t, beforeGeneration, built.ActiveCatalog().Summary().ActiveGeneration)
+	assert.Equal(t, contract.ActiveCatalogUnavailable, built.ActiveCatalog().Status(server.ID).State)
+	close(stopRelease)
+	assert.Equal(t, runtimes.DrainResult{Unconfirmed: 1}, <-first)
 	assert.Equal(t, runtimes.DrainResult{Unconfirmed: 1}, <-built.Drain(context.Background()))
 	assert.Equal(t, 1, runtime.StopCount())
 	assert.Equal(t, int64(1), built.RuntimeOccupancy().InUse)
-	assert.Equal(t, contract.ActiveCatalogUnavailable, built.ActiveCatalog().Status(server.ID).State)
 }
 
 func TestProductionCompositionReportsConstructingAndRetainedBlockedStopFromActualOwner(t *testing.T) {

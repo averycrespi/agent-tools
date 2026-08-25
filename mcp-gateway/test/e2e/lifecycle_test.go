@@ -9,16 +9,19 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestServeSignalDrainRestartAndForcedExit(t *testing.T) {
+func TestServeRestartInvalidatesAdminSession(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
 	ready := harness.Request(http.MethodGet, "/readyz", "", nil)
@@ -41,27 +44,129 @@ func TestServeSignalDrainRestartAndForcedExit(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, stale.StatusCode)
 	_ = stale.Body.Close()
 	harness.Stop(os.Interrupt)
+}
 
+func TestServeFirstSignalDeadlineRetainsUncleanMarker(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.Start()
+	blocked, err := net.Dial("tcp", harness.authority)
+	require.NoError(t, err)
+	_, err = fmt.Fprintf(blocked, "POST /api/v1/backups HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nIdempotency-Key: deadline\r\nContent-Length: 100\r\n\r\n", harness.authority, harness.bearer)
+	require.NoError(t, err)
+	waitForAdminOccupancy(t, harness, 2)
+	require.NoError(t, harness.process.Signal(syscall.SIGTERM))
+	waitForListenerClose(t, harness.authority)
+	result, waitErr := harness.process.Wait()
+	harness.process = nil
+	require.Error(t, waitErr)
+	assert.Equal(t, 1, result.ExitCode)
+	assert.True(t, strings.Contains(string(result.Stderr), "mcp-gateway serve stopped"))
+	_, markerErr := os.Stat(filepath.Join(harness.root, "run.unclean"))
+	require.NoError(t, markerErr)
+	require.NoError(t, blocked.Close())
+
+	harness.Start()
+	harness.Stop(syscall.SIGTERM)
+	_, markerErr = os.Stat(filepath.Join(harness.root, "run.unclean"))
+	require.ErrorIs(t, markerErr, os.ErrNotExist)
+}
+
+func TestServeSecondSignalForcesImmediateExit(t *testing.T) {
+	harness := newGatewayHarness(t)
 	harness.Start()
 	blocked, err := net.Dial("tcp", harness.authority)
 	require.NoError(t, err)
 	defer func() { _ = blocked.Close() }()
-	_, err = fmt.Fprintf(blocked, "POST /api/v1/backups HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nIdempotency-Key: blocked\r\nContent-Length: 100\r\n\r\n", harness.authority, harness.bearer)
+	_, err = fmt.Fprintf(blocked, "POST /api/v1/backups HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nIdempotency-Key: forced\r\nContent-Length: 100\r\n\r\n", harness.authority, harness.bearer)
 	require.NoError(t, err)
 	waitForAdminOccupancy(t, harness, 2)
 	require.NoError(t, harness.process.Signal(syscall.SIGTERM))
 	waitForListenerClose(t, harness.authority)
 	require.NoError(t, harness.process.Signal(syscall.SIGTERM))
-	result, err = harness.process.Wait()
-	harness.process = nil
-	require.Error(t, err)
-	assert.Equal(t, 2, result.ExitCode)
+	type waitResult struct {
+		result testutil.ProcessResult
+		err    error
+	}
+	finished := make(chan waitResult, 1)
+	go func() {
+		result, waitErr := harness.process.Wait()
+		finished <- waitResult{result: result, err: waitErr}
+	}()
+	select {
+	case observed := <-finished:
+		harness.process = nil
+		require.Error(t, observed.err)
+		assert.Equal(t, 2, observed.result.ExitCode)
+	case <-time.After(3 * time.Second):
+		t.Fatal("second signal did not force immediate exit")
+	}
+	_, markerErr := os.Stat(filepath.Join(harness.root, "run.unclean"))
+	require.NoError(t, markerErr)
+}
 
+func TestServeLateHTTPCompletionAfterExitIsFenced(t *testing.T) {
+	harness := newGatewayHarness(t)
 	harness.Start()
-	verified := harness.Request(http.MethodGet, "/readyz", "", nil)
-	assert.Equal(t, http.StatusOK, verified.StatusCode)
-	_ = verified.Body.Close()
-	harness.Stop(syscall.SIGTERM)
+	fixture := newRawHTTPFixture(t, "modern")
+	creation, etag := createHTTPServer(t, harness, fixture.URL(), "modern")
+	harness.WaitOperation(creation.Server.ID, creation.Operation.ID, contract.OperationSucceeded)
+	waitForStdioServer(t, harness, creation.Server.ID, activeCatalog)
+	late := fixture.ArmLateBlockedList()
+	_ = createServerOperation(t, harness, creation.Server.ID, etag, string(contract.OperationRefreshCatalog), "late-signal-refresh")
+	awaitFixtureSignal(t, late.entered, "late HTTP refresh did not block")
+	require.NoError(t, harness.process.Signal(syscall.SIGTERM))
+	awaitFixtureSignal(t, late.cancelled, "drain did not cancel late HTTP refresh")
+	result, waitErr := harness.process.Wait()
+	harness.process = nil
+	require.NoError(t, waitErr, "Gateway shutdown: %s", result.Stderr)
+
+	eventCount := len(fixture.Events())
+	late.Release()
+	awaitFixtureSignal(t, late.completed, "late HTTP handler did not complete after process exit")
+	assert.Equal(t, eventCount, len(fixture.Events()))
+}
+
+func TestServeFirstSignalDrainsActiveStdioAndHTTP(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.Start()
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	eventsPath := filepath.Join(t.TempDir(), "drain-events.jsonl")
+	stdio := createStdioServer(t, harness, executable, "blocked-stop", filepath.Join(t.TempDir(), "marker"), eventsPath)
+	harness.WaitOperation(stdio.Server.ID, stdio.Operation.ID, contract.OperationSucceeded)
+	waitForStdioServer(t, harness, stdio.Server.ID, activeCatalog)
+	stdioEvents := waitForFixtureEvents(t, eventsPath, func(events []stdioFixtureEvent) bool {
+		return countFixtureEvents(events, "start", "") == 1
+	})
+	stdioPID := fixtureEvents(stdioEvents, "start", "")[0].PID
+
+	fixture := newRawHTTPFixture(t, "modern")
+	httpCreation, etag := createHTTPServer(t, harness, fixture.URL(), "modern")
+	harness.WaitOperation(httpCreation.Server.ID, httpCreation.Operation.ID, contract.OperationSucceeded)
+	waitForStdioServer(t, harness, httpCreation.Server.ID, activeCatalog)
+	var catalog contract.CatalogPage
+	response := harness.AdminJSON(http.MethodGet, "/api/v1/catalog", "", nil, &catalog)
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	require.NoError(t, response.Body.Close())
+	require.Len(t, catalog.Items, 4)
+	require.NotEmpty(t, catalog.Catalog.ActiveGeneration)
+
+	barrier := fixture.Arm("tools/list")
+	_ = createServerOperation(t, harness, httpCreation.Server.ID, etag, string(contract.OperationRefreshCatalog), "signal-drain-refresh")
+	awaitFixtureSignal(t, barrier.entered, "HTTP refresh did not block before drain")
+	require.NoError(t, harness.process.Signal(syscall.SIGTERM))
+	waitForListenerClose(t, harness.authority)
+	awaitFixtureSignal(t, barrier.cancelled, "first signal did not cancel blocked HTTP work")
+	result, waitErr := harness.process.Wait()
+	harness.process = nil
+	require.NoError(t, waitErr, "Gateway shutdown: %s", result.Stderr)
+	assert.Equal(t, 0, result.ExitCode)
+	waitForProcessExit(t, stdioPID)
+	waitForFixtureEvents(t, eventsPath, func(events []stdioFixtureEvent) bool {
+		return countFixtureEvents(events, "eof", "") == 1 && countFixtureEvents(events, "signal", "") == 1
+	})
+	_, markerErr := os.Stat(filepath.Join(harness.root, "run.unclean"))
+	require.ErrorIs(t, markerErr, os.ErrNotExist)
 }
 
 func TestEnabledServerFailureDoesNotRedefineReadiness(t *testing.T) {

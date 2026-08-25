@@ -1886,6 +1886,59 @@ func TestManagerPublishesSafeInvalidationsAfterTransitions(t *testing.T) {
 	}, time.Second, time.Millisecond)
 }
 
+func TestManagerDrainRacingCatalogHandoffStopsExactHandleOnce(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	catalog := newHandoffCatalog()
+	refresh := newChallengeRefreshFake()
+	manager, err := New(Options{Repository: repository, Driver: driver, Catalog: catalog, OAuthRefresh: refresh})
+	require.NoError(t, err)
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	repository.mu.Lock()
+	authority := repository.authorities[serverID]
+	authority.CredentialRevisions.OAuthTokens = "1"
+	repository.authorities[serverID] = authority
+	repository.mu.Unlock()
+	manager.Trigger(serverID, nil, false)
+	active := receiveCandidate(t, driver.started)
+	driver.startResult <- activeOutcome()
+	_ = receiveCandidate(t, catalog.activateStarted)
+	catalog.activateResult <- CatalogOutcome{State: contract.ActiveCatalogCurrent}
+	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeActive }, time.Second, time.Millisecond)
+	operation, err := repository.CreateOperation(context.Background(), servers.OperationRequest{ServerID: serverID, Kind: contract.OperationRefreshCatalog, ExpectedDesiredRevision: "1"})
+	require.NoError(t, err)
+	manager.Trigger(serverID, &operation.Operation.ID, false)
+	_ = receiveCandidate(t, catalog.refreshStarted)
+	<-repository.transitions
+	catalog.refreshResult <- CatalogOutcome{State: contract.ActiveCatalogCurrent, OAuthChallenge: &downstream.OAuthChallengeDisposition{Kind: downstream.OAuthChallengeRefresh, Stage: downstream.OAuthChallengeCatalogFirstPage}}
+	<-refresh.started
+	repository.mu.Lock()
+	authority = repository.authorities[serverID]
+	authority.CredentialRevisions.OAuthTokens = "2"
+	repository.authorities[serverID] = authority
+	repository.mu.Unlock()
+	refresh.release <- OAuthChallengeRefreshResult{OAuthTokensRevision: "2"}
+	assert.Equal(t, active.RuntimeID, receiveCandidate(t, catalog.withdrawn).RuntimeID)
+	assert.Equal(t, active.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
+
+	done := manager.Drain(context.Background())
+	select {
+	case duplicate := <-driver.stopping:
+		t.Fatalf("drain issued duplicate stop for %s", duplicate.RuntimeID)
+	case <-time.After(50 * time.Millisecond):
+	}
+	driver.stopResult <- true
+	assert.Equal(t, DrainResult{Verified: 1}, <-done)
+	select {
+	case replacement := <-driver.started:
+		t.Fatalf("late handoff started replacement %s", replacement.RuntimeID)
+	default:
+	}
+}
+
 func TestManagerDrainFencesLateDriverPublication(t *testing.T) {
 	repository := newFakeRepository(1)
 	driver := newBlockingDriver()

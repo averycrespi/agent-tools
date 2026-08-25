@@ -215,11 +215,18 @@ type Manager struct {
 	workers      sync.WaitGroup
 }
 
+type candidateStop struct {
+	done     chan struct{}
+	verified bool
+}
+
 type entry struct {
 	generation         uint64
 	activating         *Candidate
 	active             *Candidate
 	blockedStop        *Candidate
+	stopping           *Candidate
+	stopAttempt        *candidateStop
 	runtimeFailure     *FailureDisposition
 	catalogHandoff     *CandidateKey
 	handoffOperationID *string
@@ -571,7 +578,7 @@ func (manager *Manager) catalogChallengeHandoff(candidate Candidate, challenge *
 		manager.stopStaleCatalogHandoff(candidate, operationID, false)
 		return
 	}
-	if !manager.stopCandidate(candidate) {
+	if !manager.stopCatalogHandoffCandidate(candidate) {
 		manager.rememberBlockedStop(serverID, candidate)
 		manager.clearActiveCandidate(candidate)
 		manager.finishFailure(serverID, generation, operationID, contract.RuntimeDegraded, contract.ServerCredentialUnavailable, contract.ActiveCatalogUnavailable, contract.ReasonStopUnconfirmed, false)
@@ -637,7 +644,7 @@ func (manager *Manager) finishCatalogChallengeFailure(candidate Candidate, opera
 		manager.stopStaleCatalogHandoff(candidate, operationID, false)
 		return
 	}
-	if !manager.stopCandidate(candidate) {
+	if !manager.stopCatalogHandoffCandidate(candidate) {
 		manager.rememberBlockedStop(candidate.Server.ID, candidate)
 		reason = contract.ReasonStopUnconfirmed
 	}
@@ -659,7 +666,10 @@ func (manager *Manager) finishCatalogChallengeFailure(candidate Candidate, opera
 }
 
 func (manager *Manager) stopStaleCatalogHandoff(candidate Candidate, operationID *string, stopped bool) {
-	if !stopped && !manager.Current(candidate) && !manager.stopCandidate(candidate) {
+	manager.mu.Lock()
+	draining := manager.draining
+	manager.mu.Unlock()
+	if !stopped && !draining && !manager.Current(candidate) && !manager.stopCandidate(candidate) {
 		manager.rememberBlockedStop(candidate.Server.ID, candidate)
 	}
 	manager.mu.Lock()
@@ -1029,6 +1039,29 @@ func (manager *Manager) withdrawCandidate(candidate Candidate) {
 func (manager *Manager) stopCandidate(candidate Candidate) bool {
 	manager.withdrawCandidate(candidate)
 	return manager.driver.Stop(context.Background(), candidate)
+}
+
+func (manager *Manager) stopCatalogHandoffCandidate(candidate Candidate) bool {
+	manager.mu.Lock()
+	current := manager.entries[candidate.Server.ID]
+	if current != nil && current.stopAttempt != nil && current.stopping != nil && current.stopping.Key() == candidate.Key() {
+		attempt := current.stopAttempt
+		manager.mu.Unlock()
+		<-attempt.done
+		return attempt.verified
+	}
+	attempt := &candidateStop{done: make(chan struct{})}
+	if current != nil {
+		current.stopping = cloneCandidate(&candidate)
+		current.stopAttempt = attempt
+	}
+	manager.mu.Unlock()
+	verified := manager.stopCandidate(candidate)
+	manager.mu.Lock()
+	attempt.verified = verified
+	close(attempt.done)
+	manager.mu.Unlock()
+	return verified
 }
 
 func (manager *Manager) finalizeCatalogLifecycle(server servers.Server, durableState contract.DurableCatalogState, activeState contract.ActiveCatalogState) bool {
@@ -1554,6 +1587,7 @@ func (manager *Manager) Drain(ctx context.Context) <-chan DrainResult {
 	type drainCandidate struct {
 		candidate Candidate
 		stop      bool
+		attempt   *candidateStop
 	}
 	candidates := make([]drainCandidate, 0, len(manager.entries))
 	seen := make(map[string]int, len(manager.entries))
@@ -1572,11 +1606,18 @@ func (manager *Manager) Drain(ctx context.Context) <-chan DrainResult {
 			}
 			manager.publisher.Withdraw(*candidate)
 			stop := index != 0
+			var attempt *candidateStop
+			if current.stopping != nil && current.stopping.Key() == candidate.Key() {
+				attempt = current.stopAttempt
+			}
 			if existing, duplicate := seen[candidate.RuntimeID]; duplicate {
 				candidates[existing].stop = candidates[existing].stop || stop
+				if candidates[existing].attempt == nil {
+					candidates[existing].attempt = attempt
+				}
 			} else {
 				seen[candidate.RuntimeID] = len(candidates)
-				candidates = append(candidates, drainCandidate{candidate: *candidate, stop: stop})
+				candidates = append(candidates, drainCandidate{candidate: *candidate, stop: stop, attempt: attempt})
 			}
 		}
 		current.activating = nil
@@ -1602,7 +1643,14 @@ func (manager *Manager) Drain(ctx context.Context) <-chan DrainResult {
 			candidate := candidate
 			go func() {
 				verified := false
-				if candidate.stop {
+				switch {
+				case candidate.attempt != nil:
+					select {
+					case <-candidate.attempt.done:
+						verified = candidate.attempt.verified
+					case <-ctx.Done():
+					}
+				case candidate.stop:
 					verified = manager.driver.Stop(ctx, candidate.candidate)
 				}
 				results <- stopResult{candidate: candidate.candidate, verified: verified}

@@ -66,7 +66,9 @@ func (harness *gatewayHarness) Start() {
 	select {
 	case <-process.StdoutReady():
 	case <-time.After(5 * time.Second):
-		harness.t.Fatal("Gateway did not publish its startup result")
+		_ = process.Signal(os.Kill)
+		result, waitErr := process.Wait()
+		harness.t.Fatalf("Gateway did not publish its startup result: wait=%v stderr=%s", waitErr, result.Stderr)
 	}
 	harness.process = process
 }
