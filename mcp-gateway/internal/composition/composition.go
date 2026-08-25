@@ -91,6 +91,15 @@ func (built *Composition) RefreshService() *oauth.RefreshService       { return 
 func (built *Composition) RuntimeStatus(serverID string) runtimes.Status {
 	return built.manager.Status(serverID)
 }
+func (built *Composition) OperationState(ctx context.Context, serverID string) servers.OperationTriggerState {
+	return built.manager.OperationState(ctx, serverID)
+}
+func (built *Composition) TriggerServer(serverID string, operationID *string, behavioral bool) {
+	built.manager.Trigger(serverID, operationID, behavioral)
+}
+func (built *Composition) ReconciliationStatus() contract.LimitStatus {
+	return built.manager.AdmissionStatus()
+}
 func (built *Composition) RuntimeOccupancy() contract.LimitStatus { return built.owner.Status() }
 func (built *Composition) CatalogTraversalStatus() contract.LimitStatus {
 	return built.catalog.Status()

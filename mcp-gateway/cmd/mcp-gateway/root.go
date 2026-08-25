@@ -15,19 +15,12 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/api"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
-	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/composition"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
-	"github.com/averycrespi/agent-tools/mcp-gateway/internal/credentialauthority"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/events"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
-	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
-	"github.com/averycrespi/agent-tools/mcp-gateway/internal/oauth"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
-	"github.com/averycrespi/agent-tools/mcp-gateway/internal/remote"
-	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
-	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servercredentials"
-	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -41,12 +34,13 @@ type systemClock struct{}
 func (systemClock) Now() time.Time { return time.Now() }
 
 type offlineDependencies struct {
-	clock   admin.Clock
-	entropy io.Reader
+	clock          admin.Clock
+	entropy        io.Reader
+	newComposition func(composition.Options) (*composition.Composition, error)
 }
 
 func newRootCmd() *cobra.Command {
-	return newRootCmdWithDependencies(offlineDependencies{clock: systemClock{}, entropy: rand.Reader})
+	return newRootCmdWithDependencies(offlineDependencies{clock: systemClock{}, entropy: rand.Reader, newComposition: composition.New})
 }
 
 func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command {
@@ -116,29 +110,28 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if err != nil {
 		return false, err
 	}
-	serverRepository, err := servers.New(store, dependencies.clock, dependencies.entropy)
-	if err != nil {
-		return false, err
-	}
-	catalogRepository, err := catalog.NewRepository(store, dependencies.clock, dependencies.entropy)
-	if err != nil {
-		return false, err
-	}
-	catalogProcessID, err := serverRepository.NewID()
-	if err != nil {
-		return false, err
-	}
-	activeCatalog, err := catalog.NewActiveRegistry(catalogRepository, dependencies.clock, catalogProcessID)
-	if err != nil {
-		return false, err
-	}
-	catalogTraverser := catalog.NewTraverser()
 	eventHub := events.New()
 	defer eventHub.Shutdown()
-	runtimeManager, err := runtimes.New(runtimes.Options{Repository: serverRepository, Invalidate: eventHub.Publish})
+	var ready, draining atomic.Bool
+	newComposition := dependencies.newComposition
+	if newComposition == nil {
+		newComposition = composition.New
+	}
+	runtime, err := newComposition(composition.Options{
+		Store: store, InstallationID: identity.InstallationID, CallbackURL: "http://" + authority + "/oauth/callback",
+		Clock: dependencies.clock, Entropy: dependencies.entropy, Invalidate: eventHub.Publish, Ready: ready.Load,
+	})
 	if err != nil {
 		return false, err
 	}
+	defer func() { <-runtime.Drain(context.Background()) }()
+	serverRepository := runtime.Servers()
+	catalogRepository := runtime.CatalogRepository()
+	activeCatalog := runtime.ActiveCatalog()
+	provider := runtime.Provider()
+	keyringCoordinator := runtime.Keyring()
+	flowService := runtime.OAuthFlows()
+	replacementService := runtime.Replacements()
 	credentials := admin.NewService(store, dependencies.clock, dependencies.entropy)
 	sessions := admin.NewSessionManager(credentials, dependencies.clock, dependencies.entropy)
 	defer sessions.Shutdown()
@@ -152,53 +145,8 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if err != nil {
 		return false, err
 	}
-	provider, err := keyring.NewProvider(identity.InstallationID)
-	if err != nil {
-		return false, err
-	}
-	keyringCoordinator := keyring.NewCoordinator(provider, store, dependencies.clock, dependencies.entropy)
-	defer keyringCoordinator.Drain()
-	defer runtimeManager.Shutdown()
-	authorityResolver, err := credentialauthority.New(serverRepository, keyringCoordinator, identity.InstallationID, dependencies.clock.Now)
-	if err != nil {
-		return false, err
-	}
-	runtimeManager.SetAuthorityResolver(authorityResolver)
-	replacementService, err := servercredentials.New(serverRepository, keyringCoordinator, identity.InstallationID, runtimeManager.Fence, func(serverID string) { runtimeManager.Trigger(serverID, nil, true) })
-	if err != nil {
-		return false, err
-	}
 	startedAt := dependencies.clock.Now().UTC().Format(time.RFC3339Nano)
 	capabilitySnapshot := contract.KeyringUnsupported
-	var ready, draining atomic.Bool
-	remoteFactory := remote.New(remote.Options{})
-	oauthResolver, err := oauth.NewResolver(remoteFactory)
-	if err != nil {
-		return false, err
-	}
-	disconnectService, err := oauth.NewDisconnectService(serverRepository, keyringCoordinator, oauthResolver, remoteFactory, identity.InstallationID)
-	if err != nil {
-		return false, err
-	}
-	runtimeManager.SetCredentialLifecycle(disconnectService)
-	oauthRegistrar, err := oauth.NewRegistrar(remoteFactory, serverRepository, keyringCoordinator, identity.InstallationID, dependencies.clock.Now, func() bool { return !draining.Load() })
-	if err != nil {
-		return false, err
-	}
-	flowService, err := oauth.NewFlowService(serverRepository, oauthResolver, oauthRegistrar, remoteFactory, keyringCoordinator, identity.InstallationID, dependencies.entropy, "http://"+authority+"/oauth/callback", dependencies.clock.Now)
-	if err != nil {
-		return false, err
-	}
-	if err := flowService.Start(ctx); err != nil {
-		return false, err
-	}
-	defer flowService.Shutdown()
-	refreshService, err := oauth.NewRefreshService(serverRepository, keyringCoordinator, oauthResolver, remoteFactory, identity.InstallationID, dependencies.clock.Now, runtimeManager.SetCredentialState, func(serverID string) { runtimeManager.Trigger(serverID, nil, true) })
-	if err != nil {
-		return false, err
-	}
-	runtimeManager.SetOAuthChallengeRefresher(refreshService)
-	defer refreshService.Shutdown()
 	var boundary *httpboundary.Boundary
 	ingress := mcpingress.New(mcpingress.Options{
 		Authenticator: mcpingress.DenyAllAuthenticator{},
@@ -219,14 +167,14 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		Replacements:   replacementService,
 		Catalog:        catalogRepository,
 		ActiveCatalog:  activeCatalog,
-		OperationState: runtimeManager.OperationState,
+		OperationState: runtime.OperationState,
 		RuntimeStatus: func(serverID string) api.RuntimeStatus {
-			status := runtimeManager.Status(serverID)
+			status := runtime.RuntimeStatus(serverID)
 			return api.RuntimeStatus{State: status.State, Reason: status.Reason, RuntimeID: status.RuntimeID, CredentialState: status.CredentialState, CatalogState: status.CatalogState, Reconciliation: status.Reconciliation}
 		},
-		TriggerServer:    runtimeManager.Trigger,
-		CatalogTraversal: func(string) contract.LimitStatus { return contract.LimitStatus{Limit: 1} },
-		DispatchStatus:   activeCatalog.Routes().ServerStatus,
+		TriggerServer:    runtime.TriggerServer,
+		CatalogTraversal: runtime.CatalogServerStatus,
+		DispatchStatus:   runtime.DispatchServerStatus,
 		Status: func() contract.SystemStatus {
 			current, identityErr := store.Identity(context.Background())
 			if identityErr != nil {
@@ -242,8 +190,8 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 			status.Limits.BackupRecords = backupManager.RecordStatus()
 			status.Limits.IdempotencyRecords = backupManager.IdempotencyStatus()
 			status.Limits.EventStreams = eventHub.Status()
-			status.Limits.ServerReconciliations = runtimeManager.AdmissionStatus()
-			status.Limits.DownstreamRuntimes = runtimeManager.RuntimeStatus()
+			status.Limits.ServerReconciliations = runtime.ReconciliationStatus()
+			status.Limits.DownstreamRuntimes = runtime.RuntimeOccupancy()
 			status.Limits.OAuthFlows = flowService.Status(context.Background())
 			status.Limits.OAuthCallbackWork = flowService.CallbackStatus()
 			if identities, activeServers, registryErr := serverRepository.RegistryStatus(context.Background()); registryErr == nil {
@@ -257,8 +205,8 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 				status.Limits.DurableToolIdentities = identities
 			}
 			status.Limits.ActiveTools = activeCatalog.Occupancy()
-			status.Limits.CatalogTraversals = catalogTraverser.Status()
-			status.Limits.DownstreamDispatch = activeCatalog.Routes().Status()
+			status.Limits.CatalogTraversals = runtime.CatalogTraversalStatus()
+			status.Limits.DownstreamDispatch = runtime.DispatchStatus()
 			status.Limits.AdminCredentials = credentials.Status(context.Background())
 			if candidates, candidateErr := keyringCoordinator.CandidateStatus(context.Background()); candidateErr == nil {
 				status.Limits.KeyringCandidates = candidates
@@ -311,7 +259,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	ready.Store(true)
 	serveDone := make(chan error, 1)
 	go func() { serveDone <- server.Serve(listener) }()
-	if err := runtimeManager.Start(ctx); err != nil {
+	if err := runtime.Start(ctx); err != nil {
 		return true, err
 	}
 	result := struct {
@@ -334,11 +282,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		ready.Store(false)
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), contract.GracefulShutdownDeadline)
 		defer cancel()
-		activeCatalog.Drain()
-		runtimeDrain := runtimeManager.Drain(shutdownCtx)
-		flowService.Shutdown()
-		refreshService.Shutdown()
-		keyringCoordinator.Drain()
+		runtimeDrain := runtime.Drain(shutdownCtx)
 		eventHub.Shutdown()
 		ingress.Shutdown()
 		sessions.Shutdown()

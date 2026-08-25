@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/composition"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -27,6 +29,30 @@ func TestRootCommandExposesOwnedOfflineCommands(t *testing.T) {
 	})
 	require.True(t, cmd.SilenceUsage)
 	require.True(t, cmd.SilenceErrors)
+}
+
+func TestServeCompositionFailurePreventsStartupOutput(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "gateway")
+	initialize := newRootCmd()
+	initialize.SetOut(new(bytes.Buffer))
+	initialize.SetErr(new(bytes.Buffer))
+	initialize.SetArgs([]string{"initialize", "--data-dir", root, "--secret-output", filepath.Join(t.TempDir(), "secret")})
+	require.NoError(t, initialize.ExecuteContext(context.Background()))
+
+	stdout := new(bytes.Buffer)
+	command := newRootCmdWithDependencies(offlineDependencies{
+		clock:   systemClock{},
+		entropy: bytes.NewReader(bytes.Repeat([]byte{0x55}, 1024)),
+		newComposition: func(composition.Options) (*composition.Composition, error) {
+			return nil, errors.New("injected composition failure")
+		},
+	})
+	command.SetOut(stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"serve", "--data-dir", root, "--listen", "127.0.0.1:0"})
+
+	require.Error(t, command.ExecuteContext(context.Background()))
+	assert.JSONEq(t, `{"ok":false,"operation":"serve","code":"storage_unavailable"}`, stdout.String())
 }
 
 func TestBaseSystemStatusIncludesS2OccupancyLimits(t *testing.T) {
