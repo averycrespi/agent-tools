@@ -28,8 +28,10 @@ func TestAuthenticateReturnsExactSafeCurrentBinding(t *testing.T) {
 	creation, err := repository.IssueCredential(context.Background(), principal.ID, "1")
 	require.NoError(t, err)
 
-	binding, err := repository.Authenticate(context.Background(), creation.Bearer)
+	lease, err := repository.Authenticate(context.Background(), creation.Bearer)
 	require.NoError(t, err)
+	defer lease.Release()
+	binding := lease.Binding()
 	require.NotNil(t, creation.Principal.Credential)
 	assert.Equal(t, CredentialBinding{
 		PrincipalID: principal.ID, PrincipalRevision: "2", Visibility: contract.VisibilityRequestable,
@@ -80,8 +82,9 @@ func TestAuthenticateRejectsReplacedRevokedDisabledAndAbsentAuthority(t *testing
 	require.NoError(t, err)
 	_, err = repository.Authenticate(context.Background(), first.Bearer)
 	assert.ErrorIs(t, err, ErrAuthenticationRequired)
-	_, err = repository.Authenticate(context.Background(), second.Bearer)
+	lease, err := repository.Authenticate(context.Background(), second.Bearer)
 	require.NoError(t, err)
+	lease.Release()
 
 	revoked, err := repository.RevokeCredential(context.Background(), principal.ID, "3")
 	require.NoError(t, err)
@@ -113,7 +116,7 @@ func TestAuthenticateScansEveryCandidateForFirstMiddleLastAndNoMatch(t *testing.
 	unknown := contract.AgentBearerPrefix + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0xF0}, 32))
 	for _, bearer := range append(bearers, unknown) {
 		comparisons := 0
-		binding, err := repository.authenticate(context.Background(), bearer, func(left, right []byte) int {
+		binding, err := repository.authenticateBinding(context.Background(), bearer, func(left, right []byte) int {
 			comparisons++
 			return subtle.ConstantTimeCompare(left, right)
 		})
@@ -138,9 +141,9 @@ func TestAuthenticateFailsClosedOnInvalidOrOverCapacityLoadedCandidates(t *testi
 		_, err = repository.IssueCredential(context.Background(), last.ID, "1")
 		require.NoError(t, err)
 		require.NoError(t, store.Mutate(context.Background(), uncheckedMutation(`UPDATE principals SET credential_fingerprint = 'invalid' WHERE id = '`+last.ID+`'`)))
-		binding, err := repository.Authenticate(context.Background(), firstCreation.Bearer)
+		lease, err := repository.Authenticate(context.Background(), firstCreation.Bearer)
 		assert.ErrorIs(t, err, ErrAuthorizationUnavailable)
-		assert.Equal(t, CredentialBinding{}, binding)
+		assert.Nil(t, lease)
 	})
 
 	t.Run("disabled row retains a slot", func(t *testing.T) {
@@ -186,9 +189,9 @@ func TestAuthenticateRejectsLatchBeforeAndAfterApparentMatch(t *testing.T) {
 		require.NoError(t, err)
 		armed = true
 		assert.ErrorIs(t, store.Mutate(context.Background(), func(*sql.Tx) error { return nil }), storage.ErrStorageLatched)
-		binding, err := repository.Authenticate(context.Background(), creation.Bearer)
+		lease, err := repository.Authenticate(context.Background(), creation.Bearer)
 		assert.ErrorIs(t, err, ErrStorageUnavailable)
-		assert.Equal(t, CredentialBinding{}, binding)
+		assert.Nil(t, lease)
 		require.NoError(t, store.Close())
 		require.NoError(t, ownership.Close())
 	})
@@ -206,7 +209,7 @@ func TestAuthenticateRejectsLatchBeforeAndAfterApparentMatch(t *testing.T) {
 		require.NoError(t, err)
 		armed = true
 		triggered := false
-		binding, err := repository.authenticate(context.Background(), creation.Bearer, func(left, right []byte) int {
+		binding, err := repository.authenticateBinding(context.Background(), creation.Bearer, func(left, right []byte) int {
 			if !triggered {
 				triggered = true
 				assert.ErrorIs(t, store.Mutate(context.Background(), func(*sql.Tx) error { return nil }), storage.ErrStorageLatched)
@@ -237,9 +240,10 @@ func TestAdminResetDoesNotChangeAgentAuthentication(t *testing.T) {
 	_, err = service.Reset(context.Background(), sink)
 	require.NoError(t, err)
 
-	binding, err := repository.Authenticate(context.Background(), creation.Bearer)
+	lease, err := repository.Authenticate(context.Background(), creation.Bearer)
 	require.NoError(t, err)
-	assert.Equal(t, principal.ID, binding.PrincipalID)
+	assert.Equal(t, principal.ID, lease.Binding().PrincipalID)
+	lease.Release()
 	loaded, err := repository.GetPrincipal(context.Background(), principal.ID)
 	require.NoError(t, err)
 	assert.Equal(t, creation.Principal, loaded)

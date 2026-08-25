@@ -27,11 +27,33 @@ type authenticationCandidate struct {
 	verifier []byte
 }
 
-func (repository *Repository) Authenticate(ctx context.Context, bearer string) (CredentialBinding, error) {
-	return repository.authenticate(ctx, bearer, subtle.ConstantTimeCompare)
+func (repository *Repository) Authenticate(ctx context.Context, bearer string) (*Lease, error) {
+	releaseGate, err := repository.authority.tryAcquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseGate()
+	binding, err := repository.authenticateBinding(ctx, bearer, subtle.ConstantTimeCompare)
+	if err != nil {
+		return nil, err
+	}
+	if repository.authority.hooks.afterBindingRead != nil {
+		repository.authority.hooks.afterBindingRead()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	lease, err := repository.authority.register(binding)
+	if err != nil {
+		return nil, err
+	}
+	if repository.authority.hooks.afterLeaseRegister != nil {
+		repository.authority.hooks.afterLeaseRegister()
+	}
+	return lease, nil
 }
 
-func (repository *Repository) authenticate(
+func (repository *Repository) authenticateBinding(
 	ctx context.Context,
 	bearer string,
 	compare credentialCompare,
