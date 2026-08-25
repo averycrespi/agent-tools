@@ -1,4 +1,4 @@
-// Package composition constructs the production runtime and catalog object graph.
+// Package composition constructs the production authority, runtime, and catalog object graph.
 package composition
 
 import (
@@ -46,6 +46,7 @@ var (
 
 type Composition struct {
 	servers           *servers.Repository
+	authorization     *authorization.Repository
 	catalogRepository *catalog.Repository
 	activeCatalog     *catalog.ActiveRegistry
 	traverser         *catalog.Traverser
@@ -77,7 +78,13 @@ type Composition struct {
 	drainResult       runtimes.DrainResult
 }
 
-func (built *Composition) Servers() *servers.Repository                { return built.servers }
+func (built *Composition) Servers() *servers.Repository { return built.servers }
+func (built *Composition) Authorization() *authorization.Repository {
+	return built.authorization
+}
+func (built *Composition) AuthorizationOccupancy(ctx context.Context) (contract.LimitStatus, contract.LimitStatus, error) {
+	return built.authorization.Occupancy(ctx)
+}
 func (built *Composition) CatalogRepository() *catalog.Repository      { return built.catalogRepository }
 func (built *Composition) ActiveCatalog() *catalog.ActiveRegistry      { return built.activeCatalog }
 func (built *Composition) Traverser() *catalog.Traverser               { return built.traverser }
@@ -265,7 +272,7 @@ type constructorHooks struct {
 }
 
 var mandatoryConstructorStages = []string{
-	"server_repository", "catalog_repository", "process_id", "active_registry", "traverser", "remote_factory",
+	"server_repository", "authorization_repository", "catalog_repository", "process_id", "active_registry", "traverser", "remote_factory",
 	"provider", "keyring_coordinator", "authority_resolver", "oauth_resolver", "disconnect_service", "registrar",
 	"flow_service", "runtime_owner", "stdio_supervisor", "driver", "catalog_coordinator", "refresh_service",
 	"replacement_service", "manager",
@@ -303,11 +310,14 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err != nil {
 		return nil, fmt.Errorf("construct server_repository: %w", err)
 	}
-	authority, err := authorization.New(options.Store, options.Clock, options.Entropy)
-	if err != nil {
-		return nil, fmt.Errorf("construct authorization validation: %w", err)
+	if err := check("authorization_repository"); err != nil {
+		return nil, err
 	}
-	if err := authority.ValidateStartup(context.Background(), built.servers); err != nil {
+	built.authorization, err = authorization.New(options.Store, options.Clock, options.Entropy)
+	if err != nil {
+		return nil, fmt.Errorf("construct authorization_repository: %w", err)
+	}
+	if err := built.authorization.ValidateStartup(context.Background(), built.servers); err != nil {
 		return nil, fmt.Errorf("validate authorization startup: %w", err)
 	}
 	if err := check("catalog_repository"); err != nil {
@@ -545,6 +555,7 @@ func (built *Composition) Drain(ctx context.Context) <-chan runtimes.DrainResult
 
 func (built *Composition) beginDrain(ctx context.Context) {
 	built.accepting.Store(false)
+	authorizationClean := built.authorization == nil || built.authorization.Drain(ctx) == nil
 	ownedBefore := int64(0)
 	if built.owner != nil {
 		ownedBefore = built.owner.Status().InUse
@@ -568,10 +579,10 @@ func (built *Composition) beginDrain(ctx context.Context) {
 	if built.manager != nil {
 		managerDone = built.manager.Drain(ctx)
 	}
-	go built.awaitDrain(ctx, ownedBefore, managerDone)
+	go built.awaitDrain(ctx, authorizationClean, ownedBefore, managerDone)
 }
 
-func (built *Composition) awaitDrain(ctx context.Context, ownedBefore int64, managerDone <-chan runtimes.DrainResult) {
+func (built *Composition) awaitDrain(ctx context.Context, authorizationClean bool, ownedBefore int64, managerDone <-chan runtimes.DrainResult) {
 	waits := make(chan bool, 5)
 	waitCount := 0
 	for _, wait := range []func(context.Context) bool{
@@ -585,7 +596,7 @@ func (built *Composition) awaitDrain(ctx context.Context, ownedBefore int64, man
 		wait := wait
 		go func() { waits <- wait(ctx) }()
 	}
-	clean := true
+	clean := authorizationClean
 	result := runtimes.DrainResult{}
 	if managerDone != nil {
 		select {

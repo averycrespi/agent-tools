@@ -125,6 +125,10 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		return false, err
 	}
 	defer func() { <-runtime.Drain(context.Background()) }()
+	authorizationRepository := runtime.Authorization()
+	if authorizationRepository == nil {
+		return false, errors.New("production authorization owner is unavailable")
+	}
 	serverRepository := runtime.Servers()
 	catalogRepository := runtime.CatalogRepository()
 	activeCatalog := runtime.ActiveCatalog()

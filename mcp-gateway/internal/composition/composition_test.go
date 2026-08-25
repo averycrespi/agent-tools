@@ -31,6 +31,8 @@ func TestNewBuildsOneFailClosedProductionGraph(t *testing.T) {
 	require.NoError(t, err)
 	defer built.shutdownConstructed()
 	require.NotNil(t, built.servers)
+	require.NotNil(t, built.authorization)
+	assert.Same(t, built.authorization, built.Authorization())
 	require.NotNil(t, built.catalogRepository)
 	require.NotNil(t, built.activeCatalog)
 	require.NotNil(t, built.traverser)
@@ -68,6 +70,36 @@ func TestNewBuildsOneFailClosedProductionGraph(t *testing.T) {
 	built.callbacks.state("server", contract.ServerCredentialReady, true)
 	built.callbacks.trigger("server")
 	built.callbacks.fence("server")
+}
+
+func TestAuthorityOwnerExposesOccupancyAndDrainsBeforeCompositionCompletes(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	built, err := New(options)
+	require.NoError(t, err)
+	authority := built.Authorization()
+	created, err := authority.CreatePrincipal(context.Background(), authorization.CreatePrincipalRequest{
+		DisplayName: "composition principal",
+		Visibility:  contract.VisibilityAll,
+	})
+	require.NoError(t, err)
+	issued, err := authority.IssueCredential(context.Background(), created.Principal.ID, created.Principal.Revision)
+	require.NoError(t, err)
+	lease, err := authority.Authenticate(context.Background(), issued.Bearer)
+	require.NoError(t, err)
+	principals, grants, err := built.AuthorizationOccupancy(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), principals.InUse)
+	assert.Equal(t, int64(1), grants.InUse)
+
+	<-built.Drain(context.Background())
+	select {
+	case <-lease.Done():
+	default:
+		t.Fatal("composition drain completed before its authority lease was canceled")
+	}
+	_, err = authority.Authenticate(context.Background(), issued.Bearer)
+	assert.ErrorIs(t, err, authorization.ErrShuttingDown)
 }
 
 func TestStartRequiresReadinessAndBindsExactlyOnce(t *testing.T) {
@@ -173,6 +205,23 @@ func TestConstructionRejectsInvalidAuthorizationStateBeforeStartup(t *testing.T)
 	assert.ErrorIs(t, err, authorization.ErrInvalidState)
 }
 
+func TestConstructionRejectsLatchedAuthorizationBeforeStartup(t *testing.T) {
+	options, cleanup := newCompositionOptionsWithFault(t, func(point storage.FaultPoint) error {
+		if point == storage.FaultAfterCommit {
+			return assert.AnError
+		}
+		return nil
+	})
+	defer cleanup()
+	err := options.Store.Mutate(context.Background(), func(*sql.Tx) error { return nil })
+	assert.ErrorIs(t, err, storage.ErrStorageLatched)
+
+	built, err := New(options)
+	require.Error(t, err)
+	assert.Nil(t, built)
+	assert.ErrorIs(t, err, authorization.ErrStorageUnavailable)
+}
+
 func createCompositionServer(t *testing.T, repository *servers.Repository, namespace string, enabled bool, executable string) servers.Server {
 	t.Helper()
 	digest := sha256.Sum256([]byte(namespace))
@@ -188,11 +237,16 @@ func createCompositionServer(t *testing.T, repository *servers.Repository, names
 
 func newCompositionOptions(t *testing.T) (Options, func()) {
 	t.Helper()
+	return newCompositionOptionsWithFault(t, nil)
+}
+
+func newCompositionOptionsWithFault(t *testing.T, fault func(storage.FaultPoint) error) (Options, func()) {
+	t.Helper()
 	dataDir := t.TempDir()
 	require.NoError(t, os.Chmod(dataDir, 0o700))
 	ownership, err := gatewaypaths.Acquire(dataDir)
 	require.NoError(t, err)
-	store, err := storage.Initialize(context.Background(), ownership, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	store, err := storage.InitializeWithFaultInjection(context.Background(), ownership, "01ARZ3NDEKTSV4RRFFQ69G5FAV", fault)
 	require.NoError(t, err)
 	identity, err := store.Identity(context.Background())
 	require.NoError(t, err)

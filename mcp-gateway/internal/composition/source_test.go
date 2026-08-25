@@ -90,7 +90,7 @@ func TestProductionRootUsesConcreteNativeCompositionAndDenyAllIngress(t *testing
 	nativeProviderSource := readProductionSource(t, root, "internal/composition/provider_factory.go")
 	e2eProviderSource := readProductionSource(t, root, "internal/composition/provider_factory_e2e.go")
 	for _, required := range []string{
-		"newComposition: composition.New", "newComposition(composition.Options{", "activeCatalog := runtime.ActiveCatalog()",
+		"newComposition: composition.New", "newComposition(composition.Options{", "authorizationRepository := runtime.Authorization()", "activeCatalog := runtime.ActiveCatalog()",
 		"ActiveCatalog:  activeCatalog", "runtime.Start(ctx)", "runtime.Drain(shutdownCtx)", "mcpingress.DenyAllAuthenticator{}",
 	} {
 		assert.Contains(t, rootSource, required, "cmd/mcp-gateway/root.go: missing production symbol %s", required)
