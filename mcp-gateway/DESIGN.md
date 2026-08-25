@@ -44,9 +44,9 @@ Dependencies flow from the command composition root into these packages. Domain 
 
 The official MCP SDK does not own Gateway authentication, protocol downgrade decisions, limits, or lifecycle. SQLite defaults are not trusted in place of explicit per-connection setup and verification. Keyring errors are not collapsed into absence.
 
-## Executable S1 and S2 contract
+## Closed S1–S3 contract
 
-The `internal/contract` package is the single source consumed by later implementations. Its returned tables are copies so callers cannot mutate the canonical contract. The default authority is `127.0.0.1:8210`, its canonical Origin is `http://127.0.0.1:8210`, the supported protocol versions are modern `2026-07-28` and legacy `2025-11-25`, and the media types are `application/json`, `application/problem+json`, and `text/event-stream`.
+The `internal/contract` package is the single source consumed by later implementations. Its returned tables are copies so callers cannot mutate the canonical contract. S3 entries in this section declare the closed vocabulary before later milestones make their behavior executable; production remains deny-all until the positive-authentication cutover. The default authority is `127.0.0.1:8210`, its canonical Origin is `http://127.0.0.1:8210`, the supported protocol versions are modern `2026-07-28` and legacy `2025-11-25`, and the media types are `application/json`, `application/problem+json`, and `text/event-stream`.
 
 ### Route ownership
 
@@ -78,6 +78,11 @@ Methods are lexicographically ordered and become the exact `Allow` value. `HEAD`
 | `/api/v1/catalog`                                | `GET`                | admin bearer or session |
 | `/api/v1/servers/{id}/descriptors`               | `GET`                | admin bearer or session |
 | `/api/v1/servers/{id}/descriptors/{tool_id}`     | `GET`                | admin bearer or session |
+| `/api/v1/principals`                             | `GET, POST`          | admin bearer or session |
+| `/api/v1/principals/{id}`                        | `GET, PATCH`         | admin bearer or session |
+| `/api/v1/principals/{id}/credential`             | `DELETE, POST`       | admin bearer or session |
+| `/api/v1/grants`                                 | `GET, POST`          | admin bearer or session |
+| `/api/v1/grants/{id}`                            | `DELETE, GET`        | admin bearer or session |
 
 `/assets/*` requires a nonempty path below `/assets/`. Item patterns require exactly one nonempty segment. All other paths are unowned and therefore `404`.
 
@@ -85,38 +90,43 @@ Methods are lexicographically ordered and become the exact `Allow` value. `HEAD`
 
 Problems have exactly `status`, `code`, and `title`. The fixed table is exhaustive; dependency messages, paths, payloads, and other details are never added.
 
-| Status | Code                           | Fixed title                                    |
-| -----: | ------------------------------ | ---------------------------------------------- |
-|    400 | `malformed_request`            | The request is invalid.                        |
-|    400 | `invalid_json`                 | The JSON body is invalid.                      |
-|    400 | `invalid_cursor`               | The cursor is invalid.                         |
-|    400 | `invalid_idempotency_key`      | The idempotency key is invalid.                |
-|    400 | `ambiguous_credentials`        | Multiple credential types were supplied.       |
-|    400 | `invalid_oauth_state`          | The OAuth state is invalid or expired.         |
-|    401 | `authentication_required`      | Authentication is required.                    |
-|    403 | `credential_domain_mismatch`   | The credential is for a different authority.   |
-|    403 | `forbidden_origin`             | The Origin is not accepted.                    |
-|    403 | `csrf_failed`                  | CSRF validation failed.                        |
-|    404 | `not_found`                    | The resource was not found.                    |
-|    405 | `method_not_allowed`           | The method is not allowed.                     |
-|    409 | `conflict`                     | The request conflicts with current state.      |
-|    409 | `idempotency_conflict`         | The idempotency key conflicts with prior work. |
-|    413 | `body_too_large`               | The request body is too large.                 |
-|    415 | `unsupported_media_type`       | The media type is not supported.               |
-|    421 | `misdirected_request`          | The Host is not accepted.                      |
-|    429 | `resource_limit`               | The resource limit is reached.                 |
-|    503 | `storage_unavailable`          | Storage is unavailable.                        |
-|    503 | `keyring_unavailable`          | The credential provider is unavailable.        |
-|    503 | `shutting_down`                | The service is shutting down.                  |
-|    400 | `invalid_server_configuration` | The server configuration is invalid.           |
-|    400 | `invalid_operation`            | The server operation is invalid.               |
-|    409 | `namespace_unavailable`        | The server namespace is unavailable.           |
-|    409 | `operation_conflict`           | The server has conflicting work.               |
-|    409 | `oauth_flow_active`            | The OAuth flow is already exchanging.          |
-|    409 | `stale_cursor`                 | The cursor snapshot is no longer available.    |
-|    412 | `stale_revision`               | The server revision is stale.                  |
-|    428 | `precondition_required`        | The current server revision is required.       |
-|    503 | `downstream_unavailable`       | The downstream server is unavailable.          |
+| Status | Code                              | Fixed title                                    |
+| -----: | --------------------------------- | ---------------------------------------------- |
+|    400 | `malformed_request`               | The request is invalid.                        |
+|    400 | `invalid_json`                    | The JSON body is invalid.                      |
+|    400 | `invalid_cursor`                  | The cursor is invalid.                         |
+|    400 | `invalid_idempotency_key`         | The idempotency key is invalid.                |
+|    400 | `ambiguous_credentials`           | Multiple credential types were supplied.       |
+|    400 | `invalid_oauth_state`             | The OAuth state is invalid or expired.         |
+|    401 | `authentication_required`         | Authentication is required.                    |
+|    403 | `credential_domain_mismatch`      | The credential is for a different authority.   |
+|    403 | `forbidden_origin`                | The Origin is not accepted.                    |
+|    403 | `csrf_failed`                     | CSRF validation failed.                        |
+|    404 | `not_found`                       | The resource was not found.                    |
+|    405 | `method_not_allowed`              | The method is not allowed.                     |
+|    409 | `conflict`                        | The request conflicts with current state.      |
+|    409 | `idempotency_conflict`            | The idempotency key conflicts with prior work. |
+|    413 | `body_too_large`                  | The request body is too large.                 |
+|    415 | `unsupported_media_type`          | The media type is not supported.               |
+|    421 | `misdirected_request`             | The Host is not accepted.                      |
+|    429 | `resource_limit`                  | The resource limit is reached.                 |
+|    503 | `storage_unavailable`             | Storage is unavailable.                        |
+|    503 | `keyring_unavailable`             | The credential provider is unavailable.        |
+|    503 | `shutting_down`                   | The service is shutting down.                  |
+|    400 | `invalid_server_configuration`    | The server configuration is invalid.           |
+|    400 | `invalid_operation`               | The server operation is invalid.               |
+|    409 | `namespace_unavailable`           | The server namespace is unavailable.           |
+|    409 | `operation_conflict`              | The server has conflicting work.               |
+|    409 | `oauth_flow_active`               | The OAuth flow is already exchanging.          |
+|    409 | `stale_cursor`                    | The cursor snapshot is no longer available.    |
+|    412 | `stale_revision`                  | The server revision is stale.                  |
+|    428 | `precondition_required`           | The current server revision is required.       |
+|    503 | `downstream_unavailable`          | The downstream server is unavailable.          |
+|    400 | `invalid_principal`               | The principal is invalid.                      |
+|    400 | `invalid_grant`                   | The grant is invalid.                          |
+|    412 | `stale_principal_revision`        | The principal revision is stale.               |
+|    428 | `principal_precondition_required` | The current principal revision is required.    |
+|    503 | `authorization_unavailable`       | Authorization is unavailable.                  |
 
 ### Fixed numeric limits
 
@@ -213,8 +223,13 @@ Every maximum accepts N and rejects N+1. Values below zero are invalid. These ar
 | `downstream_dispatch`                |         32 |
 | `per_server_downstream_dispatch`     |          4 |
 | `s2_idempotency_records`             |       1024 |
+| `principals`                         |        128 |
+| `grants`                             |       4096 |
+| `constraint_atoms`                   |         16 |
+| `constraint_bytes`                   |       8192 |
+| `constraint_pointer_bytes`           |        256 |
 
-Credential, backup, and S2 collection pages default to 50. Idempotency keys are 1–128 visible ASCII bytes. Credential expiry is five minutes through 365 days after creation. S2 downstream HTTP reuses the S1 `request_header_bytes`, `request_header_count`, and `request_header_value_bytes` bounds rather than declaring alternatives.
+Credential, backup, S2, and S3 collection pages default to 50. Idempotency keys are 1–128 visible ASCII bytes. Credential expiry is five minutes through 365 days after creation. S2 downstream HTTP reuses the S1 `request_header_bytes`, `request_header_count`, and `request_header_value_bytes` bounds rather than declaring alternatives.
 
 Fixed S1 deadlines are: header read five seconds, API handler 30 seconds, SQLite busy two seconds, SSE keepalive and blocked write 15 seconds, legacy idle 30 minutes, legacy absolute eight hours, graceful shutdown 10 seconds, and idempotency retention 24 hours. S2 adds a five-minute OAuth flow lifetime; connect/OAuth/initialization deadlines of 10/15/30 seconds; catalog page/traversal deadlines of 15/60 seconds; a maximum downstream call deadline of 60 seconds; stdio graceful/forced stop windows of 3/2 seconds; a five-minute catalog poll interval with at most 30 seconds jitter; and reconciliation retry delays of 1, 2, 4, 8, 16, 32, then 60 seconds.
 
@@ -222,11 +237,11 @@ Fixed S1 deadlines are: header read five seconds, API handler 30 seconds, SQLite
 
 `AdminCredential` is exactly `{id,fingerprint,created_at,expires_at,non_expiring,status,revision}`; its creation form adds one-time `bearer`. Credential status is the closed set `active`, `revoked`, or `expired`. `Backup` is exactly `{id,created_at,installation_id,schema_version,source_revision,size_bytes,sha256}`. Collections are exactly `{items,next_cursor}`.
 
-`SystemStatus` is exactly `{process,sqlite,keyring,limits,backup,protocols}`. Process state is `uninitialized`, `starting`, `ready`, `storage_failed`, or `draining`; SQLite state is `uninitialized`, `ready`, or `latched`; keyring capability is `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, or `unsupported`; and backup state is `idle` or `creating`. The closed `limits` object contains `http_regular`, `http_control_auth`, `http_admin`, `http_health`, `mcp_work`, `mcp_streams`, `admin_sessions`, `legacy_sessions`, `event_streams`, `backup_work`, `backup_records`, `admin_credentials`, `idempotency_records`, `keyring_candidates`, `keyring_work`, `database_bytes`, `server_identities`, `servers`, `downstream_runtimes`, `server_reconciliations`, `catalog_traversals`, `oauth_flows`, `oauth_callback_work`, `s2_idempotency_records`, `active_tools`, `durable_tool_identities`, and `downstream_dispatch`; every entry is exactly `{in_use,limit,saturated}`. Protocol status is modern `2026-07-28`, legacy `2025-11-25`, and agent auth `deny_all`.
+`SystemStatus` is exactly `{process,sqlite,keyring,limits,backup,protocols}`. Process state is `uninitialized`, `starting`, `ready`, `storage_failed`, or `draining`; SQLite state is `uninitialized`, `ready`, or `latched`; keyring capability is `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, or `unsupported`; and backup state is `idle` or `creating`. The closed `limits` object contains `http_regular`, `http_control_auth`, `http_admin`, `http_health`, `mcp_work`, `mcp_streams`, `admin_sessions`, `legacy_sessions`, `event_streams`, `backup_work`, `backup_records`, `admin_credentials`, `idempotency_records`, `keyring_candidates`, `keyring_work`, `database_bytes`, `server_identities`, `servers`, `downstream_runtimes`, `server_reconciliations`, `catalog_traversals`, `oauth_flows`, `oauth_callback_work`, `s2_idempotency_records`, `active_tools`, `durable_tool_identities`, `downstream_dispatch`, `principals`, and `grants`; every entry is exactly `{in_use,limit,saturated}`. Protocol status is modern `2026-07-28`, legacy `2025-11-25`, and agent auth is closed to `deny_all` and `principal_credentials`; production reports the former until the S3 cutover.
 
-S1 cursor mechanics remain limited to `GET /api/v1/admin-credentials` and `GET /api/v1/backups`; S1 durable idempotency remains limited to `POST /api/v1/backups`; and no S1 resource uses ETag. S2 declarations add targeted snapshot or watermark cursors, idempotency, exact preconditions, and strong Server ETags only where listed below. The event stream still has no replay mechanism. Invalidation kinds are the closed set `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, and `catalog`.
+S1 cursor mechanics remain limited to `GET /api/v1/admin-credentials` and `GET /api/v1/backups`; S1 durable idempotency remains limited to `POST /api/v1/backups`; and no S1 resource uses ETag. S2 declarations add targeted snapshot or watermark cursors, idempotency, exact preconditions, and strong Server ETags only where listed below. The event stream still has no replay mechanism. Invalidation kinds are the closed set `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, and `authorization`.
 
-Admin bearer values use prefix `mgw_admin_`, reserved agent bearer values use `mgw_agent_`, and the session cookie is `mcp_gateway_session`. Approved one-time output sinks remain `controlling_terminal` and `owner_only_file`; the latter is a newly created, non-symlink-following `0600` file containing exactly the secret and one newline. S2's additional write-only secret ingress declarations are `admin_credential_replacement`, `dcr_client_secret`, `authorization_code_token_response`, `refresh_response`, and `authoritative_generation_refresh_copy`. Standard output and standard error are not secret sinks.
+Admin bearer values use prefix `mgw_admin_`, reserved agent bearer values use `mgw_agent_`, and the session cookie is `mcp_gateway_session`. Approved one-time output sinks remain `controlling_terminal` and `owner_only_file`; the latter is a newly created, non-symlink-following `0600` file containing exactly the secret and one newline. S2's additional write-only secret ingress declarations are `admin_credential_replacement`, `dcr_client_secret`, `authorization_code_token_response`, `refresh_response`, and `authoritative_generation_refresh_copy`. S3 adds only `agent_credential_creation` for the one-time credential creation body. Standard output and standard error are not secret sinks.
 
 #### S2 request mechanics
 
@@ -249,6 +264,23 @@ Admin bearer values use prefix `mgw_admin_`, reserved agent bearer values use `m
 | `GET /api/v1/servers/{id}/descriptors`               | `DescriptorListQuery`      | `Page<ToolDescriptor>` / 200                  | yes    | no          | no               | no            |
 | `GET /api/v1/servers/{id}/descriptors/{tool_id}`     | none                       | `ToolDescriptor` / 200                        | no     | no          | no               | no            |
 | `GET /oauth/callback`                                | `OAuthCallbackQuery`       | fixed `OAuthCallbackHTML` / 200, 400, or 503  | no     | no          | no               | no            |
+
+#### Declared S3 request mechanics
+
+| Method and pattern                          | Closed request schema | Success schema/status           | Cursor | Idempotency | Exact `If-Match` | Response ETag |
+| ------------------------------------------- | --------------------- | ------------------------------- | ------ | ----------- | ---------------- | ------------- |
+| `GET /api/v1/principals`                    | `PrincipalListQuery`  | `Page<Principal>` / 200         | yes    | no          | no               | no            |
+| `POST /api/v1/principals`                   | `PrincipalCreate`     | `PrincipalCreation` / 201       | no     | no          | no               | yes           |
+| `GET /api/v1/principals/{id}`               | `None`                | `Principal` / 200               | no     | no          | no               | yes           |
+| `PATCH /api/v1/principals/{id}`             | `PrincipalPatch`      | `Principal` / 200               | no     | no          | yes              | yes           |
+| `POST /api/v1/principals/{id}/credential`   | `EmptyObject`         | `AgentCredentialCreation` / 201 | no     | no          | yes              | yes           |
+| `DELETE /api/v1/principals/{id}/credential` | `EmptyObject`         | `Principal` / 200               | no     | no          | yes              | yes           |
+| `GET /api/v1/grants`                        | `GrantListQuery`      | `Page<Grant>` / 200             | yes    | no          | no               | no            |
+| `POST /api/v1/grants`                       | `GrantCreate`         | `Grant` / 201                   | no     | no          | no               | no            |
+| `GET /api/v1/grants/{id}`                   | `None`                | `Grant` / 200                   | no     | no          | no               | no            |
+| `DELETE /api/v1/grants/{id}`                | `None`                | `Empty` / 204                   | no     | no          | no               | no            |
+
+`AgentCredential` is exactly `{id,fingerprint,revision,created_at}`. `Principal` is exactly `{id,display_name,state,visibility,revision,credential_revision,credential,created_at,updated_at}`; its credential is nullable. `PrincipalCreation` is exactly `{principal,default_grant}`, and `AgentCredentialCreation` is exactly `{principal,bearer}`. `Grant` is exactly `{id,principal_id,effect,server_id,upstream_name,constraint,expires_at,state,created_at}`. Authorization evidence is exactly `{decision,authorization_revision,evaluated_at,grant_id}`. Principal state is `active` or `disabled`; visibility is `requestable`, `allowed-only`, or `all`; grant effect is `allow` or `deny`; derived grant state is `active` or `expired`; and authorization decision is `allow`, `deny`, or `block`. The reserved synthetic identity is ULID `00000000000000000000000000` with namespace `mcp_gateway`. The principal ETag is exactly `"principal-<id>-<revision>"`.
 
 In the executable mechanics table, `None` means no query or request body and `Empty` means an empty response body. A page is exactly `{items,next_cursor}`. List query schemas permit only their declared `cursor`, `limit`, and, for descriptors, `retired` members. `ServerCreate` is exactly `{namespace,display_name,enabled,transport}`; a nonempty `ServerPatch` permits only `display_name`, `enabled`, and complete `transport`. `ServerMutation` is exactly `{server,operation}`. `ServerOperationCreate` accepts only `reload`, `retry`, `refresh_catalog`, or `disconnect_credentials`; other operation kinds are internally generated. Credential replacement input accepts only `static_credential` or `oauth_client`; `oauth_tokens` authority comes only from validated OAuth responses. The strong ETag is exactly `"server-<id>-<desired_revision>"`; weak, wildcard, malformed, multiple, absent where required, or noncurrent preconditions are not interchangeable. S2 idempotency is scoped to parent admin credential, method, route, key, canonical validated/defaulted request, and exact precondition, with a 24-hour lifetime and 1,024-record bound.
 

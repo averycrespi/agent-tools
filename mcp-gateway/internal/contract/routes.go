@@ -1,4 +1,4 @@
-// Package contract defines the fixed, test-visible S1/S2 boundary shared by later Gateway packages.
+// Package contract defines the fixed, test-visible S1/S2/S3 boundary shared by later Gateway packages.
 package contract
 
 import "strings"
@@ -50,6 +50,11 @@ var routes = []Route{
 	{Pattern: "/api/v1/catalog", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/servers/{id}/descriptors", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/servers/{id}/descriptors/{tool_id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/principals", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/principals/{id}", Methods: []string{"GET", "PATCH"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/principals/{id}/credential", Methods: []string{"DELETE", "POST"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/grants", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/grants/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
 }
 
 func Routes() []Route {

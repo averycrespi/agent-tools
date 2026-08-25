@@ -6,6 +6,7 @@ const (
 	AdminListPageDefault       = 50
 	BackupListPageDefault      = 50
 	S2ListPageDefault          = 50
+	S3ListPageDefault          = 50
 	IdempotencyKeyMinimumBytes = 1
 )
 
@@ -131,6 +132,11 @@ var fixedLimits = []FixedLimit{
 	{Name: "downstream_dispatch", Maximum: 32},
 	{Name: "per_server_downstream_dispatch", Maximum: 4},
 	{Name: "s2_idempotency_records", Maximum: 1024},
+	{Name: "principals", Maximum: 128},
+	{Name: "grants", Maximum: 4096},
+	{Name: "constraint_atoms", Maximum: 16},
+	{Name: "constraint_bytes", Maximum: 8192},
+	{Name: "constraint_pointer_bytes", Maximum: 256},
 }
 
 func FixedLimits() []FixedLimit {

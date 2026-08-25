@@ -1,5 +1,7 @@
 package contract
 
+import "encoding/json"
+
 type ProblemEnvelope struct {
 	Status int         `json:"status"`
 	Code   ProblemCode `json:"code"`
@@ -34,6 +36,54 @@ type Backup struct {
 type Collection[T any] struct {
 	Items      []T     `json:"items"`
 	NextCursor *string `json:"next_cursor"`
+}
+
+type AgentCredential struct {
+	ID          string `json:"id"`
+	Fingerprint string `json:"fingerprint"`
+	Revision    string `json:"revision"`
+	CreatedAt   string `json:"created_at"`
+}
+
+type Principal struct {
+	ID                 string              `json:"id"`
+	DisplayName        string              `json:"display_name"`
+	State              PrincipalState      `json:"state"`
+	Visibility         PrincipalVisibility `json:"visibility"`
+	Revision           string              `json:"revision"`
+	CredentialRevision string              `json:"credential_revision"`
+	Credential         *AgentCredential    `json:"credential"`
+	CreatedAt          string              `json:"created_at"`
+	UpdatedAt          string              `json:"updated_at"`
+}
+
+type PrincipalCreation struct {
+	Principal    Principal `json:"principal"`
+	DefaultGrant Grant     `json:"default_grant"`
+}
+
+type AgentCredentialCreation struct {
+	Principal Principal `json:"principal"`
+	Bearer    string    `json:"bearer"`
+}
+
+type Grant struct {
+	ID           string           `json:"id"`
+	PrincipalID  string           `json:"principal_id"`
+	Effect       GrantEffect      `json:"effect"`
+	ServerID     string           `json:"server_id"`
+	UpstreamName *string          `json:"upstream_name"`
+	Constraint   *json.RawMessage `json:"constraint"`
+	ExpiresAt    *string          `json:"expires_at"`
+	State        GrantState       `json:"state"`
+	CreatedAt    string           `json:"created_at"`
+}
+
+type AuthorizationResult struct {
+	Decision              AuthorizationDecision `json:"decision"`
+	AuthorizationRevision string                `json:"authorization_revision"`
+	EvaluatedAt           string                `json:"evaluated_at"`
+	GrantID               *string               `json:"grant_id"`
 }
 
 type ProcessStatus struct {
@@ -87,6 +137,8 @@ type LimitsStatus struct {
 	ActiveTools           LimitStatus `json:"active_tools"`
 	DurableToolIdentities LimitStatus `json:"durable_tool_identities"`
 	DownstreamDispatch    LimitStatus `json:"downstream_dispatch"`
+	Principals            LimitStatus `json:"principals"`
+	Grants                LimitStatus `json:"grants"`
 }
 
 type BackupStatus struct {

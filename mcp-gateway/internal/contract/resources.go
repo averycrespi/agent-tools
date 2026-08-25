@@ -58,6 +58,16 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v1/servers/{id}/descriptors", Method: "GET", RequestSchema: "DescriptorListQuery", SuccessSchema: "Page<ToolDescriptor>", SuccessStatuses: []int{200}, Cursor: true},
 	{Pattern: "/api/v1/servers/{id}/descriptors/{tool_id}", Method: "GET", RequestSchema: "None", SuccessSchema: "ToolDescriptor", SuccessStatuses: []int{200}},
 	{Pattern: "/oauth/callback", Method: "GET", RequestSchema: "OAuthCallbackQuery", SuccessSchema: "OAuthCallbackHTML", SuccessStatuses: []int{200, 400, 503}},
+	{Pattern: "/api/v1/principals", Method: "GET", RequestSchema: "PrincipalListQuery", SuccessSchema: "Page<Principal>", SuccessStatuses: []int{200}, Cursor: true},
+	{Pattern: "/api/v1/principals", Method: "POST", RequestSchema: "PrincipalCreate", SuccessSchema: "PrincipalCreation", SuccessStatuses: []int{201}, ETag: true},
+	{Pattern: "/api/v1/principals/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Principal", SuccessStatuses: []int{200}, ETag: true},
+	{Pattern: "/api/v1/principals/{id}", Method: "PATCH", RequestSchema: "PrincipalPatch", SuccessSchema: "Principal", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+	{Pattern: "/api/v1/principals/{id}/credential", Method: "POST", RequestSchema: "EmptyObject", SuccessSchema: "AgentCredentialCreation", SuccessStatuses: []int{201}, Precondition: true, ETag: true},
+	{Pattern: "/api/v1/principals/{id}/credential", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "Principal", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+	{Pattern: "/api/v1/grants", Method: "GET", RequestSchema: "GrantListQuery", SuccessSchema: "Page<Grant>", SuccessStatuses: []int{200}, Cursor: true},
+	{Pattern: "/api/v1/grants", Method: "POST", RequestSchema: "GrantCreate", SuccessSchema: "Grant", SuccessStatuses: []int{201}},
+	{Pattern: "/api/v1/grants/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Grant", SuccessStatuses: []int{200}},
+	{Pattern: "/api/v1/grants/{id}", Method: "DELETE", RequestSchema: "None", SuccessSchema: "Empty", SuccessStatuses: []int{204}},
 }
 
 func ResourceMechanics() []ResourceMechanic {
@@ -79,6 +89,7 @@ const (
 	SecretSinkAuthorizationCodeTokenResponse     SecretSink  = "authorization_code_token_response"
 	SecretSinkRefreshResponse                    SecretSink  = "refresh_response"
 	SecretSinkAuthoritativeGenerationRefreshCopy SecretSink  = "authoritative_generation_refresh_copy"
+	SecretSinkAgentCredentialCreation            SecretSink  = "agent_credential_creation" //nolint:gosec // Public sink name, not a credential.
 	SecretOutputFileMode                         fs.FileMode = 0o600
 	SecretOutputTerminator                                   = "\n"
 )
@@ -92,5 +103,6 @@ func ApprovedSecretSinks() []SecretSink {
 		SecretSinkAuthorizationCodeTokenResponse,
 		SecretSinkRefreshResponse,
 		SecretSinkAuthoritativeGenerationRefreshCopy,
+		SecretSinkAgentCredentialCreation,
 	}
 }

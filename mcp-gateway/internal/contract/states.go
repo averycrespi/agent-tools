@@ -66,7 +66,14 @@ func BackupStates() []BackupState {
 
 type AgentAuthMode string
 
-const AgentAuthDenyAll AgentAuthMode = "deny_all"
+const (
+	AgentAuthDenyAll              AgentAuthMode = "deny_all"
+	AgentAuthPrincipalCredentials AgentAuthMode = "principal_credentials" //nolint:gosec // Public protocol status, not a credential.
+)
+
+func AgentAuthModes() []AgentAuthMode {
+	return []AgentAuthMode{AgentAuthDenyAll, AgentAuthPrincipalCredentials}
+}
 
 type InvalidationKind string
 
@@ -78,6 +85,7 @@ const (
 	InvalidationServerOperations InvalidationKind = "server_operations"
 	InvalidationServerAuthFlows  InvalidationKind = "server_auth_flows"
 	InvalidationCatalog          InvalidationKind = "catalog"
+	InvalidationAuthorization    InvalidationKind = "authorization"
 )
 
 func InvalidationKinds() []InvalidationKind {
@@ -89,5 +97,6 @@ func InvalidationKinds() []InvalidationKind {
 		InvalidationServerOperations,
 		InvalidationServerAuthFlows,
 		InvalidationCatalog,
+		InvalidationAuthorization,
 	}
 }

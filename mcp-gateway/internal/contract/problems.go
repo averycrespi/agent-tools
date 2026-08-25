@@ -3,36 +3,41 @@ package contract
 type ProblemCode string
 
 const (
-	ProblemMalformedRequest           ProblemCode = "malformed_request"
-	ProblemInvalidJSON                ProblemCode = "invalid_json"
-	ProblemInvalidCursor              ProblemCode = "invalid_cursor"
-	ProblemInvalidIdempotencyKey      ProblemCode = "invalid_idempotency_key"
-	ProblemAmbiguousCredentials       ProblemCode = "ambiguous_credentials"
-	ProblemInvalidOAuthState          ProblemCode = "invalid_oauth_state"
-	ProblemAuthenticationRequired     ProblemCode = "authentication_required"
-	ProblemCredentialDomainMismatch   ProblemCode = "credential_domain_mismatch" //nolint:gosec // Public problem code, not a credential.
-	ProblemForbiddenOrigin            ProblemCode = "forbidden_origin"
-	ProblemCSRFFailed                 ProblemCode = "csrf_failed"
-	ProblemNotFound                   ProblemCode = "not_found"
-	ProblemMethodNotAllowed           ProblemCode = "method_not_allowed"
-	ProblemConflict                   ProblemCode = "conflict"
-	ProblemIdempotencyConflict        ProblemCode = "idempotency_conflict"
-	ProblemBodyTooLarge               ProblemCode = "body_too_large"
-	ProblemUnsupportedMediaType       ProblemCode = "unsupported_media_type"
-	ProblemMisdirectedRequest         ProblemCode = "misdirected_request"
-	ProblemResourceLimit              ProblemCode = "resource_limit"
-	ProblemStorageUnavailable         ProblemCode = "storage_unavailable"
-	ProblemKeyringUnavailable         ProblemCode = "keyring_unavailable"
-	ProblemShuttingDown               ProblemCode = "shutting_down"
-	ProblemInvalidServerConfiguration ProblemCode = "invalid_server_configuration"
-	ProblemInvalidOperation           ProblemCode = "invalid_operation"
-	ProblemNamespaceUnavailable       ProblemCode = "namespace_unavailable"
-	ProblemOperationConflict          ProblemCode = "operation_conflict"
-	ProblemOAuthFlowActive            ProblemCode = "oauth_flow_active"
-	ProblemStaleCursor                ProblemCode = "stale_cursor"
-	ProblemStaleRevision              ProblemCode = "stale_revision"
-	ProblemPreconditionRequired       ProblemCode = "precondition_required"
-	ProblemDownstreamUnavailable      ProblemCode = "downstream_unavailable"
+	ProblemMalformedRequest              ProblemCode = "malformed_request"
+	ProblemInvalidJSON                   ProblemCode = "invalid_json"
+	ProblemInvalidCursor                 ProblemCode = "invalid_cursor"
+	ProblemInvalidIdempotencyKey         ProblemCode = "invalid_idempotency_key"
+	ProblemAmbiguousCredentials          ProblemCode = "ambiguous_credentials"
+	ProblemInvalidOAuthState             ProblemCode = "invalid_oauth_state"
+	ProblemAuthenticationRequired        ProblemCode = "authentication_required"
+	ProblemCredentialDomainMismatch      ProblemCode = "credential_domain_mismatch" //nolint:gosec // Public problem code, not a credential.
+	ProblemForbiddenOrigin               ProblemCode = "forbidden_origin"
+	ProblemCSRFFailed                    ProblemCode = "csrf_failed"
+	ProblemNotFound                      ProblemCode = "not_found"
+	ProblemMethodNotAllowed              ProblemCode = "method_not_allowed"
+	ProblemConflict                      ProblemCode = "conflict"
+	ProblemIdempotencyConflict           ProblemCode = "idempotency_conflict"
+	ProblemBodyTooLarge                  ProblemCode = "body_too_large"
+	ProblemUnsupportedMediaType          ProblemCode = "unsupported_media_type"
+	ProblemMisdirectedRequest            ProblemCode = "misdirected_request"
+	ProblemResourceLimit                 ProblemCode = "resource_limit"
+	ProblemStorageUnavailable            ProblemCode = "storage_unavailable"
+	ProblemKeyringUnavailable            ProblemCode = "keyring_unavailable"
+	ProblemShuttingDown                  ProblemCode = "shutting_down"
+	ProblemInvalidServerConfiguration    ProblemCode = "invalid_server_configuration"
+	ProblemInvalidOperation              ProblemCode = "invalid_operation"
+	ProblemNamespaceUnavailable          ProblemCode = "namespace_unavailable"
+	ProblemOperationConflict             ProblemCode = "operation_conflict"
+	ProblemOAuthFlowActive               ProblemCode = "oauth_flow_active"
+	ProblemStaleCursor                   ProblemCode = "stale_cursor"
+	ProblemStaleRevision                 ProblemCode = "stale_revision"
+	ProblemPreconditionRequired          ProblemCode = "precondition_required"
+	ProblemDownstreamUnavailable         ProblemCode = "downstream_unavailable"
+	ProblemInvalidPrincipal              ProblemCode = "invalid_principal"
+	ProblemInvalidGrant                  ProblemCode = "invalid_grant"
+	ProblemStalePrincipalRevision        ProblemCode = "stale_principal_revision"
+	ProblemPrincipalPreconditionRequired ProblemCode = "principal_precondition_required"
+	ProblemAuthorizationUnavailable      ProblemCode = "authorization_unavailable"
 )
 
 type Problem struct {
@@ -72,6 +77,11 @@ var problems = []Problem{
 	{Status: 412, Code: ProblemStaleRevision, Title: "The server revision is stale."},
 	{Status: 428, Code: ProblemPreconditionRequired, Title: "The current server revision is required."},
 	{Status: 503, Code: ProblemDownstreamUnavailable, Title: "The downstream server is unavailable."},
+	{Status: 400, Code: ProblemInvalidPrincipal, Title: "The principal is invalid."},
+	{Status: 400, Code: ProblemInvalidGrant, Title: "The grant is invalid."},
+	{Status: 412, Code: ProblemStalePrincipalRevision, Title: "The principal revision is stale."},
+	{Status: 428, Code: ProblemPrincipalPreconditionRequired, Title: "The current principal revision is required."},
+	{Status: 503, Code: ProblemAuthorizationUnavailable, Title: "Authorization is unavailable."},
 }
 
 func Problems() []Problem {

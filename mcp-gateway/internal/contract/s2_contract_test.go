@@ -24,7 +24,7 @@ func TestS2RoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/api/v1/servers/{id}/descriptors/{tool_id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	}
 	routes := Routes()
-	require.Equal(t, expectedRoutes, routes[len(routes)-len(expectedRoutes):])
+	require.Equal(t, expectedRoutes, routes[14:14+len(expectedRoutes)], "S2 routes must remain after the S1 prefix")
 
 	paths := map[string]string{
 		"/api/v1/servers": "/api/v1/servers",
@@ -71,7 +71,7 @@ func TestS2RoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/oauth/callback", Method: "GET", RequestSchema: "OAuthCallbackQuery", SuccessSchema: "OAuthCallbackHTML", SuccessStatuses: []int{200, 400, 503}},
 	}
 	mechanics := ResourceMechanics()
-	require.Equal(t, expectedMechanics, mechanics[len(mechanics)-len(expectedMechanics):])
+	require.Equal(t, expectedMechanics, mechanics[12:12+len(expectedMechanics)], "S2 mechanics must remain after the S1 prefix")
 }
 
 func TestS2ProblemsAreExact(t *testing.T) {
@@ -89,7 +89,7 @@ func TestS2ProblemsAreExact(t *testing.T) {
 		{Status: 503, Code: ProblemDownstreamUnavailable, Title: "The downstream server is unavailable."},
 	}
 	problems := Problems()
-	require.Equal(t, expected, problems[len(problems)-len(expected):])
+	require.Equal(t, expected, problems[21:21+len(expected)], "S2 problems must remain after the S1 prefix")
 }
 
 func TestS2ClosedVocabulariesRejectUnknownValues(t *testing.T) {
@@ -172,7 +172,7 @@ func TestS2LimitsAndDeadlinesAreExact(t *testing.T) {
 		"stdio_output_rate_bytes_per_second": 8 * 1024 * 1024, "stdio_output_burst_bytes": 8 * 1024 * 1024,
 		"downstream_dispatch": 32, "per_server_downstream_dispatch": 4, "s2_idempotency_records": 1024,
 	}
-	require.Len(t, FixedLimits(), 32+len(expected), "the fixed-limit table must be exhaustive")
+	require.GreaterOrEqual(t, len(FixedLimits()), 32+len(expected), "later slices may only append fixed limits")
 	for name, maximum := range map[string]int64{"request_header_bytes": 32 * 1024, "request_header_count": 100, "request_header_value_bytes": 8 * 1024} {
 		limit, ok := FixedLimitByName(name)
 		require.True(t, ok, name)
@@ -204,15 +204,17 @@ func TestS2LimitsAndDeadlinesAreExact(t *testing.T) {
 func TestS2EventsSecretSinksETagAndStatusOccupancies(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, []InvalidationKind{
+	expectedInvalidations := []InvalidationKind{
 		InvalidationAdminCredentials, InvalidationSystemStatus, InvalidationBackups, InvalidationServers,
 		InvalidationServerOperations, InvalidationServerAuthFlows, InvalidationCatalog,
-	}, InvalidationKinds())
-	require.Equal(t, []SecretSink{
+	}
+	require.Equal(t, expectedInvalidations, InvalidationKinds()[:len(expectedInvalidations)], "S2 invalidations must remain the table prefix")
+	expectedSinks := []SecretSink{
 		SecretSinkControllingTerminal, SecretSinkOwnerOnlyFile, SecretSinkAdminCredentialReplacement,
 		SecretSinkDCRClientSecret, SecretSinkAuthorizationCodeTokenResponse, SecretSinkRefreshResponse,
 		SecretSinkAuthoritativeGenerationRefreshCopy,
-	}, ApprovedSecretSinks())
+	}
+	require.Equal(t, expectedSinks, ApprovedSecretSinks()[:len(expectedSinks)], "S2 sinks must remain the table prefix")
 
 	etag := ServerETag("01ARZ3NDEKTSV4RRFFQ69G5FAV", "7")
 	require.Equal(t, `"server-01ARZ3NDEKTSV4RRFFQ69G5FAV-7"`, etag)
