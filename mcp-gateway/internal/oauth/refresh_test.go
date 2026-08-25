@@ -14,6 +14,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,6 +58,74 @@ func TestRefreshServiceSingleFlightUsesExactPublicFormAndDistinctRotation(t *tes
 	require.NoError(t, err)
 	assert.Equal(t, "new-refresh", *installed.RefreshToken)
 	assert.Contains(t, states, contract.ServerCredentialRefreshing)
+}
+
+func TestRefreshOAuthChallengeUsesExactFenceWithoutGenericCallbacks(t *testing.T) {
+	operation := &refreshOperationFake{token: mustTokenBytes(t, refreshGeneration(contract.TokenEndpointAuthNone))}
+	requester := &refreshRequesterFake{status: 200, header: http.Header{"Content-Type": []string{contract.MediaTypeJSON}}, body: []byte(`{"access_token":"new-access","token_type":"Bearer","refresh_token":"new-refresh"}`)}
+	states, triggers := 0, 0
+	service := newRefreshService(refreshStoreFake{prepared: refreshPrepared(contract.TokenEndpointAuthNone)}, &refreshCoordinatorFake{operation: operation}, refreshResolverFake{graph: refreshGraph()}, requester, refreshServerID, func() time.Time { return refreshNow }, func(string, contract.ServerCredentialState, bool) { states++ }, func(string) { triggers++ })
+	prepared := refreshPrepared(contract.TokenEndpointAuthNone)
+
+	result, err := service.RefreshOAuthChallenge(context.Background(), runtimes.OAuthChallengeRefreshRequest{
+		ServerID: refreshServerID, ExpectedDesiredRevision: prepared.Fence.ExpectedDesiredRevision,
+		ExpectedRegistrationRevision: prepared.Fence.ExpectedRegistrationRevision,
+		ExpectedOAuthClientRevision:  prepared.Fence.ExpectedOAuthClientRevision,
+		ExpectedOAuthTokensRevision:  prepared.Fence.ExpectedOAuthTokensRevision,
+		ChallengeMetadata:            []string{"https://resource.example/metadata"},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "2", result.OAuthTokensRevision)
+	assert.Equal(t, 1, requester.calls)
+	assert.Zero(t, states)
+	assert.Zero(t, triggers)
+}
+
+func TestRefreshOAuthChallengePostHandoffUncertaintyInvalidatesWithoutGenericCallbacks(t *testing.T) {
+	operation := &refreshOperationFake{token: mustTokenBytes(t, refreshGeneration(contract.TokenEndpointAuthNone))}
+	requester := &refreshRequesterFake{err: errors.New("EOF"), handoff: true}
+	states, triggers := 0, 0
+	service := newRefreshService(refreshStoreFake{prepared: refreshPrepared(contract.TokenEndpointAuthNone)}, &refreshCoordinatorFake{operation: operation}, refreshResolverFake{graph: refreshGraph()}, requester, refreshServerID, func() time.Time { return refreshNow }, func(string, contract.ServerCredentialState, bool) { states++ }, func(string) { triggers++ })
+	prepared := refreshPrepared(contract.TokenEndpointAuthNone)
+
+	_, err := service.RefreshOAuthChallenge(context.Background(), runtimes.OAuthChallengeRefreshRequest{ServerID: refreshServerID, ExpectedDesiredRevision: prepared.Fence.ExpectedDesiredRevision, ExpectedRegistrationRevision: prepared.Fence.ExpectedRegistrationRevision, ExpectedOAuthClientRevision: prepared.Fence.ExpectedOAuthClientRevision, ExpectedOAuthTokensRevision: prepared.Fence.ExpectedOAuthTokensRevision})
+
+	assert.Error(t, err)
+	assert.Equal(t, 1, operation.invalidations)
+	assert.Zero(t, states)
+	assert.Zero(t, triggers)
+}
+
+func TestRefreshOAuthChallengeRejectsStaleFenceBeforeNetwork(t *testing.T) {
+	operation := &refreshOperationFake{token: mustTokenBytes(t, refreshGeneration(contract.TokenEndpointAuthNone))}
+	requester := &refreshRequesterFake{}
+	service := newRefreshService(refreshStoreFake{prepared: refreshPrepared(contract.TokenEndpointAuthNone)}, &refreshCoordinatorFake{operation: operation}, refreshResolverFake{graph: refreshGraph()}, requester, refreshServerID, func() time.Time { return refreshNow }, nil, nil)
+
+	_, err := service.RefreshOAuthChallenge(context.Background(), runtimes.OAuthChallengeRefreshRequest{ServerID: refreshServerID, ExpectedDesiredRevision: "stale", ExpectedRegistrationRevision: "1", ExpectedOAuthClientRevision: "0", ExpectedOAuthTokensRevision: "1"})
+
+	assert.ErrorIs(t, err, servers.ErrStaleRevision)
+	assert.Zero(t, requester.calls)
+}
+
+func TestRefreshOAuthChallengeDoesNotJoinGenericRefresh(t *testing.T) {
+	operation := &refreshOperationFake{token: mustTokenBytes(t, refreshGeneration(contract.TokenEndpointAuthNone))}
+	requester := &refreshRequesterFake{started: make(chan struct{}, 1), release: make(chan struct{}), status: 200, header: http.Header{"Content-Type": []string{contract.MediaTypeJSON}}, body: []byte(`{"access_token":"new-access","token_type":"Bearer","refresh_token":"new-refresh"}`)}
+	service := newRefreshService(refreshStoreFake{prepared: refreshPrepared(contract.TokenEndpointAuthNone)}, &refreshCoordinatorFake{operation: operation}, refreshResolverFake{graph: refreshGraph()}, requester, refreshServerID, func() time.Time { return refreshNow }, nil, nil)
+	generic := make(chan error, 1)
+	go func() {
+		_, err := service.Refresh(context.Background(), RefreshRequest{ServerID: refreshServerID})
+		generic <- err
+	}()
+	<-requester.started
+	prepared := refreshPrepared(contract.TokenEndpointAuthNone)
+
+	_, err := service.RefreshOAuthChallenge(context.Background(), runtimes.OAuthChallengeRefreshRequest{ServerID: refreshServerID, ExpectedDesiredRevision: prepared.Fence.ExpectedDesiredRevision, ExpectedRegistrationRevision: prepared.Fence.ExpectedRegistrationRevision, ExpectedOAuthClientRevision: prepared.Fence.ExpectedOAuthClientRevision, ExpectedOAuthTokensRevision: prepared.Fence.ExpectedOAuthTokensRevision})
+
+	assert.ErrorIs(t, err, ErrRefreshIneligible)
+	close(requester.release)
+	require.NoError(t, <-generic)
+	assert.Equal(t, 1, requester.calls)
 }
 
 func TestRefreshServicePostHandoffFailureInvalidatesAndRequiresReauthorization(t *testing.T) {

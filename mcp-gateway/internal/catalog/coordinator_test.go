@@ -168,8 +168,9 @@ func TestCoordinatorProjectsFirstPageOAuthDispositionWithoutRuntimeLoss(t *testi
 	require.NoError(t, err)
 	disposition := &downstream.OAuthChallengeDisposition{Kind: downstream.OAuthChallengeRefresh, Stage: downstream.OAuthChallengeCatalogFirstPage, Metadata: []string{"https://resource.example/metadata"}}
 	client := &coordinatorClient{err: disposition}
+	scheduler := newCatalogScheduler()
 	candidate := coordinatorCandidate(t, serverRepository, server)
-	coordinator, err := NewCoordinator(CoordinatorOptions{InstallationID: catalogInstallationID, Repository: repository, Active: registry, Traverser: NewTraverser(), Clock: clock, Scheduler: newCatalogScheduler(), Client: func(runtimes.Candidate) (PageClient, bool) { return client, true }, Current: func(runtimes.Candidate) bool { return true }})
+	coordinator, err := NewCoordinator(CoordinatorOptions{InstallationID: catalogInstallationID, Repository: repository, Active: registry, Traverser: NewTraverser(), Clock: clock, Scheduler: scheduler, Client: func(runtimes.Candidate) (PageClient, bool) { return client, true }, Current: func(runtimes.Candidate) bool { return true }})
 	require.NoError(t, err)
 
 	outcome := coordinator.Activate(context.Background(), candidate)
@@ -178,6 +179,7 @@ func TestCoordinatorProjectsFirstPageOAuthDispositionWithoutRuntimeLoss(t *testi
 	assert.Equal(t, runtimes.CatalogRuntimeHealthy, outcome.RuntimeHealth)
 	assert.Same(t, disposition, outcome.OAuthChallenge)
 	assert.Equal(t, 1, client.callCount())
+	assert.Zero(t, scheduler.count())
 }
 
 func TestCatalogRuntimeFailureClassificationIsClosed(t *testing.T) {

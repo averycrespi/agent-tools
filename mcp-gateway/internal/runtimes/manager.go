@@ -46,6 +46,23 @@ type AuthorityResolver interface {
 	Resolve(context.Context, Candidate) AuthorityOutcome
 }
 
+type OAuthChallengeRefreshRequest struct {
+	ServerID                     string
+	ExpectedDesiredRevision      string
+	ExpectedRegistrationRevision string
+	ExpectedOAuthClientRevision  string
+	ExpectedOAuthTokensRevision  string
+	ChallengeMetadata            []string
+}
+
+type OAuthChallengeRefreshResult struct {
+	OAuthTokensRevision string
+}
+
+type OAuthChallengeRefresher interface {
+	RefreshOAuthChallenge(context.Context, OAuthChallengeRefreshRequest) (OAuthChallengeRefreshResult, error)
+}
+
 type CatalogCoordinator interface {
 	Activate(context.Context, Candidate) CatalogOutcome
 }
@@ -121,12 +138,13 @@ type CatalogOutcome struct {
 }
 
 type Candidate struct {
-	Server      servers.Server
-	Authority   servers.AuthorityMetadata
-	RuntimeID   string
-	OperationID *string
-	Generation  uint64
-	DrainEpoch  uint64
+	Server           servers.Server
+	Authority        servers.AuthorityMetadata
+	RuntimeID        string
+	OperationID      *string
+	Generation       uint64
+	DrainEpoch       uint64
+	OAuthReplayStage downstream.OAuthChallengeStage
 }
 
 type Outcome struct {
@@ -149,14 +167,15 @@ type Status struct {
 }
 
 type Options struct {
-	Repository  Repository
-	Driver      Driver
-	Authority   AuthorityResolver
-	Catalog     CatalogCoordinator
-	Credentials CredentialLifecycle
-	Scheduler   Scheduler
-	Invalidate  func(contract.Invalidation)
-	Publisher   ActivePublisher
+	Repository   Repository
+	Driver       Driver
+	Authority    AuthorityResolver
+	Catalog      CatalogCoordinator
+	Credentials  CredentialLifecycle
+	OAuthRefresh OAuthChallengeRefresher
+	Scheduler    Scheduler
+	Invalidate   func(contract.Invalidation)
+	Publisher    ActivePublisher
 }
 
 type DrainResult struct {
@@ -165,23 +184,24 @@ type DrainResult struct {
 }
 
 type Manager struct {
-	mu          sync.Mutex
-	repository  Repository
-	driver      Driver
-	authority   AuthorityResolver
-	catalog     CatalogCoordinator
-	credentials CredentialLifecycle
-	scheduler   Scheduler
-	invalidate  func(contract.Invalidation)
-	publisher   ActivePublisher
-	ctx         context.Context
-	cancel      context.CancelFunc
-	entries     map[string]*entry
-	globalInUse int64
-	globalLimit int64
-	drainEpoch  uint64
-	draining    bool
-	drainDone   chan DrainResult
+	mu           sync.Mutex
+	repository   Repository
+	driver       Driver
+	authority    AuthorityResolver
+	catalog      CatalogCoordinator
+	credentials  CredentialLifecycle
+	oauthRefresh OAuthChallengeRefresher
+	scheduler    Scheduler
+	invalidate   func(contract.Invalidation)
+	publisher    ActivePublisher
+	ctx          context.Context
+	cancel       context.CancelFunc
+	entries      map[string]*entry
+	globalInUse  int64
+	globalLimit  int64
+	drainEpoch   uint64
+	draining     bool
+	drainDone    chan DrainResult
 }
 
 type entry struct {
@@ -271,7 +291,7 @@ func New(options Options) (*Manager, error) {
 		return nil, errors.New("server reconciliation limit is missing")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Manager{repository: options.Repository, driver: options.Driver, authority: options.Authority, catalog: options.Catalog, credentials: options.Credentials, scheduler: options.Scheduler, invalidate: options.Invalidate, publisher: options.Publisher, ctx: ctx, cancel: cancel, entries: make(map[string]*entry), globalLimit: limit.Maximum}, nil
+	return &Manager{repository: options.Repository, driver: options.Driver, authority: options.Authority, catalog: options.Catalog, credentials: options.Credentials, oauthRefresh: options.OAuthRefresh, scheduler: options.Scheduler, invalidate: options.Invalidate, publisher: options.Publisher, ctx: ctx, cancel: cancel, entries: make(map[string]*entry), globalLimit: limit.Maximum}, nil
 }
 
 func (manager *Manager) Start(ctx context.Context) error {
@@ -346,6 +366,12 @@ func (manager *Manager) SetCredentialLifecycle(lifecycle CredentialLifecycle) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	manager.credentials = lifecycle
+}
+
+func (manager *Manager) SetOAuthChallengeRefresher(refresher OAuthChallengeRefresher) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	manager.oauthRefresh = refresher
 }
 
 func (manager *Manager) SetCredentialState(serverID string, state contract.ServerCredentialState, withdraw bool) {
@@ -578,46 +604,107 @@ func (manager *Manager) reconcile(serverID string, generation uint64, operationI
 		manager.finishStale(serverID, generation)
 		return
 	}
-	defer manager.clearActivating(candidate)
-	authorityOutcome := manager.authority.Resolve(manager.ctx, candidate)
-	if authorityOutcome.Lease != nil {
-		defer authorityOutcome.Lease.Clear()
-	}
-	outcome := Outcome{State: authorityOutcome.State, CredentialState: authorityOutcome.CredentialState, CatalogState: contract.ActiveCatalogAbsent, Reason: authorityOutcome.Reason, Retryable: authorityOutcome.Retryable}
+	defer func() { manager.clearActivating(candidate) }()
+	var outcome Outcome
 	started := false
-	if authorityOutcome.State == "" {
+	challengeConsumed := false
+	for {
+		authorityOutcome := manager.authority.Resolve(manager.ctx, candidate)
+		outcome = Outcome{State: authorityOutcome.State, CredentialState: authorityOutcome.CredentialState, CatalogState: contract.ActiveCatalogAbsent, Reason: authorityOutcome.Reason, Retryable: authorityOutcome.Retryable}
+		started = false
+		if authorityOutcome.State == "" {
+			if !manager.Current(candidate) {
+				if authorityOutcome.Lease != nil {
+					authorityOutcome.Lease.Clear()
+				}
+				manager.finishStale(serverID, generation)
+				return
+			}
+			outcome = manager.driver.Reconcile(manager.ctx, candidate, authorityOutcome.Lease)
+			started = true
+			if outcome.CredentialState == "" {
+				outcome.CredentialState = authorityOutcome.CredentialState
+			}
+			if outcome.State == contract.RuntimeActive {
+				catalog := manager.catalog.Activate(manager.ctx, candidate)
+				outcome.CatalogState = catalog.State
+				outcome.OAuthChallenge = catalog.OAuthChallenge
+				if outcome.CatalogState == "" {
+					outcome.CatalogState = contract.ActiveCatalogAbsent
+				}
+				if catalog.Reason != nil {
+					outcome.Reason = catalog.Reason
+				}
+				if catalog.RuntimeFailure != nil {
+					outcome.State = catalog.RuntimeFailure.State
+					outcome.Reason = &catalog.RuntimeFailure.Reason
+					outcome.Retryable = catalog.RuntimeFailure.Retryable
+					outcome.CatalogState = contract.ActiveCatalogUnavailable
+					if catalog.RuntimeFailure.State == contract.RuntimeAuthenticationRequired {
+						outcome.CredentialState = contract.ServerCredentialUnavailable
+					}
+				}
+				if catalog.Phase == CatalogPublicationDurableOnly {
+					if authorityOutcome.Lease != nil {
+						authorityOutcome.Lease.Clear()
+					}
+					manager.finishDurableOnly(serverID, generation, operationID, candidate, catalog, outcome.CredentialState)
+					return
+				}
+			}
+		}
+		if authorityOutcome.Lease != nil {
+			authorityOutcome.Lease.Clear()
+		}
+		challenge := outcome.OAuthChallenge
+		if challenge == nil {
+			break
+		}
+		reason := contract.ReasonAuthenticationRejected
+		outcome.State = contract.RuntimeAuthenticationRequired
+		outcome.CredentialState = contract.ServerCredentialUnavailable
+		outcome.Reason = &reason
+		outcome.Retryable = false
+		refresher := manager.oauthChallengeRefresher()
+		if challengeConsumed || refresher == nil || challenge.Kind != downstream.OAuthChallengeRefresh || !replayableOAuthStage(challenge.Stage) {
+			break
+		}
+		challengeConsumed = true
+		refresh, refreshErr := refresher.RefreshOAuthChallenge(manager.ctx, oauthChallengeRefreshRequest(candidate, challenge))
+		if refreshErr != nil || refresh.OAuthTokensRevision == "" || refresh.OAuthTokensRevision == candidate.Authority.CredentialRevisions.OAuthTokens {
+			break
+		}
 		if !manager.Current(candidate) {
+			if started && !manager.stopCandidate(candidate) {
+				manager.rememberBlockedStop(serverID, candidate)
+			}
 			manager.finishStale(serverID, generation)
 			return
 		}
-		outcome = manager.driver.Reconcile(manager.ctx, candidate, authorityOutcome.Lease)
-		started = true
-		if outcome.CredentialState == "" {
-			outcome.CredentialState = authorityOutcome.CredentialState
+		if started && !manager.stopCandidate(candidate) {
+			manager.rememberBlockedStop(serverID, candidate)
+			manager.finishFailure(serverID, generation, operationID, contract.RuntimeDegraded, outcome.CredentialState, outcome.CatalogState, contract.ReasonStopUnconfirmed, false)
+			return
 		}
-		if outcome.State == contract.RuntimeActive {
-			catalog := manager.catalog.Activate(manager.ctx, candidate)
-			outcome.CatalogState = catalog.State
-			if outcome.CatalogState == "" {
-				outcome.CatalogState = contract.ActiveCatalogAbsent
-			}
-			if catalog.Reason != nil {
-				outcome.Reason = catalog.Reason
-			}
-			if catalog.RuntimeFailure != nil {
-				outcome.State = catalog.RuntimeFailure.State
-				outcome.Reason = &catalog.RuntimeFailure.Reason
-				outcome.Retryable = catalog.RuntimeFailure.Retryable
-				outcome.CatalogState = contract.ActiveCatalogUnavailable
-				if catalog.RuntimeFailure.State == contract.RuntimeAuthenticationRequired {
-					outcome.CredentialState = contract.ServerCredentialUnavailable
-				}
-			}
-			if catalog.Phase == CatalogPublicationDurableOnly {
-				manager.finishDurableOnly(serverID, generation, operationID, candidate, catalog, outcome.CredentialState)
-				return
-			}
+		currentServer, serverErr := manager.repository.Get(manager.ctx, serverID)
+		currentAuthority, authorityErr := manager.repository.Authority(manager.ctx, serverID)
+		if serverErr != nil || authorityErr != nil || !oauthRefreshFenceCurrent(candidate, currentServer, currentAuthority, refresh) || !manager.current(serverID, generation, candidate.DrainEpoch) {
+			manager.finishStale(serverID, generation)
+			return
 		}
+		freshRuntimeID, idErr := manager.repository.NewID()
+		if idErr != nil {
+			manager.finishFailure(serverID, generation, operationID, contract.RuntimeDegraded, contract.ServerCredentialUnavailable, contract.ActiveCatalogAbsent, contract.ReasonResourceLimit, true)
+			return
+		}
+		replacement := Candidate{Server: currentServer, Authority: currentAuthority, RuntimeID: freshRuntimeID, OperationID: cloneString(operationID), Generation: generation, DrainEpoch: candidate.DrainEpoch, OAuthReplayStage: challenge.Stage}
+		if !manager.replaceActivating(candidate, replacement) {
+			manager.finishStale(serverID, generation)
+			return
+		}
+		candidate = replacement
+		server = currentServer
+		authority = currentAuthority
 	}
 	currentServer, serverErr := manager.repository.Get(manager.ctx, serverID)
 	currentAuthority, authorityErr := manager.repository.Authority(manager.ctx, serverID)
@@ -724,8 +811,46 @@ func (manager *Manager) rememberBlockedStop(serverID string, candidate Candidate
 	current.blockedStop = cloneCandidate(&candidate)
 }
 
+func (manager *Manager) oauthChallengeRefresher() OAuthChallengeRefresher {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	return manager.oauthRefresh
+}
+
+func replayableOAuthStage(stage downstream.OAuthChallengeStage) bool {
+	return stage == downstream.OAuthChallengeModernDiscovery || stage == downstream.OAuthChallengeLegacyInitialize || stage == downstream.OAuthChallengeCatalogFirstPage
+}
+
+func oauthChallengeRefreshRequest(candidate Candidate, challenge *downstream.OAuthChallengeDisposition) OAuthChallengeRefreshRequest {
+	return OAuthChallengeRefreshRequest{
+		ServerID: candidate.Server.ID, ExpectedDesiredRevision: candidate.Server.DesiredRevision,
+		ExpectedRegistrationRevision: candidate.Authority.RegistrationRevision,
+		ExpectedOAuthClientRevision:  candidate.Authority.CredentialRevisions.OAuthClient,
+		ExpectedOAuthTokensRevision:  candidate.Authority.CredentialRevisions.OAuthTokens,
+		ChallengeMetadata:            append([]string(nil), challenge.Metadata...),
+	}
+}
+
+func oauthRefreshFenceCurrent(candidate Candidate, currentServer servers.Server, currentAuthority servers.AuthorityMetadata, refresh OAuthChallengeRefreshResult) bool {
+	return candidate.Server.ID == currentServer.ID && candidate.Server.DesiredRevision == currentServer.DesiredRevision && candidate.Server.DesiredState == currentServer.DesiredState && bytes.Equal(candidate.Server.Transport, currentServer.Transport) &&
+		candidate.Authority.RegistrationRevision == currentAuthority.RegistrationRevision && candidate.Authority.CredentialRevisions.StaticCredential == currentAuthority.CredentialRevisions.StaticCredential && candidate.Authority.CredentialRevisions.OAuthClient == currentAuthority.CredentialRevisions.OAuthClient &&
+		refresh.OAuthTokensRevision == currentAuthority.CredentialRevisions.OAuthTokens
+}
+
 func sameFence(server servers.Server, authority servers.AuthorityMetadata, current servers.Server, currentAuthority servers.AuthorityMetadata) bool {
 	return server.DesiredState == current.DesiredState && bytes.Equal(server.Transport, current.Transport) && authority.RegistrationRevision == currentAuthority.RegistrationRevision && authority.CredentialRevisions == currentAuthority.CredentialRevisions
+}
+
+func (manager *Manager) replaceActivating(previous, replacement Candidate) bool {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	current := manager.entries[previous.Server.ID]
+	if current == nil || current.generation != previous.Generation || manager.draining || manager.drainEpoch != previous.DrainEpoch || current.activating == nil || current.activating.Key() != previous.Key() {
+		return false
+	}
+	current.activating = cloneCandidate(&replacement)
+	current.runtimeFailure = nil
+	return true
 }
 
 func (manager *Manager) Current(candidate Candidate) bool {

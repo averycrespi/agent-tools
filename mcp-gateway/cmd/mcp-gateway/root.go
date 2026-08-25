@@ -197,6 +197,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if err != nil {
 		return false, err
 	}
+	runtimeManager.SetOAuthChallengeRefresher(refreshService)
 	defer refreshService.Shutdown()
 	var boundary *httpboundary.Boundary
 	ingress := mcpingress.New(mcpingress.Options{

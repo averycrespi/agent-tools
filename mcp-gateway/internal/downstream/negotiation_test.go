@@ -121,7 +121,7 @@ func TestNegotiatorReturnsTypedOAuthDispositionWithoutInlineReplay(t *testing.T)
 			assert.Equal(t, []string{"https://resource.example/metadata"}, disposition.Metadata)
 			assert.NotContains(t, disposition.Error(), "secret")
 			assert.Len(t, transport.messages, 1)
-			assert.True(t, transport.closed)
+			assert.False(t, transport.closed)
 		})
 	}
 }

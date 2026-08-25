@@ -11,6 +11,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/remote"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 )
 
@@ -79,6 +80,7 @@ type refreshCall struct {
 	done         chan struct{}
 	joinObserved chan struct{}
 	joinOnce     sync.Once
+	owned        bool
 	result       RefreshResult
 	err          error
 }
@@ -126,6 +128,21 @@ func (service *RefreshService) Shutdown() {
 }
 
 func (service *RefreshService) Refresh(ctx context.Context, request RefreshRequest) (RefreshResult, error) {
+	return service.runRefresh(ctx, request, nil, false)
+}
+
+func (service *RefreshService) RefreshOAuthChallenge(ctx context.Context, request runtimes.OAuthChallengeRefreshRequest) (runtimes.OAuthChallengeRefreshResult, error) {
+	fence := servers.OAuthRefreshFence{
+		ServerID: request.ServerID, ExpectedDesiredRevision: request.ExpectedDesiredRevision,
+		ExpectedRegistrationRevision: request.ExpectedRegistrationRevision,
+		ExpectedOAuthClientRevision:  request.ExpectedOAuthClientRevision,
+		ExpectedOAuthTokensRevision:  request.ExpectedOAuthTokensRevision,
+	}
+	result, err := service.runRefresh(ctx, RefreshRequest{ServerID: request.ServerID, ForceInvalidToken: true, ChallengeMetadata: append([]string(nil), request.ChallengeMetadata...)}, &fence, true)
+	return runtimes.OAuthChallengeRefreshResult{OAuthTokensRevision: result.Revision}, err
+}
+
+func (service *RefreshService) runRefresh(ctx context.Context, request RefreshRequest, expected *servers.OAuthRefreshFence, owned bool) (RefreshResult, error) {
 	if request.ServerID == "" {
 		return RefreshResult{}, ErrRefreshIneligible
 	}
@@ -135,6 +152,10 @@ func (service *RefreshService) Refresh(ctx context.Context, request RefreshReque
 		return RefreshResult{}, keyring.ErrDraining
 	}
 	if current := service.calls[request.ServerID]; current != nil {
+		if owned || current.owned {
+			service.mu.Unlock()
+			return RefreshResult{}, ErrRefreshIneligible
+		}
 		current.joinOnce.Do(func() { close(current.joinObserved) })
 		service.mu.Unlock()
 		select {
@@ -144,13 +165,13 @@ func (service *RefreshService) Refresh(ctx context.Context, request RefreshReque
 			return RefreshResult{}, ctx.Err()
 		}
 	}
-	call := &refreshCall{done: make(chan struct{}), joinObserved: make(chan struct{})}
+	call := &refreshCall{done: make(chan struct{}), joinObserved: make(chan struct{}), owned: owned}
 	service.calls[request.ServerID] = call
 	serviceCtx := service.ctx
 	service.mu.Unlock()
 	workCtx, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(serviceCtx, cancel)
-	call.result, call.err = service.refresh(workCtx, request)
+	call.result, call.err = service.refresh(workCtx, request, expected, !owned)
 	stop()
 	cancel()
 	service.mu.Lock()
@@ -160,8 +181,11 @@ func (service *RefreshService) Refresh(ctx context.Context, request RefreshReque
 	return call.result, call.err
 }
 
-func (service *RefreshService) refresh(ctx context.Context, request RefreshRequest) (RefreshResult, error) {
+func (service *RefreshService) refresh(ctx context.Context, request RefreshRequest, expected *servers.OAuthRefreshFence, notify bool) (RefreshResult, error) {
 	prepared, err := service.store.PrepareOAuthRefresh(ctx, request.ServerID)
+	if err == nil && expected != nil && prepared.Fence != *expected {
+		err = servers.ErrStaleRevision
+	}
 	if err != nil {
 		return RefreshResult{}, err
 	}
@@ -172,6 +196,10 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 	tokenNamespace, err := keyring.NewNamespace(service.installationID, request.ServerID, keyring.RecordOAuthTokens)
 	if err != nil {
 		return RefreshResult{}, ErrTokenRejected
+	}
+	state := service.state
+	if !notify {
+		state = func(string, contract.ServerCredentialState, bool) {}
 	}
 	var result RefreshResult
 	err = service.coordinator.WithOperation(ctx, func(operation refreshOperation) error {
@@ -200,15 +228,15 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 			}
 			defer clear(clientSecret)
 		}
-		service.state(request.ServerID, contract.ServerCredentialRefreshing, false)
+		state(request.ServerID, contract.ServerCredentialRefreshing, false)
 		graph, err := service.resolver.Discover(ctx, Input{Resource: prepared.Configuration.Resource, ChallengeMetadata: request.ChallengeMetadata, DesiredIssuer: &prepared.Registration.Issuer, TrustedOrigins: prepared.Configuration.Authentication.TrustedOrigins})
 		if err != nil || graph.Issuer != old.Issuer || graph.Resource != old.Resource || !slices.Contains(graph.TokenEndpointAuthMethodsSupported, string(prepared.Registration.TokenEndpointAuthMethod)) {
-			service.state(request.ServerID, contract.ServerCredentialReady, false)
+			state(request.ServerID, contract.ServerCredentialReady, false)
 			return ErrTokenRejected
 		}
 		header, body, err := refreshTokenRequest(*old.RefreshToken, prepared.Registration, old.Resource, clientSecret)
 		if err != nil {
-			service.state(request.ServerID, contract.ServerCredentialReady, false)
+			state(request.ServerID, contract.ServerCredentialReady, false)
 			return err
 		}
 		handed := false
@@ -216,9 +244,9 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 		clear(body)
 		if requestErr != nil {
 			if handed {
-				return service.invalidateRefresh(ctx, operation, tokenNamespace, callback, request.ServerID, requestErr)
+				return service.invalidateRefresh(ctx, operation, tokenNamespace, callback, request.ServerID, requestErr, state)
 			}
-			service.state(request.ServerID, contract.ServerCredentialReady, false)
+			state(request.ServerID, contract.ServerCredentialReady, false)
 			return requestErr
 		}
 		issuedAt := service.now().UTC()
@@ -231,15 +259,15 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 			oauthError := tokenErrorCode(responseBody)
 			clear(responseBody)
 			if oauthError == "invalid_grant" || oauthError == "invalid_client" {
-				return service.invalidateRefresh(ctx, operation, tokenNamespace, callback, request.ServerID, ErrRefreshReauthorization)
+				return service.invalidateRefresh(ctx, operation, tokenNamespace, callback, request.ServerID, ErrRefreshReauthorization, state)
 			}
-			service.state(request.ServerID, contract.ServerCredentialReady, false)
+			state(request.ServerID, contract.ServerCredentialReady, false)
 			return parseErr
 		}
 		clear(responseBody)
 		if prepared.Registration.TokenEndpointAuthMethod == contract.TokenEndpointAuthNone {
 			if token.refreshToken == nil || *token.refreshToken == *old.RefreshToken {
-				return service.invalidateRefresh(ctx, operation, tokenNamespace, callback, request.ServerID, ErrRefreshReauthorization)
+				return service.invalidateRefresh(ctx, operation, tokenNamespace, callback, request.ServerID, ErrRefreshReauthorization, state)
 			}
 		} else if token.refreshToken == nil {
 			value := *old.RefreshToken
@@ -247,24 +275,26 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 		}
 		generation, err := encodeBoundTokenGeneration(old, token, issuedAt)
 		if err != nil {
-			return service.invalidateRefresh(ctx, operation, tokenNamespace, callback, request.ServerID, err)
+			return service.invalidateRefresh(ctx, operation, tokenNamespace, callback, request.ServerID, err, state)
 		}
 		defer clear(generation)
-		service.state(request.ServerID, contract.ServerCredentialRefreshing, true)
+		state(request.ServerID, contract.ServerCredentialRefreshing, true)
 		cutover, err := operation.ReplaceFencedAfterAuthorizationSuccess(ctx, tokenNamespace, generation, callback)
 		if err != nil {
-			service.state(request.ServerID, contract.ServerCredentialReauthenticationRequired, true)
+			state(request.ServerID, contract.ServerCredentialReauthenticationRequired, true)
 			return err
 		}
 		result = RefreshResult{Revision: cutover.Revision, Refreshed: true}
-		service.trigger(request.ServerID)
+		if notify {
+			service.trigger(request.ServerID)
+		}
 		return nil
 	})
 	return result, err
 }
 
-func (service *RefreshService) invalidateRefresh(ctx context.Context, operation refreshOperation, namespace keyring.Namespace, callback keyring.AuthorityCallback, serverID string, cause error) error {
-	service.state(serverID, contract.ServerCredentialReauthenticationRequired, true)
+func (service *RefreshService) invalidateRefresh(ctx context.Context, operation refreshOperation, namespace keyring.Namespace, callback keyring.AuthorityCallback, serverID string, cause error, state func(string, contract.ServerCredentialState, bool)) error {
+	state(serverID, contract.ServerCredentialReauthenticationRequired, true)
 	_, invalidationErr := operation.InvalidateFencedExact(ctx, namespace, callback)
 	return errors.Join(cause, invalidationErr)
 }

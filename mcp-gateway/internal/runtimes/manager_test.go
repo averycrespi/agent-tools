@@ -648,6 +648,280 @@ func TestManagerRefreshCatalogOperationSkipsLifecycleAndCompletesAttachedWork(t 
 	}
 }
 
+type challengeRefreshFake struct {
+	started chan OAuthChallengeRefreshRequest
+	release chan OAuthChallengeRefreshResult
+	errors  chan error
+}
+
+func newChallengeRefreshFake() *challengeRefreshFake {
+	return &challengeRefreshFake{started: make(chan OAuthChallengeRefreshRequest, 4), release: make(chan OAuthChallengeRefreshResult, 4), errors: make(chan error, 4)}
+}
+
+func (refresh *challengeRefreshFake) RefreshOAuthChallenge(_ context.Context, request OAuthChallengeRefreshRequest) (OAuthChallengeRefreshResult, error) {
+	refresh.started <- request
+	select {
+	case err := <-refresh.errors:
+		return OAuthChallengeRefreshResult{}, err
+	case result := <-refresh.release:
+		return result, nil
+	}
+}
+
+type sequenceCatalog struct {
+	started  chan Candidate
+	outcomes chan CatalogOutcome
+}
+
+func newSequenceCatalog() *sequenceCatalog {
+	return &sequenceCatalog{started: make(chan Candidate, 8), outcomes: make(chan CatalogOutcome, 8)}
+}
+
+func (catalog *sequenceCatalog) Activate(_ context.Context, candidate Candidate) CatalogOutcome {
+	catalog.started <- candidate
+	return <-catalog.outcomes
+}
+
+func TestManagerOAuthChallengeRefreshUsesFreshCandidateAndExactReplayStage(t *testing.T) {
+	stages := []downstream.OAuthChallengeStage{downstream.OAuthChallengeModernDiscovery, downstream.OAuthChallengeLegacyInitialize, downstream.OAuthChallengeCatalogFirstPage}
+	for _, stage := range stages {
+		t.Run(string(stage), func(t *testing.T) {
+			repository := newFakeRepository(1)
+			driver := newLifecycleDriver()
+			catalog := newSequenceCatalog()
+			refresh := newChallengeRefreshFake()
+			authorityResolver := &recordingAuthority{called: make(chan Candidate, 4)}
+			manager, err := New(Options{Repository: repository, Driver: driver, Authority: authorityResolver, Catalog: catalog, OAuthRefresh: refresh})
+			require.NoError(t, err)
+			defer manager.Shutdown()
+			var serverID string
+			for serverID = range repository.servers {
+				break
+			}
+			repository.mu.Lock()
+			authority := repository.authorities[serverID]
+			authority.RegistrationRevision = "3"
+			authority.CredentialRevisions.OAuthClient = "4"
+			authority.CredentialRevisions.OAuthTokens = "5"
+			repository.authorities[serverID] = authority
+			repository.mu.Unlock()
+			disposition := &downstream.OAuthChallengeDisposition{Kind: downstream.OAuthChallengeRefresh, Stage: stage, Metadata: []string{"https://resource.example/metadata"}}
+
+			manager.Trigger(serverID, nil, false)
+			oldCandidate := receiveCandidate(t, driver.started)
+			assert.Equal(t, oldCandidate.RuntimeID, receiveCandidate(t, authorityResolver.called).RuntimeID)
+			if stage == downstream.OAuthChallengeCatalogFirstPage {
+				driver.startResult <- activeOutcome()
+				assert.Equal(t, oldCandidate.RuntimeID, receiveCandidate(t, catalog.started).RuntimeID)
+				catalog.outcomes <- CatalogOutcome{State: contract.ActiveCatalogUnavailable, OAuthChallenge: disposition}
+			} else {
+				driver.startResult <- Outcome{State: contract.RuntimeAuthenticationRequired, CredentialState: contract.ServerCredentialUnavailable, CatalogState: contract.ActiveCatalogAbsent, OAuthChallenge: disposition}
+			}
+			request := <-refresh.started
+			assert.Equal(t, serverID, request.ServerID)
+			assert.Equal(t, "1", request.ExpectedDesiredRevision)
+			assert.Equal(t, "3", request.ExpectedRegistrationRevision)
+			assert.Equal(t, "4", request.ExpectedOAuthClientRevision)
+			assert.Equal(t, "5", request.ExpectedOAuthTokensRevision)
+			assert.Equal(t, disposition.Metadata, request.ChallengeMetadata)
+			repository.mu.Lock()
+			authority = repository.authorities[serverID]
+			authority.CredentialRevisions.OAuthTokens = "6"
+			repository.authorities[serverID] = authority
+			repository.mu.Unlock()
+			refresh.release <- OAuthChallengeRefreshResult{OAuthTokensRevision: "6"}
+			assert.Equal(t, oldCandidate.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
+			driver.stopResult <- true
+			fresh := receiveCandidate(t, driver.started)
+			assert.Equal(t, fresh.RuntimeID, receiveCandidate(t, authorityResolver.called).RuntimeID)
+			assert.NotEqual(t, oldCandidate.RuntimeID, fresh.RuntimeID)
+			assert.Equal(t, "6", fresh.Authority.CredentialRevisions.OAuthTokens)
+			assert.Equal(t, stage, fresh.OAuthReplayStage)
+			driver.startResult <- activeOutcome()
+			assert.Equal(t, fresh.RuntimeID, receiveCandidate(t, catalog.started).RuntimeID)
+			catalog.outcomes <- CatalogOutcome{State: contract.ActiveCatalogCurrent}
+			require.Eventually(t, func() bool {
+				status := manager.Status(serverID)
+				return status.State == contract.RuntimeActive && status.RuntimeID != nil && *status.RuntimeID == fresh.RuntimeID
+			}, time.Second, time.Millisecond)
+			select {
+			case <-refresh.started:
+				t.Fatal("OAuth challenge refreshed more than once")
+			default:
+			}
+		})
+	}
+}
+
+func TestManagerOAuthChallengeRefreshFailureStopsWithoutReplacement(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	refresh := newChallengeRefreshFake()
+	manager, err := New(Options{Repository: repository, Driver: driver, OAuthRefresh: refresh})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	disposition := &downstream.OAuthChallengeDisposition{Kind: downstream.OAuthChallengeRefresh, Stage: downstream.OAuthChallengeModernDiscovery}
+	manager.Trigger(serverID, nil, false)
+	old := receiveCandidate(t, driver.started)
+	driver.startResult <- Outcome{State: contract.RuntimeAuthenticationRequired, OAuthChallenge: disposition}
+	<-refresh.started
+	refresh.errors <- errors.New("refresh rejected")
+	assert.Equal(t, old.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
+	driver.stopResult <- true
+	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeAuthenticationRequired }, time.Second, time.Millisecond)
+	assert.Equal(t, contract.ReasonAuthenticationRejected, *manager.Status(serverID).Reason)
+	select {
+	case candidate := <-driver.started:
+		t.Fatalf("replacement started after refresh failure: %s", candidate.RuntimeID)
+	default:
+	}
+}
+
+func TestManagerOAuthChallengeDrainPreventsReplacement(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	refresh := newChallengeRefreshFake()
+	manager, err := New(Options{Repository: repository, Driver: driver, OAuthRefresh: refresh})
+	require.NoError(t, err)
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	disposition := &downstream.OAuthChallengeDisposition{Kind: downstream.OAuthChallengeRefresh, Stage: downstream.OAuthChallengeModernDiscovery}
+	manager.Trigger(serverID, nil, false)
+	old := receiveCandidate(t, driver.started)
+	driver.startResult <- Outcome{State: contract.RuntimeAuthenticationRequired, OAuthChallenge: disposition}
+	<-refresh.started
+	<-manager.Drain(context.Background())
+	repository.mu.Lock()
+	authority := repository.authorities[serverID]
+	authority.CredentialRevisions.OAuthTokens = "2"
+	repository.authorities[serverID] = authority
+	repository.mu.Unlock()
+	refresh.release <- OAuthChallengeRefreshResult{OAuthTokensRevision: "2"}
+	assert.Equal(t, old.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
+	driver.stopResult <- true
+	require.Eventually(t, func() bool { return manager.AdmissionStatus().InUse == 0 }, time.Second, time.Millisecond)
+	select {
+	case candidate := <-driver.started:
+		t.Fatalf("replacement started during drain: %s", candidate.RuntimeID)
+	default:
+	}
+}
+
+func TestManagerOAuthChallengeSupersessionStartsIndependentGenerationWithoutReplay(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	catalog := newSequenceCatalog()
+	refresh := newChallengeRefreshFake()
+	manager, err := New(Options{Repository: repository, Driver: driver, Catalog: catalog, OAuthRefresh: refresh})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	repository.mu.Lock()
+	authority := repository.authorities[serverID]
+	authority.CredentialRevisions.OAuthTokens = "1"
+	repository.authorities[serverID] = authority
+	repository.mu.Unlock()
+	disposition := &downstream.OAuthChallengeDisposition{Kind: downstream.OAuthChallengeRefresh, Stage: downstream.OAuthChallengeModernDiscovery}
+	manager.Trigger(serverID, nil, false)
+	old := receiveCandidate(t, driver.started)
+	driver.startResult <- Outcome{State: contract.RuntimeAuthenticationRequired, OAuthChallenge: disposition}
+	<-refresh.started
+
+	manager.Trigger(serverID, nil, false)
+	repository.mu.Lock()
+	authority = repository.authorities[serverID]
+	authority.CredentialRevisions.OAuthTokens = "2"
+	repository.authorities[serverID] = authority
+	repository.mu.Unlock()
+	refresh.release <- OAuthChallengeRefreshResult{OAuthTokensRevision: "2"}
+	assert.Equal(t, old.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
+	driver.stopResult <- true
+	independent := receiveCandidate(t, driver.started)
+	assert.Greater(t, independent.Generation, old.Generation)
+	assert.Empty(t, independent.OAuthReplayStage)
+	driver.startResult <- activeOutcome()
+	assert.Equal(t, independent.RuntimeID, receiveCandidate(t, catalog.started).RuntimeID)
+	catalog.outcomes <- CatalogOutcome{State: contract.ActiveCatalogCurrent}
+	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeActive }, time.Second, time.Millisecond)
+}
+
+func TestManagerOAuthChallengeDoesNotReplaceAfterUnconfirmedStopOrSecondChallenge(t *testing.T) {
+	tests := []struct {
+		name         string
+		stopResult   bool
+		second       bool
+		expectReason contract.PublicReason
+	}{
+		{name: "unconfirmed stop", stopResult: false, expectReason: contract.ReasonStopUnconfirmed},
+		{name: "second challenge", stopResult: true, second: true, expectReason: contract.ReasonAuthenticationRejected},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repository := newFakeRepository(1)
+			driver := newLifecycleDriver()
+			catalog := newSequenceCatalog()
+			refresh := newChallengeRefreshFake()
+			manager, err := New(Options{Repository: repository, Driver: driver, Catalog: catalog, OAuthRefresh: refresh})
+			require.NoError(t, err)
+			defer manager.Shutdown()
+			var serverID string
+			for serverID = range repository.servers {
+				break
+			}
+			repository.mu.Lock()
+			authority := repository.authorities[serverID]
+			authority.CredentialRevisions.OAuthTokens = "1"
+			repository.authorities[serverID] = authority
+			repository.mu.Unlock()
+			disposition := &downstream.OAuthChallengeDisposition{Kind: downstream.OAuthChallengeRefresh, Stage: downstream.OAuthChallengeModernDiscovery}
+			manager.Trigger(serverID, nil, false)
+			old := receiveCandidate(t, driver.started)
+			driver.startResult <- Outcome{State: contract.RuntimeAuthenticationRequired, OAuthChallenge: disposition}
+			<-refresh.started
+			repository.mu.Lock()
+			authority = repository.authorities[serverID]
+			authority.CredentialRevisions.OAuthTokens = "2"
+			repository.authorities[serverID] = authority
+			repository.mu.Unlock()
+			refresh.release <- OAuthChallengeRefreshResult{OAuthTokensRevision: "2"}
+			assert.Equal(t, old.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
+			driver.stopResult <- test.stopResult
+			if test.second {
+				fresh := receiveCandidate(t, driver.started)
+				driver.startResult <- Outcome{State: contract.RuntimeAuthenticationRequired, OAuthChallenge: disposition}
+				assert.Equal(t, fresh.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
+				driver.stopResult <- true
+			}
+			require.Eventually(t, func() bool {
+				status := manager.Status(serverID)
+				return status.State == contract.RuntimeDegraded || status.State == contract.RuntimeAuthenticationRequired
+			}, time.Second, time.Millisecond)
+			assert.Equal(t, test.expectReason, *manager.Status(serverID).Reason)
+			select {
+			case <-refresh.started:
+				t.Fatal("OAuth challenge refreshed more than once")
+			default:
+			}
+			if !test.stopResult {
+				select {
+				case candidate := <-driver.started:
+					t.Fatalf("replacement started after unconfirmed stop: %s", candidate.RuntimeID)
+				default:
+				}
+			}
+		})
+	}
+}
+
 func TestManagerKeepsHealthyRuntimeOnInitialCatalogFailure(t *testing.T) {
 	repository := newFakeRepository(1)
 	driver := newLifecycleDriver()

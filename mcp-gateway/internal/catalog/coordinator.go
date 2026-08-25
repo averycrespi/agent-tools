@@ -128,7 +128,7 @@ func (coordinator *Coordinator) run(ctx context.Context, candidate runtimes.Cand
 	close(current.done)
 	stopped := coordinator.stopped
 	coordinator.mu.Unlock()
-	if !stopped && result.RuntimeHealth != runtimes.CatalogRuntimeLost && coordinator.live(candidate) {
+	if !stopped && result.RuntimeHealth != runtimes.CatalogRuntimeLost && result.OAuthChallenge == nil && coordinator.live(candidate) {
 		coordinator.schedule(candidate)
 	}
 	return result

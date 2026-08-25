@@ -98,6 +98,52 @@ func driverCoordinatorFactory(transport downstream.Transport) (*downstream.Coord
 	return downstream.NewCoordinator(&driverScriptedTransport{delegate: transport})
 }
 
+type driverChallengeTransport struct{ delegate downstream.Transport }
+
+func (transport *driverChallengeTransport) Kind() downstream.TransportKind {
+	return transport.delegate.Kind()
+}
+func (*driverChallengeTransport) Exchange(context.Context, downstream.Message) (downstream.WireResponse, error) {
+	return downstream.WireResponse{StatusCode: http.StatusUnauthorized, OAuthChallenge: &downstream.OAuthChallengeDisposition{Kind: downstream.OAuthChallengeRefresh}}, nil
+}
+func (*driverChallengeTransport) Notify(context.Context, downstream.Message) (downstream.WireResponse, error) {
+	return downstream.WireResponse{}, errors.New("unexpected notification")
+}
+func (transport *driverChallengeTransport) Close(ctx context.Context) error {
+	return transport.delegate.Close(ctx)
+}
+
+func TestConcreteDriverRetainsChallengedHandleUntilVerifiedManagerStop(t *testing.T) {
+	for _, mode := range []contract.ProtocolMode{contract.ProtocolModern, contract.ProtocolLegacy} {
+		t.Run(string(mode), func(t *testing.T) {
+			owner := NewRuntimeOwner()
+			candidate := ownerCandidate(59, contract.TransportStreamableHTTP)
+			candidate.Server.Transport = mustDriverTransport(t, contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "http://127.0.0.1:9000/mcp", ProtocolMode: mode, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}})
+			driver, err := NewConcreteDriver(ConcreteDriverOptions{Owner: owner, StartStdio: func(context.Context, StdioDefinition) (downstream.StdioRuntime, error) {
+				return nil, errors.New("unexpected stdio")
+			}, HTTPFactory: remote.New(remote.Options{}), NewCoordinator: func(transport downstream.Transport) (*downstream.Coordinator, error) {
+				return downstream.NewCoordinator(&driverChallengeTransport{delegate: transport})
+			}})
+			require.NoError(t, err)
+
+			outcome := driver.Reconcile(context.Background(), candidate, nil)
+
+			require.NotNil(t, outcome.OAuthChallenge)
+			assert.Equal(t, int64(1), owner.Status().InUse)
+			assert.True(t, driver.Stop(context.Background(), candidate))
+			assert.Equal(t, int64(0), owner.Status().InUse)
+		})
+	}
+}
+
+func TestReplayNegotiationModeSelectsExactChallengedStage(t *testing.T) {
+	desired := contract.StreamableHTTPTransport{ProtocolMode: contract.ProtocolAuto}
+	assert.Equal(t, downstream.ModeModern, replayNegotiationMode(desired, downstream.OAuthChallengeModernDiscovery))
+	assert.Equal(t, downstream.ModeLegacy, replayNegotiationMode(desired, downstream.OAuthChallengeLegacyInitialize))
+	assert.Equal(t, downstream.ModeAuto, replayNegotiationMode(desired, downstream.OAuthChallengeCatalogFirstPage))
+	assert.Equal(t, downstream.ModeAuto, replayNegotiationMode(desired, ""))
+}
+
 func TestConstructionFailureCarriesOAuthChallengeDisposition(t *testing.T) {
 	disposition := &downstream.OAuthChallengeDisposition{Kind: downstream.OAuthChallengeRefresh, Stage: downstream.OAuthChallengeModernDiscovery, Metadata: []string{"https://resource.example/metadata"}}
 

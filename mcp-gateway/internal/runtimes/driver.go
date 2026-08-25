@@ -105,9 +105,12 @@ func (driver *ConcreteDriver) Reconcile(ctx context.Context, candidate Candidate
 		driver.cleanupConstruction(ctx, key)
 		return constructionFailure(err)
 	}
-	selected, err := negotiator.Negotiate(ctx, negotiationMode(desired))
+	selected, err := negotiator.Negotiate(ctx, replayNegotiationMode(desired, candidate.OAuthReplayStage))
 	if err != nil {
-		driver.cleanupConstruction(ctx, key)
+		var challenge *downstream.OAuthChallengeDisposition
+		if !errors.As(err, &challenge) {
+			driver.cleanupConstruction(ctx, key)
+		}
 		return constructionFailure(err)
 	}
 	if !driver.attachRuntime(key, selected) || !driver.owner.Transition(key, RuntimeCataloging) {
@@ -321,6 +324,17 @@ func negotiationMode(desired contract.Transport) downstream.Mode {
 		return downstream.Mode(http.ProtocolMode)
 	}
 	return downstream.ModeAuto
+}
+
+func replayNegotiationMode(desired contract.Transport, stage downstream.OAuthChallengeStage) downstream.Mode {
+	switch stage {
+	case downstream.OAuthChallengeModernDiscovery:
+		return downstream.ModeModern
+	case downstream.OAuthChallengeLegacyInitialize:
+		return downstream.ModeLegacy
+	default:
+		return negotiationMode(desired)
+	}
 }
 
 func (driver *ConcreteDriver) storeHandle(key CandidateKey, handle *concreteHandle) bool {

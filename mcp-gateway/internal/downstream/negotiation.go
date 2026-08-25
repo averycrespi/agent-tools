@@ -145,7 +145,10 @@ func (negotiator *Negotiator) Negotiate(ctx context.Context, mode Mode) (*Runtim
 	}
 	selected, fallback, err := negotiateModern(initializationCtx, coordinator)
 	if err != nil {
-		_ = coordinator.Close(initializationCtx)
+		var challenge *OAuthChallengeDisposition
+		if !errors.As(err, &challenge) {
+			_ = coordinator.Close(initializationCtx)
+		}
 		return nil, err
 	}
 	if selected {
@@ -230,7 +233,6 @@ func negotiateLegacy(ctx context.Context, coordinator *Coordinator) (*Runtime, e
 		return nil, err
 	}
 	if wire.OAuthChallenge != nil {
-		_ = coordinator.Close(ctx)
 		return nil, wire.OAuthChallenge.at(OAuthChallengeLegacyInitialize)
 	}
 	response, err := decodeNegotiationResponse(requestID, wire)
