@@ -57,9 +57,17 @@ func VerifyCurrent(ctx context.Context, root string) (Identity, error) {
 		return Identity{}, fmt.Errorf("%w: inspect mutation recovery action: %w", ErrStorageLatched, err)
 	}
 	if recovery != nil {
-		if err := restoreKeyringAuthorityFence(ctx, store, recovery); err != nil {
+		switch recovery.Action {
+		case "restore_keyring_authority_fence":
+			err = restoreKeyringAuthorityFence(ctx, store, recovery)
+		case "invalidate_agent_credential_candidate":
+			err = invalidateAgentCredentialCandidate(ctx, store, recovery)
+		default:
+			err = fmt.Errorf("unsupported recovery action")
+		}
+		if err != nil {
 			_ = store.Close()
-			return Identity{}, fmt.Errorf("%w: restore keyring authority fence: %w", ErrStorageLatched, err)
+			return Identity{}, fmt.Errorf("%w: apply stopped recovery action: %w", ErrStorageLatched, err)
 		}
 		identity, err = store.Identity(ctx)
 		if err != nil {
@@ -82,7 +90,7 @@ func VerifyCurrent(ctx context.Context, root string) (Identity, error) {
 func restoreKeyringAuthorityFence(
 	ctx context.Context,
 	store *Store,
-	recovery *keyringFenceActivation,
+	recovery *recoveryAction,
 ) error {
 	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
@@ -98,6 +106,44 @@ func restoreKeyringAuthorityFence(
 		UPDATE gateway_meta SET revision = revision + 1 WHERE singleton = 1`); err != nil {
 		_ = transaction.Rollback()
 		return err
+	}
+	return transaction.Commit()
+}
+
+func invalidateAgentCredentialCandidate(
+	ctx context.Context,
+	store *Store,
+	recovery *recoveryAction,
+) error {
+	transaction, err := store.database.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	result, err := transaction.ExecContext(ctx, `
+		UPDATE principals
+		SET revision = revision + 1,
+		    credential_revision = credential_revision + 1,
+		    credential_id = NULL,
+		    credential_verifier = NULL,
+		    credential_fingerprint = NULL,
+		    credential_created_at = NULL
+		WHERE id = ?
+		  AND credential_id = ?
+		  AND revision = ?
+		  AND credential_revision = ?`,
+		recovery.PrincipalID, recovery.CredentialID,
+		recovery.PrincipalRevision, recovery.CredentialRevision)
+	if err != nil {
+		_ = transaction.Rollback()
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil || changed < 0 || changed > 1 {
+		_ = transaction.Rollback()
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("agent credential recovery changed an invalid row count")
 	}
 	return transaction.Commit()
 }

@@ -1,18 +1,21 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 	"github.com/ncruces/go-sqlite3"
 )
 
@@ -39,15 +42,26 @@ var (
 )
 
 type markerDocument struct {
-	InstallationID string                  `json:"installation_id"`
-	State          string                  `json:"state"`
-	Recovery       *keyringFenceActivation `json:"recovery,omitempty"`
+	InstallationID string          `json:"installation_id"`
+	State          string          `json:"state"`
+	Recovery       *recoveryAction `json:"recovery,omitempty"`
 }
 
-type keyringFenceActivation struct {
-	Action string `json:"action"`
-	Owner  string `json:"owner"`
-	Kind   string `json:"kind"`
+type recoveryAction struct {
+	Action             string `json:"action"`
+	Owner              string `json:"owner,omitempty"`
+	Kind               string `json:"kind,omitempty"`
+	PrincipalID        string `json:"principal_id,omitempty"`
+	CredentialID       string `json:"credential_id,omitempty"`
+	PrincipalRevision  int64  `json:"principal_revision,omitempty"`
+	CredentialRevision int64  `json:"credential_revision,omitempty"`
+}
+
+type AgentCredentialCandidate struct {
+	PrincipalID        string
+	CredentialID       string
+	PrincipalRevision  int64
+	CredentialRevision int64
 }
 
 type mutationMarker struct {
@@ -87,14 +101,28 @@ func (store *Store) ActivateKeyringAuthority(
 	if !validKeyringOwner(owner) || !validKeyringRecordKind(kind) {
 		return fmt.Errorf("invalid keyring authority activation")
 	}
-	return store.mutate(ctx, &keyringFenceActivation{
+	return store.mutate(ctx, &recoveryAction{
 		Action: "restore_keyring_authority_fence",
 		Owner:  owner,
 		Kind:   kind,
 	}, mutate)
 }
 
-func (store *Store) mutate(ctx context.Context, recovery *keyringFenceActivation, mutate func(*sql.Tx) error) error {
+// MutateAgentCredentialCandidate records enough safe authority identity for
+// stopped recovery to invalidate an uncertain committed candidate.
+func (store *Store) MutateAgentCredentialCandidate(
+	ctx context.Context,
+	candidate AgentCredentialCandidate,
+	mutate func(*sql.Tx) error,
+) error {
+	recovery := recoveryActionFromCandidate(candidate)
+	if !validRecoveryAction(recovery) {
+		return fmt.Errorf("invalid agent credential candidate")
+	}
+	return store.mutate(ctx, &recovery, mutate)
+}
+
+func (store *Store) mutate(ctx context.Context, recovery *recoveryAction, mutate func(*sql.Tx) error) error {
 	select {
 	case store.mutationSlot <- struct{}{}:
 		defer func() { <-store.mutationSlot }()
@@ -126,7 +154,7 @@ func (store *Store) mutate(ctx context.Context, recovery *keyringFenceActivation
 		if rollbackErr != nil || isStorageFailure(mutationErr) {
 			return store.latch(errors.Join(mutationErr, rollbackErr))
 		}
-		if err := store.marker.disarm(); err != nil {
+		if err := store.marker.disarm(false); err != nil {
 			return store.latch(errors.Join(mutationErr, err))
 		}
 		return mutationErr
@@ -138,7 +166,7 @@ func (store *Store) mutate(ctx context.Context, recovery *keyringFenceActivation
 	if err := store.inject(FaultAfterCommit); err != nil {
 		return store.latch(err)
 	}
-	if err := store.marker.disarm(); err != nil {
+	if err := store.marker.disarm(recovery != nil); err != nil {
 		return store.latch(err)
 	}
 	return nil
@@ -333,7 +361,7 @@ func (marker mutationMarker) hasArtifacts() (bool, error) {
 	return marked, nil
 }
 
-func (marker mutationMarker) arm(installationID string, recovery *keyringFenceActivation) error {
+func (marker mutationMarker) arm(installationID string, recovery *recoveryAction) error {
 	marked, err := marker.hasArtifacts()
 	if err != nil {
 		return err
@@ -360,6 +388,9 @@ func (marker mutationMarker) arm(installationID string, recovery *keyringFenceAc
 		return fmt.Errorf("encode mutation marker: %w", err)
 	}
 	contents = append(contents, '\n')
+	if len(contents) > markerBytesMaximum {
+		return fmt.Errorf("mutation marker is too large")
+	}
 	if err := marker.inject(FaultArmWrite); err != nil {
 		return err
 	}
@@ -391,7 +422,7 @@ func (marker mutationMarker) arm(installationID string, recovery *keyringFenceAc
 	return nil
 }
 
-func (marker mutationMarker) disarm() error {
+func (marker mutationMarker) disarm(preserveRecovery bool) error {
 	if err := marker.inject(FaultDisarmRename); err != nil {
 		return err
 	}
@@ -404,6 +435,14 @@ func (marker mutationMarker) disarm() error {
 	if err := syncDirectory(marker.root); err != nil {
 		return fmt.Errorf("sync staged marker removal: %w", err)
 	}
+	var recoveryContents []byte
+	if preserveRecovery {
+		contents, err := os.ReadFile(marker.tombstone)
+		if err != nil {
+			return fmt.Errorf("retain recovery marker before removal: %w", err)
+		}
+		recoveryContents = contents
+	}
 	if err := marker.inject(FaultDisarmDelete); err != nil {
 		return err
 	}
@@ -411,10 +450,35 @@ func (marker mutationMarker) disarm() error {
 		return fmt.Errorf("remove staged mutation marker: %w", err)
 	}
 	if err := marker.inject(FaultDisarmFinalDirectorySync); err != nil {
-		return err
+		return errors.Join(err, marker.restoreRecoveryTombstone(recoveryContents))
 	}
 	if err := syncDirectory(marker.root); err != nil {
-		return fmt.Errorf("sync removed mutation marker: %w", err)
+		return errors.Join(fmt.Errorf("sync removed mutation marker: %w", err), marker.restoreRecoveryTombstone(recoveryContents))
+	}
+	return nil
+}
+
+func (marker mutationMarker) restoreRecoveryTombstone(contents []byte) error {
+	if len(contents) == 0 {
+		return nil
+	}
+	file, err := gatewaypaths.CreateOwnerOnlyFile(marker.tombstone)
+	if err != nil {
+		return fmt.Errorf("restore recovery marker: %w", err)
+	}
+	if _, err := file.Write(contents); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("rewrite recovery marker: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("sync restored recovery marker: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close restored recovery marker: %w", err)
+	}
+	if err := syncDirectory(marker.root); err != nil {
+		return fmt.Errorf("sync restored recovery marker directory: %w", err)
 	}
 	return nil
 }
@@ -448,8 +512,8 @@ func (marker mutationMarker) verifyBindingOrMalformed(installationID string) err
 	return nil
 }
 
-func (marker mutationMarker) recovery(installationID string) (*keyringFenceActivation, error) {
-	var recovered *keyringFenceActivation
+func (marker mutationMarker) recovery(installationID string) (*recoveryAction, error) {
+	var recovered *recoveryAction
 	for _, path := range marker.paths() {
 		if err := gatewaypaths.ValidateOwnerOnlyFile(path); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -469,18 +533,33 @@ func (marker mutationMarker) recovery(installationID string) (*keyringFenceActiv
 		if len(contents) > markerBytesMaximum {
 			return nil, fmt.Errorf("mutation marker is too large")
 		}
-		var document markerDocument
-		if err := json.Unmarshal(contents, &document); err != nil {
+		var envelope struct {
+			Recovery json.RawMessage `json:"recovery"`
+		}
+		if err := json.Unmarshal(contents, &envelope); err != nil {
+			if path == marker.tombstone {
+				return nil, fmt.Errorf("mutation recovery tombstone is malformed")
+			}
 			continue
 		}
-		if document.State != "armed" || document.InstallationID != installationID || document.Recovery == nil {
+		if len(envelope.Recovery) == 0 || bytes.Equal(envelope.Recovery, []byte("null")) {
+			continue
+		}
+		var document markerDocument
+		if err := strictjson.Decode(contents, &document, strictjson.Options{
+			MaxBytes:             markerBytesMaximum,
+			MaxDepth:             4,
+			RejectUnknownMembers: true,
+		}); err != nil {
+			return nil, fmt.Errorf("mutation marker has an invalid recovery action")
+		}
+		if document.State != "armed" || document.InstallationID == "" || document.Recovery == nil || !validRecoveryAction(*document.Recovery) {
+			return nil, fmt.Errorf("mutation marker has an invalid recovery action")
+		}
+		if document.InstallationID != installationID {
 			continue
 		}
 		candidate := document.Recovery
-		if candidate.Action != "restore_keyring_authority_fence" ||
-			!validKeyringOwner(candidate.Owner) || !validKeyringRecordKind(candidate.Kind) {
-			return nil, fmt.Errorf("mutation marker has an invalid recovery action")
-		}
 		if recovered != nil && *recovered != *candidate {
 			return nil, fmt.Errorf("mutation marker recovery actions disagree")
 		}
@@ -505,8 +584,36 @@ func (marker mutationMarker) clearVerified(installationID string) error {
 	return nil
 }
 
+func recoveryActionFromCandidate(candidate AgentCredentialCandidate) recoveryAction {
+	return recoveryAction{
+		Action:             "invalidate_agent_credential_candidate",
+		PrincipalID:        candidate.PrincipalID,
+		CredentialID:       candidate.CredentialID,
+		PrincipalRevision:  candidate.PrincipalRevision,
+		CredentialRevision: candidate.CredentialRevision,
+	}
+}
+
+func validRecoveryAction(recovery recoveryAction) bool {
+	switch recovery.Action {
+	case "restore_keyring_authority_fence":
+		return validKeyringOwner(recovery.Owner) && validKeyringRecordKind(recovery.Kind) &&
+			recovery.PrincipalID == "" && recovery.CredentialID == "" && recovery.PrincipalRevision == 0 && recovery.CredentialRevision == 0
+	case "invalidate_agent_credential_candidate":
+		return recovery.Owner == "" && recovery.Kind == "" && validOpaqueID(recovery.PrincipalID) && validOpaqueID(recovery.CredentialID) &&
+			recovery.PrincipalRevision > 0 && recovery.PrincipalRevision < math.MaxInt64 &&
+			recovery.CredentialRevision > 0 && recovery.CredentialRevision < math.MaxInt64
+	default:
+		return false
+	}
+}
+
+func validOpaqueID(value string) bool {
+	return installationIDPattern.MatchString(value) && value[0] >= '0' && value[0] <= '7'
+}
+
 func validKeyringOwner(owner string) bool {
-	return installationIDPattern.MatchString(owner) && owner[0] >= '0' && owner[0] <= '7'
+	return validOpaqueID(owner)
 }
 
 func validKeyringRecordKind(kind string) bool {

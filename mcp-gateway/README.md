@@ -144,7 +144,7 @@ On success it emits one JSON line:
 }
 ```
 
-The command requires an owner-only installation, acquires its exclusive process lock, verifies the Gateway identity, current schema and migration history, configured SQLite durability and size bounds, and full database integrity. Only then does it durably clear an armed or malformed mutation marker. A normal `serve` startup is still required after verification.
+The command requires an owner-only installation, acquires its exclusive process lock, verifies the Gateway identity, current schema and migration history, configured SQLite durability and size bounds, and full database integrity. A recognized marker recovery action is applied before removal: an uncertain agent credential candidate is cleared only when its principal, credential, and captured revisions are still exactly current, and the principal and credential revisions advance once. Missing, replaced, or stale candidates are harmless no-ops; no prior credential is restored. Unknown, conflicting, oversized, foreign-installation, or failed recovery remains latched. Only then does the command durably clear an ordinary armed marker or a safely non-recovery malformed marker. A normal `serve` startup is still required after verification.
 
 Failures emit one safe JSON line and exit with status 1. `gateway_running` means another process owns the installation; `secret_output_unavailable` means the one-time sink could not be completed; and storage failures intentionally hide filesystem and SQLite details.
 
