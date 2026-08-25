@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/credentialauthority"
@@ -301,6 +302,13 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	built.servers, err = servers.New(options.Store, options.Clock, options.Entropy)
 	if err != nil {
 		return nil, fmt.Errorf("construct server_repository: %w", err)
+	}
+	authority, err := authorization.New(options.Store, options.Clock, options.Entropy)
+	if err != nil {
+		return nil, fmt.Errorf("construct authorization validation: %w", err)
+	}
+	if err := authority.ValidateStartup(context.Background(), built.servers); err != nil {
+		return nil, fmt.Errorf("validate authorization startup: %w", err)
 	}
 	if err := check("catalog_repository"); err != nil {
 		return nil, err

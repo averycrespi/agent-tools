@@ -3,12 +3,14 @@ package composition
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
@@ -155,6 +157,20 @@ func TestNewFailsEveryMandatoryConstructor(t *testing.T) {
 			assert.True(t, strings.Contains(err.Error(), stage), err.Error())
 		})
 	}
+}
+
+func TestConstructionRejectsInvalidAuthorizationStateBeforeStartup(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	require.NoError(t, options.Store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		_, err := transaction.Exec(`DELETE FROM synthetic_server_identity`)
+		return err
+	}))
+
+	built, err := New(options)
+	require.Error(t, err)
+	assert.Nil(t, built)
+	assert.ErrorIs(t, err, authorization.ErrInvalidState)
 }
 
 func createCompositionServer(t *testing.T, repository *servers.Repository, namespace string, enabled bool, executable string) servers.Server {

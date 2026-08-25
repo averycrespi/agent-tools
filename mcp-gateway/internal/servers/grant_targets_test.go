@@ -48,6 +48,31 @@ func TestValidateGrantTargetTxDistinguishesSyntheticCurrentMissingAndDeleted(t *
 	}
 }
 
+func TestStoredGrantTargetExistsTxAcceptsDeletedIdentityAndRejectsMissing(t *testing.T) {
+	repository, store, _ := newRepository(t, new(sequenceReader))
+	current := mustCreateServer(t, repository, "stored-current", false)
+	deleted := mustCreateServer(t, repository, "stored-deleted", false)
+	_, err := repository.Delete(context.Background(), deleted.ID, deleted.DesiredRevision)
+	require.NoError(t, err)
+
+	require.NoError(t, store.View(context.Background(), func(transaction *sql.Tx) error {
+		for _, test := range []struct {
+			id     string
+			exists bool
+		}{
+			{id: contract.SyntheticServerID, exists: true},
+			{id: current.ID, exists: true},
+			{id: deleted.ID, exists: true},
+			{id: "01J60000000000000000000999", exists: false},
+		} {
+			exists, inspectErr := repository.StoredGrantTargetExistsTx(context.Background(), transaction, test.id)
+			require.NoError(t, inspectErr)
+			assert.Equal(t, test.exists, exists)
+		}
+		return nil
+	}))
+}
+
 func TestValidateGrantTargetTxUsesCallerMutationWithoutNestedAdmission(t *testing.T) {
 	repository, store, _ := newRepository(t, new(sequenceReader))
 	server := mustCreateServer(t, repository, "grant-transaction", false)

@@ -47,6 +47,27 @@ func (repository *Repository) ValidateGrantTargetTx(ctx context.Context, transac
 	return GrantTargetServer, nil
 }
 
+func (repository *Repository) StoredGrantTargetExistsTx(ctx context.Context, transaction *sql.Tx, serverID string) (bool, error) {
+	if transaction == nil {
+		return false, fmt.Errorf("%w: grant-target transaction is unavailable", ErrStorageUnavailable)
+	}
+	if !validID(serverID) {
+		return false, nil
+	}
+	if serverID == contract.SyntheticServerID {
+		var collisions int
+		if err := transaction.QueryRowContext(ctx, `SELECT count(*) FROM server_identities WHERE id = ? OR namespace = ?`, serverID, contract.SyntheticServerNamespace).Scan(&collisions); err != nil {
+			return false, grantTargetStorageError(err)
+		}
+		return collisions == 0, nil
+	}
+	var identities int
+	if err := transaction.QueryRowContext(ctx, `SELECT count(*) FROM server_identities WHERE id = ?`, serverID).Scan(&identities); err != nil {
+		return false, grantTargetStorageError(err)
+	}
+	return identities == 1, nil
+}
+
 func grantTargetStorageError(err error) error {
 	return fmt.Errorf("%w: validate grant target: %w", ErrStorageUnavailable, err)
 }
