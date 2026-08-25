@@ -228,12 +228,26 @@ func (repository *Repository) Commit(ctx context.Context, fence CommitFence, can
 }
 
 func (repository *Repository) SetState(ctx context.Context, fence CommitFence, state contract.DurableCatalogState, issueCount int64) (DurableStatus, error) {
+	return repository.setState(ctx, fence, contract.DesiredServerEnabled, state, issueCount)
+}
+
+func (repository *Repository) SetLifecycleState(ctx context.Context, fence CommitFence, desiredState contract.DesiredServerState, state contract.DurableCatalogState) (DurableStatus, error) {
+	valid := desiredState == contract.DesiredServerEnabled && state == contract.DurableCatalogUnavailable ||
+		desiredState == contract.DesiredServerDisabled && state == contract.DurableCatalogStale ||
+		desiredState == contract.DesiredServerDeleted && state == contract.DurableCatalogRetired
+	if !valid {
+		return DurableStatus{}, servers.ErrInvalidInput
+	}
+	return repository.setState(ctx, fence, desiredState, state, 0)
+}
+
+func (repository *Repository) setState(ctx context.Context, fence CommitFence, desiredState contract.DesiredServerState, state contract.DurableCatalogState, issueCount int64) (DurableStatus, error) {
 	if state != contract.DurableCatalogStale && state != contract.DurableCatalogUnavailable && state != contract.DurableCatalogRetired || issueCount < 0 {
 		return DurableStatus{}, servers.ErrInvalidInput
 	}
 	var status DurableStatus
 	err := repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
-		if err := validateCommitFence(ctx, transaction, fence); err != nil {
+		if err := validateFence(ctx, transaction, fence, desiredState); err != nil {
 			return err
 		}
 		current, err := statusTx(ctx, transaction, fence.ServerID)
@@ -361,6 +375,10 @@ func (repository *Repository) ListDescriptors(ctx context.Context, serverID stri
 }
 
 func validateCommitFence(ctx context.Context, transaction *sql.Tx, fence CommitFence) error {
+	return validateFence(ctx, transaction, fence, contract.DesiredServerEnabled)
+}
+
+func validateFence(ctx context.Context, transaction *sql.Tx, fence CommitFence, expectedState contract.DesiredServerState) error {
 	var desiredRevision int64
 	var desiredState contract.DesiredServerState
 	if err := transaction.QueryRowContext(ctx, `SELECT desired_revision, desired_state FROM servers WHERE id = ?`, fence.ServerID).Scan(&desiredRevision, &desiredState); err != nil {
@@ -369,7 +387,7 @@ func validateCommitFence(ctx context.Context, transaction *sql.Tx, fence CommitF
 		}
 		return err
 	}
-	if strconv.FormatInt(desiredRevision, 10) != fence.ExpectedDesiredRevision || desiredState != contract.DesiredServerEnabled {
+	if strconv.FormatInt(desiredRevision, 10) != fence.ExpectedDesiredRevision || desiredState != expectedState {
 		return servers.ErrStaleRevision
 	}
 	var registration int64

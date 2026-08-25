@@ -166,6 +166,13 @@ func (coordinator *Coordinator) Withdraw(candidate runtimes.Candidate, state con
 	coordinator.active.WithdrawExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, state)
 }
 
+func (coordinator *Coordinator) FinalizeLifecycle(ctx context.Context, server servers.Server, authority servers.AuthorityMetadata, durableState contract.DurableCatalogState, activeState contract.ActiveCatalogState) error {
+	return coordinator.active.FinalizeLifecycle(ctx, CommitFence{
+		ServerID: server.ID, ExpectedDesiredRevision: server.DesiredRevision,
+		ExpectedRegistrationRevision: authority.RegistrationRevision, ExpectedCredentialRevisions: authority.CredentialRevisions,
+	}, server.DesiredState, durableState, activeState)
+}
+
 func (coordinator *Coordinator) detach(candidate runtimes.Candidate) {
 	coordinator.mu.Lock()
 	serverID := candidate.Server.ID

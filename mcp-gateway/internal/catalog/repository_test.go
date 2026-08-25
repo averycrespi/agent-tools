@@ -273,6 +273,39 @@ func TestCatalogBackupRetainsDurableEvidenceWithoutActiveFacts(t *testing.T) {
 	assert.Zero(t, activeTables)
 }
 
+func TestRepositoryFinalizesDisabledAndDeletedLifecycleStates(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		state contract.DesiredServerState
+		want  contract.DurableCatalogState
+	}{
+		{name: "disabled", state: contract.DesiredServerDisabled, want: contract.DurableCatalogStale},
+		{name: "deleted", state: contract.DesiredServerDeleted, want: contract.DurableCatalogRetired},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repository, serverRepository, _, _ := newCatalogRepository(t)
+			server := createCatalogServer(t, serverRepository, "lifecycle-"+test.name)
+			_, err := repository.Commit(context.Background(), catalogFence(server.ID, "0"), candidateFor(t, server.ID, server.Namespace, "one"))
+			require.NoError(t, err)
+			if test.state == contract.DesiredServerDisabled {
+				enabled := false
+				patched, patchErr := serverRepository.Patch(context.Background(), server.ID, server.DesiredRevision, servers.Patch{Enabled: &enabled})
+				require.NoError(t, patchErr)
+				server = patched.Server
+			} else {
+				deleted, deleteErr := serverRepository.Delete(context.Background(), server.ID, server.DesiredRevision)
+				require.NoError(t, deleteErr)
+				server = deleted.Server
+			}
+			authority, err := serverRepository.Authority(context.Background(), server.ID)
+			require.NoError(t, err)
+			status, err := repository.SetLifecycleState(context.Background(), CommitFence{ServerID: server.ID, ExpectedDesiredRevision: server.DesiredRevision, ExpectedRegistrationRevision: authority.RegistrationRevision, ExpectedCredentialRevisions: authority.CredentialRevisions, ExpectedCatalogRevision: "1"}, test.state, test.want)
+			require.NoError(t, err)
+			assert.Equal(t, test.want, status.State)
+		})
+	}
+}
+
 func TestCatalogMigrationSeedsExistingServersAndNewServerInitialization(t *testing.T) {
 	repository, serverRepository, _, _ := newCatalogRepository(t)
 	server := createCatalogServer(t, serverRepository, "new")

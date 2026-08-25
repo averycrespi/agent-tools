@@ -81,6 +81,10 @@ type CatalogAbandoner interface {
 	Abandon(Candidate)
 }
 
+type CatalogLifecycleFinalizer interface {
+	FinalizeLifecycle(context.Context, servers.Server, servers.AuthorityMetadata, contract.DurableCatalogState, contract.ActiveCatalogState) error
+}
+
 type CredentialLifecycle interface {
 	ReconcileCredentials(context.Context, servers.Operation, servers.Server, servers.AuthorityMetadata, contract.ServerCredentialState) (CredentialLifecycleOutcome, bool)
 }
@@ -772,21 +776,36 @@ func (manager *Manager) reconcile(serverID string, generation uint64, operationI
 		credentialOutcome, handled := manager.credentials.ReconcileCredentials(manager.ctx, *operation, server, authority, credentialState)
 		if handled {
 			state := contract.RuntimeInactive
+			durableState := contract.DurableCatalogUnavailable
+			activeState := contract.ActiveCatalogUnavailable
 			if server.DesiredState == contract.DesiredServerDeleted {
 				state = contract.RuntimeDeleted
+				durableState = contract.DurableCatalogRetired
+				activeState = contract.ActiveCatalogAbsent
 			}
 			if credentialOutcome.CleanupPending {
-				manager.finishFailure(serverID, generation, operationID, state, contract.ServerCredentialCleanupPending, contract.ActiveCatalogAbsent, contract.ReasonCleanupPending, false)
+				manager.finishFailure(serverID, generation, operationID, state, contract.ServerCredentialCleanupPending, activeState, contract.ReasonCleanupPending, false)
 				return
 			}
-			manager.finishSuccess(serverID, generation, operationID, Outcome{State: state, CredentialState: credentialOutcome.CredentialState, CatalogState: contract.ActiveCatalogAbsent, Reason: credentialOutcome.Reason}, nil)
+			if !manager.finalizeCatalogLifecycle(server, durableState, activeState) {
+				manager.finishFailure(serverID, generation, operationID, state, credentialOutcome.CredentialState, activeState, contract.ReasonConnectivity, false)
+				return
+			}
+			manager.finishSuccess(serverID, generation, operationID, Outcome{State: state, CredentialState: credentialOutcome.CredentialState, CatalogState: activeState, Reason: credentialOutcome.Reason}, nil)
 			return
 		}
 	}
 	if server.DesiredState != contract.DesiredServerEnabled {
 		state := contract.RuntimeInactive
+		durableState := contract.DurableCatalogStale
 		if server.DesiredState == contract.DesiredServerDeleted {
 			state = contract.RuntimeDeleted
+			durableState = contract.DurableCatalogRetired
+		}
+		finalizeLifecycle := operation != nil && (operation.Kind == contract.OperationDisable || operation.Kind == contract.OperationDelete)
+		if finalizeLifecycle && !manager.finalizeCatalogLifecycle(server, durableState, contract.ActiveCatalogAbsent) {
+			manager.finishFailure(serverID, generation, operationID, state, contract.ServerCredentialNotRequired, contract.ActiveCatalogAbsent, contract.ReasonConnectivity, false)
+			return
 		}
 		manager.finishSuccess(serverID, generation, operationID, Outcome{State: state, CredentialState: contract.ServerCredentialNotRequired, CatalogState: contract.ActiveCatalogAbsent}, nil)
 		return
@@ -1010,6 +1029,18 @@ func (manager *Manager) withdrawCandidate(candidate Candidate) {
 func (manager *Manager) stopCandidate(candidate Candidate) bool {
 	manager.withdrawCandidate(candidate)
 	return manager.driver.Stop(context.Background(), candidate)
+}
+
+func (manager *Manager) finalizeCatalogLifecycle(server servers.Server, durableState contract.DurableCatalogState, activeState contract.ActiveCatalogState) bool {
+	finalizer, ok := manager.catalog.(CatalogLifecycleFinalizer)
+	if !ok {
+		return true
+	}
+	authority, err := manager.repository.Authority(manager.ctx, server.ID)
+	if err != nil {
+		return false
+	}
+	return finalizer.FinalizeLifecycle(manager.ctx, server, authority, durableState, activeState) == nil
 }
 
 func (manager *Manager) rememberBlockedStop(serverID string, candidate Candidate) {

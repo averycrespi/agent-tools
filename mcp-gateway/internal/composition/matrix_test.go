@@ -528,6 +528,44 @@ func TestProductionCompositionReportsConstructingAndRetainedBlockedStopFromActua
 	assert.Equal(t, int64(1), starts.Load())
 }
 
+func TestProductionCompositionFinalizesStaticDisconnectCatalogLifecycle(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	backend := newMemoryBackend()
+	built, err := newWithHooks(options, constructorHooks{
+		provider: func(installationID string) (*keyring.Provider, error) {
+			return keyring.NewProviderWithBackend(installationID, backend)
+		},
+		startStdio: func(context.Context, runtimes.StdioDefinition) (downstream.StdioRuntime, error) {
+			return &fixtureStdio{frames: make(chan []byte), input: new(fixtureInput), stop: true}, nil
+		},
+		newCoordinator: func(transport downstream.Transport) (*downstream.Coordinator, error) {
+			return downstream.NewCoordinator(&compositionTransport{delegate: transport})
+		},
+	})
+	require.NoError(t, err)
+	defer built.shutdownConstructed()
+	server := createServerWithTransport(t, built.servers, "disconnect-catalog", contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/fixture/mcp", Arguments: []string{}, WorkingDirectory: "/", Environment: map[string]string{}, SecretEnvironment: map[string]string{"TOKEN": "token"}})
+	publishStaticCompositionCredential(t, built, server, []string{"token"}, map[string]string{"token": "canary"})
+	server = enableCompositionServer(t, built.servers, server)
+	require.NoError(t, built.Start(context.Background()))
+	require.Eventually(t, func() bool { return built.RuntimeStatus(server.ID).CatalogState == contract.ActiveCatalogCurrent }, 2*time.Second, time.Millisecond)
+	operation, err := built.servers.CreateOperation(context.Background(), servers.OperationRequest{ServerID: server.ID, Kind: contract.OperationDisconnectCredentials, ExpectedDesiredRevision: server.DesiredRevision})
+	require.NoError(t, err)
+	built.manager.Trigger(server.ID, &operation.Operation.ID, false)
+	require.Eventually(t, func() bool {
+		current, getErr := built.servers.GetOperation(context.Background(), operation.Operation.ID)
+		return getErr == nil && (current.State == contract.OperationSucceeded || current.State == contract.OperationFailed)
+	}, 2*time.Second, time.Millisecond)
+	current, err := built.servers.GetOperation(context.Background(), operation.Operation.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.OperationSucceeded, current.State)
+	status, err := built.catalogRepository.Status(context.Background(), server.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.DurableCatalogUnavailable, status.State)
+	assert.Equal(t, contract.ActiveCatalogUnavailable, built.activeCatalog.Status(server.ID).State)
+}
+
 func TestProductionCompositionRejectsMissingExtraAndStaleStaticAuthorityBeforeConstruction(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()

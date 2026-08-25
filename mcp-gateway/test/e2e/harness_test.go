@@ -129,9 +129,20 @@ func (harness *gatewayHarness) WaitOperation(serverID, operationID string, state
 		if response.StatusCode == http.StatusOK && operation.State == state {
 			return operation
 		}
+		if operation.State == contract.OperationSucceeded || operation.State == contract.OperationFailed || operation.State == contract.OperationCancelled || operation.State == contract.OperationSuperseded || operation.State == contract.OperationInterrupted {
+			reason := contract.PublicReason("")
+			if operation.Reason != nil {
+				reason = *operation.Reason
+			}
+			harness.t.Fatalf("operation %s reached %s instead of %s; reason=%s", operationID, operation.State, state, reason)
+		}
 		select {
 		case <-deadline.C:
-			harness.t.Fatalf("operation %s did not reach %s; observed state=%s reason=%v", operationID, state, operation.State, operation.Reason)
+			reason := contract.PublicReason("")
+			if operation.Reason != nil {
+				reason = *operation.Reason
+			}
+			harness.t.Fatalf("operation %s did not reach %s; observed state=%s reason=%s", operationID, state, operation.State, reason)
 		case <-ticker.C:
 		}
 	}

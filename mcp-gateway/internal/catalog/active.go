@@ -225,6 +225,39 @@ func (registry *ActiveRegistry) Withdraw(serverID, runtimeID string, state contr
 	return registry.WithdrawExact(serverID, runtimeID, 0, state)
 }
 
+func (registry *ActiveRegistry) FinalizeLifecycle(ctx context.Context, fence CommitFence, desiredState contract.DesiredServerState, durableState contract.DurableCatalogState, activeState contract.ActiveCatalogState) error {
+	if activeState != contract.ActiveCatalogAbsent && activeState != contract.ActiveCatalogUnavailable {
+		return servers.ErrInvalidInput
+	}
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	if registry.draining.Load() {
+		return servers.ErrStaleRevision
+	}
+	status, err := registry.repository.Status(ctx, fence.ServerID)
+	if err != nil {
+		return err
+	}
+	fence.ExpectedCatalogRevision = "0"
+	if status.Revision != nil {
+		fence.ExpectedCatalogRevision = *status.Revision
+	}
+	if _, err := registry.repository.SetLifecycleState(ctx, fence, desiredState, durableState); err != nil {
+		return err
+	}
+	current, ok := registry.servers[fence.ServerID]
+	if !ok {
+		if activeState == contract.ActiveCatalogAbsent {
+			return nil
+		}
+		return servers.ErrStaleRevision
+	}
+	if !registry.withdrawLocked(fence.ServerID, current.RuntimeID, current.RuntimeGeneration, activeState) {
+		return servers.ErrStaleRevision
+	}
+	return nil
+}
+
 func (registry *ActiveRegistry) WithdrawExact(serverID, runtimeID string, runtimeGeneration uint64, state contract.ActiveCatalogState) bool {
 	if registry.draining.Load() || state != contract.ActiveCatalogAbsent && state != contract.ActiveCatalogUnavailable {
 		return false
