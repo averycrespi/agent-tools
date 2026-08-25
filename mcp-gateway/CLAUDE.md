@@ -23,6 +23,7 @@ Run `make audit` before committing. Unit tests are colocated and race-enabled. I
 
 ```text
 cmd/mcp-gateway/        Cobra composition root only
+internal/composition/   Production runtime/catalog graph construction and cycle binding
 internal/contract/      Immutable S1/S2 routes, problems, limits, states, and representations
 internal/strictjson/    Dependency-neutral bounded strict JSON and canonical equality
 internal/paths/         Owner-only paths and process ownership
@@ -51,6 +52,7 @@ The package directories begin as documented seams and gain implementation only i
 - `internal/contract` is the only source for S1/S2 routes, problems, limits/deadlines, media/protocol values, resource/union shapes, closed states/reasons/events, mechanics, and approved secret sinks; do not duplicate them in later packages.
 - `internal/strictjson` is the dependency-neutral parser for API, downstream, OAuth, and catalog boundaries. Supply explicit positive size/depth bounds; closed destinations reject unknown members. Do not reintroduce package-local permissive decoders or equality that depends on object member order.
 - Exact default authority is `127.0.0.1:8210`; do not broaden accepted bind or Host forms. Keep validation and route classification ahead of authentication/body work, and preserve the control-auth to admin-work nonblocking permit transfer.
+- `internal/composition` is the sole production constructor for the runtime, catalog, keyring-material, and OAuth graph. Constructor fault seams stay package-private, and every cycle callback rejects or does nothing safely until the complete graph is bound.
 - API JSON must remain size/depth bounded and reject invalid UTF-8, duplicate members, unknown members, and trailing values. Every API response is `no-store` and no response enables CORS.
 - Keep admin and agent credential domains, middleware, identifiers, and invalidation channels separate.
 - Production MCP authentication is deny-all. Positive tests inject an authenticator; never add production principals or grants in S1.
