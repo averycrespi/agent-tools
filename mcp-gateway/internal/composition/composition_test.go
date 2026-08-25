@@ -2,6 +2,7 @@ package composition
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"os"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -66,6 +68,77 @@ func TestNewBuildsOneFailClosedProductionGraph(t *testing.T) {
 	built.callbacks.fence("server")
 }
 
+func TestStartRequiresReadinessAndBindsExactlyOnce(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	ready := false
+	options.Ready = func() bool { return ready }
+	built, err := New(options)
+	require.NoError(t, err)
+	defer built.shutdownConstructed()
+
+	assert.ErrorIs(t, built.Start(context.Background()), ErrNotReady)
+	assert.False(t, built.callbacks.bound())
+	ready = true
+	require.NoError(t, built.Start(context.Background()))
+	assert.True(t, built.callbacks.bound())
+	assert.True(t, built.callbacks.running())
+	assert.ErrorIs(t, built.Start(context.Background()), ErrAlreadyStarted)
+}
+
+func TestStartBindsBeforeReconstructionAndIsolatesServerFailure(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	var afterBind, beforeReconstruct bool
+	hooks := constructorHooks{startHooks: startHooks{
+		afterBind: func(built *Composition) error {
+			afterBind = true
+			assert.True(t, built.callbacks.bound())
+			assert.False(t, built.callbacks.running())
+			assert.Equal(t, contract.RuntimeInactive, built.manager.Status("not-started").State)
+			return nil
+		},
+		beforeReconstruct: func(built *Composition) error {
+			beforeReconstruct = true
+			assert.True(t, built.callbacks.bound())
+			assert.False(t, built.callbacks.running())
+			return nil
+		},
+	}}
+	built, err := newWithHooks(options, hooks)
+	require.NoError(t, err)
+	defer built.shutdownConstructed()
+	failed := createCompositionServer(t, built.servers, "failed", true, "/definitely/not-an-mcp-server")
+	inactive := createCompositionServer(t, built.servers, "inactive", false, "/bin/true")
+
+	require.NoError(t, built.Start(context.Background()))
+	assert.True(t, afterBind)
+	assert.True(t, beforeReconstruct)
+	assert.Equal(t, contract.RuntimeInactive, built.manager.Status(inactive.ID).State)
+	require.Eventually(t, func() bool {
+		status := built.manager.Status(failed.ID)
+		return status.State == contract.RuntimeDegraded && status.Reason != nil
+	}, 2*time.Second, time.Millisecond)
+}
+
+func TestStartBarrierFailureRunsNoReconstructionAndCannotRetry(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	built, err := newWithHooks(options, constructorHooks{startHooks: startHooks{beforeReconstruct: func(*Composition) error {
+		return errors.New("blocked before reconstruction")
+	}}})
+	require.NoError(t, err)
+	defer built.shutdownConstructed()
+	server := createCompositionServer(t, built.servers, "blocked", true, "/definitely/not-an-mcp-server")
+
+	require.ErrorContains(t, built.Start(context.Background()), "blocked before reconstruction")
+	assert.False(t, built.callbacks.running())
+	assert.Equal(t, contract.RuntimeInactive, built.manager.Status(server.ID).State)
+	assert.Zero(t, built.owner.Status().InUse)
+	assert.Equal(t, contract.ActiveCatalogAbsent, built.activeCatalog.Status(server.ID).State)
+	assert.ErrorIs(t, built.Start(context.Background()), ErrStartFailed)
+}
+
 func TestNewFailsEveryMandatoryConstructor(t *testing.T) {
 	for _, stage := range mandatoryConstructorStages {
 		t.Run(stage, func(t *testing.T) {
@@ -82,6 +155,19 @@ func TestNewFailsEveryMandatoryConstructor(t *testing.T) {
 			assert.True(t, strings.Contains(err.Error(), stage), err.Error())
 		})
 	}
+}
+
+func createCompositionServer(t *testing.T, repository *servers.Repository, namespace string, enabled bool, executable string) servers.Server {
+	t.Helper()
+	digest := sha256.Sum256([]byte(namespace))
+	result, err := repository.Create(context.Background(), servers.CreateRequest{
+		Definition: servers.Definition{Namespace: namespace, DisplayName: namespace, Enabled: enabled, Transport: contract.StdioTransport{
+			Kind: contract.TransportStdio, Executable: executable, Arguments: []string{}, WorkingDirectory: "/", Environment: map[string]string{}, SecretEnvironment: map[string]string{},
+		}},
+		Idempotency: &servers.IdempotencyRequest{AuthorityID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Method: "POST", Route: "/api/v1/servers", Key: namespace, RequestHash: digest},
+	})
+	require.NoError(t, err)
+	return result.Server
 }
 
 func newCompositionOptions(t *testing.T) (Options, func()) {
@@ -105,6 +191,7 @@ func newCompositionOptions(t *testing.T) (Options, func()) {
 			Clock:          testutil.NewFakeClock(compositionTime),
 			Entropy:        testutil.NewFakeEntropy(entropy),
 			Invalidate:     func(contract.Invalidation) {},
+			Ready:          func() bool { return true },
 		}, func() {
 			require.NoError(t, store.Close())
 			require.NoError(t, ownership.Close())

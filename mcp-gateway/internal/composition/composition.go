@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
@@ -33,7 +34,14 @@ type Options struct {
 	Clock          Clock
 	Entropy        io.Reader
 	Invalidate     func(contract.Invalidation)
+	Ready          func() bool
 }
+
+var (
+	ErrAlreadyStarted = errors.New("production composition is already started")
+	ErrNotReady       = errors.New("control plane is not ready")
+	ErrStartFailed    = errors.New("production composition start failed")
+)
 
 type Composition struct {
 	servers           *servers.Repository
@@ -57,6 +65,12 @@ type Composition struct {
 	manager           *runtimes.Manager
 	publisher         *activePublisher
 	callbacks         *callbackSlots
+	startHooks        startHooks
+	startMu           sync.Mutex
+	started           bool
+	startFailed       bool
+	accepting         atomic.Bool
+	ready             func() bool
 }
 
 func (built *Composition) Servers() *servers.Repository                { return built.servers }
@@ -66,12 +80,16 @@ func (built *Composition) Traverser() *catalog.Traverser               { return 
 func (built *Composition) Provider() *keyring.Provider                 { return built.provider }
 func (built *Composition) Keyring() *keyring.Coordinator               { return built.keyring }
 func (built *Composition) RuntimeOwner() *runtimes.RuntimeOwner        { return built.owner }
-func (built *Composition) Manager() *runtimes.Manager                  { return built.manager }
 func (built *Composition) CatalogCoordinator() *catalog.Coordinator    { return built.catalog }
 func (built *Composition) OAuthFlows() *oauth.FlowService              { return built.flows }
 func (built *Composition) Replacements() *servercredentials.Service    { return built.replacements }
 func (built *Composition) DisconnectService() *oauth.DisconnectService { return built.disconnect }
 func (built *Composition) RefreshService() *oauth.RefreshService       { return built.refresh }
+
+type startHooks struct {
+	afterBind         func(*Composition) error
+	beforeReconstruct func(*Composition) error
+}
 
 type callbackSlots struct {
 	mu         sync.RWMutex
@@ -84,6 +102,26 @@ type callbackSlots struct {
 	triggerFn  func(string)
 	fenceFn    func(string)
 	runningFn  func() bool
+}
+
+func (slots *callbackSlots) bind(built *Composition) bool {
+	slots.mu.Lock()
+	defer slots.mu.Unlock()
+	if slots.isBound {
+		return false
+	}
+	slots.currentFn = built.manager.Current
+	slots.clientFn = func(candidate runtimes.Candidate) (catalog.PageClient, bool) {
+		return built.driver.Runtime(candidate)
+	}
+	slots.reportFn = built.manager.ReportRuntimeFailure
+	slots.completeFn = built.manager.HandleCatalogCompletion
+	slots.stateFn = built.manager.SetCredentialState
+	slots.triggerFn = func(serverID string) { built.manager.Trigger(serverID, nil, true) }
+	slots.fenceFn = built.manager.Fence
+	slots.runningFn = built.accepting.Load
+	slots.isBound = true
+	return true
 }
 
 func (slots *callbackSlots) bound() bool {
@@ -190,7 +228,8 @@ func (publisher *activePublisher) Withdraw(candidate runtimes.Candidate) {
 }
 
 type constructorHooks struct {
-	before func(string) error
+	before     func(string) error
+	startHooks startHooks
 }
 
 var mandatoryConstructorStages = []string{
@@ -205,7 +244,7 @@ func New(options Options) (*Composition, error) {
 }
 
 func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resultErr error) {
-	if options.Store == nil || options.InstallationID == "" || options.CallbackURL == "" || options.Clock == nil || options.Entropy == nil || options.Invalidate == nil {
+	if options.Store == nil || options.InstallationID == "" || options.CallbackURL == "" || options.Clock == nil || options.Entropy == nil || options.Invalidate == nil || options.Ready == nil {
 		return nil, errors.New("production composition dependencies are incomplete")
 	}
 	check := func(stage string) error {
@@ -217,7 +256,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		}
 		return nil
 	}
-	built := &Composition{callbacks: &callbackSlots{}}
+	built := &Composition{callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready}
 	cleanup := true
 	defer func() {
 		if cleanup {
@@ -375,6 +414,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		Catalog:      built.catalog,
 		Credentials:  built.disconnect,
 		OAuthRefresh: built.refresh,
+		OAuthStepUp:  built.flows,
 		Invalidate:   options.Invalidate,
 		Publisher:    built.publisher,
 	})
@@ -385,10 +425,54 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	return built, nil
 }
 
+func (built *Composition) Start(ctx context.Context) error {
+	built.startMu.Lock()
+	defer built.startMu.Unlock()
+	if built.started {
+		return ErrAlreadyStarted
+	}
+	if built.startFailed {
+		return ErrStartFailed
+	}
+	if !built.ready() {
+		return ErrNotReady
+	}
+	if !built.callbacks.bind(built) {
+		built.startFailed = true
+		return ErrStartFailed
+	}
+	if built.startHooks.afterBind != nil {
+		if err := built.startHooks.afterBind(built); err != nil {
+			built.startFailed = true
+			return fmt.Errorf("bind production composition: %w", err)
+		}
+	}
+	if built.startHooks.beforeReconstruct != nil {
+		if err := built.startHooks.beforeReconstruct(built); err != nil {
+			built.startFailed = true
+			return fmt.Errorf("start production reconstruction: %w", err)
+		}
+	}
+	if err := built.flows.Start(ctx); err != nil {
+		built.accepting.Store(false)
+		built.startFailed = true
+		return fmt.Errorf("start OAuth flows: %w", err)
+	}
+	built.accepting.Store(true)
+	if err := built.manager.Start(ctx); err != nil {
+		built.accepting.Store(false)
+		built.startFailed = true
+		return fmt.Errorf("start runtime reconstruction: %w", err)
+	}
+	built.started = true
+	return nil
+}
+
 func (built *Composition) shutdownConstructed() {
 	if built == nil {
 		return
 	}
+	built.accepting.Store(false)
 	if built.manager != nil {
 		built.manager.Shutdown()
 	}

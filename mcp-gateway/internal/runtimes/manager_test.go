@@ -824,6 +824,54 @@ func (catalog *sequenceCatalog) Activate(_ context.Context, candidate Candidate)
 	return <-catalog.outcomes
 }
 
+type stepUpFake struct {
+	staged chan stagedStepUp
+}
+
+type stagedStepUp struct {
+	serverID string
+	metadata []string
+	scopes   []string
+}
+
+func (stepUp *stepUpFake) StageStepUp(serverID string, metadata, _ []string, scopes []string) error {
+	stepUp.staged <- stagedStepUp{serverID: serverID, metadata: append([]string(nil), metadata...), scopes: append([]string(nil), scopes...)}
+	return nil
+}
+
+func TestManagerStagesOAuthStepUpWithoutRefreshOrReplay(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	refresh := newChallengeRefreshFake()
+	stepUp := &stepUpFake{staged: make(chan stagedStepUp, 1)}
+	manager, err := New(Options{Repository: repository, Driver: driver, OAuthRefresh: refresh, OAuthStepUp: stepUp})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	disposition := &downstream.OAuthChallengeDisposition{Kind: downstream.OAuthChallengeStepUp, Stage: downstream.OAuthChallengeModernDiscovery, Metadata: []string{"https://resource.example/metadata"}, Scopes: []string{"extra", "read"}}
+
+	manager.Trigger(serverID, nil, false)
+	old := receiveCandidate(t, driver.started)
+	driver.startResult <- Outcome{State: contract.RuntimeAuthenticationRequired, OAuthChallenge: disposition}
+	staged := <-stepUp.staged
+	assert.Equal(t, serverID, staged.serverID)
+	assert.Equal(t, disposition.Metadata, staged.metadata)
+	assert.Equal(t, disposition.Scopes, staged.scopes)
+	assert.Equal(t, old.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
+	driver.stopResult <- true
+	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeAuthenticationRequired }, time.Second, time.Millisecond)
+	select {
+	case <-refresh.started:
+		t.Fatal("step-up challenge attempted token refresh")
+	case candidate := <-driver.started:
+		t.Fatalf("step-up challenge replayed on %s", candidate.RuntimeID)
+	default:
+	}
+}
+
 func TestManagerOAuthChallengeRefreshUsesFreshCandidateAndExactReplayStage(t *testing.T) {
 	stages := []downstream.OAuthChallengeStage{downstream.OAuthChallengeModernDiscovery, downstream.OAuthChallengeLegacyInitialize, downstream.OAuthChallengeCatalogFirstPage}
 	for _, stage := range stages {
@@ -1923,6 +1971,38 @@ func TestManagerDrainRejectsLateCredentialStatus(t *testing.T) {
 	<-manager.Drain(context.Background())
 	manager.SetCredentialState("server", contract.ServerCredentialReady, false)
 	assert.Equal(t, contract.ServerCredentialRefreshing, manager.Status("server").CredentialState)
+}
+
+type secondPageFailureRepository struct {
+	*fakeRepository
+	calls int
+}
+
+func (repository *secondPageFailureRepository) ListServers(context.Context, *servers.SnapshotCursor, int) (servers.ServerPage, error) {
+	repository.calls++
+	if repository.calls == 2 {
+		return servers.ServerPage{}, errors.New("second page unavailable")
+	}
+	for _, server := range repository.servers {
+		return servers.ServerPage{Items: []servers.Server{server}, Next: &servers.SnapshotCursor{Collection: "servers", Upper: 2, After: 1, AfterID: server.ID}}, nil
+	}
+	return servers.ServerPage{}, nil
+}
+
+func TestManagerStartupListsAllServersBeforeStartingReconstruction(t *testing.T) {
+	repository := &secondPageFailureRepository{fakeRepository: newFakeRepository(1)}
+	driver := newBlockingDriver()
+	manager, err := New(Options{Repository: repository, Driver: driver})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+
+	require.ErrorContains(t, manager.Start(context.Background()), "second page unavailable")
+	assert.Equal(t, 2, repository.calls)
+	select {
+	case candidate := <-driver.started:
+		t.Fatalf("reconstruction started before complete listing: %s", candidate.Server.ID)
+	default:
+	}
 }
 
 func TestManagerStartupInterruptsAndReconstructsOnlyEnabledServers(t *testing.T) {

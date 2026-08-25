@@ -63,6 +63,10 @@ type OAuthChallengeRefresher interface {
 	RefreshOAuthChallenge(context.Context, OAuthChallengeRefreshRequest) (OAuthChallengeRefreshResult, error)
 }
 
+type OAuthStepUpper interface {
+	StageStepUp(string, []string, []string, []string) error
+}
+
 type CatalogCoordinator interface {
 	Activate(context.Context, Candidate) CatalogOutcome
 }
@@ -173,6 +177,7 @@ type Options struct {
 	Catalog      CatalogCoordinator
 	Credentials  CredentialLifecycle
 	OAuthRefresh OAuthChallengeRefresher
+	OAuthStepUp  OAuthStepUpper
 	Scheduler    Scheduler
 	Invalidate   func(contract.Invalidation)
 	Publisher    ActivePublisher
@@ -191,6 +196,7 @@ type Manager struct {
 	catalog      CatalogCoordinator
 	credentials  CredentialLifecycle
 	oauthRefresh OAuthChallengeRefresher
+	oauthStepUp  OAuthStepUpper
 	scheduler    Scheduler
 	invalidate   func(contract.Invalidation)
 	publisher    ActivePublisher
@@ -293,7 +299,7 @@ func New(options Options) (*Manager, error) {
 		return nil, errors.New("server reconciliation limit is missing")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Manager{repository: options.Repository, driver: options.Driver, authority: options.Authority, catalog: options.Catalog, credentials: options.Credentials, oauthRefresh: options.OAuthRefresh, scheduler: options.Scheduler, invalidate: options.Invalidate, publisher: options.Publisher, ctx: ctx, cancel: cancel, entries: make(map[string]*entry), globalLimit: limit.Maximum}, nil
+	return &Manager{repository: options.Repository, driver: options.Driver, authority: options.Authority, catalog: options.Catalog, credentials: options.Credentials, oauthRefresh: options.OAuthRefresh, oauthStepUp: options.OAuthStepUp, scheduler: options.Scheduler, invalidate: options.Invalidate, publisher: options.Publisher, ctx: ctx, cancel: cancel, entries: make(map[string]*entry), globalLimit: limit.Maximum}, nil
 }
 
 func (manager *Manager) Start(ctx context.Context) error {
@@ -303,29 +309,32 @@ func (manager *Manager) Start(ctx context.Context) error {
 	manager.publish(contract.InvalidationServerOperations, nil)
 	manager.publish(contract.InvalidationSystemStatus, nil)
 	var cursor *servers.SnapshotCursor
+	all := make([]servers.Server, 0)
 	for {
 		page, err := manager.repository.ListServers(ctx, cursor, contract.S2ListPageDefault)
 		if err != nil {
 			return err
 		}
-		for _, server := range page.Items {
-			if server.DesiredState != contract.DesiredServerEnabled {
-				manager.initializeInactive(server)
-				continue
-			}
-			operation, err := manager.repository.CreateOperation(ctx, servers.OperationRequest{ServerID: server.ID, Kind: contract.OperationActivate, ExpectedDesiredRevision: server.DesiredRevision})
-			if err != nil {
-				manager.initializeFailure(server.ID, contract.ReasonConnectivity)
-				continue
-			}
-			manager.publish(contract.InvalidationServerOperations, &operation.Operation.ID)
-			manager.Trigger(server.ID, &operation.Operation.ID, true)
-		}
+		all = append(all, page.Items...)
 		if page.Next == nil {
-			return nil
+			break
 		}
 		cursor = page.Next
 	}
+	for _, server := range all {
+		if server.DesiredState != contract.DesiredServerEnabled {
+			manager.initializeInactive(server)
+			continue
+		}
+		operation, err := manager.repository.CreateOperation(ctx, servers.OperationRequest{ServerID: server.ID, Kind: contract.OperationActivate, ExpectedDesiredRevision: server.DesiredRevision})
+		if err != nil {
+			manager.initializeFailure(server.ID, contract.ReasonConnectivity)
+			continue
+		}
+		manager.publish(contract.InvalidationServerOperations, &operation.Operation.ID)
+		manager.Trigger(server.ID, &operation.Operation.ID, true)
+	}
+	return nil
 }
 
 func (manager *Manager) initializeFailure(serverID string, reason contract.PublicReason) {
@@ -538,6 +547,11 @@ func (manager *Manager) HandleCatalogCompletion(candidate Candidate, outcome Cat
 func (manager *Manager) catalogChallengeHandoff(candidate Candidate, challenge *downstream.OAuthChallengeDisposition, operationID *string) {
 	serverID := candidate.Server.ID
 	generation := candidate.Generation
+	if challenge.Kind == downstream.OAuthChallengeStepUp {
+		manager.stageOAuthStepUp(candidate, challenge)
+		manager.finishCatalogChallengeFailure(candidate, operationID, contract.ReasonAuthenticationRejected)
+		return
+	}
 	refresher := manager.oauthChallengeRefresher()
 	if refresher == nil || challenge.Kind != downstream.OAuthChallengeRefresh || challenge.Stage != downstream.OAuthChallengeCatalogFirstPage {
 		manager.finishCatalogChallengeFailure(candidate, operationID, contract.ReasonAuthenticationRejected)
@@ -849,6 +863,10 @@ func (manager *Manager) activateCurrentCandidate(serverID string, generation uin
 		outcome.CredentialState = contract.ServerCredentialUnavailable
 		outcome.Reason = &reason
 		outcome.Retryable = false
+		if challenge.Kind == downstream.OAuthChallengeStepUp {
+			manager.stageOAuthStepUp(candidate, challenge)
+			break
+		}
 		refresher := manager.oauthChallengeRefresher()
 		if challengeConsumed || refresher == nil || challenge.Kind != downstream.OAuthChallengeRefresh || !replayableOAuthStage(challenge.Stage) {
 			break
@@ -997,6 +1015,15 @@ func (manager *Manager) rememberBlockedStop(serverID string, candidate Candidate
 	defer manager.mu.Unlock()
 	current := manager.entryLocked(serverID)
 	current.blockedStop = cloneCandidate(&candidate)
+}
+
+func (manager *Manager) stageOAuthStepUp(candidate Candidate, challenge *downstream.OAuthChallengeDisposition) {
+	manager.mu.Lock()
+	stepUp := manager.oauthStepUp
+	manager.mu.Unlock()
+	if stepUp != nil {
+		_ = stepUp.StageStepUp(candidate.Server.ID, challenge.Metadata, nil, challenge.Scopes)
+	}
 }
 
 func (manager *Manager) oauthChallengeRefresher() OAuthChallengeRefresher {
