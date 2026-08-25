@@ -21,6 +21,18 @@ type GrantFilter struct {
 	ServerID    string
 }
 
+type CreatePrincipalRequest struct {
+	DisplayName string
+	Visibility  contract.PrincipalVisibility
+}
+
+type PatchPrincipalRequest struct {
+	ExpectedRevision string
+	DisplayName      *string
+	State            *contract.PrincipalState
+	Visibility       *contract.PrincipalVisibility
+}
+
 type PrincipalPage struct {
 	Items []contract.Principal
 	Next  *SnapshotCursor

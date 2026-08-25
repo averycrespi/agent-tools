@@ -234,7 +234,11 @@ func newRepository(t *testing.T, fault func(storage.FaultPoint) error) (*Reposit
 		store, err = storage.InitializeWithFaultInjection(context.Background(), ownership, testInstallationID, fault)
 	}
 	require.NoError(t, err)
-	repository, err := New(store, &fixedClock{now: testNow}, bytes.NewReader(make([]byte, 1024)))
+	entropy := make([]byte, 1024)
+	for index := range entropy {
+		entropy[index] = byte(index%251 + 1)
+	}
+	repository, err := New(store, &fixedClock{now: testNow}, bytes.NewReader(entropy))
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		if !store.Latched() {

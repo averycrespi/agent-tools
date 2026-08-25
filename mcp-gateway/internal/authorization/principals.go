@@ -23,9 +23,14 @@ func (repository *Repository) GetPrincipal(ctx context.Context, principalID stri
 	var principal contract.Principal
 	err := repository.view(ctx, func(transaction *sql.Tx) error {
 		var scanErr error
-		_, principal, scanErr = scanPrincipal(transaction.QueryRowContext(ctx, principalSelect+` WHERE id = ?`, principalID))
+		principal, scanErr = principalByIDTx(ctx, transaction, principalID)
 		return scanErr
 	})
+	return principal, err
+}
+
+func principalByIDTx(ctx context.Context, transaction *sql.Tx, principalID string) (contract.Principal, error) {
+	_, principal, err := scanPrincipal(transaction.QueryRowContext(ctx, principalSelect+` WHERE id = ?`, principalID))
 	return principal, err
 }
 

@@ -15,11 +15,15 @@ import (
 )
 
 var (
-	ErrNotFound           = errors.New("authorization record was not found")
-	ErrInvalidInput       = errors.New("authorization input is invalid")
-	ErrStaleCursor        = errors.New("authorization cursor snapshot is stale")
-	ErrInvalidState       = errors.New("authorization durable state is invalid")
-	ErrStorageUnavailable = errors.New("authorization storage is unavailable")
+	ErrNotFound            = errors.New("authorization record was not found")
+	ErrInvalidInput        = errors.New("authorization input is invalid")
+	ErrIdentityUnavailable = errors.New("authorization identity is unavailable")
+	ErrResourceLimit       = errors.New("authorization resource limit is reached")
+	ErrStaleRevision       = errors.New("principal revision is stale")
+	ErrConflict            = errors.New("authorization mutation conflicts with current state")
+	ErrStaleCursor         = errors.New("authorization cursor snapshot is stale")
+	ErrInvalidState        = errors.New("authorization durable state is invalid")
+	ErrStorageUnavailable  = errors.New("authorization storage is unavailable")
 )
 
 type Clock interface {
@@ -109,7 +113,7 @@ func (repository *Repository) view(ctx context.Context, callback func(*sql.Tx) e
 }
 
 func isRepositoryError(err error) bool {
-	return errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalidInput) || errors.Is(err, ErrStaleCursor) || errors.Is(err, ErrInvalidState) || errors.Is(err, ErrStorageUnavailable)
+	return errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalidInput) || errors.Is(err, ErrIdentityUnavailable) || errors.Is(err, ErrResourceLimit) || errors.Is(err, ErrStaleRevision) || errors.Is(err, ErrConflict) || errors.Is(err, ErrStaleCursor) || errors.Is(err, ErrInvalidState) || errors.Is(err, ErrStorageUnavailable)
 }
 
 func validatePageLimit(limit int) error {
