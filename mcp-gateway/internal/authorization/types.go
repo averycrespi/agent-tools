@@ -1,6 +1,13 @@
 package authorization
 
-import "github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"time"
+
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+)
 
 const (
 	principalCollection = "principals"
@@ -32,6 +39,17 @@ type PatchPrincipalRequest struct {
 	State            *contract.PrincipalState
 	Visibility       *contract.PrincipalVisibility
 }
+
+type CreateGrantRequest struct {
+	PrincipalID  string
+	Effect       contract.GrantEffect
+	ServerID     string
+	UpstreamName *string
+	Constraint   *json.RawMessage
+	ExpiresAt    *time.Time
+}
+
+type CurrentGrantTargetValidator func(context.Context, *sql.Tx, string) (bool, error)
 
 type PrincipalPage struct {
 	Items []contract.Principal
