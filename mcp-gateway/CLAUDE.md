@@ -11,13 +11,14 @@ make test               # go test -race ./...
 make test-integration   # go test -race -tags=integration ./...
 make test-e2e           # go test -race -tags=e2e -timeout=60s ./test/e2e/...
 make test-keyring-native # schema-validated passed/skipped/failed native evidence
+make accept-s2-1        # complete S2.1 gate from a clean checkpoint
 make lint               # go tool golangci-lint run ./...
 make fmt                # go tool goimports -w .
 make tidy               # go mod tidy && go mod verify
 make audit              # tidy + fmt + lint + test + govulncheck
 ```
 
-Run `make audit` before committing. Unit tests are colocated and race-enabled. Integration tests use `//go:build integration`; real-binary tests use `//go:build e2e` under `test/e2e/`.
+Run `make audit` before committing. Unit tests are colocated and race-enabled. Integration tests use `//go:build integration`; real-binary tests use `//go:build e2e` under `test/e2e/`. Final S2.1 acceptance uses `make accept-s2-1` only from a clean tracked checkpoint: do not bypass its required-clean policy or suppress a failing command. The schema-validated report must retain the exact revision, dirty state, command/criterion/artifact mapping, and nested native classification; native `skipped` is additive, while native `failed` blocks.
 
 ## Package layout
 

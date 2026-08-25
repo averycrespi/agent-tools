@@ -1,4 +1,4 @@
-.PHONY: build install test test-integration test-e2e test-keyring-native lint fmt tidy audit
+.PHONY: build install test test-integration test-e2e test-keyring-native accept-s2-1 lint fmt tidy audit
 
 build:
 	go build -o mcp-gateway ./cmd/mcp-gateway
@@ -17,6 +17,9 @@ test-e2e:
 
 test-keyring-native:
 	./test/keyring-native.sh
+
+accept-s2-1:
+	@go run ./test/acceptance/cmd
 
 lint:
 	go tool golangci-lint run ./...

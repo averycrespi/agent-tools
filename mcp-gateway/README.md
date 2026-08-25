@@ -14,11 +14,20 @@ Requirements: Go 1.25.13 or later, GNU Make, and the repository's development to
 make build
 make test
 make test-keyring-native # schema-validated passed/skipped/failed native evidence
+make accept-s2-1        # complete clean-checkpoint S2.1 acceptance report
 make lint
 make audit
 ```
 
-From the repository root, `make build`, `make test`, and `make check` include MCP Gateway.
+From the repository root, `make build`, `make test`, and `make check` include MCP Gateway. `make accept-s2-1` must start and finish with a clean working tree. It runs focused race/source/canary/documentation/backup checks, integration and real-binary E2E suites, the module audit, unsuppressed `govulncheck`, structured native evidence, the repository-wide check, and `git diff --check`. Its one schema-validated JSON report records the exact Git revision and dirty-state policy, every executed command, affected acceptance criteria and artifacts, and the nested native result. A failed check or native `failed` result exits nonzero; native `skipped` remains visible and additive.
+
+The final evidence matrix is intentionally split by observable boundary:
+
+| Layer                        | Cases                                                                                                                                                                                                                                                                         |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Concrete runtime/composition | Exact credential-free, static, bearer, public OAuth, and confidential OAuth authority; modern, legacy, and every strict auto-fallback class; current-runtime lookup, catalog/OAuth barriers, internal route acquisition, mixed capacity, failure isolation, and ordered drain |
+| Real binary                  | Stdio and hardened HTTP activation with nonempty catalogs; display continuity, behavioral replacement and reload; disconnect, disable and delete; restart absence and fresh reconstruction; two-server isolation; graceful, blocked, and forced shutdown                      |
+| Compatibility/security       | Deny-all production `/mcp`, no capability consumer, source/slice guards, secret canaries, backup/restore, docs, full repository checks, unsuppressed vulnerability scan, and separately classified native keyring evidence                                                    |
 
 The shared `internal/strictjson` parser requires explicit byte/depth bounds, rejects invalid UTF-8, duplicate members, excessive depth or size, trailing values, and unknown members for closed destinations, and supplies object-order-independent canonical equality while preserving array order. `internal/contract` remains the sole S1/S2 vocabulary owner.
 
