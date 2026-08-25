@@ -166,6 +166,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		Invalidate:     eventHub.Publish,
 		Origin:         "http://" + authority,
 		Servers:        serverRepository,
+		Principals:     authorizationRepository,
 		AuthFlows:      flowService,
 		OAuthCallback:  flowService,
 		Replacements:   replacementService,
