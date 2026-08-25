@@ -337,7 +337,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	}
 	providerFactory := hooks.provider
 	if providerFactory == nil {
-		providerFactory = keyring.NewProvider
+		providerFactory = productionProvider
 	}
 	built.provider, err = providerFactory(options.InstallationID)
 	if err != nil {

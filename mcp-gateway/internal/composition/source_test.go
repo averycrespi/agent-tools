@@ -87,6 +87,8 @@ func TestProductionRootUsesConcreteNativeCompositionAndDenyAllIngress(t *testing
 	root := gatewayModuleRoot(t)
 	rootSource := readProductionSource(t, root, "cmd/mcp-gateway/root.go")
 	compositionSource := readProductionSource(t, root, "internal/composition/composition.go")
+	nativeProviderSource := readProductionSource(t, root, "internal/composition/provider_factory.go")
+	e2eProviderSource := readProductionSource(t, root, "internal/composition/provider_factory_e2e.go")
 	for _, required := range []string{
 		"newComposition: composition.New", "newComposition(composition.Options{", "activeCatalog := runtime.ActiveCatalog()",
 		"ActiveCatalog:  activeCatalog", "runtime.Start(ctx)", "runtime.Drain(shutdownCtx)", "mcpingress.DenyAllAuthenticator{}",
@@ -97,7 +99,14 @@ func TestProductionRootUsesConcreteNativeCompositionAndDenyAllIngress(t *testing
 		assert.NotContains(t, rootSource, prohibited, "cmd/mcp-gateway/root.go: prohibited production symbol %s", prohibited)
 	}
 	assert.Equal(t, 1, strings.Count(rootSource, "Authenticator:"), "cmd/mcp-gateway/root.go: production authenticator must have one owner")
-	assert.Contains(t, compositionSource, "providerFactory = keyring.NewProvider", "internal/composition/composition.go: ordinary build must select native provider")
+	assert.Contains(t, compositionSource, "providerFactory = productionProvider", "internal/composition/composition.go: ordinary build must use the build-selected provider")
+	assert.Contains(t, nativeProviderSource, "//go:build !e2e", "internal/composition/provider_factory.go: native provider must exclude e2e builds")
+	assert.Contains(t, nativeProviderSource, "keyring.NewProvider(installationID)", "internal/composition/provider_factory.go: ordinary build must select native provider")
+	assert.Contains(t, e2eProviderSource, "//go:build e2e", "internal/composition/provider_factory_e2e.go: deterministic provider must be e2e-only")
+	assert.Contains(t, e2eProviderSource, "keyring.NewProviderWithBackend", "internal/composition/provider_factory_e2e.go: e2e build must use the explicit provider boundary")
+	for _, prohibited := range []string{"os.Getenv", "flag.", "cobra.", "http."} {
+		assert.NotContains(t, e2eProviderSource, prohibited, "internal/composition/provider_factory_e2e.go: provider seam must have no public configuration symbol %s", prohibited)
+	}
 }
 
 func TestProductionPersistenceAndCapabilitySliceGuards(t *testing.T) {
@@ -157,6 +166,9 @@ func productionSources(t *testing.T, root string) []productionSource {
 		contents, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return readErr
+		}
+		if strings.HasPrefix(string(contents), "//go:build e2e\n") {
+			return nil
 		}
 		parsed, parseErr := parser.ParseFile(token.NewFileSet(), path, contents, 0)
 		if parseErr != nil {

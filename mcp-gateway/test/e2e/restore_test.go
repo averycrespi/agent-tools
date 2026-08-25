@@ -7,7 +7,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -108,17 +107,4 @@ func TestRestoreVerifyCurrentRealBinaryRefusesRunningGateway(t *testing.T) {
 	assert.Equal(t, 1, result.ExitCode)
 	assert.JSONEq(t, `{"ok":false,"operation":"restore","code":"gateway_running"}`, string(result.Stdout))
 	assert.Empty(t, result.Stderr)
-}
-
-func buildGateway(t *testing.T, ctx context.Context) string {
-	t.Helper()
-	_, source, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	moduleRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
-	binary := filepath.Join(t.TempDir(), "mcp-gateway")
-	runner, err := testutil.NewBinaryRunner(30*time.Second, 64*1024)
-	require.NoError(t, err)
-	result, err := runner.Run(ctx, "go", "-C", moduleRoot, "build", "-o", binary, "./cmd/mcp-gateway")
-	require.NoError(t, err, "build stderr: %s", result.Stderr)
-	return binary
 }
