@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -26,6 +27,10 @@ type fakePrincipalService struct {
 	err          error
 	defaultGrant contract.Grant
 	bearerSerial int
+	grants       []contract.Grant
+	grantCreate  authorization.CreateGrantRequest
+	grantFilter  authorization.GrantFilter
+	grantCursor  *authorization.SnapshotCursor
 }
 
 func (service *fakePrincipalService) CreatePrincipal(_ context.Context, request authorization.CreatePrincipalRequest) (contract.PrincipalCreation, error) {
@@ -126,6 +131,65 @@ func (service *fakePrincipalService) PatchPrincipal(_ context.Context, id string
 	}
 	service.items[0].Revision = "2"
 	return service.items[0], nil
+}
+
+func (service *fakePrincipalService) CreateGrant(_ context.Context, request authorization.CreateGrantRequest, validate authorization.CurrentGrantTargetValidator) (contract.Grant, error) {
+	if service.err != nil {
+		return contract.Grant{}, service.err
+	}
+	if validate == nil {
+		return contract.Grant{}, authorization.ErrInvalidInput
+	}
+	valid, err := validate(context.Background(), nil, request.ServerID)
+	if err != nil {
+		return contract.Grant{}, err
+	}
+	if !valid {
+		return contract.Grant{}, authorization.ErrInvalidInput
+	}
+	service.grantCreate = request
+	grant := contract.Grant{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAY", PrincipalID: request.PrincipalID, Effect: request.Effect, ServerID: request.ServerID, UpstreamName: request.UpstreamName, Constraint: request.Constraint, State: contract.GrantActive, CreatedAt: "2026-08-25T00:00:00Z"}
+	if request.ExpiresAt != nil {
+		value := request.ExpiresAt.UTC().Format(time.RFC3339Nano)
+		grant.ExpiresAt = &value
+	}
+	service.grants = append(service.grants, grant)
+	return grant, nil
+}
+func (service *fakePrincipalService) GetGrant(_ context.Context, id string) (contract.Grant, error) {
+	if service.err != nil {
+		return contract.Grant{}, service.err
+	}
+	for _, grant := range service.grants {
+		if grant.ID == id {
+			return grant, nil
+		}
+	}
+	return contract.Grant{}, authorization.ErrNotFound
+}
+func (service *fakePrincipalService) ListGrants(_ context.Context, filter authorization.GrantFilter, cursor *authorization.SnapshotCursor, limit int) (authorization.GrantPage, error) {
+	if service.err != nil {
+		return authorization.GrantPage{}, service.err
+	}
+	service.grantFilter, service.grantCursor, service.limit = filter, cursor, limit
+	page := authorization.GrantPage{Items: append([]contract.Grant(nil), service.grants...)}
+	if len(page.Items) > limit {
+		page.Items = page.Items[:limit]
+		page.Next = &authorization.SnapshotCursor{Collection: "grants", PrincipalID: filter.PrincipalID, ServerID: filter.ServerID, Upper: 2, After: 1, AfterID: page.Items[len(page.Items)-1].ID}
+	}
+	return page, nil
+}
+func (service *fakePrincipalService) DeleteGrant(_ context.Context, id string) error {
+	if service.err != nil {
+		return service.err
+	}
+	for index, grant := range service.grants {
+		if grant.ID == id {
+			service.grants = append(service.grants[:index], service.grants[index+1:]...)
+			return nil
+		}
+	}
+	return authorization.ErrNotFound
 }
 
 func principalResource() contract.Principal {

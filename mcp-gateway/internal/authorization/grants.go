@@ -33,6 +33,9 @@ func (repository *Repository) ListGrants(ctx context.Context, filter GrantFilter
 	if err := validatePageLimit(limit); err != nil {
 		return GrantPage{}, err
 	}
+	if filter.PrincipalID != "" && !validOpaqueID(filter.PrincipalID) || filter.ServerID != "" && !validOpaqueID(filter.ServerID) {
+		return GrantPage{}, ErrInvalidInput
+	}
 	var page GrantPage
 	err := repository.view(ctx, func(transaction *sql.Tx) error {
 		snapshot := SnapshotCursor{Collection: grantCollection, PrincipalID: filter.PrincipalID, ServerID: filter.ServerID}

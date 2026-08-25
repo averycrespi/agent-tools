@@ -122,6 +122,10 @@ func TestGrantListingPinsFiltersWatermarkAndProjectsExpiryLazily(t *testing.T) {
 	assert.Equal(t, []string{id(11), id(13), id(14)}, grantIDs(serverPage.Items))
 	_, err = repository.ListGrants(context.Background(), GrantFilter{PrincipalID: id(2)}, first.Next, 10)
 	assert.ErrorIs(t, err, ErrStaleCursor)
+	_, err = repository.ListGrants(context.Background(), GrantFilter{PrincipalID: "malformed"}, nil, 10)
+	assert.ErrorIs(t, err, ErrInvalidInput)
+	_, err = repository.ListGrants(context.Background(), GrantFilter{ServerID: "malformed"}, nil, 10)
+	assert.ErrorIs(t, err, ErrInvalidInput)
 }
 
 func TestRepositoryRejectsLatchedStorageAndMapsStorageFailure(t *testing.T) {

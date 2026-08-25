@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
+	serverdomain "github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -159,14 +161,21 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	})
 	defer ingress.Shutdown()
 	apiHandler := api.New(api.Options{
-		Credentials:    credentials,
-		Sessions:       sessions,
-		Backups:        backupManager,
-		Events:         eventHub,
-		Invalidate:     eventHub.Publish,
-		Origin:         "http://" + authority,
-		Servers:        serverRepository,
-		Principals:     authorizationRepository,
+		Credentials: credentials,
+		Sessions:    sessions,
+		Backups:     backupManager,
+		Events:      eventHub,
+		Invalidate:  eventHub.Publish,
+		Origin:      "http://" + authority,
+		Servers:     serverRepository,
+		Principals:  authorizationRepository,
+		GrantTarget: func(ctx context.Context, transaction *sql.Tx, serverID string) (bool, error) {
+			_, validateErr := serverRepository.ValidateGrantTargetTx(ctx, transaction, serverID)
+			if errors.Is(validateErr, serverdomain.ErrNotFound) {
+				return false, nil
+			}
+			return validateErr == nil, validateErr
+		},
 		AuthFlows:      flowService,
 		OAuthCallback:  flowService,
 		Replacements:   replacementService,

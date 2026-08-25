@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -92,6 +93,7 @@ type Options struct {
 	OAuthCallback    OAuthCallbackService
 	Servers          ServerService
 	Principals       PrincipalService
+	GrantTarget      authorization.CurrentGrantTargetValidator
 	AuthFlows        AuthFlowService
 	Replacements     CredentialReplacementService
 	Catalog          CatalogService
@@ -115,6 +117,7 @@ type Handler struct {
 	callbackService  OAuthCallbackService
 	servers          ServerService
 	principals       PrincipalService
+	grantTarget      authorization.CurrentGrantTargetValidator
 	authFlows        AuthFlowService
 	replacements     CredentialReplacementService
 	catalog          CatalogService
@@ -169,7 +172,7 @@ func New(options Options) *Handler {
 	if options.DispatchStatus == nil {
 		options.DispatchStatus = func(string) contract.LimitStatus { return limitStatus("per_server_downstream_dispatch") }
 	}
-	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
+	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -274,6 +277,15 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.streamEvents(writer, request)
 	case path == "/api/v1/catalog" && handler.activeCatalog != nil:
 		handler.activeCatalogCollection(writer, request)
+	case path == "/api/v1/grants" && handler.principals != nil:
+		handler.grantsCollection(writer, request)
+	case strings.HasPrefix(path, "/api/v1/grants/") && handler.principals != nil:
+		segments := strings.Split(strings.TrimPrefix(path, "/api/v1/grants/"), "/")
+		if len(segments) == 1 && segments[0] != "" {
+			handler.grantMember(writer, request, segments[0])
+		} else {
+			writeProblem(writer, contract.ProblemNotFound)
+		}
 	case path == "/api/v1/principals" && handler.principals != nil:
 		handler.principalsCollection(writer, request)
 	case strings.HasPrefix(path, "/api/v1/principals/") && handler.principals != nil:

@@ -23,6 +23,10 @@ type PrincipalService interface {
 	PatchPrincipal(context.Context, string, authorization.PatchPrincipalRequest) (contract.Principal, error)
 	IssueCredential(context.Context, string, string) (contract.AgentCredentialCreation, error)
 	RevokeCredential(context.Context, string, string) (contract.Principal, error)
+	CreateGrant(context.Context, authorization.CreateGrantRequest, authorization.CurrentGrantTargetValidator) (contract.Grant, error)
+	GetGrant(context.Context, string) (contract.Grant, error)
+	ListGrants(context.Context, authorization.GrantFilter, *authorization.SnapshotCursor, int) (authorization.GrantPage, error)
+	DeleteGrant(context.Context, string) error
 }
 
 type rawPrincipalCreate struct {
