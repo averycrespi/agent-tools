@@ -86,6 +86,7 @@ func decodeValue(contents []byte, options Options) (any, error) {
 
 func validate(contents []byte, maximumDepth int) error {
 	decoder := json.NewDecoder(bytes.NewReader(contents))
+	decoder.UseNumber()
 	if err := validateValue(decoder, 0, maximumDepth); err != nil {
 		return err
 	}
