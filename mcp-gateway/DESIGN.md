@@ -316,6 +316,8 @@ The sanitized transport union is closed to stdio `{kind,executable,arguments,wor
 
 `internal/strictjson` is dependency-neutral and is now the parser used by `internal/api`. Callers supply positive byte and depth limits and decide whether their destination is closed. Parsing rejects invalid UTF-8, duplicate object members (including escape-equivalent names), excess size or depth, trailing values, and unknown members for closed destinations. Canonical equality ignores object-member order and equivalent JSON number spellings while preserving array order. This primitive performs no server, OAuth, protocol, or catalog traversal behavior.
 
+S3 constraints compile only the closed `{equals:{pointer:scalar}}` form. Compilation retains each valid number's original token, decodes RFC 6901 `~0` and `~1` into immutable object-member segments, permits empty/numeric segments and pointer-prefix pairs, and accepts only string, boolean, number, or null leaves. Future evaluation traverses objects only: arrays are never indexed, and no coercion, numeric normalization, schema interpretation, or overlap analysis occurs. Durable startup and grant reads reject any constraint that cannot be compiled under the fixed byte, atom, pointer, and JSON-depth bounds.
+
 ## Storage generation and recovery
 
 An installation is one canonical owner-only `0700` directory guarded by a nonblocking exclusive process lock. A durable run marker distinguishes clean shutdown from an unclean stop; either startup path performs live identity, migration, pragma, and integrity verification before the store can be ready.

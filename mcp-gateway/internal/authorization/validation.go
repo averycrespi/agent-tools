@@ -11,7 +11,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
-	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
 
 const canonicalTimestampLayout = "2006-01-02T15:04:05.000000000Z07:00"
@@ -199,8 +198,7 @@ func validateGrants(ctx context.Context, transaction *sql.Tx, targets StoredGran
 			return errorsInvalidState("server-wide grant has a constraint")
 		}
 		if constraintJSON.Valid {
-			value, err := strictjson.ParseValue([]byte(constraintJSON.String), strictjson.Options{MaxBytes: mustLimit("constraint_bytes"), MaxDepth: int(mustLimit("json_depth"))})
-			if err != nil || value.Type != strictjson.ValueObject {
+			if _, err := CompileConstraint([]byte(constraintJSON.String)); err != nil {
 				return errorsInvalidState("grant constraint is malformed")
 			}
 		}

@@ -81,6 +81,18 @@ func TestValidateStartupRejectsMalformedDurableRows(t *testing.T) {
 	}
 }
 
+func TestGrantReadsRejectInvalidLoadedConstraint(t *testing.T) {
+	repository, store := newRepository(t, nil)
+	seedPrincipal(t, store, principalRow{id: id(1), displayName: "Agent"})
+	seedGrant(t, store, grantRow{id: id(11), principalID: id(1), serverID: id(51), constraint: `{"equals":{"/x":1.0}}`})
+	require.NoError(t, store.Mutate(context.Background(), uncheckedMutation(`UPDATE grants SET constraint_json = '{"other":{}}'`)))
+
+	_, err := repository.GetGrant(context.Background(), id(11))
+	assert.ErrorIs(t, err, ErrInvalidState)
+	_, err = repository.ListGrants(context.Background(), GrantFilter{}, nil, 10)
+	assert.ErrorIs(t, err, ErrInvalidState)
+}
+
 func TestValidateStartupRejectsOrphanGrant(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))

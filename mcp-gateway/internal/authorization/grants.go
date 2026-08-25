@@ -104,6 +104,9 @@ func scanGrant(scanner grantScanner, now time.Time) (int64, contract.Grant, erro
 		grant.UpstreamName = &value
 	}
 	if constraintJSON.Valid {
+		if _, err := CompileConstraint([]byte(constraintJSON.String)); err != nil {
+			return 0, contract.Grant{}, errorsInvalidState("grant constraint is malformed")
+		}
 		value := json.RawMessage(append([]byte(nil), constraintJSON.String...))
 		grant.Constraint = &value
 	}
