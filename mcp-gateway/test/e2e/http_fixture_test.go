@@ -33,28 +33,32 @@ type httpFixtureEvent struct {
 	Close          bool
 }
 
+type httpFixtureBarrier struct {
+	method    string
+	entered   chan struct{}
+	cancelled chan struct{}
+	release   chan struct{}
+	once      sync.Once
+}
+
+func (barrier *httpFixtureBarrier) Release() { barrier.once.Do(func() { close(barrier.release) }) }
+
 type rawHTTPFixture struct {
 	t       *testing.T
 	mode    string
 	session string
 	server  *httptest.Server
 
-	mu             sync.Mutex
-	events         []httpFixtureEvent
-	blockNextList  bool
-	blocked        chan struct{}
-	cancelled      chan struct{}
-	release        chan struct{}
-	loseSession    bool
-	closeFixture   sync.Once
-	closeRelease   sync.Once
-	closeBlocked   sync.Once
-	closeCancelled sync.Once
+	mu           sync.Mutex
+	events       []httpFixtureEvent
+	barrier      *httpFixtureBarrier
+	loseSession  bool
+	closeFixture sync.Once
 }
 
 func newRawHTTPFixture(t *testing.T, mode string) *rawHTTPFixture {
 	t.Helper()
-	fixture := &rawHTTPFixture{t: t, mode: mode, session: "fixture-session", release: make(chan struct{})}
+	fixture := &rawHTTPFixture{t: t, mode: mode, session: "fixture-session"}
 	fixture.server = httptest.NewServer(http.HandlerFunc(fixture.serveHTTP))
 	t.Cleanup(fixture.Close)
 	return fixture
@@ -64,19 +68,34 @@ func (fixture *rawHTTPFixture) URL() string { return fixture.server.URL + "/mcp"
 
 func (fixture *rawHTTPFixture) Close() {
 	fixture.closeFixture.Do(func() {
-		fixture.closeRelease.Do(func() { close(fixture.release) })
+		fixture.mu.Lock()
+		barrier := fixture.barrier
+		fixture.mu.Unlock()
+		if barrier != nil {
+			barrier.Release()
+		}
 		fixture.server.CloseClientConnections()
 		fixture.server.Close()
 	})
 }
 
-func (fixture *rawHTTPFixture) ArmBlockedList() (<-chan struct{}, <-chan struct{}) {
+func (fixture *rawHTTPFixture) Arm(method string) *httpFixtureBarrier {
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
-	fixture.blockNextList = true
-	fixture.blocked = make(chan struct{})
-	fixture.cancelled = make(chan struct{})
-	return fixture.blocked, fixture.cancelled
+	barrier := &httpFixtureBarrier{method: method, entered: make(chan struct{}), cancelled: make(chan struct{}), release: make(chan struct{})}
+	fixture.barrier = barrier
+	return barrier
+}
+
+func (fixture *rawHTTPFixture) ArmBlockedList() (<-chan struct{}, <-chan struct{}) {
+	barrier := fixture.Arm("tools/list")
+	return barrier.entered, barrier.cancelled
+}
+
+func (fixture *rawHTTPFixture) SetMode(mode string) {
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	fixture.mode = mode
 }
 
 func (fixture *rawHTTPFixture) LoseSession() {
@@ -111,27 +130,35 @@ func (fixture *rawHTTPFixture) serveHTTP(writer http.ResponseWriter, request *ht
 	}
 	fixture.mu.Lock()
 	fixture.events = append(fixture.events, event)
-	block := envelope.Method == "tools/list" && fixture.blockNextList
-	if block {
-		fixture.blockNextList = false
-		fixture.closeBlocked.Do(func() { close(fixture.blocked) })
+	barrier := fixture.barrier
+	if barrier != nil && barrier.method == envelope.Method {
+		close(barrier.entered)
+	} else {
+		barrier = nil
 	}
-	loseSession := fixture.loseSession
+	loseSession, mode := fixture.loseSession, fixture.mode
 	fixture.mu.Unlock()
-	if block {
+	if barrier != nil {
 		select {
 		case <-request.Context().Done():
-			fixture.closeCancelled.Do(func() { close(fixture.cancelled) })
-		case <-fixture.release:
+			close(barrier.cancelled)
+		case <-barrier.release:
 		}
-		return
+		fixture.mu.Lock()
+		if fixture.barrier == barrier {
+			fixture.barrier = nil
+		}
+		fixture.mu.Unlock()
+		if request.Context().Err() != nil {
+			return
+		}
 	}
 
 	writer.Header().Set("Content-Type", "application/json")
 	switch envelope.Method {
 	case "server/discover":
 		writer.Header().Set("Set-Cookie", "ambient=forbidden")
-		if fixture.mode == "auto" {
+		if mode == "auto" {
 			writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			writer.WriteHeader(http.StatusBadRequest)
 			_, _ = io.WriteString(writer, "Bad Request: Unsupported protocol version\n")
@@ -145,7 +172,7 @@ func (fixture *rawHTTPFixture) serveHTTP(writer http.ResponseWriter, request *ht
 		writer.Header().Set("Mcp-Session-Id", fixture.session)
 		writer.WriteHeader(http.StatusAccepted)
 	case "tools/list":
-		if fixture.mode == "auto" {
+		if mode == "auto" {
 			if loseSession {
 				writer.Header().Set("Mcp-Session-Id", "replaced-session")
 			} else {

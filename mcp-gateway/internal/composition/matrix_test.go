@@ -102,6 +102,23 @@ func (runtime *fixtureStdio) StopCount() int {
 	return runtime.stops
 }
 
+type controlledStopStdio struct {
+	*fixtureStdio
+	started chan struct{}
+	release chan struct{}
+	result  bool
+	once    sync.Once
+}
+
+func (runtime *controlledStopStdio) Stop(context.Context) bool {
+	runtime.once.Do(func() { close(runtime.started) })
+	<-runtime.release
+	runtime.mu.Lock()
+	runtime.stops++
+	runtime.mu.Unlock()
+	return runtime.result
+}
+
 type compositionTransport struct{ delegate downstream.Transport }
 
 func (transport *compositionTransport) Kind() downstream.TransportKind {
@@ -348,6 +365,99 @@ func TestProductionCompositionDrainDeadlineFencesLateConstructingCompletion(t *t
 	assert.Equal(t, 1, runtime.StopCount())
 	assert.Zero(t, built.RuntimeOccupancy().InUse)
 	assert.Equal(t, contract.ActiveCatalogAbsent, built.ActiveCatalog().Status(server.ID).State)
+}
+
+func TestProductionCompositionReplacementWithdrawsBeforeStopAndConstructsOnlyAfterProof(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		stopResult bool
+	}{
+		{name: "verified stop admits replacement", stopResult: true},
+		{name: "unconfirmed stop blocks replacement", stopResult: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			options, cleanup := newCompositionOptions(t)
+			defer cleanup()
+			backend := newMemoryBackend()
+			stopStarted, stopRelease := make(chan struct{}), make(chan struct{})
+			replacementStarted, replacementRelease := make(chan struct{}), make(chan struct{})
+			oldRuntime := &controlledStopStdio{fixtureStdio: &fixtureStdio{frames: make(chan []byte), input: new(fixtureInput)}, started: stopStarted, release: stopRelease, result: test.stopResult}
+			var starts atomic.Int64
+			built, err := newWithHooks(options, constructorHooks{
+				provider: func(installationID string) (*keyring.Provider, error) {
+					return keyring.NewProviderWithBackend(installationID, backend)
+				},
+				startStdio: func(context.Context, runtimes.StdioDefinition) (downstream.StdioRuntime, error) {
+					if starts.Add(1) == 1 {
+						return oldRuntime, nil
+					}
+					close(replacementStarted)
+					<-replacementRelease
+					return &fixtureStdio{frames: make(chan []byte), input: new(fixtureInput), stop: true}, nil
+				},
+				newCoordinator: func(transport downstream.Transport) (*downstream.Coordinator, error) {
+					return downstream.NewCoordinator(&compositionTransport{delegate: transport})
+				},
+			})
+			require.NoError(t, err)
+			defer built.shutdownConstructed()
+			namespace := "replace-blocked"
+			if test.stopResult {
+				namespace = "replace-verified"
+			}
+			server := createServerWithTransport(t, built.servers, namespace, contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/fixture/mcp", Arguments: []string{}, WorkingDirectory: "/", Environment: map[string]string{}, SecretEnvironment: map[string]string{}})
+			server = enableCompositionServer(t, built.servers, server)
+			require.NoError(t, built.Start(context.Background()))
+			require.Eventually(t, func() bool { return built.RuntimeStatus(server.ID).CatalogState == contract.ActiveCatalogCurrent }, 2*time.Second, time.Millisecond)
+			page, err := built.ActiveCatalog().List(nil, 10)
+			require.NoError(t, err)
+			require.Len(t, page.Items, 1)
+			resourceID := page.Items[0].Resource.ID
+			_, routePresent := built.ActiveCatalog().Routes().Resolve(resourceID)
+			require.True(t, routePresent)
+
+			operation, err := built.servers.CreateOperation(context.Background(), servers.OperationRequest{ServerID: server.ID, Kind: contract.OperationReload, ExpectedDesiredRevision: server.DesiredRevision})
+			require.NoError(t, err)
+			built.manager.Trigger(server.ID, &operation.Operation.ID, true)
+			<-stopStarted
+			_, routePresent = built.ActiveCatalog().Routes().Resolve(resourceID)
+			assert.False(t, routePresent)
+			assert.Equal(t, contract.ActiveCatalogUnavailable, built.ActiveCatalog().Status(server.ID).State)
+			current, err := built.servers.GetOperation(context.Background(), operation.Operation.ID)
+			require.NoError(t, err)
+			assert.Equal(t, contract.OperationRunning, current.State)
+			assert.Equal(t, int64(1), starts.Load())
+			close(stopRelease)
+
+			if test.stopResult {
+				<-replacementStarted
+				_, routePresent = built.ActiveCatalog().Routes().Resolve(resourceID)
+				assert.False(t, routePresent)
+				current, err = built.servers.GetOperation(context.Background(), operation.Operation.ID)
+				require.NoError(t, err)
+				assert.Equal(t, contract.OperationRunning, current.State)
+				close(replacementRelease)
+				require.Eventually(t, func() bool {
+					current, err = built.servers.GetOperation(context.Background(), operation.Operation.ID)
+					return err == nil && current.State == contract.OperationSucceeded && built.RuntimeStatus(server.ID).CatalogState == contract.ActiveCatalogCurrent
+				}, 2*time.Second, time.Millisecond)
+				_, routePresent = built.ActiveCatalog().Routes().Resolve(resourceID)
+				assert.True(t, routePresent)
+				assert.Equal(t, int64(2), starts.Load())
+			} else {
+				close(replacementRelease)
+				require.Eventually(t, func() bool {
+					current, err = built.servers.GetOperation(context.Background(), operation.Operation.ID)
+					return err == nil && current.State == contract.OperationFailed && current.Reason != nil && *current.Reason == contract.ReasonStopUnconfirmed
+				}, 2*time.Second, time.Millisecond)
+				assert.Equal(t, int64(1), starts.Load())
+				assert.Equal(t, int64(1), built.RuntimeOccupancy().InUse)
+				assert.Equal(t, int64(0), built.RuntimeStatus(server.ID).Reconciliation.InUse)
+				_, routePresent = built.ActiveCatalog().Routes().Resolve(resourceID)
+				assert.False(t, routePresent)
+			}
+		})
+	}
 }
 
 func TestProductionCompositionDrainRetainsBlockedHandleAndStopsOnce(t *testing.T) {

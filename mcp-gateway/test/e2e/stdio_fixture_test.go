@@ -38,7 +38,17 @@ func TestE2EStdioFixtureProcess(t *testing.T) {
 	pid := os.Getpid()
 	priorPID, priorAlive := 0, false
 	fallbackProbe := mode == "legacy"
+	gatedReplacement := false
 	repeatFault := false
+	if strings.HasPrefix(mode, "gated-modern") {
+		contents, err := os.ReadFile(markerPath)
+		if err == nil {
+			priorPID, _ = strconv.Atoi(string(contents))
+			priorAlive = processExists(priorPID)
+			gatedReplacement = true
+		}
+		_ = os.WriteFile(markerPath, []byte(strconv.Itoa(pid)), 0o600)
+	}
 	if mode == "process-failure" || mode == "output-failure" || mode == "protocol-failure" {
 		contents, err := os.ReadFile(markerPath)
 		if err == nil {
@@ -59,6 +69,14 @@ func TestE2EStdioFixtureProcess(t *testing.T) {
 		}
 	}
 	appendFixtureEvent(eventsPath, stdioFixtureEvent{Kind: "start", PID: pid, Mode: mode, PriorPID: priorPID, PriorAlive: priorAlive})
+	if gatedReplacement {
+		release := make(chan os.Signal, 1)
+		signal.Notify(release, syscall.SIGUSR1)
+		appendFixtureEvent(eventsPath, stdioFixtureEvent{Kind: "blocked", PID: pid})
+		<-release
+		signal.Stop(release)
+		appendFixtureEvent(eventsPath, stdioFixtureEvent{Kind: "released", PID: pid})
+	}
 	if repeatFault {
 		if mode == "process-failure" {
 			os.Exit(42)
