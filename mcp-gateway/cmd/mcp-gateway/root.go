@@ -221,6 +221,10 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 			status.Limits.ActiveTools = activeCatalog.Occupancy()
 			status.Limits.CatalogTraversals = runtime.CatalogTraversalStatus()
 			status.Limits.DownstreamDispatch = runtime.DispatchStatus()
+			if principals, grants, authorizationErr := runtime.AuthorizationOccupancy(context.Background()); authorizationErr == nil {
+				status.Limits.Principals = principals
+				status.Limits.Grants = grants
+			}
 			status.Limits.AdminCredentials = credentials.Status(context.Background())
 			if candidates, candidateErr := keyringCoordinator.CandidateStatus(context.Background()); candidateErr == nil {
 				status.Limits.KeyringCandidates = candidates
@@ -350,6 +354,7 @@ func baseSystemStatus(
 		ServerReconciliations: fixedStatus("server_reconciliations", 0), CatalogTraversals: fixedStatus("catalog_traversals", 0), OAuthFlows: fixedStatus("oauth_flows", 0),
 		OAuthCallbackWork: fixedStatus("oauth_callback_work", 0), S2IdempotencyRecords: fixedStatus("s2_idempotency_records", 0), ActiveTools: fixedStatus("active_tools", 0),
 		DurableToolIdentities: fixedStatus("durable_tool_identities", 0), DownstreamDispatch: fixedStatus("downstream_dispatch", 0),
+		Principals: fixedStatus("principals", 0), Grants: fixedStatus("grants", 0),
 	}
 	return contract.SystemStatus{
 		Process: contract.ProcessStatus{State: process, Ready: ready, StartedAt: startedAt},

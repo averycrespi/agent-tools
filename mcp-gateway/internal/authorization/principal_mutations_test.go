@@ -228,6 +228,9 @@ func TestCreatePrincipalAcceptsNAndRejectsNPlusOnePrincipalCapacity(t *testing.T
 	}))
 	_, err := repository.CreatePrincipal(context.Background(), CreatePrincipalRequest{DisplayName: "At Capacity", Visibility: contract.VisibilityRequestable})
 	require.NoError(t, err)
+	principals, _, statusErr := repository.Occupancy(context.Background())
+	require.NoError(t, statusErr)
+	assert.Equal(t, contract.LimitStatus{InUse: 128, Limit: 128, Saturated: true}, principals)
 	_, err = repository.CreatePrincipal(context.Background(), CreatePrincipalRequest{DisplayName: "Over Capacity", Visibility: contract.VisibilityRequestable})
 	assert.ErrorIs(t, err, ErrResourceLimit)
 }
@@ -248,6 +251,9 @@ func TestCreatePrincipalDefaultGrantAcceptsNAndRejectsNPlusOneGrantCapacity(t *t
 	}))
 	_, err := repository.CreatePrincipal(context.Background(), CreatePrincipalRequest{DisplayName: "At Capacity", Visibility: contract.VisibilityRequestable})
 	require.NoError(t, err)
+	_, grants, statusErr := repository.Occupancy(context.Background())
+	require.NoError(t, statusErr)
+	assert.Equal(t, contract.LimitStatus{InUse: 4096, Limit: 4096, Saturated: true}, grants)
 	_, err = repository.CreatePrincipal(context.Background(), CreatePrincipalRequest{DisplayName: "Over Capacity", Visibility: contract.VisibilityRequestable})
 	assert.ErrorIs(t, err, ErrResourceLimit)
 }

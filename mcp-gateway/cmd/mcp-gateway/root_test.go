@@ -55,7 +55,7 @@ func TestServeCompositionFailurePreventsStartupOutput(t *testing.T) {
 	assert.JSONEq(t, `{"ok":false,"operation":"serve","code":"storage_unavailable"}`, stdout.String())
 }
 
-func TestBaseSystemStatusIncludesS2OccupancyLimits(t *testing.T) {
+func TestBaseSystemStatusIncludesDurableOccupancyLimitsAndDenyAll(t *testing.T) {
 	status := baseSystemStatus(
 		"2026-08-22T00:00:00Z",
 		storage.Identity{InstallationID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", SchemaVersion: 3},
@@ -81,12 +81,15 @@ func TestBaseSystemStatusIncludesS2OccupancyLimits(t *testing.T) {
 		"active_tools":            status.Limits.ActiveTools,
 		"durable_tool_identities": status.Limits.DurableToolIdentities,
 		"downstream_dispatch":     status.Limits.DownstreamDispatch,
+		"principals":              status.Limits.Principals,
+		"grants":                  status.Limits.Grants,
 	}
 	for name, occupancy := range limits {
 		fixed, ok := contract.FixedLimitByName(name)
 		require.True(t, ok, name)
 		require.Equal(t, contract.LimitStatus{Limit: fixed.Maximum}, occupancy, name)
 	}
+	assert.Equal(t, contract.AgentAuthDenyAll, status.Protocols.AgentAuth)
 }
 
 func TestInitializeAndResetEmitSafeResultsAndPublishSecretsOnce(t *testing.T) {

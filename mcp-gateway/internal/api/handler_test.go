@@ -357,6 +357,8 @@ func TestEventStreamIsInvalidationOnlyAndRejectsReplay(t *testing.T) {
 	<-writer.flushed
 	hub.Publish(contract.Invalidation{Kind: contract.InvalidationBackups, ResourceID: ptr(testID)})
 	<-writer.flushed
+	hub.Publish(contract.Invalidation{Kind: contract.InvalidationAuthorization})
+	<-writer.flushed
 	keepalive <- time.Time{}
 	<-writer.flushed
 	cancel()
@@ -366,7 +368,10 @@ func TestEventStreamIsInvalidationOnlyAndRejectsReplay(t *testing.T) {
 	if status != http.StatusOK || writer.header.Get("Content-Type") != contract.MediaTypeEventStream || writer.header.Get("Cache-Control") != "no-store" {
 		t.Fatalf("handshake: %d %v", status, writer.header)
 	}
-	if strings.HasPrefix(body, "id:") || strings.Contains(body, "\nid:") || strings.Contains(body, testBearer) || !strings.Contains(body, "event: invalidate\ndata: {\"kind\":\"backups\",\"resource_id\":\""+testID+"\"}") || strings.Count(body, ": keepalive") != 2 {
+	if strings.HasPrefix(body, "id:") || strings.Contains(body, "\nid:") || strings.Contains(body, testBearer) ||
+		!strings.Contains(body, "event: invalidate\ndata: {\"kind\":\"backups\",\"resource_id\":\""+testID+"\"}") ||
+		!strings.Contains(body, "event: invalidate\ndata: {\"kind\":\"authorization\",\"resource_id\":null}") ||
+		strings.Contains(body, "principal_id") || strings.Contains(body, "credential") || strings.Contains(body, "grant") || strings.Count(body, ": keepalive") != 2 {
 		t.Fatalf("unsafe event stream: %q", body)
 	}
 	if hub.Status().InUse != 0 {

@@ -36,6 +36,12 @@ func TestHubIsBoundedBestEffortAndHasNoReplay(t *testing.T) {
 	hub.Publish(event)
 	assertChannelClosed(t, subscriptions[0].Done())
 	assert.Equal(t, int64(0), hub.Status().InUse)
+
+	reconnected, err := hub.Subscribe("credential", nil)
+	require.NoError(t, err)
+	authorization := contract.Invalidation{Kind: contract.InvalidationAuthorization}
+	hub.Publish(authorization)
+	assert.Equal(t, authorization, <-reconnected.Events())
 }
 
 func TestHubClosesOnlyBoundAuthorityAndTerminalSession(t *testing.T) {
