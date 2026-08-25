@@ -358,7 +358,7 @@ Foreground flow creation first commits one safe `preparing` record under the glo
 
 ## Deterministic test foundation
 
-Shared tests use mutex-safe fake time and finite deterministic entropy, real owner-only `0700` temporary data roots with symlink/type/owner/mode validation, and a streaming canary scanner that detects cross-buffer leaks without returning the canary in errors. The common real-binary runner requires a positive timeout and per-stream byte cap, captures stdout and stderr separately, reports truncation and exit status, cancels its direct child when its context expires, and can signal a bounded started process for lifecycle tests. Component-specific fault hooks, protocol fixtures, and barriers remain with their owning packages.
+Shared tests use mutex-safe fake time and finite deterministic entropy, real owner-only `0700` temporary data roots with symlink/type/owner/mode validation, and a streaming canary scanner that detects cross-buffer leaks without returning the canary in errors. The common real-binary runner requires a positive timeout and per-stream byte cap, captures stdout and stderr separately, reports truncation and exit status, cancels its direct child when its context expires, and can signal a bounded started process for lifecycle tests. Component-specific fault hooks, protocol fixtures, and barriers remain with their owning packages. Native keyring evidence always runs an external-package deterministic complete-generation material path, then emits one closed schema-validated `passed`, `skipped`, or `failed` result for the isolated platform backend; only `failed` exits nonzero, while `skipped` remains visible rather than masquerading as a pass.
 
 ## Implemented HTTP and control boundary
 

@@ -13,7 +13,7 @@ Requirements: Go 1.25.13 or later, GNU Make, and the repository's development to
 ```bash
 make build
 make test
-make test-keyring-native # isolated native backend, or an explicit prerequisite skip
+make test-keyring-native # schema-validated passed/skipped/failed native evidence
 make lint
 make audit
 ```
@@ -101,7 +101,7 @@ The closed raw-secret destinations preserve the S1 one-time `controlling_termina
 
 Secrets are split into bounded encoded chunks and become readable only after a digest-bound manifest is written. SQLite stores an opaque handle, installation/resource-owner ULIDs, one closed kind (`static_credential`, `oauth_client`, or `oauth_tokens`), revision, and bounded candidate cleanup metadata—never secret bytes. For server-scoped generations, the coordinator invokes a repository callback on its existing marker-armed transaction, so the verified candidate and exactly one independent credential-kind revision become current together under captured desired, credential, optional registration/flow, and drain fences. Invalidation commits the kind revision and null authority before best-effort generation deletion. Ordinary replacement preserves old-or-new authority; the explicit post-authorization-server-success failure path invalidates both old and candidate authority before cleanup. Interrupted or stale candidates remain non-authoritative and are bounded to 64 per owner/kind.
 
-`make test-keyring-native` uses an isolated D-Bus session and temporary home with Secret Service on Linux. On macOS it changes the login keychain search state only when `MCP_GATEWAY_DISPOSABLE_MACOS_KEYCHAIN=1` explicitly confirms a disposable user context, then restores that state. Otherwise it reports an explicit prerequisite skip rather than touching the user's keychain or Gateway namespace.
+`make test-keyring-native` always runs deterministic external-package static/OAuth material acquisition, fencing, cleanup, exact-read, and canary-exclusion evidence, then classifies native backend evidence as `passed`, `skipped`, or `failed` in one schema-validated JSON object. `failed` exits nonzero; `skipped` remains an explicit additive gap. The native pass uses an isolated D-Bus session and temporary home with Secret Service on Linux. On macOS it changes the login keychain search state only when `MCP_GATEWAY_DISPOSABLE_MACOS_KEYCHAIN=1` explicitly confirms a disposable user context, then restores that state; otherwise it does not touch the user's keychain or Gateway namespace.
 
 ## Verified backup and offline recovery
 
