@@ -57,6 +57,7 @@ func TestValidateStartupRejectsMalformedDurableRows(t *testing.T) {
 		{name: "noncanonical principal timestamp", mutate: execMutation(`UPDATE principals SET updated_at = '2026-08-25T18:00:00Z'`)},
 		{name: "principal timestamp reversal", mutate: execMutation(`UPDATE principals SET updated_at = '2020-01-01T00:00:00.000000000Z'`)},
 		{name: "partial credential slot", mutate: uncheckedMutation(`UPDATE principals SET credential_verifier = NULL`)},
+		{name: "disabled current credential", mutate: uncheckedMutation(`UPDATE principals SET state = 'disabled'`)},
 		{name: "invalid credential fingerprint", mutate: uncheckedMutation(`UPDATE principals SET credential_fingerprint = 'ABCDEF0123456789'`)},
 		{name: "invalid grant effect", mutate: uncheckedMutation(`UPDATE grants SET effect = 'foreign'`)},
 		{name: "invalid grant target ID", mutate: uncheckedMutation(`UPDATE grants SET server_id = 'malformed'`)},

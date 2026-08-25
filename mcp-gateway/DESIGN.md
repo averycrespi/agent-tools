@@ -422,7 +422,9 @@ The first `SIGINT` or `SIGTERM` atomically enters drain, makes readiness false, 
 
 ## Implemented MCP ingress
 
-Agent authentication runs before MCP body reads, era classification, and session lookup. Production uses a deny-all authenticator; positive fixtures inject opaque principal/credential/expiry bindings. Admin bearer prefixes are rejected as the wrong credential domain, while missing, malformed, unknown, and expired agent credentials remain non-enumerating.
+The internal S3 authenticator accepts only the canonical `mgw_agent_` encoding, derives one agent-domain verifier, and scans every complete active current slot in one bounded coherent transaction with constant-time comparison and no verifier predicate or early match return. Success exposes only principal ID/revision/visibility and credential ID/revision/fingerprint. Admin-domain bearers are a domain mismatch; missing, malformed, unknown, replaced, revoked, disabled, or cleared authority is one non-enumerating authentication failure. Invalid loaded candidate state, capacity overflow, or a latch before, during, or after a match fails unavailable with no partial binding.
+
+Ingress authentication runs before MCP body reads, era classification, and session lookup. Production still uses a deny-all authenticator; positive fixtures inject opaque principal/credential/expiry bindings. T13's authenticator remains lease-free and unwired until the authority registry and production cutover checkpoints.
 
 Gateway validates the modern `2026-07-28` header/body protocol mirror and dispatches only sessionless POST requests to the official SDK's stateless transport. Per-request client metadata replaces initialization state in this era. Modern requests reject legacy session IDs, cannot fall through to legacy classification, propagate request cancellation, and advertise neither tools nor list-change capability.
 

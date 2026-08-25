@@ -139,7 +139,8 @@ func validatePrincipals(ctx context.Context, transaction *sql.Tx) (map[string]st
 		}
 		credentialPresent := credentialID.Valid || verifier != nil || fingerprint.Valid || credentialTime.Valid
 		credentialComplete := credentialID.Valid && len(verifier) == 32 && fingerprint.Valid && credentialTime.Valid
-		if credentialPresent != credentialComplete || credentialRevision == 0 && credentialComplete {
+		if credentialPresent != credentialComplete || credentialRevision == 0 && credentialComplete ||
+			state == string(contract.PrincipalDisabled) && credentialComplete {
 			return nil, errorsInvalidState("principal credential slot is malformed")
 		}
 		if credentialComplete {
