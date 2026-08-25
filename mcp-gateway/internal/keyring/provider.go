@@ -85,12 +85,14 @@ func (namespace Namespace) InstallationID() string { return namespace.installati
 func (namespace Namespace) Owner() string          { return namespace.owner }
 func (namespace Namespace) Kind() RecordKind       { return namespace.kind }
 
-type adapter interface {
+type Backend interface {
 	Probe(context.Context, string) error
 	Set(service, user, password string) error
 	Get(service, user string) (string, error)
 	Delete(service, user string) error
 }
+
+type adapter = Backend
 
 type workLimiter struct {
 	slot chan struct{}
@@ -111,6 +113,10 @@ type Provider struct {
 
 func NewProvider(installationID string) (*Provider, error) {
 	return newProviderWithAdapterAndLimiter(installationID, systemAdapter{}, globalWorkLimiter)
+}
+
+func NewProviderWithBackend(installationID string, backend Backend) (*Provider, error) {
+	return newProviderWithAdapter(installationID, backend)
 }
 
 func newProviderWithAdapter(installationID string, backend adapter) (*Provider, error) {

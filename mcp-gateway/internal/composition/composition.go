@@ -85,6 +85,22 @@ func (built *Composition) OAuthFlows() *oauth.FlowService              { return 
 func (built *Composition) Replacements() *servercredentials.Service    { return built.replacements }
 func (built *Composition) DisconnectService() *oauth.DisconnectService { return built.disconnect }
 func (built *Composition) RefreshService() *oauth.RefreshService       { return built.refresh }
+func (built *Composition) RuntimeStatus(serverID string) runtimes.Status {
+	return built.manager.Status(serverID)
+}
+func (built *Composition) RuntimeOccupancy() contract.LimitStatus { return built.owner.Status() }
+func (built *Composition) CatalogTraversalStatus() contract.LimitStatus {
+	return built.catalog.Status()
+}
+func (built *Composition) CatalogServerStatus(serverID string) contract.LimitStatus {
+	return built.catalog.ServerStatus(serverID)
+}
+func (built *Composition) DispatchStatus() contract.LimitStatus {
+	return built.activeCatalog.Routes().Status()
+}
+func (built *Composition) DispatchServerStatus(serverID string) contract.LimitStatus {
+	return built.activeCatalog.Routes().ServerStatus(serverID)
+}
 
 type startHooks struct {
 	afterBind         func(*Composition) error
@@ -228,8 +244,11 @@ func (publisher *activePublisher) Withdraw(candidate runtimes.Candidate) {
 }
 
 type constructorHooks struct {
-	before     func(string) error
-	startHooks startHooks
+	before         func(string) error
+	provider       func(string) (*keyring.Provider, error)
+	startStdio     runtimes.StdioStarter
+	newCoordinator runtimes.CoordinatorFactory
+	startHooks     startHooks
 }
 
 var mandatoryConstructorStages = []string{
@@ -304,7 +323,11 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err := check("provider"); err != nil {
 		return nil, err
 	}
-	built.provider, err = keyring.NewProvider(options.InstallationID)
+	providerFactory := hooks.provider
+	if providerFactory == nil {
+		providerFactory = keyring.NewProvider
+	}
+	built.provider, err = providerFactory(options.InstallationID)
 	if err != nil {
 		return nil, fmt.Errorf("construct provider: %w", err)
 	}
@@ -358,13 +381,18 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err := check("driver"); err != nil {
 		return nil, err
 	}
-	built.driver, err = runtimes.NewConcreteDriver(runtimes.ConcreteDriverOptions{
-		Owner: built.owner,
-		StartStdio: func(ctx context.Context, definition runtimes.StdioDefinition) (downstream.StdioRuntime, error) {
+	startStdio := hooks.startStdio
+	if startStdio == nil {
+		startStdio = func(ctx context.Context, definition runtimes.StdioDefinition) (downstream.StdioRuntime, error) {
 			return built.stdio.Start(ctx, definition)
-		},
-		HTTPFactory:   built.remoteFactory,
-		ReportFailure: built.callbacks.report,
+		}
+	}
+	built.driver, err = runtimes.NewConcreteDriver(runtimes.ConcreteDriverOptions{
+		Owner:          built.owner,
+		StartStdio:     startStdio,
+		HTTPFactory:    built.remoteFactory,
+		NewCoordinator: hooks.newCoordinator,
+		ReportFailure:  built.callbacks.report,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("construct driver: %w", err)
