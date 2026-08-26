@@ -17,7 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const modernList = `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"fixture","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`
+const (
+	modernList = `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"fixture","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`
+	modernPing = `{"jsonrpc":"2.0","id":1,"method":"ping","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"fixture","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`
+)
 
 func newModernBoundary(t *testing.T) (*Handler, *httpboundary.Boundary, *testAuthority) {
 	t.Helper()
@@ -44,7 +47,7 @@ func modernRequest(method, body string) *http.Request {
 	return request
 }
 
-func TestModernRequestUsesStatelessOfficialSDKWithoutCapabilities(t *testing.T) {
+func TestModernToolsListIsInterceptedWithoutCapabilities(t *testing.T) {
 	t.Parallel()
 	handler, boundary, authority := newModernBoundary(t)
 	for range 2 {
@@ -56,12 +59,12 @@ func TestModernRequestUsesStatelessOfficialSDKWithoutCapabilities(t *testing.T) 
 		assert.Empty(t, response.Header().Get("Mcp-Session-Id"))
 
 		var envelope struct {
-			Result struct {
-				Tools []any `json:"tools"`
-			} `json:"result"`
+			Error struct {
+				Code int `json:"code"`
+			} `json:"error"`
 		}
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
-		assert.Empty(t, envelope.Result.Tools)
+		assert.Equal(t, -32601, envelope.Error.Code)
 		assert.NotContains(t, response.Body.String(), "listChanged")
 	}
 	for _, lease := range authority.captured() {
@@ -88,7 +91,7 @@ func TestModernLeaseInvalidationCancelsInFlightRequest(t *testing.T) {
 		writer.WriteHeader(http.StatusNoContent)
 	})
 	boundary := newLegacyBoundary(t, handler)
-	request := modernRequest(http.MethodPost, modernList)
+	request := modernRequest(http.MethodPost, modernPing)
 	request.Header.Set("Mcp-Protocol-Version", contract.ModernProtocolVersion)
 	response := httptest.NewRecorder()
 	done := make(chan struct{})

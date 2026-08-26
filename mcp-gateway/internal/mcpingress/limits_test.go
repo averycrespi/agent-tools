@@ -16,7 +16,7 @@ func TestMCPWorkAndStreamLimitsRejectWithoutQueuing(t *testing.T) {
 	t.Parallel()
 	authority := newTestAuthority(t)
 	authority.add(t, "valid", contract.VisibilityRequestable)
-	leases := make([]*authorization.Lease, 34)
+	leases := make([]*authorization.Lease, 35)
 	for index := range leases {
 		var err error
 		leases[index], err = authority.Authenticate(t.Context(), contract.AgentBearerPrefix+"valid")
@@ -37,7 +37,7 @@ func TestMCPWorkAndStreamLimitsRejectWithoutQueuing(t *testing.T) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			request := modernRequest(http.MethodPost, modernList)
+			request := modernRequest(http.MethodPost, modernPing)
 			request.Header.Set("Mcp-Protocol-Version", contract.ModernProtocolVersion)
 			boundary.ServeHTTP(httptest.NewRecorder(), request)
 		}()
@@ -54,32 +54,33 @@ func TestMCPWorkAndStreamLimitsRejectWithoutQueuing(t *testing.T) {
 	assert.True(t, work.Saturated)
 	assert.Zero(t, streams.InUse)
 
-	request := modernRequest(http.MethodPost, modernList)
+	request := modernRequest(http.MethodPost, modernPing)
 	request.Header.Set("Mcp-Protocol-Version", contract.ModernProtocolVersion)
 	response := httptest.NewRecorder()
 	boundary.ServeHTTP(response, request)
 	require.Equal(t, http.StatusTooManyRequests, response.Code)
 	assert.True(t, leaseDone(leases[32]))
 
-	for range 32 {
-		handler.streams <- struct{}{}
-	}
 	close(releaseWork)
 	group.Wait()
 	for _, lease := range blockedLeases {
 		assert.True(t, leaseDone(lease))
 	}
-	streamBody := `{"jsonrpc":"2.0","id":1,"method":"subscriptions/listen","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"fixture","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`
-	request = modernRequest(http.MethodPost, streamBody)
-	request.Header.Set("Mcp-Protocol-Version", contract.ModernProtocolVersion)
+	sessionID := initializeLegacy(t, boundary)
+	for range 32 {
+		handler.streams <- struct{}{}
+	}
+	request = legacyRequest(http.MethodGet, "", "valid", sessionID)
 	response = httptest.NewRecorder()
 	boundary.ServeHTTP(response, request)
 	assert.Equal(t, http.StatusTooManyRequests, response.Code)
-	assert.True(t, leaseDone(leases[33]))
+	assert.True(t, leaseDone(leases[34]))
 	work, streams, _ = handler.Status()
 	assert.Zero(t, work.InUse)
 	assert.True(t, streams.Saturated)
 	for range 32 {
 		<-handler.streams
 	}
+	handler.Shutdown()
+	assert.True(t, leaseDone(leases[33]))
 }

@@ -228,7 +228,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			writeProblem(writer, code)
 			return
 		}
-		handler.serveLegacyExisting(writer, request, binding)
+		handler.serveLegacyExisting(writer, request, binding, nil)
 		return
 	}
 	if request.Method != http.MethodPost {
@@ -252,19 +252,15 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	request.Body = io.NopCloser(bytes.NewReader(body))
 	switch era {
 	case eraModern:
-		if wire.Method == "subscriptions/listen" {
-			if !tryAcquire(handler.streams) {
-				writeProblem(writer, contract.ProblemResourceLimit)
-				return
-			}
-			defer release(handler.streams)
+		if interceptFeature(writer, request, wire, era) {
+			return
 		}
 		request.Header.Set("Mcp-Method", wire.Method)
 		handler.modern.ServeHTTP(writer, request)
 	case eraLegacyInitialize:
 		handler.serveLegacyInitialize(writer, request, ownership)
 	case eraLegacyExisting:
-		handler.serveLegacyExisting(writer, request, binding)
+		handler.serveLegacyExisting(writer, request, binding, &wire)
 	default:
 		writeProblem(writer, contract.ProblemMalformedRequest)
 	}
@@ -318,18 +314,21 @@ const (
 
 type wireRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params"`
 }
 
 func classifyPOST(request *http.Request, body []byte) (wireRequest, requestEra, contract.ProblemCode) {
 	var wire wireRequest
-	if err := json.Unmarshal(body, &wire); err != nil || wire.JSONRPC != "2.0" || wire.Method == "" || len(wire.Params) == 0 {
+	if err := json.Unmarshal(body, &wire); err != nil || wire.JSONRPC != "2.0" || wire.Method == "" {
 		return wireRequest{}, eraInvalid, contract.ProblemMalformedRequest
 	}
 	var params map[string]json.RawMessage
-	if err := json.Unmarshal(wire.Params, &params); err != nil {
-		return wireRequest{}, eraInvalid, contract.ProblemMalformedRequest
+	if len(wire.Params) != 0 {
+		if err := json.Unmarshal(wire.Params, &params); err != nil {
+			return wireRequest{}, eraInvalid, contract.ProblemMalformedRequest
+		}
 	}
 	var initializeVersion string
 	if value := params["protocolVersion"]; value != nil {
@@ -456,7 +455,7 @@ func (handler *Handler) serveLegacyInitialize(writer http.ResponseWriter, reques
 	}
 }
 
-func (handler *Handler) serveLegacyExisting(writer http.ResponseWriter, request *http.Request, binding authorization.CredentialBinding) {
+func (handler *Handler) serveLegacyExisting(writer http.ResponseWriter, request *http.Request, binding authorization.CredentialBinding, wire *wireRequest) {
 	sessionID := request.Header.Get("Mcp-Session-Id")
 	now := handler.now()
 	handler.mu.Lock()
@@ -493,6 +492,9 @@ func (handler *Handler) serveLegacyExisting(writer http.ResponseWriter, request 
 	}
 	if request.Method == http.MethodDelete {
 		defer finishLegacySession(sessionID, session, false)
+	}
+	if wire != nil && interceptFeature(writer, request, *wire, eraLegacyExisting) {
+		return
 	}
 	session.handler.ServeHTTP(writer, request)
 }
