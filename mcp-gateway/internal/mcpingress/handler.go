@@ -331,9 +331,12 @@ func classifyPOST(request *http.Request, body []byte) (wireRequest, requestEra, 
 	if err := json.Unmarshal(body, &wire); err != nil || wire.JSONRPC != "2.0" || wire.Method == "" {
 		return wireRequest{}, eraInvalid, contract.ProblemMalformedRequest
 	}
+	if wire.Method == "tools/call" && len(wire.ID) != 0 && !validToolsCallID(wire.ID) {
+		return wireRequest{}, eraInvalid, contract.ProblemMalformedRequest
+	}
 	var params map[string]json.RawMessage
 	if len(wire.Params) != 0 {
-		if err := json.Unmarshal(wire.Params, &params); err != nil {
+		if err := json.Unmarshal(wire.Params, &params); err != nil && wire.Method != "tools/call" {
 			return wireRequest{}, eraInvalid, contract.ProblemMalformedRequest
 		}
 	}

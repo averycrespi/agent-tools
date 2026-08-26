@@ -54,7 +54,7 @@ func TestServiceClassifiesAndAuditsEveryRecognizableBranch(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			response := service.Call(context.Background(), lease, test.params)
+			response := service.Call(context.Background(), lease, CallRequest{Params: test.params, WireValid: true})
 
 			assert.Equal(t, contract.CallRejected, response.ErrorCode)
 			assert.NotEmpty(t, response.InvocationID)
@@ -109,7 +109,7 @@ func TestServiceDispatchesPinnedAllowOnceAfterGateRelease(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	response := service.Call(context.Background(), lease, callParams(`{"name":"namespace.tool","arguments":{"value":1e0,"token":"raw"}}`))
+	response := service.Call(context.Background(), lease, CallRequest{Params: callParams(`{"name":"namespace.tool","arguments":{"value":1e0,"token":"raw"}}`), WireValid: true})
 
 	require.NotNil(t, response.Result)
 	assert.Empty(t, response.ErrorCode)
@@ -185,6 +185,30 @@ func TestServiceMapsAdmissionFailuresWithoutDispatch(t *testing.T) {
 		assert.Zero(t, acquisitions)
 		assert.True(t, audits.store.Latched())
 	})
+}
+
+func TestServiceWireInvalidParamsPreserveSafeFieldsWithoutResolution(t *testing.T) {
+	_, audits, authority, _, credential := newAdmissionCoordinator(t, nil)
+	lease, err := authority.Authenticate(context.Background(), credential.Bearer)
+	require.NoError(t, err)
+	defer lease.Release()
+	resolutions := 0
+	service, err := newService(audits, authority, func(string) (callTarget, bool) {
+		resolutions++
+		return callTarget{}, false
+	})
+	require.NoError(t, err)
+
+	response := service.Call(context.Background(), lease, CallRequest{
+		Params: callParams(`{"name":"namespace.tool","arguments":{"token":"private"}}`),
+	})
+
+	assert.Equal(t, contract.CallRejected, response.ErrorCode)
+	assert.Zero(t, resolutions)
+	record := onlyInvocationRecord(t, audits)
+	assert.Equal(t, contract.AdmissionInvalidParams, record.AdmissionClass)
+	assert.Equal(t, "namespace.tool", *record.RequestedName)
+	assert.Equal(t, `{"token":"[REDACTED]"}`, *record.RedactedArguments)
 }
 
 func TestServiceIdentityFailuresNeverInsertOrDispatch(t *testing.T) {
@@ -401,8 +425,8 @@ func serviceCallTarget(validationErr error, acquire func(context.Context) (execu
 	}
 }
 
-func validCallParams() strictjson.Value {
-	return callParams(`{"name":"namespace.tool","arguments":{}}`)
+func validCallParams() CallRequest {
+	return CallRequest{Params: callParams(`{"name":"namespace.tool","arguments":{}}`), WireValid: true}
 }
 
 func callParams(raw string) strictjson.Value {

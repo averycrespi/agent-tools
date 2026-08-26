@@ -12,6 +12,11 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
 
+type CallRequest struct {
+	Params    strictjson.Value
+	WireValid bool
+}
+
 type CallResponse struct {
 	Result       *ProjectedCallResult
 	ErrorCode    contract.AgentCallErrorCode
@@ -69,9 +74,9 @@ func newService(audits *Repository, authority *authorization.Repository, resolve
 	return &Service{audits: audits, admissions: admissions, resolve: resolve}, nil
 }
 
-func (service *Service) Call(ctx context.Context, lease *authorization.Lease, params strictjson.Value) CallResponse {
-	classified := classifyCallParameters(params)
-	request := AuditAdmissionRequest{
+func (service *Service) Call(ctx context.Context, lease *authorization.Lease, request CallRequest) CallResponse {
+	classified := classifyCallParameters(request.Params, request.WireValid)
+	admissionRequest := AuditAdmissionRequest{
 		Class:             contract.AdmissionInvalidParams,
 		RequestedName:     classified.name,
 		RedactedArguments: redactAvailableArguments(classified.arguments),
@@ -80,27 +85,27 @@ func (service *Service) Call(ctx context.Context, lease *authorization.Lease, pa
 	if classified.valid {
 		resolved, found := service.resolve(*classified.name)
 		if !found || !validCallTarget(resolved) {
-			request.Class = contract.AdmissionUnknownTool
+			admissionRequest.Class = contract.AdmissionUnknownTool
 		} else {
 			target = resolved
 			route := resolved.evidence
-			request.Route = &route
+			admissionRequest.Route = &route
 			if err := resolved.validate(*classified.arguments); err != nil {
-				request.Class = contract.AdmissionInvalidArguments
+				admissionRequest.Class = contract.AdmissionInvalidArguments
 			} else {
-				request.Class = contract.AdmissionEvaluated
-				request.Arguments = *classified.arguments
+				admissionRequest.Class = contract.AdmissionEvaluated
+				admissionRequest.Arguments = *classified.arguments
 			}
 		}
 	}
-	if classified.arguments != nil && request.RedactedArguments == nil {
+	if classified.arguments != nil && admissionRequest.RedactedArguments == nil {
 		return CallResponse{ErrorCode: contract.AuditUnavailable}
 	}
 	identity, err := service.audits.PrepareIdentity()
 	if err != nil {
 		return CallResponse{ErrorCode: contract.AuditUnavailable}
 	}
-	admission, err := service.admissions.Admit(ctx, lease, identity, request)
+	admission, err := service.admissions.Admit(ctx, lease, identity, admissionRequest)
 	if !admission.Committed {
 		return CallResponse{ErrorCode: contract.AuditUnavailable}
 	}
@@ -135,11 +140,11 @@ type classifiedCallParameters struct {
 	valid     bool
 }
 
-func classifyCallParameters(params strictjson.Value) classifiedCallParameters {
+func classifyCallParameters(params strictjson.Value, wireValid bool) classifiedCallParameters {
 	if params.Type != strictjson.ValueObject {
 		return classifiedCallParameters{}
 	}
-	result := classifiedCallParameters{valid: true}
+	result := classifiedCallParameters{valid: wireValid}
 	seen := make(map[string]bool, len(params.Object))
 	for _, member := range params.Object {
 		if seen[member.Name] {

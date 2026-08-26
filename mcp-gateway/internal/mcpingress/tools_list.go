@@ -154,8 +154,23 @@ func interceptFeature(
 	listTools ToolsListService,
 	lease *authorization.Lease,
 ) bool {
+	return interceptFeatureWithCall(writer, request, wire, era, listTools, nil, lease)
+}
+
+func interceptFeatureWithCall(
+	writer http.ResponseWriter,
+	request *http.Request,
+	wire wireRequest,
+	era requestEra,
+	listTools ToolsListService,
+	callTools ToolsCallService,
+	lease *authorization.Lease,
+) bool {
 	if sdkLifecycleMethod(era, wire.Method) {
 		return false
+	}
+	if wire.Method == "tools/call" && callTools != nil {
+		return interceptToolsCall(writer, request, wire, callTools, lease)
 	}
 	kind := rpcMethodNotFound
 	if wire.Method == "tools/list" {
