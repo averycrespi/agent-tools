@@ -1,6 +1,7 @@
 package downstream
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -168,6 +169,102 @@ func TestCallFailureClassComesOnlyFromMonotonicHandoffMarker(t *testing.T) {
 			assert.ErrorIs(t, result.Err, test.err)
 		})
 	}
+}
+
+func TestCallCompleteInvalidResponsesAreKnownFailures(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body []byte
+		err  error
+	}{
+		{name: "malformed", body: []byte(`{"jsonrpc":"2.0","id":1,"result":`)},
+		{name: "oversized", body: bytes.Repeat([]byte("x"), int(limit("downstream_mcp_body_bytes"))+1)},
+		{name: "mismatched ID", body: []byte(`{"jsonrpc":"2.0","id":2,"result":{}}`), err: ErrResponseMismatch},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &callTransport{kind: TransportStdio, response: WireResponse{Body: test.body}}
+			runtime := runtimeForCall(t, EraModern, "", transport)
+			call, err := runtime.NewCall("tool", json.RawMessage(`{}`))
+			require.NoError(t, err)
+
+			result := call.Execute(context.Background())
+
+			assert.Equal(t, FailureResponseInvalid, result.Failure)
+			if test.err != nil {
+				assert.ErrorIs(t, result.Err, test.err)
+			} else {
+				assert.ErrorIs(t, result.Err, ErrInvalidMessage)
+			}
+			assert.Len(t, transport.messages, 1)
+		})
+	}
+}
+
+func TestCallCompleteJSONRPCErrorRemainsReceivedResponse(t *testing.T) {
+	transport := &callTransport{kind: TransportStdio, response: WireResponse{Body: []byte(`{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"private failure","data":{"secret":"canary"}}}`)}}
+	runtime := runtimeForCall(t, EraModern, "", transport)
+	call, err := runtime.NewCall("tool", json.RawMessage(`{}`))
+	require.NoError(t, err)
+
+	result := call.Execute(context.Background())
+
+	require.NoError(t, result.Err)
+	assert.Empty(t, result.Failure)
+	require.NotNil(t, result.Response.Error)
+	assert.Equal(t, int64(-32000), result.Response.Error.Code)
+	assert.Len(t, transport.messages, 1)
+}
+
+func TestCallCancellationBeforeEntryIsPreStart(t *testing.T) {
+	transport := &callTransport{kind: TransportStdio}
+	runtime := runtimeForCall(t, EraModern, "", transport)
+	call, err := runtime.NewCall("tool", json.RawMessage(`{}`))
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result := call.Execute(ctx)
+
+	assert.Equal(t, FailurePreStart, result.Failure)
+	assert.ErrorIs(t, result.Err, context.Canceled)
+	assert.Empty(t, transport.messages)
+}
+
+func TestCallDeadlineAfterHandoffRemainsStartUncertain(t *testing.T) {
+	transport := &callTransport{kind: TransportHTTP, handedOff: make(chan struct{}), waitForCancel: true}
+	runtime := runtimeForCall(t, EraModern, "", transport)
+	deadlineCtx, expire := context.WithCancel(context.Background())
+	runtime.callDeadline = func(context.Context, time.Duration) (context.Context, context.CancelFunc) {
+		return deadlineCtx, func() {}
+	}
+	call, err := runtime.NewCall("tool", json.RawMessage(`{}`))
+	require.NoError(t, err)
+	done := make(chan CallResult, 1)
+	go func() { done <- call.Execute(context.Background()) }()
+	<-transport.handedOff
+	expire()
+
+	result := <-done
+
+	assert.Equal(t, FailureStartUncertain, result.Failure)
+	assert.ErrorIs(t, result.Err, context.Canceled)
+	assert.Len(t, transport.messages, 1)
+}
+
+func TestRealStdioResponseStreamLossAfterHandoffIsStartUncertain(t *testing.T) {
+	runtimeProcess := &fakeStdio{frames: make(chan []byte), input: new(bytes.Buffer), stopResult: true}
+	close(runtimeProcess.frames)
+	transport, err := NewStdioTransport(runtimeProcess)
+	require.NoError(t, err)
+	runtime := runtimeForCall(t, EraLegacy, "", transport)
+	call, err := runtime.NewCall("tool", json.RawMessage(`{}`))
+	require.NoError(t, err)
+
+	result := call.Execute(context.Background())
+
+	assert.Equal(t, FailureStartUncertain, result.Failure)
+	assert.ErrorIs(t, result.Err, ErrTransportClosed)
+	assert.NotEmpty(t, runtimeProcess.input.String())
 }
 
 func TestRealStdioPartialWriteMarksAttemptStartUncertain(t *testing.T) {

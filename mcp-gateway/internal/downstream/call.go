@@ -15,8 +15,9 @@ var ErrCallConsumed = errors.New("downstream call is already consumed")
 type FailureClass string
 
 const (
-	FailurePreStart       FailureClass = "pre_start"
-	FailureStartUncertain FailureClass = "start_uncertain"
+	FailurePreStart        FailureClass = "pre_start"
+	FailureResponseInvalid FailureClass = "response_invalid"
+	FailureStartUncertain  FailureClass = "start_uncertain"
 )
 
 type CallResult struct {
@@ -90,11 +91,12 @@ func (call *Call) Execute(ctx context.Context) CallResult {
 	stopCancellationWatch := context.AfterFunc(executeCtx, func() {
 		_ = call.requestCancellation(context.Background())
 	})
-	response, err := call.perform(executeCtx)
+	response, completeResponse, err := call.perform(executeCtx)
 	if executeCtx.Err() != nil {
 		_ = call.requestCancellation(context.Background())
 		if err == nil {
 			err = executeCtx.Err()
+			completeResponse = false
 		}
 	}
 	handedOff := call.finish(true)
@@ -102,7 +104,9 @@ func (call *Call) Execute(ctx context.Context) CallResult {
 	cancel()
 	if err != nil {
 		failure := FailurePreStart
-		if handedOff {
+		if completeResponse {
+			failure = FailureResponseInvalid
+		} else if handedOff {
 			failure = FailureStartUncertain
 		}
 		return CallResult{Failure: failure, Err: err}
@@ -114,7 +118,7 @@ func (call *Call) Cancel(ctx context.Context) error {
 	return call.requestCancellation(ctx)
 }
 
-func (call *Call) perform(ctx context.Context) (Response, error) {
+func (call *Call) perform(ctx context.Context) (Response, bool, error) {
 	call.runtime.mu.Lock()
 	era := call.runtime.era
 	sessionID := call.runtime.sessionID
@@ -122,7 +126,7 @@ func (call *Call) perform(ctx context.Context) (Response, error) {
 	closed := call.runtime.closed
 	call.runtime.mu.Unlock()
 	if closed {
-		return Response{}, ErrTransportClosed
+		return Response{}, false, ErrTransportClosed
 	}
 	params := append(json.RawMessage(nil), call.params...)
 	version := contract.LegacyProtocolVersion
@@ -131,7 +135,7 @@ func (call *Call) perform(ctx context.Context) (Response, error) {
 		var err error
 		params, err = addModernMetadata(params)
 		if err != nil {
-			return Response{}, err
+			return Response{}, false, err
 		}
 	}
 	requestID, wire, err := coordinator.rawRequest(ctx, "tools/call", params, RequestOptions{
@@ -143,13 +147,14 @@ func (call *Call) perform(ctx context.Context) (Response, error) {
 		MarkHandoff:      call.markHandoff,
 	})
 	if err != nil {
-		return Response{}, err
+		return Response{}, false, err
 	}
 	if !runtimeSessionCurrent(era, sessionID, wire) {
 		_ = call.runtime.Close(context.Background())
-		return Response{}, ErrSessionLost
+		return Response{}, false, ErrSessionLost
 	}
-	return decodeNegotiationResponse(requestID, wire)
+	response, err := decodeNegotiationResponse(requestID, wire)
+	return response, true, err
 }
 
 func cloneParameterHeaders(source map[string]string) map[string]string {
