@@ -9,6 +9,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestTrackedDocsDescribeCurrentS3Boundary(t *testing.T) {
+	t.Parallel()
+
+	documents := map[string][]string{
+		"../../README.md": {
+			"principal-filtered descriptor discovery", "Principals, credentials, and grants", "agent_credential_creation",
+			"`tools/call` and every other non-lifecycle feature method return fixed `-32601 Method not found`; no active capability is acquired",
+			"Backup restore preserves principals and grants but clears every restored agent credential",
+		},
+		"../../DESIGN.md": {
+			"positive principal-credential authentication", "Implemented S3 request mechanics", "Agent discovery enumerates descriptor projections independently without acquiring capabilities",
+			"S3 principal credentials authenticate production `/mcp`", "They do not enable a production capability consumer, tool invocation or invocation audit",
+		},
+		"../../CLAUDE.md": {
+			"Immutable S1–S3 routes", "principal/credential/grant/current-catalog/raw-MCP helpers", "Production does authenticate current principal credentials",
+			"do not infer `tools/call` routing, durable invocation/audit, Gateway-owned self-service tools, or product-UI behavior",
+		},
+	}
+	prohibited := []string{
+		"the executable does not yet accept production agent authority",
+		"production MCP authentication is unavailable",
+		"are not yet used for positive MCP authentication",
+		"do not infer positive agent authentication",
+		"no endpoint emits CORS headers or ETags",
+		"sole S1/S2 vocabulary owner",
+		"The current S2 checkpoint",
+		"The final S1 binary",
+		"cannot authorize, audit, persist, present, enumerate to agents",
+	}
+	for path, required := range documents {
+		contents, err := os.ReadFile(path)
+		require.NoError(t, err, path)
+		text := string(contents)
+		for _, phrase := range required {
+			require.Contains(t, text, phrase, "%s: missing current S3 claim", path)
+		}
+		for _, phrase := range prohibited {
+			require.NotContains(t, text, phrase, "%s: obsolete current-state claim", path)
+		}
+	}
+}
+
 func TestDesignDocumentsTheExecutableContract(t *testing.T) {
 	t.Parallel()
 
