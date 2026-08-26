@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync/atomic"
 
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
@@ -19,7 +20,7 @@ import (
 
 const (
 	ApplicationID           = 0x4d475731
-	CurrentSchema           = 8
+	CurrentSchema           = 9
 	BusyTimeoutMilliseconds = 2000
 	connectionLimit         = 4
 )
@@ -35,7 +36,7 @@ var (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql"}
+var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql"}
 
 type Identity struct {
 	InstallationID string
@@ -366,7 +367,94 @@ func (store *Store) verify(ctx context.Context) error {
 			return fmt.Errorf("%w: migration history is not ordered", ErrInvalidDatabase)
 		}
 	}
+	if err := store.verifyInvocationStructure(ctx); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
+	}
 	return nil
+}
+
+func (store *Store) verifyInvocationStructure(ctx context.Context) error {
+	expectedColumns := []string{
+		"insertion_sequence", "id", "principal_id", "credential_id", "credential_fingerprint", "credential_revision",
+		"admitted_at", "admission_class", "requested_name", "redacted_arguments", "server_id", "tool_id", "upstream_name",
+		"descriptor_revision", "descriptor_fingerprint", "decision", "authorization_revision", "evaluated_at", "grant_id",
+		"completed_at", "terminal_class",
+	}
+	rows, err := store.database.QueryContext(ctx, `SELECT name FROM pragma_table_info('invocations') ORDER BY cid`)
+	if err != nil {
+		return fmt.Errorf("read invocation columns: %w", err)
+	}
+	columns := make([]string, 0, len(expectedColumns))
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("read invocation column: %w", err)
+		}
+		columns = append(columns, column)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("iterate invocation columns: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close invocation columns: %w", err)
+	}
+	if len(columns) != len(expectedColumns) {
+		return fmt.Errorf("invocations has %d columns", len(columns))
+	}
+	for index := range expectedColumns {
+		if columns[index] != expectedColumns[index] {
+			return fmt.Errorf("invocations column %d is %q", index, columns[index])
+		}
+	}
+
+	var tableSQL string
+	if err := store.database.QueryRowContext(ctx, `SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'invocations'`).Scan(&tableSQL); err != nil {
+		return fmt.Errorf("read invocation table: %w", err)
+	}
+	normalizedTable := normalizeSchemaSQL(tableSQL)
+	for _, fragment := range []string{
+		"primary key autoincrement", "json_valid(redacted_arguments)", "length(cast(redacted_arguments as blob)) <= 8192",
+		"server_id is null and tool_id is null", "admission_class = 'evaluated' and decision is not null",
+		"completed_at is not null and terminal_class is not null", ") strict",
+		"'invalid_params'", "'unknown_tool'", "'invalid_arguments'", "'authorization_unavailable'", "'evaluated'",
+		"'prestart_failure'", "'succeeded'", "'downstream_failure'", "'outcome_unknown'",
+	} {
+		if !strings.Contains(normalizedTable, fragment) {
+			return fmt.Errorf("invocation table is missing %q", fragment)
+		}
+	}
+
+	var indexSQL, triggerSQL string
+	if err := store.database.QueryRowContext(ctx, `SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = 'invocations_id'`).Scan(&indexSQL); err != nil {
+		return fmt.Errorf("read invocation ID index: %w", err)
+	}
+	if normalizeSchemaSQL(indexSQL) != "create unique index invocations_id on invocations (id)" {
+		return fmt.Errorf("invocation ID index does not match")
+	}
+	if err := store.database.QueryRowContext(ctx, `SELECT sql FROM sqlite_schema WHERE type = 'trigger' AND name = 'invocations_terminal_once'`).Scan(&triggerSQL); err != nil {
+		return fmt.Errorf("read invocation terminal trigger: %w", err)
+	}
+	normalizedTrigger := normalizeSchemaSQL(triggerSQL)
+	for _, fragment := range []string{
+		"before update on invocations", "old.completed_at is null", "old.terminal_class is null",
+		"new.completed_at is not null", "new.terminal_class is not null", "raise(abort, 'invocation admission is immutable')",
+	} {
+		if !strings.Contains(normalizedTrigger, fragment) {
+			return fmt.Errorf("invocation terminal trigger is missing %q", fragment)
+		}
+	}
+	for _, column := range expectedColumns[:len(expectedColumns)-2] {
+		if !strings.Contains(normalizedTrigger, "new."+column+" is old."+column) {
+			return fmt.Errorf("invocation terminal trigger does not preserve %s", column)
+		}
+	}
+	return nil
+}
+
+func normalizeSchemaSQL(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(value), " "))
 }
 
 func inspectDatabase(ctx context.Context, path string) (int, error) {

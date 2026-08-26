@@ -22,6 +22,21 @@ func TestSchemaSevenFixtureMigratesWithRealSQLite(t *testing.T) {
 	defer func() { require.NoError(t, store.Close()) }()
 	assertPopulatedSchemaSevenFacts(t, ctx, store.database)
 	assertSchemaEightFoundation(t, ctx, store.database)
+	assertSchemaNineInvocationFoundation(t, ctx, store.database)
+}
+
+func TestPopulatedSchemaEightMigratesToNineWithRealSQLite(t *testing.T) {
+	ctx := context.Background()
+	ownership := newOwnership(t)
+	writePopulatedSchemaEightFixture(t, ctx, ownership)
+
+	store, err := Open(ctx, ownership)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close()) }()
+	assertSchemaNineInvocationFoundation(t, ctx, store.database)
+	var principals int
+	require.NoError(t, store.database.QueryRowContext(ctx, `SELECT count(*) FROM principals`).Scan(&principals))
+	assert.Equal(t, 1, principals)
 }
 
 func TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline(t *testing.T) {

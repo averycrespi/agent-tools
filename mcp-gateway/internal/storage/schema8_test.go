@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInitializeSeedsExactSchemaEightAuthorityFoundation(t *testing.T) {
+func TestInitializePreservesExactSchemaEightAuthorityFoundation(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
 	store, err := Initialize(ctx, ownership, testInstallationID)
@@ -19,6 +19,7 @@ func TestInitializeSeedsExactSchemaEightAuthorityFoundation(t *testing.T) {
 	defer func() { require.NoError(t, store.Close()) }()
 
 	assertSchemaEightFoundation(t, ctx, store.database)
+	assertSchemaNineInvocationFoundation(t, ctx, store.database)
 	assert.Equal(t, expectedMigrationVersions(), mustMigrationVersions(t, store, ctx))
 }
 
@@ -37,6 +38,7 @@ func TestOpenMigratesPopulatedSchemaSevenWithoutChangingS2Facts(t *testing.T) {
 
 	assertPopulatedSchemaSevenFacts(t, ctx, store.database)
 	assertSchemaEightFoundation(t, ctx, store.database)
+	assertSchemaNineInvocationFoundation(t, ctx, store.database)
 }
 
 func TestOpenReplacementMigratesAcceptedSchemaSevenBackup(t *testing.T) {
@@ -54,9 +56,10 @@ func TestOpenReplacementMigratesAcceptedSchemaSevenBackup(t *testing.T) {
 	defer func() { require.NoError(t, replacement.Close()) }()
 	assertPopulatedSchemaSevenFacts(t, ctx, replacement.database)
 	assertSchemaEightFoundation(t, ctx, replacement.database)
+	assertSchemaNineInvocationFoundation(t, ctx, replacement.database)
 }
 
-func TestVerifyBackupRejectsSchemaNewerThanEight(t *testing.T) {
+func TestVerifyBackupRejectsSchemaNewerThanNine(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
 	store, err := Initialize(ctx, ownership, testInstallationID)
@@ -64,7 +67,7 @@ func TestVerifyBackupRejectsSchemaNewerThanEight(t *testing.T) {
 	require.NoError(t, store.Close())
 
 	raw := openRaw(t, ownership.Layout().Database)
-	_, err = raw.Exec(`PRAGMA user_version = 9`)
+	_, err = raw.Exec(`PRAGMA user_version = 10`)
 	require.NoError(t, err)
 	require.NoError(t, raw.Close())
 
@@ -107,7 +110,6 @@ func TestSchemaEightChecksRejectPartialAuthorityRows(t *testing.T) {
 func assertSchemaEightFoundation(t *testing.T, ctx context.Context, database *sql.DB) {
 	t.Helper()
 
-	assert.Equal(t, 8, CurrentSchema)
 	expectedColumns := map[string][]string{
 		"synthetic_server_identity": {"singleton", "server_id", "namespace"},
 		"authorization_meta":        {"singleton", "revision"},
