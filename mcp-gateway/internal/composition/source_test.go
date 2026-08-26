@@ -126,9 +126,6 @@ func TestProductionPersistenceAndCapabilitySliceGuards(t *testing.T) {
 		}
 	}
 	for _, source := range productionSources(t, root) {
-		if strings.HasPrefix(source.path, "internal/catalog/") || strings.HasPrefix(source.path, "internal/downstream/") {
-			continue
-		}
 		for _, symbol := range []string{"Routes().Resolve(", ".Acquire(ctx"} {
 			if strings.Contains(source.contents, symbol) {
 				t.Errorf("%s: prohibited capability consumer %s", source.path, symbol)

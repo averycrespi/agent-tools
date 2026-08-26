@@ -133,6 +133,12 @@ func (fixture *rawHTTPFixture) SetMode(mode string) {
 	fixture.mode = mode
 }
 
+func (fixture *rawHTTPFixture) SetTools(tools []fixtureTool) {
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	fixture.tools = append([]fixtureTool{}, tools...)
+}
+
 func (fixture *rawHTTPFixture) LoseSession() {
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
