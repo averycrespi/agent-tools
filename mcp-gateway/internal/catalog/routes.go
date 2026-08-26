@@ -12,11 +12,23 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 )
 
+type CallTarget struct {
+	ExternalName          string
+	ServerID              string
+	ToolID                string
+	UpstreamName          string
+	DescriptorRevision    string
+	DescriptorFingerprint string
+	Validator             *InputValidator
+	Capability            *downstream.Capability
+}
+
 type routeEntry struct {
 	serverID          string
 	runtimeID         string
 	runtimeGeneration uint64
-	capability        *downstream.Capability
+	externalName      string
+	target            CallTarget
 }
 
 type RouteRegistry struct {
@@ -24,6 +36,7 @@ type RouteRegistry struct {
 	dispatcher *downstream.Dispatcher
 	active     *ActiveRegistry
 	tools      map[string]routeEntry
+	names      map[string]routeEntry
 }
 
 func newRouteRegistry(active *ActiveRegistry) (*RouteRegistry, error) {
@@ -31,7 +44,7 @@ func newRouteRegistry(active *ActiveRegistry) (*RouteRegistry, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &RouteRegistry{dispatcher: dispatcher, active: active, tools: make(map[string]routeEntry)}, nil
+	return &RouteRegistry{dispatcher: dispatcher, active: active, tools: make(map[string]routeEntry), names: make(map[string]routeEntry)}, nil
 }
 
 func (registry *RouteRegistry) Resolve(toolID string) (*downstream.Capability, bool) {
@@ -40,7 +53,23 @@ func (registry *RouteRegistry) Resolve(toolID string) (*downstream.Capability, b
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
 	entry, ok := registry.tools[toolID]
-	return entry.capability, ok
+	return entry.target.Capability, ok
+}
+
+func (registry *RouteRegistry) ResolveCall(externalName string) (CallTarget, bool) {
+	registry.active.mu.RLock()
+	defer registry.active.mu.RUnlock()
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	entry, ok := registry.names[externalName]
+	if !ok || registry.active.draining.Load() {
+		return CallTarget{}, false
+	}
+	snapshot, ok := registry.active.servers[entry.serverID]
+	if !ok || snapshot.State != contract.ActiveCatalogCurrent {
+		return CallTarget{}, false
+	}
+	return entry.target, true
 }
 
 func (registry *RouteRegistry) Status() contract.LimitStatus { return registry.dispatcher.Status() }
@@ -64,13 +93,22 @@ func (registry *RouteRegistry) replace(publication Publication, tools []ActiveTo
 			if err != nil {
 				return nil, err
 			}
-			prepared[binding.ToolID] = routeEntry{serverID: binding.ServerID, runtimeID: binding.RuntimeID, runtimeGeneration: binding.RuntimeGeneration, capability: capability}
+			target := CallTarget{
+				ExternalName: tool.Record.Resource.ExternalName, ServerID: binding.ServerID, ToolID: binding.ToolID,
+				UpstreamName: binding.UpstreamName, DescriptorRevision: tool.Record.Resource.CatalogRevision,
+				DescriptorFingerprint: tool.Record.Resource.Fingerprint, Validator: tool.validator, Capability: capability,
+			}
+			prepared[binding.ToolID] = routeEntry{
+				serverID: binding.ServerID, runtimeID: binding.RuntimeID, runtimeGeneration: binding.RuntimeGeneration,
+				externalName: target.ExternalName, target: target,
+			}
 		}
 	}
 	registry.mu.Lock()
 	old := registry.removeServerLocked(publication.Fence.ServerID, "", 0)
 	for toolID, entry := range prepared {
 		registry.tools[toolID] = entry
+		registry.names[entry.externalName] = entry
 	}
 	registry.mu.Unlock()
 	return old, nil
@@ -87,8 +125,9 @@ func (registry *RouteRegistry) withdrawAll() []*downstream.Capability {
 	defer registry.mu.Unlock()
 	result := make([]*downstream.Capability, 0, len(registry.tools))
 	for toolID, entry := range registry.tools {
-		entry.capability.Fence()
-		result = append(result, entry.capability)
+		entry.target.Capability.Fence()
+		result = append(result, entry.target.Capability)
+		delete(registry.names, entry.externalName)
 		delete(registry.tools, toolID)
 	}
 	return result
@@ -100,8 +139,9 @@ func (registry *RouteRegistry) removeServerLocked(serverID, runtimeID string, ru
 		if entry.serverID != serverID || runtimeID != "" && entry.runtimeID != runtimeID || runtimeGeneration != 0 && entry.runtimeGeneration != runtimeGeneration {
 			continue
 		}
-		entry.capability.Fence()
-		result = append(result, entry.capability)
+		entry.target.Capability.Fence()
+		result = append(result, entry.target.Capability)
+		delete(registry.names, entry.externalName)
 		delete(registry.tools, toolID)
 	}
 	return result

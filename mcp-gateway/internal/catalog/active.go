@@ -79,8 +79,9 @@ type CurrentSnapshot struct {
 }
 
 type ActiveTool struct {
-	Record   DescriptorRecord
-	Bindings []HeaderBinding
+	Record    DescriptorRecord
+	Bindings  []HeaderBinding
+	validator *InputValidator
 }
 
 type activeServerSnapshot struct {
@@ -142,6 +143,9 @@ func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publica
 	if !publication.Current() {
 		return ActiveStatus{}, servers.ErrStaleRevision
 	}
+	if registry.externalNameCollisionLocked(publication.Fence.ServerID, publication.Candidate.Tools) {
+		return ActiveStatus{}, servers.ErrInvalidInput
+	}
 	if err := registry.repository.projectCommit(ctx, publication.Fence, publication.Candidate); err != nil {
 		return ActiveStatus{}, err
 	}
@@ -173,7 +177,11 @@ func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publica
 	}
 	tools := make([]ActiveTool, 0, len(records))
 	for _, record := range records {
-		tools = append(tools, ActiveTool{Record: cloneDescriptorRecord(record), Bindings: bindings[record.Resource.UpstreamName]})
+		validator, err := compileInputValidator(record.Resource.Descriptor.InputSchema)
+		if err != nil {
+			return ActiveStatus{}, durableOnlyFailure(PublicationFailureStorage, err)
+		}
+		tools = append(tools, ActiveTool{Record: cloneDescriptorRecord(record), Bindings: bindings[record.Resource.UpstreamName], validator: validator})
 	}
 	revision := ""
 	if durable.Revision != nil {
@@ -202,6 +210,27 @@ func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publica
 	registry.advanceLocked()
 	go withdrawCapabilities(context.WithoutCancel(ctx), oldRoutes)
 	return activeStatus(snapshot), nil
+}
+
+func (registry *ActiveRegistry) externalNameCollisionLocked(serverID string, tools []NormalizedTool) bool {
+	names := make(map[string]struct{}, len(tools))
+	for _, tool := range tools {
+		if _, duplicate := names[tool.ExternalName]; duplicate {
+			return true
+		}
+		names[tool.ExternalName] = struct{}{}
+	}
+	for currentServerID, snapshot := range registry.servers {
+		if currentServerID == serverID {
+			continue
+		}
+		for _, tool := range snapshot.Tools {
+			if _, collision := names[tool.Record.Resource.ExternalName]; collision {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (registry *ActiveRegistry) MarkStale(serverID, runtimeID string, issueCount int64) bool {
