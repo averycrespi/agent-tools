@@ -80,7 +80,7 @@ func TestS3ProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) {
 		{Name: "constraint_pointer_bytes", Maximum: 256},
 	}
 	limits := FixedLimits()
-	require.Equal(t, expectedLimits, limits[len(limits)-len(expectedLimits):])
+	require.Equal(t, expectedLimits, limits[len(limits)-len(expectedLimits)-2:len(limits)-2])
 	for _, limit := range expectedLimits {
 		require.True(t, limit.Allows(limit.Maximum), limit.Name)
 		require.False(t, limit.Allows(limit.Maximum+1), limit.Name)

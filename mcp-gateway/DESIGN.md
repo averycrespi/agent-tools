@@ -215,6 +215,8 @@ Every maximum accepts N and rejects N+1. Values below zero are invalid. These ar
 | `constraint_atoms`                   |         16 |
 | `constraint_bytes`                   |       8192 |
 | `constraint_pointer_bytes`           |        256 |
+| `invocation_audit_rows`              |       4096 |
+| `invocation_argument_capture_bytes`  |       8192 |
 
 Credential, backup, S2, and S3 collection pages default to 50. Idempotency keys are 1–128 visible ASCII bytes. Credential expiry is five minutes through 365 days after creation. S2 downstream HTTP reuses the S1 `request_header_bytes`, `request_header_count`, and `request_header_value_bytes` bounds rather than declaring alternatives.
 
