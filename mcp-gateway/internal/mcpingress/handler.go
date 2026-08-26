@@ -235,7 +235,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			writeProblem(writer, code)
 			return
 		}
-		handler.serveLegacyExisting(writer, request, binding, nil)
+		handler.serveLegacyExisting(writer, request, binding, nil, lease)
 		return
 	}
 	if request.Method != http.MethodPost {
@@ -267,7 +267,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	case eraLegacyInitialize:
 		handler.serveLegacyInitialize(writer, request, ownership)
 	case eraLegacyExisting:
-		handler.serveLegacyExisting(writer, request, binding, &wire)
+		handler.serveLegacyExisting(writer, request, binding, &wire, lease)
 	default:
 		writeProblem(writer, contract.ProblemMalformedRequest)
 	}
@@ -417,7 +417,7 @@ func (handler *Handler) serveLegacyInitialize(writer http.ResponseWriter, reques
 	now := handler.now()
 	session := &legacySession{
 		lease: lease, binding: lease.Binding(), createdAt: now, lastActive: now,
-		handler: newLegacySDK(sessionID), done: make(chan struct{}),
+		handler: newLegacySDK(sessionID, handler.listTools != nil), done: make(chan struct{}),
 	}
 	session.idleTimer = handler.afterFunc(contract.LegacyIdleLifetime, func() { handler.closeLegacyCandidate(sessionID, session) })
 	session.absoluteTimer = handler.afterFunc(contract.LegacyAbsoluteLifetime, func() { handler.closeLegacyCandidate(sessionID, session) })
@@ -477,7 +477,13 @@ func (handler *Handler) serveLegacyInitialize(writer http.ResponseWriter, reques
 	}
 }
 
-func (handler *Handler) serveLegacyExisting(writer http.ResponseWriter, request *http.Request, binding authorization.CredentialBinding, wire *wireRequest) {
+func (handler *Handler) serveLegacyExisting(
+	writer http.ResponseWriter,
+	request *http.Request,
+	binding authorization.CredentialBinding,
+	wire *wireRequest,
+	requestLease *authorization.Lease,
+) {
 	sessionID := request.Header.Get("Mcp-Session-Id")
 	now := handler.now()
 	handler.mu.Lock()
@@ -515,7 +521,7 @@ func (handler *Handler) serveLegacyExisting(writer http.ResponseWriter, request 
 	if request.Method == http.MethodDelete {
 		defer finishLegacySession(sessionID, session, false)
 	}
-	if wire != nil && interceptFeature(writer, request, *wire, eraLegacyExisting, nil, nil) {
+	if wire != nil && interceptFeature(writer, request, *wire, eraLegacyExisting, handler.listTools, requestLease) {
 		return
 	}
 	session.handler.ServeHTTP(writer, request)
@@ -580,11 +586,15 @@ func finishLegacySession(sessionID string, session *legacySession, terminateSDK 
 	})
 }
 
-func newLegacySDK(sessionID string) http.Handler {
+func newLegacySDK(sessionID string, listTools bool) http.Handler {
+	capabilities := &mcp.ServerCapabilities{}
+	if listTools {
+		capabilities.Tools = &mcp.ToolCapabilities{}
+	}
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: "mcp-gateway", Version: "s1"},
 		&mcp.ServerOptions{
-			Capabilities: &mcp.ServerCapabilities{},
+			Capabilities: capabilities,
 			GetSessionID: func() string { return sessionID },
 		},
 	)
