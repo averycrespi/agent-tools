@@ -39,6 +39,7 @@ type Timer interface {
 
 type Options struct {
 	Authenticator AgentAuthenticator
+	ListTools     ToolsListService
 	Now           func() time.Time
 	Entropy       io.Reader
 	AfterFunc     func(time.Duration, func()) Timer
@@ -47,6 +48,7 @@ type Options struct {
 
 type Handler struct {
 	authenticator AgentAuthenticator
+	listTools     ToolsListService
 	now           func() time.Time
 	entropy       io.Reader
 	afterFunc     func(time.Duration, func()) Timer
@@ -121,9 +123,13 @@ func New(options Options) *Handler {
 	if options.Next == nil {
 		options.Next = http.NotFoundHandler()
 	}
+	capabilities := &mcp.ServerCapabilities{}
+	if options.ListTools != nil {
+		capabilities.Tools = &mcp.ToolCapabilities{}
+	}
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: "mcp-gateway", Version: "s1"},
-		&mcp.ServerOptions{Capabilities: &mcp.ServerCapabilities{}},
+		&mcp.ServerOptions{Capabilities: capabilities},
 	)
 	modern := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
@@ -136,6 +142,7 @@ func New(options Options) *Handler {
 	)
 	return &Handler{
 		authenticator: options.Authenticator,
+		listTools:     options.ListTools,
 		now:           options.Now,
 		entropy:       options.Entropy,
 		afterFunc:     options.AfterFunc,
@@ -252,7 +259,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	request.Body = io.NopCloser(bytes.NewReader(body))
 	switch era {
 	case eraModern:
-		if interceptFeature(writer, request, wire, era) {
+		if interceptFeature(writer, request, wire, era, handler.listTools, lease) {
 			return
 		}
 		request.Header.Set("Mcp-Method", wire.Method)
@@ -352,7 +359,8 @@ func classifyPOST(request *http.Request, body []byte) (wireRequest, requestEra, 
 	sessionID := request.Header.Get("Mcp-Session-Id")
 	claimsModern := headerVersion == contract.ModernProtocolVersion || metadataVersion == contract.ModernProtocolVersion || initializeVersion == contract.ModernProtocolVersion
 	if claimsModern {
-		if headerVersion != contract.ModernProtocolVersion || metadataVersion != contract.ModernProtocolVersion || sessionID != "" || wire.Method == "initialize" {
+		if headerVersion != contract.ModernProtocolVersion || metadataVersion != contract.ModernProtocolVersion || !validModernMetadata(metadata) ||
+			sessionID != "" || wire.Method == "initialize" {
 			return wireRequest{}, eraInvalid, contract.ProblemMalformedRequest
 		}
 		if method := request.Header.Get("Mcp-Method"); method != "" && method != wire.Method {
@@ -367,6 +375,20 @@ func classifyPOST(request *http.Request, body []byte) (wireRequest, requestEra, 
 		return wire, eraLegacyExisting, ""
 	}
 	return wireRequest{}, eraInvalid, contract.ProblemMalformedRequest
+}
+
+func validModernMetadata(metadata map[string]json.RawMessage) bool {
+	var capabilities map[string]json.RawMessage
+	if value := metadata[mcp.MetaKeyClientCapabilities]; value == nil || json.Unmarshal(value, &capabilities) != nil || capabilities == nil {
+		return false
+	}
+	if value := metadata[mcp.MetaKeyClientInfo]; value != nil {
+		var clientInfo *mcp.Implementation
+		if json.Unmarshal(value, &clientInfo) != nil || clientInfo == nil {
+			return false
+		}
+	}
+	return true
 }
 
 func (handler *Handler) serveLegacyInitialize(writer http.ResponseWriter, request *http.Request, ownership *requestLease) {
@@ -493,7 +515,7 @@ func (handler *Handler) serveLegacyExisting(writer http.ResponseWriter, request 
 	if request.Method == http.MethodDelete {
 		defer finishLegacySession(sessionID, session, false)
 	}
-	if wire != nil && interceptFeature(writer, request, *wire, eraLegacyExisting) {
+	if wire != nil && interceptFeature(writer, request, *wire, eraLegacyExisting, nil, nil) {
 		return
 	}
 	session.handler.ServeHTTP(writer, request)

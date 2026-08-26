@@ -95,22 +95,22 @@ func TestFeatureMethodsAreInterceptedBeforeModernSDK(t *testing.T) {
 	}{
 		{
 			name: "valid list has no adapter yet",
-			body: `{"jsonrpc":"2.0","id":7,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`,
+			body: `{"jsonrpc":"2.0","id":7,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`,
 			want: `{"jsonrpc":"2.0","id":7,"error":{"code":-32601,"message":"Method not found."}}`,
 		},
 		{
 			name: "invalid list params",
-			body: `{"jsonrpc":"2.0","id":"list","method":"tools/list","params":{"cursor":"","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`,
+			body: `{"jsonrpc":"2.0","id":"list","method":"tools/list","params":{"cursor":"","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`,
 			want: `{"jsonrpc":"2.0","id":"list","error":{"code":-32602,"message":"The tools/list parameters are invalid.","data":{"code":"invalid_params"}}}`,
 		},
 		{
 			name: "tools call",
-			body: `{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"anything","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`,
+			body: `{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"anything","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`,
 			want: `{"jsonrpc":"2.0","id":8,"error":{"code":-32601,"message":"Method not found."}}`,
 		},
 		{
 			name: "other feature",
-			body: `{"jsonrpc":"2.0","id":9,"method":"resources/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`,
+			body: `{"jsonrpc":"2.0","id":9,"method":"resources/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`,
 			want: `{"jsonrpc":"2.0","id":9,"error":{"code":-32601,"message":"Method not found."}}`,
 		},
 	} {
@@ -159,7 +159,7 @@ func TestLifecycleMethodsStillReachSDKDispatch(t *testing.T) {
 		writer.WriteHeader(http.StatusNoContent)
 	})
 	for _, method := range []string{"server/discover", "ping"} {
-		body := `{"jsonrpc":"2.0","id":1,"method":"` + method + `","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`
+		body := `{"jsonrpc":"2.0","id":1,"method":"` + method + `","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`
 		request := modernRequest(http.MethodPost, body)
 		request.Header.Set("Mcp-Protocol-Version", contract.ModernProtocolVersion)
 		response := httptest.NewRecorder()

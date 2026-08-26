@@ -7,11 +7,24 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
 
-var errInvalidToolsListParams = errors.New("tools/list parameters are invalid")
+var (
+	errInvalidToolsListParams            = errors.New("tools/list parameters are invalid")
+	ErrToolsListInvalidParams            = errors.New("tools/list parameters have invalid syntax")
+	ErrToolsListStaleCursor              = errors.New("tools/list cursor is stale")
+	ErrToolsListAuthorizationUnavailable = errors.New("tools/list authorization is unavailable")
+	ErrToolsListResourceLimit            = errors.New("tools/list resource limit is reached")
+)
+
+type ToolsListEncoder func(context.Context, any, string) ([]byte, error)
+
+type ToolsListService interface {
+	ListTools(context.Context, *authorization.Lease, string, ToolsListEncoder) ([]byte, error)
+}
 
 type toolsListCall struct {
 	ID     json.RawMessage
@@ -133,24 +146,60 @@ func rpcErrorFor(kind rpcErrorKind) (rpcError, error) {
 	}
 }
 
-func interceptFeature(writer http.ResponseWriter, request *http.Request, wire wireRequest, era requestEra) bool {
+func interceptFeature(
+	writer http.ResponseWriter,
+	request *http.Request,
+	wire wireRequest,
+	era requestEra,
+	listTools ToolsListService,
+	lease *authorization.Lease,
+) bool {
 	if sdkLifecycleMethod(era, wire.Method) {
 		return false
 	}
 	kind := rpcMethodNotFound
 	if wire.Method == "tools/list" {
-		if _, err := parseToolsList(wire); err != nil {
+		call, err := parseToolsList(wire)
+		if err != nil {
 			kind = rpcInvalidParams
+		} else if listTools != nil {
+			encoded, listErr := listTools.ListTools(request.Context(), lease, call.Cursor, call.EncodeResult)
+			if request.Context().Err() != nil || lease == nil || !lease.Current() {
+				return true
+			}
+			if listErr == nil && len(encoded) != 0 {
+				writeRPC(writer, encoded)
+				return true
+			}
+			kind = rpcKindForListError(listErr)
 		}
 	}
 	encoded, err := encodeRPCError(request.Context(), wire.ID, kind)
-	if err != nil {
-		return true
+	if err == nil {
+		writeRPC(writer, encoded)
 	}
+	return true
+}
+
+func rpcKindForListError(err error) rpcErrorKind {
+	switch {
+	case errors.Is(err, ErrToolsListInvalidParams):
+		return rpcInvalidParams
+	case errors.Is(err, ErrToolsListStaleCursor):
+		return rpcStaleCursor
+	case errors.Is(err, ErrToolsListResourceLimit):
+		return rpcResourceLimit
+	case errors.Is(err, ErrToolsListAuthorizationUnavailable):
+		return rpcAuthorizationUnavailable
+	default:
+		return rpcAuthorizationUnavailable
+	}
+}
+
+func writeRPC(writer http.ResponseWriter, encoded []byte) {
 	writer.Header().Set("Content-Type", contract.MediaTypeJSON)
 	writer.WriteHeader(http.StatusOK)
 	_, _ = writer.Write(encoded)
-	return true
 }
 
 func sdkLifecycleMethod(era requestEra, method string) bool {
