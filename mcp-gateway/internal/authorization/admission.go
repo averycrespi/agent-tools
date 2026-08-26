@@ -52,19 +52,19 @@ func (admission *Admission) VerifyResolvedTx(
 	ctx context.Context,
 	transaction *sql.Tx,
 	request ResolvedVerification,
-) (contract.AuthorizationResult, *PendingDetachment, error) {
+) (contract.AuthorizationResult, *PendingDetachment, ResolvedVerificationPhase, error) {
 	if !validOpaqueID(request.ServerID) || !validUpstreamName(request.UpstreamName) ||
 		request.Arguments.Type != strictjson.ValueObject ||
 		!validObservedAuthorizationRevision(request.ObservedAuthorizationRevision) {
-		return contract.AuthorizationResult{}, nil, ErrInvalidInput
+		return contract.AuthorizationResult{}, nil, ResolvedUnverified, ErrInvalidInput
 	}
 	finish, err := admission.beginVerification(ctx, transaction)
 	if err != nil {
-		return contract.AuthorizationResult{}, nil, err
+		return contract.AuthorizationResult{}, nil, ResolvedUnverified, err
 	}
 	defer finish()
 	if err := verifyCurrentBindingTx(ctx, transaction, admission.lease.binding); err != nil {
-		return contract.AuthorizationResult{}, nil, err
+		return contract.AuthorizationResult{}, nil, ResolvedUnverified, err
 	}
 	evaluatedAt := admission.repository.clock.Now().UTC()
 	result, err := evaluateTx(
@@ -77,12 +77,12 @@ func (admission *Admission) VerifyResolvedTx(
 		evaluatedAt,
 	)
 	if err != nil {
-		return contract.AuthorizationResult{}, nil, err
+		return contract.AuthorizationResult{}, nil, ResolvedBindingVerified, err
 	}
 	if result.Decision != contract.DecisionAllow {
-		return result, nil, nil
+		return result, nil, ResolvedEvaluated, nil
 	}
-	return result, &PendingDetachment{admission: admission, lease: admission.lease}, nil
+	return result, &PendingDetachment{admission: admission, lease: admission.lease}, ResolvedEvaluated, nil
 }
 
 func (admission *Admission) VerifyBindingOnlyTx(

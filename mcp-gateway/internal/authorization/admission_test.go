@@ -106,7 +106,7 @@ func TestAdmissionVerifiersAndKnownOutcomeDetachment(t *testing.T) {
 		err := repository.WithAdmission(context.Background(), lease, func(admission *Admission) error {
 			return store.Mutate(context.Background(), func(transaction *sql.Tx) error {
 				assert.ErrorIs(t, store.Mutate(context.Background(), func(*sql.Tx) error { return nil }), storage.ErrMutationBusy)
-				_, token, verifyErr := admission.VerifyResolvedTx(context.Background(), transaction, defaultResolvedVerification())
+				_, token, _, verifyErr := admission.VerifyResolvedTx(context.Background(), transaction, defaultResolvedVerification())
 				require.NoError(t, verifyErr)
 				require.NotNil(t, token)
 				_, mutationErr := repository.CreatePrincipal(context.Background(), CreatePrincipalRequest{DisplayName: "Nested", Visibility: contract.VisibilityRequestable})
@@ -177,7 +177,7 @@ func TestAdmissionUncertaintyAndUnavailableStorageNeverDetach(t *testing.T) {
 	assert.Equal(t, leasePending, leasePhase(uncertainLease.phase.Load()))
 
 	err = repository.WithAdmission(context.Background(), latchedLease, func(admission *Admission) error {
-		_, _, verifyErr := admission.VerifyResolvedTx(context.Background(), nil, defaultResolvedVerification())
+		_, _, _, verifyErr := admission.VerifyResolvedTx(context.Background(), nil, defaultResolvedVerification())
 		return verifyErr
 	})
 	assert.ErrorIs(t, err, ErrStorageUnavailable)
@@ -192,14 +192,14 @@ func TestAdmissionAddsNoS4PersistenceOrCapabilityUse(t *testing.T) {
 	for _, forbidden := range []string{"CREATE TABLE", "INSERT INTO invocation", "internal/catalog", "internal/downstream", "AcquireRoute", "AcquireCapability", "Dispatch", "Execute"} {
 		assert.NotContains(t, string(source), forbidden)
 	}
-	assert.Equal(t, 8, storage.CurrentSchema)
+	assert.Equal(t, 9, storage.CurrentSchema)
 }
 
 func verifyLostResolvedBinding(t *testing.T, repository *Repository, store *storage.Store, lease *Lease) error {
 	t.Helper()
 	return repository.WithAdmission(context.Background(), lease, func(admission *Admission) error {
 		return store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-			_, _, err := admission.VerifyResolvedTx(context.Background(), transaction, defaultResolvedVerification())
+			_, _, _, err := admission.VerifyResolvedTx(context.Background(), transaction, defaultResolvedVerification())
 			return err
 		})
 	})
@@ -227,7 +227,7 @@ func verifyResolvedMutation(
 	err := repository.WithAdmission(context.Background(), lease, func(admission *Admission) error {
 		mutationErr := store.Mutate(context.Background(), func(transaction *sql.Tx) error {
 			var verifyErr error
-			result, token, verifyErr = admission.VerifyResolvedTx(context.Background(), transaction, request)
+			result, token, _, verifyErr = admission.VerifyResolvedTx(context.Background(), transaction, request)
 			if verifyErr != nil {
 				return verifyErr
 			}

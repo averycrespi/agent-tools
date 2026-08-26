@@ -71,6 +71,14 @@ type BindingVerification struct {
 	EvaluatedAt           string
 }
 
+type ResolvedVerificationPhase string
+
+const (
+	ResolvedUnverified      ResolvedVerificationPhase = "unverified"
+	ResolvedBindingVerified ResolvedVerificationPhase = "binding_verified"
+	ResolvedEvaluated       ResolvedVerificationPhase = "evaluated"
+)
+
 type PrincipalPage struct {
 	Items []contract.Principal
 	Next  *SnapshotCursor
