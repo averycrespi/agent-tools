@@ -40,6 +40,7 @@ type Timer interface {
 type Options struct {
 	Authenticator AgentAuthenticator
 	ListTools     ToolsListService
+	CallTools     ToolsCallService
 	Now           func() time.Time
 	Entropy       io.Reader
 	AfterFunc     func(time.Duration, func()) Timer
@@ -49,6 +50,7 @@ type Options struct {
 type Handler struct {
 	authenticator AgentAuthenticator
 	listTools     ToolsListService
+	callTools     ToolsCallService
 	now           func() time.Time
 	entropy       io.Reader
 	afterFunc     func(time.Duration, func()) Timer
@@ -124,7 +126,7 @@ func New(options Options) *Handler {
 		options.Next = http.NotFoundHandler()
 	}
 	capabilities := &mcp.ServerCapabilities{}
-	if options.ListTools != nil {
+	if options.ListTools != nil || options.CallTools != nil {
 		capabilities.Tools = &mcp.ToolCapabilities{}
 	}
 	server := mcp.NewServer(
@@ -143,6 +145,7 @@ func New(options Options) *Handler {
 	return &Handler{
 		authenticator: options.Authenticator,
 		listTools:     options.ListTools,
+		callTools:     options.CallTools,
 		now:           options.Now,
 		entropy:       options.Entropy,
 		afterFunc:     options.AfterFunc,
@@ -259,7 +262,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	request.Body = io.NopCloser(bytes.NewReader(body))
 	switch era {
 	case eraModern:
-		if interceptFeature(writer, request, wire, era, handler.listTools, lease) {
+		if interceptFeatureWithCall(writer, request, wire, era, handler.listTools, handler.callTools, lease) {
 			return
 		}
 		request.Header.Set("Mcp-Method", wire.Method)
