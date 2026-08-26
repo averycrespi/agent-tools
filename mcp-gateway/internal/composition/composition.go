@@ -14,8 +14,10 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/credentialauthority"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/discovery"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/oauth"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
@@ -49,6 +51,10 @@ type Composition struct {
 	authorization     *authorization.Repository
 	catalogRepository *catalog.Repository
 	activeCatalog     *catalog.ActiveRegistry
+	discovery         *discovery.Service
+	discoveryCursors  *discovery.CursorCodec
+	discoveryPager    *discovery.Pager
+	listTools         *discoveryListAdapter
 	traverser         *catalog.Traverser
 	remoteFactory     *remote.Factory
 	provider          *keyring.Provider
@@ -85,8 +91,15 @@ func (built *Composition) Authorization() *authorization.Repository {
 func (built *Composition) AuthorizationOccupancy(ctx context.Context) (contract.LimitStatus, contract.LimitStatus, error) {
 	return built.authorization.Occupancy(ctx)
 }
-func (built *Composition) CatalogRepository() *catalog.Repository      { return built.catalogRepository }
-func (built *Composition) ActiveCatalog() *catalog.ActiveRegistry      { return built.activeCatalog }
+func (built *Composition) CatalogRepository() *catalog.Repository { return built.catalogRepository }
+func (built *Composition) ActiveCatalog() *catalog.ActiveRegistry { return built.activeCatalog }
+func (built *Composition) Discovery() *discovery.Service          { return built.discovery }
+func (built *Composition) ListTools() mcpingress.ToolsListService {
+	if built == nil || built.listTools == nil {
+		return nil
+	}
+	return built.listTools
+}
 func (built *Composition) Traverser() *catalog.Traverser               { return built.traverser }
 func (built *Composition) Provider() *keyring.Provider                 { return built.provider }
 func (built *Composition) Keyring() *keyring.Coordinator               { return built.keyring }
@@ -263,16 +276,55 @@ func (publisher *activePublisher) Withdraw(candidate runtimes.Candidate) {
 	publisher.active.WithdrawExact(candidate.Server.ID, candidate.RuntimeID, candidate.Generation, contract.ActiveCatalogUnavailable)
 }
 
+type discoveryListAdapter struct {
+	pager *discovery.Pager
+}
+
+func (adapter *discoveryListAdapter) ListTools(
+	ctx context.Context,
+	lease *authorization.Lease,
+	cursor string,
+	encode mcpingress.ToolsListEncoder,
+) ([]byte, error) {
+	if adapter == nil || adapter.pager == nil || encode == nil {
+		return nil, mcpingress.ErrToolsListAuthorizationUnavailable
+	}
+	page, err := adapter.pager.List(ctx, discovery.PageRequest{
+		Lease:  lease,
+		Cursor: cursor,
+		Encode: func(ctx context.Context, result discovery.ListResult) ([]byte, error) {
+			return encode(ctx, result.Tools, result.NextCursor)
+		},
+	})
+	if err == nil {
+		return page.Encoded, nil
+	}
+	switch {
+	case errors.Is(err, discovery.ErrMalformedCursor):
+		return nil, mcpingress.ErrToolsListInvalidParams
+	case errors.Is(err, discovery.ErrStaleCursor):
+		return nil, mcpingress.ErrToolsListStaleCursor
+	case errors.Is(err, discovery.ErrResourceLimit):
+		return nil, mcpingress.ErrToolsListResourceLimit
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return nil, err
+	default:
+		return nil, mcpingress.ErrToolsListAuthorizationUnavailable
+	}
+}
+
 type constructorHooks struct {
-	before         func(string) error
-	provider       func(string) (*keyring.Provider, error)
-	startStdio     runtimes.StdioStarter
-	newCoordinator runtimes.CoordinatorFactory
-	startHooks     startHooks
+	before           func(string) error
+	discoveryEntropy io.Reader
+	provider         func(string) (*keyring.Provider, error)
+	startStdio       runtimes.StdioStarter
+	newCoordinator   runtimes.CoordinatorFactory
+	startHooks       startHooks
 }
 
 var mandatoryConstructorStages = []string{
-	"server_repository", "authorization_repository", "catalog_repository", "process_id", "active_registry", "traverser", "remote_factory",
+	"server_repository", "authorization_repository", "catalog_repository", "process_id", "active_registry",
+	"discovery_service", "discovery_cursor", "discovery_pager", "traverser", "remote_factory",
 	"provider", "keyring_coordinator", "authority_resolver", "oauth_resolver", "disconnect_service", "registrar",
 	"flow_service", "runtime_owner", "stdio_supervisor", "driver", "catalog_coordinator", "refresh_service",
 	"replacement_service", "manager",
@@ -342,6 +394,32 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil, fmt.Errorf("construct active_registry: %w", err)
 	}
 	built.publisher = &activePublisher{active: built.activeCatalog, fences: make(map[string]uint64)}
+	if err := check("discovery_service"); err != nil {
+		return nil, err
+	}
+	built.discovery, err = discovery.New(built.authorization, built.activeCatalog, options.Clock)
+	if err != nil {
+		return nil, fmt.Errorf("construct discovery_service: %w", err)
+	}
+	if err := check("discovery_cursor"); err != nil {
+		return nil, err
+	}
+	discoveryEntropy := hooks.discoveryEntropy
+	if discoveryEntropy == nil {
+		discoveryEntropy = options.Entropy
+	}
+	built.discoveryCursors, err = discovery.NewCursorCodec(discoveryEntropy)
+	if err != nil {
+		return nil, fmt.Errorf("construct discovery_cursor: %w", err)
+	}
+	if err := check("discovery_pager"); err != nil {
+		return nil, err
+	}
+	built.discoveryPager, err = discovery.NewPager(built.discovery, built.discoveryCursors)
+	if err != nil {
+		return nil, fmt.Errorf("construct discovery_pager: %w", err)
+	}
+	built.listTools = &discoveryListAdapter{pager: built.discoveryPager}
 	if err := check("traverser"); err != nil {
 		return nil, err
 	}

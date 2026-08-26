@@ -131,6 +131,10 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if authorizationRepository == nil {
 		return false, errors.New("production authorization owner is unavailable")
 	}
+	listTools := runtime.ListTools()
+	if listTools == nil {
+		return false, errors.New("production discovery owner is unavailable")
+	}
 	serverRepository := runtime.Servers()
 	catalogRepository := runtime.CatalogRepository()
 	activeCatalog := runtime.ActiveCatalog()
@@ -156,6 +160,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	var boundary *httpboundary.Boundary
 	ingress := mcpingress.New(mcpingress.Options{
 		Authenticator: mcpingress.DenyAllAuthenticator{},
+		ListTools:     listTools,
 		Now:           dependencies.clock.Now,
 		Entropy:       dependencies.entropy,
 	})

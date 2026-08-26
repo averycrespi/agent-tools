@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
@@ -24,6 +26,7 @@ import (
 var compositionTime = time.Date(2026, 8, 25, 1, 0, 0, 0, time.UTC)
 
 func TestNewBuildsOneFailClosedProductionGraph(t *testing.T) {
+	assert.Nil(t, (*Composition)(nil).ListTools())
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
 
@@ -35,6 +38,12 @@ func TestNewBuildsOneFailClosedProductionGraph(t *testing.T) {
 	assert.Same(t, built.authorization, built.Authorization())
 	require.NotNil(t, built.catalogRepository)
 	require.NotNil(t, built.activeCatalog)
+	require.NotNil(t, built.discovery)
+	assert.Same(t, built.discovery, built.Discovery())
+	require.NotNil(t, built.discoveryCursors)
+	require.NotNil(t, built.discoveryPager)
+	require.NotNil(t, built.listTools)
+	assert.Same(t, built.listTools, built.ListTools())
 	require.NotNil(t, built.traverser)
 	require.NotNil(t, built.remoteFactory)
 	require.NotNil(t, built.provider)
@@ -100,6 +109,42 @@ func TestAuthorityOwnerExposesOccupancyAndDrainsBeforeCompositionCompletes(t *te
 	}
 	_, err = authority.Authenticate(context.Background(), issued.Bearer)
 	assert.ErrorIs(t, err, authorization.ErrShuttingDown)
+	_, err = built.ListTools().ListTools(t.Context(), lease, "", func(context.Context, any, string) ([]byte, error) { return nil, nil })
+	assert.ErrorIs(t, err, mcpingress.ErrToolsListAuthorizationUnavailable)
+}
+
+func TestDiscoveryOwnerUsesComposedPolicyCatalogAndCursorKey(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	built, err := New(options)
+	require.NoError(t, err)
+	defer built.shutdownConstructed()
+	created, err := built.Authorization().CreatePrincipal(t.Context(), authorization.CreatePrincipalRequest{
+		DisplayName: "discovery principal", Visibility: contract.VisibilityAll,
+	})
+	require.NoError(t, err)
+	issued, err := built.Authorization().IssueCredential(t.Context(), created.Principal.ID, created.Principal.Revision)
+	require.NoError(t, err)
+	lease, err := built.Authorization().Authenticate(t.Context(), issued.Bearer)
+	require.NoError(t, err)
+	defer lease.Release()
+	encoded, err := built.ListTools().ListTools(t.Context(), lease, "", func(_ context.Context, tools any, nextCursor string) ([]byte, error) {
+		return json.Marshal(struct {
+			Tools      any    `json:"tools"`
+			NextCursor string `json:"nextCursor,omitempty"`
+		}{Tools: tools, NextCursor: nextCursor})
+	})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"tools":[]}`, string(encoded))
+}
+
+func TestDiscoveryCursorEntropyFailureStopsConstruction(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	built, err := newWithHooks(options, constructorHooks{discoveryEntropy: strings.NewReader("")})
+	require.Error(t, err)
+	assert.Nil(t, built)
+	assert.ErrorContains(t, err, "construct discovery_cursor")
 }
 
 func TestStartRequiresReadinessAndBindsExactlyOnce(t *testing.T) {
