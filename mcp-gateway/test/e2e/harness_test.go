@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -19,6 +20,28 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
+
+var (
+	gatewayBinaryPath string
+	gatewayBuildRoot  string
+)
+
+func TestMain(testingMain *testing.M) {
+	if os.Getenv(stdioFixtureEnvironment) == "1" {
+		os.Exit(testingMain.Run())
+	}
+	if err := prepareGatewayBinary(); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		_ = os.RemoveAll(gatewayBuildRoot)
+		os.Exit(1)
+	}
+	exitCode := testingMain.Run()
+	if err := os.RemoveAll(gatewayBuildRoot); err != nil && exitCode == 0 {
+		_, _ = fmt.Fprintf(os.Stderr, "remove E2E build root: %v\n", err)
+		exitCode = 1
+	}
+	os.Exit(exitCode)
+}
 
 type gatewayHarness struct {
 	t         *testing.T
@@ -38,7 +61,7 @@ func newGatewayHarness(t *testing.T) *gatewayHarness {
 	runner, err := testutil.NewBinaryRunner(20*time.Second, 128*1024)
 	require.NoError(t, err)
 	harness := &gatewayHarness{
-		t: t, ctx: ctx, binary: buildGateway(t, ctx), root: filepath.Join(t.TempDir(), "gateway"),
+		t: t, ctx: ctx, binary: gatewayBinary(t), root: filepath.Join(t.TempDir(), "gateway"),
 		authority: unusedAuthority(t), runner: runner, client: &http.Client{Timeout: 3 * time.Second},
 	}
 	secretPath := filepath.Join(t.TempDir(), "admin")
@@ -126,8 +149,10 @@ func (harness *gatewayHarness) WaitOperation(serverID, operationID string, state
 	defer ticker.Stop()
 	var operation contract.ServerOperation
 	for {
-		response := harness.AdminJSON(http.MethodGet, "/api/v1/servers/"+serverID+"/operations/"+operationID, "", nil, &operation)
-		_ = response.Body.Close()
+		response := harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+serverID+"/operations/"+operationID, nil)
+		if response.StatusCode == http.StatusOK {
+			require.NoError(harness.t, json.Unmarshal(response.Body, &operation))
+		}
 		if response.StatusCode == http.StatusOK && operation.State == state {
 			return operation
 		}
@@ -150,19 +175,36 @@ func (harness *gatewayHarness) WaitOperation(serverID, operationID string, state
 	}
 }
 
-func buildGateway(t *testing.T, ctx context.Context) string {
-	t.Helper()
+func prepareGatewayBinary() error {
 	_, source, _, ok := runtime.Caller(0)
-	require.True(t, ok)
+	if !ok {
+		return fmt.Errorf("locate E2E harness source")
+	}
 	moduleRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
-	binary := filepath.Join(t.TempDir(), "mcp-gateway")
+	var err error
+	gatewayBuildRoot, err = os.MkdirTemp("", "mcp-gateway-e2e-")
+	if err != nil {
+		return fmt.Errorf("create E2E build root: %w", err)
+	}
+	gatewayBinaryPath = filepath.Join(gatewayBuildRoot, "mcp-gateway")
 	runner, err := testutil.NewBinaryRunner(30*time.Second, 64*1024)
-	require.NoError(t, err)
-	result, err := runner.Run(ctx, "go", "-C", moduleRoot, "build", "-tags=e2e", "-o", binary, "./cmd/mcp-gateway")
-	require.NoError(t, err, "build stderr: %s", result.Stderr)
-	require.False(t, result.StdoutTruncated)
-	require.False(t, result.StderrTruncated)
-	return binary
+	if err != nil {
+		return fmt.Errorf("create E2E build runner: %w", err)
+	}
+	result, err := runner.Run(context.Background(), "go", "-C", moduleRoot, "build", "-tags=e2e", "-o", gatewayBinaryPath, "./cmd/mcp-gateway")
+	if err != nil {
+		return fmt.Errorf("build E2E Gateway: %w: %s", err, result.Stderr)
+	}
+	if result.StdoutTruncated || result.StderrTruncated {
+		return fmt.Errorf("build E2E Gateway output was truncated")
+	}
+	return nil
+}
+
+func gatewayBinary(t *testing.T) string {
+	t.Helper()
+	require.NotEmpty(t, gatewayBinaryPath)
+	return gatewayBinaryPath
 }
 
 func unusedAuthority(t *testing.T) string {

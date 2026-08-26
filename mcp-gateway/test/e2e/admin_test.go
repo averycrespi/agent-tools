@@ -23,7 +23,7 @@ import (
 
 func TestAdminAuthorityRealBinaryIsOneTimeAndResetIsAtomic(t *testing.T) {
 	ctx := context.Background()
-	binary := buildGateway(t, ctx)
+	binary := gatewayBinary(t)
 	root := filepath.Join(t.TempDir(), "gateway")
 	initialPath := filepath.Join(t.TempDir(), "initial")
 	resetPath := filepath.Join(t.TempDir(), "reset")

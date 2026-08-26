@@ -21,7 +21,7 @@ import (
 
 func TestRestoreVerifyCurrentRealBinary(t *testing.T) {
 	ctx := context.Background()
-	binary := buildGateway(t, ctx)
+	binary := gatewayBinary(t)
 	root := filepath.Join(t.TempDir(), "gateway")
 	ownership, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)
@@ -46,7 +46,7 @@ func TestRestoreVerifyCurrentRealBinary(t *testing.T) {
 
 func TestRestoreBackupRealBinaryRekeysCompleteGeneration(t *testing.T) {
 	ctx := context.Background()
-	binary := buildGateway(t, ctx)
+	binary := gatewayBinary(t)
 	root := filepath.Join(t.TempDir(), "gateway")
 	initialSecret := filepath.Join(t.TempDir(), "initial")
 	runner, err := testutil.NewBinaryRunner(10*time.Second, 4096)
@@ -94,7 +94,7 @@ func (e2eClock) Now() time.Time { return time.Now() }
 
 func TestRestoreVerifyCurrentRealBinaryRefusesRunningGateway(t *testing.T) {
 	ctx := context.Background()
-	binary := buildGateway(t, ctx)
+	binary := gatewayBinary(t)
 	root := filepath.Join(t.TempDir(), "gateway")
 	ownership, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)

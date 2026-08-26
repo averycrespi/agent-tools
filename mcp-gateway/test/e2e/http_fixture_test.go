@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -45,9 +46,17 @@ type httpFixtureBarrier struct {
 
 func (barrier *httpFixtureBarrier) Release() { barrier.once.Do(func() { close(barrier.release) }) }
 
+type fixtureTool struct {
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	InputSchema  json.RawMessage `json:"inputSchema"`
+	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
+}
+
 type rawHTTPFixture struct {
 	t                 *testing.T
 	mode              string
+	tools             []fixtureTool
 	session           string
 	sessionGeneration uint64
 	server            *httptest.Server
@@ -62,7 +71,19 @@ type rawHTTPFixture struct {
 
 func newRawHTTPFixture(t *testing.T, mode string) *rawHTTPFixture {
 	t.Helper()
-	fixture := &rawHTTPFixture{t: t, mode: mode}
+	return startRawHTTPFixture(t, mode, nil)
+}
+
+func newRawHTTPFixtureWithTools(t *testing.T, mode string, tools []fixtureTool) *rawHTTPFixture {
+	t.Helper()
+	cloned := make([]fixtureTool, len(tools))
+	copy(cloned, tools)
+	return startRawHTTPFixture(t, mode, cloned)
+}
+
+func startRawHTTPFixture(t *testing.T, mode string, tools []fixtureTool) *rawHTTPFixture {
+	t.Helper()
+	fixture := &rawHTTPFixture{t: t, mode: mode, tools: tools}
 	fixture.server = httptest.NewServer(http.HandlerFunc(fixture.serveHTTP))
 	t.Cleanup(fixture.Close)
 	return fixture
@@ -158,6 +179,8 @@ func (fixture *rawHTTPFixture) serveHTTP(writer http.ResponseWriter, request *ht
 		barrier = nil
 	}
 	loseSession, mode, session := fixture.loseSession, fixture.mode, fixture.session
+	tools := append([]fixtureTool(nil), fixture.tools...)
+	customTools := fixture.tools != nil
 	fixture.mu.Unlock()
 	if barrier != nil {
 		select {
@@ -205,7 +228,9 @@ func (fixture *rawHTTPFixture) serveHTTP(writer http.ResponseWriter, request *ht
 				writer.Header().Set("Mcp-Session-Id", session)
 			}
 		}
-		if envelope.Params.Cursor == "" {
+		if customTools {
+			fixture.writeToolsPage(writer, envelope.ID, envelope.Params.Cursor, tools)
+		} else if envelope.Params.Cursor == "" {
 			_, _ = io.WriteString(writer, rpcResult(envelope.ID, `{"tools":[{"name":"http-alpha","inputSchema":{"type":"object"}}],"nextCursor":"page-2"}`))
 		} else {
 			_, _ = io.WriteString(writer, rpcResult(envelope.ID, `{"tools":[{"name":"http-beta","inputSchema":{"type":"object"}}],"nextCursor":null}`))
@@ -213,6 +238,34 @@ func (fixture *rawHTTPFixture) serveHTTP(writer http.ResponseWriter, request *ht
 	default:
 		writer.WriteHeader(http.StatusBadRequest)
 	}
+}
+
+func (fixture *rawHTTPFixture) writeToolsPage(writer http.ResponseWriter, id uint64, cursor string, tools []fixtureTool) {
+	const pageSize = 100
+	offset := 0
+	if cursor != "" {
+		var err error
+		offset, err = strconv.Atoi(strings.TrimPrefix(cursor, "offset-"))
+		if err != nil || !strings.HasPrefix(cursor, "offset-") || offset < 0 || offset > len(tools) {
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+	}
+	end := min(offset+pageSize, len(tools))
+	var nextCursor *string
+	if end < len(tools) {
+		next := "offset-" + strconv.Itoa(end)
+		nextCursor = &next
+	}
+	result, err := json.Marshal(struct {
+		Tools      []fixtureTool `json:"tools"`
+		NextCursor *string       `json:"nextCursor"`
+	}{Tools: tools[offset:end], NextCursor: nextCursor})
+	if err != nil {
+		writer.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	_, _ = io.WriteString(writer, rpcResult(id, string(result)))
 }
 
 func rpcResult(id uint64, result string) string {

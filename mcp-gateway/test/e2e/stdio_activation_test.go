@@ -172,8 +172,10 @@ func waitForStdioServer(t *testing.T, harness *gatewayHarness, serverID string, 
 	defer ticker.Stop()
 	var current stdioServerView
 	for {
-		response := harness.AdminJSON(http.MethodGet, "/api/v1/servers/"+serverID, "", nil, &current)
-		_ = response.Body.Close()
+		response := harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+serverID, nil)
+		if response.StatusCode == http.StatusOK {
+			require.NoError(t, json.Unmarshal(response.Body, &current))
+		}
 		if response.StatusCode == http.StatusOK && ready(current) {
 			return current
 		}
