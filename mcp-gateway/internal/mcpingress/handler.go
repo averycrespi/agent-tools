@@ -423,7 +423,7 @@ func (handler *Handler) serveLegacyInitialize(writer http.ResponseWriter, reques
 	now := handler.now()
 	session := &legacySession{
 		lease: lease, binding: lease.Binding(), createdAt: now, lastActive: now,
-		handler: newLegacySDK(sessionID, handler.listTools != nil), done: make(chan struct{}),
+		handler: newLegacySDK(sessionID, handler.listTools != nil || handler.callTools != nil), done: make(chan struct{}),
 	}
 	session.idleTimer = handler.afterFunc(contract.LegacyIdleLifetime, func() { handler.closeLegacyCandidate(sessionID, session) })
 	session.absoluteTimer = handler.afterFunc(contract.LegacyAbsoluteLifetime, func() { handler.closeLegacyCandidate(sessionID, session) })
@@ -527,7 +527,7 @@ func (handler *Handler) serveLegacyExisting(
 	if request.Method == http.MethodDelete {
 		defer finishLegacySession(sessionID, session, false)
 	}
-	if wire != nil && interceptFeature(writer, request, *wire, eraLegacyExisting, handler.listTools, requestLease) {
+	if wire != nil && interceptFeatureWithCall(writer, request, *wire, eraLegacyExisting, handler.listTools, handler.callTools, requestLease) {
 		return
 	}
 	session.handler.ServeHTTP(writer, request)
@@ -592,9 +592,9 @@ func finishLegacySession(sessionID string, session *legacySession, terminateSDK 
 	})
 }
 
-func newLegacySDK(sessionID string, listTools bool) http.Handler {
+func newLegacySDK(sessionID string, toolsEnabled bool) http.Handler {
 	capabilities := &mcp.ServerCapabilities{}
-	if listTools {
+	if toolsEnabled {
 		capabilities.Tools = &mcp.ToolCapabilities{}
 	}
 	server := mcp.NewServer(

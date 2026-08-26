@@ -146,17 +146,6 @@ func rpcErrorFor(kind rpcErrorKind) (rpcError, error) {
 	}
 }
 
-func interceptFeature(
-	writer http.ResponseWriter,
-	request *http.Request,
-	wire wireRequest,
-	era requestEra,
-	listTools ToolsListService,
-	lease *authorization.Lease,
-) bool {
-	return interceptFeatureWithCall(writer, request, wire, era, listTools, nil, lease)
-}
-
 func interceptFeatureWithCall(
 	writer http.ResponseWriter,
 	request *http.Request,
