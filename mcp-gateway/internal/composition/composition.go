@@ -3,6 +3,7 @@ package composition
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/credentialauthority"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/discovery"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/invocation"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/oauth"
@@ -49,46 +51,51 @@ var (
 type AgentIngressDependencies struct {
 	Authenticator mcpingress.AgentAuthenticator
 	ListTools     mcpingress.ToolsListService
+	CallTools     mcpingress.ToolsCallService
 	AuthMode      contract.AgentAuthMode
 }
 
 type Composition struct {
-	servers           *servers.Repository
-	authorization     *authorization.Repository
-	catalogRepository *catalog.Repository
-	activeCatalog     *catalog.ActiveRegistry
-	discovery         *discovery.Service
-	discoveryCursors  *discovery.CursorCodec
-	discoveryPager    *discovery.Pager
-	listTools         *discoveryListAdapter
-	traverser         *catalog.Traverser
-	remoteFactory     *remote.Factory
-	provider          *keyring.Provider
-	keyring           *keyring.Coordinator
-	authority         *credentialauthority.Resolver
-	owner             *runtimes.RuntimeOwner
-	stdio             *runtimes.StdioSupervisor
-	driver            *runtimes.ConcreteDriver
-	catalog           *catalog.Coordinator
-	oauthResolver     *oauth.Resolver
-	disconnect        *oauth.DisconnectService
-	registrar         *oauth.Registrar
-	flows             *oauth.FlowService
-	refresh           *oauth.RefreshService
-	replacements      *servercredentials.Service
-	manager           *runtimes.Manager
-	publisher         *activePublisher
-	callbacks         *callbackSlots
-	startHooks        startHooks
-	startMu           sync.Mutex
-	started           bool
-	startFailed       bool
-	accepting         atomic.Bool
-	ready             func() bool
-	drainMu           sync.Mutex
-	drainFenced       chan struct{}
-	drainDone         chan struct{}
-	drainResult       runtimes.DrainResult
+	servers              *servers.Repository
+	authorization        *authorization.Repository
+	catalogRepository    *catalog.Repository
+	activeCatalog        *catalog.ActiveRegistry
+	discovery            *discovery.Service
+	discoveryCursors     *discovery.CursorCodec
+	discoveryPager       *discovery.Pager
+	listTools            *discoveryListAdapter
+	invocationRepository *invocation.Repository
+	invocationPipelines  *invocation.PipelineFence
+	invocationService    *invocation.Service
+	callTools            *invocationCallAdapter
+	traverser            *catalog.Traverser
+	remoteFactory        *remote.Factory
+	provider             *keyring.Provider
+	keyring              *keyring.Coordinator
+	authority            *credentialauthority.Resolver
+	owner                *runtimes.RuntimeOwner
+	stdio                *runtimes.StdioSupervisor
+	driver               *runtimes.ConcreteDriver
+	catalog              *catalog.Coordinator
+	oauthResolver        *oauth.Resolver
+	disconnect           *oauth.DisconnectService
+	registrar            *oauth.Registrar
+	flows                *oauth.FlowService
+	refresh              *oauth.RefreshService
+	replacements         *servercredentials.Service
+	manager              *runtimes.Manager
+	publisher            *activePublisher
+	callbacks            *callbackSlots
+	startHooks           startHooks
+	startMu              sync.Mutex
+	started              bool
+	startFailed          bool
+	accepting            atomic.Bool
+	ready                func() bool
+	drainMu              sync.Mutex
+	drainFenced          chan struct{}
+	drainDone            chan struct{}
+	drainResult          runtimes.DrainResult
 }
 
 func (built *Composition) Servers() *servers.Repository { return built.servers }
@@ -108,12 +115,13 @@ func (built *Composition) ListTools() mcpingress.ToolsListService {
 	return built.listTools
 }
 func (built *Composition) AgentIngress() (AgentIngressDependencies, bool) {
-	if built == nil || built.authorization == nil || built.listTools == nil {
+	if built == nil || built.authorization == nil || built.listTools == nil || built.callTools == nil {
 		return AgentIngressDependencies{}, false
 	}
 	return AgentIngressDependencies{
 		Authenticator: built.authorization,
 		ListTools:     built.listTools,
+		CallTools:     built.callTools,
 		AuthMode:      contract.AgentAuthPrincipalCredentials,
 	}, true
 }
@@ -330,6 +338,45 @@ func (adapter *discoveryListAdapter) ListTools(
 	}
 }
 
+type invocationCallAdapter struct {
+	service   *invocation.Service
+	pipelines *invocation.PipelineFence
+}
+
+var _ mcpingress.ToolsCallService = (*invocationCallAdapter)(nil)
+
+func (adapter *invocationCallAdapter) Call(
+	ctx context.Context,
+	lease *authorization.Lease,
+	request mcpingress.ToolsCallRequest,
+) mcpingress.ToolsCallResponse {
+	if adapter == nil || adapter.service == nil || adapter.pipelines == nil {
+		return mcpingress.ToolsCallResponse{ErrorCode: contract.AuditUnavailable}
+	}
+	release, ok := adapter.pipelines.TryEnter()
+	if !ok {
+		return mcpingress.ToolsCallResponse{ErrorCode: contract.AuditUnavailable}
+	}
+	defer release()
+	response := adapter.service.Call(ctx, lease, invocation.CallRequest{Params: request.Params, WireValid: request.WireValid})
+	result := mcpingress.ToolsCallResponse{ErrorCode: response.ErrorCode, InvocationID: response.InvocationID}
+	if response.Result != nil {
+		projected := &mcpingress.ToolsCallResult{
+			Content:           make([]json.RawMessage, len(response.Result.Content)),
+			StructuredContent: append(json.RawMessage(nil), response.Result.StructuredContent...),
+		}
+		for index := range response.Result.Content {
+			projected.Content[index] = append(json.RawMessage(nil), response.Result.Content[index]...)
+		}
+		if response.Result.IsError != nil {
+			isError := *response.Result.IsError
+			projected.IsError = &isError
+		}
+		result.Result = projected
+	}
+	return result
+}
+
 type constructorHooks struct {
 	before           func(string) error
 	discoveryEntropy io.Reader
@@ -341,6 +388,7 @@ type constructorHooks struct {
 
 var mandatoryConstructorStages = []string{
 	"server_repository", "authorization_repository", "catalog_repository", "process_id", "active_registry",
+	"invocation_repository", "invocation_validation", "invocation_pipeline", "invocation_service", "invocation_adapter",
 	"discovery_service", "discovery_cursor", "discovery_pager", "traverser", "remote_factory",
 	"provider", "keyring_coordinator", "authority_resolver", "oauth_resolver", "disconnect_service", "registrar",
 	"flow_service", "runtime_owner", "stdio_supervisor", "driver", "catalog_coordinator", "refresh_service",
@@ -411,6 +459,34 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil, fmt.Errorf("construct active_registry: %w", err)
 	}
 	built.publisher = &activePublisher{active: built.activeCatalog, fences: make(map[string]uint64)}
+	if err := check("invocation_repository"); err != nil {
+		return nil, err
+	}
+	built.invocationRepository, err = invocation.NewRepository(options.Store, options.Clock, options.Entropy)
+	if err != nil {
+		return nil, fmt.Errorf("construct invocation_repository: %w", err)
+	}
+	if err := check("invocation_validation"); err != nil {
+		return nil, err
+	}
+	if err := built.invocationRepository.ValidateStartup(context.Background()); err != nil {
+		return nil, fmt.Errorf("validate invocation startup: %w", err)
+	}
+	if err := check("invocation_pipeline"); err != nil {
+		return nil, err
+	}
+	built.invocationPipelines = invocation.NewPipelineFence()
+	if err := check("invocation_service"); err != nil {
+		return nil, err
+	}
+	built.invocationService, err = invocation.NewService(built.invocationRepository, built.authorization, built.activeCatalog.Routes())
+	if err != nil {
+		return nil, fmt.Errorf("construct invocation_service: %w", err)
+	}
+	if err := check("invocation_adapter"); err != nil {
+		return nil, err
+	}
+	built.callTools = &invocationCallAdapter{service: built.invocationService, pipelines: built.invocationPipelines}
 	if err := check("discovery_service"); err != nil {
 		return nil, err
 	}

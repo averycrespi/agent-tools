@@ -161,6 +161,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	ingress := mcpingress.New(mcpingress.Options{
 		Authenticator: agentIngress.Authenticator,
 		ListTools:     agentIngress.ListTools,
+		CallTools:     agentIngress.CallTools,
 		Now:           dependencies.clock.Now,
 		Entropy:       dependencies.entropy,
 	})

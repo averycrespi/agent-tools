@@ -92,7 +92,7 @@ func TestProductionRootUsesConcreteNativeCompositionAndPositiveIngress(t *testin
 	e2eProviderSource := readProductionSource(t, root, "internal/composition/provider_factory_e2e.go")
 	for _, required := range []string{
 		"newComposition: composition.New", "newComposition(composition.Options{", "authorizationRepository := runtime.Authorization()", "Principals:  authorizationRepository", "GrantTarget: func(", "serverRepository.ValidateGrantTargetTx", "activeCatalog := runtime.ActiveCatalog()",
-		"ActiveCatalog:  activeCatalog", "agentIngress, ok := runtime.AgentIngress()", "Authenticator: agentIngress.Authenticator", "ListTools:     agentIngress.ListTools", "agentIngress.AuthMode", "runtime.AuthorizationOccupancy(context.Background())", "runtime.Start(ctx)", "runtime.Drain(shutdownCtx)",
+		"ActiveCatalog:  activeCatalog", "agentIngress, ok := runtime.AgentIngress()", "Authenticator: agentIngress.Authenticator", "ListTools:     agentIngress.ListTools", "CallTools:     agentIngress.CallTools", "agentIngress.AuthMode", "runtime.AuthorizationOccupancy(context.Background())", "runtime.Start(ctx)", "runtime.Drain(shutdownCtx)",
 	} {
 		assert.Contains(t, rootSource, required, "cmd/mcp-gateway/root.go: missing production symbol %s", required)
 	}
@@ -127,7 +127,8 @@ func TestProductionPersistenceAndCapabilitySliceGuards(t *testing.T) {
 	}
 	for _, source := range productionSources(t, root) {
 		for _, symbol := range []string{"Routes().Resolve(", ".Acquire(ctx"} {
-			if strings.Contains(source.contents, symbol) {
+			allowedInvocationAcquire := source.path == "internal/invocation/service.go" && symbol == ".Acquire(ctx"
+			if strings.Contains(source.contents, symbol) && !allowedInvocationAcquire {
 				t.Errorf("%s: prohibited capability consumer %s", source.path, symbol)
 			}
 		}
@@ -147,7 +148,8 @@ func TestProductionS3DiscoverySliceGuards(t *testing.T) {
 	compositionSource := readProductionSource(t, root, "internal/composition/composition.go")
 	for _, symbol := range []string{
 		"type AgentIngressDependencies struct", "Authenticator mcpingress.AgentAuthenticator",
-		"ListTools     mcpingress.ToolsListService", "AuthMode:      contract.AgentAuthPrincipalCredentials",
+		"ListTools     mcpingress.ToolsListService", "CallTools     mcpingress.ToolsCallService",
+		"AuthMode:      contract.AgentAuthPrincipalCredentials",
 	} {
 		assert.Contains(t, compositionSource, symbol, "internal/composition/composition.go: missing atomic production ingress symbol %s", symbol)
 	}
@@ -271,10 +273,16 @@ func s3SliceViolations(source productionSource) []string {
 			violations = append(violations, fmt.Sprintf("%s: prohibited duplicate discovery constructor %s", source.path, symbol))
 		}
 	}
+	for _, symbol := range []string{"invocation.NewRepository(", "invocation.NewPipelineFence(", "invocation.NewService("} {
+		if strings.Contains(source.contents, symbol) && (source.path != "internal/composition/composition.go" || strings.Count(source.contents, symbol) != 1) {
+			violations = append(violations, fmt.Sprintf("%s: prohibited duplicate invocation constructor %s", source.path, symbol))
+		}
+	}
 	if source.path == "internal/composition/composition.go" {
 		for _, symbol := range []string{
 			"type AgentIngressDependencies struct", "func (built *Composition) AgentIngress()",
-			"Authenticator: built.authorization", "ListTools:     built.listTools", "AuthMode:      contract.AgentAuthPrincipalCredentials",
+			"Authenticator: built.authorization", "ListTools:     built.listTools", "CallTools:     built.callTools",
+			"AuthMode:      contract.AgentAuthPrincipalCredentials",
 		} {
 			if strings.Count(source.contents, symbol) != 1 {
 				violations = append(violations, fmt.Sprintf("%s: composition ingress symbol %s must occur exactly once", source.path, symbol))
@@ -289,7 +297,7 @@ func s3SliceViolations(source productionSource) []string {
 		}
 		for _, symbol := range []string{
 			"runtime.AgentIngress()", "Authenticator: agentIngress.Authenticator",
-			"ListTools:     agentIngress.ListTools", "agentIngress.AuthMode",
+			"ListTools:     agentIngress.ListTools", "CallTools:     agentIngress.CallTools", "agentIngress.AuthMode",
 		} {
 			if strings.Count(source.contents, symbol) != 1 {
 				violations = append(violations, fmt.Sprintf("%s: production ingress symbol %s must occur exactly once", source.path, symbol))
@@ -300,7 +308,8 @@ func s3SliceViolations(source productionSource) []string {
 	if strings.HasPrefix(source.path, "internal/discovery/") {
 		violations = append(violations, discoveryViolations(source)...)
 	}
-	if !strings.HasPrefix(source.path, "internal/catalog/") && !strings.HasPrefix(source.path, "internal/downstream/") {
+	if !strings.HasPrefix(source.path, "internal/catalog/") && !strings.HasPrefix(source.path, "internal/downstream/") &&
+		!strings.HasPrefix(source.path, "internal/invocation/") {
 		if strings.Contains(source.contents, "Routes().Resolve(") {
 			violations = append(violations, fmt.Sprintf("%s: prohibited capability consumer Routes().Resolve(", source.path))
 		}
@@ -317,11 +326,12 @@ func s3SliceViolations(source productionSource) []string {
 			return true
 		})
 	}
-	if source.path != "internal/downstream/call.go" && strings.Contains(source.contents, "tools/call") {
+	allowedCallWireOwner := source.path == "internal/downstream/call.go" || source.path == "internal/mcpingress/handler.go" ||
+		source.path == "internal/mcpingress/tools_list.go" || source.path == "internal/mcpingress/tools_call.go"
+	if !allowedCallWireOwner && strings.Contains(source.contents, "tools/call") {
 		violations = append(violations, fmt.Sprintf("%s: prohibited S4/S5 consumer tools/call", source.path))
 	}
-	invocationPrivacyPrimitive := source.path == "internal/invocation/redaction.go"
-	if strings.HasPrefix(source.path, "internal/audit/") || (strings.HasPrefix(source.path, "internal/invocation/") && !invocationPrivacyPrimitive) || strings.HasPrefix(source.path, "internal/ui/") {
+	if strings.HasPrefix(source.path, "internal/audit/") || strings.HasPrefix(source.path, "internal/ui/") {
 		violations = append(violations, fmt.Sprintf("%s: prohibited S4/S5 package", source.path))
 	}
 	return violations

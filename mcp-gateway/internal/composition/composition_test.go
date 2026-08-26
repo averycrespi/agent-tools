@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/discovery"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/invocation"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
@@ -49,10 +51,17 @@ func TestNewBuildsOneFailClosedProductionGraph(t *testing.T) {
 	require.NotNil(t, built.discoveryPager)
 	require.NotNil(t, built.listTools)
 	assert.Same(t, built.listTools, built.ListTools())
+	require.NotNil(t, built.invocationRepository)
+	require.NotNil(t, built.invocationPipelines)
+	require.NotNil(t, built.invocationService)
+	require.NotNil(t, built.callTools)
+	assert.Same(t, built.invocationService, built.callTools.service)
+	assert.Same(t, built.invocationPipelines, built.callTools.pipelines)
 	agentIngress, ok := built.AgentIngress()
 	require.True(t, ok)
 	assert.Same(t, built.authorization, agentIngress.Authenticator)
 	assert.Same(t, built.listTools, agentIngress.ListTools)
+	assert.Same(t, built.callTools, agentIngress.CallTools)
 	assert.Equal(t, contract.AgentAuthPrincipalCredentials, agentIngress.AuthMode)
 	require.NotNil(t, built.traverser)
 	require.NotNil(t, built.remoteFactory)
@@ -134,6 +143,7 @@ func TestPositiveAgentIngressUsesComposedAuthorityDiscoveryAndDrainFence(t *test
 	ingress := mcpingress.New(mcpingress.Options{
 		Authenticator: agentIngress.Authenticator,
 		ListTools:     agentIngress.ListTools,
+		CallTools:     agentIngress.CallTools,
 	})
 	defer ingress.Shutdown()
 
@@ -155,6 +165,27 @@ func TestPositiveAgentIngressUsesComposedAuthorityDiscoveryAndDrainFence(t *test
 	ingress.ServeHTTP(response, request.WithContext(authenticated))
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"positive","result":{"tools":[]}}`, response.Body.String())
+
+	call := newAgentRequest(issued.Bearer, `{"jsonrpc":"2.0","id":"call","method":"tools/call","params":{"name":"missing.tool","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"fixture","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`)
+	authenticated, err = ingress.Authenticate(call.Context(), call, contract.AuthorityAgent)
+	require.NoError(t, err)
+	response = httptest.NewRecorder()
+	ingress.ServeHTTP(response, call.WithContext(authenticated))
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var callError struct {
+		Error struct {
+			Data contract.AgentCallErrorData `json:"data"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &callError))
+	assert.Equal(t, contract.CallRejected, callError.Error.Data.Code)
+	require.NotNil(t, callError.Error.Data.InvocationID)
+	record, found, err := built.invocationRepository.Read(t.Context(), *callError.Error.Data.InvocationID)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, contract.AdmissionUnknownTool, record.AdmissionClass)
+	assert.Equal(t, created.Principal.ID, record.PrincipalID)
+	assert.Equal(t, "2026-08-25T01:00:00.000000000Z", record.AdmittedAt)
 
 	assert.Equal(t, runtimes.DrainResult{}, <-built.Drain(context.Background()))
 	drained := newAgentRequest(issued.Bearer, `{"jsonrpc":"2.0","id":"drained","method":"tools/list"}`)
@@ -357,6 +388,25 @@ func TestConstructionRejectsInvalidAuthorizationStateBeforeStartup(t *testing.T)
 	require.Error(t, err)
 	assert.Nil(t, built)
 	assert.ErrorIs(t, err, authorization.ErrInvalidState)
+}
+
+func TestConstructionRejectsInvalidInvocationStateBeforeStartup(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	require.NoError(t, options.Store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		_, err := transaction.Exec(`INSERT INTO invocations (
+			id, principal_id, credential_id, credential_fingerprint, credential_revision, admitted_at, admission_class
+		) VALUES (
+			'01J60000000000000000000001', '01J60000000000000000000002', '01J60000000000000000000003',
+			'0123456789abcdef', 1, 'not-canonical', 'invalid_params'
+		)`)
+		return err
+	}))
+
+	built, err := New(options)
+	require.Error(t, err)
+	assert.Nil(t, built)
+	assert.ErrorIs(t, err, invocation.ErrInvalidState)
 }
 
 func TestConstructionRejectsLatchedAuthorizationBeforeStartup(t *testing.T) {
