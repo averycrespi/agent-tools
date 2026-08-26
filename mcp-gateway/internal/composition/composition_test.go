@@ -13,6 +13,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/discovery"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
@@ -145,6 +146,91 @@ func TestDiscoveryCursorEntropyFailureStopsConstruction(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, built)
 	assert.ErrorContains(t, err, "construct discovery_cursor")
+}
+
+func TestDrainSynchronouslyFencesAuthorizationAndDiscoveryBeforeGateQuiescence(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	built, err := New(options)
+	require.NoError(t, err)
+	defer built.shutdownConstructed()
+	created, err := built.Authorization().CreatePrincipal(t.Context(), authorization.CreatePrincipalRequest{
+		DisplayName: "drain principal", Visibility: contract.VisibilityAll,
+	})
+	require.NoError(t, err)
+	issued, err := built.Authorization().IssueCredential(t.Context(), created.Principal.ID, created.Principal.Revision)
+	require.NoError(t, err)
+	lease, err := built.Authorization().Authenticate(t.Context(), issued.Bearer)
+	require.NoError(t, err)
+	projection, err := built.Discovery().Project(t.Context(), discovery.Request{Lease: lease})
+	require.NoError(t, err)
+	cursor, err := built.discoveryCursors.Encode(discovery.CursorState{
+		Snapshot: projection.Snapshot,
+		Method:   discovery.CursorMethodToolsList,
+		Position: 1,
+	})
+	require.NoError(t, err)
+
+	admissionEntered := make(chan struct{})
+	releaseAdmission := make(chan struct{})
+	admissionDone := make(chan error, 1)
+	go func() {
+		admissionDone <- built.Authorization().WithAdmission(context.Background(), lease, func(*authorization.Admission) error {
+			close(admissionEntered)
+			<-releaseAdmission
+			return nil
+		})
+	}()
+	<-admissionEntered
+
+	drainReturned := make(chan (<-chan runtimes.DrainResult), 1)
+	go func() { drainReturned <- built.Drain(context.Background()) }()
+	require.Eventually(t, func() bool {
+		_, authenticateErr := built.Authorization().Authenticate(t.Context(), issued.Bearer)
+		return errors.Is(authenticateErr, authorization.ErrShuttingDown)
+	}, time.Second, time.Millisecond)
+
+	var drained <-chan runtimes.DrainResult
+	select {
+	case drained = <-drainReturned:
+	case <-time.After(time.Second):
+		close(releaseAdmission)
+		<-admissionDone
+		t.Fatal("composition drain waited for authority quiescence before returning its result channel")
+	}
+	select {
+	case <-lease.Done():
+	default:
+		close(releaseAdmission)
+		<-admissionDone
+		t.Fatal("composition drain left the pre-admission lease open")
+	}
+	assert.False(t, built.ActiveCatalog().IsCurrentGeneration(projection.Snapshot.Generation))
+	encoded := false
+	_, err = built.ListTools().ListTools(t.Context(), lease, cursor, func(context.Context, any, string) ([]byte, error) {
+		encoded = true
+		return []byte(`{"tools":[]}`), nil
+	})
+	assert.ErrorIs(t, err, mcpingress.ErrToolsListAuthorizationUnavailable)
+	assert.False(t, encoded)
+	joined := built.Drain(context.Background())
+	select {
+	case <-drained:
+		t.Fatal("composition drain completed before the authority gate quiesced")
+	default:
+	}
+	select {
+	case <-joined:
+		t.Fatal("joined drain completed before the authority gate quiesced")
+	default:
+	}
+
+	close(releaseAdmission)
+	require.NoError(t, <-admissionDone)
+	assert.Equal(t, runtimes.DrainResult{}, <-drained)
+	assert.Equal(t, runtimes.DrainResult{}, <-joined)
+	_, err = options.Store.DatabaseStatus(t.Context())
+	require.NoError(t, err, "composition drain must finish before root closes storage")
 }
 
 func TestStartRequiresReadinessAndBindsExactlyOnce(t *testing.T) {

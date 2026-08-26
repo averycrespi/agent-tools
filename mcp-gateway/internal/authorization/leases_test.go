@@ -180,6 +180,72 @@ func TestAuthenticateCancellationAfterReadRegistersNoLease(t *testing.T) {
 	assert.Equal(t, 0, repository.authority.count())
 }
 
+func TestDrainFenceCancelsPendingBeforeOccupiedGateQuiesces(t *testing.T) {
+	repository, bearer := issuedLeaseRepository(t)
+	lease, err := repository.Authenticate(t.Context(), bearer)
+	require.NoError(t, err)
+	admissionEntered := make(chan struct{})
+	releaseAdmission := make(chan struct{})
+	admissionDone := make(chan error, 1)
+	go func() {
+		admissionDone <- repository.WithAdmission(context.Background(), lease, func(*Admission) error {
+			close(admissionEntered)
+			<-releaseAdmission
+			return nil
+		})
+	}()
+	<-admissionEntered
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.ErrorIs(t, repository.Drain(ctx), context.Canceled)
+	select {
+	case <-lease.Done():
+	default:
+		t.Fatal("drain fence left a pending lease open while the gate was occupied")
+	}
+	assert.False(t, lease.Current())
+	assert.Equal(t, 0, repository.authority.count())
+	_, err = repository.Authenticate(t.Context(), bearer)
+	assert.ErrorIs(t, err, ErrShuttingDown)
+
+	close(releaseAdmission)
+	require.NoError(t, <-admissionDone)
+	require.NoError(t, repository.Drain(context.Background()))
+}
+
+func TestDrainCancellationRacesConcurrentLeaseRelease(t *testing.T) {
+	repository, bearer := issuedLeaseRepository(t)
+	const leaseCount = 32
+	leases := make([]*Lease, leaseCount)
+	for index := range leases {
+		lease, err := repository.Authenticate(t.Context(), bearer)
+		require.NoError(t, err)
+		leases[index] = lease
+	}
+	start := make(chan struct{})
+	var releases sync.WaitGroup
+	for _, lease := range leases {
+		releases.Add(1)
+		go func() {
+			defer releases.Done()
+			<-start
+			lease.Release()
+		}()
+	}
+	close(start)
+	require.NoError(t, repository.Drain(context.Background()))
+	releases.Wait()
+	assert.Equal(t, 0, repository.authority.count())
+	for _, lease := range leases {
+		select {
+		case <-lease.Done():
+		default:
+			t.Fatal("release race left a lease open")
+		}
+	}
+}
+
 func TestDrainDeadlineLeavesFenceAndLaterCompletes(t *testing.T) {
 	repository, bearer := issuedLeaseRepository(t)
 	gateAcquired := make(chan struct{})

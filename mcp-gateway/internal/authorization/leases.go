@@ -191,24 +191,27 @@ func (repository *Repository) mutateAuthority(ctx context.Context, affectedPrinc
 	return err
 }
 
-func (repository *Repository) Drain(ctx context.Context) error {
+func (repository *Repository) BeginDrain() {
 	registry := repository.authority
-	registry.draining.Store(true)
+	if !registry.draining.CompareAndSwap(false, true) {
+		return
+	}
 	if registry.hooks.afterDrainFence != nil {
 		registry.hooks.afterDrainFence()
 	}
+	registry.cancelPending()
+}
+
+func (repository *Repository) Drain(ctx context.Context) error {
+	repository.BeginDrain()
+	registry := repository.authority
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	select {
 	case registry.gate <- struct{}{}:
-		if err := ctx.Err(); err != nil {
-			<-registry.gate
-			return err
-		}
-		registry.cancelPending()
-		<-registry.gate
-		return nil
+		defer func() { <-registry.gate }()
+		return ctx.Err()
 	case <-ctx.Done():
 		return ctx.Err()
 	}

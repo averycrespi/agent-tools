@@ -80,6 +80,7 @@ type Composition struct {
 	accepting         atomic.Bool
 	ready             func() bool
 	drainMu           sync.Mutex
+	drainFenced       chan struct{}
 	drainDone         chan struct{}
 	drainResult       runtimes.DrainResult
 }
@@ -611,12 +612,20 @@ func (built *Composition) Drain(ctx context.Context) <-chan runtimes.DrainResult
 		return result
 	}
 	built.drainMu.Lock()
-	if built.drainDone == nil {
+	begin := built.drainDone == nil
+	if begin {
+		built.drainFenced = make(chan struct{})
 		built.drainDone = make(chan struct{})
-		built.beginDrain(ctx)
 	}
+	fenced := built.drainFenced
 	done := built.drainDone
 	built.drainMu.Unlock()
+	if begin {
+		built.beginDrain(ctx)
+		close(fenced)
+	} else {
+		<-fenced
+	}
 	go func() {
 		select {
 		case <-done:
@@ -633,7 +642,9 @@ func (built *Composition) Drain(ctx context.Context) <-chan runtimes.DrainResult
 
 func (built *Composition) beginDrain(ctx context.Context) {
 	built.accepting.Store(false)
-	authorizationClean := built.authorization == nil || built.authorization.Drain(ctx) == nil
+	if built.authorization != nil {
+		built.authorization.BeginDrain()
+	}
 	ownedBefore := int64(0)
 	if built.owner != nil {
 		ownedBefore = built.owner.Status().InUse
@@ -657,13 +668,16 @@ func (built *Composition) beginDrain(ctx context.Context) {
 	if built.manager != nil {
 		managerDone = built.manager.Drain(ctx)
 	}
-	go built.awaitDrain(ctx, authorizationClean, ownedBefore, managerDone)
+	go built.awaitDrain(ctx, ownedBefore, managerDone)
 }
 
-func (built *Composition) awaitDrain(ctx context.Context, authorizationClean bool, ownedBefore int64, managerDone <-chan runtimes.DrainResult) {
-	waits := make(chan bool, 5)
+func (built *Composition) awaitDrain(ctx context.Context, ownedBefore int64, managerDone <-chan runtimes.DrainResult) {
+	waits := make(chan bool, 6)
 	waitCount := 0
 	for _, wait := range []func(context.Context) bool{
+		func(ctx context.Context) bool {
+			return built.authorization == nil || built.authorization.Drain(ctx) == nil
+		},
 		func(ctx context.Context) bool { return built.manager == nil || built.manager.Wait(ctx) },
 		func(ctx context.Context) bool { return built.catalog == nil || built.catalog.Wait(ctx) },
 		func(ctx context.Context) bool { return built.refresh == nil || built.refresh.Wait(ctx) },
@@ -674,7 +688,7 @@ func (built *Composition) awaitDrain(ctx context.Context, authorizationClean boo
 		wait := wait
 		go func() { waits <- wait(ctx) }()
 	}
-	clean := authorizationClean
+	clean := true
 	result := runtimes.DrainResult{}
 	if managerDone != nil {
 		select {
