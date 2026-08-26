@@ -16,6 +16,22 @@ import (
 
 type AuthenticateFunc func(context.Context, *http.Request, contract.CredentialAuthority) (context.Context, error)
 
+type AuthenticationCleanup interface {
+	Release()
+}
+
+type authenticationCleanupKey struct{}
+
+func WithAuthenticationCleanup(ctx context.Context, cleanup AuthenticationCleanup) context.Context {
+	return context.WithValue(ctx, authenticationCleanupKey{}, cleanup)
+}
+
+func releaseAuthentication(ctx context.Context) {
+	if cleanup, ok := ctx.Value(authenticationCleanupKey{}).(AuthenticationCleanup); ok && cleanup != nil {
+		cleanup.Release()
+	}
+}
+
 type Options struct {
 	Authority    string
 	Ready        func() bool
@@ -151,6 +167,7 @@ func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Re
 			return
 		}
 		ctx = authenticated
+		defer releaseAuthentication(ctx)
 		if isAdmin(route.Authority) {
 			if !tryAcquire(boundary.admin) {
 				writeProblem(writer, contract.ProblemResourceLimit)

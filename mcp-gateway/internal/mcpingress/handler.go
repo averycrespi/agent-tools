@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -21,24 +22,14 @@ import (
 
 var ErrAuthenticationRequired = errors.New("agent authentication required")
 
-type Binding struct {
-	PrincipalID  string
-	CredentialID string
-	ExpiresAt    time.Time
-}
-
 type AgentAuthenticator interface {
-	Authenticate(context.Context, string) (Binding, error)
-}
-
-type InvalidationSubscriber interface {
-	Subscribe(Binding) <-chan struct{}
+	Authenticate(context.Context, string) (*authorization.Lease, error)
 }
 
 type DenyAllAuthenticator struct{}
 
-func (DenyAllAuthenticator) Authenticate(context.Context, string) (Binding, error) {
-	return Binding{}, ErrAuthenticationRequired
+func (DenyAllAuthenticator) Authenticate(context.Context, string) (*authorization.Lease, error) {
+	return nil, ErrAuthenticationRequired
 }
 
 type Timer interface {
@@ -70,18 +61,47 @@ type Handler struct {
 }
 
 type legacySession struct {
-	binding     Binding
-	createdAt   time.Time
-	lastActive  time.Time
-	handler     http.Handler
-	invalidated <-chan struct{}
-	done        chan struct{}
-	idleTimer   Timer
-	expiryTimer Timer
-	closeOnce   sync.Once
+	lease         *authorization.Lease
+	binding       authorization.CredentialBinding
+	createdAt     time.Time
+	lastActive    time.Time
+	handler       http.Handler
+	done          chan struct{}
+	idleTimer     Timer
+	absoluteTimer Timer
+	closeOnce     sync.Once
 }
 
-type bindingContextKey struct{}
+type leaseContextKey struct{}
+
+type requestLease struct {
+	mu          sync.Mutex
+	lease       *authorization.Lease
+	transferred bool
+	released    bool
+}
+
+func (ownership *requestLease) Release() {
+	ownership.mu.Lock()
+	if ownership.released || ownership.transferred {
+		ownership.mu.Unlock()
+		return
+	}
+	ownership.released = true
+	lease := ownership.lease
+	ownership.mu.Unlock()
+	lease.Release()
+}
+
+func (ownership *requestLease) transfer() bool {
+	ownership.mu.Lock()
+	defer ownership.mu.Unlock()
+	if ownership.released || ownership.transferred {
+		return false
+	}
+	ownership.transferred = true
+	return true
+}
 
 func New(options Options) *Handler {
 	if options.Authenticator == nil {
@@ -135,16 +155,35 @@ func (handler *Handler) Authenticate(ctx context.Context, request *http.Request,
 	if code != "" {
 		return ctx, httpboundary.Error{Code: code}
 	}
-	binding, err := handler.authenticator.Authenticate(ctx, bearer)
-	if err != nil || binding.PrincipalID == "" || binding.CredentialID == "" || !binding.ExpiresAt.After(handler.now()) {
+	lease, err := handler.authenticator.Authenticate(ctx, bearer)
+	if err != nil || lease == nil {
+		if lease != nil {
+			lease.Release()
+		}
 		return ctx, httpboundary.Error{Code: contract.ProblemAuthenticationRequired}
 	}
-	return context.WithValue(ctx, bindingContextKey{}, binding), nil
+	binding := lease.Binding()
+	if !lease.Current() || binding.PrincipalID == "" || binding.PrincipalRevision == "" || binding.CredentialID == "" ||
+		binding.CredentialRevision == "" || binding.CredentialFingerprint == "" || binding.Visibility == "" {
+		lease.Release()
+		return ctx, httpboundary.Error{Code: contract.ProblemAuthenticationRequired}
+	}
+	ownership := &requestLease{lease: lease}
+	authenticated := context.WithValue(ctx, leaseContextKey{}, ownership)
+	return httpboundary.WithAuthenticationCleanup(authenticated, ownership), nil
 }
 
-func BindingFromContext(ctx context.Context) (Binding, bool) {
-	binding, ok := ctx.Value(bindingContextKey{}).(Binding)
-	return binding, ok
+func LeaseFromContext(ctx context.Context) (*authorization.Lease, bool) {
+	ownership, ok := requestLeaseFromContext(ctx)
+	if !ok {
+		return nil, false
+	}
+	return ownership.lease, true
+}
+
+func requestLeaseFromContext(ctx context.Context) (*requestLease, bool) {
+	ownership, ok := ctx.Value(leaseContextKey{}).(*requestLease)
+	return ownership, ok && ownership != nil && ownership.lease != nil
 }
 
 func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -152,11 +191,20 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.next.ServeHTTP(writer, request)
 		return
 	}
-	binding, ok := BindingFromContext(request.Context())
+	ownership, ok := requestLeaseFromContext(request.Context())
 	if !ok {
 		writeProblem(writer, contract.ProblemAuthenticationRequired)
 		return
 	}
+	defer ownership.Release()
+	lease := ownership.lease
+	request, stopWatchingLease := requestWithLeaseCancellation(request, lease)
+	defer stopWatchingLease()
+	if !lease.Current() {
+		writeProblem(writer, contract.ProblemAuthenticationRequired)
+		return
+	}
+	binding := lease.Binding()
 	if !tryAcquire(handler.work) {
 		writeProblem(writer, contract.ProblemResourceLimit)
 		return
@@ -214,11 +262,28 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		request.Header.Set("Mcp-Method", wire.Method)
 		handler.modern.ServeHTTP(writer, request)
 	case eraLegacyInitialize:
-		handler.serveLegacyInitialize(writer, request, binding)
+		handler.serveLegacyInitialize(writer, request, ownership)
 	case eraLegacyExisting:
 		handler.serveLegacyExisting(writer, request, binding)
 	default:
 		writeProblem(writer, contract.ProblemMalformedRequest)
+	}
+}
+
+func requestWithLeaseCancellation(request *http.Request, lease *authorization.Lease) (*http.Request, func()) {
+	ctx, cancel := context.WithCancel(request.Context())
+	watcherDone := make(chan struct{})
+	go func() {
+		defer close(watcherDone)
+		select {
+		case <-lease.Done():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return request.WithContext(ctx), func() {
+		cancel()
+		<-watcherDone
 	}
 }
 
@@ -305,7 +370,7 @@ func classifyPOST(request *http.Request, body []byte) (wireRequest, requestEra, 
 	return wireRequest{}, eraInvalid, contract.ProblemMalformedRequest
 }
 
-func (handler *Handler) serveLegacyInitialize(writer http.ResponseWriter, request *http.Request, binding Binding) {
+func (handler *Handler) serveLegacyInitialize(writer http.ResponseWriter, request *http.Request, ownership *requestLease) {
 	if !handler.reserveLegacy() {
 		writeProblem(writer, contract.ProblemResourceLimit)
 		return
@@ -317,6 +382,11 @@ func (handler *Handler) serveLegacyInitialize(writer http.ResponseWriter, reques
 		}
 	}()
 
+	lease := ownership.lease
+	if !lease.Current() {
+		writeProblem(writer, contract.ProblemAuthenticationRequired)
+		return
+	}
 	secret := make([]byte, 32)
 	if _, err := io.ReadFull(handler.entropy, secret); err != nil {
 		writeProblem(writer, contract.ProblemStorageUnavailable)
@@ -324,62 +394,81 @@ func (handler *Handler) serveLegacyInitialize(writer http.ResponseWriter, reques
 	}
 	sessionID := base64.RawURLEncoding.EncodeToString(secret)
 	now := handler.now()
-	sdkHandler := newLegacySDK(sessionID)
 	session := &legacySession{
-		binding: binding, createdAt: now, lastActive: now, handler: sdkHandler, done: make(chan struct{}),
+		lease: lease, binding: lease.Binding(), createdAt: now, lastActive: now,
+		handler: newLegacySDK(sessionID), done: make(chan struct{}),
 	}
-	if subscriber, ok := handler.authenticator.(InvalidationSubscriber); ok {
-		session.invalidated = subscriber.Subscribe(binding)
+	session.idleTimer = handler.afterFunc(contract.LegacyIdleLifetime, func() { handler.closeLegacyCandidate(sessionID, session) })
+	session.absoluteTimer = handler.afterFunc(contract.LegacyAbsoluteLifetime, func() { handler.closeLegacyCandidate(sessionID, session) })
+	if !lease.Current() {
+		if session.idleTimer != nil {
+			session.idleTimer.Stop()
+		}
+		if session.absoluteTimer != nil {
+			session.absoluteTimer.Stop()
+		}
+		finishLegacySession(sessionID, session, false)
+		writeProblem(writer, contract.ProblemAuthenticationRequired)
+		return
 	}
 
 	handler.mu.Lock()
 	if handler.shuttingDown || handler.legacy[sessionID] != nil {
 		handler.mu.Unlock()
+		finishLegacySession(sessionID, session, false)
 		writeProblem(writer, contract.ProblemResourceLimit)
+		return
+	}
+	if !lease.Current() {
+		handler.mu.Unlock()
+		finishLegacySession(sessionID, session, false)
+		writeProblem(writer, contract.ProblemAuthenticationRequired)
 		return
 	}
 	handler.reserved--
 	reserved = false
 	handler.legacy[sessionID] = session
-	handler.mu.Unlock()
-
-	session.idleTimer = handler.afterFunc(contract.LegacyIdleLifetime, func() { handler.closeLegacy(sessionID) })
-	expiryDuration := contract.LegacyAbsoluteLifetime
-	if credentialDuration := binding.ExpiresAt.Sub(now); credentialDuration < expiryDuration {
-		expiryDuration = credentialDuration
-	}
-	session.expiryTimer = handler.afterFunc(expiryDuration, func() { handler.closeLegacy(sessionID) })
-
-	captured := &statusWriter{ResponseWriter: writer}
-	sdkHandler.ServeHTTP(captured, request)
-	if captured.status >= http.StatusBadRequest {
-		handler.closeLegacy(sessionID)
+	if !ownership.transfer() {
+		delete(handler.legacy, sessionID)
+		handler.mu.Unlock()
+		finishLegacySession(sessionID, session, false)
+		writeProblem(writer, contract.ProblemAuthenticationRequired)
 		return
 	}
-	if session.invalidated != nil {
-		go func() {
-			select {
-			case <-session.invalidated:
-				handler.closeLegacy(sessionID)
-			case <-session.done:
-			}
-		}()
+	handler.mu.Unlock()
+
+	go func() {
+		select {
+		case <-session.lease.Done():
+			handler.closeLegacyCandidate(sessionID, session)
+		case <-session.done:
+		}
+	}()
+	if !session.lease.Current() {
+		handler.closeLegacyCandidate(sessionID, session)
+		writeProblem(writer, contract.ProblemAuthenticationRequired)
+		return
+	}
+	captured := &statusWriter{ResponseWriter: writer}
+	session.handler.ServeHTTP(captured, request)
+	if captured.status >= http.StatusBadRequest || !session.lease.Current() {
+		handler.closeLegacyCandidate(sessionID, session)
 	}
 }
 
-func (handler *Handler) serveLegacyExisting(writer http.ResponseWriter, request *http.Request, binding Binding) {
+func (handler *Handler) serveLegacyExisting(writer http.ResponseWriter, request *http.Request, binding authorization.CredentialBinding) {
 	sessionID := request.Header.Get("Mcp-Session-Id")
 	now := handler.now()
 	handler.mu.Lock()
 	session := handler.legacy[sessionID]
-	if session == nil || session.binding.PrincipalID != binding.PrincipalID || session.binding.CredentialID != binding.CredentialID {
+	if session == nil || session.binding.PrincipalID != binding.PrincipalID || session.binding.CredentialID != binding.CredentialID ||
+		session.binding.CredentialRevision != binding.CredentialRevision {
 		handler.mu.Unlock()
 		writeProblem(writer, contract.ProblemNotFound)
 		return
 	}
-	expired := !binding.ExpiresAt.After(now) || !now.Before(session.createdAt.Add(contract.LegacyAbsoluteLifetime)) || !now.Before(session.lastActive.Add(contract.LegacyIdleLifetime))
-	invalidated := channelClosed(session.invalidated)
-	if expired || invalidated {
+	expired := !now.Before(session.createdAt.Add(contract.LegacyAbsoluteLifetime)) || !now.Before(session.lastActive.Add(contract.LegacyIdleLifetime))
+	if expired || !session.lease.Current() {
 		delete(handler.legacy, sessionID)
 		handler.mu.Unlock()
 		closeLegacySession(sessionID, session)
@@ -402,10 +491,10 @@ func (handler *Handler) serveLegacyExisting(writer http.ResponseWriter, request 
 		}
 		defer release(handler.streams)
 	}
-	session.handler.ServeHTTP(writer, request)
 	if request.Method == http.MethodDelete {
-		finishLegacySession(sessionID, session, false)
+		defer finishLegacySession(sessionID, session, false)
 	}
+	session.handler.ServeHTTP(writer, request)
 }
 
 func (handler *Handler) reserveLegacy() bool {
@@ -427,13 +516,19 @@ func (handler *Handler) releaseLegacyReservation() {
 func (handler *Handler) closeLegacy(sessionID string) {
 	handler.mu.Lock()
 	session := handler.legacy[sessionID]
+	handler.mu.Unlock()
 	if session != nil {
+		handler.closeLegacyCandidate(sessionID, session)
+	}
+}
+
+func (handler *Handler) closeLegacyCandidate(sessionID string, session *legacySession) {
+	handler.mu.Lock()
+	if handler.legacy[sessionID] == session {
 		delete(handler.legacy, sessionID)
 	}
 	handler.mu.Unlock()
-	if session != nil {
-		closeLegacySession(sessionID, session)
-	}
+	closeLegacySession(sessionID, session)
 }
 
 func closeLegacySession(sessionID string, session *legacySession) {
@@ -445,9 +540,11 @@ func finishLegacySession(sessionID string, session *legacySession, terminateSDK 
 		if session.idleTimer != nil {
 			session.idleTimer.Stop()
 		}
-		if session.expiryTimer != nil {
-			session.expiryTimer.Stop()
+		if session.absoluteTimer != nil {
+			session.absoluteTimer.Stop()
 		}
+		close(session.done)
+		session.lease.Release()
 		if terminateSDK {
 			request, err := http.NewRequestWithContext(context.Background(), http.MethodDelete, "http://127.0.0.1/mcp", nil)
 			if err == nil {
@@ -456,7 +553,6 @@ func finishLegacySession(sessionID string, session *legacySession, terminateSDK 
 				session.handler.ServeHTTP(newDiscardWriter(), request)
 			}
 		}
-		close(session.done)
 	})
 }
 
@@ -502,18 +598,6 @@ func newDiscardWriter() *discardWriter                { return &discardWriter{he
 func (writer *discardWriter) Header() http.Header     { return writer.header }
 func (*discardWriter) WriteHeader(int)                {}
 func (*discardWriter) Write(body []byte) (int, error) { return len(body), nil }
-
-func channelClosed(channel <-chan struct{}) bool {
-	if channel == nil {
-		return false
-	}
-	select {
-	case <-channel:
-		return true
-	default:
-		return false
-	}
-}
 
 func readMCPBody(request *http.Request) ([]byte, contract.ProblemCode) {
 	maximum := int64(limit("mcp_body_bytes"))

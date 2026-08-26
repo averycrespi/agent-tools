@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
@@ -43,6 +44,17 @@ type manualScheduler struct {
 	timers []*manualTimer
 }
 
+type immediateScheduler struct {
+	timers []*manualTimer
+}
+
+func (scheduler *immediateScheduler) AfterFunc(_ time.Duration, callback func()) Timer {
+	timer := &manualTimer{callback: callback}
+	scheduler.timers = append(scheduler.timers, timer)
+	callback()
+	return timer
+}
+
 func (scheduler *manualScheduler) AfterFunc(_ time.Duration, callback func()) Timer {
 	scheduler.mu.Lock()
 	defer scheduler.mu.Unlock()
@@ -70,49 +82,27 @@ func (scheduler *manualScheduler) Stopped(index int) bool {
 	return scheduler.timers[index].stopped
 }
 
-type subscribingAuthenticator struct {
-	mu           sync.RWMutex
-	bindings     map[string]Binding
-	invalidated  chan struct{}
-	subscribedCh chan struct{}
-	once         sync.Once
-}
-
-func (authenticator *subscribingAuthenticator) Authenticate(_ context.Context, bearer string) (Binding, error) {
-	authenticator.mu.RLock()
-	defer authenticator.mu.RUnlock()
-	binding, ok := authenticator.bindings[bearer]
-	if !ok {
-		return Binding{}, ErrAuthenticationRequired
-	}
-	return binding, nil
-}
-
-func (authenticator *subscribingAuthenticator) Subscribe(Binding) <-chan struct{} {
-	authenticator.once.Do(func() { close(authenticator.subscribedCh) })
-	return authenticator.invalidated
-}
-
-func newLegacyHarness(t *testing.T, clock *testutil.FakeClock, entropy *testutil.FakeEntropy) (*Handler, *httpboundary.Boundary, *subscribingAuthenticator) {
+func newLegacyHarness(t *testing.T, clock *testutil.FakeClock, entropy *testutil.FakeEntropy) (*Handler, *httpboundary.Boundary, *testAuthority) {
 	t.Helper()
-	expires := clock.Now().Add(24 * time.Hour)
-	authenticator := &subscribingAuthenticator{
-		bindings: map[string]Binding{
-			contract.AgentBearerPrefix + "valid": {PrincipalID: "01J00000000000000000000000", CredentialID: "01J00000000000000000000001", ExpiresAt: expires},
-			contract.AgentBearerPrefix + "other": {PrincipalID: "01J00000000000000000000002", CredentialID: "01J00000000000000000000003", ExpiresAt: expires},
-		},
-		invalidated: make(chan struct{}), subscribedCh: make(chan struct{}),
-	}
-	handler := New(Options{Authenticator: authenticator, Now: clock.Now, Entropy: entropy})
+	authority := newTestAuthority(t)
+	authority.add(t, "valid", contract.VisibilityRequestable)
+	authority.add(t, "other", contract.VisibilityAll)
+	handler := New(Options{Authenticator: authority, Now: clock.Now, Entropy: entropy})
+	boundary := newLegacyBoundary(t, handler)
+	return handler, boundary, authority
+}
+
+func newLegacyBoundary(t *testing.T, handler *Handler) *httpboundary.Boundary {
+	t.Helper()
 	boundary, err := httpboundary.New(httpboundary.Options{
 		Authority: contract.DefaultAuthority,
-		Authenticate: func(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
-			return handler.Authenticate(ctx, request, authority)
+		Authenticate: func(ctx context.Context, request *http.Request, credentialAuthority contract.CredentialAuthority) (context.Context, error) {
+			return handler.Authenticate(ctx, request, credentialAuthority)
 		},
 		Next: handler,
 	})
 	require.NoError(t, err)
-	return handler, boundary, authenticator
+	return boundary
 }
 
 func legacyRequest(method, body, bearer, sessionID string) *http.Request {
@@ -146,20 +136,33 @@ func initializeLegacy(t *testing.T, boundary *httpboundary.Boundary) string {
 	return sessionID
 }
 
-func TestLegacySessionBindsReauthenticationAndReleasesEveryTerminalPath(t *testing.T) {
-	t.Parallel()
+func TestLegacySessionBindsCredentialRevisionAndReleasesEveryTerminalPath(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC))
-	entropy := testutil.NewFakeEntropy(makeDistinctEntropy(4))
-	handler, boundary, authenticator := newLegacyHarness(t, clock, entropy)
-
+	handler, boundary, authority := newLegacyHarness(t, clock, testutil.NewFakeEntropy(makeDistinctEntropy(4)))
 	sessionID := initializeLegacy(t, boundary)
-	<-authenticator.subscribedCh
-	_, _, legacy := handler.Status()
-	assert.Equal(t, int64(1), legacy.InUse)
+	leases := authority.captured()
+	require.Len(t, leases, 1)
+	assert.False(t, leaseDone(leases[0]), "session lease released after initialization")
 
 	response := httptest.NewRecorder()
 	boundary.ServeHTTP(response, legacyRequest(http.MethodPost, legacyPing, "valid", sessionID))
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	leases = authority.captured()
+	require.Len(t, leases, 2)
+	assert.True(t, leaseDone(leases[1]), "request reauthentication lease survived")
+	assert.False(t, leaseDone(leases[0]), "session lease did not remain owned")
+
+	handler.mu.Lock()
+	session := handler.legacy[sessionID]
+	originalRevision := session.binding.CredentialRevision
+	session.binding.CredentialRevision = "999"
+	handler.mu.Unlock()
+	response = httptest.NewRecorder()
+	boundary.ServeHTTP(response, legacyRequest(http.MethodPost, legacyPing, "valid", sessionID))
+	assert.Equal(t, http.StatusNotFound, response.Code)
+	handler.mu.Lock()
+	session.binding.CredentialRevision = originalRevision
+	handler.mu.Unlock()
 
 	response = httptest.NewRecorder()
 	boundary.ServeHTTP(response, legacyRequest(http.MethodPost, legacyPing, "other", sessionID))
@@ -168,22 +171,34 @@ func TestLegacySessionBindsReauthenticationAndReleasesEveryTerminalPath(t *testi
 	response = httptest.NewRecorder()
 	boundary.ServeHTTP(response, legacyRequest(http.MethodDelete, "", "valid", sessionID))
 	require.Equal(t, http.StatusNoContent, response.Code, response.Body.String())
-	_, _, legacy = handler.Status()
+	assert.True(t, leaseDone(leases[0]))
+	_, _, legacy := handler.Status()
 	assert.Zero(t, legacy.InUse)
 
 	expiredSession := initializeLegacy(t, boundary)
+	expiredLease := authority.captured()[len(authority.captured())-1]
 	clock.Advance(contract.LegacyIdleLifetime + time.Second)
 	response = httptest.NewRecorder()
 	boundary.ServeHTTP(response, legacyRequest(http.MethodPost, legacyPing, "valid", expiredSession))
 	assert.Equal(t, http.StatusNotFound, response.Code)
-	_, _, legacy = handler.Status()
-	assert.Zero(t, legacy.InUse)
+	assert.True(t, leaseDone(expiredLease))
 
 	invalidatedSession := initializeLegacy(t, boundary)
-	close(authenticator.invalidated)
-	response = httptest.NewRecorder()
-	boundary.ServeHTTP(response, legacyRequest(http.MethodPost, legacyPing, "valid", invalidatedSession))
-	assert.Equal(t, http.StatusNotFound, response.Code)
+	handler.mu.Lock()
+	invalidatedDone := handler.legacy[invalidatedSession].done
+	handler.mu.Unlock()
+	principal, err := authority.repository.GetPrincipal(t.Context(), authority.principals["valid"])
+	require.NoError(t, err)
+	disabled := contract.PrincipalDisabled
+	_, err = authority.repository.PatchPrincipal(t.Context(), principal.ID, authorization.PatchPrincipalRequest{
+		ExpectedRevision: principal.Revision, State: &disabled,
+	})
+	require.NoError(t, err)
+	select {
+	case <-invalidatedDone:
+	case <-time.After(time.Second):
+		t.Fatal("lease invalidation did not close legacy session")
+	}
 	_, _, legacy = handler.Status()
 	assert.Zero(t, legacy.InUse)
 
@@ -195,65 +210,135 @@ func TestLegacySessionBindsReauthenticationAndReleasesEveryTerminalPath(t *testi
 	handler.Shutdown()
 }
 
-func TestLegacyIdleTimerClosesSessionWithoutAnotherRequest(t *testing.T) {
-	t.Parallel()
+func TestLegacyInvalidationBeforePublicationCreatesNoSession(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC))
-	authenticator := &subscribingAuthenticator{
-		bindings: map[string]Binding{
-			contract.AgentBearerPrefix + "valid": {
-				PrincipalID: "01J00000000000000000000000", CredentialID: "01J00000000000000000000001", ExpiresAt: clock.Now().Add(24 * time.Hour),
-			},
-		},
-		invalidated: make(chan struct{}), subscribedCh: make(chan struct{}),
+	handler, _, authority := newLegacyHarness(t, clock, testutil.NewFakeEntropy(makeDistinctEntropy(1)))
+	request := legacyRequest(http.MethodPost, legacyInitialize, "valid", "")
+	authenticated, err := handler.Authenticate(request.Context(), request, contract.AuthorityAgent)
+	require.NoError(t, err)
+	lease, ok := LeaseFromContext(authenticated)
+	require.True(t, ok)
+	lease.Release()
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request.WithContext(authenticated))
+	assert.Equal(t, http.StatusUnauthorized, response.Code)
+	_, _, legacy := handler.Status()
+	assert.Zero(t, legacy.InUse)
+	captured := authority.captured()
+	require.Len(t, captured, 1)
+	assert.True(t, leaseDone(captured[0]))
+}
+
+func TestLegacyTimerFiringDuringInstallationCannotPublishOrLeak(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC))
+	authority := newTestAuthority(t)
+	authority.add(t, "valid", contract.VisibilityRequestable)
+	scheduler := &immediateScheduler{}
+	handler := New(Options{
+		Authenticator: authority, Now: clock.Now, Entropy: testutil.NewFakeEntropy(makeDistinctEntropy(1)), AfterFunc: scheduler.AfterFunc,
+	})
+	boundary := newLegacyBoundary(t, handler)
+	response := httptest.NewRecorder()
+	boundary.ServeHTTP(response, legacyRequest(http.MethodPost, legacyInitialize, "valid", ""))
+	assert.Equal(t, http.StatusUnauthorized, response.Code)
+	_, _, legacy := handler.Status()
+	assert.Zero(t, legacy.InUse)
+	require.Len(t, scheduler.timers, 2)
+	assert.True(t, scheduler.timers[0].stopped)
+	assert.True(t, scheduler.timers[1].stopped)
+	leases := authority.captured()
+	require.Len(t, leases, 1)
+	assert.True(t, leaseDone(leases[0]))
+}
+
+func TestLegacyCredentialMutationsClosePublishedSession(t *testing.T) {
+	for _, mutation := range []string{"replacement", "revocation", "disable"} {
+		t.Run(mutation, func(t *testing.T) {
+			clock := testutil.NewFakeClock(time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC))
+			handler, boundary, authority := newLegacyHarness(t, clock, testutil.NewFakeEntropy(makeDistinctEntropy(1)))
+			sessionID := initializeLegacy(t, boundary)
+			handler.mu.Lock()
+			done := handler.legacy[sessionID].done
+			handler.mu.Unlock()
+			principal, err := authority.repository.GetPrincipal(t.Context(), authority.principals["valid"])
+			require.NoError(t, err)
+			switch mutation {
+			case "replacement":
+				_, err = authority.repository.IssueCredential(t.Context(), principal.ID, principal.Revision)
+			case "revocation":
+				_, err = authority.repository.RevokeCredential(t.Context(), principal.ID, principal.Revision)
+			case "disable":
+				disabled := contract.PrincipalDisabled
+				_, err = authority.repository.PatchPrincipal(t.Context(), principal.ID, authorization.PatchPrincipalRequest{
+					ExpectedRevision: principal.Revision, State: &disabled,
+				})
+			}
+			require.NoError(t, err)
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("credential mutation did not close legacy session")
+			}
+			_, _, legacy := handler.Status()
+			assert.Zero(t, legacy.InUse)
+		})
 	}
+}
+
+func TestLegacyIdleAndAbsoluteTimersCloseSessionWithoutCredentialExpiry(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC))
+	authority := newTestAuthority(t)
+	authority.add(t, "valid", contract.VisibilityRequestable)
 	scheduler := &manualScheduler{}
 	handler := New(Options{
-		Authenticator: authenticator,
-		Now:           clock.Now,
-		Entropy:       testutil.NewFakeEntropy(makeDistinctEntropy(2)),
-		AfterFunc:     scheduler.AfterFunc,
+		Authenticator: authority, Now: clock.Now, Entropy: testutil.NewFakeEntropy(makeDistinctEntropy(2)), AfterFunc: scheduler.AfterFunc,
 	})
 	defer handler.Shutdown()
-	boundary, err := httpboundary.New(httpboundary.Options{
-		Authority: contract.DefaultAuthority,
-		Authenticate: func(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
-			return handler.Authenticate(ctx, request, authority)
-		},
-		Next: handler,
-	})
-	require.NoError(t, err)
+	boundary := newLegacyBoundary(t, handler)
 	initializeLegacy(t, boundary)
 	scheduler.Fire(0)
 	_, _, legacy := handler.Status()
 	assert.Zero(t, legacy.InUse)
-	assert.True(t, scheduler.Stopped(1), "absolute expiry timer survived idle closure")
+	assert.True(t, scheduler.Stopped(1), "absolute timer survived idle closure")
 
 	sessionID := initializeLegacy(t, boundary)
 	response := httptest.NewRecorder()
 	boundary.ServeHTTP(response, legacyRequest(http.MethodDelete, "", "valid", sessionID))
 	require.Equal(t, http.StatusNoContent, response.Code)
 	assert.True(t, scheduler.Stopped(2), "idle timer survived DELETE")
-	assert.True(t, scheduler.Stopped(3), "absolute expiry timer survived DELETE")
+	assert.True(t, scheduler.Stopped(3), "absolute timer survived DELETE")
+	assert.Len(t, scheduler.timers, 4, "credential expiry installed a third timer")
 }
 
 func TestLegacyInitializationReservesNBeforeEntropyAndRejectsNPlusOne(t *testing.T) {
-	t.Parallel()
 	clock := testutil.NewFakeClock(time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC))
 	entropy := testutil.NewFakeEntropy(makeDistinctEntropy(129))
-	handler, boundary, _ := newLegacyHarness(t, clock, entropy)
-	defer handler.Shutdown()
+	handler, boundary, authority := newLegacyHarness(t, clock, entropy)
 
 	for range 128 {
 		initializeLegacy(t, boundary)
+	}
+	active := authority.captured()
+	require.Len(t, active, 128)
+	for _, lease := range active {
+		assert.False(t, leaseDone(lease))
 	}
 	before := entropy.Remaining()
 	response := httptest.NewRecorder()
 	boundary.ServeHTTP(response, legacyRequest(http.MethodPost, legacyInitialize, "valid", ""))
 	assert.Equal(t, http.StatusTooManyRequests, response.Code)
 	assert.Equal(t, before, entropy.Remaining(), "N+1 initialization consumed entropy")
+	captured := authority.captured()
+	require.Len(t, captured, 129)
+	assert.True(t, leaseDone(captured[128]), "rejected initialization lease survived")
 	_, _, legacy := handler.Status()
 	assert.Equal(t, int64(128), legacy.InUse)
 	assert.True(t, legacy.Saturated)
+
+	handler.Shutdown()
+	for _, lease := range active {
+		assert.True(t, leaseDone(lease))
+	}
 }
 
 func makeDistinctEntropy(blocks int) []byte {

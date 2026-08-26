@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
+
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 	"github.com/stretchr/testify/assert"
@@ -17,11 +19,11 @@ import (
 
 const modernList = `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"fixture","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`
 
-func newModernBoundary(t *testing.T) (*Handler, *httpboundary.Boundary) {
+func newModernBoundary(t *testing.T) (*Handler, *httpboundary.Boundary, *testAuthority) {
 	t.Helper()
-	handler := New(Options{Authenticator: &fakeAuthenticator{binding: Binding{
-		PrincipalID: "01J00000000000000000000000", CredentialID: "01J00000000000000000000001", ExpiresAt: time.Now().Add(time.Hour),
-	}}})
+	authority := newTestAuthority(t)
+	authority.add(t, "valid", contract.VisibilityRequestable)
+	handler := New(Options{Authenticator: authority})
 	boundary, err := httpboundary.New(httpboundary.Options{
 		Authority: contract.DefaultAuthority,
 		Authenticate: func(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -30,7 +32,7 @@ func newModernBoundary(t *testing.T) (*Handler, *httpboundary.Boundary) {
 		Next: handler,
 	})
 	require.NoError(t, err)
-	return handler, boundary
+	return handler, boundary, authority
 }
 
 func modernRequest(method, body string) *http.Request {
@@ -44,7 +46,7 @@ func modernRequest(method, body string) *http.Request {
 
 func TestModernRequestUsesStatelessOfficialSDKWithoutCapabilities(t *testing.T) {
 	t.Parallel()
-	handler, boundary := newModernBoundary(t)
+	handler, boundary, authority := newModernBoundary(t)
 	for range 2 {
 		request := modernRequest(http.MethodPost, modernList)
 		request.Header.Set("Mcp-Protocol-Version", contract.ModernProtocolVersion)
@@ -62,15 +64,52 @@ func TestModernRequestUsesStatelessOfficialSDKWithoutCapabilities(t *testing.T) 
 		assert.Empty(t, envelope.Result.Tools)
 		assert.NotContains(t, response.Body.String(), "listChanged")
 	}
+	for _, lease := range authority.captured() {
+		assert.True(t, leaseDone(lease))
+	}
 	work, streams, legacy := handler.Status()
 	assert.Equal(t, int64(0), work.InUse)
 	assert.Equal(t, int64(0), streams.InUse)
 	assert.Equal(t, int64(0), legacy.InUse)
 }
 
+func TestModernLeaseInvalidationCancelsInFlightRequest(t *testing.T) {
+	authority := newTestAuthority(t)
+	authority.add(t, "valid", contract.VisibilityRequestable)
+	lease, err := authority.Authenticate(t.Context(), contract.AgentBearerPrefix+"valid")
+	require.NoError(t, err)
+	handler := New(Options{Authenticator: &queuedAuthenticator{leases: []*authorization.Lease{lease}}})
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	handler.modern = http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		close(started)
+		<-request.Context().Done()
+		close(cancelled)
+		writer.WriteHeader(http.StatusNoContent)
+	})
+	boundary := newLegacyBoundary(t, handler)
+	request := modernRequest(http.MethodPost, modernList)
+	request.Header.Set("Mcp-Protocol-Version", contract.ModernProtocolVersion)
+	response := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		boundary.ServeHTTP(response, request)
+		close(done)
+	}()
+	<-started
+	lease.Release()
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("lease invalidation did not cancel modern request")
+	}
+	<-done
+	assert.True(t, leaseDone(lease))
+}
+
 func TestModernClassificationNeverDowngradesMalformedClaims(t *testing.T) {
 	t.Parallel()
-	_, boundary := newModernBoundary(t)
+	_, boundary, authority := newModernBoundary(t)
 	metaModern := `{"jsonrpc":"2.0","id":1,"method":"ping","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`
 	initializeWithoutMirror := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"fixture","version":"1"}}}`
 	for _, test := range []struct {
@@ -99,5 +138,8 @@ func TestModernClassificationNeverDowngradesMalformedClaims(t *testing.T) {
 			assert.Equal(t, test.status, response.Code, response.Body.String())
 			assert.Equal(t, test.allow, response.Header().Get("Allow"))
 		})
+	}
+	for _, lease := range authority.captured() {
+		assert.True(t, leaseDone(lease))
 	}
 }
