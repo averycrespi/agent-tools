@@ -83,7 +83,7 @@ func TestProductionSourceOwnershipGuards(t *testing.T) {
 	assert.Contains(t, probe, `securityTool = "/usr/bin/security"`, "internal/keyring/probe_darwin.go: keyring probe must use an absolute executable")
 }
 
-func TestProductionRootUsesConcreteNativeCompositionAndDenyAllIngress(t *testing.T) {
+func TestProductionRootUsesConcreteNativeCompositionAndPositiveIngress(t *testing.T) {
 	root := gatewayModuleRoot(t)
 	rootSource := readProductionSource(t, root, "cmd/mcp-gateway/root.go")
 	compositionSource := readProductionSource(t, root, "internal/composition/composition.go")
@@ -91,12 +91,11 @@ func TestProductionRootUsesConcreteNativeCompositionAndDenyAllIngress(t *testing
 	e2eProviderSource := readProductionSource(t, root, "internal/composition/provider_factory_e2e.go")
 	for _, required := range []string{
 		"newComposition: composition.New", "newComposition(composition.Options{", "authorizationRepository := runtime.Authorization()", "Principals:  authorizationRepository", "GrantTarget: func(", "serverRepository.ValidateGrantTargetTx", "activeCatalog := runtime.ActiveCatalog()",
-		"ActiveCatalog:  activeCatalog", "listTools := runtime.ListTools()", "ListTools:     listTools", "runtime.AuthorizationOccupancy(context.Background())", "runtime.Start(ctx)", "runtime.Drain(shutdownCtx)",
-		"Authenticator: mcpingress.DenyAllAuthenticator{}", "AgentAuth: contract.AgentAuthDenyAll",
+		"ActiveCatalog:  activeCatalog", "agentIngress, ok := runtime.AgentIngress()", "Authenticator: agentIngress.Authenticator", "ListTools:     agentIngress.ListTools", "agentIngress.AuthMode", "runtime.AuthorizationOccupancy(context.Background())", "runtime.Start(ctx)", "runtime.Drain(shutdownCtx)",
 	} {
 		assert.Contains(t, rootSource, required, "cmd/mcp-gateway/root.go: missing production symbol %s", required)
 	}
-	for _, prohibited := range []string{"runtimes.New(", "unavailableDriver", "absentCatalog", "newMemoryPublisher", "Routes().Resolve("} {
+	for _, prohibited := range []string{"runtimes.New(", "unavailableDriver", "absentCatalog", "newMemoryPublisher", "Routes().Resolve(", "mcpingress.DenyAllAuthenticator{}", "AgentAuth: contract.AgentAuthDenyAll"} {
 		assert.NotContains(t, rootSource, prohibited, "cmd/mcp-gateway/root.go: prohibited production symbol %s", prohibited)
 	}
 	assert.Equal(t, 1, strings.Count(rootSource, "Authenticator:"), "cmd/mcp-gateway/root.go: production authenticator must have one owner")

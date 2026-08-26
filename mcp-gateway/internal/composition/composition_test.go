@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/json"
+	"encoding/base64"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -28,6 +30,8 @@ var compositionTime = time.Date(2026, 8, 25, 1, 0, 0, 0, time.UTC)
 
 func TestNewBuildsOneFailClosedProductionGraph(t *testing.T) {
 	assert.Nil(t, (*Composition)(nil).ListTools())
+	_, available := (*Composition)(nil).AgentIngress()
+	assert.False(t, available)
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
 
@@ -45,6 +49,11 @@ func TestNewBuildsOneFailClosedProductionGraph(t *testing.T) {
 	require.NotNil(t, built.discoveryPager)
 	require.NotNil(t, built.listTools)
 	assert.Same(t, built.listTools, built.ListTools())
+	agentIngress, ok := built.AgentIngress()
+	require.True(t, ok)
+	assert.Same(t, built.authorization, agentIngress.Authenticator)
+	assert.Same(t, built.listTools, agentIngress.ListTools)
+	assert.Equal(t, contract.AgentAuthPrincipalCredentials, agentIngress.AuthMode)
 	require.NotNil(t, built.traverser)
 	require.NotNil(t, built.remoteFactory)
 	require.NotNil(t, built.provider)
@@ -67,7 +76,7 @@ func TestNewBuildsOneFailClosedProductionGraph(t *testing.T) {
 
 	candidate := runtimes.Candidate{}
 	assert.False(t, built.callbacks.current(candidate))
-	_, ok := built.callbacks.client(candidate)
+	_, ok = built.callbacks.client(candidate)
 	assert.False(t, ok)
 	assert.False(t, built.callbacks.report(candidate, runtimes.FailureDisposition{}))
 	assert.False(t, built.callbacks.complete(candidate, runtimes.CatalogOutcome{}, nil))
@@ -114,29 +123,43 @@ func TestAuthorityOwnerExposesOccupancyAndDrainsBeforeCompositionCompletes(t *te
 	assert.ErrorIs(t, err, mcpingress.ErrToolsListAuthorizationUnavailable)
 }
 
-func TestDiscoveryOwnerUsesComposedPolicyCatalogAndCursorKey(t *testing.T) {
+func TestPositiveAgentIngressUsesComposedAuthorityDiscoveryAndDrainFence(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
 	built, err := New(options)
 	require.NoError(t, err)
 	defer built.shutdownConstructed()
+	agentIngress, ok := built.AgentIngress()
+	require.True(t, ok)
+	ingress := mcpingress.New(mcpingress.Options{
+		Authenticator: agentIngress.Authenticator,
+		ListTools:     agentIngress.ListTools,
+	})
+	defer ingress.Shutdown()
+
+	unknownBearer := contract.AgentBearerPrefix + base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	unknown := newAgentRequest(unknownBearer, `{"jsonrpc":"2.0","id":"unknown","method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"fixture","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`)
+	_, err = ingress.Authenticate(unknown.Context(), unknown, contract.AuthorityAgent)
+	assert.Error(t, err)
+
 	created, err := built.Authorization().CreatePrincipal(t.Context(), authorization.CreatePrincipalRequest{
 		DisplayName: "discovery principal", Visibility: contract.VisibilityAll,
 	})
 	require.NoError(t, err)
 	issued, err := built.Authorization().IssueCredential(t.Context(), created.Principal.ID, created.Principal.Revision)
 	require.NoError(t, err)
-	lease, err := built.Authorization().Authenticate(t.Context(), issued.Bearer)
+	request := newAgentRequest(issued.Bearer, `{"jsonrpc":"2.0","id":"positive","method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"fixture","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`)
+	authenticated, err := ingress.Authenticate(request.Context(), request, contract.AuthorityAgent)
 	require.NoError(t, err)
-	defer lease.Release()
-	encoded, err := built.ListTools().ListTools(t.Context(), lease, "", func(_ context.Context, tools any, nextCursor string) ([]byte, error) {
-		return json.Marshal(struct {
-			Tools      any    `json:"tools"`
-			NextCursor string `json:"nextCursor,omitempty"`
-		}{Tools: tools, NextCursor: nextCursor})
-	})
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"tools":[]}`, string(encoded))
+	response := httptest.NewRecorder()
+	ingress.ServeHTTP(response, request.WithContext(authenticated))
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"positive","result":{"tools":[]}}`, response.Body.String())
+
+	assert.Equal(t, runtimes.DrainResult{}, <-built.Drain(context.Background()))
+	drained := newAgentRequest(issued.Bearer, `{"jsonrpc":"2.0","id":"drained","method":"tools/list"}`)
+	_, err = ingress.Authenticate(drained.Context(), drained, contract.AuthorityAgent)
+	assert.Error(t, err)
 }
 
 func TestDiscoveryCursorEntropyFailureStopsConstruction(t *testing.T) {
@@ -364,6 +387,14 @@ func createCompositionServer(t *testing.T, repository *servers.Repository, names
 	})
 	require.NoError(t, err)
 	return result.Server
+}
+
+func newAgentRequest(bearer, body string) *http.Request {
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/mcp", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+bearer)
+	request.Header.Set("Content-Type", contract.MediaTypeJSON)
+	request.Header.Set("Mcp-Protocol-Version", contract.ModernProtocolVersion)
+	return request
 }
 
 func newCompositionOptions(t *testing.T) (Options, func()) {

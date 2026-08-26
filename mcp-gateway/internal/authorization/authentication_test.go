@@ -258,7 +258,7 @@ func TestAuthenticatePropagatesCancellation(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-func TestAuthenticationSourceUsesConstantTimeBoundedScanAndRemainsUnwired(t *testing.T) {
+func TestAuthenticationSourceUsesConstantTimeBoundedScanAndOneProductionBundle(t *testing.T) {
 	source, err := os.ReadFile("authentication.go")
 	require.NoError(t, err)
 	contents := string(source)
@@ -270,7 +270,11 @@ func TestAuthenticationSourceUsesConstantTimeBoundedScanAndRemainsUnwired(t *tes
 
 	rootSource, err := os.ReadFile(filepath.Join("..", "..", "cmd", "mcp-gateway", "root.go"))
 	require.NoError(t, err)
-	assert.Equal(t, 1, strings.Count(string(rootSource), "mcpingress.DenyAllAuthenticator{}"))
+	rootContents := string(rootSource)
+	assert.NotContains(t, rootContents, "mcpingress.DenyAllAuthenticator{}")
+	assert.Equal(t, 1, strings.Count(rootContents, "runtime.AgentIngress()"))
+	assert.Equal(t, 1, strings.Count(rootContents, "Authenticator: agentIngress.Authenticator"))
+	assert.Equal(t, 1, strings.Count(rootContents, "agentIngress.AuthMode"))
 }
 
 type capturingSecretSink struct{ values []string }

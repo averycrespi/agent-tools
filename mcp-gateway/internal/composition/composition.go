@@ -46,6 +46,12 @@ var (
 	ErrStartFailed    = errors.New("production composition start failed")
 )
 
+type AgentIngressDependencies struct {
+	Authenticator mcpingress.AgentAuthenticator
+	ListTools     mcpingress.ToolsListService
+	AuthMode      contract.AgentAuthMode
+}
+
 type Composition struct {
 	servers           *servers.Repository
 	authorization     *authorization.Repository
@@ -100,6 +106,16 @@ func (built *Composition) ListTools() mcpingress.ToolsListService {
 		return nil
 	}
 	return built.listTools
+}
+func (built *Composition) AgentIngress() (AgentIngressDependencies, bool) {
+	if built == nil || built.authorization == nil || built.listTools == nil {
+		return AgentIngressDependencies{}, false
+	}
+	return AgentIngressDependencies{
+		Authenticator: built.authorization,
+		ListTools:     built.listTools,
+		AuthMode:      contract.AgentAuthPrincipalCredentials,
+	}, true
 }
 func (built *Composition) Traverser() *catalog.Traverser               { return built.traverser }
 func (built *Composition) Provider() *keyring.Provider                 { return built.provider }

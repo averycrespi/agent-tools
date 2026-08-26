@@ -270,7 +270,9 @@ func TestProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners(t *test
 	for _, canary := range []string{"static-canary", "bearer-canary", "public-token-canary", "client-canary", "confidential-token-canary"} {
 		assert.NotContains(t, string(safe), canary)
 	}
-	ingress := mcpingress.New(mcpingress.Options{Authenticator: mcpingress.DenyAllAuthenticator{}})
+	agentIngress, ok := built.AgentIngress()
+	require.True(t, ok)
+	ingress := mcpingress.New(mcpingress.Options{Authenticator: agentIngress.Authenticator, ListTools: agentIngress.ListTools})
 	defer ingress.Shutdown()
 	request := httptest.NewRequest("POST", "/mcp", nil)
 	request.Header.Set("Authorization", "Bearer "+contract.AgentBearerPrefix+"valid")

@@ -131,9 +131,9 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if authorizationRepository == nil {
 		return false, errors.New("production authorization owner is unavailable")
 	}
-	listTools := runtime.ListTools()
-	if listTools == nil {
-		return false, errors.New("production discovery owner is unavailable")
+	agentIngress, ok := runtime.AgentIngress()
+	if !ok {
+		return false, errors.New("production agent ingress owner is unavailable")
 	}
 	serverRepository := runtime.Servers()
 	catalogRepository := runtime.CatalogRepository()
@@ -159,8 +159,8 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	capabilitySnapshot := contract.KeyringUnsupported
 	var boundary *httpboundary.Boundary
 	ingress := mcpingress.New(mcpingress.Options{
-		Authenticator: mcpingress.DenyAllAuthenticator{},
-		ListTools:     listTools,
+		Authenticator: agentIngress.Authenticator,
+		ListTools:     agentIngress.ListTools,
 		Now:           dependencies.clock.Now,
 		Entropy:       dependencies.entropy,
 	})
@@ -201,7 +201,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 			}
 			mcpWork, mcpStreams, legacySessions := ingress.Status()
 			status := baseSystemStatus(
-				startedAt, current, store.Latched(), draining.Load(), capabilitySnapshot, provider.WorkStatus(), sessions.Status(),
+				startedAt, current, store.Latched(), draining.Load(), agentIngress.AuthMode, capabilitySnapshot, provider.WorkStatus(), sessions.Status(),
 				mcpWork, mcpStreams, legacySessions,
 			)
 			status.Backup = backupManager.Status()
@@ -338,6 +338,7 @@ func baseSystemStatus(
 	identity storage.Identity,
 	latched bool,
 	draining bool,
+	agentAuth contract.AgentAuthMode,
 	capability contract.KeyringCapability,
 	keyringWork, adminSessions, mcpWork, mcpStreams, legacySessions contract.LimitStatus,
 ) contract.SystemStatus {
@@ -365,7 +366,7 @@ func baseSystemStatus(
 		Process: contract.ProcessStatus{State: process, Ready: ready, StartedAt: startedAt},
 		SQLite:  contract.SQLiteStatus{State: state, SchemaVersion: fmt.Sprintf("%d", identity.SchemaVersion), Revision: fmt.Sprintf("%d", identity.Revision), Latched: latched},
 		Keyring: contract.KeyringStatus{Capability: capability}, Limits: limits, Backup: contract.BackupStatus{State: contract.BackupIdle},
-		Protocols: contract.ProtocolStatus{Modern: contract.ModernProtocolVersion, Legacy: contract.LegacyProtocolVersion, AgentAuth: contract.AgentAuthDenyAll},
+		Protocols: contract.ProtocolStatus{Modern: contract.ModernProtocolVersion, Legacy: contract.LegacyProtocolVersion, AgentAuth: agentAuth},
 	}
 }
 
