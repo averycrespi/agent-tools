@@ -312,6 +312,7 @@ func TestAcceptedS1RestoreCrashPointsLeaveCurrentGenerationAuthoritative(t *test
 func TestRestorePostInvalidationFaultsLeaveCurrentAgentAuthority(t *testing.T) {
 	for _, point := range []restoreFaultPoint{
 		restoreFaultAfterInvalidation,
+		restoreFaultAfterRekey,
 		restoreFaultAfterCheckpoint,
 		restoreFaultBeforeInstall,
 	} {
@@ -341,8 +342,9 @@ func TestRestorePostInvalidationFaultsLeaveCurrentAgentAuthority(t *testing.T) {
 			require.NoError(t, store.Close())
 			require.NoError(t, ownership.Close())
 
+			replacementAdmin := new(captureSink)
 			_, err = Restore(ctx, RestoreOptions{
-				Root: root, BackupID: artifact.ID, Sink: new(captureSink), Clock: clock,
+				Root: root, BackupID: artifact.ID, Sink: replacementAdmin, Clock: clock,
 				Entropy: bytes.NewReader(restoreTestEntropy(0x94, 4096)),
 				fault: func(actual restoreFaultPoint) error {
 					if actual == point {
@@ -359,6 +361,11 @@ func TestRestorePostInvalidationFaultsLeaveCurrentAgentAuthority(t *testing.T) {
 			require.NoError(t, err)
 			authority, err = authorization.New(store, clock, bytes.NewReader(restoreTestEntropy(0x95, 4096)))
 			require.NoError(t, err)
+			adminAuthority := admin.NewService(store, clock, bytes.NewReader(nil))
+			if replacementAdmin.bearer != "" {
+				_, err = adminAuthority.Authenticate(ctx, replacementAdmin.bearer)
+				assert.ErrorIs(t, err, admin.ErrAuthenticationRequired)
+			}
 			lease, err := authority.Authenticate(ctx, current.Bearer)
 			require.NoError(t, err)
 			lease.Release()

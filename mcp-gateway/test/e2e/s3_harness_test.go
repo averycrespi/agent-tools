@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,6 +37,7 @@ type issuedAgentCredential struct {
 
 type agentBearer struct {
 	authorization func() string
+	scan          func(string, io.Reader) error
 	destroy       func()
 }
 
@@ -43,8 +45,11 @@ func newAgentBearer(t *testing.T, value string) *agentBearer {
 	t.Helper()
 	require.True(t, strings.HasPrefix(value, contract.AgentBearerPrefix))
 	secret := []byte(value)
+	scanner, err := testutil.NewCanaryScanner(secret)
+	require.NoError(t, err)
 	bearer := &agentBearer{
 		authorization: func() string { return "Bearer " + string(secret) },
+		scan:          scanner.Scan,
 		destroy: func() {
 			for index := range secret {
 				secret[index] = 0
@@ -64,6 +69,7 @@ func (bearer *agentBearer) clear() {
 	if bearer.destroy != nil {
 		bearer.destroy()
 		bearer.authorization = nil
+		bearer.scan = nil
 		bearer.destroy = nil
 	}
 }
@@ -74,6 +80,11 @@ func (*agentBearer) GoString() string { return "[redacted agent bearer]" }
 
 func (*agentBearer) MarshalJSON() ([]byte, error) {
 	return []byte(`"[redacted agent bearer]"`), nil
+}
+
+func (bearer *agentBearer) assertAbsent(t *testing.T, sink string, reader io.Reader) {
+	t.Helper()
+	require.NoError(t, bearer.scan(sink, reader))
 }
 
 type principalPatch struct {
@@ -183,6 +194,7 @@ func (harness *gatewayHarness) IssueCredential(current principalHandle) issuedAg
 	require.Equal(harness.t, http.StatusCreated, response.StatusCode)
 	var creation contract.AgentCredentialCreation
 	require.NoError(harness.t, json.Unmarshal(response.Body, &creation))
+	require.Equal(harness.t, 1, bytes.Count(response.Body, []byte(creation.Bearer)))
 	bearer := newAgentBearer(harness.t, creation.Bearer)
 	creation.Bearer = ""
 	return issuedAgentCredential{Principal: checkedPrincipal(harness.t, creation.Principal, response.Header.Get("ETag")), Bearer: bearer}

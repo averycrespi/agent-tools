@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/stretchr/testify/assert"
@@ -139,13 +140,28 @@ func TestGatewayBinaryPreservesDisplayAndReplacesHTTPOnReloadAndProtocolChange(t
 
 func patchServer(t *testing.T, harness *gatewayHarness, serverID, etag, body string) (replacementMutation, string) {
 	t.Helper()
-	var mutation replacementMutation
-	response := harness.AdminJSON(http.MethodPatch, "/api/v1/servers/"+serverID, body, map[string]string{"If-Match": etag}, &mutation)
-	require.Equal(t, http.StatusOK, response.StatusCode)
-	nextETag := response.Header.Get("ETag")
-	require.NoError(t, response.Body.Close())
-	require.NotEmpty(t, nextETag)
-	return mutation, nextETag
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		response := harness.adminSnapshotWithHeaders(http.MethodPatch, "/api/v1/servers/"+serverID, []byte(body), map[string]string{"If-Match": etag})
+		if response.StatusCode == http.StatusOK {
+			var mutation replacementMutation
+			require.NoError(t, json.Unmarshal(response.Body, &mutation))
+			nextETag := response.Header.Get("ETag")
+			require.NotEmpty(t, nextETag)
+			return mutation, nextETag
+		}
+		if response.StatusCode != http.StatusTooManyRequests {
+			require.Equal(t, http.StatusOK, response.StatusCode, string(response.Body))
+		}
+		select {
+		case <-deadline.C:
+			t.Fatalf("server PATCH remained saturated: %s", response.Body)
+		case <-ticker.C:
+		}
+	}
 }
 
 func activeCatalog(server stdioServerView) bool {

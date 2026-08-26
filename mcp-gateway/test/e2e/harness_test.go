@@ -44,15 +44,18 @@ func TestMain(testingMain *testing.M) {
 }
 
 type gatewayHarness struct {
-	t         *testing.T
-	ctx       context.Context
-	binary    string
-	root      string
-	authority string
-	bearer    string
-	runner    *testutil.BinaryRunner
-	client    *http.Client
-	process   *testutil.RunningProcess
+	t                  *testing.T
+	ctx                context.Context
+	binary             string
+	root               string
+	authority          string
+	bearer             string
+	runner             *testutil.BinaryRunner
+	client             *http.Client
+	process            *testutil.RunningProcess
+	initialization     testutil.ProcessResult
+	initializationArgs []string
+	serveArgs          []string
 }
 
 func newGatewayHarness(t *testing.T) *gatewayHarness {
@@ -65,11 +68,14 @@ func newGatewayHarness(t *testing.T) *gatewayHarness {
 		authority: unusedAuthority(t), runner: runner, client: &http.Client{Timeout: 3 * time.Second},
 	}
 	secretPath := filepath.Join(t.TempDir(), "admin")
-	initialized, err := runner.Run(ctx, harness.binary, "initialize", "--data-dir", harness.root, "--secret-output", secretPath)
+	harness.initializationArgs = []string{"initialize", "--data-dir", harness.root, "--secret-output", secretPath}
+	harness.serveArgs = []string{"serve", "--data-dir", harness.root, "--listen", harness.authority}
+	initialized, err := runner.Run(ctx, harness.binary, harness.initializationArgs...)
 	require.NoError(t, err, "initialize: %s", initialized.Stderr)
 	require.False(t, initialized.StdoutTruncated)
 	require.False(t, initialized.StderrTruncated)
 	harness.bearer = readBearer(t, secretPath)
+	harness.initialization = initialized
 	t.Cleanup(func() {
 		if harness.process == nil {
 			return
@@ -84,7 +90,7 @@ func newGatewayHarness(t *testing.T) *gatewayHarness {
 func (harness *gatewayHarness) Start() {
 	harness.t.Helper()
 	require.Nil(harness.t, harness.process)
-	process, err := harness.runner.Start(harness.ctx, harness.binary, "serve", "--data-dir", harness.root, "--listen", harness.authority)
+	process, err := harness.runner.Start(harness.ctx, harness.binary, harness.serveArgs...)
 	require.NoError(harness.t, err)
 	select {
 	case <-process.StdoutReady():

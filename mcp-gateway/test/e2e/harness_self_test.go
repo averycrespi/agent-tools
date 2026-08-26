@@ -65,7 +65,7 @@ func TestGatewayHarnessHasOneRawServeOwnerAndNoSDKClient(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join(filepath.Dir(source), "*_test.go"))
 	require.NoError(t, err)
 	serveOwners := 0
-	serveNeedle := "runner.Start(" + `harness.ctx, harness.binary, "serve"`
+	serveNeedle := "runner.Start(" + "harness.ctx, harness.binary, harness.serveArgs...)"
 	sdkNeedle := "modelcontextprotocol/" + "go-sdk"
 	execNeedle := "exec." + "Command"
 	for _, path := range files {
