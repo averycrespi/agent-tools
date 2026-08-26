@@ -29,7 +29,8 @@ Run `make audit` before committing, and use the unsuppressed `go tool govulnchec
 cmd/mcp-gateway/        Cobra composition root only
 internal/composition/   Production runtime/catalog graph construction and cycle binding
 internal/contract/      Immutable S1–S3 routes, problems, limits, states, and representations
-internal/strictjson/    Bounded strict JSON, lexical value trees, and canonical equality
+internal/strictjson/    Bounded strict JSON, lexical value trees, compact encoding, and canonical equality
+internal/invocation/    S4 privacy primitives; later S4 tasks add audit and orchestration ownership
 internal/paths/         Owner-only paths and process ownership
 internal/storage/       SQLite identity, migrations, durability, latch
 internal/authorization/ Online S3 principal, credential, grant, and policy SQL authority

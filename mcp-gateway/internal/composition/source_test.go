@@ -320,7 +320,8 @@ func s3SliceViolations(source productionSource) []string {
 	if source.path != "internal/downstream/call.go" && strings.Contains(source.contents, "tools/call") {
 		violations = append(violations, fmt.Sprintf("%s: prohibited S4/S5 consumer tools/call", source.path))
 	}
-	if strings.HasPrefix(source.path, "internal/audit/") || strings.HasPrefix(source.path, "internal/invocation/") || strings.HasPrefix(source.path, "internal/ui/") {
+	invocationPrivacyPrimitive := source.path == "internal/invocation/redaction.go"
+	if strings.HasPrefix(source.path, "internal/audit/") || (strings.HasPrefix(source.path, "internal/invocation/") && !invocationPrivacyPrimitive) || strings.HasPrefix(source.path, "internal/ui/") {
 		violations = append(violations, fmt.Sprintf("%s: prohibited S4/S5 package", source.path))
 	}
 	return violations
