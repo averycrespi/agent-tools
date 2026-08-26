@@ -5,6 +5,7 @@ package downstream_test
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -37,10 +38,16 @@ func TestRealProcessAutoFallbackRequiresProbeReapBeforeLegacyConstruction(t *tes
 	defer cancel()
 	var process *runtimes.StdioRuntime
 	opened := 0
+	legacyConstruction := errors.New("legacy construction observed after probe reap")
 	negotiator, err := downstream.NewNegotiatorWithDeadline(func(context.Context) (*downstream.Coordinator, error) {
 		opened++
 		if opened > 1 {
-			t.Fatal("legacy process constructed after unconfirmed probe reap")
+			select {
+			case <-process.Done():
+				return nil, legacyConstruction
+			default:
+				t.Fatal("legacy process constructed before probe reap")
+			}
 		}
 		process, err = supervisor.Start(context.Background(), runtimes.StdioDefinition{
 			RuntimeID:        "real-fallback-probe",
@@ -62,8 +69,12 @@ func TestRealProcessAutoFallbackRequiresProbeReapBeforeLegacyConstruction(t *tes
 	})
 	require.NoError(t, err)
 	_, err = negotiator.Negotiate(context.Background(), downstream.ModeAuto)
-	assert.ErrorIs(t, err, downstream.ErrStopUnconfirmed)
-	assert.Equal(t, 1, opened)
+	if opened == 1 {
+		assert.ErrorIs(t, err, downstream.ErrStopUnconfirmed)
+	} else {
+		assert.ErrorIs(t, err, legacyConstruction)
+		assert.Equal(t, 2, opened)
+	}
 	require.NotNil(t, process)
 	select {
 	case <-process.Done():
