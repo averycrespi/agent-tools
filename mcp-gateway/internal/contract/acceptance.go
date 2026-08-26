@@ -1,8 +1,8 @@
 package contract
 
 type AcceptanceEvidence struct {
-	Criterion string
-	Evidence  []string
+	Criterion string   `json:"criterion"`
+	Evidence  []string `json:"evidence"`
 }
 
 var acceptanceEvidenceManifest = []AcceptanceEvidence{

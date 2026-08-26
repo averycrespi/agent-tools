@@ -11,7 +11,8 @@ make test               # go test -race ./...
 make test-integration   # go test -race -tags=integration ./...
 make test-e2e           # go test -race -tags=e2e -timeout=60s ./test/e2e/...
 make test-keyring-native # schema-validated passed/skipped/failed native evidence
-make accept-s2-1        # complete S2.1 gate from a clean checkpoint
+make accept-s2-1        # compatibility S2.1 gate from a clean checkpoint
+make accept-s3          # complete S3 gate from a clean checkpoint
 make lint               # go tool golangci-lint run ./...
 make fmt                # go tool goimports -w .
 make tidy               # go mod tidy && go mod verify
@@ -20,7 +21,7 @@ make audit              # tidy + fmt + lint + test + advisory govulncheck
 go tool govulncheck ./... # blocking vulnerability check
 ```
 
-Run `make audit` before committing, and use the unsuppressed `go tool govulncheck ./...` command when vulnerability findings must block. Unit tests are colocated and race-enabled. Integration tests use `//go:build integration`; real-binary tests use `//go:build e2e` under `test/e2e/`. The existing S2.1 acceptance profile uses `make accept-s2-1` only from a clean tracked checkpoint: do not bypass its required-clean policy or suppress a failing command. The schema-validated report must retain the exact revision, dirty state, command/criterion/artifact mapping, and nested native classification; native `skipped` is additive, while native `failed` blocks.
+Run `make audit` before committing, and use the unsuppressed `go tool govulncheck ./...` command when vulnerability findings must block. Unit tests are colocated and race-enabled. Integration tests use `//go:build integration`; real-binary tests use `//go:build e2e` under `test/e2e/`. Run `make accept-s3` only from the final clean tracked checkpoint; `make accept-s2-1` retains the prior compatibility profile. Do not bypass either profile's required-clean policy or suppress a failing command. The closed schema-validated report must retain the profile, exact revision, dirty state, command/criterion/evidence/artifact mapping, contract-owned S3 evidence manifest when applicable, and nested native classification; native `skipped` is additive, while native `failed` blocks.
 
 ## Package layout
 

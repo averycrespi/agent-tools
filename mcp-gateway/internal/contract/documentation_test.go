@@ -14,16 +14,16 @@ func TestTrackedDocsDescribeCurrentS3Boundary(t *testing.T) {
 
 	documents := map[string][]string{
 		"../../README.md": {
-			"principal-filtered descriptor discovery", "Principals, credentials, and grants", "agent_credential_creation",
+			"principal-filtered descriptor discovery", "Principals, credentials, and grants", "agent_credential_creation", "make accept-s3",
 			"`tools/call` and every other non-lifecycle feature method return fixed `-32601 Method not found`; no active capability is acquired",
 			"Backup restore preserves principals and grants but clears every restored agent credential",
 		},
 		"../../DESIGN.md": {
-			"positive principal-credential authentication", "Implemented S3 request mechanics", "Agent discovery enumerates descriptor projections independently without acquiring capabilities",
+			"positive principal-credential authentication", "Implemented S3 request mechanics", "Agent discovery enumerates descriptor projections independently without acquiring capabilities", "make accept-s3",
 			"S3 principal credentials authenticate production `/mcp`", "They do not enable a production capability consumer, tool invocation or invocation audit",
 		},
 		"../../CLAUDE.md": {
-			"Immutable S1–S3 routes", "principal/credential/grant/current-catalog/raw-MCP helpers", "Production does authenticate current principal credentials",
+			"Immutable S1–S3 routes", "principal/credential/grant/current-catalog/raw-MCP helpers", "Production does authenticate current principal credentials", "make accept-s3",
 			"do not infer `tools/call` routing, durable invocation/audit, Gateway-owned self-service tools, or product-UI behavior",
 		},
 	}

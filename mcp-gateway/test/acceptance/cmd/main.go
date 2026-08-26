@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,12 +12,14 @@ import (
 )
 
 func main() {
+	profileName := flag.String("profile", string(acceptance.ProfileS21), "closed acceptance profile")
+	flag.Parse()
 	root, err := repositoryRoot()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "resolve repository root")
 		os.Exit(1)
 	}
-	report := acceptance.Run(context.Background(), root, acceptance.OSExecutor{}, false)
+	report := acceptance.RunProfile(context.Background(), root, acceptance.OSExecutor{}, acceptance.Profile(*profileName), false)
 	contents, err := json.Marshal(report)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "encode acceptance report")

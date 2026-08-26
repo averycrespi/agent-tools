@@ -14,14 +14,15 @@ Requirements: Go 1.25.13 or later, GNU Make, and the repository's development to
 make build
 make test
 make test-keyring-native # schema-validated passed/skipped/failed native evidence
-make accept-s2-1        # complete clean-checkpoint S2.1 acceptance report
+make accept-s2-1        # compatibility S2.1 acceptance report
+make accept-s3          # complete clean-checkpoint S3 acceptance report
 make lint
 make audit
 ```
 
-From the repository root, `make build`, `make test`, and `make check` include MCP Gateway. `make accept-s2-1` must start and finish with a clean working tree. It runs focused race/source/canary/documentation/backup checks, integration and real-binary E2E suites, the module audit, unsuppressed `govulncheck`, structured native evidence, the repository-wide check, and `git diff --check`. Its one schema-validated JSON report records the exact Git revision and dirty-state policy, every executed command, affected acceptance criteria and artifacts, and the nested native result. A failed check or native `failed` result exits nonzero; native `skipped` remains visible and additive.
+From the repository root, `make build`, `make test`, and `make check` include MCP Gateway. `make accept-s3` is the complete S3 gate; `make accept-s2-1` retains the prior compatibility profile. Both must start and finish with a clean working tree. The S3 profile runs focused contract/strict-JSON/storage, repeated authorization/discovery/ingress races, control/composition/recovery checks, integration and real-binary E2E suites, the module audit, unsuppressed `govulncheck`, structured native evidence, the repository-wide check, and `git diff --check`. Its closed schema-validated JSON report records the profile, exact Git revision and dirty-state policy, every command with criterion/evidence/artifact mappings, the exact contract-owned AC-1–AC-6 evidence manifest, and the nested native result. A failed check or native `failed` result exits nonzero; native `skipped` remains visible and additive.
 
-The current `accept-s2-1` compatibility evidence is split by observable boundary:
+The current `accept-s3` evidence is split by observable boundary:
 
 | Layer                        | Cases                                                                                                                                                                                                                                                                         |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

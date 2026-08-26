@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"reflect"
 	"strings"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 	"github.com/averycrespi/agent-tools/mcp-gateway/test/keyringnative"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -20,31 +22,41 @@ import (
 const (
 	ResultPassed = "passed"
 	ResultFailed = "failed"
+
+	ProfileS21 Profile = "s2_1"
+	ProfileS3  Profile = "s3"
 )
+
+type Profile string
 
 type Check struct {
 	Name      string   `json:"name"`
 	Status    string   `json:"status"`
 	Command   string   `json:"command"`
 	Criteria  []string `json:"criteria"`
+	Evidence  []string `json:"evidence,omitempty"`
 	Artifacts []string `json:"artifacts"`
 }
 
 type Report struct {
-	SchemaVersion int                   `json:"schema_version"`
-	Result        string                `json:"result"`
-	Revision      string                `json:"revision"`
-	Dirty         bool                  `json:"dirty"`
-	DirtyPolicy   string                `json:"dirty_policy"`
-	Reason        string                `json:"reason"`
-	Checks        []Check               `json:"checks"`
-	Native        *keyringnative.Result `json:"native,omitempty"`
+	SchemaVersion    int                           `json:"schema_version"`
+	Profile          Profile                       `json:"profile"`
+	Result           string                        `json:"result"`
+	Revision         string                        `json:"revision"`
+	Dirty            bool                          `json:"dirty"`
+	DirtyPolicy      string                        `json:"dirty_policy"`
+	Reason           string                        `json:"reason"`
+	Checks           []Check                       `json:"checks"`
+	EvidenceManifest []contract.AcceptanceEvidence `json:"evidence_manifest,omitempty"`
+	Native           *keyringnative.Result         `json:"native,omitempty"`
 }
 
 type Command struct {
+	CheckName string
 	Name      string
 	Arguments []string
 	Criteria  []string
+	Evidence  []string
 	Artifacts []string
 	Native    bool
 }
@@ -74,20 +86,54 @@ func (OSExecutor) Run(ctx context.Context, root string, command Command) ([]byte
 var reportSchema []byte
 
 func Commands() []Command {
-	return []Command{
-		{Name: "go", Arguments: []string{"-C", "mcp-gateway", "test", "-race", "./internal/composition", "./internal/downstream", "./internal/oauth", "./internal/contract", "./internal/backup", "./internal/keyring", "./test/material", "./test/keyringnative"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-6"}, Artifacts: []string{"mcp-gateway/internal/composition/source_test.go", "mcp-gateway/internal/downstream/source_test.go", "mcp-gateway/internal/oauth/source_test.go", "mcp-gateway/internal/contract/documentation_test.go"}},
-		{Name: "make", Arguments: []string{"-C", "mcp-gateway", "test-integration"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-6"}, Artifacts: []string{"mcp-gateway/internal/composition", "mcp-gateway/internal/servers"}},
-		{Name: "make", Arguments: []string{"-C", "mcp-gateway", "test-e2e"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5", "AC-6"}, Artifacts: []string{"mcp-gateway/test/e2e"}},
-		{Name: "make", Arguments: []string{"-C", "mcp-gateway", "audit"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5", "AC-6"}, Artifacts: []string{"mcp-gateway/go.mod", "mcp-gateway/go.sum"}},
-		{Name: "go", Arguments: []string{"-C", "mcp-gateway", "tool", "govulncheck", "./..."}, Criteria: []string{"AC-6"}, Artifacts: []string{"mcp-gateway/go.mod", "mcp-gateway/go.sum"}},
-		{Name: "mcp-gateway/test/keyring-native.sh", Criteria: []string{"AC-1", "AC-6"}, Artifacts: []string{"mcp-gateway/test/keyringnative/result.schema.json", "mcp-gateway/test/material/material_test.go"}, Native: true},
-		{Name: "make", Arguments: []string{"check"}, Criteria: []string{"AC-6"}, Artifacts: []string{"Makefile", "package.json"}},
-		{Name: "git", Arguments: []string{"diff", "--check"}, Criteria: []string{"AC-6"}, Artifacts: []string{"mcp-gateway/README.md", "mcp-gateway/DESIGN.md", "mcp-gateway/CLAUDE.md"}},
+	commands, _ := ProfileCommands(ProfileS21)
+	return commands
+}
+
+func ProfileCommands(profile Profile) ([]Command, error) {
+	switch profile {
+	case ProfileS21:
+		return []Command{
+			{CheckName: "focused_race_guards", Name: "go", Arguments: []string{"-C", "mcp-gateway", "test", "-race", "./internal/composition", "./internal/downstream", "./internal/oauth", "./internal/contract", "./internal/backup", "./internal/keyring", "./test/material", "./test/keyringnative"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-6"}, Artifacts: []string{"mcp-gateway/internal/composition/source_test.go", "mcp-gateway/internal/downstream/source_test.go", "mcp-gateway/internal/oauth/source_test.go", "mcp-gateway/internal/contract/documentation_test.go"}},
+			{CheckName: "test_integration", Name: "make", Arguments: []string{"-C", "mcp-gateway", "test-integration"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-6"}, Artifacts: []string{"mcp-gateway/internal/composition", "mcp-gateway/internal/servers"}},
+			{CheckName: "test_e2e", Name: "make", Arguments: []string{"-C", "mcp-gateway", "test-e2e"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5", "AC-6"}, Artifacts: []string{"mcp-gateway/test/e2e"}},
+			{CheckName: "audit", Name: "make", Arguments: []string{"-C", "mcp-gateway", "audit"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5", "AC-6"}, Artifacts: []string{"mcp-gateway/go.mod", "mcp-gateway/go.sum"}},
+			{CheckName: "unsuppressed_govulncheck", Name: "go", Arguments: []string{"-C", "mcp-gateway", "tool", "govulncheck", "./..."}, Criteria: []string{"AC-6"}, Artifacts: []string{"mcp-gateway/go.mod", "mcp-gateway/go.sum"}},
+			{CheckName: "native_keyring", Name: "mcp-gateway/test/keyring-native.sh", Criteria: []string{"AC-1", "AC-6"}, Artifacts: []string{"mcp-gateway/test/keyringnative/result.schema.json", "mcp-gateway/test/material/material_test.go"}, Native: true},
+			{CheckName: "repository_check", Name: "make", Arguments: []string{"check"}, Criteria: []string{"AC-6"}, Artifacts: []string{"Makefile", "package.json"}},
+			{CheckName: "diff_check", Name: "git", Arguments: []string{"diff", "--check"}, Criteria: []string{"AC-6"}, Artifacts: []string{"mcp-gateway/README.md", "mcp-gateway/DESIGN.md", "mcp-gateway/CLAUDE.md"}},
+		}, nil
+	case ProfileS3:
+		return []Command{
+			{CheckName: "contract_storage", Name: "go", Arguments: []string{"-C", "mcp-gateway", "test", "-race", "./internal/contract", "./internal/strictjson", "./internal/storage", "./internal/servers"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-6"}, Evidence: []string{"contract", "strictjson-generated", "migration-restore", "docs"}, Artifacts: []string{"mcp-gateway/internal/contract", "mcp-gateway/internal/strictjson", "mcp-gateway/internal/storage/schema8_test.go", "mcp-gateway/internal/contract/documentation_test.go"}},
+			{CheckName: "authority_discovery_ingress", Name: "go", Arguments: []string{"-C", "mcp-gateway", "test", "-race", "-count=10", "./internal/authorization", "./internal/discovery", "./internal/mcpingress"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5", "AC-6"}, Evidence: []string{"authorization-race", "authorization-fuzz", "discovery-race", "ingress-race", "mcp-wire"}, Artifacts: []string{"mcp-gateway/internal/authorization", "mcp-gateway/internal/discovery", "mcp-gateway/internal/mcpingress"}},
+			{CheckName: "control_composition_recovery", Name: "go", Arguments: []string{"-C", "mcp-gateway", "test", "-race", "./internal/api", "./internal/catalog", "./internal/composition", "./internal/backup", "./cmd/mcp-gateway", "./internal/downstream", "./internal/oauth", "./internal/keyring", "./test/material", "./test/keyringnative"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5", "AC-6"}, Evidence: []string{"api-wire", "composition-race", "restore-canary", "source-secret", "source-slice"}, Artifacts: []string{"mcp-gateway/internal/api", "mcp-gateway/internal/composition/source_test.go", "mcp-gateway/internal/downstream/source_test.go", "mcp-gateway/internal/oauth/source_test.go", "mcp-gateway/internal/backup/restore_test.go", "mcp-gateway/cmd/mcp-gateway", "mcp-gateway/test/material"}},
+			{CheckName: "integration", Name: "make", Arguments: []string{"-C", "mcp-gateway", "test-integration"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-6"}, Evidence: []string{"authorization-integration", "migration-restore", "integration"}, Artifacts: []string{"mcp-gateway/internal/authorization", "mcp-gateway/internal/backup/restore_integration_test.go", "mcp-gateway/internal/storage/fixture_integration.go"}},
+			{CheckName: "e2e", Name: "make", Arguments: []string{"-C", "mcp-gateway", "test-e2e"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5", "AC-6"}, Evidence: []string{"e2e", "e2e-lifecycle", "e2e-discovery", "restore-canary", "source-secret"}, Artifacts: []string{"mcp-gateway/test/e2e"}},
+			{CheckName: "audit", Name: "make", Arguments: []string{"-C", "mcp-gateway", "audit"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5", "AC-6"}, Evidence: []string{"audit"}, Artifacts: []string{"mcp-gateway/go.mod", "mcp-gateway/go.sum"}},
+			{CheckName: "vulnerability", Name: "go", Arguments: []string{"-C", "mcp-gateway", "tool", "govulncheck", "./..."}, Criteria: []string{"AC-6"}, Evidence: []string{"vulnerability"}, Artifacts: []string{"mcp-gateway/go.mod", "mcp-gateway/go.sum"}},
+			{CheckName: "native", Name: "mcp-gateway/test/keyring-native.sh", Criteria: []string{"AC-1", "AC-6"}, Evidence: []string{"native"}, Artifacts: []string{"mcp-gateway/test/keyringnative/result.schema.json", "mcp-gateway/test/material/material_test.go"}, Native: true},
+			{CheckName: "repository_check", Name: "make", Arguments: []string{"check"}, Criteria: []string{"AC-6"}, Evidence: []string{"repository-check"}, Artifacts: []string{"Makefile", "package.json"}},
+			{CheckName: "diff_check", Name: "git", Arguments: []string{"diff", "--check"}, Criteria: []string{"AC-6"}, Evidence: []string{"docs"}, Artifacts: []string{"mcp-gateway/README.md", "mcp-gateway/DESIGN.md", "mcp-gateway/CLAUDE.md"}},
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown acceptance profile %q", profile)
 	}
 }
 
 func Run(ctx context.Context, root string, executor Executor, allowDirty bool) Report {
-	report := Report{SchemaVersion: 1, Result: ResultPassed, DirtyPolicy: "required_clean", Checks: []Check{}}
+	return RunProfile(ctx, root, executor, ProfileS21, allowDirty)
+}
+
+func RunProfile(ctx context.Context, root string, executor Executor, profile Profile, allowDirty bool) Report {
+	report := Report{SchemaVersion: 2, Profile: profile, Result: ResultPassed, DirtyPolicy: "required_clean", Checks: []Check{}}
+	commands, err := ProfileCommands(profile)
+	if err != nil {
+		return fail(report, "unknown_profile")
+	}
+	if profile == ProfileS3 {
+		report.EvidenceManifest = contract.AcceptanceEvidenceManifest()
+	}
 	if allowDirty {
 		report.DirtyPolicy = "allowed"
 	}
@@ -105,11 +151,11 @@ func Run(ctx context.Context, root string, executor Executor, allowDirty bool) R
 		return fail(report, "dirty_workspace")
 	}
 
-	for _, command := range Commands() {
+	for _, command := range commands {
 		commandCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
 		stdout, commandErr := executor.Run(commandCtx, root, command)
 		cancel()
-		check := Check{Name: checkName(command), Status: ResultPassed, Command: commandString(command), Criteria: command.Criteria, Artifacts: command.Artifacts}
+		check := Check{Name: checkName(command), Status: ResultPassed, Command: commandString(command), Criteria: command.Criteria, Evidence: command.Evidence, Artifacts: command.Artifacts}
 		if command.Native {
 			native, parseErr := keyringnative.Parse(bytes.TrimSpace(stdout))
 			if parseErr != nil {
@@ -153,10 +199,10 @@ func Parse(contents []byte) (Report, error) {
 	}
 	compiler := jsonschema.NewCompiler()
 	compiler.DefaultDraft(jsonschema.Draft2020)
-	if err := compiler.AddResource("urn:mcp-gateway:s2-1-acceptance", schemaDocument); err != nil {
+	if err := compiler.AddResource("urn:mcp-gateway:acceptance", schemaDocument); err != nil {
 		return Report{}, fmt.Errorf("load acceptance schema: %w", err)
 	}
-	schema, err := compiler.Compile("urn:mcp-gateway:s2-1-acceptance")
+	schema, err := compiler.Compile("urn:mcp-gateway:acceptance")
 	if err != nil {
 		return Report{}, fmt.Errorf("compile acceptance schema: %w", err)
 	}
@@ -167,8 +213,31 @@ func Parse(contents []byte) (Report, error) {
 	if err := schema.Validate(instance); err != nil {
 		return Report{}, fmt.Errorf("validate acceptance schema: %w", err)
 	}
+	commands, err := ProfileCommands(report.Profile)
+	if err != nil {
+		return Report{}, err
+	}
+	if len(report.Checks) > len(commands) {
+		return Report{}, errors.New("acceptance report has more checks than its profile")
+	}
+	for index, check := range report.Checks {
+		command := commands[index]
+		if check.Name != command.CheckName || check.Command != commandString(command) || !reflect.DeepEqual(check.Criteria, command.Criteria) || !reflect.DeepEqual(check.Evidence, command.Evidence) || !reflect.DeepEqual(check.Artifacts, command.Artifacts) {
+			return Report{}, errors.New("acceptance check does not match the closed profile")
+		}
+	}
+	if report.Profile == ProfileS3 {
+		if !reflect.DeepEqual(report.EvidenceManifest, contract.AcceptanceEvidenceManifest()) {
+			return Report{}, errors.New("acceptance evidence manifest does not match the closed contract")
+		}
+		if err := validateEvidenceCoverage(commands, report.EvidenceManifest); err != nil {
+			return Report{}, err
+		}
+	} else if len(report.EvidenceManifest) != 0 {
+		return Report{}, errors.New("S2.1 profile cannot contain an S3 evidence manifest")
+	}
 	if report.Result == ResultPassed {
-		if report.Reason != "all_checks_passed" || len(report.Checks) != len(Commands()) || report.Native == nil || report.Native.Result == keyringnative.ResultFailed {
+		if report.Reason != "all_checks_passed" || len(report.Checks) != len(commands) || report.Native == nil || report.Native.Result == keyringnative.ResultFailed {
 			return Report{}, errors.New("passed acceptance requires every check and nonfailed native evidence")
 		}
 		for _, check := range report.Checks {
@@ -178,6 +247,23 @@ func Parse(contents []byte) (Report, error) {
 		}
 	}
 	return report, nil
+}
+
+func validateEvidenceCoverage(commands []Command, manifest []contract.AcceptanceEvidence) error {
+	mapped := make(map[string]bool)
+	for _, command := range commands {
+		for _, evidence := range command.Evidence {
+			mapped[evidence] = true
+		}
+	}
+	for _, criterion := range manifest {
+		for _, evidence := range criterion.Evidence {
+			if !mapped[evidence] {
+				return fmt.Errorf("acceptance evidence %s for %s has no command", evidence, criterion.Criterion)
+			}
+		}
+	}
+	return nil
 }
 
 func fail(report Report, reason string) Report {
@@ -193,22 +279,7 @@ func gitOutput(ctx context.Context, root string, arguments ...string) (string, e
 }
 
 func checkName(command Command) string {
-	if command.Native {
-		return "native_keyring"
-	}
-	if command.Name == "go" && len(command.Arguments) > 2 && command.Arguments[2] == "test" {
-		return "focused_race_guards"
-	}
-	if command.Name == "go" {
-		return "unsuppressed_govulncheck"
-	}
-	if command.Name == "git" {
-		return "diff_check"
-	}
-	if command.Name == "make" && len(command.Arguments) == 1 {
-		return "repository_check"
-	}
-	return strings.ReplaceAll(command.Arguments[2], "-", "_")
+	return command.CheckName
 }
 
 func commandString(command Command) string {
