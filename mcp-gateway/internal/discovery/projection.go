@@ -71,16 +71,29 @@ type Projection struct {
 }
 
 type Service struct {
-	policy  PolicySource
-	catalog CatalogSource
-	clock   Clock
+	policy    PolicySource
+	catalog   CatalogSource
+	clock     Clock
+	synthetic []contract.ToolDescriptor
 }
 
 func New(policy PolicySource, catalogs CatalogSource, clock Clock) (*Service, error) {
+	return newService(policy, catalogs, clock, nil)
+}
+
+func NewWithSyntheticCatalog(policy PolicySource, catalogs CatalogSource, clock Clock) (*Service, error) {
+	synthetic, err := catalog.SyntheticSnapshot()
+	if err != nil {
+		return nil, ErrAuthorizationUnavailable
+	}
+	return newService(policy, catalogs, clock, synthetic)
+}
+
+func newService(policy PolicySource, catalogs CatalogSource, clock Clock, synthetic []contract.ToolDescriptor) (*Service, error) {
 	if policy == nil || catalogs == nil || clock == nil {
 		return nil, ErrAuthorizationUnavailable
 	}
-	return &Service{policy: policy, catalog: catalogs, clock: clock}, nil
+	return &Service{policy: policy, catalog: catalogs, clock: clock, synthetic: synthetic}, nil
 }
 
 func (service *Service) Project(ctx context.Context, request Request) (Projection, error) {
@@ -108,6 +121,10 @@ func (service *Service) Project(ctx context.Context, request Request) (Projectio
 	if err := ctx.Err(); err != nil {
 		return Projection{}, err
 	}
+	if len(catalogSnapshot.Descriptors) > int(mustDiscoveryLimit("active_tools")) ||
+		len(catalogSnapshot.Descriptors)+len(service.synthetic) > int(mustDiscoveryLimit("discoverable_tools")) {
+		return Projection{}, ErrAuthorizationUnavailable
+	}
 	resultSnapshot := snapshotFrom(policy, catalogSnapshot.Generation)
 	if request.Continuation != nil && !sameSnapshot(*request.Continuation, resultSnapshot) {
 		return Projection{}, ErrStaleCursor
@@ -117,8 +134,11 @@ func (service *Service) Project(ctx context.Context, request Request) (Projectio
 		id   string
 		tool *Tool
 	}
-	projected := make([]projectedTool, 0, len(catalogSnapshot.Descriptors))
-	for _, descriptor := range catalogSnapshot.Descriptors {
+	descriptors := make([]contract.ToolDescriptor, 0, len(catalogSnapshot.Descriptors)+len(service.synthetic))
+	descriptors = append(descriptors, catalogSnapshot.Descriptors...)
+	descriptors = append(descriptors, service.synthetic...)
+	projected := make([]projectedTool, 0, len(descriptors))
+	for _, descriptor := range descriptors {
 		if err := ctx.Err(); err != nil {
 			return Projection{}, err
 		}

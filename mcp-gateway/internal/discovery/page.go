@@ -129,7 +129,7 @@ func (pager *Pager) List(ctx context.Context, request PageRequest) (ListPage, er
 	}
 
 	probeCursor, err := pager.cursors.Encode(CursorState{
-		Snapshot: projection.Snapshot, Method: CursorMethodToolsList, Position: uint32(start + 1), //nolint:gosec // start is bounded by active_tools.
+		Snapshot: projection.Snapshot, Method: CursorMethodToolsList, Position: uint32(start + 1), //nolint:gosec // start is bounded by discoverable_tools.
 	})
 	if err != nil {
 		return ListPage{}, ErrResultEncoding
@@ -158,7 +158,7 @@ func (pager *Pager) List(ctx context.Context, request PageRequest) (ListPage, er
 	}
 	nextPosition := start + accepted
 	nextCursor, err := pager.cursors.Encode(CursorState{
-		Snapshot: projection.Snapshot, Method: CursorMethodToolsList, Position: uint32(nextPosition), //nolint:gosec // positions are bounded by active_tools.
+		Snapshot: projection.Snapshot, Method: CursorMethodToolsList, Position: uint32(nextPosition), //nolint:gosec // positions are bounded by discoverable_tools.
 	})
 	if err != nil {
 		return ListPage{}, ErrResultEncoding

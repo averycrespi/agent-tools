@@ -33,7 +33,7 @@ func TestCursorCodecRoundTripsEveryBoundFieldWithinLimit(t *testing.T) {
 	decoded, err := codec.Decode(cursor, CursorMethodToolsList)
 	require.NoError(t, err)
 	assert.Equal(t, state, decoded)
-	assert.Equal(t, int64(2048), maximumCursorPosition)
+	assert.Equal(t, int64(2054), maximumCursorPosition)
 }
 
 func TestCursorCodecRejectsEntropyFailures(t *testing.T) {

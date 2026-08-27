@@ -48,7 +48,7 @@ var (
 	ErrInvalidCursorState = errors.New("discovery cursor state is invalid")
 
 	cursorMaximumBytes    = int(mustDiscoveryLimit("cursor_bytes"))
-	maximumCursorPosition = mustDiscoveryLimit("active_tools")
+	maximumCursorPosition = mustDiscoveryLimit("discoverable_tools")
 )
 
 type CursorMethod uint8
