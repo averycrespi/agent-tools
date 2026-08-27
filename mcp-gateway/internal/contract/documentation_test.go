@@ -9,22 +9,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTrackedDocsDescribeCurrentS3Boundary(t *testing.T) {
+func TestTrackedDocsDescribeCurrentS4Boundary(t *testing.T) {
 	t.Parallel()
 
 	documents := map[string][]string{
+		"../../../README.md": {
+			"current S4 executable", "governed dual-era tool invocation", "before one immediate attempt through a pinned active capability",
+			"Audit read APIs, agent self-service tools, product UI, exactly-once guarantees, and S5/S6 workflows are not implemented",
+		},
 		"../../README.md": {
-			"principal-filtered descriptor discovery", "Principals, credentials, and grants", "agent_credential_creation", "make accept-s3",
-			"`tools/call` and every other non-lifecycle feature method return fixed `-32601 Method not found`; no active capability is acquired",
-			"Backup restore preserves principals and grants but clears every restored agent credential",
+			"Governed calls and internal audit history", "attempts one immutable admission row before any downstream effect", "fixed recursive key redaction",
+			"There is no audit read API", "Gateway provides at-most-one automatic attempt, not exactly-once effects", "S5 and S6 behavior is unavailable",
 		},
 		"../../DESIGN.md": {
-			"positive principal-credential authentication", "Implemented S3 request mechanics", "Agent discovery enumerates descriptor projections independently without acquiring capabilities", "make accept-s3",
-			"S3 principal credentials authenticate production `/mcp`", "They do not enable a production capability consumer, tool invocation or invocation audit",
+			"current S4 executable", "Closed S1–S4 contract", "Argument capture uses one fixed recursive key redactor",
+			"sole production consumer is the composed invocation service after acknowledged ALLOW admission", "explicit caller retry after `outcome_unknown` may duplicate an effect",
 		},
 		"../../CLAUDE.md": {
-			"Immutable S1–S3 routes", "principal/credential/grant/current-catalog/raw-MCP helpers", "Production does authenticate current principal credentials", "make accept-s3",
-			"do not infer `tools/call` routing, durable invocation/audit, Gateway-owned self-service tools, or product-UI behavior",
+			"Immutable S1–S4 routes", "online S4 invocation SQL belongs to `internal/invocation`", "`internal/invocation` owns fixed recursive argument redaction",
+			"do not infer an audit read API", "exactly-once effects", "guaranteed secret detection",
 		},
 	}
 	prohibited := []string{
@@ -37,13 +40,19 @@ func TestTrackedDocsDescribeCurrentS3Boundary(t *testing.T) {
 		"The current S2 checkpoint",
 		"The final S1 binary",
 		"cannot authorize, audit, persist, present, enumerate to agents",
+		"active downstream capabilities still have no production consumer",
+		"invocation/audit and product UI workflows are not implemented",
+		"No active downstream route is callable through `/mcp`",
+		"No production agent-facing invocation/audit/UI or active-capability consumer may emerge",
+		"S4 privacy primitives; later S4 tasks add audit and orchestration ownership",
+		"Closed S1–S3 contract",
 	}
 	for path, required := range documents {
 		contents, err := os.ReadFile(path)
 		require.NoError(t, err, path)
 		text := string(contents)
 		for _, phrase := range required {
-			require.Contains(t, text, phrase, "%s: missing current S3 claim", path)
+			require.Contains(t, text, phrase, "%s: missing current S4 claim", path)
 		}
 		for _, phrase := range prohibited {
 			require.NotContains(t, text, phrase, "%s: obsolete current-state claim", path)

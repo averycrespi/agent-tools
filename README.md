@@ -82,9 +82,9 @@ See the [mcp-broker README](mcp-broker/README.md) for more information.
 
 ### MCP Gateway
 
-`mcp-gateway` is the clean-start successor being built beside MCP Broker. Its S1 foundation defines a strict loopback HTTP/MCP boundary, durable control state, separate admin and agent authority, explicit OS-keyring capability, verified recovery, and fixed nonblocking limits.
+`mcp-gateway` is the clean-start successor being built beside MCP Broker. Its current S4 executable combines a strict loopback HTTP/MCP boundary and verified recovery with dynamic downstream runtimes/catalogs, principal credentials and grants, principal-filtered discovery, and governed dual-era tool invocation.
 
-The completed S1 executable initializes owner-only state, listens on one exact numeric IPv4 loopback authority, serves authenticated admin/session/status/backup/event resources, isolates modern and legacy MCP protocol handling behind production deny-all agent authentication, and provides verified offline recovery with bounded two-stage shutdown. It does not register downstream servers, issue production agent authority, route tools, or expose product workflows. See the [mcp-gateway README](mcp-gateway/README.md) and [design](mcp-gateway/DESIGN.md) for operation and security boundaries.
+Every classified call rejects safely or commits bounded audit evidence before one immediate attempt through a pinned active capability. The Gateway does not queue, reroute, retry, replay, or persist successful results and raw downstream errors; uncertain handoff is reported explicitly because a tool may already have taken effect. Audit history is internal and bounded to 4,096 rows with fixed-redacted argument evidence. Audit read APIs, agent self-service tools, product UI, exactly-once guarantees, and S5/S6 workflows are not implemented. See the [mcp-gateway README](mcp-gateway/README.md) and [design](mcp-gateway/DESIGN.md) for operation and security boundaries.
 
 ### HTTP Broker
 
