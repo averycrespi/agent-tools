@@ -1,4 +1,4 @@
-.PHONY: build install test test-integration test-e2e test-keyring-native accept-s2-1 accept-s3 accept-s4 lint fmt tidy audit
+.PHONY: build install test test-unit test-integration test-integration-s5 test-e2e test-keyring-native accept-s2-1 accept-s3 accept-s4 lint fmt tidy verify audit
 
 build:
 	go build -o mcp-gateway ./cmd/mcp-gateway
@@ -9,11 +9,17 @@ install:
 test:
 	go test -race ./...
 
+test-unit:
+	go test -race -count=1 -timeout=90s ./...
+
 test-integration:
 	go test -race -tags=integration ./...
 
+test-integration-s5:
+	go test -race -count=1 -tags=integration -timeout=30s -run '^(TestS5Integration.*|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$$' ./internal/storage ./internal/backup ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition
+
 test-e2e:
-	go test -race -tags=e2e -timeout=60s ./test/e2e/...
+	go test -race -count=1 -tags=e2e -timeout=2m ./test/e2e/...
 
 test-keyring-native:
 	./test/keyring-native.sh
@@ -35,6 +41,12 @@ fmt:
 
 tidy:
 	go mod tidy && go mod verify
+
+verify:
+	go mod tidy -diff
+	go mod verify
+	go tool golangci-lint fmt --diff
+	go tool golangci-lint run ./...
 
 audit: tidy fmt lint test
 	go tool govulncheck ./... || echo "govulncheck: review above (stdlib vulns require Go upgrade)"

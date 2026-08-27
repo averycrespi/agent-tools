@@ -1,7 +1,8 @@
 TOOLS := mcp-broker mcp-gateway sandbox-manager local-git-mcp local-gomod-proxy telegram-mcp http-broker
+OTHER_TOOLS := mcp-broker sandbox-manager local-git-mcp local-gomod-proxy telegram-mcp http-broker
 UNAME_S := $(shell uname -s)
 
-.PHONY: install install-dev setup build test lint fmt tidy check audit $(TOOLS)
+.PHONY: install install-dev setup build test lint fmt tidy check check-other-tools audit $(TOOLS)
 
 install:
 	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir install; done
@@ -37,6 +38,9 @@ check:
 	npm run format:check
 	$(MAKE) lint
 	$(MAKE) test
+
+check-other-tools:
+	@set -e; for dir in $(OTHER_TOOLS); do $(MAKE) -C $$dir lint; $(MAKE) -C $$dir test; done
 
 audit:
 	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir audit; done
