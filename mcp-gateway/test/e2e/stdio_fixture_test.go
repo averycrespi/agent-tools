@@ -14,7 +14,10 @@ import (
 	"testing"
 )
 
-const stdioFixtureEnvironment = "MCP_GATEWAY_E2E_STDIO_FIXTURE"
+const (
+	stdioFixtureEnvironment      = "MCP_GATEWAY_E2E_STDIO_FIXTURE"
+	stdioFixtureObservationLimit = 1024 * 1024
+)
 
 type stdioFixtureEvent struct {
 	Kind       string `json:"kind"`
@@ -37,7 +40,7 @@ func TestE2EStdioFixtureProcess(t *testing.T) {
 	mode, markerPath, eventsPath := arguments[1], arguments[2], arguments[3]
 	pid := os.Getpid()
 	priorPID, priorAlive := 0, false
-	fallbackProbe := mode == "legacy"
+	fallbackProbe := mode == "legacy" || strings.HasPrefix(mode, "legacy-")
 	gatedReplacement := false
 	repeatFault := false
 	if strings.HasPrefix(mode, "gated-modern") {
@@ -154,6 +157,38 @@ func handleFixtureFrame(mode string, fallbackProbe bool, eventsPath string, pid 
 		} else if mode == "protocol-failure" {
 			_, _ = fmt.Fprintln(os.Stdout, `{`)
 		}
+	case "tools/call":
+		if strings.Contains(mode, "call-blocked") {
+			release := make(chan os.Signal, 1)
+			signal.Notify(release, syscall.SIGUSR1)
+			appendFixtureEvent(eventsPath, stdioFixtureEvent{Kind: "call_blocked", PID: pid, Method: request.Method})
+			<-release
+			signal.Stop(release)
+			appendFixtureEvent(eventsPath, stdioFixtureEvent{Kind: "call_released", PID: pid, Method: request.Method})
+		}
+		switch fixtureCallOutcomeForMode(mode) {
+		case fixtureCallSuccess:
+			_, _ = fmt.Fprintf(os.Stdout, `{"jsonrpc":"2.0","id":%d,"result":{"content":[{"type":"text","text":"%s"}]}}`+"\n", request.ID, fixtureSuccessText)
+		case fixtureCallToolError:
+			_, _ = fmt.Fprintf(os.Stdout, `{"jsonrpc":"2.0","id":%d,"result":{"content":[{"type":"text","text":"%s"}],"isError":true}}`+"\n", request.ID, fixtureToolErrorText)
+		case fixtureCallMalformed:
+			_, _ = fmt.Fprintf(os.Stdout, `{"jsonrpc":"2.0","id":%d,"result":{"content":"malformed"}}`+"\n", request.ID)
+		case fixtureCallUncertain:
+			os.Exit(42)
+		}
+	}
+}
+
+func fixtureCallOutcomeForMode(mode string) fixtureCallOutcome {
+	switch {
+	case strings.Contains(mode, "call-tool-error"):
+		return fixtureCallToolError
+	case strings.Contains(mode, "call-malformed"):
+		return fixtureCallMalformed
+	case strings.Contains(mode, "call-uncertain"):
+		return fixtureCallUncertain
+	default:
+		return fixtureCallSuccess
 	}
 }
 
@@ -176,6 +211,11 @@ func appendFixtureEvent(path string, event stdioFixtureEvent) {
 		os.Exit(93)
 	}
 	contents = append(contents, '\n')
+	info, statErr := file.Stat()
+	if statErr != nil || info.Size()+int64(len(contents)) > stdioFixtureObservationLimit {
+		_ = file.Close()
+		os.Exit(95)
+	}
 	_, writeErr := file.Write(contents)
 	closeErr := file.Close()
 	if writeErr != nil || closeErr != nil {

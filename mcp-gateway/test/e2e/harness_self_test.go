@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -121,6 +123,136 @@ func TestGatewayHarnessOwnsPrincipalCatalogAndRawMCPWire(t *testing.T) {
 }
 
 func pointerTo[T any](value T) *T { return &value }
+
+func TestCallFixturesExposeOnlyClosedSafeObservations(t *testing.T) {
+	fixture := newRawHTTPFixture(t, "modern")
+	call := func(outcome fixtureCallOutcome) (*http.Response, error) {
+		fixture.SetCallOutcome(outcome)
+		return http.Post(fixture.URL(), contract.MediaTypeJSON, strings.NewReader(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"alpha","arguments":{"value":"fixture-request-canary"}}}`))
+	}
+	for _, test := range []struct {
+		outcome fixtureCallOutcome
+		body    string
+	}{
+		{fixtureCallSuccess, `{"jsonrpc":"2.0","id":7,"result":{"content":[{"type":"text","text":"fixture success"}]}}`},
+		{fixtureCallToolError, `{"jsonrpc":"2.0","id":7,"result":{"content":[{"type":"text","text":"fixture private tool error"}],"isError":true}}`},
+		{fixtureCallMalformed, `{"jsonrpc":"2.0","id":7,"result":{"content":"malformed"}}`},
+	} {
+		response, err := call(test.outcome)
+		require.NoError(t, err)
+		assert.JSONEq(t, test.body, string(readResponseBody(t, response)))
+	}
+	_, err := call(fixtureCallUncertain)
+	require.Error(t, err)
+
+	fixture.SetCallOutcome(fixtureCallSuccess)
+	barrier := fixture.Arm("tools/call")
+	completed := make(chan error, 1)
+	go func() {
+		response, requestErr := http.Post(fixture.URL(), contract.MediaTypeJSON, strings.NewReader(`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"alpha","arguments":{}}}`))
+		if requestErr == nil {
+			_, requestErr = io.Copy(io.Discard, response.Body)
+			requestErr = errors.Join(requestErr, response.Body.Close())
+		}
+		completed <- requestErr
+	}()
+	awaitFixtureSignal(t, barrier.entered, "call fixture barrier was not entered")
+	barrier.Release()
+	require.NoError(t, <-completed)
+	awaitFixtureSignal(t, barrier.completed, "call fixture barrier did not complete")
+
+	evidence, err := json.Marshal(fixture.Events())
+	require.NoError(t, err)
+	assert.NotContains(t, string(evidence), "fixture-request-canary")
+	assert.NotContains(t, string(evidence), fixtureSuccessText)
+	assert.NotContains(t, string(evidence), fixtureToolErrorText)
+	assert.Len(t, fixture.Events(), 5)
+	assert.Equal(t, fixtureCallSuccess, fixtureCallOutcomeForMode("modern"))
+	assert.Equal(t, fixtureCallToolError, fixtureCallOutcomeForMode("call-tool-error"))
+	assert.Equal(t, fixtureCallMalformed, fixtureCallOutcomeForMode("call-malformed"))
+	assert.Equal(t, fixtureCallUncertain, fixtureCallOutcomeForMode("call-uncertain"))
+}
+
+func TestGatewayHarnessObservesGovernedCallsWithoutRetainingPayloads(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.Start()
+
+	catalog := harness.SetupCurrentCatalog("call-harness", []fixtureTool{{Name: "alpha", InputSchema: json.RawMessage(`{"type":"object"}`)}})
+	principal := harness.CreatePrincipal("Call harness agent", contract.VisibilityAll)
+	issued := harness.IssueCredential(principal)
+	harness.CreateGrant(grantSpec{PrincipalID: principal.Resource.ID, Effect: contract.GrantAllow, ServerID: catalog.ServerID, UpstreamName: pointerTo("alpha")})
+
+	const argumentCanary = "e2e-call-argument-canary"
+	catalog.Fixture.SetCallOutcome(fixtureCallSuccess)
+	modern := harness.ModernCall(issued.Bearer, json.RawMessage(`"modern-call"`), "call-harness.alpha", json.RawMessage(`{"value":"`+argumentCanary+`"}`))
+	assert.Equal(t, http.StatusOK, modern.StatusCode)
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"modern-call","result":{"content":[{"type":"text","text":"fixture success"}]}}`, string(modern.Body))
+
+	catalog.Fixture.SetCallOutcome(fixtureCallToolError)
+	session, _ := harness.LegacyInitialize(issued.Bearer, json.RawMessage(`1`))
+	legacy := harness.LegacyCall(issued.Bearer, session, json.RawMessage(`"legacy-call"`), "call-harness.alpha", json.RawMessage(`{}`))
+	assert.Equal(t, http.StatusOK, legacy.StatusCode)
+	var legacyError struct {
+		Error struct {
+			Code int                         `json:"code"`
+			Data contract.AgentCallErrorData `json:"data"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(legacy.Body, &legacyError))
+	assert.Equal(t, contract.AgentCallJSONRPCErrorCode, legacyError.Error.Code)
+	assert.Equal(t, contract.DownstreamFailure, legacyError.Error.Data.Code)
+
+	result := harness.Stop(syscall.SIGTERM)
+	observations := harness.AuditObservations()
+	require.Len(t, observations, 2)
+	assert.Equal(t, contract.TerminalSucceeded, observations[0].TerminalClass)
+	assert.Equal(t, contract.TerminalDownstreamFailure, observations[1].TerminalClass)
+	for _, observation := range observations {
+		assert.Equal(t, contract.AdmissionEvaluated, observation.AdmissionClass)
+		assert.Equal(t, contract.DecisionAllow, observation.Decision)
+	}
+	fixtureEvidence, err := json.Marshal(catalog.Fixture.Events())
+	require.NoError(t, err)
+	assert.NotContains(t, string(fixtureEvidence), argumentCanary)
+	assert.NotContains(t, string(fixtureEvidence), fixtureToolErrorText)
+	assert.NotContains(t, string(result.Stdout), argumentCanary)
+	assert.NotContains(t, string(result.Stderr), argumentCanary)
+}
+
+func TestGatewayHarnessStdioCallFixtureRecordsOnlySafeFacts(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.Start()
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	directory := t.TempDir()
+	eventsPath := filepath.Join(directory, "events.jsonl")
+	creation := createStdioServer(t, harness, executable, "call-success", filepath.Join(directory, "marker"), eventsPath)
+	harness.WaitOperation(creation.Server.ID, creation.Operation.ID, contract.OperationSucceeded)
+	waitForStdioServer(t, harness, creation.Server.ID, func(server stdioServerView) bool {
+		return server.Runtime.State == contract.RuntimeActive && server.Catalog.ActiveState == contract.ActiveCatalogCurrent
+	})
+	principal := harness.CreatePrincipal("Stdio call harness", contract.VisibilityAll)
+	issued := harness.IssueCredential(principal)
+	harness.CreateGrant(grantSpec{PrincipalID: principal.Resource.ID, Effect: contract.GrantAllow, ServerID: creation.Server.ID, UpstreamName: pointerTo("alpha")})
+
+	const argumentCanary = "stdio-call-argument-canary"
+	response := harness.ModernCall(issued.Bearer, json.RawMessage(`9`), "stdio-call-success.alpha", json.RawMessage(`{"value":"`+argumentCanary+`"}`))
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":9,"result":{"content":[{"type":"text","text":"fixture success"}]}}`, string(response.Body))
+	events := waitForFixtureEvents(t, eventsPath, func(events []stdioFixtureEvent) bool {
+		return countFixtureEvents(events, "request", "tools/call") == 1
+	})
+	pid := fixtureEvents(events, "start", "")[0].PID
+	harness.Stop(syscall.SIGTERM)
+	waitForProcessExit(t, pid)
+	observations := harness.AuditObservations()
+	require.Len(t, observations, 1)
+	assert.Equal(t, contract.TerminalSucceeded, observations[0].TerminalClass)
+	contents, err := os.ReadFile(eventsPath)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(contents), stdioFixtureObservationLimit)
+	assert.NotContains(t, string(contents), argumentCanary)
+	assert.NotContains(t, string(contents), fixtureSuccessText)
+}
 
 func TestGatewayHarnessPublishesDeterministicStaticAuthorityThroughProductionAPI(t *testing.T) {
 	harness := newGatewayHarness(t)

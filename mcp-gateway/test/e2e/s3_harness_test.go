@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,8 @@ import (
 	"testing"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -111,6 +114,14 @@ type currentCatalogHandle struct {
 
 type legacySessionHandle struct {
 	ID string
+}
+
+type auditObservation struct {
+	Sequence       int64
+	InvocationID   string
+	AdmissionClass contract.InvocationAdmissionClass
+	Decision       contract.AuthorizationDecision
+	TerminalClass  contract.InvocationTerminalClass
 }
 
 func (harness *gatewayHarness) requestSnapshot(method, path string, body []byte, headers map[string]string) responseSnapshot {
@@ -319,6 +330,12 @@ func (harness *gatewayHarness) ModernList(bearer *agentBearer, id json.RawMessag
 	return harness.ModernRequest(bearer, rawRPCBody(harness.t, id, "tools/list", params))
 }
 
+func (harness *gatewayHarness) ModernCall(bearer *agentBearer, id json.RawMessage, name string, arguments json.RawMessage) responseSnapshot {
+	harness.t.Helper()
+	params := callParams(harness.t, name, arguments, `,"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"e2e-harness","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}`)
+	return harness.ModernRequest(bearer, rawRPCBody(harness.t, id, "tools/call", params))
+}
+
 func (harness *gatewayHarness) LegacyInitialize(bearer *agentBearer, id json.RawMessage) (legacySessionHandle, responseSnapshot) {
 	harness.t.Helper()
 	body := rawRPCBody(harness.t, id, "initialize", `{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"e2e-harness","version":"1"}}`)
@@ -342,6 +359,11 @@ func (harness *gatewayHarness) LegacyList(bearer *agentBearer, session legacySes
 	return harness.legacyRequest(http.MethodPost, bearer, session, rawRPCBody(harness.t, id, "tools/list", params))
 }
 
+func (harness *gatewayHarness) LegacyCall(bearer *agentBearer, session legacySessionHandle, id json.RawMessage, name string, arguments json.RawMessage) responseSnapshot {
+	harness.t.Helper()
+	return harness.legacyRequest(http.MethodPost, bearer, session, rawRPCBody(harness.t, id, "tools/call", callParams(harness.t, name, arguments, "")))
+}
+
 func (harness *gatewayHarness) LegacyDelete(bearer *agentBearer, session legacySessionHandle) responseSnapshot {
 	harness.t.Helper()
 	return harness.legacyRequest(http.MethodDelete, bearer, session, nil)
@@ -359,6 +381,56 @@ func (harness *gatewayHarness) legacyRequest(method string, bearer *agentBearer,
 		headers["Mcp-Protocol-Version"] = contract.LegacyProtocolVersion
 	}
 	return harness.requestSnapshot(method, "/mcp", body, headers)
+}
+
+func (harness *gatewayHarness) AuditObservations() []auditObservation {
+	harness.t.Helper()
+	require.Nil(harness.t, harness.process, "audit inspection requires a stopped Gateway")
+	ownership, err := gatewaypaths.Acquire(harness.root)
+	require.NoError(harness.t, err)
+	store, err := storage.Open(harness.ctx, ownership)
+	require.NoError(harness.t, err)
+	observations := make([]auditObservation, 0)
+	err = store.View(harness.ctx, func(transaction *sql.Tx) error {
+		rows, queryErr := transaction.QueryContext(harness.ctx, `SELECT insertion_sequence, id, admission_class, decision, terminal_class FROM invocations ORDER BY insertion_sequence`)
+		if queryErr != nil {
+			return queryErr
+		}
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var observation auditObservation
+			var admission string
+			var decision, terminal sql.NullString
+			if scanErr := rows.Scan(&observation.Sequence, &observation.InvocationID, &admission, &decision, &terminal); scanErr != nil {
+				return scanErr
+			}
+			observation.AdmissionClass = contract.InvocationAdmissionClass(admission)
+			if decision.Valid {
+				observation.Decision = contract.AuthorizationDecision(decision.String)
+			}
+			if terminal.Valid {
+				observation.TerminalClass = contract.InvocationTerminalClass(terminal.String)
+			}
+			observations = append(observations, observation)
+		}
+		return rows.Err()
+	})
+	require.NoError(harness.t, err)
+	require.LessOrEqual(harness.t, len(observations), 4096)
+	require.NoError(harness.t, store.Close())
+	require.NoError(harness.t, ownership.MarkClean())
+	require.NoError(harness.t, ownership.Close())
+	return observations
+}
+
+func callParams(t *testing.T, name string, arguments json.RawMessage, suffix string) string {
+	t.Helper()
+	require.True(t, json.Valid(arguments), "invalid raw call arguments")
+	encodedName, err := json.Marshal(name)
+	require.NoError(t, err)
+	params := `{"name":` + string(encodedName) + `,"arguments":` + string(arguments) + suffix + `}`
+	require.True(t, json.Valid([]byte(params)), "invalid raw call params")
+	return params
 }
 
 func rawRPCBody(t *testing.T, id json.RawMessage, method, params string) []byte {

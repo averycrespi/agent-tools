@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -150,8 +149,8 @@ func assertHTTPFixtureWire(t *testing.T, fixture *rawHTTPFixture, mode string) {
 		assert.Equal(t, parsed.Host, event.Host)
 		assert.Equal(t, contract.MediaTypeJSON, event.ContentType)
 		assert.Equal(t, "application/json, text/event-stream", event.Accept)
-		assert.Empty(t, event.Authorization)
-		assert.Empty(t, event.Cookie)
+		assert.False(t, event.HasAuthorization)
+		assert.False(t, event.HasCookie)
 		assert.Empty(t, event.AcceptEncoding)
 		assert.Empty(t, event.Forwarded)
 		assert.True(t, event.Close)
@@ -164,18 +163,18 @@ func assertHTTPFixtureWire(t *testing.T, fixture *rawHTTPFixture, mode string) {
 		for _, event := range events {
 			assert.Equal(t, "2026-07-28", event.Protocol)
 			assert.Empty(t, event.Session)
-			assert.True(t, strings.Contains(event.Body, `"_meta"`))
+			assert.True(t, event.HasMetadata)
 		}
 	} else {
 		assert.Equal(t, []string{"server/discover", "initialize", "notifications/initialized", "tools/list", "tools/list"}, methods)
 		assert.Equal(t, []uint64{1, 1, 0, 2, 3}, []uint64{events[0].ID, events[1].ID, events[2].ID, events[3].ID, events[4].ID})
 		assert.Equal(t, "2026-07-28", events[0].Protocol)
 		assert.Empty(t, events[0].Session)
-		assert.True(t, strings.Contains(events[0].Body, `"_meta"`))
+		assert.True(t, events[0].HasMetadata)
 		assert.Equal(t, "2025-11-25", events[1].Protocol)
 		assert.Empty(t, events[1].Session)
 		for _, event := range events[1:] {
-			assert.False(t, strings.Contains(event.Body, `"_meta"`))
+			assert.False(t, event.HasMetadata)
 		}
 		for _, event := range events[2:] {
 			assert.Equal(t, "2025-11-25", event.Protocol)
