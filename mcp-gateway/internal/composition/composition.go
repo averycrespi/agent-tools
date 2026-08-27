@@ -734,6 +734,9 @@ func (built *Composition) Drain(ctx context.Context) <-chan runtimes.DrainResult
 
 func (built *Composition) beginDrain(ctx context.Context) {
 	built.accepting.Store(false)
+	if built.invocationPipelines != nil {
+		built.invocationPipelines.BeginDrain()
+	}
 	if built.authorization != nil {
 		built.authorization.BeginDrain()
 	}
@@ -764,9 +767,12 @@ func (built *Composition) beginDrain(ctx context.Context) {
 }
 
 func (built *Composition) awaitDrain(ctx context.Context, ownedBefore int64, managerDone <-chan runtimes.DrainResult) {
-	waits := make(chan bool, 6)
+	waits := make(chan bool, 7)
 	waitCount := 0
 	for _, wait := range []func(context.Context) bool{
+		func(ctx context.Context) bool {
+			return built.invocationPipelines == nil || built.invocationPipelines.Drain(ctx) == nil
+		},
 		func(ctx context.Context) bool {
 			return built.authorization == nil || built.authorization.Drain(ctx) == nil
 		},

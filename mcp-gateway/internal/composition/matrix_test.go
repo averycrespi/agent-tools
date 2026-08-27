@@ -355,11 +355,17 @@ func TestProductionCompositionDrainDeadlineFencesLateConstructingCompletion(t *t
 	enableCompositionServer(t, built.servers, server)
 	require.NoError(t, built.Start(context.Background()))
 	<-started
+	releasePipeline, entered := built.invocationPipelines.TryEnter()
+	require.True(t, entered)
+	defer releasePipeline()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := built.Drain(ctx)
 	cancel()
 	assert.Equal(t, runtimes.DrainResult{Unconfirmed: 1}, <-done)
+	_, entered = built.invocationPipelines.TryEnter()
+	assert.False(t, entered, "deadline-expired drain reopened invocation admission")
+	releasePipeline()
 	afterDrain := invalidations.Load()
 	close(release)
 	require.True(t, built.manager.Wait(context.Background()))

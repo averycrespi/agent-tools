@@ -99,7 +99,18 @@ func TestProductionRootUsesConcreteNativeCompositionAndPositiveIngress(t *testin
 	for _, prohibited := range []string{"runtimes.New(", "unavailableDriver", "absentCatalog", "newMemoryPublisher", "Routes().Resolve(", "mcpingress.DenyAllAuthenticator{}", "AgentAuth: contract.AgentAuthDenyAll"} {
 		assert.NotContains(t, rootSource, prohibited, "cmd/mcp-gateway/root.go: prohibited production symbol %s", prohibited)
 	}
+	for _, required := range []string{"runtimeClean = result.Unconfirmed == 0", "if err := store.Close(); err != nil", "if runtimeClean {", "ownership.MarkClean()"} {
+		assert.Contains(t, rootSource, required, "cmd/mcp-gateway/root.go: missing clean-shutdown symbol %s", required)
+	}
+	assert.Less(t, strings.Index(rootSource, "runtimeDrain := runtime.Drain(shutdownCtx)"), strings.Index(rootSource, "if err := store.Close(); err != nil"), "cmd/mcp-gateway/root.go: storage closed before composition drain")
 	assert.Equal(t, 1, strings.Count(rootSource, "Authenticator:"), "cmd/mcp-gateway/root.go: production authenticator must have one owner")
+	enter := strings.Index(compositionSource, "release, ok := adapter.pipelines.TryEnter()")
+	release := strings.Index(compositionSource, "defer release()")
+	call := strings.Index(compositionSource, "response := adapter.service.Call(")
+	assert.True(t, enter >= 0 && enter < release && release < call, "internal/composition/composition.go: call pipeline fence must enclose the complete invocation service")
+	for _, required := range []string{"built.invocationPipelines.BeginDrain()", "built.invocationPipelines.Drain(ctx) == nil"} {
+		assert.Contains(t, compositionSource, required, "internal/composition/composition.go: missing invocation drain symbol %s", required)
+	}
 	assert.Contains(t, compositionSource, "providerFactory = productionProvider", "internal/composition/composition.go: ordinary build must use the build-selected provider")
 	assert.Contains(t, nativeProviderSource, "//go:build !e2e", "internal/composition/provider_factory.go: native provider must exclude e2e builds")
 	assert.Contains(t, nativeProviderSource, "keyring.NewProvider(installationID)", "internal/composition/provider_factory.go: ordinary build must select native provider")
@@ -135,10 +146,10 @@ func TestProductionPersistenceAndCapabilitySliceGuards(t *testing.T) {
 	}
 }
 
-func TestProductionS3DiscoverySliceGuards(t *testing.T) {
+func TestProductionS3AndS4SliceGuards(t *testing.T) {
 	root := gatewayModuleRoot(t)
 	for _, source := range productionSources(t, root) {
-		for _, violation := range s3SliceViolations(source) {
+		for _, violation := range productionSliceViolations(source) {
 			t.Error(violation)
 		}
 	}
@@ -161,7 +172,7 @@ func TestProductionS3DiscoverySliceGuards(t *testing.T) {
 	assert.NotContains(t, recoverySource, "grants")
 }
 
-func TestS3SliceGuardNegativeFixturesReportExactPathAndSymbol(t *testing.T) {
+func TestS3AndS4SliceGuardNegativeFixturesReportExactPathAndSymbol(t *testing.T) {
 	fixtures := []struct {
 		name     string
 		path     string
@@ -195,6 +206,19 @@ var _ = mcp.NewClient
 			want:     "internal/api/bad.go: prohibited duplicate discovery constructor discovery.New(",
 		},
 		{
+			name: "duplicate invocation", path: "internal/api/bad.go",
+			contents: "package api\nfunc build() { _ = invocation.NewRepository(nil, nil, nil) }\n",
+			want:     "internal/api/bad.go: prohibited duplicate invocation constructor invocation.NewRepository(",
+		},
+		{
+			name: "direct root invocation import", path: "cmd/mcp-gateway/root.go",
+			contents: `package main
+import "github.com/averycrespi/agent-tools/mcp-gateway/internal/invocation"
+var _ invocation.Service
+`,
+			want: "cmd/mcp-gateway/root.go: prohibited invocation import github.com/averycrespi/agent-tools/mcp-gateway/internal/invocation",
+		},
+		{
 			name: "S3 SQL outside authorization", path: "internal/api/bad.go",
 			contents: "package api\nfunc load() { _ = `SELECT id FROM principals` }\n",
 			want:     "internal/api/bad.go: prohibited S3 SQL table principals in function load",
@@ -203,6 +227,11 @@ var _ = mcp.NewClient
 			name: "foreign stopped recovery SQL", path: "internal/storage/recovery.go",
 			contents: "package storage\nfunc duplicateRecovery() { _ = `UPDATE principals SET revision = 1` }\n",
 			want:     "internal/storage/recovery.go: prohibited S3 SQL table principals in function duplicateRecovery",
+		},
+		{
+			name: "S4 SQL outside invocation", path: "internal/api/bad.go",
+			contents: "package api\nfunc load() { _ = `SELECT id FROM invocations` }\n",
+			want:     "internal/api/bad.go: prohibited S4 SQL table invocations",
 		},
 		{
 			name: "discovery keyring", path: "internal/discovery/bad.go",
@@ -236,6 +265,11 @@ var _ http.Client
 			want:     "internal/api/bad.go: prohibited capability consumer Routes().Resolve(",
 		},
 		{
+			name: "capability acquire", path: "internal/api/bad.go",
+			contents: "package api\nfunc call() { _, _ = capability.Acquire(ctx) }\n",
+			want:     "internal/api/bad.go: prohibited capability consumer .Acquire(",
+		},
+		{
 			name: "call slice", path: "internal/api/bad.go",
 			contents: "package api\nconst method = `tools/call`\n",
 			want:     "internal/api/bad.go: prohibited S4/S5 consumer tools/call",
@@ -244,7 +278,7 @@ var _ http.Client
 	for _, fixture := range fixtures {
 		t.Run(fixture.name, func(t *testing.T) {
 			source := parseProductionFixture(t, fixture.path, fixture.contents)
-			assert.Contains(t, s3SliceViolations(source), fixture.want)
+			assert.Contains(t, productionSliceViolations(source), fixture.want)
 		})
 	}
 }
@@ -252,14 +286,19 @@ var _ http.Client
 var (
 	s3SQLVerb  = regexp.MustCompile(`(?i)\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b`)
 	s3SQLTable = regexp.MustCompile(`(?i)\b(authorization_meta|principals|grants)\b`)
+	s4SQLTable = regexp.MustCompile(`(?i)\binvocations\b`)
+	s4SQLDML   = regexp.MustCompile(`(?i)\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+invocations\b`)
 )
 
-func s3SliceViolations(source productionSource) []string {
+func productionSliceViolations(source productionSource) []string {
 	violations := make([]string, 0)
 	allowedSDK := source.path == "internal/mcpingress/handler.go" || source.path == "internal/dependencies/dependencies.go"
 	for _, imported := range source.imports {
 		if strings.HasPrefix(imported, "github.com/modelcontextprotocol/go-sdk/") && !allowedSDK {
 			violations = append(violations, fmt.Sprintf("%s: prohibited SDK import %s", source.path, imported))
+		}
+		if strings.HasSuffix(imported, "/internal/invocation") && source.path != "internal/composition/composition.go" {
+			violations = append(violations, fmt.Sprintf("%s: prohibited invocation import %s", source.path, imported))
 		}
 	}
 	if strings.Contains(source.contents, "authorization.New(") {
@@ -305,11 +344,12 @@ func s3SliceViolations(source productionSource) []string {
 		}
 	}
 	violations = append(violations, s3SQLViolations(source)...)
+	violations = append(violations, s4SQLViolations(source)...)
 	if strings.HasPrefix(source.path, "internal/discovery/") {
 		violations = append(violations, discoveryViolations(source)...)
 	}
 	if !strings.HasPrefix(source.path, "internal/catalog/") && !strings.HasPrefix(source.path, "internal/downstream/") &&
-		!strings.HasPrefix(source.path, "internal/invocation/") {
+		source.path != "internal/invocation/service.go" {
 		if strings.Contains(source.contents, "Routes().Resolve(") {
 			violations = append(violations, fmt.Sprintf("%s: prohibited capability consumer Routes().Resolve(", source.path))
 		}
@@ -384,6 +424,21 @@ func s3SQLViolations(source productionSource) []string {
 		return true
 	})
 	return violations
+}
+
+func s4SQLViolations(source productionSource) []string {
+	if !s4SQLTable.MatchString(source.contents) || !s3SQLVerb.MatchString(source.contents) {
+		return nil
+	}
+	switch source.path {
+	case "internal/invocation/repository.go":
+		return nil
+	case "internal/invocation/validation.go", "internal/storage/storage.go":
+		if !s4SQLDML.MatchString(source.contents) {
+			return nil
+		}
+	}
+	return []string{fmt.Sprintf("%s: prohibited S4 SQL table invocations", source.path)}
 }
 
 func discoveryViolations(source productionSource) []string {

@@ -188,6 +188,13 @@ func TestPositiveAgentIngressUsesComposedAuthorityDiscoveryAndDrainFence(t *test
 	assert.Equal(t, "2026-08-25T01:00:00.000000000Z", record.AdmittedAt)
 
 	assert.Equal(t, runtimes.DrainResult{}, <-built.Drain(context.Background()))
+	countBefore, err := built.invocationRepository.Count(t.Context())
+	require.NoError(t, err)
+	rejected := agentIngress.CallTools.Call(t.Context(), nil, mcpingress.ToolsCallRequest{})
+	assert.Equal(t, contract.AuditUnavailable, rejected.ErrorCode)
+	countAfter, err := built.invocationRepository.Count(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, countBefore, countAfter, "drained invocation adapter wrote a new audit row")
 	drained := newAgentRequest(issued.Bearer, `{"jsonrpc":"2.0","id":"drained","method":"tools/list"}`)
 	_, err = ingress.Authenticate(drained.Context(), drained, contract.AuthorityAgent)
 	assert.Error(t, err)
@@ -208,6 +215,9 @@ func TestDrainSynchronouslyFencesAuthorizationAndDiscoveryBeforeGateQuiescence(t
 	built, err := New(options)
 	require.NoError(t, err)
 	defer built.shutdownConstructed()
+	releasePipeline, entered := built.invocationPipelines.TryEnter()
+	require.True(t, entered)
+	defer releasePipeline()
 	created, err := built.Authorization().CreatePrincipal(t.Context(), authorization.CreatePrincipalRequest{
 		DisplayName: "drain principal", Visibility: contract.VisibilityAll,
 	})
@@ -243,6 +253,8 @@ func TestDrainSynchronouslyFencesAuthorizationAndDiscoveryBeforeGateQuiescence(t
 		_, authenticateErr := built.Authorization().Authenticate(t.Context(), issued.Bearer)
 		return errors.Is(authenticateErr, authorization.ErrShuttingDown)
 	}, time.Second, time.Millisecond)
+	_, entered = built.invocationPipelines.TryEnter()
+	assert.False(t, entered, "composition drain did not fence new invocation pipelines")
 
 	var drained <-chan runtimes.DrainResult
 	select {
@@ -281,6 +293,12 @@ func TestDrainSynchronouslyFencesAuthorizationAndDiscoveryBeforeGateQuiescence(t
 
 	close(releaseAdmission)
 	require.NoError(t, <-admissionDone)
+	select {
+	case <-drained:
+		t.Fatal("composition drain completed before the invocation pipeline quiesced")
+	default:
+	}
+	releasePipeline()
 	assert.Equal(t, runtimes.DrainResult{}, <-drained)
 	assert.Equal(t, runtimes.DrainResult{}, <-joined)
 	_, err = options.Store.DatabaseStatus(t.Context())
