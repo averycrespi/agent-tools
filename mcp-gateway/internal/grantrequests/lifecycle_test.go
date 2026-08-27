@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5RequestLifecycleCancellationIsOwnerOnlyAndIdempotent(t *testing.T) {
+func TestS5RequestLifecycleSeamCancellationIsOwnerOnlyAndIdempotent(t *testing.T) {
 	clock := &countingRequestClock{now: requestTestTime.Add(time.Second)}
 	invalidations := 0
 	repository, _ := newRequestRepository(t, requestRepositoryOptions{

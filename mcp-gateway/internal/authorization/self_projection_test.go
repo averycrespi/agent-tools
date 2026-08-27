@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5SelfProjectionReturnsOnlyAdmittedIdentityAndCurrentOrdinaryGrants(t *testing.T) {
+func TestS5SelfProjectionSeamReturnsOnlyAdmittedIdentityAndCurrentOrdinaryGrants(t *testing.T) {
 	repository, store := newRepository(t, nil)
 	principal, credential := createAdmissionCredential(t, repository)
 	subject := admitSelfProjectionSubject(t, repository, credential.Bearer)

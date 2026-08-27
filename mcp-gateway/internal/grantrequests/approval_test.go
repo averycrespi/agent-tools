@@ -18,7 +18,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
 
-func TestS5ApprovalAtomicallyCreatesAllowAndApprovedRequest(t *testing.T) {
+func TestS5ApprovalSeamAtomicallyCreatesAllowAndApprovedRequest(t *testing.T) {
 	fixture := newApprovalFixture(t)
 	created := fixture.createRequest(t, contract.Policy{
 		Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true,

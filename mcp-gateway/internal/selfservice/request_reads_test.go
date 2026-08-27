@@ -26,7 +26,7 @@ const selfserviceTestInstallationID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 var selfserviceTestTime = time.Date(2026, 8, 27, 18, 0, 0, 0, time.UTC)
 
-func TestS5RequestReadServiceDerivesOwnerAndProtectsCursorBoundaries(t *testing.T) {
+func TestS5RequestReadCursorSeamDerivesOwnerAndProtectsBoundaries(t *testing.T) {
 	authority, store, subject, credential := newAdmittedSubject(t)
 	reader := &fakeRequestReader{
 		get:      contract.AgentGrantRequest{ID: selfserviceID(501), State: contract.RequestPending, Revision: "1"},

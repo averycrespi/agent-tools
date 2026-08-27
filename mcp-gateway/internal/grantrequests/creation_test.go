@@ -26,7 +26,7 @@ const requestTestInstallationID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 var requestTestTime = time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 
-func TestS5RequestCreateServerAndToolPersistsBoundedEvidenceAndInvalidates(t *testing.T) {
+func TestS5RequestCreateSeamPersistsBoundedEvidenceAndInvalidates(t *testing.T) {
 	namespaces := &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
 		"sample": {ID: requestID(400), Namespace: "sample", State: contract.DesiredServerDisabled},
 	}}
