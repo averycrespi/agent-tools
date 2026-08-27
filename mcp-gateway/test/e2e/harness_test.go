@@ -54,6 +54,7 @@ type gatewayHarness struct {
 	runner             *testutil.BinaryRunner
 	client             *http.Client
 	process            *testutil.RunningProcess
+	results            []testutil.ProcessResult
 	initialization     testutil.ProcessResult
 	initializationArgs []string
 	serveArgs          []string
@@ -85,9 +86,13 @@ func newGatewayHarnessContext(t *testing.T, ctx context.Context) *gatewayHarness
 		if harness.process == nil {
 			return
 		}
-		_ = harness.process.Signal(syscall.SIGTERM)
-		_, _ = harness.process.Wait()
+		require.NoError(t, harness.process.Stop())
+		result, err := harness.process.Wait()
 		harness.process = nil
+		harness.results = append(harness.results, result)
+		require.Error(t, err, "Gateway cleanup: %s", result.Stderr)
+		require.True(t, result.Cleanup.Reaped)
+		require.False(t, result.Cleanup.Survived)
 	})
 	return harness
 }
@@ -113,10 +118,19 @@ func (harness *gatewayHarness) Stop(signal os.Signal) testutil.ProcessResult {
 	require.NoError(harness.t, harness.process.Signal(signal))
 	result, err := harness.process.Wait()
 	harness.process = nil
+	harness.results = append(harness.results, result)
 	require.NoError(harness.t, err, "Gateway shutdown: %s", result.Stderr)
+	require.True(harness.t, result.Cleanup.Reaped)
+	require.False(harness.t, result.Cleanup.Survived)
 	require.False(harness.t, result.StdoutTruncated)
 	require.False(harness.t, result.StderrTruncated)
 	return result
+}
+
+func (harness *gatewayHarness) Restart() {
+	harness.t.Helper()
+	harness.Stop(syscall.SIGTERM)
+	harness.Start()
 }
 
 func (harness *gatewayHarness) Request(method, path, body string, headers map[string]string) *http.Response {
