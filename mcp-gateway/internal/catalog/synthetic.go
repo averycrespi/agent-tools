@@ -11,8 +11,15 @@ import (
 var (
 	syntheticOnce        sync.Once
 	syntheticDescriptors []contract.ToolDescriptor
+	syntheticValidators  []*InputValidator
+	syntheticByName      map[string]int
 	syntheticErr         error
 )
+
+type SyntheticCallTarget struct {
+	Descriptor contract.ToolDescriptor
+	Validator  *InputValidator
+}
 
 func SyntheticSnapshot() ([]contract.ToolDescriptor, error) {
 	syntheticOnce.Do(compileSyntheticSnapshot)
@@ -26,6 +33,15 @@ func SyntheticSnapshot() ([]contract.ToolDescriptor, error) {
 	return result, nil
 }
 
+func ResolveSyntheticCall(externalName string) (SyntheticCallTarget, bool) {
+	syntheticOnce.Do(compileSyntheticSnapshot)
+	index, found := syntheticByName[externalName]
+	if syntheticErr != nil || !found {
+		return SyntheticCallTarget{}, false
+	}
+	return SyntheticCallTarget{Descriptor: cloneToolDescriptor(syntheticDescriptors[index]), Validator: syntheticValidators[index]}, true
+}
+
 func compileSyntheticSnapshot() {
 	tools := contract.SyntheticSelfServiceTools()
 	if len(tools) != int(fixedLimit("discoverable_tools")-fixedLimit("active_tools")) {
@@ -33,16 +49,22 @@ func compileSyntheticSnapshot() {
 		return
 	}
 	syntheticDescriptors = make([]contract.ToolDescriptor, len(tools))
+	syntheticValidators = make([]*InputValidator, len(tools))
+	syntheticByName = make(map[string]int, len(tools))
 	for index, tool := range tools {
 		normalized, err := NormalizeTool(RawTool{
 			UpstreamName: tool.UpstreamName,
 			ExternalName: tool.ExternalName,
 			Descriptor:   tool.Canonical,
 		}, NormalizeOptions{ServerID: contract.SyntheticServerID})
-		if err != nil || normalized.Key.ServerID != tool.ServerID || normalized.Key.UpstreamName != tool.UpstreamName ||
+		validator, validatorErr := compileInputValidator(tool.Descriptor.InputSchema)
+		_, duplicate := syntheticByName[tool.ExternalName]
+		if err != nil || validatorErr != nil || duplicate || normalized.Key.ServerID != tool.ServerID || normalized.Key.UpstreamName != tool.UpstreamName ||
 			normalized.ExternalName != tool.ExternalName || normalized.Fingerprint != tool.Fingerprint ||
 			!bytes.Equal(normalized.Canonical, tool.Canonical) {
 			syntheticDescriptors = nil
+			syntheticValidators = nil
+			syntheticByName = nil
 			syntheticErr = fmt.Errorf("%w: synthetic tool %d", ErrDescriptorInvalid, index)
 			return
 		}
@@ -50,6 +72,8 @@ func compileSyntheticSnapshot() {
 			ID: tool.ID, ServerID: tool.ServerID, UpstreamName: tool.UpstreamName, ExternalName: tool.ExternalName,
 			Descriptor: tool.Descriptor, Fingerprint: normalized.Fingerprint, CatalogRevision: tool.CatalogRevision,
 		}
+		syntheticValidators[index] = validator
+		syntheticByName[tool.ExternalName] = index
 	}
 }
 

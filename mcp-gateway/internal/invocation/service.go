@@ -27,10 +27,33 @@ type executionLease interface {
 	Execute(context.Context, json.RawMessage) downstream.CallResult
 }
 
+type LocalHandler func(context.Context, authorization.AdmittedSubject, strictjson.Value) LocalCallResult
+
+type LocalTarget struct {
+	evidence RouteEvidence
+	validate func(strictjson.Value) error
+	handle   LocalHandler
+}
+
+type LocalResolver func(string) (LocalTarget, bool)
+
+func NewLocalTarget(target catalog.SyntheticCallTarget, handler LocalHandler) (LocalTarget, error) {
+	descriptor := target.Descriptor
+	evidence := RouteEvidence{
+		ServerID: descriptor.ServerID, ToolID: descriptor.ID, UpstreamName: descriptor.UpstreamName,
+		DescriptorRevision: descriptor.CatalogRevision, DescriptorFingerprint: descriptor.Fingerprint,
+	}
+	if descriptor.ServerID != contract.SyntheticServerID || target.Validator == nil || handler == nil || !validRouteEvidence(&evidence) {
+		return LocalTarget{}, errors.New("local invocation target is invalid")
+	}
+	return LocalTarget{evidence: evidence, validate: target.Validator.Validate, handle: handler}, nil
+}
+
 type callTarget struct {
 	evidence RouteEvidence
 	validate func(strictjson.Value) error
 	acquire  func(context.Context) (executionLease, error)
+	local    LocalHandler
 }
 
 type resolveCall func(string) (callTarget, bool)
@@ -45,7 +68,29 @@ func NewService(audits *Repository, authority *authorization.Repository, routes 
 	if routes == nil {
 		return nil, errors.New("invocation service dependencies are incomplete")
 	}
+	return newService(audits, authority, downstreamResolver(routes))
+}
+
+func NewServiceWithLocal(audits *Repository, authority *authorization.Repository, routes *catalog.RouteRegistry, local LocalResolver) (*Service, error) {
+	if routes == nil || local == nil {
+		return nil, errors.New("invocation service dependencies are incomplete")
+	}
+	downstreamResolve := downstreamResolver(routes)
 	return newService(audits, authority, func(name string) (callTarget, bool) {
+		downstreamTarget, downstreamFound := downstreamResolve(name)
+		localTarget, localFound := local(name)
+		if downstreamFound == localFound {
+			return callTarget{}, false
+		}
+		if downstreamFound {
+			return downstreamTarget, true
+		}
+		return callTarget{evidence: localTarget.evidence, validate: localTarget.validate, local: localTarget.handle}, true
+	})
+}
+
+func downstreamResolver(routes *catalog.RouteRegistry) resolveCall {
+	return func(name string) (callTarget, bool) {
 		resolved, ok := routes.ResolveCall(name)
 		if !ok || resolved.Validator == nil || resolved.Capability == nil {
 			return callTarget{}, false
@@ -60,7 +105,7 @@ func NewService(audits *Repository, authority *authorization.Repository, routes 
 				return resolved.Capability.Acquire(ctx)
 			},
 		}, true
-	})
+	}
 }
 
 func newService(audits *Repository, authority *authorization.Repository, resolve resolveCall) (*Service, error) {
@@ -109,8 +154,11 @@ func (service *Service) Call(ctx context.Context, lease *authorization.Lease, re
 	if !admission.Committed {
 		return CallResponse{ErrorCode: contract.AuditUnavailable}
 	}
-	if err != nil || !admission.DispatchAuthorized {
+	if err != nil || !admission.DispatchAuthorized || admission.Subject == nil {
 		return CallResponse{ErrorCode: contract.CallRejected, InvocationID: identity.InvocationID}
+	}
+	if target.local != nil {
+		return service.finish(ctx, identity.InvocationID, SanitizeLocalCallResult(target.local(ctx, *admission.Subject, *classified.arguments)))
 	}
 	arguments, err := strictjson.EncodeCompact(*classified.arguments)
 	if err != nil {
@@ -127,7 +175,9 @@ func (service *Service) Call(ctx context.Context, lease *authorization.Lease, re
 }
 
 func (service *Service) finish(ctx context.Context, invocationID string, outcome CallOutcome) CallResponse {
-	_ = service.audits.AnnotateTerminal(ctx, invocationID, outcome.TerminalClass)
+	if outcome.TerminalClass != "" {
+		_ = service.audits.AnnotateTerminal(ctx, invocationID, outcome.TerminalClass)
+	}
 	if outcome.Result != nil {
 		return CallResponse{Result: outcome.Result}
 	}
@@ -193,5 +243,5 @@ func redactAvailableArguments(arguments *strictjson.Value) []byte {
 }
 
 func validCallTarget(target callTarget) bool {
-	return validRouteEvidence(&target.evidence) && target.validate != nil && target.acquire != nil
+	return validRouteEvidence(&target.evidence) && target.validate != nil && (target.acquire != nil) != (target.local != nil)
 }

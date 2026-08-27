@@ -8,6 +8,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestS5LocalSyntheticTargetsPinEvidenceAndValidators(t *testing.T) {
+	for _, tool := range contract.SyntheticSelfServiceTools() {
+		target, found := ResolveSyntheticCall(tool.ExternalName)
+		require.True(t, found)
+		assert.Equal(t, tool.ID, target.Descriptor.ID)
+		assert.Equal(t, tool.ServerID, target.Descriptor.ServerID)
+		assert.Equal(t, tool.UpstreamName, target.Descriptor.UpstreamName)
+		assert.Equal(t, tool.ExternalName, target.Descriptor.ExternalName)
+		assert.Equal(t, tool.CatalogRevision, target.Descriptor.CatalogRevision)
+		assert.Equal(t, tool.Fingerprint, target.Descriptor.Fingerprint)
+		require.NotNil(t, target.Validator)
+	}
+	_, found := ResolveSyntheticCall("mcp_gateway.not_a_tool")
+	assert.False(t, found)
+}
+
 func TestS5SyntheticSnapshotIsExactClonedAndOutsideActiveOccupancy(t *testing.T) {
 	snapshot, err := SyntheticSnapshot()
 	require.NoError(t, err)

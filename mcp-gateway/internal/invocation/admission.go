@@ -25,6 +25,7 @@ type AdmissionResult struct {
 	Decision           *contract.AuthorizationDecision
 	Committed          bool
 	DispatchAuthorized bool
+	Subject            *authorization.AdmittedSubject
 }
 
 type AdmissionCoordinator struct {
@@ -123,6 +124,11 @@ func (coordinator *AdmissionCoordinator) Admit(
 		if err := pending.CommitSucceeded(); err != nil {
 			return err
 		}
+		subject, err := pending.Subject()
+		if err != nil {
+			return err
+		}
+		result.Subject = &subject
 		result.DispatchAuthorized = true
 		return nil
 	})

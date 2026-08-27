@@ -25,6 +25,30 @@ type CallOutcome struct {
 	TerminalClass contract.InvocationTerminalClass
 }
 
+type LocalFailure uint8
+
+const (
+	localFailureNone LocalFailure = iota
+	localFailureKnownStorage
+	localFailureUncertainStorage
+)
+
+type LocalCallResult struct {
+	Result  json.RawMessage
+	Failure LocalFailure
+}
+
+func LocalSuccess(result json.RawMessage) LocalCallResult {
+	return LocalCallResult{Result: append(json.RawMessage(nil), result...)}
+}
+
+func LocalStorageFailure(uncertain bool) LocalCallResult {
+	if uncertain {
+		return LocalCallResult{Failure: localFailureUncertainStorage}
+	}
+	return LocalCallResult{Failure: localFailureKnownStorage}
+}
+
 func (outcome CallOutcome) SafeString() string {
 	return string(outcome.ErrorCode) + "/" + string(outcome.TerminalClass)
 }
@@ -37,6 +61,23 @@ func ClassifyAdmission(committed bool, class contract.InvocationAdmissionClass, 
 		return "", true
 	}
 	return contract.CallRejected, false
+}
+
+func SanitizeLocalCallResult(result LocalCallResult) CallOutcome {
+	switch result.Failure {
+	case localFailureKnownStorage:
+		return failedOutcome(contract.ToolUnavailable, contract.TerminalPrestartFailure)
+	case localFailureUncertainStorage:
+		return failedOutcome(contract.ToolUnavailable, "")
+	case localFailureNone:
+		projected, toolError, ok := projectCallResult(result.Result)
+		if !ok || toolError {
+			return failedOutcome(contract.ToolUnavailable, contract.TerminalPrestartFailure)
+		}
+		return CallOutcome{Result: projected, TerminalClass: contract.TerminalSucceeded}
+	default:
+		return failedOutcome(contract.ToolUnavailable, contract.TerminalPrestartFailure)
+	}
 }
 
 func SanitizeCallResult(result downstream.CallResult) CallOutcome {

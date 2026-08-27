@@ -161,6 +161,20 @@ func TestS5SelfProjectionSubjectExistsOnlyAfterAcknowledgedAllow(t *testing.T) {
 	}))
 }
 
+func TestS5LocalAdmittedSubjectContainsOnlySafeAdmissionIdentity(t *testing.T) {
+	repository, _ := newRepository(t, nil)
+	_, credential := createAdmissionCredential(t, repository)
+	subject := admitSelfProjectionSubject(t, repository, credential.Bearer)
+	assert.True(t, repository.OwnsAdmittedSubject(subject))
+	assert.Equal(t, credential.Principal.ID, subject.PrincipalID())
+	assert.Equal(t, credential.Principal.Revision, subject.PrincipalRevision())
+	require.NotNil(t, credential.Principal.Credential)
+	assert.Equal(t, credential.Principal.Credential.ID, subject.CredentialID())
+	assert.Equal(t, credential.Principal.CredentialRevision, subject.CredentialRevision())
+	assert.NotEmpty(t, subject.AuthorizationRevision())
+	assert.NotContains(t, subject.PrincipalID()+subject.CredentialID(), credential.Bearer)
+}
+
 func TestS5SelfProjectionAdmittedSubjectContainsNoSecretSink(t *testing.T) {
 	repository, _ := newRepository(t, nil)
 	_, credential := createAdmissionCredential(t, repository)
