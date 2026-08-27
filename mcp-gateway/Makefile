@@ -1,4 +1,4 @@
-.PHONY: build install test test-integration test-e2e test-keyring-native accept-s2-1 accept-s3 lint fmt tidy audit
+.PHONY: build install test test-integration test-e2e test-keyring-native accept-s2-1 accept-s3 accept-s4 lint fmt tidy audit
 
 build:
 	go build -o mcp-gateway ./cmd/mcp-gateway
@@ -23,6 +23,9 @@ accept-s2-1:
 
 accept-s3:
 	@go run ./test/acceptance/cmd --profile s3
+
+accept-s4:
+	@go run ./test/acceptance/cmd --profile s4
 
 lint:
 	go tool golangci-lint run ./...

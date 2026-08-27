@@ -12,7 +12,8 @@ make test-integration   # go test -race -tags=integration ./...
 make test-e2e           # go test -race -tags=e2e -timeout=60s ./test/e2e/...
 make test-keyring-native # schema-validated passed/skipped/failed native evidence
 make accept-s2-1        # compatibility S2.1 gate from a clean checkpoint
-make accept-s3          # complete S3 gate from a clean checkpoint
+make accept-s3          # compatibility S3 gate from a clean checkpoint
+make accept-s4          # complete S4 gate from a clean checkpoint
 make lint               # go tool golangci-lint run ./...
 make fmt                # go tool goimports -w .
 make tidy               # go mod tidy && go mod verify
@@ -21,7 +22,7 @@ make audit              # tidy + fmt + lint + test + advisory govulncheck
 go tool govulncheck ./... # blocking vulnerability check
 ```
 
-Run `make audit` before committing, and use the unsuppressed `go tool govulncheck ./...` command when vulnerability findings must block. Unit tests are colocated and race-enabled. Integration tests use `//go:build integration`; real-binary tests use `//go:build e2e` under `test/e2e/`. Run `make accept-s3` only from the final clean tracked checkpoint; `make accept-s2-1` retains the prior compatibility profile. Do not bypass either profile's required-clean policy or suppress a failing command. The closed schema-validated report must retain the profile, exact revision, dirty state, command/criterion/evidence/artifact mapping, contract-owned S3 evidence manifest when applicable, and nested native classification; native `skipped` is additive, while native `failed` blocks.
+Run `make audit` before committing, and use the unsuppressed `go tool govulncheck ./...` command when vulnerability findings must block. Unit tests are colocated and race-enabled. Integration tests use `//go:build integration`; real-binary tests use `//go:build e2e` under `test/e2e/`. Run `make accept-s4` only from the final clean tracked checkpoint; `make accept-s3` and `make accept-s2-1` retain compatibility profiles. Do not bypass any profile's required-clean policy or suppress a failing command. The closed schema-validated S4 report must retain the profile, exact revision, dirty state, command/criterion/evidence/artifact mapping, contract-owned AC-1–AC-5 and normative-clause manifests, and nested native classification. Every manifest evidence name must be preassigned to a deterministic command; native `skipped` is additive, while native `failed` blocks.
 
 ## Package layout
 

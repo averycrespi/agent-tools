@@ -15,20 +15,21 @@ make build
 make test
 make test-keyring-native # schema-validated passed/skipped/failed native evidence
 make accept-s2-1        # compatibility S2.1 acceptance report
-make accept-s3          # complete clean-checkpoint S3 acceptance report
+make accept-s3          # compatibility S3 acceptance report
+make accept-s4          # complete clean-checkpoint S4 acceptance report
 make lint
 make audit
 ```
 
-From the repository root, `make build`, `make test`, and `make check` include MCP Gateway. `make accept-s3` is the complete S3 gate; `make accept-s2-1` retains the prior compatibility profile. Both must start and finish with a clean working tree. The S3 profile runs focused contract/strict-JSON/storage, repeated authorization/discovery/ingress races, control/composition/recovery checks, integration and real-binary E2E suites, the module audit, unsuppressed `govulncheck`, structured native evidence, the repository-wide check, and `git diff --check`. Its closed schema-validated JSON report records the profile, exact Git revision and dirty-state policy, every command with criterion/evidence/artifact mappings, the exact contract-owned AC-1–AC-6 evidence manifest, and the nested native result. A failed check or native `failed` result exits nonzero; native `skipped` remains visible and additive.
+From the repository root, `make build`, `make test`, and `make check` include MCP Gateway. `make accept-s4` is the complete current gate; `make accept-s3` and `make accept-s2-1` retain compatibility profiles. Every profile must start and finish with a clean working tree. The S4 profile runs contract/privacy/acceptance guards, repeated authority/catalog/downstream/ingress/composition races, integration and real-binary E2E suites, the module audit, unsuppressed `govulncheck`, structured native evidence, the repository-wide check, and `git diff --check`. Its closed schema-validated JSON report records the profile, exact Git revision and dirty-state policy, every command with criterion/evidence/artifact mappings, the exact contract-owned AC-1–AC-5 evidence manifest and normative clause manifest, and the nested native result. Every AC and clause evidence name is preassigned to at least one deterministic command. A failed check or native `failed` result exits nonzero; native `skipped` remains visible and additive rather than being described as passed.
 
-The current `accept-s3` evidence is split by observable boundary:
+The current `accept-s4` evidence is split by observable boundary:
 
 | Layer                        | Cases                                                                                                                                                                                                                                                                         |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Concrete runtime/composition | Exact credential-free, static, bearer, public OAuth, and confidential OAuth authority; modern, legacy, and every strict auto-fallback class; current-runtime lookup, catalog/OAuth barriers, internal route acquisition, mixed capacity, failure isolation, and ordered drain |
 | Real binary                  | Stdio and hardened HTTP activation with nonempty catalogs; display continuity, behavioral replacement and reload; disconnect, disable and delete; restart absence and fresh reconstruction; two-server isolation; graceful, blocked, and forced shutdown                      |
-| Compatibility/security       | S3 principal/discovery compatibility within the current production `/mcp`, source/slice guards, secret canaries, backup/restore, docs, full repository checks, unsuppressed vulnerability scan, and separately classified native keyring evidence                             |
+| Compatibility/security       | S2.1/S3 compatibility, S4 source/SQL/privacy guards, secret canaries, backup/restore, docs, full repository checks, unsuppressed vulnerability scan, and separately classified native keyring evidence                                                                        |
 
 The shared `internal/strictjson` parser requires explicit byte/depth bounds, rejects invalid UTF-8, duplicate members, excessive depth or size, trailing values, and unknown members for closed destinations, and supplies object-order-independent canonical equality while preserving array order. `internal/contract` remains the sole S1–S4 vocabulary owner.
 

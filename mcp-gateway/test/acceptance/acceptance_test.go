@@ -139,6 +139,127 @@ func TestS3ProfileMapsTheClosedEvidenceManifestToCommandsAndArtifacts(t *testing
 	require.Contains(t, string(makefile), "accept-s3:\n\t@go run ./test/acceptance/cmd --profile s3")
 }
 
+func TestS4ProfileMapsClosedCriterionAndClauseEvidenceToCommandsAndArtifacts(t *testing.T) {
+	commands, err := ProfileCommands(Profile("s4"))
+	require.NoError(t, err)
+	require.Len(t, commands, 9)
+	require.Equal(t, []string{
+		"go -C mcp-gateway test -race ./internal/contract ./internal/invocation ./internal/storage ./internal/composition ./test/material ./test/acceptance",
+		"go -C mcp-gateway test -race -count=20 ./internal/invocation ./internal/authorization ./internal/catalog ./internal/downstream ./internal/mcpingress ./internal/composition",
+		"go -C mcp-gateway test -race -tags=integration ./internal/storage ./internal/backup ./internal/invocation ./internal/authorization ./internal/catalog ./internal/mcpingress ./internal/composition",
+		"make -C mcp-gateway test-e2e",
+		"make -C mcp-gateway audit",
+		"go -C mcp-gateway tool govulncheck ./...",
+		"mcp-gateway/test/keyring-native.sh",
+		"make check",
+		"git diff --check",
+	}, commandStrings(commands))
+
+	root := repositoryRoot(t)
+	mapped := map[string]bool{}
+	covered := map[string]bool{}
+	for _, command := range commands {
+		require.NotEmpty(t, command.Criteria, command.CheckName)
+		require.NotEmpty(t, command.Artifacts, command.CheckName)
+		for _, criterion := range command.Criteria {
+			covered[criterion] = true
+		}
+		for _, evidence := range command.Evidence {
+			mapped[evidence] = true
+		}
+		for _, artifact := range command.Artifacts {
+			_, statErr := os.Stat(root + "/" + artifact)
+			require.NoError(t, statErr, "%s: %s", command.CheckName, artifact)
+		}
+	}
+	for _, criterion := range contract.S4AcceptanceEvidenceManifest() {
+		require.True(t, covered[criterion.Criterion], criterion.Criterion)
+		for _, evidence := range criterion.Evidence {
+			require.True(t, mapped[evidence], "%s: %s", criterion.Criterion, evidence)
+		}
+	}
+	for _, clause := range contract.S4ClauseEvidenceManifest() {
+		for _, evidence := range clause.Evidence {
+			require.True(t, mapped[evidence], "%s: %s", clause.Clause, evidence)
+		}
+	}
+	makefile, err := os.ReadFile(filepath.Join(root, "mcp-gateway", "Makefile"))
+	require.NoError(t, err)
+	require.Contains(t, string(makefile), "accept-s4:\n\t@go run ./test/acceptance/cmd --profile s4")
+}
+
+func commandStrings(commands []Command) []string {
+	result := make([]string, len(commands))
+	for index, command := range commands {
+		result[index] = commandString(command)
+	}
+	return result
+}
+
+func TestS4RunBindsRevisionProfileManifestsAndAllChecks(t *testing.T) {
+	native := keyringnative.NewResult(keyringnative.ResultSkipped, "linux", "linux_prerequisites_unavailable", keyringnative.ResultPassed, keyringnative.ResultSkipped)
+	executor := &fakeExecutor{native: native}
+	report := RunProfile(context.Background(), repositoryRoot(t), executor, ProfileS4, true)
+
+	assert.Equal(t, ResultPassed, report.Result)
+	assert.Equal(t, ProfileS4, report.Profile)
+	assert.Regexp(t, `^[0-9a-f]{40}$`, report.Revision)
+	assert.Equal(t, contract.S4AcceptanceEvidenceManifest(), report.EvidenceManifest)
+	assert.Equal(t, contract.S4ClauseEvidenceManifest(), report.ClauseManifest)
+	require.Len(t, report.Checks, 9)
+	assert.Equal(t, 9, executor.calls)
+	assert.Equal(t, keyringnative.ResultSkipped, report.Native.Result)
+	assertReportValid(t, report)
+}
+
+func TestS4RunStopsAtFirstFailureAndRejectsDirtyWorkspace(t *testing.T) {
+	executor := &fakeExecutor{failAt: 2}
+	report := RunProfile(context.Background(), repositoryRoot(t), executor, ProfileS4, true)
+	assert.Equal(t, ResultFailed, report.Result)
+	assert.Equal(t, "repeated_call_races_failed", report.Reason)
+	require.Len(t, report.Checks, 2)
+	assert.Equal(t, ResultFailed, report.Checks[1].Status)
+	assert.Equal(t, 2, executor.calls)
+	assertReportValid(t, report)
+
+	dirtyRoot := initializedRepository(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dirtyRoot, "tracked"), []byte("private-canary"), 0o600))
+	executor = &fakeExecutor{}
+	report = RunProfile(context.Background(), dirtyRoot, executor, ProfileS4, false)
+	assert.Equal(t, ResultFailed, report.Result)
+	assert.Equal(t, "dirty_workspace", report.Reason)
+	assert.Zero(t, executor.calls)
+	contents, err := json.Marshal(report)
+	require.NoError(t, err)
+	require.NotContains(t, string(contents), "private-canary")
+	assertReportValid(t, report)
+}
+
+func TestS4ParseRejectsCriterionClauseAndCheckMutation(t *testing.T) {
+	native := keyringnative.NewResult(keyringnative.ResultPassed, "linux", "native_passed", keyringnative.ResultPassed, keyringnative.ResultPassed)
+	report := RunProfile(context.Background(), repositoryRoot(t), &fakeExecutor{native: native}, ProfileS4, true)
+
+	report.EvidenceManifest[0].Evidence[0] = "s4-schema"
+	contents, err := json.Marshal(report)
+	require.NoError(t, err)
+	_, err = Parse(contents)
+	require.ErrorContains(t, err, "S4 evidence manifest")
+	report.EvidenceManifest = contract.S4AcceptanceEvidenceManifest()
+
+	report.ClauseManifest[0].Evidence[0] = "s4-docs"
+	contents, err = json.Marshal(report)
+	require.NoError(t, err)
+	_, err = Parse(contents)
+	require.ErrorContains(t, err, "S4 clause manifest")
+	report.ClauseManifest = contract.S4ClauseEvidenceManifest()
+
+	report.Checks[0].Evidence[0] = "s4-admission-race"
+	contents, err = json.Marshal(report)
+	require.NoError(t, err)
+	_, err = Parse(contents)
+	require.ErrorContains(t, err, "closed profile")
+}
+
 func TestS3RunBindsRevisionProfileManifestAndAllChecks(t *testing.T) {
 	native := keyringnative.NewResult(keyringnative.ResultPassed, "linux", "native_passed", keyringnative.ResultPassed, keyringnative.ResultPassed)
 	executor := &fakeExecutor{native: native}

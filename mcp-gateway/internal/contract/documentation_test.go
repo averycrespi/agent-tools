@@ -19,15 +19,15 @@ func TestTrackedDocsDescribeCurrentS4Boundary(t *testing.T) {
 		},
 		"../../README.md": {
 			"Governed calls and internal audit history", "attempts one immutable admission row before any downstream effect", "fixed recursive key redaction",
-			"There is no audit read API", "Gateway provides at-most-one automatic attempt, not exactly-once effects", "S5 and S6 behavior is unavailable",
+			"There is no audit read API", "Gateway provides at-most-one automatic attempt, not exactly-once effects", "make accept-s4", "S5 and S6 behavior is unavailable",
 		},
 		"../../DESIGN.md": {
 			"current S4 executable", "Closed S1–S4 contract", "Argument capture uses one fixed recursive key redactor",
-			"sole production consumer is the composed invocation service after acknowledged ALLOW admission", "explicit caller retry after `outcome_unknown` may duplicate an effect",
+			"sole production consumer is the composed invocation service after acknowledged ALLOW admission", "explicit caller retry after `outcome_unknown` may duplicate an effect", "make accept-s4",
 		},
 		"../../CLAUDE.md": {
 			"Immutable S1–S4 routes", "online S4 invocation SQL belongs to `internal/invocation`", "`internal/invocation` owns fixed recursive argument redaction",
-			"do not infer an audit read API", "exactly-once effects", "guaranteed secret detection",
+			"do not infer an audit read API", "exactly-once effects", "guaranteed secret detection", "make accept-s4",
 		},
 	}
 	prohibited := []string{

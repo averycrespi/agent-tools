@@ -15,7 +15,7 @@
   ],
   "properties": {
     "schema_version": { "const": 2 },
-    "profile": { "enum": ["s2_1", "s3"] },
+    "profile": { "enum": ["s2_1", "s3", "s4"] },
     "result": { "enum": ["passed", "failed"] },
     "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "dirty": { "type": "boolean" },
@@ -57,7 +57,7 @@
     },
     "evidence_manifest": {
       "type": "array",
-      "minItems": 6,
+      "minItems": 5,
       "maxItems": 6,
       "items": {
         "type": "object",
@@ -66,6 +66,37 @@
         "properties": {
           "criterion": {
             "enum": ["AC-1", "AC-2", "AC-3", "AC-4", "AC-5", "AC-6"]
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/evidenceName" }
+          }
+        }
+      }
+    },
+    "clause_manifest": {
+      "type": "array",
+      "minItems": 44,
+      "maxItems": 44,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["clause", "tasks", "evidence"],
+        "properties": {
+          "clause": {
+            "type": "string",
+            "pattern": "^[A-Z]+-[0-9]+(?:\\.[0-9]+)?$"
+          },
+          "tasks": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^T(?:[1-9]|1[0-9]|2[01])$"
+            }
           },
           "evidence": {
             "type": "array",
@@ -134,7 +165,29 @@
         "docs",
         "vulnerability",
         "native",
-        "repository-check"
+        "repository-check",
+        "s4-contract",
+        "s4-schema",
+        "s4-admission-race",
+        "s4-ingress-wire",
+        "s4-composition-race",
+        "s4-e2e-call",
+        "s4-source-guards",
+        "s4-docs",
+        "s4-acceptance",
+        "s4-audit",
+        "s4-vulnerability",
+        "s4-repository-check",
+        "s4-invocation-race",
+        "s4-repository-integration",
+        "s4-catalog-race",
+        "s4-downstream-race",
+        "s4-lifecycle-race",
+        "s4-e2e-lifecycle",
+        "s4-redaction-fuzz",
+        "s4-sanitizer-fuzz",
+        "s4-e2e-privacy",
+        "s4-source-privacy"
       ]
     }
   }

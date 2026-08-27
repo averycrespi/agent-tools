@@ -25,6 +25,7 @@ const (
 
 	ProfileS21 Profile = "s2_1"
 	ProfileS3  Profile = "s3"
+	ProfileS4  Profile = "s4"
 )
 
 type Profile string
@@ -48,6 +49,7 @@ type Report struct {
 	Reason           string                        `json:"reason"`
 	Checks           []Check                       `json:"checks"`
 	EvidenceManifest []contract.AcceptanceEvidence `json:"evidence_manifest,omitempty"`
+	ClauseManifest   []contract.ClauseEvidence     `json:"clause_manifest,omitempty"`
 	Native           *keyringnative.Result         `json:"native,omitempty"`
 }
 
@@ -116,6 +118,18 @@ func ProfileCommands(profile Profile) ([]Command, error) {
 			{CheckName: "repository_check", Name: "make", Arguments: []string{"check"}, Criteria: []string{"AC-6"}, Evidence: []string{"repository-check"}, Artifacts: []string{"Makefile", "package.json"}},
 			{CheckName: "diff_check", Name: "git", Arguments: []string{"diff", "--check"}, Criteria: []string{"AC-6"}, Evidence: []string{"docs"}, Artifacts: []string{"mcp-gateway/README.md", "mcp-gateway/DESIGN.md", "mcp-gateway/CLAUDE.md"}},
 		}, nil
+	case ProfileS4:
+		return []Command{
+			{CheckName: "contract_privacy_acceptance", Name: "go", Arguments: []string{"-C", "mcp-gateway", "test", "-race", "./internal/contract", "./internal/invocation", "./internal/storage", "./internal/composition", "./test/material", "./test/acceptance"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5"}, Evidence: []string{"s4-contract", "s4-schema", "s4-redaction-fuzz", "s4-sanitizer-fuzz", "s4-source-guards", "s4-source-privacy", "s4-docs", "s4-acceptance"}, Artifacts: []string{"mcp-gateway/internal/contract/s4_contract_test.go", "mcp-gateway/internal/storage/migrations/009_invocations.sql", "mcp-gateway/internal/invocation/redaction_test.go", "mcp-gateway/internal/invocation/result_test.go", "mcp-gateway/internal/composition/source_test.go", "mcp-gateway/test/material", "mcp-gateway/test/acceptance"}},
+			{CheckName: "repeated_call_races", Name: "go", Arguments: []string{"-C", "mcp-gateway", "test", "-race", "-count=20", "./internal/invocation", "./internal/authorization", "./internal/catalog", "./internal/downstream", "./internal/mcpingress", "./internal/composition"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5"}, Evidence: []string{"s4-admission-race", "s4-invocation-race", "s4-catalog-race", "s4-downstream-race", "s4-ingress-wire", "s4-composition-race", "s4-lifecycle-race"}, Artifacts: []string{"mcp-gateway/internal/invocation", "mcp-gateway/internal/authorization", "mcp-gateway/internal/catalog", "mcp-gateway/internal/downstream", "mcp-gateway/internal/mcpingress", "mcp-gateway/internal/composition"}},
+			{CheckName: "integration", Name: "go", Arguments: []string{"-C", "mcp-gateway", "test", "-race", "-tags=integration", "./internal/storage", "./internal/backup", "./internal/invocation", "./internal/authorization", "./internal/catalog", "./internal/mcpingress", "./internal/composition"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5"}, Evidence: []string{"s4-repository-integration"}, Artifacts: []string{"mcp-gateway/internal/storage", "mcp-gateway/internal/backup", "mcp-gateway/internal/invocation", "mcp-gateway/internal/authorization", "mcp-gateway/internal/catalog", "mcp-gateway/internal/mcpingress", "mcp-gateway/internal/composition"}},
+			{CheckName: "e2e", Name: "make", Arguments: []string{"-C", "mcp-gateway", "test-e2e"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5"}, Evidence: []string{"s4-e2e-call", "s4-e2e-lifecycle", "s4-e2e-privacy"}, Artifacts: []string{"mcp-gateway/test/e2e"}},
+			{CheckName: "audit", Name: "make", Arguments: []string{"-C", "mcp-gateway", "audit"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5"}, Evidence: []string{"s4-audit"}, Artifacts: []string{"mcp-gateway/go.mod", "mcp-gateway/go.sum"}},
+			{CheckName: "vulnerability", Name: "go", Arguments: []string{"-C", "mcp-gateway", "tool", "govulncheck", "./..."}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5"}, Evidence: []string{"s4-vulnerability"}, Artifacts: []string{"mcp-gateway/go.mod", "mcp-gateway/go.sum"}},
+			{CheckName: "native", Name: "mcp-gateway/test/keyring-native.sh", Criteria: []string{"AC-4"}, Artifacts: []string{"mcp-gateway/test/keyringnative/result.schema.json", "mcp-gateway/test/material/material_test.go"}, Native: true},
+			{CheckName: "repository_check", Name: "make", Arguments: []string{"check"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5"}, Evidence: []string{"s4-repository-check"}, Artifacts: []string{"Makefile", "package.json"}},
+			{CheckName: "diff_check", Name: "git", Arguments: []string{"diff", "--check"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5"}, Artifacts: []string{"README.md", "mcp-gateway/README.md", "mcp-gateway/DESIGN.md", "mcp-gateway/CLAUDE.md"}},
+		}, nil
 	default:
 		return nil, fmt.Errorf("unknown acceptance profile %q", profile)
 	}
@@ -131,8 +145,12 @@ func RunProfile(ctx context.Context, root string, executor Executor, profile Pro
 	if err != nil {
 		return fail(report, "unknown_profile")
 	}
-	if profile == ProfileS3 {
+	switch profile {
+	case ProfileS3:
 		report.EvidenceManifest = contract.AcceptanceEvidenceManifest()
+	case ProfileS4:
+		report.EvidenceManifest = contract.S4AcceptanceEvidenceManifest()
+		report.ClauseManifest = contract.S4ClauseEvidenceManifest()
 	}
 	if allowDirty {
 		report.DirtyPolicy = "allowed"
@@ -226,15 +244,31 @@ func Parse(contents []byte) (Report, error) {
 			return Report{}, errors.New("acceptance check does not match the closed profile")
 		}
 	}
-	if report.Profile == ProfileS3 {
+	switch report.Profile {
+	case ProfileS3:
 		if !reflect.DeepEqual(report.EvidenceManifest, contract.AcceptanceEvidenceManifest()) {
 			return Report{}, errors.New("acceptance evidence manifest does not match the closed contract")
 		}
-		if err := validateEvidenceCoverage(commands, report.EvidenceManifest); err != nil {
-			return Report{}, err
+		if len(report.ClauseManifest) != 0 {
+			return Report{}, errors.New("S3 profile cannot contain an S4 clause manifest")
 		}
-	} else if len(report.EvidenceManifest) != 0 {
-		return Report{}, errors.New("S2.1 profile cannot contain an S3 evidence manifest")
+	case ProfileS4:
+		if !reflect.DeepEqual(report.EvidenceManifest, contract.S4AcceptanceEvidenceManifest()) {
+			return Report{}, errors.New("S4 evidence manifest does not match the closed contract")
+		}
+		if !reflect.DeepEqual(report.ClauseManifest, contract.S4ClauseEvidenceManifest()) {
+			return Report{}, errors.New("S4 clause manifest does not match the closed contract")
+		}
+	case ProfileS21:
+		if len(report.EvidenceManifest) != 0 || len(report.ClauseManifest) != 0 {
+			return Report{}, errors.New("S2.1 profile cannot contain a later evidence manifest")
+		}
+	}
+	if err := validateEvidenceCoverage(commands, report.EvidenceManifest); err != nil {
+		return Report{}, err
+	}
+	if err := validateClauseCoverage(commands, report.ClauseManifest); err != nil {
+		return Report{}, err
 	}
 	if report.Result == ResultPassed {
 		if report.Reason != "all_checks_passed" || len(report.Checks) != len(commands) || report.Native == nil || report.Native.Result == keyringnative.ResultFailed {
@@ -260,6 +294,23 @@ func validateEvidenceCoverage(commands []Command, manifest []contract.Acceptance
 		for _, evidence := range criterion.Evidence {
 			if !mapped[evidence] {
 				return fmt.Errorf("acceptance evidence %s for %s has no command", evidence, criterion.Criterion)
+			}
+		}
+	}
+	return nil
+}
+
+func validateClauseCoverage(commands []Command, manifest []contract.ClauseEvidence) error {
+	mapped := make(map[string]bool)
+	for _, command := range commands {
+		for _, evidence := range command.Evidence {
+			mapped[evidence] = true
+		}
+	}
+	for _, clause := range manifest {
+		for _, evidence := range clause.Evidence {
+			if !mapped[evidence] {
+				return fmt.Errorf("acceptance evidence %s for %s has no command", evidence, clause.Clause)
 			}
 		}
 	}
