@@ -74,7 +74,7 @@ func decodeSelfServiceResult[T any](t *testing.T, response responseSnapshot, id 
 	require.NoError(t, json.Unmarshal(response.Body, &envelope))
 	assert.Equal(t, "2.0", envelope.JSONRPC)
 	assert.JSONEq(t, string(id), string(envelope.ID))
-	require.Len(t, envelope.Result.Content, 1)
+	require.Len(t, envelope.Result.Content, 1, string(response.Body))
 	assert.Equal(t, "text", envelope.Result.Content[0].Type)
 	assert.Equal(t, summary, envelope.Result.Content[0].Text)
 	return envelope.Result.Structured
