@@ -142,10 +142,11 @@ func TestS3ProfileMapsTheClosedEvidenceManifestToCommandsAndArtifacts(t *testing
 func TestS4ProfileMapsClosedCriterionAndClauseEvidenceToCommandsAndArtifacts(t *testing.T) {
 	commands, err := ProfileCommands(Profile("s4"))
 	require.NoError(t, err)
-	require.Len(t, commands, 9)
+	require.Len(t, commands, 10)
 	require.Equal(t, []string{
 		"go -C mcp-gateway test -race ./internal/contract ./internal/invocation ./internal/storage ./internal/composition ./test/material ./test/acceptance",
-		"go -C mcp-gateway test -race -count=20 -timeout=18m ./internal/invocation ./internal/authorization ./internal/catalog ./internal/downstream ./internal/mcpingress ./internal/composition",
+		"go -C mcp-gateway test -race -count=20 -timeout=18m ./internal/invocation ./internal/authorization",
+		"go -C mcp-gateway test -race -count=20 -timeout=18m ./internal/catalog ./internal/downstream ./internal/mcpingress ./internal/composition",
 		"go -C mcp-gateway test -race -tags=integration ./internal/storage ./internal/backup ./internal/invocation ./internal/authorization ./internal/catalog ./internal/mcpingress ./internal/composition",
 		"make -C mcp-gateway test-e2e",
 		"make -C mcp-gateway audit",
@@ -206,8 +207,8 @@ func TestS4RunBindsRevisionProfileManifestsAndAllChecks(t *testing.T) {
 	assert.Regexp(t, `^[0-9a-f]{40}$`, report.Revision)
 	assert.Equal(t, contract.S4AcceptanceEvidenceManifest(), report.EvidenceManifest)
 	assert.Equal(t, contract.S4ClauseEvidenceManifest(), report.ClauseManifest)
-	require.Len(t, report.Checks, 9)
-	assert.Equal(t, 9, executor.calls)
+	require.Len(t, report.Checks, 10)
+	assert.Equal(t, 10, executor.calls)
 	assert.Equal(t, keyringnative.ResultSkipped, report.Native.Result)
 	assertReportValid(t, report)
 }
@@ -216,7 +217,7 @@ func TestS4RunStopsAtFirstFailureAndRejectsDirtyWorkspace(t *testing.T) {
 	executor := &fakeExecutor{failAt: 2}
 	report := RunProfile(context.Background(), repositoryRoot(t), executor, ProfileS4, true)
 	assert.Equal(t, ResultFailed, report.Result)
-	assert.Equal(t, "repeated_call_races_failed", report.Reason)
+	assert.Equal(t, "repeated_admission_races_failed", report.Reason)
 	require.Len(t, report.Checks, 2)
 	assert.Equal(t, ResultFailed, report.Checks[1].Status)
 	assert.Equal(t, 2, executor.calls)
