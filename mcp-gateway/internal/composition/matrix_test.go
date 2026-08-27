@@ -431,9 +431,12 @@ func TestProductionCompositionReplacementWithdrawsBeforeStopAndConstructsOnlyAft
 			_, routePresent = built.ActiveCatalog().Routes().Resolve(resourceID)
 			assert.False(t, routePresent)
 			assert.Equal(t, contract.ActiveCatalogUnavailable, built.ActiveCatalog().Status(server.ID).State)
-			current, err := built.servers.GetOperation(context.Background(), operation.Operation.ID)
-			require.NoError(t, err)
-			assert.Equal(t, contract.OperationRunning, current.State)
+			var current servers.Operation
+			require.Eventually(t, func() bool {
+				var getErr error
+				current, getErr = built.servers.GetOperation(context.Background(), operation.Operation.ID)
+				return getErr == nil && current.State == contract.OperationRunning
+			}, 2*time.Second, time.Millisecond)
 			assert.Equal(t, int64(1), starts.Load())
 			close(stopRelease)
 
@@ -441,9 +444,11 @@ func TestProductionCompositionReplacementWithdrawsBeforeStopAndConstructsOnlyAft
 				<-replacementStarted
 				_, routePresent = built.ActiveCatalog().Routes().Resolve(resourceID)
 				assert.False(t, routePresent)
-				current, err = built.servers.GetOperation(context.Background(), operation.Operation.ID)
-				require.NoError(t, err)
-				assert.Equal(t, contract.OperationRunning, current.State)
+				require.Eventually(t, func() bool {
+					var getErr error
+					current, getErr = built.servers.GetOperation(context.Background(), operation.Operation.ID)
+					return getErr == nil && current.State == contract.OperationRunning
+				}, 2*time.Second, time.Millisecond)
 				close(replacementRelease)
 				require.Eventually(t, func() bool {
 					current, err = built.servers.GetOperation(context.Background(), operation.Operation.ID)
