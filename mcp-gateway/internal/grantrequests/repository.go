@@ -16,9 +16,12 @@ import (
 )
 
 var (
+	ErrNotFound            = errors.New("grant request was not found")
 	ErrInvalidInput        = errors.New("grant request input is invalid")
 	ErrIdentityUnavailable = errors.New("grant request identity is unavailable")
 	ErrInvalidState        = errors.New("grant request durable state is invalid")
+	ErrStaleRevision       = errors.New("grant request revision is stale")
+	ErrConflict            = errors.New("grant request conflicts with current state")
 	ErrStaleCursor         = errors.New("grant request cursor is stale")
 	ErrStorageUnavailable  = errors.New("grant request storage is unavailable")
 )

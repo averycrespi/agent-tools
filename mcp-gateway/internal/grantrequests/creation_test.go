@@ -308,7 +308,7 @@ func TestS5RequestCreatePermanentIdentityRejectsReuseAfterEviction(t *testing.T)
 }
 
 type requestRepositoryOptions struct {
-	clock       *countingRequestClock
+	clock       Clock
 	entropy     *bytes.Reader
 	namespaces  *fakeNamespaceInspector
 	descriptors *fakeDescriptorInspector

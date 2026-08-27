@@ -77,6 +77,24 @@ func TestS5DenyConflictTxUsesConservativeOwnerScopeAndExpiry(t *testing.T) {
 	}
 }
 
+func TestS5StartupStoredPrincipalExistsUsesSuppliedTransaction(t *testing.T) {
+	repository, store := newRepository(t, nil)
+	principal := mustCreatePrincipal(t, repository)
+	require.NoError(t, store.View(context.Background(), func(transaction *sql.Tx) error {
+		exists, err := repository.StoredPrincipalExistsTx(context.Background(), transaction, principal.ID)
+		require.NoError(t, err)
+		assert.True(t, exists)
+		exists, err = repository.StoredPrincipalExistsTx(context.Background(), transaction, id(99))
+		require.NoError(t, err)
+		assert.False(t, exists)
+		return nil
+	}))
+	_, err := repository.StoredPrincipalExistsTx(context.Background(), nil, principal.ID)
+	assert.ErrorIs(t, err, ErrStorageUnavailable)
+	_, err = repository.StoredPrincipalExistsTx(context.Background(), nil, "malformed")
+	assert.ErrorIs(t, err, ErrInvalidInput)
+}
+
 func TestS5DenyConflictTxRejectsInvalidOrExpiredTransaction(t *testing.T) {
 	repository, store := newRepository(t, nil)
 	principal := mustCreatePrincipal(t, repository)
