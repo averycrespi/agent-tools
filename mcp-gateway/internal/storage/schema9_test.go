@@ -18,7 +18,6 @@ func TestInitializeSeedsExactSchemaNineInvocationFoundation(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close()) }()
 
-	assert.Equal(t, 9, CurrentSchema)
 	assertSchemaNineInvocationFoundation(t, ctx, store.database)
 	assert.Equal(t, expectedMigrationVersions(), mustMigrationVersions(t, store, ctx))
 }

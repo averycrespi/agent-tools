@@ -54,7 +54,7 @@ func TestRestoreAcceptedSchemaLineagesRerunAuthorizationVerification(t *testing.
 			_, err = fixture.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
 			require.NoError(t, err)
 			require.NoError(t, fixture.Close())
-			backupID := fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5F0%d", schema)
+			backupID := fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5F%02d", schema)
 			artifactDir := filepath.Join(layout.Backups, backupID)
 			require.NoError(t, os.MkdirAll(artifactDir, 0o700))
 			artifactPath := filepath.Join(artifactDir, databaseFile)

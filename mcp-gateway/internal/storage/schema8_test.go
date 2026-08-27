@@ -59,7 +59,7 @@ func TestOpenReplacementMigratesAcceptedSchemaSevenBackup(t *testing.T) {
 	assertSchemaNineInvocationFoundation(t, ctx, replacement.database)
 }
 
-func TestVerifyBackupRejectsSchemaNewerThanNine(t *testing.T) {
+func TestVerifyBackupRejectsSchemaNewerThanCurrent(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
 	store, err := Initialize(ctx, ownership, testInstallationID)
@@ -67,7 +67,7 @@ func TestVerifyBackupRejectsSchemaNewerThanNine(t *testing.T) {
 	require.NoError(t, store.Close())
 
 	raw := openRaw(t, ownership.Layout().Database)
-	_, err = raw.Exec(`PRAGMA user_version = 10`)
+	_, err = raw.Exec(`PRAGMA user_version = 11`)
 	require.NoError(t, err)
 	require.NoError(t, raw.Close())
 

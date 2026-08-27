@@ -39,6 +39,18 @@ func TestPopulatedSchemaEightMigratesToNineWithRealSQLite(t *testing.T) {
 	assert.Equal(t, 1, principals)
 }
 
+func TestS5IntegrationSchemaNineMigratesToTenWithRealSQLite(t *testing.T) {
+	ctx := context.Background()
+	ownership := newOwnership(t)
+	writePopulatedSchemaNineFixture(t, ctx, ownership)
+
+	store, err := Open(ctx, ownership)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close()) }()
+	assertPopulatedSchemaNineFacts(t, ctx, store.database)
+	assertSchemaTenRequestFoundation(t, ctx, store.database)
+}
+
 func TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)

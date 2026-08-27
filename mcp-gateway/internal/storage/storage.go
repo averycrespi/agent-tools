@@ -20,7 +20,7 @@ import (
 
 const (
 	ApplicationID           = 0x4d475731
-	CurrentSchema           = 9
+	CurrentSchema           = 10
 	BusyTimeoutMilliseconds = 2000
 	connectionLimit         = 4
 )
@@ -36,7 +36,7 @@ var (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql"}
+var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql", "010_grant_requests.sql"}
 
 type Identity struct {
 	InstallationID string
@@ -370,6 +370,9 @@ func (store *Store) verify(ctx context.Context) error {
 	if err := store.verifyInvocationStructure(ctx); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
 	}
+	if err := store.verifyGrantRequestStructure(ctx); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
+	}
 	return nil
 }
 
@@ -448,6 +451,148 @@ func (store *Store) verifyInvocationStructure(ctx context.Context) error {
 	for _, column := range expectedColumns[:len(expectedColumns)-2] {
 		if !strings.Contains(normalizedTrigger, "new."+column+" is old."+column) {
 			return fmt.Errorf("invocation terminal trigger does not preserve %s", column)
+		}
+	}
+	return nil
+}
+
+func (store *Store) verifyGrantRequestStructure(ctx context.Context) error {
+	expectedColumns := []string{
+		"insertion_sequence", "id", "principal_id", "state", "revision", "resolved_server_id", "resolved_upstream_name",
+		"requested_scope", "requested_target", "requested_constraint", "requested_duration_seconds", "requested_future_tools_acknowledged",
+		"dedupe_version", "dedupe_bytes", "submitted_evidence", "approved_scope", "approved_target", "approved_constraint",
+		"approved_duration_seconds", "approved_future_tools_acknowledged", "approved_grant_id", "rejection_reason", "approved_evidence",
+		"created_at", "updated_at", "closed_at",
+	}
+	if err := store.verifyTableColumns(ctx, "grant_requests", expectedColumns); err != nil {
+		return err
+	}
+	if err := store.verifyTableColumns(ctx, "grant_request_evidence_bytes", []string{"singleton", "total_bytes"}); err != nil {
+		return err
+	}
+
+	var tableSQL string
+	if err := store.database.QueryRowContext(ctx, `SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'grant_requests'`).Scan(&tableSQL); err != nil {
+		return fmt.Errorf("read grant request table: %w", err)
+	}
+	normalizedTable := normalizeSchemaSQL(tableSQL)
+	for _, fragment := range []string{
+		"primary key autoincrement", "state in ('pending', 'approved', 'rejected', 'cancelled')",
+		"requested_scope in ('tool', 'server')", "length(dedupe_bytes) between 1 and 16384",
+		"length(submitted_evidence) between 1 and 135168", "length(approved_evidence) between 1 and 135168",
+		"between 60 and 2592000", "requested_future_tools_acknowledged in (0, 1)",
+		"'not_approved', 'existing_access', 'scope_too_broad', 'policy_conflict'",
+		"state <> 'pending'", "state <> 'approved'", "state <> 'rejected'", "state <> 'cancelled'", ") strict",
+	} {
+		if !strings.Contains(normalizedTable, fragment) {
+			return fmt.Errorf("grant request table is missing %q", fragment)
+		}
+	}
+
+	var aggregateSQL string
+	if err := store.database.QueryRowContext(ctx, `SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'grant_request_evidence_bytes'`).Scan(&aggregateSQL); err != nil {
+		return fmt.Errorf("read grant request evidence aggregate: %w", err)
+	}
+	normalizedAggregate := normalizeSchemaSQL(aggregateSQL)
+	for _, fragment := range []string{"singleton = 1", "total_bytes between 0 and 268435456", "strict, without rowid"} {
+		if !strings.Contains(normalizedAggregate, fragment) {
+			return fmt.Errorf("grant request evidence aggregate is missing %q", fragment)
+		}
+	}
+	var aggregateRows int
+	var storedEvidenceBytes, calculatedEvidenceBytes int64
+	if err := store.database.QueryRowContext(ctx, `
+		SELECT count(*), COALESCE(max(total_bytes), 0),
+			(SELECT COALESCE(sum(COALESCE(length(submitted_evidence), 0) + COALESCE(length(approved_evidence), 0)), 0)
+			 FROM grant_requests)
+		FROM grant_request_evidence_bytes WHERE singleton = 1`).Scan(
+		&aggregateRows, &storedEvidenceBytes, &calculatedEvidenceBytes,
+	); err != nil {
+		return fmt.Errorf("read grant request evidence aggregate singleton: %w", err)
+	}
+	if aggregateRows != 1 || storedEvidenceBytes != calculatedEvidenceBytes {
+		return fmt.Errorf("grant request evidence aggregate does not match retained evidence")
+	}
+
+	expectedIndexes := map[string]string{
+		"grant_requests_id":                "create unique index grant_requests_id on grant_requests (id)",
+		"grant_requests_pending_dedupe":    "create unique index grant_requests_pending_dedupe on grant_requests (principal_id, dedupe_version, dedupe_bytes) where state = 'pending'",
+		"grant_requests_principal_page":    "create index grant_requests_principal_page on grant_requests (principal_id, insertion_sequence)",
+		"grant_requests_admin_page":        "create index grant_requests_admin_page on grant_requests (state, insertion_sequence)",
+		"grant_requests_pending_principal": "create index grant_requests_pending_principal on grant_requests (principal_id) where state = 'pending'",
+	}
+	for name, expected := range expectedIndexes {
+		var indexSQL string
+		if err := store.database.QueryRowContext(ctx, `SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = ?`, name).Scan(&indexSQL); err != nil {
+			return fmt.Errorf("read grant request index %s: %w", name, err)
+		}
+		if normalizeSchemaSQL(indexSQL) != expected {
+			return fmt.Errorf("grant request index %s does not match", name)
+		}
+	}
+
+	expectedTriggerFragments := map[string][]string{
+		"grant_requests_terminal_once": {
+			"before update on grant_requests", "old.state = 'pending'", "new.state in ('approved', 'rejected', 'cancelled')",
+			"new.revision = old.revision + 1", "new.updated_at is new.closed_at",
+			"raise(abort, 'grant request is immutable outside one terminal transition')",
+		},
+		"grant_requests_pending_not_deleted": {"before delete on grant_requests", "old.state = 'pending'", "raise(abort, 'pending grant request cannot be deleted')"},
+		"grant_requests_evidence_insert":     {"after insert on grant_requests", "coalesce(length(new.submitted_evidence), 0)", "coalesce(length(new.approved_evidence), 0)"},
+		"grant_requests_evidence_update":     {"after update of submitted_evidence, approved_evidence on grant_requests", "coalesce(length(old.submitted_evidence), 0)", "coalesce(length(new.approved_evidence), 0)"},
+		"grant_requests_evidence_delete":     {"after delete on grant_requests", "coalesce(length(old.submitted_evidence), 0)", "coalesce(length(old.approved_evidence), 0)"},
+	}
+	var normalizedTerminalTrigger string
+	for name, fragments := range expectedTriggerFragments {
+		var triggerSQL string
+		if err := store.database.QueryRowContext(ctx, `SELECT sql FROM sqlite_schema WHERE type = 'trigger' AND name = ?`, name).Scan(&triggerSQL); err != nil {
+			return fmt.Errorf("read grant request trigger %s: %w", name, err)
+		}
+		normalizedTrigger := normalizeSchemaSQL(triggerSQL)
+		if name == "grant_requests_terminal_once" {
+			normalizedTerminalTrigger = normalizedTrigger
+		}
+		for _, fragment := range fragments {
+			if !strings.Contains(normalizedTrigger, fragment) {
+				return fmt.Errorf("grant request trigger %s is missing %q", name, fragment)
+			}
+		}
+	}
+	for _, column := range expectedColumns {
+		switch column {
+		case "state", "revision", "approved_scope", "approved_target", "approved_constraint", "approved_duration_seconds", "approved_future_tools_acknowledged", "approved_grant_id", "rejection_reason", "approved_evidence", "updated_at", "closed_at":
+			continue
+		}
+		if !strings.Contains(normalizedTerminalTrigger, "new."+column+" is old."+column) {
+			return fmt.Errorf("grant request transition trigger does not preserve %s", column)
+		}
+	}
+	return nil
+}
+
+func (store *Store) verifyTableColumns(ctx context.Context, table string, expected []string) error {
+	rows, err := store.database.QueryContext(ctx, `SELECT name FROM pragma_table_info(?) ORDER BY cid`, table)
+	if err != nil {
+		return fmt.Errorf("read %s columns: %w", table, err)
+	}
+	defer func() { _ = rows.Close() }()
+	columns := make([]string, 0, len(expected))
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			return fmt.Errorf("read %s column: %w", table, err)
+		}
+		columns = append(columns, column)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate %s columns: %w", table, err)
+	}
+	if len(columns) != len(expected) {
+		return fmt.Errorf("%s has %d columns", table, len(columns))
+	}
+	for index := range expected {
+		if columns[index] != expected[index] {
+			return fmt.Errorf("%s column %d is %q", table, index, columns[index])
 		}
 	}
 	return nil
