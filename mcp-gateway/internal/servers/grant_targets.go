@@ -11,6 +11,12 @@ import (
 
 type GrantTargetKind string
 
+type NamespaceTarget struct {
+	ID        string
+	Namespace string
+	State     contract.DesiredServerState
+}
+
 const (
 	GrantTargetSynthetic GrantTargetKind = "synthetic"
 	GrantTargetServer    GrantTargetKind = "server"
@@ -45,6 +51,33 @@ func (repository *Repository) ValidateGrantTargetTx(ctx context.Context, transac
 		return "", ErrNotFound
 	}
 	return GrantTargetServer, nil
+}
+
+func (repository *Repository) LookupNamespaceTargetTx(ctx context.Context, transaction *sql.Tx, namespace string) (NamespaceTarget, error) {
+	if transaction == nil {
+		return NamespaceTarget{}, fmt.Errorf("%w: namespace-target transaction is unavailable", ErrStorageUnavailable)
+	}
+	if !namespacePattern.MatchString(namespace) || namespace == contract.SyntheticServerNamespace {
+		return NamespaceTarget{}, ErrNotFound
+	}
+	var target NamespaceTarget
+	if err := transaction.QueryRowContext(ctx, `
+		SELECT identity.id, identity.namespace, server.desired_state
+		FROM server_identities AS identity
+		JOIN servers AS server ON server.id = identity.id
+		WHERE identity.namespace = ?`, namespace).Scan(&target.ID, &target.Namespace, &target.State); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return NamespaceTarget{}, ErrNotFound
+		}
+		return NamespaceTarget{}, grantTargetStorageError(err)
+	}
+	if !validID(target.ID) || target.Namespace != namespace {
+		return NamespaceTarget{}, ErrStorageUnavailable
+	}
+	if _, err := contract.ParseDesiredServerState(string(target.State)); err != nil {
+		return NamespaceTarget{}, ErrStorageUnavailable
+	}
+	return target, nil
 }
 
 func (repository *Repository) StoredGrantTargetExistsTx(ctx context.Context, transaction *sql.Tx, serverID string) (bool, error) {

@@ -300,6 +300,47 @@ func (repository *Repository) Status(ctx context.Context, serverID string) (Dura
 	return status, mapStoreError(err)
 }
 
+type DurableDescriptor struct {
+	Resource contract.ToolDescriptor
+	State    contract.DescriptorEvidenceState
+}
+
+func (repository *Repository) LookupDurableDescriptorTx(ctx context.Context, transaction *sql.Tx, serverID, externalName string) (DurableDescriptor, error) {
+	if transaction == nil || serverID == "" || externalName == "" || int64(len(externalName)) > fixedLimit("tool_name_bytes") || repository.store.Latched() {
+		return DurableDescriptor{}, servers.ErrStorageUnavailable
+	}
+	var resource contract.ToolDescriptor
+	if err := scanDescriptor(transaction.QueryRowContext(ctx, descriptorSelect+`
+		WHERE identity.server_id = ? AND identity.external_name = ?`, serverID, externalName), nil, &resource); err != nil {
+		if errors.Is(err, servers.ErrNotFound) {
+			return DurableDescriptor{}, servers.ErrNotFound
+		}
+		return DurableDescriptor{}, servers.ErrStorageUnavailable
+	}
+	contents, err := json.Marshal(resource.Descriptor)
+	if err != nil {
+		return DurableDescriptor{}, servers.ErrStorageUnavailable
+	}
+	rebuilt, err := NormalizeTool(RawTool{
+		UpstreamName: resource.UpstreamName, ExternalName: resource.ExternalName, Descriptor: contents,
+	}, NormalizeOptions{ServerID: resource.ServerID, AllowHeaderBindings: true})
+	if err != nil || rebuilt.Key.ServerID != serverID || rebuilt.ExternalName != externalName || rebuilt.Fingerprint != resource.Fingerprint {
+		return DurableDescriptor{}, servers.ErrStorageUnavailable
+	}
+	revision, err := strconv.ParseInt(resource.CatalogRevision, 10, 64)
+	if err != nil || revision < 1 || resource.ID == "" {
+		return DurableDescriptor{}, servers.ErrStorageUnavailable
+	}
+	state := contract.EvidenceCurrent
+	if resource.RetiredAt != nil {
+		state = contract.EvidenceRetired
+	}
+	if repository.store.Latched() {
+		return DurableDescriptor{}, servers.ErrStorageUnavailable
+	}
+	return DurableDescriptor{Resource: resource, State: state}, nil
+}
+
 func (repository *Repository) GetDescriptor(ctx context.Context, serverID, toolID string) (contract.ToolDescriptor, error) {
 	var resource contract.ToolDescriptor
 	err := repository.store.View(ctx, func(transaction *sql.Tx) error {

@@ -48,6 +48,42 @@ func TestValidateGrantTargetTxDistinguishesSyntheticCurrentMissingAndDeleted(t *
 	}
 }
 
+func TestS5NamespaceTargetTxReturnsCurrentAndTombstoneFacts(t *testing.T) {
+	repository, store, _ := newRepository(t, new(sequenceReader))
+	current := mustCreateServer(t, repository, "request-current", false)
+	deleted := mustCreateServer(t, repository, "request-deleted", false)
+	_, err := repository.Delete(context.Background(), deleted.ID, deleted.DesiredRevision)
+	require.NoError(t, err)
+
+	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		for _, test := range []struct {
+			name      string
+			namespace string
+			want      NamespaceTarget
+			wanted    error
+		}{
+			{name: "current", namespace: current.Namespace, want: NamespaceTarget{ID: current.ID, Namespace: current.Namespace, State: current.DesiredState}},
+			{name: "deleted", namespace: deleted.Namespace, want: NamespaceTarget{ID: deleted.ID, Namespace: deleted.Namespace, State: contract.DesiredServerDeleted}},
+			{name: "missing", namespace: "request-missing", wanted: ErrNotFound},
+			{name: "synthetic", namespace: contract.SyntheticServerNamespace, wanted: ErrNotFound},
+			{name: "malformed", namespace: "INVALID", wanted: ErrNotFound},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				got, lookupErr := repository.LookupNamespaceTargetTx(context.Background(), transaction, test.namespace)
+				if test.wanted != nil {
+					require.ErrorIs(t, lookupErr, test.wanted)
+					return
+				}
+				require.NoError(t, lookupErr)
+				assert.Equal(t, test.want, got)
+			})
+		}
+		return nil
+	}))
+	_, err = repository.LookupNamespaceTargetTx(context.Background(), nil, current.Namespace)
+	require.ErrorIs(t, err, ErrStorageUnavailable)
+}
+
 func TestStoredGrantTargetExistsTxAcceptsDeletedIdentityAndRejectsMissing(t *testing.T) {
 	repository, store, _ := newRepository(t, new(sequenceReader))
 	current := mustCreateServer(t, repository, "stored-current", false)

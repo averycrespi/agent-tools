@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,6 +85,52 @@ func TestRepositoryCommitsRevisionsRetiresAndReusesImmutableIdentity(t *testing.
 	assert.Equal(t, firstOne.ID, reappeared.ID)
 	assert.Equal(t, firstOne.FirstSeenAt, reappeared.FirstSeenAt)
 	assert.Nil(t, reappeared.RetiredAt)
+}
+
+func TestS5DurableDescriptorTxReturnsCurrentAndRetiredEvidenceFacts(t *testing.T) {
+	repository, serverRepository, clock, store := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "requestfacts")
+	_, err := repository.Commit(context.Background(), catalogFence(server.ID, "0"), candidateFor(t, server.ID, "requestfacts", "one"))
+	require.NoError(t, err)
+
+	var current DurableDescriptor
+	require.NoError(t, store.View(context.Background(), func(transaction *sql.Tx) error {
+		var lookupErr error
+		current, lookupErr = repository.LookupDurableDescriptorTx(context.Background(), transaction, server.ID, "requestfacts.one")
+		return lookupErr
+	}))
+	assert.Equal(t, contract.EvidenceCurrent, current.State)
+	assert.Equal(t, "one", current.Resource.UpstreamName)
+	assert.Equal(t, "requestfacts.one", current.Resource.ExternalName)
+	assert.Nil(t, current.Resource.RetiredAt)
+
+	clock.now = clock.now.Add(time.Minute)
+	_, err = repository.Commit(context.Background(), catalogFence(server.ID, "1"), NormalizedCandidate{})
+	require.NoError(t, err)
+	var retired DurableDescriptor
+	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		var lookupErr error
+		retired, lookupErr = repository.LookupDurableDescriptorTx(context.Background(), transaction, server.ID, "requestfacts.one")
+		return lookupErr
+	}))
+	assert.Equal(t, contract.EvidenceRetired, retired.State)
+	assert.Equal(t, current.Resource.ID, retired.Resource.ID)
+	assert.Equal(t, current.Resource.Fingerprint, retired.Resource.Fingerprint)
+
+	require.NoError(t, store.View(context.Background(), func(transaction *sql.Tx) error {
+		_, lookupErr := repository.LookupDurableDescriptorTx(context.Background(), transaction, server.ID, "requestfacts.missing")
+		require.ErrorIs(t, lookupErr, servers.ErrNotFound)
+		return nil
+	}))
+	_, err = repository.LookupDurableDescriptorTx(context.Background(), nil, server.ID, "requestfacts.one")
+	require.ErrorIs(t, err, servers.ErrStorageUnavailable)
+	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		_, updateErr := transaction.ExecContext(context.Background(), `UPDATE tool_descriptors SET fingerprint = ? WHERE tool_id = ?`, strings.Repeat("a", 64), retired.Resource.ID)
+		require.NoError(t, updateErr)
+		_, lookupErr := repository.LookupDurableDescriptorTx(context.Background(), transaction, server.ID, "requestfacts.one")
+		require.ErrorIs(t, lookupErr, servers.ErrStorageUnavailable)
+		return nil
+	}))
 }
 
 func TestRepositoryDescriptorFiltersPaginationAndRevisionCursorFence(t *testing.T) {

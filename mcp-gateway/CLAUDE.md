@@ -34,6 +34,7 @@ internal/strictjson/    Bounded strict JSON, lexical value trees, compact encodi
 internal/paths/         Owner-only paths and process ownership
 internal/storage/       SQLite identity, migrations, durability, latch
 internal/authorization/ Online S3 principal, credential, grant, and policy SQL authority
+internal/grantrequests/ S5 policy, evidence, dedupe, and request workflow ownership
 internal/servers/       Durable S2 identities, desired authority, operations, cursors, idempotency
 internal/catalog/       Durable descriptors, traversal/normalization, active snapshots, routes
 internal/credentialauthority/ Current server credential resolution

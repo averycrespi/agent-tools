@@ -7,6 +7,23 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
 
+type ConstraintType string
+
+const (
+	ConstraintNull    ConstraintType = "null"
+	ConstraintBoolean ConstraintType = "boolean"
+	ConstraintString  ConstraintType = "string"
+	ConstraintNumber  ConstraintType = "number"
+)
+
+type ConstraintAtom struct {
+	Pointer string
+	Type    ConstraintType
+	Boolean bool
+	String  string
+	Number  string
+}
+
 type CompiledConstraint struct {
 	raw   []byte
 	atoms []constraintAtom
@@ -56,6 +73,25 @@ func CompileConstraint(contents []byte) (CompiledConstraint, error) {
 
 func (constraint CompiledConstraint) JSON() []byte {
 	return append([]byte(nil), constraint.raw...)
+}
+
+func (constraint CompiledConstraint) Atoms() []ConstraintAtom {
+	atoms := make([]ConstraintAtom, len(constraint.atoms))
+	for index, atom := range constraint.atoms {
+		value := ConstraintAtom{Pointer: atom.pointer}
+		switch atom.expected.Type {
+		case strictjson.ValueNull:
+			value.Type = ConstraintNull
+		case strictjson.ValueBoolean:
+			value.Type, value.Boolean = ConstraintBoolean, atom.expected.Boolean
+		case strictjson.ValueString:
+			value.Type, value.String = ConstraintString, atom.expected.String
+		case strictjson.ValueNumber:
+			value.Type, value.Number = ConstraintNumber, atom.expected.Number
+		}
+		atoms[index] = value
+	}
+	return atoms
 }
 
 func compileJSONPointer(pointer string) ([]string, error) {
