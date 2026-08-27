@@ -1,3 +1,14 @@
+CREATE TABLE grant_request_identities (
+    id TEXT PRIMARY KEY CHECK (
+        length(id) = 26 AND
+        substr(id, 1, 1) BETWEEN '0' AND '7' AND
+        id NOT GLOB '*[^0-9A-HJKMNP-TV-Z]*'
+    ),
+    created_at TEXT NOT NULL CHECK (
+        length(CAST(created_at AS BLOB)) BETWEEN 1 AND 64
+    )
+) STRICT, WITHOUT ROWID;
+
 CREATE TABLE grant_requests (
     insertion_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     id TEXT NOT NULL CHECK (

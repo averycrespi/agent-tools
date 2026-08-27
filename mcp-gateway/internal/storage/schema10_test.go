@@ -202,6 +202,7 @@ func assertSchemaTenRequestFoundation(t *testing.T, ctx context.Context, databas
 		"approved_duration_seconds", "approved_future_tools_acknowledged", "approved_grant_id", "rejection_reason", "approved_evidence",
 		"created_at", "updated_at", "closed_at",
 	}
+	assert.Equal(t, []string{"id", "created_at"}, tableColumns(t, ctx, database, "grant_request_identities"))
 	assert.Equal(t, expected, tableColumns(t, ctx, database, "grant_requests"))
 	assert.Equal(t, []string{"singleton", "total_bytes"}, tableColumns(t, ctx, database, "grant_request_evidence_bytes"))
 	var migrationName string
@@ -217,10 +218,12 @@ func assertSchemaTenRequestFoundation(t *testing.T, ctx context.Context, databas
 			assert.Equal(t, name, found)
 		}
 	}
-	var requests, total, foreignKeys int
+	var identities, requests, total, foreignKeys int
+	require.NoError(t, database.QueryRowContext(ctx, `SELECT count(*) FROM grant_request_identities`).Scan(&identities))
 	require.NoError(t, database.QueryRowContext(ctx, `SELECT count(*) FROM grant_requests`).Scan(&requests))
 	require.NoError(t, database.QueryRowContext(ctx, `SELECT total_bytes FROM grant_request_evidence_bytes WHERE singleton = 1`).Scan(&total))
 	require.NoError(t, database.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_list('grant_requests')`).Scan(&foreignKeys))
+	assert.Zero(t, identities)
 	assert.Zero(t, requests)
 	assert.Zero(t, total)
 	assert.Zero(t, foreignKeys, "historical request facts must not reference mutable authority, targets, or grants")

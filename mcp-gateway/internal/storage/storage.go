@@ -464,11 +464,25 @@ func (store *Store) verifyGrantRequestStructure(ctx context.Context) error {
 		"approved_duration_seconds", "approved_future_tools_acknowledged", "approved_grant_id", "rejection_reason", "approved_evidence",
 		"created_at", "updated_at", "closed_at",
 	}
+	if err := store.verifyTableColumns(ctx, "grant_request_identities", []string{"id", "created_at"}); err != nil {
+		return err
+	}
 	if err := store.verifyTableColumns(ctx, "grant_requests", expectedColumns); err != nil {
 		return err
 	}
 	if err := store.verifyTableColumns(ctx, "grant_request_evidence_bytes", []string{"singleton", "total_bytes"}); err != nil {
 		return err
+	}
+
+	var identitySQL string
+	if err := store.database.QueryRowContext(ctx, `SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'grant_request_identities'`).Scan(&identitySQL); err != nil {
+		return fmt.Errorf("read grant request identity table: %w", err)
+	}
+	normalizedIdentity := normalizeSchemaSQL(identitySQL)
+	for _, fragment := range []string{"id text primary key", "length(id) = 26", "created_at text not null", "strict, without rowid"} {
+		if !strings.Contains(normalizedIdentity, fragment) {
+			return fmt.Errorf("grant request identity table is missing %q", fragment)
+		}
 	}
 
 	var tableSQL string
