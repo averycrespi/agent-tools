@@ -27,6 +27,7 @@ var (
 	ErrCredentialDomainMismatch = errors.New("credential is for a different authority")
 	ErrAuthorizationUnavailable = errors.New("authorization is unavailable")
 	ErrAdmissionUnavailable     = errors.New("admission detachment is unavailable")
+	ErrApprovalUnavailable      = errors.New("grant request approval is unavailable")
 	ErrShuttingDown             = errors.New("authorization is shutting down")
 	ErrStorageUnavailable       = errors.New("authorization storage is unavailable")
 )
@@ -119,7 +120,7 @@ func (repository *Repository) view(ctx context.Context, callback func(*sql.Tx) e
 }
 
 func isRepositoryError(err error) bool {
-	return errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalidInput) || errors.Is(err, ErrIdentityUnavailable) || errors.Is(err, ErrResourceLimit) || errors.Is(err, ErrStaleRevision) || errors.Is(err, ErrConflict) || errors.Is(err, ErrStaleCursor) || errors.Is(err, ErrInvalidState) || errors.Is(err, ErrAuthenticationRequired) || errors.Is(err, ErrCredentialDomainMismatch) || errors.Is(err, ErrAuthorizationUnavailable) || errors.Is(err, ErrAdmissionUnavailable) || errors.Is(err, ErrShuttingDown) || errors.Is(err, ErrStorageUnavailable)
+	return errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalidInput) || errors.Is(err, ErrIdentityUnavailable) || errors.Is(err, ErrResourceLimit) || errors.Is(err, ErrStaleRevision) || errors.Is(err, ErrConflict) || errors.Is(err, ErrStaleCursor) || errors.Is(err, ErrInvalidState) || errors.Is(err, ErrAuthenticationRequired) || errors.Is(err, ErrCredentialDomainMismatch) || errors.Is(err, ErrAuthorizationUnavailable) || errors.Is(err, ErrAdmissionUnavailable) || errors.Is(err, ErrApprovalUnavailable) || errors.Is(err, ErrShuttingDown) || errors.Is(err, ErrStorageUnavailable)
 }
 
 func validatePageLimit(limit int) error {
