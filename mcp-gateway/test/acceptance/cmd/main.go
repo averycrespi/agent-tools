@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
 	"github.com/averycrespi/agent-tools/mcp-gateway/test/acceptance"
@@ -20,11 +21,24 @@ func main() {
 
 func run() (exitCode int) {
 	profileName := flag.String("profile", string(acceptance.ProfileS21), "closed acceptance profile")
+	outputPath := flag.String("output", "", "atomic report or adoption output path")
+	adoptPath := flag.String("adopt", "", "immutable acceptance report to adopt without running checks")
 	flag.Parse()
 	root, err := repositoryRoot()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "resolve repository root")
 		return 1
+	}
+	if *adoptPath != "" {
+		if *outputPath == "" {
+			fmt.Fprintln(os.Stderr, "adoption requires an output path")
+			return 1
+		}
+		if _, err := acceptance.AdoptReport(root, *adoptPath, *outputPath, time.Now); err != nil {
+			fmt.Fprintln(os.Stderr, "adopt acceptance report")
+			return 1
+		}
+		return 0
 	}
 	ledgerRoot, err := os.MkdirTemp("", "mcp-gateway-acceptance-")
 	if err != nil {
@@ -71,7 +85,14 @@ func run() (exitCode int) {
 		fmt.Fprintln(os.Stderr, "validate acceptance report")
 		return 1
 	}
-	fmt.Println(string(contents))
+	if *outputPath != "" {
+		if err := acceptance.WriteReport(*outputPath, report); err != nil {
+			fmt.Fprintln(os.Stderr, "write acceptance report")
+			return 1
+		}
+	} else {
+		fmt.Println(string(contents))
+	}
 	if report.Result != acceptance.ResultPassed {
 		return 1
 	}

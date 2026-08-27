@@ -32,26 +32,41 @@ const (
 type Profile string
 
 type Check struct {
-	Name      string   `json:"name"`
-	Status    string   `json:"status"`
-	Command   string   `json:"command"`
-	Criteria  []string `json:"criteria"`
-	Evidence  []string `json:"evidence,omitempty"`
-	Artifacts []string `json:"artifacts"`
+	Name            string   `json:"name"`
+	Status          string   `json:"status"`
+	Command         string   `json:"command"`
+	Criteria        []string `json:"criteria"`
+	Evidence        []string `json:"evidence,omitempty"`
+	Artifacts       []string `json:"artifacts"`
+	StartedAt       string   `json:"started_at"`
+	EndedAt         string   `json:"ended_at"`
+	DurationMillis  int64    `json:"duration_ms"`
+	TimeoutMillis   int64    `json:"timeout_ms"`
+	TimedOut        bool     `json:"timed_out"`
+	Termination     string   `json:"termination"`
+	Cleanup         string   `json:"cleanup"`
+	DiagnosticPaths []string `json:"diagnostic_paths"`
 }
 
 type Report struct {
-	SchemaVersion    int                           `json:"schema_version"`
-	Profile          Profile                       `json:"profile"`
-	Result           string                        `json:"result"`
-	Revision         string                        `json:"revision"`
-	Dirty            bool                          `json:"dirty"`
-	DirtyPolicy      string                        `json:"dirty_policy"`
-	Reason           string                        `json:"reason"`
-	Checks           []Check                       `json:"checks"`
-	EvidenceManifest []contract.AcceptanceEvidence `json:"evidence_manifest,omitempty"`
-	ClauseManifest   []contract.ClauseEvidence     `json:"clause_manifest,omitempty"`
-	Native           *keyringnative.Result         `json:"native,omitempty"`
+	SchemaVersion         int                           `json:"schema_version"`
+	Profile               Profile                       `json:"profile"`
+	ProfileHash           string                        `json:"profile_hash"`
+	CommandDefinitionHash string                        `json:"command_definition_hash"`
+	Result                string                        `json:"result"`
+	Revision              string                        `json:"revision"`
+	Dirty                 bool                          `json:"dirty"`
+	DirtyPolicy           string                        `json:"dirty_policy"`
+	CleanBefore           bool                          `json:"clean_before"`
+	CleanAfter            bool                          `json:"clean_after"`
+	StartedAt             string                        `json:"started_at"`
+	EndedAt               string                        `json:"ended_at"`
+	DurationMillis        int64                         `json:"duration_ms"`
+	Reason                string                        `json:"reason"`
+	Checks                []Check                       `json:"checks"`
+	EvidenceManifest      []contract.AcceptanceEvidence `json:"evidence_manifest,omitempty"`
+	ClauseManifest        []contract.ClauseEvidence     `json:"clause_manifest,omitempty"`
+	Native                *keyringnative.Result         `json:"native,omitempty"`
 }
 
 type Command struct {
@@ -70,6 +85,16 @@ type Executor interface {
 
 type OSExecutor struct{}
 
+type commandExecutionError struct {
+	cause           error
+	termination     string
+	cleanup         string
+	diagnosticPaths []string
+}
+
+func (failure *commandExecutionError) Error() string { return failure.cause.Error() }
+func (failure *commandExecutionError) Unwrap() error { return failure.cause }
+
 func (OSExecutor) Run(ctx context.Context, root string, command Command) ([]byte, error) {
 	runner, err := testutil.NewBinaryRunner(19*time.Minute, 4*1024*1024)
 	if err != nil {
@@ -82,10 +107,24 @@ func (OSExecutor) Run(ctx context.Context, root string, command Command) ([]byte
 	if result.StdoutTruncated || result.StderrTruncated {
 		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("acceptance command output exceeded its bound"))
 	}
-	if command.Native {
-		return result.Stdout, errors.Join(runErr, cleanupErr)
+	combinedErr := errors.Join(runErr, cleanupErr)
+	if combinedErr != nil {
+		termination := "none"
+		if result.Cleanup.KillSent {
+			termination = "kill"
+		} else if result.Cleanup.TermSent {
+			termination = "term"
+		}
+		cleanup := "passed"
+		if cleanupErr != nil || result.Cleanup.Survived {
+			cleanup = "failed"
+		}
+		combinedErr = &commandExecutionError{cause: combinedErr, termination: termination, cleanup: cleanup}
 	}
-	return nil, errors.Join(runErr, cleanupErr)
+	if command.Native {
+		return result.Stdout, combinedErr
+	}
+	return nil, combinedErr
 }
 
 //go:embed report.schema.json
@@ -146,10 +185,14 @@ func Run(ctx context.Context, root string, executor Executor, allowDirty bool) R
 }
 
 func RunProfile(ctx context.Context, root string, executor Executor, profile Profile, allowDirty bool) Report {
-	report := Report{SchemaVersion: 2, Profile: profile, Result: ResultPassed, DirtyPolicy: "required_clean", Checks: []Check{}}
+	started := time.Now().UTC()
+	report := Report{
+		SchemaVersion: 3, Profile: profile, Result: ResultPassed, DirtyPolicy: "required_clean", Checks: []Check{},
+		StartedAt: started.Format(time.RFC3339Nano),
+	}
 	commands, err := ProfileCommands(profile)
 	if err != nil {
-		return fail(report, "unknown_profile")
+		return finishReport(fail(report, "unknown_profile"), started)
 	}
 	switch profile {
 	case ProfileS3:
@@ -163,29 +206,46 @@ func RunProfile(ctx context.Context, root string, executor Executor, profile Pro
 	}
 	revision, err := gitOutput(ctx, root, "rev-parse", "HEAD")
 	if err != nil {
-		return fail(report, "git_revision_unavailable")
+		return finishReport(fail(report, "git_revision_unavailable"), started)
 	}
 	report.Revision = revision
 	status, err := gitOutput(ctx, root, "status", "--porcelain")
 	if err != nil {
-		return fail(report, "git_status_unavailable")
+		return finishReport(fail(report, "git_status_unavailable"), started)
 	}
 	report.Dirty = status != ""
+	report.CleanBefore = !report.Dirty
+	report.CleanAfter = report.CleanBefore
+	report.ProfileHash, report.CommandDefinitionHash, err = DefinitionHashes(root, profile)
+	if err != nil {
+		return finishReport(fail(report, "command_definition_unavailable"), started)
+	}
 	if report.Dirty && !allowDirty {
-		return fail(report, "dirty_workspace")
+		return finishReport(fail(report, "dirty_workspace"), started)
 	}
 
 	for _, command := range commands {
-		commandCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
+		const commandTimeout = 20 * time.Minute
+		checkStarted := time.Now().UTC()
+		commandCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 		stdout, commandErr := executor.Run(commandCtx, root, command)
+		timedOut := errors.Is(commandErr, context.DeadlineExceeded) || errors.Is(commandCtx.Err(), context.DeadlineExceeded)
 		cancel()
-		check := Check{Name: checkName(command), Status: ResultPassed, Command: commandString(command), Criteria: command.Criteria, Evidence: command.Evidence, Artifacts: command.Artifacts}
+		checkEnded := time.Now().UTC()
+		termination, cleanup, diagnostics := executionMetadata(commandErr)
+		check := Check{
+			Name: checkName(command), Status: ResultPassed, Command: commandString(command), Criteria: command.Criteria,
+			Evidence: command.Evidence, Artifacts: command.Artifacts,
+			StartedAt: checkStarted.Format(time.RFC3339Nano), EndedAt: checkEnded.Format(time.RFC3339Nano),
+			DurationMillis: checkEnded.Sub(checkStarted).Milliseconds(), TimeoutMillis: commandTimeout.Milliseconds(),
+			TimedOut: timedOut, Termination: termination, Cleanup: cleanup, DiagnosticPaths: diagnostics,
+		}
 		if command.Native {
 			native, parseErr := keyringnative.Parse(bytes.TrimSpace(stdout))
 			if parseErr != nil {
 				check.Status = ResultFailed
 				report.Checks = append(report.Checks, check)
-				return fail(report, "native_result_invalid")
+				return finishReport(fail(report, "native_result_invalid"), started)
 			}
 			report.Native = &native
 			if native.Result == keyringnative.ResultFailed {
@@ -195,21 +255,22 @@ func RunProfile(ctx context.Context, root string, executor Executor, profile Pro
 		if commandErr != nil || check.Status == ResultFailed {
 			check.Status = ResultFailed
 			report.Checks = append(report.Checks, check)
-			return fail(report, check.Name+"_failed")
+			return finishReport(fail(report, check.Name+"_failed"), started)
 		}
 		report.Checks = append(report.Checks, check)
 	}
 
 	finalStatus, err := gitOutput(ctx, root, "status", "--porcelain")
 	if err != nil {
-		return fail(report, "git_status_unavailable")
+		return finishReport(fail(report, "git_status_unavailable"), started)
 	}
 	report.Dirty = finalStatus != ""
+	report.CleanAfter = !report.Dirty
 	if report.Dirty && !allowDirty {
-		return fail(report, "acceptance_changed_workspace")
+		return finishReport(fail(report, "acceptance_changed_workspace"), started)
 	}
 	report.Reason = "all_checks_passed"
-	return report
+	return finishReport(report, started)
 }
 
 func Parse(contents []byte) (Report, error) {
@@ -241,6 +302,13 @@ func Parse(contents []byte) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
+	profileHash, err := ProfileDefinitionHash(report.Profile)
+	if err != nil || profileHash != report.ProfileHash {
+		return Report{}, errors.New("acceptance profile hash does not match the closed profile")
+	}
+	if err := validateTiming(report.StartedAt, report.EndedAt, report.DurationMillis); err != nil {
+		return Report{}, fmt.Errorf("invalid acceptance report timing: %w", err)
+	}
 	if len(report.Checks) > len(commands) {
 		return Report{}, errors.New("acceptance report has more checks than its profile")
 	}
@@ -248,6 +316,15 @@ func Parse(contents []byte) (Report, error) {
 		command := commands[index]
 		if check.Name != command.CheckName || check.Command != commandString(command) || !reflect.DeepEqual(check.Criteria, command.Criteria) || !reflect.DeepEqual(check.Evidence, command.Evidence) || !reflect.DeepEqual(check.Artifacts, command.Artifacts) {
 			return Report{}, errors.New("acceptance check does not match the closed profile")
+		}
+		if err := validateTiming(check.StartedAt, check.EndedAt, check.DurationMillis); err != nil {
+			return Report{}, fmt.Errorf("invalid acceptance check timing: %w", err)
+		}
+		if check.TimedOut && check.Status != ResultFailed {
+			return Report{}, errors.New("timed out acceptance check must fail")
+		}
+		if check.Cleanup == "failed" && check.Status != ResultFailed {
+			return Report{}, errors.New("acceptance cleanup failure must fail its check")
 		}
 	}
 	switch report.Profile {
@@ -279,6 +356,9 @@ func Parse(contents []byte) (Report, error) {
 	if report.Result == ResultPassed {
 		if report.Reason != "all_checks_passed" || len(report.Checks) != len(commands) || report.Native == nil || report.Native.Result == keyringnative.ResultFailed {
 			return Report{}, errors.New("passed acceptance requires every check and nonfailed native evidence")
+		}
+		if report.DirtyPolicy == "required_clean" && (!report.CleanBefore || !report.CleanAfter || report.Dirty) {
+			return Report{}, errors.New("passed acceptance requires a clean unchanged workspace")
 		}
 		for _, check := range report.Checks {
 			if check.Status != ResultPassed {
@@ -327,6 +407,41 @@ func fail(report Report, reason string) Report {
 	report.Result = ResultFailed
 	report.Reason = reason
 	return report
+}
+
+func finishReport(report Report, started time.Time) Report {
+	ended := time.Now().UTC()
+	report.EndedAt = ended.Format(time.RFC3339Nano)
+	report.DurationMillis = ended.Sub(started).Milliseconds()
+	return report
+}
+
+func validateTiming(startedAt, endedAt string, durationMillis int64) error {
+	started, err := time.Parse(time.RFC3339Nano, startedAt)
+	if err != nil {
+		return err
+	}
+	ended, err := time.Parse(time.RFC3339Nano, endedAt)
+	if err != nil {
+		return err
+	}
+	if ended.Before(started) || ended.Sub(started).Milliseconds() != durationMillis {
+		return errors.New("timestamps and duration disagree")
+	}
+	return nil
+}
+
+func executionMetadata(err error) (string, string, []string) {
+	termination := "none"
+	cleanup := "passed"
+	diagnostics := []string{}
+	var failure *commandExecutionError
+	if errors.As(err, &failure) {
+		termination = failure.termination
+		cleanup = failure.cleanup
+		diagnostics = append(diagnostics, failure.diagnosticPaths...)
+	}
+	return termination, cleanup, diagnostics
 }
 
 func gitOutput(ctx context.Context, root string, arguments ...string) (string, error) {

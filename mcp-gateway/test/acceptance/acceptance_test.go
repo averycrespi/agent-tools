@@ -395,7 +395,15 @@ func initializedRepository(t *testing.T) string {
 	root := t.TempDir()
 	runGit(t, root, "init")
 	require.NoError(t, os.WriteFile(filepath.Join(root, "tracked"), []byte("clean"), 0o600))
-	runGit(t, root, "add", "tracked")
+	sourceRoot := repositoryRoot(t)
+	for _, relative := range commandDefinitionPaths {
+		contents, err := os.ReadFile(filepath.Join(sourceRoot, relative))
+		require.NoError(t, err)
+		target := filepath.Join(root, relative)
+		require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o700))
+		require.NoError(t, os.WriteFile(target, contents, 0o600))
+	}
+	runGit(t, root, "add", "tracked", "mcp-gateway")
 	runGit(t, root, "-c", "user.name=Acceptance Test", "-c", "user.email=acceptance@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "initial")
 	return root
 }
