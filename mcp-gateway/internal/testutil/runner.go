@@ -22,15 +22,18 @@ type ProcessResult struct {
 	Stderr          []byte
 	StdoutTruncated bool
 	StderrTruncated bool
+	Cleanup         ProcessCleanup
 }
 
 type RunningProcess struct {
 	command  *exec.Cmd
-	ctx      context.Context
 	cancel   context.CancelFunc
 	stdout   *boundedWriter
 	stderr   *boundedWriter
-	waitOnce sync.Once
+	stop     chan struct{}
+	stopOnce sync.Once
+	done     chan struct{}
+	mu       sync.Mutex
 	result   ProcessResult
 	err      error
 }
@@ -55,16 +58,39 @@ func (runner *BinaryRunner) Run(ctx context.Context, binary string, args ...stri
 
 func (runner *BinaryRunner) Start(ctx context.Context, binary string, args ...string) (*RunningProcess, error) {
 	runContext, cancel := context.WithTimeout(ctx, runner.timeout)
-	command := exec.CommandContext(runContext, binary, args...) //nolint:gosec // Test harness intentionally executes the caller-selected binary.
+	command := exec.Command(binary, args...) //nolint:gosec // Test harness intentionally executes the caller-selected binary.
+	configureTestProcessGroup(command)
 	process := &RunningProcess{
-		command: command, ctx: runContext, cancel: cancel,
+		command: command, cancel: cancel,
 		stdout: newBoundedWriter(runner.maxOutputBytes), stderr: newBoundedWriter(runner.maxOutputBytes),
+		stop: make(chan struct{}), done: make(chan struct{}),
 	}
 	command.Stdout, command.Stderr = process.stdout, process.stderr
 	if err := command.Start(); err != nil {
 		cancel()
 		return nil, err
 	}
+	groupID, owned := captureTestProcessGroup(command.Process)
+	if !owned {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		cancel()
+		return nil, fmt.Errorf("capture owned process group: process %d is not its group leader", command.Process.Pid)
+	}
+	exited := make(chan processExit, 1)
+	go func() { exited <- processExit{err: command.Wait()} }()
+	go func() {
+		cleanup, runErr := superviseProcess(runContext, newProcessSupervisor(command, groupID, exited), process.stop)
+		process.mu.Lock()
+		process.result = ProcessResult{
+			ExitCode: exitCode(runErr), Stdout: process.stdout.Bytes(), Stderr: process.stderr.Bytes(),
+			StdoutTruncated: process.stdout.Truncated(), StderrTruncated: process.stderr.Truncated(), Cleanup: cleanup,
+		}
+		process.err = runErr
+		process.mu.Unlock()
+		cancel()
+		close(process.done)
+	}()
 	return process, nil
 }
 
@@ -77,20 +103,26 @@ func (process *RunningProcess) Signal(signal os.Signal) error {
 	return process.command.Process.Signal(signal)
 }
 
+func (process *RunningProcess) Stop() error {
+	select {
+	case <-process.done:
+		return nil
+	default:
+		process.stopOnce.Do(func() { close(process.stop) })
+	}
+	<-process.done
+	process.mu.Lock()
+	defer process.mu.Unlock()
+	if process.result.Cleanup.Survived {
+		return fmt.Errorf("process cleanup left survivors")
+	}
+	return nil
+}
+
 func (process *RunningProcess) Wait() (ProcessResult, error) {
-	process.waitOnce.Do(func() {
-		runErr := process.command.Wait()
-		process.result = ProcessResult{
-			ExitCode: exitCode(runErr), Stdout: process.stdout.Bytes(), Stderr: process.stderr.Bytes(),
-			StdoutTruncated: process.stdout.Truncated(), StderrTruncated: process.stderr.Truncated(),
-		}
-		if process.ctx.Err() != nil {
-			process.err = process.ctx.Err()
-		} else {
-			process.err = runErr
-		}
-		process.cancel()
-	})
+	<-process.done
+	process.mu.Lock()
+	defer process.mu.Unlock()
 	return process.result, process.err
 }
 
