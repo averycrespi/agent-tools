@@ -203,6 +203,8 @@ func assertCallRejected(t *testing.T, response responseSnapshot, expectedID json
 	require.NotNil(t, envelope.Error.Data.InvocationID)
 	assert.Len(t, *envelope.Error.Data.InvocationID, 26)
 	assert.False(t, envelope.Error.Data.OutcomeUnknown)
+	expected := `{"jsonrpc":"2.0","id":` + string(expectedID) + `,"error":{"code":-32000,"message":"Call rejected","data":{"code":"call_rejected","invocationId":"` + *envelope.Error.Data.InvocationID + `"}}}`
+	assert.Equal(t, expected, string(response.Body))
 }
 
 func currentServer(t *testing.T, harness *gatewayHarness, serverID string) destructiveServerView {

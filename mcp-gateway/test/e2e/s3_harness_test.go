@@ -4,12 +4,14 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -390,37 +392,69 @@ func (harness *gatewayHarness) AuditObservations() []auditObservation {
 	require.NoError(harness.t, err)
 	store, err := storage.Open(harness.ctx, ownership)
 	require.NoError(harness.t, err)
-	observations := make([]auditObservation, 0)
+	var observations []auditObservation
 	err = store.View(harness.ctx, func(transaction *sql.Tx) error {
-		rows, queryErr := transaction.QueryContext(harness.ctx, `SELECT insertion_sequence, id, admission_class, decision, terminal_class FROM invocations ORDER BY insertion_sequence`)
-		if queryErr != nil {
-			return queryErr
-		}
-		defer func() { _ = rows.Close() }()
-		for rows.Next() {
-			var observation auditObservation
-			var admission string
-			var decision, terminal sql.NullString
-			if scanErr := rows.Scan(&observation.Sequence, &observation.InvocationID, &admission, &decision, &terminal); scanErr != nil {
-				return scanErr
-			}
-			observation.AdmissionClass = contract.InvocationAdmissionClass(admission)
-			if decision.Valid {
-				observation.Decision = contract.AuthorizationDecision(decision.String)
-			}
-			if terminal.Valid {
-				observation.TerminalClass = contract.InvocationTerminalClass(terminal.String)
-			}
-			observations = append(observations, observation)
-		}
-		return rows.Err()
+		observations, err = readAuditObservations(harness.ctx, transaction)
+		return err
 	})
 	require.NoError(harness.t, err)
-	require.LessOrEqual(harness.t, len(observations), 4096)
 	require.NoError(harness.t, store.Close())
 	require.NoError(harness.t, ownership.MarkClean())
 	require.NoError(harness.t, ownership.Close())
 	return observations
+}
+
+func (harness *gatewayHarness) LiveAuditObservations() []auditObservation {
+	harness.t.Helper()
+	require.NotNil(harness.t, harness.process, "live audit inspection requires a running Gateway")
+	databaseURL := url.URL{Scheme: "file", Path: filepath.Join(harness.root, gatewaypaths.DatabaseName)}
+	query := databaseURL.Query()
+	query.Set("mode", "ro")
+	query.Add("_pragma", "busy_timeout(1000)")
+	databaseURL.RawQuery = query.Encode()
+	database, err := sql.Open("sqlite3", databaseURL.String())
+	require.NoError(harness.t, err)
+	database.SetMaxOpenConns(1)
+	observations, err := readAuditObservations(harness.ctx, database)
+	require.NoError(harness.t, err)
+	require.NoError(harness.t, database.Close())
+	return observations
+}
+
+type auditQueryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func readAuditObservations(ctx context.Context, queryer auditQueryer) ([]auditObservation, error) {
+	rows, err := queryer.QueryContext(ctx, `SELECT insertion_sequence, id, admission_class, decision, terminal_class FROM invocations ORDER BY insertion_sequence LIMIT 4097`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	observations := make([]auditObservation, 0)
+	for rows.Next() {
+		var observation auditObservation
+		var admission string
+		var decision, terminal sql.NullString
+		if err := rows.Scan(&observation.Sequence, &observation.InvocationID, &admission, &decision, &terminal); err != nil {
+			return nil, err
+		}
+		observation.AdmissionClass = contract.InvocationAdmissionClass(admission)
+		if decision.Valid {
+			observation.Decision = contract.AuthorizationDecision(decision.String)
+		}
+		if terminal.Valid {
+			observation.TerminalClass = contract.InvocationTerminalClass(terminal.String)
+		}
+		observations = append(observations, observation)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(observations) > 4096 {
+		return nil, fmt.Errorf("audit observations exceed schema bound")
+	}
+	return observations, nil
 }
 
 func callParams(t *testing.T, name string, arguments json.RawMessage, suffix string) string {
