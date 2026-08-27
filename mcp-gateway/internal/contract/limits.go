@@ -7,7 +7,13 @@ const (
 	BackupListPageDefault      = 50
 	S2ListPageDefault          = 50
 	S3ListPageDefault          = 50
+	S5ListPageDefault          = 50
 	IdempotencyKeyMinimumBytes = 1
+)
+
+const (
+	GrantRequestDurationMinimumSeconds int64 = 60
+	GrantRequestDurationMaximumSeconds int64 = 2592000
 )
 
 const (
@@ -139,6 +145,15 @@ var fixedLimits = []FixedLimit{
 	{Name: "constraint_pointer_bytes", Maximum: 256},
 	{Name: "invocation_audit_rows", Maximum: 4096},
 	{Name: "invocation_argument_capture_bytes", Maximum: 8192},
+	{Name: "discoverable_tools", Maximum: 2054},
+	{Name: "grant_requests", Maximum: 4096},
+	{Name: "pending_grant_requests_per_principal", Maximum: 128},
+	{Name: "grant_request_evidence_bytes", Maximum: 256 * 1024 * 1024},
+	{Name: "grant_request_descriptor_bytes", Maximum: 128 * 1024},
+	{Name: "grant_request_evidence_snapshot_bytes", Maximum: 132 * 1024},
+	{Name: "grant_request_duration_seconds", Maximum: GrantRequestDurationMaximumSeconds},
+	{Name: "grant_request_target_bytes", Maximum: 128},
+	{Name: "agent_self_service_list_page", Maximum: 100},
 }
 
 func FixedLimits() []FixedLimit {

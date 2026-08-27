@@ -17,3 +17,11 @@ func PrincipalETag(principalID, revision string) string {
 func MatchesPrincipalETag(value, principalID, revision string) bool {
 	return value == PrincipalETag(principalID, revision)
 }
+
+func GrantRequestETag(requestID, revision string) string {
+	return fmt.Sprintf(`"grant-request-%s-%s"`, requestID, revision)
+}
+
+func MatchesGrantRequestETag(value, requestID, revision string) bool {
+	return value == GrantRequestETag(requestID, revision)
+}

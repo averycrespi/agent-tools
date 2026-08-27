@@ -18,9 +18,10 @@ func TestS3RoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/api/v1/grants/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
 	}
 	routes := Routes()
-	require.Equal(t, expectedRoutes, routes[len(routes)-len(expectedRoutes):])
-	routes[len(routes)-1].Methods[0] = "PATCH"
-	require.Equal(t, expectedRoutes, Routes()[len(routes)-len(expectedRoutes):], "route copies must be isolated")
+	s3RouteStart := len(routes) - len(expectedRoutes) - 4
+	require.Equal(t, expectedRoutes, routes[s3RouteStart:s3RouteStart+len(expectedRoutes)])
+	routes[s3RouteStart].Methods[0] = "PATCH"
+	require.Equal(t, expectedRoutes, Routes()[s3RouteStart:s3RouteStart+len(expectedRoutes)], "route copies must be isolated")
 
 	for path, pattern := range map[string]string{
 		"/api/v1/principals":                                       "/api/v1/principals",
@@ -51,9 +52,10 @@ func TestS3RoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/api/v1/grants/{id}", Method: "DELETE", RequestSchema: "None", SuccessSchema: "Empty", SuccessStatuses: []int{204}},
 	}
 	mechanics := ResourceMechanics()
-	require.Equal(t, expectedMechanics, mechanics[len(mechanics)-len(expectedMechanics):])
-	mechanics[len(mechanics)-1].SuccessStatuses[0] = 200
-	require.Equal(t, expectedMechanics, ResourceMechanics()[len(mechanics)-len(expectedMechanics):], "mechanic copies must be isolated")
+	s3MechanicStart := len(mechanics) - len(expectedMechanics) - 4
+	require.Equal(t, expectedMechanics, mechanics[s3MechanicStart:s3MechanicStart+len(expectedMechanics)])
+	mechanics[s3MechanicStart].SuccessStatuses[0] = 500
+	require.Equal(t, expectedMechanics, ResourceMechanics()[s3MechanicStart:s3MechanicStart+len(expectedMechanics)], "mechanic copies must be isolated")
 	for _, mechanic := range expectedMechanics {
 		require.False(t, mechanic.Idempotency, mechanic.Pattern)
 	}
@@ -70,7 +72,8 @@ func TestS3ProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) {
 		{Status: 503, Code: ProblemAuthorizationUnavailable, Title: "Authorization is unavailable."},
 	}
 	problems := Problems()
-	require.Equal(t, expectedProblems, problems[len(problems)-len(expectedProblems):])
+	s3ProblemStart := len(problems) - len(expectedProblems) - 4
+	require.Equal(t, expectedProblems, problems[s3ProblemStart:s3ProblemStart+len(expectedProblems)])
 
 	expectedLimits := []FixedLimit{
 		{Name: "principals", Maximum: 128},
@@ -79,9 +82,10 @@ func TestS3ProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) {
 		{Name: "constraint_bytes", Maximum: 8192},
 		{Name: "constraint_pointer_bytes", Maximum: 256},
 	}
-	limits := FixedLimits()
-	require.Equal(t, expectedLimits, limits[len(limits)-len(expectedLimits)-2:len(limits)-2])
-	for _, limit := range expectedLimits {
+	for _, expected := range expectedLimits {
+		limit, ok := FixedLimitByName(expected.Name)
+		require.True(t, ok, expected.Name)
+		require.Equal(t, expected, limit)
 		require.True(t, limit.Allows(limit.Maximum), limit.Name)
 		require.False(t, limit.Allows(limit.Maximum+1), limit.Name)
 	}
@@ -91,7 +95,7 @@ func TestS3ProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) {
 	require.Equal(t, []InvalidationKind{
 		InvalidationAdminCredentials, InvalidationSystemStatus, InvalidationBackups, InvalidationServers,
 		InvalidationServerOperations, InvalidationServerAuthFlows, InvalidationCatalog, InvalidationAuthorization,
-	}, InvalidationKinds())
+	}, InvalidationKinds()[:8])
 	require.Equal(t, SecretSinkAgentCredentialCreation, ApprovedSecretSinks()[len(ApprovedSecretSinks())-1])
 }
 
@@ -153,6 +157,7 @@ func TestS3ResourceShapesETagsAndStatusAreExact(t *testing.T) {
 		"event_streams", "backup_work", "backup_records", "admin_credentials", "idempotency_records", "keyring_candidates", "keyring_work", "database_bytes",
 		"server_identities", "servers", "downstream_runtimes", "server_reconciliations", "catalog_traversals", "oauth_flows", "oauth_callback_work",
 		"s2_idempotency_records", "active_tools", "durable_tool_identities", "downstream_dispatch", "principals", "grants",
+		"grant_requests", "grant_request_evidence_bytes",
 	)
 }
 

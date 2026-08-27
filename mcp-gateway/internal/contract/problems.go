@@ -3,41 +3,45 @@ package contract
 type ProblemCode string
 
 const (
-	ProblemMalformedRequest              ProblemCode = "malformed_request"
-	ProblemInvalidJSON                   ProblemCode = "invalid_json"
-	ProblemInvalidCursor                 ProblemCode = "invalid_cursor"
-	ProblemInvalidIdempotencyKey         ProblemCode = "invalid_idempotency_key"
-	ProblemAmbiguousCredentials          ProblemCode = "ambiguous_credentials"
-	ProblemInvalidOAuthState             ProblemCode = "invalid_oauth_state"
-	ProblemAuthenticationRequired        ProblemCode = "authentication_required"
-	ProblemCredentialDomainMismatch      ProblemCode = "credential_domain_mismatch" //nolint:gosec // Public problem code, not a credential.
-	ProblemForbiddenOrigin               ProblemCode = "forbidden_origin"
-	ProblemCSRFFailed                    ProblemCode = "csrf_failed"
-	ProblemNotFound                      ProblemCode = "not_found"
-	ProblemMethodNotAllowed              ProblemCode = "method_not_allowed"
-	ProblemConflict                      ProblemCode = "conflict"
-	ProblemIdempotencyConflict           ProblemCode = "idempotency_conflict"
-	ProblemBodyTooLarge                  ProblemCode = "body_too_large"
-	ProblemUnsupportedMediaType          ProblemCode = "unsupported_media_type"
-	ProblemMisdirectedRequest            ProblemCode = "misdirected_request"
-	ProblemResourceLimit                 ProblemCode = "resource_limit"
-	ProblemStorageUnavailable            ProblemCode = "storage_unavailable"
-	ProblemKeyringUnavailable            ProblemCode = "keyring_unavailable"
-	ProblemShuttingDown                  ProblemCode = "shutting_down"
-	ProblemInvalidServerConfiguration    ProblemCode = "invalid_server_configuration"
-	ProblemInvalidOperation              ProblemCode = "invalid_operation"
-	ProblemNamespaceUnavailable          ProblemCode = "namespace_unavailable"
-	ProblemOperationConflict             ProblemCode = "operation_conflict"
-	ProblemOAuthFlowActive               ProblemCode = "oauth_flow_active"
-	ProblemStaleCursor                   ProblemCode = "stale_cursor"
-	ProblemStaleRevision                 ProblemCode = "stale_revision"
-	ProblemPreconditionRequired          ProblemCode = "precondition_required"
-	ProblemDownstreamUnavailable         ProblemCode = "downstream_unavailable"
-	ProblemInvalidPrincipal              ProblemCode = "invalid_principal"
-	ProblemInvalidGrant                  ProblemCode = "invalid_grant"
-	ProblemStalePrincipalRevision        ProblemCode = "stale_principal_revision"
-	ProblemPrincipalPreconditionRequired ProblemCode = "principal_precondition_required"
-	ProblemAuthorizationUnavailable      ProblemCode = "authorization_unavailable"
+	ProblemMalformedRequest                 ProblemCode = "malformed_request"
+	ProblemInvalidJSON                      ProblemCode = "invalid_json"
+	ProblemInvalidCursor                    ProblemCode = "invalid_cursor"
+	ProblemInvalidIdempotencyKey            ProblemCode = "invalid_idempotency_key"
+	ProblemAmbiguousCredentials             ProblemCode = "ambiguous_credentials"
+	ProblemInvalidOAuthState                ProblemCode = "invalid_oauth_state"
+	ProblemAuthenticationRequired           ProblemCode = "authentication_required"
+	ProblemCredentialDomainMismatch         ProblemCode = "credential_domain_mismatch" //nolint:gosec // Public problem code, not a credential.
+	ProblemForbiddenOrigin                  ProblemCode = "forbidden_origin"
+	ProblemCSRFFailed                       ProblemCode = "csrf_failed"
+	ProblemNotFound                         ProblemCode = "not_found"
+	ProblemMethodNotAllowed                 ProblemCode = "method_not_allowed"
+	ProblemConflict                         ProblemCode = "conflict"
+	ProblemIdempotencyConflict              ProblemCode = "idempotency_conflict"
+	ProblemBodyTooLarge                     ProblemCode = "body_too_large"
+	ProblemUnsupportedMediaType             ProblemCode = "unsupported_media_type"
+	ProblemMisdirectedRequest               ProblemCode = "misdirected_request"
+	ProblemResourceLimit                    ProblemCode = "resource_limit"
+	ProblemStorageUnavailable               ProblemCode = "storage_unavailable"
+	ProblemKeyringUnavailable               ProblemCode = "keyring_unavailable"
+	ProblemShuttingDown                     ProblemCode = "shutting_down"
+	ProblemInvalidServerConfiguration       ProblemCode = "invalid_server_configuration"
+	ProblemInvalidOperation                 ProblemCode = "invalid_operation"
+	ProblemNamespaceUnavailable             ProblemCode = "namespace_unavailable"
+	ProblemOperationConflict                ProblemCode = "operation_conflict"
+	ProblemOAuthFlowActive                  ProblemCode = "oauth_flow_active"
+	ProblemStaleCursor                      ProblemCode = "stale_cursor"
+	ProblemStaleRevision                    ProblemCode = "stale_revision"
+	ProblemPreconditionRequired             ProblemCode = "precondition_required"
+	ProblemDownstreamUnavailable            ProblemCode = "downstream_unavailable"
+	ProblemInvalidPrincipal                 ProblemCode = "invalid_principal"
+	ProblemInvalidGrant                     ProblemCode = "invalid_grant"
+	ProblemStalePrincipalRevision           ProblemCode = "stale_principal_revision"
+	ProblemPrincipalPreconditionRequired    ProblemCode = "principal_precondition_required"
+	ProblemAuthorizationUnavailable         ProblemCode = "authorization_unavailable"
+	ProblemInvalidGrantRequest              ProblemCode = "invalid_grant_request"
+	ProblemGrantRequestConflict             ProblemCode = "grant_request_conflict"
+	ProblemStaleGrantRequestRevision        ProblemCode = "stale_grant_request_revision"
+	ProblemGrantRequestPreconditionRequired ProblemCode = "grant_request_precondition_required"
 )
 
 type Problem struct {
@@ -82,6 +86,10 @@ var problems = []Problem{
 	{Status: 412, Code: ProblemStalePrincipalRevision, Title: "The principal revision is stale."},
 	{Status: 428, Code: ProblemPrincipalPreconditionRequired, Title: "The current principal revision is required."},
 	{Status: 503, Code: ProblemAuthorizationUnavailable, Title: "Authorization is unavailable."},
+	{Status: 400, Code: ProblemInvalidGrantRequest, Title: "The grant request is invalid."},
+	{Status: 409, Code: ProblemGrantRequestConflict, Title: "The grant request conflicts with current state."},
+	{Status: 412, Code: ProblemStaleGrantRequestRevision, Title: "The grant request revision is stale."},
+	{Status: 428, Code: ProblemGrantRequestPreconditionRequired, Title: "The current grant request revision is required."},
 }
 
 func Problems() []Problem {

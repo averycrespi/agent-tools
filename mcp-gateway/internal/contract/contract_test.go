@@ -250,6 +250,7 @@ func TestSafeResourceJSONShapesAreExact(t *testing.T) {
 		"event_streams", "backup_work", "backup_records", "admin_credentials", "idempotency_records", "keyring_candidates", "keyring_work", "database_bytes",
 		"server_identities", "servers", "downstream_runtimes", "server_reconciliations", "catalog_traversals", "oauth_flows", "oauth_callback_work",
 		"s2_idempotency_records", "active_tools", "durable_tool_identities", "downstream_dispatch", "principals", "grants",
+		"grant_requests", "grant_request_evidence_bytes",
 	)
 	requireJSONKeys(t, ProblemEnvelope{Status: 400, Code: ProblemMalformedRequest, Title: "The request is invalid."}, "status", "code", "title")
 }
