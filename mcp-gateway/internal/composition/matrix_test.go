@@ -461,11 +461,11 @@ func TestProductionCompositionReplacementWithdrawsBeforeStopAndConstructsOnlyAft
 				close(replacementRelease)
 				require.Eventually(t, func() bool {
 					current, err = built.servers.GetOperation(context.Background(), operation.Operation.ID)
-					return err == nil && current.State == contract.OperationFailed && current.Reason != nil && *current.Reason == contract.ReasonStopUnconfirmed
+					return err == nil && current.State == contract.OperationFailed && current.Reason != nil && *current.Reason == contract.ReasonStopUnconfirmed &&
+						built.RuntimeStatus(server.ID).Reconciliation.InUse == 0
 				}, 2*time.Second, time.Millisecond)
 				assert.Equal(t, int64(1), starts.Load())
 				assert.Equal(t, int64(1), built.RuntimeOccupancy().InUse)
-				assert.Equal(t, int64(0), built.RuntimeStatus(server.ID).Reconciliation.InUse)
 				_, routePresent = built.ActiveCatalog().Routes().Resolve(resourceID)
 				assert.False(t, routePresent)
 			}
