@@ -18,13 +18,15 @@ import (
 type fixtureCallOutcome string
 
 const (
-	maxHTTPFixtureEvents                    = 4096
-	fixtureCallSuccess   fixtureCallOutcome = "success"
-	fixtureCallToolError fixtureCallOutcome = "tool_error"
-	fixtureCallMalformed fixtureCallOutcome = "malformed_response"
-	fixtureCallUncertain fixtureCallOutcome = "uncertain_handoff"
-	fixtureSuccessText                      = "fixture success"
-	fixtureToolErrorText                    = "fixture private tool error"
+	maxHTTPFixtureEvents                         = 4096
+	fixtureCallSuccess        fixtureCallOutcome = "success"
+	fixtureCallPrivateSuccess fixtureCallOutcome = "private_success"
+	fixtureCallToolError      fixtureCallOutcome = "tool_error"
+	fixtureCallMalformed      fixtureCallOutcome = "malformed_response"
+	fixtureCallUncertain      fixtureCallOutcome = "uncertain_handoff"
+	fixtureSuccessText                           = "fixture success"
+	fixturePrivateSuccessText                    = "e2e-private-success-result-canary"
+	fixtureToolErrorText                         = "fixture private tool error"
 )
 
 type httpFixtureEvent struct {
@@ -161,7 +163,7 @@ func (fixture *rawHTTPFixture) LoseSession() {
 
 func (fixture *rawHTTPFixture) SetCallOutcome(outcome fixtureCallOutcome) {
 	fixture.t.Helper()
-	require.Contains(fixture.t, []fixtureCallOutcome{fixtureCallSuccess, fixtureCallToolError, fixtureCallMalformed, fixtureCallUncertain}, outcome)
+	require.Contains(fixture.t, []fixtureCallOutcome{fixtureCallSuccess, fixtureCallPrivateSuccess, fixtureCallToolError, fixtureCallMalformed, fixtureCallUncertain}, outcome)
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
 	fixture.callOutcome = outcome
@@ -281,6 +283,8 @@ func (fixture *rawHTTPFixture) serveHTTP(writer http.ResponseWriter, request *ht
 		switch callOutcome {
 		case fixtureCallSuccess:
 			_, _ = io.WriteString(writer, rpcResult(envelope.ID, `{"content":[{"type":"text","text":"`+fixtureSuccessText+`"}]}`))
+		case fixtureCallPrivateSuccess:
+			_, _ = io.WriteString(writer, rpcResult(envelope.ID, `{"content":[{"type":"text","text":"`+fixturePrivateSuccessText+`"}]}`))
 		case fixtureCallToolError:
 			_, _ = io.WriteString(writer, rpcResult(envelope.ID, `{"content":[{"type":"text","text":"`+fixtureToolErrorText+`"}],"isError":true}`))
 		case fixtureCallMalformed:
