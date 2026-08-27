@@ -10,6 +10,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/grantrequests"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -100,8 +101,11 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 			_ = replacement.Close()
 		}
 	}()
-	targets, err := servers.New(replacement, options.Clock, options.Entropy)
+	targets, authority, err := newRestoreValidationOwners(replacement, options.Clock, options.Entropy)
 	if err != nil {
+		return storage.Identity{}, err
+	}
+	if err := grantrequests.ValidateStartup(ctx, replacement, authority, targets); err != nil {
 		return storage.Identity{}, err
 	}
 	if err := authorization.InvalidateStagedCredentials(ctx, replacement, targets); err != nil {
@@ -137,7 +141,7 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 	if _, err := storage.VerifyBackup(ctx, staged); err != nil {
 		return storage.Identity{}, err
 	}
-	if err := verifyReplacementAuthority(ctx, ownership, staged, options.Clock, options.Entropy); err != nil {
+	if err := verifyReplacementDomains(ctx, ownership, staged, options.Clock, options.Entropy); err != nil {
 		return storage.Identity{}, err
 	}
 	if err := injectRestoreFault(options.fault, restoreFaultBeforeInstall); err != nil {
@@ -156,7 +160,7 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 	return identity, nil
 }
 
-func verifyReplacementAuthority(
+func verifyReplacementDomains(
 	ctx context.Context,
 	ownership *gatewaypaths.Ownership,
 	staged string,
@@ -167,23 +171,34 @@ func verifyReplacementAuthority(
 	if err != nil {
 		return err
 	}
-	targets, targetsErr := servers.New(replacement, clock, entropy)
-	if targetsErr == nil {
-		var authority *authorization.Repository
-		authority, targetsErr = authorization.New(replacement, clock, entropy)
-		if targetsErr == nil {
-			targetsErr = authority.ValidateStartup(ctx, targets)
-		}
+	targets, authority, validationErr := newRestoreValidationOwners(replacement, clock, entropy)
+	if validationErr == nil {
+		validationErr = authority.ValidateStartup(ctx, targets)
+	}
+	if validationErr == nil {
+		validationErr = grantrequests.ValidateStartup(ctx, replacement, authority, targets)
 	}
 	closeErr := replacement.Close()
-	if targetsErr != nil {
-		return targetsErr
+	if validationErr != nil {
+		return validationErr
 	}
 	if closeErr != nil {
 		return closeErr
 	}
 	_, err = storage.VerifyBackup(ctx, staged)
 	return err
+}
+
+func newRestoreValidationOwners(store *storage.Store, clock admin.Clock, entropy io.Reader) (*servers.Repository, *authorization.Repository, error) {
+	targets, err := servers.New(store, clock, entropy)
+	if err != nil {
+		return nil, nil, err
+	}
+	authority, err := authorization.New(store, clock, entropy)
+	if err != nil {
+		return nil, nil, err
+	}
+	return targets, authority, nil
 }
 
 func injectRestoreFault(fault func(restoreFaultPoint) error, point restoreFaultPoint) error {

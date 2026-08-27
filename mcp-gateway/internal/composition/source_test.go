@@ -324,7 +324,7 @@ func productionSliceViolations(source productionSource) []string {
 		if strings.HasSuffix(imported, "/internal/selfservice") && source.path != "internal/composition/composition.go" {
 			violations = append(violations, fmt.Sprintf("%s: prohibited selfservice import %s", source.path, imported))
 		}
-		if strings.HasSuffix(imported, "/internal/grantrequests") && source.path != "internal/composition/composition.go" && source.path != "internal/api/grant_requests.go" && !strings.HasPrefix(source.path, "internal/selfservice/") {
+		if strings.HasSuffix(imported, "/internal/grantrequests") && source.path != "internal/composition/composition.go" && source.path != "internal/api/grant_requests.go" && source.path != "internal/backup/restore.go" && !strings.HasPrefix(source.path, "internal/selfservice/") {
 			violations = append(violations, fmt.Sprintf("%s: prohibited grantrequests import %s", source.path, imported))
 		}
 	}

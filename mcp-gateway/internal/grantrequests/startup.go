@@ -8,6 +8,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 	"github.com/gowebpki/jcs"
 )
@@ -37,9 +38,17 @@ type startupRequest struct {
 
 // ValidateStartup validates every retained request and permanent identity before readiness.
 func (repository *Repository) ValidateStartup(ctx context.Context, principals StoredPrincipalInspector, targets StoredTargetInspector) error {
-	if principals == nil || targets == nil {
+	if repository == nil {
 		return ErrInvalidState
 	}
+	return ValidateStartup(ctx, repository.store, principals, targets)
+}
+
+func ValidateStartup(ctx context.Context, store *storage.Store, principals StoredPrincipalInspector, targets StoredTargetInspector) error {
+	if store == nil || principals == nil || targets == nil {
+		return ErrInvalidState
+	}
+	repository := &Repository{store: store}
 	return repository.view(ctx, func(transaction *sql.Tx) error {
 		if err := validateRequestIdentities(ctx, transaction); err != nil {
 			return err

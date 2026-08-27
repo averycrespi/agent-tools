@@ -405,13 +405,15 @@ func installAcceptedS1BackupFixture(t *testing.T) (string, string) {
 	return root, sink.bearer
 }
 
-func TestRestoreOrchestratesAuthorizationWithoutOwningS3SQL(t *testing.T) {
+func TestRestoreOrchestratesAuthorizationAndRequestsWithoutOwningSQL(t *testing.T) {
 	source, err := os.ReadFile("restore.go")
 	require.NoError(t, err)
 	text := string(source)
 	assert.Contains(t, text, "authorization.InvalidateStagedCredentials")
 	assert.Contains(t, text, "authority.ValidateStartup")
-	for _, forbidden := range []string{"UPDATE principals", "INSERT INTO principals", "DELETE FROM grants", "UPDATE authorization_meta"} {
+	assert.Equal(t, 2, strings.Count(text, "grantrequests.ValidateStartup"))
+	assert.Less(t, strings.Index(text, "grantrequests.ValidateStartup(ctx, replacement, authority, targets)"), strings.Index(text, "authorization.InvalidateStagedCredentials"))
+	for _, forbidden := range []string{"UPDATE principals", "INSERT INTO principals", "DELETE FROM grants", "UPDATE authorization_meta", "SELECT * FROM grant_requests"} {
 		assert.False(t, strings.Contains(text, forbidden), forbidden)
 	}
 }
