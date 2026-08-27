@@ -32,6 +32,7 @@ func (repository *Repository) CancelOwned(ctx context.Context, principalID, requ
 		return contract.CancelGrantRequestResult{}, ErrInvalidInput
 	}
 	var result contract.CancelGrantRequestResult
+	mutationComplete := false
 	err := repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
 		_, request, scanErr := scanAgentRequest(transaction.QueryRowContext(ctx, agentRequestSelect+` WHERE principal_id = ? AND id = ?`, principalID, requestID))
 		if errors.Is(scanErr, sql.ErrNoRows) {
@@ -71,9 +72,13 @@ func (repository *Repository) CancelOwned(ctx context.Context, principalID, requ
 			return ErrInvalidState
 		}
 		result = contract.CancelGrantRequestResult{Outcome: contract.RequestCancellationCancelled, Request: &transitioned}
+		mutationComplete = true
 		return nil
 	})
 	if err != nil {
+		if mutationComplete {
+			return contract.CancelGrantRequestResult{}, ErrStorageOutcomeUncertain
+		}
 		var outcome *cancellationOutcomeError
 		if errors.As(err, &outcome) {
 			return outcome.result, nil

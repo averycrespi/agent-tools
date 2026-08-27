@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -27,6 +28,34 @@ func TestS5LocalTargetPinsSyntheticCatalogEvidenceAndValidation(t *testing.T) {
 	assert.Equal(t, synthetic.Descriptor.Fingerprint, target.evidence.DescriptorFingerprint)
 	assert.NoError(t, target.validate(callParams(`{}`)))
 	assert.Error(t, target.validate(callParams(`{"unexpected":true}`)))
+}
+
+func TestS5SelfServiceSupplementaryValidationRunsBeforeAdmissionAndHandler(t *testing.T) {
+	_, audits, authority, _, credential := newAdmissionCoordinator(t, nil)
+	lease, err := authority.Authenticate(context.Background(), credential.Bearer)
+	require.NoError(t, err)
+	defer lease.Release()
+	synthetic, found := catalog.ResolveSyntheticCall("mcp_gateway.get_identity")
+	require.True(t, found)
+	validations, executions := 0, 0
+	local, err := NewLocalTargetWithValidation(synthetic, func(strictjson.Value) error {
+		validations++
+		return errors.New("cross-field rejection")
+	}, func(context.Context, authorization.AdmittedSubject, strictjson.Value) LocalCallResult {
+		executions++
+		return LocalSuccess(json.RawMessage(`{"content":[]}`))
+	})
+	require.NoError(t, err)
+	service, err := newService(audits, authority, func(string) (callTarget, bool) {
+		return callTarget{evidence: local.evidence, validate: local.validate, local: local.handle}, true
+	})
+	require.NoError(t, err)
+	response := service.Call(context.Background(), lease, CallRequest{Params: callParams(`{"name":"mcp_gateway.get_identity","arguments":{}}`), WireValid: true})
+	assert.Equal(t, contract.CallRejected, response.ErrorCode)
+	assert.Equal(t, 1, validations)
+	assert.Zero(t, executions)
+	record := onlyInvocationRecord(t, audits)
+	assert.Equal(t, contract.AdmissionInvalidArguments, record.AdmissionClass)
 }
 
 func TestS5LocalInvocationRunsOnceAfterAuditWithMinimalAdmittedSubject(t *testing.T) {

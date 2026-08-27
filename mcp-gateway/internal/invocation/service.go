@@ -37,7 +37,18 @@ type LocalTarget struct {
 
 type LocalResolver func(string) (LocalTarget, bool)
 
+func (target LocalTarget) Validate(arguments strictjson.Value) error {
+	if target.validate == nil {
+		return errors.New("local invocation target is invalid")
+	}
+	return target.validate(arguments)
+}
+
 func NewLocalTarget(target catalog.SyntheticCallTarget, handler LocalHandler) (LocalTarget, error) {
+	return NewLocalTargetWithValidation(target, nil, handler)
+}
+
+func NewLocalTargetWithValidation(target catalog.SyntheticCallTarget, additional func(strictjson.Value) error, handler LocalHandler) (LocalTarget, error) {
 	descriptor := target.Descriptor
 	evidence := RouteEvidence{
 		ServerID: descriptor.ServerID, ToolID: descriptor.ID, UpstreamName: descriptor.UpstreamName,
@@ -46,7 +57,16 @@ func NewLocalTarget(target catalog.SyntheticCallTarget, handler LocalHandler) (L
 	if descriptor.ServerID != contract.SyntheticServerID || target.Validator == nil || handler == nil || !validRouteEvidence(&evidence) {
 		return LocalTarget{}, errors.New("local invocation target is invalid")
 	}
-	return LocalTarget{evidence: evidence, validate: target.Validator.Validate, handle: handler}, nil
+	validate := target.Validator.Validate
+	if additional != nil {
+		validate = func(arguments strictjson.Value) error {
+			if err := target.Validator.Validate(arguments); err != nil {
+				return err
+			}
+			return additional(arguments)
+		}
+	}
+	return LocalTarget{evidence: evidence, validate: validate, handle: handler}, nil
 }
 
 type callTarget struct {

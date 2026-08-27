@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -16,15 +17,16 @@ import (
 )
 
 var (
-	ErrNotFound            = errors.New("grant request was not found")
-	ErrInvalidInput        = errors.New("grant request input is invalid")
-	ErrIdentityUnavailable = errors.New("grant request identity is unavailable")
-	ErrResourceLimit       = errors.New("grant request resource limit is reached")
-	ErrInvalidState        = errors.New("grant request durable state is invalid")
-	ErrStaleRevision       = errors.New("grant request revision is stale")
-	ErrConflict            = errors.New("grant request conflicts with current state")
-	ErrStaleCursor         = errors.New("grant request cursor is stale")
-	ErrStorageUnavailable  = errors.New("grant request storage is unavailable")
+	ErrNotFound                = errors.New("grant request was not found")
+	ErrInvalidInput            = errors.New("grant request input is invalid")
+	ErrIdentityUnavailable     = errors.New("grant request identity is unavailable")
+	ErrResourceLimit           = errors.New("grant request resource limit is reached")
+	ErrInvalidState            = errors.New("grant request durable state is invalid")
+	ErrStaleRevision           = errors.New("grant request revision is stale")
+	ErrConflict                = errors.New("grant request conflicts with current state")
+	ErrStaleCursor             = errors.New("grant request cursor is stale")
+	ErrStorageUnavailable      = errors.New("grant request storage is unavailable")
+	ErrStorageOutcomeUncertain = fmt.Errorf("%w: mutation outcome is uncertain", ErrStorageUnavailable)
 )
 
 type Clock interface {

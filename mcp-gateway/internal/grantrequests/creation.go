@@ -47,6 +47,7 @@ func (repository *Repository) CreateOrExisting(ctx context.Context, request Crea
 		return contract.CreateGrantRequestResult{}, err
 	}
 	var created contract.CreateGrantRequestResult
+	mutationComplete := false
 	err = repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
 		resolvedNamespace, lookupErr := repository.namespaces.LookupNamespaceTargetTx(ctx, transaction, target.namespace)
 		if lookupErr != nil {
@@ -141,9 +142,13 @@ func (repository *Repository) CreateOrExisting(ctx context.Context, request Crea
 			CreatedAt: timestamp, UpdatedAt: timestamp,
 		}
 		created = contract.CreateGrantRequestResult{Outcome: contract.RequestCreated, Request: &resource}
+		mutationComplete = true
 		return nil
 	})
 	if err != nil {
+		if mutationComplete {
+			return contract.CreateGrantRequestResult{}, ErrStorageOutcomeUncertain
+		}
 		if errors.Is(err, storage.ErrStorageLatched) || errors.Is(err, storage.ErrMutationBusy) || repository.store.Latched() {
 			return contract.CreateGrantRequestResult{}, ErrStorageUnavailable
 		}

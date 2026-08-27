@@ -1,4 +1,4 @@
-// Package selfservice owns the fixed synthetic catalog, agent projections, protected cursors, and local handlers.
+// Package selfservice owns agent projections, protected cursors, and local handlers.
 package selfservice
 
 import (

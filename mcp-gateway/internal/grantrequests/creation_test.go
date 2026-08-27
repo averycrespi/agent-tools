@@ -254,6 +254,7 @@ func TestS5RequestCreatePostCommitUncertaintyReturnsUnavailableWithoutInvalidati
 	}}
 	_, err = repository.CreateOrExisting(context.Background(), request)
 	require.ErrorIs(t, err, ErrStorageUnavailable)
+	require.ErrorIs(t, err, ErrStorageOutcomeUncertain)
 	assert.True(t, store.Latched())
 	assert.Zero(t, invalidations)
 	require.NoError(t, store.Close())

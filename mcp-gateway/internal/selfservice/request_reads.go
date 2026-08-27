@@ -77,6 +77,9 @@ func (service *RequestReadService) ListRequests(
 		cursor = &decoded
 	}
 	page, err := service.reader.ListOwned(ctx, subject.PrincipalID(), input.State, cursor, int(mustSelfServiceLimit("agent_self_service_list_page")))
+	if errors.Is(err, grantrequests.ErrStaleCursor) {
+		return closedCursorResult(contract.CursorStale), nil
+	}
 	if err != nil {
 		return contract.ListGrantRequestsResult{}, err
 	}

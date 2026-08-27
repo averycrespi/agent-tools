@@ -152,18 +152,27 @@ func (codec *CursorCodec) encode(state cursorState) (string, error) {
 	return encoded, nil
 }
 
-func (codec *CursorCodec) decode(value string, expectedMethod, expectedFilter byte, subject authorization.AdmittedSubject) (cursorState, contract.CursorOutcome, error) {
-	if codec == nil {
-		return cursorState{}, "", ErrInvalidCursorState
-	}
+func ValidateCursorSyntax(value string) error {
 	if value == "" || int64(len(value)) > cursorMaximumBytes || !strings.HasPrefix(value, cursorPrefix) {
-		return cursorState{}, "", ErrMalformedCursor
+		return ErrMalformedCursor
 	}
 	encoded := strings.TrimPrefix(value, cursorPrefix)
 	frame, err := base64.RawURLEncoding.DecodeString(encoded)
 	if err != nil || len(frame) != cursorFrameBytes || base64.RawURLEncoding.EncodeToString(frame) != encoded {
-		return cursorState{}, "", ErrMalformedCursor
+		return ErrMalformedCursor
 	}
+	return nil
+}
+
+func (codec *CursorCodec) decode(value string, expectedMethod, expectedFilter byte, subject authorization.AdmittedSubject) (cursorState, contract.CursorOutcome, error) {
+	if codec == nil {
+		return cursorState{}, "", ErrInvalidCursorState
+	}
+	if err := ValidateCursorSyntax(value); err != nil {
+		return cursorState{}, "", err
+	}
+	encoded := strings.TrimPrefix(value, cursorPrefix)
+	frame, _ := base64.RawURLEncoding.DecodeString(encoded)
 	method := frame[offsetCursorMethod]
 	if method != cursorMethodRequests && method != cursorMethodGrants {
 		return cursorState{}, contract.CursorInvalid, nil

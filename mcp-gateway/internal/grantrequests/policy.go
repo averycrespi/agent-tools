@@ -41,6 +41,15 @@ type CompiledPolicy struct {
 	durationSecondsValid bool
 }
 
+func ValidateRequestPolicy(input contract.Policy) error {
+	compiled, err := CompilePolicy(input)
+	if err != nil {
+		return err
+	}
+	_, err = normalizePolicyTarget(compiled)
+	return err
+}
+
 func CompilePolicy(input contract.Policy) (CompiledPolicy, error) {
 	if !utf8.ValidString(input.Target) || len(input.Target) < 1 || int64(len(input.Target)) > fixedLimit("grant_request_target_bytes") {
 		return CompiledPolicy{}, ErrInvalidPolicy

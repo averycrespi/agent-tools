@@ -136,6 +136,43 @@ func TestToolsCallCodecEmitsExactSharedSuccessForBothEras(t *testing.T) {
 	}
 }
 
+func TestS5SelfServiceDualEraResultsPreserveAllFixedSummariesAndStructuredContent(t *testing.T) {
+	tests := []struct {
+		name, summary, structured string
+	}{
+		{"get_identity", contract.SummaryIdentityReturned, `{"identity":{"id":"01J60000000000000000000001"}}`},
+		{"list_grants", contract.SummaryGrantsReturned, `{"outcome":"ok","items":[],"next_cursor":null}`},
+		{"create_grant_request", contract.SummaryGrantRequestProcessed, `{"outcome":"deny_conflict","request":null}`},
+		{"get_grant_request", contract.SummaryGrantRequestReturned, `{"outcome":"not_found","request":null}`},
+		{"list_grant_requests", contract.SummaryGrantRequestsReturned, `{"outcome":"invalid_cursor","items":[],"next_cursor":null}`},
+		{"cancel_grant_request", contract.SummaryGrantRequestCancellationProcessed, `{"outcome":"not_found","request":null}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := toolsCallServiceFunc(func(context.Context, *authorization.Lease, ToolsCallRequest) ToolsCallResponse {
+				return ToolsCallResponse{Result: &ToolsCallResult{
+					Content:           []json.RawMessage{json.RawMessage(`{"type":"text","text":"` + test.summary + `"}`)},
+					StructuredContent: json.RawMessage(test.structured),
+				}}
+			})
+			wire := decodeCallWire(t, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mcp_gateway.`+test.name+`","arguments":{}}}`)
+			for _, era := range []requestEra{eraModern, eraLegacyExisting} {
+				response := httptest.NewRecorder()
+				request := httptest.NewRequest("POST", "/mcp", nil)
+				assert.True(t, interceptFeatureWithCall(response, request, wire, era, nil, service, nil))
+				assert.Equal(t, 200, response.Code)
+				var envelope struct {
+					Result ToolsCallResult `json:"result"`
+				}
+				require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+				require.Len(t, envelope.Result.Content, 1)
+				assert.JSONEq(t, `{"type":"text","text":"`+test.summary+`"}`, string(envelope.Result.Content[0]))
+				assert.JSONEq(t, test.structured, string(envelope.Result.StructuredContent))
+			}
+		})
+	}
+}
+
 func TestToolsCallCodecEmitsOnlyClosedSafeErrors(t *testing.T) {
 	tests := []struct {
 		code       contract.AgentCallErrorCode
