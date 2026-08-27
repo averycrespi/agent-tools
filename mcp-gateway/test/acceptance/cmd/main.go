@@ -6,33 +6,76 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
 	"github.com/averycrespi/agent-tools/mcp-gateway/test/acceptance"
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() (exitCode int) {
 	profileName := flag.String("profile", string(acceptance.ProfileS21), "closed acceptance profile")
 	flag.Parse()
 	root, err := repositoryRoot()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "resolve repository root")
-		os.Exit(1)
+		return 1
 	}
-	report := acceptance.RunProfile(context.Background(), root, acceptance.OSExecutor{}, acceptance.Profile(*profileName), false)
+	ledgerRoot, err := os.MkdirTemp("", "mcp-gateway-acceptance-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "create acceptance cleanup root")
+		return 1
+	}
+	defer func() {
+		if err := os.RemoveAll(ledgerRoot); err != nil {
+			fmt.Fprintln(os.Stderr, "remove acceptance cleanup root")
+			exitCode = 1
+		}
+	}()
+	ledger, err := testutil.NewCleanupLedger(ledgerRoot)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "initialize acceptance cleanup ledger")
+		return 1
+	}
+	if err := os.Setenv(testutil.CleanupLedgerEnvironment, ledger.Path()); err != nil {
+		fmt.Fprintln(os.Stderr, "publish acceptance cleanup ledger")
+		return 1
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if readyPath := os.Getenv("MCP_GATEWAY_ACCEPTANCE_SIGNAL_READY"); readyPath != "" {
+		if err := os.WriteFile(readyPath, []byte("ready\n"), 0o600); err != nil { //nolint:gosec // Test-only signal fixture path is explicitly supplied by the caller.
+			fmt.Fprintln(os.Stderr, "publish acceptance signal readiness")
+			return 1
+		}
+	}
+	if os.Getenv("MCP_GATEWAY_ACCEPTANCE_WAIT_FOR_SIGNAL") == "1" {
+		<-ctx.Done()
+	}
+	report := acceptance.RunProfile(ctx, root, acceptance.OSExecutor{}, acceptance.Profile(*profileName), false)
+	if err := ledger.Cleanup(); err != nil {
+		report.Result = acceptance.ResultFailed
+		report.Reason = "process_cleanup_failed"
+	}
 	contents, err := json.Marshal(report)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "encode acceptance report")
-		os.Exit(1)
+		return 1
 	}
 	if _, err := acceptance.Parse(contents); err != nil {
 		fmt.Fprintln(os.Stderr, "validate acceptance report")
-		os.Exit(1)
+		return 1
 	}
 	fmt.Println(string(contents))
 	if report.Result != acceptance.ResultPassed {
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func repositoryRoot() (string, error) {

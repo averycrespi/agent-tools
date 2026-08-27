@@ -15,6 +15,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
 	"github.com/averycrespi/agent-tools/mcp-gateway/test/keyringnative"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
@@ -70,18 +71,21 @@ type Executor interface {
 type OSExecutor struct{}
 
 func (OSExecutor) Run(ctx context.Context, root string, command Command) ([]byte, error) {
-	process := exec.CommandContext(ctx, command.Name, command.Arguments...) //nolint:gosec // Commands come only from the closed acceptance table.
-	process.Dir = root
-	process.Stderr = os.Stderr
-	if command.Native {
-		var stdout bytes.Buffer
-		process.Stdout = &stdout
-		err := process.Run()
-		_, _ = os.Stderr.Write(stdout.Bytes())
-		return stdout.Bytes(), err
+	runner, err := testutil.NewBinaryRunner(19*time.Minute, 4*1024*1024)
+	if err != nil {
+		return nil, err
 	}
-	process.Stdout = os.Stderr
-	return nil, process.Run()
+	result, runErr := runner.RunInDir(ctx, root, command.Name, command.Arguments...)
+	_, _ = os.Stderr.Write(result.Stdout)
+	_, _ = os.Stderr.Write(result.Stderr)
+	cleanupErr := testutil.CleanupInheritedProcesses()
+	if result.StdoutTruncated || result.StderrTruncated {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("acceptance command output exceeded its bound"))
+	}
+	if command.Native {
+		return result.Stdout, errors.Join(runErr, cleanupErr)
+	}
+	return nil, errors.Join(runErr, cleanupErr)
 }
 
 //go:embed report.schema.json

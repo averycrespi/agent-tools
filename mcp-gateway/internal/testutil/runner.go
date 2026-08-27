@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -49,7 +50,11 @@ func NewBinaryRunner(timeout time.Duration, maxOutputBytes int) (*BinaryRunner, 
 }
 
 func (runner *BinaryRunner) Run(ctx context.Context, binary string, args ...string) (ProcessResult, error) {
-	process, err := runner.Start(ctx, binary, args...)
+	return runner.RunInDir(ctx, "", binary, args...)
+}
+
+func (runner *BinaryRunner) RunInDir(ctx context.Context, directory, binary string, args ...string) (ProcessResult, error) {
+	process, err := runner.start(ctx, directory, binary, args...)
 	if err != nil {
 		return ProcessResult{ExitCode: -1}, err
 	}
@@ -57,8 +62,13 @@ func (runner *BinaryRunner) Run(ctx context.Context, binary string, args ...stri
 }
 
 func (runner *BinaryRunner) Start(ctx context.Context, binary string, args ...string) (*RunningProcess, error) {
+	return runner.start(ctx, "", binary, args...)
+}
+
+func (runner *BinaryRunner) start(ctx context.Context, directory, binary string, args ...string) (*RunningProcess, error) {
 	runContext, cancel := context.WithTimeout(ctx, runner.timeout)
 	command := exec.Command(binary, args...) //nolint:gosec // Test harness intentionally executes the caller-selected binary.
+	command.Dir = directory
 	configureTestProcessGroup(command)
 	process := &RunningProcess{
 		command: command, cancel: cancel,
@@ -77,6 +87,23 @@ func (runner *BinaryRunner) Start(ctx context.Context, binary string, args ...st
 		cancel()
 		return nil, fmt.Errorf("capture owned process group: process %d is not its group leader", command.Process.Pid)
 	}
+	ledger, err := cleanupLedgerFromEnvironment()
+	if err != nil {
+		_ = signalTestProcessGroup(groupID, syscall.SIGKILL)
+		_ = command.Wait()
+		cancel()
+		return nil, err
+	}
+	var registration *cleanupRegistration
+	if ledger != nil {
+		registration, err = ledger.register(command.Process.Pid, groupID)
+		if err != nil {
+			_ = signalTestProcessGroup(groupID, syscall.SIGKILL)
+			_ = command.Wait()
+			cancel()
+			return nil, err
+		}
+	}
 	exited := make(chan processExit, 1)
 	go func() { exited <- processExit{err: command.Wait()} }()
 	go func() {
@@ -88,6 +115,7 @@ func (runner *BinaryRunner) Start(ctx context.Context, binary string, args ...st
 		}
 		process.err = runErr
 		process.mu.Unlock()
+		registration.settle()
 		cancel()
 		close(process.done)
 	}()

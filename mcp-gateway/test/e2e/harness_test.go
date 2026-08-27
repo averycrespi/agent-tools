@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"testing"
 	"time"
 
@@ -60,7 +61,11 @@ type gatewayHarness struct {
 
 func newGatewayHarness(t *testing.T) *gatewayHarness {
 	t.Helper()
-	ctx := context.Background()
+	return newGatewayHarnessContext(t, context.Background())
+}
+
+func newGatewayHarnessContext(t *testing.T, ctx context.Context) *gatewayHarness {
+	t.Helper()
 	runner, err := testutil.NewBinaryRunner(20*time.Second, 128*1024)
 	require.NoError(t, err)
 	harness := &gatewayHarness{
@@ -80,7 +85,7 @@ func newGatewayHarness(t *testing.T) *gatewayHarness {
 		if harness.process == nil {
 			return
 		}
-		_ = harness.process.Signal(os.Kill)
+		_ = harness.process.Signal(syscall.SIGTERM)
 		_, _ = harness.process.Wait()
 		harness.process = nil
 	})
@@ -95,7 +100,7 @@ func (harness *gatewayHarness) Start() {
 	select {
 	case <-process.StdoutReady():
 	case <-time.After(5 * time.Second):
-		_ = process.Signal(os.Kill)
+		_ = process.Stop()
 		result, waitErr := process.Wait()
 		harness.t.Fatalf("Gateway did not publish its startup result: wait=%v stderr=%s", waitErr, result.Stderr)
 	}
