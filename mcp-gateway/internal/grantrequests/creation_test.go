@@ -225,7 +225,7 @@ func TestS5RequestCreateReturnsClosedTargetDenyAndValidationOutcomes(t *testing.
 	require.ErrorIs(t, err, ErrInvalidInput)
 }
 
-func TestS5RequestCreatePostCommitUncertaintyReturnsUnavailableWithoutInvalidation(t *testing.T) {
+func TestS5DrainCreatePostCommitUncertaintyReturnsUnavailableWithoutInvalidation(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))
 	ownership, err := gatewaypaths.Acquire(root)
@@ -275,6 +275,67 @@ func TestS5RequestCreatePostCommitUncertaintyReturnsUnavailableWithoutInvalidati
 	result, err := repository.CreateOrExisting(context.Background(), request)
 	require.NoError(t, err)
 	assert.Equal(t, contract.RequestExisting, result.Outcome)
+	assert.Zero(t, invalidations)
+	require.NoError(t, store.Close())
+	require.NoError(t, ownership.Close())
+}
+
+func TestS5DrainCancellationPostCommitUncertaintyHasNoLateInvalidationOrReplay(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "gateway")
+	require.NoError(t, os.Mkdir(root, 0o700))
+	ownership, err := gatewaypaths.Acquire(root)
+	require.NoError(t, err)
+	armed, faulted := false, false
+	store, err := storage.InitializeWithFaultInjection(context.Background(), ownership, requestTestInstallationID, func(point storage.FaultPoint) error {
+		if point == storage.FaultAfterCommit && armed && !faulted {
+			faulted = true
+			return assert.AnError
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	namespaces := &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
+		"sample": {ID: requestID(400), Namespace: "sample", State: contract.DesiredServerDisabled},
+	}}
+	invalidations := 0
+	repository, err := New(Options{
+		Store: store, Clock: &countingRequestClock{now: requestTestTime.Add(time.Second)}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x66}, 10)),
+		Namespaces: namespaces, Descriptors: &fakeDescriptorInspector{}, Denies: new(fakeDenyInspector),
+		Invalidate: func(contract.Invalidation) { invalidations++ },
+	})
+	require.NoError(t, err)
+	created, err := repository.CreateOrExisting(context.Background(), CreateRequest{PrincipalID: requestID(200), Policy: contract.Policy{
+		Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true,
+	}})
+	require.NoError(t, err)
+	invalidations = 0
+	armed = true
+	_, err = repository.CancelOwned(context.Background(), requestID(200), created.Request.ID)
+	require.ErrorIs(t, err, ErrStorageOutcomeUncertain)
+	assert.True(t, store.Latched())
+	assert.Zero(t, invalidations)
+	require.NoError(t, store.Close())
+	require.NoError(t, ownership.Close())
+	_, err = storage.VerifyCurrent(context.Background(), root)
+	require.NoError(t, err)
+
+	ownership, err = gatewaypaths.Acquire(root)
+	require.NoError(t, err)
+	store, err = storage.Open(context.Background(), ownership)
+	require.NoError(t, err)
+	repository, err = New(Options{
+		Store: store, Clock: &countingRequestClock{now: requestTestTime.Add(2 * time.Second)}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x77}, 10)),
+		Namespaces: namespaces, Descriptors: &fakeDescriptorInspector{}, Denies: new(fakeDenyInspector),
+		Invalidate: func(contract.Invalidation) { invalidations++ },
+	})
+	require.NoError(t, err)
+	recovered, found, err := repository.GetOwned(context.Background(), requestID(200), created.Request.ID)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, contract.RequestCancelled, recovered.State)
+	repeated, err := repository.CancelOwned(context.Background(), requestID(200), created.Request.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.RequestCancellationAlreadyCancelled, repeated.Outcome)
 	assert.Zero(t, invalidations)
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.Close())

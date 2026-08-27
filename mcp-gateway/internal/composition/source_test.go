@@ -124,6 +124,23 @@ func TestS5RootUsesOneAtomicCompositionForControlAndAgentIngress(t *testing.T) {
 	}
 }
 
+func TestS5DrainRootKeepsEventsAndStorageUntilCompositionSettles(t *testing.T) {
+	root := gatewayModuleRoot(t)
+	rootSource := readProductionSource(t, root, "cmd/mcp-gateway/root.go")
+	compositionSource := readProductionSource(t, root, "internal/composition/composition.go")
+	branch := strings.Index(rootSource, "runtimeDrain := runtime.Drain(shutdownCtx)")
+	joined := strings.Index(rootSource, "case result := <-runtimeDrain:")
+	eventsClosed := strings.LastIndex(rootSource, "eventHub.Shutdown()")
+	unconfirmed := strings.Index(rootSource, "if !runtimeClean {")
+	storageClosed := strings.Index(rootSource, "if err := store.Close(); err != nil")
+	assert.True(t, branch >= 0 && branch < joined && joined < eventsClosed && eventsClosed < storageClosed,
+		"cmd/mcp-gateway/root.go: events and storage must remain open until the composition drain settles")
+	assert.True(t, joined < unconfirmed && unconfirmed < storageClosed,
+		"cmd/mcp-gateway/root.go: an unconfirmed drain must return before explicit storage closure")
+	assert.Contains(t, compositionSource, "built.manager.Drain(context.Background())")
+	assert.Contains(t, compositionSource, "ctx := context.Background()")
+}
+
 func TestProductionPersistenceAndCapabilitySliceGuards(t *testing.T) {
 	root := gatewayModuleRoot(t)
 	prohibitedColumn := regexp.MustCompile(`(?i)\b(runtime_id|process_id|pid|session_id|access_token|refresh_token|client_secret)\b`)

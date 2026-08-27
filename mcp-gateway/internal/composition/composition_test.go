@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/discovery"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/grantrequests"
@@ -24,6 +25,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -280,6 +282,75 @@ func TestDiscoveryCursorEntropyFailureStopsConstruction(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, built)
 	assert.ErrorContains(t, err, "construct discovery_cursor")
+}
+
+func TestS5DrainWaitsForDetachedLocalCallThroughTerminalAnnotation(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	built, err := New(options)
+	require.NoError(t, err)
+	defer built.shutdownConstructed()
+
+	principal, err := built.authorization.CreatePrincipal(t.Context(), authorization.CreatePrincipalRequest{DisplayName: "drain principal", Visibility: contract.VisibilityAll})
+	require.NoError(t, err)
+	credential, err := built.authorization.IssueCredential(t.Context(), principal.Principal.ID, principal.Principal.Revision)
+	require.NoError(t, err)
+	lease, err := built.authorization.Authenticate(t.Context(), credential.Bearer)
+	require.NoError(t, err)
+	defer lease.Release()
+
+	synthetic, found := catalog.ResolveSyntheticCall("mcp_gateway.get_identity")
+	require.True(t, found)
+	handlerEntered := make(chan struct{})
+	releaseHandler := make(chan struct{})
+	target, err := invocation.NewLocalTarget(synthetic, func(context.Context, authorization.AdmittedSubject, strictjson.Value) invocation.LocalCallResult {
+		close(handlerEntered)
+		<-releaseHandler
+		return invocation.LocalSuccess(json.RawMessage(`{"content":[],"structuredContent":{"ok":true}}`))
+	})
+	require.NoError(t, err)
+	service, err := invocation.NewServiceWithLocal(built.invocationRepository, built.authorization, built.activeCatalog.Routes(), func(name string) (invocation.LocalTarget, bool) {
+		return target, name == "mcp_gateway.get_identity"
+	})
+	require.NoError(t, err)
+	built.invocationService = service
+	built.callTools.service = service
+
+	params := strictjson.Value{Type: strictjson.ValueObject, Object: []strictjson.Member{
+		{Name: "name", Value: strictjson.Value{Type: strictjson.ValueString, String: "mcp_gateway.get_identity"}},
+		{Name: "arguments", Value: strictjson.Value{Type: strictjson.ValueObject}},
+	}}
+	response := make(chan mcpingress.ToolsCallResponse, 1)
+	go func() {
+		response <- built.callTools.Call(context.Background(), lease, mcpingress.ToolsCallRequest{Params: params, WireValid: true})
+	}()
+	<-handlerEntered
+
+	deadline, cancel := context.WithCancel(context.Background())
+	firstDrain := built.Drain(deadline)
+	cancel()
+	assert.Equal(t, runtimes.DrainResult{Unconfirmed: 1}, <-firstDrain)
+	rejected := built.callTools.Call(context.Background(), lease, mcpingress.ToolsCallRequest{Params: params, WireValid: true})
+	assert.Equal(t, contract.AuditUnavailable, rejected.ErrorCode)
+
+	joined := built.Drain(context.Background())
+	select {
+	case <-joined:
+		t.Fatal("drain completed before the detached local handler settled")
+	default:
+	}
+	close(releaseHandler)
+	call := <-response
+	require.NotNil(t, call.Result)
+	assert.Equal(t, runtimes.DrainResult{}, <-joined)
+	count, err := built.invocationRepository.Count(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), count)
+	var terminal string
+	require.NoError(t, options.Store.View(t.Context(), func(transaction *sql.Tx) error {
+		return transaction.QueryRowContext(t.Context(), `SELECT terminal_class FROM invocations`).Scan(&terminal)
+	}))
+	assert.Equal(t, string(contract.TerminalSucceeded), terminal)
 }
 
 func TestDrainSynchronouslyFencesAuthorizationAndDiscoveryBeforeGateQuiescence(t *testing.T) {

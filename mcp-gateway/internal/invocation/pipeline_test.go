@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPipelineFenceCountsWithoutQueueingAndDrains(t *testing.T) {
+func TestS5DrainPipelineFenceCountsWithoutQueueingAndJoinsAfterDeadline(t *testing.T) {
 	fence := NewPipelineFence()
 	firstRelease, ok := fence.TryEnter()
 	require.True(t, ok)
@@ -43,4 +43,6 @@ func TestPipelineFenceHonorsCanceledDrainContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	assert.ErrorIs(t, fence.Drain(ctx), context.Canceled)
+	release()
+	assert.NoError(t, fence.Drain(context.Background()))
 }

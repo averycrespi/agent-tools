@@ -120,6 +120,15 @@ func TestS5SelfServiceCursorOutcomesAndStorageCertaintyAreClosed(t *testing.T) {
 	assert.NotEqual(t, contract.OutcomeUnknown, uncertain.ErrorCode)
 }
 
+func TestS5DrainSelfServiceReportsPostCommitUncertaintyWithoutTerminalReplay(t *testing.T) {
+	service, _, requests, subject := newHandlerService(t)
+	requests.createErr = grantrequests.ErrStorageOutcomeUncertain
+	result := invocation.SanitizeLocalCallResult(service.handleCreateGrantRequest(context.Background(), subject, handlerArguments(`{"policy":{"scope":"tool","target":"sample.echo","constraint":null,"duration_seconds":null,"future_tools_acknowledged":false}}`)))
+	assert.Equal(t, contract.ToolUnavailable, result.ErrorCode)
+	assert.Empty(t, result.TerminalClass)
+	assert.NotEqual(t, contract.OutcomeUnknown, result.ErrorCode)
+}
+
 type fakeHandlerProjections struct {
 	identity contract.SelfIdentity
 	grants   authorization.SelfGrantPage

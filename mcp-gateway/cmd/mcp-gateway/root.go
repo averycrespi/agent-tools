@@ -316,7 +316,6 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), contract.GracefulShutdownDeadline)
 		defer cancel()
 		runtimeDrain := runtime.Drain(shutdownCtx)
-		eventHub.Shutdown()
 		ingress.Shutdown()
 		sessions.Shutdown()
 		if err := server.Shutdown(shutdownCtx); err != nil {
@@ -331,6 +330,14 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		if err := <-serveDone; err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return true, err
 		}
+		if !runtimeClean {
+			drainErr := shutdownCtx.Err()
+			if drainErr == nil {
+				drainErr = errors.New("production composition drain remained unconfirmed")
+			}
+			return true, fmt.Errorf("production composition drain: %w", drainErr)
+		}
+		eventHub.Shutdown()
 	}
 	if err := store.Close(); err != nil {
 		return true, err

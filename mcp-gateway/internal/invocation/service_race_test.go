@@ -70,7 +70,7 @@ func TestServiceAdmissionCommitExcludesCredentialAndPolicyMutationUntilDispatch(
 	require.NoError(t, err, "credential mutation must proceed after invocation admission and dispatch release the gate")
 }
 
-func TestServiceDrainAfterDetachmentDoesNotUndoCommittedAllow(t *testing.T) {
+func TestS5DrainAfterDetachmentDoesNotUndoCommittedAllow(t *testing.T) {
 	_, audits, authority, _, credential := newAdmissionCoordinator(t, nil)
 	lease, err := authority.Authenticate(context.Background(), credential.Bearer)
 	require.NoError(t, err)
@@ -98,7 +98,7 @@ func TestServiceDrainAfterDetachmentDoesNotUndoCommittedAllow(t *testing.T) {
 	require.NoError(t, authority.Drain(drainCtx))
 }
 
-func TestServiceDrainBetweenCommitAndDetachmentNeverAcquiresCapability(t *testing.T) {
+func TestS5DrainBetweenCommitAndDetachmentNeverAcquiresCapability(t *testing.T) {
 	committed := make(chan struct{})
 	releaseCommit := make(chan struct{})
 	var blockCommit atomic.Bool

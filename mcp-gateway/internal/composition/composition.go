@@ -783,7 +783,7 @@ func (built *Composition) Drain(ctx context.Context) <-chan runtimes.DrainResult
 	done := built.drainDone
 	built.drainMu.Unlock()
 	if begin {
-		built.beginDrain(ctx)
+		built.beginDrain()
 		close(fenced)
 	} else {
 		<-fenced
@@ -802,7 +802,7 @@ func (built *Composition) Drain(ctx context.Context) <-chan runtimes.DrainResult
 	return result
 }
 
-func (built *Composition) beginDrain(ctx context.Context) {
+func (built *Composition) beginDrain() {
 	built.accepting.Store(false)
 	if built.invocationPipelines != nil {
 		built.invocationPipelines.BeginDrain()
@@ -831,12 +831,13 @@ func (built *Composition) beginDrain(ctx context.Context) {
 	}
 	var managerDone <-chan runtimes.DrainResult
 	if built.manager != nil {
-		managerDone = built.manager.Drain(ctx)
+		managerDone = built.manager.Drain(context.Background())
 	}
-	go built.awaitDrain(ctx, ownedBefore, managerDone)
+	go built.awaitDrain(ownedBefore, managerDone)
 }
 
-func (built *Composition) awaitDrain(ctx context.Context, ownedBefore int64, managerDone <-chan runtimes.DrainResult) {
+func (built *Composition) awaitDrain(ownedBefore int64, managerDone <-chan runtimes.DrainResult) {
+	ctx := context.Background()
 	waits := make(chan bool, 7)
 	waitCount := 0
 	for _, wait := range []func(context.Context) bool{
