@@ -324,9 +324,26 @@ func newRequestRepository(t *testing.T, options requestRepositoryOptions) (*Repo
 	require.NoError(t, err)
 	store, err := storage.Initialize(context.Background(), ownership, requestTestInstallationID)
 	require.NoError(t, err)
+	if options.clock == nil {
+		options.clock = &countingRequestClock{now: requestTestTime}
+	}
+	if options.namespaces == nil {
+		options.namespaces = &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{}}
+	}
+	if options.descriptors == nil {
+		options.descriptors = &fakeDescriptorInspector{descriptors: map[string]catalog.DurableDescriptor{}}
+	}
+	if options.denies == nil {
+		options.denies = new(fakeDenyInspector)
+	}
+	if options.invalidate == nil {
+		options.invalidate = func(contract.Invalidation) {}
+	}
 	if options.entropy == nil {
 		contents := append(bytes.Repeat([]byte{0x11}, 10), bytes.Repeat([]byte{0x22}, 10)...)
-		contents = append(contents, bytes.Repeat([]byte{0x33}, 100)...)
+		for fill := byte(0x33); fill < 0x73; fill++ {
+			contents = append(contents, bytes.Repeat([]byte{fill}, 10)...)
+		}
 		options.entropy = bytes.NewReader(contents)
 	}
 	repository, err := New(Options{

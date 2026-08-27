@@ -19,6 +19,7 @@ var (
 	ErrInvalidInput        = errors.New("grant request input is invalid")
 	ErrIdentityUnavailable = errors.New("grant request identity is unavailable")
 	ErrInvalidState        = errors.New("grant request durable state is invalid")
+	ErrStaleCursor         = errors.New("grant request cursor is stale")
 	ErrStorageUnavailable  = errors.New("grant request storage is unavailable")
 )
 

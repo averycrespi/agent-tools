@@ -27,6 +27,11 @@ func (subject AdmittedSubject) CredentialRevision() string { return subject.cred
 // AuthorizationRevision returns the policy revision evaluated at admission.
 func (subject AdmittedSubject) AuthorizationRevision() string { return subject.authorizationRevision }
 
+// OwnsAdmittedSubject reports whether this repository minted the complete safe subject.
+func (repository *Repository) OwnsAdmittedSubject(subject AdmittedSubject) bool {
+	return repository != nil && subject.validFor(repository)
+}
+
 func admittedSubject(repository *Repository, binding CredentialBinding, authorizationRevision string) AdmittedSubject {
 	return AdmittedSubject{
 		owner: repository, principalID: binding.PrincipalID, principalRevision: binding.PrincipalRevision,
