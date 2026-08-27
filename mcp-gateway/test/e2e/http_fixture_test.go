@@ -271,6 +271,13 @@ func (fixture *rawHTTPFixture) serveHTTP(writer http.ResponseWriter, request *ht
 			_, _ = io.WriteString(writer, rpcResult(envelope.ID, `{"tools":[{"name":"http-beta","inputSchema":{"type":"object"}}],"nextCursor":null}`))
 		}
 	case "tools/call":
+		if mode == "auto" {
+			if loseSession {
+				writer.Header().Set("Mcp-Session-Id", "replaced-session")
+			} else {
+				writer.Header().Set("Mcp-Session-Id", session)
+			}
+		}
 		switch callOutcome {
 		case fixtureCallSuccess:
 			_, _ = io.WriteString(writer, rpcResult(envelope.ID, `{"content":[{"type":"text","text":"`+fixtureSuccessText+`"}]}`))
