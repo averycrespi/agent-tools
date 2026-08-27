@@ -17,12 +17,14 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/credentialauthority"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/discovery"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/grantrequests"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/invocation"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/oauth"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/selfservice"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servercredentials"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -55,11 +57,20 @@ type AgentIngressDependencies struct {
 	AuthMode      contract.AgentAuthMode
 }
 
+type ControlAPIDependencies struct {
+	GrantRequests *grantrequests.AdminService
+}
+
 type Composition struct {
 	servers              *servers.Repository
 	authorization        *authorization.Repository
+	selfProjections      *authorization.SelfProjectionService
 	catalogRepository    *catalog.Repository
 	activeCatalog        *catalog.ActiveRegistry
+	requests             *grantrequests.Repository
+	requestAdmin         *grantrequests.AdminService
+	selfCursors          *selfservice.CursorCodec
+	selfService          *selfservice.Service
 	discovery            *discovery.Service
 	discoveryCursors     *discovery.CursorCodec
 	discoveryPager       *discovery.Pager
@@ -115,7 +126,7 @@ func (built *Composition) ListTools() mcpingress.ToolsListService {
 	return built.listTools
 }
 func (built *Composition) AgentIngress() (AgentIngressDependencies, bool) {
-	if built == nil || built.authorization == nil || built.listTools == nil || built.callTools == nil {
+	if built == nil || !built.s5Complete() || built.listTools == nil || built.callTools == nil {
 		return AgentIngressDependencies{}, false
 	}
 	return AgentIngressDependencies{
@@ -124,6 +135,16 @@ func (built *Composition) AgentIngress() (AgentIngressDependencies, bool) {
 		CallTools:     built.callTools,
 		AuthMode:      contract.AgentAuthPrincipalCredentials,
 	}, true
+}
+func (built *Composition) ControlAPI() (ControlAPIDependencies, bool) {
+	if built == nil || !built.s5Complete() {
+		return ControlAPIDependencies{}, false
+	}
+	return ControlAPIDependencies{GrantRequests: built.requestAdmin}, true
+}
+func (built *Composition) s5Complete() bool {
+	return built.authorization != nil && built.selfProjections != nil && built.requests != nil && built.requestAdmin != nil && built.selfCursors != nil && built.selfService != nil &&
+		built.discovery != nil && built.listTools != nil && built.invocationService != nil && built.callTools != nil
 }
 func (built *Composition) Traverser() *catalog.Traverser               { return built.traverser }
 func (built *Composition) Provider() *keyring.Provider                 { return built.provider }
@@ -388,6 +409,7 @@ type constructorHooks struct {
 
 var mandatoryConstructorStages = []string{
 	"server_repository", "authorization_repository", "catalog_repository", "process_id", "active_registry",
+	"grant_request_repository", "grant_request_validation", "grant_request_admin", "self_projection", "selfservice_cursor", "selfservice_service",
 	"invocation_repository", "invocation_validation", "invocation_pipeline", "invocation_service", "invocation_adapter",
 	"discovery_service", "discovery_cursor", "discovery_pager", "traverser", "remote_factory",
 	"provider", "keyring_coordinator", "authority_resolver", "oauth_resolver", "disconnect_service", "registrar",
@@ -459,6 +481,51 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil, fmt.Errorf("construct active_registry: %w", err)
 	}
 	built.publisher = &activePublisher{active: built.activeCatalog, fences: make(map[string]uint64)}
+	if err := check("grant_request_repository"); err != nil {
+		return nil, err
+	}
+	built.requests, err = grantrequests.New(grantrequests.Options{
+		Store: options.Store, Clock: options.Clock, Entropy: options.Entropy,
+		Namespaces: built.servers, Descriptors: built.catalogRepository, Denies: built.authorization,
+		Active: built.activeCatalog, Invalidate: options.Invalidate,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("construct grant_request_repository: %w", err)
+	}
+	if err := check("grant_request_validation"); err != nil {
+		return nil, err
+	}
+	if err := built.requests.ValidateStartup(context.Background(), built.authorization, built.servers); err != nil {
+		return nil, fmt.Errorf("validate grant request startup: %w", err)
+	}
+	if err := check("grant_request_admin"); err != nil {
+		return nil, err
+	}
+	built.requestAdmin, err = grantrequests.NewAdminService(built.requests, built.authorization)
+	if err != nil {
+		return nil, fmt.Errorf("construct grant_request_admin: %w", err)
+	}
+	if err := check("self_projection"); err != nil {
+		return nil, err
+	}
+	built.selfProjections, err = authorization.NewSelfProjectionService(built.authorization, built.servers)
+	if err != nil {
+		return nil, fmt.Errorf("construct self_projection: %w", err)
+	}
+	if err := check("selfservice_cursor"); err != nil {
+		return nil, err
+	}
+	built.selfCursors, err = selfservice.NewCursorCodec(options.Entropy, processID)
+	if err != nil {
+		return nil, fmt.Errorf("construct selfservice_cursor: %w", err)
+	}
+	if err := check("selfservice_service"); err != nil {
+		return nil, err
+	}
+	built.selfService, err = selfservice.NewService(built.authorization, built.selfProjections, built.requests, built.selfCursors)
+	if err != nil {
+		return nil, fmt.Errorf("construct selfservice_service: %w", err)
+	}
 	if err := check("invocation_repository"); err != nil {
 		return nil, err
 	}
@@ -479,7 +546,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err := check("invocation_service"); err != nil {
 		return nil, err
 	}
-	built.invocationService, err = invocation.NewService(built.invocationRepository, built.authorization, built.activeCatalog.Routes())
+	built.invocationService, err = invocation.NewServiceWithLocal(built.invocationRepository, built.authorization, built.activeCatalog.Routes(), built.selfService.Resolve)
 	if err != nil {
 		return nil, fmt.Errorf("construct invocation_service: %w", err)
 	}
@@ -490,7 +557,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err := check("discovery_service"); err != nil {
 		return nil, err
 	}
-	built.discovery, err = discovery.New(built.authorization, built.activeCatalog, options.Clock)
+	built.discovery, err = discovery.NewWithSyntheticCatalog(built.authorization, built.activeCatalog, options.Clock)
 	if err != nil {
 		return nil, fmt.Errorf("construct discovery_service: %w", err)
 	}

@@ -404,6 +404,37 @@ func (registry *ActiveRegistry) Status(serverID string) ActiveStatus {
 	return activeStatus(current)
 }
 
+func (registry *ActiveRegistry) CompareActiveTarget(ctx context.Context, serverID, upstreamName, fingerprint string) contract.TargetActiveState {
+	if ctx.Err() != nil || registry.draining.Load() {
+		return contract.TargetActiveUnavailable
+	}
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	if ctx.Err() != nil || registry.draining.Load() {
+		return contract.TargetActiveUnavailable
+	}
+	current, ok := registry.servers[serverID]
+	if !ok || current.State == contract.ActiveCatalogAbsent {
+		return contract.TargetActiveAbsent
+	}
+	if current.State == contract.ActiveCatalogUnavailable {
+		return contract.TargetActiveUnavailable
+	}
+	if current.State == contract.ActiveCatalogStale {
+		return contract.TargetActiveStale
+	}
+	for _, tool := range current.Tools {
+		if tool.Record.Resource.UpstreamName != upstreamName {
+			continue
+		}
+		if fingerprint == "" || tool.Record.Resource.Fingerprint != fingerprint {
+			return contract.TargetActiveStale
+		}
+		return contract.TargetActiveCurrent
+	}
+	return contract.TargetActiveAbsent
+}
+
 func (registry *ActiveRegistry) Summary() contract.CatalogSummary {
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()

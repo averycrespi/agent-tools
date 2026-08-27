@@ -85,15 +85,15 @@ func TestProductionSourceOwnershipGuards(t *testing.T) {
 	assert.Contains(t, probe, `securityTool = "/usr/bin/security"`, "internal/keyring/probe_darwin.go: keyring probe must use an absolute executable")
 }
 
-func TestProductionRootUsesConcreteNativeCompositionAndPositiveIngress(t *testing.T) {
+func TestS5RootUsesOneAtomicCompositionForControlAndAgentIngress(t *testing.T) {
 	root := gatewayModuleRoot(t)
 	rootSource := readProductionSource(t, root, "cmd/mcp-gateway/root.go")
 	compositionSource := readProductionSource(t, root, "internal/composition/composition.go")
 	nativeProviderSource := readProductionSource(t, root, "internal/composition/provider_factory.go")
 	e2eProviderSource := readProductionSource(t, root, "internal/composition/provider_factory_e2e.go")
 	for _, required := range []string{
-		"newComposition: composition.New", "newComposition(composition.Options{", "authorizationRepository := runtime.Authorization()", "Principals:  authorizationRepository", "GrantTarget: func(", "serverRepository.ValidateGrantTargetTx", "activeCatalog := runtime.ActiveCatalog()",
-		"ActiveCatalog:  activeCatalog", "agentIngress, ok := runtime.AgentIngress()", "Authenticator: agentIngress.Authenticator", "ListTools:     agentIngress.ListTools", "CallTools:     agentIngress.CallTools", "agentIngress.AuthMode", "runtime.AuthorizationOccupancy(context.Background())", "runtime.Start(ctx)", "runtime.Drain(shutdownCtx)",
+		"newComposition: composition.New", "newComposition(composition.Options{", "authorizationRepository := runtime.Authorization()", "Principals:    authorizationRepository", "GrantTarget: func(", "serverRepository.ValidateGrantTargetTx", "activeCatalog := runtime.ActiveCatalog()",
+		"ActiveCatalog:  activeCatalog", "agentIngress, ok := runtime.AgentIngress()", "controlAPI, ok := runtime.ControlAPI()", "GrantRequests: controlAPI.GrantRequests", "Authenticator: agentIngress.Authenticator", "ListTools:     agentIngress.ListTools", "CallTools:     agentIngress.CallTools", "agentIngress.AuthMode", "runtime.AuthorizationOccupancy(context.Background())", "runtime.Start(ctx)", "runtime.Drain(shutdownCtx)",
 	} {
 		assert.Contains(t, rootSource, required, "cmd/mcp-gateway/root.go: missing production symbol %s", required)
 	}
@@ -105,6 +105,8 @@ func TestProductionRootUsesConcreteNativeCompositionAndPositiveIngress(t *testin
 	}
 	assert.Less(t, strings.Index(rootSource, "runtimeDrain := runtime.Drain(shutdownCtx)"), strings.Index(rootSource, "if err := store.Close(); err != nil"), "cmd/mcp-gateway/root.go: storage closed before composition drain")
 	assert.Equal(t, 1, strings.Count(rootSource, "Authenticator:"), "cmd/mcp-gateway/root.go: production authenticator must have one owner")
+	listener := strings.Index(rootSource, "httpboundary.OpenListener(")
+	assert.True(t, listener > strings.Index(rootSource, "runtime.AgentIngress()") && listener > strings.Index(rootSource, "runtime.ControlAPI()") && listener > strings.Index(rootSource, "api.New(api.Options{") && listener > strings.Index(rootSource, "mcpingress.New(mcpingress.Options{"), "cmd/mcp-gateway/root.go: complete S5 bundles must bind before listener open")
 	enter := strings.Index(compositionSource, "release, ok := adapter.pipelines.TryEnter()")
 	release := strings.Index(compositionSource, "defer release()")
 	call := strings.Index(compositionSource, "response := adapter.service.Call(")
@@ -147,7 +149,7 @@ func TestProductionPersistenceAndCapabilitySliceGuards(t *testing.T) {
 	}
 }
 
-func TestProductionS3AndS4SliceGuards(t *testing.T) {
+func TestS5SourceOwnershipGuards(t *testing.T) {
 	root := gatewayModuleRoot(t)
 	for _, source := range productionSources(t, root) {
 		for _, violation := range productionSliceViolations(source) {
@@ -161,6 +163,7 @@ func TestProductionS3AndS4SliceGuards(t *testing.T) {
 	for _, symbol := range []string{
 		"type AgentIngressDependencies struct", "Authenticator mcpingress.AgentAuthenticator",
 		"ListTools     mcpingress.ToolsListService", "CallTools     mcpingress.ToolsCallService",
+		"type ControlAPIDependencies struct", "GrantRequests *grantrequests.AdminService",
 		"AuthMode:      contract.AgentAuthPrincipalCredentials",
 	} {
 		assert.Contains(t, compositionSource, symbol, "internal/composition/composition.go: missing atomic production ingress symbol %s", symbol)
@@ -173,7 +176,7 @@ func TestProductionS3AndS4SliceGuards(t *testing.T) {
 	assert.NotContains(t, recoverySource, "grants")
 }
 
-func TestS3AndS4SliceGuardNegativeFixturesReportExactPathAndSymbol(t *testing.T) {
+func TestS5SourceNegativeFixturesReportExactPathAndSymbol(t *testing.T) {
 	fixtures := []struct {
 		name     string
 		path     string
@@ -202,9 +205,9 @@ var _ = mcp.NewClient
 			want:     "internal/api/bad.go: prohibited duplicate authority constructor authorization.New(",
 		},
 		{
-			name: "duplicate discovery", path: "internal/api/bad.go",
+			name: "downstream-only discovery", path: "internal/api/bad.go",
 			contents: "package api\nfunc build() { _ = discovery.New(nil, nil, nil) }\n",
-			want:     "internal/api/bad.go: prohibited duplicate discovery constructor discovery.New(",
+			want:     "internal/api/bad.go: prohibited downstream-only production constructor discovery.New(",
 		},
 		{
 			name: "duplicate invocation", path: "internal/api/bad.go",
@@ -233,6 +236,21 @@ var _ invocation.Service
 			name: "S4 SQL outside invocation", path: "internal/api/bad.go",
 			contents: "package api\nfunc load() { _ = `SELECT id FROM invocations` }\n",
 			want:     "internal/api/bad.go: prohibited S4 SQL table invocations",
+		},
+		{
+			name: "S5 SQL outside requests", path: "internal/api/bad.go",
+			contents: "package api\nfunc load() { _ = `SELECT id FROM grant_requests` }\n",
+			want:     "internal/api/bad.go: prohibited S5 SQL table grant_requests",
+		},
+		{
+			name: "duplicate selfservice", path: "internal/api/bad.go",
+			contents: "package api\nfunc build() { _, _ = selfservice.NewService(nil, nil, nil, nil) }\n",
+			want:     "internal/api/bad.go: prohibited duplicate S5 constructor selfservice.NewService(",
+		},
+		{
+			name: "local execution outside invocation", path: "internal/api/bad.go",
+			contents: "package api\nfunc call() { _ = target.local(ctx, subject, arguments) }\n",
+			want:     "internal/api/bad.go: prohibited local capability execution target.local(",
 		},
 		{
 			name: "discovery keyring", path: "internal/discovery/bad.go",
@@ -289,6 +307,8 @@ var (
 	s3SQLTable = regexp.MustCompile(`(?i)\b(authorization_meta|principals|grants)\b`)
 	s4SQLTable = regexp.MustCompile(`(?i)\binvocations\b`)
 	s4SQLDML   = regexp.MustCompile(`(?i)\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+invocations\b`)
+	s5SQLTable = regexp.MustCompile(`(?i)\b(grant_request_identities|grant_requests|grant_request_evidence_bytes)\b`)
+	s5SQLDML   = regexp.MustCompile(`(?i)\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(grant_request_identities|grant_requests|grant_request_evidence_bytes)\b`)
 )
 
 func productionSliceViolations(source productionSource) []string {
@@ -298,8 +318,14 @@ func productionSliceViolations(source productionSource) []string {
 		if strings.HasPrefix(imported, "github.com/modelcontextprotocol/go-sdk/") && !allowedSDK {
 			violations = append(violations, fmt.Sprintf("%s: prohibited SDK import %s", source.path, imported))
 		}
-		if strings.HasSuffix(imported, "/internal/invocation") && source.path != "internal/composition/composition.go" {
+		if strings.HasSuffix(imported, "/internal/invocation") && source.path != "internal/composition/composition.go" && source.path != "internal/selfservice/handlers.go" {
 			violations = append(violations, fmt.Sprintf("%s: prohibited invocation import %s", source.path, imported))
+		}
+		if strings.HasSuffix(imported, "/internal/selfservice") && source.path != "internal/composition/composition.go" {
+			violations = append(violations, fmt.Sprintf("%s: prohibited selfservice import %s", source.path, imported))
+		}
+		if strings.HasSuffix(imported, "/internal/grantrequests") && source.path != "internal/composition/composition.go" && source.path != "internal/api/grant_requests.go" && !strings.HasPrefix(source.path, "internal/selfservice/") {
+			violations = append(violations, fmt.Sprintf("%s: prohibited grantrequests import %s", source.path, imported))
 		}
 	}
 	if strings.Contains(source.contents, "authorization.New(") {
@@ -308,21 +334,34 @@ func productionSliceViolations(source productionSource) []string {
 			violations = append(violations, fmt.Sprintf("%s: prohibited duplicate authority constructor authorization.New(", source.path))
 		}
 	}
-	for _, symbol := range []string{"discovery.New(", "discovery.NewCursorCodec(", "discovery.NewPager("} {
+	for _, symbol := range []string{"discovery.NewWithSyntheticCatalog(", "discovery.NewCursorCodec(", "discovery.NewPager("} {
 		if strings.Contains(source.contents, symbol) && (source.path != "internal/composition/composition.go" || strings.Count(source.contents, symbol) != 1) {
 			violations = append(violations, fmt.Sprintf("%s: prohibited duplicate discovery constructor %s", source.path, symbol))
 		}
 	}
-	for _, symbol := range []string{"invocation.NewRepository(", "invocation.NewPipelineFence(", "invocation.NewService("} {
+	for _, symbol := range []string{"invocation.NewRepository(", "invocation.NewPipelineFence(", "invocation.NewServiceWithLocal("} {
 		if strings.Contains(source.contents, symbol) && (source.path != "internal/composition/composition.go" || strings.Count(source.contents, symbol) != 1) {
 			violations = append(violations, fmt.Sprintf("%s: prohibited duplicate invocation constructor %s", source.path, symbol))
 		}
 	}
+	for _, symbol := range []string{"grantrequests.New(", "grantrequests.NewAdminService(", "authorization.NewSelfProjectionService(", "selfservice.NewCursorCodec(", "selfservice.NewService("} {
+		if strings.Contains(source.contents, symbol) && (source.path != "internal/composition/composition.go" || strings.Count(source.contents, symbol) != 1) {
+			violations = append(violations, fmt.Sprintf("%s: prohibited duplicate S5 constructor %s", source.path, symbol))
+		}
+	}
+	for _, symbol := range []string{"discovery.New(", "invocation.NewService("} {
+		if strings.Contains(source.contents, symbol) {
+			violations = append(violations, fmt.Sprintf("%s: prohibited downstream-only production constructor %s", source.path, symbol))
+		}
+	}
 	if source.path == "internal/composition/composition.go" {
 		for _, symbol := range []string{
+			"grantrequests.New(", "built.requests.ValidateStartup(", "grantrequests.NewAdminService(", "authorization.NewSelfProjectionService(",
+			"selfservice.NewCursorCodec(", "selfservice.NewService(", "discovery.NewWithSyntheticCatalog(", "invocation.NewServiceWithLocal(",
 			"type AgentIngressDependencies struct", "func (built *Composition) AgentIngress()",
+			"type ControlAPIDependencies struct", "func (built *Composition) ControlAPI()",
 			"Authenticator: built.authorization", "ListTools:     built.listTools", "CallTools:     built.callTools",
-			"AuthMode:      contract.AgentAuthPrincipalCredentials",
+			"GrantRequests: built.requestAdmin", "AuthMode:      contract.AgentAuthPrincipalCredentials",
 		} {
 			if strings.Count(source.contents, symbol) != 1 {
 				violations = append(violations, fmt.Sprintf("%s: composition ingress symbol %s must occur exactly once", source.path, symbol))
@@ -336,7 +375,7 @@ func productionSliceViolations(source productionSource) []string {
 			}
 		}
 		for _, symbol := range []string{
-			"runtime.AgentIngress()", "Authenticator: agentIngress.Authenticator",
+			"runtime.AgentIngress()", "runtime.ControlAPI()", "GrantRequests: controlAPI.GrantRequests", "Authenticator: agentIngress.Authenticator",
 			"ListTools:     agentIngress.ListTools", "CallTools:     agentIngress.CallTools", "agentIngress.AuthMode",
 		} {
 			if strings.Count(source.contents, symbol) != 1 {
@@ -346,6 +385,7 @@ func productionSliceViolations(source productionSource) []string {
 	}
 	violations = append(violations, s3SQLViolations(source)...)
 	violations = append(violations, s4SQLViolations(source)...)
+	violations = append(violations, s5SQLViolations(source)...)
 	if strings.HasPrefix(source.path, "internal/discovery/") {
 		violations = append(violations, discoveryViolations(source)...)
 	}
@@ -371,6 +411,23 @@ func productionSliceViolations(source productionSource) []string {
 		source.path == "internal/mcpingress/tools_list.go" || source.path == "internal/mcpingress/tools_call.go"
 	if !allowedCallWireOwner && strings.Contains(source.contents, "tools/call") {
 		violations = append(violations, fmt.Sprintf("%s: prohibited S4/S5 consumer tools/call", source.path))
+	}
+	if strings.Contains(source.contents, "target.local(") && source.path != "internal/invocation/service.go" {
+		violations = append(violations, fmt.Sprintf("%s: prohibited local capability execution target.local(", source.path))
+	}
+	if source.path == "internal/invocation/service.go" && strings.Count(source.contents, "target.local(") != 1 {
+		violations = append(violations, fmt.Sprintf("%s: local capability execution target.local( must occur exactly once", source.path))
+	}
+	for symbol, allowedPath := range map[string]string{
+		"catalog.SyntheticSnapshot(":    "internal/discovery/projection.go",
+		"catalog.ResolveSyntheticCall(": "internal/selfservice/handlers.go",
+	} {
+		if strings.Contains(source.contents, symbol) && source.path != allowedPath {
+			violations = append(violations, fmt.Sprintf("%s: prohibited synthetic owner %s", source.path, symbol))
+		}
+	}
+	if strings.Contains(source.contents, "contract.SyntheticSelfServiceTools(") && source.path != "internal/catalog/synthetic.go" && source.path != "internal/selfservice/handlers.go" {
+		violations = append(violations, fmt.Sprintf("%s: prohibited synthetic owner contract.SyntheticSelfServiceTools(", source.path))
 	}
 	if strings.HasPrefix(source.path, "internal/audit/") || strings.HasPrefix(source.path, "internal/ui/") {
 		violations = append(violations, fmt.Sprintf("%s: prohibited S4/S5 package", source.path))
@@ -440,6 +497,29 @@ func s4SQLViolations(source productionSource) []string {
 		}
 	}
 	return []string{fmt.Sprintf("%s: prohibited S4 SQL table invocations", source.path)}
+}
+
+func s5SQLViolations(source productionSource) []string {
+	if !s5SQLTable.MatchString(source.contents) || !s3SQLVerb.MatchString(source.contents) {
+		return nil
+	}
+	if strings.HasPrefix(source.path, "internal/grantrequests/") {
+		return nil
+	}
+	if source.path == "internal/storage/storage.go" && !s5SQLDML.MatchString(source.contents) {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	violations := make([]string, 0)
+	for _, match := range s5SQLTable.FindAllStringSubmatch(source.contents, -1) {
+		table := strings.ToLower(match[1])
+		if _, duplicate := seen[table]; duplicate {
+			continue
+		}
+		seen[table] = struct{}{}
+		violations = append(violations, fmt.Sprintf("%s: prohibited S5 SQL table %s", source.path, table))
+	}
+	return violations
 }
 
 func discoveryViolations(source productionSource) []string {

@@ -135,6 +135,10 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	if !ok {
 		return false, errors.New("production agent ingress owner is unavailable")
 	}
+	controlAPI, ok := runtime.ControlAPI()
+	if !ok {
+		return false, errors.New("production control API owner is unavailable")
+	}
 	serverRepository := runtime.Servers()
 	catalogRepository := runtime.CatalogRepository()
 	activeCatalog := runtime.ActiveCatalog()
@@ -167,14 +171,15 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	})
 	defer ingress.Shutdown()
 	apiHandler := api.New(api.Options{
-		Credentials: credentials,
-		Sessions:    sessions,
-		Backups:     backupManager,
-		Events:      eventHub,
-		Invalidate:  eventHub.Publish,
-		Origin:      "http://" + authority,
-		Servers:     serverRepository,
-		Principals:  authorizationRepository,
+		Credentials:   credentials,
+		Sessions:      sessions,
+		Backups:       backupManager,
+		Events:        eventHub,
+		Invalidate:    eventHub.Publish,
+		Origin:        "http://" + authority,
+		Servers:       serverRepository,
+		Principals:    authorizationRepository,
+		GrantRequests: controlAPI.GrantRequests,
 		GrantTarget: func(ctx context.Context, transaction *sql.Tx, serverID string) (bool, error) {
 			_, validateErr := serverRepository.ValidateGrantTargetTx(ctx, transaction, serverID)
 			if errors.Is(validateErr, serverdomain.ErrNotFound) {

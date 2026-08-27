@@ -17,6 +17,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/discovery"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/grantrequests"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/invocation"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
@@ -30,9 +31,11 @@ import (
 
 var compositionTime = time.Date(2026, 8, 25, 1, 0, 0, 0, time.UTC)
 
-func TestNewBuildsOneFailClosedProductionGraph(t *testing.T) {
+func TestS5CompositionBuildsOneAtomicProductionGraph(t *testing.T) {
 	assert.Nil(t, (*Composition)(nil).ListTools())
 	_, available := (*Composition)(nil).AgentIngress()
+	assert.False(t, available)
+	_, available = (*Composition)(nil).ControlAPI()
 	assert.False(t, available)
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
@@ -45,6 +48,26 @@ func TestNewBuildsOneFailClosedProductionGraph(t *testing.T) {
 	assert.Same(t, built.authorization, built.Authorization())
 	require.NotNil(t, built.catalogRepository)
 	require.NotNil(t, built.activeCatalog)
+	require.NotNil(t, built.requests)
+	require.NotNil(t, built.requestAdmin)
+	require.NotNil(t, built.selfProjections)
+	require.NotNil(t, built.selfCursors)
+	require.NotNil(t, built.selfService)
+	controlAPI, ok := built.ControlAPI()
+	require.True(t, ok)
+	assert.Same(t, built.requestAdmin, controlAPI.GrantRequests)
+	page, err := controlAPI.GrantRequests.ListAdmin(t.Context(), grantrequests.AdminFilter{}, nil, 1)
+	require.NoError(t, err)
+	assert.Empty(t, page.Items)
+	partial := &Composition{
+		authorization: built.authorization, selfProjections: built.selfProjections,
+		requests: built.requests, requestAdmin: built.requestAdmin, selfCursors: built.selfCursors,
+		listTools: built.listTools, callTools: built.callTools,
+	}
+	_, available = partial.ControlAPI()
+	assert.False(t, available)
+	_, available = partial.AgentIngress()
+	assert.False(t, available)
 	require.NotNil(t, built.discovery)
 	assert.Same(t, built.discovery, built.Discovery())
 	require.NotNil(t, built.discoveryCursors)
@@ -132,7 +155,7 @@ func TestAuthorityOwnerExposesOccupancyAndDrainsBeforeCompositionCompletes(t *te
 	assert.ErrorIs(t, err, mcpingress.ErrToolsListAuthorizationUnavailable)
 }
 
-func TestPositiveAgentIngressUsesComposedAuthorityDiscoveryAndDrainFence(t *testing.T) {
+func TestS5CompositionPositiveAgentIngressUsesSyntheticLocalAndDrainFence(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
 	built, err := New(options)
@@ -164,7 +187,40 @@ func TestPositiveAgentIngressUsesComposedAuthorityDiscoveryAndDrainFence(t *test
 	response := httptest.NewRecorder()
 	ingress.ServeHTTP(response, request.WithContext(authenticated))
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"positive","result":{"tools":[]}}`, response.Body.String())
+	var listed struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &listed))
+	require.Len(t, listed.Result.Tools, 6)
+	names := make([]string, len(listed.Result.Tools))
+	for index := range listed.Result.Tools {
+		names[index] = listed.Result.Tools[index].Name
+	}
+	assert.Equal(t, []string{
+		"mcp_gateway.cancel_grant_request", "mcp_gateway.create_grant_request", "mcp_gateway.get_grant_request",
+		"mcp_gateway.get_identity", "mcp_gateway.list_grant_requests", "mcp_gateway.list_grants",
+	}, names)
+
+	identityCall := newAgentRequest(issued.Bearer, `{"jsonrpc":"2.0","id":"identity","method":"tools/call","params":{"name":"mcp_gateway.get_identity","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"fixture","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`)
+	authenticated, err = ingress.Authenticate(identityCall.Context(), identityCall, contract.AuthorityAgent)
+	require.NoError(t, err)
+	response = httptest.NewRecorder()
+	ingress.ServeHTTP(response, identityCall.WithContext(authenticated))
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var identityResult struct {
+		Result struct {
+			Content           []json.RawMessage          `json:"content"`
+			StructuredContent contract.GetIdentityResult `json:"structuredContent"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &identityResult))
+	require.Len(t, identityResult.Result.Content, 1)
+	assert.JSONEq(t, `{"type":"text","text":"`+contract.SummaryIdentityReturned+`"}`, string(identityResult.Result.Content[0]))
+	assert.Equal(t, created.Principal.ID, identityResult.Result.StructuredContent.Identity.ID)
 
 	call := newAgentRequest(issued.Bearer, `{"jsonrpc":"2.0","id":"call","method":"tools/call","params":{"name":"missing.tool","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"fixture","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`)
 	authenticated, err = ingress.Authenticate(call.Context(), call, contract.AuthorityAgent)
@@ -376,7 +432,7 @@ func TestStartBarrierFailureRunsNoReconstructionAndCannotRetry(t *testing.T) {
 	assert.ErrorIs(t, built.Start(context.Background()), ErrStartFailed)
 }
 
-func TestNewFailsEveryMandatoryConstructor(t *testing.T) {
+func TestS5CompositionFailsEveryMandatoryConstructor(t *testing.T) {
 	for _, stage := range mandatoryConstructorStages {
 		t.Run(stage, func(t *testing.T) {
 			options, cleanup := newCompositionOptions(t)
@@ -406,6 +462,21 @@ func TestConstructionRejectsInvalidAuthorizationStateBeforeStartup(t *testing.T)
 	require.Error(t, err)
 	assert.Nil(t, built)
 	assert.ErrorIs(t, err, authorization.ErrInvalidState)
+}
+
+func TestS5CompositionRejectsInvalidRequestStateBeforePublishingBundles(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	require.NoError(t, options.Store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		_, err := transaction.Exec(`DELETE FROM grant_request_evidence_bytes`)
+		return err
+	}))
+
+	built, err := New(options)
+	require.Error(t, err)
+	assert.Nil(t, built)
+	assert.ErrorIs(t, err, grantrequests.ErrStorageUnavailable)
+	assert.ErrorContains(t, err, "validate grant request startup")
 }
 
 func TestConstructionRejectsInvalidInvocationStateBeforeStartup(t *testing.T) {

@@ -31,7 +31,7 @@ func TestRootCommandExposesOwnedOfflineCommands(t *testing.T) {
 	require.True(t, cmd.SilenceErrors)
 }
 
-func TestServeCompositionFailurePreventsStartupOutput(t *testing.T) {
+func TestS5RootCompositionFailurePreventsStartupOutput(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	initialize := newRootCmd()
 	initialize.SetOut(new(bytes.Buffer))

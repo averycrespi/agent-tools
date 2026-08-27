@@ -65,6 +65,30 @@ func TestActiveRegistryPublishesDurableBeforeOneImmutableGeneration(t *testing.T
 	assert.Equal(t, "01ARZ3NDEKTSV4RRFFQ69G5FAZ-0", restarted.Summary().ActiveGeneration)
 }
 
+func TestS5CompositionActiveTargetInspectorUsesOneLockCoherentSnapshot(t *testing.T) {
+	repository, serverRepository, clock, _ := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.TargetActiveAbsent, registry.CompareActiveTarget(context.Background(), server.ID, "one", ""))
+	_, err = registry.Publish(context.Background(), Publication{
+		Fence: catalogFence(server.ID, "0"), RuntimeID: "runtime-1", RuntimeGeneration: 1,
+		Candidate: candidateFor(t, server.ID, "sample", "one"), Current: func() bool { return true },
+	})
+	require.NoError(t, err)
+	descriptors := registry.CurrentSnapshot().Descriptors
+	require.Len(t, descriptors, 1)
+	descriptor := descriptors[0]
+	assert.Equal(t, contract.TargetActiveCurrent, registry.CompareActiveTarget(context.Background(), server.ID, descriptor.UpstreamName, descriptor.Fingerprint))
+	assert.Equal(t, contract.TargetActiveStale, registry.CompareActiveTarget(context.Background(), server.ID, descriptor.UpstreamName, "changed"))
+	assert.Equal(t, contract.TargetActiveAbsent, registry.CompareActiveTarget(context.Background(), server.ID, "missing", descriptor.Fingerprint))
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.Equal(t, contract.TargetActiveUnavailable, registry.CompareActiveTarget(cancelled, server.ID, descriptor.UpstreamName, descriptor.Fingerprint))
+	require.True(t, registry.MarkStale(server.ID, "runtime-1", 1))
+	assert.Equal(t, contract.TargetActiveStale, registry.CompareActiveTarget(context.Background(), server.ID, descriptor.UpstreamName, descriptor.Fingerprint))
+}
+
 func TestActiveRegistryCommitThenStaleRuntimePublishesNothing(t *testing.T) {
 	repository, serverRepository, clock, _ := newCatalogRepository(t)
 	server := createCatalogServer(t, serverRepository, "sample")
