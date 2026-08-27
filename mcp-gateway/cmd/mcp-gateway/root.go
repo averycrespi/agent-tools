@@ -236,6 +236,10 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 				status.Limits.Principals = principals
 				status.Limits.Grants = grants
 			}
+			if requests, evidence, requestErr := runtime.GrantRequestOccupancy(context.Background()); requestErr == nil {
+				status.Limits.GrantRequests = requests
+				status.Limits.GrantRequestEvidenceBytes = evidence
+			}
 			status.Limits.AdminCredentials = credentials.Status(context.Background())
 			if candidates, candidateErr := keyringCoordinator.CandidateStatus(context.Background()); candidateErr == nil {
 				status.Limits.KeyringCandidates = candidates
@@ -367,6 +371,7 @@ func baseSystemStatus(
 		OAuthCallbackWork: fixedStatus("oauth_callback_work", 0), S2IdempotencyRecords: fixedStatus("s2_idempotency_records", 0), ActiveTools: fixedStatus("active_tools", 0),
 		DurableToolIdentities: fixedStatus("durable_tool_identities", 0), DownstreamDispatch: fixedStatus("downstream_dispatch", 0),
 		Principals: fixedStatus("principals", 0), Grants: fixedStatus("grants", 0),
+		GrantRequests: fixedStatus("grant_requests", 0), GrantRequestEvidenceBytes: fixedStatus("grant_request_evidence_bytes", 0),
 	}
 	return contract.SystemStatus{
 		Process: contract.ProcessStatus{State: process, Ready: ready, StartedAt: startedAt},

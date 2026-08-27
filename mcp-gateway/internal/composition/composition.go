@@ -116,6 +116,9 @@ func (built *Composition) Authorization() *authorization.Repository {
 func (built *Composition) AuthorizationOccupancy(ctx context.Context) (contract.LimitStatus, contract.LimitStatus, error) {
 	return built.authorization.Occupancy(ctx)
 }
+func (built *Composition) GrantRequestOccupancy(ctx context.Context) (contract.LimitStatus, contract.LimitStatus, error) {
+	return built.requests.Occupancy(ctx)
+}
 func (built *Composition) CatalogRepository() *catalog.Repository { return built.catalogRepository }
 func (built *Composition) ActiveCatalog() *catalog.ActiveRegistry { return built.activeCatalog }
 func (built *Composition) Discovery() *discovery.Service          { return built.discovery }

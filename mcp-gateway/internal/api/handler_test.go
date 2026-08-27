@@ -132,10 +132,14 @@ func newTestHandler(t *testing.T) http.Handler {
 	credentials := &fakeCredentials{items: []contract.AdminCredential{credential()}}
 	handler := New(Options{Credentials: credentials, Sessions: fakeSessions{}, Backups: &fakeBackups{}, Status: func() contract.SystemStatus {
 		return contract.SystemStatus{
-			Process:   contract.ProcessStatus{State: contract.ProcessReady, Ready: true, StartedAt: "2026-08-22T18:00:00Z"},
-			SQLite:    contract.SQLiteStatus{State: contract.SQLiteReady, SchemaVersion: "3", Revision: "1"},
-			Keyring:   contract.KeyringStatus{Capability: contract.KeyringInteractionRequired},
-			Limits:    contract.LimitsStatus{KeyringWork: contract.LimitStatus{InUse: 1, Limit: 1, Saturated: true}},
+			Process: contract.ProcessStatus{State: contract.ProcessReady, Ready: true, StartedAt: "2026-08-22T18:00:00Z"},
+			SQLite:  contract.SQLiteStatus{State: contract.SQLiteReady, SchemaVersion: "3", Revision: "1"},
+			Keyring: contract.KeyringStatus{Capability: contract.KeyringInteractionRequired},
+			Limits: contract.LimitsStatus{
+				KeyringWork:               contract.LimitStatus{InUse: 1, Limit: 1, Saturated: true},
+				GrantRequests:             contract.LimitStatus{InUse: 2, Limit: 4096},
+				GrantRequestEvidenceBytes: contract.LimitStatus{InUse: 64, Limit: 268435456},
+			},
 			Backup:    contract.BackupStatus{State: contract.BackupIdle},
 			Protocols: contract.ProtocolStatus{Modern: contract.ModernProtocolVersion, Legacy: contract.LegacyProtocolVersion, AgentAuth: contract.AgentAuthDenyAll},
 		}
@@ -158,7 +162,7 @@ func perform(handler http.Handler, method, target, body string, headers map[stri
 	return response
 }
 
-func TestSystemStatusIsAuthenticatedNoStoreAndClosed(t *testing.T) {
+func TestS5StatusIsAuthenticatedNoStoreAndUsesSnapshot(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
 	response := perform(handler, http.MethodGet, "/api/v1/system-status", "", map[string]string{"Authorization": "Bearer " + testBearer})
@@ -168,7 +172,7 @@ func TestSystemStatusIsAuthenticatedNoStoreAndClosed(t *testing.T) {
 	if response.Header().Get("Cache-Control") != "no-store" || response.Header().Get("ETag") != "" {
 		t.Fatalf("unsafe caching headers: %v", response.Header())
 	}
-	if got := response.Body.String(); !strings.Contains(got, `"keyring":{"capability":"interaction_required"}`) || strings.Contains(got, "remediation") || !strings.Contains(got, `"keyring_work":{"in_use":1,"limit":1,"saturated":true}`) {
+	if got := response.Body.String(); !strings.Contains(got, `"keyring":{"capability":"interaction_required"}`) || strings.Contains(got, "remediation") || !strings.Contains(got, `"keyring_work":{"in_use":1,"limit":1,"saturated":true}`) || !strings.Contains(got, `"grant_requests":{"in_use":2,"limit":4096,"saturated":false}`) || !strings.Contains(got, `"grant_request_evidence_bytes":{"in_use":64,"limit":268435456,"saturated":false}`) {
 		t.Fatalf("unsafe or incomplete status: %s", got)
 	}
 }
@@ -325,7 +329,7 @@ func (writer *streamWriter) snapshot() (int, string) {
 	return writer.status, writer.body.String()
 }
 
-func TestEventStreamIsInvalidationOnlyAndRejectsReplay(t *testing.T) {
+func TestS5EventsStreamIsInvalidationOnlyAndRejectsReplay(t *testing.T) {
 	credentials := &fakeCredentials{items: []contract.AdminCredential{credential()}}
 	hub := events.New()
 	t.Cleanup(hub.Shutdown)

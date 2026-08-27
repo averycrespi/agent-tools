@@ -93,7 +93,7 @@ func TestS5RootUsesOneAtomicCompositionForControlAndAgentIngress(t *testing.T) {
 	e2eProviderSource := readProductionSource(t, root, "internal/composition/provider_factory_e2e.go")
 	for _, required := range []string{
 		"newComposition: composition.New", "newComposition(composition.Options{", "authorizationRepository := runtime.Authorization()", "Principals:    authorizationRepository", "GrantTarget: func(", "serverRepository.ValidateGrantTargetTx", "activeCatalog := runtime.ActiveCatalog()",
-		"ActiveCatalog:  activeCatalog", "agentIngress, ok := runtime.AgentIngress()", "controlAPI, ok := runtime.ControlAPI()", "GrantRequests: controlAPI.GrantRequests", "Authenticator: agentIngress.Authenticator", "ListTools:     agentIngress.ListTools", "CallTools:     agentIngress.CallTools", "agentIngress.AuthMode", "runtime.AuthorizationOccupancy(context.Background())", "runtime.Start(ctx)", "runtime.Drain(shutdownCtx)",
+		"ActiveCatalog:  activeCatalog", "agentIngress, ok := runtime.AgentIngress()", "controlAPI, ok := runtime.ControlAPI()", "GrantRequests: controlAPI.GrantRequests", "Authenticator: agentIngress.Authenticator", "ListTools:     agentIngress.ListTools", "CallTools:     agentIngress.CallTools", "agentIngress.AuthMode", "runtime.AuthorizationOccupancy(context.Background())", "runtime.GrantRequestOccupancy(context.Background())", "runtime.Start(ctx)", "runtime.Drain(shutdownCtx)",
 	} {
 		assert.Contains(t, rootSource, required, "cmd/mcp-gateway/root.go: missing production symbol %s", required)
 	}
@@ -500,25 +500,33 @@ func s4SQLViolations(source productionSource) []string {
 }
 
 func s5SQLViolations(source productionSource) []string {
-	if !s5SQLTable.MatchString(source.contents) || !s3SQLVerb.MatchString(source.contents) {
-		return nil
-	}
 	if strings.HasPrefix(source.path, "internal/grantrequests/") {
-		return nil
-	}
-	if source.path == "internal/storage/storage.go" && !s5SQLDML.MatchString(source.contents) {
 		return nil
 	}
 	seen := make(map[string]struct{})
 	violations := make([]string, 0)
-	for _, match := range s5SQLTable.FindAllStringSubmatch(source.contents, -1) {
-		table := strings.ToLower(match[1])
-		if _, duplicate := seen[table]; duplicate {
-			continue
+	ast.Inspect(source.file, func(node ast.Node) bool {
+		literal, ok := node.(*ast.BasicLit)
+		if !ok || literal.Kind != token.STRING {
+			return true
 		}
-		seen[table] = struct{}{}
-		violations = append(violations, fmt.Sprintf("%s: prohibited S5 SQL table %s", source.path, table))
-	}
+		value, err := strconv.Unquote(literal.Value)
+		if err != nil || !s3SQLVerb.MatchString(value) || !s5SQLTable.MatchString(value) {
+			return true
+		}
+		if source.path == "internal/storage/storage.go" && !s5SQLDML.MatchString(value) {
+			return true
+		}
+		for _, match := range s5SQLTable.FindAllStringSubmatch(value, -1) {
+			table := strings.ToLower(match[1])
+			if _, duplicate := seen[table]; duplicate {
+				continue
+			}
+			seen[table] = struct{}{}
+			violations = append(violations, fmt.Sprintf("%s: prohibited S5 SQL table %s", source.path, table))
+		}
+		return true
+	})
 	return violations
 }
 

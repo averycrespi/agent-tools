@@ -123,6 +123,23 @@ func TestS5CompositionBuildsOneAtomicProductionGraph(t *testing.T) {
 	built.callbacks.fence("server")
 }
 
+func TestS5StatusCompositionExposesActualRequestOwnerOccupancy(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	built, err := New(options)
+	require.NoError(t, err)
+	defer built.shutdownConstructed()
+
+	requests, evidence, err := built.GrantRequestOccupancy(t.Context())
+	require.NoError(t, err)
+	requestLimit, found := contract.FixedLimitByName("grant_requests")
+	require.True(t, found)
+	evidenceLimit, found := contract.FixedLimitByName("grant_request_evidence_bytes")
+	require.True(t, found)
+	assert.Equal(t, contract.LimitStatus{Limit: requestLimit.Maximum}, requests)
+	assert.Equal(t, contract.LimitStatus{Limit: evidenceLimit.Maximum}, evidence)
+}
+
 func TestAuthorityOwnerExposesOccupancyAndDrainsBeforeCompositionCompletes(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()

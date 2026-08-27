@@ -55,7 +55,7 @@ func TestS5RootCompositionFailurePreventsStartupOutput(t *testing.T) {
 	assert.JSONEq(t, `{"ok":false,"operation":"serve","code":"storage_unavailable"}`, stdout.String())
 }
 
-func TestBaseSystemStatusIncludesDurableOccupancyLimitsAndPositiveAgentAuth(t *testing.T) {
+func TestS5StatusBaseIncludesGlobalRequestLimitsAndPositiveAgentAuth(t *testing.T) {
 	status := baseSystemStatus(
 		"2026-08-22T00:00:00Z",
 		storage.Identity{InstallationID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", SchemaVersion: 3},
@@ -71,19 +71,21 @@ func TestBaseSystemStatusIncludesDurableOccupancyLimitsAndPositiveAgentAuth(t *t
 	)
 
 	limits := map[string]contract.LimitStatus{
-		"server_identities":       status.Limits.ServerIdentities,
-		"servers":                 status.Limits.Servers,
-		"downstream_runtimes":     status.Limits.DownstreamRuntimes,
-		"server_reconciliations":  status.Limits.ServerReconciliations,
-		"catalog_traversals":      status.Limits.CatalogTraversals,
-		"oauth_flows":             status.Limits.OAuthFlows,
-		"oauth_callback_work":     status.Limits.OAuthCallbackWork,
-		"s2_idempotency_records":  status.Limits.S2IdempotencyRecords,
-		"active_tools":            status.Limits.ActiveTools,
-		"durable_tool_identities": status.Limits.DurableToolIdentities,
-		"downstream_dispatch":     status.Limits.DownstreamDispatch,
-		"principals":              status.Limits.Principals,
-		"grants":                  status.Limits.Grants,
+		"server_identities":            status.Limits.ServerIdentities,
+		"servers":                      status.Limits.Servers,
+		"downstream_runtimes":          status.Limits.DownstreamRuntimes,
+		"server_reconciliations":       status.Limits.ServerReconciliations,
+		"catalog_traversals":           status.Limits.CatalogTraversals,
+		"oauth_flows":                  status.Limits.OAuthFlows,
+		"oauth_callback_work":          status.Limits.OAuthCallbackWork,
+		"s2_idempotency_records":       status.Limits.S2IdempotencyRecords,
+		"active_tools":                 status.Limits.ActiveTools,
+		"durable_tool_identities":      status.Limits.DurableToolIdentities,
+		"downstream_dispatch":          status.Limits.DownstreamDispatch,
+		"principals":                   status.Limits.Principals,
+		"grants":                       status.Limits.Grants,
+		"grant_requests":               status.Limits.GrantRequests,
+		"grant_request_evidence_bytes": status.Limits.GrantRequestEvidenceBytes,
 	}
 	for name, occupancy := range limits {
 		fixed, ok := contract.FixedLimitByName(name)
