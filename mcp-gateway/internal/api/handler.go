@@ -93,6 +93,7 @@ type Options struct {
 	OAuthCallback    OAuthCallbackService
 	Servers          ServerService
 	Principals       PrincipalService
+	GrantRequests    GrantRequestService
 	GrantTarget      authorization.CurrentGrantTargetValidator
 	AuthFlows        AuthFlowService
 	Replacements     CredentialReplacementService
@@ -117,6 +118,7 @@ type Handler struct {
 	callbackService  OAuthCallbackService
 	servers          ServerService
 	principals       PrincipalService
+	grantRequests    GrantRequestService
 	grantTarget      authorization.CurrentGrantTargetValidator
 	authFlows        AuthFlowService
 	replacements     CredentialReplacementService
@@ -172,7 +174,7 @@ func New(options Options) *Handler {
 	if options.DispatchStatus == nil {
 		options.DispatchStatus = func(string) contract.LimitStatus { return limitStatus("per_server_downstream_dispatch") }
 	}
-	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
+	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, grantRequests: options.GrantRequests, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -277,6 +279,18 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.streamEvents(writer, request)
 	case path == "/api/v1/catalog" && handler.activeCatalog != nil:
 		handler.activeCatalogCollection(writer, request)
+	case path == "/api/v1/grant-requests" && handler.grantRequests != nil:
+		handler.grantRequestsCollection(writer, request)
+	case strings.HasPrefix(path, "/api/v1/grant-requests/") && handler.grantRequests != nil:
+		segments := strings.Split(strings.TrimPrefix(path, "/api/v1/grant-requests/"), "/")
+		switch {
+		case len(segments) == 1 && segments[0] != "":
+			handler.grantRequestMember(writer, request, segments[0], "")
+		case len(segments) == 2 && segments[0] != "" && (segments[1] == "approve" || segments[1] == "reject"):
+			handler.grantRequestMember(writer, request, segments[0], segments[1])
+		default:
+			writeProblem(writer, contract.ProblemNotFound)
+		}
 	case path == "/api/v1/grants" && handler.principals != nil:
 		handler.grantsCollection(writer, request)
 	case strings.HasPrefix(path, "/api/v1/grants/") && handler.principals != nil:

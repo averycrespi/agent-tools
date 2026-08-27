@@ -43,6 +43,10 @@ type DenyInspector interface {
 	HasActiveDenyConflictTx(context.Context, *sql.Tx, authorization.DenyConflictScope, time.Time) (bool, error)
 }
 
+type ActiveTargetInspector interface {
+	CompareActiveTarget(context.Context, string, string, string) contract.TargetActiveState
+}
+
 type Options struct {
 	Store       *storage.Store
 	Clock       Clock
@@ -50,6 +54,7 @@ type Options struct {
 	Namespaces  NamespaceInspector
 	Descriptors DescriptorInspector
 	Denies      DenyInspector
+	Active      ActiveTargetInspector
 	Invalidate  func(contract.Invalidation)
 }
 
@@ -60,6 +65,7 @@ type Repository struct {
 	namespaces  NamespaceInspector
 	descriptors DescriptorInspector
 	denies      DenyInspector
+	active      ActiveTargetInspector
 	invalidate  func(contract.Invalidation)
 	entropyMu   sync.Mutex
 }
@@ -67,6 +73,25 @@ type Repository struct {
 type CreateRequest struct {
 	PrincipalID string
 	Policy      contract.Policy
+}
+
+type AdminFilter struct {
+	PrincipalID string
+	State       *contract.GrantRequestState
+}
+
+type AdminCursor struct {
+	Collection  string                      `json:"collection"`
+	PrincipalID string                      `json:"principal_id"`
+	State       *contract.GrantRequestState `json:"state"`
+	Upper       int64                       `json:"upper"`
+	After       int64                       `json:"after"`
+	AfterID     string                      `json:"after_id"`
+}
+
+type AdminPage struct {
+	Items []contract.GrantRequestSummary
+	Next  *AdminCursor
 }
 
 func New(options Options) (*Repository, error) {
@@ -77,6 +102,6 @@ func New(options Options) (*Repository, error) {
 	return &Repository{
 		store: options.Store, clock: options.Clock, entropy: options.Entropy,
 		namespaces: options.Namespaces, descriptors: options.Descriptors, denies: options.Denies,
-		invalidate: options.Invalidate,
+		active: options.Active, invalidate: options.Invalidate,
 	}, nil
 }

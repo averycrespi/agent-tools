@@ -313,6 +313,7 @@ type requestRepositoryOptions struct {
 	namespaces  *fakeNamespaceInspector
 	descriptors *fakeDescriptorInspector
 	denies      *fakeDenyInspector
+	active      ActiveTargetInspector
 	invalidate  func(contract.Invalidation)
 }
 
@@ -349,7 +350,7 @@ func newRequestRepository(t *testing.T, options requestRepositoryOptions) (*Repo
 	repository, err := New(Options{
 		Store: store, Clock: options.clock, Entropy: options.entropy,
 		Namespaces: options.namespaces, Descriptors: options.descriptors, Denies: options.denies,
-		Invalidate: options.invalidate,
+		Active: options.active, Invalidate: options.invalidate,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

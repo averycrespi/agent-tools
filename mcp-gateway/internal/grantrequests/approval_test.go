@@ -68,6 +68,11 @@ func TestS5ApprovalSeamAtomicallyCreatesAllowAndApprovedRequest(t *testing.T) {
 	}))
 	assert.Equal(t, int64(1), grantCount)
 	assert.Positive(t, approvedEvidenceBytes)
+	adminItem, err := fixture.requests.GetAdmin(context.Background(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.PolicyTool, adminItem.CurrentTarget.Scope)
+	require.NotNil(t, adminItem.ApprovedEvidence)
+	assert.Equal(t, "sample.tool", adminItem.ApprovedPolicy.Target)
 	targets := &fakeStoredTargetInspector{namespaces: map[string]string{requestID(400): "sample"}}
 	require.NoError(t, fixture.requests.ValidateStartup(context.Background(), fixture.authority, targets))
 	require.NoError(t, fixture.authority.DeleteGrant(context.Background(), result.Grant.ID))

@@ -27,8 +27,9 @@ type ApproveRequest struct {
 
 // ApproveResult is the atomically created ordinary grant and terminal request.
 type ApproveResult struct {
-	Grant   contract.Grant
-	Request contract.AgentGrantRequest
+	Grant            contract.Grant
+	Request          contract.AgentGrantRequest
+	ApprovedEvidence *contract.DescriptorEvidence
 }
 
 type approvalTransition struct {
@@ -41,6 +42,7 @@ type approvalTransition struct {
 	serverID           string
 	createdAt          string
 	approvedDescriptor *catalog.DurableDescriptor
+	approvedEvidence   *contract.DescriptorEvidence
 }
 
 // Approve initiates one authorization-owned atomic approval transaction.
@@ -62,7 +64,7 @@ func (repository *Repository) Approve(ctx context.Context, authority ApprovalAut
 	}
 	repository.invalidate(contract.Invalidation{Kind: contract.InvalidationGrantRequests})
 	repository.invalidate(contract.Invalidation{Kind: contract.InvalidationAuthorization})
-	return ApproveResult{Grant: result.Grant, Request: result.Request}, nil
+	return ApproveResult{Grant: result.Grant, Request: result.Request, ApprovedEvidence: transition.approvedEvidence}, nil
 }
 
 func (transition *approvalTransition) PrepareGrantRequestApproval(ctx context.Context, transaction *sql.Tx) (authorization.ApprovalGrantMaterial, error) {
@@ -183,10 +185,12 @@ func (transition *approvalTransition) CommitGrantRequestApproval(
 		if err != nil {
 			return contract.AgentGrantRequest{}, authorization.ErrInvalidState
 		}
-		_, evidence, err = BuildDescriptorEvidence(*transition.approvedDescriptor, approvedName.namespace, approvedAt)
-		if err != nil {
+		captured, contents, buildErr := BuildDescriptorEvidence(*transition.approvedDescriptor, approvedName.namespace, approvedAt)
+		evidence = contents
+		if buildErr != nil {
 			return contract.AgentGrantRequest{}, authorization.ErrConflict
 		}
+		transition.approvedEvidence = &captured
 		var total int64
 		if err := transaction.QueryRowContext(ctx, `SELECT total_bytes FROM grant_request_evidence_bytes WHERE singleton = 1`).Scan(&total); err != nil {
 			return contract.AgentGrantRequest{}, approvalReadError(err)
