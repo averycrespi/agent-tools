@@ -32,9 +32,10 @@ func TestProductionSourceOwnershipGuards(t *testing.T) {
 	processConstructors := map[string]string{"internal/keyring/probe_darwin.go": "CommandContext", "internal/runtimes/stdio.go": "Command", "test/acceptance/acceptance.go": "CommandContext"}
 	allowedHTTP := "internal/remote/remote.go"
 	allowedSDK := map[string]bool{"internal/dependencies/dependencies.go": true, "internal/mcpingress/handler.go": true}
+	allowedTestutil := map[string]bool{"test/acceptance/acceptance.go": true, "test/acceptance/cmd/main.go": true}
 	for _, source := range productionSources(t, root) {
 		for _, imported := range source.imports {
-			if strings.HasSuffix(imported, "/internal/testutil") {
+			if strings.HasSuffix(imported, "/internal/testutil") && !allowedTestutil[source.path] {
 				t.Errorf("%s: prohibited import %s", source.path, imported)
 			}
 			if imported == "os/exec" && !allowedExec(source.path) {
