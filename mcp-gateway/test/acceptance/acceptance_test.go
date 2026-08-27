@@ -145,7 +145,7 @@ func TestS4ProfileMapsClosedCriterionAndClauseEvidenceToCommandsAndArtifacts(t *
 	require.Len(t, commands, 9)
 	require.Equal(t, []string{
 		"go -C mcp-gateway test -race ./internal/contract ./internal/invocation ./internal/storage ./internal/composition ./test/material ./test/acceptance",
-		"go -C mcp-gateway test -race -count=20 ./internal/invocation ./internal/authorization ./internal/catalog ./internal/downstream ./internal/mcpingress ./internal/composition",
+		"go -C mcp-gateway test -race -count=20 -timeout=18m ./internal/invocation ./internal/authorization ./internal/catalog ./internal/downstream ./internal/mcpingress ./internal/composition",
 		"go -C mcp-gateway test -race -tags=integration ./internal/storage ./internal/backup ./internal/invocation ./internal/authorization ./internal/catalog ./internal/mcpingress ./internal/composition",
 		"make -C mcp-gateway test-e2e",
 		"make -C mcp-gateway audit",
