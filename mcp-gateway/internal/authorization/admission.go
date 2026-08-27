@@ -24,6 +24,7 @@ type Admission struct {
 type PendingDetachment struct {
 	admission *Admission
 	lease     *Lease
+	subject   AdmittedSubject
 	committed atomic.Bool
 }
 
@@ -82,7 +83,10 @@ func (admission *Admission) VerifyResolvedTx(
 	if result.Decision != contract.DecisionAllow {
 		return result, nil, ResolvedEvaluated, nil
 	}
-	return result, &PendingDetachment{admission: admission, lease: admission.lease}, ResolvedEvaluated, nil
+	return result, &PendingDetachment{
+		admission: admission, lease: admission.lease,
+		subject: admittedSubject(admission.repository, admission.lease.binding, result.AuthorizationRevision),
+	}, ResolvedEvaluated, nil
 }
 
 func (admission *Admission) VerifyBindingOnlyTx(
@@ -138,7 +142,7 @@ func (admission *Admission) beginVerification(ctx context.Context, transaction *
 }
 
 func (pending *PendingDetachment) CommitSucceeded() error {
-	if pending == nil || pending.admission == nil || pending.lease == nil {
+	if pending == nil || pending.admission == nil || pending.lease == nil || !pending.subject.validFor(pending.admission.repository) {
 		return ErrAdmissionUnavailable
 	}
 	pending.admission.lifecycle.RLock()
@@ -155,6 +159,14 @@ func (pending *PendingDetachment) CommitSucceeded() error {
 	pending.lease.owner.remove(pending.lease)
 	pending.committed.Store(true)
 	return nil
+}
+
+// Subject returns the safe identity detached by an acknowledged ALLOW admission.
+func (pending *PendingDetachment) Subject() (AdmittedSubject, error) {
+	if pending == nil || !pending.committed.Load() || pending.admission == nil || !pending.subject.validFor(pending.admission.repository) {
+		return AdmittedSubject{}, ErrAdmissionUnavailable
+	}
+	return pending.subject, nil
 }
 
 func verifyCurrentBindingTx(ctx context.Context, transaction *sql.Tx, binding CredentialBinding) error {

@@ -80,6 +80,33 @@ func (repository *Repository) LookupNamespaceTargetTx(ctx context.Context, trans
 	return target, nil
 }
 
+func (repository *Repository) LookupStoredGrantNamespaceTx(ctx context.Context, transaction *sql.Tx, serverID string) (string, bool, error) {
+	if transaction == nil {
+		return "", false, fmt.Errorf("%w: stored grant-target transaction is unavailable", ErrStorageUnavailable)
+	}
+	if !validID(serverID) {
+		return "", false, nil
+	}
+	if serverID == contract.SyntheticServerID {
+		var collisions int
+		if err := transaction.QueryRowContext(ctx, `SELECT count(*) FROM server_identities WHERE id = ? OR namespace = ?`, serverID, contract.SyntheticServerNamespace).Scan(&collisions); err != nil {
+			return "", false, grantTargetStorageError(err)
+		}
+		return contract.SyntheticServerNamespace, collisions == 0, nil
+	}
+	var identityID, namespace string
+	if err := transaction.QueryRowContext(ctx, `SELECT id, namespace FROM server_identities WHERE id = ?`, serverID).Scan(&identityID, &namespace); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, grantTargetStorageError(err)
+	}
+	if identityID != serverID || !namespacePattern.MatchString(namespace) || namespace == contract.SyntheticServerNamespace {
+		return "", false, ErrStorageUnavailable
+	}
+	return namespace, true, nil
+}
+
 func (repository *Repository) StoredGrantTargetExistsTx(ctx context.Context, transaction *sql.Tx, serverID string) (bool, error) {
 	if transaction == nil {
 		return false, fmt.Errorf("%w: grant-target transaction is unavailable", ErrStorageUnavailable)

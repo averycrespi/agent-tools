@@ -84,6 +84,34 @@ func TestS5NamespaceTargetTxReturnsCurrentAndTombstoneFacts(t *testing.T) {
 	require.ErrorIs(t, err, ErrStorageUnavailable)
 }
 
+func TestS5SelfProjectionStoredGrantNamespaceIncludesSyntheticCurrentAndDeleted(t *testing.T) {
+	repository, store, _ := newRepository(t, new(sequenceReader))
+	current := mustCreateServer(t, repository, "projected-current", false)
+	deleted := mustCreateServer(t, repository, "projected-deleted", false)
+	_, err := repository.Delete(context.Background(), deleted.ID, deleted.DesiredRevision)
+	require.NoError(t, err)
+
+	require.NoError(t, store.View(context.Background(), func(transaction *sql.Tx) error {
+		for _, test := range []struct {
+			id, namespace string
+			found         bool
+		}{
+			{id: contract.SyntheticServerID, namespace: contract.SyntheticServerNamespace, found: true},
+			{id: current.ID, namespace: current.Namespace, found: true},
+			{id: deleted.ID, namespace: deleted.Namespace, found: true},
+			{id: "01J60000000000000000000999"},
+		} {
+			namespace, found, inspectErr := repository.LookupStoredGrantNamespaceTx(context.Background(), transaction, test.id)
+			require.NoError(t, inspectErr)
+			assert.Equal(t, test.namespace, namespace)
+			assert.Equal(t, test.found, found)
+		}
+		return nil
+	}))
+	_, _, err = repository.LookupStoredGrantNamespaceTx(context.Background(), nil, current.ID)
+	require.ErrorIs(t, err, ErrStorageUnavailable)
+}
+
 func TestStoredGrantTargetExistsTxAcceptsDeletedIdentityAndRejectsMissing(t *testing.T) {
 	repository, store, _ := newRepository(t, new(sequenceReader))
 	current := mustCreateServer(t, repository, "stored-current", false)
