@@ -142,11 +142,12 @@ func TestS3ProfileMapsTheClosedEvidenceManifestToCommandsAndArtifacts(t *testing
 func TestS4ProfileMapsClosedCriterionAndClauseEvidenceToCommandsAndArtifacts(t *testing.T) {
 	commands, err := ProfileCommands(Profile("s4"))
 	require.NoError(t, err)
-	require.Len(t, commands, 10)
+	require.Len(t, commands, 11)
 	require.Equal(t, []string{
 		"go -C mcp-gateway test -race ./internal/contract ./internal/invocation ./internal/storage ./internal/composition ./test/material ./test/acceptance",
 		"go -C mcp-gateway test -race -count=20 -timeout=18m ./internal/invocation ./internal/authorization",
-		"go -C mcp-gateway test -race -count=20 -timeout=18m ./internal/catalog ./internal/downstream ./internal/mcpingress ./internal/composition",
+		"go -C mcp-gateway test -race -count=20 -timeout=18m ./internal/catalog ./internal/downstream ./internal/mcpingress",
+		"go -C mcp-gateway test -race -count=20 -timeout=18m ./internal/composition",
 		"go -C mcp-gateway test -race -tags=integration ./internal/storage ./internal/backup ./internal/invocation ./internal/authorization ./internal/catalog ./internal/mcpingress ./internal/composition",
 		"make -C mcp-gateway test-e2e",
 		"make -C mcp-gateway audit",
@@ -207,8 +208,8 @@ func TestS4RunBindsRevisionProfileManifestsAndAllChecks(t *testing.T) {
 	assert.Regexp(t, `^[0-9a-f]{40}$`, report.Revision)
 	assert.Equal(t, contract.S4AcceptanceEvidenceManifest(), report.EvidenceManifest)
 	assert.Equal(t, contract.S4ClauseEvidenceManifest(), report.ClauseManifest)
-	require.Len(t, report.Checks, 10)
-	assert.Equal(t, 10, executor.calls)
+	require.Len(t, report.Checks, 11)
+	assert.Equal(t, 11, executor.calls)
 	assert.Equal(t, keyringnative.ResultSkipped, report.Native.Result)
 	assertReportValid(t, report)
 }

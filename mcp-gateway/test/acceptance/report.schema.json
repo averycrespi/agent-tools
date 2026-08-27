@@ -23,7 +23,7 @@
     "reason": { "type": "string", "pattern": "^[a-z0-9_]+$" },
     "checks": {
       "type": "array",
-      "maxItems": 10,
+      "maxItems": 11,
       "items": {
         "type": "object",
         "additionalProperties": false,
