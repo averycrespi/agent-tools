@@ -300,18 +300,22 @@ function decodeServer(value: unknown): ServerView {
   const id = identifier(item.id);
   stringValue(item.namespace);
   stringValue(item.desired_revision);
-  validateTransport(item.transport);
+  const desired = closed(item.desired_state, [
+    "enabled",
+    "disabled",
+    "deleted",
+  ]);
+  if (desired === "deleted") {
+    if (item.transport !== null) throw new Error("invalid response");
+  } else {
+    validateTransport(item.transport);
+  }
   const revisions = record(item.credential_revisions, [
     "static_credential",
     "oauth_client",
     "oauth_tokens",
   ]);
   Object.values(revisions).forEach(stringValue);
-  const desired = closed(item.desired_state, [
-    "enabled",
-    "disabled",
-    "deleted",
-  ]);
   const credential = closed(item.credential_state, [
     "not_required",
     "ready",

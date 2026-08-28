@@ -15,6 +15,7 @@ import {
   StateNotice,
   StatusLabel,
 } from "./primitives";
+import { ServerReads, ServerReadsController } from "./server-reads";
 import { SensitiveSinkHost } from "./sinks-ui";
 import { SensitiveSinkCoordinator } from "./sinks";
 import { System, SystemController } from "./system";
@@ -87,6 +88,10 @@ const systemController = new SystemController(
   sessionClient,
   viewCoordinator,
   (latched) => mutationCoordinator.setStorageLatched(latched),
+);
+const serverReadsController = new ServerReadsController(
+  sessionClient,
+  viewCoordinator,
 );
 applyTheme(initialTheme);
 
@@ -427,6 +432,13 @@ function App() {
             <System
               controller={systemController}
               view={view}
+              onRefresh={() => viewCoordinator.manualRefresh()}
+            />
+          ) : destination === "servers" || destination === "catalog" ? (
+            <ServerReads
+              controller={serverReadsController}
+              view={view}
+              destination={destination}
               onRefresh={() => viewCoordinator.manualRefresh()}
             />
           ) : (

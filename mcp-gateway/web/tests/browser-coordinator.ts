@@ -42,7 +42,8 @@ interface BridgeInput {
     | "m5-canary"
     | "overview"
     | "invocations"
-    | "system-status";
+    | "system-status"
+    | "server-catalog-reads";
   base_url: string;
   admin_bearer: string;
 }
@@ -103,7 +104,8 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "m5-canary" &&
       value.scenario !== "overview" &&
       value.scenario !== "invocations" &&
-      value.scenario !== "system-status") ||
+      value.scenario !== "system-status" &&
+      value.scenario !== "server-catalog-reads") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -1934,6 +1936,35 @@ async function runOverview(
               "Needs operator attention",
               "degraded",
             ),
+            {
+              ...overviewServer(
+                "01ARZ3NDEKTSV4RRFFQ69G5FAB",
+                "Deleted server history",
+                "deleted",
+              ),
+              desired_state: "deleted",
+              transport: null,
+              runtime: {
+                ...overviewServer(
+                  "01ARZ3NDEKTSV4RRFFQ69G5FAB",
+                  "Deleted server history",
+                  "deleted",
+                ).runtime,
+                state: "deleted",
+              },
+              catalog: {
+                ...overviewServer(
+                  "01ARZ3NDEKTSV4RRFFQ69G5FAB",
+                  "Deleted server history",
+                  "deleted",
+                ).catalog,
+                durable_state: "retired",
+                active_state: "absent",
+                active_revision: null,
+                active_tool_count: 0,
+              },
+              deleted_at: "2026-08-28T01:00:00Z",
+            },
           ],
           next_cursor: null,
         }),
@@ -2750,6 +2781,509 @@ async function runSystemStatus(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "system_status_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), status_reads: statusReads, event_streams: eventStreams, limit_rows: limitRows })}\n`,
+  );
+}
+
+const serverReadIDs = {
+  active: "01ARZ3NDEKTSV4RRFFQ69G5FB0",
+  degraded: "01ARZ3NDEKTSV4RRFFQ69G5FB1",
+  deleted: "01ARZ3NDEKTSV4RRFFQ69G5FB2",
+  discarded: "01ARZ3NDEKTSV4RRFFQ69G5FB3",
+  currentTool: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
+  retiredTool: "01ARZ3NDEKTSV4RRFFQ69G5FC1",
+  durableTool: "01ARZ3NDEKTSV4RRFFQ69G5FC2",
+  activeTool: "01ARZ3NDEKTSV4RRFFQ69G5FC3",
+} as const;
+
+function serverReadFixture(
+  id: string,
+  options: {
+    name: string;
+    desired: "enabled" | "disabled" | "deleted";
+    runtime: "active" | "degraded" | "authentication_required" | "deleted";
+    credential: "ready" | "reauthentication_required" | "not_required";
+    durable: "current" | "stale" | "retired";
+    active: "current" | "stale" | "unavailable" | "absent";
+  },
+) {
+  return {
+    id,
+    namespace: `server-${id.slice(-2).toLowerCase()}`,
+    display_name: options.name,
+    desired_state: options.desired,
+    desired_revision: options.desired === "deleted" ? "8" : "7",
+    transport:
+      options.desired === "deleted"
+        ? null
+        : {
+            kind: "stdio",
+            executable: "/usr/bin/example",
+            arguments: ["--safe"],
+            working_directory: "/srv/example",
+            environment: { MODE: "read" },
+            secret_environment: { TOKEN: "primary" },
+          },
+    credential_revisions: {
+      static_credential: "2",
+      oauth_client: "3",
+      oauth_tokens: "4",
+    },
+    credential_state: options.credential,
+    runtime: {
+      state: options.runtime,
+      reason:
+        options.runtime === "authentication_required"
+          ? "authentication_rejected"
+          : options.runtime === "degraded"
+            ? "catalog_stale"
+            : null,
+      runtime_id: options.runtime === "active" ? "runtime-safe-id" : null,
+      reconciliation: { in_use: 0, limit: 1, saturated: false },
+      dispatch: { in_use: 0, limit: 4, saturated: false },
+    },
+    catalog: {
+      durable_state: options.durable,
+      active_state: options.active,
+      durable_revision: options.durable === "retired" ? "6" : "7",
+      active_revision: options.active === "current" ? "7" : null,
+      durable_tool_count: 2,
+      active_tool_count: options.active === "absent" ? 0 : 1,
+      last_success_at: "2026-08-28T12:00:00Z",
+      traversal: { in_use: 0, limit: 4, saturated: false },
+    },
+    created_at: "2026-08-28T10:00:00Z",
+    updated_at: "2026-08-28T12:00:00Z",
+    deleted_at: options.desired === "deleted" ? "2026-08-28T12:30:00Z" : null,
+  };
+}
+
+function descriptorReadFixture(
+  id: string,
+  serverID: string,
+  name: string,
+  retired: boolean,
+) {
+  return {
+    id,
+    server_id: serverID,
+    upstream_name: name,
+    external_name: `server.${name}`,
+    descriptor: {
+      name,
+      title: `Safe ${name}`,
+      description: `Descriptor ${name}`,
+      inputSchema: {
+        type: "object",
+        properties: { value: { type: "string" } },
+      },
+      outputSchema: { type: "object" },
+      annotations: {
+        title: null,
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    fingerprint: "a".repeat(64),
+    catalog_revision: retired ? "6" : "7",
+    first_seen_at: "2026-08-28T10:00:00Z",
+    last_seen_at: "2026-08-28T12:00:00Z",
+    retired_at: retired ? "2026-08-28T12:30:00Z" : null,
+  };
+}
+
+async function runServerCatalogReads(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-freshness") === "current",
+  );
+
+  let serverReads = 0;
+  let descriptorReads = 0;
+  let catalogReads = 0;
+  let serverStale = false;
+  let serverRestarted = false;
+  let descriptorRestarted = false;
+  let catalogRestarted = false;
+  const activeServer = serverReadFixture(serverReadIDs.active, {
+    name: "Authority required",
+    desired: "enabled",
+    runtime: "authentication_required",
+    credential: "reauthentication_required",
+    durable: "current",
+    active: "unavailable",
+  });
+  const degradedServer = serverReadFixture(serverReadIDs.degraded, {
+    name: "Degraded catalog",
+    desired: "enabled",
+    runtime: "degraded",
+    credential: "ready",
+    durable: "stale",
+    active: "stale",
+  });
+  const deletedServer = serverReadFixture(serverReadIDs.deleted, {
+    name: "Deleted history",
+    desired: "deleted",
+    runtime: "deleted",
+    credential: "not_required",
+    durable: "retired",
+    active: "absent",
+  });
+
+  await page.route("**/api/v1/servers**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const headers = await request.allHeaders();
+    if (request.method() !== "GET" || headers["x-csrf-token"] === undefined)
+      fail("server read view issued a non-read or unauthenticated request");
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts.length === 4) {
+      serverReads += 1;
+      if (url.search !== "" || parts[3] !== serverReadIDs.active)
+        fail("server item request changed shape");
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          ETag: `\"server-${serverReadIDs.active}-7\"`,
+        },
+        body: JSON.stringify(activeServer),
+      });
+      return;
+    }
+    if (parts.length >= 5 && parts[4] === "descriptors") {
+      descriptorReads += 1;
+      if (parts.length === 6) {
+        if (url.search !== "" || parts[5] !== serverReadIDs.retiredTool)
+          fail("descriptor item request changed shape");
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(
+            descriptorReadFixture(
+              serverReadIDs.retiredTool,
+              serverReadIDs.active,
+              "retired-tool",
+              true,
+            ),
+          ),
+        });
+        return;
+      }
+      const query = url.searchParams;
+      if (
+        parts.length !== 5 ||
+        query.get("limit") !== "50" ||
+        query.get("retired") !== "include" ||
+        [...query.keys()].some(
+          (key) => key !== "limit" && key !== "retired" && key !== "cursor",
+        )
+      )
+        fail("descriptor list request changed shape");
+      const cursor = query.get("cursor");
+      if (cursor === "descriptor-stale") {
+        descriptorRestarted = true;
+        await route.fulfill({
+          status: 409,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 409,
+            code: "stale_cursor",
+            title: "Stale",
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(
+          descriptorRestarted
+            ? {
+                items: [
+                  descriptorReadFixture(
+                    serverReadIDs.durableTool,
+                    serverReadIDs.active,
+                    "durable-only",
+                    false,
+                  ),
+                ],
+                next_cursor: null,
+              }
+            : {
+                items: [
+                  descriptorReadFixture(
+                    serverReadIDs.currentTool,
+                    serverReadIDs.active,
+                    "current-tool",
+                    false,
+                  ),
+                  descriptorReadFixture(
+                    serverReadIDs.retiredTool,
+                    serverReadIDs.active,
+                    "retired-tool",
+                    true,
+                  ),
+                ],
+                next_cursor: "descriptor-stale",
+              },
+        ),
+      });
+      return;
+    }
+    serverReads += 1;
+    const query = url.searchParams;
+    if (
+      parts.length !== 3 ||
+      query.get("limit") !== "50" ||
+      [...query.keys()].some((key) => key !== "limit" && key !== "cursor")
+    )
+      fail("server list request changed shape");
+    const cursor = query.get("cursor");
+    if (serverStale) {
+      if (cursor === "server-stale") {
+        serverRestarted = true;
+        await route.fulfill({
+          status: 409,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 409,
+            code: "stale_cursor",
+            title: "Stale",
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(
+          serverRestarted
+            ? { items: [activeServer], next_cursor: null }
+            : {
+                items: [
+                  serverReadFixture(serverReadIDs.discarded, {
+                    name: "Discarded stale server",
+                    desired: "enabled",
+                    runtime: "active",
+                    credential: "ready",
+                    durable: "current",
+                    active: "current",
+                  }),
+                ],
+                next_cursor: "server-stale",
+              },
+        ),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(
+        cursor === "server-next"
+          ? { items: [deletedServer], next_cursor: null }
+          : {
+              items: [activeServer, degradedServer],
+              next_cursor: "server-next",
+            },
+      ),
+    });
+  });
+
+  await page.route("**/api/v1/catalog**", async (route) => {
+    catalogReads += 1;
+    const request = route.request();
+    const query = new URL(request.url()).searchParams;
+    const headers = await request.allHeaders();
+    if (
+      request.method() !== "GET" ||
+      headers["x-csrf-token"] === undefined ||
+      query.get("limit") !== "50" ||
+      [...query.keys()].some((key) => key !== "limit" && key !== "cursor")
+    )
+      fail("active catalog request changed shape");
+    const cursor = query.get("cursor");
+    if (cursor === "catalog-stale") {
+      catalogRestarted = true;
+      await route.fulfill({
+        status: 409,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 409,
+          code: "stale_cursor",
+          title: "Stale",
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        catalog: {
+          active_state: "degraded",
+          active_generation: catalogRestarted ? "process-9" : "process-8",
+          changed_at: "2026-08-28T13:00:00Z",
+          issue_count: 2,
+        },
+        items: [
+          descriptorReadFixture(
+            catalogRestarted
+              ? serverReadIDs.activeTool
+              : serverReadIDs.currentTool,
+            serverReadIDs.active,
+            catalogRestarted ? "active-restarted" : "active-before-stale",
+            false,
+          ),
+        ],
+        next_cursor: catalogRestarted ? null : "catalog-stale",
+      }),
+    });
+  });
+
+  await page.evaluate(() => {
+    window.location.hash = "#/servers";
+  });
+  await page.locator('[data-testid="servers-view"]').waitFor();
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-testid="server-row"]').length === 2,
+  );
+  let body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "Authority required",
+    "authentication_required",
+    "reauthentication_required",
+    "Degraded catalog",
+    "durable stale",
+    "active stale",
+  ])
+    if (!body.includes(phrase)) fail(`server inventory omitted ${phrase}`);
+  await page.locator('[data-testid="load-more-servers"]').click();
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-testid="server-row"]').length === 3,
+  );
+  body = (await page.locator("body").textContent()) ?? "";
+  if (!body.includes("Deleted history") || !body.includes("durable retired"))
+    fail("server inventory omitted deleted durable history");
+
+  serverStale = true;
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page.locator('[data-testid="load-more-servers"]').click();
+  await page.waitForFunction(
+    (id) => document.querySelector(`a[href="#/servers/${id}"]`) !== null,
+    serverReadIDs.active,
+  );
+  body = (await page.locator("body").textContent()) ?? "";
+  if (!serverRestarted || body.includes("Discarded stale server"))
+    fail("server stale traversal was merged");
+
+  await page
+    .locator(`a[href="#/servers/${serverReadIDs.active}"]`)
+    .first()
+    .click();
+  await page.locator('[data-testid="server-detail"]').waitFor();
+  body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "Desired revision 7",
+    "Durable catalog revision 7",
+    "Active catalog unavailable",
+    "Durable evidence is not proof of process publication or callability",
+  ])
+    if (!body.includes(phrase)) fail(`server detail omitted ${phrase}`);
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}?tab=descriptors`;
+  }, serverReadIDs.active);
+  await page.locator('[data-testid="descriptor-list"]').waitFor();
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-testid="descriptor-row"]').length === 2,
+  );
+  body = (await page.locator("body").textContent()) ?? "";
+  if (!body.includes("current evidence") || !body.includes("retired evidence"))
+    fail("descriptor list omitted current/retired evidence labels");
+  await page
+    .locator(
+      `a[href="#/servers/${serverReadIDs.active}/descriptors/${serverReadIDs.retiredTool}"]`,
+    )
+    .click();
+  await page.locator('[data-testid="descriptor-detail"]').waitFor();
+  body = (await page.locator("body").textContent()) ?? "";
+  if (
+    !body.includes("Durable catalog revision 6") ||
+    !body.includes("Historical evidence; not callable") ||
+    (await page
+      .locator(`a[href="#/servers/${serverReadIDs.active}"]`)
+      .count()) === 0 ||
+    (await page.locator('a[href="#/catalog"]').count()) === 0
+  )
+    fail("descriptor detail omitted evidence or reciprocal routes");
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}?tab=descriptors`;
+  }, serverReadIDs.active);
+  await page.locator('[data-testid="load-more-descriptors"]').click();
+  await page.waitForFunction(
+    () => document.querySelector('a[data-tool-name="durable-only"]') !== null,
+  );
+  body = (await page.locator("body").textContent()) ?? "";
+  if (!descriptorRestarted || body.includes("retired-tool"))
+    fail("descriptor stale traversal was merged");
+
+  await page.evaluate(() => {
+    window.location.hash = "#/catalog";
+  });
+  await page.locator('[data-testid="catalog-view"]').waitFor();
+  await page.waitForFunction(() =>
+    document
+      .querySelector('[data-testid="catalog-view"]')
+      ?.textContent?.includes("Process generation process-8"),
+  );
+  body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "Process generation process-8",
+    "Catalog degraded",
+    "Degraded administrative evidence does not establish routability",
+  ])
+    if (!body.includes(phrase)) fail(`active catalog omitted ${phrase}`);
+  if (
+    (await page
+      .locator(`a[href="#/servers/${serverReadIDs.active}"]`)
+      .count()) === 0 ||
+    (await page
+      .locator(
+        `a[href="#/servers/${serverReadIDs.active}/descriptors/${serverReadIDs.currentTool}"]`,
+      )
+      .count()) === 0
+  )
+    fail("active catalog omitted reciprocal routes");
+  await page.locator('[data-testid="load-more-catalog"]').click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector('a[data-tool-name="active-restarted"]') !== null,
+  );
+  body = (await page.locator("body").textContent()) ?? "";
+  if (!catalogRestarted || body.includes("active-before-stale"))
+    fail("active catalog stale traversal was merged");
+
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "server_catalog_reads_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), server_reads: serverReads, descriptor_reads: descriptorReads, catalog_reads: catalogReads })}\n`,
   );
 }
 
@@ -3754,6 +4288,14 @@ try {
               .startsWith(
                 "Failed to load resource: the server responded with a status of 404",
               ))
+        ) &&
+        !(
+          input.scenario === "server-catalog-reads" &&
+          message
+            .text()
+            .startsWith(
+              "Failed to load resource: the server responded with a status of 409",
+            )
         )
       ) {
         consoleFailures.push(message.text());
@@ -3864,6 +4406,15 @@ try {
       );
     } else if (input.scenario === "system-status") {
       await runSystemStatus(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "server-catalog-reads") {
+      await runServerCatalogReads(
         browser.version(),
         context,
         page,
