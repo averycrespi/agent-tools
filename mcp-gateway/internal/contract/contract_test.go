@@ -19,7 +19,7 @@ func TestRoutesMatchTheS1Contract(t *testing.T) {
 		{Pattern: "/mcp", Methods: []string{"DELETE", "GET", "POST"}, Authority: AuthorityAgent},
 		{Pattern: "/oauth/callback", Methods: []string{"GET"}, Authority: AuthorityOAuthState},
 		{Pattern: "/api/v1/admin-sessions", Methods: []string{"POST"}, Authority: AuthorityAdminBearer},
-		{Pattern: "/api/v1/admin-sessions/current", Methods: []string{"DELETE"}, Authority: AuthorityAdminSession},
+		{Pattern: "/api/v1/admin-sessions/current", Methods: []string{"DELETE", "POST"}, Authority: AuthorityAdminSession},
 		{Pattern: "/api/v1/admin-credentials", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 		{Pattern: "/api/v1/admin-credentials/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
 		{Pattern: "/api/v1/system-status", Methods: []string{"GET"}, Authority: AuthorityAdmin},

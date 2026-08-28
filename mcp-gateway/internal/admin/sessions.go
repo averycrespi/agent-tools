@@ -14,8 +14,6 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 )
 
-const sessionValueBytes = 32
-
 var (
 	ErrSessionLimit         = errors.New("admin session limit is reached")
 	ErrCSRF                 = errors.New("CSRF validation failed")
@@ -126,6 +124,27 @@ func (manager *SessionManager) Exchange(ctx context.Context, bearer string) (Cre
 	manager.sessions[id] = session
 	manager.reserved--
 	reserved = false
+	return createdSession(session), nil
+}
+
+func (manager *SessionManager) Bootstrap(ctx context.Context, sessionID string) (CreatedSession, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	session, ok := manager.sessions[sessionID]
+	if !ok || manager.shutting {
+		return CreatedSession{}, ErrAuthenticationRequired
+	}
+	now := manager.clock.Now()
+	if manager.expired(session, now) {
+		manager.closeSession(session)
+		return CreatedSession{}, ErrAuthenticationRequired
+	}
+	parent, err := manager.service.Get(ctx, session.parentID)
+	if err != nil || parent.Status != contract.CredentialActive {
+		manager.closeSession(session)
+		return CreatedSession{}, ErrAuthenticationRequired
+	}
+	session.lastActivity = now
 	return createdSession(session), nil
 }
 
@@ -287,7 +306,7 @@ func createdSession(session *activeSession) CreatedSession {
 }
 
 func randomSessionValue(entropy io.Reader) (string, error) {
-	value := make([]byte, sessionValueBytes)
+	value := make([]byte, contract.SessionValueBytes)
 	if _, err := io.ReadFull(entropy, value); err != nil {
 		return "", fmt.Errorf("generate admin session value: %w", err)
 	}

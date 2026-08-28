@@ -163,11 +163,13 @@ type SystemStatus struct {
 	Protocols ProtocolStatus `json:"protocols"`
 }
 
-type AdminSessionCreated struct {
+type AdminSessionBootstrap struct {
 	CSRFToken         string `json:"csrf_token"`
 	IdleExpiresAt     string `json:"idle_expires_at"`
 	AbsoluteExpiresAt string `json:"absolute_expires_at"`
 }
+
+type AdminSessionCreated = AdminSessionBootstrap
 
 type Invalidation struct {
 	Kind       InvalidationKind `json:"kind"`

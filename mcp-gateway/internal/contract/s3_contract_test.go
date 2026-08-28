@@ -52,7 +52,14 @@ func TestS3RoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/api/v1/grants/{id}", Method: "DELETE", RequestSchema: "None", SuccessSchema: "Empty", SuccessStatuses: []int{204}},
 	}
 	mechanics := ResourceMechanics()
-	s3MechanicStart := len(mechanics) - len(expectedMechanics) - 4
+	s3MechanicStart := -1
+	for index, mechanic := range mechanics {
+		if mechanic.Pattern == expectedMechanics[0].Pattern && mechanic.Method == expectedMechanics[0].Method {
+			s3MechanicStart = index
+			break
+		}
+	}
+	require.GreaterOrEqual(t, s3MechanicStart, 0)
 	require.Equal(t, expectedMechanics, mechanics[s3MechanicStart:s3MechanicStart+len(expectedMechanics)])
 	mechanics[s3MechanicStart].SuccessStatuses[0] = 500
 	require.Equal(t, expectedMechanics, ResourceMechanics()[s3MechanicStart:s3MechanicStart+len(expectedMechanics)], "mechanic copies must be isolated")

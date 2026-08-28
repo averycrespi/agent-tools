@@ -13,6 +13,7 @@ const (
 	AdminBearerPrefix = "mgw_admin_"
 	AgentBearerPrefix = "mgw_agent_"
 	SessionCookieName = "mcp_gateway_session"
+	SessionValueBytes = 32
 )
 
 type ResourceMechanic struct {
@@ -72,6 +73,7 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v1/grant-requests/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, ETag: true},
 	{Pattern: "/api/v1/grant-requests/{id}/approve", Method: "POST", RequestSchema: "GrantRequestApproval", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 	{Pattern: "/api/v1/grant-requests/{id}/reject", Method: "POST", RequestSchema: "GrantRequestRejection", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+	{Pattern: "/api/v1/admin-sessions/current", Method: "POST", RequestSchema: "EmptyObject", SuccessSchema: "AdminSessionBootstrap", SuccessStatuses: []int{200}},
 }
 
 func ResourceMechanics() []ResourceMechanic {

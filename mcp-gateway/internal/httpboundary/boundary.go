@@ -54,7 +54,8 @@ type Boundary struct {
 }
 
 type Error struct {
-	Code contract.ProblemCode
+	Code      contract.ProblemCode
+	SetCookie string
 }
 
 func (failure Error) Error() string { return string(failure.Code) }
@@ -160,6 +161,9 @@ func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Re
 		if err != nil {
 			var failure Error
 			if errors.As(err, &failure) {
+				if failure.SetCookie != "" {
+					writer.Header().Add("Set-Cookie", failure.SetCookie)
+				}
 				writeProblem(writer, failure.Code)
 			} else {
 				writeProblem(writer, contract.ProblemAuthenticationRequired)

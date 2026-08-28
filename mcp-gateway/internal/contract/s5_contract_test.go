@@ -144,12 +144,21 @@ func TestS5ResourceShapesETagsMechanicsAndStatusAreExact(t *testing.T) {
 	}
 
 	mechanics := ResourceMechanics()
-	require.Equal(t, []ResourceMechanic{
+	expectedMechanics := []ResourceMechanic{
 		{Pattern: "/api/v1/grant-requests", Method: "GET", RequestSchema: "GrantRequestListQuery", SuccessSchema: "Page<GrantRequestSummary>", SuccessStatuses: []int{200}, Cursor: true},
 		{Pattern: "/api/v1/grant-requests/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, ETag: true},
 		{Pattern: "/api/v1/grant-requests/{id}/approve", Method: "POST", RequestSchema: "GrantRequestApproval", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 		{Pattern: "/api/v1/grant-requests/{id}/reject", Method: "POST", RequestSchema: "GrantRequestRejection", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
-	}, mechanics[len(mechanics)-4:])
+	}
+	start := -1
+	for index, mechanic := range mechanics {
+		if mechanic.Pattern == expectedMechanics[0].Pattern && mechanic.Method == expectedMechanics[0].Method {
+			start = index
+			break
+		}
+	}
+	require.GreaterOrEqual(t, start, 0)
+	require.Equal(t, expectedMechanics, mechanics[start:start+len(expectedMechanics)])
 }
 
 func TestS5AcceptanceAndClauseManifestsAreCompleteAndCopySafe(t *testing.T) {

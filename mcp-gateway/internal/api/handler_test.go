@@ -100,6 +100,12 @@ type fakeSessions struct{}
 func (fakeSessions) Exchange(context.Context, string) (admin.CreatedSession, error) {
 	return admin.CreatedSession{ID: "session", CSRFToken: "csrf", IdleExpiresAt: time.Date(2026, 8, 22, 19, 0, 0, 0, time.UTC), AbsoluteExpiresAt: time.Date(2026, 8, 23, 2, 0, 0, 0, time.UTC)}, nil
 }
+func (fakeSessions) Bootstrap(_ context.Context, session string) (admin.CreatedSession, error) {
+	if session != "session" {
+		return admin.CreatedSession{}, admin.ErrAuthenticationRequired
+	}
+	return admin.CreatedSession{ID: session, CSRFToken: "csrf", IdleExpiresAt: time.Date(2026, 8, 22, 19, 0, 0, 0, time.UTC), AbsoluteExpiresAt: time.Date(2026, 8, 23, 2, 0, 0, 0, time.UTC)}, nil
+}
 func (fakeSessions) Authenticate(_ context.Context, bearer, session, csrf string, requireCSRF bool) (contract.AdminCredential, error) {
 	if bearer != "" && session != "" {
 		return contract.AdminCredential{}, admin.ErrAmbiguousCredentials

@@ -39,6 +39,7 @@ type CredentialService interface {
 
 type SessionService interface {
 	Exchange(context.Context, string) (admin.CreatedSession, error)
+	Bootstrap(context.Context, string) (admin.CreatedSession, error)
 	Authenticate(context.Context, string, string, string, bool) (contract.AdminCredential, error)
 	Logout(string) error
 	Subscribe(string) (<-chan struct{}, error)
@@ -143,6 +144,7 @@ type authentication struct {
 	sessionID  string
 	bearer     string
 	viaSession bool
+	bootstrap  *admin.CreatedSession
 }
 
 func New(options Options) *Handler {
@@ -178,6 +180,9 @@ func New(options Options) *Handler {
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
+	if request.URL.Path == "/api/v1/admin-sessions/current" && request.Method == http.MethodPost {
+		return handler.authenticateBootstrap(ctx, request)
+	}
 	bearer, bearerPresent, err := parseBearer(request.Header.Values("Authorization"))
 	if err != nil {
 		return ctx, boundaryError(err)
@@ -239,6 +244,38 @@ func (handler *Handler) Authenticate(ctx context.Context, request *http.Request,
 	return context.WithValue(ctx, authContextKey{}, result), nil
 }
 
+func (handler *Handler) authenticateBootstrap(ctx context.Context, request *http.Request) (context.Context, error) {
+	if request.Header.Get("Origin") != handler.origin {
+		return ctx, httpboundary.Error{Code: contract.ProblemForbiddenOrigin}
+	}
+	cookies := sessionCookieValues(request)
+	if len(request.Header.Values("Authorization")) > 0 {
+		if len(cookies) > 0 {
+			return ctx, httpboundary.Error{Code: contract.ProblemAmbiguousCredentials}
+		}
+		return ctx, httpboundary.Error{Code: contract.ProblemAuthenticationRequired}
+	}
+	if len(cookies) == 0 {
+		return ctx, httpboundary.Error{Code: contract.ProblemAuthenticationRequired}
+	}
+	if len(cookies) > 1 {
+		return ctx, bootstrapAuthenticationError(contract.ProblemAmbiguousCredentials)
+	}
+	if !validSessionValue(cookies[0]) {
+		return ctx, bootstrapAuthenticationError(contract.ProblemAuthenticationRequired)
+	}
+	session, err := handler.sessions.Bootstrap(ctx, cookies[0])
+	if err != nil {
+		return ctx, bootstrapAuthenticationError(contract.ProblemAuthenticationRequired)
+	}
+	result := authentication{sessionID: cookies[0], viaSession: true, bootstrap: &session}
+	return context.WithValue(ctx, authContextKey{}, result), nil
+}
+
+func bootstrapAuthenticationError(code contract.ProblemCode) httpboundary.Error {
+	return httpboundary.Error{Code: code, SetCookie: expiredSessionCookie().String()}
+}
+
 func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	writer.Header().Set("Cache-Control", "no-store")
 	path := request.URL.Path
@@ -253,6 +290,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.oauthCallback(writer, request)
 	case path == "/api/v1/admin-sessions" && request.Method == http.MethodPost:
 		handler.exchange(writer, request)
+	case path == "/api/v1/admin-sessions/current" && request.Method == http.MethodPost:
+		handler.bootstrap(writer, request)
 	case path == "/api/v1/admin-sessions/current" && request.Method == http.MethodDelete:
 		handler.logout(writer, request)
 	case path == "/api/v1/admin-credentials" && request.Method == http.MethodGet:
@@ -419,6 +458,21 @@ func (handler *Handler) exchange(writer http.ResponseWriter, request *http.Reque
 		Name: contract.SessionCookieName, Value: session.ID, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
 	})
 	writeJSON(writer, http.StatusCreated, contract.AdminSessionCreated{
+		CSRFToken: session.CSRFToken, IdleExpiresAt: session.IdleExpiresAt.UTC().Format(time.RFC3339Nano), AbsoluteExpiresAt: session.AbsoluteExpiresAt.UTC().Format(time.RFC3339Nano),
+	})
+}
+
+func (handler *Handler) bootstrap(writer http.ResponseWriter, request *http.Request) {
+	if !decodeEmptyObject(writer, request) {
+		return
+	}
+	authenticated, ok := request.Context().Value(authContextKey{}).(authentication)
+	if !ok || authenticated.bootstrap == nil {
+		writeProblem(writer, contract.ProblemAuthenticationRequired)
+		return
+	}
+	session := *authenticated.bootstrap
+	writeJSON(writer, http.StatusOK, contract.AdminSessionBootstrap{
 		CSRFToken: session.CSRFToken, IdleExpiresAt: session.IdleExpiresAt.UTC().Format(time.RFC3339Nano), AbsoluteExpiresAt: session.AbsoluteExpiresAt.UTC().Format(time.RFC3339Nano),
 	})
 }
@@ -706,12 +760,7 @@ func parseBearer(values []string) (string, bool, error) {
 }
 
 func parseSessionCookie(request *http.Request) (string, bool, error) {
-	values := make([]string, 0, 1)
-	for _, cookie := range request.Cookies() {
-		if cookie.Name == contract.SessionCookieName {
-			values = append(values, cookie.Value)
-		}
-	}
+	values := sessionCookieValues(request)
 	if len(values) > 1 {
 		return "", true, admin.ErrAmbiguousCredentials
 	}
@@ -719,6 +768,27 @@ func parseSessionCookie(request *http.Request) (string, bool, error) {
 		return "", false, nil
 	}
 	return values[0], true, nil
+}
+
+func sessionCookieValues(request *http.Request) []string {
+	values := make([]string, 0, 1)
+	for _, cookie := range request.Cookies() {
+		if cookie.Name == contract.SessionCookieName {
+			values = append(values, cookie.Value)
+		}
+	}
+	return values
+}
+
+func validSessionValue(value string) bool {
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	return err == nil && len(decoded) == contract.SessionValueBytes && base64.RawURLEncoding.EncodeToString(decoded) == value
+}
+
+func expiredSessionCookie() *http.Cookie {
+	return &http.Cookie{ //nolint:gosec // The exact plain-loopback HTTP contract intentionally omits Secure.
+		Name: contract.SessionCookieName, Path: "/", MaxAge: -1, Expires: time.Unix(1, 0).UTC(), HttpOnly: true, SameSite: http.SameSiteStrictMode,
+	}
 }
 
 func parseCollectionQuery(query url.Values, collection string) (int, string, contract.ProblemCode) {
