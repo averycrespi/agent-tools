@@ -58,6 +58,7 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 		newRestoreCmd(dependencies),
 		newServeCmd(dependencies),
 	)
+	command.AddCommand(newOnlineCommands()...)
 	return command
 }
 

@@ -20,7 +20,7 @@ func main() {
 	}()
 	exitCode := 0
 	if err := newRootCmd().ExecuteContext(coordinator.Context()); err != nil {
-		exitCode = 1
+		exitCode = commandExitCode(err)
 	}
 	signal.Stop(signals)
 	if exitCode != 0 {
