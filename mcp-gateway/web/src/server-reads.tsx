@@ -1,6 +1,14 @@
 import { useEffect, useState } from "preact/hooks";
 import type { MutationCoordinator } from "./mutation";
 import { InertJSON, StateNotice, StatusLabel } from "./primitives";
+import {
+  authFlowIsTerminal,
+  decodeAuthFlow,
+  decodeAuthFlowPage,
+  type AuthFlowPage,
+  type ServerAuthFlowView,
+} from "./server-auth-flow-model";
+import { ServerAuthFlows } from "./server-auth-flows";
 import { ServerCredentials } from "./server-credentials";
 import { ServerEditor } from "./server-editor";
 import {
@@ -22,7 +30,12 @@ import type {
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 type JSONRecord = Record<string, unknown>;
-type ListKind = "servers" | "descriptors" | "catalog" | "operations";
+type ListKind =
+  | "servers"
+  | "descriptors"
+  | "catalog"
+  | "operations"
+  | "authFlows";
 
 function record(value: unknown, keys: readonly string[]): JSONRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value))
@@ -521,6 +534,9 @@ interface ServerReadsSnapshot {
   operations: readonly ServerOperationView[];
   operationNext: string | null;
   operation: ServerOperationView | undefined;
+  authFlows: readonly ServerAuthFlowView[];
+  authFlowNext: string | null;
+  authFlow: ServerAuthFlowView | undefined;
   readVersion: number;
   loadingMore: boolean;
   restarted: boolean;
@@ -549,6 +565,22 @@ type ReadResult =
       server: ServerView;
       etag: string;
       operation: ServerOperationView;
+    }
+  | {
+      kind: "authFlows";
+      viewKey: string;
+      server: ServerView;
+      etag: string;
+      page: AuthFlowPage;
+      append: boolean;
+      restarted: boolean;
+    }
+  | {
+      kind: "authFlow";
+      viewKey: string;
+      server: ServerView;
+      etag: string;
+      flow: ServerAuthFlowView;
     }
   | {
       kind: "descriptors";
@@ -584,6 +616,9 @@ function emptySnapshot(viewKey = ""): ServerReadsSnapshot {
     operations: [],
     operationNext: null,
     operation: undefined,
+    authFlows: [],
+    authFlowNext: null,
+    authFlow: undefined,
     readVersion: 0,
     loadingMore: false,
     restarted: false,
@@ -600,13 +635,14 @@ function listPath(
   if (next !== null) query.set("cursor", next);
   if (kind === "servers") return `/api/v1/servers?${query.toString()}`;
   if (kind === "catalog") return `/api/v1/catalog?${query.toString()}`;
-  if (kind === "operations") {
-    const match =
-      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=operations$/.exec(
-        viewKey,
-      );
-    if (match === null) throw new Error("invalid operation location");
-    return `/api/v1/servers/${match[1]!}/operations?${query.toString()}`;
+  if (kind === "operations" || kind === "authFlows") {
+    const suffix = kind === "operations" ? "operations" : "oauth";
+    const match = new RegExp(
+      `^#/servers/([0-7][0-9A-HJKMNP-TV-Z]{25})\\?tab=${suffix}$`,
+    ).exec(viewKey);
+    if (match === null) throw new Error("invalid server history location");
+    const resource = kind === "operations" ? "operations" : "auth-flows";
+    return `/api/v1/servers/${match[1]!}/${resource}?${query.toString()}`;
   }
   const match =
     /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=descriptors$/.exec(
@@ -631,17 +667,25 @@ export class ServerReadsController {
         key === "#/servers" ||
         key === "#/catalog" ||
         /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key) ||
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=(?:credentials|descriptors|operations)$/.test(
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=(?:credentials|descriptors|oauth|operations)$/.test(
           key,
         ) ||
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/(?:descriptors|operations)\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/(?:auth-flows|descriptors|operations)\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
           key,
         ),
-      invalidations: ["servers", "server_operations", "catalog"],
+      invalidations: [
+        "servers",
+        "server_operations",
+        "server_auth_flows",
+        "catalog",
+      ],
       pollMilliseconds: 2000,
       shouldPoll: () =>
-        this.value.operation !== undefined &&
-        !operationIsTerminal(this.value.operation),
+        (this.value.operation !== undefined &&
+          !operationIsTerminal(this.value.operation)) ||
+        (this.value.authFlow !== undefined &&
+          !authFlowIsTerminal(this.value.authFlow)) ||
+        this.value.authFlows.some((flow) => !authFlowIsTerminal(flow)),
       read: (context) => this.read(context),
       publish: (result) => this.publish(result),
     });
@@ -668,7 +712,9 @@ export class ServerReadsController {
           ? this.value.descriptorNext
           : kind === "operations"
             ? this.value.operationNext
-            : this.value.catalogNext;
+            : kind === "authFlows"
+              ? this.value.authFlowNext
+              : this.value.catalogNext;
     if (this.continuationPending || next === null) return;
     this.continuationPending = true;
     this.continuation = { kind, cursor: next };
@@ -687,6 +733,33 @@ export class ServerReadsController {
       this.continuation = undefined;
       this.value = emptySnapshot(context.viewKey);
       this.emit();
+    }
+    const authFlowItem =
+      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/auth-flows\/([0-7][0-9A-HJKMNP-TV-Z]{25})$/.exec(
+        context.viewKey,
+      );
+    if (authFlowItem !== null) {
+      const [serverResponse, flowResponse] = await Promise.all([
+        get(context, `/api/v1/servers/${authFlowItem[1]!}`),
+        get(
+          context,
+          `/api/v1/servers/${authFlowItem[1]!}/auth-flows/${authFlowItem[2]!}`,
+        ),
+      ]);
+      const server = decodeServer(await json(serverResponse));
+      const etag = serverResponse.headers.get("ETag");
+      if (etag !== `"server-${server.id}-${server.desiredRevision}"`)
+        throw new Error("invalid server ETag");
+      const flow = decodeAuthFlow(await json(flowResponse));
+      if (flow.serverID !== authFlowItem[1] || flow.id !== authFlowItem[2])
+        throw new Error("auth flow route mismatch");
+      return {
+        kind: "authFlow",
+        viewKey: context.viewKey,
+        server,
+        etag,
+        flow,
+      };
     }
     const operationItem =
       /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/operations\/([0-7][0-9A-HJKMNP-TV-Z]{25})$/.exec(
@@ -752,12 +825,14 @@ export class ServerReadsController {
           ? "catalog"
           : context.viewKey.endsWith("?tab=operations")
             ? "operations"
-            : "descriptors";
+            : context.viewKey.endsWith("?tab=oauth")
+              ? "authFlows"
+              : "descriptors";
     const continuation = this.continuation;
     this.continuation = undefined;
     const next = continuation?.kind === kind ? continuation.cursor : null;
     const serverResponsePromise =
-      kind === "operations"
+      kind === "operations" || kind === "authFlows"
         ? get(
             context,
             `/api/v1/servers/${context.viewKey.slice("#/servers/".length, "#/servers/".length + 26)}`,
@@ -785,18 +860,28 @@ export class ServerReadsController {
         append: next !== null && !restarted,
         restarted,
       };
-    if (kind === "operations") {
+    if (kind === "operations" || kind === "authFlows") {
       const serverResponse = await serverResponsePromise!;
       const server = decodeServer(await json(serverResponse));
       const etag = serverResponse.headers.get("ETag");
       if (etag !== `"server-${server.id}-${server.desiredRevision}"`)
         throw new Error("invalid server ETag");
+      if (kind === "operations")
+        return {
+          kind,
+          viewKey: context.viewKey,
+          server,
+          etag,
+          page: decodeOperationPage(await json(response)),
+          append: next !== null && !restarted,
+          restarted,
+        };
       return {
         kind,
         viewKey: context.viewKey,
         server,
         etag,
-        page: decodeOperationPage(await json(response)),
+        page: decodeAuthFlowPage(await json(response)),
         append: next !== null && !restarted,
         restarted,
       };
@@ -838,6 +923,27 @@ export class ServerReadsController {
           ? [...this.value.operations, ...result.page.items]
           : result.page.items,
         operationNext: result.page.nextCursor,
+        readVersion: this.value.readVersion + 1,
+        restarted: result.restarted,
+      };
+    else if (result.kind === "authFlow")
+      this.value = {
+        ...this.value,
+        server: result.server,
+        serverETag: result.etag,
+        authFlow: result.flow,
+        readVersion: this.value.readVersion + 1,
+        restarted: false,
+      };
+    else if (result.kind === "authFlows")
+      this.value = {
+        ...this.value,
+        server: result.server,
+        serverETag: result.etag,
+        authFlows: result.append
+          ? [...this.value.authFlows, ...result.page.items]
+          : result.page.items,
+        authFlowNext: result.page.nextCursor,
         readVersion: this.value.readVersion + 1,
         restarted: result.restarted,
       };
@@ -1089,6 +1195,12 @@ export function ServerReads({
     /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=credentials$/.exec(
       view.viewKey,
     );
+  const authFlowItem =
+    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/auth-flows\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.exec(
+      view.viewKey,
+    );
+  const authFlowList =
+    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=oauth$/.exec(view.viewKey);
   const operationItem =
     /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/operations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.exec(
       view.viewKey,
@@ -1241,6 +1353,34 @@ export function ServerReads({
         </ReadPanel>
       </div>
     );
+  if (authFlowItem !== null || authFlowList !== null) {
+    const serverID = (authFlowItem ?? authFlowList)![1]!;
+    return (
+      <div class="domain-view" data-testid="server-auth-flows-view">
+        <ServerTabs serverID={serverID} current="oauth" />
+        <DataHeader view={view} onRefresh={onRefresh} />
+        <ReadPanel panel={panel}>
+          {snapshot.server !== undefined &&
+            snapshot.serverETag !== undefined && (
+              <ServerAuthFlows
+                mutations={mutations}
+                sinks={sinks}
+                server={snapshot.server}
+                etag={snapshot.serverETag}
+                readVersion={snapshot.readVersion}
+                flows={snapshot.authFlows}
+                flow={authFlowItem === null ? undefined : snapshot.authFlow}
+                nextCursor={snapshot.authFlowNext}
+                loadingMore={snapshot.loadingMore}
+                restarted={snapshot.restarted}
+                onLoadMore={() => void controller.loadMore("authFlows")}
+                onRefresh={onRefresh}
+              />
+            )}
+        </ReadPanel>
+      </div>
+    );
+  }
   if (operationItem !== null || operationList !== null) {
     const serverID = (operationItem ?? operationList)![1]!;
     return (

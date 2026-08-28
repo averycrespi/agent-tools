@@ -46,7 +46,8 @@ interface BridgeInput {
     | "server-catalog-reads"
     | "server-create-update"
     | "server-operations"
-    | "server-credentials";
+    | "server-credentials"
+    | "auth-flows";
   base_url: string;
   admin_bearer: string;
 }
@@ -111,7 +112,8 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "server-catalog-reads" &&
       value.scenario !== "server-create-update" &&
       value.scenario !== "server-operations" &&
-      value.scenario !== "server-credentials") ||
+      value.scenario !== "server-credentials" &&
+      value.scenario !== "auth-flows") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -3537,6 +3539,309 @@ async function runServerOperations(
   );
 }
 
+async function runAuthFlows(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const serverID = serverReadIDs.active;
+  const activeID = "01ARZ3NDEKTSV4RRFFQ69G5FE6";
+  const terminalID = "01ARZ3NDEKTSV4RRFFQ69G5FE7";
+  const createdID = "01ARZ3NDEKTSV4RRFFQ69G5FE8";
+  const exchangingID = "01ARZ3NDEKTSV4RRFFQ69G5FE9";
+  const authorizationURL =
+    "https://issuer.example/authorize?client_id=safe&state=one-time-state&code_challenge=pkce";
+  const server = {
+    ...serverReadFixture(serverID, {
+      name: "OAuth server",
+      desired: "enabled",
+      runtime: "authentication_required",
+      credential: "reauthentication_required",
+      durable: "current",
+      active: "unavailable",
+    }),
+    desired_revision: "7",
+    transport: {
+      kind: "streamable_http",
+      url: "https://resource.example/mcp",
+      protocol_mode: "modern",
+      authentication: {
+        mode: "oauth",
+        registration: { mode: "dynamic", issuer: null },
+        trusted_origins: [],
+        request_offline_access: false,
+      },
+    },
+  };
+  let detailState = "preparing";
+  let detailReads = 0;
+  let listReads = 0;
+  let starts = 0;
+  let cancels = 0;
+  let releaseThirdStart: (() => void) | undefined;
+  const thirdStartBarrier = new Promise<void>((resolve) => {
+    releaseThirdStart = resolve;
+  });
+  const flow = (id: string, state: string, reason: string | null = null) => ({
+    id,
+    server_id: serverID,
+    flow_state: state,
+    target_desired_revision: "7",
+    registration_revision: "3",
+    created_at: "2026-08-28T15:00:00Z",
+    expires_at: "2026-08-28T15:05:00Z",
+    finished_at:
+      state === "preparing" ||
+      state === "awaiting_callback" ||
+      state === "exchanging"
+        ? null
+        : "2026-08-28T15:01:00Z",
+    reason,
+  });
+
+  await context.route("https://issuer.example/**", async (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: "authorized",
+    }),
+  );
+  await page.route(
+    `${baseURL}/api/v1/events`,
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: `event: invalidate\ndata: ${JSON.stringify({ kind: "server_auth_flows", resource_id: activeID })}\n\n`,
+      }),
+    { times: 1 },
+  );
+  await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { ETag: `"server-${serverID}-7"` },
+      body: JSON.stringify(server),
+    });
+  });
+  await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/auth-flows?*`,
+    async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      listReads += 1;
+      if (new URL(route.request().url()).search !== "?limit=50")
+        fail("auth flow list query changed");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            flow(activeID, "preparing"),
+            flow(terminalID, "failed", "oauth_rejected"),
+          ],
+          next_cursor: null,
+        }),
+      });
+    },
+  );
+  await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/auth-flows/${activeID}`,
+    async (route) => {
+      if (route.request().method() === "DELETE") {
+        cancels += 1;
+        if ((route.request().postData() ?? "") !== "{}")
+          fail("auth flow cancellation body changed");
+        if (cancels === 1) {
+          await route.fulfill({
+            status: 409,
+            contentType: "application/problem+json",
+            body: JSON.stringify({
+              status: 409,
+              code: "oauth_flow_active",
+              title: "OAuth exchange active",
+            }),
+          });
+          return;
+        }
+        detailState = "cancelled";
+        await route.fulfill({ status: 204, body: "" });
+        return;
+      }
+      detailReads += 1;
+      if (detailReads >= 2 && detailState === "preparing")
+        detailState = "awaiting_callback";
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(flow(activeID, detailState)),
+      });
+    },
+  );
+  await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/auth-flows/${exchangingID}`,
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(flow(exchangingID, "exchanging")),
+      }),
+  );
+  await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/auth-flows/${terminalID}`,
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(flow(terminalID, "failed", "oauth_rejected")),
+      }),
+  );
+  await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/auth-flows`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      starts += 1;
+      const headers = await route.request().allHeaders();
+      if (headers["if-match"] !== `"server-${serverID}-7"`)
+        fail("auth flow start omitted current ETag");
+      if ((headers["idempotency-key"] ?? "") !== "")
+        fail("auth flow start added idempotency authority");
+      if ((route.request().postData() ?? "") !== "{}")
+        fail("auth flow start body changed");
+      if (starts === 3) await thirdStartBarrier;
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({
+          flow: flow(createdID, "awaiting_callback"),
+          authorization_url: authorizationURL,
+        }),
+      });
+    },
+  );
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}?tab=oauth`;
+  }, serverID);
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.locator('[data-testid="auth-flow-list"]').waitFor();
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-testid="auth-flow-row"]').length === 2,
+  );
+  await page.waitForTimeout(350);
+  if (listReads < 2) fail("auth-flow event did not trigger snapshot reread");
+
+  await page.locator('[data-testid="start-auth-flow"]').click();
+  const display = page.locator('[data-testid="one-time-oauth-url"]');
+  await display.waitFor();
+  if ((await display.locator("a").count()) !== 0)
+    fail("authorization URL became active content");
+  if ((await display.textContent()) !== authorizationURL)
+    fail("authorization URL display changed");
+  const popupPromise = page.waitForEvent("popup");
+  await page.locator('[data-testid="open-oauth-url"]').click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState("domcontentloaded");
+  if ((await popup.evaluate(() => window.opener === null)) !== true)
+    fail("OAuth popup retained an opener");
+  await popup.close();
+  if (await display.isVisible()) {
+    await page.getByText("The browser blocked the new page.").waitFor();
+    await page.getByRole("button", { name: "Dismiss and clear" }).click();
+  }
+  await display.waitFor({ state: "hidden" });
+
+  await page.locator('[data-testid="start-auth-flow"]').click();
+  await display.waitFor();
+  await page.getByRole("button", { name: "Dismiss and clear" }).click();
+  await display.waitFor({ state: "hidden" });
+  if (starts !== 2) fail("auth flow start count changed");
+
+  await page.locator('[data-testid="start-auth-flow"]').click();
+  const awaitingDialog = page.locator("dialog.sensitive-dialog[open]");
+  await awaitingDialog.waitFor();
+  await awaitingDialog.evaluate((dialog) =>
+    (dialog as HTMLDialogElement).close(),
+  );
+  await page.locator('[data-testid="logout"]').click();
+  await page.locator('[data-testid="logout-confirmation-submit"]').click();
+  await waitForLifecycle(page, "signed_out");
+  releaseThirdStart?.();
+  await page.waitForTimeout(100);
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}/auth-flows/${"01ARZ3NDEKTSV4RRFFQ69G5FE6"}`;
+  }, serverID);
+  await page.locator('[data-testid="auth-flow-detail"]').waitFor();
+  const beforePoll = detailReads;
+  await page.waitForTimeout(2100);
+  if (detailReads < beforePoll + 1)
+    fail("nonterminal auth flow did not poll at two seconds");
+  await page.locator('[data-testid="cancel-auth-flow"]').click();
+  await page.locator('[data-testid="auth-flow-cancel-confirm-cancel"]').click();
+  if (cancels !== 0) fail("dismissed cancellation submitted");
+  await page.locator('[data-testid="cancel-auth-flow"]').click();
+  const consequence =
+    (await page
+      .locator("#auth-flow-cancel-confirm-consequence")
+      .textContent()) ?? "";
+  if (!consequence.includes("cannot be cancelled"))
+    fail("cancellation consequence omitted exchange race");
+  await page.locator('[data-testid="auth-flow-cancel-confirm-submit"]').click();
+  await page.getByText("OAuth exchange active").waitFor();
+  await page.locator('[data-testid="cancel-auth-flow"]').click();
+  await page.locator('[data-testid="auth-flow-cancel-confirm-submit"]').click();
+  await page.waitForFunction(() =>
+    document.body.textContent?.includes("cancelled"),
+  );
+  if (Number(cancels) !== 2) fail("confirmed cancellation count changed");
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}/auth-flows/${"01ARZ3NDEKTSV4RRFFQ69G5FE9"}`;
+  }, serverID);
+  await page.locator('[data-testid="auth-flow-detail"]').waitFor();
+  await page.getByText("An OAuth exchange is already active.").waitFor();
+  if (
+    (await page.locator('[data-testid="cancel-auth-flow"]').count()) !== 0 ||
+    (await page.locator('[data-testid="start-auth-flow"]').count()) !== 0
+  )
+    fail("exchanging auth flow offered a mutation");
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}/auth-flows/${"01ARZ3NDEKTSV4RRFFQ69G5FE7"}`;
+  }, serverID);
+  await page.locator('[data-testid="auth-flow-detail"]').waitFor();
+  if ((await page.locator('[data-testid="cancel-auth-flow"]').count()) !== 0)
+    fail("terminal auth flow offered cancellation");
+  const finalDOM = (await page.locator("body").textContent()) ?? "";
+  if (finalDOM.includes(bearer)) fail("bearer leaked into auth flow DOM");
+  if (finalDOM.includes(authorizationURL))
+    fail("authorization URL remained outside its one-time sink");
+  assertClosedStorage(await browserStorage(page));
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "auth_flows_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+      list_reads: listReads,
+      detail_reads: detailReads,
+      starts,
+      cancels,
+    })}\n`,
+  );
+}
+
 async function runServerCredentials(
   browserVersion: string,
   page: Page,
@@ -5331,6 +5636,16 @@ try {
           )
         ) &&
         !(
+          input.scenario === "auth-flows" &&
+          [409, 412].some((status) =>
+            message
+              .text()
+              .startsWith(
+                `Failed to load resource: the server responded with a status of ${status}`,
+              ),
+          )
+        ) &&
+        !(
           input.scenario === "server-credentials" &&
           [412, 503].some((status) =>
             message
@@ -5456,6 +5771,15 @@ try {
         initialBearer,
         () => requests,
       );
+    } else if (input.scenario === "auth-flows") {
+      await runAuthFlows(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
     } else if (input.scenario === "server-credentials") {
       await runServerCredentials(
         browser.version(),
@@ -5500,13 +5824,20 @@ try {
       );
     }
     await Promise.all(requestHeaderChecks);
+    const expectedOAuthOpen =
+      "https://issuer.example/authorize?client_id=safe&state=one-time-state&code_challenge=pkce";
+    const externalFailure =
+      input.scenario === "auth-flows"
+        ? externalRequests.length !== 1 ||
+          externalRequests[0] !== expectedOAuthOpen
+        : externalRequests.length !== 0;
     if (
-      externalRequests.length !== 0 ||
+      externalFailure ||
       originFailures.length !== 0 ||
       consoleFailures.length !== 0
     ) {
       fail(
-        `unexpected browser protocol side effect (external=${externalRequests.length}, origin=${originFailures.length}, console=${consoleFailures.length})`,
+        `unexpected browser protocol side effect (external=${externalRequests.length}, origin=${originFailures.length}, console=${consoleFailures.length}, console_classes=${consoleFailures.map((value) => /^Failed to load resource: the server responded with a status of ([0-9]{3})/.exec(value)?.[1] ?? "other").join(",")})`,
       );
     }
     if (
