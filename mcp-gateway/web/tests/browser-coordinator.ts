@@ -40,7 +40,8 @@ interface BridgeInput {
     | "secret-sinks"
     | "m3-canary"
     | "overview"
-    | "invocations";
+    | "invocations"
+    | "system-status";
   base_url: string;
   admin_bearer: string;
 }
@@ -99,7 +100,8 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "secret-sinks" &&
       value.scenario !== "m3-canary" &&
       value.scenario !== "overview" &&
-      value.scenario !== "invocations") ||
+      value.scenario !== "invocations" &&
+      value.scenario !== "system-status") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -2492,6 +2494,169 @@ async function runInvocations(
   );
 }
 
+async function runSystemStatus(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await waitForLifecycle(page, "signed_out");
+  let statusReads = 0;
+  let eventStreams = 0;
+  let holdStatus = false;
+  let releaseStatus: (() => void) | undefined;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/api/v1/events"))
+      eventStreams += 1;
+  });
+
+  await page.route("**/api/v1/system-status", async (route) => {
+    if (
+      route.request().method() !== "GET" ||
+      new URL(route.request().url()).search !== ""
+    )
+      fail("System status request changed shape");
+    statusReads += 1;
+    if (holdStatus) {
+      await new Promise<void>((resolve) => {
+        releaseStatus = resolve;
+      });
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(overviewStatusFixture()),
+    });
+  });
+  await page.route(
+    "**/api/v1/events",
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: ": reconnect fixture\n\n",
+      }),
+    { times: 1 },
+  );
+
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page
+    .waitForFunction(
+      () =>
+        document
+          .querySelector('[data-testid="gateway-shell"]')
+          ?.getAttribute("data-freshness") === "reconnecting",
+      undefined,
+      { timeout: 5000 },
+    )
+    .catch(() => fail("System fixture did not enter reconnecting state"));
+  await page.evaluate(() => {
+    window.location.hash = "#/system";
+  });
+  await page.locator('[data-testid="system-view"]').waitFor();
+  await page
+    .waitForFunction(
+      () =>
+        document
+          .querySelector('[data-testid="system-status-panel"]')
+          ?.textContent?.includes("Schema 10") === true,
+      undefined,
+      { timeout: 5000 },
+    )
+    .catch(() => fail("System fixture did not publish initial status"));
+  if (
+    !((await page.locator("body").textContent()) ?? "").includes(
+      "Data reconnecting",
+    )
+  )
+    fail("System did not expose reconnecting freshness");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-freshness") === "current" &&
+      document
+        .querySelector('[data-testid="system-status-panel"]')
+        ?.getAttribute("data-panel-status") === "current",
+  );
+
+  let body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "Process storage_failed",
+    "Started 2026-08-28T00:00:00Z",
+    "Schema 10",
+    "Revision 7",
+    "Mutation admission closed",
+    "Keyring unavailable",
+    "OS-managed capability snapshot",
+    "Backup idle",
+    "Agent authentication principal_credentials",
+    "modern 2026-07-28",
+  ])
+    if (!body.includes(phrase)) fail(`System status omitted ${phrase}`);
+  const limitRows = await page
+    .locator('[data-testid="system-limit-row"]')
+    .count();
+  if (limitRows !== overviewLimitNames.length)
+    fail("System did not render every closed limit");
+  if (
+    (await page
+      .locator('[data-testid="gateway-shell"]')
+      .getAttribute("data-mutation-availability")) !== "storage_latched"
+  )
+    fail("System did not close mutation admission for latched storage");
+
+  holdStatus = true;
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="system-status-panel"]')
+        ?.getAttribute("data-panel-status") === "stale",
+  );
+  body = (await page.locator("body").textContent()) ?? "";
+  if (!body.includes("Data stale") || !body.includes("Schema 10"))
+    fail("System did not preserve and label stale status");
+  holdStatus = false;
+  releaseStatus?.();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="system-status-panel"]')
+        ?.getAttribute("data-panel-status") === "current",
+  );
+
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=recovery";
+  });
+  await page.locator('[data-testid="system-recovery"]').waitFor();
+  body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "mcp-gateway initialize --data-dir <owner-only-data-dir> --secret-output <new-owner-only-file>",
+    "mcp-gateway admin-reset --data-dir <owner-only-data-dir> --secret-output <new-owner-only-file>",
+    "mcp-gateway restore --verify-current --data-dir <owner-only-data-dir>",
+    "mcp-gateway restore <backup-id> --data-dir <owner-only-data-dir> --secret-output <new-owner-only-file>",
+    "Stop every Gateway process",
+    "does not prove whether the triggering write committed or rolled back",
+    "The browser never invokes these commands",
+    "Normal serve startup must verify the selected generation",
+  ])
+    if (!body.includes(phrase)) fail(`System recovery omitted ${phrase}`);
+  if (
+    (await page.locator('[data-testid="system-recovery"] button').count()) !== 0
+  )
+    fail("System recovery exposed online offline-authority controls");
+
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "system_status_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), status_reads: statusReads, event_streams: eventStreams, limit_rows: limitRows })}\n`,
+  );
+}
+
 async function runReadGeneration(
   browserVersion: string,
   context: BrowserContext,
@@ -3585,6 +3750,15 @@ try {
       );
     } else if (input.scenario === "invocations") {
       await runInvocations(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "system-status") {
+      await runSystemStatus(
         browser.version(),
         context,
         page,

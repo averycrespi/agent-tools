@@ -17,6 +17,7 @@ import {
 } from "./primitives";
 import { SensitiveSinkHost } from "./sinks-ui";
 import { SensitiveSinkCoordinator } from "./sinks";
+import { System, SystemController } from "./system";
 import {
   SessionClient,
   type SessionLifecycle,
@@ -81,6 +82,11 @@ const overviewController = new OverviewController(
 const invocationsController = new InvocationsController(
   sessionClient,
   viewCoordinator,
+);
+const systemController = new SystemController(
+  sessionClient,
+  viewCoordinator,
+  (latched) => mutationCoordinator.setStorageLatched(latched),
 );
 applyTheme(initialTheme);
 
@@ -417,6 +423,12 @@ function App() {
             />
           ) : destination === "invocations" ? (
             <Invocations controller={invocationsController} view={view} />
+          ) : destination === "system" ? (
+            <System
+              controller={systemController}
+              view={view}
+              onRefresh={() => viewCoordinator.manualRefresh()}
+            />
           ) : (
             <section class="panel" aria-labelledby="foundation-title">
               <div class="panel-heading">

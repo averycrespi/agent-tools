@@ -11,7 +11,7 @@ import type {
 } from "./view";
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
-const limitNames = [
+export const limitNames = [
   "http_regular",
   "http_control_auth",
   "http_admin",
@@ -45,20 +45,28 @@ const limitNames = [
   "grant_request_evidence_bytes",
 ] as const;
 
-type LimitName = (typeof limitNames)[number];
-interface LimitView {
+export type LimitName = (typeof limitNames)[number];
+export interface LimitView {
   name: LimitName;
   inUse: number;
   limit: number;
   saturated: boolean;
 }
-interface StatusView {
+export interface StatusView {
   processState: string;
   ready: boolean;
+  startedAt: string;
   sqliteState: string;
+  schemaVersion: string;
+  revision: string;
   latched: boolean;
   keyring: string;
   limits: LimitView[];
+  backupState: string;
+  lastBackupAt: string | null;
+  modernProtocol: string;
+  legacyProtocol: string;
+  agentAuth: string;
 }
 interface ServerView {
   id: string;
@@ -150,7 +158,7 @@ function limit(value: unknown, name: LimitName): LimitView {
     saturated: booleanValue(item.saturated),
   };
 }
-function decodeStatus(value: unknown): StatusView {
+export function decodeStatus(value: unknown): StatusView {
   const root = record(value, [
     "process",
     "sqlite",
@@ -170,14 +178,6 @@ function decodeStatus(value: unknown): StatusView {
   const limits = record(root.limits, limitNames);
   const backup = record(root.backup, ["state", "last_completed_at"]);
   const protocols = record(root.protocols, ["modern", "legacy", "agent_auth"]);
-  stringValue(process.started_at);
-  stringValue(sqlite.schema_version);
-  stringValue(sqlite.revision);
-  closed(backup.state, ["idle", "creating"]);
-  nullableString(backup.last_completed_at);
-  stringValue(protocols.modern);
-  stringValue(protocols.legacy);
-  closed(protocols.agent_auth, ["deny_all", "principal_credentials"]);
   return {
     processState: closed(process.state, [
       "uninitialized",
@@ -187,7 +187,10 @@ function decodeStatus(value: unknown): StatusView {
       "draining",
     ]),
     ready: booleanValue(process.ready),
+    startedAt: stringValue(process.started_at),
     sqliteState: closed(sqlite.state, ["uninitialized", "ready", "latched"]),
+    schemaVersion: stringValue(sqlite.schema_version),
+    revision: stringValue(sqlite.revision),
     latched: booleanValue(sqlite.latched),
     keyring: closed(keyring.capability, [
       "ready",
@@ -198,6 +201,14 @@ function decodeStatus(value: unknown): StatusView {
       "unsupported",
     ]),
     limits: limitNames.map((name) => limit(limits[name], name)),
+    backupState: closed(backup.state, ["idle", "creating"]),
+    lastBackupAt: nullableString(backup.last_completed_at),
+    modernProtocol: stringValue(protocols.modern),
+    legacyProtocol: stringValue(protocols.legacy),
+    agentAuth: closed(protocols.agent_auth, [
+      "deny_all",
+      "principal_credentials",
+    ]),
   };
 }
 
