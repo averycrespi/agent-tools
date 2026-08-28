@@ -10,6 +10,7 @@ import {
   type SessionLifecycle,
   type SessionSnapshot,
 } from "./session";
+import { ViewCoordinator, type ViewSnapshot } from "./view";
 import {
   applyTheme,
   observeSystemTheme,
@@ -55,6 +56,7 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
 const initialLocation = synchronizeFragment(false);
 const initialTheme = readThemePreference();
 const sessionClient = new SessionClient();
+const viewCoordinator = new ViewCoordinator(sessionClient);
 applyTheme(initialTheme);
 
 function SignInPanel({
@@ -149,6 +151,7 @@ function App() {
     sessionClient.snapshot(),
   );
   const [resolved, setResolved] = useState<ResolvedLocation>(initialLocation);
+  const [view, setView] = useState<ViewSnapshot>(viewCoordinator.snapshot());
   const [theme, setTheme] = useState<ThemePreference>(initialTheme);
   const priorLifecycle = useRef<SessionLifecycle>(session.lifecycle);
 
@@ -157,6 +160,8 @@ function App() {
     sessionClient.start();
     return unsubscribe;
   }, []);
+
+  useEffect(() => viewCoordinator.subscribe(setView), []);
 
   useEffect(() => {
     const authenticated = session.lifecycle === "authenticated";
@@ -175,12 +180,20 @@ function App() {
       window.history.replaceState(null, "", "#/sign-in");
     }
     priorLifecycle.current = session.lifecycle;
-    setResolved(synchronizeFragment(authenticated));
+    const nextLocation = synchronizeFragment(authenticated);
+    setResolved(nextLocation);
+    if (authenticated) viewCoordinator.activate(nextLocation.canonicalFragment);
   }, [session.lifecycle, session.epoch]);
 
   useEffect(() => {
-    const synchronize = () =>
-      setResolved(synchronizeFragment(session.lifecycle === "authenticated"));
+    const synchronize = () => {
+      const nextLocation = synchronizeFragment(
+        session.lifecycle === "authenticated",
+      );
+      setResolved(nextLocation);
+      if (session.lifecycle === "authenticated")
+        viewCoordinator.navigate(nextLocation.canonicalFragment);
+    };
     window.addEventListener("hashchange", synchronize);
     return () => window.removeEventListener("hashchange", synchronize);
   }, [session.lifecycle]);
@@ -203,6 +216,8 @@ function App() {
       class={`shell ${authenticated ? "authenticated" : "signed-out"}`}
       data-testid="gateway-shell"
       data-session-lifecycle={session.lifecycle}
+      data-view-generation={view.generation}
+      data-freshness={view.freshness}
     >
       <header class="masthead">
         <a class="wordmark" href="#/overview" aria-label="MCP Gateway overview">
@@ -298,9 +313,22 @@ function App() {
               <span class="classification">IN MEMORY</span>
             </div>
             <p>
-              Protected views will bind to this authentication epoch. Prior
-              requests and scheduled work cannot update the current session.
+              Protected views bind to this location and authentication epoch.
+              Prior requests and scheduled work cannot update the current
+              session.
             </p>
+            <div class="refresh-controls">
+              <span class={`freshness ${view.freshness}`} role="status">
+                Data {view.freshness}
+              </span>
+              <button
+                data-testid="manual-refresh"
+                type="button"
+                onClick={() => viewCoordinator.manualRefresh()}
+              >
+                Refresh visible data
+              </button>
+            </div>
           </section>
         ) : (
           <SignInPanel

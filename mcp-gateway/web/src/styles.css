@@ -301,6 +301,39 @@ select:focus-visible {
 .session-transition h2 {
   margin-bottom: 12px;
 }
+.refresh-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.refresh-controls button {
+  margin-top: 0;
+}
+.freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.freshness::before {
+  width: 8px;
+  height: 8px;
+  border: 2px solid currentColor;
+  content: "";
+}
+.freshness.current::before {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.freshness.reconnecting::before {
+  border-style: dashed;
+}
 
 footer {
   grid-column: 1 / -1;

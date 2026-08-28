@@ -12,6 +12,11 @@ import {
   parseSessionBootstrap,
   SessionClient,
 } from "../src/session.ts";
+import {
+  parseInvalidation,
+  ViewCoordinator,
+  type VisibilitySource,
+} from "../src/view.ts";
 
 interface BridgeInput {
   version: 1;
@@ -20,7 +25,8 @@ interface BridgeInput {
     | "browser-protocol"
     | "m1-canary"
     | "fragment-storage"
-    | "authentication-epoch";
+    | "authentication-epoch"
+    | "read-generation";
   base_url: string;
   admin_bearer: string;
 }
@@ -72,7 +78,8 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "browser-protocol" &&
       value.scenario !== "m1-canary" &&
       value.scenario !== "fragment-storage" &&
-      value.scenario !== "authentication-epoch") ||
+      value.scenario !== "authentication-epoch" &&
+      value.scenario !== "read-generation") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -86,9 +93,15 @@ function parseInitialInput(value: unknown): BridgeInput {
 }
 
 async function loadShell(page: Page): Promise<void> {
-  const response = await page.goto("/", { waitUntil: "networkidle" });
+  const response = await page.goto("/", { waitUntil: "domcontentloaded" });
   if (response === null || response.status() !== 200) fail("shell load failed");
   await page.locator('[data-testid="gateway-shell"]').waitFor();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-session-lifecycle") !== "bootstrapping",
+  );
   if ((await page.title()) !== "MCP Gateway Control Plane")
     fail("unexpected shell title");
   const csp = (await response.allHeaders())["content-security-policy"] ?? "";
@@ -315,7 +328,7 @@ async function runProtocol(
     fail("initial credential list failed");
   let session = await exchange(page, initialBearer);
 
-  await page.reload({ waitUntil: "networkidle" });
+  await page.reload({ waitUntil: "domcontentloaded" });
   const reloaded = await bootstrap(page);
   if (
     reloaded.status !== 200 ||
@@ -752,7 +765,7 @@ async function runFragmentStorage(
     );
     assertClosedStorage(await browserStorage(page), preference);
   }
-  await page.reload({ waitUntil: "networkidle" });
+  await page.reload({ waitUntil: "domcontentloaded" });
   if (
     (await page.locator('[data-testid="theme-preference"]').inputValue()) !==
     "system"
@@ -765,7 +778,7 @@ async function runFragmentStorage(
   await page.evaluate((canary) => {
     localStorage.setItem("mcp_gateway_theme", canary);
   }, storageCanary);
-  await page.reload({ waitUntil: "networkidle" });
+  await page.reload({ waitUntil: "domcontentloaded" });
   assertClosedStorage(await browserStorage(page));
   const finalDocument = await page.content();
   if (
@@ -1065,7 +1078,7 @@ async function runAuthenticationEpoch(
     fail("replacement recovery authority creation failed");
   const replacement = createdCredential(replacementResult.value);
 
-  await page.reload({ waitUntil: "networkidle" });
+  await page.reload({ waitUntil: "domcontentloaded" });
   await waitForLifecycle(page, "authenticated");
   const newTab = await context.newPage();
   await loadShell(newTab);
@@ -1079,15 +1092,6 @@ async function runAuthenticationEpoch(
   );
   await newTab.close();
 
-  const revoke = await sessionRequest(
-    page,
-    `/api/v1/admin-credentials/${initialCredentials.id}`,
-    "DELETE",
-    session.session.csrf_token,
-    undefined,
-    {},
-  );
-  if (revoke.status !== 204) fail("parent authority revocation failed");
   let bootstrapRequests = 0;
   const countBootstrap = (request: Request) => {
     if (
@@ -1098,15 +1102,31 @@ async function runAuthenticationEpoch(
     }
   };
   page.on("request", countBootstrap);
-  await page.reload({ waitUntil: "networkidle" });
+  const revoke = await sessionRequest(
+    page,
+    `/api/v1/admin-credentials/${initialCredentials.id}`,
+    "DELETE",
+    session.session.csrf_token,
+    undefined,
+    {},
+  );
+  if (revoke.status !== 204) fail("parent authority revocation failed");
   await waitForLifecycle(page, "signed_out");
   page.off("request", countBootstrap);
   if (
     bootstrapRequests !== 1 ||
     (await page.evaluate(() => window.location.hash)) !== "#/sign-in"
   ) {
-    fail("revoked authority did not settle through one bootstrap");
+    fail("live revocation did not settle through one bootstrap");
   }
+
+  bootstrapRequests = 0;
+  page.on("request", countBootstrap);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForLifecycle(page, "signed_out");
+  page.off("request", countBootstrap);
+  if (bootstrapRequests !== 1)
+    fail("signed-out reload did not perform one bootstrap");
   await assertSecretAbsent(
     page,
     context,
@@ -1197,7 +1217,7 @@ async function runAuthenticationEpoch(
       }),
     { times: 1 },
   );
-  await page.reload({ waitUntil: "networkidle" });
+  await page.reload({ waitUntil: "domcontentloaded" });
   await waitForLifecycle(page, "signed_out");
   await assertSecretAbsent(
     page,
@@ -1223,7 +1243,7 @@ async function runAuthenticationEpoch(
       }),
     { times: 1 },
   );
-  await page.reload({ waitUntil: "networkidle" });
+  await page.reload({ waitUntil: "domcontentloaded" });
   await waitForLifecycle(page, "signed_out");
   await assertSecretAbsent(
     page,
@@ -1236,6 +1256,328 @@ async function runAuthenticationEpoch(
   process.stdout.write(
     `${JSON.stringify({
       event: "authentication_epoch_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+    })}\n`,
+  );
+}
+
+async function eventually(
+  predicate: () => boolean,
+  message: string,
+  timeoutMilliseconds = 3000,
+): Promise<void> {
+  const deadline = performance.now() + timeoutMilliseconds;
+  while (!predicate()) {
+    if (performance.now() >= deadline) fail(message);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function assertViewGenerationFoundation(): Promise<void> {
+  if (
+    parseInvalidation({ kind: "system_status", resource_id: null }) ===
+      undefined ||
+    parseInvalidation({
+      kind: "servers",
+      resource_id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    }) === undefined ||
+    parseInvalidation({
+      kind: "servers",
+      resource_id: null,
+      authority: "forbidden",
+    }) !== undefined
+  ) {
+    fail("closed invalidation validator changed");
+  }
+
+  const sessionRequest: typeof fetch = async (input) => {
+    if (String(input) === "/api/v1/admin-sessions/current") {
+      return new Response(
+        JSON.stringify({
+          status: 401,
+          code: "authentication_required",
+          title: "Authentication is required.",
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/problem+json" },
+        },
+      );
+    }
+    return new Response(JSON.stringify(sessionFixture()), {
+      status: 201,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  const session = new SessionClient(sessionRequest);
+  session.start();
+  await eventually(
+    () => session.snapshot().lifecycle === "signed_out",
+    "view session did not settle signed out",
+  );
+  if (!(await session.exchange("mgw_admin_view-generation-canary")))
+    fail("view session exchange failed");
+
+  let visible = false;
+  let visibilityListener = () => {};
+  const visibility: VisibilitySource = {
+    isVisible: () => visible,
+    subscribe: (listener) => {
+      visibilityListener = listener;
+      return () => {
+        visibilityListener = () => {};
+      };
+    },
+  };
+  const streamControllers: Array<ReadableStreamDefaultController<Uint8Array>> =
+    [];
+  let streamRequests = 0;
+  const viewRequest: typeof fetch = async (input, init) => {
+    if (
+      String(input) !== "/api/v1/events" ||
+      init?.method !== "POST" ||
+      init.body !== "{}"
+    ) {
+      throw new Error("unexpected view request");
+    }
+    streamRequests += 1;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamControllers.push(controller);
+        controller.enqueue(new TextEncoder().encode(": keepalive\n\n"));
+      },
+    });
+    return new Response(body, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  };
+  const coordinator = new ViewCoordinator(session, {
+    request: viewRequest,
+    visibility,
+    reconnectMilliseconds: 20,
+  });
+  let aCalls = 0;
+  let bCalls = 0;
+  let publishedA = "";
+  let publishedB = "";
+  let releaseLate: (() => void) | undefined;
+  const late = new Promise<void>((resolve) => {
+    releaseLate = resolve;
+  });
+  let staleReadAborted = false;
+  coordinator.registerPanel<string>({
+    id: "a",
+    matches: () => true,
+    invalidations: ["system_status"],
+    pollMilliseconds: 40,
+    read: async ({ signal }) => {
+      aCalls += 1;
+      if (aCalls === 2) {
+        signal.addEventListener("abort", () => {
+          staleReadAborted = true;
+        });
+        await late;
+        return "late";
+      }
+      return aCalls === 1 ? "initial" : `a-${aCalls}`;
+    },
+    publish: (value) => {
+      publishedA = value;
+    },
+  });
+  coordinator.registerPanel<string>({
+    id: "b",
+    matches: () => true,
+    invalidations: ["backups"],
+    pollMilliseconds: 40,
+    read: async () => {
+      bCalls += 1;
+      if (bCalls === 2) throw new Error("isolated panel failure");
+      return `b-${bCalls}`;
+    },
+    publish: (value) => {
+      publishedB = value;
+    },
+  });
+  coordinator.activate("#/overview");
+  await eventually(
+    () =>
+      publishedA === "initial" &&
+      publishedB === "b-1" &&
+      coordinator.snapshot().freshness === "current",
+    "initial view snapshot did not become current",
+  );
+
+  coordinator.manualRefresh();
+  await eventually(
+    () => coordinator.snapshot().panels.b?.status === "error",
+    "panel failure was not isolated",
+  );
+  if (coordinator.snapshot().panels.a?.status !== "stale")
+    fail("matching prior snapshot was not labeled stale");
+  coordinator.navigate("#/servers");
+  await eventually(
+    () => publishedA === "a-3" && publishedB === "b-3",
+    "new view generation did not publish",
+  );
+  releaseLate?.();
+  await Promise.resolve();
+  if (publishedA !== "a-3" || !staleReadAborted)
+    fail("superseded view read was not aborted and discarded");
+
+  const generationBeforeEvents = coordinator.snapshot().generation;
+  const bCallsBeforeEvents = bCalls;
+  const eventFrame = new TextEncoder().encode(
+    'event: invalidate\ndata: {"kind":"system_status","resource_id":null}\n\n',
+  );
+  streamControllers[0]?.enqueue(eventFrame);
+  streamControllers[0]?.enqueue(eventFrame);
+  await eventually(
+    () => coordinator.snapshot().generation > generationBeforeEvents,
+    "coalesced invalidation did not refresh",
+  );
+  if (
+    coordinator.snapshot().generation !== generationBeforeEvents + 1 ||
+    bCalls !== bCallsBeforeEvents
+  ) {
+    fail("invalidations were not coalesced to their matching visible panel");
+  }
+
+  const callsBeforeVisible = aCalls;
+  const bCallsBeforeVisible = bCalls;
+  visible = true;
+  visibilityListener();
+  await eventually(
+    () => aCalls > callsBeforeVisible && bCalls > bCallsBeforeVisible,
+    "equal-interval visible panel polling did not resume as one group",
+  );
+  visible = false;
+  visibilityListener();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const callsWhileHidden = aCalls;
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  if (aCalls !== callsWhileHidden)
+    fail("hidden document polling did not pause");
+
+  const generationBeforeReconnect = coordinator.snapshot().generation;
+  streamControllers[0]?.close();
+  await eventually(
+    () => coordinator.snapshot().freshness === "reconnecting",
+    "stream loss was not labeled reconnecting",
+  );
+  await eventually(
+    () =>
+      streamRequests === 2 &&
+      coordinator.snapshot().freshness === "current" &&
+      coordinator.snapshot().generation > generationBeforeReconnect,
+    "reconnect did not reload the visible snapshot",
+  );
+  coordinator.close();
+}
+
+async function runReadGeneration(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await assertViewGenerationFoundation();
+  await waitForLifecycle(page, "signed_out");
+  let eventRequests = 0;
+  const observeEvents = (request: Request) => {
+    if (
+      request.method() === "POST" &&
+      request.url().endsWith("/api/v1/events")
+    ) {
+      eventRequests += 1;
+    }
+  };
+  page.on("request", observeEvents);
+  await page.route(
+    "**/api/v1/events",
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: ": keepalive\n\n",
+      }),
+    { times: 1 },
+  );
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-freshness") === "reconnecting",
+  );
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-freshness") === "current",
+  );
+  if (eventRequests !== 2)
+    fail("application did not reconnect its POST event stream");
+
+  const initialGeneration = Number(
+    await page
+      .locator('[data-testid="gateway-shell"]')
+      .getAttribute("data-view-generation"),
+  );
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page.waitForFunction(
+    (generation) =>
+      Number(
+        document
+          .querySelector('[data-testid="gateway-shell"]')
+          ?.getAttribute("data-view-generation"),
+      ) > generation,
+    initialGeneration,
+  );
+
+  const current = await bootstrap(page);
+  if (current.status !== 200 || current.session === undefined)
+    fail("read generation bootstrap failed");
+  const generationBeforeInvalidation = Number(
+    await page
+      .locator('[data-testid="gateway-shell"]')
+      .getAttribute("data-view-generation"),
+  );
+  const created = await sessionRequest(
+    page,
+    "/api/v1/admin-credentials",
+    "POST",
+    current.session.csrf_token,
+    undefined,
+    { expires_at: null },
+  );
+  if (created.status !== 201) fail("invalidation trigger failed");
+  const oneTime = createdCredential(created.value);
+  oneTime.bearer = "";
+  await page.waitForFunction(
+    (generation) =>
+      Number(
+        document
+          .querySelector('[data-testid="gateway-shell"]')
+          ?.getAttribute("data-view-generation"),
+      ) ===
+      generation + 1,
+    generationBeforeInvalidation,
+  );
+
+  page.off("request", observeEvents);
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "read_generation_complete",
       chromium_version: browserVersion,
       playwright_version: "1.62.1",
       requests: requestCount(),
@@ -1311,6 +1653,15 @@ try {
       await runFragmentStorage(browser.version(), page, () => requests);
     } else if (input.scenario === "authentication-epoch") {
       await runAuthenticationEpoch(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "read-generation") {
+      await runReadGeneration(
         browser.version(),
         context,
         page,
