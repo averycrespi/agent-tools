@@ -84,11 +84,11 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 			}
 			return nil
 		},
-		RunE: func(command *cobra.Command, _ []string) error {
+		RunE: func(command *cobra.Command, args []string) error {
 			if _, err := controlclient.ParseOutputMode(options.output); err != nil {
 				return writeOnlineFailure(command, string(controlclient.OutputTable), controlclient.NewInputError("The output mode is invalid."))
 			}
-			return writeOnlineFailure(command, options.output, controlclient.NewInputError("This online command is not implemented yet."))
+			return runOnlineCommand(command, spec, options, args)
 		},
 	}
 	flags := command.Flags()

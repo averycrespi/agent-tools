@@ -273,6 +273,16 @@ type problemEnvelope struct {
 	Title  string `json:"title"`
 }
 
+func DecodeResponse(body []byte, destination any) error {
+	if destination == nil {
+		return ErrResponseInvalid
+	}
+	if err := strictjson.Decode(body, destination, strictjson.Options{MaxBytes: MaxResponseBytes, MaxDepth: MaxJSONDepth, RejectUnknownMembers: true}); err != nil {
+		return ErrResponseInvalid
+	}
+	return nil
+}
+
 func EvaluateResponse(response Response) *OnlineError {
 	contentType := response.Header.Get("Content-Type")
 	if response.StatusCode >= 200 && response.StatusCode <= 299 {
