@@ -75,6 +75,8 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v1/grant-requests/{id}/reject", Method: "POST", RequestSchema: "GrantRequestRejection", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 	{Pattern: "/api/v1/admin-sessions/current", Method: "POST", RequestSchema: "EmptyObject", SuccessSchema: "AdminSessionBootstrap", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v1/events", Method: "POST", RequestSchema: "EmptyObject", SuccessSchema: "EventStream", SuccessStatuses: []int{200}},
+	{Pattern: "/api/v1/invocations", Method: "GET", RequestSchema: "InvocationListQuery", SuccessSchema: "InvocationPage", SuccessStatuses: []int{200}, Cursor: true},
+	{Pattern: "/api/v1/invocations/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Invocation", SuccessStatuses: []int{200}},
 }
 
 func ResourceMechanics() []ResourceMechanic {

@@ -84,7 +84,15 @@ func TestS5ClosedVocabularyRoutesProblemsAndLimitsAreExact(t *testing.T) {
 		{Pattern: "/api/v1/grant-requests/{id}/reject", Methods: []string{"POST"}, Authority: AuthorityAdmin},
 	}
 	routes := Routes()
-	require.Equal(t, expectedRoutes, routes[len(routes)-4:])
+	routeStart := -1
+	for index, route := range routes {
+		if route.Pattern == expectedRoutes[0].Pattern {
+			routeStart = index
+			break
+		}
+	}
+	require.NotEqual(t, -1, routeStart)
+	require.Equal(t, expectedRoutes, routes[routeStart:routeStart+len(expectedRoutes)])
 	expectedProblems := []Problem{
 		{Status: 400, Code: ProblemInvalidGrantRequest, Title: "The grant request is invalid."},
 		{Status: 409, Code: ProblemGrantRequestConflict, Title: "The grant request conflicts with current state."},

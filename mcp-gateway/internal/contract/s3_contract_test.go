@@ -18,7 +18,14 @@ func TestS3RoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/api/v1/grants/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
 	}
 	routes := Routes()
-	s3RouteStart := len(routes) - len(expectedRoutes) - 4
+	s3RouteStart := -1
+	for index, route := range routes {
+		if route.Pattern == expectedRoutes[0].Pattern {
+			s3RouteStart = index
+			break
+		}
+	}
+	require.NotEqual(t, -1, s3RouteStart)
 	require.Equal(t, expectedRoutes, routes[s3RouteStart:s3RouteStart+len(expectedRoutes)])
 	routes[s3RouteStart].Methods[0] = "PATCH"
 	require.Equal(t, expectedRoutes, Routes()[s3RouteStart:s3RouteStart+len(expectedRoutes)], "route copies must be isolated")

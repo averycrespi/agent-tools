@@ -70,8 +70,12 @@ Methods are lexicographically ordered and become the exact `Allow` value. `HEAD`
 | `/api/v1/principals/{id}/credential`             | `DELETE, POST`       | admin bearer or session                           |
 | `/api/v1/grants`                                 | `GET, POST`          | admin bearer or session                           |
 | `/api/v1/grants/{id}`                            | `DELETE, GET`        | admin bearer or session                           |
+| `/api/v1/invocations`                            | `GET`                | admin bearer or session                           |
+| `/api/v1/invocations/{id}`                       | `GET`                | admin bearer or session                           |
 
 `/assets/*` requires a nonempty path below `/assets/`. Item patterns require exactly one nonempty segment. All other paths are unowned and therefore `404`.
+
+The reserved invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for the collection and `None` → `Invocation` for an item. Repository and handler adoption follow as one bounded S6 slice; the route contract introduces no mutation, replay, event, or mutable join.
 
 ### Safe problems
 
