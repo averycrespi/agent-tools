@@ -156,9 +156,12 @@ func S6PlannedInventory() []S6PlannedOwner {
 	for task := 1; task <= 58; task++ {
 		id := fmt.Sprintf("T%d", task)
 		owner := S6PlannedOwner{ID: id, Layer: "task", Intent: "Prove the bounded " + id + " implementation seam", Status: "planned", Budget: 2 * time.Minute, Blocking: true}
-		if id == "T1" {
+		switch id {
+		case "T1":
 			owner.Status = "executable"
 			owner.Intent = "Validate the frozen S6 manifests and command inventory"
+		case "T2":
+			owner.Status = "executable"
 		}
 		owner.Leaves = s6Leaves(id, s6TaskCategories[id])
 		owner.DefinitionHash = s6OwnerHash(owner)

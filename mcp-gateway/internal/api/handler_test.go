@@ -271,7 +271,7 @@ func (callback callbackFake) HandleCallback(context.Context, string) oauth.Callb
 	return callback.result
 }
 
-func TestStaticShellHasRestrictiveCSPAndNoExternalActiveContent(t *testing.T) {
+func TestS6StaticOwnershipHasRestrictiveCSPAndExactAssets(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
 	response := perform(handler, http.MethodGet, "/", "", nil)
@@ -284,12 +284,18 @@ func TestStaticShellHasRestrictiveCSPAndNoExternalActiveContent(t *testing.T) {
 			t.Errorf("CSP %q lacks %q", csp, required)
 		}
 	}
-	if strings.Contains(csp, "unsafe-") || strings.Contains(response.Body.String(), "https://") || strings.Contains(response.Body.String(), "<script") {
-		t.Fatalf("unsafe shell content or CSP: %q %s", csp, response.Body.String())
+	body := response.Body.String()
+	if strings.Contains(csp, "unsafe-") || strings.Contains(body, "https://") || strings.Count(body, `<script type="module" crossorigin src="/assets/app.js"></script>`) != 1 {
+		t.Fatalf("unsafe or unexpected shell content or CSP: %q %s", csp, body)
 	}
-	asset := perform(handler, http.MethodGet, "/assets/app.css", "", nil)
-	if asset.Code != 200 || asset.Header().Get("Content-Type") != "text/css; charset=utf-8" {
-		t.Fatalf("asset: %d %v", asset.Code, asset.Header())
+	for path, contentType := range map[string]string{
+		"/assets/app.css": "text/css; charset=utf-8",
+		"/assets/app.js":  "application/javascript; charset=utf-8",
+	} {
+		asset := perform(handler, http.MethodGet, path, "", nil)
+		if asset.Code != 200 || asset.Header().Get("Content-Type") != contentType || asset.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Fatalf("asset %s: %d %v", path, asset.Code, asset.Header())
+		}
 	}
 }
 

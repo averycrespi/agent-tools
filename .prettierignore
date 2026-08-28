@@ -1,4 +1,5 @@
 .claude/
 .design/
 .handoffs/
+mcp-gateway/internal/api/static/
 sandbox-manager/internal/sandbox/files/lima.yaml

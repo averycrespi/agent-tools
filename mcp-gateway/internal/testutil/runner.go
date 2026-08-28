@@ -65,10 +65,34 @@ func (runner *BinaryRunner) Start(ctx context.Context, binary string, args ...st
 	return runner.start(ctx, "", binary, args...)
 }
 
+func (runner *BinaryRunner) StartWithInputPipe(ctx context.Context, binary string, args ...string) (*RunningProcess, *os.File, error) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return nil, nil, err
+	}
+	process, startErr := runner.startWithStdin(ctx, "", reader, binary, args...)
+	closeErr := reader.Close()
+	if startErr != nil {
+		_ = writer.Close()
+		return nil, nil, errors.Join(startErr, closeErr)
+	}
+	if closeErr != nil {
+		_ = writer.Close()
+		_ = process.Stop()
+		return nil, nil, closeErr
+	}
+	return process, writer, nil
+}
+
 func (runner *BinaryRunner) start(ctx context.Context, directory, binary string, args ...string) (*RunningProcess, error) {
+	return runner.startWithStdin(ctx, directory, nil, binary, args...)
+}
+
+func (runner *BinaryRunner) startWithStdin(ctx context.Context, directory string, stdin *os.File, binary string, args ...string) (*RunningProcess, error) {
 	runContext, cancel := context.WithTimeout(ctx, runner.timeout)
 	command := exec.Command(binary, args...) //nolint:gosec // Test harness intentionally executes the caller-selected binary.
 	command.Dir = directory
+	command.Stdin = stdin
 	configureTestProcessGroup(command)
 	process := &RunningProcess{
 		command: command, cancel: cancel,

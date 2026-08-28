@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "playwright_version": "1.62.1",
+  "cells": [
+    {
+      "id": "linux-chromium",
+      "os": "linux",
+      "browser": "chromium",
+      "browser_version": "151.0.7922.34",
+      "availability": "available",
+      "acceptance_class": "blocking",
+      "owner": "browser_workflows"
+    },
+    {
+      "id": "linux-firefox",
+      "os": "linux",
+      "browser": "firefox",
+      "browser_version": "153.0",
+      "availability": "available",
+      "acceptance_class": "blocking_when_available",
+      "unavailable_class": "additive",
+      "owner": "browser_cross"
+    },
+    {
+      "id": "linux-playwright-webkit",
+      "os": "linux",
+      "browser": "playwright_webkit",
+      "browser_version": "26.5",
+      "availability": "available",
+      "acceptance_class": "blocking_when_available",
+      "unavailable_class": "additive",
+      "owner": "browser_cross"
+    },
+    {
+      "id": "macos-safari",
+      "os": "macos",
+      "browser": "safari",
+      "availability": "unavailable_on_linux_runner",
+      "acceptance_class": "blocking_when_available",
+      "unavailable_class": "additive",
+      "owner": "external_evidence"
+    },
+    {
+      "id": "macos-voiceover-safari",
+      "os": "macos",
+      "browser": "safari",
+      "assistive_technology": "voiceover",
+      "availability": "unavailable_on_linux_runner",
+      "acceptance_class": "blocking_when_available",
+      "unavailable_class": "additive",
+      "owner": "external_evidence"
+    }
+  ]
+}
