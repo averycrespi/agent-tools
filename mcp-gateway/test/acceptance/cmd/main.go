@@ -23,11 +23,28 @@ func run() (exitCode int) {
 	profileName := flag.String("profile", string(acceptance.ProfileS21), "closed acceptance profile")
 	outputPath := flag.String("output", "", "atomic report or adoption output path")
 	adoptPath := flag.String("adopt", "", "immutable acceptance report to adopt without running checks")
+	taskID := flag.String("task", "", "executable S6 task owner")
+	milestoneID := flag.String("milestone", "", "executable S6 milestone owner")
 	flag.Parse()
 	root, err := repositoryRoot()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "resolve repository root")
 		return 1
+	}
+	if *taskID != "" || *milestoneID != "" {
+		if *taskID != "" && *milestoneID != "" {
+			fmt.Fprintln(os.Stderr, "S6 task and milestone owners are mutually exclusive")
+			return 1
+		}
+		ownerID := *taskID
+		if ownerID == "" {
+			ownerID = *milestoneID
+		}
+		if err := acceptance.RunS6Owner(context.Background(), root, ownerID, acceptance.OSExecutor{}); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
 	}
 	if *adoptPath != "" {
 		if *outputPath == "" {

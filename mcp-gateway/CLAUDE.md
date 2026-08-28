@@ -15,6 +15,8 @@ make test-stress-s5 STRESS_COUNT=10 # five named scenarios only
 make test-e2e           # count-one real-binary suite
 make verify             # nonmutating tidy/format/lint checks
 make test-keyring-native # schema-validated passed/skipped/failed native evidence
+make test-task-s6 TASK=T<n> # one executable S6 task owner
+make test-milestone-s6 MILESTONE=M<n> # one executable S6 gate owner
 make accept-s2-1        # compatibility S2.1 gate from a clean checkpoint
 make accept-s3          # compatibility S3 gate from a clean checkpoint
 make accept-s4          # compatibility S4 gate
@@ -26,6 +28,8 @@ make audit              # tidy + fmt + lint + test + advisory govulncheck
 
 go tool govulncheck ./... # blocking vulnerability check
 ```
+
+S6 task and milestone targets execute only manifest rows explicitly transitioned from `planned` to `executable`; unknown or still-planned owners fail closed, and every row retains its frozen command-definition hash and bounded multiplicity.
 
 Run `make audit` before committing, and use the unsuppressed `go tool govulncheck ./...` command when vulnerability findings must block. Unit tests are colocated and race-enabled; integration, security, stress, and real-binary tiers use their matching build tags. `accept-s5` is the sole final blocking owner and runs count-one tiers once; only its five named stress selectors use `-count>1`. Never repeat a whole package, compose `audit` or root `check` into S5, or rerun historical profiles. The S5 report binds exact clean HEAD, command/definition hashes, per-check timing and cleanup, AC-1–AC-7/clause mappings, and native classification. Adopt it with `go run ./test/acceptance/cmd --adopt /absolute/path/report.json --output /absolute/path/adoption.json`; adoption runs no checks and writes a distinct sidecar. Native `skipped` is additive, while native `failed` blocks.
 

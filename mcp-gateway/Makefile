@@ -1,6 +1,6 @@
 STRESS_COUNT ?= 20
 
-.PHONY: build install test test-unit test-integration test-integration-s5 test-security-s5 test-stress-s5 test-e2e test-keyring-native accept-s2-1 accept-s3 accept-s4 accept-s5 lint fmt tidy verify audit
+.PHONY: build install test test-unit test-integration test-integration-s5 test-security-s5 test-stress-s5 test-e2e test-keyring-native test-task-s6 test-milestone-s6 accept-s2-1 accept-s3 accept-s4 accept-s5 lint fmt tidy verify audit
 
 build:
 	go build -o mcp-gateway ./cmd/mcp-gateway
@@ -33,6 +33,14 @@ test-e2e:
 
 test-keyring-native:
 	./test/keyring-native.sh
+
+test-task-s6:
+	@test -n "$(TASK)" || (echo "TASK is required" >&2; exit 2)
+	@go run ./test/acceptance/cmd --task "$(TASK)"
+
+test-milestone-s6:
+	@test -n "$(MILESTONE)" || (echo "MILESTONE is required" >&2; exit 2)
+	@go run ./test/acceptance/cmd --milestone "$(MILESTONE)"
 
 accept-s2-1:
 	@go run ./test/acceptance/cmd --profile s2_1
