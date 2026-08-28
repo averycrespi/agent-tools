@@ -20,6 +20,9 @@ var (
 	ErrIdentityUnavailable = errors.New("invocation identity is unavailable")
 	ErrInvalidState        = errors.New("invocation durable state is invalid")
 	ErrStorageUnavailable  = errors.New("invocation storage is unavailable")
+	ErrNotFound            = errors.New("invocation is not found")
+	ErrInvalidCursor       = errors.New("invocation cursor is invalid")
+	ErrStaleCursor         = errors.New("invocation cursor is stale")
 )
 
 type Clock interface {
@@ -253,7 +256,8 @@ func (repository *Repository) view(ctx context.Context, callback func(*sql.Tx) e
 }
 
 func isInvocationError(err error) bool {
-	return errors.Is(err, ErrInvalidInput) || errors.Is(err, ErrIdentityUnavailable) || errors.Is(err, ErrInvalidState) || errors.Is(err, ErrStorageUnavailable)
+	return errors.Is(err, ErrInvalidInput) || errors.Is(err, ErrIdentityUnavailable) || errors.Is(err, ErrInvalidState) ||
+		errors.Is(err, ErrStorageUnavailable) || errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrStaleCursor)
 }
 
 func admissionSQLValues(prepared PreparedAdmission) ([]any, error) {
