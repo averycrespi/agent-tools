@@ -418,6 +418,61 @@ h2 {
   margin-top: 0;
 }
 
+.overview {
+  margin-top: 32px;
+}
+.overview-refresh {
+  max-width: none;
+  margin-top: 0;
+  padding: 16px 0 22px;
+}
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+.overview-panel {
+  min-width: 0;
+  max-width: none;
+  margin-top: 0;
+}
+.overview-panel .panel-heading {
+  margin-bottom: 24px;
+}
+.overview-panel .state-notice {
+  margin-top: 18px;
+}
+.overview-stack {
+  display: grid;
+  gap: 14px;
+}
+.overview-stack p {
+  max-width: none;
+}
+.record-list {
+  display: grid;
+  gap: 12px;
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.record-list li {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.record-list span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.record-list .warning-copy {
+  color: var(--warning);
+}
+
 .table-region {
   max-width: 100%;
   overflow-x: auto;
@@ -591,6 +646,9 @@ footer {
   }
   .panel-heading {
     flex-direction: column;
+  }
+  .overview-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
   .dialog-actions {
     align-items: stretch;

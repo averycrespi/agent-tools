@@ -160,7 +160,7 @@ func S6PlannedInventory() []S6PlannedOwner {
 		case "T1":
 			owner.Status = "executable"
 			owner.Intent = "Validate the frozen S6 manifests and command inventory"
-		case "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12", "T13", "T14", "T15", "T16", "T17", "T18", "T19":
+		case "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12", "T13", "T14", "T15", "T16", "T17", "T18", "T19", "T20":
 			owner.Status = "executable"
 		}
 		owner.Leaves = s6Leaves(id, s6TaskCategories[id])

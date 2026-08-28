@@ -38,7 +38,8 @@ interface BridgeInput {
     | "mutation-state"
     | "shell-primitives"
     | "secret-sinks"
-    | "m3-canary";
+    | "m3-canary"
+    | "overview";
   base_url: string;
   admin_bearer: string;
 }
@@ -95,7 +96,8 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "mutation-state" &&
       value.scenario !== "shell-primitives" &&
       value.scenario !== "secret-sinks" &&
-      value.scenario !== "m3-canary") ||
+      value.scenario !== "m3-canary" &&
+      value.scenario !== "overview") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -1604,6 +1606,465 @@ async function assertViewGenerationFoundation(): Promise<void> {
   coordinator.close();
 }
 
+const overviewLimitNames = [
+  "http_regular",
+  "http_control_auth",
+  "http_admin",
+  "http_health",
+  "mcp_work",
+  "mcp_streams",
+  "admin_sessions",
+  "legacy_sessions",
+  "event_streams",
+  "backup_work",
+  "backup_records",
+  "admin_credentials",
+  "idempotency_records",
+  "keyring_candidates",
+  "keyring_work",
+  "database_bytes",
+  "server_identities",
+  "servers",
+  "downstream_runtimes",
+  "server_reconciliations",
+  "catalog_traversals",
+  "oauth_flows",
+  "oauth_callback_work",
+  "s2_idempotency_records",
+  "active_tools",
+  "durable_tool_identities",
+  "downstream_dispatch",
+  "principals",
+  "grants",
+  "grant_requests",
+  "grant_request_evidence_bytes",
+] as const;
+
+function overviewStatusFixture() {
+  const limits = Object.fromEntries(
+    overviewLimitNames.map((name) => [
+      name,
+      { in_use: 0, limit: 64, saturated: false },
+    ]),
+  ) as Record<string, { in_use: number; limit: number; saturated: boolean }>;
+  limits.servers = { in_use: 64, limit: 64, saturated: true };
+  limits.database_bytes = {
+    in_use: 858993460,
+    limit: 1073741824,
+    saturated: false,
+  };
+  return {
+    process: {
+      state: "storage_failed",
+      ready: false,
+      started_at: "2026-08-28T00:00:00Z",
+    },
+    sqlite: {
+      state: "latched",
+      schema_version: "10",
+      revision: "7",
+      latched: true,
+    },
+    keyring: { capability: "unavailable" },
+    limits,
+    backup: { state: "idle", last_completed_at: null },
+    protocols: {
+      modern: "2026-07-28",
+      legacy: "2025-11-25",
+      agent_auth: "principal_credentials",
+    },
+  };
+}
+
+function overviewServer(id: string, name: string, state: string) {
+  return {
+    id,
+    namespace: `namespace-${id.slice(-4)}`,
+    display_name: name,
+    desired_state: "enabled",
+    desired_revision: "1",
+    transport: {
+      kind: "stdio",
+      executable: "/usr/bin/true",
+      arguments: [],
+      working_directory: "/tmp",
+      environment: {},
+      secret_environment: {},
+    },
+    credential_revisions: {
+      static_credential: "0",
+      oauth_client: "0",
+      oauth_tokens: "0",
+    },
+    credential_state: "not_required",
+    runtime: {
+      state,
+      reason: state === "active" ? null : "transport_failure",
+      runtime_id: state === "active" ? "runtime-1" : null,
+      reconciliation: { in_use: 0, limit: 1, saturated: false },
+      dispatch: { in_use: 0, limit: 4, saturated: false },
+    },
+    catalog: {
+      durable_state: state === "active" ? "current" : "stale",
+      active_state: state === "active" ? "current" : "stale",
+      durable_revision: "1",
+      active_revision: state === "active" ? "1" : null,
+      durable_tool_count: 1,
+      active_tool_count: state === "active" ? 1 : 0,
+      last_success_at: "2026-08-28T00:00:00Z",
+      traversal: { in_use: 0, limit: 4, saturated: false },
+    },
+    created_at: "2026-08-28T00:00:00Z",
+    updated_at: "2026-08-28T00:00:00Z",
+    deleted_at: null,
+  };
+}
+
+function overviewRequestFixture() {
+  return {
+    id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    principal_id: "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+    state: "pending",
+    revision: "1",
+    requested_policy: {
+      scope: "server",
+      target: "long-server",
+      constraint: null,
+      duration_seconds: null,
+      future_tools_acknowledged: true,
+    },
+    approved_policy: null,
+    approved_grant_id: null,
+    rejection_reason: null,
+    created_at: "2026-08-28T00:00:00Z",
+    updated_at: "2026-08-28T00:00:00Z",
+    closed_at: null,
+  };
+}
+
+function overviewInvocationFixture() {
+  return {
+    id: "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+    principal_id: "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+    credential_id: "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+    credential_fingerprint: "0123456789abcdef",
+    credential_revision: "1",
+    admitted_at: "2026-08-28T00:00:00Z",
+    admission_class: "evaluated",
+    requested_name: `literal-<script>${"L".repeat(96)}`,
+    target: {
+      kind: "downstream",
+      server_id: "01ARZ3NDEKTSV4RRFFQ69G5FA0",
+      tool_id: "01ARZ3NDEKTSV4RRFFQ69G5FA3",
+      upstream_name: "long-tool",
+      descriptor_revision: "1",
+      descriptor_fingerprint: "0123456789abcdef",
+    },
+    authorization: {
+      decision: "allow",
+      revision: "2",
+      evaluated_at: "2026-08-28T00:00:01Z",
+      grant_id: "01ARZ3NDEKTSV4RRFFQ69G5FA4",
+    },
+    outcome: {
+      class: "outcome_unknown",
+      basis: "missing_terminal",
+      completed_at: null,
+    },
+  };
+}
+
+async function runOverview(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await waitForLifecycle(page, "signed_out");
+  let invocationReads = 0;
+  let serverMode: "complete" | "stale" | "partial" = "complete";
+  let staleRestarted = false;
+  let heldStatus = false;
+  let releaseHeldStatus: (() => void) | undefined;
+
+  await page.route("**/api/v1/system-status", async (route) => {
+    if (
+      route.request().method() !== "GET" ||
+      new URL(route.request().url()).search !== ""
+    )
+      fail("Overview status request changed shape");
+    const late = heldStatus;
+    if (late) {
+      await new Promise<void>((resolve) => {
+        releaseHeldStatus = resolve;
+      });
+    }
+    const status = overviewStatusFixture();
+    if (late) status.process.state = "draining";
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(status),
+    });
+  });
+  await page.route("**/api/v1/servers?*", async (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    if (
+      route.request().method() !== "GET" ||
+      query.get("limit") !== "100" ||
+      [...query.keys()].some((key) => key !== "limit" && key !== "cursor")
+    )
+      fail("Overview server request changed shape");
+    const cursor = query.get("cursor");
+    if (serverMode === "complete") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            overviewServer(
+              "01ARZ3NDEKTSV4RRFFQ69G5FA0",
+              `literal-<script>${"S".repeat(180)}`,
+              "active",
+            ),
+            overviewServer(
+              "01ARZ3NDEKTSV4RRFFQ69G5FA1",
+              "Needs operator attention",
+              "degraded",
+            ),
+          ],
+          next_cursor: null,
+        }),
+      });
+      return;
+    }
+    if (serverMode === "stale" && cursor === "stale") {
+      staleRestarted = true;
+      await route.fulfill({
+        status: 409,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 409,
+          code: "stale_cursor",
+          title: "The cursor is stale.",
+        }),
+      });
+      return;
+    }
+    if (serverMode === "stale" && !staleRestarted) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            overviewServer(
+              "01ARZ3NDEKTSV4RRFFQ69G5FA2",
+              "Discarded stale server",
+              "active",
+            ),
+          ],
+          next_cursor: "stale",
+        }),
+      });
+      return;
+    }
+    if (serverMode === "partial" && cursor === "broken") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 503,
+          code: "storage_unavailable",
+          title: "Storage is unavailable.",
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          overviewServer(
+            "01ARZ3NDEKTSV4RRFFQ69G5FA1",
+            "Needs operator attention",
+            "degraded",
+          ),
+        ],
+        next_cursor: serverMode === "partial" ? "broken" : null,
+      }),
+    });
+  });
+  await page.route("**/api/v1/grant-requests?*", async (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    if (
+      route.request().method() !== "GET" ||
+      query.get("limit") !== "100" ||
+      query.get("state") !== "pending" ||
+      [...query.keys()].some((key) => key !== "limit" && key !== "state")
+    )
+      fail("Overview request queue read changed shape");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [overviewRequestFixture()],
+        next_cursor: "more-pending",
+      }),
+    });
+  });
+  await page.route("**/api/v1/invocations?*", async (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    if (
+      route.request().method() !== "GET" ||
+      query.get("limit") !== "5" ||
+      [...query.keys()].some((key) => key !== "limit")
+    )
+      fail("Overview invocation read changed shape");
+    invocationReads += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [overviewInvocationFixture()],
+        next_cursor: "older",
+      }),
+    });
+  });
+
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.locator('[data-testid="overview-grid"]').waitFor();
+  await page.waitForFunction(() =>
+    document
+      .querySelector('[data-testid="overview-servers"]')
+      ?.textContent?.includes("2 configured"),
+  );
+  const body = (await page.locator("body").textContent()) ?? "";
+  for (const text of [
+    "Storage mutation is closed",
+    "Keyring unavailable",
+    "Capacity saturated",
+    "80% capacity pressure",
+    "Needs operator attention",
+    "count incomplete",
+    "Missing terminal evidence",
+  ]) {
+    if (!body.includes(text)) fail(`overview omitted ${text}`);
+  }
+  if (
+    (await page.locator("script").count()) !== 1 ||
+    (
+      await page.locator('[data-testid="overview-invocations"]').textContent()
+    )?.includes("redacted_arguments")
+  )
+    fail("overview rendered active or private content");
+  if (
+    (await page
+      .locator('[data-testid="gateway-shell"]')
+      .getAttribute("data-mutation-availability")) !== "storage_latched"
+  )
+    fail("Overview did not close mutation admission for latched storage");
+  for (const href of [
+    "#/servers/01ARZ3NDEKTSV4RRFFQ69G5FA1",
+    "#/requests/01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "#/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAX",
+  ]) {
+    if ((await page.locator(`a[href="${href}"]`).count()) !== 1)
+      fail(`overview omitted route ${href}`);
+  }
+
+  const beforePoll = invocationReads;
+  await page.waitForTimeout(5100);
+  if (invocationReads !== beforePoll + 1)
+    fail("overview polling was not five-second bounded");
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const hiddenReads = invocationReads;
+  await page.waitForTimeout(5100);
+  if (invocationReads !== hiddenReads) fail("overview polled while hidden");
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.waitForTimeout(5100);
+  if (invocationReads !== hiddenReads + 1)
+    fail("overview polling did not resume after visibility returned");
+
+  serverMode = "stale";
+  staleRestarted = false;
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page.waitForFunction(() =>
+    document
+      .querySelector('[data-testid="overview-servers"]')
+      ?.textContent?.includes("1 configured"),
+  );
+  if (
+    !staleRestarted ||
+    ((await page.locator("body").textContent()) ?? "").includes(
+      "Discarded stale server",
+    )
+  )
+    fail("stale server traversal was not restarted cleanly");
+
+  serverMode = "partial";
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page.waitForFunction(() =>
+    document
+      .querySelector('[data-testid="overview-servers"]')
+      ?.textContent?.includes("count incomplete"),
+  );
+
+  heldStatus = true;
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="overview-status"]')
+        ?.getAttribute("data-panel-status") === "stale",
+  );
+  heldStatus = false;
+  await page.locator('[data-testid="manual-refresh"]').click();
+  releaseHeldStatus?.();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="overview-status"]')
+        ?.getAttribute("data-panel-status") === "current",
+  );
+  if (
+    (
+      (await page.locator('[data-testid="overview-status"]').textContent()) ??
+      ""
+    ).includes("draining")
+  )
+    fail("late Overview read replaced the current generation");
+
+  if (
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth >
+        document.documentElement.clientWidth,
+    )
+  )
+    fail("overview long content overflowed the document");
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "overview_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), invocation_reads: invocationReads })}\n`,
+  );
+}
+
 async function runReadGeneration(
   browserVersion: string,
   context: BrowserContext,
@@ -2579,7 +3040,20 @@ try {
           .text()
           .startsWith(
             "Failed to load resource: the server responded with a status of 401",
-          )
+          ) &&
+        !(
+          input.scenario === "overview" &&
+          (message
+            .text()
+            .startsWith(
+              "Failed to load resource: the server responded with a status of 409",
+            ) ||
+            message
+              .text()
+              .startsWith(
+                "Failed to load resource: the server responded with a status of 503",
+              ))
+        )
       ) {
         consoleFailures.push(message.text());
       }
@@ -2653,6 +3127,15 @@ try {
       );
     } else if (input.scenario === "m3-canary") {
       await runM3Canary(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "overview") {
+      await runOverview(
         browser.version(),
         context,
         page,

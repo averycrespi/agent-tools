@@ -7,6 +7,7 @@ import {
   type ResolvedLocation,
 } from "./location";
 import { MutationCoordinator, type MutationAvailability } from "./mutation";
+import { Overview, OverviewController } from "./overview";
 import {
   ConfirmationDialog,
   FormField,
@@ -71,6 +72,11 @@ const viewCoordinator = new ViewCoordinator(sessionClient);
 const mutationCoordinator = new MutationCoordinator(sessionClient, {
   refreshCurrent: () => viewCoordinator.manualRefresh(),
 });
+const overviewController = new OverviewController(
+  sessionClient,
+  viewCoordinator,
+  (latched) => mutationCoordinator.setStorageLatched(latched),
+);
 applyTheme(initialTheme);
 
 function SignInPanel({
@@ -398,32 +404,40 @@ function App() {
         session.lifecycle === "reauthenticating" ? (
           <SessionTransition lifecycle={session.lifecycle} />
         ) : authenticated ? (
-          <section class="panel" aria-labelledby="foundation-title">
-            <div class="panel-heading">
-              <div>
-                <span class="panel-code">SESSION-01</span>
-                <h2 id="foundation-title">Session established</h2>
+          destination === "overview" ? (
+            <Overview
+              controller={overviewController}
+              view={view}
+              onRefresh={() => viewCoordinator.manualRefresh()}
+            />
+          ) : (
+            <section class="panel" aria-labelledby="foundation-title">
+              <div class="panel-heading">
+                <div>
+                  <span class="panel-code">SESSION-01</span>
+                  <h2 id="foundation-title">Session established</h2>
+                </div>
+                <span class="classification">IN MEMORY</span>
               </div>
-              <span class="classification">IN MEMORY</span>
-            </div>
-            <p>
-              Protected views bind to this location and authentication epoch.
-              Prior requests and scheduled work cannot update the current
-              session.
-            </p>
-            <div class="refresh-controls">
-              <StatusLabel state={view.freshness}>
-                Data {view.freshness}
-              </StatusLabel>
-              <button
-                data-testid="manual-refresh"
-                type="button"
-                onClick={() => viewCoordinator.manualRefresh()}
-              >
-                Refresh visible data
-              </button>
-            </div>
-          </section>
+              <p>
+                Protected views bind to this location and authentication epoch.
+                Prior requests and scheduled work cannot update the current
+                session.
+              </p>
+              <div class="refresh-controls">
+                <StatusLabel state={view.freshness}>
+                  Data {view.freshness}
+                </StatusLabel>
+                <button
+                  data-testid="manual-refresh"
+                  type="button"
+                  onClick={() => viewCoordinator.manualRefresh()}
+                >
+                  Refresh visible data
+                </button>
+              </div>
+            </section>
+          )
         ) : (
           <SignInPanel
             snapshot={session}
