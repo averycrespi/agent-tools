@@ -25,7 +25,7 @@ func TestRoutesMatchTheS1Contract(t *testing.T) {
 		{Pattern: "/api/v1/system-status", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 		{Pattern: "/api/v1/backups", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 		{Pattern: "/api/v1/backups/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/events", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v1/events", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 	}
 
 	require.Equal(t, expected, Routes()[:len(expected)], "S1 routes must remain the table prefix")

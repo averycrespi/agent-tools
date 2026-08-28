@@ -128,7 +128,8 @@ func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Re
 		return
 	}
 
-	permit := boundary.permitFor(route)
+	authority := contract.AuthorityForMethod(route, request.Method)
+	permit := boundary.permitFor(route, authority)
 	if !tryAcquire(permit) {
 		writeProblem(writer, contract.ProblemResourceLimit)
 		return
@@ -152,12 +153,12 @@ func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Re
 		return
 	}
 	ctx := request.Context()
-	if requiresAuthentication(route.Authority) {
+	if requiresAuthentication(authority) {
 		if boundary.authenticate == nil {
 			writeProblem(writer, contract.ProblemAuthenticationRequired)
 			return
 		}
-		authenticated, err := boundary.authenticate(ctx, request, route.Authority)
+		authenticated, err := boundary.authenticate(ctx, request, authority)
 		if err != nil {
 			var failure Error
 			if errors.As(err, &failure) {
@@ -172,7 +173,7 @@ func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Re
 		}
 		ctx = authenticated
 		defer releaseAuthentication(ctx)
-		if isAdmin(route.Authority) {
+		if isAdmin(authority) {
 			if !tryAcquire(boundary.admin) {
 				writeProblem(writer, contract.ProblemResourceLimit)
 				return
@@ -239,11 +240,11 @@ func permitStatus(permit chan struct{}) contract.LimitStatus {
 	return contract.LimitStatus{InUse: inUse, Limit: maximum, Saturated: inUse >= maximum}
 }
 
-func (boundary *Boundary) permitFor(route contract.Route) chan struct{} {
+func (boundary *Boundary) permitFor(route contract.Route, authority contract.CredentialAuthority) chan struct{} {
 	if route.Pattern == "/livez" || route.Pattern == "/readyz" {
 		return boundary.health
 	}
-	if isAdmin(route.Authority) {
+	if isAdmin(authority) {
 		return boundary.control
 	}
 	return boundary.regular

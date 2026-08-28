@@ -316,7 +316,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.getBackup(writer, request)
 	case strings.HasPrefix(path, "/api/v1/backups/") && request.Method == http.MethodDelete:
 		handler.deleteBackup(writer, request)
-	case path == "/api/v1/events" && request.Method == http.MethodGet:
+	case path == "/api/v1/events" && (request.Method == http.MethodGet || request.Method == http.MethodPost):
 		handler.streamEvents(writer, request)
 	case path == "/api/v1/catalog" && handler.activeCatalog != nil:
 		handler.activeCatalogCollection(writer, request)
@@ -665,8 +665,22 @@ func (handler *Handler) deleteBackup(writer http.ResponseWriter, request *http.R
 }
 
 func (handler *Handler) streamEvents(writer http.ResponseWriter, request *http.Request) {
-	if handler.events == nil || !bodyless(request) || len(request.URL.Query()) != 0 || len(request.Header.Values("Last-Event-ID")) != 0 {
+	if handler.events == nil || len(request.URL.Query()) != 0 || len(request.Header.Values("Last-Event-ID")) != 0 {
 		writeProblem(writer, contract.ProblemMalformedRequest)
+		return
+	}
+	switch request.Method {
+	case http.MethodGet:
+		if !bodyless(request) {
+			writeProblem(writer, contract.ProblemMalformedRequest)
+			return
+		}
+	case http.MethodPost:
+		if !decodeEmptyObject(writer, request) {
+			return
+		}
+	default:
+		writeProblem(writer, contract.ProblemMethodNotAllowed)
 		return
 	}
 	flusher, ok := writer.(http.Flusher)

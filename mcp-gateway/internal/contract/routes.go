@@ -39,7 +39,7 @@ var routes = []Route{
 	{Pattern: "/api/v1/system-status", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/backups", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/backups/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
-	{Pattern: "/api/v1/events", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/events", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/servers", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/servers/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/servers/{id}/operations", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
@@ -82,6 +82,13 @@ func RouteForPath(path string) (Route, bool) {
 
 func (route Route) Allow() string {
 	return joinMethods(route.Methods)
+}
+
+func AuthorityForMethod(route Route, method string) CredentialAuthority {
+	if route.Pattern == "/api/v1/events" && method == "POST" {
+		return AuthorityAdminSession
+	}
+	return route.Authority
 }
 
 func joinMethods(methods []string) string {

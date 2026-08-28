@@ -39,37 +39,37 @@ The `internal/contract` package is the single source consumed by current API, in
 
 Methods are lexicographically ordered and become the exact `Allow` value. `HEAD` is never inherited from `GET`.
 
-| Pattern                                          | Exact `Allow`        | Authority               |
-| ------------------------------------------------ | -------------------- | ----------------------- |
-| `/`                                              | `GET`                | public                  |
-| `/assets/*`                                      | `GET`                | public                  |
-| `/livez`                                         | `GET`                | public                  |
-| `/readyz`                                        | `GET`                | public                  |
-| `/mcp`                                           | `DELETE, GET, POST`  | agent                   |
-| `/oauth/callback`                                | `GET`                | one-time OAuth state    |
-| `/api/v1/admin-sessions`                         | `POST`               | admin bearer            |
-| `/api/v1/admin-sessions/current`                 | `DELETE, POST`       | admin session           |
-| `/api/v1/admin-credentials`                      | `GET, POST`          | admin bearer or session |
-| `/api/v1/admin-credentials/{id}`                 | `DELETE, GET`        | admin bearer or session |
-| `/api/v1/system-status`                          | `GET`                | admin bearer or session |
-| `/api/v1/backups`                                | `GET, POST`          | admin bearer or session |
-| `/api/v1/backups/{id}`                           | `DELETE, GET`        | admin bearer or session |
-| `/api/v1/events`                                 | `GET`                | admin bearer or session |
-| `/api/v1/servers`                                | `GET, POST`          | admin bearer or session |
-| `/api/v1/servers/{id}`                           | `DELETE, GET, PATCH` | admin bearer or session |
-| `/api/v1/servers/{id}/operations`                | `GET, POST`          | admin bearer or session |
-| `/api/v1/servers/{id}/operations/{operation_id}` | `GET`                | admin bearer or session |
-| `/api/v1/servers/{id}/credential-replacements`   | `POST`               | admin bearer or session |
-| `/api/v1/servers/{id}/auth-flows`                | `GET, POST`          | admin bearer or session |
-| `/api/v1/servers/{id}/auth-flows/{flow_id}`      | `DELETE, GET`        | admin bearer or session |
-| `/api/v1/catalog`                                | `GET`                | admin bearer or session |
-| `/api/v1/servers/{id}/descriptors`               | `GET`                | admin bearer or session |
-| `/api/v1/servers/{id}/descriptors/{tool_id}`     | `GET`                | admin bearer or session |
-| `/api/v1/principals`                             | `GET, POST`          | admin bearer or session |
-| `/api/v1/principals/{id}`                        | `GET, PATCH`         | admin bearer or session |
-| `/api/v1/principals/{id}/credential`             | `DELETE, POST`       | admin bearer or session |
-| `/api/v1/grants`                                 | `GET, POST`          | admin bearer or session |
-| `/api/v1/grants/{id}`                            | `DELETE, GET`        | admin bearer or session |
+| Pattern                                          | Exact `Allow`        | Authority                                         |
+| ------------------------------------------------ | -------------------- | ------------------------------------------------- |
+| `/`                                              | `GET`                | public                                            |
+| `/assets/*`                                      | `GET`                | public                                            |
+| `/livez`                                         | `GET`                | public                                            |
+| `/readyz`                                        | `GET`                | public                                            |
+| `/mcp`                                           | `DELETE, GET, POST`  | agent                                             |
+| `/oauth/callback`                                | `GET`                | one-time OAuth state                              |
+| `/api/v1/admin-sessions`                         | `POST`               | admin bearer                                      |
+| `/api/v1/admin-sessions/current`                 | `DELETE, POST`       | admin session                                     |
+| `/api/v1/admin-credentials`                      | `GET, POST`          | admin bearer or session                           |
+| `/api/v1/admin-credentials/{id}`                 | `DELETE, GET`        | admin bearer or session                           |
+| `/api/v1/system-status`                          | `GET`                | admin bearer or session                           |
+| `/api/v1/backups`                                | `GET, POST`          | admin bearer or session                           |
+| `/api/v1/backups/{id}`                           | `DELETE, GET`        | admin bearer or session                           |
+| `/api/v1/events`                                 | `GET, POST`          | GET: admin bearer or session; POST: admin session |
+| `/api/v1/servers`                                | `GET, POST`          | admin bearer or session                           |
+| `/api/v1/servers/{id}`                           | `DELETE, GET, PATCH` | admin bearer or session                           |
+| `/api/v1/servers/{id}/operations`                | `GET, POST`          | admin bearer or session                           |
+| `/api/v1/servers/{id}/operations/{operation_id}` | `GET`                | admin bearer or session                           |
+| `/api/v1/servers/{id}/credential-replacements`   | `POST`               | admin bearer or session                           |
+| `/api/v1/servers/{id}/auth-flows`                | `GET, POST`          | admin bearer or session                           |
+| `/api/v1/servers/{id}/auth-flows/{flow_id}`      | `DELETE, GET`        | admin bearer or session                           |
+| `/api/v1/catalog`                                | `GET`                | admin bearer or session                           |
+| `/api/v1/servers/{id}/descriptors`               | `GET`                | admin bearer or session                           |
+| `/api/v1/servers/{id}/descriptors/{tool_id}`     | `GET`                | admin bearer or session                           |
+| `/api/v1/principals`                             | `GET, POST`          | admin bearer or session                           |
+| `/api/v1/principals/{id}`                        | `GET, PATCH`         | admin bearer or session                           |
+| `/api/v1/principals/{id}/credential`             | `DELETE, POST`       | admin bearer or session                           |
+| `/api/v1/grants`                                 | `GET, POST`          | admin bearer or session                           |
+| `/api/v1/grants/{id}`                            | `DELETE, GET`        | admin bearer or session                           |
 
 `/assets/*` requires a nonempty path below `/assets/`. Item patterns require exactly one nonempty segment. All other paths are unowned and therefore `404`.
 
@@ -228,7 +228,7 @@ Fixed S1 deadlines are: header read five seconds, API handler 30 seconds, SQLite
 
 `SystemStatus` is exactly `{process,sqlite,keyring,limits,backup,protocols}`. Process state is `uninitialized`, `starting`, `ready`, `storage_failed`, or `draining`; SQLite state is `uninitialized`, `ready`, or `latched`; keyring capability is `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, or `unsupported`; and backup state is `idle` or `creating`. The closed `limits` object contains `http_regular`, `http_control_auth`, `http_admin`, `http_health`, `mcp_work`, `mcp_streams`, `admin_sessions`, `legacy_sessions`, `event_streams`, `backup_work`, `backup_records`, `admin_credentials`, `idempotency_records`, `keyring_candidates`, `keyring_work`, `database_bytes`, `server_identities`, `servers`, `downstream_runtimes`, `server_reconciliations`, `catalog_traversals`, `oauth_flows`, `oauth_callback_work`, `s2_idempotency_records`, `active_tools`, `durable_tool_identities`, `downstream_dispatch`, `principals`, and `grants`; every entry is exactly `{in_use,limit,saturated}`. Protocol status is modern `2026-07-28`, legacy `2025-11-25`, and agent auth is closed to `deny_all` and `principal_credentials`; production reports `principal_credentials` from the same composed dependency bundle that supplies its authenticator and discovery service.
 
-S1 cursor mechanics remain limited to `GET /api/v1/admin-credentials` and `GET /api/v1/backups`; S1 durable idempotency remains limited to `POST /api/v1/backups`; and no S1 resource uses ETag. S2 declarations add targeted snapshot or watermark cursors, idempotency, exact preconditions, and strong Server ETags only where listed below. The event stream still has no replay mechanism. Invalidation kinds are the closed set `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, and `authorization`.
+S1 cursor mechanics remain limited to `GET /api/v1/admin-credentials` and `GET /api/v1/backups`; S1 durable idempotency remains limited to `POST /api/v1/backups`; and no S1 resource uses ETag. S2 declarations add targeted snapshot or watermark cursors, idempotency, exact preconditions, and strong Server ETags only where listed below. The event stream still has no replay mechanism. Browser streaming uses session-only `POST /api/v1/events` with exact `EmptyObject` `{}`, Origin, and CSRF, returning the same `EventStream`; inherited bearer-or-session GET and POST share one hub, frame, keepalive, limit, overflow, deadline, and closure owner. Invalidation kinds are the closed set `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, and `authorization`.
 
 Admin bearer values use prefix `mgw_admin_`, reserved agent bearer values use `mgw_agent_`, and the session cookie is `mcp_gateway_session`. Approved one-time output sinks remain `controlling_terminal` and `owner_only_file`; the latter is a newly created, non-symlink-following `0600` file containing exactly the secret and one newline. S2's additional write-only secret ingress declarations are `admin_credential_replacement`, `dcr_client_secret`, `authorization_code_token_response`, `refresh_response`, and `authoritative_generation_refresh_copy`. S3 adds only `agent_credential_creation` for the one-time credential creation body. Standard output and standard error are not secret sinks.
 
