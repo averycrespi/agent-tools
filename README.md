@@ -82,9 +82,9 @@ See the [mcp-broker README](mcp-broker/README.md) for more information.
 
 ### MCP Gateway
 
-`mcp-gateway` is the clean-start successor being built beside MCP Broker. Its current S4 executable combines a strict loopback HTTP/MCP boundary and verified recovery with dynamic downstream runtimes/catalogs, principal credentials and grants, principal-filtered discovery, and governed dual-era tool invocation.
+`mcp-gateway` is the clean-start successor being built beside MCP Broker. Its current S5 executable combines a strict loopback HTTP/MCP boundary and verified recovery with dynamic downstream runtimes/catalogs, principal credentials and grants, principal-filtered discovery, and governed dual-era tool invocation.
 
-Every classified call rejects safely or commits bounded audit evidence before one immediate attempt through a pinned active capability. The Gateway does not queue, reroute, retry, replay, or persist successful results and raw downstream errors; uncertain handoff is reported explicitly because a tool may already have taken effect. Audit history is internal and bounded to 4,096 rows with fixed-redacted argument evidence. Audit read APIs, agent self-service tools, product UI, exactly-once guarantees, and S5/S6 workflows are not implemented. See the [mcp-gateway README](mcp-gateway/README.md) and [design](mcp-gateway/DESIGN.md) for operation and security boundaries.
+Every classified call rejects safely or commits bounded audit evidence before one immediate attempt through either a pinned downstream capability or one of six fixed local self-service handlers. Agents can inspect their own identity, grants, and durable grant requests; administrators adjudicate requests, and only an explicit fresh call can use a resulting grant. The Gateway does not queue, reroute, automatically retry, replay, or persist successful results and raw downstream errors; uncertain handoff is reported explicitly because a tool may already have taken effect. Audit history is internal and bounded to 4,096 rows with fixed-redacted argument evidence. Audit read APIs, product UI, exactly-once guarantees, and S6 workflows are not implemented. See the [mcp-gateway README](mcp-gateway/README.md) and [design](mcp-gateway/DESIGN.md) for operation and security boundaries.
 
 ### HTTP Broker
 

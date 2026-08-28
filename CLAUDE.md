@@ -23,10 +23,11 @@ npm install    # install Husky/Prettier deps and Git hooks
 make install   # install all Go tool binaries
 make build     # build all Go tools
 make test      # test all Go tools
+make check-other-tools # lint + test non-Gateway modules only
 make audit     # tidy + fmt + lint + test + govulncheck for all Go tools
 ```
 
-Targets are forwarded to each tool's Makefile. Run from any subdirectory for a single tool. The pre-commit hook runs `lint-staged` for Go and docs formatting, then `make lint` for Go linting.
+Targets are forwarded to each tool's Makefile. Run from any subdirectory for a single tool. S5 acceptance owns Gateway verification; `check-other-tools` deliberately excludes `mcp-gateway` so the final profile has one separate compatibility owner. The pre-commit hook runs `lint-staged` for Go and docs formatting, then `make lint` for Go linting.
 
 ## Service Layout
 

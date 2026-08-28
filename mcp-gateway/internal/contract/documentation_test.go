@@ -9,25 +9,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTrackedDocsDescribeCurrentS4Boundary(t *testing.T) {
+func TestTrackedDocsDescribeCurrentS5Boundary(t *testing.T) {
 	t.Parallel()
 
 	documents := map[string][]string{
 		"../../../README.md": {
-			"current S4 executable", "governed dual-era tool invocation", "before one immediate attempt through a pinned active capability",
-			"Audit read APIs, agent self-service tools, product UI, exactly-once guarantees, and S5/S6 workflows are not implemented",
+			"current S5 executable", "six fixed local self-service handlers", "only an explicit fresh call can use a resulting grant",
+			"Audit read APIs, product UI, exactly-once guarantees, and S6 workflows are not implemented",
 		},
 		"../../README.md": {
-			"Governed calls and internal audit history", "attempts one immutable admission row before any downstream effect", "fixed recursive key redaction",
-			"There is no audit read API", "Gateway provides at-most-one automatic attempt, not exactly-once effects", "make accept-s4", "S5 and S6 behavior is unavailable",
+			"Self-service grant requests", "mcp_gateway.create_grant_request", "There is no audit read API", "explicit fresh `tools/call`",
+			"schema-3-through-10", "grant_requests", "make accept-s5", "S6 behavior is unavailable",
 		},
 		"../../DESIGN.md": {
-			"current S4 executable", "Closed S1–S4 contract", "Argument capture uses one fixed recursive key redactor",
-			"sole production consumer is the composed invocation service after acknowledged ALLOW admission", "explicit caller retry after `outcome_unknown` may duplicate an effect", "make accept-s4",
+			"current S5 executable", "Closed S1–S5 contract", "Implemented S5 self-service contract", "sole online schema-10 DML owner",
+			"closed downstream/local target union", "make accept-s5", "no-check adopter",
 		},
 		"../../CLAUDE.md": {
-			"Immutable S1–S4 routes", "online S4 invocation SQL belongs to `internal/invocation`", "`internal/invocation` owns fixed recursive argument redaction",
-			"do not infer an audit read API", "exactly-once effects", "guaranteed secret detection", "make accept-s4",
+			"Immutable S1–S5 routes", "online S4 invocation SQL belongs to `internal/invocation`", "online schema-10 request identity",
+			"do not infer an audit read API", "exactly-once effects", "guaranteed secret detection", "make accept-s5",
 		},
 	}
 	prohibited := []string{
@@ -46,13 +46,18 @@ func TestTrackedDocsDescribeCurrentS4Boundary(t *testing.T) {
 		"No production agent-facing invocation/audit/UI or active-capability consumer may emerge",
 		"S4 privacy primitives; later S4 tasks add audit and orchestration ownership",
 		"Closed S1–S3 contract",
+		"current S4 executable",
+		"Closed S1–S4 contract",
+		"current executable remains at the S4 behavior boundary",
+		"S5 and S6 behavior is unavailable",
+		"S5/S6 workflows are not implemented",
 	}
 	for path, required := range documents {
 		contents, err := os.ReadFile(path)
 		require.NoError(t, err, path)
 		text := string(contents)
 		for _, phrase := range required {
-			require.Contains(t, text, phrase, "%s: missing current S4 claim", path)
+			require.Contains(t, text, phrase, "%s: missing current S5 claim", path)
 		}
 		for _, phrase := range prohibited {
 			require.NotContains(t, text, phrase, "%s: obsolete current-state claim", path)
