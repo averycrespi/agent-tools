@@ -1,4 +1,6 @@
-.PHONY: build install test test-unit test-integration test-integration-s5 test-e2e test-keyring-native accept-s2-1 accept-s3 accept-s4 lint fmt tidy verify audit
+STRESS_COUNT ?= 20
+
+.PHONY: build install test test-unit test-integration test-integration-s5 test-security-s5 test-stress-s5 test-e2e test-keyring-native accept-s2-1 accept-s3 accept-s4 lint fmt tidy verify audit
 
 build:
 	go build -o mcp-gateway ./cmd/mcp-gateway
@@ -17,6 +19,14 @@ test-integration:
 
 test-integration-s5:
 	go test -race -count=1 -tags=integration -timeout=30s -run '^(TestS5Integration.*|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$$' ./internal/storage ./internal/backup ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition
+
+test-security-s5:
+	go test -race -count=1 -tags=security -timeout=30s ./test/security/...
+
+test-stress-s5:
+	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=2m -run '^(TestS5StressConcurrentSemanticDeduplication|TestS5StressApprovalCancellationPolicyLinearization)$$' ./internal/grantrequests
+	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=90s -run '^(TestS5StressSyntheticSnapshotPagination|TestS5StressLostLocalMutationResponseDeduplicatesExplicitRetry)$$' ./internal/selfservice
+	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=90s -run '^TestS5StressLocalInvocationDrainCleanup$$' ./internal/composition
 
 test-e2e:
 	go test -race -count=1 -tags=e2e -timeout=2m ./test/e2e/...

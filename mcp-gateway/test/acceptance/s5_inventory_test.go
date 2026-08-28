@@ -22,15 +22,20 @@ var s5IntegrationPackages = []string{
 	"./internal/catalog", "./internal/invocation", "./internal/composition",
 }
 
+var s5StressPackages = []string{"./internal/grantrequests", "./internal/selfservice", "./internal/composition"}
+
 func TestS5TargetInventory(t *testing.T) {
 	gatewayMakefile, err := os.ReadFile(filepath.Join(repositoryRoot(t), "mcp-gateway", "Makefile"))
 	require.NoError(t, err)
 	gateway := string(gatewayMakefile)
-	for _, target := range []string{"test-unit", "test-integration-s5", "test-e2e", "verify"} {
+	for _, target := range []string{"test-unit", "test-integration-s5", "test-security-s5", "test-stress-s5", "test-e2e", "verify"} {
 		assert.Contains(t, gateway, "\n"+target+":", target)
 	}
 	assert.Contains(t, gateway, "\tgo test -race -count=1 -timeout=90s ./...")
 	assert.Contains(t, gateway, "\tgo test -race -count=1 -tags=integration -timeout=30s -run '"+strings.ReplaceAll(s5IntegrationSelector, "$", "$$")+"' "+strings.Join(s5IntegrationPackages, " "))
+	assert.Contains(t, gateway, "\tgo test -race -count=1 -tags=security -timeout=30s ./test/security/...")
+	assert.Contains(t, gateway, "\tgo test -race -tags=stress -count=$(STRESS_COUNT) -timeout=2m")
+	assert.Contains(t, gateway, "\tgo test -race -tags=stress -count=$(STRESS_COUNT) -timeout=90s")
 	assert.Contains(t, gateway, "\tgo test -race -count=1 -tags=e2e -timeout=2m ./test/e2e/...")
 	for _, command := range []string{"\tgo mod tidy -diff", "\tgo mod verify", "\tgo tool golangci-lint fmt --diff", "\tgo tool golangci-lint run ./..."} {
 		assert.Contains(t, gateway, command)
@@ -67,6 +72,24 @@ func TestS5SelectorManifest(t *testing.T) {
 	}
 	sort.Strings(selected)
 	assert.Equal(t, S5IntegrationTestManifest, selected)
+
+	var stress []string
+	for _, test := range discoverTests(t, repositoryRoot(t), s5StressPackages) {
+		if strings.HasPrefix(test, "TestS5Stress") {
+			stress = append(stress, test)
+		}
+	}
+	sort.Strings(stress)
+	assert.Equal(t, S5StressTestManifest, stress)
+
+	var security []string
+	for _, test := range discoverTests(t, repositoryRoot(t), []string{"./test/security"}) {
+		if strings.HasPrefix(test, "TestS5Security") {
+			security = append(security, test)
+		}
+	}
+	sort.Strings(security)
+	assert.Equal(t, S5SecurityTestManifest, security)
 }
 
 func TestS5PackageMultiplicity(t *testing.T) {
@@ -84,6 +107,14 @@ func TestS5PackageMultiplicity(t *testing.T) {
 	}
 	assert.NotContains(t, targetRecipe(text, "test-unit"), "-tags=")
 	assert.NotContains(t, targetRecipe(text, "test-e2e"), "-count=2")
+	security := targetRecipe(text, "test-security-s5")
+	assert.Equal(t, 1, strings.Count(security, "go test "))
+	assert.Contains(t, security, "-count=1 -tags=security")
+	assert.Equal(t, 1, strings.Count(security, "./test/security/..."))
+	stress := targetRecipe(text, "test-stress-s5")
+	assert.Equal(t, 3, strings.Count(stress, "go test "))
+	assert.Equal(t, 3, strings.Count(stress, "-count=$(STRESS_COUNT)"))
+	assert.NotContains(t, stress, "./...")
 }
 
 func targetRecipe(makefile, target string) string {
