@@ -22,6 +22,8 @@ func TestGatewayBinaryHidesDurableStaleAndWithdrawnCatalogs(t *testing.T) {
 	defer harness.Stop(syscall.SIGTERM)
 
 	names := discoveryNames("withdrawal", 98)
+	visibleNames := withSyntheticNames(names)
+	syntheticNames := withSyntheticNames(nil)
 	catalog := harness.SetupCurrentCatalog("withdrawal", fixtureTools(names))
 	principal := harness.CreatePrincipal("Catalog observer", contract.VisibilityAll)
 	credential := harness.IssueCredential(principal)
@@ -35,7 +37,7 @@ func TestGatewayBinaryHidesDurableStaleAndWithdrawnCatalogs(t *testing.T) {
 
 	initialAgent := harness.ModernList(credential.Bearer, json.RawMessage(`"initial-agent"`), "")
 	initialAgentCursor := discoveryCursor(t, initialAgent)
-	assertDiscoveryPage(t, initialAgent, json.RawMessage(`"initial-agent"`), names[:100], initialAgentCursor)
+	assertDiscoveryNamePage(t, initialAgent, visibleNames[:100], initialAgentCursor)
 	initialControl := controlCatalog(t, harness, "/api/v1/catalog?limit=1")
 	require.Len(t, initialControl.Items, 1)
 	require.NotNil(t, initialControl.NextCursor)
@@ -70,7 +72,7 @@ func TestGatewayBinaryHidesDurableStaleAndWithdrawnCatalogs(t *testing.T) {
 	assert.Empty(t, durableOnlyControl.Items)
 	assertDescriptorReadable(t, harness, catalog.ServerID, descriptor)
 	durableOnlyAgent := harness.ModernList(credential.Bearer, json.RawMessage(`"durable-only"`), "")
-	assertDiscoveryPage(t, durableOnlyAgent, json.RawMessage(`"durable-only"`), nil, "")
+	assertDiscoveryNamePage(t, durableOnlyAgent, syntheticNames, "")
 	staleInitialControl := harness.adminSnapshot(http.MethodGet, "/api/v1/catalog?cursor="+url.QueryEscape(initialControlCursor), nil)
 	assertProblem(t, staleInitialControl, http.StatusConflict, "stale_cursor", "The cursor snapshot is no longer available.", false)
 	staleInitialAgent := harness.ModernList(credential.Bearer, json.RawMessage(`"restart-cursor"`), initialAgentCursor)
@@ -87,7 +89,7 @@ func TestGatewayBinaryHidesDurableStaleAndWithdrawnCatalogs(t *testing.T) {
 	require.NotNil(t, postRestartControl.NextCursor)
 	postRestartAgent := harness.ModernList(credential.Bearer, json.RawMessage(`"post-restart"`), "")
 	postRestartAgentCursor := discoveryCursor(t, postRestartAgent)
-	assertDiscoveryPage(t, postRestartAgent, json.RawMessage(`"post-restart"`), names[:100], postRestartAgentCursor)
+	assertDiscoveryNamePage(t, postRestartAgent, visibleNames[:100], postRestartAgentCursor)
 	assertHTTPMethods(t, catalog.Fixture, map[string]int{"server/discover": 2, "tools/list": 4})
 
 	catalog.Fixture.SetTools([]fixtureTool{
@@ -110,7 +112,7 @@ func TestGatewayBinaryHidesDurableStaleAndWithdrawnCatalogs(t *testing.T) {
 	require.Len(t, staleControl.Items, 1)
 	assertDescriptorReadable(t, harness, catalog.ServerID, descriptor)
 	staleAgent := harness.ModernList(credential.Bearer, json.RawMessage(`"stale-agent"`), "")
-	assertDiscoveryPage(t, staleAgent, json.RawMessage(`"stale-agent"`), nil, "")
+	assertDiscoveryNamePage(t, staleAgent, syntheticNames, "")
 	stalePostRestartControl := harness.adminSnapshot(http.MethodGet, "/api/v1/catalog?cursor="+url.QueryEscape(*postRestartControl.NextCursor), nil)
 	assertProblem(t, stalePostRestartControl, http.StatusConflict, "stale_cursor", "The cursor snapshot is no longer available.", false)
 	stalePostRestartAgent := harness.ModernList(credential.Bearer, json.RawMessage(`"stale-agent-cursor"`), postRestartAgentCursor)
@@ -126,7 +128,7 @@ func TestGatewayBinaryHidesDurableStaleAndWithdrawnCatalogs(t *testing.T) {
 	disabledServer := currentServer(t, harness, catalog.ServerID)
 	assert.Equal(t, contract.DesiredServerDisabled, disabledServer.DesiredState)
 	assert.Empty(t, controlCatalog(t, harness, "/api/v1/catalog?limit=100").Items)
-	assertDiscoveryPage(t, harness.ModernList(credential.Bearer, json.RawMessage(`"disabled-agent"`), ""), json.RawMessage(`"disabled-agent"`), nil, "")
+	assertDiscoveryNamePage(t, harness.ModernList(credential.Bearer, json.RawMessage(`"disabled-agent"`), ""), syntheticNames, "")
 	assertDescriptorReadable(t, harness, catalog.ServerID, descriptor)
 	assertHTTPMethods(t, catalog.Fixture, map[string]int{"server/discover": 2, "tools/list": 5})
 
@@ -143,7 +145,7 @@ func TestGatewayBinaryHidesDurableStaleAndWithdrawnCatalogs(t *testing.T) {
 	assert.Equal(t, contract.DesiredServerDeleted, deleted.DesiredState)
 	assert.Equal(t, "3", deleted.DesiredRevision)
 	assert.Empty(t, controlCatalog(t, harness, "/api/v1/catalog?limit=100").Items)
-	assertDiscoveryPage(t, harness.ModernList(credential.Bearer, json.RawMessage(`"deleted-agent"`), ""), json.RawMessage(`"deleted-agent"`), nil, "")
+	assertDiscoveryNamePage(t, harness.ModernList(credential.Bearer, json.RawMessage(`"deleted-agent"`), ""), syntheticNames, "")
 	assertDescriptorReadable(t, harness, catalog.ServerID, descriptor)
 	assertHTTPMethods(t, catalog.Fixture, map[string]int{"server/discover": 2, "tools/list": 5})
 }

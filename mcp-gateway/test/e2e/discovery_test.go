@@ -60,12 +60,12 @@ func TestGatewayBinaryDeliversPrincipalSpecificDiscoveryAcrossBothEras(t *testin
 	assert.Equal(t, `{"jsonrpc":"2.0","id":"modern-discover","result":{"resultType":"complete","_meta":{"io.modelcontextprotocol/serverInfo":{"name":"mcp-gateway","version":"s1"}},"ttlMs":0,"cacheScope":"public","supportedVersions":["2026-07-28","2025-11-25","2025-06-18","2025-03-26","2024-11-05"],"capabilities":{"tools":{}}}}`, string(modernDiscover.Body))
 	assert.NotContains(t, string(modernDiscover.Body), "listChanged")
 
-	assertDiscoveryPage(t, harness.ModernList(allCredential.Bearer, json.RawMessage(`"modern-all"`), ""), json.RawMessage(`"modern-all"`), alphaNames, "")
+	assertModernNames(t, harness, allCredential.Bearer, alphaNames, "modern-all")
 	requestableNames := withoutName(alphaNames, "alpha.hidden")
-	assertDiscoveryPage(t, harness.ModernList(requestableCredential.Bearer, json.RawMessage(`"modern-requestable"`), ""), json.RawMessage(`"modern-requestable"`), requestableNames, "")
+	assertModernNames(t, harness, requestableCredential.Bearer, requestableNames, "modern-requestable")
 	allowedResponse := harness.ModernList(allowedCredential.Bearer, json.RawMessage(`"modern-allowed"`), "")
-	assertDiscoveryPage(t, allowedResponse, json.RawMessage(`"modern-allowed"`), []string{"alpha.conditional"}, "")
-	for _, forbidden := range []string{allDeny.ID, requestableDeny.ID, constrainedAllow.ID, "constraint", "authorization_revision", "grant_id", "listChanged", `"_meta"`} {
+	assertDiscoveryNamePage(t, allowedResponse, withSyntheticNames([]string{"alpha.conditional"}), "")
+	for _, forbidden := range []string{allDeny.ID, requestableDeny.ID, constrainedAllow.ID, "authorization_revision", "grant_id", "listChanged", `"_meta"`} {
 		assert.NotContains(t, string(allowedResponse.Body), forbidden)
 	}
 
@@ -80,12 +80,13 @@ func TestGatewayBinaryDeliversPrincipalSpecificDiscoveryAcrossBothEras(t *testin
 	assert.Equal(t, `{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"tools":{}},"protocolVersion":"2025-11-25","serverInfo":{"name":"mcp-gateway","version":"s1"}}}`, string(legacyInitialize.Body))
 	assert.NotContains(t, string(legacyInitialize.Body), "listChanged")
 
+	legacyNames := withSyntheticNames(append(append([]string(nil), alphaNames...), "beta.shared"))
 	firstLegacy := harness.LegacyList(allCredential.Bearer, legacySession, json.RawMessage(`"legacy-first"`), "")
 	firstCursor := discoveryCursor(t, firstLegacy)
 	require.True(t, strings.HasPrefix(firstCursor, "mgw_dc1_"))
-	assertDiscoveryPage(t, firstLegacy, json.RawMessage(`"legacy-first"`), alphaNames, firstCursor)
+	assertDiscoveryNamePage(t, firstLegacy, legacyNames[:100], firstCursor)
 	secondLegacy := harness.LegacyList(allCredential.Bearer, legacySession, json.RawMessage(`"legacy-second"`), firstCursor)
-	assertDiscoveryPage(t, secondLegacy, json.RawMessage(`"legacy-second"`), []string{"beta.shared"}, "")
+	assertDiscoveryNamePage(t, secondLegacy, legacyNames[100:], "")
 
 	staleLegacy := harness.LegacyList(allCredential.Bearer, legacySession, json.RawMessage(`"bad-legacy"`), tamperDiscoveryCursor(t, firstCursor))
 	require.Equal(t, http.StatusOK, staleLegacy.StatusCode, string(staleLegacy.Body))

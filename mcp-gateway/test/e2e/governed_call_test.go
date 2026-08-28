@@ -31,7 +31,7 @@ func TestGatewayBinaryGovernsModernAndLegacyCallsBeforeHTTPDispatch(t *testing.T
 	harness.CreateGrant(grantSpec{PrincipalID: principal.Resource.ID, Effect: contract.GrantDeny, ServerID: catalog.ServerID, UpstreamName: pointerTo("denied")})
 
 	beforeDiscovery := harness.ModernList(issued.Bearer, json.RawMessage(`"before-calls"`), "")
-	assert.Equal(t, []string{"governed-http.allowed", "governed-http.blocked", "governed-http.denied"}, discoveryToolNames(t, beforeDiscovery))
+	assert.Equal(t, withSyntheticNames([]string{"governed-http.allowed", "governed-http.blocked", "governed-http.denied"}), discoveryToolNames(t, beforeDiscovery))
 	session, _ := harness.LegacyInitialize(issued.Bearer, json.RawMessage(`1`))
 	legacySuccess := harness.LegacyCall(issued.Bearer, session, json.RawMessage(`"legacy-allow"`), "governed-http.allowed", json.RawMessage(`{"value":"legacy"}`))
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"legacy-allow","result":{"content":[{"type":"text","text":"fixture success"}]}}`, string(legacySuccess.Body))
