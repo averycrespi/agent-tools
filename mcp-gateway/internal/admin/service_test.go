@@ -60,6 +60,27 @@ func TestInitializeAndResetPublishBeforeActivatingAuthority(t *testing.T) {
 	assert.NotContains(t, string(databaseBytes), resetSink.value)
 }
 
+func TestS6CLISensitiveSinks(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newStore(t)
+	service := NewService(store, testutil.NewFakeClock(testNow), testutil.NewFakeEntropy(append(
+		bytes.Repeat([]byte{0x61}, 42),
+		bytes.Repeat([]byte{0x62}, 42)...,
+	)))
+	knownSink := new(memorySink)
+	known, err := service.Initialize(ctx, knownSink)
+	require.NoError(t, err)
+
+	failedSink := newFileSecretSink("ignored", func(string) (secretFile, error) {
+		return nil, errors.New("sink unavailable")
+	})
+	_, err = service.Reset(ctx, failedSink)
+	assert.ErrorIs(t, err, ErrSecretPublication)
+	authenticated, err := service.Authenticate(ctx, knownSink.value)
+	require.NoError(t, err)
+	assert.Equal(t, known.ID, authenticated.ID, "offline authority must remain current until its one-time sink publishes")
+}
+
 func TestSinkFailureNeverActivatesUndisclosedAuthority(t *testing.T) {
 	failures := []struct {
 		name string

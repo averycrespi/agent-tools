@@ -41,7 +41,7 @@ Run `make audit` before committing, and use the unsuppressed `go tool govulnchec
 ```text
 cmd/mcp-gateway/        Cobra composition root only
 internal/composition/   Production runtime/catalog graph construction and cycle binding
-internal/controlclient/ Strict local-control transport, bearer, input, output, problem, and exit mechanics
+internal/controlclient/ Strict transport, bearer, CLI I/O, confirmation, sensitive sinks, problems, and exits
 internal/contract/      Immutable implemented S1–S6 routes, problems, limits, states, representations, and acceptance manifests
 internal/strictjson/    Bounded strict JSON, lexical value trees, compact encoding, and canonical equality
 internal/paths/         Owner-only paths and process ownership

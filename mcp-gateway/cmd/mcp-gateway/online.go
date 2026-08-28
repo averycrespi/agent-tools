@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"sort"
 	"strings"
 
@@ -123,6 +124,20 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The command flags are invalid."))
 	})
 	return command
+}
+
+func prepareOnlineSensitiveAction(options *onlineOptions, consequence string, prompt controlclient.ConfirmationPrompt, openTerminal func() (io.WriteCloser, error)) (*controlclient.PreparedSink, *controlclient.OnlineError) {
+	if options == nil {
+		return nil, controlclient.NewInputError("The command input is invalid.")
+	}
+	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: consequence, Prompt: prompt}); err != nil {
+		return nil, controlclient.ClassifyClientError(err)
+	}
+	sink, err := controlclient.PrepareSensitiveSink(controlclient.SinkOptions{Path: options.secretOutput, OpenTerminal: openTerminal})
+	if err != nil {
+		return nil, controlclient.ClassifyClientError(err)
+	}
+	return sink, nil
 }
 
 func writeOnlineFailure(command *cobra.Command, rawMode string, failure *controlclient.OnlineError) error {

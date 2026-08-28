@@ -305,7 +305,9 @@ func ClassifyClientError(err error) *OnlineError {
 		return &OnlineError{Code: "client_transport_failure", Title: "The Gateway could not be reached before request handoff.", Exit: 9}
 	case errors.Is(err, ErrRedirect), errors.Is(err, ErrResponseInvalid):
 		return responseInvalid()
-	case errors.Is(err, ErrInvalidInput), errors.Is(err, ErrInvalidAddress), errors.Is(err, ErrInvalidRequest), errors.Is(err, ErrInvalidBearer), errors.Is(err, ErrBearerSource):
+	case errors.Is(err, ErrSecretSinkUnavailable), errors.Is(err, ErrSecretLost):
+		return NewSecretSinkError("The one-time value could not be published.")
+	case errors.Is(err, ErrInvalidInput), errors.Is(err, ErrInvalidAddress), errors.Is(err, ErrInvalidRequest), errors.Is(err, ErrInvalidBearer), errors.Is(err, ErrBearerSource), errors.Is(err, ErrConfirmationRequired):
 		return &OnlineError{Code: "client_invalid_input", Title: "The command input is invalid.", Exit: 2}
 	default:
 		return responseInvalid()

@@ -44,7 +44,7 @@ func TestProductionSourceOwnershipGuards(t *testing.T) {
 			if strings.HasPrefix(imported, "github.com/modelcontextprotocol/go-sdk/") && !allowedSDK[source.path] {
 				t.Errorf("%s: prohibited SDK import %s", source.path, imported)
 			}
-			if strings.HasPrefix(source.path, "internal/controlclient/") && strings.Contains(imported, "/internal/") && imported != "github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson" {
+			if strings.HasPrefix(source.path, "internal/controlclient/") && strings.Contains(imported, "/internal/") && imported != "github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson" && imported != "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths" {
 				t.Errorf("%s: prohibited local-control import %s", source.path, imported)
 			}
 		}

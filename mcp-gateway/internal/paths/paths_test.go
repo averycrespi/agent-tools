@@ -72,6 +72,28 @@ func TestAcquireRejectsUnsafeRootsAndFiles(t *testing.T) {
 	})
 }
 
+func TestS6CLISensitiveSinks(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "prepared-secret")
+	file, err := CreateOwnerOnlyFile(path)
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
+	assertMode(t, path, 0o600)
+	require.NoError(t, ValidateOwnerOnlyFile(path))
+
+	_, err = CreateOwnerOnlyFile(path)
+	assert.Error(t, err, "an existing output must never be overwritten")
+	target := filepath.Join(root, "target")
+	require.NoError(t, os.WriteFile(target, nil, 0o600))
+	link := filepath.Join(root, "link")
+	require.NoError(t, os.Symlink(target, link))
+	_, err = CreateOwnerOnlyFile(link)
+	assert.Error(t, err)
+	info, statErr := os.Lstat(link)
+	require.NoError(t, statErr)
+	assert.True(t, info.Mode()&os.ModeSymlink != 0)
+}
+
 func TestAcquireIsExclusiveAcrossCanonicalAliases(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "gateway")
