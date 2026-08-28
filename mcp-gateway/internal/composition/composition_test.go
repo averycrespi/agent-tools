@@ -33,6 +33,49 @@ import (
 
 var compositionTime = time.Date(2026, 8, 25, 1, 0, 0, 0, time.UTC)
 
+func TestS6InvocationAPI(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+
+	built, err := New(options)
+	require.NoError(t, err)
+	defer built.shutdownConstructed()
+	controlAPI, ok := built.ControlAPI()
+	require.True(t, ok)
+	assert.Same(t, built.invocationRepository, controlAPI.Invocations)
+	page, err := controlAPI.Invocations.List(t.Context(), contract.InvocationListQuery{Limit: 1})
+	require.NoError(t, err)
+	assert.Empty(t, page.Items)
+
+	partial := &Composition{
+		authorization: built.authorization, selfProjections: built.selfProjections,
+		requests: built.requests, requestAdmin: built.requestAdmin, selfCursors: built.selfCursors, selfService: built.selfService,
+		discovery: built.discovery, listTools: built.listTools, invocationService: built.invocationService, callTools: built.callTools,
+	}
+	_, available := partial.ControlAPI()
+	assert.False(t, available, "the control bundle must not expose partial invocation authority")
+
+	root := gatewayModuleRoot(t)
+	reads := readProductionSource(t, root, "internal/invocation/reads.go")
+	upperReads := strings.ToUpper(reads)
+	for _, forbidden := range []string{" JOIN ", "INSERT ", "UPDATE ", "DELETE "} {
+		assert.NotContains(t, upperReads, forbidden, "internal/invocation/reads.go: read owner must not contain %s", forbidden)
+	}
+	assert.Equal(t, 3, strings.Count(reads, "FROM invocations"), "internal/invocation/reads.go: exact schema-9 read owner drifted")
+	assert.NotContains(t, strings.ToLower(reads), "replay")
+	apiSource := readProductionSource(t, root, "internal/api/invocations.go")
+	assert.Equal(t, 2, strings.Count(apiSource, "http.MethodGet"))
+	for _, forbidden := range []string{"http.MethodPost", "http.MethodPatch", "http.MethodDelete", "handler.emit(", "contract.Invalidation", "replay"} {
+		assert.NotContains(t, apiSource, forbidden, "internal/api/invocations.go: prohibited read surface %s", forbidden)
+	}
+	handlerSource := readProductionSource(t, root, "internal/api/handler.go")
+	assert.Equal(t, 1, strings.Count(handlerSource, `path == "/api/v1/invocations"`))
+	assert.Equal(t, 1, strings.Count(handlerSource, `strings.HasPrefix(path, "/api/v1/invocations/")`))
+	rootSource := readProductionSource(t, root, "cmd/mcp-gateway/root.go")
+	assert.Contains(t, rootSource, "Invocations:   controlAPI.Invocations")
+	assert.NotContains(t, rootSource, "/internal/invocation")
+}
+
 func TestS5CompositionBuildsOneAtomicProductionGraph(t *testing.T) {
 	assert.Nil(t, (*Composition)(nil).ListTools())
 	_, available := (*Composition)(nil).AgentIngress()

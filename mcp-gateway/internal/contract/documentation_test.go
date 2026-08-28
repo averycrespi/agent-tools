@@ -9,25 +9,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTrackedDocsDescribeCurrentS5Boundary(t *testing.T) {
+func TestTrackedDocsDescribeCurrentS6Boundary(t *testing.T) {
 	t.Parallel()
 
 	documents := map[string][]string{
 		"../../../README.md": {
-			"current S5 executable", "six fixed local self-service handlers", "only an explicit fresh call can use a resulting grant",
-			"Audit read APIs, product UI, exactly-once guarantees, and S6 workflows are not implemented",
+			"current executable", "six fixed local self-service handlers", "only an explicit fresh call can use a resulting grant",
+			"authenticated read-only list/item resources", "Product UI, exactly-once guarantees, and broader S6 workflows are not implemented",
 		},
 		"../../README.md": {
-			"Self-service grant requests", "mcp_gateway.create_grant_request", "There is no audit read API", "explicit fresh `tools/call`",
-			"schema-3-through-10", "grant_requests", "make accept-s5", "S6 behavior is unavailable",
+			"Self-service grant requests", "mcp_gateway.create_grant_request", "GET /api/v1/invocations", "explicit fresh `tools/call`",
+			"schema-3-through-10", "grant_requests", "make accept-s5", "broader S6 behavior is unavailable",
 		},
 		"../../DESIGN.md": {
-			"current S5 executable", "Closed S1–S5 contract", "Implemented S5 self-service contract", "sole online schema-10 DML owner",
+			"Authenticated read-only invocation list/item resources", "Closed S1–S5 contract", "Implemented S5 self-service contract", "sole online schema-10 DML owner",
 			"closed downstream/local target union", "make accept-s5", "no-check adopter",
 		},
 		"../../CLAUDE.md": {
-			"Immutable S1–S5 routes", "online S4 invocation SQL belongs to `internal/invocation`", "online schema-10 request identity",
-			"do not infer an audit read API", "exactly-once effects", "guaranteed secret detection", "make accept-s5",
+			"implemented S1–S6 routes", "online S4 invocation SQL belongs to `internal/invocation`", "online schema-10 request identity",
+			"read-only invocation list/item resources", "exactly-once effects", "guaranteed secret detection", "make accept-s5",
 		},
 	}
 	prohibited := []string{
@@ -51,6 +51,11 @@ func TestTrackedDocsDescribeCurrentS5Boundary(t *testing.T) {
 		"current executable remains at the S4 behavior boundary",
 		"S5 and S6 behavior is unavailable",
 		"S5/S6 workflows are not implemented",
+		"Audit read APIs, product UI",
+		"There is no audit read API",
+		"do not infer an audit read API",
+		"audit read workflows remain later slices",
+		"Audit reads, product UI",
 	}
 	for path, required := range documents {
 		contents, err := os.ReadFile(path)

@@ -59,6 +59,7 @@ type AgentIngressDependencies struct {
 
 type ControlAPIDependencies struct {
 	GrantRequests *grantrequests.AdminService
+	Invocations   *invocation.Repository
 }
 
 type Composition struct {
@@ -143,11 +144,11 @@ func (built *Composition) ControlAPI() (ControlAPIDependencies, bool) {
 	if built == nil || !built.s5Complete() {
 		return ControlAPIDependencies{}, false
 	}
-	return ControlAPIDependencies{GrantRequests: built.requestAdmin}, true
+	return ControlAPIDependencies{GrantRequests: built.requestAdmin, Invocations: built.invocationRepository}, true
 }
 func (built *Composition) s5Complete() bool {
 	return built.authorization != nil && built.selfProjections != nil && built.requests != nil && built.requestAdmin != nil && built.selfCursors != nil && built.selfService != nil &&
-		built.discovery != nil && built.listTools != nil && built.invocationService != nil && built.callTools != nil
+		built.discovery != nil && built.listTools != nil && built.invocationRepository != nil && built.invocationService != nil && built.callTools != nil
 }
 func (built *Composition) Traverser() *catalog.Traverser               { return built.traverser }
 func (built *Composition) Provider() *keyring.Provider                 { return built.provider }
