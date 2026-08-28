@@ -37,7 +37,8 @@ interface BridgeInput {
     | "read-generation"
     | "mutation-state"
     | "shell-primitives"
-    | "secret-sinks";
+    | "secret-sinks"
+    | "m3-canary";
   base_url: string;
   admin_bearer: string;
 }
@@ -93,7 +94,8 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "read-generation" &&
       value.scenario !== "mutation-state" &&
       value.scenario !== "shell-primitives" &&
-      value.scenario !== "secret-sinks") ||
+      value.scenario !== "secret-sinks" &&
+      value.scenario !== "m3-canary") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -312,6 +314,114 @@ async function runM1Canary(
   process.stdout.write(
     `${JSON.stringify({
       event: "m1_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+    })}\n`,
+  );
+}
+
+async function runM3Canary(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await waitForLifecycle(page, "signed_out");
+  assertClosedStorage(await browserStorage(page));
+  await page.locator('[data-testid="theme-preference"]').selectOption("light");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-freshness") === "current",
+  );
+
+  const fragmentCanary = `M3_FRAGMENT_${"F".repeat(40)}`;
+  await page.evaluate((value) => {
+    window.location.hash = `#/servers/${value}`;
+  }, fragmentCanary);
+  await page.waitForFunction(() => window.location.hash === "#/overview");
+  if (
+    (await page.locator("body").textContent())?.includes(fragmentCanary) ||
+    (await page.locator("dialog.sensitive-dialog[open]").count()) !== 0
+  ) {
+    fail("invalid location reached text or opened a sensitive sink");
+  }
+
+  const lateCanary = `M3_LATE_${"L".repeat(40)}`;
+  let releaseLogout: (() => void) | undefined;
+  const logoutBarrier = new Promise<void>((resolve) => {
+    releaseLogout = resolve;
+  });
+  let logoutIntercepted: (() => void) | undefined;
+  const intercepted = new Promise<void>((resolve) => {
+    logoutIntercepted = resolve;
+  });
+  let logoutSettled: (() => void) | undefined;
+  const settled = new Promise<void>((resolve) => {
+    logoutSettled = resolve;
+  });
+  await page.route(
+    "**/api/v1/admin-sessions/current",
+    async (route) => {
+      if (route.request().method() !== "DELETE") {
+        await route.continue();
+        return;
+      }
+      logoutIntercepted?.();
+      await logoutBarrier;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: {
+          "Set-Cookie":
+            "mcp_gateway_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict",
+        },
+        body: JSON.stringify({
+          status: 500,
+          code: "dependency_unavailable",
+          title: lateCanary,
+        }),
+      });
+      logoutSettled?.();
+    },
+    { times: 1 },
+  );
+  await page.locator('[data-testid="logout"]').click();
+  await page.locator('[data-testid="logout-confirmation-submit"]').click();
+  await intercepted;
+  await waitForLifecycle(page, "signed_out");
+  releaseLogout?.();
+  await settled;
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="session-message"]')
+        ?.textContent?.includes("logout was not confirmed") === true,
+  );
+  if (
+    (await page.locator("body").textContent())?.includes(lateCanary) ||
+    (await page.locator("dialog[open]").count()) !== 0
+  ) {
+    fail("late prior-epoch response rendered or retained transient UI");
+  }
+  await assertSecretAbsent(
+    page,
+    context,
+    baseURL,
+    [bearer, fragmentCanary, lateCanary],
+    false,
+    "light",
+  );
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "m3_complete",
       chromium_version: browserVersion,
       playwright_version: "1.62.1",
       requests: requestCount(),
@@ -2534,6 +2644,15 @@ try {
       );
     } else if (input.scenario === "secret-sinks") {
       await runSecretSinks(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "m3-canary") {
+      await runM3Canary(
         browser.version(),
         context,
         page,
