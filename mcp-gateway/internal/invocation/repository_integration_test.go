@@ -23,12 +23,10 @@ func TestRepositoryRetainsNewest4096ByMonotonicSequence(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-		for _, admission := range prepared {
-			if err := repository.InsertTx(context.Background(), transaction, admission); err != nil {
-				return err
-			}
+		if err := insertInvocationFixtures(context.Background(), transaction, prepared[:invocationLimit()]); err != nil {
+			return err
 		}
-		return nil
+		return repository.InsertTx(context.Background(), transaction, prepared[invocationLimit()])
 	}))
 	count, err := repository.Count(context.Background())
 	require.NoError(t, err)
@@ -56,12 +54,7 @@ func TestRepositoryRollsBackEvictionWhenInsertFails(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-		for _, admission := range prepared[:invocationLimit()] {
-			if err := repository.InsertTx(context.Background(), transaction, admission); err != nil {
-				return err
-			}
-		}
-		return nil
+		return insertInvocationFixtures(context.Background(), transaction, prepared[:invocationLimit()])
 	}))
 	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
 		_, err := transaction.ExecContext(context.Background(), `CREATE TRIGGER reject_test_invocation BEFORE INSERT ON invocations
@@ -75,6 +68,29 @@ func TestRepositoryRollsBackEvictionWhenInsertFails(t *testing.T) {
 	_, found, err := repository.Read(context.Background(), prepared[0].InvocationID)
 	require.NoError(t, err)
 	assert.True(t, found, "the eviction must roll back with the failed insertion")
+}
+
+func insertInvocationFixtures(ctx context.Context, transaction *sql.Tx, prepared []PreparedAdmission) error {
+	statement, err := transaction.PrepareContext(ctx, `INSERT INTO invocations (
+		id, principal_id, credential_id, credential_fingerprint, credential_revision,
+		admitted_at, admission_class, requested_name, redacted_arguments,
+		server_id, tool_id, upstream_name, descriptor_revision, descriptor_fingerprint,
+		decision, authorization_revision, evaluated_at, grant_id
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+	for _, admission := range prepared {
+		values, valuesErr := admissionSQLValues(admission)
+		if valuesErr != nil {
+			return valuesErr
+		}
+		if _, execErr := statement.ExecContext(ctx, values...); execErr != nil {
+			return execErr
+		}
+	}
+	return nil
 }
 
 func uniqueInvocationEntropy(count int) io.Reader {
