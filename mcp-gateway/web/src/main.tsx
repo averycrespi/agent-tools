@@ -440,6 +440,7 @@ function App() {
               view={view}
               destination={destination}
               mutations={mutationCoordinator}
+              sinks={sensitiveSinkCoordinator}
               onRefresh={() => viewCoordinator.manualRefresh()}
             />
           ) : (

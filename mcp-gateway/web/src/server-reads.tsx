@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { MutationCoordinator } from "./mutation";
 import { InertJSON, StateNotice, StatusLabel } from "./primitives";
+import { ServerCredentials } from "./server-credentials";
 import { ServerEditor } from "./server-editor";
 import {
   decodeOperation,
@@ -11,6 +12,7 @@ import {
 } from "./server-operation-model";
 import { ServerOperations } from "./server-operations";
 import type { SessionClient } from "./session";
+import type { SensitiveSinkCoordinator } from "./sinks";
 import type {
   PanelSnapshot,
   ViewCoordinator,
@@ -629,7 +631,7 @@ export class ServerReadsController {
         key === "#/servers" ||
         key === "#/catalog" ||
         /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key) ||
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=(?:descriptors|operations)$/.test(
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=(?:credentials|descriptors|operations)$/.test(
           key,
         ) ||
         /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/(?:descriptors|operations)\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
@@ -731,9 +733,10 @@ export class ServerReadsController {
         descriptor: decodeDescriptor(await json(response)),
       };
     }
-    const serverItem = /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})$/.exec(
-      context.viewKey,
-    );
+    const serverItem =
+      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})(?:\?tab=credentials)?$/.exec(
+        context.viewKey,
+      );
     if (serverItem !== null) {
       const response = await get(context, `/api/v1/servers/${serverItem[1]!}`);
       const server = decodeServer(await json(response));
@@ -814,6 +817,7 @@ export class ServerReadsController {
         ...this.value,
         server: result.server,
         serverETag: result.etag,
+        readVersion: this.value.readVersion + 1,
         restarted: false,
       };
     else if (result.kind === "operation")
@@ -1068,17 +1072,23 @@ export function ServerReads({
   view,
   destination,
   mutations,
+  sinks,
   onRefresh,
 }: {
   controller: ServerReadsController;
   view: ViewSnapshot;
   destination: "servers" | "catalog";
   mutations: MutationCoordinator;
+  sinks: SensitiveSinkCoordinator;
   onRefresh: () => void;
 }) {
   const [snapshot, setSnapshot] = useState(controller.snapshot());
   useEffect(() => controller.subscribe(setSnapshot), [controller]);
   const panel = view.panels["server-reads"];
+  const credentialsTab =
+    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=credentials$/.exec(
+      view.viewKey,
+    );
   const operationItem =
     /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/operations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.exec(
       view.viewKey,
@@ -1209,6 +1219,26 @@ export function ServerReads({
             )}
           </ReadPanel>
         </section>
+      </div>
+    );
+  if (credentialsTab !== null)
+    return (
+      <div class="domain-view" data-testid="server-credentials-view">
+        <ServerTabs serverID={credentialsTab[1]!} current="credentials" />
+        <DataHeader view={view} onRefresh={onRefresh} />
+        <ReadPanel panel={panel}>
+          {snapshot.server !== undefined &&
+            snapshot.serverETag !== undefined && (
+              <ServerCredentials
+                mutations={mutations}
+                sinks={sinks}
+                server={snapshot.server}
+                etag={snapshot.serverETag}
+                readVersion={snapshot.readVersion}
+                onRefresh={onRefresh}
+              />
+            )}
+        </ReadPanel>
       </div>
     );
   if (operationItem !== null || operationList !== null) {

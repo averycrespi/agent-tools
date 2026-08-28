@@ -45,7 +45,8 @@ interface BridgeInput {
     | "system-status"
     | "server-catalog-reads"
     | "server-create-update"
-    | "server-operations";
+    | "server-operations"
+    | "server-credentials";
   base_url: string;
   admin_bearer: string;
 }
@@ -109,7 +110,8 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "system-status" &&
       value.scenario !== "server-catalog-reads" &&
       value.scenario !== "server-create-update" &&
-      value.scenario !== "server-operations") ||
+      value.scenario !== "server-operations" &&
+      value.scenario !== "server-credentials") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -3535,6 +3537,375 @@ async function runServerOperations(
   );
 }
 
+async function runServerCredentials(
+  browserVersion: string,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const serverID = serverReadIDs.active;
+  const operationID = "01ARZ3NDEKTSV4RRFFQ69G5FF0";
+  const firstCanary = "credential-canary-first-7Yp3";
+  const secondCanary = "credential-canary-second-8Zq4";
+  const thirdCanary = "credential-canary-third-9Ar5";
+  let currentServer = {
+    ...serverReadFixture(serverID, {
+      name: "Credential server",
+      desired: "enabled",
+      runtime: "active",
+      credential: "ready",
+      durable: "current",
+      active: "current",
+    }),
+    desired_revision: "1",
+    credential_revisions: {
+      static_credential: "1",
+      oauth_client: "4",
+      oauth_tokens: "5",
+    },
+  };
+  const stdioTransport = currentServer.transport;
+  const bearerTransport = {
+    kind: "streamable_http",
+    url: "https://mcp.example.test/",
+    protocol_mode: "modern",
+    authentication: { mode: "bearer" },
+  };
+  const oauthStaticTransport = {
+    kind: "streamable_http",
+    url: "https://mcp.example.test/",
+    protocol_mode: "modern",
+    authentication: {
+      mode: "oauth",
+      registration: {
+        mode: "static",
+        issuer: "https://issuer.example.test",
+        client_id: "safe-client",
+        token_endpoint_auth_method: "client_secret_basic",
+      },
+      trusted_origins: ["https://issuer.example.test"],
+      request_offline_access: false,
+    },
+  };
+  const oauthDynamicTransport = {
+    ...oauthStaticTransport,
+    authentication: {
+      ...oauthStaticTransport.authentication,
+      registration: {
+        mode: "dynamic",
+        issuer: "https://issuer.example.test",
+      },
+    },
+  };
+  let serverReads = 0;
+  let replacements = 0;
+  let readsBeforeRecovery = 0;
+  const replacementOperation = () => ({
+    id: operationID,
+    server_id: serverID,
+    kind: "credential_replace",
+    target_desired_revision: currentServer.desired_revision,
+    target_credential_revisions: currentServer.credential_revisions,
+    state: "scheduled",
+    reason: null,
+    created_at: "2026-08-28T15:00:00Z",
+    started_at: null,
+    finished_at: null,
+  });
+  await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+    serverReads += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { ETag: `"server-${serverID}-1"` },
+      body: JSON.stringify(currentServer),
+    });
+  });
+  await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/credential-replacements`,
+    async (route) => {
+      replacements += 1;
+      const headers = await route.request().allHeaders();
+      if (headers["if-match"] !== `"server-${serverID}-1"`)
+        fail("credential replacement omitted current server ETag");
+      if (headers["idempotency-key"] !== undefined)
+        fail("credential replacement gained idempotency/replay authority");
+      const body = JSON.parse(route.request().postData() ?? "null") as {
+        kind?: string;
+        expected_revision?: string;
+        values?: Record<string, string>;
+      };
+      const expectedRevision =
+        replacements === 1 ? "1" : replacements === 2 ? "2" : "3";
+      const expectedCanary =
+        replacements === 1
+          ? firstCanary
+          : replacements === 2
+            ? secondCanary
+            : thirdCanary;
+      if (
+        body.kind !== "static_credential" ||
+        body.expected_revision !== expectedRevision ||
+        Object.keys(body.values ?? {}).join(",") !== "primary" ||
+        body.values?.primary !== expectedCanary
+      )
+        fail("credential replacement body changed closed write-only shape");
+      if (replacements === 1) {
+        currentServer = {
+          ...currentServer,
+          credential_revisions: {
+            ...currentServer.credential_revisions,
+            static_credential: "2",
+          },
+        };
+        await route.fulfill({
+          status: 412,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 412,
+            code: "stale_revision",
+            title: "Stale credential revision",
+          }),
+        });
+        return;
+      }
+      if (replacements === 2) {
+        currentServer = {
+          ...currentServer,
+          credential_revisions: {
+            ...currentServer.credential_revisions,
+            static_credential: "3",
+          },
+        };
+        readsBeforeRecovery = serverReads;
+        await route.fulfill({
+          status: 503,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 503,
+            code: "keyring_unavailable",
+            title: "Keyring outcome unavailable",
+          }),
+        });
+        return;
+      }
+      currentServer = {
+        ...currentServer,
+        credential_revisions: {
+          ...currentServer.credential_revisions,
+          static_credential: "4",
+        },
+      };
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({
+          server_id: serverID,
+          kind: "static_credential",
+          credential_revision: "4",
+          operation: replacementOperation(),
+        }),
+      });
+    },
+  );
+  await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/operations/${operationID}`,
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(replacementOperation()),
+      }),
+  );
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}?tab=credentials`;
+  }, serverID);
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.locator('[data-testid="server-credentials"]').waitFor();
+  const assertEligible = async (fieldID: string) => {
+    await page.locator(`#${fieldID}`).waitFor();
+    const field = page.locator(`#${fieldID}`);
+    if (
+      (await field.getAttribute("type")) !== "password" ||
+      (await field.getAttribute("name")) !== null ||
+      (await field.getAttribute("value")) !== null ||
+      (await field.inputValue()) !== ""
+    )
+      fail(`credential field ${fieldID} was not blank and write-only`);
+  };
+  await assertEligible("credential-slot-primary");
+  let eligibilityModes = 1;
+
+  currentServer = {
+    ...currentServer,
+    transport: bearerTransport as unknown as typeof currentServer.transport,
+  };
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await assertEligible("credential-slot-bearer");
+  eligibilityModes += 1;
+  currentServer = {
+    ...currentServer,
+    transport:
+      oauthStaticTransport as unknown as typeof currentServer.transport,
+  };
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await assertEligible("credential-slot-client_secret");
+  eligibilityModes += 1;
+  currentServer = {
+    ...currentServer,
+    transport: {
+      ...bearerTransport,
+      authentication: { mode: "none" },
+    } as unknown as typeof currentServer.transport,
+  };
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page
+    .getByText(
+      "Credential replacement is not eligible for this configured transport",
+    )
+    .waitFor();
+  eligibilityModes += 1;
+  currentServer = {
+    ...currentServer,
+    transport:
+      oauthDynamicTransport as unknown as typeof currentServer.transport,
+  };
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page
+    .getByText(
+      "Credential replacement is not eligible for this configured transport",
+    )
+    .waitFor();
+  eligibilityModes += 1;
+
+  currentServer = { ...currentServer, transport: stdioTransport };
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await assertEligible("credential-slot-primary");
+  const warning =
+    (await page.locator('[data-testid="server-credentials"]').textContent()) ??
+    "";
+  if (
+    !warning.includes("may require operating-system interaction") ||
+    !warning.includes("cannot promise unattended or noninteractive")
+  )
+    fail("credential form omitted keyring interaction warning");
+
+  const field = page.locator("#credential-slot-primary");
+  const confirmReplacement = async (stage: string) => {
+    const button = page.locator(
+      'dialog[open] [data-testid="credential-replacement-confirm-submit"]',
+    );
+    await button
+      .waitFor({ state: "visible", timeout: 2000 })
+      .catch(async () =>
+        fail(
+          `${stage} credential confirmation did not open: ${((await page.locator('[data-testid="server-credentials"]').textContent()) ?? "").slice(-240)}`,
+        ),
+      );
+    await button.click();
+  };
+  await field.fill(firstCanary);
+  await page.locator('[data-testid="credential-replacement-submit"]').click();
+  const consequence =
+    (await page
+      .locator("#credential-replacement-confirm-consequence")
+      .textContent()) ?? "";
+  if (
+    !consequence.includes("withdraws current routing") ||
+    !consequence.includes("unknown outcomes")
+  )
+    fail("credential confirmation omitted interruption consequence");
+  await page
+    .locator('[data-testid="credential-replacement-confirm-cancel"]')
+    .click();
+  await page
+    .locator('dialog [data-testid="credential-replacement-confirm-submit"]')
+    .waitFor({ state: "hidden" });
+  if (replacements !== 0 || (await field.inputValue()) !== "")
+    fail("credential confirmation cancel submitted or retained a secret");
+
+  await field.fill(firstCanary);
+  await page.locator('[data-testid="credential-replacement-submit"]').click();
+  if ((await field.inputValue()) !== firstCanary)
+    fail("credential field changed before confirmation handoff");
+  await confirmReplacement("stale");
+  await page.getByText("Stale credential revision").waitFor();
+  if ((await field.inputValue()) !== "")
+    fail("stale credential submission retained a secret");
+  await page.waitForFunction(
+    () =>
+      !document.querySelector<HTMLButtonElement>(
+        '[data-testid="credential-replacement-submit"]',
+      )?.disabled,
+  );
+
+  await field.fill(secondCanary);
+  await page.locator('[data-testid="credential-replacement-submit"]').click();
+  await confirmReplacement("uncertain");
+  await page.getByText("Replacement outcome unknown").waitFor();
+  if ((await field.inputValue()) !== "")
+    fail("uncertain credential submission retained a secret");
+  await page.waitForTimeout(350);
+  if (Number(replacements) !== 2)
+    fail("uncertain credential replacement replayed automatically");
+  if (
+    (await page
+      .locator('[data-testid="credential-replacement-replay"]')
+      .count()) !== 0
+  )
+    fail("credential replacement exposed replay control");
+  if (serverReads <= readsBeforeRecovery)
+    fail("uncertain credential replacement did not refresh server evidence");
+
+  await page.waitForFunction(
+    () =>
+      !document.querySelector<HTMLButtonElement>(
+        '[data-testid="credential-replacement-submit"]',
+      )?.disabled,
+  );
+  await field.fill(thirdCanary);
+  await page.locator('[data-testid="credential-replacement-submit"]').click();
+  await confirmReplacement("success");
+  await page.locator('[data-testid="operation-detail"]').waitFor();
+  const exposed = `${firstCanary}|${secondCanary}|${thirdCanary}`;
+  if (
+    ((await page.locator("body").textContent()) ?? "").includes(
+      "credential-canary-",
+    ) ||
+    page.url().includes("credential-canary-") ||
+    (await page
+      .locator("input")
+      .evaluateAll((nodes) =>
+        nodes.some((node) =>
+          (node as HTMLInputElement).value.includes("credential-canary-"),
+        ),
+      ))
+  )
+    fail(`credential canary reached browser presentation: ${exposed.length}`);
+  assertClosedStorage(await browserStorage(page));
+
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "server_credentials_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+      replacements,
+      recovery_reads: serverReads - readsBeforeRecovery,
+      eligibility_modes: eligibilityModes,
+    })}\n`,
+  );
+}
+
 async function runServerCatalogReads(
   browserVersion: string,
   context: BrowserContext,
@@ -4958,6 +5329,16 @@ try {
                 `Failed to load resource: the server responded with a status of ${status}`,
               ),
           )
+        ) &&
+        !(
+          input.scenario === "server-credentials" &&
+          [412, 503].some((status) =>
+            message
+              .text()
+              .startsWith(
+                `Failed to load resource: the server responded with a status of ${status}`,
+              ),
+          )
         )
       ) {
         consoleFailures.push(message.text());
@@ -5070,6 +5451,14 @@ try {
       await runSystemStatus(
         browser.version(),
         context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "server-credentials") {
+      await runServerCredentials(
+        browser.version(),
         page,
         baseURL,
         initialBearer,

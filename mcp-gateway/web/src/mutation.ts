@@ -28,6 +28,7 @@ export interface MutationSpec<T> {
   requiresPrecondition: boolean;
   idempotency: IdempotencyRoute;
   successStatuses: readonly number[];
+  uncertainProblemCodes?: readonly string[];
   decode: (response: Response) => Promise<T>;
 }
 
@@ -85,6 +86,9 @@ const preconditionRoutes = [
 ];
 const strongETag = /^"[\x21\x23-\x7e]{1,255}"$/;
 const mutationRoute = /^\/api\/v1\/[A-Za-z0-9_/-]{1,512}$/;
+const credentialReplacementRoute = new RegExp(
+  `^/api/v1/servers/${gatewayID}/credential-replacements$`,
+);
 const maximumBodyBytes = 1024 * 1024;
 
 function randomKey(): string {
@@ -130,7 +134,11 @@ function validateSpec<T>(spec: MutationSpec<T>): void {
     (spec.idempotency === "operation_start" && spec.precondition === null) ||
     ((spec.idempotency === "backup_create" ||
       spec.idempotency === "server_create") &&
-      spec.precondition !== null)
+      spec.precondition !== null) ||
+    ((spec.uncertainProblemCodes?.length ?? 0) !== 0 &&
+      (!credentialReplacementRoute.test(spec.route) ||
+        spec.uncertainProblemCodes?.length !== 1 ||
+        spec.uncertainProblemCodes[0] !== "keyring_unavailable"))
   ) {
     throw new Error("invalid mutation specification");
   }
@@ -144,6 +152,7 @@ function fingerprint<T>(spec: MutationSpec<T>): string {
     spec.precondition,
     spec.idempotency,
     [...spec.successStatuses],
+    [...(spec.uncertainProblemCodes ?? [])],
   ]);
 }
 
@@ -300,6 +309,12 @@ export class MutationCoordinator {
         storageLatched: false,
       };
     }
+    if (spec.uncertainProblemCodes?.includes(problem.code) === true) {
+      return {
+        outcome: { kind: "uncertain", canReplay: key !== undefined },
+        storageLatched: false,
+      };
+    }
     if (problem.code === "storage_unavailable") {
       return {
         outcome: { kind: "uncertain", canReplay: key !== undefined },
@@ -359,6 +374,9 @@ export class MutationController<T> {
     const owned: MutationSpec<T> = {
       ...spec,
       successStatuses: [...spec.successStatuses],
+      ...(spec.uncertainProblemCodes === undefined
+        ? {}
+        : { uncertainProblemCodes: [...spec.uncertainProblemCodes] }),
     };
     validateSpec(owned);
     this.version += 1;
@@ -461,16 +479,21 @@ export class MutationController<T> {
         const outcome = result.outcome;
         if (outcome.kind === "acknowledged") {
           this.state = "acknowledged";
+          this.spec = undefined;
           this.recovery = undefined;
         } else if (outcome.kind === "rejected") {
           this.state = "rejected";
+          this.spec = undefined;
           this.problem = outcome.problem;
           this.requiresRefresh = outcome.requiresRefresh;
           this.recovery = undefined;
           if (outcome.requiresRefresh) this.coordinator.refresh();
         } else if (outcome.kind === "uncertain") {
           this.state = "uncertain";
-          if (!outcome.canReplay) this.recovery = undefined;
+          if (!outcome.canReplay) {
+            this.spec = undefined;
+            this.recovery = undefined;
+          }
         } else {
           this.state = "editing";
           this.recovery = undefined;
