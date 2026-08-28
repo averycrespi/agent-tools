@@ -456,7 +456,8 @@ h2 {
   word-break: break-word;
 }
 
-.confirmation-dialog {
+.confirmation-dialog,
+.sensitive-dialog {
   width: min(560px, calc(100% - 32px));
   max-height: calc(100vh - 32px);
   padding: 24px;
@@ -467,11 +468,43 @@ h2 {
   color: var(--text);
   box-shadow: 10px 10px 0 var(--shadow);
 }
-.confirmation-dialog::backdrop {
+.confirmation-dialog::backdrop,
+.sensitive-dialog::backdrop {
   background: color-mix(in srgb, var(--canvas) 78%, transparent);
 }
-.confirmation-dialog h2 {
+.confirmation-dialog h2,
+.sensitive-dialog h2 {
   margin-bottom: 18px;
+}
+.sensitive-warning {
+  margin: 0 0 22px;
+  padding-left: 12px;
+  border-left: 3px solid var(--warning);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.one-time-value,
+.one-time-url {
+  max-width: 100%;
+  margin-top: 18px;
+  padding: 14px;
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  background: var(--canvas);
+  color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.one-time-value {
+  user-select: text;
+}
+.sink-status {
+  min-height: 2.8em;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
 }
 .dialog-consequence {
   color: var(--muted);

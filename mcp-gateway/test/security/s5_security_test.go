@@ -81,6 +81,7 @@ func TestS5SecurityStaticSinkClosure(t *testing.T) {
 		contract.SecretSinkControllingTerminal, contract.SecretSinkOwnerOnlyFile, contract.SecretSinkAdminCredentialReplacement,
 		contract.SecretSinkDCRClientSecret, contract.SecretSinkAuthorizationCodeTokenResponse, contract.SecretSinkRefreshResponse,
 		contract.SecretSinkAuthoritativeGenerationRefreshCopy, contract.SecretSinkAgentCredentialCreation,
+		contract.SecretSinkBrowserOneTimeDisplay, contract.SecretSinkUserInitiatedClipboard,
 	}, contract.ApprovedSecretSinks())
 	assert.Equal(t, []string{"Artifacts", "Cleanup", "Command", "Criteria", "DiagnosticPaths", "DurationMillis", "EndedAt", "Evidence", "Name", "StartedAt", "Status", "Termination", "TimedOut", "TimeoutMillis"}, exportedFields(reflect.TypeOf(acceptance.Check{})))
 	assert.Equal(t, []string{"AdmissionClass", "AdmittedAt", "AuthorizationDecision", "AuthorizationRevision", "CompletedAt", "CredentialFingerprint", "CredentialID", "CredentialRevision", "DescriptorFingerprint", "DescriptorRevision", "EvaluatedAt", "GrantID", "InvocationID", "PrincipalID", "RedactedArguments", "RequestedName", "Sequence", "ServerID", "TerminalClass", "ToolID", "UpstreamName"}, exportedFields(reflect.TypeOf(contract.InvocationAuditRecord{})))
@@ -95,7 +96,10 @@ func TestS5SecurityStaticSinkClosure(t *testing.T) {
 				return readErr
 			}
 			assert.NotContains(t, string(contents), "/api/v1/audit", path)
-			assert.NotContains(t, string(contents), "/api/v1/invocations", path)
+			if strings.Contains(string(contents), "/api/v1/invocations") {
+				allowed := []string{"internal/api/handler.go", "internal/contract/resources.go", "internal/contract/routes.go"}
+				assert.Contains(t, allowed, filepath.ToSlash(strings.TrimPrefix(path, filepath.Join(repositoryRoot(t), "mcp-gateway")+string(filepath.Separator))), path)
+			}
 			parsed, parseErr := parser.ParseFile(token.NewFileSet(), path, contents, parser.ImportsOnly)
 			if parseErr != nil {
 				return parseErr

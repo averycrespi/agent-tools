@@ -9,6 +9,13 @@ import {
 import { createInterface } from "node:readline";
 import { MutationCoordinator, type MutationSpec } from "../src/mutation.ts";
 import {
+  copyToClipboard,
+  openOAuthWindow,
+  SensitiveSinkCoordinator,
+  type OAuthPresenter,
+  type OneTimePresenter,
+} from "../src/sinks.ts";
+import {
   parseProblem,
   parseSessionBootstrap,
   SessionClient,
@@ -29,7 +36,8 @@ interface BridgeInput {
     | "authentication-epoch"
     | "read-generation"
     | "mutation-state"
-    | "shell-primitives";
+    | "shell-primitives"
+    | "secret-sinks";
   base_url: string;
   admin_bearer: string;
 }
@@ -84,7 +92,8 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "authentication-epoch" &&
       value.scenario !== "read-generation" &&
       value.scenario !== "mutation-state" &&
-      value.scenario !== "shell-primitives") ||
+      value.scenario !== "shell-primitives" &&
+      value.scenario !== "secret-sinks") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -1902,6 +1911,291 @@ async function assertMutationFoundation(): Promise<void> {
   coordinator.close();
 }
 
+async function assertSensitiveSinkFoundation(): Promise<void> {
+  const fakeSessionRequest: typeof fetch = async (input) => {
+    if (String(input) === "/api/v1/admin-sessions/current") {
+      return problemResponse(401, "authentication_required");
+    }
+    return new Response(JSON.stringify(sessionFixture()), {
+      status: 201,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  const session = new SessionClient(fakeSessionRequest);
+  session.start();
+  await eventually(
+    () => session.snapshot().lifecycle === "signed_out",
+    "sink session did not settle signed out",
+  );
+  if (!(await session.exchange("mgw_admin_sink-foundation-canary")))
+    fail("sink session exchange failed");
+
+  const copiedValues: string[] = [];
+  if (
+    (await copyToClipboard("copy-canary", async (value) => {
+      copiedValues.push(value);
+    })) !== "copied" ||
+    copiedValues.join("") !== "copy-canary" ||
+    (await copyToClipboard("failure-canary", async () => {
+      throw new Error("clipboard denied");
+    })) !== "failed"
+  ) {
+    fail("clipboard success and failure were not classified safely");
+  }
+  const popup = { opener: "retained" } as unknown as WindowProxy;
+  const openArguments: string[] = [];
+  if (
+    openOAuthWindow(
+      "https://auth.example/authorize",
+      (target, name, features) => {
+        openArguments.push(target, name, features);
+        return popup;
+      },
+    ) !== "opened" ||
+    openArguments.join("|") !==
+      "https://auth.example/authorize|_blank|noopener,noreferrer" ||
+    popup.opener !== null ||
+    openOAuthWindow("https://auth.example/authorize", () => null) !== "blocked"
+  ) {
+    fail("OAuth opener did not enforce its closed user-gesture mechanics");
+  }
+
+  const coordinator = new SensitiveSinkCoordinator(session);
+  if (coordinator.prepareOneTime("Unavailable display") !== undefined)
+    fail("secret-bearing mutation admitted without a prepared presenter");
+
+  let displayedSecret = "";
+  let oneTimeGeneration = 0;
+  let oneTimeLost = false;
+  let oneTimeClears = 0;
+  const oneTimePresenter: OneTimePresenter = {
+    prepare: (_label, generation) => {
+      oneTimeGeneration = generation;
+      oneTimeLost = false;
+      return true;
+    },
+    publish: (value, generation) => {
+      if (generation !== oneTimeGeneration) return false;
+      displayedSecret = value;
+      return true;
+    },
+    lose: (generation) => {
+      if (generation !== oneTimeGeneration) return;
+      displayedSecret = "";
+      oneTimeLost = true;
+    },
+    clear: () => {
+      displayedSecret = "";
+      oneTimeLost = false;
+      oneTimeClears += 1;
+    },
+  };
+  coordinator.registerOneTimePresenter(oneTimePresenter);
+  const bearerCanary = `mgw_admin_${"B".repeat(43)}`;
+  const prepared = coordinator.prepareOneTime("New administrator bearer");
+  if (prepared === undefined || displayedSecret !== "")
+    fail("one-time display was not pre-created while blank");
+  if (
+    prepared.publish(bearerCanary) !== "published" ||
+    displayedSecret !== bearerCanary
+  )
+    fail("prepared one-time display did not receive the exact bearer");
+  coordinator.dismiss(oneTimeGeneration);
+  if (displayedSecret !== "" || oneTimeClears === 0)
+    fail("one-time dismissal retained its string");
+
+  const uncertain = coordinator.prepareOneTime("Uncertain bearer response");
+  if (uncertain === undefined) fail("uncertain sink setup failed");
+  uncertain.lose();
+  if (!oneTimeLost || displayedSecret !== "")
+    fail("lost one-time response retained or echoed a value");
+  coordinator.dismiss(oneTimeGeneration);
+
+  const navigated = coordinator.prepareOneTime("Navigation fence");
+  if (navigated === undefined) fail("navigation sink setup failed");
+  coordinator.clearForNavigation();
+  if (navigated.publish(bearerCanary) !== "lost" || displayedSecret !== "")
+    fail("navigation accepted a late one-time value");
+
+  const writeOnly = coordinator.createWriteOnly();
+  const input = { value: "" } as HTMLInputElement;
+  writeOnly.attach(input);
+  input.value = "write-only-canary";
+  if (writeOnly.read() !== "write-only-canary")
+    fail("write-only field did not expose its live submission value");
+  coordinator.clearForNavigation();
+  if (input.value !== "") fail("navigation retained a write-only value");
+
+  let oauthURL = "";
+  const currentOAuthURL = () => oauthURL;
+  let oauthGeneration = 0;
+  let oauthLost = false;
+  const oauthPresenter: OAuthPresenter = {
+    prepare: (_label, generation) => {
+      oauthGeneration = generation;
+      oauthLost = false;
+      return true;
+    },
+    publish: (value, generation) => {
+      if (generation !== oauthGeneration) return false;
+      oauthURL = value;
+      return true;
+    },
+    lose: (generation) => {
+      if (generation !== oauthGeneration) return;
+      oauthURL = "";
+      oauthLost = true;
+    },
+    clear: () => {
+      oauthURL = "";
+      oauthLost = false;
+    },
+  };
+  coordinator.registerOAuthPresenter(oauthPresenter);
+  const oauth = coordinator.prepareOAuth("Authorize local server");
+  const validURL =
+    "https://auth.example/authorize?client_id=public&state=opaque";
+  if (
+    oauth === undefined ||
+    oauth.publish(validURL) !== "published" ||
+    oauthURL !== validURL
+  )
+    fail("prepared OAuth display rejected a canonical URL");
+  coordinator.dismiss(oauthGeneration);
+  const invalidOAuth = coordinator.prepareOAuth("Reject active URL");
+  if (
+    invalidOAuth === undefined ||
+    invalidOAuth.publish("javascript:alert(1)") !== "lost" ||
+    !oauthLost ||
+    currentOAuthURL() !== ""
+  ) {
+    fail("OAuth sink accepted an active or invalid URL");
+  }
+  coordinator.dismiss(oauthGeneration);
+
+  const epoch = coordinator.prepareOneTime("Epoch fence");
+  if (epoch === undefined) fail("epoch sink setup failed");
+  await session.recoverAfterSessionLoss();
+  if (
+    epoch.publish(bearerCanary) !== "lost" ||
+    displayedSecret !== "" ||
+    input.value !== ""
+  )
+    fail("authentication epoch loss retained sensitive sink state");
+  writeOnly.close();
+  coordinator.close();
+}
+
+async function runSecretSinks(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await assertSensitiveSinkFoundation();
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  if ((await page.locator("dialog.sensitive-dialog[open]").count()) !== 0)
+    fail("sensitive sink opened without preparation");
+
+  const origin = new URL(baseURL).origin;
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin,
+  });
+  const clipboardCanary = `mgw_agent_${"C".repeat(43)}`;
+  await page.evaluate((value) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.testid = "clipboard-gesture";
+    button.textContent = "Copy test value";
+    button.addEventListener("click", () => {
+      void navigator.clipboard.writeText(value).then(() => {
+        button.dataset.complete = "true";
+      });
+    });
+    document.body.append(button);
+  }, clipboardCanary);
+  await page.locator('[data-testid="clipboard-gesture"]').click();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="clipboard-gesture"]')
+        ?.getAttribute("data-complete") === "true",
+  );
+  if (
+    (await page.evaluate(() => navigator.clipboard.readText())) !==
+    clipboardCanary
+  )
+    fail("explicit user clipboard publication failed");
+  await page.evaluate(async () => {
+    await navigator.clipboard.writeText(
+      "clipboard overwritten after sink test",
+    );
+    document.querySelector('[data-testid="clipboard-gesture"]')?.remove();
+  });
+  if (
+    (await page.evaluate(() => navigator.clipboard.readText())) !==
+    "clipboard overwritten after sink test"
+  ) {
+    fail("clipboard test canary remained after explicit overwrite");
+  }
+
+  const oauthCanary = `oauth_sink_${"D".repeat(32)}`;
+  await page.route("**/__oauth_sink_target**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: "<!doctype html><title>Authorization target</title>",
+      headers: { "Referrer-Policy": "no-referrer" },
+    });
+  });
+  await page.evaluate((target) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.testid = "oauth-gesture";
+    button.textContent = "Open test authorization";
+    button.addEventListener("click", () => {
+      const opened = window.open(target, "_blank", "noopener,noreferrer");
+      if (opened !== null) opened.opener = null;
+    });
+    document.body.append(button);
+  }, `${origin}/__oauth_sink_target?state=${oauthCanary}`);
+  const popupPromise = context.waitForEvent("page");
+  await page.locator('[data-testid="oauth-gesture"]').click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState("domcontentloaded");
+  if (
+    (await popup.evaluate(() => window.opener)) !== null ||
+    (await popup.evaluate(() => document.referrer)) !== ""
+  ) {
+    fail("OAuth user gesture retained opener or referrer authority");
+  }
+  await popup.close();
+  await page
+    .locator('[data-testid="oauth-gesture"]')
+    .evaluate((element) => element.remove());
+  await context.clearPermissions();
+  await assertSecretAbsent(
+    page,
+    context,
+    baseURL,
+    [bearer, clipboardCanary, oauthCanary],
+    true,
+  );
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "secret_sinks_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+    })}\n`,
+  );
+}
+
 async function runShellPrimitives(
   browserVersion: string,
   context: BrowserContext,
@@ -2231,6 +2525,15 @@ try {
       );
     } else if (input.scenario === "shell-primitives") {
       await runShellPrimitives(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "secret-sinks") {
+      await runSecretSinks(
         browser.version(),
         context,
         page,

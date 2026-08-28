@@ -99,6 +99,8 @@ const (
 	SecretSinkRefreshResponse                    SecretSink  = "refresh_response"
 	SecretSinkAuthoritativeGenerationRefreshCopy SecretSink  = "authoritative_generation_refresh_copy"
 	SecretSinkAgentCredentialCreation            SecretSink  = "agent_credential_creation" //nolint:gosec // Public sink name, not a credential.
+	SecretSinkBrowserOneTimeDisplay              SecretSink  = "browser_one_time_display"
+	SecretSinkUserInitiatedClipboard             SecretSink  = "user_initiated_clipboard"
 	SecretOutputFileMode                         fs.FileMode = 0o600
 	SecretOutputTerminator                                   = "\n"
 )
@@ -113,5 +115,7 @@ func ApprovedSecretSinks() []SecretSink {
 		SecretSinkRefreshResponse,
 		SecretSinkAuthoritativeGenerationRefreshCopy,
 		SecretSinkAgentCredentialCreation,
+		SecretSinkBrowserOneTimeDisplay,
+		SecretSinkUserInitiatedClipboard,
 	}
 }

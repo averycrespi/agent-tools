@@ -13,6 +13,8 @@ import {
   StateNotice,
   StatusLabel,
 } from "./primitives";
+import { SensitiveSinkHost } from "./sinks-ui";
+import { SensitiveSinkCoordinator } from "./sinks";
 import {
   SessionClient,
   type SessionLifecycle,
@@ -64,6 +66,7 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
 const initialLocation = synchronizeFragment(false);
 const initialTheme = readThemePreference();
 const sessionClient = new SessionClient();
+const sensitiveSinkCoordinator = new SensitiveSinkCoordinator(sessionClient);
 const viewCoordinator = new ViewCoordinator(sessionClient);
 const mutationCoordinator = new MutationCoordinator(sessionClient, {
   refreshCurrent: () => viewCoordinator.manualRefresh(),
@@ -213,6 +216,7 @@ function App() {
 
   useEffect(() => {
     const synchronize = () => {
+      sensitiveSinkCoordinator.clearForNavigation();
       const nextLocation = synchronizeFragment(
         session.lifecycle === "authenticated",
       );
@@ -427,6 +431,7 @@ function App() {
           />
         )}
       </main>
+      <SensitiveSinkHost coordinator={sensitiveSinkCoordinator} />
       <ConfirmationDialog
         id="logout-confirmation"
         open={logoutConfirmationOpen}

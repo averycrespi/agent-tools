@@ -215,6 +215,7 @@ func TestMediaTypesAndApprovedSecretSinksAreClosed(t *testing.T) {
 	require.Equal(t, "application/problem+json", MediaTypeProblemJSON)
 	require.Equal(t, "text/event-stream", MediaTypeEventStream)
 	require.Equal(t, []SecretSink{SecretSinkControllingTerminal, SecretSinkOwnerOnlyFile}, ApprovedSecretSinks()[:2], "S1 sinks must remain the table prefix")
+	require.Equal(t, []SecretSink{SecretSinkBrowserOneTimeDisplay, SecretSinkUserInitiatedClipboard}, ApprovedSecretSinks()[8:], "S6 browser sinks must remain the table suffix")
 	require.Equal(t, uint32(0o600), uint32(SecretOutputFileMode))
 	require.Equal(t, "\n", SecretOutputTerminator)
 	require.NotContains(t, ApprovedSecretSinks(), SecretSink("stdout"))
