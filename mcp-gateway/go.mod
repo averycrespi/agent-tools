@@ -3,6 +3,7 @@ module github.com/averycrespi/agent-tools/mcp-gateway
 go 1.25.13
 
 require (
+	github.com/charmbracelet/x/term v0.2.1
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/gowebpki/jcs v1.0.1
 	github.com/modelcontextprotocol/go-sdk v1.7.0
@@ -60,7 +61,6 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0 // indirect
 	github.com/charmbracelet/x/ansi v0.10.1 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13-0.20250311204145-2c3ea96c31dd // indirect
-	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/ckaznocha/intrange v0.3.1 // indirect
 	github.com/curioswitch/go-reassign v0.3.0 // indirect
 	github.com/daixiang0/gci v0.13.7 // indirect

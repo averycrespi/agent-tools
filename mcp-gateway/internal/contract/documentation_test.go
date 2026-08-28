@@ -19,7 +19,7 @@ func TestTrackedDocsDescribeCurrentS6Boundary(t *testing.T) {
 		},
 		"../../README.md": {
 			"Self-service grant requests", "mcp_gateway.create_grant_request", "GET /api/v1/invocations", "explicit fresh `tools/call`",
-			"schema-3-through-10", "grant_requests", "make accept-s5", "broader S6 behavior is unavailable",
+			"schema-3-through-10", "grant_requests", "make accept-s5", "later S6 capabilities are not yet available",
 		},
 		"../../DESIGN.md": {
 			"Authenticated read-only invocation list/item resources", "Closed S1–S5 contract", "Implemented S5 self-service contract", "sole online schema-10 DML owner",

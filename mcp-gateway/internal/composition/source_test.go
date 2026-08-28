@@ -30,7 +30,7 @@ func TestProductionSourceOwnershipGuards(t *testing.T) {
 		return path == "internal/keyring/probe_darwin.go" || path == "test/acceptance/acceptance.go" || strings.HasPrefix(path, "internal/runtimes/stdio")
 	}
 	processConstructors := map[string]string{"internal/keyring/probe_darwin.go": "CommandContext", "internal/runtimes/stdio.go": "Command", "test/acceptance/acceptance.go": "CommandContext"}
-	allowedHTTP := "internal/remote/remote.go"
+	allowedHTTP := map[string]bool{"internal/remote/remote.go": true, "internal/controlclient/controlclient.go": true}
 	allowedSDK := map[string]bool{"internal/dependencies/dependencies.go": true, "internal/mcpingress/handler.go": true}
 	allowedTestutil := map[string]bool{"test/acceptance/acceptance.go": true, "test/acceptance/cmd/main.go": true}
 	for _, source := range productionSources(t, root) {
@@ -44,12 +44,15 @@ func TestProductionSourceOwnershipGuards(t *testing.T) {
 			if strings.HasPrefix(imported, "github.com/modelcontextprotocol/go-sdk/") && !allowedSDK[source.path] {
 				t.Errorf("%s: prohibited SDK import %s", source.path, imported)
 			}
+			if strings.HasPrefix(source.path, "internal/controlclient/") && strings.Contains(imported, "/internal/") && imported != "github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson" {
+				t.Errorf("%s: prohibited local-control import %s", source.path, imported)
+			}
 		}
 		ast.Inspect(source.file, func(node ast.Node) bool {
 			switch value := node.(type) {
 			case *ast.CompositeLit:
 				selector, ok := value.Type.(*ast.SelectorExpr)
-				if ok && source.selectorPackage(selector) == "net/http" && (selector.Sel.Name == "Client" || selector.Sel.Name == "Transport") && source.path != allowedHTTP {
+				if ok && source.selectorPackage(selector) == "net/http" && (selector.Sel.Name == "Client" || selector.Sel.Name == "Transport") && !allowedHTTP[source.path] {
 					t.Errorf("%s: misplaced HTTP constructor http.%s", source.path, selector.Sel.Name)
 				}
 			case *ast.CallExpr:
@@ -83,6 +86,10 @@ func TestProductionSourceOwnershipGuards(t *testing.T) {
 	}
 	probe := readProductionSource(t, root, "internal/keyring/probe_darwin.go")
 	assert.Contains(t, probe, `securityTool = "/usr/bin/security"`, "internal/keyring/probe_darwin.go: keyring probe must use an absolute executable")
+	controlClient := readProductionSource(t, root, "internal/controlclient/controlclient.go")
+	for _, required := range []string{"Proxy:                  nil", "DisableKeepAlives:      true", "CheckRedirect:", "WroteHeaders:"} {
+		assert.Contains(t, controlClient, required, "internal/controlclient/controlclient.go: missing strict local-control transport symbol %s", required)
+	}
 }
 
 func TestS5RootUsesOneAtomicCompositionForControlAndAgentIngress(t *testing.T) {
