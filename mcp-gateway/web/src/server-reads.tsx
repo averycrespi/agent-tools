@@ -1,5 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
+import type { MutationCoordinator } from "./mutation";
 import { InertJSON, StateNotice, StatusLabel } from "./primitives";
+import { ServerEditor } from "./server-editor";
 import type { SessionClient } from "./session";
 import type {
   PanelSnapshot,
@@ -943,11 +945,13 @@ export function ServerReads({
   controller,
   view,
   destination,
+  mutations,
   onRefresh,
 }: {
   controller: ServerReadsController;
   view: ViewSnapshot;
   destination: "servers" | "catalog";
+  mutations: MutationCoordinator;
   onRefresh: () => void;
 }) {
   const [snapshot, setSnapshot] = useState(controller.snapshot());
@@ -967,6 +971,17 @@ export function ServerReads({
   const otherTab =
     /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=([^&]+)$/.exec(
       view.viewKey,
+    );
+  if (view.viewKey === "#/servers/new")
+    return (
+      <div class="domain-view" data-testid="server-create-view">
+        <a href="#/servers">Back to server inventory</a>
+        <ServerEditor
+          mutations={mutations}
+          onRefresh={onRefresh}
+          decodeServerValue={decodeServer}
+        />
+      </div>
     );
   if (destination === "catalog")
     return (
@@ -1033,7 +1048,12 @@ export function ServerReads({
                 Desired, runtime, credential, and catalog state
               </h2>
             </div>
-            <span class="classification">DURABLE + PROCESS</span>
+            <div>
+              <span class="classification">DURABLE + PROCESS</span>
+              <a href="#/servers/new" data-testid="server-create-link">
+                Create server
+              </a>
+            </div>
           </div>
           <ReadPanel panel={panel}>
             {snapshot.servers.length === 0 ? (
@@ -1221,6 +1241,17 @@ export function ServerReads({
             )}
           </ReadPanel>
         </section>
+        {snapshot.server !== undefined &&
+          snapshot.server.desiredState !== "deleted" &&
+          snapshot.serverETag !== undefined && (
+            <ServerEditor
+              mutations={mutations}
+              server={snapshot.server}
+              etag={snapshot.serverETag}
+              onRefresh={onRefresh}
+              decodeServerValue={decodeServer}
+            />
+          )}
       </div>
     );
   if (otherTab !== null)

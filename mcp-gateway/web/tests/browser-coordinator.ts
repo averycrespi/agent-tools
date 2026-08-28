@@ -43,7 +43,8 @@ interface BridgeInput {
     | "overview"
     | "invocations"
     | "system-status"
-    | "server-catalog-reads";
+    | "server-catalog-reads"
+    | "server-create-update";
   base_url: string;
   admin_bearer: string;
 }
@@ -105,7 +106,8 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "overview" &&
       value.scenario !== "invocations" &&
       value.scenario !== "system-status" &&
-      value.scenario !== "server-catalog-reads") ||
+      value.scenario !== "server-catalog-reads" &&
+      value.scenario !== "server-create-update") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -2893,6 +2895,297 @@ function descriptorReadFixture(
   };
 }
 
+async function runServerCreateUpdate(
+  browserVersion: string,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+
+  const serverID = serverReadIDs.active;
+  let currentServer = {
+    ...serverReadFixture(serverID, {
+      name: "Created server",
+      desired: "disabled",
+      runtime: "active",
+      credential: "ready",
+      durable: "current",
+      active: "current",
+    }),
+    namespace: "created-server",
+    desired_revision: "1",
+  };
+  let creates = 0;
+  let updates = 0;
+  const createKeys: string[] = [];
+  const createBodies: string[] = [];
+  const etags: string[] = [];
+  const mutationBody = (operation: unknown = null) => ({
+    server: currentServer,
+    operation,
+  });
+  const operation = () => ({
+    id: "01ARZ3NDEKTSV4RRFFQ69G5FD0",
+    server_id: serverID,
+    kind: "activate",
+    target_desired_revision: currentServer.desired_revision,
+    target_credential_revisions: currentServer.credential_revisions,
+    state: "scheduled",
+    reason: null,
+    created_at: "2026-08-28T13:00:00Z",
+    started_at: null,
+    finished_at: null,
+  });
+  await page.route(`${baseURL}/api/v1/servers`, async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    creates += 1;
+    createKeys.push(
+      (await route.request().allHeaders())["idempotency-key"] ?? "",
+    );
+    createBodies.push(route.request().postData() ?? "");
+    if (creates === 1) {
+      await route.fulfill({
+        status: 409,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 409,
+          code: "namespace_unavailable",
+          title: "Namespace unavailable",
+        }),
+      });
+      return;
+    }
+    if (creates === 2) {
+      await route.fulfill({ status: 502, body: "lost response" });
+      return;
+    }
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      headers: {
+        ETag: `"server-${serverID}-${currentServer.desired_revision}"`,
+      },
+      body: JSON.stringify(mutationBody()),
+    });
+  });
+  await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: {
+          ETag: `"server-${serverID}-${currentServer.desired_revision}"`,
+        },
+        body: JSON.stringify(currentServer),
+      });
+      return;
+    }
+    if (route.request().method() !== "PATCH") {
+      await route.fallback();
+      return;
+    }
+    updates += 1;
+    etags.push((await route.request().allHeaders())["if-match"] ?? "");
+    const patch = JSON.parse(route.request().postData() ?? "null") as Record<
+      string,
+      unknown
+    >;
+    if (updates === 1) {
+      currentServer = {
+        ...currentServer,
+        display_name: "Concurrent display",
+        desired_revision: "2",
+      };
+      await route.fulfill({
+        status: 428,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 428,
+          code: "precondition_required",
+          title: "Precondition required",
+        }),
+      });
+      return;
+    }
+    if (updates === 2) {
+      if (Object.keys(patch).join(",") !== "display_name")
+        fail("display-only update included behavioral fields");
+      currentServer = {
+        ...currentServer,
+        display_name: patch.display_name as string,
+        desired_revision: "3",
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { ETag: `"server-${serverID}-3"` },
+        body: JSON.stringify(mutationBody()),
+      });
+      return;
+    }
+    if (updates === 3) {
+      currentServer = { ...currentServer, desired_revision: "4" };
+      await route.fulfill({
+        status: 412,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 412,
+          code: "stale_revision",
+          title: "Stale server revision",
+        }),
+      });
+      return;
+    }
+    if (
+      patch.enabled !== true ||
+      typeof patch.transport !== "object" ||
+      patch.transport === null
+    )
+      fail("behavioral update omitted desired transport state");
+    currentServer = {
+      ...currentServer,
+      display_name: patch.display_name as string,
+      desired_state: "enabled",
+      transport: patch.transport as typeof currentServer.transport,
+      desired_revision: "5",
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { ETag: `"server-${serverID}-5"` },
+      body: JSON.stringify(mutationBody(operation())),
+    });
+  });
+
+  await page.evaluate(() => {
+    window.location.hash = "#/servers/new";
+  });
+  const editor = page.locator('[data-testid="server-editor"]');
+  await editor.waitFor();
+  const initialInputs = await editor.locator("input").evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      name: node.getAttribute("name"),
+      type: node.getAttribute("type"),
+    })),
+  );
+  if (
+    initialInputs.some(
+      (input) => input.name !== null || input.type === "password",
+    )
+  )
+    fail("server form exposed a reusable or secret input");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  await page.getByText("Check server configuration").waitFor();
+  if (creates !== 0) fail("invalid form submitted a create");
+
+  await page.locator("#server-transport-kind").selectOption("streamable_http");
+  await page.locator("#server-auth-mode").selectOption("oauth");
+  await page.locator("#server-registration-mode").selectOption("static");
+  if (
+    (await editor
+      .locator(
+        'input[id*="secret"], textarea[id*="client-secret"], input[id*="bearer-token"]',
+      )
+      .count()) !== 0
+  )
+    fail("server form offered inline secret input");
+  await page.locator("#server-transport-kind").selectOption("stdio");
+  await page.locator("#server-namespace").fill("first-name");
+  await page.locator("#server-display-name").fill("Created server");
+  await page.locator("#server-executable").fill("/usr/bin/example");
+  await page.locator("#server-arguments").fill('["--safe"]');
+  await page.locator("#server-working-directory").fill("/srv/example");
+  await page.locator("#server-environment").fill('{"MODE":"read"}');
+  await page.locator("#server-secret-environment").fill('{"TOKEN":"primary"}');
+  if (!(await editor.textContent())?.includes("not an OS sandbox"))
+    fail("stdio OS-user warning omitted containment boundary");
+
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  await page.locator('[data-testid="server-change-confirm-cancel"]').click();
+  if (
+    (await page.locator("#server-display-name").inputValue()) !==
+    "Created server"
+  )
+    fail("confirmation cancellation discarded safe draft");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  await page.locator('[data-testid="server-change-confirm-submit"]').click();
+  await page.getByText("Namespace unavailable").waitFor();
+  await page.locator("#server-namespace").fill("created-server");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  await page.locator('[data-testid="server-change-confirm-submit"]').click();
+  await page.getByText("Mutation outcome unknown").waitFor();
+  await page.locator('[data-testid="server-create-replay"]').click();
+  await page.locator('[data-testid="server-detail"]').waitFor();
+  if (
+    createKeys[0] === createKeys[1] ||
+    createKeys[1] === "" ||
+    createKeys[1] !== createKeys[2] ||
+    createBodies[1] !== createBodies[2]
+  )
+    fail("create idempotency tuple was not intent-bound and replay-stable");
+  if (
+    createBodies.some(
+      (body) =>
+        body.includes("client_secret") ||
+        body.includes("bearer_token") ||
+        body.includes("mgw_admin_"),
+    )
+  )
+    fail("create body contained inline secret material");
+
+  await page.getByText("Edit desired server state").click();
+  await page.locator("#server-display-name").fill("Display only draft");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  await page.getByText("Precondition required").waitFor();
+  await page.waitForFunction(() =>
+    document.body.textContent?.includes("safe nonsecret draft is preserved"),
+  );
+  if (
+    (await page.locator("#server-display-name").inputValue()) !==
+    "Display only draft"
+  )
+    fail("428 refresh discarded safe draft");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  await page.getByText("Desired server record saved.").waitFor();
+
+  await page.locator("#server-enabled").selectOption("enabled");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  await page.locator('[data-testid="server-change-confirm-submit"]').click();
+  await page.getByText("Stale server revision").waitFor();
+  if ((await page.locator("#server-enabled").inputValue()) !== "enabled")
+    fail("412 refresh discarded behavioral draft");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  await page.locator('[data-testid="server-change-confirm-submit"]').click();
+  await page.getByText(/operation .* was scheduled/).waitFor();
+  if (
+    etags.join(",") !==
+    `"server-${serverID}-1","server-${serverID}-2","server-${serverID}-3","server-${serverID}-4"`
+  )
+    fail(`updates did not use fresh ETags: ${etags.join(",")}`);
+  assertClosedStorage(await browserStorage(page));
+  if (((await page.locator("body").textContent()) ?? "").includes(bearer))
+    fail("admin bearer reached server workflow DOM");
+
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "server_create_update_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+      creates,
+      updates,
+    })}\n`,
+  );
+}
+
 async function runServerCatalogReads(
   browserVersion: string,
   context: BrowserContext,
@@ -4296,6 +4589,16 @@ try {
             .startsWith(
               "Failed to load resource: the server responded with a status of 409",
             )
+        ) &&
+        !(
+          input.scenario === "server-create-update" &&
+          [409, 412, 428, 502].some((status) =>
+            message
+              .text()
+              .startsWith(
+                `Failed to load resource: the server responded with a status of ${status}`,
+              ),
+          )
         )
       ) {
         consoleFailures.push(message.text());
@@ -4408,6 +4711,14 @@ try {
       await runSystemStatus(
         browser.version(),
         context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "server-create-update") {
+      await runServerCreateUpdate(
+        browser.version(),
         page,
         baseURL,
         initialBearer,

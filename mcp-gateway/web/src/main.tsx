@@ -439,6 +439,7 @@ function App() {
               controller={serverReadsController}
               view={view}
               destination={destination}
+              mutations={mutationCoordinator}
               onRefresh={() => viewCoordinator.manualRefresh()}
             />
           ) : (
