@@ -170,6 +170,9 @@ func S6PlannedInventory() []S6PlannedOwner {
 	for milestone := 1; milestone <= 11; milestone++ {
 		id := fmt.Sprintf("M%d", milestone)
 		owner := S6PlannedOwner{ID: id, Layer: "milestone", Intent: "Run the disjoint " + id + " integration canary", Status: "planned", Budget: 5 * time.Minute, Blocking: true, Leaves: s6Leaves(id, s6MilestoneCategories[id])}
+		if id == "M1" {
+			owner.Status = "executable"
+		}
 		owner.DefinitionHash = s6OwnerHash(owner)
 		owners = append(owners, owner)
 	}

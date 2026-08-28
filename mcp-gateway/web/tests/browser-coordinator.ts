@@ -9,7 +9,7 @@ import { createInterface } from "node:readline";
 
 interface BridgeInput {
   version: 1;
-  scenario: "shell-load" | "browser-protocol";
+  scenario: "shell-load" | "browser-protocol" | "m1-canary";
   base_url: string;
   admin_bearer: string;
 }
@@ -58,7 +58,8 @@ function parseInitialInput(value: unknown): BridgeInput {
     value.version !== 1 ||
     !("scenario" in value) ||
     (value.scenario !== "shell-load" &&
-      value.scenario !== "browser-protocol") ||
+      value.scenario !== "browser-protocol" &&
+      value.scenario !== "m1-canary") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -239,6 +240,43 @@ async function connectAndCancelStream(page: Page, csrf: string): Promise<void> {
   ) {
     fail("POST event stream reconnect/cancellation failed");
   }
+}
+
+async function runM1Canary(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const session = await exchange(page, bearer);
+  const current = await bootstrap(page);
+  if (
+    current.status !== 200 ||
+    current.session?.csrf_token !== session.csrf_token
+  ) {
+    fail("M1 bootstrap canary failed");
+  }
+  await connectAndCancelStream(page, session.csrf_token);
+  const logout = await sessionRequest(
+    page,
+    "/api/v1/admin-sessions/current",
+    "DELETE",
+    session.csrf_token,
+    undefined,
+    {},
+  );
+  if (logout.status !== 204) fail("M1 logout canary failed");
+  await assertSessionCookieAbsent(context, baseURL);
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "m1_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+    })}\n`,
+  );
 }
 
 async function runProtocol(
@@ -492,14 +530,25 @@ try {
     process.on("SIGTERM", () => {});
     setInterval(() => {}, 60 * 60 * 1000);
   } else {
-    await runProtocol(
-      browser.version(),
-      context,
-      page,
-      baseURL,
-      initialBearer,
-      () => requests,
-    );
+    if (input.scenario === "m1-canary") {
+      await runM1Canary(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else {
+      await runProtocol(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    }
     await Promise.all(requestHeaderChecks);
     if (
       externalRequests.length !== 0 ||

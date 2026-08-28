@@ -391,6 +391,7 @@ func (handler *Handler) serveStatic(writer http.ResponseWriter, name, contentTyp
 	}
 	writer.Header().Set("Cache-Control", "no-store")
 	writer.Header().Set("Content-Type", contentType)
+	writer.Header().Set("Referrer-Policy", "no-referrer")
 	writer.Header().Set("X-Content-Type-Options", "nosniff")
 	if shell {
 		writer.Header().Set("Content-Security-Policy", contentSecurityPolicy)
