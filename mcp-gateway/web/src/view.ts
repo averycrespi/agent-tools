@@ -40,6 +40,7 @@ export interface ViewPanel<T> {
   matches: (viewKey: string) => boolean;
   invalidations: readonly InvalidationKind[];
   pollMilliseconds?: number;
+  shouldPoll?: () => boolean;
   read: (context: ViewReadContext) => Promise<T>;
   publish: (value: T) => void;
 }
@@ -503,6 +504,7 @@ export class ViewCoordinator {
       interval <= 0 ||
       this.pollTimers.has(interval) ||
       !panel.matches(this.viewKey) ||
+      panel.shouldPoll?.() === false ||
       !this.visibility.isVisible()
     ) {
       return;
@@ -511,7 +513,11 @@ export class ViewCoordinator {
       this.pollTimers.delete(interval);
       if (!this.visibility.isVisible()) return;
       const due = this.visiblePanels()
-        .filter((candidate) => candidate.pollMilliseconds === interval)
+        .filter(
+          (candidate) =>
+            candidate.pollMilliseconds === interval &&
+            candidate.shouldPoll?.() !== false,
+        )
         .map((candidate) => candidate.id);
       if (due.length > 0) void this.refresh(due);
     }, interval);

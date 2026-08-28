@@ -44,7 +44,8 @@ interface BridgeInput {
     | "invocations"
     | "system-status"
     | "server-catalog-reads"
-    | "server-create-update";
+    | "server-create-update"
+    | "server-operations";
   base_url: string;
   admin_bearer: string;
 }
@@ -107,7 +108,8 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "invocations" &&
       value.scenario !== "system-status" &&
       value.scenario !== "server-catalog-reads" &&
-      value.scenario !== "server-create-update") ||
+      value.scenario !== "server-create-update" &&
+      value.scenario !== "server-operations") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -3186,6 +3188,353 @@ async function runServerCreateUpdate(
   );
 }
 
+async function runServerOperations(
+  browserVersion: string,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const serverID = serverReadIDs.active;
+  const operationIDs = [
+    "01ARZ3NDEKTSV4RRFFQ69G5FE0",
+    "01ARZ3NDEKTSV4RRFFQ69G5FE1",
+    "01ARZ3NDEKTSV4RRFFQ69G5FE2",
+    "01ARZ3NDEKTSV4RRFFQ69G5FE3",
+    "01ARZ3NDEKTSV4RRFFQ69G5FE4",
+    "01ARZ3NDEKTSV4RRFFQ69G5FE5",
+  ] as const;
+  let currentServer = {
+    ...serverReadFixture(serverID, {
+      name: "Operation server",
+      desired: "enabled",
+      runtime: "active",
+      credential: "ready",
+      durable: "current",
+      active: "current",
+    }),
+    desired_revision: "1",
+  };
+  const operation = (
+    id: string,
+    kind: string,
+    state: string,
+    reason: string | null = null,
+  ) => ({
+    id,
+    server_id: serverID,
+    kind,
+    target_desired_revision: currentServer.desired_revision,
+    target_credential_revisions: currentServer.credential_revisions,
+    state,
+    reason,
+    created_at: "2026-08-28T14:00:00Z",
+    started_at: state === "scheduled" ? null : "2026-08-28T14:00:01Z",
+    finished_at:
+      state === "scheduled" || state === "running"
+        ? null
+        : "2026-08-28T14:00:02Z",
+  });
+  let operationReads = 0;
+  let listReads = 0;
+  let listBlocked = false;
+  let detailPollReads = 0;
+  let starts = 0;
+  const startKeys: string[] = [];
+  const startBodies: string[] = [];
+
+  await page.route(
+    `${baseURL}/api/v1/events`,
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: `event: invalidate\ndata: ${JSON.stringify({ kind: "server_operations", resource_id: operationIDs[0] })}\n\n`,
+      }),
+    { times: 1 },
+  );
+  await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: {
+        ETag: `"server-${serverID}-${currentServer.desired_revision}"`,
+      },
+      body: JSON.stringify(currentServer),
+    });
+  });
+  await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/operations?*`,
+    async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      operationReads += 1;
+      listReads += 1;
+      if (new URL(route.request().url()).search !== "?limit=50")
+        fail("operation list query changed");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: listBlocked
+            ? [operation(operationIDs[4], "reload", "scheduled")]
+            : [
+                operation(operationIDs[4], "disable", "succeeded"),
+                operation(operationIDs[5], "reload", "failed", "connectivity"),
+              ],
+          next_cursor: null,
+        }),
+      });
+    },
+  );
+  await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/operations/*`,
+    async (route) => {
+      operationReads += 1;
+      const id = route.request().url().slice(-26);
+      let item = operation(id, "refresh_catalog", "succeeded");
+      if (id === operationIDs[0]) {
+        detailPollReads += 1;
+        item = operation(
+          id,
+          "refresh_catalog",
+          detailPollReads <= 2
+            ? "scheduled"
+            : detailPollReads === 3
+              ? "running"
+              : "succeeded",
+        );
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(item),
+      });
+    },
+  );
+  await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/operations`,
+    async (route) => {
+      if (route.request().method() !== "POST") {
+        await route.fallback();
+        return;
+      }
+      starts += 1;
+      const headers = await route.request().allHeaders();
+      startKeys.push(headers["idempotency-key"] ?? "");
+      startBodies.push(route.request().postData() ?? "");
+      const input = JSON.parse(route.request().postData() ?? "null") as {
+        kind?: string;
+      };
+      const expectedETag = `"server-${serverID}-${currentServer.desired_revision}"`;
+      if (headers["if-match"] !== expectedETag)
+        fail(
+          `operation start used stale ETag ${headers["if-match"] ?? "none"}`,
+        );
+      if (starts === 1) {
+        if (input.kind !== "refresh_catalog")
+          fail("catalog refresh kind changed");
+        await route.fulfill({ status: 502, body: "lost response" });
+        return;
+      }
+      if (starts === 3) {
+        if (input.kind !== "reload") fail("reload kind changed");
+        currentServer = { ...currentServer, desired_revision: "2" };
+        await route.fulfill({
+          status: 412,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 412,
+            code: "stale_revision",
+            title: "Stale server revision",
+          }),
+        });
+        return;
+      }
+      const id = operationIDs[Math.min(starts - 2, operationIDs.length - 1)]!;
+      await route.fulfill({
+        status: starts === 2 ? 200 : 202,
+        contentType: "application/json",
+        body: JSON.stringify({
+          operation: operation(id, input.kind ?? "reload", "scheduled"),
+        }),
+      });
+    },
+  );
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}?tab=operations`;
+  }, serverID);
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.locator('[data-testid="operation-list"]').waitFor();
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-testid="operation-row"]').length === 2,
+  );
+  await page.waitForFunction(() =>
+    document.body.textContent?.includes("Start an eligible operation"),
+  );
+  await page.waitForTimeout(350);
+  if (listReads < 2)
+    fail("server_operations event did not trigger a snapshot read");
+  const eventRefreshes = listReads - 1;
+
+  await page.locator('[data-testid="start-operation-refresh_catalog"]').click();
+  if (
+    await page
+      .locator('[data-testid="operation-start-confirm-submit"]')
+      .isVisible()
+  )
+    fail("catalog refresh inherited a misleading confirmation");
+  await page.getByText("Operation start outcome unknown").waitFor();
+  await page.locator('[data-testid="operation-start-replay"]').click();
+  await page.locator('[data-testid="operation-detail"]').waitFor();
+  if (
+    startKeys[0] === "" ||
+    startKeys[0] !== startKeys[1] ||
+    startBodies[0] !== startBodies[1]
+  )
+    fail("uncertain operation replay changed its exact tuple");
+
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-freshness") === "current",
+  );
+  await page.waitForTimeout(100);
+  const beforePoll = detailPollReads;
+  await page.waitForTimeout(2100);
+  if (detailPollReads !== beforePoll + 1)
+    fail(
+      `nonterminal operation did not poll at two seconds (${beforePoll} -> ${detailPollReads})`,
+    );
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const hiddenReads = detailPollReads;
+  await page.waitForTimeout(2100);
+  if (detailPollReads !== hiddenReads)
+    fail("operation detail polled while hidden");
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.waitForTimeout(2100);
+  if (detailPollReads !== hiddenReads + 1)
+    fail("operation polling did not resume to terminal state");
+  const terminalReads = detailPollReads;
+  await page.waitForTimeout(2100);
+  if (detailPollReads !== terminalReads)
+    fail("terminal operation continued polling");
+  const detailText =
+    (await page.locator('[data-testid="operation-detail"]').textContent()) ??
+    "";
+  if (
+    !detailText.includes("Operation history") ||
+    !detailText.includes("Server record")
+  )
+    fail("operation detail omitted terminal navigation links");
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}?tab=operations`;
+  }, serverID);
+  await page.locator('[data-testid="operation-list"]').waitFor();
+  await page.locator('[data-testid="start-operation-reload"]').click();
+  await page.locator('[data-testid="operation-start-confirm-cancel"]').click();
+  if (starts !== 2) fail("cancelled reload submitted work");
+  await page.locator('[data-testid="start-operation-reload"]').click();
+  await page.locator('[data-testid="operation-start-confirm-submit"]').click();
+  await page.getByText("Stale server revision").waitFor();
+  await page.waitForFunction(() =>
+    document.body.textContent?.includes(
+      "selected operation before starting a new intent",
+    ),
+  );
+  await page.locator('[data-testid="start-operation-reload"]').click();
+  await page.locator('[data-testid="operation-start-confirm-submit"]').click();
+  await page.locator('[data-testid="operation-detail"]').waitFor();
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}?tab=operations`;
+  }, serverID);
+  await page
+    .locator('[data-testid="start-operation-disconnect_credentials"]')
+    .click();
+  const disconnectText =
+    (await page
+      .locator("#operation-start-confirm-consequence")
+      .textContent()) ?? "";
+  if (!disconnectText.includes("not guaranteed"))
+    fail("disconnect confirmation claimed remote revocation");
+  await page.locator('[data-testid="operation-start-confirm-submit"]').click();
+  await page.locator('[data-testid="operation-detail"]').waitFor();
+
+  currentServer = {
+    ...currentServer,
+    runtime: {
+      ...currentServer.runtime,
+      state: "degraded",
+      reason: "connectivity",
+    },
+  };
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}?tab=operations`;
+  }, serverID);
+  await page.locator('[data-testid="operation-list"]').waitFor();
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page.locator('[data-testid="start-operation-retry"]').waitFor();
+  await page.locator('[data-testid="start-operation-retry"]').click();
+  if (
+    await page
+      .locator('[data-testid="operation-start-confirm-submit"]')
+      .isVisible()
+  )
+    fail("eligible retry inherited a misleading confirmation");
+  await page.locator('[data-testid="operation-detail"]').waitFor();
+
+  listBlocked = true;
+  currentServer = {
+    ...currentServer,
+    runtime: { ...currentServer.runtime, state: "active", reason: null },
+  };
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}?tab=operations`;
+  }, serverID);
+  await page.getByText("No explicit operation is currently eligible").waitFor();
+  if ((await page.locator('[data-testid^="start-operation-"]').count()) !== 0)
+    fail("operation controls were offered during conflicting work");
+
+  assertClosedStorage(await browserStorage(page));
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "server_operations_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+      operation_reads: operationReads,
+      starts,
+      event_refreshes: eventRefreshes,
+    })}\n`,
+  );
+}
+
 async function runServerCatalogReads(
   browserVersion: string,
   context: BrowserContext,
@@ -4599,6 +4948,16 @@ try {
                 `Failed to load resource: the server responded with a status of ${status}`,
               ),
           )
+        ) &&
+        !(
+          input.scenario === "server-operations" &&
+          [412, 502].some((status) =>
+            message
+              .text()
+              .startsWith(
+                `Failed to load resource: the server responded with a status of ${status}`,
+              ),
+          )
         )
       ) {
         consoleFailures.push(message.text());
@@ -4711,6 +5070,14 @@ try {
       await runSystemStatus(
         browser.version(),
         context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "server-operations") {
+      await runServerOperations(
+        browser.version(),
         page,
         baseURL,
         initialBearer,

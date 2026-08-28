@@ -7,6 +7,7 @@ import type {
   MutationSpec,
 } from "./mutation";
 import { ConfirmationDialog, FormField, StateNotice } from "./primitives";
+import { decodeOperation } from "./server-operation-model";
 import type { ServerView } from "./server-reads";
 
 type JSONRecord = Record<string, unknown>;
@@ -43,7 +44,6 @@ interface MutationResult {
   etag: string;
 }
 
-const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 const namespacePattern = /^[a-z][a-z0-9_-]{0,31}$/;
 const secretSlotPattern = /^[a-z][a-z0-9_]{0,63}$/;
 const absolutePathPattern = /^\/(?:[^\0]*)$/;
@@ -233,58 +233,7 @@ function draftFromServer(server: ServerView): Draft {
   return draft;
 }
 function operationID(value: unknown): string | null {
-  if (value === null) return null;
-  const operation = jsonRecord(value);
-  const expected = [
-    "id",
-    "server_id",
-    "kind",
-    "target_desired_revision",
-    "target_credential_revisions",
-    "state",
-    "reason",
-    "created_at",
-    "started_at",
-    "finished_at",
-  ];
-  if (Object.keys(operation).sort().join(",") !== expected.sort().join(","))
-    throw new Error("invalid mutation response");
-  const revisions = jsonRecord(operation.target_credential_revisions);
-  if (
-    Object.keys(revisions).sort().join(",") !==
-      "oauth_client,oauth_tokens,static_credential" ||
-    !gatewayID.test(String(operation.id)) ||
-    !gatewayID.test(String(operation.server_id)) ||
-    ![
-      "activate",
-      "reload",
-      "retry",
-      "refresh_catalog",
-      "credential_replace",
-      "disable",
-      "delete",
-      "disconnect_credentials",
-    ].includes(String(operation.kind)) ||
-    ![
-      "scheduled",
-      "running",
-      "succeeded",
-      "failed",
-      "cancelled",
-      "superseded",
-      "interrupted",
-    ].includes(String(operation.state)) ||
-    typeof operation.target_desired_revision !== "string" ||
-    Object.values(revisions).some((revision) => typeof revision !== "string") ||
-    typeof operation.created_at !== "string" ||
-    (operation.started_at !== null &&
-      typeof operation.started_at !== "string") ||
-    (operation.finished_at !== null &&
-      typeof operation.finished_at !== "string") ||
-    (operation.reason !== null && typeof operation.reason !== "string")
-  )
-    throw new Error("invalid mutation response");
-  return operation.id as string;
+  return value === null ? null : decodeOperation(value).id;
 }
 async function decodeMutation(
   response: Response,

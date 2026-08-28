@@ -2,6 +2,14 @@ import { useEffect, useState } from "preact/hooks";
 import type { MutationCoordinator } from "./mutation";
 import { InertJSON, StateNotice, StatusLabel } from "./primitives";
 import { ServerEditor } from "./server-editor";
+import {
+  decodeOperation,
+  decodeOperationPage,
+  operationIsTerminal,
+  type OperationPage,
+  type ServerOperationView,
+} from "./server-operation-model";
+import { ServerOperations } from "./server-operations";
 import type { SessionClient } from "./session";
 import type {
   PanelSnapshot,
@@ -12,7 +20,7 @@ import type {
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 type JSONRecord = Record<string, unknown>;
-type ListKind = "servers" | "descriptors" | "catalog";
+type ListKind = "servers" | "descriptors" | "catalog" | "operations";
 
 function record(value: unknown, keys: readonly string[]): JSONRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value))
@@ -508,6 +516,10 @@ interface ServerReadsSnapshot {
   catalog: CatalogView | undefined;
   catalogItems: readonly DescriptorView[];
   catalogNext: string | null;
+  operations: readonly ServerOperationView[];
+  operationNext: string | null;
+  operation: ServerOperationView | undefined;
+  readVersion: number;
   loadingMore: boolean;
   restarted: boolean;
 }
@@ -520,6 +532,22 @@ type ReadResult =
       restarted: boolean;
     }
   | { kind: "server"; viewKey: string; server: ServerView; etag: string }
+  | {
+      kind: "operations";
+      viewKey: string;
+      server: ServerView;
+      etag: string;
+      page: OperationPage;
+      append: boolean;
+      restarted: boolean;
+    }
+  | {
+      kind: "operation";
+      viewKey: string;
+      server: ServerView;
+      etag: string;
+      operation: ServerOperationView;
+    }
   | {
       kind: "descriptors";
       viewKey: string;
@@ -551,6 +579,10 @@ function emptySnapshot(viewKey = ""): ServerReadsSnapshot {
     catalog: undefined,
     catalogItems: [],
     catalogNext: null,
+    operations: [],
+    operationNext: null,
+    operation: undefined,
+    readVersion: 0,
     loadingMore: false,
     restarted: false,
   };
@@ -566,6 +598,14 @@ function listPath(
   if (next !== null) query.set("cursor", next);
   if (kind === "servers") return `/api/v1/servers?${query.toString()}`;
   if (kind === "catalog") return `/api/v1/catalog?${query.toString()}`;
+  if (kind === "operations") {
+    const match =
+      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=operations$/.exec(
+        viewKey,
+      );
+    if (match === null) throw new Error("invalid operation location");
+    return `/api/v1/servers/${match[1]!}/operations?${query.toString()}`;
+  }
   const match =
     /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=descriptors$/.exec(
       viewKey,
@@ -589,13 +629,17 @@ export class ServerReadsController {
         key === "#/servers" ||
         key === "#/catalog" ||
         /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key) ||
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=descriptors$/.test(
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=(?:descriptors|operations)$/.test(
           key,
         ) ||
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/descriptors\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/(?:descriptors|operations)\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
           key,
         ),
-      invalidations: ["servers", "catalog"],
+      invalidations: ["servers", "server_operations", "catalog"],
+      pollMilliseconds: 2000,
+      shouldPoll: () =>
+        this.value.operation !== undefined &&
+        !operationIsTerminal(this.value.operation),
       read: (context) => this.read(context),
       publish: (result) => this.publish(result),
     });
@@ -620,7 +664,9 @@ export class ServerReadsController {
         ? this.value.serverNext
         : kind === "descriptors"
           ? this.value.descriptorNext
-          : this.value.catalogNext;
+          : kind === "operations"
+            ? this.value.operationNext
+            : this.value.catalogNext;
     if (this.continuationPending || next === null) return;
     this.continuationPending = true;
     this.continuation = { kind, cursor: next };
@@ -639,6 +685,36 @@ export class ServerReadsController {
       this.continuation = undefined;
       this.value = emptySnapshot(context.viewKey);
       this.emit();
+    }
+    const operationItem =
+      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/operations\/([0-7][0-9A-HJKMNP-TV-Z]{25})$/.exec(
+        context.viewKey,
+      );
+    if (operationItem !== null) {
+      const [serverResponse, operationResponse] = await Promise.all([
+        get(context, `/api/v1/servers/${operationItem[1]!}`),
+        get(
+          context,
+          `/api/v1/servers/${operationItem[1]!}/operations/${operationItem[2]!}`,
+        ),
+      ]);
+      const server = decodeServer(await json(serverResponse));
+      const etag = serverResponse.headers.get("ETag");
+      if (etag !== `"server-${server.id}-${server.desiredRevision}"`)
+        throw new Error("invalid server ETag");
+      const operation = decodeOperation(await json(operationResponse));
+      if (
+        operation.serverID !== operationItem[1] ||
+        operation.id !== operationItem[2]
+      )
+        throw new Error("operation route mismatch");
+      return {
+        kind: "operation",
+        viewKey: context.viewKey,
+        server,
+        etag,
+        operation,
+      };
     }
     const descriptorItem =
       /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/descriptors\/([0-7][0-9A-HJKMNP-TV-Z]{25})$/.exec(
@@ -671,10 +747,19 @@ export class ServerReadsController {
         ? "servers"
         : context.viewKey === "#/catalog"
           ? "catalog"
-          : "descriptors";
+          : context.viewKey.endsWith("?tab=operations")
+            ? "operations"
+            : "descriptors";
     const continuation = this.continuation;
     this.continuation = undefined;
     const next = continuation?.kind === kind ? continuation.cursor : null;
+    const serverResponsePromise =
+      kind === "operations"
+        ? get(
+            context,
+            `/api/v1/servers/${context.viewKey.slice("#/servers/".length, "#/servers/".length + 26)}`,
+          )
+        : undefined;
     let response = await get(context, listPath(kind, context.viewKey, next));
     let restarted = false;
     if (next !== null && (await staleCursor(response))) {
@@ -697,6 +782,22 @@ export class ServerReadsController {
         append: next !== null && !restarted,
         restarted,
       };
+    if (kind === "operations") {
+      const serverResponse = await serverResponsePromise!;
+      const server = decodeServer(await json(serverResponse));
+      const etag = serverResponse.headers.get("ETag");
+      if (etag !== `"server-${server.id}-${server.desiredRevision}"`)
+        throw new Error("invalid server ETag");
+      return {
+        kind,
+        viewKey: context.viewKey,
+        server,
+        etag,
+        page: decodeOperationPage(await json(response)),
+        append: next !== null && !restarted,
+        restarted,
+      };
+    }
     const catalog = decodeCatalogPage(await json(response));
     return {
       kind,
@@ -714,6 +815,27 @@ export class ServerReadsController {
         server: result.server,
         serverETag: result.etag,
         restarted: false,
+      };
+    else if (result.kind === "operation")
+      this.value = {
+        ...this.value,
+        server: result.server,
+        serverETag: result.etag,
+        operation: result.operation,
+        readVersion: this.value.readVersion + 1,
+        restarted: false,
+      };
+    else if (result.kind === "operations")
+      this.value = {
+        ...this.value,
+        server: result.server,
+        serverETag: result.etag,
+        operations: result.append
+          ? [...this.value.operations, ...result.page.items]
+          : result.page.items,
+        operationNext: result.page.nextCursor,
+        readVersion: this.value.readVersion + 1,
+        restarted: result.restarted,
       };
     else if (result.kind === "descriptor")
       this.value = {
@@ -957,6 +1079,14 @@ export function ServerReads({
   const [snapshot, setSnapshot] = useState(controller.snapshot());
   useEffect(() => controller.subscribe(setSnapshot), [controller]);
   const panel = view.panels["server-reads"];
+  const operationItem =
+    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/operations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.exec(
+      view.viewKey,
+    );
+  const operationList =
+    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=operations$/.exec(
+      view.viewKey,
+    );
   const descriptorItem =
     /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/descriptors\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.exec(
       view.viewKey,
@@ -1081,6 +1211,34 @@ export function ServerReads({
         </section>
       </div>
     );
+  if (operationItem !== null || operationList !== null) {
+    const serverID = (operationItem ?? operationList)![1]!;
+    return (
+      <div class="domain-view" data-testid="server-operations-view">
+        <ServerTabs serverID={serverID} current="operations" />
+        <DataHeader view={view} onRefresh={onRefresh} />
+        <ReadPanel panel={panel}>
+          {snapshot.server !== undefined &&
+            snapshot.serverETag !== undefined && (
+              <ServerOperations
+                mutations={mutations}
+                server={snapshot.server}
+                etag={snapshot.serverETag}
+                readVersion={snapshot.readVersion}
+                operations={snapshot.operations}
+                operation={
+                  operationItem === null ? undefined : snapshot.operation
+                }
+                nextCursor={snapshot.operationNext}
+                loadingMore={snapshot.loadingMore}
+                restarted={snapshot.restarted}
+                onLoadMore={() => void controller.loadMore("operations")}
+              />
+            )}
+        </ReadPanel>
+      </div>
+    );
+  }
   if (descriptorItem !== null)
     return (
       <div class="domain-view" data-testid="descriptor-detail">
