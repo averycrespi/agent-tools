@@ -39,6 +39,7 @@ interface BridgeInput {
     | "shell-primitives"
     | "secret-sinks"
     | "m3-canary"
+    | "m5-canary"
     | "overview"
     | "invocations"
     | "system-status";
@@ -99,6 +100,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "shell-primitives" &&
       value.scenario !== "secret-sinks" &&
       value.scenario !== "m3-canary" &&
+      value.scenario !== "m5-canary" &&
       value.scenario !== "overview" &&
       value.scenario !== "invocations" &&
       value.scenario !== "system-status") ||
@@ -1776,6 +1778,100 @@ function overviewInvocationFixture() {
       completed_at: null,
     },
   };
+}
+
+async function runM5Canary(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-freshness") === "current",
+  );
+  await page.locator('[data-testid="overview-grid"]').waitFor();
+  await page.waitForFunction(() =>
+    [
+      "overview-status",
+      "overview-servers",
+      "overview-requests",
+      "overview-invocations",
+    ].every(
+      (id) =>
+        document
+          .querySelector(`[data-testid="${id}"]`)
+          ?.getAttribute("data-panel-status") === "current",
+    ),
+  );
+  let body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "Operational posture",
+    "Server attention",
+    "Pending requests",
+    "Recent invocations",
+  ])
+    if (!body.includes(phrase)) fail(`M5 Overview canary omitted ${phrase}`);
+  if (body.includes("redacted_arguments"))
+    fail("M5 Overview canary exposed invocation capture");
+
+  await page.evaluate(() => {
+    window.location.hash = "#/invocations";
+  });
+  await page.locator('[data-testid="invocations-view"]').waitFor();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="invocations-view"]')
+        ?.textContent?.includes("No retained invocations match") === true,
+  );
+  body = (await page.locator("body").textContent()) ?? "";
+  if (
+    !body.includes("bounded recent window of at most 4,096 rows") ||
+    body.includes("redacted_arguments")
+  )
+    fail("M5 invocation canary omitted bounds or exposed capture");
+
+  await page.evaluate(() => {
+    window.location.hash = "#/system";
+  });
+  await page.locator('[data-testid="system-view"]').waitFor();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="system-status-panel"]')
+        ?.getAttribute("data-panel-status") === "current",
+  );
+  if ((await page.locator('[data-testid="system-limit-row"]').count()) !== 31)
+    fail("M5 System canary omitted closed limits");
+
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=recovery";
+  });
+  await page.locator('[data-testid="system-recovery"]').waitFor();
+  body = (await page.locator("body").textContent()) ?? "";
+  if (
+    !body.includes("The browser never invokes these commands") ||
+    !body.includes("mcp-gateway restore --verify-current")
+  )
+    fail("M5 recovery canary omitted stopped-process boundary");
+  if (
+    (await page.locator('[data-testid="system-recovery"] button').count()) !== 0
+  )
+    fail("M5 recovery canary exposed online offline-authority controls");
+
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "m5_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: 4 })}\n`,
+  );
 }
 
 async function runOverview(
@@ -3732,6 +3828,15 @@ try {
       );
     } else if (input.scenario === "m3-canary") {
       await runM3Canary(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "m5-canary") {
+      await runM5Canary(
         browser.version(),
         context,
         page,
