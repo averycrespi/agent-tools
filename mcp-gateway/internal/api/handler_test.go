@@ -5,6 +5,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -277,32 +279,75 @@ func (callback callbackFake) HandleCallback(context.Context, string) oauth.Callb
 	return callback.result
 }
 
-func TestS6StaticOwnershipHasRestrictiveCSPAndExactAssets(t *testing.T) {
+func TestS6StaticDelivery(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
-	response := perform(handler, http.MethodGet, "/", "", nil)
-	if response.Code != 200 {
-		t.Fatalf("shell: %d %s", response.Code, response.Body.String())
-	}
-	csp := response.Header().Get("Content-Security-Policy")
-	for _, required := range []string{"default-src 'self'", "base-uri 'none'", "object-src 'none'", "frame-ancestors 'none'", "form-action 'self'"} {
-		if !strings.Contains(csp, required) {
-			t.Errorf("CSP %q lacks %q", csp, required)
-		}
-	}
-	body := response.Body.String()
-	if strings.Contains(csp, "unsafe-") || strings.Contains(body, "https://") || strings.Count(body, `<script type="module" crossorigin src="/assets/app.js"></script>`) != 1 {
-		t.Fatalf("unsafe or unexpected shell content or CSP: %q %s", csp, body)
-	}
-	for path, contentType := range map[string]string{
+	resources := map[string]string{
+		"/":               "text/html; charset=utf-8",
 		"/assets/app.css": "text/css; charset=utf-8",
 		"/assets/app.js":  "application/javascript; charset=utf-8",
-	} {
-		asset := perform(handler, http.MethodGet, path, "", nil)
-		if asset.Code != 200 || asset.Header().Get("Content-Type") != contentType || asset.Header().Get("X-Content-Type-Options") != "nosniff" {
-			t.Fatalf("asset %s: %d %v", path, asset.Code, asset.Header())
+	}
+	for path, contentType := range resources {
+		response := perform(handler, http.MethodGet, path, "", nil)
+		require.Equal(t, http.StatusOK, response.Code, path+": "+response.Body.String())
+		assert.Equal(t, contentType, response.Header().Get("Content-Type"), path)
+		assert.Equal(t, "no-store", response.Header().Get("Cache-Control"), path)
+		assert.Equal(t, "nosniff", response.Header().Get("X-Content-Type-Options"), path)
+		assert.Equal(t, "no-referrer", response.Header().Get("Referrer-Policy"), path)
+		assert.Empty(t, response.Header().Get("Access-Control-Allow-Origin"), path)
+		if path != "/" {
+			assert.Empty(t, response.Header().Get("Content-Security-Policy"), path)
 		}
 	}
+
+	response := perform(handler, http.MethodGet, "/", "", nil)
+	csp := response.Header().Get("Content-Security-Policy")
+	for _, required := range []string{
+		"default-src 'self'", "script-src 'self'", "style-src 'self'", "connect-src 'self'", "img-src 'self'", "font-src 'self'",
+		"base-uri 'none'", "object-src 'none'", "frame-ancestors 'none'", "form-action 'self'",
+	} {
+		assert.Contains(t, csp, required)
+	}
+	body := response.Body.String()
+	assert.NotContains(t, csp, "unsafe-")
+	assert.NotContains(t, csp, "http:")
+	assert.NotContains(t, csp, "https:")
+	assert.NotContains(t, body, "https://")
+	assert.Equal(t, 1, strings.Count(body, `<script type="module" crossorigin src="/assets/app.js"></script>`))
+
+	for _, path := range []string{"/assets/unknown.js", "/assets/nested/app.js", "/assets/app.js.map", "/assets/main.tsx"} {
+		missing := perform(handler, http.MethodGet, path, "", nil)
+		assert.Equal(t, http.StatusNotFound, missing.Code, path)
+	}
+	for path := range resources {
+		method := perform(handler, http.MethodPost, path, "", nil)
+		assert.Equal(t, http.StatusMethodNotAllowed, method.Code, path)
+		assert.Equal(t, http.MethodGet, method.Header().Get("Allow"), path)
+	}
+
+	webRoot := filepath.Clean(filepath.Join("..", "..", "web", "src"))
+	themeKeyCount := 0
+	require.NoError(t, filepath.Walk(webRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		contents, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		source := string(contents)
+		themeKeyCount += strings.Count(source, "mcp_gateway_theme")
+		if strings.Contains(source, "localStorage") && filepath.Base(path) != "theme.ts" {
+			t.Errorf("%s: localStorage must be owned only by theme.ts", path)
+		}
+		for _, forbidden := range []string{
+			"sessionStorage", "indexedDB", "serviceWorker", "caches.", "dangerouslySetInnerHTML", ".innerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function",
+		} {
+			assert.NotContains(t, source, forbidden, path)
+		}
+		return nil
+	}))
+	assert.Equal(t, 1, themeKeyCount, "the authored application must contain one storage-key literal")
 }
 
 type streamWriter struct {

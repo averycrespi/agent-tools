@@ -9,7 +9,11 @@ import { createInterface } from "node:readline";
 
 interface BridgeInput {
   version: 1;
-  scenario: "shell-load" | "browser-protocol" | "m1-canary";
+  scenario:
+    | "shell-load"
+    | "browser-protocol"
+    | "m1-canary"
+    | "fragment-storage";
   base_url: string;
   admin_bearer: string;
 }
@@ -59,7 +63,8 @@ function parseInitialInput(value: unknown): BridgeInput {
     !("scenario" in value) ||
     (value.scenario !== "shell-load" &&
       value.scenario !== "browser-protocol" &&
-      value.scenario !== "m1-canary") ||
+      value.scenario !== "m1-canary" &&
+      value.scenario !== "fragment-storage") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -475,6 +480,299 @@ async function runProtocol(
   );
 }
 
+interface BrowserStorageSnapshot {
+  local: Array<[string, string]>;
+  session: Array<[string, string]>;
+  databases: string[];
+  caches: string[];
+  registrations: number;
+}
+
+async function browserStorage(page: Page): Promise<BrowserStorageSnapshot> {
+  return page.evaluate(async () => {
+    const entries = (storage: Storage): Array<[string, string]> =>
+      Array.from({ length: storage.length }, (_, index) => {
+        const key = storage.key(index);
+        if (key === null) throw new Error("storage enumeration changed");
+        return [key, storage.getItem(key) ?? ""] as [string, string];
+      }).sort(([left], [right]) => left.localeCompare(right));
+    const databases =
+      indexedDB.databases === undefined
+        ? []
+        : (await indexedDB.databases())
+            .map((database) => database.name ?? "")
+            .sort();
+    const cacheNames = "caches" in window ? (await caches.keys()).sort() : [];
+    const registrations =
+      "serviceWorker" in navigator
+        ? (await navigator.serviceWorker.getRegistrations()).length
+        : 0;
+    return {
+      local: entries(localStorage),
+      session: entries(sessionStorage),
+      databases,
+      caches: cacheNames,
+      registrations,
+    };
+  });
+}
+
+function assertClosedStorage(
+  snapshot: BrowserStorageSnapshot,
+  expectedTheme?: "system" | "light" | "dark",
+): void {
+  const expected =
+    expectedTheme === undefined ? [] : [["mcp_gateway_theme", expectedTheme]];
+  if (
+    JSON.stringify(snapshot.local) !== JSON.stringify(expected) ||
+    snapshot.session.length !== 0 ||
+    snapshot.databases.length !== 0 ||
+    snapshot.caches.length !== 0 ||
+    snapshot.registrations !== 0
+  ) {
+    fail("browser storage boundary changed");
+  }
+}
+
+async function runFragmentStorage(
+  browserVersion: string,
+  page: Page,
+  requestCount: () => number,
+): Promise<void> {
+  const idA = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const idB = "01ARZ3NDEKTSV4RRFFQ69G5FAW";
+  const accepted: Array<[string, string]> = [
+    ["#/overview", "#/overview"],
+    ["#/servers", "#/servers"],
+    ["#/servers/new", "#/servers/new"],
+    [`#/servers/${idA}`, `#/servers/${idA}`],
+    ...["overview", "operations", "oauth", "credentials", "descriptors"].map(
+      (tab): [string, string] => [
+        `#/servers/${idA}?tab=${tab}`,
+        tab === "overview" ? `#/servers/${idA}` : `#/servers/${idA}?tab=${tab}`,
+      ],
+    ),
+    [
+      `#/servers/${idA}/operations/${idB}`,
+      `#/servers/${idA}/operations/${idB}`,
+    ],
+    [
+      `#/servers/${idA}/auth-flows/${idB}`,
+      `#/servers/${idA}/auth-flows/${idB}`,
+    ],
+    [
+      `#/servers/${idA}/descriptors/${idB}`,
+      `#/servers/${idA}/descriptors/${idB}`,
+    ],
+    ["#/catalog", "#/catalog"],
+    ["#/access/principals", "#/access/principals"],
+    ["#/access/principals/new", "#/access/principals/new"],
+    [`#/access/principals/${idA}`, `#/access/principals/${idA}`],
+    ["#/access/grants", "#/access/grants"],
+    ["#/access/grants/new", "#/access/grants/new"],
+    [
+      `#/access/grants/new?server_id=${idB}&principal_id=${idA}`,
+      `#/access/grants/new?principal_id=${idA}&server_id=${idB}`,
+    ],
+    [`#/access/grants/${idA}`, `#/access/grants/${idA}`],
+    [
+      `#/access/grants?principal_id=${idA}`,
+      `#/access/grants?principal_id=${idA}`,
+    ],
+    [`#/access/grants?server_id=${idB}`, `#/access/grants?server_id=${idB}`],
+    [
+      `#/access/grants?server_id=${idB}&principal_id=${idA}`,
+      `#/access/grants?principal_id=${idA}&server_id=${idB}`,
+    ],
+    ["#/requests", "#/requests"],
+    [`#/requests/${idA}`, `#/requests/${idA}`],
+    ...["pending", "approved", "rejected", "cancelled"].map(
+      (state): [string, string] => [
+        `#/requests?state=${state}`,
+        `#/requests?state=${state}`,
+      ],
+    ),
+    [
+      `#/requests?state=pending&principal_id=${idA}`,
+      `#/requests?principal_id=${idA}&state=pending`,
+    ],
+    ["#/invocations", "#/invocations"],
+    [`#/invocations/${idA}`, `#/invocations/${idA}`],
+    [`#/invocations?principal_id=${idA}`, `#/invocations?principal_id=${idA}`],
+    [`#/invocations?server_id=${idB}`, `#/invocations?server_id=${idB}`],
+    ...[
+      "invalid_params",
+      "unknown_tool",
+      "invalid_arguments",
+      "authorization_unavailable",
+      "evaluated",
+    ].map((value): [string, string] => [
+      `#/invocations?admission_class=${value}`,
+      `#/invocations?admission_class=${value}`,
+    ]),
+    ...["allow", "deny", "block"].map((value): [string, string] => [
+      `#/invocations?decision=${value}`,
+      `#/invocations?decision=${value}`,
+    ]),
+    ...[
+      "invalid_params",
+      "unknown_tool",
+      "invalid_arguments",
+      "authorization_unavailable",
+      "deny",
+      "block",
+      "prestart_failure",
+      "succeeded",
+      "downstream_failure",
+      "outcome_unknown",
+    ].map((value): [string, string] => [
+      `#/invocations?outcome=${value}`,
+      `#/invocations?outcome=${value}`,
+    ]),
+    [
+      `#/invocations?outcome=succeeded&decision=allow&server_id=${idB}&principal_id=${idA}&admission_class=evaluated`,
+      `#/invocations?principal_id=${idA}&server_id=${idB}&admission_class=evaluated&decision=allow&outcome=succeeded`,
+    ],
+    ["#/system", "#/system"],
+    ...["status", "admin-credentials", "backups", "recovery"].map(
+      (tab): [string, string] => [
+        `#/system?tab=${tab}`,
+        tab === "status" ? "#/system" : `#/system?tab=${tab}`,
+      ],
+    ),
+    ["#/sign-in", "#/sign-in"],
+  ];
+  const requestsBeforeLocations = requestCount();
+  for (const [raw, canonical] of accepted) {
+    await page.evaluate((fragment) => {
+      window.location.hash = fragment;
+    }, raw);
+    await page.waitForFunction(
+      (expected) => window.location.hash === expected,
+      canonical,
+    );
+    if ((await page.locator('[data-testid="location-notice"]').count()) !== 0)
+      fail("accepted fragment reported invalid");
+  }
+
+  await page.evaluate(() => {
+    window.location.hash = "#/overview";
+  });
+  await page.waitForFunction(() => window.location.hash === "#/overview");
+  await page.locator('a[href="#/servers"]').click();
+  await page.waitForFunction(() => window.location.hash === "#/servers");
+  await page.goBack();
+  await page.waitForFunction(() => window.location.hash === "#/overview");
+
+  const fragmentCanary = "fragment-secret-canary-41f95d";
+  const invalid = [
+    "overview",
+    "#overview",
+    "#/",
+    "#//overview",
+    "#/overview/",
+    "#/over%76iew",
+    "#/overview?",
+    "#/overview?unknown=x",
+    "#/overview?cursor=x",
+    "#/overview?requested_name=secret",
+    `#/servers/${idA.toLowerCase()}`,
+    `#/servers/${idA}?tab=unknown`,
+    `#/servers/${idA}?tab=oauth&tab=oauth`,
+    `#/servers/${idA}?tab=null`,
+    "#/requests?state=unknown",
+    "#/invocations?decision=ALLOW",
+    "#/invocations?outcome=unknown",
+    "#/https://example.com",
+    "#/overview/é",
+    "#/overview/\n",
+    `#/overview?x=${"a".repeat(2050)}`,
+  ];
+  for (const raw of invalid) {
+    await page.evaluate((fragment) => {
+      window.location.hash = fragment;
+    }, raw);
+    await page.waitForFunction(() => window.location.hash === "#/sign-in");
+    if ((await page.locator('[data-testid="location-notice"]').count()) !== 1)
+      fail("invalid fragment did not report fixed notice");
+  }
+
+  await page.evaluate(() => {
+    window.location.hash = "#/overview";
+  });
+  await page.waitForFunction(() => window.location.hash === "#/overview");
+  const historyBeforeInvalid = await page.evaluate(() => history.length);
+  await page.evaluate((canary) => {
+    window.location.hash = `#/servers//${canary}`;
+  }, fragmentCanary);
+  await page.waitForFunction(() => window.location.hash === "#/sign-in");
+  const invalidState = await page.evaluate(
+    (canary) => ({
+      historyLength: history.length,
+      urlContains: window.location.href.includes(canary),
+      domContains: document.documentElement.outerHTML.includes(canary),
+    }),
+    fragmentCanary,
+  );
+  if (
+    invalidState.historyLength > historyBeforeInvalid + 1 ||
+    invalidState.urlContains ||
+    invalidState.domContains
+  ) {
+    fail("invalid fragment was retained or rendered");
+  }
+  await page.goBack();
+  await page.waitForFunction(() => window.location.hash === "#/overview");
+  if (requestCount() !== requestsBeforeLocations)
+    fail("fragment navigation made a network request");
+
+  assertClosedStorage(await browserStorage(page));
+  for (const preference of ["light", "dark", "system"] as const) {
+    await page
+      .locator('[data-testid="theme-preference"]')
+      .selectOption(preference);
+    await page.waitForFunction(
+      (expected) =>
+        document.documentElement.dataset.themePreference === expected,
+      preference,
+    );
+    assertClosedStorage(await browserStorage(page), preference);
+  }
+  await page.reload({ waitUntil: "networkidle" });
+  if (
+    (await page.locator('[data-testid="theme-preference"]').inputValue()) !==
+    "system"
+  ) {
+    fail("theme preference did not survive reload");
+  }
+  assertClosedStorage(await browserStorage(page), "system");
+
+  const storageCanary = "theme-secret-canary-7a20f1";
+  await page.evaluate((canary) => {
+    localStorage.setItem("mcp_gateway_theme", canary);
+  }, storageCanary);
+  await page.reload({ waitUntil: "networkidle" });
+  assertClosedStorage(await browserStorage(page));
+  const finalDocument = await page.content();
+  if (
+    finalDocument.includes(fragmentCanary) ||
+    finalDocument.includes(storageCanary) ||
+    page.url().includes(fragmentCanary) ||
+    page.url().includes(storageCanary)
+  ) {
+    fail("location or storage canary reached an active browser sink");
+  }
+
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "fragment_storage_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+    })}\n`,
+  );
+}
+
 let browser: Browser | undefined;
 try {
   let input = parseInitialInput(await readBoundedInput());
@@ -539,6 +837,8 @@ try {
         initialBearer,
         () => requests,
       );
+    } else if (input.scenario === "fragment-storage") {
+      await runFragmentStorage(browser.version(), page, () => requests);
     } else {
       await runProtocol(
         browser.version(),
