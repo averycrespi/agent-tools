@@ -5,6 +5,7 @@ import {
   type Destination,
   type ResolvedLocation,
 } from "./location";
+import { MutationCoordinator, type MutationAvailability } from "./mutation";
 import {
   SessionClient,
   type SessionLifecycle,
@@ -57,6 +58,9 @@ const initialLocation = synchronizeFragment(false);
 const initialTheme = readThemePreference();
 const sessionClient = new SessionClient();
 const viewCoordinator = new ViewCoordinator(sessionClient);
+const mutationCoordinator = new MutationCoordinator(sessionClient, {
+  refreshCurrent: () => viewCoordinator.manualRefresh(),
+});
 applyTheme(initialTheme);
 
 function SignInPanel({
@@ -152,6 +156,8 @@ function App() {
   );
   const [resolved, setResolved] = useState<ResolvedLocation>(initialLocation);
   const [view, setView] = useState<ViewSnapshot>(viewCoordinator.snapshot());
+  const [mutationAvailability, setMutationAvailability] =
+    useState<MutationAvailability>(mutationCoordinator.snapshot());
   const [theme, setTheme] = useState<ThemePreference>(initialTheme);
   const priorLifecycle = useRef<SessionLifecycle>(session.lifecycle);
 
@@ -162,6 +168,7 @@ function App() {
   }, []);
 
   useEffect(() => viewCoordinator.subscribe(setView), []);
+  useEffect(() => mutationCoordinator.subscribe(setMutationAvailability), []);
 
   useEffect(() => {
     const authenticated = session.lifecycle === "authenticated";
@@ -218,6 +225,7 @@ function App() {
       data-session-lifecycle={session.lifecycle}
       data-view-generation={view.generation}
       data-freshness={view.freshness}
+      data-mutation-availability={mutationAvailability}
     >
       <header class="masthead">
         <a class="wordmark" href="#/overview" aria-label="MCP Gateway overview">

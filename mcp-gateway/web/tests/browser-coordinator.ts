@@ -4,9 +4,10 @@ import {
   type BrowserContext,
   type Page,
   type Request,
-  type Response,
+  type Response as PlaywrightResponse,
 } from "@playwright/test";
 import { createInterface } from "node:readline";
+import { MutationCoordinator, type MutationSpec } from "../src/mutation.ts";
 import {
   parseProblem,
   parseSessionBootstrap,
@@ -26,7 +27,8 @@ interface BridgeInput {
     | "m1-canary"
     | "fragment-storage"
     | "authentication-epoch"
-    | "read-generation";
+    | "read-generation"
+    | "mutation-state";
   base_url: string;
   admin_bearer: string;
 }
@@ -79,7 +81,8 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "m1-canary" &&
       value.scenario !== "fragment-storage" &&
       value.scenario !== "authentication-epoch" &&
-      value.scenario !== "read-generation") ||
+      value.scenario !== "read-generation" &&
+      value.scenario !== "mutation-state") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -217,7 +220,7 @@ async function bootstrap(
 async function expiryResponse(
   page: Page,
   operation: () => Promise<unknown>,
-): Promise<Response> {
+): Promise<PlaywrightResponse> {
   const response = page.waitForResponse(
     (candidate) =>
       candidate.request().method() === "POST" &&
@@ -1585,6 +1588,354 @@ async function runReadGeneration(
   );
 }
 
+function problemResponse(status: number, code: string): Response {
+  return new Response(
+    JSON.stringify({ status, code, title: `Safe ${code} response.` }),
+    {
+      status,
+      headers: { "Content-Type": "application/problem+json" },
+    },
+  );
+}
+
+function mutationSpec(
+  overrides: Partial<MutationSpec<string>> = {},
+): MutationSpec<string> {
+  return {
+    route: "/api/v1/servers",
+    method: "POST",
+    body: '{"namespace":"alpha"}',
+    precondition: null,
+    requiresPrecondition: false,
+    idempotency: "server_create",
+    successStatuses: [201],
+    decode: async (response) => {
+      if (response.headers.get("Content-Type") !== "application/json")
+        throw new Error("invalid success type");
+      const value = (await response.json()) as unknown;
+      if (
+        typeof value !== "object" ||
+        value === null ||
+        !("result" in value) ||
+        typeof value.result !== "string"
+      ) {
+        throw new Error("invalid success body");
+      }
+      return value.result;
+    },
+    ...overrides,
+  };
+}
+
+async function assertMutationFoundation(): Promise<void> {
+  const fakeSessionRequest: typeof fetch = async (input) => {
+    if (String(input) === "/api/v1/admin-sessions/current") {
+      return problemResponse(401, "authentication_required");
+    }
+    return new Response(JSON.stringify(sessionFixture()), {
+      status: 201,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  const session = new SessionClient(fakeSessionRequest);
+  session.start();
+  await eventually(
+    () => session.snapshot().lifecycle === "signed_out",
+    "mutation session did not settle signed out",
+  );
+  if (!(await session.exchange("mgw_admin_mutation-state-canary")))
+    fail("mutation session exchange failed");
+
+  interface ObservedMutation {
+    route: string;
+    method: string;
+    body: string | null;
+    precondition: string | null;
+    idempotencyKey: string | null;
+    csrf: string | null;
+  }
+  const observed: ObservedMutation[] = [];
+  const steps: Array<() => Promise<Response>> = [];
+  const request: typeof fetch = async (input, init) => {
+    const headers = new Headers(init?.headers);
+    observed.push({
+      route: String(input),
+      method: init?.method ?? "",
+      body: typeof init?.body === "string" ? init.body : null,
+      precondition: headers.get("If-Match"),
+      idempotencyKey: headers.get("Idempotency-Key"),
+      csrf: headers.get("X-CSRF-Token"),
+    });
+    const step = steps.shift();
+    if (step === undefined) throw new Error("unexpected mutation request");
+    return step();
+  };
+  let refreshes = 0;
+  let keySequence = 0;
+  const coordinator = new MutationCoordinator(session, {
+    request,
+    refreshCurrent: () => {
+      refreshes += 1;
+    },
+    key: () => `test-key-${(keySequence += 1)}`,
+  });
+  const controller = coordinator.create<string>();
+
+  let releaseFirst: (() => void) | undefined;
+  const firstBarrier = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  steps.push(async () => {
+    await firstBarrier;
+    throw new Error("post-handoff transport loss");
+  });
+  controller.begin(mutationSpec());
+  controller.confirm();
+  const initial = controller.submit();
+  const duplicate = controller.submit();
+  if (initial !== duplicate || controller.snapshot().state !== "submitting")
+    fail("duplicate submission was not fenced");
+  releaseFirst?.();
+  const uncertain = await initial;
+  if (
+    uncertain.kind !== "uncertain" ||
+    !controller.snapshot().canReplay ||
+    observed.length !== 1 ||
+    observed[0]?.idempotencyKey !== "test-key-1" ||
+    observed[0]?.csrf !== "A".repeat(43)
+  ) {
+    fail("idempotent uncertainty tuple was not retained exactly");
+  }
+  await Promise.resolve();
+  if (observed.length !== 1) fail("uncertain mutation replayed automatically");
+
+  steps.push(
+    async () =>
+      new Response('{"result":"replayed"}', {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+  const replayed = await controller.replay();
+  if (
+    replayed.kind !== "acknowledged" ||
+    replayed.value !== "replayed" ||
+    observed[1]?.idempotencyKey !== "test-key-1" ||
+    controller.snapshot().canReplay
+  ) {
+    fail("explicit same-intent replay changed its tuple");
+  }
+
+  steps.push(async () => {
+    throw new Error("uncertain first edit");
+  });
+  controller.begin(mutationSpec({ body: '{"namespace":"bravo"}' }));
+  await controller.submit();
+  if (observed[2]?.idempotencyKey !== "test-key-2")
+    fail("edited idempotent intent did not mint a new tuple");
+  steps.push(
+    async () =>
+      new Response('{"result":"edited"}', {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+  controller.begin(mutationSpec({ body: '{"namespace":"charlie"}' }));
+  const edited = await controller.submit();
+  if (
+    edited.kind !== "acknowledged" ||
+    observed[3]?.idempotencyKey !== "test-key-3"
+  ) {
+    fail("different intent reused an uncertain idempotency tuple");
+  }
+
+  const resourceID = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const precondition = `"server-${resourceID}-7"`;
+  const conditional = mutationSpec({
+    route: `/api/v1/servers/${resourceID}`,
+    method: "PATCH",
+    body: '{"display_name":"updated"}',
+    precondition,
+    requiresPrecondition: true,
+    idempotency: "none",
+    successStatuses: [200],
+  });
+  for (const [status, code, shouldRefresh] of [
+    [412, "stale_revision", true],
+    [428, "precondition_required", true],
+    [409, "conflict", true],
+    [429, "resource_limit", false],
+    [503, "keyring_unavailable", false],
+  ] as const) {
+    steps.push(async () => problemResponse(status, code));
+    controller.begin(conditional);
+    controller.confirm();
+    const outcome = await controller.submit();
+    if (
+      outcome.kind !== "rejected" ||
+      outcome.requiresRefresh !== shouldRefresh ||
+      controller.snapshot().requiresRefresh !== shouldRefresh ||
+      observed.at(-1)?.precondition !== precondition
+    ) {
+      fail(`conditional mutation classification changed for ${status}`);
+    }
+  }
+  if (refreshes !== 3)
+    fail("conflicts did not trigger exact authoritative refreshes");
+
+  steps.push(async () => problemResponse(503, "storage_unavailable"));
+  controller.begin(conditional);
+  const latched = await controller.submit();
+  if (
+    latched.kind !== "uncertain" ||
+    coordinator.snapshot() !== "storage_latched" ||
+    controller.snapshot().availability !== "storage_latched"
+  ) {
+    fail("storage-latched response did not close global mutation admission");
+  }
+  const blocked = coordinator.create<string>();
+  blocked.begin(conditional);
+  const requestCountAtLatch = observed.length;
+  if (
+    (await blocked.submit()).kind !== "discarded" ||
+    observed.length !== requestCountAtLatch
+  ) {
+    fail("storage latch admitted a new mutation");
+  }
+  coordinator.setStorageLatched(false);
+
+  steps.push(async () => {
+    throw new Error("non-idempotent transport loss");
+  });
+  blocked.begin(conditional);
+  const nonIdempotent = await blocked.submit();
+  if (
+    nonIdempotent.kind !== "uncertain" ||
+    blocked.snapshot().canReplay ||
+    (await blocked.replay()).kind !== "discarded"
+  ) {
+    fail("non-idempotent uncertainty offered replay");
+  }
+
+  const invalidResponse = coordinator.create<string>();
+  steps.push(
+    async () =>
+      new Response("not-json", {
+        status: 201,
+        headers: { "Content-Type": "text/plain" },
+      }),
+  );
+  invalidResponse.begin(mutationSpec());
+  const invalid = await invalidResponse.submit();
+  if (invalid.kind !== "uncertain" || !invalidResponse.snapshot().canReplay)
+    fail("invalid post-handoff success was not uncertain");
+
+  const epochTuple = coordinator.create<string>();
+  steps.push(async () => {
+    throw new Error("epoch-loss uncertainty");
+  });
+  epochTuple.begin(mutationSpec());
+  await epochTuple.submit();
+  if (!epochTuple.snapshot().canReplay)
+    fail("epoch tuple setup did not become uncertain");
+  await session.recoverAfterSessionLoss();
+  if (
+    epochTuple.snapshot().state !== "editing" ||
+    epochTuple.snapshot().canReplay
+  ) {
+    fail("authentication epoch loss retained mutation recovery state");
+  }
+
+  const requestCountBeforeInvalid = observed.length;
+  let invalidSpecRejected = false;
+  try {
+    controller.begin(
+      mutationSpec({
+        route: "/api/v1/servers?unsafe=true",
+        idempotency: "server_create",
+      }),
+    );
+  } catch {
+    invalidSpecRejected = true;
+  }
+  if (!invalidSpecRejected || observed.length !== requestCountBeforeInvalid)
+    fail("invalid mutation reached handoff");
+
+  const routeValidation = coordinator.create<string>();
+  routeValidation.begin(
+    mutationSpec({
+      route: "/api/v1/backups",
+      body: "{}",
+      idempotency: "backup_create",
+    }),
+  );
+  routeValidation.abandon();
+  routeValidation.begin(
+    mutationSpec({
+      route: `/api/v1/servers/${resourceID}/operations`,
+      body: '{"kind":"reload"}',
+      precondition,
+      requiresPrecondition: true,
+      idempotency: "operation_start",
+      successStatuses: [200, 202],
+    }),
+  );
+  routeValidation.abandon();
+  let missingMechanicsRejected = false;
+  try {
+    routeValidation.begin(
+      mutationSpec({
+        route: `/api/v1/servers/${resourceID}/operations`,
+        body: '{"kind":"reload"}',
+        idempotency: "none",
+      }),
+    );
+  } catch {
+    missingMechanicsRejected = true;
+  }
+  if (!missingMechanicsRejected)
+    fail("route-specific idempotency and precondition mechanics were optional");
+  coordinator.close();
+}
+
+async function runMutationState(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await assertMutationFoundation();
+  await waitForLifecycle(page, "signed_out");
+  if (
+    (await page
+      .locator('[data-testid="gateway-shell"]')
+      .getAttribute("data-mutation-availability")) !== "enabled"
+  ) {
+    fail("application mutation admission did not start enabled");
+  }
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  if (
+    (await page
+      .locator('[data-testid="gateway-shell"]')
+      .getAttribute("data-mutation-availability")) !== "enabled"
+  ) {
+    fail("authentication changed mutation availability");
+  }
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "mutation_state_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+    })}\n`,
+  );
+}
+
 let browser: Browser | undefined;
 try {
   let input = parseInitialInput(await readBoundedInput());
@@ -1662,6 +2013,15 @@ try {
       );
     } else if (input.scenario === "read-generation") {
       await runReadGeneration(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "mutation-state") {
+      await runMutationState(
         browser.version(),
         context,
         page,
