@@ -39,7 +39,8 @@ interface BridgeInput {
     | "shell-primitives"
     | "secret-sinks"
     | "m3-canary"
-    | "overview";
+    | "overview"
+    | "invocations";
   base_url: string;
   admin_bearer: string;
 }
@@ -97,7 +98,8 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "shell-primitives" &&
       value.scenario !== "secret-sinks" &&
       value.scenario !== "m3-canary" &&
-      value.scenario !== "overview") ||
+      value.scenario !== "overview" &&
+      value.scenario !== "invocations") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -2065,6 +2067,431 @@ async function runOverview(
   );
 }
 
+const invocationIDs = {
+  principal: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  server: "01ARZ3NDEKTSV4RRFFQ69G5FA0",
+  credential: "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+  tool: "01ARZ3NDEKTSV4RRFFQ69G5FA3",
+  grant: "01ARZ3NDEKTSV4RRFFQ69G5FA4",
+  admission: "01ARZ3NDEKTSV4RRFFQ69G5FA5",
+  policy: "01ARZ3NDEKTSV4RRFFQ69G5FA6",
+  terminal: "01ARZ3NDEKTSV4RRFFQ69G5FA7",
+  explicitUnknown: "01ARZ3NDEKTSV4RRFFQ69G5FA8",
+  missing: "01ARZ3NDEKTSV4RRFFQ69G5FA9",
+  stale: "01ARZ3NDEKTSV4RRFFQ69G5FAA",
+} as const;
+
+function invocationTarget(kind: "downstream" | "gateway") {
+  return {
+    kind,
+    server_id:
+      kind === "gateway" ? "00000000000000000000000000" : invocationIDs.server,
+    tool_id: invocationIDs.tool,
+    upstream_name: kind === "gateway" ? "get_identity" : "allowed",
+    descriptor_revision: "7",
+    descriptor_fingerprint: "d".repeat(64),
+  };
+}
+function invocationAuthorization(decision: "allow" | "deny") {
+  return {
+    decision,
+    revision: "9",
+    evaluated_at: "2026-08-28T12:00:01Z",
+    grant_id: decision === "allow" ? invocationIDs.grant : null,
+  };
+}
+function invocationFixture(
+  id: string,
+  basis: "admission" | "policy" | "terminal" | "missing_terminal",
+  outcome: string,
+  kind: "downstream" | "gateway" | null = null,
+) {
+  const evaluated = basis !== "admission";
+  return {
+    id,
+    principal_id: invocationIDs.principal,
+    credential_id: invocationIDs.credential,
+    credential_fingerprint: "0123456789abcdef",
+    credential_revision: "3",
+    admitted_at: "2026-08-28T12:00:00Z",
+    admission_class: evaluated ? "evaluated" : "invalid_params",
+    requested_name: evaluated
+      ? kind === "gateway"
+        ? "mcp_gateway.get_identity"
+        : "namespace.allowed"
+      : null,
+    target: kind === null ? null : invocationTarget(kind),
+    authorization: !evaluated
+      ? null
+      : invocationAuthorization(basis === "policy" ? "deny" : "allow"),
+    outcome: {
+      class: outcome,
+      basis,
+      completed_at: basis === "terminal" ? "2026-08-28T12:00:02Z" : null,
+    },
+  };
+}
+
+async function runInvocations(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-freshness") === "current",
+  );
+
+  const captureCanary = `INVOCATION_CAPTURE_<script>${"C".repeat(64)}`;
+  let listReads = 0;
+  let continuationReads = 0;
+  let itemReads = 0;
+  let staleMode = false;
+  let staleRestarted = false;
+  let itemMissing = false;
+  await page.route("**/api/v1/invocations**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const headers = await request.allHeaders();
+    if (
+      request.method() !== "GET" ||
+      request.postData() !== null ||
+      headers["x-csrf-token"] === undefined
+    )
+      fail("invocation view issued an unauthenticated or non-read request");
+    if (url.pathname !== "/api/v1/invocations") {
+      if (
+        url.pathname !== `/api/v1/invocations/${invocationIDs.missing}` ||
+        url.search !== ""
+      )
+        fail("invocation item request changed shape");
+      itemReads += 1;
+      if (itemMissing) {
+        await route.fulfill({
+          status: 404,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 404,
+            code: "not_found",
+            title: "The resource was not found.",
+          }),
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            ...invocationFixture(
+              invocationIDs.missing,
+              "missing_terminal",
+              "outcome_unknown",
+              "gateway",
+            ),
+            redacted_arguments: { note: captureCanary, token: "[REDACTED]" },
+          }),
+        });
+      }
+      return;
+    }
+    const query = url.searchParams;
+    const allowed = new Set([
+      "limit",
+      "cursor",
+      "principal_id",
+      "server_id",
+      "requested_name",
+      "admission_class",
+      "decision",
+      "outcome",
+    ]);
+    if (
+      query.get("limit") !== "50" ||
+      [...query.keys()].some((key) => !allowed.has(key)) ||
+      [...query.keys()].some((key) => query.getAll(key).length !== 1)
+    )
+      fail("invocation list request changed shape");
+    const cursor = query.get("cursor");
+    if (cursor !== null) continuationReads += 1;
+    else listReads += 1;
+    if (staleMode) {
+      if (cursor === "stale-floor") {
+        staleRestarted = true;
+        await route.fulfill({
+          status: 409,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 409,
+            code: "stale_cursor",
+            title: "The cursor snapshot is no longer available.",
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(
+          staleRestarted
+            ? {
+                items: [
+                  invocationFixture(
+                    invocationIDs.missing,
+                    "missing_terminal",
+                    "outcome_unknown",
+                    "gateway",
+                  ),
+                ],
+                next_cursor: null,
+              }
+            : {
+                items: [
+                  invocationFixture(
+                    invocationIDs.stale,
+                    "terminal",
+                    "succeeded",
+                    "downstream",
+                  ),
+                ],
+                next_cursor: "stale-floor",
+              },
+        ),
+      });
+      return;
+    }
+    if (query.has("requested_name") || query.has("outcome")) {
+      if (
+        query.get("principal_id") !== invocationIDs.principal ||
+        query.get("server_id") !== invocationIDs.server ||
+        query.get("admission_class") !== "evaluated" ||
+        query.get("decision") !== "allow" ||
+        query.get("outcome") !== "outcome_unknown" ||
+        (query.has("requested_name") &&
+          query.get("requested_name") !== "live-only.tool")
+      )
+        fail("invocation fragment or requested-name filters changed");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            invocationFixture(
+              invocationIDs.missing,
+              "missing_terminal",
+              "outcome_unknown",
+              "gateway",
+            ),
+          ],
+          next_cursor: null,
+        }),
+      });
+      return;
+    }
+    if (cursor === "page-2") {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            invocationFixture(
+              invocationIDs.terminal,
+              "terminal",
+              "succeeded",
+              "downstream",
+            ),
+            invocationFixture(
+              invocationIDs.explicitUnknown,
+              "terminal",
+              "outcome_unknown",
+              "downstream",
+            ),
+            invocationFixture(
+              invocationIDs.missing,
+              "missing_terminal",
+              "outcome_unknown",
+              "gateway",
+            ),
+          ],
+          next_cursor: null,
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          invocationFixture(
+            invocationIDs.admission,
+            "admission",
+            "invalid_params",
+          ),
+          invocationFixture(
+            invocationIDs.policy,
+            "policy",
+            "deny",
+            "downstream",
+          ),
+        ],
+        next_cursor: "page-2",
+      }),
+    });
+  });
+
+  await page.evaluate(() => {
+    window.location.hash = "#/invocations";
+  });
+  await page.locator('[data-testid="invocations-view"]').waitFor();
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-testid="invocation-row"]').length === 2,
+  );
+  let body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "bounded recent window of at most 4,096 rows",
+    "FIFO eviction has no age guarantee",
+    "Filtered pages are independently coherent",
+    "Recorded principal",
+    "Recorded credential",
+  ])
+    if (!body.includes(phrase)) fail(`invocation list omitted ${phrase}`);
+  if (body.includes(captureCanary) || body.includes("redacted_arguments"))
+    fail("invocation collection exposed item capture");
+
+  const beforePoll = listReads;
+  await page.waitForTimeout(5100);
+  if (listReads !== beforePoll + 1)
+    fail("invocation list did not poll at five seconds");
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const hiddenReads = listReads;
+  await page.waitForTimeout(5100);
+  if (listReads !== hiddenReads) fail("invocation list polled while hidden");
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.waitForTimeout(5100);
+  if (listReads !== hiddenReads + 1)
+    fail("invocation list polling did not resume");
+
+  const beforeContinuation = continuationReads;
+  await page.evaluate(() => {
+    const button = document.querySelector<HTMLButtonElement>(
+      '[data-testid="load-older-invocations"]',
+    );
+    button?.click();
+    button?.click();
+  });
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-testid="invocation-row"]').length === 5,
+  );
+  if (continuationReads !== beforeContinuation + 1)
+    fail("invocation continuation was duplicated");
+  body = (await page.locator("body").textContent()) ?? "";
+  for (const basis of ["admission", "policy", "terminal", "missing_terminal"])
+    if (!body.includes(basis)) fail(`invocation list omitted ${basis} basis`);
+
+  const fragment = `#/invocations?outcome=outcome_unknown&decision=allow&server_id=${invocationIDs.server}&principal_id=${invocationIDs.principal}&admission_class=evaluated`;
+  await page.evaluate((value) => {
+    window.location.hash = value;
+  }, fragment);
+  const canonical = `#/invocations?principal_id=${invocationIDs.principal}&server_id=${invocationIDs.server}&admission_class=evaluated&decision=allow&outcome=outcome_unknown`;
+  await page.waitForFunction(
+    (value) => window.location.hash === value,
+    canonical,
+  );
+  await page
+    .locator('[data-testid="requested-name-filter"]')
+    .fill("live-only.tool");
+  await page.locator('[data-testid="apply-requested-name"]').click();
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-testid="invocation-row"]').length === 1,
+  );
+  if ((await page.evaluate(() => window.location.hash)) !== canonical)
+    fail("live requested-name filter entered the fragment");
+  const storage = await browserStorage(page);
+  if (JSON.stringify(storage).includes("live-only.tool"))
+    fail("live requested-name filter entered browser storage");
+
+  staleMode = true;
+  staleRestarted = false;
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector('[data-testid="load-older-invocations"]') !== null,
+  );
+  await page.locator('[data-testid="load-older-invocations"]').click();
+  await page.waitForFunction(
+    (selector) => document.querySelector(selector) !== null,
+    `a[href="#/invocations/${invocationIDs.missing}"]`,
+  );
+  body = (await page.locator("body").textContent()) ?? "";
+  if (!staleRestarted || body.includes(invocationIDs.stale))
+    fail("stale invocation traversal was merged instead of restarted");
+
+  await page
+    .locator(`a[href="#/invocations/${invocationIDs.missing}"]`)
+    .click();
+  await page.locator('[data-testid="invocation-detail"]').waitFor();
+  body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "Gateway-owned local target",
+    "not proof of downstream handoff",
+    "does not automatically replay",
+    "explicit caller retry can duplicate an effect",
+    "Recorded target",
+  ])
+    if (!body.includes(phrase)) fail(`invocation detail omitted ${phrase}`);
+  if (
+    !body.includes(captureCanary) ||
+    (await page.locator("script").count()) !== 1 ||
+    (await page.evaluate(
+      () =>
+        (window as unknown as { __invocation_capture__?: boolean })
+          .__invocation_capture__ === true,
+    ))
+  )
+    fail("invocation capture was not inert item-only content");
+
+  itemMissing = true;
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page.locator('[data-testid="invocation-missing"]').waitFor();
+  body = (await page.locator("body").textContent()) ?? "";
+  if (
+    body.includes(captureCanary) ||
+    !body.includes(
+      "missing or evicted item does not prove it never existed or never executed",
+    )
+  )
+    fail("evicted invocation guidance was unsafe");
+
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "invocations_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), list_reads: listReads, continuation_reads: continuationReads, item_reads: itemReads })}\n`,
+  );
+}
+
 async function runReadGeneration(
   browserVersion: string,
   context: BrowserContext,
@@ -3053,6 +3480,19 @@ try {
               .startsWith(
                 "Failed to load resource: the server responded with a status of 503",
               ))
+        ) &&
+        !(
+          input.scenario === "invocations" &&
+          (message
+            .text()
+            .startsWith(
+              "Failed to load resource: the server responded with a status of 409",
+            ) ||
+            message
+              .text()
+              .startsWith(
+                "Failed to load resource: the server responded with a status of 404",
+              ))
         )
       ) {
         consoleFailures.push(message.text());
@@ -3136,6 +3576,15 @@ try {
       );
     } else if (input.scenario === "overview") {
       await runOverview(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "invocations") {
+      await runInvocations(
         browser.version(),
         context,
         page,

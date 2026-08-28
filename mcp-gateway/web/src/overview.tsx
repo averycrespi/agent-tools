@@ -1,5 +1,6 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
+import { decodeInvocationPage, type InvocationPageView } from "./invocations";
 import { ComparisonTable, StateNotice, StatusLabel } from "./primitives";
 import type { SessionClient } from "./session";
 import type {
@@ -83,23 +84,11 @@ interface RequestSummary {
   items: RequestView[];
   complete: boolean;
 }
-interface InvocationView {
-  id: string;
-  requestedName: string;
-  admittedAt: string;
-  outcome: string;
-  basis: string;
-}
-interface InvocationSummary {
-  items: InvocationView[];
-  retainedWindow: boolean;
-}
-
 export interface OverviewSnapshot {
   status?: StatusView;
   servers?: ServerSummary;
   requests?: RequestSummary;
-  invocations?: InvocationSummary;
+  invocations?: InvocationPageView;
 }
 
 type Listener = (snapshot: OverviewSnapshot) => void;
@@ -458,91 +447,6 @@ function decodeRequestPage(value: unknown): RequestSummary {
   });
   return { items, complete: cursor(page.next_cursor) === null };
 }
-function decodeInvocationPage(value: unknown): InvocationSummary {
-  const page = record(value, ["items", "next_cursor"]);
-  const items = array(page.items).map((candidate): InvocationView => {
-    const item = record(candidate, [
-      "id",
-      "principal_id",
-      "credential_id",
-      "credential_fingerprint",
-      "credential_revision",
-      "admitted_at",
-      "admission_class",
-      "requested_name",
-      "target",
-      "authorization",
-      "outcome",
-    ]);
-    identifier(item.principal_id);
-    identifier(item.credential_id);
-    stringValue(item.credential_fingerprint);
-    stringValue(item.credential_revision);
-    closed(item.admission_class, [
-      "invalid_params",
-      "unknown_tool",
-      "invalid_arguments",
-      "authorization_unavailable",
-      "evaluated",
-    ]);
-    if (item.target !== null) {
-      const target = record(item.target, [
-        "kind",
-        "server_id",
-        "tool_id",
-        "upstream_name",
-        "descriptor_revision",
-        "descriptor_fingerprint",
-      ]);
-      closed(target.kind, ["downstream", "gateway"]);
-      identifier(target.server_id);
-      identifier(target.tool_id);
-      stringValue(target.upstream_name);
-      stringValue(target.descriptor_revision);
-      stringValue(target.descriptor_fingerprint);
-    }
-    if (item.authorization !== null) {
-      const authorization = record(item.authorization, [
-        "decision",
-        "revision",
-        "evaluated_at",
-        "grant_id",
-      ]);
-      closed(authorization.decision, ["allow", "deny", "block"]);
-      stringValue(authorization.revision);
-      stringValue(authorization.evaluated_at);
-      const grantID = nullableString(authorization.grant_id);
-      if (grantID !== null) identifier(grantID);
-    }
-    const outcome = record(item.outcome, ["class", "basis", "completed_at"]);
-    nullableString(outcome.completed_at);
-    return {
-      id: identifier(item.id),
-      requestedName: nullableString(item.requested_name) ?? "Not resolved",
-      admittedAt: stringValue(item.admitted_at),
-      outcome: closed(outcome.class, [
-        "invalid_params",
-        "unknown_tool",
-        "invalid_arguments",
-        "authorization_unavailable",
-        "deny",
-        "block",
-        "prestart_failure",
-        "succeeded",
-        "downstream_failure",
-        "outcome_unknown",
-      ]),
-      basis: closed(outcome.basis, [
-        "admission",
-        "policy",
-        "terminal",
-        "missing_terminal",
-      ]),
-    };
-  });
-  return { items, retainedWindow: cursor(page.next_cursor) !== null };
-}
-
 async function responseJSON(response: Response): Promise<unknown> {
   if (
     response.status !== 200 ||
@@ -557,6 +461,7 @@ async function responseJSON(response: Response): Promise<unknown> {
 async function get(context: ViewReadContext, path: string): Promise<Response> {
   const response = await fetch(path, {
     method: "GET",
+    headers: { "X-CSRF-Token": context.csrfToken },
     credentials: "same-origin",
     redirect: "error",
     signal: context.signal,
@@ -913,7 +818,7 @@ export function Overview({
             <>
               <p>
                 Newest retained summaries only
-                {snapshot.invocations.retainedWindow
+                {snapshot.invocations.nextCursor !== null
                   ? "; older retained records are not shown"
                   : ""}
                 . Polling is not completion authority.
@@ -922,7 +827,7 @@ export function Overview({
                 {snapshot.invocations.items.map((item) => (
                   <li key={item.id}>
                     <a href={`#/invocations/${item.id}`}>
-                      {item.requestedName}
+                      {item.requestedName ?? "Not resolved"}
                     </a>
                     <span>
                       {item.outcome} · {item.basis} · {item.admittedAt}

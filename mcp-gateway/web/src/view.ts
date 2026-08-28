@@ -232,6 +232,11 @@ export class ViewCoordinator {
     if (this.active) void this.refresh();
   }
 
+  refreshPanel(panelID: string): Promise<void> {
+    if (!this.active) return Promise.resolve();
+    return this.refresh([panelID]);
+  }
+
   invalidate(invalidation: Invalidation): void {
     if (!this.active) return;
     let matched = false;

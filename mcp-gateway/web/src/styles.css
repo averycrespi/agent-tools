@@ -473,6 +473,90 @@ h2 {
   color: var(--warning);
 }
 
+.invocations-view {
+  margin-top: 32px;
+}
+.invocations-view > .refresh-controls {
+  margin-top: 0;
+}
+.domain-panel {
+  max-width: none;
+  margin-top: 24px;
+}
+.inline-filter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  margin-top: 24px;
+}
+.inline-filter label {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+}
+.inline-filter input {
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid var(--line-strong);
+  padding: 10px 12px;
+  background: var(--canvas);
+  color: var(--text);
+}
+.inline-filter button {
+  margin-top: 0;
+}
+.invocation-records {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+}
+.audit-record {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--canvas);
+  overflow-wrap: anywhere;
+}
+.audit-record-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.audit-record p {
+  max-width: none;
+  margin-top: 10px;
+}
+.audit-record details,
+.domain-panel details {
+  margin-top: 14px;
+}
+.audit-record summary,
+.domain-panel summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.audit-identities {
+  display: grid;
+  grid-template-columns: minmax(9rem, auto) minmax(0, 1fr);
+  gap: 7px 14px;
+  margin: 14px 0 0;
+  font-size: 11px;
+}
+.audit-identities dt {
+  color: var(--muted);
+}
+.audit-identities dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.domain-panel h3 {
+  margin: 26px 0 12px;
+  font-family: Inter, ui-sans-serif, sans-serif;
+  font-size: 16px;
+}
+
 .table-region {
   max-width: 100%;
   overflow-x: auto;
@@ -648,6 +732,19 @@ footer {
     flex-direction: column;
   }
   .overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .inline-filter {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .inline-filter button {
+    width: 100%;
+  }
+  .audit-record-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .audit-identities {
     grid-template-columns: minmax(0, 1fr);
   }
   .dialog-actions {

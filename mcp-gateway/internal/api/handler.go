@@ -212,10 +212,10 @@ func (handler *Handler) Authenticate(ctx context.Context, request *http.Request,
 		if !sessionPresent || bearerPresent {
 			return ctx, httpboundary.Error{Code: contract.ProblemAuthenticationRequired}
 		}
-		if request.Header.Get("Origin") != handler.origin {
+		if !handler.acceptsSessionOrigin(request) {
 			return ctx, httpboundary.Error{Code: contract.ProblemForbiddenOrigin}
 		}
-		credential, authErr := handler.sessions.Authenticate(ctx, "", sessionID, request.Header.Get("X-CSRF-Token"), unsafe(request.Method))
+		credential, authErr := handler.sessions.Authenticate(ctx, "", sessionID, request.Header.Get("X-CSRF-Token"), handler.sessionRequiresCSRF(request))
 		if authErr != nil {
 			return ctx, boundaryError(authErr)
 		}
@@ -229,10 +229,10 @@ func (handler *Handler) Authenticate(ctx context.Context, request *http.Request,
 			}
 			result = authentication{credential: credential, bearer: bearer}
 		case sessionPresent:
-			if request.Header.Get("Origin") != handler.origin {
+			if !handler.acceptsSessionOrigin(request) {
 				return ctx, httpboundary.Error{Code: contract.ProblemForbiddenOrigin}
 			}
-			credential, authErr := handler.sessions.Authenticate(ctx, "", sessionID, request.Header.Get("X-CSRF-Token"), unsafe(request.Method))
+			credential, authErr := handler.sessions.Authenticate(ctx, "", sessionID, request.Header.Get("X-CSRF-Token"), handler.sessionRequiresCSRF(request))
 			if authErr != nil {
 				return ctx, boundaryError(authErr)
 			}
@@ -244,6 +244,17 @@ func (handler *Handler) Authenticate(ctx context.Context, request *http.Request,
 		return ctx, httpboundary.Error{Code: contract.ProblemAuthenticationRequired}
 	}
 	return context.WithValue(ctx, authContextKey{}, result), nil
+}
+
+func (handler *Handler) acceptsSessionOrigin(request *http.Request) bool {
+	if request.Header.Get("Origin") == handler.origin {
+		return true
+	}
+	return !unsafe(request.Method) && request.Header.Get("Origin") == "" && request.Header.Get("X-CSRF-Token") != ""
+}
+
+func (handler *Handler) sessionRequiresCSRF(request *http.Request) bool {
+	return unsafe(request.Method) || request.Header.Get("Origin") == ""
 }
 
 func (handler *Handler) authenticateBootstrap(ctx context.Context, request *http.Request) (context.Context, error) {

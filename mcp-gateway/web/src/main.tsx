@@ -6,6 +6,7 @@ import {
   type Destination,
   type ResolvedLocation,
 } from "./location";
+import { Invocations, InvocationsController } from "./invocations";
 import { MutationCoordinator, type MutationAvailability } from "./mutation";
 import { Overview, OverviewController } from "./overview";
 import {
@@ -76,6 +77,10 @@ const overviewController = new OverviewController(
   sessionClient,
   viewCoordinator,
   (latched) => mutationCoordinator.setStorageLatched(latched),
+);
+const invocationsController = new InvocationsController(
+  sessionClient,
+  viewCoordinator,
 );
 applyTheme(initialTheme);
 
@@ -410,6 +415,8 @@ function App() {
               view={view}
               onRefresh={() => viewCoordinator.manualRefresh()}
             />
+          ) : destination === "invocations" ? (
+            <Invocations controller={invocationsController} view={view} />
           ) : (
             <section class="panel" aria-labelledby="foundation-title">
               <div class="panel-heading">

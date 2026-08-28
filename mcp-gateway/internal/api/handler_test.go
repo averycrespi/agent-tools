@@ -196,6 +196,24 @@ func TestAuthenticationDomainsAndAmbiguity(t *testing.T) {
 	if ambiguous.Code != 400 || !strings.Contains(ambiguous.Body.String(), "ambiguous_credentials") {
 		t.Fatalf("ambiguous: %d %s", ambiguous.Code, ambiguous.Body.String())
 	}
+	browserRead := perform(handler, http.MethodGet, "/api/v1/system-status", "", map[string]string{
+		"Cookie": contract.SessionCookieName + "=session", "X-CSRF-Token": "csrf",
+	})
+	if browserRead.Code != 200 {
+		t.Fatalf("same-origin browser read: %d %s", browserRead.Code, browserRead.Body.String())
+	}
+	wrongBrowserCSRF := perform(handler, http.MethodGet, "/api/v1/system-status", "", map[string]string{
+		"Cookie": contract.SessionCookieName + "=session", "X-CSRF-Token": "wrong",
+	})
+	if wrongBrowserCSRF.Code != 401 || !strings.Contains(wrongBrowserCSRF.Body.String(), "authentication_required") {
+		t.Fatalf("wrong browser CSRF: %d %s", wrongBrowserCSRF.Code, wrongBrowserCSRF.Body.String())
+	}
+	crossSiteRead := perform(handler, http.MethodGet, "/api/v1/system-status", "", map[string]string{
+		"Cookie": contract.SessionCookieName + "=session", "Origin": "https://example.test", "X-CSRF-Token": "csrf",
+	})
+	if crossSiteRead.Code != 403 || !strings.Contains(crossSiteRead.Body.String(), "forbidden_origin") {
+		t.Fatalf("cross-site browser read: %d %s", crossSiteRead.Code, crossSiteRead.Body.String())
+	}
 }
 
 func TestSessionExchangeAndCSRFLifecycle(t *testing.T) {
