@@ -28,7 +28,8 @@ interface BridgeInput {
     | "fragment-storage"
     | "authentication-epoch"
     | "read-generation"
-    | "mutation-state";
+    | "mutation-state"
+    | "shell-primitives";
   base_url: string;
   admin_bearer: string;
 }
@@ -82,7 +83,8 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "fragment-storage" &&
       value.scenario !== "authentication-epoch" &&
       value.scenario !== "read-generation" &&
-      value.scenario !== "mutation-state") ||
+      value.scenario !== "mutation-state" &&
+      value.scenario !== "shell-primitives") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -830,6 +832,7 @@ async function assertSecretAbsent(
   baseURL: string,
   secrets: readonly string[],
   expectSessionCookie: boolean,
+  expectedTheme?: "system" | "light" | "dark",
 ): Promise<void> {
   const state = await page.evaluate(() => ({
     url: window.location.href,
@@ -848,7 +851,7 @@ async function assertSecretAbsent(
       fail("session authority reached a browser rendering sink");
     }
   }
-  assertClosedStorage(await browserStorage(page));
+  assertClosedStorage(await browserStorage(page), expectedTheme);
   const cookies = await context.cookies(baseURL);
   const sessions = cookies.filter(
     (cookie) => cookie.name === "mcp_gateway_session",
@@ -1168,6 +1171,7 @@ async function runAuthenticationEpoch(
     { times: 1 },
   );
   await page.locator('[data-testid="logout"]').click();
+  await page.locator('[data-testid="logout-confirmation-submit"]').click();
   await intercepted;
   await waitForLifecycle(page, "signed_out");
   await page.waitForFunction(() => window.location.hash === "#/sign-in");
@@ -1898,6 +1902,202 @@ async function assertMutationFoundation(): Promise<void> {
   coordinator.close();
 }
 
+async function runShellPrimitives(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await waitForLifecycle(page, "signed_out");
+  await page.keyboard.press("Tab");
+  const skipLink = page.getByRole("link", { name: "Skip to main content" });
+  if (
+    !(await skipLink.evaluate((element) => element === document.activeElement))
+  )
+    fail("skip link was not the first keyboard destination");
+  await page.keyboard.press("Enter");
+  if (
+    !(await page
+      .locator("#page-title")
+      .evaluate((element) => element === document.activeElement))
+  ) {
+    fail("skip link did not focus the page heading");
+  }
+  const bearerInput = page.locator('[data-testid="admin-bearer-input"]');
+  if (
+    (await bearerInput.getAttribute("aria-describedby")) !== "admin-bearer-hint"
+  )
+    fail("shared form field did not associate its hint");
+  await bearerInput.fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  if (
+    (await page.locator("header").count()) !== 1 ||
+    (await page.locator("main").count()) !== 1 ||
+    (await page.locator("footer").count()) !== 1 ||
+    (await page.locator("h1").count()) !== 1
+  ) {
+    fail("operational shell landmarks or heading hierarchy changed");
+  }
+
+  const logout = page.locator('[data-testid="logout"]');
+  await logout.focus();
+  await logout.click();
+  const dialog = page.locator("dialog.confirmation-dialog");
+  await dialog.waitFor({ state: "visible" });
+  if (
+    (await dialog.getAttribute("aria-labelledby")) !==
+      "logout-confirmation-title" ||
+    (await dialog.getAttribute("aria-describedby")) !==
+      "logout-confirmation-consequence"
+  ) {
+    fail("confirmation dialog lost its accessible name or consequence");
+  }
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "hidden" });
+  if (!(await logout.evaluate((element) => element === document.activeElement)))
+    fail("Escape did not restore confirmation focus");
+  await logout.click();
+  await page.locator('[data-testid="logout-confirmation-cancel"]').click();
+  await dialog.waitFor({ state: "hidden" });
+  if (!(await logout.evaluate((element) => element === document.activeElement)))
+    fail("confirmation cancel did not restore focus");
+
+  for (const choice of ["light", "dark"] as const) {
+    await page.locator('[data-testid="theme-preference"]').selectOption(choice);
+    await page.waitForFunction(
+      (expected) => document.documentElement.dataset.theme === expected,
+      choice,
+    );
+    const colors = await page.evaluate(() => {
+      const style = getComputedStyle(document.documentElement);
+      return [
+        style.getPropertyValue("--canvas"),
+        style.getPropertyValue("--text"),
+      ];
+    });
+    if (colors.some((color) => color.trim() === ""))
+      fail(`${choice} theme did not resolve semantic tokens`);
+  }
+
+  await page.locator('aside nav a[href="#/servers"]').focus();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => {
+    const title = document.querySelector("#page-title");
+    const announcement = document.querySelector(
+      '[data-testid="shell-announcement"]',
+    );
+    return (
+      window.location.hash === "#/servers" &&
+      title?.textContent?.trim() === "Servers" &&
+      title === document.activeElement &&
+      announcement?.textContent?.includes("Servers")
+    );
+  });
+  const authStatus = page.locator('[data-testid="authentication-status"]');
+  if (
+    (await authStatus.getAttribute("data-state")) !== "current" ||
+    !((await authStatus.textContent()) ?? "").includes("✓") ||
+    !((await authStatus.textContent()) ?? "").includes("Authenticated")
+  ) {
+    fail("operational state depended on color alone");
+  }
+
+  await page.setViewportSize({ width: 320, height: 800 });
+  const navigationToggle = page.locator('[data-testid="navigation-toggle"]');
+  await navigationToggle.focus();
+  await page.keyboard.press("Space");
+  if (
+    (await navigationToggle.getAttribute("aria-expanded")) !== "true" ||
+    !(await page.locator("#primary-navigation").isVisible())
+  ) {
+    fail("narrow navigation disclosure did not open from the keyboard");
+  }
+  await page.keyboard.press("Escape");
+  try {
+    await page.waitForFunction(
+      () => {
+        const toggle = document.querySelector(
+          '[data-testid="navigation-toggle"]',
+        );
+        return (
+          toggle?.getAttribute("aria-expanded") === "false" &&
+          toggle === document.activeElement
+        );
+      },
+      undefined,
+      { timeout: 3000 },
+    );
+  } catch {
+    const state = await page.evaluate(() => {
+      const toggle = document.querySelector(
+        '[data-testid="navigation-toggle"]',
+      );
+      return {
+        expanded: toggle?.getAttribute("aria-expanded"),
+        activeTestID: document.activeElement?.getAttribute("data-testid"),
+        activeTag: document.activeElement?.tagName,
+      };
+    });
+    fail(`narrow navigation Escape state: ${JSON.stringify(state)}`);
+  }
+  await page.keyboard.press("Space");
+  const invocationLink = page.locator('aside nav a[href="#/invocations"]');
+  await invocationLink.focus();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => {
+    const toggle = document.querySelector('[data-testid="navigation-toggle"]');
+    const navigation = document.querySelector("#primary-navigation");
+    return (
+      window.location.hash === "#/invocations" &&
+      toggle?.getAttribute("aria-expanded") === "false" &&
+      navigation !== null &&
+      getComputedStyle(navigation).display === "none"
+    );
+  });
+
+  const longCanary = `LONG_INERT_${"A".repeat(1800)}`;
+  await page.evaluate((value) => {
+    window.location.hash = `#/invocations?outcome=${value}`;
+  }, longCanary);
+  await page.waitForFunction(() => window.location.hash === "#/overview");
+  if ((await page.locator("body").textContent())?.includes(longCanary))
+    fail("rejected long text reached rendered shell text");
+  const overflow = await page.evaluate(
+    () =>
+      document.documentElement.scrollWidth -
+      document.documentElement.clientWidth,
+  );
+  if (overflow > 1) fail(`narrow shell overflowed by ${overflow}px`);
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const animationDuration = await page
+    .locator(".panel")
+    .evaluate((element) => getComputedStyle(element).animationDuration);
+  const animationSeconds = Number.parseFloat(animationDuration);
+  if (!Number.isFinite(animationSeconds) || animationSeconds > 0.00001)
+    fail(`reduced motion retained panel animation: ${animationDuration}`);
+
+  await assertSecretAbsent(
+    page,
+    context,
+    baseURL,
+    [bearer, longCanary],
+    true,
+    "dark",
+  );
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "shell_primitives_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+    })}\n`,
+  );
+}
+
 async function runMutationState(
   browserVersion: string,
   context: BrowserContext,
@@ -2022,6 +2222,15 @@ try {
       );
     } else if (input.scenario === "mutation-state") {
       await runMutationState(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "shell-primitives") {
+      await runShellPrimitives(
         browser.version(),
         context,
         page,

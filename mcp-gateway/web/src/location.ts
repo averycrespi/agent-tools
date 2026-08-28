@@ -288,6 +288,11 @@ export function resolveFragment(
   return { location: fallback, canonicalFragment, invalid: true };
 }
 
+export function replaceForLifecycle(authenticated: boolean): void {
+  const canonicalFragment = authenticated ? "#/overview" : "#/sign-in";
+  window.history.replaceState(null, "", canonicalFragment);
+}
+
 export function synchronizeFragment(authenticated: boolean): ResolvedLocation {
   const resolved = resolveFragment(window.location.hash, authenticated);
   if (window.location.hash !== resolved.canonicalFragment) {

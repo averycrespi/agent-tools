@@ -1,11 +1,18 @@
 import { render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import {
+  replaceForLifecycle,
   synchronizeFragment,
   type Destination,
   type ResolvedLocation,
 } from "./location";
 import { MutationCoordinator, type MutationAvailability } from "./mutation";
+import {
+  ConfirmationDialog,
+  FormField,
+  StateNotice,
+  StatusLabel,
+} from "./primitives";
 import {
   SessionClient,
   type SessionLifecycle,
@@ -104,19 +111,25 @@ function SignInPanel({
         saved by this application.
       </p>
       <form autocomplete="off" onSubmit={submit}>
-        <label class="credential-field">
-          <span>Administrator bearer</span>
-          <input
-            ref={bearerInput}
-            data-testid="admin-bearer-input"
-            type="password"
-            autocomplete="off"
-            autocapitalize="none"
-            spellcheck={false}
-            disabled={submitting || snapshot.lifecycle !== "signed_out"}
-            required
-          />
-        </label>
+        <FormField
+          id="admin-bearer"
+          label="Administrator bearer"
+          hint="The value is cleared immediately after request handoff."
+        >
+          {(attributes) => (
+            <input
+              {...attributes}
+              ref={bearerInput}
+              data-testid="admin-bearer-input"
+              type="password"
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck={false}
+              disabled={submitting || snapshot.lifecycle !== "signed_out"}
+              required
+            />
+          )}
+        </FormField>
         <button
           data-testid="sign-in-submit"
           type="submit"
@@ -135,18 +148,18 @@ function SignInPanel({
 }
 
 function SessionTransition({ lifecycle }: { lifecycle: SessionLifecycle }) {
+  const bootstrapping = lifecycle === "bootstrapping";
   return (
-    <section class="panel session-transition" aria-live="polite">
-      <span class="panel-code">AUTH-00</span>
-      <h2>
-        {lifecycle === "bootstrapping" ? "Restoring session" : "Session lost"}
-      </h2>
+    <StateNotice
+      state={bootstrapping ? "loading" : "unavailable"}
+      title={bootstrapping ? "Restoring session" : "Session lost"}
+    >
       <p>
-        {lifecycle === "bootstrapping"
+        {bootstrapping
           ? "Checking for current local browser authority."
           : "Discarding prior authority and checking once for a current session."}
       </p>
-    </section>
+    </StateNotice>
   );
 }
 
@@ -159,7 +172,13 @@ function App() {
   const [mutationAvailability, setMutationAvailability] =
     useState<MutationAvailability>(mutationCoordinator.snapshot());
   const [theme, setTheme] = useState<ThemePreference>(initialTheme);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false);
   const priorLifecycle = useRef<SessionLifecycle>(session.lifecycle);
+  const pageTitle = useRef<HTMLHeadingElement>(null);
+  const navigationToggle = useRef<HTMLButtonElement>(null);
+  const logoutButton = useRef<HTMLButtonElement>(null);
+  const focusAfterLogout = useRef(false);
 
   useEffect(() => {
     const unsubscribe = sessionClient.subscribe(setSession);
@@ -177,14 +196,14 @@ function App() {
       authenticated &&
       (window.location.hash === "#/sign-in" || window.location.hash === "")
     ) {
-      window.history.replaceState(null, "", "#/overview");
+      replaceForLifecycle(true);
     } else if (
       session.lifecycle === "signed_out" &&
       (prior === "authenticated" ||
         prior === "reauthenticating" ||
         prior === "bootstrapping")
     ) {
-      window.history.replaceState(null, "", "#/sign-in");
+      replaceForLifecycle(false);
     }
     priorLifecycle.current = session.lifecycle;
     const nextLocation = synchronizeFragment(authenticated);
@@ -210,6 +229,19 @@ function App() {
     return observeSystemTheme(theme, () => applyTheme(theme));
   }, [theme]);
 
+  useEffect(() => {
+    if (session.lifecycle === "authenticated") {
+      pageTitle.current?.focus();
+    } else if (session.lifecycle === "signed_out" && focusAfterLogout.current) {
+      focusAfterLogout.current = false;
+      pageTitle.current?.focus();
+    }
+    if (session.lifecycle !== "authenticated") {
+      setNavigationOpen(false);
+      setLogoutConfirmationOpen(false);
+    }
+  }, [resolved.canonicalFragment, session.lifecycle]);
+
   const chooseTheme = (value: ThemePreference) => {
     writeThemePreference(value);
     setTheme(value);
@@ -226,7 +258,34 @@ function App() {
       data-view-generation={view.generation}
       data-freshness={view.freshness}
       data-mutation-availability={mutationAvailability}
+      onKeyDown={(event) => {
+        if (!navigationOpen || event.key !== "Escape") return;
+        event.preventDefault();
+        setNavigationOpen(false);
+        navigationToggle.current?.focus();
+      }}
     >
+      <a
+        class="skip-link"
+        href="#main-content"
+        onClick={(event) => {
+          event.preventDefault();
+          pageTitle.current?.focus();
+        }}
+      >
+        Skip to main content
+      </a>
+      <div
+        class="visually-hidden"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="shell-announcement"
+      >
+        {authenticated
+          ? `${destinationLabel}. Data ${view.freshness}.`
+          : `${destinationLabel}. Authentication required.`}
+      </div>
       <header class="masthead">
         <a class="wordmark" href="#/overview" aria-label="MCP Gateway overview">
           <span aria-hidden="true" class="mark">
@@ -235,6 +294,20 @@ function App() {
           <span>MCP Gateway</span>
         </a>
         <div class="masthead-controls">
+          {authenticated && (
+            <button
+              ref={navigationToggle}
+              class="navigation-toggle"
+              data-testid="navigation-toggle"
+              type="button"
+              aria-expanded={navigationOpen}
+              aria-controls="primary-navigation"
+              onClick={() => setNavigationOpen((value) => !value)}
+            >
+              <span aria-hidden="true">≡</span>
+              Menu
+            </button>
+          )}
           <span class="environment">LOCAL CONTROL PLANE</span>
           <label class="theme-control">
             <span>Theme</span>
@@ -252,10 +325,11 @@ function App() {
           </label>
           {authenticated && (
             <button
+              ref={logoutButton}
               class="quiet-action"
               data-testid="logout"
               type="button"
-              onClick={() => void sessionClient.logout()}
+              onClick={() => setLogoutConfirmationOpen(true)}
             >
               Sign out
             </button>
@@ -263,15 +337,21 @@ function App() {
         </div>
       </header>
       {authenticated && (
-        <aside class="rail" aria-label="Primary navigation">
+        <aside
+          id="primary-navigation"
+          class={`rail ${navigationOpen ? "open" : ""}`}
+          aria-label="Primary navigation"
+        >
           <nav>
             {navigation.map((item, index) => {
               const active = destination === item.destination;
               return (
                 <a
+                  key={item.destination}
                   class={active ? "active" : undefined}
                   href={item.href}
                   aria-current={active ? "page" : undefined}
+                  onClick={() => setNavigationOpen(false)}
                 >
                   <span class="nav-index">
                     {String(index + 1).padStart(2, "0")}
@@ -283,7 +363,7 @@ function App() {
           </nav>
         </aside>
       )}
-      <main class="workspace">
+      <main id="main-content" class="workspace" tabindex={-1}>
         {resolved.invalid && (
           <p
             class="location-notice"
@@ -296,17 +376,19 @@ function App() {
         <div class="eyebrow">SYSTEM / {destinationLabel.toUpperCase()}</div>
         <section class="intro" aria-labelledby="page-title">
           <div>
-            <h1 id="page-title">
+            <h1 ref={pageTitle} id="page-title" tabindex={-1}>
               {authenticated ? destinationLabel : "Administrator session"}
             </h1>
             <p>
               Inspect and operate this local Gateway through its public API.
             </p>
           </div>
-          <span class={`status ${authenticated ? "connected" : ""}`}>
-            <span aria-hidden="true" />
+          <StatusLabel
+            state={authenticated ? "current" : "unavailable"}
+            testID="authentication-status"
+          >
             {authenticated ? "Authenticated" : "Authentication required"}
-          </span>
+          </StatusLabel>
         </section>
         {session.lifecycle === "bootstrapping" ||
         session.lifecycle === "reauthenticating" ? (
@@ -326,9 +408,9 @@ function App() {
               session.
             </p>
             <div class="refresh-controls">
-              <span class={`freshness ${view.freshness}`} role="status">
+              <StatusLabel state={view.freshness}>
                 Data {view.freshness}
-              </span>
+              </StatusLabel>
               <button
                 data-testid="manual-refresh"
                 type="button"
@@ -345,6 +427,25 @@ function App() {
           />
         )}
       </main>
+      <ConfirmationDialog
+        id="logout-confirmation"
+        open={logoutConfirmationOpen}
+        title="Sign out of this browser session?"
+        consequence={
+          <p>
+            The current local session will end. No Gateway configuration or
+            other administrator session is changed.
+          </p>
+        }
+        confirmLabel="Sign out"
+        returnFocus={logoutButton}
+        onCancel={() => setLogoutConfirmationOpen(false)}
+        onConfirm={() => {
+          focusAfterLogout.current = true;
+          setLogoutConfirmationOpen(false);
+          void sessionClient.logout();
+        }}
+      />
       <footer>
         <span>Gateway authority stays in this process</span>
         <span>NO REMOTE ASSETS</span>
