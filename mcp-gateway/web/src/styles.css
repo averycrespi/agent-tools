@@ -50,8 +50,13 @@ a {
   color: inherit;
 }
 button,
+input,
 select {
   font: inherit;
+}
+button:not(:disabled),
+select:not(:disabled) {
+  cursor: pointer;
 }
 
 .shell {
@@ -164,6 +169,10 @@ footer {
   max-width: 1200px;
   width: 100%;
 }
+.signed-out .workspace {
+  grid-column: 1 / -1;
+  margin-inline: auto;
+}
 .location-notice {
   margin: 0 0 24px;
   padding: 12px 14px;
@@ -211,6 +220,10 @@ h1 {
 .status span {
   width: 8px;
   height: 8px;
+  border: 2px solid var(--quiet);
+}
+.status.connected span {
+  border-color: var(--accent);
   background: var(--accent);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
 }
@@ -240,12 +253,53 @@ h2 {
   font-size: 22px;
   letter-spacing: -0.035em;
 }
-.panel button {
-  margin-top: 28px;
+.panel button,
+.quiet-action {
+  min-height: 44px;
   padding: 11px 16px;
   border: 1px solid var(--line-strong);
-  color: var(--quiet);
+  color: var(--text);
   background: var(--surface-raised);
+}
+.panel button {
+  margin-top: 28px;
+}
+button:disabled {
+  cursor: not-allowed;
+  color: var(--quiet);
+  opacity: 0.72;
+}
+.credential-field {
+  display: grid;
+  gap: 8px;
+  margin-top: 28px;
+  max-width: 560px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.credential-field input {
+  min-height: 44px;
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  padding: 10px 12px;
+  background: var(--canvas);
+  color: var(--text);
+}
+.credential-field input:focus-visible,
+button:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.session-message {
+  margin-top: 24px !important;
+  padding-left: 12px;
+  border-left: 3px solid var(--accent);
+  color: var(--text) !important;
+}
+.session-transition h2 {
+  margin-bottom: 12px;
 }
 
 footer {

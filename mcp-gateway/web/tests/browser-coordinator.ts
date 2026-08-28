@@ -3,9 +3,15 @@ import {
   type Browser,
   type BrowserContext,
   type Page,
+  type Request,
   type Response,
 } from "@playwright/test";
 import { createInterface } from "node:readline";
+import {
+  parseProblem,
+  parseSessionBootstrap,
+  SessionClient,
+} from "../src/session.ts";
 
 interface BridgeInput {
   version: 1;
@@ -13,7 +19,8 @@ interface BridgeInput {
     | "shell-load"
     | "browser-protocol"
     | "m1-canary"
-    | "fragment-storage";
+    | "fragment-storage"
+    | "authentication-epoch";
   base_url: string;
   admin_bearer: string;
 }
@@ -64,7 +71,8 @@ function parseInitialInput(value: unknown): BridgeInput {
     (value.scenario !== "shell-load" &&
       value.scenario !== "browser-protocol" &&
       value.scenario !== "m1-canary" &&
-      value.scenario !== "fragment-storage") ||
+      value.scenario !== "fragment-storage" &&
+      value.scenario !== "authentication-epoch") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -659,7 +667,13 @@ async function runFragmentStorage(
     window.location.hash = "#/overview";
   });
   await page.waitForFunction(() => window.location.hash === "#/overview");
-  await page.locator('a[href="#/servers"]').click();
+  await page.evaluate(() => {
+    const anchor = document.createElement("a");
+    anchor.href = "#/servers";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+  });
   await page.waitForFunction(() => window.location.hash === "#/servers");
   await page.goBack();
   await page.waitForFunction(() => window.location.hash === "#/overview");
@@ -773,6 +787,462 @@ async function runFragmentStorage(
   );
 }
 
+async function waitForLifecycle(
+  page: Page,
+  lifecycle:
+    | "bootstrapping"
+    | "signed_out"
+    | "authenticated"
+    | "reauthenticating",
+): Promise<void> {
+  try {
+    await page.waitForFunction(
+      (expected) =>
+        document
+          .querySelector('[data-testid="gateway-shell"]')
+          ?.getAttribute("data-session-lifecycle") === expected,
+      lifecycle,
+    );
+  } catch {
+    fail(`session lifecycle did not reach ${lifecycle}`);
+  }
+}
+
+async function assertSecretAbsent(
+  page: Page,
+  context: BrowserContext,
+  baseURL: string,
+  secrets: readonly string[],
+  expectSessionCookie: boolean,
+): Promise<void> {
+  const state = await page.evaluate(() => ({
+    url: window.location.href,
+    html: document.documentElement.outerHTML,
+    values: Array.from(
+      document.querySelectorAll("input"),
+      (input) => input.value,
+    ),
+  }));
+  for (const secret of secrets) {
+    if (
+      state.url.includes(secret) ||
+      state.html.includes(secret) ||
+      state.values.some((value) => value.includes(secret))
+    ) {
+      fail("session authority reached a browser rendering sink");
+    }
+  }
+  assertClosedStorage(await browserStorage(page));
+  const cookies = await context.cookies(baseURL);
+  const sessions = cookies.filter(
+    (cookie) => cookie.name === "mcp_gateway_session",
+  );
+  if (
+    sessions.length !== (expectSessionCookie ? 1 : 0) ||
+    sessions.some(
+      (cookie) =>
+        !cookie.httpOnly || cookie.path !== "/" || cookie.sameSite !== "Strict",
+    )
+  ) {
+    fail("browser session cookie boundary changed");
+  }
+}
+
+function sessionFixture(): Record<string, string> {
+  return {
+    csrf_token: "A".repeat(43),
+    idle_expires_at: "2026-08-28T18:30:00Z",
+    absolute_expires_at: "2026-08-29T18:00:00Z",
+  };
+}
+
+async function assertSessionFoundationEpochs(): Promise<void> {
+  if (
+    parseSessionBootstrap(sessionFixture()) === undefined ||
+    parseSessionBootstrap({ ...sessionFixture(), extra: "secret" }) !==
+      undefined ||
+    parseProblem({
+      status: 401,
+      code: "authentication_required",
+      title: "Authentication is required.",
+    }) === undefined ||
+    parseProblem({
+      status: 401,
+      code: "authentication_required",
+      title: "Authentication is required.",
+      extra: "secret",
+    }) !== undefined
+  ) {
+    fail("closed session validators changed");
+  }
+
+  let bootstrapCalls = 0;
+  const request: typeof fetch = async (input, init) => {
+    const path = String(input);
+    if (path === "/api/v1/admin-sessions/current") {
+      bootstrapCalls += 1;
+      return new Response(
+        JSON.stringify({
+          status: 401,
+          code: "authentication_required",
+          title: "Authentication is required.",
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/problem+json" },
+        },
+      );
+    }
+    if (
+      path === "/api/v1/admin-sessions" &&
+      init?.method === "POST" &&
+      init.headers !== undefined
+    ) {
+      return new Response(JSON.stringify(sessionFixture()), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response(null, { status: 204 });
+  };
+  const client = new SessionClient(request);
+  const lifecycles: string[] = [];
+  client.subscribe((snapshot) => lifecycles.push(snapshot.lifecycle));
+  client.start();
+  for (let index = 0; index < 8; index += 1) await Promise.resolve();
+  if (client.snapshot().lifecycle !== "signed_out")
+    fail("initial session bootstrap did not settle safely");
+  if (!(await client.exchange("mgw_admin_epoch-test-canary")))
+    fail("session foundation exchange failed");
+  const lostEpoch = client.snapshot().epoch;
+
+  let clearCount = 0;
+  client.registerProtectedState(() => {
+    clearCount += 1;
+  });
+  let release: (() => void) | undefined;
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let mutationSubmissions = 0;
+  let abortObserved = false;
+  let timerRan = false;
+  client.scheduleProtected(() => {
+    timerRan = true;
+  }, 0);
+  const lateRead = client.runProtected(async ({ signal }) => {
+    signal.addEventListener("abort", () => {
+      abortObserved = true;
+    });
+    await barrier;
+    return {
+      read: "late-read",
+      bearer: "mgw_admin_late-bearer",
+      oauthURL: "https://secret.invalid/callback",
+      event: "late-event",
+    };
+  });
+  const lateMutation = client.runProtected(async () => {
+    mutationSubmissions += 1;
+    await barrier;
+    return "late-mutation";
+  });
+  const firstRecovery = client.recoverAfterSessionLoss();
+  const duplicateRecovery = client.recoverAfterSessionLoss();
+  if (firstRecovery !== duplicateRecovery)
+    fail("session loss started duplicate bootstrap work");
+  release?.();
+  const [readResult, mutationResult] = await Promise.all([
+    lateRead,
+    lateMutation,
+  ]);
+  await Promise.all([firstRecovery, duplicateRecovery]);
+  await client.recoverAfterSessionLoss(lostEpoch);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  if (
+    readResult !== undefined ||
+    mutationResult !== undefined ||
+    mutationSubmissions !== 1 ||
+    bootstrapCalls !== 2 ||
+    timerRan ||
+    !abortObserved ||
+    clearCount !== 1 ||
+    !lifecycles.includes("reauthenticating") ||
+    client.snapshot().lifecycle !== "signed_out"
+  ) {
+    fail("authentication epoch did not fence prior work");
+  }
+}
+
+async function runAuthenticationEpoch(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  initialBearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await assertSessionFoundationEpochs();
+  await waitForLifecycle(page, "signed_out");
+  const input = page.locator('[data-testid="admin-bearer-input"]');
+  if (
+    (await input.getAttribute("type")) !== "password" ||
+    (await input.getAttribute("autocomplete")) !== "off" ||
+    (await input.getAttribute("name")) !== null ||
+    (await input.getAttribute("value")) !== null ||
+    (await input
+      .locator("xpath=ancestor::form")
+      .getAttribute("autocomplete")) !== "off"
+  ) {
+    fail("sign-in credential control attributes changed");
+  }
+  await assertSecretAbsent(page, context, baseURL, [initialBearer], false);
+
+  const initialCredentials = await page.evaluate(async (bearer) => {
+    const response = await fetch("/api/v1/admin-credentials", {
+      headers: { Authorization: `Bearer ${bearer}` },
+      credentials: "same-origin",
+    });
+    const value = (await response.json()) as { items?: Array<{ id?: string }> };
+    return { status: response.status, id: value.items?.[0]?.id };
+  }, initialBearer);
+  if (initialCredentials.status !== 200 || initialCredentials.id === undefined)
+    fail("authentication scenario could not identify initial authority");
+
+  let releaseExchange: (() => void) | undefined;
+  const exchangeBarrier = new Promise<void>((resolve) => {
+    releaseExchange = resolve;
+  });
+  let exchangeIntercepted: (() => void) | undefined;
+  const exchangeStarted = new Promise<void>((resolve) => {
+    exchangeIntercepted = resolve;
+  });
+  await page.route(
+    "**/api/v1/admin-sessions",
+    async (route) => {
+      exchangeIntercepted?.();
+      await exchangeBarrier;
+      await route.continue();
+    },
+    { times: 1 },
+  );
+  const initialExchangeResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith("/api/v1/admin-sessions"),
+  );
+  await input.fill(initialBearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await exchangeStarted;
+  await page.waitForFunction(
+    () =>
+      (
+        document.querySelector(
+          '[data-testid="admin-bearer-input"]',
+        ) as HTMLInputElement | null
+      )?.value === "",
+  );
+  await assertSecretAbsent(page, context, baseURL, [initialBearer], false);
+  releaseExchange?.();
+  if ((await initialExchangeResponse).status() !== 201)
+    fail("initial application exchange was rejected");
+  await waitForLifecycle(page, "authenticated");
+  await page.waitForFunction(() => window.location.hash === "#/overview");
+  await assertSecretAbsent(page, context, baseURL, [initialBearer], true);
+
+  const session = await bootstrap(page);
+  if (session.status !== 200 || session.session === undefined)
+    fail("authenticated application bootstrap failed");
+  const replacementResult = await sessionRequest(
+    page,
+    "/api/v1/admin-credentials",
+    "POST",
+    session.session.csrf_token,
+    undefined,
+    { expires_at: null },
+  );
+  if (replacementResult.status !== 201)
+    fail("replacement recovery authority creation failed");
+  const replacement = createdCredential(replacementResult.value);
+
+  await page.reload({ waitUntil: "networkidle" });
+  await waitForLifecycle(page, "authenticated");
+  const newTab = await context.newPage();
+  await loadShell(newTab);
+  await waitForLifecycle(newTab, "authenticated");
+  await assertSecretAbsent(
+    newTab,
+    context,
+    baseURL,
+    [initialBearer, replacement.bearer],
+    true,
+  );
+  await newTab.close();
+
+  const revoke = await sessionRequest(
+    page,
+    `/api/v1/admin-credentials/${initialCredentials.id}`,
+    "DELETE",
+    session.session.csrf_token,
+    undefined,
+    {},
+  );
+  if (revoke.status !== 204) fail("parent authority revocation failed");
+  let bootstrapRequests = 0;
+  const countBootstrap = (request: Request) => {
+    if (
+      request.method() === "POST" &&
+      request.url().endsWith("/api/v1/admin-sessions/current")
+    ) {
+      bootstrapRequests += 1;
+    }
+  };
+  page.on("request", countBootstrap);
+  await page.reload({ waitUntil: "networkidle" });
+  await waitForLifecycle(page, "signed_out");
+  page.off("request", countBootstrap);
+  if (
+    bootstrapRequests !== 1 ||
+    (await page.evaluate(() => window.location.hash)) !== "#/sign-in"
+  ) {
+    fail("revoked authority did not settle through one bootstrap");
+  }
+  await assertSecretAbsent(
+    page,
+    context,
+    baseURL,
+    [initialBearer, replacement.bearer],
+    false,
+  );
+
+  let replacementBearer = replacement.bearer;
+  await page
+    .locator('[data-testid="admin-bearer-input"]')
+    .fill(replacementBearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  replacementBearer = "";
+
+  let releaseLogout: (() => void) | undefined;
+  const logoutBarrier = new Promise<void>((resolve) => {
+    releaseLogout = resolve;
+  });
+  let logoutIntercepted: (() => void) | undefined;
+  const intercepted = new Promise<void>((resolve) => {
+    logoutIntercepted = resolve;
+  });
+  await page.route(
+    "**/api/v1/admin-sessions/current",
+    async (route) => {
+      if (route.request().method() !== "DELETE") {
+        await route.continue();
+        return;
+      }
+      logoutIntercepted?.();
+      await logoutBarrier;
+      await route.continue();
+    },
+    { times: 1 },
+  );
+  await page.locator('[data-testid="logout"]').click();
+  await intercepted;
+  await waitForLifecycle(page, "signed_out");
+  await page.waitForFunction(() => window.location.hash === "#/sign-in");
+  await assertSecretAbsent(
+    page,
+    context,
+    baseURL,
+    [initialBearer, replacement.bearer],
+    true,
+  );
+  const logoutResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "DELETE" &&
+      response.url().endsWith("/api/v1/admin-sessions/current"),
+  );
+  releaseLogout?.();
+  if ((await logoutResponse).status() !== 204)
+    fail("delayed logout did not settle");
+  await assertSecretAbsent(
+    page,
+    context,
+    baseURL,
+    [initialBearer, replacement.bearer],
+    false,
+  );
+
+  const rejectedBearer = `mgw_admin_${"A".repeat(43)}`;
+  await page.locator('[data-testid="admin-bearer-input"]').fill(rejectedBearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await page.locator('[data-testid="session-message"]').waitFor();
+  await assertSecretAbsent(
+    page,
+    context,
+    baseURL,
+    [initialBearer, replacement.bearer, rejectedBearer],
+    false,
+  );
+
+  const malformedSessionCanary = "malformed-session-secret-8f31";
+  await page.route(
+    "**/api/v1/admin-sessions/current",
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...sessionFixture(),
+          extra: malformedSessionCanary,
+        }),
+      }),
+    { times: 1 },
+  );
+  await page.reload({ waitUntil: "networkidle" });
+  await waitForLifecycle(page, "signed_out");
+  await assertSecretAbsent(
+    page,
+    context,
+    baseURL,
+    [malformedSessionCanary],
+    false,
+  );
+
+  const malformedProblemCanary = "malformed-problem-secret-a204";
+  await page.route(
+    "**/api/v1/admin-sessions/current",
+    async (route) =>
+      route.fulfill({
+        status: 401,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 401,
+          code: "authentication_required",
+          title: "Authentication is required.",
+          extra: malformedProblemCanary,
+        }),
+      }),
+    { times: 1 },
+  );
+  await page.reload({ waitUntil: "networkidle" });
+  await waitForLifecycle(page, "signed_out");
+  await assertSecretAbsent(
+    page,
+    context,
+    baseURL,
+    [malformedProblemCanary],
+    false,
+  );
+
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "authentication_epoch_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+    })}\n`,
+  );
+}
+
 let browser: Browser | undefined;
 try {
   let input = parseInitialInput(await readBoundedInput());
@@ -839,6 +1309,15 @@ try {
       );
     } else if (input.scenario === "fragment-storage") {
       await runFragmentStorage(browser.version(), page, () => requests);
+    } else if (input.scenario === "authentication-epoch") {
+      await runAuthenticationEpoch(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
     } else {
       await runProtocol(
         browser.version(),
