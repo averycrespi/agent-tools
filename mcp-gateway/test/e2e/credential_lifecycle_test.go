@@ -5,6 +5,7 @@ package e2e
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"syscall"
 	"testing"
 
@@ -135,34 +136,66 @@ func assertPrincipalBUnchanged(t *testing.T, harness *gatewayHarness, original p
 	assert.Equal(t, original.ETag, current.ETag)
 }
 
+func withSyntheticNames(names []string) []string {
+	visible := append([]string(nil), names...)
+	for _, tool := range contract.SyntheticSelfServiceTools() {
+		visible = append(visible, tool.ExternalName)
+	}
+	sort.Strings(visible)
+	return visible
+}
+
 func assertModernNames(t *testing.T, harness *gatewayHarness, bearer *agentBearer, names []string, idPrefix string) {
 	t.Helper()
+	names = withSyntheticNames(names)
 	firstID := json.RawMessage(`"` + idPrefix + `-first"`)
 	first := harness.ModernList(bearer, firstID, "")
 	if len(names) <= 100 {
-		assertDiscoveryPage(t, first, firstID, names, "")
+		assertDiscoveryNamePage(t, first, names, "")
 		return
 	}
 	cursor := discoveryCursor(t, first)
-	assertDiscoveryPage(t, first, firstID, names[:100], cursor)
+	assertDiscoveryNamePage(t, first, names[:100], cursor)
 	secondID := json.RawMessage(`"` + idPrefix + `-second"`)
 	second := harness.ModernList(bearer, secondID, cursor)
-	assertDiscoveryPage(t, second, secondID, names[100:], "")
+	assertDiscoveryNamePage(t, second, names[100:], "")
 }
 
 func assertLegacyNames(t *testing.T, harness *gatewayHarness, bearer *agentBearer, session legacySessionHandle, names []string, idPrefix string) {
 	t.Helper()
+	names = withSyntheticNames(names)
 	firstID := json.RawMessage(`"` + idPrefix + `-first"`)
 	first := harness.LegacyList(bearer, session, firstID, "")
 	if len(names) <= 100 {
-		assertDiscoveryPage(t, first, firstID, names, "")
+		assertDiscoveryNamePage(t, first, names, "")
 		return
 	}
 	cursor := discoveryCursor(t, first)
-	assertDiscoveryPage(t, first, firstID, names[:100], cursor)
+	assertDiscoveryNamePage(t, first, names[:100], cursor)
 	secondID := json.RawMessage(`"` + idPrefix + `-second"`)
 	second := harness.LegacyList(bearer, session, secondID, cursor)
-	assertDiscoveryPage(t, second, secondID, names[100:], "")
+	assertDiscoveryNamePage(t, second, names[100:], "")
+}
+
+func assertDiscoveryNamePage(t *testing.T, response responseSnapshot, expectedNames []string, expectedCursor string) {
+	t.Helper()
+	require.Equal(t, http.StatusOK, response.StatusCode, string(response.Body))
+	var envelope struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+			NextCursor string `json:"nextCursor"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body, &envelope))
+	names := make([]string, len(envelope.Result.Tools))
+	for index, tool := range envelope.Result.Tools {
+		names[index] = tool.Name
+	}
+	assert.Equal(t, expectedNames, names)
+	assert.Equal(t, expectedCursor, envelope.Result.NextCursor)
+	assert.NotContains(t, string(response.Body), "listChanged")
 }
 
 func assertAuthenticationProblem(t *testing.T, response responseSnapshot) {
