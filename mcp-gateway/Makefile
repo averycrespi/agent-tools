@@ -1,6 +1,6 @@
 STRESS_COUNT ?= 20
 
-.PHONY: build install test test-unit test-integration test-integration-s5 test-security-s5 test-stress-s5 test-e2e test-keyring-native accept-s2-1 accept-s3 accept-s4 lint fmt tidy verify audit
+.PHONY: build install test test-unit test-integration test-integration-s5 test-security-s5 test-stress-s5 test-e2e test-keyring-native accept-s2-1 accept-s3 accept-s4 accept-s5 lint fmt tidy verify audit
 
 build:
 	go build -o mcp-gateway ./cmd/mcp-gateway
@@ -42,6 +42,10 @@ accept-s3:
 
 accept-s4:
 	@go run ./test/acceptance/cmd --profile s4
+
+accept-s5:
+	@test -n "$(REPORT)" || (echo "REPORT is required" >&2; exit 2)
+	@go run ./test/acceptance/cmd --profile s5 --output "$(REPORT)"
 
 lint:
 	go tool golangci-lint run ./...

@@ -403,7 +403,7 @@ func initializedRepository(t *testing.T) string {
 		require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o700))
 		require.NoError(t, os.WriteFile(target, contents, 0o600))
 	}
-	runGit(t, root, "add", "tracked", "mcp-gateway")
+	runGit(t, root, "add", "tracked", "Makefile", "package.json", "mcp-gateway")
 	runGit(t, root, "-c", "user.name=Acceptance Test", "-c", "user.email=acceptance@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "initial")
 	return root
 }

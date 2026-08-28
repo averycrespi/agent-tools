@@ -13,22 +13,34 @@ import (
 )
 
 var commandDefinitionPaths = []string{
+	"Makefile",
+	"package.json",
+	"mcp-gateway/Makefile",
+	"mcp-gateway/internal/contract/s5_acceptance.go",
 	"mcp-gateway/internal/testutil/cleanup_ledger.go",
 	"mcp-gateway/internal/testutil/process_supervisor.go",
 	"mcp-gateway/internal/testutil/runner.go",
 	"mcp-gateway/test/acceptance/acceptance.go",
+	"mcp-gateway/test/acceptance/cmd/main.go",
 	"mcp-gateway/test/acceptance/report.schema.json",
+	"mcp-gateway/test/acceptance/report_metadata.go",
+	"mcp-gateway/test/acceptance/s5_inventory.go",
+	"mcp-gateway/test/keyring-native.sh",
 	"mcp-gateway/test/keyringnative/result.schema.json",
 }
 
 type Adoption struct {
-	SchemaVersion         int     `json:"schema_version"`
-	ReportSHA256          string  `json:"report_sha256"`
-	Revision              string  `json:"revision"`
-	Profile               Profile `json:"profile"`
-	ProfileHash           string  `json:"profile_hash"`
-	CommandDefinitionHash string  `json:"command_definition_hash"`
-	AdoptedAt             string  `json:"adopted_at"`
+	SchemaVersion         int      `json:"schema_version"`
+	ReportSHA256          string   `json:"report_sha256"`
+	Revision              string   `json:"revision"`
+	Profile               Profile  `json:"profile"`
+	ProfileHash           string   `json:"profile_hash"`
+	CommandDefinitionHash string   `json:"command_definition_hash"`
+	CleanAfter            bool     `json:"clean_after"`
+	NativeResult          string   `json:"native_result"`
+	Criteria              []string `json:"criteria"`
+	Clauses               []string `json:"clauses"`
+	AdoptedAt             string   `json:"adopted_at"`
 }
 
 type profileDefinition struct {
@@ -107,6 +119,17 @@ func WriteReport(path string, report Report) error {
 }
 
 func AdoptReport(root, reportPath, outputPath string, now func() time.Time) (Adoption, error) {
+	reportAbsolute, err := filepath.Abs(reportPath)
+	if err != nil {
+		return Adoption{}, fmt.Errorf("resolve acceptance report path: %w", err)
+	}
+	outputAbsolute, err := filepath.Abs(outputPath)
+	if err != nil {
+		return Adoption{}, fmt.Errorf("resolve adoption output path: %w", err)
+	}
+	if reportAbsolute == outputAbsolute {
+		return Adoption{}, errors.New("acceptance report and adoption output must be distinct")
+	}
 	contents, err := os.ReadFile(reportPath) //nolint:gosec // The caller explicitly selects the immutable report to adopt.
 	if err != nil {
 		return Adoption{}, fmt.Errorf("read acceptance report: %w", err)
@@ -115,7 +138,7 @@ func AdoptReport(root, reportPath, outputPath string, now func() time.Time) (Ado
 	if err != nil {
 		return Adoption{}, err
 	}
-	if report.Result != ResultPassed || !report.CleanBefore || !report.CleanAfter || report.Dirty || report.DirtyPolicy != "required_clean" {
+	if report.Result != ResultPassed || !report.CleanBefore || !report.CleanAfter || report.Dirty || report.DirtyPolicy != "required_clean" || report.Native == nil || report.Native.Result == "failed" {
 		return Adoption{}, errors.New("only a passed clean-revision report can be adopted")
 	}
 	gitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -132,9 +155,18 @@ func AdoptReport(root, reportPath, outputPath string, now func() time.Time) (Ado
 		return Adoption{}, err
 	}
 	sum := sha256.Sum256(contents)
+	criteria := make([]string, len(report.EvidenceManifest))
+	for index, entry := range report.EvidenceManifest {
+		criteria[index] = entry.Criterion
+	}
+	clauses := make([]string, len(report.ClauseManifest))
+	for index, entry := range report.ClauseManifest {
+		clauses[index] = entry.Clause
+	}
 	adoption := Adoption{
 		SchemaVersion: 1, ReportSHA256: hex.EncodeToString(sum[:]), Revision: report.Revision,
 		Profile: report.Profile, ProfileHash: report.ProfileHash, CommandDefinitionHash: report.CommandDefinitionHash,
+		CleanAfter: report.CleanAfter, NativeResult: report.Native.Result, Criteria: criteria, Clauses: clauses,
 		AdoptedAt: now().UTC().Format(time.RFC3339Nano),
 	}
 	encoded, err := json.Marshal(adoption)
@@ -144,11 +176,26 @@ func AdoptReport(root, reportPath, outputPath string, now func() time.Time) (Ado
 	if err := writeAtomic(outputPath, encoded); err != nil {
 		return Adoption{}, err
 	}
+	after, err := os.ReadFile(reportPath) //nolint:gosec // Recheck the caller-selected immutable report after publication.
+	if err != nil || sha256.Sum256(after) != sum {
+		return Adoption{}, errors.New("acceptance report changed during adoption")
+	}
+	finalRevision, revisionErr := gitOutput(gitCtx, root, "rev-parse", "HEAD")
+	finalStatus, statusErr := gitOutput(gitCtx, root, "status", "--porcelain")
+	if revisionErr != nil || statusErr != nil || finalRevision != report.Revision || finalStatus != "" {
+		return Adoption{}, errors.New("acceptance repository changed during adoption")
+	}
+	if err := ValidateReportDefinitions(root, report); err != nil {
+		return Adoption{}, err
+	}
 	return adoption, nil
 }
 
 func writeAtomic(path string, contents []byte) error {
 	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return fmt.Errorf("create acceptance output directory: %w", err)
+	}
 	temporary, err := os.CreateTemp(directory, ".acceptance-*") //nolint:gosec // The caller owns the selected output directory.
 	if err != nil {
 		return fmt.Errorf("create atomic acceptance output: %w", err)

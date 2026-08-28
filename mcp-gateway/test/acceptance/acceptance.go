@@ -27,6 +27,10 @@ const (
 	ProfileS21 Profile = "s2_1"
 	ProfileS3  Profile = "s3"
 	ProfileS4  Profile = "s4"
+	ProfileS5  Profile = "s5"
+
+	s5ProfileTimeout = 15 * time.Minute
+	s5CleanupReserve = 15 * time.Second
 )
 
 type Profile string
@@ -76,7 +80,8 @@ type Command struct {
 	Criteria  []string
 	Evidence  []string
 	Artifacts []string
-	Native    bool
+	Native    bool          `json:"native,omitempty"`
+	Timeout   time.Duration `json:"timeout,omitempty"`
 }
 
 type Executor interface {
@@ -175,9 +180,31 @@ func ProfileCommands(profile Profile) ([]Command, error) {
 			{CheckName: "repository_check", Name: "make", Arguments: []string{"check"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5"}, Evidence: []string{"s4-repository-check"}, Artifacts: []string{"Makefile", "package.json"}},
 			{CheckName: "diff_check", Name: "git", Arguments: []string{"diff", "--check"}, Criteria: []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5"}, Artifacts: []string{"README.md", "mcp-gateway/README.md", "mcp-gateway/DESIGN.md", "mcp-gateway/CLAUDE.md"}},
 		}, nil
+	case ProfileS5:
+		allCriteria := []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5", "AC-6", "AC-7"}
+		return []Command{
+			{CheckName: "format_check", Name: "npm", Arguments: []string{"run", "format:check"}, Criteria: []string{"AC-6", "AC-7"}, Evidence: []string{"s5-docs"}, Artifacts: []string{"package.json"}, Timeout: 2 * time.Second},
+			{CheckName: "gateway_verify", Name: "make", Arguments: []string{"-C", "mcp-gateway", "verify"}, Criteria: []string{"AC-6", "AC-7"}, Evidence: []string{"s5-source-guards"}, Artifacts: []string{"mcp-gateway/Makefile"}, Timeout: 10 * time.Second},
+			{CheckName: "security", Name: "make", Arguments: []string{"-C", "mcp-gateway", "test-security-s5"}, Criteria: []string{"AC-1", "AC-6", "AC-7"}, Evidence: []string{"s5-security"}, Artifacts: []string{"mcp-gateway/test/security"}, Timeout: 30 * time.Second},
+			{CheckName: "unit", Name: "make", Arguments: []string{"-C", "mcp-gateway", "test-unit"}, Criteria: allCriteria, Evidence: []string{"s5-contract", "s5-unit", "s5-acceptance"}, Artifacts: []string{"mcp-gateway/internal", "mcp-gateway/test/acceptance"}, Timeout: 90 * time.Second},
+			{CheckName: "integration", Name: "make", Arguments: []string{"-C", "mcp-gateway", "test-integration-s5"}, Criteria: []string{"AC-2", "AC-3", "AC-4", "AC-5", "AC-6", "AC-7"}, Evidence: []string{"s5-integration"}, Artifacts: []string{"mcp-gateway/internal/grantrequests", "mcp-gateway/internal/composition"}, Timeout: 30 * time.Second},
+			{CheckName: "stress", Name: "make", Arguments: []string{"-C", "mcp-gateway", "test-stress-s5", "STRESS_COUNT=20"}, Criteria: []string{"AC-2", "AC-4", "AC-5", "AC-7"}, Evidence: []string{"s5-stress"}, Artifacts: []string{"mcp-gateway/internal/grantrequests", "mcp-gateway/internal/selfservice", "mcp-gateway/internal/composition"}, Timeout: 4 * time.Minute},
+			{CheckName: "e2e", Name: "make", Arguments: []string{"-C", "mcp-gateway", "test-e2e"}, Criteria: allCriteria, Evidence: []string{"s5-e2e"}, Artifacts: []string{"mcp-gateway/test/e2e"}, Timeout: 90 * time.Second},
+			{CheckName: "vulnerability", Name: "go", Arguments: []string{"-C", "mcp-gateway", "tool", "govulncheck", "./..."}, Criteria: []string{"AC-6", "AC-7"}, Evidence: []string{"s5-vulnerability"}, Artifacts: []string{"mcp-gateway/go.mod", "mcp-gateway/go.sum"}, Timeout: 5 * time.Second},
+			{CheckName: "native", Name: "make", Arguments: []string{"-C", "mcp-gateway", "test-keyring-native"}, Criteria: []string{"AC-6", "AC-7"}, Evidence: []string{"s5-native"}, Artifacts: []string{"mcp-gateway/test/keyringnative/result.schema.json", "mcp-gateway/test/keyring-native.sh"}, Native: true, Timeout: 30 * time.Second},
+			{CheckName: "other_tools", Name: "make", Arguments: []string{"check-other-tools"}, Criteria: []string{"AC-6", "AC-7"}, Evidence: []string{"s5-other-tools"}, Artifacts: []string{"Makefile"}, Timeout: 15 * time.Second},
+			{CheckName: "diff_check", Name: "git", Arguments: []string{"diff", "--check", "85e81320d7aec44e6c8b4a6bee6f2208d539857f..HEAD", "--"}, Criteria: []string{"AC-6", "AC-7"}, Artifacts: []string{"README.md", "mcp-gateway/README.md", "mcp-gateway/DESIGN.md", "mcp-gateway/CLAUDE.md"}, Timeout: time.Second},
+		}, nil
 	default:
 		return nil, fmt.Errorf("unknown acceptance profile %q", profile)
 	}
+}
+
+func ProfileDeadline(profile Profile) (time.Duration, time.Duration, bool) {
+	if profile != ProfileS5 {
+		return 0, 0, false
+	}
+	return s5ProfileTimeout, s5CleanupReserve, true
 }
 
 func Run(ctx context.Context, root string, executor Executor, allowDirty bool) Report {
@@ -200,6 +227,9 @@ func RunProfile(ctx context.Context, root string, executor Executor, profile Pro
 	case ProfileS4:
 		report.EvidenceManifest = contract.S4AcceptanceEvidenceManifest()
 		report.ClauseManifest = contract.S4ClauseEvidenceManifest()
+	case ProfileS5:
+		report.EvidenceManifest = contract.S5AcceptanceEvidenceManifest()
+		report.ClauseManifest = contract.S5ClauseEvidenceManifest()
 	}
 	if allowDirty {
 		report.DirtyPolicy = "allowed"
@@ -224,10 +254,19 @@ func RunProfile(ctx context.Context, root string, executor Executor, profile Pro
 		return finishReport(fail(report, "dirty_workspace"), started)
 	}
 
+	profileCtx := ctx
+	profileCancel := func() {}
+	if profile == ProfileS5 {
+		profileCtx, profileCancel = context.WithTimeout(ctx, s5ProfileTimeout-s5CleanupReserve)
+	}
+	defer profileCancel()
 	for _, command := range commands {
-		const commandTimeout = 20 * time.Minute
+		commandTimeout := command.Timeout
+		if commandTimeout <= 0 {
+			commandTimeout = 20 * time.Minute
+		}
 		checkStarted := time.Now().UTC()
-		commandCtx, cancel := context.WithTimeout(ctx, commandTimeout)
+		commandCtx, cancel := context.WithTimeout(profileCtx, commandTimeout)
 		stdout, commandErr := executor.Run(commandCtx, root, command)
 		timedOut := errors.Is(commandErr, context.DeadlineExceeded) || errors.Is(commandCtx.Err(), context.DeadlineExceeded)
 		cancel()
@@ -241,7 +280,7 @@ func RunProfile(ctx context.Context, root string, executor Executor, profile Pro
 			TimedOut: timedOut, Termination: termination, Cleanup: cleanup, DiagnosticPaths: diagnostics,
 		}
 		if command.Native {
-			native, parseErr := keyringnative.Parse(bytes.TrimSpace(stdout))
+			native, parseErr := parseNativeOutput(stdout)
 			if parseErr != nil {
 				check.Status = ResultFailed
 				report.Checks = append(report.Checks, check)
@@ -255,11 +294,18 @@ func RunProfile(ctx context.Context, root string, executor Executor, profile Pro
 		if commandErr != nil || check.Status == ResultFailed {
 			check.Status = ResultFailed
 			report.Checks = append(report.Checks, check)
+			if errors.Is(profileCtx.Err(), context.DeadlineExceeded) {
+				return finishReport(fail(report, "profile_deadline_exceeded"), started)
+			}
 			return finishReport(fail(report, check.Name+"_failed"), started)
 		}
 		report.Checks = append(report.Checks, check)
 	}
 
+	finalRevision, err := gitOutput(ctx, root, "rev-parse", "HEAD")
+	if err != nil || finalRevision != report.Revision {
+		return finishReport(fail(report, "acceptance_changed_revision"), started)
+	}
 	finalStatus, err := gitOutput(ctx, root, "status", "--porcelain")
 	if err != nil {
 		return finishReport(fail(report, "git_status_unavailable"), started)
@@ -314,7 +360,7 @@ func Parse(contents []byte) (Report, error) {
 	}
 	for index, check := range report.Checks {
 		command := commands[index]
-		if check.Name != command.CheckName || check.Command != commandString(command) || !reflect.DeepEqual(check.Criteria, command.Criteria) || !reflect.DeepEqual(check.Evidence, command.Evidence) || !reflect.DeepEqual(check.Artifacts, command.Artifacts) {
+		if check.Name != command.CheckName || check.Command != commandString(command) || !reflect.DeepEqual(check.Criteria, command.Criteria) || !reflect.DeepEqual(check.Evidence, command.Evidence) || !reflect.DeepEqual(check.Artifacts, command.Artifacts) || check.TimeoutMillis != effectiveCommandTimeout(command).Milliseconds() {
 			return Report{}, errors.New("acceptance check does not match the closed profile")
 		}
 		if err := validateTiming(check.StartedAt, check.EndedAt, check.DurationMillis); err != nil {
@@ -342,6 +388,13 @@ func Parse(contents []byte) (Report, error) {
 		if !reflect.DeepEqual(report.ClauseManifest, contract.S4ClauseEvidenceManifest()) {
 			return Report{}, errors.New("S4 clause manifest does not match the closed contract")
 		}
+	case ProfileS5:
+		if !reflect.DeepEqual(report.EvidenceManifest, contract.S5AcceptanceEvidenceManifest()) {
+			return Report{}, errors.New("S5 evidence manifest does not match the closed contract")
+		}
+		if !reflect.DeepEqual(report.ClauseManifest, contract.S5ClauseEvidenceManifest()) {
+			return Report{}, errors.New("S5 clause manifest does not match the closed contract")
+		}
 	case ProfileS21:
 		if len(report.EvidenceManifest) != 0 || len(report.ClauseManifest) != 0 {
 			return Report{}, errors.New("S2.1 profile cannot contain a later evidence manifest")
@@ -349,6 +402,19 @@ func Parse(contents []byte) (Report, error) {
 	}
 	if err := validateEvidenceCoverage(commands, report.EvidenceManifest); err != nil {
 		return Report{}, err
+	}
+	if report.Profile == ProfileS5 {
+		owners := make(map[string]int)
+		for _, command := range commands {
+			for _, evidence := range command.Evidence {
+				owners[evidence]++
+			}
+		}
+		for evidence, count := range owners {
+			if count != 1 {
+				return Report{}, fmt.Errorf("S5 evidence %q must have exactly one command owner", evidence)
+			}
+		}
 	}
 	if err := validateClauseCoverage(commands, report.ClauseManifest); err != nil {
 		return Report{}, err
@@ -367,6 +433,34 @@ func Parse(contents []byte) (Report, error) {
 		}
 	}
 	return report, nil
+}
+
+func parseNativeOutput(stdout []byte) (keyringnative.Result, error) {
+	trimmed := bytes.TrimSpace(stdout)
+	if native, err := keyringnative.Parse(trimmed); err == nil {
+		return native, nil
+	}
+	var candidate []byte
+	for _, line := range bytes.Split(trimmed, []byte{'\n'}) {
+		line = bytes.TrimSpace(line)
+		if len(line) > 0 && line[0] == '{' {
+			if candidate != nil {
+				return keyringnative.Result{}, errors.New("native output contains multiple JSON documents")
+			}
+			candidate = append([]byte(nil), line...)
+		}
+	}
+	if candidate == nil {
+		return keyringnative.Result{}, errors.New("native output does not contain JSON evidence")
+	}
+	return keyringnative.Parse(candidate)
+}
+
+func effectiveCommandTimeout(command Command) time.Duration {
+	if command.Timeout > 0 {
+		return command.Timeout
+	}
+	return 20 * time.Minute
 }
 
 func validateEvidenceCoverage(commands []Command, manifest []contract.AcceptanceEvidence) error {
