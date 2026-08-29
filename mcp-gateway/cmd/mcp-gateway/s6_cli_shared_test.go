@@ -30,10 +30,12 @@ func TestS6CLISharedContract(t *testing.T) {
 			command, _, err := root.Find(spec.Path)
 			require.NoError(t, err, strings.Join(spec.Path, " "))
 			assert.Equal(t, spec.Use, command.Use, strings.Join(spec.Path, " "))
-			for _, flag := range append([]string{"address", "admin-bearer-file", "admin-bearer-stdin", "output"}, spec.Flags...) {
-				assert.NotNil(t, command.Flags().Lookup(flag), "%s missing --%s", strings.Join(spec.Path, " "), flag)
-			}
-			assert.Nil(t, command.Flags().Lookup("data-dir"), strings.Join(spec.Path, " "))
+			expectedFlags := append([]string{"address", "admin-bearer-file", "admin-bearer-stdin", "output"}, spec.Flags...)
+			actualFlags := make([]string, 0, len(expectedFlags))
+			command.Flags().VisitAll(func(flag *pflag.Flag) { actualFlags = append(actualFlags, flag.Name) })
+			sort.Strings(expectedFlags)
+			sort.Strings(actualFlags)
+			assert.Equal(t, expectedFlags, actualFlags, strings.Join(spec.Path, " "))
 		}
 	})
 
@@ -47,6 +49,11 @@ func TestS6CLISharedContract(t *testing.T) {
 		} {
 			command, _, err := root.Find([]string{name})
 			require.NoError(t, err)
+			expectedUse := name
+			if name == "restore" {
+				expectedUse = "restore [backup-id]"
+			}
+			assert.Equal(t, expectedUse, command.Use, name)
 			flags := make([]string, 0)
 			command.Flags().VisitAll(func(flag *pflag.Flag) { flags = append(flags, flag.Name) })
 			sort.Strings(flags)
@@ -61,12 +68,12 @@ func TestS6CLISharedContract(t *testing.T) {
 		command := newRootCmd()
 		command.SetOut(stdout)
 		command.SetErr(stderr)
-		command.SetArgs([]string{"grant-request", "list", "--output", "json"})
+		command.SetArgs([]string{"status", "--address", "not-a-loopback-url", "--output", "json"})
 		err := command.ExecuteContext(context.Background())
 		require.Error(t, err)
 		assert.Equal(t, 2, commandExitCode(err))
 		assert.Empty(t, stdout.String())
-		assert.JSONEq(t, `{"status":null,"code":"client_invalid_input","title":"This online command is not implemented yet.","exit_code":2,"uncertain":false}`, stderr.String())
+		assert.JSONEq(t, `{"status":null,"code":"client_invalid_input","title":"The command input is invalid.","exit_code":2,"uncertain":false}`, stderr.String())
 
 		assert.Equal(t, 1, commandExitCode(commandFailure{}))
 		assert.Equal(t, 1, commandExitCode(assert.AnError))

@@ -152,6 +152,21 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		return runGrantCreate(command, options)
 	case "grant delete":
 		return runGrantDelete(command, options, args)
+	case "grant-request list":
+		path, err := grantRequestListPath(options)
+		if err != nil {
+			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
+		}
+		return runOnlineRead(command, options, path, grantRequestListTable)
+	case "grant-request get":
+		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
+			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The grant-request ID is invalid."))
+		}
+		return runOnlineRead(command, options, "/api/v1/grant-requests/"+args[0], grantRequestItemTable)
+	case "grant-request approve":
+		return runGrantRequestApprove(command, options, args)
+	case "grant-request reject":
+		return runGrantRequestReject(command, options, args)
 	case "invocation get":
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The invocation ID is invalid."))
