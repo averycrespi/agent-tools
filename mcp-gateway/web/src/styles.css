@@ -199,6 +199,10 @@ footer {
   color: var(--text);
   background: var(--surface-raised);
 }
+.panel button.danger-action {
+  border-color: var(--danger);
+  color: var(--danger);
+}
 
 .rail {
   border-right: 1px solid var(--line);
@@ -558,8 +562,11 @@ h2 {
 }
 
 .table-region {
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   overflow-x: auto;
+  contain: inline-size;
   border: 1px solid var(--line-strong);
 }
 .table-region table {

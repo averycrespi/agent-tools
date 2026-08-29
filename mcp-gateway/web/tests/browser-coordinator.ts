@@ -7,6 +7,7 @@ import {
   type Response as PlaywrightResponse,
 } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { createHash } from "node:crypto";
 import { createInterface } from "node:readline";
 import { MutationCoordinator, type MutationSpec } from "../src/mutation.ts";
 import {
@@ -21,6 +22,12 @@ import {
   parseSessionBootstrap,
   SessionClient,
 } from "../src/session.ts";
+import {
+  visualArtifactInventory,
+  visualDestinations,
+  visualRubric,
+  visualStates,
+} from "./visual-matrix.ts";
 import {
   parseInvalidation,
   ViewCoordinator,
@@ -39,6 +46,7 @@ interface BridgeInput {
     | "mutation-state"
     | "shell-primitives"
     | "accessibility-changed"
+    | "visual-changed"
     | "secret-sinks"
     | "m3-canary"
     | "m5-canary"
@@ -119,6 +127,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "mutation-state" &&
       value.scenario !== "shell-primitives" &&
       value.scenario !== "accessibility-changed" &&
+      value.scenario !== "visual-changed" &&
       value.scenario !== "secret-sinks" &&
       value.scenario !== "m3-canary" &&
       value.scenario !== "m5-canary" &&
@@ -2465,6 +2474,179 @@ async function runBackups(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "backups_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), creates, deletes, details })}\n`,
+  );
+}
+
+async function runVisualChanged(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const artifactIDs = new Set(
+    visualArtifactInventory.map((artifact) => artifact.id),
+  );
+  if (
+    visualDestinations.length !== 7 ||
+    visualStates.length !== 10 ||
+    visualArtifactInventory.length !== 42 ||
+    artifactIDs.size !== visualArtifactInventory.length ||
+    visualRubric.length !== 6 ||
+    visualArtifactInventory.some((artifact) => artifact.secretBearing)
+  )
+    fail("visual qualification inventory changed shape");
+
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="theme-preference"]').selectOption("light");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" });
+  const signedOut = await page.screenshot({
+    fullPage: true,
+    animations: "disabled",
+  });
+
+  const ids = ["01ARZ3NDEKTSV4RRFFQ69G5FA0", "01ARZ3NDEKTSV4RRFFQ69G5FA1"];
+  await page.route("**/api/v1/admin-credentials**", async (route) => {
+    const request = route.request();
+    if (
+      request.method() !== "GET" ||
+      new URL(request.url()).pathname !== "/api/v1/admin-credentials"
+    )
+      fail("unexpected visual credential request");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: ids.map((id, index) => ({
+          id,
+          fingerprint: `${String(index + 1).padStart(16, "0")}`,
+          created_at: "2026-08-28T12:00:00Z",
+          expires_at: null,
+          non_expiring: true,
+          status: "active",
+          revision: "1",
+        })),
+        next_cursor: null,
+      }),
+    });
+  });
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=admin-credentials";
+  });
+  await page.locator('[data-testid="admin-credential-row"]').first().waitFor();
+  await page
+    .locator('[data-testid="admin-credential-create"]:enabled')
+    .waitFor();
+  await page.locator('[data-testid="theme-preference"]').selectOption("dark");
+  await page.setViewportSize({ width: 390, height: 844 });
+  const firstRevoke = page
+    .locator('[data-testid="admin-credential-revoke"]')
+    .first();
+  await firstRevoke.click();
+  await page
+    .getByRole("dialog", { name: "Revoke administrator credential?" })
+    .waitFor();
+  const confirmation = await page.screenshot({
+    fullPage: true,
+    animations: "disabled",
+  });
+
+  const inspectPNG = (image: Buffer, width: number, minimumHeight: number) => {
+    if (image.length < 24 || image.subarray(1, 4).toString("ascii") !== "PNG")
+      fail("visual artifact was not a PNG");
+    const actualWidth = image.readUInt32BE(16);
+    const actualHeight = image.readUInt32BE(20);
+    if (actualWidth !== width || actualHeight < minimumHeight)
+      fail(
+        `visual artifact dimensions changed: ${actualWidth}x${actualHeight}, expected ${width}x>=${minimumHeight}`,
+      );
+    return createHash("sha256").update(image).digest("hex");
+  };
+  const desktopDigest = inspectPNG(signedOut, 1440, 900);
+  const mobileDigest = inspectPNG(confirmation, 390, 844);
+  if (desktopDigest === mobileDigest)
+    fail("representative visual artifacts were not distinct");
+
+  const layout = await page.evaluate(() => {
+    const root = document.documentElement;
+    const tableRegions = [
+      ...document.querySelectorAll<HTMLElement>(".table-region"),
+    ];
+    const danger = getComputedStyle(
+      document.querySelector<HTMLElement>(".danger-action")!,
+    );
+    const normal = getComputedStyle(
+      document.querySelector<HTMLElement>(
+        '[data-testid="admin-credential-create"]',
+      )!,
+    );
+    return {
+      pageOverflow: root.scrollWidth > root.clientWidth,
+      tableOverflowOwned: tableRegions.every(
+        (region) => getComputedStyle(region).overflowX === "auto",
+      ),
+      actionsDistinct:
+        danger.color !== normal.color ||
+        danger.backgroundColor !== normal.backgroundColor,
+      wrappedIdentifiers: [...document.querySelectorAll("code")].every(
+        (node) => node.getBoundingClientRect().right <= root.clientWidth + 1,
+      ),
+      offenders: [...document.querySelectorAll<HTMLElement>("body *")]
+        .filter(
+          (node) => node.getBoundingClientRect().right > root.clientWidth + 1,
+        )
+        .slice(0, 8)
+        .map((node) => `${node.tagName.toLowerCase()}.${node.className}`),
+    };
+  });
+  if (
+    layout.pageOverflow ||
+    !layout.tableOverflowOwned ||
+    !layout.actionsDistinct ||
+    !layout.wrappedIdentifiers
+  )
+    fail(`visual rubric failed: ${JSON.stringify(layout)}`);
+
+  await page.keyboard.press("Escape");
+  await page.setViewportSize({ width: 320, height: 800 });
+  if (
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth >
+        document.documentElement.clientWidth,
+    )
+  )
+    fail("320 CSS pixel reflow caused page overflow");
+  await page.setViewportSize({ width: 720, height: 450 });
+  if (
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth >
+        document.documentElement.clientWidth,
+    )
+  )
+    fail("pinned 200 percent reference layout caused page overflow");
+
+  await assertSecretAbsent(page, context, baseURL, [bearer], true, "dark");
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "visual_changed_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+      inventory: visualArtifactInventory.length,
+      states: visualStates.length,
+      rubric: visualRubric.length,
+      screenshots: [
+        { id: "signed-out-light-desktop", sha256: desktopDigest },
+        { id: "confirmation-dark-mobile", sha256: mobileDigest },
+      ],
+    })}\n`,
   );
 }
 
@@ -8610,6 +8792,15 @@ try {
       );
     } else if (input.scenario === "shell-primitives") {
       await runShellPrimitives(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "visual-changed") {
+      await runVisualChanged(
         browser.version(),
         context,
         page,
