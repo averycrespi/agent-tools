@@ -41,6 +41,7 @@ interface BridgeInput {
     | "m3-canary"
     | "m5-canary"
     | "m6-canary"
+    | "m7-canary"
     | "principals"
     | "principal-credentials"
     | "grant-reads-create"
@@ -115,6 +116,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "m3-canary" &&
       value.scenario !== "m5-canary" &&
       value.scenario !== "m6-canary" &&
+      value.scenario !== "m7-canary" &&
       value.scenario !== "principals" &&
       value.scenario !== "principal-credentials" &&
       value.scenario !== "grant-reads-create" &&
@@ -2021,6 +2023,155 @@ async function runM6Canary(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "m6_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length })}\n`,
+  );
+}
+
+async function runM7Canary(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const principalID = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
+  const serverID = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
+  const grantID = "01ARZ3NDEKTSV4RRFFQ69G5FB0";
+  const requestID = "01ARZ3NDEKTSV4RRFFQ69G5FC0";
+  let mutationCount = 0;
+  const principal = {
+    id: principalID,
+    display_name: "M7 build agent",
+    state: "active",
+    visibility: "requestable",
+    revision: "7",
+    credential_revision: "3",
+    credential: {
+      id: "01ARZ3NDEKTSV4RRFFQ69G5FAD",
+      fingerprint: "0123456789abcdef",
+      revision: "3",
+      created_at: "2026-08-28T12:00:00Z",
+    },
+    created_at: "2026-08-28T12:00:00Z",
+    updated_at: "2026-08-28T13:00:00Z",
+  };
+  const grant = {
+    id: grantID,
+    principal_id: principalID,
+    effect: "allow",
+    server_id: serverID,
+    upstream_name: "safe",
+    constraint: { equals: { "/mode": "safe" } },
+    expires_at: null,
+    state: "active",
+    created_at: "2026-08-28T12:00:00Z",
+  };
+  const requestedPolicy = {
+    scope: "tool",
+    target: "demo.safe",
+    constraint: { equals: { "/mode": "safe" } },
+    duration_seconds: "600",
+    future_tools_acknowledged: false,
+  };
+  const request = {
+    id: requestID,
+    principal_id: principalID,
+    state: "pending",
+    revision: "4",
+    requested_policy: requestedPolicy,
+    approved_policy: null,
+    approved_grant_id: null,
+    rejection_reason: null,
+    created_at: "2026-08-28T12:00:00Z",
+    updated_at: "2026-08-28T13:00:00Z",
+    closed_at: null,
+    resolved_server_id: serverID,
+    resolved_upstream_name: "safe",
+    submitted_evidence: null,
+    approved_evidence: null,
+    current_target: {
+      scope: "tool",
+      target_state: "extant",
+      active_state: "current",
+      durable_state: "current",
+      catalog_revision: "10",
+      fingerprint: "m7-current-fingerprint",
+      descriptor: { name: "safe", inputSchema: {}, annotations: {} },
+    },
+  };
+  await page.route("**/api/v1/principals/**", async (route) => {
+    if (route.request().method() !== "GET") {
+      mutationCount += 1;
+      await route.abort();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { ETag: `"principal-${principalID}-7"` },
+      body: JSON.stringify(principal),
+    });
+  });
+  await page.route("**/api/v1/grants/**", async (route) => {
+    if (route.request().method() !== "GET") {
+      mutationCount += 1;
+      await route.abort();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(grant),
+    });
+  });
+  await page.route("**/api/v1/grant-requests/**", async (route) => {
+    if (route.request().method() !== "GET") {
+      mutationCount += 1;
+      await route.abort();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { ETag: `"grant-request-${requestID}-4"` },
+      body: JSON.stringify(request),
+    });
+  });
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/access/principals/${id}`;
+  }, principalID);
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  const destinations: Array<[string, string]> = [
+    [`#/access/principals/${principalID}`, "principal-detail"],
+    [`#/access/grants/${grantID}`, "grant-detail"],
+    [`#/requests/${requestID}`, "request-detail"],
+  ];
+  for (const [hash, testID] of destinations) {
+    await page.evaluate((target) => {
+      window.location.hash = target;
+    }, hash);
+    await page.locator(`[data-testid="${testID}"]`).waitFor();
+  }
+  await page.locator('[data-testid="request-actions"]').waitFor();
+  const body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "Submitted: no descriptor evidence",
+    "Current target",
+    "Approval creates one ordinary ALLOW only",
+    "It never resumes, retries, or executes a held call",
+  ])
+    if (!body.includes(phrase)) fail(`M7 integrated canary omitted ${phrase}`);
+  if (body.includes("authorization_url") || body.includes("raw_result"))
+    fail("M7 integrated canary exposed one-time or raw evidence material");
+  if (mutationCount !== 0)
+    fail("M7 integrated canary replayed an adjudication mutation");
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "m7_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length, mutations: mutationCount })}\n`,
   );
 }
 
@@ -7804,6 +7955,15 @@ try {
       );
     } else if (input.scenario === "m6-canary") {
       await runM6Canary(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "m7-canary") {
+      await runM7Canary(
         browser.version(),
         context,
         page,
