@@ -54,6 +54,7 @@ interface BridgeInput {
     | "m6-canary"
     | "m7-canary"
     | "m8-canary"
+    | "m11-canary"
     | "admin-credentials"
     | "backups"
     | "capability-audit"
@@ -136,6 +137,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "m6-canary" &&
       value.scenario !== "m7-canary" &&
       value.scenario !== "m8-canary" &&
+      value.scenario !== "m11-canary" &&
       value.scenario !== "admin-credentials" &&
       value.scenario !== "backups" &&
       value.scenario !== "capability-audit" &&
@@ -2476,6 +2478,69 @@ async function runBackups(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "backups_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), creates, deletes, details })}\n`,
+  );
+}
+
+async function runM11Canary(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await assertSensitiveSinkFoundation();
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.locator('[data-testid="overview-grid"]').waitFor();
+  await page.locator('[data-testid="theme-preference"]').selectOption("dark");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" });
+  const axe = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+    .analyze();
+  const blocking = axe.violations.filter(
+    (violation) =>
+      violation.impact === "serious" || violation.impact === "critical",
+  );
+  if (blocking.length !== 0)
+    fail(
+      `M11 canary accessibility findings: ${blocking.map((violation) => violation.id).join(",")}`,
+    );
+  const screenshot = await page.screenshot({
+    fullPage: true,
+    animations: "disabled",
+  });
+  if (
+    screenshot.readUInt32BE(16) !== 390 ||
+    screenshot.readUInt32BE(20) < 844 ||
+    screenshot.includes(Buffer.from(bearer)) ||
+    visualArtifactInventory.length !== 42 ||
+    visualStates.length !== 10 ||
+    visualRubric.length !== 6
+  )
+    fail("M11 canary visual or privacy inventory changed");
+  const layout = await page.evaluate(() => ({
+    overflow:
+      document.documentElement.scrollWidth >
+      document.documentElement.clientWidth,
+    externalAssets: [
+      ...document.querySelectorAll<HTMLScriptElement | HTMLLinkElement>(
+        "script[src],link[href]",
+      ),
+    ].some((element) => {
+      const target =
+        element instanceof HTMLScriptElement ? element.src : element.href;
+      return new URL(target).origin !== window.location.origin;
+    }),
+  }));
+  if (layout.overflow || layout.externalAssets)
+    fail("M11 canary layout or asset boundary changed");
+  await assertSecretAbsent(page, context, baseURL, [bearer], true, "dark");
+  process.stdout.write(
+    `${JSON.stringify({ event: "m11_canary_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), axe_findings: 0, inventory: visualArtifactInventory.length, screenshot_sha256: createHash("sha256").update(screenshot).digest("hex") })}\n`,
   );
 }
 
@@ -8882,6 +8947,15 @@ try {
       );
     } else if (input.scenario === "shell-primitives") {
       await runShellPrimitives(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "m11-canary") {
+      await runM11Canary(
         browser.version(),
         context,
         page,

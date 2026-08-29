@@ -16,13 +16,7 @@ func TestS6ExternalEvidenceContract(t *testing.T) {
 	root := filepath.Join(repositoryRoot(t), "mcp-gateway")
 	manifestData, err := os.ReadFile(filepath.Join(root, "web", "environments.json"))
 	require.NoError(t, err)
-	resolve := func(locator string) (string, error) {
-		browser := strings.TrimPrefix(locator, "playwright:")
-		command := exec.Command("node", "-e", `const {chromium,firefox,webkit}=require("@playwright/test"); process.stdout.write(({chromium,firefox,webkit})[process.argv[1]].executablePath())`, browser)
-		command.Dir = filepath.Dir(root)
-		output, runErr := command.Output()
-		return string(output), runErr
-	}
+	resolve := playwrightResolver(root)
 	manifest, err := DecodeAndValidateS6EnvironmentManifest(manifestData, resolve)
 	require.NoError(t, err)
 	require.Len(t, manifest.Cells, 5)
@@ -113,6 +107,56 @@ func TestS6ExternalEvidenceContract(t *testing.T) {
 	encoded = append(encoded[:len(encoded)-1], []byte(`,"unknown":true}`)...)
 	_, err = DecodeAndValidateS6ExternalEvidence(encoded, artifactRoot, binding)
 	assert.ErrorContains(t, err, "unknown field")
+}
+
+func TestS6M11Gate(t *testing.T) {
+	root := filepath.Join(repositoryRoot(t), "mcp-gateway")
+	manifestData, err := os.ReadFile(filepath.Join(root, "web", "environments.json"))
+	require.NoError(t, err)
+	manifest, err := DecodeAndValidateS6EnvironmentManifest(manifestData, playwrightResolver(root))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"linux-chromium", "linux-firefox", "linux-playwright-webkit", "macos-safari", "macos-voiceover-safari"}, func() []string {
+		ids := make([]string, 0, len(manifest.Cells))
+		for _, cell := range manifest.Cells {
+			ids = append(ids, cell.ID)
+		}
+		return ids
+	}())
+	for _, owner := range []string{"T50", "T51", "T52", "T53", "T54"} {
+		require.NoError(t, ValidateS6OwnerForExecution(owner))
+		planned, ok := S6Owner(owner)
+		require.True(t, ok)
+		assert.NotEmpty(t, planned.DefinitionHash)
+	}
+	assert.Equal(t, []string{"npm", "audit", "--audit-level=high"}, s6FinalArgv["frontend_vulnerability"])
+	assert.Equal(t, []string{"make", "-C", "mcp-gateway", "test-browser-s6-visual"}, s6FinalArgv["browser_visual"])
+	assert.Equal(t, []string{"make", "-C", "mcp-gateway", "test-browser-s6-a11y"}, s6FinalArgv["browser_a11y"])
+	assert.Equal(t, []string{"make", "-C", "mcp-gateway", "test-security-s6"}, s6FinalArgv["security_privacy"])
+
+	binding := S6EvidenceBinding{CandidateHead: strings.Repeat("a", 40), ManifestHash: "sha256:" + strings.Repeat("b", 64), ProfileHash: "sha256:" + strings.Repeat("c", 64)}
+	unavailable := evidenceFixture("real_safari", binding, "sha256:"+strings.Repeat("d", 64))
+	unavailable.Availability = "unavailable_additive"
+	unavailable.Result = "unavailable"
+	unavailable.Environment.BrowserVersion = ""
+	unavailable.Environment.Executable = ""
+	unavailable.Environment.ExecutableSHA256 = ""
+	unavailable.Checklist = nil
+	unavailable.Artifacts = nil
+	unavailable.Failure = &S6EvidenceFailure{Blocking: false, Summary: "No named external environment is available."}
+	encoded, err := json.Marshal(unavailable)
+	require.NoError(t, err)
+	_, err = DecodeAndValidateS6ExternalEvidence(encoded, t.TempDir(), binding)
+	require.NoError(t, err)
+}
+
+func playwrightResolver(moduleRoot string) S6ExecutableResolver {
+	return func(locator string) (string, error) {
+		browser := strings.TrimPrefix(locator, "playwright:")
+		command := exec.Command("node", "-e", `const {chromium,firefox,webkit}=require("@playwright/test"); process.stdout.write(({chromium,firefox,webkit})[process.argv[1]].executablePath())`, browser)
+		command.Dir = filepath.Dir(moduleRoot)
+		output, runErr := command.Output()
+		return string(output), runErr
+	}
 }
 
 func evidenceFixture(kind string, binding S6EvidenceBinding, artifactDigest string) S6ExternalEvidence {

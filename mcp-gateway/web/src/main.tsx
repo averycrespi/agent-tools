@@ -376,6 +376,7 @@ function App() {
             <span>Theme</span>
             <select
               data-testid="theme-preference"
+              aria-label="Theme preference"
               value={theme}
               onChange={(event) =>
                 chooseTheme(event.currentTarget.value as ThemePreference)
