@@ -10,6 +10,7 @@ import {
 } from "./server-auth-flow-model";
 import { ServerAuthFlows } from "./server-auth-flows";
 import { ServerCredentials } from "./server-credentials";
+import { ServerDestructiveActions } from "./server-destructive";
 import { ServerEditor } from "./server-editor";
 import {
   decodeOperation,
@@ -1533,6 +1534,7 @@ export function ServerReads({
                   <h3>{snapshot.server.desiredState}</h3>
                   <p>Desired revision {snapshot.server.desiredRevision}</p>
                   <p>Namespace {snapshot.server.namespace}</p>
+                  <p>Deleted {snapshot.server.deletedAt ?? "no"}</p>
                 </article>
                 <article class="fact-card">
                   <span class="panel-code">RUNTIME</span>
@@ -1572,13 +1574,22 @@ export function ServerReads({
         {snapshot.server !== undefined &&
           snapshot.server.desiredState !== "deleted" &&
           snapshot.serverETag !== undefined && (
-            <ServerEditor
-              mutations={mutations}
-              server={snapshot.server}
-              etag={snapshot.serverETag}
-              onRefresh={onRefresh}
-              decodeServerValue={decodeServer}
-            />
+            <>
+              <ServerEditor
+                mutations={mutations}
+                server={snapshot.server}
+                etag={snapshot.serverETag}
+                onRefresh={onRefresh}
+                decodeServerValue={decodeServer}
+              />
+              <ServerDestructiveActions
+                mutations={mutations}
+                server={snapshot.server}
+                etag={snapshot.serverETag}
+                readVersion={snapshot.readVersion}
+                decodeServerValue={decodeServer}
+              />
+            </>
           )}
       </div>
     );

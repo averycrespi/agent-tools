@@ -47,6 +47,7 @@ interface BridgeInput {
     | "server-create-update"
     | "server-operations"
     | "server-credentials"
+    | "server-disconnect-delete"
     | "auth-flows";
   base_url: string;
   admin_bearer: string;
@@ -113,6 +114,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "server-create-update" &&
       value.scenario !== "server-operations" &&
       value.scenario !== "server-credentials" &&
+      value.scenario !== "server-disconnect-delete" &&
       value.scenario !== "auth-flows") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
@@ -2809,7 +2811,11 @@ function serverReadFixture(
     name: string;
     desired: "enabled" | "disabled" | "deleted";
     runtime: "active" | "degraded" | "authentication_required" | "deleted";
-    credential: "ready" | "reauthentication_required" | "not_required";
+    credential:
+      | "ready"
+      | "reauthentication_required"
+      | "not_required"
+      | "cleanup_pending";
     durable: "current" | "stale" | "retired";
     active: "current" | "stale" | "unavailable" | "absent";
   },
@@ -3535,6 +3541,284 @@ async function runServerOperations(
       operation_reads: operationReads,
       starts,
       event_refreshes: eventRefreshes,
+    })}\n`,
+  );
+}
+
+async function runServerDisconnectDelete(
+  browserVersion: string,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const serverID = serverReadIDs.active;
+  const disconnectID = "01ARZ3NDEKTSV4RRFFQ69G5FEA";
+  const deleteID = "01ARZ3NDEKTSV4RRFFQ69G5FEB";
+  let currentServer = serverReadFixture(serverID, {
+    name: "Destructive workflow server",
+    desired: "enabled",
+    runtime: "active",
+    credential: "ready",
+    durable: "current",
+    active: "current",
+  });
+  let disconnects = 0;
+  let deletes = 0;
+  const operation = (id: string, kind: string) => ({
+    id,
+    server_id: serverID,
+    kind,
+    target_desired_revision: currentServer.desired_revision,
+    target_credential_revisions: currentServer.credential_revisions,
+    state: "scheduled",
+    reason: null,
+    created_at: "2026-08-28T16:00:00Z",
+    started_at: null,
+    finished_at: null,
+  });
+
+  await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) => {
+    const request = route.request();
+    if (request.method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: {
+          ETag: `"server-${serverID}-${currentServer.desired_revision}"`,
+        },
+        body: JSON.stringify(currentServer),
+      });
+      return;
+    }
+    if (request.method() !== "DELETE") return route.fallback();
+    deletes += 1;
+    const headers = await request.allHeaders();
+    if ((request.postData() ?? "") !== "{}")
+      fail("server deletion body changed");
+    if ((headers["idempotency-key"] ?? "") !== "")
+      fail("server deletion gained idempotency authority");
+    const expected = `"server-${serverID}-${currentServer.desired_revision}"`;
+    if (headers["if-match"] !== expected)
+      fail(`server deletion used stale ETag ${headers["if-match"] ?? "none"}`);
+    if (deletes === 1) {
+      currentServer = { ...currentServer, desired_revision: "9" };
+      await route.fulfill({
+        status: 412,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 412,
+          code: "stale_revision",
+          title: "Stale server revision",
+        }),
+      });
+      return;
+    }
+    currentServer = {
+      ...serverReadFixture(serverID, {
+        name: "Destructive workflow server",
+        desired: "deleted",
+        runtime: "deleted",
+        credential: "reauthentication_required",
+        durable: "retired",
+        active: "absent",
+      }),
+      desired_revision: "10",
+      credential_state: "cleanup_pending",
+      deleted_at: "2026-08-28T16:05:00Z",
+    };
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      headers: { ETag: `"server-${serverID}-10"` },
+      body: JSON.stringify({
+        server: currentServer,
+        operation: operation(deleteID, "delete"),
+      }),
+    });
+  });
+  await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/operations`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      disconnects += 1;
+      const headers = await route.request().allHeaders();
+      if (
+        (route.request().postData() ?? "") !==
+        '{"kind":"disconnect_credentials"}'
+      )
+        fail("disconnect body changed");
+      if ((headers["idempotency-key"] ?? "") === "")
+        fail("disconnect omitted operation idempotency");
+      const expected = `"server-${serverID}-${currentServer.desired_revision}"`;
+      if (headers["if-match"] !== expected)
+        fail(`disconnect used stale ETag ${headers["if-match"] ?? "none"}`);
+      if (disconnects === 1) {
+        currentServer = { ...currentServer, desired_revision: "8" };
+        await route.fulfill({
+          status: 412,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 412,
+            code: "stale_revision",
+            title: "Stale server revision",
+          }),
+        });
+        return;
+      }
+      currentServer = {
+        ...currentServer,
+        credential_state: "cleanup_pending",
+        runtime: {
+          ...currentServer.runtime,
+          state: "degraded",
+          reason: "cleanup_pending",
+        },
+      };
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({
+          operation: operation(disconnectID, "disconnect_credentials"),
+        }),
+      });
+    },
+  );
+  for (const [id, kind] of [
+    [disconnectID, "disconnect_credentials"],
+    [deleteID, "delete"],
+  ] as const) {
+    await page.route(
+      `${baseURL}/api/v1/servers/${serverID}/operations/${id}`,
+      async (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(operation(id, kind)),
+        }),
+    );
+  }
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}`;
+  }, serverID);
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.locator('[data-testid="server-destructive-actions"]').waitFor();
+
+  const disconnect = page.locator(
+    '[data-testid="disconnect-server-credentials"]',
+  );
+  await disconnect.click();
+  const disconnectText =
+    (await page
+      .locator("#server-disconnect-confirm-consequence")
+      .textContent()) ?? "";
+  if (
+    !disconnectText.includes("not guaranteed") ||
+    !disconnectText.includes("cleanup may remain pending")
+  )
+    fail("disconnect consequence overstated cleanup");
+  await page
+    .locator('[data-testid="server-disconnect-confirm-cancel"]')
+    .click();
+  if (disconnects !== 0) fail("cancelled disconnect submitted");
+  await disconnect.click();
+  await page
+    .locator('[data-testid="server-disconnect-confirm-submit"]')
+    .click();
+  await page.getByText("Stale server revision").waitFor();
+  await page.waitForFunction(() =>
+    document.body.textContent?.includes("Desired revision 8"),
+  );
+  if (Number(disconnects) !== 1)
+    fail("stale disconnect replayed automatically");
+  await disconnect.click();
+  await page
+    .locator('[data-testid="server-disconnect-confirm-submit"]')
+    .click();
+  await page.locator('[data-testid="operation-detail"]').waitFor();
+  if (Number(disconnects) !== 2) fail("confirmed disconnect count changed");
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}`;
+  }, serverID);
+  await page.locator('[data-testid="server-destructive-actions"]').waitFor();
+  const destructiveText =
+    (await page
+      .locator('[data-testid="server-destructive-actions"]')
+      .textContent()) ?? "";
+  if (
+    !destructiveText.includes("local-only") ||
+    !destructiveText.includes("does not replay remote revocation") ||
+    !destructiveText.includes("restore credential authority")
+  )
+    fail("cleanup-pending guidance implied restoration or revocation replay");
+
+  const deleteButton = page.locator('[data-testid="delete-server"]');
+  await deleteButton.click();
+  const typed = page.locator('[data-testid="server-delete-confirm-value"]');
+  const deleteSubmit = page.locator(
+    '[data-testid="server-delete-confirm-submit"]',
+  );
+  await typed.fill("wrong-namespace");
+  if (!(await deleteSubmit.isDisabled()))
+    fail("namespace mismatch enabled permanent deletion");
+  await page.locator('[data-testid="server-delete-confirm-cancel"]').click();
+  if (deletes !== 0) fail("cancelled deletion submitted");
+  await deleteButton.click();
+  await typed.fill(currentServer.namespace);
+  await deleteSubmit.click();
+  await page.getByText("Stale server revision").waitFor();
+  await page.waitForFunction(() =>
+    document.body.textContent?.includes("Desired revision 9"),
+  );
+  if (Number(deletes) !== 1) fail("stale deletion replayed automatically");
+  await deleteButton.click();
+  if ((await typed.inputValue()) !== "")
+    fail("typed namespace survived authoritative conflict");
+  await typed.fill(currentServer.namespace);
+  await deleteSubmit.click();
+  await page.locator('[data-testid="operation-detail"]').waitFor();
+  if (Number(deletes) !== 2) fail("confirmed deletion count changed");
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}`;
+  }, serverID);
+  await page.locator('[data-testid="server-detail"]').waitFor();
+  await page.waitForFunction(() =>
+    document.body.textContent?.includes("Desired revision 10"),
+  );
+  const tombstone =
+    (await page.locator('[data-testid="server-detail"]').textContent()) ?? "";
+  if (
+    !tombstone.includes("deleted") ||
+    !tombstone.includes("2026-08-28T16:05:00Z") ||
+    !tombstone.includes("Active catalog absent") ||
+    !tombstone.includes("Durable evidence is not proof")
+  )
+    fail("server tombstone omitted permanent historical state");
+  if (
+    (await page
+      .locator('[data-testid="server-destructive-actions"]')
+      .count()) !== 0 ||
+    (await page.locator('[data-testid="server-editor"]').count()) !== 0
+  )
+    fail("tombstone retained mutation controls");
+  if (/force|restore authority|re-enable/i.test(tombstone))
+    fail("tombstone offered force or authority restoration");
+
+  assertClosedStorage(await browserStorage(page));
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "server_disconnect_delete_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+      disconnects,
+      deletes,
     })}\n`,
   );
 }
@@ -5480,6 +5764,7 @@ async function runShellPrimitives(
   await page.emulateMedia({ reducedMotion: "reduce" });
   const animationDuration = await page
     .locator(".panel")
+    .first()
     .evaluate((element) => getComputedStyle(element).animationDuration);
   const animationSeconds = Number.parseFloat(animationDuration);
   if (!Number.isFinite(animationSeconds) || animationSeconds > 0.00001)
@@ -5636,6 +5921,14 @@ try {
           )
         ) &&
         !(
+          input.scenario === "server-disconnect-delete" &&
+          message
+            .text()
+            .startsWith(
+              "Failed to load resource: the server responded with a status of 412",
+            )
+        ) &&
+        !(
           input.scenario === "auth-flows" &&
           [409, 412].some((status) =>
             message
@@ -5766,6 +6059,14 @@ try {
       await runSystemStatus(
         browser.version(),
         context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "server-disconnect-delete") {
+      await runServerDisconnectDelete(
+        browser.version(),
         page,
         baseURL,
         initialBearer,

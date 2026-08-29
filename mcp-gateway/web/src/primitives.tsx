@@ -151,6 +151,93 @@ export function FormField({
   );
 }
 
+export function TypedConfirmationDialog({
+  id,
+  open,
+  title,
+  consequence,
+  expected,
+  value,
+  confirmLabel,
+  returnFocus,
+  onValue,
+  onConfirm,
+  onCancel,
+}: {
+  id: string;
+  open: boolean;
+  title: string;
+  consequence: ComponentChildren;
+  expected: string;
+  value: string;
+  confirmLabel: string;
+  returnFocus: RefObject<HTMLElement>;
+  onValue: (value: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const node = dialog.current;
+    if (node === null) return;
+    if (open && !node.open) node.showModal();
+    if (!open && node.open) node.close();
+  }, [open]);
+
+  return (
+    <dialog
+      ref={dialog}
+      class="confirmation-dialog"
+      aria-labelledby={`${id}-title`}
+      aria-describedby={`${id}-consequence`}
+      onCancel={(event) => {
+        event.preventDefault();
+        onCancel();
+      }}
+      onClose={() => returnFocus.current?.focus()}
+    >
+      <form method="dialog">
+        <span class="panel-code">TYPE TO CONFIRM</span>
+        <h2 id={`${id}-title`}>{title}</h2>
+        <div id={`${id}-consequence`} class="dialog-consequence">
+          {consequence}
+        </div>
+        <FormField
+          id={`${id}-value`}
+          label={`Type ${expected} to confirm`}
+          hint="The immutable namespace must match exactly."
+        >
+          {(attributes) => (
+            <input
+              {...attributes}
+              data-testid={`${id}-value`}
+              value={value}
+              autoComplete="off"
+              spellcheck={false}
+              onInput={(event) => onValue(event.currentTarget.value)}
+            />
+          )}
+        </FormField>
+        <div class="dialog-actions">
+          <button type="button" data-testid={`${id}-cancel`} onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            class="danger-action"
+            type="button"
+            data-testid={`${id}-submit`}
+            disabled={value !== expected}
+            onClick={onConfirm}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </form>
+    </dialog>
+  );
+}
+
 export function ConfirmationDialog({
   id,
   open,
