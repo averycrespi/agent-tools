@@ -42,6 +42,7 @@ interface BridgeInput {
     | "m5-canary"
     | "m6-canary"
     | "m7-canary"
+    | "m8-canary"
     | "admin-credentials"
     | "backups"
     | "capability-audit"
@@ -120,6 +121,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "m5-canary" &&
       value.scenario !== "m6-canary" &&
       value.scenario !== "m7-canary" &&
+      value.scenario !== "m8-canary" &&
       value.scenario !== "admin-credentials" &&
       value.scenario !== "backups" &&
       value.scenario !== "capability-audit" &&
@@ -2178,6 +2180,60 @@ async function runM7Canary(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "m7_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length, mutations: mutationCount })}\n`,
+  );
+}
+
+async function runM8Canary(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  let domainMutations = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() !== "GET" &&
+      /\/api\/v1\/(?:admin-credentials|backups)/.test(request.url())
+    )
+      domainMutations += 1;
+  });
+  await page.evaluate(() => {
+    window.location.hash = "#/system";
+  });
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  const destinations: Array<[string, string]> = [
+    ["#/system", "system-status-panel"],
+    ["#/system?tab=admin-credentials", "admin-credentials-view"],
+    ["#/system?tab=backups", "backups-view"],
+    ["#/system?tab=recovery", "system-recovery"],
+  ];
+  let rendered = "";
+  for (const [hash, testID] of destinations) {
+    await page.evaluate((target) => {
+      window.location.hash = target;
+    }, hash);
+    await page.locator(`[data-testid="${testID}"]`).waitFor();
+    rendered += ` ${(await page.locator("body").textContent()) ?? ""}`;
+  }
+  for (const phrase of [
+    "Runtime and durable posture",
+    "Administrator credentials",
+    "Backups",
+    "Stopped-process recovery boundary",
+  ])
+    if (!rendered.includes(phrase))
+      fail(`M8 integrated canary omitted ${phrase}`);
+  if (rendered.includes("Workflow not yet available"))
+    fail("M8 integrated canary retained a System placeholder");
+  if (domainMutations !== 0) fail("M8 integrated canary submitted a mutation");
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "m8_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length, mutations: domainMutations })}\n`,
   );
 }
 
@@ -8389,6 +8445,15 @@ try {
       );
     } else if (input.scenario === "m7-canary") {
       await runM7Canary(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "m8-canary") {
+      await runM8Canary(
         browser.version(),
         context,
         page,
