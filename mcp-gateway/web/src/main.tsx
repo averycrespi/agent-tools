@@ -11,6 +11,7 @@ import { Invocations, InvocationsController } from "./invocations";
 import { MutationCoordinator, type MutationAvailability } from "./mutation";
 import { Overview, OverviewController } from "./overview";
 import { Principals } from "./principals";
+import { Requests } from "./requests";
 import {
   ConfirmationDialog,
   FormField,
@@ -435,6 +436,13 @@ function App() {
               controller={systemController}
               view={view}
               onRefresh={() => viewCoordinator.manualRefresh()}
+            />
+          ) : destination === "requests" ? (
+            <Requests
+              key={resolved.canonicalFragment}
+              session={sessionClient}
+              resolved={resolved}
+              view={view}
             />
           ) : destination === "access" ? (
             resolved.location.segments[1] === "grants" ? (

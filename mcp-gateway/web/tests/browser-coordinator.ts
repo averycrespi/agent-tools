@@ -45,6 +45,7 @@ interface BridgeInput {
     | "principal-credentials"
     | "grant-reads-create"
     | "grant-correction"
+    | "request-reads"
     | "overview"
     | "invocations"
     | "system-status"
@@ -117,6 +118,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "principal-credentials" &&
       value.scenario !== "grant-reads-create" &&
       value.scenario !== "grant-correction" &&
+      value.scenario !== "request-reads" &&
       value.scenario !== "overview" &&
       value.scenario !== "invocations" &&
       value.scenario !== "system-status" &&
@@ -3079,6 +3081,260 @@ async function runGrantCorrection(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "grant_correction_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), creates, deletes, destinations: 10 })}\n`,
+  );
+}
+
+async function runRequestReads(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const principalID = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
+  const serverID = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
+  const toolID = "01ARZ3NDEKTSV4RRFFQ69G5FAC";
+  const requestIDs = [
+    "01ARZ3NDEKTSV4RRFFQ69G5FB0",
+    "01ARZ3NDEKTSV4RRFFQ69G5FB1",
+    "01ARZ3NDEKTSV4RRFFQ69G5FB2",
+  ];
+  const grantID = "01ARZ3NDEKTSV4RRFFQ69G5FB9";
+  const policy = (target: string, duration: string | null = "600") => ({
+    scope: "tool",
+    target,
+    constraint: { equals: { "/mode": "safe" } },
+    duration_seconds: duration,
+    future_tools_acknowledged: false,
+  });
+  const summary = (
+    id: string,
+    state: "pending" | "approved" | "rejected" | "cancelled",
+  ) => ({
+    id,
+    principal_id: principalID,
+    state,
+    revision: state === "pending" ? "1" : "2",
+    requested_policy: policy("demo.safe"),
+    approved_policy: state === "approved" ? policy("demo.safe", "300") : null,
+    approved_grant_id: state === "approved" ? grantID : null,
+    rejection_reason: state === "rejected" ? "not_approved" : null,
+    created_at: "2026-08-28T12:00:00Z",
+    updated_at: "2026-08-28T13:00:00Z",
+    closed_at: state === "pending" ? null : "2026-08-28T13:00:00Z",
+  });
+  const descriptor = (name: string) => ({
+    name,
+    description: "EVIDENCE-CANARY immutable descriptor",
+    inputSchema: { type: "object" },
+    annotations: {
+      title: name,
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  });
+  const evidence = (durable: "current" | "retired", fingerprint: string) => ({
+    server_id: serverID,
+    tool_id: toolID,
+    namespace: "demo",
+    upstream_name: "safe",
+    external_name: "demo.safe",
+    catalog_revision: durable === "current" ? "8" : "7",
+    fingerprint,
+    durable_state: durable,
+    descriptor: descriptor(`submitted-${durable}`),
+    captured_at: "2026-08-28T12:00:00Z",
+  });
+  const details = new Map<string, Record<string, unknown>>([
+    [
+      requestIDs[0]!,
+      {
+        ...summary(requestIDs[0]!, "pending"),
+        resolved_server_id: serverID,
+        resolved_upstream_name: "safe",
+        submitted_evidence: evidence("current", "submitted-fingerprint"),
+        approved_evidence: null,
+        current_target: {
+          scope: "tool",
+          target_state: "extant",
+          active_state: "current",
+          durable_state: "current",
+          catalog_revision: "9",
+          fingerprint: "current-drifted-fingerprint",
+          descriptor: descriptor("current-drifted"),
+        },
+      },
+    ],
+    [
+      requestIDs[1]!,
+      {
+        ...summary(requestIDs[1]!, "approved"),
+        resolved_server_id: serverID,
+        resolved_upstream_name: "safe",
+        submitted_evidence: evidence("current", "submitted-fingerprint"),
+        approved_evidence: evidence("retired", "approved-retired-fingerprint"),
+        current_target: {
+          scope: "tool",
+          target_state: "deleted",
+          active_state: "absent",
+          durable_state: "retired",
+          catalog_revision: "7",
+          fingerprint: "approved-retired-fingerprint",
+          descriptor: descriptor("retired-current-comparison"),
+        },
+      },
+    ],
+    [
+      requestIDs[2]!,
+      {
+        ...summary(requestIDs[2]!, "pending"),
+        resolved_server_id: serverID,
+        resolved_upstream_name: "safe",
+        submitted_evidence: null,
+        approved_evidence: null,
+        current_target: {
+          scope: "tool",
+          target_state: "extant",
+          active_state: "absent",
+          durable_state: "absent",
+          catalog_revision: null,
+          fingerprint: null,
+          descriptor: null,
+        },
+      },
+    ],
+  ]);
+  let staleRestarted = false;
+  let listReads = 0;
+  let detailReads = 0;
+  await page.route("**/api/v1/grant-requests?*", async (route) => {
+    listReads += 1;
+    const query = new URL(route.request().url()).searchParams;
+    if (
+      route.request().method() !== "GET" ||
+      query.get("limit") !== "50" ||
+      query.get("state") !== "pending" ||
+      query.get("principal_id") !== principalID ||
+      [...query.keys()].some(
+        (key) =>
+          key !== "limit" &&
+          key !== "cursor" &&
+          key !== "principal_id" &&
+          key !== "state",
+      )
+    )
+      fail("request queue filters changed shape");
+    const cursor = query.get("cursor");
+    if (cursor === "request-stale") {
+      staleRestarted = true;
+      await route.fulfill({
+        status: 409,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 409,
+          code: "stale_cursor",
+          title: "The cursor is stale.",
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(
+        cursor === "request-next"
+          ? { items: [summary(requestIDs[2]!, "pending")], next_cursor: null }
+          : {
+              items: [summary(requestIDs[0]!, "pending")],
+              next_cursor: staleRestarted ? "request-next" : "request-stale",
+            },
+      ),
+    });
+  });
+  await page.route("**/api/v1/grant-requests/*", async (route) => {
+    detailReads += 1;
+    const id = new URL(route.request().url()).pathname.split("/").pop()!;
+    const item = details.get(id);
+    if (route.request().method() !== "GET" || item === undefined)
+      fail("request detail changed shape");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { ETag: `"grant-request-${id}-${String(item.revision)}"` },
+      body: JSON.stringify(item),
+    });
+  });
+
+  await page.evaluate((principal) => {
+    window.location.hash = `#/requests?principal_id=${principal}`;
+  }, principalID);
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-testid="request-row"]').length === 2,
+  );
+  let body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of ["Grant requests", "pending filter", "summary-only"])
+    if (!body.includes(phrase)) fail(`request queue omitted ${phrase}`);
+  if (body.includes("EVIDENCE-CANARY") || detailReads !== 0)
+    fail("request collection expanded immutable evidence");
+
+  const navigate = async (id: string) => {
+    await page.evaluate((requestID) => {
+      window.location.hash = `#/requests/${requestID}`;
+    }, id);
+    await page
+      .getByRole("heading", { name: `Request ${id}`, exact: true })
+      .waitFor();
+  };
+  await navigate(requestIDs[0]!);
+  body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "Submitted policy and evidence — immutable",
+    "Current target comparison — read-time",
+    "Proposed approved policy",
+    "Descriptor fingerprint changed",
+    "never executes or resumes the motivating call",
+    "explicit fresh call is required",
+  ])
+    if (!body.includes(phrase)) fail(`request detail omitted ${phrase}`);
+  if (
+    (await page
+      .locator(`a[href="#/access/principals/${principalID}"]`)
+      .count()) === 0 ||
+    (await page.locator(`a[href="#/servers/${serverID}"]`).count()) === 0 ||
+    (await page
+      .locator(`a[href="#/servers/${serverID}/descriptors/${toolID}"]`)
+      .count()) === 0
+  )
+    fail("request detail omitted reciprocal navigation");
+
+  await navigate(requestIDs[1]!);
+  body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "retired historical evidence",
+    "Retained evidence is not callable authority",
+    "historically created grant",
+    "does not prove the grant still exists",
+  ])
+    if (!body.includes(phrase))
+      fail(`approved request history omitted ${phrase}`);
+
+  await navigate(requestIDs[2]!);
+  body = (await page.locator("body").textContent()) ?? "";
+  if (
+    !body.includes("Current descriptor is absent") ||
+    !body.includes("no descriptor evidence")
+  )
+    fail("absent request target omitted explicit evidence state");
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "request_reads_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), list_reads: listReads, detail_reads: detailReads, destinations: 4 })}\n`,
   );
 }
 
@@ -7278,6 +7534,15 @@ try {
         initialBearer,
         () => requests,
       );
+    } else if (input.scenario === "request-reads") {
+      await runRequestReads(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
     } else if (input.scenario === "overview") {
       await runOverview(
         browser.version(),
@@ -7399,6 +7664,11 @@ try {
           consoleFailures.some((value) =>
             value.includes(`server responded with a status of ${status}`),
           ),
+        )) ||
+      (input.scenario === "request-reads" &&
+        consoleFailures.length === 1 &&
+        consoleFailures.some((value) =>
+          value.includes("server responded with a status of 409"),
         ));
     if (
       externalFailure ||
