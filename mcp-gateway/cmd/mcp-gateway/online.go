@@ -29,6 +29,7 @@ type onlineOptions struct {
 	bearerStdin    bool
 	adminBearer    onlineAdminBearer
 	output         string
+	jsonOutput     bool
 	file           string
 	etag           string
 	idempotencyKey string
@@ -87,14 +88,19 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 		Args: func(command *cobra.Command, args []string) error {
 			expected := requiredArguments(spec.Use)
 			if len(args) != expected {
-				return writeOnlineFailure(command, options.output, controlclient.NewInputError("The command arguments are invalid."))
+				mode := selectedOutputMode(command, options.output, options.jsonOutput)
+				return writeOnlineFailure(command, string(mode), controlclient.NewInputError("The command arguments are invalid."))
 			}
 			return nil
 		},
 		RunE: func(command *cobra.Command, args []string) error {
-			if _, err := controlclient.ParseOutputMode(options.output); err != nil {
-				return writeOnlineFailure(command, string(controlclient.OutputTable), controlclient.NewInputError("The output mode is invalid."))
+			resolved, err := resolveExecutionOptions(executionOptionInput{
+				Output: options.output, OutputSet: command.Flags().Changed("output"), JSON: options.jsonOutput,
+			})
+			if err != nil {
+				return writeOnlineFailure(command, string(controlclient.OutputHuman), controlclient.NewInputError("Choose either --output human or --output json; --json is the JSON shorthand."))
 			}
+			options.output = string(resolved.Output)
 			selected, failure := acquireOnlineAdminBearer(command, options)
 			if failure != nil {
 				return writeOnlineFailure(command, options.output, failure)
@@ -107,7 +113,8 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 	flags.StringVar(&options.address, "address", controlclient.DefaultAddress, "canonical numeric 127/8 Gateway URL")
 	flags.StringVar(&options.bearerFile, "admin-bearer-file", "", "owner-readable admin bearer file")
 	flags.BoolVar(&options.bearerStdin, "admin-bearer-stdin", false, "read the admin bearer from standard input")
-	flags.StringVar(&options.output, "output", string(controlclient.OutputTable), "output mode: table or json")
+	flags.StringVar(&options.output, "output", string(controlclient.OutputHuman), "output mode: human or json")
+	flags.BoolVar(&options.jsonOutput, "json", false, "shorthand for --output json")
 	for _, flag := range spec.Flags {
 		switch flag {
 		case "file":
@@ -133,7 +140,8 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 		}
 	}
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The command flags are invalid."))
+		mode := selectedOutputMode(command, options.output, options.jsonOutput)
+		return writeOnlineFailure(command, string(mode), controlclient.NewInputError("The command flags are invalid."))
 	})
 	return command
 }

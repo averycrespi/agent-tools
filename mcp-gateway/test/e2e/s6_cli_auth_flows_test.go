@@ -84,18 +84,28 @@ func TestS6CLIAuthFlows(t *testing.T) {
 	assert.Equal(t, 2, redirectedRefused.ExitCode)
 	assert.Zero(t, starts.Load())
 
-	ptyResult := runAuthFlowStartPTY(t, harness, bearerPath, control.URL, authorization.URL+"/authorize?state=auth-flow-canary", serverID, 0, true, true)
+	ptyResult := runAuthFlowStartPTY(t, harness, bearerPath, control.URL, authorization.URL+"/authorize?state=auth-flow-canary", serverID, 0, true, true, false)
 	assert.Equal(t, 0, ptyResult.ExitCode, string(ptyResult.Stderr))
 	assert.Equal(t, int64(1), starts.Load())
 	assert.Equal(t, int64(1), authVisits.Load())
 	assert.NotContains(t, string(ptyResult.Stdout), "auth-flow-canary")
 	assert.NotContains(t, string(ptyResult.Stderr), "auth-flow-canary")
 
+	jsonPTY := runAuthFlowStartPTY(t, harness, bearerPath, control.URL, authorization.URL+"/authorize?state=auth-flow-canary", serverID, 0, true, false, true)
+	assert.Equal(t, 0, jsonPTY.ExitCode, string(jsonPTY.Stderr))
+	assert.Equal(t, int64(2), starts.Load())
+	var jsonFlow contract.ServerAuthFlow
+	require.NoError(t, json.Unmarshal(jsonPTY.Stdout, &jsonFlow))
+	assert.Equal(t, flowID, jsonFlow.ID)
+	assert.NotContains(t, string(jsonPTY.Stdout), "authorization_url")
+	assert.NotContains(t, string(jsonPTY.Stdout), "auth-flow-canary")
+	assert.NotContains(t, string(jsonPTY.Stderr), "auth-flow-canary")
+
 	redirected := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		http.Redirect(writer, request, authorization.URL+"/authorize?state=redirect-canary", http.StatusFound)
 	}))
 	defer redirected.Close()
-	redirectResult := runAuthFlowStartPTY(t, harness, bearerPath, redirected.URL, authorization.URL+"/authorize?state=redirect-canary", serverID, 10, false, false)
+	redirectResult := runAuthFlowStartPTY(t, harness, bearerPath, redirected.URL, authorization.URL+"/authorize?state=redirect-canary", serverID, 10, false, false, false)
 	assert.Equal(t, 0, redirectResult.ExitCode, string(redirectResult.Stderr))
 	assert.NotContains(t, string(redirectResult.Stdout), "redirect-canary")
 	assert.NotContains(t, string(redirectResult.Stderr), "redirect-canary")
@@ -113,7 +123,7 @@ func TestS6CLIAuthFlows(t *testing.T) {
 	assert.Equal(t, int64(1), cancels.Load())
 
 	harness.Stop(syscall.SIGTERM)
-	results = append(results, ptyResult, redirectResult)
+	results = append(results, ptyResult, jsonPTY, redirectResult)
 	for _, result := range results {
 		if result.ExitCode != 0 {
 			assert.Empty(t, result.Stdout)
@@ -128,7 +138,7 @@ func TestS6CLIAuthFlows(t *testing.T) {
 	assert.Len(t, harness.results, 1, "T43 must own one Gateway lifecycle")
 }
 
-func runAuthFlowStartPTY(t *testing.T, harness *gatewayHarness, bearerPath, address, expectedURL, serverID string, expectedChildExit int, expectTerminal, openURL bool) testutil.ProcessResult {
+func runAuthFlowStartPTY(t *testing.T, harness *gatewayHarness, bearerPath, address, expectedURL, serverID string, expectedChildExit int, expectTerminal, openURL, jsonOutput bool) testutil.ProcessResult {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("PTY acceptance requires a Unix controlling terminal")
@@ -171,7 +181,14 @@ print("auth_flow_terminal_open_ok")
 	if openURL {
 		args = append(args, "--open")
 	}
+	if jsonOutput {
+		args = append(args, "--output", "json")
+	}
 	args = append(args, "--address", address, "--admin-bearer-file", bearerPath)
 	result, _ := harness.runner.Run(context.Background(), "python3", args...)
+	if result.ExitCode == 0 {
+		result.Stdout, _ = os.ReadFile(stdoutPath)
+		result.Stderr, _ = os.ReadFile(stderrPath)
+	}
 	return result
 }

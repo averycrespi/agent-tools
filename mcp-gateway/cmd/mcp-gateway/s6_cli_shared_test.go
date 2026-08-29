@@ -40,7 +40,7 @@ func TestS6DocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:42b6f81e0298541bf26b24c92cd0ad62882a833aa9c44be5b91e2e04dfe63e9d", digest)
+	assert.Equal(t, "sha256:73dfe4ed9f3644ca9d1108e5b9aa9289dafdb80098c6546125afbc7ce595d7fc", digest)
 }
 
 func TestS6CLISharedContract(t *testing.T) {
@@ -60,7 +60,7 @@ func TestS6CLISharedContract(t *testing.T) {
 			command, _, err := root.Find(spec.Path)
 			require.NoError(t, err, strings.Join(spec.Path, " "))
 			assert.Equal(t, spec.Use, command.Use, strings.Join(spec.Path, " "))
-			expectedFlags := append([]string{"address", "admin-bearer-file", "admin-bearer-stdin", "output"}, spec.Flags...)
+			expectedFlags := append([]string{"address", "admin-bearer-file", "admin-bearer-stdin", "json", "output"}, spec.Flags...)
 			actualFlags := make([]string, 0, len(expectedFlags))
 			command.Flags().VisitAll(func(flag *pflag.Flag) { actualFlags = append(actualFlags, flag.Name) })
 			sort.Strings(expectedFlags)

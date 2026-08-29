@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -25,8 +26,9 @@ func runServerAuthFlowStart(command *cobra.Command, options *onlineOptions, args
 	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ID is invalid."))
 	}
-	if options.output == string(controlclient.OutputJSON) {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("Auth-flow start cannot emit JSON because its authorization URL is terminal-only."))
+	mode, err := controlclient.ParseOutputMode(options.output)
+	if err != nil {
+		return writeOnlineFailure(command, string(controlclient.OutputHuman), controlclient.NewInputError("The output mode is invalid."))
 	}
 	matches := serverETagPattern.FindStringSubmatch(options.etag)
 	if len(matches) != 3 || matches[1] != args[0] {
@@ -76,7 +78,14 @@ func runServerAuthFlowStart(command *cobra.Command, options *onlineOptions, args
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The authorization URL was published but could not be opened safely."))
 		}
 	}
-	return controlclient.WriteSuccess(command.OutOrStdout(), controlclient.OutputTable, nil, authFlowTable([]contract.ServerAuthFlow{creation.Flow}))
+	if mode == controlclient.OutputJSON {
+		body, err := json.Marshal(creation.Flow)
+		if err != nil {
+			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The auth-flow result could not be encoded safely."))
+		}
+		return controlclient.WriteSuccess(command.OutOrStdout(), mode, body, controlclient.Table{})
+	}
+	return controlclient.WriteSuccess(command.OutOrStdout(), mode, nil, authFlowTable([]contract.ServerAuthFlow{creation.Flow}))
 }
 
 func runServerAuthFlowCancel(command *cobra.Command, options *onlineOptions, args []string) error {
