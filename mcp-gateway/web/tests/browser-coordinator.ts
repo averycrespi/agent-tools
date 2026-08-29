@@ -41,6 +41,7 @@ interface BridgeInput {
     | "m3-canary"
     | "m5-canary"
     | "m6-canary"
+    | "principals"
     | "overview"
     | "invocations"
     | "system-status"
@@ -109,6 +110,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "m3-canary" &&
       value.scenario !== "m5-canary" &&
       value.scenario !== "m6-canary" &&
+      value.scenario !== "principals" &&
       value.scenario !== "overview" &&
       value.scenario !== "invocations" &&
       value.scenario !== "system-status" &&
@@ -2009,6 +2011,306 @@ async function runM6Canary(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "m6_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length })}\n`,
+  );
+}
+
+async function runPrincipals(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const firstID = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
+  const secondID = "01ARZ3NDEKTSV4RRFFQ69G5FA1";
+  const createdID = "01ARZ3NDEKTSV4RRFFQ69G5FA2";
+  const grantID = "01ARZ3NDEKTSV4RRFFQ69G5FB0";
+  const principal = (
+    id: string,
+    displayName: string,
+    state: "active" | "disabled",
+    visibility: "requestable" | "allowed-only" | "all",
+    revision: string,
+  ) => ({
+    id,
+    display_name: displayName,
+    state,
+    visibility,
+    revision,
+    credential_revision: state === "disabled" ? "2" : "1",
+    credential:
+      state === "active"
+        ? {
+            id: "01ARZ3NDEKTSV4RRFFQ69G5FAZ",
+            fingerprint: "0123456789abcdef",
+            revision: "1",
+            created_at: "2026-08-28T12:00:00Z",
+          }
+        : null,
+    created_at: "2026-08-28T12:00:00Z",
+    updated_at: "2026-08-28T13:00:00Z",
+  });
+  let current = principal(firstID, "Build agent", "active", "requestable", "1");
+  let detailReads = 0;
+  let creates = 0;
+  let updates = 0;
+  let staleListRestarted = false;
+  let staleReturned = false;
+
+  await page.route("**/api/v1/principals?*", async (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    if (
+      route.request().method() !== "GET" ||
+      query.get("limit") !== "50" ||
+      [...query.keys()].some((key) => key !== "limit" && key !== "cursor")
+    )
+      fail("principal list request changed shape");
+    if (query.get("cursor") === "principal-stale") {
+      staleListRestarted = true;
+      await route.fulfill({
+        status: 409,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 409,
+          code: "stale_cursor",
+          title: "The cursor is stale.",
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(
+        query.get("cursor") === "principal-next"
+          ? {
+              items: [
+                principal(secondID, "Disabled agent", "disabled", "all", "4"),
+              ],
+              next_cursor: null,
+            }
+          : {
+              items: [current],
+              next_cursor: staleListRestarted
+                ? "principal-next"
+                : "principal-stale",
+            },
+      ),
+    });
+  });
+  await page.route(`${baseURL}/api/v1/principals`, async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    creates += 1;
+    const body = JSON.parse(route.request().postData() ?? "null") as Record<
+      string,
+      unknown
+    >;
+    if (
+      body.display_name !== "New automation" ||
+      body.visibility !== "allowed-only" ||
+      Object.keys(body).sort().join(",") !== "display_name,visibility"
+    )
+      fail("principal create body changed shape");
+    const created = principal(
+      createdID,
+      "New automation",
+      "active",
+      "allowed-only",
+      "1",
+    );
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      headers: { ETag: `"principal-${createdID}-1"` },
+      body: JSON.stringify({
+        principal: created,
+        default_grant: {
+          id: grantID,
+          principal_id: createdID,
+          effect: "allow",
+          server_id: "00000000000000000000000000",
+          upstream_name: null,
+          constraint: null,
+          expires_at: null,
+          state: "active",
+          created_at: "2026-08-28T13:00:00Z",
+        },
+      }),
+    });
+  });
+  await page.route("**/api/v1/principals/*", async (route) => {
+    const id = new URL(route.request().url()).pathname.split("/").pop();
+    const request = route.request();
+    if (request.method() === "GET") {
+      detailReads += 1;
+      const value =
+        id === createdID
+          ? principal(
+              createdID,
+              "New automation",
+              "active",
+              "allowed-only",
+              "1",
+            )
+          : current;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { ETag: `"principal-${value.id}-${value.revision}"` },
+        body: JSON.stringify(value),
+      });
+      return;
+    }
+    if (request.method() !== "PATCH" || id !== firstID)
+      fail("principal member request changed shape");
+    updates += 1;
+    const patch = JSON.parse(request.postData() ?? "null") as Record<
+      string,
+      unknown
+    >;
+    const headers = await request.allHeaders();
+    if (updates === 1) {
+      if (
+        patch.display_name !== "Renamed agent" ||
+        Object.keys(patch).join(",") !== "display_name" ||
+        headers["if-match"] !== `"principal-${firstID}-1"`
+      )
+        fail("principal display update changed shape");
+      current = principal(
+        firstID,
+        "Renamed agent",
+        "active",
+        "requestable",
+        "2",
+      );
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { ETag: `"principal-${firstID}-2"` },
+        body: JSON.stringify(current),
+      });
+      return;
+    }
+    if (patch.state !== "disabled" || Object.keys(patch).join(",") !== "state")
+      fail("principal authority update changed shape");
+    if (!staleReturned) {
+      staleReturned = true;
+      current = principal(
+        firstID,
+        "Renamed agent",
+        "active",
+        "requestable",
+        "3",
+      );
+      await route.fulfill({
+        status: 412,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 412,
+          code: "stale_principal_revision",
+          title: "The principal revision is stale.",
+        }),
+      });
+      return;
+    }
+    if (headers["if-match"] !== `"principal-${firstID}-3"`)
+      fail("principal stale revision was not refreshed");
+    current = principal(
+      firstID,
+      "Renamed agent",
+      "disabled",
+      "requestable",
+      "4",
+    );
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { ETag: `"principal-${firstID}-4"` },
+      body: JSON.stringify(current),
+    });
+  });
+
+  await page.evaluate(() => {
+    window.location.hash = "#/access/principals";
+  });
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-testid="principal-row"]').length === 2,
+  );
+  let body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "Permanent agent principals",
+    "Visibility does not grant call authority",
+    "Disabled agent",
+  ])
+    if (!body.includes(phrase)) fail(`principal list omitted ${phrase}`);
+
+  await page.evaluate(() => {
+    window.location.hash = "#/access/principals/new";
+  });
+  await page.locator('[data-testid="principal-create-view"]').waitFor();
+  body = (await page.locator("body").textContent()) ?? "";
+  if (!body.includes("permanent synthetic default ALLOW grant"))
+    fail("principal creation omitted atomic default grant explanation");
+  await page
+    .locator('[data-testid="principal-display-name"]')
+    .fill("New automation");
+  await page
+    .locator('[data-testid="principal-visibility"]')
+    .selectOption("allowed-only");
+  await page.locator('[data-testid="principal-editor-submit"]').click();
+  await page.locator('[data-testid="principal-detail"]').waitFor();
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/access/principals/${id}`;
+  }, firstID);
+  await page.locator('[data-testid="principal-detail"]').waitFor();
+  await page.getByText("Build agent", { exact: true }).waitFor();
+  body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "PERMANENT IDENTITY",
+    "Visibility is not call authorization",
+    "Credential authority",
+    "Re-enabling restores neither",
+  ])
+    if (!body.includes(phrase)) fail(`principal detail omitted ${phrase}`);
+
+  await page
+    .locator('[data-testid="principal-display-name"]')
+    .fill("Renamed agent");
+  await page.locator('[data-testid="principal-editor-submit"]').click();
+  await page
+    .getByRole("heading", { name: "Renamed agent", exact: true })
+    .waitFor();
+  await page
+    .locator('[data-testid="principal-state"]')
+    .selectOption("disabled");
+  await page.locator('[data-testid="principal-editor-submit"]').click();
+  await page.locator('[data-testid="principal-change-confirm-submit"]').click();
+  await page
+    .getByText("The principal revision is stale.", { exact: true })
+    .waitFor();
+  if (
+    (await page.locator('[data-testid="principal-state"]').inputValue()) !==
+    "disabled"
+  )
+    fail("principal stale refresh discarded safe draft");
+  await page.locator('[data-testid="principal-editor-submit"]').click();
+  await page.locator('[data-testid="principal-change-confirm-submit"]').click();
+  await page
+    .locator(".status-label.warning", { hasText: "disabled" })
+    .waitFor();
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "principals_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), detail_reads: detailReads, creates, updates })}\n`,
   );
 }
 
@@ -6172,6 +6474,15 @@ try {
         initialBearer,
         () => requests,
       );
+    } else if (input.scenario === "principals") {
+      await runPrincipals(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
     } else if (input.scenario === "overview") {
       await runOverview(
         browser.version(),
@@ -6267,10 +6578,18 @@ try {
         ? externalRequests.length !== 1 ||
           externalRequests[0] !== expectedOAuthOpen
         : externalRequests.length !== 0;
+    const expectedConsoleFailures =
+      input.scenario === "principals" &&
+      consoleFailures.length === 2 &&
+      [409, 412].every((status) =>
+        consoleFailures.some((value) =>
+          value.includes(`server responded with a status of ${status}`),
+        ),
+      );
     if (
       externalFailure ||
       originFailures.length !== 0 ||
-      consoleFailures.length !== 0
+      (consoleFailures.length !== 0 && !expectedConsoleFailures)
     ) {
       fail(
         `unexpected browser protocol side effect (external=${externalRequests.length}, origin=${originFailures.length}, console=${consoleFailures.length}, console_classes=${consoleFailures.map((value) => /^Failed to load resource: the server responded with a status of ([0-9]{3})/.exec(value)?.[1] ?? "other").join(",")})`,

@@ -9,6 +9,7 @@ import {
 import { Invocations, InvocationsController } from "./invocations";
 import { MutationCoordinator, type MutationAvailability } from "./mutation";
 import { Overview, OverviewController } from "./overview";
+import { Principals } from "./principals";
 import {
   ConfirmationDialog,
   FormField,
@@ -431,6 +432,14 @@ function App() {
           ) : destination === "system" ? (
             <System
               controller={systemController}
+              view={view}
+              onRefresh={() => viewCoordinator.manualRefresh()}
+            />
+          ) : destination === "access" ? (
+            <Principals
+              session={sessionClient}
+              mutations={mutationCoordinator}
+              resolved={resolved}
               view={view}
               onRefresh={() => viewCoordinator.manualRefresh()}
             />
