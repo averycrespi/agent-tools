@@ -441,8 +441,10 @@ function App() {
             <Requests
               key={resolved.canonicalFragment}
               session={sessionClient}
+              mutations={mutationCoordinator}
               resolved={resolved}
               view={view}
+              onRefresh={() => viewCoordinator.manualRefresh()}
             />
           ) : destination === "access" ? (
             resolved.location.segments[1] === "grants" ? (

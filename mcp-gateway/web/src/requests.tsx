@@ -1,7 +1,15 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
 import {
+  type MutationController,
+  type MutationCoordinator,
+  type MutationSnapshot,
+  type MutationSpec,
+} from "./mutation";
+import {
   ComparisonTable,
+  ConfirmationDialog,
+  FormField,
   InertJSON,
   StateNotice,
   StatusLabel,
@@ -394,14 +402,360 @@ function Evidence({
   );
 }
 
+function constraintRetained(
+  submitted: unknown | null,
+  approved: unknown | null,
+): boolean {
+  if (submitted === null) return true;
+  if (approved === null) return false;
+  try {
+    const left = record(submitted, ["equals"]);
+    const right = record(approved, ["equals"]);
+    const submittedEquals = scalarObject(left.equals) as JSONRecord;
+    const approvedEquals = scalarObject(right.equals) as JSONRecord;
+    return Object.entries(submittedEquals).every(
+      ([pointer, value]) =>
+        Object.hasOwn(approvedEquals, pointer) &&
+        JSON.stringify(approvedEquals[pointer]) === JSON.stringify(value),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function RequestActions({
+  mutations,
+  detail,
+  onRefresh,
+  onAcknowledged,
+}: {
+  mutations: MutationCoordinator;
+  detail: RequestDetail;
+  onRefresh: () => void;
+  onAcknowledged: (detail: RequestDetail) => void;
+}) {
+  const submitted = detail.requestedPolicy;
+  const [controller] = useState<MutationController<RequestDetail>>(() =>
+    mutations.create<RequestDetail>(),
+  );
+  const [mutation, setMutation] = useState<MutationSnapshot>(() =>
+    controller.snapshot(),
+  );
+  const [mode, setMode] = useState<"approve" | "reject">("approve");
+  const [scope, setScope] = useState<Scope>(submitted.scope);
+  const [target, setTarget] = useState(submitted.target);
+  const [constraint, setConstraint] = useState(
+    submitted.constraint === null ? "" : JSON.stringify(submitted.constraint),
+  );
+  const [duration, setDuration] = useState(submitted.durationSeconds ?? "");
+  const [reason, setReason] = useState("not_approved");
+  const [error, setError] = useState<string>();
+  const [blockedETag, setBlockedETag] = useState<string>();
+  const [confirming, setConfirming] = useState(false);
+  const actionButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => controller.subscribe(setMutation), [controller]);
+  useEffect(() => () => controller.close(), [controller]);
+
+  const decodeMutation = async (response: Response) => {
+    if (response.headers.get("Content-Type") !== "application/json")
+      throw new Error("invalid response");
+    const value = (await response.json()) as unknown;
+    const etag = response.headers.get("ETag");
+    if (etag === null) throw new Error("invalid response");
+    return decodeRequestDetail(value, etag);
+  };
+  const approvedPolicy = (): Policy => {
+    if (
+      submitted.scope === "tool" &&
+      (scope !== "tool" || target !== submitted.target)
+    )
+      throw new Error("A tool request cannot change scope or target.");
+    if (
+      submitted.scope === "server" &&
+      scope === "server" &&
+      target !== submitted.target
+    )
+      throw new Error("A server approval cannot broaden to another target.");
+    if (target.length === 0) throw new Error("Approval target is required.");
+    let parsedConstraint: unknown | null = null;
+    if (constraint !== "") {
+      try {
+        parsedConstraint = JSON.parse(constraint) as unknown;
+      } catch {
+        throw new Error("Constraint must be valid JSON.");
+      }
+      scalarObject(parsedConstraint);
+    }
+    if (scope === "server" && parsedConstraint !== null)
+      throw new Error("Server approval cannot include a constraint.");
+    if (!constraintRetained(submitted.constraint, parsedConstraint))
+      throw new Error(
+        "Approval cannot remove or change a submitted constraint atom.",
+      );
+    if (duration !== "") {
+      if (!/^(?:[1-9][0-9]*)$/.test(duration))
+        throw new Error("Duration must be canonical seconds.");
+      const seconds = Number(duration);
+      if (seconds < 60 || seconds > 2592000)
+        throw new Error("Duration must be between 60 and 2592000 seconds.");
+      if (
+        submitted.durationSeconds !== null &&
+        BigInt(duration) > BigInt(submitted.durationSeconds)
+      )
+        throw new Error("Approval cannot extend the submitted duration.");
+    } else if (submitted.durationSeconds !== null) {
+      throw new Error("A temporary request cannot become permanent.");
+    }
+    return {
+      scope,
+      target,
+      constraint: parsedConstraint,
+      durationSeconds: duration === "" ? null : duration,
+      futureToolsAcknowledged: scope === "server",
+    };
+  };
+  const review = (next: "approve" | "reject") => {
+    setError(undefined);
+    try {
+      const body =
+        next === "approve"
+          ? (() => {
+              const policy = approvedPolicy();
+              return JSON.stringify({
+                approved_policy: {
+                  scope: policy.scope,
+                  target: policy.target,
+                  constraint: policy.constraint,
+                  duration_seconds: policy.durationSeconds,
+                  future_tools_acknowledged: policy.futureToolsAcknowledged,
+                },
+              });
+            })()
+          : JSON.stringify({ reason });
+      const spec: MutationSpec<RequestDetail> = {
+        route: `/api/v1/grant-requests/${detail.id}/${next}`,
+        method: "POST",
+        body,
+        precondition: detail.etag,
+        requiresPrecondition: true,
+        idempotency: "none",
+        successStatuses: [200],
+        decode: decodeMutation,
+      };
+      setMode(next);
+      controller.begin(spec);
+      setConfirming(true);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Invalid adjudication.",
+      );
+    }
+  };
+  const confirm = async () => {
+    setConfirming(false);
+    const outcome = await controller.submit();
+    if (outcome.kind === "acknowledged") {
+      setBlockedETag(undefined);
+      onAcknowledged(outcome.value);
+      controller.abandon();
+      onRefresh();
+    } else if (outcome.kind === "rejected" && outcome.requiresRefresh) {
+      setBlockedETag(detail.etag);
+      onRefresh();
+    }
+  };
+  const cancel = () => {
+    setConfirming(false);
+    controller.abandon();
+  };
+  const disabled =
+    mutation.state === "submitting" ||
+    mutation.availability === "storage_latched" ||
+    blockedETag === detail.etag;
+  if (detail.state !== "pending")
+    return (
+      <StateNotice state="empty" title="Request adjudication is closed">
+        <p>Terminal requests cannot be approved or rejected again.</p>
+      </StateNotice>
+    );
+  return (
+    <section
+      class="panel domain-panel"
+      aria-labelledby="request-actions-title"
+      data-testid="request-actions"
+    >
+      <div class="panel-heading">
+        <div>
+          <span class="panel-code">ADJUDICATION</span>
+          <h2 id="request-actions-title">Approve a narrowing or reject</h2>
+        </div>
+      </div>
+      <p>
+        Approval creates one ordinary ALLOW only. It never resumes, retries, or
+        executes a held call. Rejection records one closed reason.
+      </p>
+      <FormField id="approval-scope" label="Approved scope">
+        {(attributes) => (
+          <select
+            {...attributes}
+            data-testid="approval-scope"
+            value={scope}
+            disabled={submitted.scope === "tool" || disabled}
+            onChange={(event) => {
+              const next = event.currentTarget.value as Scope;
+              setScope(next);
+              if (next === "server") {
+                setTarget(submitted.target);
+                setConstraint("");
+              }
+            }}
+          >
+            <option value="server">Server</option>
+            <option value="tool">Exact tool</option>
+          </select>
+        )}
+      </FormField>
+      <FormField id="approval-target" label="Approved target">
+        {(attributes) => (
+          <input
+            {...attributes}
+            data-testid="approval-target"
+            value={target}
+            disabled={
+              submitted.scope === "tool" ||
+              (scope === "server" && submitted.scope === "server") ||
+              disabled
+            }
+            onInput={(event) => setTarget(event.currentTarget.value)}
+          />
+        )}
+      </FormField>
+      {scope === "tool" && (
+        <FormField
+          id="approval-constraint"
+          label="Approved equality constraint JSON (optional)"
+          hint="Submitted atoms must remain exact; additional atoms narrow the policy."
+        >
+          {(attributes) => (
+            <textarea
+              {...attributes}
+              data-testid="approval-constraint"
+              value={constraint}
+              disabled={disabled}
+              onInput={(event) => setConstraint(event.currentTarget.value)}
+            />
+          )}
+        </FormField>
+      )}
+      <FormField
+        id="approval-duration"
+        label="Approved duration seconds"
+        hint="Blank means permanent only when the submitted request was permanent."
+      >
+        {(attributes) => (
+          <input
+            {...attributes}
+            data-testid="approval-duration"
+            value={duration}
+            disabled={disabled}
+            onInput={(event) => setDuration(event.currentTarget.value)}
+          />
+        )}
+      </FormField>
+      <FormField id="rejection-reason" label="Rejection reason">
+        {(attributes) => (
+          <select
+            {...attributes}
+            data-testid="rejection-reason"
+            value={reason}
+            disabled={disabled}
+            onChange={(event) => setReason(event.currentTarget.value)}
+          >
+            <option value="not_approved">Not approved</option>
+            <option value="existing_access">Existing access</option>
+            <option value="scope_too_broad">Scope too broad</option>
+            <option value="policy_conflict">Policy conflict</option>
+          </select>
+        )}
+      </FormField>
+      {error !== undefined && (
+        <StateNotice state="error" title="Check adjudication">
+          <p>{error}</p>
+        </StateNotice>
+      )}
+      {mutation.problem !== undefined && (
+        <StateNotice state="error" title={mutation.problem.title}>
+          {mutation.requiresRefresh && (
+            <p>
+              The current request was reloaded. Review its terminal state and
+              revision; nothing was replayed.
+            </p>
+          )}
+        </StateNotice>
+      )}
+      {mutation.state === "uncertain" && (
+        <StateNotice state="warning" title="Adjudication outcome is unknown">
+          <p>
+            Do not retry or replay. Refresh the request and grant history to
+            investigate possible atomic commit.
+          </p>
+        </StateNotice>
+      )}
+      <div class="inline-actions">
+        <button
+          ref={actionButton}
+          data-testid="request-approve"
+          type="button"
+          disabled={disabled}
+          onClick={() => review("approve")}
+        >
+          Review approval
+        </button>
+        <button
+          data-testid="request-reject"
+          class="danger-action"
+          type="button"
+          disabled={disabled}
+          onClick={() => review("reject")}
+        >
+          Review rejection
+        </button>
+      </div>
+      <ConfirmationDialog
+        id="request-adjudication-confirm"
+        open={confirming}
+        title={
+          mode === "approve" ? "Approve narrowed policy?" : "Reject request?"
+        }
+        consequence={
+          <p>
+            {mode === "approve"
+              ? "Approval atomically closes the request and creates one ALLOW grant; it does not execute a call."
+              : `Rejection atomically closes the request with reason ${reason}; it creates no grant.`}
+          </p>
+        }
+        confirmLabel={mode === "approve" ? "Approve request" : "Reject request"}
+        destructive={mode === "reject"}
+        returnFocus={actionButton}
+        onCancel={cancel}
+        onConfirm={() => void confirm()}
+      />
+    </section>
+  );
+}
+
 export function Requests({
   session,
+  mutations,
   resolved,
   view,
+  onRefresh,
 }: {
   session: SessionClient;
+  mutations: MutationCoordinator;
   resolved: ResolvedLocation;
   view: ViewSnapshot;
+  onRefresh: () => void;
 }) {
   const requestID =
     resolved.location.segments.length === 2
@@ -611,6 +965,12 @@ export function Requests({
             <p>Closed rejection reason: {detail.rejectionReason}</p>
           )}
         </section>
+        <RequestActions
+          mutations={mutations}
+          detail={detail}
+          onRefresh={onRefresh}
+          onAcknowledged={setDetail}
+        />
       </div>
     );
   }

@@ -46,6 +46,7 @@ interface BridgeInput {
     | "grant-reads-create"
     | "grant-correction"
     | "request-reads"
+    | "request-adjudication"
     | "overview"
     | "invocations"
     | "system-status"
@@ -119,6 +120,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "grant-reads-create" &&
       value.scenario !== "grant-correction" &&
       value.scenario !== "request-reads" &&
+      value.scenario !== "request-adjudication" &&
       value.scenario !== "overview" &&
       value.scenario !== "invocations" &&
       value.scenario !== "system-status" &&
@@ -3335,6 +3337,317 @@ async function runRequestReads(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "request_reads_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), list_reads: listReads, detail_reads: detailReads, destinations: 4 })}\n`,
+  );
+}
+
+async function runRequestAdjudication(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const principalID = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
+  const serverID = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
+  const ids = Array.from(
+    { length: 10 },
+    (_, index) => `01ARZ3NDEKTSV4RRFFQ69J${String(index).padStart(4, "0")}`,
+  );
+  const policy = (
+    scope: "tool" | "server",
+    target: string,
+    constraint: unknown | null,
+    duration: string | null,
+  ) => ({
+    scope,
+    target,
+    constraint,
+    duration_seconds: duration,
+    future_tools_acknowledged: scope === "server",
+  });
+  const states = new Map<string, Record<string, unknown>>();
+  const detail = (
+    id: string,
+    requested: ReturnType<typeof policy>,
+    state: "pending" | "approved" | "rejected" = "pending",
+    approved: ReturnType<typeof policy> | null = null,
+    reason: string | null = null,
+  ) => ({
+    id,
+    principal_id: principalID,
+    state,
+    revision: state === "pending" ? "1" : "2",
+    requested_policy: requested,
+    approved_policy: approved,
+    approved_grant_id:
+      state === "approved" ? "01ARZ3NDEKTSV4RRFFQ69G5FB9" : null,
+    rejection_reason: reason,
+    created_at: "2026-08-28T12:00:00Z",
+    updated_at: "2026-08-28T13:00:00Z",
+    closed_at: state === "pending" ? null : "2026-08-28T13:00:00Z",
+    resolved_server_id: serverID,
+    resolved_upstream_name: requested.scope === "tool" ? "safe" : null,
+    submitted_evidence: null,
+    approved_evidence: null,
+    current_target: {
+      scope: requested.scope,
+      target_state: "extant",
+      active_state: requested.scope === "tool" ? "current" : null,
+      durable_state: requested.scope === "tool" ? "current" : null,
+      catalog_revision: requested.scope === "tool" ? "1" : null,
+      fingerprint: requested.scope === "tool" ? "fingerprint" : null,
+      descriptor:
+        requested.scope === "tool"
+          ? { name: "safe", inputSchema: {}, annotations: {} }
+          : null,
+    },
+  });
+  states.set(ids[0]!, detail(ids[0]!, policy("server", "demo", null, "1200")));
+  states.set(
+    ids[1]!,
+    detail(
+      ids[1]!,
+      policy("tool", "demo.safe", { equals: { "/mode": "safe" } }, "600"),
+    ),
+  );
+  for (let index = 2; index <= 5; index++)
+    states.set(
+      ids[index]!,
+      detail(ids[index]!, policy("tool", "demo.safe", null, null)),
+    );
+  states.set(ids[6]!, detail(ids[6]!, policy("tool", "demo.safe", null, null)));
+  states.set(ids[7]!, detail(ids[7]!, policy("tool", "demo.safe", null, null)));
+  states.set(ids[8]!, detail(ids[8]!, policy("tool", "demo.safe", null, null)));
+  states.set(ids[9]!, detail(ids[9]!, policy("server", "demo", null, null)));
+  let approvals = 0;
+  let rejections = 0;
+  const attempts = new Map<string, number>();
+
+  await page.route("**/api/v1/grant-requests/**", async (route) => {
+    const parts = new URL(route.request().url()).pathname.split("/");
+    const action = parts.at(-1)!;
+    const id =
+      action === "approve" || action === "reject" ? parts.at(-2)! : action;
+    const item = states.get(id);
+    if (item === undefined) fail("unknown adjudication fixture");
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { ETag: `"grant-request-${id}-${String(item.revision)}"` },
+        body: JSON.stringify(item),
+      });
+      return;
+    }
+    attempts.set(id, (attempts.get(id) ?? 0) + 1);
+    const headers = await route.request().allHeaders();
+    if (
+      route.request().method() !== "POST" ||
+      headers["if-match"] !== `"grant-request-${id}-${String(item.revision)}"`
+    )
+      fail("request adjudication precondition changed shape");
+    if (id === ids[6]) {
+      states.set(
+        id,
+        detail(
+          id,
+          item.requested_policy as ReturnType<typeof policy>,
+          "approved",
+          item.requested_policy as ReturnType<typeof policy>,
+        ),
+      );
+      await route.fulfill({
+        status: 412,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 412,
+          code: "stale_grant_request_revision",
+          title: "The request revision is stale.",
+        }),
+      });
+      return;
+    }
+    if (id === ids[7]) {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 400,
+          code: "invalid_grant_request",
+          title: "The request adjudication is invalid.",
+        }),
+      });
+      return;
+    }
+    if (id === ids[8]) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 503,
+          code: "storage_unavailable",
+          title: "Storage is unavailable.",
+        }),
+      });
+      return;
+    }
+    const submitted = item.requested_policy as ReturnType<typeof policy>;
+    if (action === "approve") {
+      approvals += 1;
+      const body = JSON.parse(route.request().postData() ?? "null") as Record<
+        string,
+        unknown
+      >;
+      if (Object.keys(body).join(",") !== "approved_policy")
+        fail("approval body changed shape");
+      const approved = body.approved_policy as ReturnType<typeof policy>;
+      states.set(id, detail(id, submitted, "approved", approved));
+    } else {
+      rejections += 1;
+      const body = JSON.parse(route.request().postData() ?? "null") as Record<
+        string,
+        unknown
+      >;
+      states.set(
+        id,
+        detail(id, submitted, "rejected", null, body.reason as string),
+      );
+    }
+    const result = states.get(id)!;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { ETag: `"grant-request-${id}-2"` },
+      body: JSON.stringify(result),
+    });
+  });
+
+  const navigate = async (id: string) => {
+    await page.evaluate((requestID) => {
+      window.location.hash = `#/requests/${requestID}`;
+    }, id);
+    await page
+      .getByRole("heading", { name: `Request ${id}`, exact: true })
+      .waitFor();
+    await page.locator('[data-testid="request-actions"]').waitFor();
+  };
+  const confirm = async () => {
+    await page
+      .locator('[data-testid="request-adjudication-confirm-submit"]')
+      .click();
+  };
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/requests/${id}`;
+  }, ids[0]);
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await navigate(ids[0]!);
+  await page.locator('[data-testid="approval-scope"]').selectOption("tool");
+  await page.locator('[data-testid="approval-target"]').fill("demo.safe");
+  await page
+    .locator('[data-testid="approval-constraint"]')
+    .fill('{"equals":{"/mode":"safe"}}');
+  await page.locator('[data-testid="approval-duration"]').fill("600");
+  await page.locator('[data-testid="request-approve"]').click();
+  await confirm();
+  try {
+    await page
+      .getByText("Request adjudication is closed", { exact: true })
+      .waitFor({ timeout: 3000 });
+  } catch {
+    fail(
+      `first approval did not close: ${((await page.locator("body").textContent()) ?? "").slice(-1200)}`,
+    );
+  }
+
+  await navigate(ids[1]!);
+  await page.locator('[data-testid="approval-duration"]').fill("601");
+  await page.locator('[data-testid="request-approve"]').click();
+  await page
+    .getByText("Approval cannot extend the submitted duration.", {
+      exact: true,
+    })
+    .waitFor();
+  await page.locator('[data-testid="approval-duration"]').fill("");
+  await page.locator('[data-testid="request-approve"]').click();
+  await page
+    .getByText("A temporary request cannot become permanent.", { exact: true })
+    .waitFor();
+  await page.locator('[data-testid="approval-duration"]').fill("300");
+  await page.locator('[data-testid="approval-constraint"]').fill("");
+  await page.locator('[data-testid="request-approve"]').click();
+  await page
+    .getByText(
+      "Approval cannot remove or change a submitted constraint atom.",
+      { exact: true },
+    )
+    .waitFor();
+  await page
+    .locator('[data-testid="approval-constraint"]')
+    .fill('{"equals":{"/mode":"safe","/region":"local"}}');
+  await page.locator('[data-testid="request-approve"]').click();
+  await confirm();
+  await page
+    .getByText("Request adjudication is closed", { exact: true })
+    .waitFor();
+
+  const reasons = [
+    "not_approved",
+    "existing_access",
+    "scope_too_broad",
+    "policy_conflict",
+  ];
+  for (let index = 0; index < reasons.length; index++) {
+    await navigate(ids[index + 2]!);
+    await page
+      .locator('[data-testid="rejection-reason"]')
+      .selectOption(reasons[index]!);
+    await page.locator('[data-testid="request-reject"]').click();
+    await confirm();
+    await page
+      .getByText("Request adjudication is closed", { exact: true })
+      .waitFor();
+  }
+
+  await navigate(ids[9]!);
+  await page.locator('[data-testid="approval-duration"]').fill("60");
+  await page.locator('[data-testid="request-approve"]').click();
+  await confirm();
+  await page
+    .getByText("Request adjudication is closed", { exact: true })
+    .waitFor();
+
+  await navigate(ids[6]!);
+  await page.locator('[data-testid="request-approve"]').click();
+  await confirm();
+  await page
+    .getByText("Request adjudication is closed", { exact: true })
+    .waitFor();
+  if ((attempts.get(ids[6]!) ?? 0) !== 1) fail("stale adjudication replayed");
+
+  await navigate(ids[7]!);
+  await page.locator('[data-testid="request-reject"]').click();
+  await confirm();
+  await page
+    .getByText("The request adjudication is invalid.", { exact: true })
+    .waitFor();
+  if ((attempts.get(ids[7]!) ?? 0) !== 1) fail("known failure replayed");
+
+  await navigate(ids[8]!);
+  await page.locator('[data-testid="request-approve"]').click();
+  await confirm();
+  await page
+    .getByText("Adjudication outcome is unknown", { exact: true })
+    .waitFor();
+  if ((attempts.get(ids[8]!) ?? 0) !== 1)
+    fail("uncertain adjudication replayed");
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "request_adjudication_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), approvals, rejections, destinations: ids.length })}\n`,
   );
 }
 
@@ -7543,6 +7856,15 @@ try {
         initialBearer,
         () => requests,
       );
+    } else if (input.scenario === "request-adjudication") {
+      await runRequestAdjudication(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
     } else if (input.scenario === "overview") {
       await runOverview(
         browser.version(),
@@ -7669,6 +7991,13 @@ try {
         consoleFailures.length === 1 &&
         consoleFailures.some((value) =>
           value.includes("server responded with a status of 409"),
+        )) ||
+      (input.scenario === "request-adjudication" &&
+        consoleFailures.length === 3 &&
+        [400, 412, 503].every((status) =>
+          consoleFailures.some((value) =>
+            value.includes(`server responded with a status of ${status}`),
+          ),
         ));
     if (
       externalFailure ||
