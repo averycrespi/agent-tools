@@ -36,14 +36,27 @@ func TestServeRestartInvalidatesAdminSession(t *testing.T) {
 	_ = session.Body.Close()
 	result := harness.Stop(syscall.SIGTERM)
 	assert.Equal(t, 0, result.ExitCode)
+	assert.Equal(t, 1, strings.Count(string(result.Stdout), "Gateway started successfully."))
+	assert.Empty(t, result.Stderr)
 
+	harness.serveArgs = append(harness.serveArgs, "--output", "json")
 	harness.Start()
 	stale := harness.Request(http.MethodGet, "/api/v1/system-status", "", map[string]string{
 		"Cookie": cookies[0].String(), "Origin": "http://" + harness.authority,
 	})
 	assert.Equal(t, http.StatusUnauthorized, stale.StatusCode)
 	_ = stale.Body.Close()
-	harness.Stop(os.Interrupt)
+	result = harness.Stop(os.Interrupt)
+	assert.Empty(t, result.Stderr)
+	lines := strings.Split(strings.TrimSpace(string(result.Stdout)), "\n")
+	require.Len(t, lines, 1)
+	var startup struct {
+		OK        bool   `json:"ok"`
+		Operation string `json:"operation"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(lines[0]), &startup))
+	assert.True(t, startup.OK)
+	assert.Equal(t, "serve", startup.Operation)
 }
 
 func TestServeFirstSignalDeadlineRetainsUncleanMarker(t *testing.T) {
@@ -59,8 +72,9 @@ func TestServeFirstSignalDeadlineRetainsUncleanMarker(t *testing.T) {
 	result, waitErr := harness.process.Wait()
 	harness.process = nil
 	require.Error(t, waitErr)
-	assert.Equal(t, 1, result.ExitCode)
-	assert.True(t, strings.Contains(string(result.Stderr), "mcp-gateway serve stopped"))
+	assert.Equal(t, 7, result.ExitCode)
+	assert.Contains(t, string(result.Stderr), "clean shutdown could not be confirmed")
+	assert.Equal(t, 1, strings.Count(string(result.Stdout), "Gateway started successfully."))
 	_, markerErr := os.Stat(filepath.Join(harness.root, "run.unclean"))
 	require.NoError(t, markerErr)
 	require.NoError(t, blocked.Close())

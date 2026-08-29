@@ -63,6 +63,26 @@ func TestRootCommandExposesOwnedOfflineCommands(t *testing.T) {
 	require.True(t, cmd.SilenceErrors)
 }
 
+func TestServeUsesResolvedDefaultAndLeavesPreStartStdoutEmpty(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", xdg)
+	stdout := new(bytes.Buffer)
+	stderr := new(bytes.Buffer)
+	command := newRootCmd()
+	command.SetOut(stdout)
+	command.SetErr(stderr)
+	command.SetArgs([]string{"serve", "--output", "json"})
+	err := command.ExecuteContext(context.Background())
+	require.Error(t, err)
+	assert.Equal(t, 7, commandExitCode(err))
+	assert.Empty(t, stdout.String())
+	var problem controlclient.Problem
+	require.NoError(t, json.Unmarshal(stderr.Bytes(), &problem))
+	assert.Equal(t, "storage_unavailable", problem.Code)
+	_, statErr := os.Lstat(filepath.Join(xdg, gatewaypaths.InstallationName))
+	require.NoError(t, statErr)
+}
+
 func TestS5RootCompositionFailurePreventsStartupOutput(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	initialize := newRootCmd()
@@ -80,11 +100,17 @@ func TestS5RootCompositionFailurePreventsStartupOutput(t *testing.T) {
 		},
 	})
 	command.SetOut(stdout)
-	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"serve", "--data-dir", root, "--listen", "127.0.0.1:0"})
+	stderr := new(bytes.Buffer)
+	command.SetErr(stderr)
+	command.SetArgs([]string{"serve", "--data-dir", root, "--listen", "127.0.0.1:0", "--output", "json"})
 
-	require.Error(t, command.ExecuteContext(context.Background()))
-	assert.JSONEq(t, `{"ok":false,"operation":"serve","code":"storage_unavailable"}`, stdout.String())
+	err := command.ExecuteContext(context.Background())
+	require.Error(t, err)
+	assert.Equal(t, 7, commandExitCode(err))
+	assert.Empty(t, stdout.String())
+	var problem controlclient.Problem
+	require.NoError(t, json.Unmarshal(stderr.Bytes(), &problem))
+	assert.Equal(t, "storage_unavailable", problem.Code)
 }
 
 func TestS5StatusBaseIncludesGlobalRequestLimitsAndPositiveAgentAuth(t *testing.T) {

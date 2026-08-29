@@ -64,41 +64,53 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 }
 
 func newServeCmd(dependencies offlineDependencies) *cobra.Command {
-	var dataDir string
-	var authority string
+	var dataDir, authority, output string
+	var jsonOutput bool
 	command := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve the verified local Gateway boundary",
 		Args: func(command *cobra.Command, args []string) error {
 			if len(args) != 0 {
-				return writeCommandFailure(command, "serve", "invalid_command")
+				return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), controlclient.NewInputError("The serve command does not accept positional arguments."))
 			}
 			return nil
 		},
 		RunE: func(command *cobra.Command, _ []string) error {
-			if dataDir == "" {
-				return writeCommandFailure(command, "serve", "invalid_command")
+			options, err := resolveExecutionOptions(executionOptionInput{DataDir: dataDir, Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
+			if err != nil {
+				return writeOfflineProblem(command, controlclient.OutputHuman, controlclient.NewInputError("Choose either --output human or --output json; --json is the JSON shorthand."))
 			}
-			started, err := executeServe(command, dataDir, authority, dependencies)
+			layout, err := gatewaypaths.Resolve(options.DataDir)
+			if err != nil {
+				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("The selected data directory is invalid."))
+			}
+			renderer, err := controlclient.NewRenderer(options.Output, command.OutOrStdout(), command.ErrOrStderr())
+			if err != nil {
+				return commandFailure{}
+			}
+			phases := controlclient.NewServePhases(renderer)
+			acknowledged, err := executeServe(command, layout.Root, authority, dependencies, phases)
 			if err == nil {
 				return nil
 			}
-			if started {
-				_, _ = fmt.Fprintln(command.ErrOrStderr(), "mcp-gateway serve stopped")
+			problem := serveCommandProblem(err, acknowledged, layout.Root)
+			if phases.WriteProblem(problem) != nil {
 				return commandFailure{}
 			}
-			return writeCommandFailure(command, "serve", serveErrorCode(err))
+			return problem
 		},
 	}
 	command.Flags().StringVar(&dataDir, "data-dir", "", "owner-only Gateway data directory")
 	command.Flags().StringVar(&authority, "listen", contract.DefaultAuthority, "exact numeric IPv4 loopback authority")
+	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
+	command.Flags().BoolVar(&jsonOutput, "json", false, "shorthand for --output json")
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
-		return writeCommandFailure(command, "serve", "invalid_command")
+		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), controlclient.NewInputError("The command flags are invalid. See this command's usage."))
 	})
 	return command
 }
 
-func executeServe(command *cobra.Command, dataDir, authority string, dependencies offlineDependencies) (bool, error) {
+func executeServe(command *cobra.Command, dataDir, authority string, dependencies offlineDependencies, phases *controlclient.ServePhases) (bool, error) {
 	ctx := command.Context()
 	ownership, err := gatewaypaths.Acquire(dataDir)
 	if err != nil {
@@ -295,8 +307,26 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	ready.Store(true)
 	serveDone := make(chan error, 1)
 	go func() { serveDone <- server.Serve(listener) }()
+	stopBeforeAcknowledgement := func() {
+		ready.Store(false)
+		_ = server.Close()
+		<-serveDone
+	}
+	select {
+	case err := <-serveDone:
+		ready.Store(false)
+		return false, err
+	default:
+	}
 	if err := runtime.Start(ctx); err != nil {
-		return true, err
+		stopBeforeAcknowledgement()
+		return false, err
+	}
+	select {
+	case err := <-serveDone:
+		ready.Store(false)
+		return false, err
+	default:
 	}
 	result := struct {
 		OK             bool   `json:"ok"`
@@ -304,7 +334,14 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		Authority      string `json:"authority"`
 		InstallationID string `json:"installation_id"`
 	}{true, "serve", authority, identity.InstallationID}
-	if err := json.NewEncoder(command.OutOrStdout()).Encode(result); err != nil {
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		stopBeforeAcknowledgement()
+		return false, err
+	}
+	human := "Gateway started successfully.\nWeb address: http://" + controlclient.TerminalSafePath(authority) + "/\nInstallation: " + identity.InstallationID
+	if err := phases.Acknowledge(encoded, human); err != nil {
+		stopBeforeAcknowledgement()
 		return false, err
 	}
 	runtimeClean := true
@@ -409,6 +446,20 @@ func serveErrorCode(err error) string {
 		return "invalid_authority"
 	default:
 		return "storage_unavailable"
+	}
+}
+
+func serveCommandProblem(err error, acknowledged bool, dataDir string) *controlclient.Problem {
+	if acknowledged {
+		return &controlclient.Problem{Code: "serve_stopped", Title: "The Gateway stopped after startup because clean shutdown could not be confirmed. The installation remains marked unclean.", Exit: 7}
+	}
+	switch serveErrorCode(err) {
+	case "gateway_running":
+		return &controlclient.Problem{Code: "gateway_running", Title: "Another Gateway process owns the selected installation. Stop it or choose a different data directory.", Exit: 5}
+	case "invalid_authority":
+		return &controlclient.Problem{Code: "invalid_authority", Title: "The listen address is invalid. Use an exact numeric IPv4 loopback authority such as 127.0.0.1:8210.", Exit: 2}
+	default:
+		return &controlclient.Problem{Code: "storage_unavailable", Title: "The Gateway installation at " + boundedProblemPath(dataDir, "the selected data directory") + " could not be started safely.", Exit: 7}
 	}
 }
 
@@ -693,16 +744,4 @@ func restoreCommandProblem(err error, dataDir, secretPath string) *controlclient
 	default:
 		return &controlclient.Problem{Code: "storage_unavailable", Title: "The Gateway installation at " + boundedProblemPath(dataDir, "the selected data directory") + " could not be verified or restored safely.", Exit: 7}
 	}
-}
-
-func writeCommandFailure(command *cobra.Command, operation, code string) error {
-	result := struct {
-		OK        bool   `json:"ok"`
-		Operation string `json:"operation"`
-		Code      string `json:"code"`
-	}{OK: false, Operation: operation, Code: code}
-	if err := json.NewEncoder(command.OutOrStdout()).Encode(result); err != nil {
-		return commandFailure{}
-	}
-	return commandFailure{}
 }

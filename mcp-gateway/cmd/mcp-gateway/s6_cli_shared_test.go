@@ -36,7 +36,7 @@ func TestS6DocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:4311b674d079a556f598351af843417591bcc3f20f95417c31b0a27fc09fa753", digest)
+	assert.Equal(t, "sha256:42b6f81e0298541bf26b24c92cd0ad62882a833aa9c44be5b91e2e04dfe63e9d", digest)
 }
 
 func TestS6CLISharedContract(t *testing.T) {
@@ -71,7 +71,7 @@ func TestS6CLISharedContract(t *testing.T) {
 			"initialize":  {"data-dir", "json", "output", "secret-output"},
 			"admin-reset": {"data-dir", "json", "output", "secret-output"},
 			"restore":     {"data-dir", "json", "output", "secret-output", "verify-current"},
-			"serve":       {"data-dir", "listen"},
+			"serve":       {"data-dir", "json", "listen", "output"},
 		} {
 			command, _, err := root.Find([]string{name})
 			require.NoError(t, err)
