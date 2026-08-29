@@ -49,7 +49,8 @@ func newRootCmd() *cobra.Command {
 func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command {
 	command := &cobra.Command{
 		Use:           "mcp-gateway",
-		Short:         "Locally secure, deny-by-default MCP gateway",
+		Short:         "Run and administer the local deny-by-default MCP Gateway",
+		Example:       "  mcp-gateway initialize\n  mcp-gateway serve\n  mcp-gateway status",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -68,18 +69,19 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 	var dataDir, authority, output string
 	var jsonOutput bool
 	command := &cobra.Command{
-		Use:   "serve",
-		Short: "Serve the verified local Gateway boundary",
+		Use:     "serve",
+		Short:   "Start the local Gateway service",
+		Example: "  mcp-gateway serve",
 		Args: func(command *cobra.Command, args []string) error {
 			if len(args) != 0 {
-				return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), controlclient.NewInputError("The serve command does not accept positional arguments."))
+				return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("The serve command does not accept positional arguments.", "mcp-gateway serve"))
 			}
 			return nil
 		},
 		RunE: func(command *cobra.Command, _ []string) error {
 			options, err := resolveExecutionOptions(executionOptionInput{DataDir: selectedDataDir(command, dataDir), Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
 			if err != nil {
-				return writeOfflineProblem(command, controlclient.OutputHuman, controlclient.NewInputError("Choose either --output human or --output json; --json is the JSON shorthand."))
+				return writeOfflineProblem(command, controlclient.OutputHuman, offlineUsageProblem("Choose either --output human or --output json; --json is the JSON shorthand.", "mcp-gateway serve"))
 			}
 			layout, err := gatewaypaths.Resolve(options.DataDir)
 			if err != nil {
@@ -106,7 +108,7 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
 	command.Flags().BoolVar(&jsonOutput, "json", false, "shorthand for --output json")
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
-		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), controlclient.NewInputError("The command flags are invalid. See this command's usage."))
+		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("A serve flag is invalid or incomplete.", "mcp-gateway serve"))
 	})
 	return command
 }
@@ -480,19 +482,28 @@ func serveCommandProblem(err error, acknowledged bool, dataDir string) *controlc
 func newAdminAuthorityCmd(operation string, dependencies offlineDependencies) *cobra.Command {
 	var dataDir, secretOutput, output string
 	var jsonOutput bool
+	short := "Create a new local Gateway installation"
+	example := "  mcp-gateway initialize"
+	usage := "mcp-gateway initialize"
+	if operation == "admin-reset" {
+		short = "Replace administrator authority for a stopped Gateway"
+		example = "  mcp-gateway admin-reset --secret-output NEW_PATH"
+		usage = "mcp-gateway admin-reset --secret-output NEW_PATH"
+	}
 	command := &cobra.Command{
-		Use:   operation,
-		Short: "Create and publish Gateway admin authority",
+		Use:     operation,
+		Short:   short,
+		Example: example,
 		Args: func(command *cobra.Command, args []string) error {
 			if len(args) != 0 {
-				return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), controlclient.NewInputError("This command does not accept positional arguments."))
+				return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("The "+operation+" command does not accept positional arguments.", usage))
 			}
 			return nil
 		},
 		RunE: func(command *cobra.Command, _ []string) error {
 			options, err := resolveExecutionOptions(executionOptionInput{DataDir: selectedDataDir(command, dataDir), Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
 			if err != nil {
-				return writeOfflineProblem(command, controlclient.OutputHuman, controlclient.NewInputError("Choose either --output human or --output json; --json is the JSON shorthand."))
+				return writeOfflineProblem(command, controlclient.OutputHuman, offlineUsageProblem("Choose either --output human or --output json; --json is the JSON shorthand.", usage))
 			}
 			layout, err := gatewaypaths.Resolve(options.DataDir)
 			if err != nil {
@@ -503,7 +514,7 @@ func newAdminAuthorityCmd(operation string, dependencies offlineDependencies) *c
 				secretPath = layout.AdminBearer
 			}
 			if secretPath == "" {
-				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("--secret-output NEW_PATH is required for administrator authority replacement."))
+				return writeOfflineProblem(command, options.Output, offlineUsageProblem("The --secret-output flag is required for administrator authority replacement.", usage))
 			}
 			startCommand, err := renderServeCommand(layout.Root, dataDir == "")
 			if err != nil {
@@ -549,7 +560,7 @@ func newAdminAuthorityCmd(operation string, dependencies offlineDependencies) *c
 	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
 	command.Flags().BoolVar(&jsonOutput, "json", false, "shorthand for --output json")
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
-		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), controlclient.NewInputError("The command flags are invalid. See this command's usage."))
+		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("A "+operation+" flag is invalid or incomplete.", usage))
 	})
 	return command
 }
@@ -673,20 +684,21 @@ func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
 	var dataDir, secretOutput, output string
 	var verify, jsonOutput bool
 	command := &cobra.Command{
-		Use:   "restore [backup-id]",
-		Short: "Verify or restore a stopped Gateway database",
+		Use:     "restore [backup-id]",
+		Short:   "Verify or restore a stopped Gateway database",
+		Example: "  mcp-gateway restore --verify-current\n  mcp-gateway restore BACKUP_ID --secret-output NEW_PATH",
 		Args: func(command *cobra.Command, args []string) error {
 			validVerify := verify && len(args) == 0
 			validBackup := !verify && len(args) == 1 && backup.ValidID(args[0])
 			if !validVerify && !validBackup {
-				return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), controlclient.NewInputError("Use --verify-current with no backup ID, or provide exactly one valid backup ID."))
+				return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("Use --verify-current with no backup ID, or provide exactly one valid backup ID.", "mcp-gateway restore --verify-current | mcp-gateway restore BACKUP_ID --secret-output NEW_PATH"))
 			}
 			return nil
 		},
 		RunE: func(command *cobra.Command, args []string) error {
 			options, err := resolveExecutionOptions(executionOptionInput{DataDir: selectedDataDir(command, dataDir), Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
 			if err != nil {
-				return writeOfflineProblem(command, controlclient.OutputHuman, controlclient.NewInputError("Choose either --output human or --output json; --json is the JSON shorthand."))
+				return writeOfflineProblem(command, controlclient.OutputHuman, offlineUsageProblem("Choose either --output human or --output json; --json is the JSON shorthand.", "mcp-gateway restore --verify-current | mcp-gateway restore BACKUP_ID --secret-output NEW_PATH"))
 			}
 			layout, err := gatewaypaths.Resolve(options.DataDir)
 			if err != nil {
@@ -696,7 +708,7 @@ func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
 				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("--secret-output cannot be used with --verify-current."))
 			}
 			if !verify && secretOutput == "" {
-				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("--secret-output NEW_PATH is required when restoring a backup."))
+				return writeOfflineProblem(command, options.Output, offlineUsageProblem("The --secret-output flag is required when restoring a backup.", "mcp-gateway restore BACKUP_ID --secret-output NEW_PATH"))
 			}
 			var identity storage.Identity
 			mode, backupID := "verify_current", ""
@@ -742,9 +754,13 @@ func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
 	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
 	command.Flags().BoolVar(&jsonOutput, "json", false, "shorthand for --output json")
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
-		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), controlclient.NewInputError("The command flags are invalid. See this command's usage."))
+		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("A restore flag is invalid or incomplete.", "mcp-gateway restore --verify-current | mcp-gateway restore BACKUP_ID --secret-output NEW_PATH"))
 	})
 	return command
+}
+
+func offlineUsageProblem(title, usage string) *controlclient.Problem {
+	return controlclient.NewInputError(title + " Usage: " + usage)
 }
 
 func restoreCommandProblem(err error, dataDir, secretPath string) *controlclient.Problem {

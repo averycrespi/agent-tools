@@ -71,5 +71,5 @@ func TestS6M4Gate(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 2, commandExitCode(err))
 	assert.Empty(t, stdout.String())
-	assert.Equal(t, "Use --verify-current with no backup ID, or provide exactly one valid backup ID.\n", stderr.String())
+	assert.Equal(t, "Use --verify-current with no backup ID, or provide exactly one valid backup ID. Usage: mcp-gateway restore --verify-current | mcp-gateway restore BACKUP_ID --secret-output NEW_PATH\n", stderr.String())
 }

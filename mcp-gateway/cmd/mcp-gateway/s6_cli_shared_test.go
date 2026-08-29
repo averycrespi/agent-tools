@@ -40,7 +40,7 @@ func TestS6DocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:73dfe4ed9f3644ca9d1108e5b9aa9289dafdb80098c6546125afbc7ce595d7fc", digest)
+	assert.Equal(t, "sha256:868ad13462a7c57a1f4157d5169e257e7563085168c70cbd3ee5961f6c2f94dc", digest)
 }
 
 func TestS6CLISharedContract(t *testing.T) {

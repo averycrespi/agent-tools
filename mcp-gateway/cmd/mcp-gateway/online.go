@@ -12,10 +12,12 @@ import (
 )
 
 type onlineCommandSpec struct {
-	Path        []string
-	Use         string
-	ManifestUse string
-	Flags       []string
+	Path          []string
+	Use           string
+	ManifestUse   string
+	Short         string
+	Flags         []string
+	RequiredFlags []string
 }
 
 type onlineAdminBearer struct {
@@ -51,7 +53,7 @@ func newOnlineCommands() []*cobra.Command {
 			key := strings.Join(parentPath[:index+1], " ")
 			group := groups[key]
 			if group == nil {
-				group = &cobra.Command{Use: name, Short: "Online Gateway control commands"}
+				group = &cobra.Command{Use: name, Short: onlineGroupDescriptions[key]}
 				groups[key] = group
 				if parent == nil {
 					roots[name] = group
@@ -83,13 +85,19 @@ func newOnlineCommands() []*cobra.Command {
 func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 	options := &onlineOptions{filters: make(map[string]*string)}
 	command := &cobra.Command{
-		Use:   spec.Use,
-		Short: "Operate the local Gateway through its public control API",
+		Use:     spec.Use,
+		Short:   spec.Short,
+		Example: "mcp-gateway " + spec.ManifestUse,
 		Args: func(command *cobra.Command, args []string) error {
-			expected := requiredArguments(spec.Use)
-			if len(args) != expected {
+			positionals := requiredPositionals(spec.Use)
+			if len(args) != len(positionals) {
 				mode := selectedOutputMode(command, options.output, options.jsonOutput)
-				return writeOnlineFailure(command, string(mode), controlclient.NewInputError("The command arguments are invalid."))
+				title := "This command does not accept additional positional arguments."
+				if len(args) < len(positionals) {
+					name := strings.ToLower(strings.ReplaceAll(positionals[len(args)], "_", " "))
+					title = "The " + name + " argument is required."
+				}
+				return writeOnlineFailure(command, string(mode), onlineUsageProblem(spec, title))
 			}
 			return nil
 		},
@@ -98,9 +106,14 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 				Output: options.output, OutputSet: command.Flags().Changed("output"), JSON: options.jsonOutput,
 			})
 			if err != nil {
-				return writeOnlineFailure(command, string(controlclient.OutputHuman), controlclient.NewInputError("Choose either --output human or --output json; --json is the JSON shorthand."))
+				return writeOnlineFailure(command, string(controlclient.OutputHuman), onlineUsageProblem(spec, "Choose either --output human or --output json; --json is the JSON shorthand."))
 			}
 			options.output = string(resolved.Output)
+			for _, required := range spec.RequiredFlags {
+				if !command.Flags().Changed(required) {
+					return writeOnlineFailure(command, options.output, onlineUsageProblem(spec, "The --"+required+" flag is required."))
+				}
+			}
 			selected, failure := acquireOnlineAdminBearer(command, options)
 			if failure != nil {
 				return writeOnlineFailure(command, options.output, failure)
@@ -141,7 +154,7 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 	}
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
 		mode := selectedOutputMode(command, options.output, options.jsonOutput)
-		return writeOnlineFailure(command, string(mode), controlclient.NewInputError("The command flags are invalid."))
+		return writeOnlineFailure(command, string(mode), onlineUsageProblem(spec, "A command flag is invalid or incomplete."))
 	})
 	return command
 }
@@ -224,15 +237,19 @@ func onlineCapabilityUses() []string {
 	return uses
 }
 
-func requiredArguments(use string) int {
+func requiredPositionals(use string) []string {
 	fields := strings.Fields(use)
-	count := 0
+	positionals := make([]string, 0)
 	for _, field := range fields[1:] {
 		if field == strings.ToUpper(field) {
-			count++
+			positionals = append(positionals, field)
 		}
 	}
-	return count
+	return positionals
+}
+
+func onlineUsageProblem(spec onlineCommandSpec, title string) *controlclient.OnlineError {
+	return controlclient.NewInputError(title + " Usage: mcp-gateway " + spec.ManifestUse)
 }
 
 func onlineCommandSpecs() []onlineCommandSpec {
@@ -282,5 +299,86 @@ func onlineCommandSpecs() []onlineCommandSpec {
 }
 
 func onlineSpec(path []string, use, manifestUse string, flags ...string) onlineCommandSpec {
-	return onlineCommandSpec{Path: path, Use: use, ManifestUse: manifestUse, Flags: flags}
+	return onlineCommandSpec{
+		Path: path, Use: use, ManifestUse: manifestUse, Short: onlineLeafDescriptions[manifestUse], Flags: flags,
+		RequiredFlags: append([]string(nil), onlineRequiredFlags[manifestUse]...),
+	}
+}
+
+var onlineGroupDescriptions = map[string]string{
+	"admin-credential":     "Manage administrator credentials",
+	"backup":               "Create and manage recovery backups",
+	"server":               "Manage upstream MCP server configurations",
+	"server operation":     "Inspect and request server operations",
+	"server credential":    "Replace server credentials",
+	"server auth-flow":     "Manage server OAuth authorization flows",
+	"server descriptor":    "Inspect discovered server tools",
+	"catalog":              "Inspect published Gateway tools",
+	"principal":            "Manage agent principals",
+	"principal credential": "Issue and revoke agent credentials",
+	"grant":                "Manage agent authorization grants",
+	"grant-request":        "Review agent grant requests",
+	"invocation":           "Inspect governed tool invocations",
+}
+
+//nolint:gosec // Static help text names credential commands but contains no credentials.
+var onlineLeafDescriptions = map[string]string{
+	"status":                  "Show Gateway status",
+	"admin-credential list":   "List administrator credentials",
+	"admin-credential get ID": "Show an administrator credential",
+	"admin-credential create --file PATH [--secret-output NEW_PATH]": "Create an administrator credential",
+	"admin-credential revoke ID":                                     "Revoke an administrator credential",
+	"backup list":                                                    "List recovery backups",
+	"backup get BACKUP_ID":                                           "Show a recovery backup",
+	"backup create":                                                  "Create a recovery backup",
+	"backup delete BACKUP_ID":                                        "Delete a recovery backup",
+	"server list":                                                    "List configured MCP servers",
+	"server get ID":                                                  "Show a configured MCP server",
+	"server create --file PATH":                                      "Create an MCP server configuration",
+	"server update ID --etag ETAG --file PATH":                       "Update an MCP server configuration",
+	"server delete ID --etag ETAG":                                   "Delete an MCP server configuration",
+	"server operation list ID":                                       "List operations for a server",
+	"server operation get ID OPERATION_ID":                           "Show a server operation",
+	"server operation start ID --etag ETAG --file PATH":              "Request a server operation",
+	"server credential replace ID --etag ETAG --file PATH":           "Replace a server credential",
+	"server auth-flow list ID":                                       "List OAuth flows for a server",
+	"server auth-flow get ID FLOW_ID":                                "Show a server OAuth flow",
+	"server auth-flow start ID --etag ETAG [--open]":                 "Start server OAuth authorization",
+	"server auth-flow cancel ID FLOW_ID":                             "Cancel server OAuth authorization",
+	"server descriptor list ID":                                      "List discovered tools for a server",
+	"server descriptor get ID TOOL_ID":                               "Show a discovered server tool",
+	"catalog list":                                                   "List published Gateway tools",
+	"principal list":                                                 "List agent principals",
+	"principal get ID":                                               "Show an agent principal",
+	"principal create --file PATH":                                   "Create an agent principal",
+	"principal update ID --etag ETAG --file PATH":                    "Update an agent principal",
+	"principal credential issue ID --etag ETAG [--secret-output NEW_PATH]": "Issue or replace an agent credential",
+	"principal credential revoke ID --etag ETAG":                           "Revoke an agent credential",
+	"grant list":                   "List authorization grants",
+	"grant get ID":                 "Show an authorization grant",
+	"grant create --file PATH":     "Create an authorization grant",
+	"grant delete ID":              "Delete an authorization grant",
+	"grant-request list":           "List agent grant requests",
+	"grant-request get REQUEST_ID": "Show an agent grant request",
+	"grant-request approve REQUEST_ID --etag ETAG --file PATH": "Approve an agent grant request",
+	"grant-request reject REQUEST_ID --etag ETAG --file PATH":  "Reject an agent grant request",
+	"invocation list":              "List governed tool invocations",
+	"invocation get INVOCATION_ID": "Show a governed tool invocation",
+}
+
+var onlineRequiredFlags = map[string][]string{
+	"admin-credential create --file PATH [--secret-output NEW_PATH]":       {"file"},
+	"server create --file PATH":                                            {"file"},
+	"server update ID --etag ETAG --file PATH":                             {"etag", "file"},
+	"server delete ID --etag ETAG":                                         {"etag"},
+	"server operation start ID --etag ETAG --file PATH":                    {"etag", "file"},
+	"server credential replace ID --etag ETAG --file PATH":                 {"etag", "file"},
+	"server auth-flow start ID --etag ETAG [--open]":                       {"etag"},
+	"principal create --file PATH":                                         {"file"},
+	"principal update ID --etag ETAG --file PATH":                          {"etag", "file"},
+	"principal credential issue ID --etag ETAG [--secret-output NEW_PATH]": {"etag"},
+	"principal credential revoke ID --etag ETAG":                           {"etag"},
+	"grant create --file PATH":                                             {"file"},
+	"grant-request approve REQUEST_ID --etag ETAG --file PATH":             {"etag", "file"},
+	"grant-request reject REQUEST_ID --etag ETAG --file PATH":              {"etag", "file"},
 }
