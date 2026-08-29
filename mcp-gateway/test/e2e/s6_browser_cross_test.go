@@ -31,10 +31,21 @@ func TestS6BrowserCross(t *testing.T) {
 			}))
 			require.NoError(t, err)
 			require.NoError(t, input.Close())
-			result, err := process.Wait()
-			require.NoError(t, err, "%s browser cell: %s", browser, result.Stderr)
+			select {
+			case <-process.StdoutReady():
+			case <-time.After(15 * time.Second):
+				_ = process.Stop()
+				result, waitErr := process.Wait()
+				t.Fatalf("%s shell did not load: wait=%v stderr=%s", browser, waitErr, result.Stderr)
+			}
+			require.NoError(t, process.Stop())
+			result, waitErr := process.Wait()
+			require.Error(t, waitErr)
+			assert.ErrorContains(t, waitErr, "test process stopped")
 			assert.Equal(t, "{\"event\":\"shell_loaded\"}\n", string(result.Stdout))
 			assert.Empty(t, result.Stderr)
+			assert.True(t, result.Cleanup.TermSent)
+			assert.True(t, result.Cleanup.KillSent)
 			assert.True(t, result.Cleanup.Reaped)
 			assert.False(t, result.Cleanup.Survived)
 			assert.NotContains(t, string(result.Stdout), harness.bearer)
