@@ -20,6 +20,8 @@ make test-milestone-s6 MILESTONE=M<n> # one executable S6 gate owner
 make qualify-external-s6 # exact-candidate sidecars only; no product suite
 make accept-s6 REPORT=/absolute/path/report.json # frozen clean S6 profile, once
 npm run ui:typecheck    # strict TypeScript check
+npm run ui:dev          # authored source + trusted fixed local API proxy
+make -C mcp-gateway test-frontend-development # focused Node + real-browser dev owner
 npm run ui:build        # regenerate the fixed embedded bundle
 npm run ui:verify-generated # two-build deterministic comparison
 npm run ui:verify-supply-chain # lock, license, deterministic build, and static guards
@@ -37,6 +39,8 @@ go tool govulncheck ./... # blocking vulnerability check
 ```
 
 S6 task and milestone targets execute only manifest rows explicitly transitioned from `planned` to `executable`; unknown or still-planned owners fail closed, and every row retains its frozen command-definition hash and bounded multiplicity.
+
+Frontend live reload uses two independently owned loopback processes. Follow [docs/frontend-development.md](docs/frontend-development.md) for the closed selector grammar, trusted proxy/cookie boundary, Gateway-owned OAuth callback, cleanup, and disjoint test owners. Never broaden the development proxy or import its entry points into the production source/build graph.
 
 Run `make audit` before committing, and use unsuppressed Go and frontend vulnerability commands when findings must block. Unit tests are colocated and race-enabled; integration, security, stress, real-binary, browser, visual, accessibility, and external-evidence tiers use their matching owners. S2.1–S5 profiles remain compatibility evidence; do not compose or rerun them from S6. S6 task/milestone rows are executable only after explicit manifest transition, and the final profile owns each count-one tier, exact clean HEAD, command/profile hashes, cleanup, evidence classification, and a separate no-check adopter. Native or permitted external skipped/unavailable evidence is additive and visible; failed blocking evidence blocks.
 
@@ -80,6 +84,7 @@ test/security/          Build-tagged S5 durable/static/report-sink evidence
 test/e2e/               Single real-binary harness and bounded fixtures
 test/keyringnative/     Isolated native keyring evidence
 test/material/          External-package material acquisition evidence
+docs/                   Standalone operational guides linked from README
 ```
 
 `internal/dependencies` is only the build-tagged dependency pin. Production files must not import `internal/testutil`; it is shared only by tests.

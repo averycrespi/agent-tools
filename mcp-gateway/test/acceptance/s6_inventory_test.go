@@ -184,7 +184,7 @@ func TestS6Documentation(t *testing.T) {
 	ids := make(map[string]bool)
 	approved := map[string]bool{
 		"mcp-gateway/README.md": true, "mcp-gateway/DESIGN.md": true,
-		"mcp-gateway/CLAUDE.md": true, "command-help": true,
+		"mcp-gateway/CLAUDE.md": true, "mcp-gateway/docs/frontend-development.md": true, "command-help": true,
 		"README.md": true, "CLAUDE.md": true,
 	}
 	for _, row := range rows {

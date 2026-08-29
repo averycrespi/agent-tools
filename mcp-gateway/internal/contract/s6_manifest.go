@@ -140,7 +140,7 @@ func S6DocumentationManifest() []S6DocumentationRow {
 			targets = append(targets, "README.md")
 		}
 		if topic == "frontend-development" {
-			targets = append(targets, "CLAUDE.md")
+			targets = append(targets, "CLAUDE.md", "mcp-gateway/docs/frontend-development.md")
 		}
 		rows = append(rows, S6DocumentationRow{ID: "topic-" + topic, Subject: topic, Targets: targets})
 	}

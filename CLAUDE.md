@@ -26,11 +26,15 @@ make test      # test all Go tools
 make check-other-tools # lint + test non-Gateway modules only
 make audit     # tidy + fmt + lint + test + govulncheck for all Go tools
 npm run ui:typecheck
+npm run ui:dev
+make -C mcp-gateway test-frontend-development
 npm run ui:build
 npm run ui:verify-generated
 npm run ui:verify-supply-chain
 npm run ui:audit
 ```
+
+For the two-process live-reload workflow, follow the [MCP Gateway frontend development guide](mcp-gateway/docs/frontend-development.md).
 
 Targets are forwarded to each tool's Makefile. Run from any subdirectory for a single tool. S2.1–S5 Gateway acceptance profiles are retained compatibility evidence. S6 manifest-controlled task, milestone, and final owners provide current Gateway verification; `check-other-tools` deliberately excludes `mcp-gateway` so the final profile has one separate Gateway owner. The pre-commit hook runs `lint-staged` for Go and docs formatting, then `make lint` for Go linting.
 
