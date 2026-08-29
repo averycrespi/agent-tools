@@ -29,7 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6E2EInvocationReadPrivacy(t *testing.T) {
+func TestE2EInvocationReadPrivacy(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
 	strictSchema := json.RawMessage(`{"type":"object","properties":{"note":{"type":"string"},"token":{"type":"string"}},"additionalProperties":false}`)

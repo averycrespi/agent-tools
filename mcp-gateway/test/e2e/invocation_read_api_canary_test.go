@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6E2EM2Canary(t *testing.T) {
+func TestInvocationReadOnlyAPICanary(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
 

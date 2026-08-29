@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5E2EGrantRequestRecoveryPrivacy(t *testing.T) {
+func TestE2EGrantRequestRecoveryPrivacy(t *testing.T) {
 	harness := newGatewayHarness(t)
 	initialAdmin := harness.bearer
 	harness.Start()

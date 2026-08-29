@@ -71,10 +71,10 @@ test-browser-s6-cross:
 	go test -race -count=1 -tags=e2e,browser -timeout=45s -run '^TestS6BrowserCross$$' ./test/e2e
 
 test-cli-e2e-s6:
-	go test -race -count=1 -tags=e2e -timeout=90s -run '^TestS6CLI(StatusInvocations|ServerCatalogReads|ServerCreateUpdate|ServerDelete|ServerOperations|ServerCredentials|AuthFlows|AdminCredentials|Backups|Principals|PrincipalCredentials|Grants|GrantRequests)$$' ./test/e2e
+	go test -race -count=1 -tags=e2e -timeout=90s -run '^TestCLI(StatusInvocations|ServerCatalogReads|ServerCreateUpdate|ServerDelete|ServerOperations|ServerCredentials|AuthFlows|AdminCredentials|Backups|Principals|PrincipalCredentials|Grants|GrantRequests)$$' ./test/e2e
 
 test-cli-usability-e2e:
-	go test -race -count=1 -tags=e2e -timeout=2m -run '^(TestCLI(FirstRun|XDGAndOverrides|ServeOutputPhases|AutomaticBearerSelection|CredentialFailureProblems|OutputMatrix|CommandErrors|HelpTree)|TestS6CLI(StatusInvocations|ServerCatalogReads|ServerCreateUpdate|ServerDelete|ServerOperations|ServerCredentials|AuthFlows|AdminCredentials|Backups|Principals|PrincipalCredentials|Grants|GrantRequests))$$' ./test/e2e
+	go test -race -count=1 -tags=e2e -timeout=2m -run '^(TestCLI(FirstRun|XDGAndOverrides|ServeOutputLifecycle|AutomaticBearerSelection|CredentialFailureProblems|OutputMatrix|CommandErrors|HelpTree)|TestCLI(StatusInvocations|ServerCatalogReads|ServerCreateUpdate|ServerDelete|ServerOperations|ServerCredentials|AuthFlows|AdminCredentials|Backups|Principals|PrincipalCredentials|Grants|GrantRequests))$$' ./test/e2e
 
 test-security-s6:
 	go test -race -count=1 -tags=security -timeout=30s -run '^TestS6SecurityCanaries$$' ./test/security

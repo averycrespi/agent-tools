@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6ControlTransport(t *testing.T) {
+func TestControlTransport(t *testing.T) {
 	t.Run("canonical loopback addresses", func(t *testing.T) {
 		for _, address := range []string{DefaultAddress, "http://127.0.0.1:1", "http://127.255.254.253:65535"} {
 			client, err := New(address, TransportOptions{})

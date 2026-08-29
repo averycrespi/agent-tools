@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6InvocationAPI(t *testing.T) {
+func TestInvocationReadRootOwnership(t *testing.T) {
 	t.Parallel()
 	contents, err := os.ReadFile("root.go")
 	require.NoError(t, err)

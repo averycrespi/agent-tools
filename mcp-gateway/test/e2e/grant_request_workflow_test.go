@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5E2EGrantRequestWorkflow(t *testing.T) {
+func TestE2EGrantRequestWorkflow(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
 	defer func() {

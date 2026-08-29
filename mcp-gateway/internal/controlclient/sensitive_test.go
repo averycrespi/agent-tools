@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6CLISensitiveSinks(t *testing.T) {
+func TestControlClientSensitiveSinks(t *testing.T) {
 	t.Run("confirmation is consequence specific and closed", func(t *testing.T) {
 		prompt := &fakeConfirmation{answer: true}
 		require.NoError(t, RequireConfirmation(ConfirmationOptions{Consequence: "This permanently deletes server alpha.", Prompt: prompt}))

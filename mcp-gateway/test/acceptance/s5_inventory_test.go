@@ -18,9 +18,9 @@ import (
 
 const (
 	s5IntegrationSelector    = `^(Test(ApprovalVsPolicyAndCapacity|AtomicApprovalAndPostCommitRecovery|CatalogEvidenceReplacement|CreateVsTargetAndPolicy|CredentialAdmissionOrdering|RequestLifecycle|RequestRetentionAndEvidenceLimits)Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$`
-	cliUsabilityE2ESelector  = `^(TestCLI(FirstRun|XDGAndOverrides|ServeOutputPhases|AutomaticBearerSelection|CredentialFailureProblems|OutputMatrix|CommandErrors|HelpTree)|TestS6CLI(StatusInvocations|ServerCatalogReads|ServerCreateUpdate|ServerDelete|ServerOperations|ServerCredentials|AuthFlows|AdminCredentials|Backups|Principals|PrincipalCredentials|Grants|GrantRequests))$`
+	cliUsabilityE2ESelector  = `^(TestCLI(FirstRun|XDGAndOverrides|ServeOutputLifecycle|AutomaticBearerSelection|CredentialFailureProblems|OutputMatrix|CommandErrors|HelpTree)|TestCLI(StatusInvocations|ServerCatalogReads|ServerCreateUpdate|ServerDelete|ServerOperations|ServerCredentials|AuthFlows|AdminCredentials|Backups|Principals|PrincipalCredentials|Grants|GrantRequests))$`
 	cliSourceSelector        = `^(TestProductionSourceOwnershipGuards|TestCLIControlBoundary)$`
-	cliDocumentationSelector = `^(TestCLIUsabilityDocumentationDrift|TestReadmeRelativeLinksResolve|TestS6DocumentationDrift|TestDocumentationContractDrift)$`
+	cliDocumentationSelector = `^(TestCLIUsabilityDocumentationDrift|TestReadmeRelativeLinksResolve|TestCLIDocumentationDrift|TestDocumentationContractDrift)$`
 	cliIntegrationSelector   = `^(TestInvocationRepositoryReadsIntegration|Test(ApprovalVsPolicyAndCapacity|AtomicApprovalAndPostCommitRecovery|CatalogEvidenceReplacement|CreateVsTargetAndPolicy|CredentialAdmissionOrdering|RequestLifecycle|RequestRetentionAndEvidenceLimits)Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$`
 )
 
@@ -119,10 +119,10 @@ func TestCLIUsabilityTarget(t *testing.T) {
 	sort.Strings(selected)
 	assert.Equal(t, []string{
 		"TestCLIAutomaticBearerSelection", "TestCLICommandErrors", "TestCLICredentialFailureProblems", "TestCLIFirstRun",
-		"TestCLIHelpTree", "TestCLIOutputMatrix", "TestCLIServeOutputPhases", "TestCLIXDGAndOverrides",
-		"TestS6CLIAdminCredentials", "TestS6CLIAuthFlows", "TestS6CLIBackups", "TestS6CLIGrantRequests", "TestS6CLIGrants",
-		"TestS6CLIPrincipalCredentials", "TestS6CLIPrincipals", "TestS6CLIServerCatalogReads", "TestS6CLIServerCreateUpdate",
-		"TestS6CLIServerCredentials", "TestS6CLIServerDelete", "TestS6CLIServerOperations", "TestS6CLIStatusInvocations",
+		"TestCLIHelpTree", "TestCLIOutputMatrix", "TestCLIServeOutputLifecycle", "TestCLIXDGAndOverrides",
+		"TestCLIAdminCredentials", "TestCLIAuthFlows", "TestCLIBackups", "TestCLIGrantRequests", "TestCLIGrants",
+		"TestCLIPrincipalCredentials", "TestCLIPrincipals", "TestCLIServerCatalogReads", "TestCLIServerCreateUpdate",
+		"TestCLIServerCredentials", "TestCLIServerDelete", "TestCLIServerOperations", "TestCLIStatusInvocations",
 	}, selected)
 }
 
@@ -186,7 +186,7 @@ func TestCLIUsabilityFinalOwnerInventory(t *testing.T) {
 	selectedSource := selectedTests(t, cliSourceSelector, []string{"./internal/composition", "./cmd/mcp-gateway"})
 	assert.Equal(t, []string{"TestCLIControlBoundary", "TestProductionSourceOwnershipGuards"}, selectedSource)
 	selectedDocumentation := selectedTests(t, cliDocumentationSelector, []string{"./internal/contract"})
-	assert.Equal(t, []string{"TestCLIUsabilityDocumentationDrift", "TestDocumentationContractDrift", "TestReadmeRelativeLinksResolve", "TestS6DocumentationDrift"}, selectedDocumentation)
+	assert.Equal(t, []string{"TestCLIDocumentationDrift", "TestCLIUsabilityDocumentationDrift", "TestDocumentationContractDrift", "TestReadmeRelativeLinksResolve"}, selectedDocumentation)
 
 	criterionPrimaryOwners := map[string]string{
 		"cli.AC-1": "cli_e2e", "cli.AC-2": "cli_e2e", "cli.AC-3": "cli_e2e",

@@ -60,7 +60,7 @@ func TestInitializeAndResetPublishBeforeActivatingAuthority(t *testing.T) {
 	assert.NotContains(t, string(databaseBytes), resetSink.value)
 }
 
-func TestS6CLISensitiveSinks(t *testing.T) {
+func TestAdminCredentialSensitiveSinks(t *testing.T) {
 	ctx := context.Background()
 	store, _ := newStore(t)
 	service := NewService(store, testutil.NewFakeClock(testNow), testutil.NewFakeEntropy(append(

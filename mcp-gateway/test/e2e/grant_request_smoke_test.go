@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5E2ESmoke(t *testing.T) {
+func TestE2ESmoke(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
 	defer func() {

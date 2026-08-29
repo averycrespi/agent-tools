@@ -204,7 +204,7 @@ func TestCLIXDGAndOverrides(t *testing.T) {
 	})
 }
 
-func TestCLIServeOutputPhases(t *testing.T) {
+func TestCLIServeOutputLifecycle(t *testing.T) {
 	runner := firstRunRunner(t)
 	root := filepath.Join(t.TempDir(), "gateway")
 	secret := filepath.Join(t.TempDir(), "secret")

@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5E2EProcessSupervisorAdoption(t *testing.T) {
+func TestE2EProcessSupervisorAdoption(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	harness := newGatewayHarnessContext(t, ctx)
 	harness.Start()

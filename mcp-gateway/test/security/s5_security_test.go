@@ -86,11 +86,11 @@ func TestS6SecurityCanaries(t *testing.T) {
 		{"DOM and input values", "TestS6BrowserPrivacyCanary"}, {"one-time display lifecycle", "assertSensitiveSinkFoundation"},
 		{"user-gesture clipboard", "runSecretSinks"}, {"OAuth opener and referrer", "TestS6BrowserPrivacyCanary"},
 		{"stale authentication epoch", "assertSensitiveSinkFoundation"}, {"post-response sink loss", "assertSensitiveSinkFoundation"},
-		{"CLI argv and environment", "TestS6CLISensitiveSinks"}, {"CLI stdout and stderr", "TestS6CLISensitiveSinks"},
-		{"logs and acceptance reports", "TestS5SecurityAcceptanceReportSinks"}, {"events", "TestS6E2EInvocationReadPrivacy"},
-		{"audit capture", "TestS6E2EInvocationReadPrivacy"}, {"SQLite and backups", "TestS5SecurityDurableSinkCanaries"},
+		{"CLI argv and environment", "TestCLISensitiveSinks"}, {"CLI stdout and stderr", "TestCLISensitiveSinks"},
+		{"logs and acceptance reports", "TestS5SecurityAcceptanceReportSinks"}, {"events", "TestE2EInvocationReadPrivacy"},
+		{"audit capture", "TestE2EInvocationReadPrivacy"}, {"SQLite and backups", "TestS5SecurityDurableSinkCanaries"},
 		{"generated frontend assets", "TestS6SecurityCanaries"}, {"screenshots and reports", "TestS6BrowserPrivacyCanary"},
-		{"process output", "TestS6E2EInvocationReadPrivacy"}, {"test artifacts", "TestS6SecurityCanaries"},
+		{"process output", "TestE2EInvocationReadPrivacy"}, {"test artifacts", "TestS6SecurityCanaries"},
 	}
 	require.Len(t, owners, 18)
 	classes := make(map[string]struct{}, len(owners))

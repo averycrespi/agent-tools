@@ -95,7 +95,7 @@ func TestInitializePersistentDataDirRendersMatchingServeCommand(t *testing.T) {
 	assert.Contains(t, stdout.String(), "mcp-gateway serve --data-dir \"$data_dir\"")
 }
 
-func TestS5RootCompositionFailurePreventsStartupOutput(t *testing.T) {
+func TestRootCompositionFailurePreventsStartupOutput(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	initialize := newRootCmd()
 	initialize.SetOut(new(bytes.Buffer))
@@ -125,7 +125,7 @@ func TestS5RootCompositionFailurePreventsStartupOutput(t *testing.T) {
 	assert.Equal(t, "storage_unavailable", problem.Code)
 }
 
-func TestS5StatusBaseIncludesGlobalRequestLimitsAndPositiveAgentAuth(t *testing.T) {
+func TestStatusBaseIncludesGlobalRequestLimitsAndPositiveAgentAuth(t *testing.T) {
 	status := baseSystemStatus(
 		"2026-08-22T00:00:00Z",
 		storage.Identity{InstallationID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", SchemaVersion: 3},

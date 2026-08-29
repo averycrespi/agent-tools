@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6CLISensitiveSinks(t *testing.T) {
+func TestCLISensitiveSinks(t *testing.T) {
 	for _, spec := range onlineCommandSpecs() {
 		joined := strings.Join(spec.Path, " ")
 		if contains(spec.Flags, "secret-output") {

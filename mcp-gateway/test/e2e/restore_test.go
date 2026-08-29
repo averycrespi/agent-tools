@@ -102,9 +102,9 @@ func TestRestoreVerifyCurrentRealBinaryRefusesRunningGateway(t *testing.T) {
 
 	runner, err := testutil.NewBinaryRunner(10*time.Second, 4096)
 	require.NoError(t, err)
-	result, err := runner.Run(ctx, binary, "restore", "--verify-current", "--data-dir", root)
+	result, err := runner.Run(ctx, binary, "restore", "--verify-current", "--data-dir", root, "--output", "json")
 	assert.Error(t, err)
-	assert.Equal(t, 1, result.ExitCode)
-	assert.JSONEq(t, `{"ok":false,"operation":"restore","code":"gateway_running"}`, string(result.Stdout))
-	assert.Empty(t, result.Stderr)
+	assert.Equal(t, 5, result.ExitCode)
+	assert.Empty(t, result.Stdout)
+	assert.JSONEq(t, `{"status":null,"code":"gateway_running","title":"The Gateway is running. Stop it before verifying or restoring the installation.","exit_code":5,"uncertain":false}`, string(result.Stderr))
 }

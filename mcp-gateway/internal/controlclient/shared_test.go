@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6CLISharedContract(t *testing.T) {
+func TestControlClientSharedContract(t *testing.T) {
 	t.Run("strict one-document input", func(t *testing.T) {
 		root := t.TempDir()
 		path := filepath.Join(root, "input.json")

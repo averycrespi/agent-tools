@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6DocumentationDrift(t *testing.T) {
+func TestCLIDocumentationDrift(t *testing.T) {
 	root := newRootCmd()
 	var snapshot strings.Builder
 	var walk func(*cobra.Command)
@@ -43,7 +43,7 @@ func TestS6DocumentationDrift(t *testing.T) {
 	assert.Equal(t, "sha256:868ad13462a7c57a1f4157d5169e257e7563085168c70cbd3ee5961f6c2f94dc", digest)
 }
 
-func TestS6CLISharedContract(t *testing.T) {
+func TestCLISharedContract(t *testing.T) {
 	root := newRootCmd()
 
 	t.Run("frozen capability uses match Cobra leaves", func(t *testing.T) {

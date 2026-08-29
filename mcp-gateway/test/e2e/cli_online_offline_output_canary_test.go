@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6CLIM4Canary(t *testing.T) {
+func TestCLIOnlineOfflineOutputCanary(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
@@ -32,11 +32,11 @@ func TestS6CLIM4Canary(t *testing.T) {
 	require.NoError(t, json.Unmarshal(invocations.Stdout, &page))
 	assert.Empty(t, page.Items)
 
-	restore, err := harness.runner.Run(context.Background(), harness.binary, "restore", "--verify-current", "--data-dir", harness.root)
+	restore, err := harness.runner.Run(context.Background(), harness.binary, "restore", "--verify-current", "--data-dir", harness.root, "--output", "json")
 	require.Error(t, err)
-	assert.Equal(t, 1, restore.ExitCode)
-	assert.JSONEq(t, `{"ok":false,"operation":"restore","code":"gateway_running"}`, string(restore.Stdout))
-	assert.Empty(t, restore.Stderr)
+	assert.Equal(t, 5, restore.ExitCode)
+	assert.Empty(t, restore.Stdout)
+	assert.JSONEq(t, `{"status":null,"code":"gateway_running","title":"The Gateway is running. Stop it before verifying or restoring the installation.","exit_code":5,"uncertain":false}`, string(restore.Stderr))
 
 	harness.Stop(syscall.SIGTERM)
 	stopped := runOnlineCLI(t, harness, bearerPath, false, "status", "--output", "json")

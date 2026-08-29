@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6M4Gate(t *testing.T) {
+func TestCLIPrivateAuthorityBoundary(t *testing.T) {
 	_, sourcePath, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	moduleRoot := filepath.Clean(filepath.Join(filepath.Dir(sourcePath), "..", ".."))

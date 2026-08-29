@@ -250,7 +250,7 @@ func (harness *gatewayHarness) AssertCanaryAbsent(canary []byte) {
 	}))
 }
 
-func TestS5E2EHarness(t *testing.T) {
+func TestE2EHarness(t *testing.T) {
 	t.Run("term ignoring fixture cleanup", func(t *testing.T) {
 		runner, err := testutil.NewBinaryRunner(3*time.Second, 1024)
 		require.NoError(t, err)
