@@ -9,6 +9,8 @@
     "format:prettier": "prettier --write \"**/*.{md,json,yml,yaml,ts,tsx,css,html}\"",
     "format:check": "prettier --check \"**/*.{md,json,yml,yaml,ts,tsx,css,html}\"",
     "ui:typecheck": "tsc -p mcp-gateway/web/tsconfig.json --noEmit",
+    "ui:dev": "node mcp-gateway/web/dev-server.ts",
+    "ui:test-dev": "node --test mcp-gateway/web/tests/dev-server.test.ts",
     "ui:build": "vite build --config mcp-gateway/web/vite.config.ts",
     "ui:verify-generated": "node mcp-gateway/web/scripts/verify-generated.mjs",
     "ui:verify-supply-chain": "node mcp-gateway/web/scripts/verify-supply-chain.mjs",
