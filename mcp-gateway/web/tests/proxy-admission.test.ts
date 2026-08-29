@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { createServer, request, type IncomingHttpHeaders } from "node:http";
+import { readdir, readFile } from "node:fs/promises";
+import {
+  createServer,
+  request,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { connect } from "node:net";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 
@@ -150,6 +158,28 @@ function exchange(
   });
 }
 
+function openHmr(frontendOrigin: string, token: string): Promise<void> {
+  return new Promise((resolveHmr, reject) => {
+    const socket = new WebSocket(
+      `${frontendOrigin.replace("http://", "ws://")}?token=${token}`,
+      "vite-hmr",
+    );
+    const timeout = setTimeout(() => {
+      socket.close();
+      reject(new Error("timed out connecting to HMR"));
+    }, 5_000);
+    socket.addEventListener("open", () => socket.close());
+    socket.addEventListener("close", () => {
+      clearTimeout(timeout);
+      resolveHmr();
+    });
+    socket.addEventListener("error", () => {
+      clearTimeout(timeout);
+      reject(new Error("HMR connection failed"));
+    });
+  });
+}
+
 function rawUpgrade(port: number, path: string): Promise<string> {
   return new Promise((resolveUpgrade, reject) => {
     const socket = connect(port, "127.0.0.1");
@@ -178,28 +208,40 @@ function rawUpgrade(port: number, path: string): Promise<string> {
   });
 }
 
+type BackendHandler = (
+  incoming: IncomingMessage,
+  response: ServerResponse,
+  observations: Observation[],
+) => void;
+
+const observingHandler: BackendHandler = (incoming, response, observations) => {
+  const chunks: Buffer[] = [];
+  incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
+  incoming.on("end", () => {
+    observations.push({
+      method: incoming.method ?? "",
+      url: incoming.url ?? "",
+      headers: incoming.headers,
+      body: Buffer.concat(chunks),
+    });
+    response.writeHead(204, { "X-Observer": "reached" });
+    response.end();
+  });
+};
+
 async function withDevelopmentServer(
   run: (context: {
     frontendPort: number;
     gatewayPort: number;
     frontendOrigin: string;
     observations: Observation[];
+    output: () => string;
   }) => Promise<void>,
+  handler: BackendHandler = observingHandler,
 ): Promise<void> {
   const observations: Observation[] = [];
   const backend = createServer((incoming, response) => {
-    const chunks: Buffer[] = [];
-    incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
-    incoming.on("end", () => {
-      observations.push({
-        method: incoming.method ?? "",
-        url: incoming.url ?? "",
-        headers: incoming.headers,
-        body: Buffer.concat(chunks),
-      });
-      response.writeHead(204, { "X-Observer": "reached" });
-      response.end();
-    });
+    handler(incoming, response, observations);
   });
   const gatewayPort = await listen(backend);
   const reservation = createServer();
@@ -213,6 +255,7 @@ async function withDevelopmentServer(
       gatewayPort,
       frontendOrigin: `http://127.0.0.1:${frontendPort}`,
       observations,
+      output: development.output,
     });
   } finally {
     if (development.child.exitCode === null) {
@@ -334,6 +377,258 @@ test("proxy admission rejects confusable paths and API upgrades without upstream
     assert.match(upgradeResponse, /^HTTP\/1\.1 404 /);
     assert.equal(context.observations.length, 0);
   });
+});
+
+test("proxy response preserves safe headers, bodies, cookies, and redirects", async () => {
+  const cookie =
+    "mcp_gateway_session=response-cookie; Path=/; HttpOnly; SameSite=Strict";
+  const clearing =
+    "mcp_gateway_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict";
+  await withDevelopmentServer(
+    async (context) => {
+      const problem = await exchange(context.frontendPort, "/api/v1/problem");
+      assert.equal(problem.status, 409);
+      assert.deepEqual(problem.headers["set-cookie"], [cookie, clearing]);
+      assert.equal(problem.headers.etag, '\"observer-etag\"');
+      assert.equal(problem.headers["cache-control"], "no-store");
+      assert.equal(problem.headers["content-type"], "application/problem+json");
+      assert.equal(problem.headers["x-safe-response"], "preserved");
+      assert.equal(problem.headers["x-remove-response"], undefined);
+      assert.equal(problem.headers.forwarded, undefined);
+      assert.equal(problem.headers["x-forwarded-for"], undefined);
+      assert.equal(problem.headers["access-control-allow-origin"], undefined);
+      assert.equal(problem.body.toString(), '{"code":"observer_problem"}');
+
+      const redirect = await exchange(context.frontendPort, "/api/v1/redirect");
+      assert.equal(redirect.status, 302);
+      assert.equal(redirect.headers.location, "http://127.0.0.1:9/fixed");
+      assert.equal(redirect.body.toString(), "redirect-body");
+    },
+    (incoming, response) => {
+      if (incoming.url === "/api/v1/redirect") {
+        response.writeHead(302, { Location: "http://127.0.0.1:9/fixed" });
+        response.end("redirect-body");
+        return;
+      }
+      const body = '{"code":"observer_problem"}';
+      response.writeHead(409, {
+        "Set-Cookie": [cookie, clearing],
+        ETag: '\"observer-etag\"',
+        "Cache-Control": "no-store",
+        "Content-Type": "application/problem+json",
+        "Content-Length": String(Buffer.byteLength(body)),
+        Connection: "x-remove-response",
+        "X-Remove-Response": "remove",
+        Forwarded: "for=192.0.2.1",
+        "X-Forwarded-For": "192.0.2.2",
+        "Access-Control-Allow-Origin": "*",
+        "X-Safe-Response": "preserved",
+      });
+      response.end(body);
+    },
+  );
+});
+
+test("proxy streaming forwards an SSE chunk before completion", async () => {
+  let releaseSecondChunk: (() => void) | undefined;
+  const release = new Promise<void>((resolveRelease) => {
+    releaseSecondChunk = resolveRelease;
+  });
+  await withDevelopmentServer(
+    async (context) => {
+      let received = "";
+      await new Promise<void>((resolveComplete, reject) => {
+        const outbound = request(
+          {
+            host: "127.0.0.1",
+            port: context.frontendPort,
+            method: "POST",
+            path: "/api/v1/events",
+            headers: { "Content-Length": "2" },
+            agent: false,
+          },
+          (response) => {
+            assert.equal(response.statusCode, 200);
+            response.on("data", (chunk: Buffer) => {
+              received += chunk.toString();
+              if (received === "data: first\n\n") releaseSecondChunk?.();
+            });
+            response.on("end", resolveComplete);
+          },
+        );
+        outbound.once("error", reject);
+        outbound.end("{}");
+      });
+      assert.equal(received, "data: first\n\ndata: second\n\n");
+    },
+    (_incoming, response) => {
+      response.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-store",
+      });
+      response.write("data: first\n\n");
+      void release.then(() => response.end("data: second\n\n"));
+    },
+  );
+});
+
+test("proxy cancellation closes the streaming upstream", async () => {
+  let resolveCancelled: (() => void) | undefined;
+  const cancelled = new Promise<void>((resolveCancellation) => {
+    resolveCancelled = resolveCancellation;
+  });
+  await withDevelopmentServer(
+    async (context) => {
+      await new Promise<void>((resolveClient, reject) => {
+        const outbound = request(
+          {
+            host: "127.0.0.1",
+            port: context.frontendPort,
+            method: "POST",
+            path: "/api/v1/events",
+            headers: { "Content-Length": "2" },
+            agent: false,
+          },
+          (response) => {
+            response.once("data", () => {
+              response.destroy();
+              resolveClient();
+            });
+          },
+        );
+        outbound.once("error", reject);
+        outbound.end("{}");
+      });
+      await new Promise<void>((resolveCancellation, reject) => {
+        const timeout = setTimeout(
+          () => reject(new Error("upstream stream was not cancelled")),
+          5_000,
+        );
+        void cancelled.then(() => {
+          clearTimeout(timeout);
+          resolveCancellation();
+        });
+      });
+    },
+    (_incoming, response) => {
+      response.writeHead(200, { "Content-Type": "text/event-stream" });
+      response.write("data: first\n\n");
+      response.once("close", () => resolveCancelled?.());
+    },
+  );
+});
+
+test("proxy never replays a mutation after an uncertain handoff", async () => {
+  let attempts = 0;
+  await withDevelopmentServer(
+    async (context) => {
+      const response = await exchange(
+        context.frontendPort,
+        "/api/v1/mutation",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": "2",
+          },
+          body: "{}",
+        },
+      );
+      assert.equal(response.status, 502);
+      assert.equal(attempts, 1);
+    },
+    (incoming) => {
+      incoming.resume();
+      incoming.once("end", () => {
+        attempts += 1;
+        incoming.socket.destroy();
+      });
+    },
+  );
+});
+
+async function developmentTempContents(): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  const visit = async (directory: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const path = resolve(directory, entry.name);
+      if (entry.isDirectory()) await visit(path);
+      else if (entry.isFile()) chunks.push(await readFile(path));
+    }
+  };
+  for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
+    if (
+      entry.isDirectory() &&
+      entry.name.startsWith("mcp-gateway-ui-development-")
+    ) {
+      await visit(resolve(tmpdir(), entry.name));
+    }
+  }
+  return Buffer.concat(chunks);
+}
+
+test("proxy and asset traffic leave canaries out of logs and temp state", async () => {
+  await withDevelopmentServer(
+    async (context) => {
+      const canaries = [
+        "bearer-canary-t4",
+        "cookie-canary-t4",
+        "csrf-canary-t4",
+        "request-body-canary-t4",
+        "response-body-canary-t4",
+        "one-time-canary-t4",
+      ] as const;
+      const response = await exchange(context.frontendPort, "/api/v1/canary", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${canaries[0]}`,
+          Cookie: `session=${canaries[1]}`,
+          "X-CSRF-Token": canaries[2] ?? "",
+          "X-One-Time-Value": canaries[5] ?? "",
+          "Content-Length": String(Buffer.byteLength(canaries[3] ?? "")),
+        },
+        body: canaries[3],
+      });
+      assert.equal(response.body.toString(), canaries[4]);
+      await exchange(context.frontendPort, "/", {
+        headers: { Cookie: `session=${canaries[1]}` },
+      });
+      const hmrClient = await exchange(context.frontendPort, "/@vite/client", {
+        headers: { Cookie: `session=${canaries[1]}` },
+      });
+      const token = /const wsToken = \"([^\"]+)\"/.exec(
+        hmrClient.body.toString(),
+      )?.[1];
+      assert(token);
+      await openHmr(context.frontendOrigin, token);
+      assert.equal(context.observations.length, 1);
+      const sinks = Buffer.concat([
+        Buffer.from(context.output()),
+        await developmentTempContents(),
+      ]).toString();
+      for (const canary of canaries)
+        assert.doesNotMatch(sinks, new RegExp(canary));
+    },
+    (incoming, response, observations) => {
+      const chunks: Buffer[] = [];
+      incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
+      incoming.on("end", () => {
+        observations.push({
+          method: incoming.method ?? "",
+          url: incoming.url ?? "",
+          headers: incoming.headers,
+          body: Buffer.concat(chunks),
+        });
+        response.end("response-body-canary-t4");
+      });
+    },
+  );
 });
 
 test("proxy admission enforces the projected body bound before handoff", async () => {

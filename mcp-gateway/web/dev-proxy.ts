@@ -69,9 +69,9 @@ function reject(response: ServerResponse, status: number): void {
   response.end();
 }
 
-function connectionNominatedHeaders(request: IncomingMessage): Set<string> {
+function connectionNominatedHeaders(values: string[] | undefined): Set<string> {
   const nominated = new Set<string>();
-  for (const value of request.headersDistinct.connection ?? []) {
+  for (const value of values ?? []) {
     for (const name of value.split(",")) {
       const normalized = name.trim().toLowerCase();
       if (normalized) nominated.add(normalized);
@@ -91,7 +91,9 @@ function projectRequestHeaders(
     return undefined;
   }
 
-  const nominated = connectionNominatedHeaders(incoming);
+  const nominated = connectionNominatedHeaders(
+    incoming.headersDistinct.connection,
+  );
   const projected: Record<string, string | string[]> = {
     host: config.gateway.authority,
   };
@@ -113,6 +115,29 @@ function projectRequestHeaders(
   if (origins.length === 1) projected.origin = config.gateway.origin;
   if (bodyLength > 0 || incoming.headers["content-length"] !== undefined) {
     projected["content-length"] = String(bodyLength);
+  }
+  return projected;
+}
+
+function projectResponseHeaders(
+  upstream: IncomingMessage,
+): Record<string, string | string[]> {
+  const nominated = connectionNominatedHeaders(
+    upstream.headersDistinct.connection,
+  );
+  const projected: Record<string, string | string[]> = {};
+  for (const [name, values] of Object.entries(upstream.headersDistinct)) {
+    const normalized = name.toLowerCase();
+    if (
+      HOP_BY_HOP_HEADERS.has(normalized) ||
+      nominated.has(normalized) ||
+      normalized === "forwarded" ||
+      normalized.startsWith("x-forwarded-") ||
+      normalized.startsWith("access-control-")
+    ) {
+      continue;
+    }
+    if (values && values.length > 0) projected[normalized] = values;
   }
   return projected;
 }
@@ -179,6 +204,12 @@ async function proxy(
   }
 
   await new Promise<void>((resolveProxy) => {
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      resolveProxy();
+    };
     const upstream = requestUpstream(
       {
         protocol: "http:",
@@ -192,20 +223,24 @@ async function proxy(
       (upstreamResponse) => {
         response.writeHead(
           upstreamResponse.statusCode ?? 502,
-          upstreamResponse.headers,
+          projectResponseHeaders(upstreamResponse),
         );
         upstreamResponse.pipe(response);
-        upstreamResponse.once("end", resolveProxy);
+        upstreamResponse.once("end", settle);
         upstreamResponse.once("error", () => {
           response.destroy();
-          resolveProxy();
+          settle();
         });
       },
     );
+    response.once("close", () => {
+      if (!response.writableEnded) upstream.destroy();
+      settle();
+    });
     upstream.once("error", () => {
       if (!response.headersSent) reject(response, 502);
       else response.destroy();
-      resolveProxy();
+      settle();
     });
     if (body.length > 0) upstream.write(body);
     upstream.end();
