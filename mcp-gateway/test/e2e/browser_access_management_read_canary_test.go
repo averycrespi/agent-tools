@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserPrincipalCredentials(t *testing.T) {
+func TestBrowserAccessManagementReadCanary(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
@@ -34,13 +34,13 @@ func TestS6BrowserPrincipalCredentials(t *testing.T) {
 		require.False(t, result.Cleanup.Survived)
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
-		"version": 1, "scenario": "principal-credentials", "base_url": "http://" + harness.authority,
+		"version": 1, "scenario": "access-management-read-canary", "base_url": "http://" + harness.authority,
 		"admin_bearer": harness.bearer,
 	}))
 	require.NoError(t, input.Close())
 	result, waitErr := process.Wait()
 	finished = true
-	require.NoError(t, waitErr, "principal credential browser scenario: %s", result.Stderr)
+	require.NoError(t, waitErr, "browser access-management read canary: %s", result.Stderr)
 	assert.Empty(t, result.Stderr)
 	assert.False(t, result.StdoutTruncated)
 	assert.False(t, result.StderrTruncated)
@@ -53,16 +53,16 @@ func TestS6BrowserPrincipalCredentials(t *testing.T) {
 		ChromiumVersion   string `json:"chromium_version"`
 		PlaywrightVersion string `json:"playwright_version"`
 		Requests          int    `json:"requests"`
-		Issues            int    `json:"issues"`
-		Revokes           int    `json:"revokes"`
+		Destinations      int    `json:"destinations"`
+		Mutations         int    `json:"mutations"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	assert.Equal(t, "principal_credentials_complete", event.Event)
+	assert.Equal(t, "access_management_read_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.Equal(t, 3, event.Issues)
-	assert.Equal(t, 1, event.Revokes)
+	assert.Equal(t, 3, event.Destinations)
+	assert.Zero(t, event.Mutations)
 	harness.Stop(os.Interrupt)
-	assert.Len(t, harness.results, 1, "principal credential scenario must own one Gateway lifecycle")
+	assert.Len(t, harness.results, 1, "browser access-management read canary must own one Gateway lifecycle")
 }

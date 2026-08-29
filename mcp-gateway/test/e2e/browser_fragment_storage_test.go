@@ -15,12 +15,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserAuthFlows(t *testing.T) {
+func TestBrowserFragmentStorage(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
 
-	runner, err := testutil.NewBinaryRunner(75*time.Second, 32*1024)
+	runner, err := testutil.NewBinaryRunner(60*time.Second, 32*1024)
 	require.NoError(t, err)
 	process, input, err := runner.StartWithInputPipe(context.Background(), "node", browserBridgePath(t))
 	require.NoError(t, err)
@@ -35,14 +35,14 @@ func TestS6BrowserAuthFlows(t *testing.T) {
 		require.False(t, result.Cleanup.Survived)
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
-		"version": 1, "scenario": "auth-flows", "base_url": "http://" + harness.authority,
+		"version": 1, "scenario": "fragment-storage", "base_url": "http://" + harness.authority,
 		"admin_bearer": harness.bearer,
 	}))
 	require.NoError(t, input.Close())
 
 	result, waitErr := process.Wait()
 	finished = true
-	require.NoError(t, waitErr, "auth-flow browser scenario: %s", result.Stderr)
+	require.NoError(t, waitErr, "fragment/storage browser scenario: %s", result.Stderr)
 	assert.Empty(t, result.Stderr)
 	assert.False(t, result.StdoutTruncated)
 	assert.False(t, result.StderrTruncated)
@@ -56,21 +56,13 @@ func TestS6BrowserAuthFlows(t *testing.T) {
 		ChromiumVersion   string `json:"chromium_version"`
 		PlaywrightVersion string `json:"playwright_version"`
 		Requests          int    `json:"requests"`
-		ListReads         int    `json:"list_reads"`
-		DetailReads       int    `json:"detail_reads"`
-		Starts            int    `json:"starts"`
-		Cancels           int    `json:"cancels"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	assert.Equal(t, "auth_flows_complete", event.Event)
+	assert.Equal(t, "fragment_storage_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.GreaterOrEqual(t, event.ListReads, 2)
-	assert.GreaterOrEqual(t, event.DetailReads, 3)
-	assert.Equal(t, 3, event.Starts)
-	assert.Equal(t, 2, event.Cancels)
 
 	harness.Stop(os.Interrupt)
-	assert.Len(t, harness.results, 1, "T27 must own one Gateway lifecycle")
+	assert.Len(t, harness.results, 1, "fragment/storage proof must own one Gateway lifecycle")
 }

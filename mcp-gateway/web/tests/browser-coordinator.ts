@@ -43,7 +43,7 @@ interface BridgeInput {
   scenario:
     | "shell-load"
     | "browser-protocol"
-    | "m1-canary"
+    | "session-lifecycle-canary"
     | "fragment-storage"
     | "authentication-epoch"
     | "read-generation"
@@ -53,11 +53,11 @@ interface BridgeInput {
     | "visual-changed"
     | "privacy-canary"
     | "secret-sinks"
-    | "m3-canary"
-    | "m5-canary"
-    | "m6-canary"
-    | "m7-canary"
-    | "m8-canary"
+    | "prior-session-response-isolation-canary"
+    | "overview-invocation-system-canary"
+    | "server-management-canary"
+    | "access-management-read-canary"
+    | "system-administration-canary"
     | "m11-canary"
     | "admin-credentials"
     | "backups"
@@ -134,7 +134,7 @@ function parseInitialInput(value: unknown): BridgeInput {
     !("scenario" in value) ||
     (value.scenario !== "shell-load" &&
       value.scenario !== "browser-protocol" &&
-      value.scenario !== "m1-canary" &&
+      value.scenario !== "session-lifecycle-canary" &&
       value.scenario !== "fragment-storage" &&
       value.scenario !== "authentication-epoch" &&
       value.scenario !== "read-generation" &&
@@ -144,11 +144,11 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "visual-changed" &&
       value.scenario !== "privacy-canary" &&
       value.scenario !== "secret-sinks" &&
-      value.scenario !== "m3-canary" &&
-      value.scenario !== "m5-canary" &&
-      value.scenario !== "m6-canary" &&
-      value.scenario !== "m7-canary" &&
-      value.scenario !== "m8-canary" &&
+      value.scenario !== "prior-session-response-isolation-canary" &&
+      value.scenario !== "overview-invocation-system-canary" &&
+      value.scenario !== "server-management-canary" &&
+      value.scenario !== "access-management-read-canary" &&
+      value.scenario !== "system-administration-canary" &&
       value.scenario !== "m11-canary" &&
       value.scenario !== "admin-credentials" &&
       value.scenario !== "backups" &&
@@ -373,7 +373,7 @@ async function connectAndCancelStream(page: Page, csrf: string): Promise<void> {
   }
 }
 
-async function runM1Canary(
+async function runSessionLifecycleCanary(
   browserVersion: string,
   context: BrowserContext,
   page: Page,
@@ -387,7 +387,7 @@ async function runM1Canary(
     current.status !== 200 ||
     current.session?.csrf_token !== session.csrf_token
   ) {
-    fail("M1 bootstrap canary failed");
+    fail("browser session bootstrap canary failed");
   }
   await connectAndCancelStream(page, session.csrf_token);
   const logout = await sessionRequest(
@@ -398,11 +398,11 @@ async function runM1Canary(
     undefined,
     {},
   );
-  if (logout.status !== 204) fail("M1 logout canary failed");
+  if (logout.status !== 204) fail("browser session logout canary failed");
   await assertSessionCookieAbsent(context, baseURL);
   process.stdout.write(
     `${JSON.stringify({
-      event: "m1_complete",
+      event: "session_lifecycle_complete",
       chromium_version: browserVersion,
       playwright_version: "1.62.1",
       requests: requestCount(),
@@ -410,7 +410,7 @@ async function runM1Canary(
   );
 }
 
-async function runM3Canary(
+async function runPriorSessionResponseIsolationCanary(
   browserVersion: string,
   context: BrowserContext,
   page: Page,
@@ -431,7 +431,7 @@ async function runM3Canary(
         ?.getAttribute("data-freshness") === "current",
   );
 
-  const fragmentCanary = `M3_FRAGMENT_${"F".repeat(40)}`;
+  const fragmentCanary = `INVALID_FRAGMENT_${"F".repeat(40)}`;
   await page.evaluate((value) => {
     window.location.hash = `#/servers/${value}`;
   }, fragmentCanary);
@@ -443,7 +443,7 @@ async function runM3Canary(
     fail("invalid location reached text or opened a sensitive sink");
   }
 
-  const lateCanary = `M3_LATE_${"L".repeat(40)}`;
+  const lateCanary = `LATE_RESPONSE_${"L".repeat(40)}`;
   let releaseLogout: (() => void) | undefined;
   const logoutBarrier = new Promise<void>((resolve) => {
     releaseLogout = resolve;
@@ -510,7 +510,7 @@ async function runM3Canary(
   );
   process.stdout.write(
     `${JSON.stringify({
-      event: "m3_complete",
+      event: "prior_session_response_isolation_complete",
       chromium_version: browserVersion,
       playwright_version: "1.62.1",
       requests: requestCount(),
@@ -1861,7 +1861,7 @@ function overviewInvocationFixture() {
   };
 }
 
-async function runM5Canary(
+async function runOverviewInvocationSystemCanary(
   browserVersion: string,
   context: BrowserContext,
   page: Page,
@@ -1900,9 +1900,10 @@ async function runM5Canary(
     "Pending requests",
     "Recent invocations",
   ])
-    if (!body.includes(phrase)) fail(`M5 Overview canary omitted ${phrase}`);
+    if (!body.includes(phrase))
+      fail(`Overview workflow canary omitted ${phrase}`);
   if (body.includes("redacted_arguments"))
-    fail("M5 Overview canary exposed invocation capture");
+    fail("Overview workflow canary exposed invocation capture");
 
   await page.evaluate(() => {
     window.location.hash = "#/invocations";
@@ -1919,7 +1920,7 @@ async function runM5Canary(
     !body.includes("bounded recent window of at most 4,096 rows") ||
     body.includes("redacted_arguments")
   )
-    fail("M5 invocation canary omitted bounds or exposed capture");
+    fail("Invocation workflow canary omitted bounds or exposed capture");
 
   await page.evaluate(() => {
     window.location.hash = "#/system";
@@ -1932,7 +1933,7 @@ async function runM5Canary(
         ?.getAttribute("data-panel-status") === "current",
   );
   if ((await page.locator('[data-testid="system-limit-row"]').count()) !== 31)
-    fail("M5 System canary omitted closed limits");
+    fail("System workflow canary omitted closed limits");
 
   await page.evaluate(() => {
     window.location.hash = "#/system?tab=recovery";
@@ -1943,19 +1944,19 @@ async function runM5Canary(
     !body.includes("The browser never invokes these commands") ||
     !body.includes("mcp-gateway restore --verify-current")
   )
-    fail("M5 recovery canary omitted stopped-process boundary");
+    fail("Recovery workflow canary omitted stopped-process boundary");
   if (
     (await page.locator('[data-testid="system-recovery"] button').count()) !== 0
   )
-    fail("M5 recovery canary exposed online offline-authority controls");
+    fail("Recovery workflow canary exposed online offline-authority controls");
 
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
-    `${JSON.stringify({ event: "m5_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: 4 })}\n`,
+    `${JSON.stringify({ event: "overview_invocation_system_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: 4 })}\n`,
   );
 }
 
-async function runM6Canary(
+async function runServerManagementCanary(
   browserVersion: string,
   context: BrowserContext,
   page: Page,
@@ -1966,7 +1967,7 @@ async function runM6Canary(
   const serverID = serverReadIDs.active;
   const server = {
     ...serverReadFixture(serverID, {
-      name: "M6 integrated server",
+      name: "Integrated server",
       desired: "enabled",
       runtime: "authentication_required",
       credential: "reauthentication_required",
@@ -1982,7 +1983,7 @@ async function runM6Canary(
         registration: {
           mode: "static",
           issuer: "https://issuer.example/",
-          client_id: "m6-client",
+          client_id: "server-management-client",
           token_endpoint_auth_method: "client_secret_basic",
         },
         trusted_origins: [],
@@ -2016,7 +2017,7 @@ async function runM6Canary(
       body: JSON.stringify({
         catalog: {
           active_state: "current",
-          active_generation: "m6-generation",
+          active_generation: "server-management-generation",
           changed_at: "2026-08-28T17:00:00Z",
           issue_count: 0,
         },
@@ -2024,7 +2025,7 @@ async function runM6Canary(
           descriptorReadFixture(
             serverReadIDs.activeTool,
             serverID,
-            "m6_integrated_tool",
+            "integrated_server_tool",
             false,
           ),
         ],
@@ -2069,17 +2070,18 @@ async function runM6Canary(
     "best-effort remote revocation",
     "immutable namespace",
   ])
-    if (!body.includes(phrase)) fail(`M6 integrated canary omitted ${phrase}`);
+    if (!body.includes(phrase))
+      fail(`Server management canary omitted ${phrase}`);
   if (body.includes("authorization_url"))
-    fail("M6 integrated canary exposed a one-time URL outside its sink");
+    fail("Server management canary exposed a one-time URL outside its sink");
   await page.locator('[data-testid="server-delete-confirm-cancel"]').click();
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
-    `${JSON.stringify({ event: "m6_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length })}\n`,
+    `${JSON.stringify({ event: "server_management_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length })}\n`,
   );
 }
 
-async function runM7Canary(
+async function runAccessManagementReadCanary(
   browserVersion: string,
   context: BrowserContext,
   page: Page,
@@ -2094,7 +2096,7 @@ async function runM7Canary(
   let mutationCount = 0;
   const principal = {
     id: principalID,
-    display_name: "M7 build agent",
+    display_name: "Build agent",
     state: "active",
     visibility: "requestable",
     revision: "7",
@@ -2148,7 +2150,7 @@ async function runM7Canary(
       active_state: "current",
       durable_state: "current",
       catalog_revision: "10",
-      fingerprint: "m7-current-fingerprint",
+      fingerprint: "current-access-fingerprint",
       descriptor: { name: "safe", inputSchema: {}, annotations: {} },
     },
   };
@@ -2217,18 +2219,21 @@ async function runM7Canary(
     "Approval creates one ordinary ALLOW only",
     "It never resumes, retries, or executes a held call",
   ])
-    if (!body.includes(phrase)) fail(`M7 integrated canary omitted ${phrase}`);
+    if (!body.includes(phrase))
+      fail(`Access management read canary omitted ${phrase}`);
   if (body.includes("authorization_url") || body.includes("raw_result"))
-    fail("M7 integrated canary exposed one-time or raw evidence material");
+    fail(
+      "Access management read canary exposed one-time or raw evidence material",
+    );
   if (mutationCount !== 0)
-    fail("M7 integrated canary replayed an adjudication mutation");
+    fail("Access management read canary replayed an adjudication mutation");
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
-    `${JSON.stringify({ event: "m7_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length, mutations: mutationCount })}\n`,
+    `${JSON.stringify({ event: "access_management_read_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length, mutations: mutationCount })}\n`,
   );
 }
 
-async function runM8Canary(
+async function runSystemAdministrationCanary(
   browserVersion: string,
   context: BrowserContext,
   page: Page,
@@ -2272,13 +2277,14 @@ async function runM8Canary(
     "Stopped-process recovery boundary",
   ])
     if (!rendered.includes(phrase))
-      fail(`M8 integrated canary omitted ${phrase}`);
+      fail(`System administration canary omitted ${phrase}`);
   if (rendered.includes("Workflow not yet available"))
-    fail("M8 integrated canary retained a System placeholder");
-  if (domainMutations !== 0) fail("M8 integrated canary submitted a mutation");
+    fail("System administration canary retained a System placeholder");
+  if (domainMutations !== 0)
+    fail("System administration canary submitted a mutation");
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
-    `${JSON.stringify({ event: "m8_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length, mutations: domainMutations })}\n`,
+    `${JSON.stringify({ event: "system_administration_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length, mutations: domainMutations })}\n`,
   );
 }
 
@@ -9274,8 +9280,8 @@ try {
         input.fixture_root ?? fail("missing development fixture root"),
         () => requests,
       );
-    } else if (input.scenario === "m1-canary") {
-      await runM1Canary(
+    } else if (input.scenario === "session-lifecycle-canary") {
+      await runSessionLifecycleCanary(
         browser.version(),
         context,
         page,
@@ -9366,8 +9372,8 @@ try {
         initialBearer,
         () => requests,
       );
-    } else if (input.scenario === "m3-canary") {
-      await runM3Canary(
+    } else if (input.scenario === "prior-session-response-isolation-canary") {
+      await runPriorSessionResponseIsolationCanary(
         browser.version(),
         context,
         page,
@@ -9375,8 +9381,8 @@ try {
         initialBearer,
         () => requests,
       );
-    } else if (input.scenario === "m5-canary") {
-      await runM5Canary(
+    } else if (input.scenario === "overview-invocation-system-canary") {
+      await runOverviewInvocationSystemCanary(
         browser.version(),
         context,
         page,
@@ -9384,8 +9390,8 @@ try {
         initialBearer,
         () => requests,
       );
-    } else if (input.scenario === "m6-canary") {
-      await runM6Canary(
+    } else if (input.scenario === "server-management-canary") {
+      await runServerManagementCanary(
         browser.version(),
         context,
         page,
@@ -9393,8 +9399,8 @@ try {
         initialBearer,
         () => requests,
       );
-    } else if (input.scenario === "m7-canary") {
-      await runM7Canary(
+    } else if (input.scenario === "access-management-read-canary") {
+      await runAccessManagementReadCanary(
         browser.version(),
         context,
         page,
@@ -9402,8 +9408,8 @@ try {
         initialBearer,
         () => requests,
       );
-    } else if (input.scenario === "m8-canary") {
-      await runM8Canary(
+    } else if (input.scenario === "system-administration-canary") {
+      await runSystemAdministrationCanary(
         browser.version(),
         context,
         page,

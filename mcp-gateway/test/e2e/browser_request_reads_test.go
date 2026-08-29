@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserM7Canary(t *testing.T) {
+func TestBrowserRequestReads(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
@@ -34,13 +34,13 @@ func TestS6BrowserM7Canary(t *testing.T) {
 		require.False(t, result.Cleanup.Survived)
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
-		"version": 1, "scenario": "m7-canary", "base_url": "http://" + harness.authority,
+		"version": 1, "scenario": "request-reads", "base_url": "http://" + harness.authority,
 		"admin_bearer": harness.bearer,
 	}))
 	require.NoError(t, input.Close())
 	result, waitErr := process.Wait()
 	finished = true
-	require.NoError(t, waitErr, "M7 browser canary: %s", result.Stderr)
+	require.NoError(t, waitErr, "request read browser scenario: %s", result.Stderr)
 	assert.Empty(t, result.Stderr)
 	assert.False(t, result.StdoutTruncated)
 	assert.False(t, result.StderrTruncated)
@@ -53,16 +53,18 @@ func TestS6BrowserM7Canary(t *testing.T) {
 		ChromiumVersion   string `json:"chromium_version"`
 		PlaywrightVersion string `json:"playwright_version"`
 		Requests          int    `json:"requests"`
+		ListReads         int    `json:"list_reads"`
+		DetailReads       int    `json:"detail_reads"`
 		Destinations      int    `json:"destinations"`
-		Mutations         int    `json:"mutations"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	assert.Equal(t, "m7_complete", event.Event)
+	assert.Equal(t, "request_reads_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.Equal(t, 3, event.Destinations)
-	assert.Zero(t, event.Mutations)
+	assert.GreaterOrEqual(t, event.ListReads, 4)
+	assert.GreaterOrEqual(t, event.DetailReads, 3)
+	assert.Equal(t, 4, event.Destinations)
 	harness.Stop(os.Interrupt)
-	assert.Len(t, harness.results, 1, "M7 canary must own one Gateway lifecycle")
+	assert.Len(t, harness.results, 1, "request read scenario must own one Gateway lifecycle")
 }

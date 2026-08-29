@@ -15,10 +15,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserRequestReads(t *testing.T) {
+func TestBrowserReadGeneration(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
+
 	runner, err := testutil.NewBinaryRunner(75*time.Second, 32*1024)
 	require.NoError(t, err)
 	process, input, err := runner.StartWithInputPipe(context.Background(), "node", browserBridgePath(t))
@@ -34,13 +35,14 @@ func TestS6BrowserRequestReads(t *testing.T) {
 		require.False(t, result.Cleanup.Survived)
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
-		"version": 1, "scenario": "request-reads", "base_url": "http://" + harness.authority,
+		"version": 1, "scenario": "read-generation", "base_url": "http://" + harness.authority,
 		"admin_bearer": harness.bearer,
 	}))
 	require.NoError(t, input.Close())
+
 	result, waitErr := process.Wait()
 	finished = true
-	require.NoError(t, waitErr, "request read browser scenario: %s", result.Stderr)
+	require.NoError(t, waitErr, "read generation browser scenario: %s", result.Stderr)
 	assert.Empty(t, result.Stderr)
 	assert.False(t, result.StdoutTruncated)
 	assert.False(t, result.StderrTruncated)
@@ -48,23 +50,19 @@ func TestS6BrowserRequestReads(t *testing.T) {
 	assert.False(t, result.Cleanup.Survived)
 	assert.NotContains(t, string(result.Stdout), harness.bearer)
 	assert.NotContains(t, string(result.Stderr), harness.bearer)
+
 	var event struct {
 		Event             string `json:"event"`
 		ChromiumVersion   string `json:"chromium_version"`
 		PlaywrightVersion string `json:"playwright_version"`
 		Requests          int    `json:"requests"`
-		ListReads         int    `json:"list_reads"`
-		DetailReads       int    `json:"detail_reads"`
-		Destinations      int    `json:"destinations"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	assert.Equal(t, "request_reads_complete", event.Event)
+	assert.Equal(t, "read_generation_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.GreaterOrEqual(t, event.ListReads, 4)
-	assert.GreaterOrEqual(t, event.DetailReads, 3)
-	assert.Equal(t, 4, event.Destinations)
+
 	harness.Stop(os.Interrupt)
-	assert.Len(t, harness.results, 1, "request read scenario must own one Gateway lifecycle")
+	assert.Len(t, harness.results, 1, "read generation proof must own one Gateway lifecycle")
 }

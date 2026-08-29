@@ -15,12 +15,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserM1Canary(t *testing.T) {
+func TestBrowserPriorSessionResponseIsolationCanary(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
 
-	runner, err := testutil.NewBinaryRunner(45*time.Second, 16*1024)
+	runner, err := testutil.NewBinaryRunner(75*time.Second, 32*1024)
 	require.NoError(t, err)
 	process, input, err := runner.StartWithInputPipe(context.Background(), "node", browserBridgePath(t))
 	require.NoError(t, err)
@@ -35,14 +35,14 @@ func TestS6BrowserM1Canary(t *testing.T) {
 		require.False(t, result.Cleanup.Survived)
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
-		"version": 1, "scenario": "m1-canary", "base_url": "http://" + harness.authority,
+		"version": 1, "scenario": "prior-session-response-isolation-canary", "base_url": "http://" + harness.authority,
 		"admin_bearer": harness.bearer,
 	}))
 	require.NoError(t, input.Close())
 
 	result, waitErr := process.Wait()
 	finished = true
-	require.NoError(t, waitErr, "M1 browser canary: %s", result.Stderr)
+	require.NoError(t, waitErr, "browser prior-session isolation canary: %s", result.Stderr)
 	assert.Empty(t, result.Stderr)
 	assert.False(t, result.StdoutTruncated)
 	assert.False(t, result.StderrTruncated)
@@ -58,11 +58,11 @@ func TestS6BrowserM1Canary(t *testing.T) {
 		Requests          int    `json:"requests"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	assert.Equal(t, "m1_complete", event.Event)
+	assert.Equal(t, "prior_session_response_isolation_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
 
 	harness.Stop(os.Interrupt)
-	assert.Len(t, harness.results, 1, "M1 canary must own one Gateway lifecycle")
+	assert.Len(t, harness.results, 1, "browser prior-session isolation canary must own one Gateway lifecycle")
 }

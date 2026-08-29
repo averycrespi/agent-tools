@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserSystemStatus(t *testing.T) {
+func TestBrowserMutationState(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
@@ -35,14 +35,14 @@ func TestS6BrowserSystemStatus(t *testing.T) {
 		require.False(t, result.Cleanup.Survived)
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
-		"version": 1, "scenario": "system-status", "base_url": "http://" + harness.authority,
+		"version": 1, "scenario": "mutation-state", "base_url": "http://" + harness.authority,
 		"admin_bearer": harness.bearer,
 	}))
 	require.NoError(t, input.Close())
 
 	result, waitErr := process.Wait()
 	finished = true
-	require.NoError(t, waitErr, "system browser scenario: %s", result.Stderr)
+	require.NoError(t, waitErr, "mutation state browser scenario: %s", result.Stderr)
 	assert.Empty(t, result.Stderr)
 	assert.False(t, result.StdoutTruncated)
 	assert.False(t, result.StderrTruncated)
@@ -56,19 +56,13 @@ func TestS6BrowserSystemStatus(t *testing.T) {
 		ChromiumVersion   string `json:"chromium_version"`
 		PlaywrightVersion string `json:"playwright_version"`
 		Requests          int    `json:"requests"`
-		StatusReads       int    `json:"status_reads"`
-		EventStreams      int    `json:"event_streams"`
-		LimitRows         int    `json:"limit_rows"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	assert.Equal(t, "system_status_complete", event.Event)
+	assert.Equal(t, "mutation_state_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.GreaterOrEqual(t, event.StatusReads, 2)
-	assert.GreaterOrEqual(t, event.EventStreams, 2)
-	assert.Equal(t, 31, event.LimitRows)
 
 	harness.Stop(os.Interrupt)
-	assert.Len(t, harness.results, 1, "T22 must own one Gateway lifecycle")
+	assert.Len(t, harness.results, 1, "mutation state proof must own one Gateway lifecycle")
 }

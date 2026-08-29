@@ -169,7 +169,7 @@ func TestS6AcceptanceProfile(t *testing.T) {
 		packages, err := list.Output()
 		require.NoError(t, err)
 		assert.Len(t, strings.Fields(string(packages)), 36)
-		assert.Equal(t, 25, countListedTests(t, moduleRoot, "e2e,browser", `^TestS6Browser(Protocol|FragmentStorage|AuthenticationEpoch|ReadGeneration|MutationState|ShellPrimitives|SecretSinks|Overview|Invocations|SystemStatus|ServerCatalogReads|ServerCreateUpdate|ServerOperations|ServerCredentials|AuthFlows|ServerDisconnectDelete|Principals|PrincipalCredentials|GrantReadsCreate|GrantCorrection|RequestReads|RequestAdjudication|AdminCredentials|Backups|CapabilityAudit)$`, "./test/e2e"))
+		assert.Equal(t, 25, countListedTests(t, moduleRoot, "e2e,browser", `^TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch|ReadGeneration|MutationState|ShellPrimitives|SecretSinks|Overview|Invocations|SystemStatus|ServerCatalogReads|ServerCreateUpdate|ServerOperations|ServerCredentials|AuthFlows|ServerDisconnectDelete|Principals|PrincipalCredentials|GrantReadsCreate|GrantCorrection|RequestReads|RequestAdjudication|AdminCredentials|Backups|CapabilityAudit)$`, "./test/e2e"))
 		assert.Equal(t, 1, countListedTests(t, moduleRoot, "e2e,browser", `^TestS6BrowserVisualChanged$`, "./test/e2e"))
 		assert.Equal(t, 1, countListedTests(t, moduleRoot, "e2e,browser", `^TestS6BrowserAccessibilityChanged$`, "./test/e2e"))
 		assert.Equal(t, 1, countListedTests(t, moduleRoot, "e2e,browser", `^TestS6BrowserCross$`, "./test/e2e"))

@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserProtocol(t *testing.T) {
+func TestBrowserProtocol(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
 

@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserPrincipals(t *testing.T) {
+func TestBrowserGrantReadsCreate(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
@@ -34,13 +34,13 @@ func TestS6BrowserPrincipals(t *testing.T) {
 		require.False(t, result.Cleanup.Survived)
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
-		"version": 1, "scenario": "principals", "base_url": "http://" + harness.authority,
+		"version": 1, "scenario": "grant-reads-create", "base_url": "http://" + harness.authority,
 		"admin_bearer": harness.bearer,
 	}))
 	require.NoError(t, input.Close())
 	result, waitErr := process.Wait()
 	finished = true
-	require.NoError(t, waitErr, "principal browser scenario: %s", result.Stderr)
+	require.NoError(t, waitErr, "grant browser scenario: %s", result.Stderr)
 	assert.Empty(t, result.Stderr)
 	assert.False(t, result.StdoutTruncated)
 	assert.False(t, result.StderrTruncated)
@@ -53,18 +53,16 @@ func TestS6BrowserPrincipals(t *testing.T) {
 		ChromiumVersion   string `json:"chromium_version"`
 		PlaywrightVersion string `json:"playwright_version"`
 		Requests          int    `json:"requests"`
-		DetailReads       int    `json:"detail_reads"`
 		Creates           int    `json:"creates"`
-		Updates           int    `json:"updates"`
+		Destinations      int    `json:"destinations"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	assert.Equal(t, "principals_complete", event.Event)
+	assert.Equal(t, "grant_reads_create_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.GreaterOrEqual(t, event.DetailReads, 3)
-	assert.Equal(t, 1, event.Creates)
-	assert.Equal(t, 3, event.Updates)
+	assert.Equal(t, 2, event.Creates)
+	assert.Equal(t, 4, event.Destinations)
 	harness.Stop(os.Interrupt)
-	assert.Len(t, harness.results, 1, "principal scenario must own one Gateway lifecycle")
+	assert.Len(t, harness.results, 1, "grant scenario must own one Gateway lifecycle")
 }

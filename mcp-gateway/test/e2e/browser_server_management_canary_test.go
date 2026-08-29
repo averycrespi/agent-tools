@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserServerCredentials(t *testing.T) {
+func TestBrowserServerManagementCanary(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
@@ -35,14 +35,14 @@ func TestS6BrowserServerCredentials(t *testing.T) {
 		require.False(t, result.Cleanup.Survived)
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
-		"version": 1, "scenario": "server-credentials", "base_url": "http://" + harness.authority,
+		"version": 1, "scenario": "server-management-canary", "base_url": "http://" + harness.authority,
 		"admin_bearer": harness.bearer,
 	}))
 	require.NoError(t, input.Close())
 
 	result, waitErr := process.Wait()
 	finished = true
-	require.NoError(t, waitErr, "server credentials browser scenario: %s", result.Stderr)
+	require.NoError(t, waitErr, "browser server management canary: %s", result.Stderr)
 	assert.Empty(t, result.Stderr)
 	assert.False(t, result.StdoutTruncated)
 	assert.False(t, result.StderrTruncated)
@@ -50,29 +50,21 @@ func TestS6BrowserServerCredentials(t *testing.T) {
 	assert.False(t, result.Cleanup.Survived)
 	assert.NotContains(t, string(result.Stdout), harness.bearer)
 	assert.NotContains(t, string(result.Stderr), harness.bearer)
-	for _, canary := range []string{"credential-canary-first-7Yp3", "credential-canary-second-8Zq4", "credential-canary-third-9Ar5"} {
-		assert.NotContains(t, string(result.Stdout), canary)
-		assert.NotContains(t, string(result.Stderr), canary)
-	}
 
 	var event struct {
 		Event             string `json:"event"`
 		ChromiumVersion   string `json:"chromium_version"`
 		PlaywrightVersion string `json:"playwright_version"`
 		Requests          int    `json:"requests"`
-		Replacements      int    `json:"replacements"`
-		RecoveryReads     int    `json:"recovery_reads"`
-		EligibilityModes  int    `json:"eligibility_modes"`
+		Destinations      int    `json:"destinations"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	assert.Equal(t, "server_credentials_complete", event.Event)
+	assert.Equal(t, "server_management_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.GreaterOrEqual(t, event.Replacements, 3)
-	assert.GreaterOrEqual(t, event.RecoveryReads, 2)
-	assert.Equal(t, 5, event.EligibilityModes)
+	assert.Equal(t, 6, event.Destinations)
 
 	harness.Stop(os.Interrupt)
-	assert.Len(t, harness.results, 1, "T26 must own one Gateway lifecycle")
+	assert.Len(t, harness.results, 1, "browser server management canary must own one Gateway lifecycle")
 }

@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserAdminCredentials(t *testing.T) {
+func TestBrowserBackups(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
@@ -34,13 +34,13 @@ func TestS6BrowserAdminCredentials(t *testing.T) {
 		require.False(t, result.Cleanup.Survived)
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
-		"version": 1, "scenario": "admin-credentials", "base_url": "http://" + harness.authority,
+		"version": 1, "scenario": "backups", "base_url": "http://" + harness.authority,
 		"admin_bearer": harness.bearer,
 	}))
 	require.NoError(t, input.Close())
 	result, waitErr := process.Wait()
 	finished = true
-	require.NoError(t, waitErr, "admin credential browser scenario: %s", result.Stderr)
+	require.NoError(t, waitErr, "backup browser scenario: %s", result.Stderr)
 	assert.Empty(t, result.Stderr)
 	assert.False(t, result.StdoutTruncated)
 	assert.False(t, result.StderrTruncated)
@@ -54,17 +54,17 @@ func TestS6BrowserAdminCredentials(t *testing.T) {
 		PlaywrightVersion string `json:"playwright_version"`
 		Requests          int    `json:"requests"`
 		Creates           int    `json:"creates"`
-		Revokes           int    `json:"revokes"`
-		DetailReads       int    `json:"detail_reads"`
+		Deletes           int    `json:"deletes"`
+		Details           int    `json:"details"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	assert.Equal(t, "admin_credentials_complete", event.Event)
+	assert.Equal(t, "backups_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.Equal(t, 2, event.Creates)
-	assert.Equal(t, 2, event.Revokes)
-	assert.Equal(t, 1, event.DetailReads)
+	assert.Equal(t, 3, event.Creates)
+	assert.Equal(t, 1, event.Deletes)
+	assert.Equal(t, 1, event.Details)
 	harness.Stop(os.Interrupt)
-	assert.Len(t, harness.results, 1, "admin credential scenario must own one Gateway lifecycle")
+	assert.Len(t, harness.results, 1, "backup scenario must own one Gateway lifecycle")
 }

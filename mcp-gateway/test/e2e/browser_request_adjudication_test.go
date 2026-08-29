@@ -15,11 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserServerDisconnectDelete(t *testing.T) {
+func TestBrowserRequestAdjudication(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
-
 	runner, err := testutil.NewBinaryRunner(75*time.Second, 32*1024)
 	require.NoError(t, err)
 	process, input, err := runner.StartWithInputPipe(context.Background(), "node", browserBridgePath(t))
@@ -35,14 +34,13 @@ func TestS6BrowserServerDisconnectDelete(t *testing.T) {
 		require.False(t, result.Cleanup.Survived)
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
-		"version": 1, "scenario": "server-disconnect-delete", "base_url": "http://" + harness.authority,
+		"version": 1, "scenario": "request-adjudication", "base_url": "http://" + harness.authority,
 		"admin_bearer": harness.bearer,
 	}))
 	require.NoError(t, input.Close())
-
 	result, waitErr := process.Wait()
 	finished = true
-	require.NoError(t, waitErr, "server disconnect/delete browser scenario: %s", result.Stderr)
+	require.NoError(t, waitErr, "request adjudication browser scenario: %s", result.Stderr)
 	assert.Empty(t, result.Stderr)
 	assert.False(t, result.StdoutTruncated)
 	assert.False(t, result.StderrTruncated)
@@ -50,23 +48,23 @@ func TestS6BrowserServerDisconnectDelete(t *testing.T) {
 	assert.False(t, result.Cleanup.Survived)
 	assert.NotContains(t, string(result.Stdout), harness.bearer)
 	assert.NotContains(t, string(result.Stderr), harness.bearer)
-
 	var event struct {
 		Event             string `json:"event"`
 		ChromiumVersion   string `json:"chromium_version"`
 		PlaywrightVersion string `json:"playwright_version"`
 		Requests          int    `json:"requests"`
-		Disconnects       int    `json:"disconnects"`
-		Deletes           int    `json:"deletes"`
+		Approvals         int    `json:"approvals"`
+		Rejections        int    `json:"rejections"`
+		Destinations      int    `json:"destinations"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	assert.Equal(t, "server_disconnect_delete_complete", event.Event)
+	assert.Equal(t, "request_adjudication_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.Equal(t, 2, event.Disconnects)
-	assert.Equal(t, 2, event.Deletes)
-
+	assert.Equal(t, 3, event.Approvals)
+	assert.Equal(t, 4, event.Rejections)
+	assert.Equal(t, 10, event.Destinations)
 	harness.Stop(os.Interrupt)
-	assert.Len(t, harness.results, 1, "T28 must own one Gateway lifecycle")
+	assert.Len(t, harness.results, 1, "request adjudication scenario must own one Gateway lifecycle")
 }

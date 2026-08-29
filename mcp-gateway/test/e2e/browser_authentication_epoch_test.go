@@ -15,12 +15,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserFragmentStorage(t *testing.T) {
+func TestBrowserAuthenticationEpoch(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
 
-	runner, err := testutil.NewBinaryRunner(60*time.Second, 32*1024)
+	runner, err := testutil.NewBinaryRunner(75*time.Second, 32*1024)
 	require.NoError(t, err)
 	process, input, err := runner.StartWithInputPipe(context.Background(), "node", browserBridgePath(t))
 	require.NoError(t, err)
@@ -35,14 +35,14 @@ func TestS6BrowserFragmentStorage(t *testing.T) {
 		require.False(t, result.Cleanup.Survived)
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
-		"version": 1, "scenario": "fragment-storage", "base_url": "http://" + harness.authority,
+		"version": 1, "scenario": "authentication-epoch", "base_url": "http://" + harness.authority,
 		"admin_bearer": harness.bearer,
 	}))
 	require.NoError(t, input.Close())
 
 	result, waitErr := process.Wait()
 	finished = true
-	require.NoError(t, waitErr, "fragment/storage browser scenario: %s", result.Stderr)
+	require.NoError(t, waitErr, "authentication epoch browser scenario: %s", result.Stderr)
 	assert.Empty(t, result.Stderr)
 	assert.False(t, result.StdoutTruncated)
 	assert.False(t, result.StderrTruncated)
@@ -58,11 +58,11 @@ func TestS6BrowserFragmentStorage(t *testing.T) {
 		Requests          int    `json:"requests"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	assert.Equal(t, "fragment_storage_complete", event.Event)
+	assert.Equal(t, "authentication_epoch_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
 
 	harness.Stop(os.Interrupt)
-	assert.Len(t, harness.results, 1, "fragment/storage proof must own one Gateway lifecycle")
+	assert.Len(t, harness.results, 1, "authentication epoch proof must own one Gateway lifecycle")
 }

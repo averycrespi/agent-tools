@@ -15,10 +15,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserBackups(t *testing.T) {
+func TestBrowserServerDisconnectDelete(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
+
 	runner, err := testutil.NewBinaryRunner(75*time.Second, 32*1024)
 	require.NoError(t, err)
 	process, input, err := runner.StartWithInputPipe(context.Background(), "node", browserBridgePath(t))
@@ -34,13 +35,14 @@ func TestS6BrowserBackups(t *testing.T) {
 		require.False(t, result.Cleanup.Survived)
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
-		"version": 1, "scenario": "backups", "base_url": "http://" + harness.authority,
+		"version": 1, "scenario": "server-disconnect-delete", "base_url": "http://" + harness.authority,
 		"admin_bearer": harness.bearer,
 	}))
 	require.NoError(t, input.Close())
+
 	result, waitErr := process.Wait()
 	finished = true
-	require.NoError(t, waitErr, "backup browser scenario: %s", result.Stderr)
+	require.NoError(t, waitErr, "server disconnect/delete browser scenario: %s", result.Stderr)
 	assert.Empty(t, result.Stderr)
 	assert.False(t, result.StdoutTruncated)
 	assert.False(t, result.StderrTruncated)
@@ -48,23 +50,23 @@ func TestS6BrowserBackups(t *testing.T) {
 	assert.False(t, result.Cleanup.Survived)
 	assert.NotContains(t, string(result.Stdout), harness.bearer)
 	assert.NotContains(t, string(result.Stderr), harness.bearer)
+
 	var event struct {
 		Event             string `json:"event"`
 		ChromiumVersion   string `json:"chromium_version"`
 		PlaywrightVersion string `json:"playwright_version"`
 		Requests          int    `json:"requests"`
-		Creates           int    `json:"creates"`
+		Disconnects       int    `json:"disconnects"`
 		Deletes           int    `json:"deletes"`
-		Details           int    `json:"details"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	assert.Equal(t, "backups_complete", event.Event)
+	assert.Equal(t, "server_disconnect_delete_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.Equal(t, 3, event.Creates)
-	assert.Equal(t, 1, event.Deletes)
-	assert.Equal(t, 1, event.Details)
+	assert.Equal(t, 2, event.Disconnects)
+	assert.Equal(t, 2, event.Deletes)
+
 	harness.Stop(os.Interrupt)
-	assert.Len(t, harness.results, 1, "backup scenario must own one Gateway lifecycle")
+	assert.Len(t, harness.results, 1, "T28 must own one Gateway lifecycle")
 }

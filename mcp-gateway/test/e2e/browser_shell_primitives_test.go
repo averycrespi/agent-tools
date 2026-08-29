@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserShellPrimitives(t *testing.T) {
+func TestBrowserShellPrimitives(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	root := filepath.Join("..", "..")
 	primitiveSource, err := os.ReadFile(filepath.Join(root, "web", "src", "primitives.tsx"))

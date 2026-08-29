@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserSecretSinks(t *testing.T) {
+func TestBrowserSecretSinks(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	root := filepath.Join("..", "..")
 	controllerSource, err := os.ReadFile(filepath.Join(root, "web", "src", "sinks.ts"))

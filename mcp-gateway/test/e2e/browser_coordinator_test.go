@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserCoordinator(t *testing.T) {
+func TestBrowserCoordinator(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	assertOrdinaryBinaryNeedsNoNode(t)
 	harness := newGatewayHarness(t)
