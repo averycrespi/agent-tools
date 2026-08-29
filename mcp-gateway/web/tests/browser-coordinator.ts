@@ -10,6 +10,8 @@ import {
 } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { createHash } from "node:crypto";
+import { appendFile } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { MutationCoordinator, type MutationSpec } from "../src/mutation.ts";
 import {
@@ -74,10 +76,12 @@ interface BridgeInput {
     | "server-operations"
     | "server-credentials"
     | "server-disconnect-delete"
-    | "auth-flows";
+    | "auth-flows"
+    | "development-live-reload";
   base_url: string;
   admin_bearer: string;
   browser_kind?: "chromium" | "firefox" | "webkit";
+  fixture_root?: string;
 }
 
 interface SessionBootstrap {
@@ -121,7 +125,9 @@ function parseInitialInput(value: unknown): BridgeInput {
     (Object.keys(value).sort().join(",") !==
       "admin_bearer,base_url,scenario,version" &&
       Object.keys(value).sort().join(",") !==
-        "admin_bearer,base_url,browser_kind,scenario,version") ||
+        "admin_bearer,base_url,browser_kind,scenario,version" &&
+      Object.keys(value).sort().join(",") !==
+        "admin_bearer,base_url,fixture_root,scenario,version") ||
     !("version" in value) ||
     value.version !== 1 ||
     !("scenario" in value) ||
@@ -160,7 +166,8 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "server-operations" &&
       value.scenario !== "server-credentials" &&
       value.scenario !== "server-disconnect-delete" &&
-      value.scenario !== "auth-flows") ||
+      value.scenario !== "auth-flows" &&
+      value.scenario !== "development-live-reload") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -170,14 +177,22 @@ function parseInitialInput(value: unknown): BridgeInput {
     ("browser_kind" in value &&
       value.browser_kind !== "chromium" &&
       value.browser_kind !== "firefox" &&
-      value.browser_kind !== "webkit")
+      value.browser_kind !== "webkit") ||
+    (value.scenario === "development-live-reload") !==
+      "fixture_root" in value ||
+    ("fixture_root" in value &&
+      (typeof value.fixture_root !== "string" ||
+        !isAbsolute(value.fixture_root)))
   ) {
     fail("invalid bridge input");
   }
   return value as BridgeInput;
 }
 
-async function loadShell(page: Page): Promise<void> {
+async function loadShell(
+  page: Page,
+  requireProductionCSP = true,
+): Promise<void> {
   const response = await page.goto("/", { waitUntil: "domcontentloaded" });
   if (response === null || response.status() !== 200) fail("shell load failed");
   await page.locator('[data-testid="gateway-shell"]').waitFor();
@@ -190,7 +205,10 @@ async function loadShell(page: Page): Promise<void> {
   if ((await page.title()) !== "MCP Gateway Control Plane")
     fail("unexpected shell title");
   const csp = (await response.allHeaders())["content-security-policy"] ?? "";
-  if (csp.includes("'unsafe-") || !csp.includes("default-src 'self'"))
+  if (
+    requireProductionCSP &&
+    (csp.includes("'unsafe-") || !csp.includes("default-src 'self'"))
+  )
     fail("unsafe shell CSP");
 }
 
@@ -8779,6 +8797,125 @@ async function runMutationState(
   );
 }
 
+async function runDevelopmentLiveReload(
+  browserVersion: string,
+  page: Page,
+  bearer: string,
+  fixtureRoot: string,
+  requestCount: () => number,
+): Promise<void> {
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-freshness") === "current",
+  );
+
+  const reloadEvidence = {
+    navigations: 0,
+    bootstraps: 0,
+    bootstrapResponses: 0,
+  };
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) reloadEvidence.navigations += 1;
+  });
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (
+      request.method() === "POST" &&
+      url.pathname === "/api/v1/admin-sessions/current"
+    ) {
+      reloadEvidence.bootstraps += 1;
+    }
+  });
+  page.on("response", (response) => {
+    const request = response.request();
+    const url = new URL(response.url());
+    if (
+      request.method() === "POST" &&
+      url.pathname === "/api/v1/admin-sessions/current" &&
+      response.status() === 200
+    ) {
+      reloadEvidence.bootstrapResponses += 1;
+    }
+  });
+
+  const stateCanary = "development-hmr-state";
+  await page.evaluate((value) => {
+    (
+      window as Window & { __developmentHmrState?: string }
+    ).__developmentHmrState = value;
+  }, stateCanary);
+  await appendFile(
+    resolve(fixtureRoot, "src", "styles.css"),
+    "\n:root { --mcp-development-hmr-probe: rgb(1, 2, 3); }\n",
+    "utf8",
+  );
+  await page.waitForFunction(
+    () =>
+      getComputedStyle(document.documentElement)
+        .getPropertyValue("--mcp-development-hmr-probe")
+        .trim() === "rgb(1, 2, 3)",
+  );
+  const retainedState = await page.evaluate(
+    () =>
+      (window as Window & { __developmentHmrState?: string })
+        .__developmentHmrState,
+  );
+  if (
+    retainedState !== stateCanary ||
+    reloadEvidence.navigations !== 0 ||
+    reloadEvidence.bootstraps !== 0 ||
+    (await page
+      .locator('[data-testid="gateway-shell"]')
+      .getAttribute("data-session-lifecycle")) !== "authenticated"
+  ) {
+    fail("CSS HMR did not preserve the authenticated page state");
+  }
+
+  const navigation = page.waitForEvent("framenavigated", {
+    predicate: (frame) => frame === page.mainFrame(),
+    timeout: 10_000,
+  });
+  await appendFile(
+    resolve(fixtureRoot, "src", "location.ts"),
+    "\n// development full-reload probe\n",
+    "utf8",
+  );
+  await navigation;
+  await waitForLifecycle(page, "authenticated");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-freshness") === "current",
+  );
+  if (
+    Number(reloadEvidence.navigations) !== 1 ||
+    Number(reloadEvidence.bootstraps) !== 1 ||
+    Number(reloadEvidence.bootstrapResponses) !== 1
+  ) {
+    fail(
+      `full reload evidence differed: navigations=${reloadEvidence.navigations} bootstraps=${reloadEvidence.bootstraps} responses=${reloadEvidence.bootstrapResponses}`,
+    );
+  }
+
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "development_live_reload_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+      navigations: reloadEvidence.navigations,
+      bootstraps: reloadEvidence.bootstraps,
+    })}\n`,
+  );
+}
+
 let browser: Browser | undefined;
 try {
   let input = parseInitialInput(await readBoundedInput());
@@ -8914,7 +9051,7 @@ try {
     candidate.on("pageerror", (error) => consoleFailures.push(error.name));
   });
   const page = await context.newPage();
-  await loadShell(page);
+  await loadShell(page, input.scenario !== "development-live-reload");
 
   if (input.scenario === "shell-load") {
     if (externalRequests.length !== 0) fail("external shell request");
@@ -8922,7 +9059,15 @@ try {
     process.on("SIGTERM", () => {});
     setInterval(() => {}, 60 * 60 * 1000);
   } else {
-    if (input.scenario === "m1-canary") {
+    if (input.scenario === "development-live-reload") {
+      await runDevelopmentLiveReload(
+        browser.version(),
+        page,
+        initialBearer,
+        input.fixture_root ?? fail("missing development fixture root"),
+        () => requests,
+      );
+    } else if (input.scenario === "m1-canary") {
       await runM1Canary(
         browser.version(),
         context,

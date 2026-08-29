@@ -148,6 +148,13 @@ func (runner *BinaryRunner) startWithStdin(ctx context.Context, directory string
 
 func (process *RunningProcess) StdoutReady() <-chan struct{} { return process.stdout.FirstWrite() }
 
+func (process *RunningProcess) PID() (int, error) {
+	if process.command.Process == nil {
+		return 0, fmt.Errorf("process is not running")
+	}
+	return process.command.Process.Pid, nil
+}
+
 func (process *RunningProcess) Signal(signal os.Signal) error {
 	if process.command.Process == nil {
 		return fmt.Errorf("process is not running")
