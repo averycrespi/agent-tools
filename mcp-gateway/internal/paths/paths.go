@@ -44,6 +44,8 @@ type Ownership struct {
 	closed     bool
 }
 
+var currentUserHome = platformCurrentUserHome
+
 func Resolve(explicitRoot string) (Layout, error) {
 	return resolveInstallation(explicitRoot, os.Getenv("XDG_DATA_HOME"), currentUserHome)
 }
@@ -75,7 +77,7 @@ func resolveInstallation(explicitRoot, xdgDataHome string, home func() (string, 
 	return layoutForRoot(root), nil
 }
 
-func currentUserHome() (string, error) {
+func platformCurrentUserHome() (string, error) {
 	account, err := user.Current()
 	if err != nil {
 		return "", err

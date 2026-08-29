@@ -108,6 +108,13 @@ func TestProductionSourceOwnershipGuards(t *testing.T) {
 	for _, prohibited := range []string{"NewTerminalSecretSink", "/dev/tty"} {
 		assert.NotContains(t, adminSink, prohibited, "internal/admin/sink.go: administrator bearers require explicit owner-only files")
 	}
+	pathSource := readProductionSource(t, root, "internal/paths/paths.go")
+	assert.Contains(t, pathSource, "user.Current()", "internal/paths/paths.go: production home must use platform account resolution")
+	assert.NotContains(t, pathSource, `os.Getenv("HOME")`, "internal/paths/paths.go: production home must not trust ambient HOME")
+	e2eHome := readProductionSource(t, root, "internal/paths/home_e2e.go")
+	assert.Contains(t, e2eHome, "//go:build e2e", "internal/paths/home_e2e.go: test seam must be E2E-only")
+	assert.Contains(t, e2eHome, `MCP_GATEWAY_E2E_ACCOUNT_HOME`, "internal/paths/home_e2e.go: test seam must use its closed environment name")
+	assert.NotContains(t, e2eHome, `os.Getenv("HOME")`, "internal/paths/home_e2e.go: test seam must not turn HOME into production fallback")
 }
 
 func TestS5RootUsesOneAtomicCompositionForControlAndAgentIngress(t *testing.T) {
