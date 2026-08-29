@@ -41,6 +41,19 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ID is invalid."))
 		}
 		return runOnlineRead(command, options, "/api/v1/servers/"+args[0], serverItemTable)
+	case "server operation list":
+		path, err := operationListPath(options, args)
+		if err != nil {
+			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
+		}
+		return runOnlineRead(command, options, path, operationListTable)
+	case "server operation get":
+		if len(args) != 2 || !gatewayIDPattern.MatchString(args[0]) || !gatewayIDPattern.MatchString(args[1]) {
+			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server or operation ID is invalid."))
+		}
+		return runOnlineRead(command, options, "/api/v1/servers/"+args[0]+"/operations/"+args[1], operationItemTable)
+	case "server operation start":
+		return runServerOperationStart(command, options, args)
 	case "server descriptor list":
 		path, err := descriptorListPath(options, args)
 		if err != nil {
