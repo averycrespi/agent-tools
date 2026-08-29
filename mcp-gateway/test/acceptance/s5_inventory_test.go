@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,7 +16,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const s5IntegrationSelector = `^(TestS5Integration.*|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$`
+const (
+	s5IntegrationSelector    = `^(TestS5Integration.*|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$`
+	cliUsabilityE2ESelector  = `^(TestCLI(FirstRun|XDGAndOverrides|ServeOutputPhases|AutomaticBearerSelection|CredentialFailureProblems|OutputMatrix|CommandErrors|HelpTree)|TestS6CLI(StatusInvocations|ServerCatalogReads|ServerCreateUpdate|ServerDelete|ServerOperations|ServerCredentials|AuthFlows|AdminCredentials|Backups|Principals|PrincipalCredentials|Grants|GrantRequests))$`
+	cliSourceSelector        = `^(TestProductionSourceOwnershipGuards|TestCLIControlBoundary)$`
+	cliDocumentationSelector = `^(TestCLIUsabilityDocumentationDrift|TestReadmeRelativeLinksResolve|TestS6DocumentationDrift)$`
+	cliIntegrationSelector   = `^(TestS6InvocationRepositoryReads|TestS5Integration.*|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$`
+)
 
 var s5IntegrationPackages = []string{
 	"./internal/storage", "./internal/backup", "./internal/grantrequests", "./internal/authorization",
@@ -93,17 +100,16 @@ func TestS5SelectorManifest(t *testing.T) {
 }
 
 func TestCLIUsabilityTarget(t *testing.T) {
-	const selector = `^(TestCLI(FirstRun|XDGAndOverrides|ServeOutputPhases|AutomaticBearerSelection|CredentialFailureProblems|OutputMatrix|CommandErrors|HelpTree)|TestS6CLI(StatusInvocations|ServerCatalogReads|ServerCreateUpdate|ServerDelete|ServerOperations|ServerCredentials|AuthFlows|AdminCredentials|Backups|Principals|PrincipalCredentials|Grants|GrantRequests))$`
 	makefile, err := os.ReadFile(filepath.Join(repositoryRoot(t), "mcp-gateway", "Makefile"))
 	require.NoError(t, err)
 	recipe := targetRecipe(string(makefile), "test-cli-usability-e2e")
 	assert.Equal(t, 1, strings.Count(recipe, "go test "))
 	assert.Contains(t, recipe, "-race -count=1 -tags=e2e -timeout=2m")
-	assert.Contains(t, recipe, "-run '"+strings.ReplaceAll(selector, "$", "$$")+"'")
+	assert.Contains(t, recipe, "-run '"+strings.ReplaceAll(cliUsabilityE2ESelector, "$", "$$")+"'")
 	assert.Equal(t, 1, strings.Count(recipe, "./test/e2e"))
 	assert.NotContains(t, recipe, "$(MAKE)")
 
-	matcher := regexp.MustCompile(selector)
+	matcher := regexp.MustCompile(cliUsabilityE2ESelector)
 	selected := make([]string, 0)
 	for _, name := range discoverTests(t, repositoryRoot(t), []string{"./test/e2e"}) {
 		if matcher.MatchString(name) {
@@ -118,6 +124,82 @@ func TestCLIUsabilityTarget(t *testing.T) {
 		"TestS6CLIPrincipalCredentials", "TestS6CLIPrincipals", "TestS6CLIServerCatalogReads", "TestS6CLIServerCreateUpdate",
 		"TestS6CLIServerCredentials", "TestS6CLIServerDelete", "TestS6CLIServerOperations", "TestS6CLIStatusInvocations",
 	}, selected)
+}
+
+func TestCLIUsabilityFinalOwnerInventory(t *testing.T) {
+	type owner struct {
+		id       string
+		class    string
+		command  string
+		target   string
+		packages []string
+		selector string
+	}
+	owners := []owner{
+		{id: "cli_unit", class: "unit", command: "make -C mcp-gateway test-unit-s6", target: "test-unit-s6", packages: []string{"./..."}},
+		{id: "cli_integration", class: "integration", command: "make -C mcp-gateway test-integration-s6", target: "test-integration-s6", packages: s5IntegrationPackages, selector: cliIntegrationSelector},
+		{id: "cli_e2e", class: "e2e", command: "make -C mcp-gateway test-cli-usability-e2e", target: "test-cli-usability-e2e", packages: []string{"./test/e2e"}, selector: cliUsabilityE2ESelector},
+		{id: "cli_source", class: "source", command: "go -C mcp-gateway test -race -count=1 -timeout=30s -run '" + cliSourceSelector + "' ./internal/composition ./cmd/mcp-gateway", packages: []string{"./internal/composition", "./cmd/mcp-gateway"}, selector: cliSourceSelector},
+		{id: "cli_security", class: "security", command: "go -C mcp-gateway tool govulncheck ./...", packages: []string{"./..."}},
+		{id: "cli_documentation", class: "documentation", command: "go -C mcp-gateway test -race -count=1 -timeout=60s -run '" + cliDocumentationSelector + "' ./internal/contract", packages: []string{"./internal/contract"}, selector: cliDocumentationSelector},
+	}
+	classes := make(map[string]string, len(owners))
+	ids := make(map[string]struct{}, len(owners))
+	for _, entry := range owners {
+		assert.NotEmpty(t, entry.command, entry.id)
+		assert.NotContains(t, entry.command, "-count=2", entry.id)
+		_, duplicateID := ids[entry.id]
+		assert.False(t, duplicateID, entry.id)
+		ids[entry.id] = struct{}{}
+		_, duplicateClass := classes[entry.class]
+		assert.False(t, duplicateClass, entry.class)
+		classes[entry.class] = entry.id
+	}
+	assert.Equal(t, map[string]string{
+		"unit": "cli_unit", "integration": "cli_integration", "e2e": "cli_e2e", "source": "cli_source",
+		"security": "cli_security", "documentation": "cli_documentation",
+	}, classes)
+
+	makefileBytes, err := os.ReadFile(filepath.Join(repositoryRoot(t), "mcp-gateway", "Makefile"))
+	require.NoError(t, err)
+	makefile := string(makefileBytes)
+	for _, entry := range owners {
+		if entry.target == "" {
+			continue
+		}
+		assert.Equal(t, 1, strings.Count(makefile, "\n"+entry.target+":"), entry.target)
+		recipe := targetRecipe(makefile, entry.target)
+		assert.Equal(t, 1, strings.Count(recipe, "go test "), entry.target)
+		assert.Contains(t, recipe, "-race -count=1", entry.target)
+		assert.NotContains(t, recipe, "$(MAKE)", entry.target)
+		for _, packagePath := range entry.packages {
+			assert.Equal(t, 1, strings.Count(recipe, packagePath), entry.target+" "+packagePath)
+		}
+		if entry.selector != "" {
+			assert.Contains(t, recipe, "-run '"+strings.ReplaceAll(entry.selector, "$", "$$")+"'", entry.target)
+		}
+	}
+	assert.Contains(t, targetRecipe(makefile, "test-unit-s6"), "-timeout=110s ./...")
+	assert.Contains(t, targetRecipe(makefile, "test-integration-s6"), "-tags=integration -timeout=60s")
+	assert.Contains(t, targetRecipe(makefile, "test-cli-usability-e2e"), "-tags=e2e -timeout=2m")
+
+	selectedSource := selectedTests(t, cliSourceSelector, []string{"./internal/composition", "./cmd/mcp-gateway"})
+	assert.Equal(t, []string{"TestCLIControlBoundary", "TestProductionSourceOwnershipGuards"}, selectedSource)
+	selectedDocumentation := selectedTests(t, cliDocumentationSelector, []string{"./internal/contract"})
+	assert.Equal(t, []string{"TestCLIUsabilityDocumentationDrift", "TestReadmeRelativeLinksResolve", "TestS6DocumentationDrift"}, selectedDocumentation)
+
+	criterionPrimaryOwners := map[string]string{
+		"cli.AC-1": "cli_e2e", "cli.AC-2": "cli_e2e", "cli.AC-3": "cli_e2e",
+		"cli.AC-4": "cli_e2e", "cli.AC-5": "cli_e2e", "cli.AC-6": "cli_unit",
+		"cli.AC-7": "cli_unit", "cli.AC-8": "cli_source", "cli.AC-9": "cli_documentation",
+	}
+	require.Len(t, criterionPrimaryOwners, 9)
+	for index := 1; index <= 9; index++ {
+		ownerID, ok := criterionPrimaryOwners["cli.AC-"+strconv.Itoa(index)]
+		require.True(t, ok)
+		_, ok = ids[ownerID]
+		require.True(t, ok, ownerID)
+	}
 }
 
 func TestS5PackageMultiplicity(t *testing.T) {
@@ -143,6 +225,19 @@ func TestS5PackageMultiplicity(t *testing.T) {
 	assert.Equal(t, 3, strings.Count(stress, "go test "))
 	assert.Equal(t, 3, strings.Count(stress, "-count=$(STRESS_COUNT)"))
 	assert.NotContains(t, stress, "./...")
+}
+
+func selectedTests(t *testing.T, selector string, packages []string) []string {
+	t.Helper()
+	matcher := regexp.MustCompile(selector)
+	selected := make([]string, 0)
+	for _, name := range discoverTests(t, repositoryRoot(t), packages) {
+		if matcher.MatchString(name) {
+			selected = append(selected, name)
+		}
+	}
+	sort.Strings(selected)
+	return selected
 }
 
 func targetRecipe(makefile, target string) string {
