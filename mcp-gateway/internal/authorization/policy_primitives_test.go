@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5ConstraintAtomsPreserveDecodedScalarsAndLexicalNumbers(t *testing.T) {
+func TestConstraintAtomsPreserveDecodedScalarsAndLexicalNumbers(t *testing.T) {
 	compiled, err := CompileConstraint([]byte(`{"equals":{"/n":1.0,"/s":"\u0061","/b":true,"/z":null}}`))
 	require.NoError(t, err)
 	atoms := compiled.Atoms()
@@ -25,7 +25,7 @@ func TestS5ConstraintAtomsPreserveDecodedScalarsAndLexicalNumbers(t *testing.T) 
 	assert.Equal(t, "/n", compiled.Atoms()[0].Pointer)
 }
 
-func TestS5DenyConflictTxUsesConservativeOwnerScopeAndExpiry(t *testing.T) {
+func TestDenyConflictTxUsesConservativeOwnerScopeAndExpiry(t *testing.T) {
 	tests := []struct {
 		name               string
 		denyPrincipalOther bool
@@ -77,7 +77,7 @@ func TestS5DenyConflictTxUsesConservativeOwnerScopeAndExpiry(t *testing.T) {
 	}
 }
 
-func TestS5StartupStoredPrincipalExistsUsesSuppliedTransaction(t *testing.T) {
+func TestStoredPrincipalExistsTxUsesSuppliedTransaction(t *testing.T) {
 	repository, store := newRepository(t, nil)
 	principal := mustCreatePrincipal(t, repository)
 	require.NoError(t, store.View(context.Background(), func(transaction *sql.Tx) error {
@@ -95,7 +95,7 @@ func TestS5StartupStoredPrincipalExistsUsesSuppliedTransaction(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidInput)
 }
 
-func TestS5DenyConflictTxRejectsInvalidOrExpiredTransaction(t *testing.T) {
+func TestDenyConflictTxRejectsInvalidOrExpiredTransaction(t *testing.T) {
 	repository, store := newRepository(t, nil)
 	principal := mustCreatePrincipal(t, repository)
 	scope := DenyConflictScope{PrincipalID: principal.ID, ServerID: id(51)}

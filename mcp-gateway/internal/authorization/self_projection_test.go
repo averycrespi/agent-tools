@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5SelfProjectionSeamReturnsOnlyAdmittedIdentityAndCurrentOrdinaryGrants(t *testing.T) {
+func TestSelfProjectionReturnsOnlyAdmittedIdentityAndCurrentOrdinaryGrants(t *testing.T) {
 	repository, store := newRepository(t, nil)
 	principal, credential := createAdmissionCredential(t, repository)
 	subject := admitSelfProjectionSubject(t, repository, credential.Bearer)
@@ -86,7 +86,7 @@ func TestS5SelfProjectionSeamReturnsOnlyAdmittedIdentityAndCurrentOrdinaryGrants
 	assert.Equal(t, []string{contract.SyntheticServerID, id(51), id(51), id(52)}, targets.lookups)
 }
 
-func TestS5SelfProjectionRejectsForeignStaleOrMalformedSubjectsAndTargets(t *testing.T) {
+func TestSelfProjectionRejectsForeignStaleOrMalformedSubjectsAndTargets(t *testing.T) {
 	repository, store := newRepository(t, nil)
 	principal, credential := createAdmissionCredential(t, repository)
 	subject := admitSelfProjectionSubject(t, repository, credential.Bearer)
@@ -122,7 +122,7 @@ func TestS5SelfProjectionRejectsForeignStaleOrMalformedSubjectsAndTargets(t *tes
 	assert.ErrorIs(t, err, ErrInvalidInput)
 }
 
-func TestS5SelfProjectionTargetFailureReturnsNoPartialPage(t *testing.T) {
+func TestSelfProjectionTargetFailureReturnsNoPartialPage(t *testing.T) {
 	repository, store := newRepository(t, nil)
 	principal, credential := createAdmissionCredential(t, repository)
 	subject := admitSelfProjectionSubject(t, repository, credential.Bearer)
@@ -138,7 +138,7 @@ func TestS5SelfProjectionTargetFailureReturnsNoPartialPage(t *testing.T) {
 	assert.Empty(t, page.Items)
 }
 
-func TestS5SelfProjectionSubjectExistsOnlyAfterAcknowledgedAllow(t *testing.T) {
+func TestSelfProjectionSubjectExistsOnlyAfterAcknowledgedAllow(t *testing.T) {
 	repository, store := newRepository(t, nil)
 	_, credential := createAdmissionCredential(t, repository)
 	lease, err := repository.Authenticate(context.Background(), credential.Bearer)
@@ -161,7 +161,7 @@ func TestS5SelfProjectionSubjectExistsOnlyAfterAcknowledgedAllow(t *testing.T) {
 	}))
 }
 
-func TestS5LocalAdmittedSubjectContainsOnlySafeAdmissionIdentity(t *testing.T) {
+func TestAdmittedSubjectContainsOnlySafeAdmissionIdentity(t *testing.T) {
 	repository, _ := newRepository(t, nil)
 	_, credential := createAdmissionCredential(t, repository)
 	subject := admitSelfProjectionSubject(t, repository, credential.Bearer)
@@ -175,7 +175,7 @@ func TestS5LocalAdmittedSubjectContainsOnlySafeAdmissionIdentity(t *testing.T) {
 	assert.NotContains(t, subject.PrincipalID()+subject.CredentialID(), credential.Bearer)
 }
 
-func TestS5SelfProjectionAdmittedSubjectContainsNoSecretSink(t *testing.T) {
+func TestSelfProjectionAdmittedSubjectContainsNoSecretSink(t *testing.T) {
 	repository, _ := newRepository(t, nil)
 	_, credential := createAdmissionCredential(t, repository)
 	subject := admitSelfProjectionSubject(t, repository, credential.Bearer)

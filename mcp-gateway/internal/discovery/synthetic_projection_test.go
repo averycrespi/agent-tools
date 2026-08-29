@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5SyntheticDiscoveryObeysOrdinaryVisibilityAndDenyPrecedence(t *testing.T) {
+func TestSyntheticDiscoveryObeysOrdinaryVisibilityAndDenyPrecedence(t *testing.T) {
 	identity := "get_identity"
 	create := "create_grant_request"
 	allNames := []string{
@@ -48,7 +48,7 @@ func TestS5SyntheticDiscoveryObeysOrdinaryVisibilityAndDenyPrecedence(t *testing
 	}
 }
 
-func TestS5SyntheticDiscoveryMergesOrdersClonesAndPinsOnlyActiveGeneration(t *testing.T) {
+func TestSyntheticDiscoveryMergesOrdersClonesAndPinsOnlyActiveGeneration(t *testing.T) {
 	active := descriptor(opaqueID(11), opaqueID(1), "z-last", "z.last")
 	policy := &fakePolicySource{view: policyView(contract.VisibilityAll, nil)}
 	catalogs := &fakeCatalogSource{snapshot: currentSnapshot([]contract.ToolDescriptor{active}), current: true}
@@ -71,7 +71,7 @@ func TestS5SyntheticDiscoveryMergesOrdersClonesAndPinsOnlyActiveGeneration(t *te
 	assert.ErrorIs(t, err, ErrStaleCursor)
 }
 
-func TestS5SyntheticPaginationReachesAll2054ToolsAndPositionsAbove2048(t *testing.T) {
+func TestSyntheticPaginationReachesAll2054ToolsAndPositionsAbove2048(t *testing.T) {
 	descriptors := make([]contract.ToolDescriptor, 2048)
 	for index := range descriptors {
 		prefix := "a"

@@ -14,7 +14,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 )
 
-func TestS5ApprovalAuthorityGateIsNonQueueing(t *testing.T) {
+func TestApprovalAuthorityGateIsNonQueueing(t *testing.T) {
 	repository, _ := newRepository(t, nil)
 	principal, err := repository.CreatePrincipal(context.Background(), CreatePrincipalRequest{
 		DisplayName: "Approval owner", Visibility: contract.VisibilityRequestable,
@@ -38,7 +38,7 @@ func TestS5ApprovalAuthorityGateIsNonQueueing(t *testing.T) {
 	require.NoError(t, <-first)
 }
 
-func TestS5ApprovalGrantCapacityRollsBackBeforeRequestTransition(t *testing.T) {
+func TestApprovalGrantCapacityRollsBackBeforeRequestTransition(t *testing.T) {
 	repository, store := newRepository(t, nil)
 	principal, err := repository.CreatePrincipal(context.Background(), CreatePrincipalRequest{
 		DisplayName: "Approval owner", Visibility: contract.VisibilityRequestable,

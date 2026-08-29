@@ -186,7 +186,7 @@ func TestAdmissionUncertaintyAndUnavailableStorageNeverDetach(t *testing.T) {
 	latchedLease.Release()
 }
 
-func TestAdmissionAddsNoS4PersistenceOrCapabilityUse(t *testing.T) {
+func TestAdmissionAddsNoInvocationPersistenceOrCapabilityUse(t *testing.T) {
 	source, err := os.ReadFile("admission.go")
 	require.NoError(t, err)
 	for _, forbidden := range []string{"CREATE TABLE", "INSERT INTO invocation", "internal/catalog", "internal/downstream", "AcquireRoute", "AcquireCapability", "Dispatch", "Execute"} {
