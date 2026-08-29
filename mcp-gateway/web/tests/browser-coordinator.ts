@@ -77,7 +77,8 @@ interface BridgeInput {
     | "server-credentials"
     | "server-disconnect-delete"
     | "auth-flows"
-    | "development-live-reload";
+    | "development-live-reload"
+    | "development-control-plane";
   base_url: string;
   admin_bearer: string;
   browser_kind?: "chromium" | "firefox" | "webkit";
@@ -167,7 +168,8 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "server-credentials" &&
       value.scenario !== "server-disconnect-delete" &&
       value.scenario !== "auth-flows" &&
-      value.scenario !== "development-live-reload") ||
+      value.scenario !== "development-live-reload" &&
+      value.scenario !== "development-control-plane") ||
     !("base_url" in value) ||
     typeof value.base_url !== "string" ||
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
@@ -8797,6 +8799,198 @@ async function runMutationState(
   );
 }
 
+async function runDevelopmentControlPlane(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await assertSessionFoundationEpochs();
+  await waitForLifecycle(page, "signed_out");
+
+  const observations = {
+    eventStreams: 0,
+    mutations: 0,
+    safeReads: 0,
+  };
+  const observeControlPlane = (request: Request) => {
+    const url = new URL(request.url());
+    if (request.method() === "POST" && url.pathname === "/api/v1/events") {
+      observations.eventStreams += 1;
+    }
+    if (
+      request.method() === "POST" &&
+      url.pathname === "/api/v1/admin-credentials"
+    ) {
+      observations.mutations += 1;
+    }
+    if (
+      request.method() === "GET" &&
+      url.pathname === "/api/v1/system-status"
+    ) {
+      observations.safeReads += 1;
+    }
+  };
+  page.on("request", observeControlPlane);
+  await page.route(
+    "**/api/v1/events",
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: ": keepalive\n\n",
+      }),
+    { times: 1 },
+  );
+
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-freshness") === "reconnecting",
+  );
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-freshness") === "current",
+  );
+  if (observations.eventStreams !== 2) {
+    fail("development application did not reconnect its POST event stream");
+  }
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  const sessionCookies = (await context.cookies(baseURL)).filter(
+    (cookie) => cookie.name === "mcp_gateway_session",
+  );
+  const cookieHostOnly =
+    sessionCookies.length === 1 &&
+    sessionCookies[0]?.domain === new URL(baseURL).hostname;
+  if (!cookieHostOnly) fail("development session cookie was not host-only");
+
+  const current = await bootstrap(page);
+  if (current.status !== 200 || current.session === undefined) {
+    fail("development session cookie bootstrap failed");
+  }
+  const status = await page.evaluate(async (csrfToken) => {
+    const response = await fetch("/api/v1/system-status", {
+      headers: { "X-CSRF-Token": csrfToken },
+      credentials: "same-origin",
+    });
+    await response.arrayBuffer();
+    return response.status;
+  }, current.session.csrf_token);
+  if (status !== 200) fail("development safe status read failed");
+
+  const generationBeforeMutation = Number(
+    await page
+      .locator('[data-testid="gateway-shell"]')
+      .getAttribute("data-view-generation"),
+  );
+  const created = await sessionRequest(
+    page,
+    "/api/v1/admin-credentials",
+    "POST",
+    current.session.csrf_token,
+    undefined,
+    { expires_at: null },
+  );
+  if (created.status !== 201 || observations.mutations !== 1) {
+    fail("development CSRF mutation was not submitted exactly once");
+  }
+  const oneTime = createdCredential(created.value);
+  await page.waitForFunction(
+    (generation) =>
+      Number(
+        document
+          .querySelector('[data-testid="gateway-shell"]')
+          ?.getAttribute("data-view-generation"),
+      ) ===
+      generation + 1,
+    generationBeforeMutation,
+  );
+  await assertSecretAbsent(
+    page,
+    context,
+    baseURL,
+    [bearer, oneTime.bearer],
+    true,
+  );
+  oneTime.bearer = "";
+
+  const hmrResources = await page.evaluate(
+    () =>
+      performance
+        .getEntriesByType("resource")
+        .filter((entry) => new URL(entry.name).pathname === "/@vite/client")
+        .length,
+  );
+  if (hmrResources < 1) fail("development shell did not load the HMR client");
+
+  let releaseRead: (() => void) | undefined;
+  const readBarrier = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  let readIntercepted: (() => void) | undefined;
+  const intercepted = new Promise<void>((resolve) => {
+    readIntercepted = resolve;
+  });
+  let readDelivered: (() => void) | undefined;
+  const delivered = new Promise<void>((resolve) => {
+    readDelivered = resolve;
+  });
+  await page.route(
+    "**/api/v1/system-status",
+    async (route) => {
+      const response = await route.fetch();
+      readIntercepted?.();
+      await readBarrier;
+      await route.fulfill({ response });
+      readDelivered?.();
+    },
+    { times: 1 },
+  );
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await intercepted;
+  const logoutResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "DELETE" &&
+      response.url().endsWith("/api/v1/admin-sessions/current"),
+  );
+  await page.locator('[data-testid="logout"]').click();
+  await page.locator('[data-testid="logout-confirmation-submit"]').click();
+  if ((await logoutResponse).status() !== 204) {
+    fail("development logout was rejected");
+  }
+  await waitForLifecycle(page, "signed_out");
+  await assertSessionCookieAbsent(context, baseURL);
+  releaseRead?.();
+  await delivered;
+  await waitForLifecycle(page, "signed_out");
+  await page.waitForFunction(() => window.location.hash === "#/sign-in");
+  await assertSecretAbsent(page, context, baseURL, [bearer], false);
+  page.off("request", observeControlPlane);
+
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "development_control_plane_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+      event_streams: observations.eventStreams,
+      mutations: observations.mutations,
+      safe_reads: observations.safeReads,
+      hmr_resources: hmrResources,
+      cookie_host_only: cookieHostOnly,
+      epoch_fenced: true,
+    })}\n`,
+  );
+}
+
 async function runDevelopmentLiveReload(
   browserVersion: string,
   page: Page,
@@ -9051,7 +9245,11 @@ try {
     candidate.on("pageerror", (error) => consoleFailures.push(error.name));
   });
   const page = await context.newPage();
-  await loadShell(page, input.scenario !== "development-live-reload");
+  await loadShell(
+    page,
+    input.scenario !== "development-live-reload" &&
+      input.scenario !== "development-control-plane",
+  );
 
   if (input.scenario === "shell-load") {
     if (externalRequests.length !== 0) fail("external shell request");
@@ -9059,7 +9257,16 @@ try {
     process.on("SIGTERM", () => {});
     setInterval(() => {}, 60 * 60 * 1000);
   } else {
-    if (input.scenario === "development-live-reload") {
+    if (input.scenario === "development-control-plane") {
+      await runDevelopmentControlPlane(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "development-live-reload") {
       await runDevelopmentLiveReload(
         browser.version(),
         page,
