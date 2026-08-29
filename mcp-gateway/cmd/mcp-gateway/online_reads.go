@@ -18,6 +18,21 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 	switch strings.Join(spec.Path, " ") {
 	case "status":
 		return runOnlineRead(command, options, "/api/v1/system-status", statusTable)
+	case "admin-credential list":
+		path, err := controlclient.BuildListPath("/api/v1/admin-credentials", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
+		if err != nil {
+			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
+		}
+		return runOnlineRead(command, options, path, adminCredentialListTable)
+	case "admin-credential get":
+		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
+			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The admin credential ID is invalid."))
+		}
+		return runOnlineRead(command, options, "/api/v1/admin-credentials/"+args[0], adminCredentialItemTable)
+	case "admin-credential create":
+		return runAdminCredentialCreate(command, options)
+	case "admin-credential revoke":
+		return runAdminCredentialRevoke(command, options, args)
 	case "invocation list":
 		path, err := invocationListPath(options)
 		if err != nil {
