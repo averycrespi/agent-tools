@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6ExternalEvidenceContract(t *testing.T) {
+func TestExternalBrowserEvidenceContract(t *testing.T) {
 	root := filepath.Join(repositoryRoot(t), "mcp-gateway")
 	manifestData, err := os.ReadFile(filepath.Join(root, "web", "environments.json"))
 	require.NoError(t, err)
@@ -109,7 +109,7 @@ func TestS6ExternalEvidenceContract(t *testing.T) {
 	assert.ErrorContains(t, err, "unknown field")
 }
 
-func TestS6M11Gate(t *testing.T) {
+func TestExternalBrowserEvidenceClassification(t *testing.T) {
 	root := filepath.Join(repositoryRoot(t), "mcp-gateway")
 	manifestData, err := os.ReadFile(filepath.Join(root, "web", "environments.json"))
 	require.NoError(t, err)

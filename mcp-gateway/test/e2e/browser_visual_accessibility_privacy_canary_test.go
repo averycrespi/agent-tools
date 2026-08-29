@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserM11Canary(t *testing.T) {
+func TestBrowserVisualAccessibilityPrivacyCanary(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
@@ -34,14 +34,14 @@ func TestS6BrowserM11Canary(t *testing.T) {
 		require.False(t, result.Cleanup.Survived)
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
-		"version": 1, "scenario": "m11-canary", "base_url": "http://" + harness.authority,
+		"version": 1, "scenario": "visual-accessibility-privacy-canary", "base_url": "http://" + harness.authority,
 		"admin_bearer": harness.bearer,
 	}))
 	require.NoError(t, input.Close())
 
 	result, waitErr := process.Wait()
 	finished = true
-	require.NoError(t, waitErr, "M11 browser canary: %s", result.Stderr)
+	require.NoError(t, waitErr, "visual/accessibility/privacy browser canary: %s", result.Stderr)
 	assert.Empty(t, result.Stderr)
 	assert.False(t, result.StdoutTruncated)
 	assert.False(t, result.StderrTruncated)
@@ -60,7 +60,7 @@ func TestS6BrowserM11Canary(t *testing.T) {
 		ScreenshotSHA256  string `json:"screenshot_sha256"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	assert.Equal(t, "m11_canary_complete", event.Event)
+	assert.Equal(t, "visual_accessibility_privacy_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
@@ -69,5 +69,5 @@ func TestS6BrowserM11Canary(t *testing.T) {
 	assert.Regexp(t, `^[0-9a-f]{64}$`, event.ScreenshotSHA256)
 
 	harness.Stop(os.Interrupt)
-	assert.Len(t, harness.results, 1, "M11 canary must own one Gateway lifecycle")
+	assert.Len(t, harness.results, 1, "visual/accessibility/privacy canary must own one Gateway lifecycle")
 }

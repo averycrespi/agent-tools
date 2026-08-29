@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserPrivacyCanary(t *testing.T) {
+func TestBrowserSecretStoragePrivacy(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
@@ -34,7 +34,7 @@ func TestS6BrowserPrivacyCanary(t *testing.T) {
 		require.False(t, result.Cleanup.Survived)
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
-		"version": 1, "scenario": "privacy-canary", "base_url": "http://" + harness.authority,
+		"version": 1, "scenario": "secret-storage-privacy", "base_url": "http://" + harness.authority,
 		"admin_bearer": harness.bearer,
 	}))
 	require.NoError(t, input.Close())
@@ -59,7 +59,7 @@ func TestS6BrowserPrivacyCanary(t *testing.T) {
 		ScreenshotSHA256  string `json:"screenshot_sha256"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	assert.Equal(t, "privacy_canary_complete", event.Event)
+	assert.Equal(t, "secret_storage_privacy_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)

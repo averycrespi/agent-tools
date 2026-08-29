@@ -82,14 +82,14 @@ func TestS6SecurityCanaries(t *testing.T) {
 		owner string
 	}
 	owners := []privacyOwner{
-		{"browser stores", "assertSecretAbsent"}, {"URL fragments and attributes", "TestS6BrowserPrivacyCanary"},
-		{"DOM and input values", "TestS6BrowserPrivacyCanary"}, {"one-time display lifecycle", "assertSensitiveSinkFoundation"},
-		{"user-gesture clipboard", "runSecretSinks"}, {"OAuth opener and referrer", "TestS6BrowserPrivacyCanary"},
+		{"browser stores", "assertSecretAbsent"}, {"URL fragments and attributes", "TestBrowserSecretStoragePrivacy"},
+		{"DOM and input values", "TestBrowserSecretStoragePrivacy"}, {"one-time display lifecycle", "assertSensitiveSinkFoundation"},
+		{"user-gesture clipboard", "runSecretSinks"}, {"OAuth opener and referrer", "TestBrowserSecretStoragePrivacy"},
 		{"stale authentication epoch", "assertSensitiveSinkFoundation"}, {"post-response sink loss", "assertSensitiveSinkFoundation"},
 		{"CLI argv and environment", "TestCLISensitiveSinks"}, {"CLI stdout and stderr", "TestCLISensitiveSinks"},
 		{"logs and acceptance reports", "TestS5SecurityAcceptanceReportSinks"}, {"events", "TestE2EInvocationReadPrivacy"},
 		{"audit capture", "TestE2EInvocationReadPrivacy"}, {"SQLite and backups", "TestS5SecurityDurableSinkCanaries"},
-		{"generated frontend assets", "TestS6SecurityCanaries"}, {"screenshots and reports", "TestS6BrowserPrivacyCanary"},
+		{"generated frontend assets", "TestS6SecurityCanaries"}, {"screenshots and reports", "TestBrowserSecretStoragePrivacy"},
 		{"process output", "TestE2EInvocationReadPrivacy"}, {"test artifacts", "TestS6SecurityCanaries"},
 	}
 	require.Len(t, owners, 18)

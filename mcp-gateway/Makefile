@@ -62,13 +62,13 @@ test-browser-s6-workflows:
 	go test -race -count=1 -tags=e2e,browser -timeout=2m -run '^TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch|ReadGeneration|MutationState|ShellPrimitives|SecretSinks|Overview|Invocations|SystemStatus|ServerCatalogReads|ServerCreateUpdate|ServerOperations|ServerCredentials|AuthFlows|ServerDisconnectDelete|Principals|PrincipalCredentials|GrantReadsCreate|GrantCorrection|RequestReads|RequestAdjudication|AdminCredentials|Backups|CapabilityAudit)$$' ./test/e2e
 
 test-browser-s6-visual:
-	go test -race -count=1 -tags=e2e,browser -timeout=60s -run '^TestS6BrowserVisualChanged$$' ./test/e2e
+	go test -race -count=1 -tags=e2e,browser -timeout=60s -run '^TestBrowserVisualResponsiveMatrix$$' ./test/e2e
 
 test-browser-s6-a11y:
-	go test -race -count=1 -tags=e2e,browser -timeout=45s -run '^TestS6BrowserAccessibilityChanged$$' ./test/e2e
+	go test -race -count=1 -tags=e2e,browser -timeout=45s -run '^TestBrowserAccessibility$$' ./test/e2e
 
 test-browser-s6-cross:
-	go test -race -count=1 -tags=e2e,browser -timeout=45s -run '^TestS6BrowserCross$$' ./test/e2e
+	go test -race -count=1 -tags=e2e,browser -timeout=45s -run '^TestBrowserCrossCompatibility$$' ./test/e2e
 
 test-cli-e2e-s6:
 	go test -race -count=1 -tags=e2e -timeout=90s -run '^TestCLI(StatusInvocations|ServerCatalogReads|ServerCreateUpdate|ServerDelete|ServerOperations|ServerCredentials|AuthFlows|AdminCredentials|Backups|Principals|PrincipalCredentials|Grants|GrantRequests)$$' ./test/e2e
@@ -78,7 +78,7 @@ test-cli-usability-e2e:
 
 test-security-s6:
 	go test -race -count=1 -tags=security -timeout=30s -run '^TestS6SecurityCanaries$$' ./test/security
-	go test -race -count=1 -tags=e2e,browser -timeout=30s -run '^TestS6BrowserPrivacyCanary$$' ./test/e2e
+	go test -race -count=1 -tags=e2e,browser -timeout=30s -run '^TestBrowserSecretStoragePrivacy$$' ./test/e2e
 
 qualify-external-s6:
 	@go run ./test/acceptance/cmd --qualify-external

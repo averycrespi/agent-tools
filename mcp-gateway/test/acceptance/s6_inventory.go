@@ -92,13 +92,13 @@ var s6Selectors = map[string][]string{
 	"T39": {"TestCLIServerCreateUpdate"}, "T40": {"TestCLIServerDelete"}, "T41": {"TestCLIServerOperations"},
 	"T42": {"TestCLIServerCredentials"}, "T43": {"TestCLIAuthFlows"}, "T44": {"TestCLIAdminCredentials"}, "T45": {"TestCLIBackups"},
 	"T46": {"TestCLIPrincipals"}, "T47": {"TestCLIPrincipalCredentials"}, "T48": {"TestCLIGrants"}, "T49": {"TestCLIGrantRequests"},
-	"T50": {"TestS6BrowserAccessibilityChanged"}, "T51": {"TestS6BrowserVisualChanged"}, "T52": {"TestS6SecurityCanaries", "TestS6BrowserPrivacyCanary"},
-	"T53": {"TestS6ExternalEvidenceContract"}, "T54": {"ui:verify-supply-chain", "TestStaticSupplyChain"},
+	"T50": {"TestBrowserAccessibility"}, "T51": {"TestBrowserVisualResponsiveMatrix"}, "T52": {"TestS6SecurityCanaries", "TestBrowserSecretStoragePrivacy"},
+	"T53": {"TestExternalBrowserEvidenceContract"}, "T54": {"ui:verify-supply-chain", "TestStaticSupplyChain"},
 	"T55": {"Test(FoundationRoutesAndMechanicsAreExact|ServerRoutesAndMechanicsAreExact|AuthorizationRoutesAndMechanicsAreExact|GrantRequestRoutesProblemsAndLimitsAreExact|GrantRequestResourceShapesETagsMechanicsAndStatusAreExact|InvocationReadProjectionContract|GrantRequestStrictQueriesBodiesPreconditionsAndProblems|StaticDelivery|BrowserEventPostContract|BrowserEventPostAPI|BrowserEventPostSubscription|BrowserEventPostBoundary|ProductionSourceOwnershipGuards|ProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners|AdmissionInputCannotCarryForbiddenPayloads|SinkFailureNeverActivatesUndisclosedAuthority|EventsPreserveIDFreeOrderOverflowLossAndReconnect|CLISharedContract|ControlClientSharedContract|RequestSchemaMigrationRollsBackAtomically)", "TestRestoreAcceptedSchemaLineages"}, "T56": {"format:check", "Test(CLIDocumentationDrift|DocumentationContractDrift)"}, "T57": {"TestS6AcceptanceProfile"},
 	"M1": {"Test(SessionEventContractIntegration|AdminSessionShutdownInvalidatesBrowserSession|StaticShellSecurityHeaders|EventHubClosesWithBrowserSessionAndShutdown|BoundaryRoutesSessionAndEventAuthorities)", "TestBrowserSessionLifecycleCanary"}, "M2": {"Test(InvocationReadPaginationIntegration|InvocationReadCompositionIntegration)", "TestInvocationReadOnlyAPICanary"}, "M3": {"TestBrowserPriorSessionResponseIsolationCanary"},
 	"M4": {"TestCLIPrivateAuthorityBoundary", "TestCLIOnlineOfflineOutputCanary"}, "M5": {"TestBrowserOverviewInvocationSystemCanary"}, "M6": {"TestBrowserServerManagementCanary"},
 	"M7": {"TestBrowserAccessManagementReadCanary"}, "M8": {"TestBrowserSystemAdministrationCanary"}, "M9": {"TestCLIServerLifecycleCanary"}, "M10": {"Test(CLISharedContract|ControlClientSharedContract)", "TestCLIAuthorityLifecycleCanary"},
-	"M11": {"TestS6M11Gate", "TestS6BrowserM11Canary"},
+	"M11": {"TestExternalBrowserEvidenceClassification", "TestBrowserVisualAccessibilityPrivacyCanary"},
 }
 
 var s6Packages = map[string][]string{

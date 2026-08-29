@@ -49,16 +49,16 @@ interface BridgeInput {
     | "read-generation"
     | "mutation-state"
     | "shell-primitives"
-    | "accessibility-changed"
-    | "visual-changed"
-    | "privacy-canary"
+    | "accessibility-keyboard-responsive"
+    | "visual-responsive-matrix"
+    | "secret-storage-privacy"
     | "secret-sinks"
     | "prior-session-response-isolation-canary"
     | "overview-invocation-system-canary"
     | "server-management-canary"
     | "access-management-read-canary"
     | "system-administration-canary"
-    | "m11-canary"
+    | "visual-accessibility-privacy-canary"
     | "admin-credentials"
     | "backups"
     | "capability-audit"
@@ -140,16 +140,16 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "read-generation" &&
       value.scenario !== "mutation-state" &&
       value.scenario !== "shell-primitives" &&
-      value.scenario !== "accessibility-changed" &&
-      value.scenario !== "visual-changed" &&
-      value.scenario !== "privacy-canary" &&
+      value.scenario !== "accessibility-keyboard-responsive" &&
+      value.scenario !== "visual-responsive-matrix" &&
+      value.scenario !== "secret-storage-privacy" &&
       value.scenario !== "secret-sinks" &&
       value.scenario !== "prior-session-response-isolation-canary" &&
       value.scenario !== "overview-invocation-system-canary" &&
       value.scenario !== "server-management-canary" &&
       value.scenario !== "access-management-read-canary" &&
       value.scenario !== "system-administration-canary" &&
-      value.scenario !== "m11-canary" &&
+      value.scenario !== "visual-accessibility-privacy-canary" &&
       value.scenario !== "admin-credentials" &&
       value.scenario !== "backups" &&
       value.scenario !== "capability-audit" &&
@@ -2516,7 +2516,7 @@ async function runBackups(
   );
 }
 
-async function runM11Canary(
+async function runVisualAccessibilityPrivacyCanary(
   browserVersion: string,
   context: BrowserContext,
   page: Page,
@@ -2542,7 +2542,7 @@ async function runM11Canary(
   );
   if (blocking.length !== 0)
     fail(
-      `M11 canary accessibility findings: ${blocking.map((violation) => violation.id).join(",")}`,
+      `Visual/accessibility/privacy canary findings: ${blocking.map((violation) => violation.id).join(",")}`,
     );
   const screenshot = await page.screenshot({
     fullPage: true,
@@ -2556,7 +2556,7 @@ async function runM11Canary(
     visualStates.length !== 10 ||
     visualRubric.length !== 6
   )
-    fail("M11 canary visual or privacy inventory changed");
+    fail("Visual/accessibility/privacy canary inventory changed");
   const layout = await page.evaluate(() => ({
     overflow:
       document.documentElement.scrollWidth >
@@ -2572,14 +2572,16 @@ async function runM11Canary(
     }),
   }));
   if (layout.overflow || layout.externalAssets)
-    fail("M11 canary layout or asset boundary changed");
+    fail(
+      "Visual/accessibility/privacy canary layout or asset boundary changed",
+    );
   await assertSecretAbsent(page, context, baseURL, [bearer], true, "dark");
   process.stdout.write(
-    `${JSON.stringify({ event: "m11_canary_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), axe_findings: 0, inventory: visualArtifactInventory.length, screenshot_sha256: createHash("sha256").update(screenshot).digest("hex") })}\n`,
+    `${JSON.stringify({ event: "visual_accessibility_privacy_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), axe_findings: 0, inventory: visualArtifactInventory.length, screenshot_sha256: createHash("sha256").update(screenshot).digest("hex") })}\n`,
   );
 }
 
-async function runPrivacyCanary(
+async function runSecretStoragePrivacy(
   browserVersion: string,
   context: BrowserContext,
   page: Page,
@@ -2663,11 +2665,11 @@ async function runPrivacyCanary(
 
   await assertSecretAbsent(page, context, baseURL, [bearer, oauthCanary], true);
   process.stdout.write(
-    `${JSON.stringify({ event: "privacy_canary_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), sinks: 18, screenshot_sha256: createHash("sha256").update(screenshot).digest("hex") })}\n`,
+    `${JSON.stringify({ event: "secret_storage_privacy_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), sinks: 18, screenshot_sha256: createHash("sha256").update(screenshot).digest("hex") })}\n`,
   );
 }
 
-async function runVisualChanged(
+async function runVisualResponsiveMatrix(
   browserVersion: string,
   context: BrowserContext,
   page: Page,
@@ -2825,7 +2827,7 @@ async function runVisualChanged(
   await assertSecretAbsent(page, context, baseURL, [bearer], true, "dark");
   process.stdout.write(
     `${JSON.stringify({
-      event: "visual_changed_complete",
+      event: "visual_responsive_matrix_complete",
       chromium_version: browserVersion,
       playwright_version: "1.62.1",
       requests: requestCount(),
@@ -2840,7 +2842,7 @@ async function runVisualChanged(
   );
 }
 
-async function runAccessibilityChanged(
+async function runAccessibilityKeyboardResponsive(
   browserVersion: string,
   context: BrowserContext,
   page: Page,
@@ -3043,7 +3045,7 @@ async function runAccessibilityChanged(
     true,
   );
   process.stdout.write(
-    `${JSON.stringify({ event: "accessibility_changed_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), axe_scans: axeScans, serious_critical: 0, scripted_assertions: scriptedAssertions })}\n`,
+    `${JSON.stringify({ event: "accessibility_keyboard_responsive_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), axe_scans: axeScans, serious_critical: 0, scripted_assertions: scriptedAssertions })}\n`,
   );
 }
 
@@ -9327,8 +9329,8 @@ try {
         initialBearer,
         () => requests,
       );
-    } else if (input.scenario === "m11-canary") {
-      await runM11Canary(
+    } else if (input.scenario === "visual-accessibility-privacy-canary") {
+      await runVisualAccessibilityPrivacyCanary(
         browser.version(),
         context,
         page,
@@ -9336,8 +9338,8 @@ try {
         initialBearer,
         () => requests,
       );
-    } else if (input.scenario === "privacy-canary") {
-      await runPrivacyCanary(
+    } else if (input.scenario === "secret-storage-privacy") {
+      await runSecretStoragePrivacy(
         browser.version(),
         context,
         page,
@@ -9345,8 +9347,8 @@ try {
         initialBearer,
         () => requests,
       );
-    } else if (input.scenario === "visual-changed") {
-      await runVisualChanged(
+    } else if (input.scenario === "visual-responsive-matrix") {
+      await runVisualResponsiveMatrix(
         browser.version(),
         context,
         page,
@@ -9354,8 +9356,8 @@ try {
         initialBearer,
         () => requests,
       );
-    } else if (input.scenario === "accessibility-changed") {
-      await runAccessibilityChanged(
+    } else if (input.scenario === "accessibility-keyboard-responsive") {
+      await runAccessibilityKeyboardResponsive(
         browser.version(),
         context,
         page,

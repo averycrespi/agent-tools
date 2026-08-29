@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6BrowserCross(t *testing.T) {
+func TestBrowserCrossCompatibility(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
