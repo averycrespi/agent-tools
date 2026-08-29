@@ -6,6 +6,7 @@ import {
   type Destination,
   type ResolvedLocation,
 } from "./location";
+import { Grants } from "./grants";
 import { Invocations, InvocationsController } from "./invocations";
 import { MutationCoordinator, type MutationAvailability } from "./mutation";
 import { Overview, OverviewController } from "./overview";
@@ -436,14 +437,23 @@ function App() {
               onRefresh={() => viewCoordinator.manualRefresh()}
             />
           ) : destination === "access" ? (
-            <Principals
-              session={sessionClient}
-              mutations={mutationCoordinator}
-              sinks={sensitiveSinkCoordinator}
-              resolved={resolved}
-              view={view}
-              onRefresh={() => viewCoordinator.manualRefresh()}
-            />
+            resolved.location.segments[1] === "grants" ? (
+              <Grants
+                session={sessionClient}
+                mutations={mutationCoordinator}
+                resolved={resolved}
+                view={view}
+              />
+            ) : (
+              <Principals
+                session={sessionClient}
+                mutations={mutationCoordinator}
+                sinks={sensitiveSinkCoordinator}
+                resolved={resolved}
+                view={view}
+                onRefresh={() => viewCoordinator.manualRefresh()}
+              />
+            )
           ) : destination === "servers" || destination === "catalog" ? (
             <ServerReads
               controller={serverReadsController}

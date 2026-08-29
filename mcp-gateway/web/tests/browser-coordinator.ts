@@ -43,6 +43,7 @@ interface BridgeInput {
     | "m6-canary"
     | "principals"
     | "principal-credentials"
+    | "grant-reads-create"
     | "overview"
     | "invocations"
     | "system-status"
@@ -113,6 +114,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "m6-canary" &&
       value.scenario !== "principals" &&
       value.scenario !== "principal-credentials" &&
+      value.scenario !== "grant-reads-create" &&
       value.scenario !== "overview" &&
       value.scenario !== "invocations" &&
       value.scenario !== "system-status" &&
@@ -2509,6 +2511,263 @@ async function runPrincipalCredentials(
   );
   process.stdout.write(
     `${JSON.stringify({ event: "principal_credentials_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), issues, revokes })}\n`,
+  );
+}
+
+async function runGrantReadsCreate(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const principalID = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
+  const serverID = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
+  const firstGrantID = "01ARZ3NDEKTSV4RRFFQ69G5FB0";
+  const secondGrantID = "01ARZ3NDEKTSV4RRFFQ69G5FB1";
+  const createdIDs = [
+    "01ARZ3NDEKTSV4RRFFQ69G5FB2",
+    "01ARZ3NDEKTSV4RRFFQ69G5FB3",
+  ];
+  const grant = (
+    id: string,
+    effect: "allow" | "deny",
+    state: "active" | "expired",
+    upstreamName: string | null,
+    constraint: unknown | null,
+    expiresAt: string | null,
+  ) => ({
+    id,
+    principal_id: principalID,
+    effect,
+    server_id: serverID,
+    upstream_name: upstreamName,
+    constraint,
+    expires_at: expiresAt,
+    state,
+    created_at: "2026-08-28T12:00:00Z",
+  });
+  const active = grant(firstGrantID, "allow", "active", null, null, null);
+  const expired = grant(
+    secondGrantID,
+    "deny",
+    "expired",
+    "dangerous.tool",
+    { equals: { "/mode": "blocked" } },
+    "2026-08-28T12:30:00Z",
+  );
+  let staleRestarted = false;
+  let attempts = 0;
+  let creates = 0;
+
+  await page.route("**/api/v1/grants?*", async (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    if (
+      route.request().method() !== "GET" ||
+      query.get("limit") !== "50" ||
+      query.get("principal_id") !== principalID ||
+      query.get("server_id") !== serverID ||
+      [...query.keys()].some(
+        (key) =>
+          key !== "limit" &&
+          key !== "cursor" &&
+          key !== "principal_id" &&
+          key !== "server_id",
+      )
+    )
+      fail("grant list filters changed shape");
+    const cursor = query.get("cursor");
+    if (cursor === "grant-stale") {
+      staleRestarted = true;
+      await route.fulfill({
+        status: 409,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 409,
+          code: "stale_cursor",
+          title: "The cursor is stale.",
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(
+        cursor === "grant-next"
+          ? { items: [expired], next_cursor: null }
+          : {
+              items: [active],
+              next_cursor: staleRestarted ? "grant-next" : "grant-stale",
+            },
+      ),
+    });
+  });
+  await page.route("**/api/v1/grants/*", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+    const id = new URL(route.request().url()).pathname.split("/").pop();
+    const item = id === secondGrantID ? expired : active;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(item),
+    });
+  });
+  await page.route(`${baseURL}/api/v1/grants`, async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    attempts += 1;
+    const raw = route.request().postData() ?? "";
+    const body = JSON.parse(raw) as Record<string, unknown>;
+    if (
+      Object.keys(body).join(",") !==
+        "principal_id,effect,server_id,upstream_name,constraint,expires_at" ||
+      body.principal_id !== principalID ||
+      body.server_id !== serverID
+    )
+      fail("grant create body changed closed shape");
+    if (attempts === 1) {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 400,
+          code: "invalid_grant",
+          title: "The grant is invalid.",
+        }),
+      });
+      return;
+    }
+    creates += 1;
+    if (creates === 1) {
+      if (
+        body.effect !== "allow" ||
+        body.upstream_name !== null ||
+        body.constraint !== null ||
+        body.expires_at !== null
+      )
+        fail("server-wide permanent grant changed shape");
+    } else if (
+      body.effect !== "deny" ||
+      body.upstream_name !== "literal.tool" ||
+      body.expires_at !== "2030-01-01T00:00:00Z" ||
+      !raw.includes('"/a~1b/0":1.0') ||
+      !raw.includes('"/empty/":null') ||
+      !raw.includes('"/flag":true') ||
+      !raw.includes('"/name":"literal"')
+    )
+      fail("exact-tool lexical constraint changed shape");
+    const item = grant(
+      createdIDs[creates - 1]!,
+      body.effect as "allow" | "deny",
+      "active",
+      body.upstream_name as string | null,
+      body.constraint,
+      body.expires_at as string | null,
+    );
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify(item),
+    });
+  });
+
+  await page.evaluate(
+    ({ principal, server }) => {
+      window.location.hash = `#/access/grants?principal_id=${principal}&server_id=${server}`;
+    },
+    { principal: principalID, server: serverID },
+  );
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-testid="grant-row"]').length === 2,
+  );
+  let body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of ["Immutable grants", "Expired records", "ALLOW", "DENY"])
+    if (!body.includes(phrase)) fail(`grant list omitted ${phrase}`);
+  await page.evaluate((id) => {
+    window.location.hash = `#/access/grants/${id}`;
+  }, secondGrantID);
+  await page.locator('[data-testid="grant-detail"]').waitFor();
+  body = (await page.locator("body").textContent()) ?? "";
+  if (!body.includes("Exact tool dangerous.tool") || !body.includes("expired"))
+    fail("grant detail omitted scope or retained expiry state");
+
+  await page.evaluate(
+    ({ principal, server }) => {
+      window.location.hash = `#/access/grants/new?principal_id=${principal}&server_id=${server}`;
+    },
+    { principal: principalID, server: serverID },
+  );
+  await page.locator('[data-testid="grant-create-view"]').waitFor();
+  await page.locator('[data-testid="grant-create-submit"]').click();
+  await page.getByText("The grant is invalid.", { exact: true }).waitFor();
+  if (attempts !== 1) fail("rejected grant creation was replayed");
+  await page.locator('[data-testid="grant-create-submit"]').click();
+  await page.locator('[data-testid="grant-detail"]').waitFor();
+
+  await page.evaluate(
+    ({ principal, server }) => {
+      window.location.hash = `#/access/grants/new?principal_id=${principal}&server_id=${server}`;
+    },
+    { principal: principalID, server: serverID },
+  );
+  await page.locator('[data-testid="grant-create-view"]').waitFor();
+  await page.locator('[data-testid="grant-effect"]').selectOption("deny");
+  await page.locator('[data-testid="grant-scope"]').selectOption("tool");
+  await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
+  await page
+    .locator('[data-testid="grant-expiry"]')
+    .fill("2030-01-01T00:00:00Z");
+  await page.locator('[data-testid="add-constraint-atom"]').click();
+  await page.locator('[data-testid="constraint-pointer"]').fill("bad");
+  await page.locator('[data-testid="constraint-type"]').selectOption("number");
+  await page.locator('[data-testid="constraint-value"]').fill("1.0");
+  await page.locator('[data-testid="grant-create-submit"]').click();
+  await page
+    .getByText("Each atom requires a valid RFC 6901 JSON pointer.", {
+      exact: true,
+    })
+    .waitFor();
+  if (creates !== 1) fail("invalid grant constraint reached the API");
+  await page.locator('[data-testid="constraint-pointer"]').fill("/a~1b/0");
+  await page.locator('[data-testid="add-constraint-atom"]').click();
+  await page
+    .locator('[data-testid="constraint-pointer"]')
+    .nth(1)
+    .fill("/empty/");
+  await page
+    .locator('[data-testid="constraint-type"]')
+    .nth(1)
+    .selectOption("null");
+  await page.locator('[data-testid="add-constraint-atom"]').click();
+  await page.locator('[data-testid="constraint-pointer"]').nth(2).fill("/flag");
+  await page
+    .locator('[data-testid="constraint-type"]')
+    .nth(2)
+    .selectOption("boolean");
+  await page.locator('[data-testid="constraint-value"]').nth(1).fill("true");
+  await page.locator('[data-testid="add-constraint-atom"]').click();
+  await page.locator('[data-testid="constraint-pointer"]').nth(3).fill("/name");
+  await page
+    .locator('[data-testid="constraint-type"]')
+    .nth(3)
+    .selectOption("string");
+  await page.locator('[data-testid="constraint-value"]').nth(2).fill("literal");
+  await page.locator('[data-testid="grant-create-submit"]').click();
+  await page.locator('[data-testid="grant-detail"]').waitFor();
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "grant_reads_create_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), attempts, creates, destinations: 4 })}\n`,
   );
 }
 
@@ -6690,6 +6949,15 @@ try {
         initialBearer,
         () => requests,
       );
+    } else if (input.scenario === "grant-reads-create") {
+      await runGrantReadsCreate(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
     } else if (input.scenario === "overview") {
       await runOverview(
         browser.version(),
@@ -6797,6 +7065,13 @@ try {
         consoleFailures.length === 1 &&
         consoleFailures.some((value) =>
           value.includes("server responded with a status of 412"),
+        )) ||
+      (input.scenario === "grant-reads-create" &&
+        consoleFailures.length === 2 &&
+        [400, 409].every((status) =>
+          consoleFailures.some((value) =>
+            value.includes(`server responded with a status of ${status}`),
+          ),
         ));
     if (
       externalFailure ||

@@ -106,6 +106,21 @@ function isCanonicalJSON(value: string): boolean {
   }
 }
 
+function isGrantCreateJSON(spec: MutationSpec<unknown>): boolean {
+  if (
+    spec.route !== "/api/v1/grants" ||
+    spec.method !== "POST" ||
+    spec.body === null
+  )
+    return false;
+  try {
+    JSON.parse(spec.body);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function validateSpec<T>(spec: MutationSpec<T>): void {
   const routeIdempotency = (
     Object.entries(idempotencyRoutes) as Array<
@@ -119,7 +134,7 @@ function validateSpec<T>(spec: MutationSpec<T>): void {
     !mutationRoute.test(spec.route) ||
     (spec.body !== null &&
       (new TextEncoder().encode(spec.body).byteLength > maximumBodyBytes ||
-        !isCanonicalJSON(spec.body))) ||
+        (!isCanonicalJSON(spec.body) && !isGrantCreateJSON(spec)))) ||
     spec.requiresPrecondition !== requiresPrecondition ||
     requiresPrecondition !== (spec.precondition !== null) ||
     (spec.precondition !== null && !strongETag.test(spec.precondition)) ||
