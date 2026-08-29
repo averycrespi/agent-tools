@@ -108,6 +108,7 @@ func TestS6PlannedCommand(t *testing.T) {
 	require.NoError(t, ValidateS6OwnerForExecution("T53"))
 	require.NoError(t, ValidateS6OwnerForExecution("T54"))
 	require.NoError(t, ValidateS6OwnerForExecution("T55"))
+	require.NoError(t, ValidateS6OwnerForExecution("T56"))
 	require.NoError(t, ValidateS6OwnerForExecution("M1"))
 	require.NoError(t, ValidateS6OwnerForExecution("M2"))
 	require.NoError(t, ValidateS6OwnerForExecution("M3"))
@@ -119,7 +120,7 @@ func TestS6PlannedCommand(t *testing.T) {
 	require.NoError(t, ValidateS6OwnerForExecution("M9"))
 	require.NoError(t, ValidateS6OwnerForExecution("M10"))
 	require.NoError(t, ValidateS6OwnerForExecution("M11"))
-	assert.EqualError(t, ValidateS6OwnerForExecution("T56"), "S6 owner T56 is planned, not executable")
+	assert.EqualError(t, ValidateS6OwnerForExecution("T57"), "S6 owner T57 is planned, not executable")
 	assert.EqualError(t, ValidateS6OwnerForExecution("M12"), `unknown S6 owner "M12"`)
 	assert.EqualError(t, ValidateS6OwnerForExecution("unknown"), `unknown S6 owner "unknown"`)
 
@@ -183,6 +184,7 @@ func TestS6Documentation(t *testing.T) {
 	approved := map[string]bool{
 		"mcp-gateway/README.md": true, "mcp-gateway/DESIGN.md": true,
 		"mcp-gateway/CLAUDE.md": true, "command-help": true,
+		"README.md": true, "CLAUDE.md": true,
 	}
 	for _, row := range rows {
 		assert.False(t, ids[row.ID], row.ID)

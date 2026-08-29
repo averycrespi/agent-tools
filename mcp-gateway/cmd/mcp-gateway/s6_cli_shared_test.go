@@ -3,15 +3,41 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestS6DocumentationDrift(t *testing.T) {
+	root := newRootCmd()
+	var snapshot strings.Builder
+	var walk func(*cobra.Command)
+	walk = func(command *cobra.Command) {
+		if command.Hidden {
+			return
+		}
+		fmt.Fprintf(&snapshot, "command=%s\nuse=%s\nshort=%s\n", command.CommandPath(), command.Use, command.Short)
+		command.Flags().VisitAll(func(flag *pflag.Flag) {
+			fmt.Fprintf(&snapshot, "flag=%s|%s|%s|%s\n", flag.Name, flag.Value.Type(), flag.DefValue, flag.Usage)
+		})
+		children := append([]*cobra.Command(nil), command.Commands()...)
+		sort.Slice(children, func(left, right int) bool { return children[left].Name() < children[right].Name() })
+		for _, child := range children {
+			walk(child)
+		}
+	}
+	walk(root)
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
+	assert.Equal(t, "sha256:404e89da0f38d9b11150fbe553b2b4c9fc46e11364912a95cedd56155934e951", digest)
+}
 
 func TestS6CLISharedContract(t *testing.T) {
 	root := newRootCmd()

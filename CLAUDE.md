@@ -25,9 +25,14 @@ make build     # build all Go tools
 make test      # test all Go tools
 make check-other-tools # lint + test non-Gateway modules only
 make audit     # tidy + fmt + lint + test + govulncheck for all Go tools
+npm run ui:typecheck
+npm run ui:build
+npm run ui:verify-generated
+npm run ui:verify-supply-chain
+npm run ui:audit
 ```
 
-Targets are forwarded to each tool's Makefile. Run from any subdirectory for a single tool. S5 acceptance owns Gateway verification; `check-other-tools` deliberately excludes `mcp-gateway` so the final profile has one separate compatibility owner. The pre-commit hook runs `lint-staged` for Go and docs formatting, then `make lint` for Go linting.
+Targets are forwarded to each tool's Makefile. Run from any subdirectory for a single tool. S2.1–S5 Gateway acceptance profiles are retained compatibility evidence. S6 manifest-controlled task, milestone, and final owners provide current Gateway verification; `check-other-tools` deliberately excludes `mcp-gateway` so the final profile has one separate Gateway owner. The pre-commit hook runs `lint-staged` for Go and docs formatting, then `make lint` for Go linting.
 
 ## Service Layout
 

@@ -135,7 +135,14 @@ func S6DocumentationManifest() []S6DocumentationRow {
 		rows = append(rows, S6DocumentationRow{ID: "capability-" + capability.ID, Subject: capability.Operation, Targets: []string{"mcp-gateway/README.md", "command-help"}})
 	}
 	for _, topic := range []string{"web-sign-in-recovery", "online-cli-authentication", "one-time-sinks", "invocation-outcomes", "refresh-polling", "offline-recovery", "frontend-development", "browser-accessibility", "keyring-limitations"} {
-		rows = append(rows, S6DocumentationRow{ID: "topic-" + topic, Subject: topic, Targets: []string{"mcp-gateway/README.md", "mcp-gateway/DESIGN.md", "mcp-gateway/CLAUDE.md"}})
+		targets := []string{"mcp-gateway/README.md", "mcp-gateway/DESIGN.md", "mcp-gateway/CLAUDE.md"}
+		if topic == "web-sign-in-recovery" {
+			targets = append(targets, "README.md")
+		}
+		if topic == "frontend-development" {
+			targets = append(targets, "CLAUDE.md")
+		}
+		rows = append(rows, S6DocumentationRow{ID: "topic-" + topic, Subject: topic, Targets: targets})
 	}
 	return rows
 }

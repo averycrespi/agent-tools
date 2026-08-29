@@ -9,60 +9,52 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTrackedDocsDescribeCurrentS6Boundary(t *testing.T) {
+func TestS6DocumentationDrift(t *testing.T) {
 	t.Parallel()
 
 	documents := map[string][]string{
 		"../../../README.md": {
-			"current executable", "six fixed local self-service handlers", "only an explicit fresh call can use a resulting grant",
-			"authenticated read-only list/item resources", "Product UI, exactly-once guarantees, and broader S6 workflows are not implemented",
+			"embedded browser control plane", "complete online CLI", "six fixed local self-service handlers", "only an explicit fresh call can use a resulting grant",
+		},
+		"../../../CLAUDE.md": {
+			"S6 manifest-controlled task, milestone, and final owners", "npm run ui:verify-supply-chain", "npm run ui:audit",
 		},
 		"../../README.md": {
-			"Self-service grant requests", "mcp_gateway.create_grant_request", "GET /api/v1/invocations", "explicit fresh `tools/call`",
-			"schema-3-through-10", "grant_requests", "make accept-s5", "later S6 capabilities are not yet available",
+			"Web application, recovery, and accessibility", "Online commands use public HTTP only", "The retained projection distinguishes", "poll every two visible seconds",
+			"browser_one_time_display", "stopped-process `initialize`", "npm run ui:verify-supply-chain", "Qualification treats Linux Chromium", "go-keyring` v0.2.7 is context-free",
 		},
 		"../../DESIGN.md": {
-			"Authenticated read-only invocation list/item resources", "Closed S1–S5 contract", "Implemented S5 self-service contract", "sole online schema-10 DML owner",
-			"closed downstream/local target union", "make accept-s5", "no-check adopter",
+			"Closed S1–S6 contract", "complete public-HTTP online CLI command tree", "`internal/controlclient` is the sole online CLI transport owner",
+			"Automated accessibility qualification", "grant_requests", "sole online schema-10 DML owner", "no-check adopter",
 		},
 		"../../CLAUDE.md": {
 			"implemented S1–S6 routes", "online S4 invocation SQL belongs to `internal/invocation`", "online schema-10 request identity",
-			"read-only invocation list/item resources", "exactly-once effects", "guaranteed secret detection", "make accept-s5",
+			"browser, visual, accessibility, and external-evidence tiers", "npm run ui:verify-supply-chain", "exactly-once effects", "guaranteed secret detection",
 		},
 	}
 	prohibited := []string{
+		"Product UI, exactly-once guarantees, and broader S6 workflows are not implemented",
+		"later S6 capabilities are not yet available",
+		"remaining domain product workflows are pending",
+		"remaining domain product workflows are later slices",
+		"Closed S1–S5 contract",
+		"accept-s5` is the sole final blocking owner",
+		"accept-s5` is the sole current blocking owner",
+		"Repository and handler adoption follow as one bounded S6 slice",
+		"future S4 admission mutation",
+		"Product workflows beyond the typed embedded shell",
 		"the executable does not yet accept production agent authority",
 		"production MCP authentication is unavailable",
-		"are not yet used for positive MCP authentication",
-		"do not infer positive agent authentication",
-		"no endpoint emits CORS headers or ETags",
-		"sole S1/S2 vocabulary owner",
-		"The current S2 checkpoint",
-		"The final S1 binary",
-		"cannot authorize, audit, persist, present, enumerate to agents",
-		"active downstream capabilities still have no production consumer",
-		"invocation/audit and product UI workflows are not implemented",
 		"No active downstream route is callable through `/mcp`",
-		"No production agent-facing invocation/audit/UI or active-capability consumer may emerge",
-		"S4 privacy primitives; later S4 tasks add audit and orchestration ownership",
-		"Closed S1–S3 contract",
-		"current S4 executable",
-		"Closed S1–S4 contract",
-		"current executable remains at the S4 behavior boundary",
-		"S5 and S6 behavior is unavailable",
 		"S5/S6 workflows are not implemented",
-		"Audit read APIs, product UI",
 		"There is no audit read API",
-		"do not infer an audit read API",
-		"audit read workflows remain later slices",
-		"Audit reads, product UI",
 	}
 	for path, required := range documents {
 		contents, err := os.ReadFile(path)
 		require.NoError(t, err, path)
 		text := string(contents)
 		for _, phrase := range required {
-			require.Contains(t, text, phrase, "%s: missing current S5 claim", path)
+			require.Contains(t, text, phrase, "%s: missing current S6 claim", path)
 		}
 		for _, phrase := range prohibited {
 			require.NotContains(t, text, phrase, "%s: obsolete current-state claim", path)
