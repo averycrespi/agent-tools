@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -11,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var invocationIDPattern = regexp.MustCompile(`^[0-9A-HJKMNP-TV-Z]{26}$`)
+var gatewayIDPattern = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 
 func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *onlineOptions, args []string) error {
 	switch strings.Join(spec.Path, " ") {
@@ -23,8 +24,36 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 		return runOnlineRead(command, options, path, invocationListTable)
+	case "server list":
+		path, err := controlclient.BuildListPath("/api/v1/servers", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
+		if err != nil {
+			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
+		}
+		return runOnlineRead(command, options, path, serverListTable)
+	case "server get":
+		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
+			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ID is invalid."))
+		}
+		return runOnlineRead(command, options, "/api/v1/servers/"+args[0], serverItemTable)
+	case "server descriptor list":
+		path, err := descriptorListPath(options, args)
+		if err != nil {
+			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
+		}
+		return runOnlineRead(command, options, path, descriptorListTable)
+	case "server descriptor get":
+		if len(args) != 2 || !gatewayIDPattern.MatchString(args[0]) || !gatewayIDPattern.MatchString(args[1]) {
+			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server or tool ID is invalid."))
+		}
+		return runOnlineRead(command, options, "/api/v1/servers/"+args[0]+"/descriptors/"+args[1], descriptorItemTable)
+	case "catalog list":
+		path, err := controlclient.BuildListPath("/api/v1/catalog", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
+		if err != nil {
+			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
+		}
+		return runOnlineRead(command, options, path, catalogTable)
 	case "invocation get":
-		if len(args) != 1 || !invocationIDPattern.MatchString(args[0]) {
+		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The invocation ID is invalid."))
 		}
 		return runOnlineRead(command, options, "/api/v1/invocations/"+args[0], invocationItemTable)
@@ -97,6 +126,118 @@ func invocationListPath(options *onlineOptions) (string, error) {
 		Limit: options.limit, Cursor: options.cursor, Filters: filters,
 		AllowedFilters: []string{"principal_id", "server_id", "requested_name", "admission_class", "decision", "outcome"},
 	})
+}
+
+type serverWire struct {
+	ID                  string                         `json:"id"`
+	Namespace           string                         `json:"namespace"`
+	DisplayName         string                         `json:"display_name"`
+	DesiredState        contract.DesiredServerState    `json:"desired_state"`
+	DesiredRevision     string                         `json:"desired_revision"`
+	Transport           json.RawMessage                `json:"transport"`
+	CredentialRevisions contract.CredentialRevisions   `json:"credential_revisions"`
+	CredentialState     contract.ServerCredentialState `json:"credential_state"`
+	Runtime             contract.ServerRuntime         `json:"runtime"`
+	Catalog             contract.ServerCatalog         `json:"catalog"`
+	CreatedAt           string                         `json:"created_at"`
+	UpdatedAt           string                         `json:"updated_at"`
+	DeletedAt           *string                        `json:"deleted_at"`
+}
+
+func descriptorListPath(options *onlineOptions, args []string) (string, error) {
+	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
+		return "", controlclient.ErrInvalidInput
+	}
+	filters := map[string]string{}
+	if value := options.filters["retired"]; value != nil && *value != "" {
+		if *value != "include" && *value != "exclude" && *value != "only" {
+			return "", controlclient.ErrInvalidInput
+		}
+		filters["retired"] = *value
+	}
+	return controlclient.BuildListPath("/api/v1/servers/"+args[0]+"/descriptors", controlclient.ListOptions{
+		Limit: options.limit, Cursor: options.cursor, Filters: filters, AllowedFilters: []string{"retired"},
+	})
+}
+
+func serverListTable(body []byte) (controlclient.Table, error) {
+	var page contract.Collection[serverWire]
+	if err := controlclient.DecodeResponse(body, &page); err != nil {
+		return controlclient.Table{}, err
+	}
+	rows := make([][]string, 0, len(page.Items))
+	for _, server := range page.Items {
+		rows = append(rows, serverRow(server))
+	}
+	return controlclient.Table{Headers: serverHeaders(), Rows: rows}, nil
+}
+
+func serverItemTable(body []byte) (controlclient.Table, error) {
+	var server serverWire
+	if err := controlclient.DecodeResponse(body, &server); err != nil {
+		return controlclient.Table{}, err
+	}
+	return controlclient.Table{Headers: serverHeaders(), Rows: [][]string{serverRow(server)}}, nil
+}
+
+func serverHeaders() []string {
+	return []string{"ID", "DISPLAY", "NAMESPACE", "DESIRED", "RUNTIME", "CREDENTIAL", "DURABLE", "ACTIVE", "UPDATED"}
+}
+
+func serverRow(server serverWire) []string {
+	return []string{
+		server.ID, server.DisplayName, server.Namespace, string(server.DesiredState), string(server.Runtime.State), string(server.CredentialState),
+		fmt.Sprintf("%s revision=%s tools=%d", server.Catalog.DurableState, pointerText(server.Catalog.DurableRevision), server.Catalog.DurableToolCount),
+		fmt.Sprintf("%s revision=%s tools=%d", server.Catalog.ActiveState, pointerText(server.Catalog.ActiveRevision), server.Catalog.ActiveToolCount), server.UpdatedAt,
+	}
+}
+
+func descriptorListTable(body []byte) (controlclient.Table, error) {
+	var page contract.Collection[contract.ToolDescriptor]
+	if err := controlclient.DecodeResponse(body, &page); err != nil {
+		return controlclient.Table{}, err
+	}
+	return descriptorTable(page.Items), nil
+}
+
+func descriptorItemTable(body []byte) (controlclient.Table, error) {
+	var item contract.ToolDescriptor
+	if err := controlclient.DecodeResponse(body, &item); err != nil {
+		return controlclient.Table{}, err
+	}
+	return descriptorTable([]contract.ToolDescriptor{item}), nil
+}
+
+func descriptorTable(items []contract.ToolDescriptor) controlclient.Table {
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
+		state := "current"
+		if item.RetiredAt != nil {
+			state = "retired"
+		}
+		rows = append(rows, []string{item.ID, item.ExternalName, item.UpstreamName, item.ServerID, state, item.CatalogRevision, item.Fingerprint, item.LastSeenAt})
+	}
+	return controlclient.Table{Headers: []string{"ID", "EXTERNAL", "UPSTREAM", "SERVER", "EVIDENCE", "REVISION", "FINGERPRINT", "LAST_SEEN"}, Rows: rows}
+}
+
+func catalogTable(body []byte) (controlclient.Table, error) {
+	var page contract.CatalogPage
+	if err := controlclient.DecodeResponse(body, &page); err != nil {
+		return controlclient.Table{}, err
+	}
+	rows := make([][]string, 0, len(page.Items)+1)
+	rows = append(rows, []string{"CATALOG", "-", "-", "-", string(page.Catalog.ActiveState), page.Catalog.ActiveGeneration, fmt.Sprintf("issues=%d", page.Catalog.IssueCount), pointerText(page.Catalog.ChangedAt)})
+	for _, item := range page.Items {
+		rows = append(rows, []string{item.ID, item.ExternalName, item.UpstreamName, item.ServerID, "published evidence", item.CatalogRevision, item.Fingerprint, item.LastSeenAt})
+	}
+	return controlclient.Table{Headers: []string{"ID", "EXTERNAL", "UPSTREAM", "SERVER", "CATALOG", "REVISION", "FINGERPRINT", "CHANGED/LAST_SEEN"}, Rows: rows}, nil
+}
+
+func pointerText(value *string) string {
+	if value == nil {
+		return "-"
+	}
+	return *value
 }
 
 func statusTable(body []byte) (controlclient.Table, error) {

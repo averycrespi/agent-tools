@@ -61,7 +61,7 @@ func TestS6CLISharedContract(t *testing.T) {
 		command := newRootCmd()
 		command.SetOut(stdout)
 		command.SetErr(stderr)
-		command.SetArgs([]string{"catalog", "list", "--output", "json"})
+		command.SetArgs([]string{"admin-credential", "list", "--output", "json"})
 		err := command.ExecuteContext(context.Background())
 		require.Error(t, err)
 		assert.Equal(t, 2, commandExitCode(err))

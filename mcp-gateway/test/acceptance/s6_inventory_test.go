@@ -90,6 +90,7 @@ func TestS6PlannedCommand(t *testing.T) {
 	require.NoError(t, ValidateS6OwnerForExecution("T35"))
 	require.NoError(t, ValidateS6OwnerForExecution("T36"))
 	require.NoError(t, ValidateS6OwnerForExecution("T37"))
+	require.NoError(t, ValidateS6OwnerForExecution("T38"))
 	require.NoError(t, ValidateS6OwnerForExecution("M1"))
 	require.NoError(t, ValidateS6OwnerForExecution("M2"))
 	require.NoError(t, ValidateS6OwnerForExecution("M3"))
@@ -98,7 +99,7 @@ func TestS6PlannedCommand(t *testing.T) {
 	require.NoError(t, ValidateS6OwnerForExecution("M6"))
 	require.NoError(t, ValidateS6OwnerForExecution("M7"))
 	require.NoError(t, ValidateS6OwnerForExecution("M8"))
-	assert.EqualError(t, ValidateS6OwnerForExecution("T38"), "S6 owner T38 is planned, not executable")
+	assert.EqualError(t, ValidateS6OwnerForExecution("T39"), "S6 owner T39 is planned, not executable")
 	assert.EqualError(t, ValidateS6OwnerForExecution("M9"), "S6 owner M9 is planned, not executable")
 	assert.EqualError(t, ValidateS6OwnerForExecution("unknown"), `unknown S6 owner "unknown"`)
 
