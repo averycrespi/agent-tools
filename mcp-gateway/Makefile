@@ -1,6 +1,6 @@
 STRESS_COUNT ?= 20
 
-.PHONY: build install test test-unit test-integration test-integration-s5 test-security-s5 test-stress-s5 test-e2e test-keyring-native test-task-s6 test-milestone-s6 test-frontend-s6 test-unit-s6 test-integration-s6 test-browser-s6-workflows test-browser-s6-visual test-browser-s6-a11y test-browser-s6-cross test-cli-e2e-s6 test-cli-usability-e2e test-security-s6 qualify-external-s6 accept-s2-1 accept-s3 accept-s4 accept-s5 accept-s6 lint fmt tidy verify audit
+.PHONY: build install test test-unit test-integration test-integration-s5 test-security-s5 test-stress-s5 test-e2e test-keyring-native test-task-s6 test-milestone-s6 test-frontend-development test-frontend-s6 test-unit-s6 test-integration-s6 test-browser-s6-workflows test-browser-s6-visual test-browser-s6-a11y test-browser-s6-cross test-cli-e2e-s6 test-cli-usability-e2e test-security-s6 qualify-external-s6 accept-s2-1 accept-s3 accept-s4 accept-s5 accept-s6 lint fmt tidy verify audit
 
 build:
 	go build -o mcp-gateway ./cmd/mcp-gateway
@@ -41,6 +41,10 @@ test-task-s6:
 test-milestone-s6:
 	@test -n "$(MILESTONE)" || (echo "MILESTONE is required" >&2; exit 2)
 	@go run ./test/acceptance/cmd --milestone "$(MILESTONE)"
+
+test-frontend-development:
+	npm --prefix .. run ui:test-dev
+	go test -race -count=1 -tags=e2e,browser -timeout=2m -run '^TestFrontendDevelopment(LiveReload|ControlPlane)$$' ./test/e2e
 
 test-frontend-s6:
 	npm --prefix .. run ui:typecheck
