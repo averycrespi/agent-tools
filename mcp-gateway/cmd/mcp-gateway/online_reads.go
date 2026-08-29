@@ -133,6 +133,10 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		return runPrincipalCreate(command, options)
 	case "principal update":
 		return runPrincipalUpdate(command, options, args)
+	case "principal credential issue":
+		return runPrincipalCredentialIssue(command, options, args)
+	case "principal credential revoke":
+		return runPrincipalCredentialRevoke(command, options, args)
 	case "invocation get":
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The invocation ID is invalid."))
