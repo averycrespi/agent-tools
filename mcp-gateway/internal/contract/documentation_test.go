@@ -2,6 +2,8 @@ package contract
 
 import (
 	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -59,6 +61,77 @@ func TestS6DocumentationDrift(t *testing.T) {
 		for _, phrase := range prohibited {
 			require.NotContains(t, text, phrase, "%s: obsolete current-state claim", path)
 		}
+	}
+}
+
+func TestCLIUsabilityDocumentationDrift(t *testing.T) {
+	t.Parallel()
+
+	readmeBytes, err := os.ReadFile("../../README.md")
+	require.NoError(t, err)
+	readme := string(readmeBytes)
+	quickStart := strings.Index(readme, "## Quick start")
+	currentStatus := strings.Index(readme, "## Current status")
+	require.NotEqual(t, -1, quickStart)
+	require.NotEqual(t, -1, currentStatus)
+	require.Less(t, quickStart, currentStatus)
+	for _, phrase := range []string{
+		"`--data-dir` has highest precedence",
+		"Online administrator authentication never prompts",
+		"Human output is the default",
+		"does not rewrite or promote the default `admin-bearer`",
+		"online recovery must explicitly select the replacement",
+		"public canonical numeric-loopback HTTP control API",
+	} {
+		require.Contains(t, readme, phrase)
+	}
+	require.Contains(t, readme, "make install\nmcp-gateway initialize\nmcp-gateway serve")
+	require.Equal(t, 3, strings.Count(readme, "--admin-bearer-file"), "the default command catalog must not require repeated bearer flags")
+	for _, phrase := range []string{
+		"the CLI prompts on the controlling terminal without echo",
+		"no-echo controlling-terminal prompt",
+		"Successful startup emits one safe JSON line",
+		"Failures emit one safe JSON line and exit with status 1",
+		"refuses JSON output",
+	} {
+		require.NotContains(t, readme, phrase)
+	}
+
+	designBytes, err := os.ReadFile("../../DESIGN.md")
+	require.NoError(t, err)
+	design := string(designBytes)
+	for _, phrase := range []string{
+		"Zero-argument `initialize`",
+		"resolved default `<root>/admin-bearer`",
+		"there is no prompt, argv, or environment fallback",
+		"use the public canonical numeric-loopback HTTP API",
+		"Human output is the default",
+	} {
+		require.Contains(t, design, phrase)
+	}
+
+	claudeBytes, err := os.ReadFile("../../CLAUDE.md")
+	require.NoError(t, err)
+	claude := string(claudeBytes)
+	require.Contains(t, claude, "There is no prompt, argv, or environment fallback")
+	require.Contains(t, claude, "`--data-dir` selects credential location")
+}
+
+func TestReadmeRelativeLinksResolve(t *testing.T) {
+	t.Parallel()
+
+	contents, err := os.ReadFile("../../README.md")
+	require.NoError(t, err)
+	links := regexp.MustCompile(`\[[^]]+\]\(([^)]+)\)`).FindAllStringSubmatch(string(contents), -1)
+	require.NotEmpty(t, links)
+	for _, match := range links {
+		target := match[1]
+		if strings.HasPrefix(target, "#") || strings.Contains(target, "://") || strings.HasPrefix(target, "mailto:") {
+			continue
+		}
+		target, _, _ = strings.Cut(target, "#")
+		_, err := os.Stat(filepath.Join("../..", target))
+		require.NoError(t, err, "README link %q", match[1])
 	}
 }
 

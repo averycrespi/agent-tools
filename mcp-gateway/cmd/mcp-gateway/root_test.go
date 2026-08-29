@@ -83,6 +83,18 @@ func TestServeUsesResolvedDefaultAndLeavesPreStartStdoutEmpty(t *testing.T) {
 	require.NoError(t, statErr)
 }
 
+func TestInitializePersistentDataDirRendersMatchingServeCommand(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "custom gateway")
+	stdout := new(bytes.Buffer)
+	command := newRootCmd()
+	command.SetOut(stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"--data-dir", root, "initialize"})
+	require.NoError(t, command.ExecuteContext(context.Background()))
+	assert.Contains(t, stdout.String(), "data_dir=$(printf '%b_' '"+root+"')")
+	assert.Contains(t, stdout.String(), "mcp-gateway serve --data-dir \"$data_dir\"")
+}
+
 func TestS5RootCompositionFailurePreventsStartupOutput(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	initialize := newRootCmd()

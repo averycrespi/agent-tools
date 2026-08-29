@@ -2,6 +2,24 @@
 
 MCP Gateway is a locally secure, deny-by-default service foundation for governing MCP access. It is developed beside MCP Broker as an independent Go module and clean-start successor; it does not change MCP Broker behavior or migrate its state.
 
+## Quick start
+
+Install the binary, initialize the default installation, and start its loopback service:
+
+```bash
+make install
+mcp-gateway initialize
+mcp-gateway serve
+```
+
+In another terminal, inspect the running Gateway. The command automatically reads the default administrator bearer and uses the public loopback HTTP API:
+
+```bash
+mcp-gateway status
+```
+
+Initialization creates the default owner-only data directory and a new `admin-bearer` file within it. The command prints safe next steps, never the bearer. See [Installation paths and credentials](#installation-paths-and-credentials) for overrides and precedence.
+
 ## Current status
 
 The current executable implements the complete S1 filesystem, SQLite, admin authority, typed keyring/generation, strict loopback HTTP, control API, isolated dual-era MCP ingress, verified backup/restore, invalidation events, fixed admission, and lifecycle foundations. The S2 foundation adds the closed dynamic-server contract, shared bounded strict JSON, a durable server-domain repository, transaction-fenced server credential publication/invalidation, and authenticated desired-server and operation resources. Server definitions are secret-free and strictly validate the stdio or Streamable HTTP union before durable commit; creation/operation idempotency, snapshot pagination, strong ETags, exact preconditions, permanent tombstones, closed explicit-operation admission, refresh attachment, and behavioral supersession are enforced. A process-local manager now reconstructs enabled desired state after readiness, serializes each server behind a global-four nonblocking bound, fences stale results, and applies the fixed coalesced retry schedule through an injected driver. A bounded direct stdio supervisor provides clean runtime-only environments, process groups, framed output limits, safe exit classes, and verified graceful/forced cleanup. Behavioral lifecycle work fences and withdraws publication before stop, gates replacement after `stop_unconfirmed`, and publishes only the current replacement before operation success; ownership is memory-only, so restart never acts on stale PIDs and an uncatchable Gateway crash may require operator cleanup of an orphan. A Gateway-owned downstream foundation now adds strict local JSON-RPC envelopes/IDs, bounded stdio and Streamable HTTP exchanges, exact role-built MCP headers, exact modern/legacy/auto negotiation, immutable runtime-local legacy sessions, and a shared hardened remote factory with canonical destinations, fresh DNS validation, address-pinned dialing, platform TLS, and no proxy, redirect, cookie, compression, retry, or permissive SDK transport path. The production composition constructs one concrete mixed runtime owner, hardened stdio/HTTP driver, dual-era negotiator, catalog coordinator, and authoritative active registry. After listener readiness, asynchronous reconstruction validates only the credential generations required by each transport—exact static slot sets, bearer authority, or current OAuth registration/client/token bindings and expiry—then activates the selected runtime and traverses and publishes its catalog. Credential-free transports perform no keyring work. Missing, locked, interaction-required, unavailable, and unsupported provider states remain distinct safe status/reason classes; admission saturation affects only the dependent reconciliation. Listener readiness and unrelated runtimes do not wait for credential reads. First-signal shutdown fences and withdraws every active runtime synchronously, launches all runtime stops concurrently outside reconciliation admission, drains keyring consumers before storage closure, and remains bounded by the existing ten-second process deadline; unverified cleanup leaves the run marker unclean for startup verification. Production composition now owns and startup-validates one internal principal/grant/credential authority and one invocation repository/service, synchronously fences new invocation pipelines before authority and route withdrawal, and publishes one atomic principal-credential authenticator/discovery/call/status bundle to `/mcp`. Only the invocation service can consume active downstream capabilities, and only after an acknowledged durable ALLOW admission. Authenticated principal list/create/read/PATCH control routes now consume that sole authority with strict singleton queries, exact strong ETags, and post-commit ID-free authorization invalidation. Authenticated credential issue/replace/revoke routes expose an agent bearer only in the successful one-time creation response. Authenticated immutable grant list/create/read/delete routes accept exact nullable scope, constraint, and expiry members, use filter-bound snapshot cursors, and have no ETag or idempotency machinery. System status reports real principal and grant occupancy while protocol status honestly reports `principal_credentials`. Governed invocation, its internal bounded audit history, and S5 self-service grant requests are implemented. Six fixed `mcp_gateway` tools let an admitted principal inspect its own identity, grants, and requests or create/cancel a request; authenticated administrators review and adjudicate those requests. Authenticated read-only invocation list/item resources are available. The embedded application now provides safe browser sign-in, reload/new-tab session recovery, logout, authentication-epoch fencing, an Overview assembled from authoritative bounded status, server, request, and invocation reads, and retained invocation list/detail inspection with safe pagination, filtering, polling, and item-only inert captures; the server/catalog lifecycle screens, principal/credential and complete immutable-grant workflows, and the request queue/evidence detail and consequence-confirmed adjudication are available, administrator credential and backup System workflows are available with stopped-process recovery boundaries. Invalidation events trigger authoritative rereads only for owned visible snapshots, while storage-latch posture remains global across navigation; events never author records or replay mutations. Neither reading, approval, nor recovery submits or replays a call. The online CLI exposes its frozen command/help tree and strict shared input, output, problem, exit, consequence-confirmation, and prepared terminal/file sink foundation. Its `status`, `admin-credential list|get|create|revoke`, `backup list|get|create|delete`, `principal list|get|create|update`, `principal credential issue|revoke`, `grant list|get|create|delete`, `grant-request list|get|approve|reject`, `invocation list|get`, `server list|get|create|update|delete`, `server operation list|get|start`, `server credential replace`, `server auth-flow list|get|start|cancel`, `server descriptor list|get`, and `catalog list` leaves are executable, completing the frozen online command tree.
@@ -58,90 +76,91 @@ The retained S4 compatibility evidence is split by observable boundary:
 
 The shared `internal/strictjson` parser requires explicit byte/depth bounds, rejects invalid UTF-8, duplicate members, excessive depth or size, trailing values, and unknown members for closed destinations, and supplies object-order-independent canonical equality while preserving array order. `internal/contract` remains the sole implemented S1–S6 vocabulary owner.
 
-Install the binary with:
+## Installation paths and credentials
+
+The zero-argument commands use one deterministic installation root. `--data-dir` has highest precedence. Otherwise Gateway uses `$XDG_DATA_HOME/mcp-gateway` when `XDG_DATA_HOME` is absolute, then the operating-system account home at `~/.local/share/mcp-gateway`. A relative XDG value is rejected; the `$HOME` environment variable is not an authority source.
+
+`initialize` writes its new administrator bearer to `<effective-data-dir>/admin-bearer` unless `--secret-output` selects a different new file. Online administrator authentication never prompts. An explicit `--admin-bearer-file` or `--admin-bearer-stdin` source is used when selected; the two conflict. With neither, the CLI reads `<effective-data-dir>/admin-bearer`. Bearers are never accepted in argv or environment.
+
+For a separate installation, apply `--data-dir` consistently to stopped-process, `serve`, and online commands. `--address` independently selects another canonical numeric-loopback HTTP listener:
 
 ```bash
-make install
-mcp-gateway --help
+mcp-gateway initialize --data-dir /path/to/mcp-gateway-data
+mcp-gateway serve --data-dir /path/to/mcp-gateway-data
+mcp-gateway --data-dir /path/to/mcp-gateway-data status
 ```
 
 ## Offline admin authority
 
-Initialize a new installation and publish its one-time admin bearer to a new owner-only file:
+Zero-argument `initialize` creates the resolved owner-only installation and publishes a new `0600` administrator bearer before activating its verifier. It never overwrites an existing file and prints only safe next steps. Use `--secret-output /new/path` to select another new output file.
+
+`admin-reset` requires an explicit fresh replacement path while Gateway is stopped:
 
 ```bash
-mcp-gateway initialize --data-dir /path/to/mcp-gateway-data --secret-output /safe/new/bearer-file
+mcp-gateway admin-reset --secret-output /safe/new/replacement-file
 ```
 
-Omit `--secret-output` only in an interactive terminal; the bearer then goes to the controlling terminal, never standard output or standard error. The output file is created exclusively at mode `0600` and contains exactly the bearer and one newline. The command publishes the bearer before activating its verifier, stores only a domain-separated verifier and safe fingerprint, and emits one safe JSON result on standard output.
-
-Rotate all admin authority while the Gateway is stopped:
-
-```bash
-mcp-gateway admin-reset --data-dir /path/to/mcp-gateway-data --secret-output /safe/new/replacement-file
-```
-
-A successful reset revokes every prior admin bearer and activates the published replacement in one storage transaction. A failed secret publication activates nothing; existing known authority remains valid.
+A successful reset revokes every prior admin bearer and activates the published replacement in one storage transaction. It does not rewrite or promote the default `admin-bearer`; after restart, pass `--admin-bearer-file /safe/new/replacement-file` to online commands. A failed secret publication activates nothing and leaves existing known authority valid.
 
 ## Local service and control API
 
-Start a verified installation on the exact default authority:
+Start the resolved installation on the exact default authority:
 
 ```bash
-mcp-gateway serve --data-dir /path/to/mcp-gateway-data
+mcp-gateway serve
 ```
 
 While Gateway is running, inspect status and retained invocation evidence through public HTTP only:
 
 ```bash
-mcp-gateway status --admin-bearer-file /safe/admin-bearer
-mcp-gateway admin-credential list --admin-bearer-file /safe/admin-bearer
-mcp-gateway admin-credential get CREDENTIAL_ID --admin-bearer-file /safe/admin-bearer
-mcp-gateway admin-credential create --file credential.json --secret-output /new/owner-only-bearer --admin-bearer-file /safe/admin-bearer
-mcp-gateway admin-credential revoke CREDENTIAL_ID --yes --admin-bearer-file /safe/admin-bearer
-mcp-gateway backup create --admin-bearer-file /safe/admin-bearer
-mcp-gateway backup list --admin-bearer-file /safe/admin-bearer
-mcp-gateway backup get BACKUP_ID --admin-bearer-file /safe/admin-bearer
-mcp-gateway backup delete BACKUP_ID --yes --admin-bearer-file /safe/admin-bearer
-mcp-gateway principal list --admin-bearer-file /safe/admin-bearer
-mcp-gateway principal get PRINCIPAL_ID --admin-bearer-file /safe/admin-bearer
-mcp-gateway principal create --file principal.json --admin-bearer-file /safe/admin-bearer
-mcp-gateway principal update PRINCIPAL_ID --etag '"principal-PRINCIPAL_ID-REVISION"' --file patch.json --yes --admin-bearer-file /safe/admin-bearer
-mcp-gateway principal credential issue PRINCIPAL_ID --etag '"principal-PRINCIPAL_ID-REVISION"' --secret-output /new/agent-bearer --yes --admin-bearer-file /safe/admin-bearer
-mcp-gateway principal credential revoke PRINCIPAL_ID --etag '"principal-PRINCIPAL_ID-REVISION"' --yes --admin-bearer-file /safe/admin-bearer
-mcp-gateway grant create --file grant.json --admin-bearer-file /safe/admin-bearer
-mcp-gateway grant list --principal-id PRINCIPAL_ID --server-id SERVER_ID --admin-bearer-file /safe/admin-bearer
-mcp-gateway grant get GRANT_ID --admin-bearer-file /safe/admin-bearer
-mcp-gateway grant delete GRANT_ID --yes --admin-bearer-file /safe/admin-bearer
-mcp-gateway grant-request list --principal-id PRINCIPAL_ID --state pending --admin-bearer-file /safe/admin-bearer
-mcp-gateway grant-request get REQUEST_ID --admin-bearer-file /safe/admin-bearer
-mcp-gateway grant-request approve REQUEST_ID --etag '"grant-request-REQUEST_ID-REVISION"' --file approval.json --yes --admin-bearer-file /safe/admin-bearer
-mcp-gateway grant-request reject REQUEST_ID --etag '"grant-request-REQUEST_ID-REVISION"' --file rejection.json --yes --admin-bearer-file /safe/admin-bearer
-mcp-gateway invocation list --admin-bearer-file /safe/admin-bearer --limit 50
-mcp-gateway invocation get INVOCATION_ID --admin-bearer-file /safe/admin-bearer
-mcp-gateway server list --admin-bearer-file /safe/admin-bearer --limit 50
-mcp-gateway server get SERVER_ID --admin-bearer-file /safe/admin-bearer
-mcp-gateway server create --file server.json --admin-bearer-file /safe/admin-bearer
-mcp-gateway server update SERVER_ID --etag '"server-SERVER_ID-REVISION"' --file patch.json --yes --admin-bearer-file /safe/admin-bearer
-mcp-gateway server delete SERVER_ID --etag '"server-SERVER_ID-REVISION"' --yes --admin-bearer-file /safe/admin-bearer
-mcp-gateway server operation list SERVER_ID --admin-bearer-file /safe/admin-bearer
-mcp-gateway server operation get SERVER_ID OPERATION_ID --admin-bearer-file /safe/admin-bearer
-mcp-gateway server operation start SERVER_ID --etag '"server-SERVER_ID-REVISION"' --file operation.json --admin-bearer-file /safe/admin-bearer
-mcp-gateway server credential replace SERVER_ID --etag '"server-SERVER_ID-REVISION"' --file credential.json --yes --admin-bearer-file /safe/admin-bearer
-mcp-gateway server auth-flow list SERVER_ID --admin-bearer-file /safe/admin-bearer
-mcp-gateway server auth-flow get SERVER_ID FLOW_ID --admin-bearer-file /safe/admin-bearer
-mcp-gateway server auth-flow start SERVER_ID --etag '"server-SERVER_ID-REVISION"' --open --admin-bearer-file /safe/admin-bearer
-mcp-gateway server auth-flow cancel SERVER_ID FLOW_ID --yes --admin-bearer-file /safe/admin-bearer
-mcp-gateway server descriptor list SERVER_ID --retired include --admin-bearer-file /safe/admin-bearer
-mcp-gateway server descriptor get SERVER_ID TOOL_ID --admin-bearer-file /safe/admin-bearer
-mcp-gateway catalog list --admin-bearer-file /safe/admin-bearer
+mcp-gateway status
+mcp-gateway admin-credential list
+mcp-gateway admin-credential get CREDENTIAL_ID
+mcp-gateway admin-credential create --file credential.json --secret-output /new/owner-only-bearer
+mcp-gateway admin-credential revoke CREDENTIAL_ID --yes
+mcp-gateway backup create
+mcp-gateway backup list
+mcp-gateway backup get BACKUP_ID
+mcp-gateway backup delete BACKUP_ID --yes
+mcp-gateway principal list
+mcp-gateway principal get PRINCIPAL_ID
+mcp-gateway principal create --file principal.json
+mcp-gateway principal update PRINCIPAL_ID --etag '"principal-PRINCIPAL_ID-REVISION"' --file patch.json --yes
+mcp-gateway principal credential issue PRINCIPAL_ID --etag '"principal-PRINCIPAL_ID-REVISION"' --secret-output /new/agent-bearer --yes
+mcp-gateway principal credential revoke PRINCIPAL_ID --etag '"principal-PRINCIPAL_ID-REVISION"' --yes
+mcp-gateway grant create --file grant.json
+mcp-gateway grant list --principal-id PRINCIPAL_ID --server-id SERVER_ID
+mcp-gateway grant get GRANT_ID
+mcp-gateway grant delete GRANT_ID --yes
+mcp-gateway grant-request list --principal-id PRINCIPAL_ID --state pending
+mcp-gateway grant-request get REQUEST_ID
+mcp-gateway grant-request approve REQUEST_ID --etag '"grant-request-REQUEST_ID-REVISION"' --file approval.json --yes
+mcp-gateway grant-request reject REQUEST_ID --etag '"grant-request-REQUEST_ID-REVISION"' --file rejection.json --yes
+mcp-gateway invocation list --limit 50
+mcp-gateway invocation get INVOCATION_ID
+mcp-gateway server list --limit 50
+mcp-gateway server get SERVER_ID
+mcp-gateway server create --file server.json
+mcp-gateway server update SERVER_ID --etag '"server-SERVER_ID-REVISION"' --file patch.json --yes
+mcp-gateway server delete SERVER_ID --etag '"server-SERVER_ID-REVISION"' --yes
+mcp-gateway server operation list SERVER_ID
+mcp-gateway server operation get SERVER_ID OPERATION_ID
+mcp-gateway server operation start SERVER_ID --etag '"server-SERVER_ID-REVISION"' --file operation.json
+mcp-gateway server credential replace SERVER_ID --etag '"server-SERVER_ID-REVISION"' --file credential.json --yes
+mcp-gateway server auth-flow list SERVER_ID
+mcp-gateway server auth-flow get SERVER_ID FLOW_ID
+mcp-gateway server auth-flow start SERVER_ID --etag '"server-SERVER_ID-REVISION"' --open
+mcp-gateway server auth-flow cancel SERVER_ID FLOW_ID --yes
+mcp-gateway server descriptor list SERVER_ID --retired include
+mcp-gateway server descriptor get SERVER_ID TOOL_ID
+mcp-gateway catalog list
 ```
 
-Online commands use public HTTP only, accept one canonical numeric-loopback `--address`, disable redirects/proxies/reuse, and never call private package authority. Admin authentication is exactly one of an owner-only nonsymlink bearer file, `--admin-bearer-stdin`, or a no-echo controlling-terminal prompt; a bearer is never accepted in argv or environment. Inputs are bounded and closed, failures write one typed JSON problem only to stderr with a stable exit class, and failed commands leave stdout empty. Pre-handoff transport failure is safe to retry; post-handoff mutation uncertainty is never retried automatically and requires the command-specific read guidance.
+Online commands use public HTTP only. They resolve and read only the selected administrator bearer, then use the public canonical numeric-loopback HTTP control API through the hardened control client; they never read private Gateway state or call private package authority. `--data-dir` selects the default credential location, not another transport path. Use `--address http://127.x.y.z:PORT` only for another canonical numeric-loopback Gateway. The client disables redirects, proxies, cookies, compression, connection reuse, and automatic retries.
 
-These commands default to terminal-safe tables; `--output json` emits the exact API success projection. Lists return one page and support only their command-scoped filters, limit, and cursor flags. Missing terminal invocation evidence is an unknown outcome, not proof of nonexecution: Gateway never replays it automatically, and an explicit retry may duplicate an effect. Use `--address http://127.x.y.z:PORT` only for another canonical numeric loopback Gateway. Authentication also supports exclusive `--admin-bearer-stdin`; otherwise the CLI prompts on the controlling terminal without echo. Admin credential creation publishes its bearer exactly once to the controlling terminal or a newly created owner-only `--secret-output` file; normal output contains metadata only. Creation and confirmed revocation never replay automatically, and metadata reads cannot recover a lost bearer. Backup creation generates or accepts an idempotency key and retains it with the fixed `{}` digest on uncertainty for deliberate same-tuple replay; it never retries automatically. Backup deletion requires confirmation and read-before-retry recovery. Principal create/update accepts only the closed state and visibility vocabulary and never silently refetches an ETag or replays. State-bearing patches require confirmation because disablement clears credential authority and sessions, while re-enablement restores neither credentials nor deleted grants; display/visibility-only patches do not prompt. Principal credential issue/replacement and revocation require exact ETags and consequence confirmation. A newly issued bearer is published once to a prepared controlling terminal or fresh owner-only file; replacement has no authority overlap, metadata cannot recover a lost bearer, and no credential mutation is replayed automatically. Grant creation requires all six scope members, including explicit nullable fields, and supports only the bounded scalar-equality constraint shape. It has no idempotency or ETag surface. Confirmed deletion warns that expired/default grants retain capacity or self-service consequences, and visibility alone never authorizes calls; uncertain create/delete outcomes require narrow reads rather than replay. Grant-request reads keep collection summaries separate from item-only evidence/current-target comparison. Approval and rejection require strict closed bodies, exact request ETags, and consequence confirmation; they never execute or resume the motivating call, never retry automatically, and use request/grant reads only as bounded recovery evidence. A failed read is safe to repeat after checking Gateway availability. Server creation generates an idempotency key unless one is supplied; an uncertain result reports that key and the canonical input digest for deliberate same-input replay. Updates require an explicit current server ETag, never replay automatically, and require confirmation when `enabled` or `transport` is present; a display-name-only patch does not prompt. Permanent deletion also requires the exact ID-bound ETag and interactive confirmation or `--yes`; it has no force path, and scheduled cleanup cannot guarantee remote revocation. Explicit operations accept only `reload`, `retry`, `refresh_catalog`, or `disconnect_credentials`; reload and credential disconnect require confirmation. Starts generate or accept an idempotency key but never retry or poll automatically, and uncertain results retain the key, ETag, and canonical input digest for read-before-replay recovery. Credential replacement accepts only the complete write-only static-slot or OAuth-client-secret variant, always requires confirmation, and never emits, digests, or replays a submitted secret. Native keyring interaction may prompt, fail, or outlive cancellation; uncertain replacement requires server and operation reads, which cannot prove which secret became authoritative. Auth-flow start requires a controlling terminal, refuses JSON output, prints the one-time authorization URL only there, and optionally opens the validated URL without a referrer. It never retries a start or reconstructs a lost URL. Cancellation first reads an eligible preparing or awaiting-callback flow, requires confirmation, and leaves the API authoritative against state races. Durable descriptor rows are historical evidence rather than callability claims; the active catalog table reports page-level publication posture without inventing per-tool authorization.
+Human output is the default. `--output json` or its `--json` shorthand selects the exact JSON success projection; conflicting output selectors fail before work. Finite successes are written to stdout, while finite and pre-start failures leave stdout empty and write one bounded mode-appropriate problem to stderr with a stable typed exit class. Lists return one page and support only their command-scoped filters, limit, and cursor flags. Missing terminal invocation evidence is an unknown outcome, not proof of nonexecution: Gateway never replays it automatically, and an explicit retry may duplicate an effect. Pre-handoff transport failure is safe to retry; post-handoff mutation uncertainty is never retried automatically and requires the command-specific read guidance. Admin credential creation publishes its bearer exactly once to the controlling terminal or a newly created owner-only `--secret-output` file; normal output contains metadata only. Creation and confirmed revocation never replay automatically, and metadata reads cannot recover a lost bearer. Backup creation generates or accepts an idempotency key and retains it with the fixed `{}` digest on uncertainty for deliberate same-tuple replay; it never retries automatically. Backup deletion requires confirmation and read-before-retry recovery. Principal create/update accepts only the closed state and visibility vocabulary and never silently refetches an ETag or replays. State-bearing patches require confirmation because disablement clears credential authority and sessions, while re-enablement restores neither credentials nor deleted grants; display/visibility-only patches do not prompt. Principal credential issue/replacement and revocation require exact ETags and consequence confirmation. A newly issued bearer is published once to a prepared controlling terminal or fresh owner-only file; replacement has no authority overlap, metadata cannot recover a lost bearer, and no credential mutation is replayed automatically. Grant creation requires all six scope members, including explicit nullable fields, and supports only the bounded scalar-equality constraint shape. It has no idempotency or ETag surface. Confirmed deletion warns that expired/default grants retain capacity or self-service consequences, and visibility alone never authorizes calls; uncertain create/delete outcomes require narrow reads rather than replay. Grant-request reads keep collection summaries separate from item-only evidence/current-target comparison. Approval and rejection require strict closed bodies, exact request ETags, and consequence confirmation; they never execute or resume the motivating call, never retry automatically, and use request/grant reads only as bounded recovery evidence. A failed read is safe to repeat after checking Gateway availability. Server creation generates an idempotency key unless one is supplied; an uncertain result reports that key and the canonical input digest for deliberate same-input replay. Updates require an explicit current server ETag, never replay automatically, and require confirmation when `enabled` or `transport` is present; a display-name-only patch does not prompt. Permanent deletion also requires the exact ID-bound ETag and interactive confirmation or `--yes`; it has no force path, and scheduled cleanup cannot guarantee remote revocation. Explicit operations accept only `reload`, `retry`, `refresh_catalog`, or `disconnect_credentials`; reload and credential disconnect require confirmation. Starts generate or accept an idempotency key but never retry or poll automatically, and uncertain results retain the key, ETag, and canonical input digest for read-before-replay recovery. Credential replacement accepts only the complete write-only static-slot or OAuth-client-secret variant, always requires confirmation, and never emits, digests, or replays a submitted secret. Native keyring interaction may prompt, fail, or outlive cancellation; uncertain replacement requires server and operation reads, which cannot prove which secret became authoritative. Auth-flow start requires a prepared controlling terminal in both output modes, publishes the one-time authorization URL only there, emits only safe flow metadata on stdout, and optionally opens the validated URL without a referrer. It never retries a start or reconstructs a lost URL. Cancellation first reads an eligible preparing or awaiting-callback flow, requires confirmation, and leaves the API authoritative against state races. Durable descriptor rows are historical evidence rather than callability claims; the active catalog table reports page-level publication posture without inventing per-tool authorization.
 
-Use `--listen 127.0.0.1:<port>` to select another numeric IPv4 loopback authority. Host aliases, wildcard and non-loopback binds, forwarding headers, alternate Host values, cross-origin requests, CORS, unknown paths, and unsupported methods are rejected. Successful startup emits one safe JSON line containing the authority and installation ID; detailed status requires admin authentication.
+Use `--listen 127.0.0.1:<port>` to select another numeric IPv4 loopback authority. Host aliases, wildcard and non-loopback binds, forwarding headers, alternate Host values, cross-origin requests, CORS, unknown paths, and unsupported methods are rejected. Successful startup emits exactly one safe acknowledgement in the selected output mode containing the authority and installation ID. Clean shutdown emits no trailer; a later lifecycle failure emits one bounded terminal problem on stderr. Detailed status requires admin authentication.
 
 `GET /livez` reports only process liveness and `GET /readyz` reports only ready/not-ready. The control surface exchanges an admin bearer at `POST /api/v1/admin-sessions`, manages bounded admin credential metadata at `/api/v1/admin-credentials`, and exposes `GET /api/v1/system-status`. Grant-request administration uses `GET /api/v1/grant-requests`, `GET /api/v1/grant-requests/{id}`, `POST /api/v1/grant-requests/{id}/approve`, and `POST /api/v1/grant-requests/{id}/reject`; item and adjudication requests use exact strong request ETags and `If-Match`. A browser client signs in by posting exact `{}` with the bearer, then keeps the returned CSRF value only in memory and uses the host-only, `HttpOnly`, `SameSite=Strict` session cookie. On load or reload it posts exact `{}` with exact Origin to `/api/v1/admin-sessions/current` to recover the CSRF value from a current cookie; unusable cookie authority is expired before another bearer exchange, and bootstrap never reissues the cookie. Session requests require the exact configured Origin. Because browsers omit Origin on same-origin GET, a safe read may instead present the in-memory CSRF header; that fallback requires the exact live token. Unsafe requests still require exact Origin, JSON, and the CSRF header, with bootstrap as the sole semantically read-only CSRF exception. Logout, expiry, parent revocation, shutdown, and restart close the session. Every API response is `no-store`, and no endpoint emits CORS headers. Strong ETags are emitted only by contract-declared server, principal, and grant-request item/adjudication operations; principal PATCH and credential POST/DELETE require the exact current principal `If-Match`, request adjudication requires the exact request `If-Match`, while grants have no ETag or precondition machinery. A newly created bearer appears only in its authenticated creation response.
 
@@ -243,13 +262,13 @@ mcp-gateway restore 01ARZ3NDEKTSV4RRFFQ69G5FAV \
 
 Restore verifies the artifact ID, installation binding, supported schema, source revision, size, SHA-256, and full SQLite integrity; stages one complete schema-3-through-10 database; forward-migrates it to schema 10; invalidates every restored agent credential while preserving principals and policy; revokes every restored admin verifier; and publishes one new non-expiring admin bearer. It then checkpoints and closes the stage, reruns closed SQLite plus complete authorization and grant-request semantic verification, removes old WAL/SHM sidecars, and atomically selects the replacement. Any failure before selection leaves the original generation authoritative. Current backups include safe S2 desired/tombstone, authority-revision, operation, auth-flow lifecycle, idempotency rows, and S5 request terms, state, revisions, bounded evidence, and historical grant linkage, but never runtime facts, OAuth state/verifier/URLs/endpoints, raw secrets, sessions, MCP state, keyring values, or in-flight work. A successful result has `mode:"backup"` and includes `backup_id`; normal `serve` startup must still verify the replacement before readiness.
 
-To verify and clear the current stopped generation without replacement, run `restore --verify-current` only after stopping every Gateway process that owns the installation:
+To verify and clear the current stopped generation without replacement, run `restore --verify-current` only after stopping every Gateway process that owns the installation. This mode forbids `--secret-output`:
 
 ```bash
-mcp-gateway restore --verify-current --data-dir /path/to/mcp-gateway-data
+mcp-gateway restore --verify-current --data-dir /path/to/mcp-gateway-data --json
 ```
 
-On success it emits one JSON line:
+With JSON output selected, success emits:
 
 ```json
 {
@@ -263,9 +282,9 @@ On success it emits one JSON line:
 
 The command requires an owner-only installation, acquires its exclusive process lock, verifies the Gateway identity, current schema and migration history, configured SQLite durability and size bounds, and full database integrity. A recognized marker recovery action is applied before removal: an uncertain agent credential candidate is cleared only when its principal, credential, and captured revisions are still exactly current, and the principal and credential revisions advance once. Missing, replaced, or stale candidates are harmless no-ops; no prior credential is restored. Unknown, conflicting, oversized, foreign-installation, or failed recovery remains latched. Only then does the command durably clear an ordinary armed marker or a safely non-recovery malformed marker. A normal `serve` startup is still required after verification.
 
-An ordinary clean restart preserves current requests and the current agent credential but invalidates legacy sessions and discovery cursors. Backup restore preserves principals, grants, requests, and request evidence but clears every restored agent credential, so administrators must issue fresh agent authority.
+An ordinary clean restart preserves current requests and the current agent credential but invalidates legacy sessions and discovery cursors. Backup restore preserves principals, grants, requests, and request evidence but clears every restored agent credential, so administrators must issue fresh agent authority. Restore publishes its administrator replacement only to the required fresh `--secret-output` file and never rewrites the default bearer; after restart, online recovery must explicitly select the replacement with `--admin-bearer-file`.
 
-Failures emit one safe JSON line and exit with status 1. `gateway_running` means another process owns the installation; `secret_output_unavailable` means the one-time sink could not be completed; and storage failures intentionally hide filesystem and SQLite details.
+Failures emit one bounded problem on stderr in the selected human or JSON mode and use stable typed exit classes; failed commands leave stdout empty. `gateway_running` means another process owns the installation; `secret_output_unavailable` means the one-time sink could not be completed; and storage failures intentionally hide filesystem and SQLite details.
 
 ## Coexistence with MCP Broker
 
