@@ -122,7 +122,7 @@ func S6LifecycleCapabilityManifest() []S6CapabilityRow {
 		{ID: "web-bootstrap", Operation: "Browser session bootstrap", WebControl: "Application bootstrap", Mechanics: "POST current session", WebScenario: "browser.bootstrap", Implementation: []string{"T3", "T5", "T11"}},
 		{ID: "web-logout", Operation: "Browser logout", WebControl: "Sign out", Mechanics: "POST logout", WebScenario: "browser.logout", Implementation: []string{"T5", "T11"}},
 		{ID: "web-events", Operation: "Browser invalidations", WebControl: "Application refresh", Mechanics: "POST event stream", WebScenario: "browser.events", Implementation: []string{"T4", "T12"}},
-		{ID: "cli-bearer", Operation: "CLI bearer acquisition", CLIUses: []string{"--admin-bearer-file PATH", "--admin-bearer-stdin"}, Mechanics: "owner-only file/stdin/prompt", CLIScenario: "cli.bearer", Implementation: []string{"T16", "T17"}},
+		{ID: "cli-bearer", Operation: "CLI bearer acquisition", CLIUses: []string{"--admin-bearer-file PATH", "--admin-bearer-stdin"}, Mechanics: "owner-only explicit file/exclusive stdin/resolved default file", CLIScenario: "cli.bearer", Implementation: []string{"T16", "T17"}},
 		{ID: "cli-initialize", Operation: "Stopped initialize", CLIUses: []string{"initialize"}, Mechanics: "offline compatibility", CLIScenario: "cli.initialize", Implementation: []string{"T55"}},
 		{ID: "cli-admin-reset", Operation: "Stopped admin reset", CLIUses: []string{"admin-reset"}, Mechanics: "offline compatibility", CLIScenario: "cli.admin-reset", Implementation: []string{"T55"}},
 		{ID: "cli-restore", Operation: "Stopped restore", CLIUses: []string{"restore"}, Mechanics: "offline compatibility", CLIScenario: "cli.restore", Implementation: []string{"T55"}},

@@ -45,6 +45,16 @@ func TestS6Manifest(t *testing.T) {
 		assert.NotEmpty(t, row.CLIScenario, row.ID)
 		assert.NotEmpty(t, row.Implementation, row.ID)
 	}
-	assert.Len(t, S6LifecycleCapabilityManifest(), 8)
+	lifecycle := S6LifecycleCapabilityManifest()
+	assert.Len(t, lifecycle, 8)
+	foundCLIBearer := false
+	for _, row := range lifecycle {
+		if row.ID == "cli-bearer" {
+			foundCLIBearer = true
+			assert.Equal(t, "owner-only explicit file/exclusive stdin/resolved default file", row.Mechanics)
+			assert.NotContains(t, row.Mechanics, "prompt")
+		}
+	}
+	assert.True(t, foundCLIBearer)
 	assert.Len(t, S6DocumentationManifest(), 40)
 }

@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -67,6 +68,12 @@ func TestCLIFirstRun(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("default serve did not acknowledge startup")
 	}
+	status, err := runner.Run(t.Context(), gatewayBinary(t), "status")
+	require.NoError(t, err, "default status: %s", status.Stderr)
+	assertSettledResult(t, status)
+	assert.Contains(t, string(status.Stdout), "principal_credentials")
+	assert.Empty(t, status.Stderr)
+	assert.NotContains(t, string(status.Stdout), strings.TrimSpace(string(bearer)))
 	require.NoError(t, process.Signal(syscall.SIGTERM))
 	served, err := process.Wait()
 	running = false
@@ -112,6 +119,26 @@ func TestCLIAutomaticBearerSelection(t *testing.T) {
 	assert.True(t, json.Valid(status.Stdout))
 	assert.NotContains(t, string(status.Stdout), strings.TrimSpace(string(bearer)))
 	assertDirectoryEntries(t, decoyXDG, nil)
+
+	explicitBearer := filepath.Join(t.TempDir(), "explicit-bearer")
+	require.NoError(t, os.WriteFile(explicitBearer, bearer, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, gatewaypaths.AdminBearerName), []byte("malformed\n"), 0o600))
+	explicit, err := runner.Run(t.Context(), gatewayBinary(t), "--data-dir", root, "status", "--address", "http://"+authority, "--admin-bearer-file", explicitBearer, "--output", "json")
+	require.NoError(t, err, "status with explicit bearer file: %s", explicit.Stderr)
+	assertSettledResult(t, explicit)
+	assert.True(t, json.Valid(explicit.Stdout))
+	assert.NotContains(t, string(explicit.Stdout), strings.TrimSpace(string(bearer)))
+
+	stdinProcess, input, err := runner.StartWithInputPipe(t.Context(), gatewayBinary(t), "--data-dir", root, "status", "--address", "http://"+authority, "--admin-bearer-stdin", "--output", "json")
+	require.NoError(t, err)
+	_, err = input.Write(bearer)
+	require.NoError(t, err)
+	require.NoError(t, input.Close())
+	stdinResult, err := stdinProcess.Wait()
+	require.NoError(t, err, "status with stdin bearer: %s", stdinResult.Stderr)
+	assertSettledResult(t, stdinResult)
+	assert.True(t, json.Valid(stdinResult.Stdout))
+	assert.NotContains(t, string(stdinResult.Stdout), strings.TrimSpace(string(bearer)))
 
 	require.NoError(t, process.Signal(syscall.SIGTERM))
 	served, err := process.Wait()
@@ -216,6 +243,42 @@ func TestCLIServeOutputPhases(t *testing.T) {
 			} else {
 				assert.Equal(t, 1, strings.Count(string(result.Stdout), "Gateway started successfully."))
 				assert.Contains(t, string(result.Stdout), "http://"+authority+"/")
+			}
+		})
+	}
+
+	for _, mode := range []string{"human", "json"} {
+		t.Run("post-start-failure/"+mode, func(t *testing.T) {
+			harness := newGatewayHarness(t)
+			if mode == "json" {
+				harness.serveArgs = append(harness.serveArgs, "--output", "json")
+			}
+			harness.Start()
+			blocked, err := net.Dial("tcp", harness.authority)
+			require.NoError(t, err)
+			defer func() { _ = blocked.Close() }()
+			_, err = fmt.Fprintf(blocked, "POST /api/v1/backups HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nIdempotency-Key: cli-output-phase\r\nContent-Length: 100\r\n\r\n", harness.authority, harness.bearer)
+			require.NoError(t, err)
+			waitForAdminOccupancy(t, harness, 2)
+			require.NoError(t, harness.process.Signal(syscall.SIGTERM))
+			waitForListenerClose(t, harness.authority)
+			result, waitErr := harness.process.Wait()
+			harness.process = nil
+			require.Error(t, waitErr)
+			assert.Equal(t, 7, result.ExitCode)
+			assertSettledResult(t, result)
+			if mode == "json" {
+				lines := strings.Split(strings.TrimSpace(string(result.Stdout)), "\n")
+				require.Len(t, lines, 1)
+				assert.True(t, json.Valid([]byte(lines[0])))
+				var problem struct {
+					Code string `json:"code"`
+				}
+				require.NoError(t, json.Unmarshal(result.Stderr, &problem))
+				assert.Equal(t, "serve_stopped", problem.Code)
+			} else {
+				assert.Equal(t, 1, strings.Count(string(result.Stdout), "Gateway started successfully."))
+				assert.Contains(t, string(result.Stderr), "clean shutdown could not be confirmed")
 			}
 		})
 	}
