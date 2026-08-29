@@ -4,6 +4,11 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { createServer as createViteServer, type ViteDevServer } from "vite";
 
+import {
+  handleDevelopmentRequest,
+  installUpgradeAdmission,
+} from "./dev-proxy.ts";
+
 const DEFAULT_LISTEN = "127.0.0.1:5173";
 const DEFAULT_GATEWAY = "http://127.0.0.1:8210";
 const AUTHORITY_PATTERN =
@@ -144,7 +149,26 @@ export async function runDevelopmentServer(
         },
       },
     });
-    server.on("request", vite.middlewares);
+    const activeVite = vite;
+    installUpgradeAdmission(server);
+    server.on("request", (incoming, response) => {
+      void handleDevelopmentRequest(incoming, response, config).then(
+        (handled) => {
+          if (!handled) activeVite.middlewares(incoming, response);
+        },
+        () => {
+          if (!response.headersSent) {
+            response.writeHead(500, {
+              "Cache-Control": "no-store",
+              "Content-Length": "0",
+            });
+            response.end();
+          } else {
+            response.destroy();
+          }
+        },
+      );
+    });
 
     await listen(server, config);
     process.stdout.write(`Frontend: ${config.frontendOrigin} (ready)\n`);
@@ -161,7 +185,6 @@ export async function runDevelopmentServer(
       process.once("SIGTERM", shutdown);
     });
     await close(server);
-    const activeVite = vite;
     vite = undefined;
     await activeVite.close();
   } finally {
