@@ -4,11 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"sync"
 )
 
 const (
+	InstallationName   = "mcp-gateway"
+	AdminBearerName    = "admin-bearer"
 	DatabaseName       = "gateway.db"
 	LockName           = "gateway.lock"
 	RunMarkerName      = "run.unclean"
@@ -29,6 +32,7 @@ type Layout struct {
 	RunMarker      string
 	MutationMarker string
 	Backups        string
+	AdminBearer    string
 }
 
 type Ownership struct {
@@ -40,19 +44,66 @@ type Ownership struct {
 	closed     bool
 }
 
+func Resolve(explicitRoot string) (Layout, error) {
+	return resolveInstallation(explicitRoot, os.Getenv("XDG_DATA_HOME"), currentUserHome)
+}
+
+func resolveInstallation(explicitRoot, xdgDataHome string, home func() (string, error)) (Layout, error) {
+	var root string
+	switch {
+	case explicitRoot != "":
+		absolute, err := filepath.Abs(explicitRoot)
+		if err != nil {
+			return Layout{}, fmt.Errorf("resolve explicit data directory: %w", err)
+		}
+		root = filepath.Clean(absolute)
+	case xdgDataHome != "":
+		if !filepath.IsAbs(xdgDataHome) {
+			return Layout{}, fmt.Errorf("%w: XDG_DATA_HOME must be an absolute path", ErrUnsafePath)
+		}
+		root = filepath.Join(filepath.Clean(xdgDataHome), InstallationName)
+	default:
+		homeDirectory, err := home()
+		if err != nil {
+			return Layout{}, fmt.Errorf("resolve current user home: %w", err)
+		}
+		if !filepath.IsAbs(homeDirectory) {
+			return Layout{}, fmt.Errorf("%w: current user home must be an absolute path", ErrUnsafePath)
+		}
+		root = filepath.Join(filepath.Clean(homeDirectory), ".local", "share", InstallationName)
+	}
+	return layoutForRoot(root), nil
+}
+
+func currentUserHome() (string, error) {
+	account, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	if account.HomeDir == "" {
+		return "", errors.New("current user account has no home directory")
+	}
+	return account.HomeDir, nil
+}
+
 func Prepare(root string) (Layout, error) {
 	canonicalRoot, err := prepareRoot(root)
 	if err != nil {
 		return Layout{}, err
 	}
+	return layoutForRoot(canonicalRoot), nil
+}
+
+func layoutForRoot(root string) Layout {
 	return Layout{
-		Root:           canonicalRoot,
-		Database:       filepath.Join(canonicalRoot, DatabaseName),
-		Lock:           filepath.Join(canonicalRoot, LockName),
-		RunMarker:      filepath.Join(canonicalRoot, RunMarkerName),
-		MutationMarker: filepath.Join(canonicalRoot, MutationMarkerName),
-		Backups:        filepath.Join(canonicalRoot, BackupsName),
-	}, nil
+		Root:           root,
+		Database:       filepath.Join(root, DatabaseName),
+		Lock:           filepath.Join(root, LockName),
+		RunMarker:      filepath.Join(root, RunMarkerName),
+		MutationMarker: filepath.Join(root, MutationMarkerName),
+		Backups:        filepath.Join(root, BackupsName),
+		AdminBearer:    filepath.Join(root, AdminBearerName),
+	}
 }
 
 func Acquire(root string) (*Ownership, error) {
@@ -200,28 +251,55 @@ func prepareRoot(root string) (string, error) {
 		return "", fmt.Errorf("resolve data root: %w", err)
 	}
 	absolute = filepath.Clean(absolute)
-	if info, statErr := os.Lstat(absolute); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("%w: data root is a symlink", ErrUnsafePath)
-	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-		return "", fmt.Errorf("inspect data root: %w", statErr)
-	}
 
-	parent, err := filepath.EvalSymlinks(filepath.Dir(absolute))
-	if err != nil {
-		return "", fmt.Errorf("resolve data-root parent: %w", err)
+	current := absolute
+	missing := make([]string, 0, 3)
+	for {
+		info, statErr := os.Lstat(current)
+		switch {
+		case statErr == nil:
+			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+				return "", fmt.Errorf("%w: %s is not a real directory", ErrUnsafePath, current)
+			}
+			if err := validateOwner(info); err != nil {
+				return "", fmt.Errorf("%w: %s: %w", ErrUnsafePath, current, err)
+			}
+			canonical, err := filepath.EvalSymlinks(current)
+			if err != nil {
+				return "", fmt.Errorf("resolve existing data-root ancestor: %w", err)
+			}
+			for index := len(missing) - 1; index >= 0; index-- {
+				canonical = filepath.Join(canonical, missing[index])
+				if err := os.Mkdir(canonical, 0o700); err != nil {
+					return "", fmt.Errorf("create data-root component: %w", err)
+				}
+				createdInfo, err := os.Lstat(canonical)
+				if err != nil {
+					return "", fmt.Errorf("inspect data-root component: %w", err)
+				}
+				if err := validateOwnerOnlyDirectory(createdInfo, canonical); err != nil {
+					return "", err
+				}
+			}
+			rootInfo, err := os.Lstat(canonical)
+			if err != nil {
+				return "", fmt.Errorf("inspect data root: %w", err)
+			}
+			if err := validateOwnerOnlyDirectory(rootInfo, canonical); err != nil {
+				return "", err
+			}
+			return canonical, nil
+		case errors.Is(statErr, os.ErrNotExist):
+			parent := filepath.Dir(current)
+			if parent == current {
+				return "", fmt.Errorf("%w: no owner-controlled data-root ancestor", ErrUnsafePath)
+			}
+			missing = append(missing, filepath.Base(current))
+			current = parent
+		default:
+			return "", fmt.Errorf("inspect data-root component: %w", statErr)
+		}
 	}
-	canonical := filepath.Join(parent, filepath.Base(absolute))
-	if err := os.Mkdir(canonical, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
-		return "", fmt.Errorf("create data root: %w", err)
-	}
-	info, err := os.Lstat(canonical)
-	if err != nil {
-		return "", fmt.Errorf("inspect data root: %w", err)
-	}
-	if err := validateOwnerOnlyDirectory(info, canonical); err != nil {
-		return "", err
-	}
-	return canonical, nil
 }
 
 func validateOwnerOnlyDirectory(info os.FileInfo, path string) error {

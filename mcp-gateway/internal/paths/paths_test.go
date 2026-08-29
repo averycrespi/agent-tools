@@ -10,6 +10,80 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestResolveInstallationPrecedenceWithoutMutation(t *testing.T) {
+	base := t.TempDir()
+	explicit := filepath.Join(base, "explicit")
+	xdg := filepath.Join(base, "xdg")
+	home := filepath.Join(base, "home")
+
+	tests := []struct {
+		name          string
+		explicit      string
+		xdg           string
+		home          string
+		homeErr       error
+		wantRoot      string
+		wantHomeCalls int
+		wantErr       string
+	}{
+		{name: "explicit wins", explicit: explicit, xdg: "relative", homeErr: errors.New("unavailable"), wantRoot: explicit},
+		{name: "absolute xdg", xdg: xdg, homeErr: errors.New("unavailable"), wantRoot: filepath.Join(xdg, InstallationName)},
+		{name: "platform home fallback", home: home, wantRoot: filepath.Join(home, ".local", "share", InstallationName), wantHomeCalls: 1},
+		{name: "relative xdg", xdg: "relative", wantErr: "XDG_DATA_HOME must be an absolute path"},
+		{name: "unavailable home", homeErr: errors.New("account lookup failed"), wantErr: "resolve current user home", wantHomeCalls: 1},
+		{name: "relative home", home: "relative", wantErr: "current user home must be an absolute path", wantHomeCalls: 1},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			homeCalls := 0
+			layout, err := resolveInstallation(test.explicit, test.xdg, func() (string, error) {
+				homeCalls++
+				return test.home, test.homeErr
+			})
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+				assert.Equal(t, test.wantHomeCalls, homeCalls)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.wantRoot, layout.Root)
+			assert.Equal(t, filepath.Join(test.wantRoot, AdminBearerName), layout.AdminBearer)
+			assert.Equal(t, test.wantHomeCalls, homeCalls)
+			_, statErr := os.Lstat(test.wantRoot)
+			assert.ErrorIs(t, statErr, os.ErrNotExist, "resolution must not create the installation")
+		})
+	}
+}
+
+func TestPrepareCreatesMissingOwnerControlledAncestors(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "missing", "share", InstallationName)
+
+	layout, err := Prepare(root)
+	require.NoError(t, err)
+	assert.Equal(t, root, layout.Root)
+	assert.Equal(t, filepath.Join(root, AdminBearerName), layout.AdminBearer)
+	assertMode(t, filepath.Join(parent, "missing"), 0o700)
+	assertMode(t, filepath.Join(parent, "missing", "share"), 0o700)
+	assertMode(t, root, 0o700)
+}
+
+func TestPrepareRejectsUnsafeExistingAncestor(t *testing.T) {
+	parent := t.TempDir()
+	unsafe := filepath.Join(parent, "unsafe")
+	require.NoError(t, os.Mkdir(unsafe, 0o700))
+	target := filepath.Join(parent, "target")
+	require.NoError(t, os.Mkdir(target, 0o700))
+	link := filepath.Join(unsafe, "link")
+	require.NoError(t, os.Symlink(target, link))
+
+	_, err := Prepare(filepath.Join(link, "child", InstallationName))
+	assert.ErrorIs(t, err, ErrUnsafePath)
+	_, statErr := os.Lstat(filepath.Join(target, "child"))
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
 func TestAcquireCreatesOwnerOnlyCanonicalLayout(t *testing.T) {
 	parent := t.TempDir()
 	ownership, err := Acquire(filepath.Join(parent, "gateway"))
@@ -25,6 +99,7 @@ func TestAcquireCreatesOwnerOnlyCanonicalLayout(t *testing.T) {
 	assert.Equal(t, filepath.Join(layout.Root, RunMarkerName), layout.RunMarker)
 	assert.Equal(t, filepath.Join(layout.Root, MutationMarkerName), layout.MutationMarker)
 	assert.Equal(t, filepath.Join(layout.Root, BackupsName), layout.Backups)
+	assert.Equal(t, filepath.Join(layout.Root, AdminBearerName), layout.AdminBearer)
 	assert.False(t, ownership.WasUnclean())
 
 	assertMode(t, layout.Root, 0o700)
