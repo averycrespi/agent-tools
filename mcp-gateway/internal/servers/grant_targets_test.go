@@ -48,7 +48,7 @@ func TestValidateGrantTargetTxDistinguishesSyntheticCurrentMissingAndDeleted(t *
 	}
 }
 
-func TestS5NamespaceTargetTxReturnsCurrentAndTombstoneFacts(t *testing.T) {
+func TestLookupNamespaceTargetTxReturnsCurrentAndTombstoneFacts(t *testing.T) {
 	repository, store, _ := newRepository(t, new(sequenceReader))
 	current := mustCreateServer(t, repository, "request-current", false)
 	deleted := mustCreateServer(t, repository, "request-deleted", false)
@@ -84,7 +84,7 @@ func TestS5NamespaceTargetTxReturnsCurrentAndTombstoneFacts(t *testing.T) {
 	require.ErrorIs(t, err, ErrStorageUnavailable)
 }
 
-func TestS5SelfProjectionStoredGrantNamespaceIncludesSyntheticCurrentAndDeleted(t *testing.T) {
+func TestLookupStoredGrantNamespaceTxIncludesSyntheticCurrentAndDeleted(t *testing.T) {
 	repository, store, _ := newRepository(t, new(sequenceReader))
 	current := mustCreateServer(t, repository, "projected-current", false)
 	deleted := mustCreateServer(t, repository, "projected-deleted", false)
@@ -183,7 +183,7 @@ func TestNewIDRejectsReservedSyntheticIdentity(t *testing.T) {
 	assert.Empty(t, id)
 }
 
-func TestSyntheticIdentityCannotEnterS2AndDoesNotAffectS2CapacityOrListing(t *testing.T) {
+func TestSyntheticIdentityCannotEnterServerRegistryOrAffectCapacityAndListing(t *testing.T) {
 	repository, store, _ := newRepository(t, new(sequenceReader))
 	beforeIdentities, beforeServers, err := repository.RegistryStatus(context.Background())
 	require.NoError(t, err)

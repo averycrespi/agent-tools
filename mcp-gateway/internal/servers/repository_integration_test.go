@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS2SchemaAndBackupContainNoSecretOrTransientRepresentation(t *testing.T) {
+func TestServerSchemaAndBackupContainNoSecretOrTransientRepresentation(t *testing.T) {
 	repository, store, _ := newRepository(t, new(sequenceReader))
 	server := mustCreateServer(t, repository, "artifact-scan", false)
 	operation, err := repository.CreateOperation(context.Background(), OperationRequest{ServerID: server.ID, Kind: "reload"})

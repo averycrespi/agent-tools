@@ -81,7 +81,7 @@ func (reader *sequenceReader) Read(buffer []byte) (int, error) {
 	return len(buffer), nil
 }
 
-func TestRepositoryUsesS1ULIDsAndPermanentNamespaceTombstones(t *testing.T) {
+func TestRepositoryUsesULIDsAndPermanentNamespaceTombstones(t *testing.T) {
 	repository, _, _ := newRepository(t, bytes.NewReader(make([]byte, 64)))
 
 	id, err := repository.NewID()

@@ -65,7 +65,7 @@ func TestActiveRegistryPublishesDurableBeforeOneImmutableGeneration(t *testing.T
 	assert.Equal(t, "01ARZ3NDEKTSV4RRFFQ69G5FAZ-0", restarted.Summary().ActiveGeneration)
 }
 
-func TestS5CompositionActiveTargetInspectorUsesOneLockCoherentSnapshot(t *testing.T) {
+func TestCompareActiveTargetUsesOneLockCoherentSnapshot(t *testing.T) {
 	repository, serverRepository, clock, _ := newCatalogRepository(t)
 	server := createCatalogServer(t, serverRepository, "sample")
 	registry, err := NewActiveRegistry(repository, clock, activeProcessID)

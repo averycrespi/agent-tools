@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5LocalSyntheticTargetsPinEvidenceAndValidators(t *testing.T) {
+func TestLocalSyntheticTargetsPinEvidenceAndValidators(t *testing.T) {
 	for _, tool := range contract.SyntheticSelfServiceTools() {
 		target, found := ResolveSyntheticCall(tool.ExternalName)
 		require.True(t, found)
@@ -24,7 +24,7 @@ func TestS5LocalSyntheticTargetsPinEvidenceAndValidators(t *testing.T) {
 	assert.False(t, found)
 }
 
-func TestS5SyntheticSnapshotIsExactClonedAndOutsideActiveOccupancy(t *testing.T) {
+func TestSyntheticSnapshotIsExactClonedAndOutsideActiveOccupancy(t *testing.T) {
 	snapshot, err := SyntheticSnapshot()
 	require.NoError(t, err)
 	contractTools := contract.SyntheticSelfServiceTools()

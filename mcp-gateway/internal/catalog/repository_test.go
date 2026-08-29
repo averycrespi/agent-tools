@@ -87,7 +87,7 @@ func TestRepositoryCommitsRevisionsRetiresAndReusesImmutableIdentity(t *testing.
 	assert.Nil(t, reappeared.RetiredAt)
 }
 
-func TestS5DurableDescriptorTxReturnsCurrentAndRetiredEvidenceFacts(t *testing.T) {
+func TestLookupDurableDescriptorTxReturnsCurrentAndRetiredEvidenceFacts(t *testing.T) {
 	repository, serverRepository, clock, store := newCatalogRepository(t)
 	server := createCatalogServer(t, serverRepository, "requestfacts")
 	_, err := repository.Commit(context.Background(), catalogFence(server.ID, "0"), candidateFor(t, server.ID, "requestfacts", "one"))
