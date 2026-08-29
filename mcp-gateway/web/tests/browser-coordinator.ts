@@ -44,6 +44,7 @@ interface BridgeInput {
     | "m7-canary"
     | "admin-credentials"
     | "backups"
+    | "capability-audit"
     | "principals"
     | "principal-credentials"
     | "grant-reads-create"
@@ -121,6 +122,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "m7-canary" &&
       value.scenario !== "admin-credentials" &&
       value.scenario !== "backups" &&
+      value.scenario !== "capability-audit" &&
       value.scenario !== "principals" &&
       value.scenario !== "principal-credentials" &&
       value.scenario !== "grant-reads-create" &&
@@ -2176,6 +2178,100 @@ async function runM7Canary(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "m7_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length, mutations: mutationCount })}\n`,
+  );
+}
+
+async function runCapabilityAudit(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await assertViewGenerationFoundation();
+  let eventStreams = 0;
+  let mutations = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/api/v1/events"))
+      eventStreams += 1;
+  });
+  await page.route("**/api/v1/system-status", async (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(overviewStatusFixture()),
+    }),
+  );
+  await page.route("**/api/v1/admin-credentials?*", async (route) => {
+    if (route.request().method() !== "GET") mutations += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [], next_cursor: null }),
+    });
+  });
+  await page.route("**/api/v1/backups?*", async (route) => {
+    if (route.request().method() !== "GET") mutations += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [], next_cursor: null }),
+    });
+  });
+  await page.route(
+    "**/api/v1/events",
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: ": force reconnect\n\n",
+      }),
+    { times: 1 },
+  );
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=admin-credentials";
+  });
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.locator('[data-testid="admin-credentials-view"]').waitFor();
+  await page.waitForFunction(
+    () =>
+      (
+        document.querySelector(
+          '[data-testid="admin-credential-create"]',
+        ) as HTMLButtonElement | null
+      )?.disabled === true,
+  );
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=backups";
+  });
+  await page.locator('[data-testid="backups-view"]').waitFor();
+  await page.waitForFunction(
+    () =>
+      (
+        document.querySelector(
+          '[data-testid="backup-create"]',
+        ) as HTMLButtonElement | null
+      )?.disabled === true,
+  );
+  if (mutations !== 0)
+    fail("cross-destination storage latch submitted a mutation");
+  const reconnectDeadline = Date.now() + 5000;
+  while (eventStreams < 2 && Date.now() < reconnectDeadline)
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  if (eventStreams < 2) fail("event stream did not reconnect");
+  const body = (await page.locator("body").textContent()) ?? "";
+  if (
+    !body.includes("browser cannot restore") ||
+    !body.includes("Storage mutation is closed")
+  )
+    fail("cross-destination latch guidance is incomplete");
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "capability_audit_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), event_streams: eventStreams, mutations, destinations: 2 })}\n`,
   );
 }
 
@@ -8318,6 +8414,15 @@ try {
         initialBearer,
         () => requests,
       );
+    } else if (input.scenario === "capability-audit") {
+      await runCapabilityAudit(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
     } else if (input.scenario === "principals") {
       await runPrincipals(
         browser.version(),
@@ -8469,11 +8574,12 @@ try {
         : externalRequests.length !== 0;
     const expectedConsoleFailures =
       (input.scenario === "principals" &&
-        consoleFailures.length === 2 &&
-        [409, 412].every((status) =>
-          consoleFailures.some((value) =>
-            value.includes(`server responded with a status of ${status}`),
-          ),
+        consoleFailures.length === 3 &&
+        consoleFailures.filter((value) =>
+          value.includes("server responded with a status of 409"),
+        ).length === 2 &&
+        consoleFailures.some((value) =>
+          value.includes("server responded with a status of 412"),
         )) ||
       (input.scenario === "principal-credentials" &&
         consoleFailures.length === 1 &&
@@ -8495,8 +8601,8 @@ try {
           ),
         )) ||
       (input.scenario === "request-reads" &&
-        consoleFailures.length === 1 &&
-        consoleFailures.some((value) =>
+        consoleFailures.length === 2 &&
+        consoleFailures.every((value) =>
           value.includes("server responded with a status of 409"),
         )) ||
       (input.scenario === "backups" &&

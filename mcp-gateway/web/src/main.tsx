@@ -96,6 +96,40 @@ const serverReadsController = new ServerReadsController(
   sessionClient,
   viewCoordinator,
 );
+const registerInvalidationTrigger = (
+  id: string,
+  matches: (viewKey: string) => boolean,
+  invalidations: ReadonlyArray<
+    "authorization" | "grant_requests" | "servers" | "catalog"
+  >,
+) =>
+  viewCoordinator.registerPanel({
+    id,
+    matches,
+    invalidations,
+    read: async () => null,
+    publish: () => undefined,
+  });
+registerInvalidationTrigger(
+  "principal-invalidation",
+  (key) => /^#\/access\/principals(?:\/|$)/.test(key),
+  ["authorization"],
+);
+registerInvalidationTrigger(
+  "grant-invalidation",
+  (key) => /^#\/access\/grants(?:\/|$)/.test(key),
+  ["authorization"],
+);
+registerInvalidationTrigger(
+  "request-list-invalidation",
+  (key) => key === "#/requests" || key.startsWith("#/requests?"),
+  ["grant_requests"],
+);
+registerInvalidationTrigger(
+  "request-detail-invalidation",
+  (key) => /^#\/requests\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key),
+  ["grant_requests", "servers", "catalog"],
+);
 applyTheme(initialTheme);
 
 function SignInPanel({

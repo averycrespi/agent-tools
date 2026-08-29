@@ -268,6 +268,18 @@ export class SystemController {
     setStorageLatched: (latched: boolean) => void,
   ) {
     views.registerPanel({
+      id: "mutation-latch",
+      matches: () => true,
+      invalidations: ["system_status"],
+      read: async (context) =>
+        decodeStatus(
+          await responseJSON(
+            await getStatus(context.csrfToken, context.signal),
+          ),
+        ),
+      publish: (status) => setStorageLatched(status.latched),
+    });
+    views.registerPanel({
       id: "backups",
       matches: (viewKey) => viewKey === "#/system?tab=backups",
       invalidations: ["backups"],
@@ -624,6 +636,10 @@ function Backups({
   const deleteButton = useRef<HTMLButtonElement>(null);
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
+  useEffect(() => {
+    if (detail !== undefined && backups !== undefined)
+      setDetail(backups.find((backup) => backup.id === detail.id));
+  }, [backups]);
   const panelStatus = view.panels.backups?.status ?? "loading";
   const disabled =
     mutation.state === "submitting" ||
@@ -739,6 +755,14 @@ function Backups({
         </button>
         <a href="#/system?tab=recovery">Open stopped restore guidance</a>
       </div>
+      {mutation.availability === "storage_latched" && (
+        <StateNotice state="error" title="Storage mutation is closed">
+          <p>
+            Reads remain available. Use stopped verification and recovery
+            guidance; navigation cannot clear the latch.
+          </p>
+        </StateNotice>
+      )}
       {mutation.problem !== undefined && (
         <StateNotice state="error" title={mutation.problem.title} />
       )}
@@ -890,6 +914,10 @@ function AdminCredentials({
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
   useEffect(() => () => prepared?.cancel(), [prepared]);
+  useEffect(() => {
+    if (detail !== undefined && credentials !== undefined)
+      setDetail(credentials.find((credential) => credential.id === detail.id));
+  }, [credentials]);
   const panelStatus = view.panels["admin-credentials"]?.status ?? "loading";
   const activeNonExpiring =
     credentials?.filter(

@@ -653,6 +653,16 @@ function listPath(
   return `/api/v1/servers/${match[1]!}/descriptors?${query.toString()}`;
 }
 
+function serverPanelID(viewKey: string): string {
+  if (viewKey === "#/catalog") return "catalog-reads";
+  if (/\?tab=operations$|\/operations\//.test(viewKey))
+    return "server-operation-reads";
+  if (/\?tab=oauth$|\/auth-flows\//.test(viewKey)) return "server-oauth-reads";
+  if (/\?tab=descriptors$|\/descriptors\//.test(viewKey))
+    return "server-descriptor-reads";
+  return "server-overview-reads";
+}
+
 export class ServerReadsController {
   private readonly views: ViewCoordinator;
   private readonly listeners = new Set<Listener>();
@@ -662,34 +672,73 @@ export class ServerReadsController {
 
   constructor(session: SessionClient, views: ViewCoordinator) {
     this.views = views;
-    views.registerPanel({
-      id: "server-reads",
-      matches: (key) =>
+    const register = (
+      id: string,
+      matches: (key: string) => boolean,
+      invalidations: ReadonlyArray<
+        "servers" | "server_operations" | "server_auth_flows" | "catalog"
+      >,
+      polling = false,
+    ) =>
+      views.registerPanel<ReadResult>({
+        id,
+        matches,
+        invalidations,
+        ...(polling
+          ? {
+              pollMilliseconds: 2000,
+              shouldPoll: () =>
+                (this.value.operation !== undefined &&
+                  !operationIsTerminal(this.value.operation)) ||
+                (this.value.authFlow !== undefined &&
+                  !authFlowIsTerminal(this.value.authFlow)) ||
+                this.value.authFlows.some((flow) => !authFlowIsTerminal(flow)),
+            }
+          : {}),
+        read: (context) => this.read(context),
+        publish: (result) => this.publish(result),
+      });
+    register(
+      "server-overview-reads",
+      (key) =>
         key === "#/servers" ||
-        key === "#/catalog" ||
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key) ||
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=(?:credentials|descriptors|oauth|operations)$/.test(
-          key,
-        ) ||
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/(?:auth-flows|descriptors|operations)\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\?tab=credentials)?$/.test(
           key,
         ),
-      invalidations: [
-        "servers",
-        "server_operations",
-        "server_auth_flows",
-        "catalog",
-      ],
-      pollMilliseconds: 2000,
-      shouldPoll: () =>
-        (this.value.operation !== undefined &&
-          !operationIsTerminal(this.value.operation)) ||
-        (this.value.authFlow !== undefined &&
-          !authFlowIsTerminal(this.value.authFlow)) ||
-        this.value.authFlows.some((flow) => !authFlowIsTerminal(flow)),
-      read: (context) => this.read(context),
-      publish: (result) => this.publish(result),
-    });
+      ["servers", "catalog"],
+    );
+    register(
+      "server-operation-reads",
+      (key) =>
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=operations$/.test(key) ||
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/operations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
+          key,
+        ),
+      ["servers", "server_operations", "catalog"],
+      true,
+    );
+    register(
+      "server-oauth-reads",
+      (key) =>
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=oauth$/.test(key) ||
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/auth-flows\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
+          key,
+        ),
+      ["servers", "server_auth_flows", "catalog"],
+      true,
+    );
+    register(
+      "server-descriptor-reads",
+      (key) =>
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=descriptors$/.test(
+          key,
+        ) ||
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/descriptors\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
+          key,
+        ),
+      ["catalog"],
+    );
+    register("catalog-reads", (key) => key === "#/catalog", ["catalog"]);
     session.registerProtectedState(() => {
       this.continuation = undefined;
       this.continuationPending = false;
@@ -722,7 +771,7 @@ export class ServerReadsController {
     this.value = { ...this.value, loadingMore: true };
     this.emit();
     try {
-      await this.views.refreshPanel("server-reads");
+      await this.views.refreshPanel(serverPanelID(this.value.viewKey));
     } finally {
       this.continuationPending = false;
       this.value = { ...this.value, loadingMore: false };
@@ -1191,7 +1240,7 @@ export function ServerReads({
 }) {
   const [snapshot, setSnapshot] = useState(controller.snapshot());
   useEffect(() => controller.subscribe(setSnapshot), [controller]);
-  const panel = view.panels["server-reads"];
+  const panel = view.panels[serverPanelID(view.viewKey)];
   const credentialsTab =
     /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=credentials$/.exec(
       view.viewKey,
