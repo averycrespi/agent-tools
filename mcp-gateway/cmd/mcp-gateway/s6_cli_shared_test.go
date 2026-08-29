@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -67,6 +71,7 @@ func TestS6CLISharedContract(t *testing.T) {
 
 	t.Run("online flags remain command scoped", func(t *testing.T) {
 		assert.Nil(t, root.PersistentFlags().Lookup("address"))
+		assert.NotNil(t, root.PersistentFlags().Lookup("data-dir"))
 		for name, expectedFlags := range map[string][]string{
 			"initialize":  {"data-dir", "json", "output", "secret-output"},
 			"admin-reset": {"data-dir", "json", "output", "secret-output"},
@@ -94,14 +99,50 @@ func TestS6CLISharedContract(t *testing.T) {
 		command := newRootCmd()
 		command.SetOut(stdout)
 		command.SetErr(stderr)
-		command.SetArgs([]string{"status", "--address", "not-a-loopback-url", "--output", "json"})
+		dataDir := filepath.Join(t.TempDir(), "missing")
+		command.SetArgs([]string{"--data-dir", dataDir, "status", "--address", "not-a-loopback-url", "--output", "json"})
 		err := command.ExecuteContext(context.Background())
 		require.Error(t, err)
 		assert.Equal(t, 2, commandExitCode(err))
 		assert.Empty(t, stdout.String())
-		assert.JSONEq(t, `{"status":null,"code":"client_bearer_missing","title":"The selected administrator bearer does not exist. Run mcp-gateway initialize or select an existing owner-only bearer file.","exit_code":2,"uncertain":false}`, stderr.String())
+		var problem struct {
+			Code  string `json:"code"`
+			Title string `json:"title"`
+		}
+		require.NoError(t, json.Unmarshal(stderr.Bytes(), &problem))
+		assert.Equal(t, "client_bearer_missing", problem.Code)
+		assert.Contains(t, problem.Title, filepath.Join(dataDir, "admin-bearer"))
 
 		assert.Equal(t, 1, commandExitCode(commandFailure{}))
 		assert.Equal(t, 1, commandExitCode(assert.AnError))
 	})
+}
+
+func TestCLIControlBoundary(t *testing.T) {
+	_, current, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	files, err := filepath.Glob(filepath.Join(filepath.Dir(current), "online*.go"))
+	require.NoError(t, err)
+
+	acquisitionCalls := 0
+	pathResolutionCalls := 0
+	publicClientCalls := 0
+	for _, path := range files {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		contents, readErr := os.ReadFile(path)
+		require.NoError(t, readErr)
+		source := string(contents)
+		calls := strings.Count(source, "controlclient.AcquireAdminBearer(")
+		if calls > 0 {
+			assert.Equal(t, "online.go", filepath.Base(path), "bearer acquisition must have one command-layer owner")
+		}
+		acquisitionCalls += calls
+		pathResolutionCalls += strings.Count(source, "gatewaypaths.Resolve(")
+		publicClientCalls += strings.Count(source, "controlclient.New(")
+	}
+	assert.Equal(t, 1, acquisitionCalls)
+	assert.Equal(t, 1, pathResolutionCalls)
+	assert.Greater(t, publicClientCalls, 0, "online operations must remain on the hardened public HTTP client")
 }

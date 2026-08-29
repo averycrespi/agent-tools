@@ -29,6 +29,7 @@ func TestS6M4Gate(t *testing.T) {
 		"cmd/mcp-gateway": {
 			"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract":      true,
 			"github.com/averycrespi/agent-tools/mcp-gateway/internal/controlclient": true,
+			"github.com/averycrespi/agent-tools/mcp-gateway/internal/paths":         true,
 		},
 	}
 	for _, relative := range []string{"internal/controlclient", "cmd/mcp-gateway"} {

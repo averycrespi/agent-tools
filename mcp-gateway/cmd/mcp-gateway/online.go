@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/controlclient"
+	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/spf13/cobra"
 )
 
@@ -17,10 +18,16 @@ type onlineCommandSpec struct {
 	Flags       []string
 }
 
+type onlineAdminBearer struct {
+	value string
+	path  string
+}
+
 type onlineOptions struct {
 	address        string
 	bearerFile     string
 	bearerStdin    bool
+	adminBearer    onlineAdminBearer
 	output         string
 	file           string
 	etag           string
@@ -88,6 +95,11 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 			if _, err := controlclient.ParseOutputMode(options.output); err != nil {
 				return writeOnlineFailure(command, string(controlclient.OutputTable), controlclient.NewInputError("The output mode is invalid."))
 			}
+			selected, failure := acquireOnlineAdminBearer(command, options)
+			if failure != nil {
+				return writeOnlineFailure(command, options.output, failure)
+			}
+			options.adminBearer = selected
 			return runOnlineCommand(command, spec, options, args)
 		},
 	}
@@ -124,6 +136,39 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The command flags are invalid."))
 	})
 	return command
+}
+
+func acquireOnlineAdminBearer(command *cobra.Command, options *onlineOptions) (onlineAdminBearer, *controlclient.OnlineError) {
+	if command == nil || options == nil {
+		return onlineAdminBearer{}, controlclient.NewInputError("The administrator bearer selection is invalid.")
+	}
+	selectedPath := options.bearerFile
+	if selectedPath == "" && !options.bearerStdin {
+		dataDir, err := command.Root().PersistentFlags().GetString("data-dir")
+		if err != nil {
+			return onlineAdminBearer{}, controlclient.NewInputError("The selected data directory is invalid.")
+		}
+		layout, err := gatewaypaths.Resolve(dataDir)
+		if err != nil {
+			return onlineAdminBearer{}, controlclient.NewInputError("The selected data directory is invalid.")
+		}
+		selectedPath = layout.AdminBearer
+	}
+	bearer, err := controlclient.AcquireAdminBearer(controlclient.BearerOptions{
+		FilePath: selectedPath, ReadStdin: options.bearerStdin, Stdin: command.InOrStdin(), InputFilePath: options.file,
+	})
+	if err != nil {
+		return onlineAdminBearer{}, controlclient.ProjectBearerProblem(err, selectedPath)
+	}
+	return onlineAdminBearer{value: bearer, path: selectedPath}, nil
+}
+
+func evaluateOnlineResponse(response controlclient.Response, bearerPath string) *controlclient.OnlineError {
+	failure := controlclient.EvaluateResponse(response)
+	if failure == nil || failure.Status == nil || *failure.Status != 401 {
+		return failure
+	}
+	return controlclient.ProjectBearerProblem(failure, bearerPath)
 }
 
 func prepareOnlineSensitiveAction(options *onlineOptions, consequence string, prompt controlclient.ConfirmationPrompt, openTerminal func() (io.WriteCloser, error)) (*controlclient.PreparedSink, *controlclient.OnlineError) {

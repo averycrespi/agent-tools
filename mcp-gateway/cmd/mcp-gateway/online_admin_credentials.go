@@ -23,15 +23,11 @@ func runAdminCredentialCreate(command *cobra.Command, options *onlineOptions) er
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
 	defer func() { _ = sink.Cleanup() }()
-	bearer, err := controlclient.AcquireAdminBearer(controlclient.BearerOptions{FilePath: options.bearerFile, ReadStdin: options.bearerStdin, Stdin: command.InOrStdin(), InputFilePath: options.file})
-	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
-	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	header, err := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: bearer, JSONBody: true})
+	header, err := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
@@ -44,7 +40,7 @@ func runAdminCredentialCreate(command *cobra.Command, options *onlineOptions) er
 		}
 		return writeOnlineFailure(command, options.output, failure)
 	}
-	if failure := controlclient.EvaluateResponse(response); failure != nil {
+	if failure := evaluateOnlineResponse(response, options.adminBearer.path); failure != nil {
 		if failure.Code == "storage_unavailable" || failure.Code == "client_response_invalid" {
 			failure = &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: adminCredentialCreateUncertainTitle(), Exit: 8, Uncertain: true}
 		}
@@ -96,15 +92,11 @@ func runAdminCredentialRevoke(command *cobra.Command, options *onlineOptions, ar
 	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Revoke this admin credential and close every browser session derived from it? The final active non-expiring credential cannot be revoked."}); err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	bearer, err := controlclient.AcquireAdminBearer(controlclient.BearerOptions{FilePath: options.bearerFile, ReadStdin: options.bearerStdin, Stdin: command.InOrStdin()})
-	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
-	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: bearer, JSONBody: true})
+	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true})
 	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodDelete, Path: "/api/v1/admin-credentials/" + args[0], Header: header, Body: []byte("{}")})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
@@ -114,7 +106,7 @@ func runAdminCredentialRevoke(command *cobra.Command, options *onlineOptions, ar
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	if response.StatusCode != http.StatusNoContent || len(response.Body) != 0 {
-		failure := controlclient.EvaluateResponse(response)
+		failure := evaluateOnlineResponse(response, options.adminBearer.path)
 		if failure == nil || failure.Code == "storage_unavailable" || failure.Code == "client_response_invalid" {
 			failure = &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: adminCredentialRevokeUncertainTitle(args[0]), Exit: 8, Uncertain: true}
 		}

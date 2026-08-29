@@ -24,15 +24,11 @@ func runBackupCreate(command *cobra.Command, options *onlineOptions) error {
 	if err != nil {
 		return writeOnlineFailure(command, string(controlclient.OutputTable), controlclient.NewInputError("The output mode is invalid."))
 	}
-	bearer, err := controlclient.AcquireAdminBearer(controlclient.BearerOptions{FilePath: options.bearerFile, ReadStdin: options.bearerStdin, Stdin: command.InOrStdin()})
-	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
-	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	header, err := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: bearer, JSONBody: true, IdempotencyKey: key})
+	header, err := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true, IdempotencyKey: key})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
@@ -45,7 +41,7 @@ func runBackupCreate(command *cobra.Command, options *onlineOptions) error {
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated {
-		failure := controlclient.EvaluateResponse(response)
+		failure := evaluateOnlineResponse(response, options.adminBearer.path)
 		if failure == nil || failure.Code == "storage_unavailable" || failure.Code == "client_response_invalid" {
 			failure = &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: backupCreateUncertainTitle(key), Exit: 8, Uncertain: true}
 		}
@@ -71,15 +67,11 @@ func runBackupDelete(command *cobra.Command, options *onlineOptions, args []stri
 	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Permanently delete this verified backup artifact? Restore from it will no longer be possible."}); err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	bearer, err := controlclient.AcquireAdminBearer(controlclient.BearerOptions{FilePath: options.bearerFile, ReadStdin: options.bearerStdin, Stdin: command.InOrStdin()})
-	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
-	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: bearer, JSONBody: true})
+	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true})
 	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodDelete, Path: "/api/v1/backups/" + args[0], Header: header, Body: []byte("{}")})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
@@ -89,7 +81,7 @@ func runBackupDelete(command *cobra.Command, options *onlineOptions, args []stri
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	if response.StatusCode != http.StatusNoContent || len(response.Body) != 0 {
-		failure := controlclient.EvaluateResponse(response)
+		failure := evaluateOnlineResponse(response, options.adminBearer.path)
 		if failure == nil || failure.Code == "storage_unavailable" || failure.Code == "client_response_invalid" {
 			failure = &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: backupDeleteUncertainTitle(args[0]), Exit: 8, Uncertain: true}
 		}

@@ -182,17 +182,11 @@ func runOnlineRead(command *cobra.Command, options *onlineOptions, path string, 
 	if err != nil {
 		return writeOnlineFailure(command, string(controlclient.OutputTable), controlclient.NewInputError("The output mode is invalid."))
 	}
-	bearer, err := controlclient.AcquireAdminBearer(controlclient.BearerOptions{
-		FilePath: options.bearerFile, ReadStdin: options.bearerStdin, Stdin: command.InOrStdin(), InputFilePath: options.file,
-	})
-	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
-	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	header, err := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: bearer})
+	header, err := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
@@ -200,7 +194,7 @@ func runOnlineRead(command *cobra.Command, options *onlineOptions, path string, 
 	if err != nil {
 		return writeOnlineFailure(command, options.output, classifyReadFailure(err))
 	}
-	if failure := controlclient.EvaluateResponse(response); failure != nil {
+	if failure := evaluateOnlineResponse(response, options.adminBearer.path); failure != nil {
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	projection, err := table(response.Body)

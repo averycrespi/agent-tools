@@ -106,15 +106,11 @@ func runCredentialReplacement(command *cobra.Command, options *onlineOptions, re
 	if err != nil {
 		return writeOnlineFailure(command, string(controlclient.OutputTable), controlclient.NewInputError("The output mode is invalid."))
 	}
-	bearer, err := controlclient.AcquireAdminBearer(controlclient.BearerOptions{FilePath: options.bearerFile, ReadStdin: options.bearerStdin, Stdin: command.InOrStdin(), InputFilePath: options.file})
-	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
-	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	header, err := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: bearer, JSONBody: true, ETag: request.etag})
+	header, err := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true, ETag: request.etag})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
@@ -127,7 +123,7 @@ func runCredentialReplacement(command *cobra.Command, options *onlineOptions, re
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	if response.StatusCode != http.StatusAccepted {
-		failure := controlclient.EvaluateResponse(response)
+		failure := evaluateOnlineResponse(response, options.adminBearer.path)
 		if failure == nil || failure.Code == "storage_unavailable" || failure.Code == "client_response_invalid" {
 			failure = &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: credentialReplacementUncertainTitle(request.serverID), Exit: 8, Uncertain: true}
 		}

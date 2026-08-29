@@ -53,6 +53,7 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	command.PersistentFlags().String("data-dir", "", "owner-only Gateway data directory")
 	command.AddCommand(
 		newAdminAuthorityCmd("initialize", dependencies),
 		newAdminAuthorityCmd("admin-reset", dependencies),
@@ -76,7 +77,7 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 			return nil
 		},
 		RunE: func(command *cobra.Command, _ []string) error {
-			options, err := resolveExecutionOptions(executionOptionInput{DataDir: dataDir, Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
+			options, err := resolveExecutionOptions(executionOptionInput{DataDir: selectedDataDir(command, dataDir), Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
 			if err != nil {
 				return writeOfflineProblem(command, controlclient.OutputHuman, controlclient.NewInputError("Choose either --output human or --output json; --json is the JSON shorthand."))
 			}
@@ -108,6 +109,19 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), controlclient.NewInputError("The command flags are invalid. See this command's usage."))
 	})
 	return command
+}
+
+func selectedDataDir(command *cobra.Command, local string) string {
+	if command != nil && command.Flags().Changed("data-dir") {
+		return local
+	}
+	if command != nil {
+		root, err := command.Root().PersistentFlags().GetString("data-dir")
+		if err == nil && root != "" {
+			return root
+		}
+	}
+	return local
 }
 
 func executeServe(command *cobra.Command, dataDir, authority string, dependencies offlineDependencies, phases *controlclient.ServePhases) (bool, error) {
@@ -476,7 +490,7 @@ func newAdminAuthorityCmd(operation string, dependencies offlineDependencies) *c
 			return nil
 		},
 		RunE: func(command *cobra.Command, _ []string) error {
-			options, err := resolveExecutionOptions(executionOptionInput{DataDir: dataDir, Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
+			options, err := resolveExecutionOptions(executionOptionInput{DataDir: selectedDataDir(command, dataDir), Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
 			if err != nil {
 				return writeOfflineProblem(command, controlclient.OutputHuman, controlclient.NewInputError("Choose either --output human or --output json; --json is the JSON shorthand."))
 			}
@@ -670,7 +684,7 @@ func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
 			return nil
 		},
 		RunE: func(command *cobra.Command, args []string) error {
-			options, err := resolveExecutionOptions(executionOptionInput{DataDir: dataDir, Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
+			options, err := resolveExecutionOptions(executionOptionInput{DataDir: selectedDataDir(command, dataDir), Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
 			if err != nil {
 				return writeOfflineProblem(command, controlclient.OutputHuman, controlclient.NewInputError("Choose either --output human or --output json; --json is the JSON shorthand."))
 			}

@@ -78,6 +78,48 @@ func TestCLIFirstRun(t *testing.T) {
 	assert.NotContains(t, string(served.Stdout), strings.TrimSpace(string(bearer)))
 }
 
+func TestCLIAutomaticBearerSelection(t *testing.T) {
+	runner := firstRunRunner(t)
+	root := filepath.Join(t.TempDir(), "selected", "gateway")
+	initialized, err := runner.Run(t.Context(), gatewayBinary(t), "initialize", "--data-dir", root, "--output", "json")
+	require.NoError(t, err, "initialize: %s", initialized.Stderr)
+	assertSettledResult(t, initialized)
+	bearer := assertDefaultBearer(t, filepath.Join(root, gatewaypaths.AdminBearerName))
+
+	decoyXDG := filepath.Join(t.TempDir(), "decoy-xdg")
+	require.NoError(t, os.Mkdir(decoyXDG, 0o700))
+	t.Setenv("XDG_DATA_HOME", decoyXDG)
+	authority := unusedAuthority(t)
+	process, err := runner.Start(t.Context(), gatewayBinary(t), "serve", "--data-dir", root, "--listen", authority, "--output", "json")
+	require.NoError(t, err)
+	running := true
+	t.Cleanup(func() {
+		if running {
+			_ = process.Stop()
+			_, _ = process.Wait()
+		}
+	})
+	select {
+	case <-process.StdoutReady():
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not acknowledge startup")
+	}
+
+	status, err := runner.Run(t.Context(), gatewayBinary(t), "--data-dir", root, "status", "--address", "http://"+authority, "--output", "json")
+	require.NoError(t, err, "status without bearer flag: %s", status.Stderr)
+	assertSettledResult(t, status)
+	assert.Empty(t, status.Stderr)
+	assert.True(t, json.Valid(status.Stdout))
+	assert.NotContains(t, string(status.Stdout), strings.TrimSpace(string(bearer)))
+	assertDirectoryEntries(t, decoyXDG, nil)
+
+	require.NoError(t, process.Signal(syscall.SIGTERM))
+	served, err := process.Wait()
+	running = false
+	require.NoError(t, err, "serve: %s", served.Stderr)
+	assertSettledResult(t, served)
+}
+
 func TestCLIXDGAndOverrides(t *testing.T) {
 	runner := firstRunRunner(t)
 

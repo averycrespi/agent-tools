@@ -152,15 +152,11 @@ func runGrantRequestAdjudication(command *cobra.Command, options *onlineOptions,
 	if err != nil {
 		return writeOnlineFailure(command, string(controlclient.OutputTable), controlclient.NewInputError("The output mode is invalid."))
 	}
-	bearer, err := controlclient.AcquireAdminBearer(controlclient.BearerOptions{FilePath: options.bearerFile, ReadStdin: options.bearerStdin, Stdin: command.InOrStdin(), InputFilePath: options.file})
-	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
-	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: bearer, JSONBody: true, ETag: options.etag})
+	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true, ETag: options.etag})
 	path := "/api/v1/grant-requests/" + adjudication.requestID + "/" + adjudication.action
 	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: path, Header: header, Body: adjudication.body})
 	if err != nil {
@@ -171,7 +167,7 @@ func runGrantRequestAdjudication(command *cobra.Command, options *onlineOptions,
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	if response.StatusCode != http.StatusOK {
-		failure := controlclient.EvaluateResponse(response)
+		failure := evaluateOnlineResponse(response, options.adminBearer.path)
 		if failure == nil || response.StatusCode == http.StatusServiceUnavailable || failure.Code == "client_response_invalid" {
 			failure = &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: grantRequestUncertainTitle(adjudication.requestID), Exit: 8, Uncertain: true}
 		}

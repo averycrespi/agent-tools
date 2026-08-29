@@ -141,15 +141,11 @@ func runGrantCreateRequest(command *cobra.Command, options *onlineOptions, body 
 	if err != nil {
 		return writeOnlineFailure(command, string(controlclient.OutputTable), controlclient.NewInputError("The output mode is invalid."))
 	}
-	bearer, err := controlclient.AcquireAdminBearer(controlclient.BearerOptions{FilePath: options.bearerFile, ReadStdin: options.bearerStdin, Stdin: command.InOrStdin(), InputFilePath: options.file})
-	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
-	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: bearer, JSONBody: true})
+	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true})
 	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v1/grants", Header: header, Body: body})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
@@ -159,7 +155,7 @@ func runGrantCreateRequest(command *cobra.Command, options *onlineOptions, body 
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	if response.StatusCode != http.StatusCreated {
-		failure := controlclient.EvaluateResponse(response)
+		failure := evaluateOnlineResponse(response, options.adminBearer.path)
 		if failure == nil || failure.Code == "storage_unavailable" || failure.Code == "client_response_invalid" {
 			failure = &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: grantCreateUncertainTitle(), Exit: 8, Uncertain: true}
 		}
@@ -183,15 +179,11 @@ func runGrantDelete(command *cobra.Command, options *onlineOptions, args []strin
 	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: consequence}); err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	bearer, err := controlclient.AcquireAdminBearer(controlclient.BearerOptions{FilePath: options.bearerFile, ReadStdin: options.bearerStdin, Stdin: command.InOrStdin()})
-	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
-	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: bearer})
+	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value})
 	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodDelete, Path: "/api/v1/grants/" + args[0], Header: header})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
@@ -201,7 +193,7 @@ func runGrantDelete(command *cobra.Command, options *onlineOptions, args []strin
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	if response.StatusCode != http.StatusNoContent || len(response.Body) != 0 {
-		failure := controlclient.EvaluateResponse(response)
+		failure := evaluateOnlineResponse(response, options.adminBearer.path)
 		if failure == nil || failure.Code == "storage_unavailable" || failure.Code == "client_response_invalid" {
 			failure = &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: grantDeleteUncertainTitle(args[0]), Exit: 8, Uncertain: true}
 		}

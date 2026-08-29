@@ -37,15 +37,11 @@ func runServerAuthFlowStart(command *cobra.Command, options *onlineOptions, args
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
 	defer func() { _ = sink.Cleanup() }()
-	bearer, err := controlclient.AcquireAdminBearer(controlclient.BearerOptions{FilePath: options.bearerFile, ReadStdin: options.bearerStdin, Stdin: command.InOrStdin()})
-	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
-	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	header, err := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: bearer, JSONBody: true, ETag: options.etag})
+	header, err := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true, ETag: options.etag})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
@@ -59,7 +55,7 @@ func runServerAuthFlowStart(command *cobra.Command, options *onlineOptions, args
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	if response.StatusCode != http.StatusCreated {
-		failure := controlclient.EvaluateResponse(response)
+		failure := evaluateOnlineResponse(response, options.adminBearer.path)
 		if failure == nil || failure.Code == "storage_unavailable" || failure.Code == "client_response_invalid" {
 			failure = &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: authFlowStartUncertainTitle(args[0]), Exit: 8, Uncertain: true}
 		}
@@ -87,21 +83,17 @@ func runServerAuthFlowCancel(command *cobra.Command, options *onlineOptions, arg
 	if len(args) != 2 || !gatewayIDPattern.MatchString(args[0]) || !gatewayIDPattern.MatchString(args[1]) {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server or auth-flow ID is invalid."))
 	}
-	bearer, err := controlclient.AcquireAdminBearer(controlclient.BearerOptions{FilePath: options.bearerFile, ReadStdin: options.bearerStdin, Stdin: command.InOrStdin()})
-	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
-	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	readHeader, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: bearer})
+	readHeader, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value})
 	path := "/api/v1/servers/" + args[0] + "/auth-flows/" + args[1]
 	readResponse, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodGet, Path: path, Header: readHeader})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, classifyReadFailure(err))
 	}
-	if failure := controlclient.EvaluateResponse(readResponse); failure != nil {
+	if failure := evaluateOnlineResponse(readResponse, options.adminBearer.path); failure != nil {
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	var flow contract.ServerAuthFlow
@@ -114,7 +106,7 @@ func runServerAuthFlowCancel(command *cobra.Command, options *onlineOptions, arg
 	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Cancel this auth flow and invalidate its callback state and any already-open authorization page? An exchange already in progress cannot be cancelled."}); err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	deleteHeader, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: bearer, JSONBody: true})
+	deleteHeader, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true})
 	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodDelete, Path: path, Header: deleteHeader, Body: []byte("{}")})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
@@ -124,7 +116,7 @@ func runServerAuthFlowCancel(command *cobra.Command, options *onlineOptions, arg
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	if response.StatusCode != http.StatusNoContent || len(response.Body) != 0 {
-		failure := controlclient.EvaluateResponse(response)
+		failure := evaluateOnlineResponse(response, options.adminBearer.path)
 		if failure == nil || failure.Code == "storage_unavailable" || failure.Code == "client_response_invalid" {
 			failure = &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: authFlowCancelUncertainTitle(args[0], args[1]), Exit: 8, Uncertain: true}
 		}
