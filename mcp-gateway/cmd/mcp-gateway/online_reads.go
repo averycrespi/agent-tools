@@ -24,6 +24,10 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 		return runOnlineRead(command, options, path, invocationListTable)
+	case "server create":
+		return runServerCreate(command, options)
+	case "server update":
+		return runServerUpdate(command, options, args)
 	case "server list":
 		path, err := controlclient.BuildListPath("/api/v1/servers", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
 		if err != nil {
