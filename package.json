@@ -11,6 +11,8 @@
     "ui:typecheck": "tsc -p mcp-gateway/web/tsconfig.json --noEmit",
     "ui:build": "vite build --config mcp-gateway/web/vite.config.ts",
     "ui:verify-generated": "node mcp-gateway/web/scripts/verify-generated.mjs",
+    "ui:verify-supply-chain": "node mcp-gateway/web/scripts/verify-supply-chain.mjs",
+    "ui:audit": "npm audit --audit-level=high",
     "lint": "make lint",
     "precommit": "lint-staged && make lint"
   },
