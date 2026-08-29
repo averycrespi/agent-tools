@@ -40,6 +40,7 @@ interface BridgeInput {
     | "secret-sinks"
     | "m3-canary"
     | "m5-canary"
+    | "m6-canary"
     | "overview"
     | "invocations"
     | "system-status"
@@ -107,6 +108,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "secret-sinks" &&
       value.scenario !== "m3-canary" &&
       value.scenario !== "m5-canary" &&
+      value.scenario !== "m6-canary" &&
       value.scenario !== "overview" &&
       value.scenario !== "invocations" &&
       value.scenario !== "system-status" &&
@@ -1883,6 +1885,130 @@ async function runM5Canary(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "m5_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: 4 })}\n`,
+  );
+}
+
+async function runM6Canary(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const serverID = serverReadIDs.active;
+  const server = {
+    ...serverReadFixture(serverID, {
+      name: "M6 integrated server",
+      desired: "enabled",
+      runtime: "authentication_required",
+      credential: "reauthentication_required",
+      durable: "current",
+      active: "unavailable",
+    }),
+    transport: {
+      kind: "streamable_http",
+      url: "https://resource.example/mcp",
+      protocol_mode: "modern",
+      authentication: {
+        mode: "oauth",
+        registration: {
+          mode: "static",
+          issuer: "https://issuer.example/",
+          client_id: "m6-client",
+          token_endpoint_auth_method: "client_secret_basic",
+        },
+        trusted_origins: [],
+        request_offline_access: false,
+      },
+    },
+  };
+  await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { ETag: `"server-${serverID}-7"` },
+      body: JSON.stringify(server),
+    }),
+  );
+  for (const resource of ["operations", "auth-flows", "descriptors"]) {
+    await page.route(
+      `${baseURL}/api/v1/servers/${serverID}/${resource}?*`,
+      async (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ items: [], next_cursor: null }),
+        }),
+    );
+  }
+  await page.route(`${baseURL}/api/v1/catalog?*`, async (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        catalog: {
+          active_state: "current",
+          active_generation: "m6-generation",
+          changed_at: "2026-08-28T17:00:00Z",
+          issue_count: 0,
+        },
+        items: [
+          descriptorReadFixture(
+            serverReadIDs.activeTool,
+            serverID,
+            "m6_integrated_tool",
+            false,
+          ),
+        ],
+        next_cursor: null,
+      }),
+    }),
+  );
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}`;
+  }, serverID);
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+
+  const destinations: Array<[string, string]> = [
+    [`#/servers/${serverID}`, "server-detail"],
+    [`#/servers/${serverID}?tab=operations`, "operation-list"],
+    [`#/servers/${serverID}?tab=oauth`, "auth-flow-list"],
+    [`#/servers/${serverID}?tab=credentials`, "server-credentials-view"],
+    [`#/servers/${serverID}?tab=descriptors`, "descriptor-list"],
+    ["#/catalog", "catalog-view"],
+  ];
+  for (const [hash, testID] of destinations) {
+    await page.evaluate((target) => {
+      window.location.hash = target;
+    }, hash);
+    await page.locator(`[data-testid="${testID}"]`).waitFor();
+  }
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}`;
+  }, serverID);
+  await page.getByText("Edit desired server state", { exact: true }).click();
+  await page.locator('[data-testid="server-editor"]').waitFor();
+  await page.locator('[data-testid="server-destructive-actions"]').waitFor();
+  await page.locator('[data-testid="delete-server"]').click();
+  const body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "Desired revision 7",
+    "Durable evidence is not proof",
+    "best-effort remote revocation",
+    "immutable namespace",
+  ])
+    if (!body.includes(phrase)) fail(`M6 integrated canary omitted ${phrase}`);
+  if (body.includes("authorization_url"))
+    fail("M6 integrated canary exposed a one-time URL outside its sink");
+  await page.locator('[data-testid="server-delete-confirm-cancel"]').click();
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "m6_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length })}\n`,
   );
 }
 
@@ -6030,6 +6156,15 @@ try {
       );
     } else if (input.scenario === "m5-canary") {
       await runM5Canary(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "m6-canary") {
+      await runM6Canary(
         browser.version(),
         context,
         page,
