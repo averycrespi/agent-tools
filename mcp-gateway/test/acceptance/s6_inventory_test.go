@@ -42,9 +42,9 @@ func TestS6Inventory(t *testing.T) {
 			leaves++
 		}
 	}
-	assert.Equal(t, 79, leaves)
+	assert.Equal(t, 81, leaves)
 	assert.Equal(t, map[S6LeafCategory]int{
-		S6LeafNPM: 4, S6LeafGo: 17, S6LeafIntegration: 2, S6LeafSecurity: 1,
+		S6LeafNPM: 4, S6LeafGo: 18, S6LeafIntegration: 3, S6LeafSecurity: 1,
 		S6LeafBrowser: 36, S6LeafE2E: 18, S6LeafExternal: 1,
 	}, categories)
 	assert.Equal(t, 55, gatewayStarts)
@@ -107,6 +107,7 @@ func TestS6PlannedCommand(t *testing.T) {
 	require.NoError(t, ValidateS6OwnerForExecution("T52"))
 	require.NoError(t, ValidateS6OwnerForExecution("T53"))
 	require.NoError(t, ValidateS6OwnerForExecution("T54"))
+	require.NoError(t, ValidateS6OwnerForExecution("T55"))
 	require.NoError(t, ValidateS6OwnerForExecution("M1"))
 	require.NoError(t, ValidateS6OwnerForExecution("M2"))
 	require.NoError(t, ValidateS6OwnerForExecution("M3"))
@@ -118,8 +119,8 @@ func TestS6PlannedCommand(t *testing.T) {
 	require.NoError(t, ValidateS6OwnerForExecution("M9"))
 	require.NoError(t, ValidateS6OwnerForExecution("M10"))
 	require.NoError(t, ValidateS6OwnerForExecution("M11"))
-	assert.EqualError(t, ValidateS6OwnerForExecution("T55"), "S6 owner T55 is planned, not executable")
-	assert.EqualError(t, ValidateS6OwnerForExecution("M12"), "S6 owner M12 is planned, not executable")
+	assert.EqualError(t, ValidateS6OwnerForExecution("T56"), "S6 owner T56 is planned, not executable")
+	assert.EqualError(t, ValidateS6OwnerForExecution("M12"), `unknown S6 owner "M12"`)
 	assert.EqualError(t, ValidateS6OwnerForExecution("unknown"), `unknown S6 owner "unknown"`)
 
 	owner, ok := S6Owner("T1")

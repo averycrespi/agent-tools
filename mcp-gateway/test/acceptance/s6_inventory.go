@@ -68,7 +68,7 @@ var s6TaskCategories = map[string][]S6LeafCategory{
 	"T38": {S6LeafE2E}, "T39": {S6LeafE2E}, "T40": {S6LeafE2E}, "T41": {S6LeafE2E}, "T42": {S6LeafE2E}, "T43": {S6LeafE2E},
 	"T44": {S6LeafE2E}, "T45": {S6LeafE2E}, "T46": {S6LeafE2E}, "T47": {S6LeafE2E}, "T48": {S6LeafE2E}, "T49": {S6LeafE2E},
 	"T50": {S6LeafBrowser}, "T51": {S6LeafBrowser}, "T52": {S6LeafSecurity, S6LeafBrowser}, "T53": {S6LeafGo},
-	"T54": {S6LeafNPM, S6LeafGo}, "T55": {S6LeafGo}, "T56": {S6LeafNPM, S6LeafGo}, "T57": {S6LeafGo}, "T58": {S6LeafExternal},
+	"T54": {S6LeafNPM, S6LeafGo}, "T55": {S6LeafGo, S6LeafIntegration}, "T56": {S6LeafNPM, S6LeafGo}, "T57": {S6LeafGo}, "T58": {S6LeafExternal},
 }
 
 var s6MilestoneCategories = map[string][]S6LeafCategory{
@@ -94,7 +94,7 @@ var s6Selectors = map[string][]string{
 	"T46": {"TestS6CLIPrincipals"}, "T47": {"TestS6CLIPrincipalCredentials"}, "T48": {"TestS6CLIGrants"}, "T49": {"TestS6CLIGrantRequests"},
 	"T50": {"TestS6BrowserAccessibilityChanged"}, "T51": {"TestS6BrowserVisualChanged"}, "T52": {"TestS6SecurityCanaries", "TestS6BrowserPrivacyCanary"},
 	"T53": {"TestS6ExternalEvidenceContract"}, "T54": {"ui:verify-supply-chain", "TestS6StaticSupplyChain"},
-	"T55": {"TestS6CompatibilityOwnership"}, "T56": {"format:check", "TestS6DocumentationDrift"}, "T57": {"TestS6AcceptanceProfile"},
+	"T55": {"Test(RoutesMatchTheS1Contract|S2RoutesAndMechanicsAreExact|S3RoutesAndMechanicsAreExact|S5ClosedVocabularyRoutesProblemsAndLimitsAreExact|S5ResourceShapesETagsMechanicsAndStatusAreExact|S6InvocationContract|S5GrantRequestStrictQueriesBodiesPreconditionsAndProblems|S6StaticDelivery|S6PostEvents|ProductionSourceOwnershipGuards|ProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners|AdmissionInputCannotCarryForbiddenPayloads|SinkFailureNeverActivatesUndisclosedAuthority|S5EventsPreserveIDFreeOrderOverflowLossAndReconnect|S6CLISharedContract|S5SchemaTenMigrationRollsBackAtomically)", "TestS5IntegrationRestoreAcceptedLineages"}, "T56": {"format:check", "TestS6DocumentationDrift"}, "T57": {"TestS6AcceptanceProfile"},
 	"M1": {"TestS6M1Gate", "TestS6BrowserM1Canary"}, "M2": {"TestS6M2Gate", "TestS6E2EM2Canary"}, "M3": {"TestS6BrowserM3Canary"},
 	"M4": {"TestS6M4Gate", "TestS6CLIM4Canary"}, "M5": {"TestS6BrowserM5Canary"}, "M6": {"TestS6BrowserM6Canary"},
 	"M7": {"TestS6BrowserM7Canary"}, "M8": {"TestS6BrowserM8Canary"}, "M9": {"TestS6CLIM9Canary"}, "M10": {"TestS6CLISharedContract", "TestS6CLIM10Canary"},
@@ -106,7 +106,7 @@ var s6Packages = map[string][]string{
 	"T6": {"./internal/contract"}, "T7": {"./internal/invocation"}, "T8": {"./internal/contract", "./internal/api", "./internal/composition", "./cmd/mcp-gateway"},
 	"T10": {"./internal/api"}, "T16": {"./internal/controlclient"}, "T17": {"./internal/controlclient", "./cmd/mcp-gateway"},
 	"T18": {"./internal/controlclient", "./internal/admin", "./internal/paths", "./cmd/mcp-gateway"}, "T53": {"./test/acceptance"},
-	"T54": {"./internal/api"}, "T55": {"./internal/contract", "./internal/api", "./internal/composition", "./internal/invocation", "./internal/admin", "./internal/events", "./internal/controlclient", "./cmd/mcp-gateway"},
+	"T54": {"./internal/api"}, "T55": {"./internal/contract", "./internal/api", "./internal/composition", "./internal/invocation", "./internal/admin", "./internal/events", "./internal/controlclient", "./cmd/mcp-gateway", "./internal/storage", "./internal/backup"},
 	"T56": {"./internal/contract", "./cmd/mcp-gateway"}, "T57": {"./test/acceptance"},
 	"M1": {"./internal/contract", "./internal/admin", "./internal/httpboundary", "./internal/api", "./internal/events"},
 	"M2": {"./internal/invocation", "./internal/composition"}, "M4": {"./internal/controlclient", "./cmd/mcp-gateway"},
@@ -160,7 +160,7 @@ func S6PlannedInventory() []S6PlannedOwner {
 		case "T1":
 			owner.Status = "executable"
 			owner.Intent = "Validate the frozen S6 manifests and command inventory"
-		case "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12", "T13", "T14", "T15", "T16", "T17", "T18", "T19", "T20", "T21", "T22", "T23", "T24", "T25", "T26", "T27", "T28", "T29", "T30", "T31", "T32", "T33", "T34", "T35", "T36", "T37", "T38", "T39", "T40", "T41", "T42", "T43", "T44", "T45", "T46", "T47", "T48", "T49", "T50", "T51", "T52", "T53", "T54":
+		case "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12", "T13", "T14", "T15", "T16", "T17", "T18", "T19", "T20", "T21", "T22", "T23", "T24", "T25", "T26", "T27", "T28", "T29", "T30", "T31", "T32", "T33", "T34", "T35", "T36", "T37", "T38", "T39", "T40", "T41", "T42", "T43", "T44", "T45", "T46", "T47", "T48", "T49", "T50", "T51", "T52", "T53", "T54", "T55":
 			owner.Status = "executable"
 		}
 		owner.Leaves = s6Leaves(id, s6TaskCategories[id])
@@ -290,6 +290,9 @@ func s6Leaves(owner string, categories []S6LeafCategory) []S6PlannedLeaf {
 		}
 		if owner == "T51" {
 			leaf.Artifacts = []string{"two representative screenshots"}
+		}
+		if owner == "T55" {
+			leaf.ExpectedMatches = []int{19, 1}[index]
 		}
 		leaves = append(leaves, leaf)
 	}
