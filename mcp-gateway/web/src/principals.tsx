@@ -15,6 +15,7 @@ import {
   StatusLabel,
 } from "./primitives";
 import type { ProtectedContext, SessionClient } from "./session";
+import type { PreparedOneTimeSink, SensitiveSinkCoordinator } from "./sinks";
 import type { ViewSnapshot } from "./view";
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
@@ -41,6 +42,10 @@ interface PrincipalDetail {
 interface PrincipalCreation {
   principal: Principal;
   defaultGrantID: string;
+}
+interface CredentialCreation {
+  principal: Principal;
+  bearer: string;
 }
 
 function record(value: unknown, keys: readonly string[]): JSONRecord {
@@ -188,6 +193,20 @@ async function decodeMutationPrincipal(response: Response): Promise<Principal> {
   if (response.headers.get("Content-Type") !== "application/json")
     throw new Error("invalid response");
   return decodePrincipal((await response.json()) as unknown);
+}
+async function decodeCredentialCreation(
+  response: Response,
+): Promise<CredentialCreation> {
+  if (response.headers.get("Content-Type") !== "application/json")
+    throw new Error("invalid response");
+  const value = record((await response.json()) as unknown, [
+    "principal",
+    "bearer",
+  ]);
+  const bearer = text(value.bearer);
+  if (!/^mgw_agent_[A-Za-z0-9_-]{43}$/.test(bearer))
+    throw new Error("invalid response");
+  return { principal: decodePrincipal(value.principal), bearer };
 }
 async function decodeMutationCreation(
   response: Response,
@@ -469,15 +488,232 @@ function PrincipalEditor({
   );
 }
 
+function PrincipalCredentialActions({
+  mutations,
+  sinks,
+  detail,
+  onRefresh,
+}: {
+  mutations: MutationCoordinator;
+  sinks: SensitiveSinkCoordinator;
+  detail: PrincipalDetail;
+  onRefresh: () => void;
+}) {
+  const principal = detail.principal;
+  const [controller] = useState<
+    MutationController<CredentialCreation | Principal>
+  >(() => mutations.create<CredentialCreation | Principal>());
+  const [mutation, setMutation] = useState<MutationSnapshot>(() =>
+    controller.snapshot(),
+  );
+  const [action, setAction] = useState<"issue" | "revoke">("issue");
+  const [prepared, setPrepared] = useState<PreparedOneTimeSink>();
+  const [blockedETag, setBlockedETag] = useState<string>();
+  const [notice, setNotice] = useState<string>();
+  const issueButton = useRef<HTMLButtonElement>(null);
+  const revokeButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => controller.subscribe(setMutation), [controller]);
+  useEffect(() => () => controller.close(), [controller]);
+  useEffect(() => () => prepared?.cancel(), [prepared]);
+
+  const beginIssue = () => {
+    setNotice(undefined);
+    const sink = sinks.prepareOneTime(
+      `${principal.hasCredential ? "Replacement" : "New"} agent bearer for ${principal.displayName}`,
+    );
+    if (sink === undefined) {
+      setNotice(
+        "The protected one-time display could not be prepared. No credential was changed.",
+      );
+      return;
+    }
+    const spec: MutationSpec<CredentialCreation | Principal> = {
+      route: `/api/v1/principals/${principal.id}/credential`,
+      method: "POST",
+      body: "{}",
+      precondition: detail.etag,
+      requiresPrecondition: true,
+      idempotency: "none",
+      successStatuses: [201],
+      decode: decodeCredentialCreation,
+    };
+    setAction("issue");
+    setPrepared(sink);
+    controller.begin(spec);
+    controller.confirm();
+  };
+  const beginRevoke = () => {
+    setNotice(undefined);
+    const spec: MutationSpec<CredentialCreation | Principal> = {
+      route: `/api/v1/principals/${principal.id}/credential`,
+      method: "DELETE",
+      body: "{}",
+      precondition: detail.etag,
+      requiresPrecondition: true,
+      idempotency: "none",
+      successStatuses: [200],
+      decode: decodeMutationPrincipal,
+    };
+    setAction("revoke");
+    setPrepared(undefined);
+    controller.begin(spec);
+    controller.confirm();
+  };
+  const cancel = () => {
+    prepared?.cancel();
+    setPrepared(undefined);
+    controller.abandon();
+  };
+  const confirm = async () => {
+    const outcome = await controller.submit();
+    if (outcome.kind === "acknowledged") {
+      setBlockedETag(undefined);
+      if (action === "issue") {
+        if (!("bearer" in outcome.value)) throw new Error("invalid response");
+        const publication = prepared?.publish(outcome.value.bearer) ?? "lost";
+        setNotice(
+          publication === "published"
+            ? "The one-time agent bearer is ready. It cannot be revealed again."
+            : "The bearer was returned but could not be displayed and cannot be recovered. Issue a new credential after reviewing current state.",
+        );
+      } else {
+        setNotice(
+          "Agent credential revoked. Prior authority no longer authenticates.",
+        );
+      }
+      setPrepared(undefined);
+      controller.abandon();
+      onRefresh();
+      return;
+    }
+    if (outcome.kind === "rejected" && outcome.requiresRefresh) {
+      setBlockedETag(detail.etag);
+      onRefresh();
+    }
+    if (action === "issue") {
+      if (outcome.kind === "uncertain") prepared?.lose();
+      else prepared?.cancel();
+    }
+    setPrepared(undefined);
+  };
+  const disabled =
+    principal.state !== "active" ||
+    mutation.state === "submitting" ||
+    mutation.availability === "storage_latched" ||
+    blockedETag === detail.etag;
+  return (
+    <section
+      class="panel domain-panel"
+      aria-labelledby="principal-credential-title"
+      data-testid="principal-credential-actions"
+    >
+      <div class="panel-heading">
+        <div>
+          <span class="panel-code">AGENT AUTHORITY</span>
+          <h2 id="principal-credential-title">Singular agent credential</h2>
+        </div>
+        <StatusLabel state={principal.hasCredential ? "current" : "empty"}>
+          {principal.hasCredential ? "Credential present" : "No credential"}
+        </StatusLabel>
+      </div>
+      <p>
+        Issuing replaces any current bearer without overlap. The prior bearer,
+        authenticated sessions, and streams are interrupted immediately. A new
+        bearer appears once in the protected display and cannot be recovered.
+      </p>
+      {principal.state !== "active" && (
+        <StateNotice state="unavailable" title="Principal is disabled">
+          <p>Re-enable the principal before issuing agent authority.</p>
+        </StateNotice>
+      )}
+      {mutation.problem !== undefined && (
+        <StateNotice state="error" title={mutation.problem.title}>
+          {mutation.requiresRefresh && (
+            <p>
+              The current principal revision was reloaded. Review current
+              authority before trying a new explicit action.
+            </p>
+          )}
+        </StateNotice>
+      )}
+      {mutation.state === "uncertain" && (
+        <StateNotice state="warning" title="Credential outcome is unknown">
+          <p>
+            Do not replay. Refresh the principal; any returned bearer was lost
+            and cannot be recovered.
+          </p>
+        </StateNotice>
+      )}
+      {notice !== undefined && <StateNotice state="empty" title={notice} />}
+      <div class="inline-actions">
+        <button
+          ref={issueButton}
+          data-testid="principal-credential-issue"
+          type="button"
+          disabled={disabled}
+          onClick={beginIssue}
+        >
+          {principal.hasCredential ? "Replace credential" : "Issue credential"}
+        </button>
+        {principal.hasCredential && (
+          <button
+            ref={revokeButton}
+            class="danger-action"
+            data-testid="principal-credential-revoke"
+            type="button"
+            disabled={disabled}
+            onClick={beginRevoke}
+          >
+            Revoke credential
+          </button>
+        )}
+      </div>
+      <ConfirmationDialog
+        id="principal-credential-confirm"
+        open={mutation.state === "confirming"}
+        title={
+          action === "issue"
+            ? `${principal.hasCredential ? "Replace" : "Issue"} agent credential?`
+            : "Revoke agent credential?"
+        }
+        consequence={
+          action === "issue" ? (
+            <p>
+              Current agent authority is interrupted immediately. There is no
+              overlap and the new bearer is displayed once.
+            </p>
+          ) : (
+            <p>
+              The current bearer, authenticated sessions, and streams stop
+              authorizing this principal.
+            </p>
+          )
+        }
+        confirmLabel={
+          action === "issue"
+            ? `${principal.hasCredential ? "Replace" : "Issue"} credential`
+            : "Revoke credential"
+        }
+        destructive={action === "revoke"}
+        returnFocus={action === "issue" ? issueButton : revokeButton}
+        onCancel={cancel}
+        onConfirm={() => void confirm()}
+      />
+    </section>
+  );
+}
+
 export function Principals({
   session,
   mutations,
+  sinks,
   resolved,
   view,
   onRefresh,
 }: {
   session: SessionClient;
   mutations: MutationCoordinator;
+  sinks: SensitiveSinkCoordinator;
   resolved: ResolvedLocation;
   view: ViewSnapshot;
   onRefresh: () => void;
@@ -602,6 +838,12 @@ export function Principals({
             </a>
           </div>
         </section>
+        <PrincipalCredentialActions
+          mutations={mutations}
+          sinks={sinks}
+          detail={detail}
+          onRefresh={onRefresh}
+        />
         <PrincipalEditor
           mutations={mutations}
           detail={detail}

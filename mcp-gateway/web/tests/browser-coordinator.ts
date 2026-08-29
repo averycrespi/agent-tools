@@ -42,6 +42,7 @@ interface BridgeInput {
     | "m5-canary"
     | "m6-canary"
     | "principals"
+    | "principal-credentials"
     | "overview"
     | "invocations"
     | "system-status"
@@ -111,6 +112,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "m5-canary" &&
       value.scenario !== "m6-canary" &&
       value.scenario !== "principals" &&
+      value.scenario !== "principal-credentials" &&
       value.scenario !== "overview" &&
       value.scenario !== "invocations" &&
       value.scenario !== "system-status" &&
@@ -2311,6 +2313,202 @@ async function runPrincipals(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "principals_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), detail_reads: detailReads, creates, updates })}\n`,
+  );
+}
+
+async function runPrincipalCredentials(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const principalID = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
+  const credentialID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ";
+  const issuedBearer = `mgw_agent_${"I".repeat(43)}`;
+  const lostBearer = `mgw_agent_${"L".repeat(43)}`;
+  const principal = (revision: string, credential: boolean) => ({
+    id: principalID,
+    display_name: "Credential agent",
+    state: "active",
+    visibility: "requestable",
+    revision,
+    credential_revision: credential ? revision : String(Number(revision) + 1),
+    credential: credential
+      ? {
+          id: credentialID,
+          fingerprint: "0123456789abcdef",
+          revision,
+          created_at: "2026-08-28T12:00:00Z",
+        }
+      : null,
+    created_at: "2026-08-28T12:00:00Z",
+    updated_at: "2026-08-28T13:00:00Z",
+  });
+  let current = principal("1", true);
+  let issues = 0;
+  let revokes = 0;
+  let releaseLost: (() => void) | undefined;
+  let markLostStarted: (() => void) | undefined;
+  const lostStarted = new Promise<void>((resolve) => {
+    markLostStarted = resolve;
+  });
+
+  await page.route("**/api/v1/principals/*", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { ETag: `"principal-${principalID}-${current.revision}"` },
+      body: JSON.stringify(current),
+    });
+  });
+  await page.route(
+    `${baseURL}/api/v1/principals/${principalID}/credential`,
+    async (route) => {
+      const request = route.request();
+      const headers = await request.allHeaders();
+      if (
+        request.postData() !== "{}" ||
+        headers["if-match"] !== `"principal-${principalID}-${current.revision}"`
+      )
+        fail("principal credential request changed shape");
+      if (request.method() === "POST") {
+        issues += 1;
+        if (issues === 1) {
+          current = principal("2", true);
+          await route.fulfill({
+            status: 412,
+            contentType: "application/problem+json",
+            body: JSON.stringify({
+              status: 412,
+              code: "stale_principal_revision",
+              title: "The principal revision is stale.",
+            }),
+          });
+          return;
+        }
+        if (issues === 3) {
+          markLostStarted?.();
+          await new Promise<void>((resolve) => {
+            releaseLost = resolve;
+          });
+          current = principal("4", true);
+        } else {
+          current = principal("3", true);
+        }
+        await route.fulfill({
+          status: 201,
+          contentType: "application/json",
+          headers: {
+            ETag: `"principal-${principalID}-${current.revision}"`,
+          },
+          body: JSON.stringify({
+            principal: current,
+            bearer: issues === 2 ? issuedBearer : lostBearer,
+          }),
+        });
+        return;
+      }
+      if (request.method() !== "DELETE")
+        fail("principal credential method changed shape");
+      revokes += 1;
+      current = principal("5", false);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { ETag: `"principal-${principalID}-5"` },
+        body: JSON.stringify(current),
+      });
+    },
+  );
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/access/principals/${id}`;
+  }, principalID);
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.locator('[data-testid="principal-credential-actions"]').waitFor();
+  let body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "without overlap",
+    "interrupted immediately",
+    "cannot be recovered",
+  ])
+    if (!body.includes(phrase))
+      fail(`principal credential warning omitted ${phrase}`);
+
+  await page.locator('[data-testid="principal-credential-issue"]').click();
+  await page
+    .locator('[data-testid="principal-credential-confirm-submit"]')
+    .click();
+  await page
+    .getByText("The principal revision is stale.", { exact: true })
+    .waitFor();
+  await page.locator('[data-testid="principal-credential-issue"]').click();
+  await page
+    .locator('[data-testid="principal-credential-confirm-submit"]')
+    .click();
+  await page.locator('[data-testid="one-time-value"]').waitFor();
+  if (
+    (await page.locator('[data-testid="one-time-value"]').textContent()) !==
+    issuedBearer
+  )
+    fail("issued bearer did not reach the prepared one-time display");
+  await page.getByRole("button", { name: "Dismiss and clear" }).click();
+  if ((await page.locator('[data-testid="one-time-value"]').count()) !== 0)
+    fail("dismissed bearer remained in the DOM");
+
+  await page.locator('[data-testid="principal-credential-issue"]').click();
+  await page
+    .locator('[data-testid="principal-credential-confirm-submit"]')
+    .click();
+  await lostStarted;
+  await page.getByRole("button", { name: "Dismiss and clear" }).click();
+  await page.locator('[data-testid="logout"]').click();
+  await page.locator('[data-testid="logout-confirmation-submit"]').click();
+  await waitForLifecycle(page, "signed_out");
+  releaseLost?.();
+  await assertSecretAbsent(
+    page,
+    context,
+    baseURL,
+    [bearer, issuedBearer, lostBearer],
+    false,
+  );
+
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.evaluate((id) => {
+    window.location.hash = `#/access/principals/${id}`;
+  }, principalID);
+  await page.locator('[data-testid="principal-credential-revoke"]').waitFor();
+  await page.locator('[data-testid="principal-credential-revoke"]').click();
+  await page
+    .locator('[data-testid="principal-credential-confirm-submit"]')
+    .click();
+  await page.waitForFunction(
+    () => document.body.textContent?.includes("No credential") === true,
+  );
+  body = (await page.locator("body").textContent()) ?? "";
+  if (!body.includes("Prior authority no longer authenticates"))
+    fail("principal credential revoke omitted authority result");
+  await assertSecretAbsent(
+    page,
+    context,
+    baseURL,
+    [bearer, issuedBearer, lostBearer],
+    true,
+  );
+  process.stdout.write(
+    `${JSON.stringify({ event: "principal_credentials_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), issues, revokes })}\n`,
   );
 }
 
@@ -6483,6 +6681,15 @@ try {
         initialBearer,
         () => requests,
       );
+    } else if (input.scenario === "principal-credentials") {
+      await runPrincipalCredentials(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
     } else if (input.scenario === "overview") {
       await runOverview(
         browser.version(),
@@ -6579,13 +6786,18 @@ try {
           externalRequests[0] !== expectedOAuthOpen
         : externalRequests.length !== 0;
     const expectedConsoleFailures =
-      input.scenario === "principals" &&
-      consoleFailures.length === 2 &&
-      [409, 412].every((status) =>
+      (input.scenario === "principals" &&
+        consoleFailures.length === 2 &&
+        [409, 412].every((status) =>
+          consoleFailures.some((value) =>
+            value.includes(`server responded with a status of ${status}`),
+          ),
+        )) ||
+      (input.scenario === "principal-credentials" &&
+        consoleFailures.length === 1 &&
         consoleFailures.some((value) =>
-          value.includes(`server responded with a status of ${status}`),
-        ),
-      );
+          value.includes("server responded with a status of 412"),
+        ));
     if (
       externalFailure ||
       originFailures.length !== 0 ||

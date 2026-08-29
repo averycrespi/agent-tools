@@ -439,6 +439,7 @@ function App() {
             <Principals
               session={sessionClient}
               mutations={mutationCoordinator}
+              sinks={sensitiveSinkCoordinator}
               resolved={resolved}
               view={view}
               onRefresh={() => viewCoordinator.manualRefresh()}
