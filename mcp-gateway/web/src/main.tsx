@@ -434,6 +434,9 @@ function App() {
           ) : destination === "system" ? (
             <System
               controller={systemController}
+              session={sessionClient}
+              mutations={mutationCoordinator}
+              sinks={sensitiveSinkCoordinator}
               view={view}
               onRefresh={() => viewCoordinator.manualRefresh()}
             />

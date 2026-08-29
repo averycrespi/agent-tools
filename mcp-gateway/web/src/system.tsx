@@ -1,11 +1,146 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { decodeStatus, type LimitView, type StatusView } from "./overview";
-import { ComparisonTable, StateNotice, StatusLabel } from "./primitives";
+import type {
+  MutationController,
+  MutationCoordinator,
+  MutationSnapshot,
+  MutationSpec,
+} from "./mutation";
+import {
+  ComparisonTable,
+  ConfirmationDialog,
+  FormField,
+  StateNotice,
+  StatusLabel,
+} from "./primitives";
 import type { SessionClient } from "./session";
+import type { PreparedOneTimeSink, SensitiveSinkCoordinator } from "./sinks";
 import type { ViewCoordinator, ViewSnapshot } from "./view";
 
 type Listener = (status: StatusView | undefined) => void;
+type CredentialListener = (credentials: AdminCredential[] | undefined) => void;
 type SystemTab = "status" | "admin-credentials" | "backups" | "recovery";
+type CredentialStatus = "active" | "revoked" | "expired";
+type AdminCredential = {
+  id: string;
+  fingerprint: string;
+  createdAt: string;
+  expiresAt: string | null;
+  nonExpiring: boolean;
+  status: CredentialStatus;
+  revision: string;
+};
+type CreatedAdminCredential = AdminCredential & { bearer: string };
+type JSONRecord = Record<string, unknown>;
+const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
+function record(value: unknown, keys: readonly string[]): JSONRecord {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid response");
+  const item = value as JSONRecord;
+  const actual = Object.keys(item).sort();
+  const expected = [...keys].sort();
+  if (
+    actual.length !== expected.length ||
+    actual.some((key, index) => key !== expected[index])
+  )
+    throw new Error("invalid response");
+  return item;
+}
+function text(value: unknown): string {
+  if (typeof value !== "string") throw new Error("invalid response");
+  return value;
+}
+function decodeCredential(value: unknown): AdminCredential {
+  const item = record(value, [
+    "id",
+    "fingerprint",
+    "created_at",
+    "expires_at",
+    "non_expiring",
+    "status",
+    "revision",
+  ]);
+  const id = text(item.id);
+  const fingerprint = text(item.fingerprint);
+  const status = text(item.status);
+  if (
+    !gatewayID.test(id) ||
+    !/^[0-9a-f]{16}$/.test(fingerprint) ||
+    (status !== "active" && status !== "revoked" && status !== "expired") ||
+    typeof item.non_expiring !== "boolean" ||
+    (item.expires_at !== null && typeof item.expires_at !== "string")
+  )
+    throw new Error("invalid response");
+  return {
+    id,
+    fingerprint,
+    createdAt: text(item.created_at),
+    expiresAt: item.expires_at as string | null,
+    nonExpiring: item.non_expiring,
+    status,
+    revision: text(item.revision),
+  };
+}
+function decodeCreatedCredential(value: unknown): CreatedAdminCredential {
+  const item = record(value, [
+    "id",
+    "fingerprint",
+    "created_at",
+    "expires_at",
+    "non_expiring",
+    "status",
+    "revision",
+    "bearer",
+  ]);
+  const credential = decodeCredential(
+    Object.fromEntries(
+      Object.entries(item).filter(([key]) => key !== "bearer"),
+    ),
+  );
+  const bearer = text(item.bearer);
+  if (!/^mgw_admin_[A-Za-z0-9_-]{43}$/.test(bearer))
+    throw new Error("invalid response");
+  return { ...credential, bearer };
+}
+
+async function readCredentials(
+  csrfToken: string,
+  signal: AbortSignal,
+): Promise<AdminCredential[]> {
+  const credentials: AdminCredential[] = [];
+  let cursor: string | null = null;
+  let restarted = false;
+  for (;;) {
+    const params = new URLSearchParams({ limit: "100" });
+    if (cursor !== null) params.set("cursor", cursor);
+    const response = await fetch(`/api/v1/admin-credentials?${params}`, {
+      method: "GET",
+      headers: { "X-CSRF-Token": csrfToken },
+      credentials: "same-origin",
+      redirect: "error",
+      signal,
+    });
+    if (response.status === 409 && cursor !== null && !restarted) {
+      credentials.length = 0;
+      cursor = null;
+      restarted = true;
+      continue;
+    }
+    if (
+      response.status !== 200 ||
+      response.headers.get("Content-Type") !== "application/json"
+    )
+      throw new Error("admin credential read failed");
+    const page = record((await response.json()) as unknown, [
+      "items",
+      "next_cursor",
+    ]);
+    if (!Array.isArray(page.items)) throw new Error("invalid response");
+    credentials.push(...page.items.map(decodeCredential));
+    if (page.next_cursor === null) return credentials;
+    cursor = text(page.next_cursor);
+  }
+}
 
 async function getStatus(
   csrfToken: string,
@@ -41,13 +176,26 @@ function tab(viewKey: string): SystemTab {
 
 export class SystemController {
   private readonly listeners = new Set<Listener>();
+  private readonly credentialListeners = new Set<CredentialListener>();
   private value: StatusView | undefined;
+  private credentials: AdminCredential[] | undefined;
 
   constructor(
     session: SessionClient,
     views: ViewCoordinator,
     setStorageLatched: (latched: boolean) => void,
   ) {
+    views.registerPanel({
+      id: "admin-credentials",
+      matches: (viewKey) => viewKey === "#/system?tab=admin-credentials",
+      invalidations: ["admin_credentials"],
+      read: async (context) =>
+        readCredentials(context.csrfToken, context.signal),
+      publish: (credentials) => {
+        this.credentials = credentials;
+        this.emitCredentials();
+      },
+    });
     views.registerPanel({
       id: "system-status",
       matches: (viewKey) =>
@@ -67,8 +215,10 @@ export class SystemController {
     });
     session.registerProtectedState(() => {
       this.value = undefined;
+      this.credentials = undefined;
       setStorageLatched(false);
       this.emit();
+      this.emitCredentials();
     });
   }
 
@@ -80,6 +230,20 @@ export class SystemController {
     this.listeners.add(listener);
     listener(this.value);
     return () => this.listeners.delete(listener);
+  }
+
+  credentialSnapshot(): AdminCredential[] | undefined {
+    return this.credentials;
+  }
+
+  subscribeCredentials(listener: CredentialListener): () => void {
+    this.credentialListeners.add(listener);
+    listener(this.credentials);
+    return () => this.credentialListeners.delete(listener);
+  }
+
+  private emitCredentials(): void {
+    for (const listener of this.credentialListeners) listener(this.credentials);
   }
 
   private emit(): void {
@@ -327,17 +491,394 @@ function Recovery({ status }: { status: StatusView | undefined }) {
   );
 }
 
+function AdminCredentials({
+  session,
+  credentials,
+  view,
+  mutations,
+  sinks,
+  onRefresh,
+}: {
+  session: SessionClient;
+  credentials: AdminCredential[] | undefined;
+  view: ViewSnapshot;
+  mutations: MutationCoordinator;
+  sinks: SensitiveSinkCoordinator;
+  onRefresh: () => void;
+}) {
+  const [controller] = useState<
+    MutationController<CreatedAdminCredential | undefined>
+  >(() => mutations.create<CreatedAdminCredential | undefined>());
+  const [mutation, setMutation] = useState<MutationSnapshot>(() =>
+    controller.snapshot(),
+  );
+  const [expiry, setExpiry] = useState("");
+  const [prepared, setPrepared] = useState<PreparedOneTimeSink>();
+  const [revoke, setRevoke] = useState<AdminCredential>();
+  const [detail, setDetail] = useState<AdminCredential>();
+  const [notice, setNotice] = useState<string>();
+  const createButton = useRef<HTMLButtonElement>(null);
+  const revokeButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => controller.subscribe(setMutation), [controller]);
+  useEffect(() => () => controller.close(), [controller]);
+  useEffect(() => () => prepared?.cancel(), [prepared]);
+  const panelStatus = view.panels["admin-credentials"]?.status ?? "loading";
+  const activeNonExpiring =
+    credentials?.filter(
+      (credential) => credential.status === "active" && credential.nonExpiring,
+    ).length ?? 0;
+  const disabled =
+    mutation.state === "submitting" ||
+    mutation.availability === "storage_latched";
+
+  const decodeCreate = async (response: Response) => {
+    if (response.headers.get("Content-Type") !== "application/json")
+      throw new Error("invalid response");
+    return decodeCreatedCredential((await response.json()) as unknown);
+  };
+  const decodeRevoke = async (response: Response) => {
+    if (response.status !== 204) throw new Error("invalid response");
+    return undefined;
+  };
+  const beginCreate = async () => {
+    setNotice(undefined);
+    let expiresAt: string | null = null;
+    if (expiry !== "") {
+      const timestamp = Date.parse(expiry);
+      const delta = timestamp - Date.now();
+      if (
+        !Number.isFinite(timestamp) ||
+        delta < 5 * 60_000 ||
+        delta > 365 * 24 * 60 * 60_000
+      ) {
+        setNotice(
+          "Expiry must be an RFC 3339 time from 5 minutes through 365 days in the future.",
+        );
+        return;
+      }
+      expiresAt = new Date(timestamp).toISOString();
+    }
+    const sink = sinks.prepareOneTime("New administrator bearer");
+    if (sink === undefined) {
+      setNotice(
+        "The protected one-time display could not be prepared. No credential was created.",
+      );
+      return;
+    }
+    setPrepared(sink);
+    const spec: MutationSpec<CreatedAdminCredential | undefined> = {
+      route: "/api/v1/admin-credentials",
+      method: "POST",
+      body: JSON.stringify({ expires_at: expiresAt }),
+      precondition: null,
+      requiresPrecondition: false,
+      idempotency: "none",
+      successStatuses: [201],
+      decode: decodeCreate,
+    };
+    controller.begin(spec);
+    controller.confirm();
+    const outcome = await controller.submit();
+    if (outcome.kind === "acknowledged" && outcome.value !== undefined) {
+      const publication = sink.publish(outcome.value.bearer);
+      setNotice(
+        publication === "published"
+          ? "The one-time administrator bearer is ready. It cannot be revealed again."
+          : "The bearer was returned but could not be displayed and cannot be recovered. Create a new credential after reviewing current state.",
+      );
+      setPrepared(undefined);
+      setExpiry("");
+      controller.abandon();
+      onRefresh();
+      return;
+    }
+    if (outcome.kind === "uncertain") sink.lose();
+    else sink.cancel();
+    setPrepared(undefined);
+  };
+  const inspectCredential = async (credentialID: string) => {
+    setNotice(undefined);
+    const value = await session.runProtected(async (context) => {
+      const response = await fetch(
+        `/api/v1/admin-credentials/${credentialID}`,
+        {
+          method: "GET",
+          headers: { "X-CSRF-Token": context.csrfToken },
+          credentials: "same-origin",
+          redirect: "error",
+          signal: context.signal,
+        },
+      );
+      if (await context.sessionLost(response)) return undefined;
+      if (
+        response.status !== 200 ||
+        response.headers.get("Content-Type") !== "application/json"
+      )
+        throw new Error("Administrator credential detail is unavailable.");
+      return decodeCredential((await response.json()) as unknown);
+    });
+    setDetail(value);
+  };
+  const beginRevoke = (credential: AdminCredential) => {
+    setNotice(undefined);
+    setRevoke(credential);
+    const spec: MutationSpec<CreatedAdminCredential | undefined> = {
+      route: `/api/v1/admin-credentials/${credential.id}`,
+      method: "DELETE",
+      body: "{}",
+      precondition: null,
+      requiresPrecondition: false,
+      idempotency: "none",
+      successStatuses: [204],
+      decode: decodeRevoke,
+    };
+    controller.begin(spec);
+    controller.confirm();
+  };
+  const cancelRevoke = () => {
+    setRevoke(undefined);
+    controller.abandon();
+  };
+  const confirmRevoke = async () => {
+    const outcome = await controller.submit();
+    setRevoke(undefined);
+    if (outcome.kind === "acknowledged") {
+      setNotice(
+        "Administrator credential revoked. Every child browser session authenticated by it is closed.",
+      );
+      controller.abandon();
+      onRefresh();
+    }
+  };
+
+  return (
+    <section
+      class="panel domain-panel"
+      aria-labelledby="admin-credentials-title"
+      data-testid="admin-credentials-view"
+      data-panel-status={panelStatus}
+    >
+      <div class="panel-heading">
+        <div>
+          <span class="panel-code">ADMIN AUTHORITY</span>
+          <h2 id="admin-credentials-title">Administrator credentials</h2>
+        </div>
+        <StatusLabel state={panelStatus === "error" ? "error" : panelStatus}>
+          {panelStatus}
+        </StatusLabel>
+      </div>
+      <p>
+        Bearers appear once in the protected display. Persist only fingerprints
+        and metadata; a bearer cannot be recovered or shown again.
+      </p>
+      <FormField
+        id="admin-credential-expiry"
+        label="Optional expiry (RFC 3339)"
+        hint="Blank creates non-expiring authority. Expiry must be 5 minutes through 365 days ahead."
+      >
+        {(attributes) => (
+          <input
+            {...attributes}
+            data-testid="admin-credential-expiry"
+            value={expiry}
+            disabled={disabled}
+            placeholder="2030-01-01T00:00:00Z"
+            onInput={(event) => setExpiry(event.currentTarget.value)}
+          />
+        )}
+      </FormField>
+      <button
+        ref={createButton}
+        data-testid="admin-credential-create"
+        type="button"
+        disabled={disabled}
+        onClick={() => void beginCreate()}
+      >
+        Create administrator credential
+      </button>
+      {mutation.problem !== undefined && (
+        <StateNotice state="error" title={mutation.problem.title}>
+          <p>No force or silent overwrite path is available.</p>
+        </StateNotice>
+      )}
+      {mutation.state === "uncertain" && (
+        <StateNotice state="warning" title="Credential outcome is unknown">
+          <p>
+            Do not replay. Refresh the list to investigate; any returned bearer
+            was lost and cannot be recovered.
+          </p>
+        </StateNotice>
+      )}
+      {notice !== undefined && <StateNotice state="empty" title={notice} />}
+      {panelStatus === "error" && credentials === undefined ? (
+        <StateNotice
+          state="error"
+          title="Administrator credentials unavailable"
+        />
+      ) : credentials === undefined ? (
+        <StateNotice
+          state="loading"
+          title="Loading administrator credentials"
+        />
+      ) : credentials.length === 0 ? (
+        <StateNotice state="empty" title="No administrator credentials" />
+      ) : (
+        <ComparisonTable caption="Administrator credential authority">
+          <thead>
+            <tr>
+              <th scope="col">Credential</th>
+              <th scope="col">State</th>
+              <th scope="col">Lifetime</th>
+              <th scope="col">Revision</th>
+              <th scope="col">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {credentials.map((credential) => {
+              const protectedLast =
+                credential.status === "active" &&
+                credential.nonExpiring &&
+                activeNonExpiring <= 1;
+              return (
+                <tr key={credential.id} data-testid="admin-credential-row">
+                  <th scope="row">
+                    <button
+                      class="text-button"
+                      data-testid="admin-credential-inspect"
+                      type="button"
+                      onClick={() => void inspectCredential(credential.id)}
+                    >
+                      {credential.fingerprint}
+                    </button>
+                    <br />
+                    <code>{credential.id}</code>
+                    <br />
+                    Created {credential.createdAt}
+                  </th>
+                  <td>
+                    <StatusLabel
+                      state={
+                        credential.status === "active"
+                          ? "current"
+                          : "unavailable"
+                      }
+                    >
+                      {credential.status}
+                    </StatusLabel>
+                  </td>
+                  <td>
+                    {credential.nonExpiring
+                      ? "Non-expiring"
+                      : `Expires ${credential.expiresAt ?? "unknown"}`}
+                  </td>
+                  <td>{credential.revision}</td>
+                  <td>
+                    {credential.status === "active" ? (
+                      <button
+                        ref={revokeButton}
+                        class="danger-action"
+                        data-testid="admin-credential-revoke"
+                        type="button"
+                        disabled={disabled || protectedLast}
+                        title={
+                          protectedLast
+                            ? "The last active non-expiring administrator authority cannot be revoked."
+                            : undefined
+                        }
+                        onClick={() => beginRevoke(credential)}
+                      >
+                        Revoke
+                      </button>
+                    ) : (
+                      "Terminal"
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </ComparisonTable>
+      )}
+      {detail !== undefined && (
+        <section class="subpanel" data-testid="admin-credential-detail">
+          <h3>Credential {detail.fingerprint}</h3>
+          <dl class="fact-grid">
+            <div>
+              <dt>Permanent ID</dt>
+              <dd>
+                <code>{detail.id}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Status</dt>
+              <dd>{detail.status}</dd>
+            </div>
+            <div>
+              <dt>Created</dt>
+              <dd>{detail.createdAt}</dd>
+            </div>
+            <div>
+              <dt>Expiry</dt>
+              <dd>{detail.expiresAt ?? "Non-expiring"}</dd>
+            </div>
+            <div>
+              <dt>Revision</dt>
+              <dd>{detail.revision}</dd>
+            </div>
+          </dl>
+        </section>
+      )}
+      <StateNotice state="warning" title="Revocation closes child sessions">
+        <p>
+          Revoking authority closes every browser session authenticated by that
+          credential, including this session when it is a child. The Gateway
+          refuses removal of the last active non-expiring authority.
+        </p>
+      </StateNotice>
+      <ConfirmationDialog
+        id="admin-credential-revoke-confirm"
+        open={revoke !== undefined && mutation.state === "confirming"}
+        title="Revoke administrator credential?"
+        consequence={
+          <p>
+            Credential {revoke?.fingerprint} stops authenticating and all of its
+            child browser sessions close. This cannot be forced or undone.
+          </p>
+        }
+        confirmLabel="Revoke administrator credential"
+        destructive
+        returnFocus={revokeButton}
+        onCancel={cancelRevoke}
+        onConfirm={() => void confirmRevoke()}
+      />
+    </section>
+  );
+}
+
 export function System({
   controller,
+  session,
+  mutations,
+  sinks,
   view,
   onRefresh,
 }: {
   controller: SystemController;
+  session: SessionClient;
+  mutations: MutationCoordinator;
+  sinks: SensitiveSinkCoordinator;
   view: ViewSnapshot;
   onRefresh: () => void;
 }) {
   const [status, setStatus] = useState(controller.snapshot());
+  const [credentials, setCredentials] = useState(
+    controller.credentialSnapshot(),
+  );
   useEffect(() => controller.subscribe(setStatus), [controller]);
+  useEffect(
+    () => controller.subscribeCredentials(setCredentials),
+    [controller],
+  );
   const current = tab(view.viewKey);
   return (
     <div class="system-view" data-testid="system-view">
@@ -358,6 +899,15 @@ export function System({
       )}
       {current === "status" ? (
         <StatusPanel status={status} view={view} />
+      ) : current === "admin-credentials" ? (
+        <AdminCredentials
+          session={session}
+          credentials={credentials}
+          view={view}
+          mutations={mutations}
+          sinks={sinks}
+          onRefresh={onRefresh}
+        />
       ) : current === "recovery" ? (
         <Recovery status={status} />
       ) : (

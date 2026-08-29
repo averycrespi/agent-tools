@@ -42,6 +42,7 @@ interface BridgeInput {
     | "m5-canary"
     | "m6-canary"
     | "m7-canary"
+    | "admin-credentials"
     | "principals"
     | "principal-credentials"
     | "grant-reads-create"
@@ -117,6 +118,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "m5-canary" &&
       value.scenario !== "m6-canary" &&
       value.scenario !== "m7-canary" &&
+      value.scenario !== "admin-credentials" &&
       value.scenario !== "principals" &&
       value.scenario !== "principal-credentials" &&
       value.scenario !== "grant-reads-create" &&
@@ -2172,6 +2174,197 @@ async function runM7Canary(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "m7_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length, mutations: mutationCount })}\n`,
+  );
+}
+
+async function runAdminCredentials(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const ids = [
+    "01ARZ3NDEKTSV4RRFFQ69G5FA0",
+    "01ARZ3NDEKTSV4RRFFQ69G5FA1",
+    "01ARZ3NDEKTSV4RRFFQ69G5FA2",
+    "01ARZ3NDEKTSV4RRFFQ69G5FA3",
+  ];
+  const issuedBearer = `mgw_admin_${"I".repeat(43)}`;
+  const lostBearer = `mgw_admin_${"L".repeat(43)}`;
+  const credential = (
+    index: number,
+    status: "active" | "revoked" = "active",
+    nonExpiring = true,
+  ) => ({
+    id: ids[index],
+    fingerprint: `${String(index + 1).padStart(16, "0")}`,
+    created_at: "2026-08-28T12:00:00Z",
+    expires_at: nonExpiring ? null : "2026-09-28T12:00:00Z",
+    non_expiring: nonExpiring,
+    status,
+    revision: String(index + 1),
+  });
+  let items = [credential(0), credential(1), credential(2, "active", false)];
+  let creates = 0;
+  let revokes = 0;
+  let detailReads = 0;
+  let releaseLost: (() => void) | undefined;
+  let markLostStarted: (() => void) | undefined;
+  const lostStarted = new Promise<void>((resolve) => {
+    markLostStarted = resolve;
+  });
+
+  await page.route("**/api/v1/admin-credentials**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const id =
+      path === "/api/v1/admin-credentials" ? undefined : path.split("/").pop();
+    if (request.method() === "GET" && id === undefined) {
+      const query = new URL(request.url()).searchParams;
+      if (query.get("limit") !== "100")
+        fail("admin credential list changed shape");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items, next_cursor: null }),
+      });
+      return;
+    }
+    if (request.method() === "GET" && id !== undefined) {
+      detailReads += 1;
+      const item = items.find((candidate) => candidate.id === id);
+      if (item === undefined) fail("unknown admin credential detail");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(item),
+      });
+      return;
+    }
+    if (request.method() === "POST" && id === undefined) {
+      creates += 1;
+      const body = JSON.parse(request.postData() ?? "null") as Record<
+        string,
+        unknown
+      >;
+      if (Object.keys(body).join(",") !== "expires_at")
+        fail("admin credential create changed shape");
+      if (creates === 2) {
+        markLostStarted?.();
+        await new Promise<void>((resolve) => {
+          releaseLost = resolve;
+        });
+      }
+      const created = credential(3);
+      items = [...items, created];
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...created,
+          bearer: creates === 1 ? issuedBearer : lostBearer,
+        }),
+      });
+      return;
+    }
+    if (request.method() === "DELETE" && id !== undefined) {
+      revokes += 1;
+      if (request.postData() !== "{}")
+        fail("admin credential revoke changed shape");
+      if (id === ids[0]) {
+        await route.fulfill({
+          status: 409,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 409,
+            code: "conflict",
+            title: "The last active non-expiring authority cannot be revoked.",
+          }),
+        });
+        return;
+      }
+      items = items.map((item) =>
+        item.id === id
+          ? { ...item, status: "revoked" as const, revision: "9" }
+          : item,
+      );
+      await route.fulfill({ status: 204, body: "" });
+      return;
+    }
+    fail("unexpected admin credential request");
+  });
+
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=admin-credentials";
+  });
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.locator('[data-testid="admin-credentials-view"]').waitFor();
+  await page
+    .locator('[data-testid="admin-credential-inspect"]')
+    .first()
+    .click();
+  await page.locator('[data-testid="admin-credential-detail"]').waitFor();
+  await page.locator('[data-testid="admin-credential-expiry"]').fill("invalid");
+  await page.locator('[data-testid="admin-credential-create"]').click();
+  await page.getByText(/Expiry must be an RFC 3339 time/).waitFor();
+  if (creates !== 0) fail("invalid admin expiry reached the API");
+  await page.locator('[data-testid="admin-credential-expiry"]').fill("");
+  await page.locator('[data-testid="admin-credential-create"]').click();
+  await page.locator('[data-testid="one-time-value"]').waitFor();
+  if (
+    (await page.locator('[data-testid="one-time-value"]').textContent()) !==
+    issuedBearer
+  )
+    fail("admin bearer did not reach the prepared sink");
+  await page.locator('[data-testid="copy-one-time-value"]').click();
+  await page.getByRole("button", { name: "Dismiss and clear" }).click();
+  await page.locator('[data-testid="admin-credential-revoke"]').first().click();
+  await page
+    .locator('[data-testid="admin-credential-revoke-confirm-submit"]')
+    .click();
+  await page
+    .getByText("The last active non-expiring authority cannot be revoked.", {
+      exact: true,
+    })
+    .waitFor();
+  const expiringRow = page
+    .locator('[data-testid="admin-credential-row"]')
+    .filter({ hasText: "Expires" });
+  await expiringRow.locator('[data-testid="admin-credential-revoke"]').click();
+  await page
+    .locator('[data-testid="admin-credential-revoke-confirm-submit"]')
+    .click();
+  await page.getByText(/Administrator credential revoked/).waitFor();
+  const body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "closes every browser session",
+    "cannot be forced",
+    "last active non-expiring",
+  ])
+    if (!body.includes(phrase))
+      fail(`admin credential consequence omitted ${phrase}`);
+
+  await page.locator('[data-testid="admin-credential-create"]').click();
+  await lostStarted;
+  await page.getByRole("button", { name: "Dismiss and clear" }).click();
+  await page.locator('[data-testid="logout"]').click();
+  await page.locator('[data-testid="logout-confirmation-submit"]').click();
+  await waitForLifecycle(page, "signed_out");
+  releaseLost?.();
+  await assertSecretAbsent(
+    page,
+    context,
+    baseURL,
+    [bearer, issuedBearer, lostBearer],
+    false,
+  );
+  process.stdout.write(
+    `${JSON.stringify({ event: "admin_credentials_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), creates, revokes, detail_reads: detailReads })}\n`,
   );
 }
 
@@ -7971,6 +8164,15 @@ try {
         initialBearer,
         () => requests,
       );
+    } else if (input.scenario === "admin-credentials") {
+      await runAdminCredentials(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
     } else if (input.scenario === "principals") {
       await runPrincipals(
         browser.version(),
@@ -8148,6 +8350,11 @@ try {
           ),
         )) ||
       (input.scenario === "request-reads" &&
+        consoleFailures.length === 1 &&
+        consoleFailures.some((value) =>
+          value.includes("server responded with a status of 409"),
+        )) ||
+      (input.scenario === "admin-credentials" &&
         consoleFailures.length === 1 &&
         consoleFailures.some((value) =>
           value.includes("server responded with a status of 409"),
