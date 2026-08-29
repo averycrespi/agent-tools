@@ -33,6 +33,21 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		return runAdminCredentialCreate(command, options)
 	case "admin-credential revoke":
 		return runAdminCredentialRevoke(command, options, args)
+	case "backup list":
+		path, err := controlclient.BuildListPath("/api/v1/backups", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
+		if err != nil {
+			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
+		}
+		return runOnlineRead(command, options, path, backupListTable)
+	case "backup get":
+		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
+			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The backup ID is invalid."))
+		}
+		return runOnlineRead(command, options, "/api/v1/backups/"+args[0], backupItemTable)
+	case "backup create":
+		return runBackupCreate(command, options)
+	case "backup delete":
+		return runBackupDelete(command, options, args)
 	case "invocation list":
 		path, err := invocationListPath(options)
 		if err != nil {
