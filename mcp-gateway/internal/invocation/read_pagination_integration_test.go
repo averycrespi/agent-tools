@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6M2Gate(t *testing.T) {
+func TestInvocationReadPaginationIntegration(t *testing.T) {
 	repository, _, _ := newInvocationRepository(t, nil, uniqueInvocationEntropy(3))
 	older := insertReadFixture(t, repository, Admission{
 		PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef",

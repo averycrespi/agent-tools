@@ -92,7 +92,7 @@ func TestS5StressSyntheticSnapshotPagination(t *testing.T) {
 }
 
 func TestS5StressLostLocalMutationResponseDeduplicatesExplicitRetry(t *testing.T) {
-	TestS5DrainSelfServiceReportsPostCommitUncertaintyWithoutTerminalReplay(t)
+	TestDrainSelfServiceReportsPostCommitUncertaintyWithoutTerminalReplay(t)
 }
 
 type stressPolicySource struct {

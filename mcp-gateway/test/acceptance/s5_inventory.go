@@ -1,20 +1,20 @@
 package acceptance
 
 var S5IntegrationTestManifest = []string{
+	"TestAtomicApprovalAndPostCommitRecoveryIntegration",
 	"TestBusyBeyondDeadlineLatchesMutationAcrossRestart",
 	"TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline",
 	"TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss",
 	"TestRepositoryRetainsNewest4096ByMonotonicSequence",
 	"TestRepositoryRollsBackEvictionWhenInsertFails",
+	"TestRequestLifecycleIntegration",
+	"TestRequestRetentionAndEvidenceLimitsIntegration",
 	"TestRequestSchemaMigrationUsesRealSQLite",
 	"TestRestoreAcceptedSchemaLineages",
 	"TestS5IntegrationApprovalVsPolicyAndCapacity",
-	"TestS5IntegrationAtomicApprovalAndPostCommitRecovery",
 	"TestS5IntegrationCatalogEvidenceReplacement",
 	"TestS5IntegrationCreateVsTargetAndPolicy",
 	"TestS5IntegrationCredentialAdmissionOrdering",
-	"TestS5IntegrationRequestLifecycle",
-	"TestS5IntegrationRequestRetentionAndEvidenceLimits",
 }
 
 var S5StressTestManifest = []string{

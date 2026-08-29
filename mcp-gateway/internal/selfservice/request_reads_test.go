@@ -26,7 +26,7 @@ const selfserviceTestInstallationID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 var selfserviceTestTime = time.Date(2026, 8, 27, 18, 0, 0, 0, time.UTC)
 
-func TestS5RequestReadCursorSeamDerivesOwnerAndProtectsBoundaries(t *testing.T) {
+func TestRequestReadCursorDerivesOwnerAndProtectsBoundaries(t *testing.T) {
 	authority, store, subject, credential := newAdmittedSubject(t)
 	reader := &fakeRequestReader{
 		get:      contract.AgentGrantRequest{ID: selfserviceID(501), State: contract.RequestPending, Revision: "1"},
@@ -127,7 +127,7 @@ func TestS5RequestReadCursorSeamDerivesOwnerAndProtectsBoundaries(t *testing.T) 
 	assert.Equal(t, contract.RequestFound, ownedAfterRotation.Outcome)
 }
 
-func TestS5RequestCursorRejectsInvalidConstructionAndAuthenticatedState(t *testing.T) {
+func TestRequestCursorRejectsInvalidConstructionAndAuthenticatedState(t *testing.T) {
 	_, _, subject, _ := newAdmittedSubject(t)
 	_, err := NewCursorCodec(nil, selfserviceID(900))
 	require.Error(t, err)

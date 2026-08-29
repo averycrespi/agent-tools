@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6InvocationRepositoryReads(t *testing.T) {
+func TestInvocationRepositoryReadsIntegration(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("newest pages filters and item capture", func(t *testing.T) {

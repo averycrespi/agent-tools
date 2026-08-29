@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5DrainPipelineFenceCountsWithoutQueueingAndJoinsAfterDeadline(t *testing.T) {
+func TestDrainPipelineFenceCountsWithoutQueueingAndJoinsAfterDeadline(t *testing.T) {
 	fence := NewPipelineFence()
 	firstRelease, ok := fence.TryEnter()
 	require.True(t, ok)

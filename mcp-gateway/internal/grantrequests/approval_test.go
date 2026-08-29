@@ -18,7 +18,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
 
-func TestS5ApprovalSeamAtomicallyCreatesAllowAndApprovedRequest(t *testing.T) {
+func TestApprovalAtomicallyCreatesAllowAndApprovedRequest(t *testing.T) {
 	fixture := newApprovalFixture(t)
 	created := fixture.createRequest(t, contract.Policy{
 		Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true,
@@ -84,7 +84,7 @@ func TestS5ApprovalSeamAtomicallyCreatesAllowAndApprovedRequest(t *testing.T) {
 	require.NoError(t, fixture.requests.ValidateStartup(context.Background(), fixture.authority, targets))
 }
 
-func TestS5ApprovalEnforcesConstraintAndDurationNarrowing(t *testing.T) {
+func TestApprovalEnforcesConstraintAndDurationNarrowing(t *testing.T) {
 	baseConstraint := constraint(`{"equals":{"/x":1,"/y":"a"}}`)
 	moreConstraint := constraint(`{"equals":{"/z":true,"/y":"a","/x":1}}`)
 	droppedConstraint := constraint(`{"equals":{"/x":1}}`)
@@ -129,7 +129,7 @@ func TestS5ApprovalEnforcesConstraintAndDurationNarrowing(t *testing.T) {
 	}
 }
 
-func TestS5ApprovalKnownFailuresLeavePendingWithoutGrantOrRevision(t *testing.T) {
+func TestApprovalKnownFailuresLeavePendingWithoutGrantOrRevision(t *testing.T) {
 	tests := []struct {
 		name          string
 		arrange       func(*testing.T, *approvalFixture, contract.AgentGrantRequest)
@@ -203,7 +203,7 @@ func TestS5ApprovalKnownFailuresLeavePendingWithoutGrantOrRevision(t *testing.T)
 	}
 }
 
-func TestS5ApprovalConditionalBarriersHaveOneWinner(t *testing.T) {
+func TestApprovalConditionalBarriersHaveOneWinner(t *testing.T) {
 	for _, loser := range []string{"cancel", "reject", "deny"} {
 		t.Run(loser, func(t *testing.T) {
 			fixture := newApprovalFixture(t)

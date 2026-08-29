@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5IntegrationRequestRetentionAndEvidenceLimits(t *testing.T) {
+func TestRequestRetentionAndEvidenceLimitsIntegration(t *testing.T) {
 	t.Run("row capacity evicts oldest terminal only", func(t *testing.T) {
 		namespaces := &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
 			"sample": {ID: requestID(400), Namespace: "sample", State: contract.DesiredServerDisabled},

@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5StartupAcceptsCompleteLifecycleAndHistoricalDeletedGrantID(t *testing.T) {
+func TestStartupAcceptsCompleteLifecycleAndHistoricalDeletedGrantID(t *testing.T) {
 	clock := &countingRequestClock{now: requestTestTime}
 	descriptor := requestDescriptor(t, requestID(400), requestID(401), "sample", "echo", contract.EvidenceRetired)
 	repository, store := newRequestRepository(t, requestRepositoryOptions{
@@ -70,7 +70,7 @@ func TestS5StartupAcceptsCompleteLifecycleAndHistoricalDeletedGrantID(t *testing
 	require.NoError(t, repository.ValidateStartup(context.Background(), principals, targets), "evicted historical identities need no live request or grant")
 }
 
-func TestS5StartupAcceptsApprovedHistoricalGrantAfterLiveGrantDeletion(t *testing.T) {
+func TestStartupAcceptsApprovedHistoricalGrantAfterLiveGrantDeletion(t *testing.T) {
 	clock := &countingRequestClock{now: requestTestTime}
 	repository, store := newRequestRepository(t, requestRepositoryOptions{
 		clock: clock,
@@ -110,7 +110,7 @@ func TestS5StartupAcceptsApprovedHistoricalGrantAfterLiveGrantDeletion(t *testin
 	require.NoError(t, repository.ValidateStartup(context.Background(), authority, targets))
 }
 
-func TestS5StartupRejectsMissingOwnerTargetIdentityDedupeAndEvidence(t *testing.T) {
+func TestStartupRejectsMissingOwnerTargetIdentityDedupeAndEvidence(t *testing.T) {
 	tests := []struct {
 		name    string
 		prepare func(*testing.T, *Repository, *sqlStoreFixture, *fakeStoredPrincipalInspector, *fakeStoredTargetInspector)
@@ -169,7 +169,7 @@ func TestS5StartupRejectsMissingOwnerTargetIdentityDedupeAndEvidence(t *testing.
 	}
 }
 
-func TestS5StartupRejectsPendingPerPrincipalCapacityOverflow(t *testing.T) {
+func TestStartupRejectsPendingPerPrincipalCapacityOverflow(t *testing.T) {
 	repository, store := newRequestRepository(t, requestRepositoryOptions{})
 	principalID := requestID(200)
 	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {

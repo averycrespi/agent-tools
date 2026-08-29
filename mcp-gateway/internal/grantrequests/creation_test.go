@@ -26,7 +26,7 @@ const requestTestInstallationID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 var requestTestTime = time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 
-func TestS5RequestCreateSeamPersistsBoundedEvidenceAndInvalidates(t *testing.T) {
+func TestRequestCreatePersistsBoundedEvidenceAndInvalidates(t *testing.T) {
 	namespaces := &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
 		"sample": {ID: requestID(400), Namespace: "sample", State: contract.DesiredServerDisabled},
 	}}
@@ -86,7 +86,7 @@ func TestS5RequestCreateSeamPersistsBoundedEvidenceAndInvalidates(t *testing.T) 
 	}))
 }
 
-func TestS5SemanticDedupeWinsBeforeDeletedTargetDenyAndCapacity(t *testing.T) {
+func TestSemanticDedupeWinsBeforeDeletedTargetDenyAndCapacity(t *testing.T) {
 	namespaces := &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
 		"sample": {ID: requestID(400), Namespace: "sample", State: contract.DesiredServerDisabled},
 	}}
@@ -134,7 +134,7 @@ func TestS5SemanticDedupeWinsBeforeDeletedTargetDenyAndCapacity(t *testing.T) {
 	}))
 }
 
-func TestS5SemanticDedupeConcurrentSubmissionNeverQueuesOrDuplicates(t *testing.T) {
+func TestSemanticDedupeConcurrentSubmissionNeverQueuesOrDuplicates(t *testing.T) {
 	base := &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
 		"sample": {ID: requestID(400), Namespace: "sample", State: contract.DesiredServerDisabled},
 	}}
@@ -183,7 +183,7 @@ func TestS5SemanticDedupeConcurrentSubmissionNeverQueuesOrDuplicates(t *testing.
 	}))
 }
 
-func TestS5RequestCreateReturnsClosedTargetDenyAndValidationOutcomes(t *testing.T) {
+func TestRequestCreateReturnsClosedTargetDenyAndValidationOutcomes(t *testing.T) {
 	namespaces := &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
 		"sample":  {ID: requestID(400), Namespace: "sample", State: contract.DesiredServerDisabled},
 		"deleted": {ID: requestID(402), Namespace: "deleted", State: contract.DesiredServerDeleted},
@@ -225,7 +225,7 @@ func TestS5RequestCreateReturnsClosedTargetDenyAndValidationOutcomes(t *testing.
 	require.ErrorIs(t, err, ErrInvalidInput)
 }
 
-func TestS5DrainCreatePostCommitUncertaintyReturnsUnavailableWithoutInvalidation(t *testing.T) {
+func TestDrainCreatePostCommitUncertaintyReturnsUnavailableWithoutInvalidation(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))
 	ownership, err := gatewaypaths.Acquire(root)
@@ -280,7 +280,7 @@ func TestS5DrainCreatePostCommitUncertaintyReturnsUnavailableWithoutInvalidation
 	require.NoError(t, ownership.Close())
 }
 
-func TestS5DrainCancellationPostCommitUncertaintyHasNoLateInvalidationOrReplay(t *testing.T) {
+func TestDrainCancellationPostCommitUncertaintyHasNoLateInvalidationOrReplay(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))
 	ownership, err := gatewaypaths.Acquire(root)
@@ -341,7 +341,7 @@ func TestS5DrainCancellationPostCommitUncertaintyHasNoLateInvalidationOrReplay(t
 	require.NoError(t, ownership.Close())
 }
 
-func TestS5RequestCreatePermanentIdentityRejectsReuseAfterEviction(t *testing.T) {
+func TestRequestCreatePermanentIdentityRejectsReuseAfterEviction(t *testing.T) {
 	namespaces := &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
 		"sample": {ID: requestID(400), Namespace: "sample", State: contract.DesiredServerDisabled},
 	}}

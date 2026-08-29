@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5LocalTargetPinsSyntheticCatalogEvidenceAndValidation(t *testing.T) {
+func TestLocalTargetPinsSyntheticCatalogEvidenceAndValidation(t *testing.T) {
 	synthetic, found := catalog.ResolveSyntheticCall("mcp_gateway.get_identity")
 	require.True(t, found)
 	target, err := NewLocalTarget(synthetic, func(context.Context, authorization.AdmittedSubject, strictjson.Value) LocalCallResult {
@@ -30,7 +30,7 @@ func TestS5LocalTargetPinsSyntheticCatalogEvidenceAndValidation(t *testing.T) {
 	assert.Error(t, target.validate(callParams(`{"unexpected":true}`)))
 }
 
-func TestS5SelfServiceSupplementaryValidationRunsBeforeAdmissionAndHandler(t *testing.T) {
+func TestSelfServiceSupplementaryValidationRunsBeforeAdmissionAndHandler(t *testing.T) {
 	_, audits, authority, _, credential := newAdmissionCoordinator(t, nil)
 	lease, err := authority.Authenticate(context.Background(), credential.Bearer)
 	require.NoError(t, err)
@@ -58,7 +58,7 @@ func TestS5SelfServiceSupplementaryValidationRunsBeforeAdmissionAndHandler(t *te
 	assert.Equal(t, contract.AdmissionInvalidArguments, record.AdmissionClass)
 }
 
-func TestS5LocalInvocationRunsOnceAfterAuditWithMinimalAdmittedSubject(t *testing.T) {
+func TestLocalInvocationRunsOnceAfterAuditWithMinimalAdmittedSubject(t *testing.T) {
 	_, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
 	lease, err := authority.Authenticate(context.Background(), credential.Bearer)
 	require.NoError(t, err)
@@ -109,7 +109,7 @@ func TestS5LocalInvocationRunsOnceAfterAuditWithMinimalAdmittedSubject(t *testin
 	assert.Equal(t, contract.TerminalSucceeded, *record.TerminalClass)
 }
 
-func TestS5LocalInvocationNeverExecutesWithoutAllow(t *testing.T) {
+func TestLocalInvocationNeverExecutesWithoutAllow(t *testing.T) {
 	_, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
 	upstream := "get_identity"
 	_, err := authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{
@@ -135,7 +135,7 @@ func TestS5LocalInvocationNeverExecutesWithoutAllow(t *testing.T) {
 	assert.Nil(t, record.TerminalClass)
 }
 
-func TestS5LocalStorageFailuresUseToolUnavailableWithoutOutcomeUnknown(t *testing.T) {
+func TestLocalStorageFailuresUseToolUnavailableWithoutOutcomeUnknown(t *testing.T) {
 	tests := []struct {
 		name       string
 		result     LocalCallResult
@@ -170,7 +170,7 @@ func TestS5LocalStorageFailuresUseToolUnavailableWithoutOutcomeUnknown(t *testin
 	}
 }
 
-func TestS5LocalExtensionPreservesOneDownstreamAcquireAndExecute(t *testing.T) {
+func TestLocalExtensionPreservesOneDownstreamAcquireAndExecute(t *testing.T) {
 	_, audits, authority, _, credential := newAdmissionCoordinator(t, nil)
 	lease, err := authority.Authenticate(context.Background(), credential.Bearer)
 	require.NoError(t, err)

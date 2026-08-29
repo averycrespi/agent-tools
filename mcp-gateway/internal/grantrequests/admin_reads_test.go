@@ -14,7 +14,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 )
 
-func TestS5GrantRequestAdminSummaryItemCursorAndCurrentComparison(t *testing.T) {
+func TestGrantRequestAdminSummaryItemCursorAndCurrentComparison(t *testing.T) {
 	active := &fakeActiveTargetInspector{state: contract.TargetActiveCurrent}
 	namespaces := &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
 		"sample": {ID: requestID(400), Namespace: "sample", State: contract.DesiredServerDisabled},
@@ -94,7 +94,7 @@ func TestS5GrantRequestAdminSummaryItemCursorAndCurrentComparison(t *testing.T) 
 	assert.ErrorIs(t, err, ErrNotFound)
 }
 
-func TestS5GrantRequestAdminServiceReturnsFullAdjudicationWithoutFollowupRowRead(t *testing.T) {
+func TestGrantRequestAdminServiceReturnsFullAdjudicationWithoutFollowupRowRead(t *testing.T) {
 	fixture := newApprovalFixture(t)
 	fixture.requests.active = &fakeActiveTargetInspector{state: contract.TargetActiveCurrent}
 	fixture.descriptors.descriptors["sample.tool"] = requestDescriptor(t, requestID(400), requestID(500), "sample", "tool", contract.EvidenceCurrent)

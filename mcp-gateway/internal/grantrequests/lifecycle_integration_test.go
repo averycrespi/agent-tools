@@ -21,7 +21,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
 
-func TestS5IntegrationRequestLifecycle(t *testing.T) {
+func TestRequestLifecycleIntegration(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))
 	ownership, err := gatewaypaths.Acquire(root)

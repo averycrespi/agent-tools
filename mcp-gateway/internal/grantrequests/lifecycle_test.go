@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5RequestLifecycleSeamCancellationIsOwnerOnlyAndIdempotent(t *testing.T) {
+func TestRequestCancellationIsOwnerOnlyAndIdempotent(t *testing.T) {
 	clock := &countingRequestClock{now: requestTestTime.Add(time.Second)}
 	invalidations := 0
 	repository, _ := newRequestRepository(t, requestRepositoryOptions{
@@ -57,7 +57,7 @@ func TestS5RequestLifecycleSeamCancellationIsOwnerOnlyAndIdempotent(t *testing.T
 	assert.Equal(t, 1, invalidations)
 }
 
-func TestS5RejectValidatesRevisionReasonAndTerminalState(t *testing.T) {
+func TestRejectValidatesRevisionReasonAndTerminalState(t *testing.T) {
 	for _, reason := range contract.GrantRequestRejectionReasons() {
 		t.Run(string(reason), func(t *testing.T) {
 			clock := &countingRequestClock{now: requestTestTime.Add(time.Second)}
@@ -103,7 +103,7 @@ func TestS5RejectValidatesRevisionReasonAndTerminalState(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidInput)
 }
 
-func TestS5RequestLifecycleClockFailureRollsBackWithoutInvalidation(t *testing.T) {
+func TestRequestLifecycleClockFailureRollsBackWithoutInvalidation(t *testing.T) {
 	clock := &countingRequestClock{now: requestTestTime}
 	invalidations := 0
 	repository, _ := newRequestRepository(t, requestRepositoryOptions{
@@ -129,7 +129,7 @@ func TestS5RequestLifecycleClockFailureRollsBackWithoutInvalidation(t *testing.T
 	assert.Equal(t, "1", stored.Revision)
 }
 
-func TestS5CancelAndRejectConditionalBarrierHasOneTerminalWinner(t *testing.T) {
+func TestCancelAndRejectConditionalBarrierHasOneTerminalWinner(t *testing.T) {
 	clock := &blockingLifecycleClock{now: requestTestTime.Add(time.Second), entered: make(chan struct{}), release: make(chan struct{})}
 	repository, _ := newRequestRepository(t, requestRepositoryOptions{
 		clock: clock,
@@ -167,7 +167,7 @@ func TestS5CancelAndRejectConditionalBarrierHasOneTerminalWinner(t *testing.T) {
 	assert.ErrorIs(t, err, ErrStaleRevision)
 }
 
-func TestS5CancelDoesNotAlterApprovedOrRejectedRequests(t *testing.T) {
+func TestCancelDoesNotAlterApprovedOrRejectedRequests(t *testing.T) {
 	repository, store := newRequestRepository(t, requestRepositoryOptions{})
 	for index, state := range []contract.GrantRequestState{contract.RequestApproved, contract.RequestRejected} {
 		id := requestID(800 + index)

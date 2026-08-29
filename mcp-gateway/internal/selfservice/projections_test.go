@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestS5SelfProjectionBoundaryHasNoCrossPrincipalSelectorOrForbiddenFields(t *testing.T) {
+func TestSelfProjectionBoundaryHasNoCrossPrincipalSelectorOrForbiddenFields(t *testing.T) {
 	reader := reflect.TypeOf((*ProjectionReader)(nil)).Elem()
 	identity, found := reader.MethodByName("ReadSelfIdentity")
 	if assert.True(t, found) {

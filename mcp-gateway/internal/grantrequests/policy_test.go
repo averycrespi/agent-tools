@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5DescriptorEvidenceIsCanonicalBoundedAndCopySafe(t *testing.T) {
+func TestDescriptorEvidenceIsCanonicalBoundedAndCopySafe(t *testing.T) {
 	normalized, err := catalog.NormalizeTool(catalog.RawTool{
 		UpstreamName: "echo", ExternalName: "sample.echo",
 		Descriptor: json.RawMessage(`{"name":"echo","inputSchema":{"type":"object"}}`),
@@ -51,7 +51,7 @@ func TestS5DescriptorEvidenceIsCanonicalBoundedAndCopySafe(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidEvidence)
 }
 
-func TestS5PolicyValidationAndDurationConversion(t *testing.T) {
+func TestPolicyValidationAndDurationConversion(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		policy contract.Policy
@@ -93,7 +93,7 @@ func TestS5PolicyValidationAndDurationConversion(t *testing.T) {
 	assert.Nil(t, permanent.ExpiresAt(at))
 }
 
-func TestS5CanonicalDedupePreservesLexicalIdentityAndNormalizesAtomOrder(t *testing.T) {
+func TestCanonicalDedupePreservesLexicalIdentityAndNormalizesAtomOrder(t *testing.T) {
 	target := ResolvedTarget{ServerID: "01J60000000000000000000040", UpstreamName: stringPointer("echo")}
 	left := mustCompilePolicy(t, policy(contract.PolicyTool, "sample.echo", constraint(`{"equals":{"/b":true,"/a":1.0}}`), stringPointer("60"), false))
 	right := mustCompilePolicy(t, policy(contract.PolicyTool, "sample.echo", constraint(`{"equals":{"/a":1.0,"/b":true}}`), stringPointer("60"), false))
@@ -132,7 +132,7 @@ func TestS5CanonicalDedupePreservesLexicalIdentityAndNormalizesAtomOrder(t *test
 	assert.NotEqual(t, leftIdentity.Bytes, serverTarget.Bytes)
 }
 
-func TestS5PolicyNarrowingMatrix(t *testing.T) {
+func TestPolicyNarrowingMatrix(t *testing.T) {
 	server := ResolvedTarget{ServerID: "01J60000000000000000000040"}
 	tool := ResolvedTarget{ServerID: server.ServerID, UpstreamName: stringPointer("echo")}
 	otherTool := ResolvedTarget{ServerID: server.ServerID, UpstreamName: stringPointer("other")}

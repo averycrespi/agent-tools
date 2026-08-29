@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5StatusReadsGlobalRequestAndEvidenceOccupancyFromOwner(t *testing.T) {
+func TestStatusReadsGlobalRequestAndEvidenceOccupancyFromOwner(t *testing.T) {
 	descriptor := requestDescriptor(t, requestID(400), requestID(500), "sample", "echo", contract.EvidenceCurrent)
 	repository, store := newRequestRepository(t, requestRepositoryOptions{
 		namespaces: &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
@@ -39,7 +39,7 @@ func TestS5StatusReadsGlobalRequestAndEvidenceOccupancyFromOwner(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestS5StatusReportsNAndRejectsNPlusOne(t *testing.T) {
+func TestStatusReportsNAndRejectsNPlusOne(t *testing.T) {
 	repository, store := newRequestRepository(t, requestRepositoryOptions{})
 	limit := fixedLimit("grant_requests")
 	timestamp := requestTimestamp(requestTestTime)
@@ -86,7 +86,7 @@ func TestS5StatusReportsNAndRejectsNPlusOne(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidState)
 }
 
-func TestS5EventsRequestMutationsPublishOnlyIDFreeRequestInvalidations(t *testing.T) {
+func TestEventsRequestMutationsPublishOnlyIDFreeRequestInvalidations(t *testing.T) {
 	invalidations := make([]contract.Invalidation, 0)
 	repository, _ := newRequestRepository(t, requestRepositoryOptions{
 		namespaces: &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
@@ -121,7 +121,7 @@ func TestS5EventsRequestMutationsPublishOnlyIDFreeRequestInvalidations(t *testin
 	}
 }
 
-func TestS5EventsApprovalPublishesRequestThenAuthorizationOnlyOnSuccess(t *testing.T) {
+func TestEventsApprovalPublishesRequestThenAuthorizationOnlyOnSuccess(t *testing.T) {
 	fixture := newApprovalFixture(t)
 	created := fixture.createRequest(t, contract.Policy{Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true})
 	fixture.invalidations = nil

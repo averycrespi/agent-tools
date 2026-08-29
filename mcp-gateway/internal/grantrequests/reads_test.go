@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5RequestReadOwnerOnlyProjectionAndPinnedPagination(t *testing.T) {
+func TestRequestReadOwnerOnlyProjectionAndPinnedPagination(t *testing.T) {
 	namespaces := &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
 		"sample": {ID: requestID(400), Namespace: "sample", State: contract.DesiredServerDisabled},
 	}}
@@ -112,7 +112,7 @@ func TestS5RequestReadOwnerOnlyProjectionAndPinnedPagination(t *testing.T) {
 	assert.NotContains(t, string(projected), "fingerprint")
 }
 
-func TestS5RequestReadSelectsOnlyAgentProjectionColumns(t *testing.T) {
+func TestRequestReadSelectsOnlyAgentProjectionColumns(t *testing.T) {
 	for _, forbidden := range []string{
 		"principal_id", "resolved_server_id", "resolved_upstream_name", "dedupe_version", "dedupe_bytes",
 		"submitted_evidence", "approved_evidence",
@@ -121,7 +121,7 @@ func TestS5RequestReadSelectsOnlyAgentProjectionColumns(t *testing.T) {
 	}
 }
 
-func TestS5RequestReadRejectsMalformedInputsAndRowsWithoutPartialProjection(t *testing.T) {
+func TestRequestReadRejectsMalformedInputsAndRowsWithoutPartialProjection(t *testing.T) {
 	repository, store := newRequestRepository(t, requestRepositoryOptions{})
 	_, _, err := repository.GetOwned(context.Background(), "malformed", requestID(1))
 	assert.ErrorIs(t, err, ErrInvalidInput)

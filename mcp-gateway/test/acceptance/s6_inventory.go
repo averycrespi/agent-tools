@@ -79,7 +79,7 @@ var s6MilestoneCategories = map[string][]S6LeafCategory{
 
 var s6Selectors = map[string][]string{
 	"T2": {"ui:typecheck", "ui:verify-generated", "TestS6BrowserCoordinator"}, "T3": {"Test(S6Bootstrap|AdminSessionBootstrapContract)"}, "T4": {"Test(S6PostEvents|BrowserEventPostContract)"}, "T5": {"TestS6BrowserProtocol"},
-	"T6": {"TestInvocationReadProjectionContract"}, "T7": {"TestS6InvocationRepositoryReads"}, "T8": {"TestS6InvocationAPI"}, "T9": {"TestS6E2EInvocationReadPrivacy"},
+	"T6": {"TestInvocationReadProjectionContract"}, "T7": {"TestInvocationRepositoryReadsIntegration"}, "T8": {"TestS6InvocationAPI"}, "T9": {"TestS6E2EInvocationReadPrivacy"},
 	"T10": {"TestS6StaticDelivery", "TestS6BrowserFragmentStorage"}, "T11": {"TestS6BrowserAuthenticationEpoch"}, "T12": {"TestS6BrowserReadGeneration"},
 	"T13": {"TestS6BrowserMutationState"}, "T14": {"TestS6BrowserShellPrimitives"}, "T15": {"TestS6BrowserSecretSinks"},
 	"T16": {"TestS6ControlTransport"}, "T17": {"TestS6CLISharedContract"}, "T18": {"Test(S6CLISensitiveSinks|CLISecretSinkBoundaries)"}, "T19": {"TestS6CLIStatusInvocations"},
@@ -95,7 +95,7 @@ var s6Selectors = map[string][]string{
 	"T50": {"TestS6BrowserAccessibilityChanged"}, "T51": {"TestS6BrowserVisualChanged"}, "T52": {"TestS6SecurityCanaries", "TestS6BrowserPrivacyCanary"},
 	"T53": {"TestS6ExternalEvidenceContract"}, "T54": {"ui:verify-supply-chain", "TestS6StaticSupplyChain"},
 	"T55": {"Test(FoundationRoutesAndMechanicsAreExact|ServerRoutesAndMechanicsAreExact|AuthorizationRoutesAndMechanicsAreExact|GrantRequestRoutesProblemsAndLimitsAreExact|GrantRequestResourceShapesETagsMechanicsAndStatusAreExact|InvocationReadProjectionContract|S5GrantRequestStrictQueriesBodiesPreconditionsAndProblems|S6StaticDelivery|S6PostEvents|BrowserEventPostContract|ProductionSourceOwnershipGuards|ProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners|AdmissionInputCannotCarryForbiddenPayloads|SinkFailureNeverActivatesUndisclosedAuthority|S5EventsPreserveIDFreeOrderOverflowLossAndReconnect|S6CLISharedContract|RequestSchemaMigrationRollsBackAtomically)", "TestRestoreAcceptedSchemaLineages"}, "T56": {"format:check", "Test(S6DocumentationDrift|DocumentationContractDrift)"}, "T57": {"TestS6AcceptanceProfile"},
-	"M1": {"Test(S6M1Gate|SessionEventContractIntegration)", "TestS6BrowserM1Canary"}, "M2": {"TestS6M2Gate", "TestS6E2EM2Canary"}, "M3": {"TestS6BrowserM3Canary"},
+	"M1": {"Test(S6M1Gate|SessionEventContractIntegration)", "TestS6BrowserM1Canary"}, "M2": {"Test(S6M2Gate|InvocationReadPaginationIntegration)", "TestS6E2EM2Canary"}, "M3": {"TestS6BrowserM3Canary"},
 	"M4": {"TestS6M4Gate", "TestS6CLIM4Canary"}, "M5": {"TestS6BrowserM5Canary"}, "M6": {"TestS6BrowserM6Canary"},
 	"M7": {"TestS6BrowserM7Canary"}, "M8": {"TestS6BrowserM8Canary"}, "M9": {"TestS6CLIM9Canary"}, "M10": {"TestS6CLISharedContract", "TestS6CLIM10Canary"},
 	"M11": {"TestS6M11Gate", "TestS6BrowserM11Canary"},

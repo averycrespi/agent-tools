@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5SelfServiceResolverPinsExactlySixStrictHandlers(t *testing.T) {
+func TestSelfServiceResolverPinsExactlySixStrictHandlers(t *testing.T) {
 	service, _, _, _ := newHandlerService(t)
 	for _, tool := range contract.SyntheticSelfServiceTools() {
 		target, found := service.Resolve(tool.ExternalName)
@@ -53,7 +53,7 @@ func TestS5SelfServiceResolverPinsExactlySixStrictHandlers(t *testing.T) {
 	}
 }
 
-func TestS5SelfServiceHandlersReturnFixedSummariesAndExactStructuredResults(t *testing.T) {
+func TestSelfServiceHandlersReturnFixedSummariesAndExactStructuredResults(t *testing.T) {
 	service, projections, requests, subject := newHandlerService(t)
 	identity := contract.SelfIdentity{ID: subject.PrincipalID(), DisplayName: "Agent", State: contract.PrincipalActive, Visibility: contract.VisibilityRequestable, PrincipalRevision: subject.PrincipalRevision(), CredentialRevision: subject.CredentialRevision()}
 	projections.identity = identity
@@ -95,7 +95,7 @@ func TestS5SelfServiceHandlersReturnFixedSummariesAndExactStructuredResults(t *t
 	assert.Contains(t, string(*requests.createdPolicy.Constraint), "1e0", "lexical constraint numbers must survive decoding")
 }
 
-func TestS5SelfServiceCursorOutcomesAndStorageCertaintyAreClosed(t *testing.T) {
+func TestSelfServiceCursorOutcomesAndStorageCertaintyAreClosed(t *testing.T) {
 	service, projections, requests, subject := newHandlerService(t)
 	badMAC := validGrantCursor(t, service.cursors, subject)
 	frame, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(badMAC, cursorPrefix))
@@ -120,7 +120,7 @@ func TestS5SelfServiceCursorOutcomesAndStorageCertaintyAreClosed(t *testing.T) {
 	assert.NotEqual(t, contract.OutcomeUnknown, uncertain.ErrorCode)
 }
 
-func TestS5DrainSelfServiceReportsPostCommitUncertaintyWithoutTerminalReplay(t *testing.T) {
+func TestDrainSelfServiceReportsPostCommitUncertaintyWithoutTerminalReplay(t *testing.T) {
 	service, _, requests, subject := newHandlerService(t)
 	requests.createErr = grantrequests.ErrStorageOutcomeUncertain
 	result := invocation.SanitizeLocalCallResult(service.handleCreateGrantRequest(context.Background(), subject, handlerArguments(`{"policy":{"scope":"tool","target":"sample.echo","constraint":null,"duration_seconds":null,"future_tools_acknowledged":false}}`)))
