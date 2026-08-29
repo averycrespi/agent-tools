@@ -34,6 +34,13 @@ func TestProductionSourceOwnershipGuards(t *testing.T) {
 	allowedSDK := map[string]bool{"internal/dependencies/dependencies.go": true, "internal/mcpingress/handler.go": true}
 	allowedTestutil := map[string]bool{"test/acceptance/acceptance.go": true, "test/acceptance/cmd/main.go": true}
 	for _, source := range productionSources(t, root) {
+		if strings.HasPrefix(source.path, "internal/controlclient/bearer") {
+			for _, prohibited := range []string{"ReadPassword", "/dev/tty", "os.Getenv", "keyring", "database/sql", "net/http"} {
+				if strings.Contains(source.contents, prohibited) {
+					t.Errorf("%s: prohibited credential source or private authority %s", source.path, prohibited)
+				}
+			}
+		}
 		for _, imported := range source.imports {
 			if strings.HasSuffix(imported, "/internal/testutil") && !allowedTestutil[source.path] {
 				t.Errorf("%s: prohibited import %s", source.path, imported)
@@ -89,6 +96,13 @@ func TestProductionSourceOwnershipGuards(t *testing.T) {
 	controlClient := readProductionSource(t, root, "internal/controlclient/controlclient.go")
 	for _, required := range []string{"Proxy:                  nil", "DisableKeepAlives:      true", "CheckRedirect:", "WroteHeaders:"} {
 		assert.Contains(t, controlClient, required, "internal/controlclient/controlclient.go: missing strict local-control transport symbol %s", required)
+	}
+	bearerSource := readProductionSource(t, root, "internal/controlclient/bearer.go")
+	for _, prohibited := range []string{"ReadPassword", "/dev/tty", "os.Getenv", "keyring", "database/sql", "net/http"} {
+		assert.NotContains(t, bearerSource, prohibited, "internal/controlclient/bearer.go: prohibited credential source or private authority %s", prohibited)
+	}
+	for _, required := range []string{"options.FilePath", "options.ReadStdin", "ProjectBearerProblem"} {
+		assert.Contains(t, bearerSource, required, "internal/controlclient/bearer.go: missing closed bearer boundary %s", required)
 	}
 }
 

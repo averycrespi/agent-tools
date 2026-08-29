@@ -99,7 +99,7 @@ func TestS6CLISharedContract(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, 2, commandExitCode(err))
 		assert.Empty(t, stdout.String())
-		assert.JSONEq(t, `{"status":null,"code":"client_invalid_input","title":"The command input is invalid.","exit_code":2,"uncertain":false}`, stderr.String())
+		assert.JSONEq(t, `{"status":null,"code":"client_bearer_missing","title":"The selected administrator bearer does not exist. Run mcp-gateway initialize or select an existing owner-only bearer file.","exit_code":2,"uncertain":false}`, stderr.String())
 
 		assert.Equal(t, 1, commandExitCode(commandFailure{}))
 		assert.Equal(t, 1, commandExitCode(assert.AnError))

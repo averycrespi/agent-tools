@@ -116,7 +116,7 @@ func TestS6ControlTransport(t *testing.T) {
 		}
 	})
 
-	t.Run("bearer sources are closed and bounded", func(t *testing.T) {
+	t.Run("bearer sources are typed closed and bounded", func(t *testing.T) {
 		root := t.TempDir()
 		bearer := "mgw_admin_" + strings.Repeat("a", 43)
 		file := filepath.Join(root, "bearer")
@@ -125,48 +125,84 @@ func TestS6ControlTransport(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, bearer, actual)
 
+		_, err = AcquireAdminBearer(BearerOptions{FilePath: filepath.Join(root, "missing")})
+		assert.ErrorIs(t, err, ErrBearerMissing)
 		require.NoError(t, os.Chmod(file, 0o400))
 		actual, err = AcquireAdminBearer(BearerOptions{FilePath: file})
 		require.NoError(t, err)
 		assert.Equal(t, bearer, actual)
+		require.NoError(t, os.Chmod(file, 0o000))
+		_, err = AcquireAdminBearer(BearerOptions{FilePath: file})
+		assert.ErrorIs(t, err, ErrBearerUnreadable)
 		require.NoError(t, os.Chmod(file, 0o644))
 		_, err = AcquireAdminBearer(BearerOptions{FilePath: file})
-		assert.ErrorIs(t, err, ErrBearerSource)
+		assert.ErrorIs(t, err, ErrBearerPermissions)
+		require.NoError(t, os.Chmod(file, 0o600))
 
 		symlink := filepath.Join(root, "bearer-link")
 		require.NoError(t, os.Symlink(file, symlink))
 		_, err = AcquireAdminBearer(BearerOptions{FilePath: symlink})
-		assert.ErrorIs(t, err, ErrBearerSource)
+		assert.ErrorIs(t, err, ErrBearerSymlink)
+		_, err = AcquireAdminBearer(BearerOptions{FilePath: root})
+		assert.ErrorIs(t, err, ErrBearerNotRegular)
 		_, err = readBearerFile(file, os.Geteuid()+1)
-		assert.ErrorIs(t, err, ErrBearerSource)
+		assert.ErrorIs(t, err, ErrBearerOwner)
+
+		require.NoError(t, os.WriteFile(file, []byte(strings.Repeat("x", maxBearerInputBytes+1)), 0o600))
+		_, err = AcquireAdminBearer(BearerOptions{FilePath: file})
+		assert.ErrorIs(t, err, ErrBearerOversized)
+		require.NoError(t, os.WriteFile(file, []byte("not-a-bearer\n"), 0o600))
+		_, err = AcquireAdminBearer(BearerOptions{FilePath: file})
+		assert.ErrorIs(t, err, ErrBearerMalformed)
 
 		actual, err = AcquireAdminBearer(BearerOptions{ReadStdin: true, Stdin: strings.NewReader(bearer + "\n")})
 		require.NoError(t, err)
 		assert.Equal(t, bearer, actual)
-		_, err = AcquireAdminBearer(BearerOptions{ReadStdin: true, Stdin: strings.NewReader(bearer + "\nextra")})
-		assert.ErrorIs(t, err, ErrInvalidBearer)
+		_, err = AcquireAdminBearer(BearerOptions{ReadStdin: true, Stdin: strings.NewReader(strings.Repeat("x", maxBearerInputBytes+1))})
+		assert.ErrorIs(t, err, ErrBearerOversized)
+		_, err = AcquireAdminBearer(BearerOptions{ReadStdin: true, Stdin: errorReader{}})
+		assert.ErrorIs(t, err, ErrBearerUnreadable)
 		_, err = AcquireAdminBearer(BearerOptions{FilePath: file, ReadStdin: true, Stdin: strings.NewReader(bearer)})
-		assert.ErrorIs(t, err, ErrBearerSource)
+		assert.ErrorIs(t, err, ErrBearerConflict)
 		_, err = AcquireAdminBearer(BearerOptions{ReadStdin: true, InputFilePath: "-", Stdin: strings.NewReader(bearer)})
-		assert.ErrorIs(t, err, ErrBearerSource)
+		assert.ErrorIs(t, err, ErrBearerConflict)
+		_, err = AcquireAdminBearer(BearerOptions{})
+		assert.ErrorIs(t, err, ErrBearerMissing)
+	})
 
-		prompt := &fakePrompt{value: []byte(bearer)}
-		actual, err = AcquireAdminBearer(BearerOptions{Prompt: prompt})
-		require.NoError(t, err)
-		assert.Equal(t, bearer, actual)
-		assert.Equal(t, "Admin bearer: ", prompt.message)
+	t.Run("bearer failures project actionable safe problems", func(t *testing.T) {
+		path := "/tmp/admin\x1b[31m"
+		tests := []struct {
+			err  error
+			code string
+			exit int
+		}{
+			{err: ErrBearerMissing, code: "client_bearer_missing", exit: 2},
+			{err: ErrBearerSymlink, code: "client_bearer_symlink", exit: 2},
+			{err: ErrBearerNotRegular, code: "client_bearer_not_regular", exit: 2},
+			{err: ErrBearerPermissions, code: "client_bearer_permissions", exit: 2},
+			{err: ErrBearerOwner, code: "client_bearer_owner", exit: 2},
+			{err: ErrBearerUnreadable, code: "client_bearer_unreadable", exit: 2},
+			{err: ErrBearerOversized, code: "client_bearer_oversized", exit: 2},
+			{err: ErrBearerMalformed, code: "client_bearer_malformed", exit: 2},
+			{err: ErrBearerConflict, code: "client_bearer_source_conflict", exit: 2},
+			{err: &OnlineError{Status: intPointer(401), Code: "unauthorized", Title: "rejected", Exit: 3}, code: "client_bearer_rejected", exit: 3},
+		}
+		for _, test := range tests {
+			problem := ProjectBearerProblem(test.err, path)
+			assert.Equal(t, test.code, problem.Code)
+			assert.Equal(t, test.exit, problem.ExitCode())
+			assert.NotContains(t, problem.Title, "\x1b")
+			if test.code != "client_bearer_source_conflict" {
+				assert.Contains(t, problem.Title, `\u001b`)
+			}
+		}
 	})
 }
 
-type fakePrompt struct {
-	message string
-	value   []byte
-}
+type errorReader struct{}
 
-func (prompt *fakePrompt) ReadPassword(message string) ([]byte, error) {
-	prompt.message = message
-	return append([]byte(nil), prompt.value...), nil
-}
+func (errorReader) Read([]byte) (int, error) { return 0, errors.New("unreadable canary") }
 
 func newTestClient(t *testing.T, rawURL string, options TransportOptions) *Client {
 	t.Helper()

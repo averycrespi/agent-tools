@@ -3,5 +3,5 @@
 package controlclient
 
 func readBearerFile(string, int) (string, error) {
-	return "", ErrBearerSource
+	return "", bearerSourceError(ErrBearerUnreadable)
 }
