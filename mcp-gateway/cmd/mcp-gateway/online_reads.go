@@ -118,6 +118,21 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 		return runOnlineRead(command, options, path, catalogTable)
+	case "principal list":
+		path, err := controlclient.BuildListPath("/api/v1/principals", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
+		if err != nil {
+			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
+		}
+		return runOnlineRead(command, options, path, principalListTable)
+	case "principal get":
+		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
+			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal ID is invalid."))
+		}
+		return runOnlineRead(command, options, "/api/v1/principals/"+args[0], principalItemTable)
+	case "principal create":
+		return runPrincipalCreate(command, options)
+	case "principal update":
+		return runPrincipalUpdate(command, options, args)
 	case "invocation get":
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The invocation ID is invalid."))
