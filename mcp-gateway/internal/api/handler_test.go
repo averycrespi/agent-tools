@@ -369,6 +369,9 @@ func TestS6StaticDelivery(t *testing.T) {
 }
 
 func TestS6StaticSupplyChain(t *testing.T) {
+	productionFiles, lock := productionFrontendInputs(t)
+	require.NoError(t, validateProductionFrontendSeparation(productionFiles, lock))
+
 	staticRoot := "static"
 	entries, err := os.ReadDir(staticRoot)
 	require.NoError(t, err)

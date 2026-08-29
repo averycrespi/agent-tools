@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,9 +10,14 @@ const repositoryRoot = resolve(
 const packageJSON = JSON.parse(
   readFileSync(join(repositoryRoot, "package.json"), "utf8"),
 );
-const lock = JSON.parse(
-  readFileSync(join(repositoryRoot, "package-lock.json"), "utf8"),
-);
+const lockContents = readFileSync(join(repositoryRoot, "package-lock.json"));
+const lock = JSON.parse(lockContents.toString("utf8"));
+const lockDigest = createHash("sha256").update(lockContents).digest("hex");
+if (
+  lockDigest !==
+  "3179b01fceb75d1df80217849de915f024e98ee0ab1b821639fbf04b33c5a8e0"
+)
+  throw new Error(`frontend lockfile digest changed: ${lockDigest}`);
 const allowedLicenses = new Set([
   "Apache-2.0",
   "BSD-3-Clause",
@@ -59,6 +65,41 @@ execFileSync(
   },
 );
 
+const webRoot = join(repositoryRoot, "mcp-gateway/web");
+const productionSources = new Map([
+  ["index.html", readFileSync(join(webRoot, "index.html"), "utf8")],
+  ["vite.config.ts", readFileSync(join(webRoot, "vite.config.ts"), "utf8")],
+]);
+const sourceRoot = join(webRoot, "src");
+for (const entry of readdirSync(sourceRoot, { recursive: true })) {
+  const path = join(sourceRoot, entry);
+  try {
+    productionSources.set(`src/${entry}`, readFileSync(path, "utf8"));
+  } catch (error) {
+    if (error?.code !== "EISDIR") throw error;
+  }
+}
+if (
+  !productionSources
+    .get("vite.config.ts")
+    .includes('input: resolve(webRoot, "index.html")')
+)
+  throw new Error("production build input changed");
+for (const [path, contents] of productionSources) {
+  for (const forbidden of [
+    "dev-server",
+    "dev-proxy",
+    "development-contract",
+    "@vite/client",
+    "vite/client",
+    "mcp-gateway-ui-development",
+  ])
+    if (contents.includes(forbidden))
+      throw new Error(
+        `production frontend ${path} contains development reference: ${forbidden}`,
+      );
+}
+
 const staticRoot = join(repositoryRoot, "mcp-gateway/internal/api/static");
 const html = readFileSync(join(staticRoot, "index.html"), "utf8");
 const script = readFileSync(join(staticRoot, "app.js"), "utf8");
@@ -84,6 +125,9 @@ for (const [name, contents] of [
     "serviceWorker.register",
     "new Function(",
     "eval(",
+    "@vite/client",
+    "vite/client",
+    "mcp-gateway-ui-development",
   ])
     if (contents.includes(forbidden))
       throw new Error(
