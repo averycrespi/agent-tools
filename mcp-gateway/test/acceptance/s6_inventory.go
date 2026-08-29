@@ -74,7 +74,7 @@ var s6TaskCategories = map[string][]S6LeafCategory{
 var s6MilestoneCategories = map[string][]S6LeafCategory{
 	"M1": {S6LeafGo, S6LeafBrowser}, "M2": {S6LeafIntegration, S6LeafE2E}, "M3": {S6LeafBrowser},
 	"M4": {S6LeafGo, S6LeafE2E}, "M5": {S6LeafBrowser}, "M6": {S6LeafBrowser}, "M7": {S6LeafBrowser}, "M8": {S6LeafBrowser},
-	"M9": {S6LeafE2E}, "M10": {S6LeafE2E}, "M11": {S6LeafGo, S6LeafBrowser},
+	"M9": {S6LeafE2E}, "M10": {S6LeafGo, S6LeafE2E}, "M11": {S6LeafGo, S6LeafBrowser},
 }
 
 var s6Selectors = map[string][]string{
@@ -97,7 +97,7 @@ var s6Selectors = map[string][]string{
 	"T55": {"TestS6CompatibilityOwnership"}, "T56": {"format:check", "TestS6DocumentationDrift"}, "T57": {"TestS6AcceptanceProfile"},
 	"M1": {"TestS6M1Gate", "TestS6BrowserM1Canary"}, "M2": {"TestS6M2Gate", "TestS6E2EM2Canary"}, "M3": {"TestS6BrowserM3Canary"},
 	"M4": {"TestS6M4Gate", "TestS6CLIM4Canary"}, "M5": {"TestS6BrowserM5Canary"}, "M6": {"TestS6BrowserM6Canary"},
-	"M7": {"TestS6BrowserM7Canary"}, "M8": {"TestS6BrowserM8Canary"}, "M9": {"TestS6CLIM9Canary"}, "M10": {"TestS6CLIM10Canary"},
+	"M7": {"TestS6BrowserM7Canary"}, "M8": {"TestS6BrowserM8Canary"}, "M9": {"TestS6CLIM9Canary"}, "M10": {"TestS6CLISharedContract", "TestS6CLIM10Canary"},
 	"M11": {"TestS6M11Gate", "TestS6BrowserM11Canary"},
 }
 
@@ -110,7 +110,7 @@ var s6Packages = map[string][]string{
 	"T56": {"./internal/contract", "./cmd/mcp-gateway"}, "T57": {"./test/acceptance"},
 	"M1": {"./internal/contract", "./internal/admin", "./internal/httpboundary", "./internal/api", "./internal/events"},
 	"M2": {"./internal/invocation", "./internal/composition"}, "M4": {"./internal/controlclient", "./cmd/mcp-gateway"},
-	"M11": {"./internal/contract", "./test/acceptance"},
+	"M10": {"./internal/controlclient", "./cmd/mcp-gateway"}, "M11": {"./internal/contract", "./test/acceptance"},
 }
 
 var S6FinalCheckIDs = []string{
@@ -170,7 +170,7 @@ func S6PlannedInventory() []S6PlannedOwner {
 	for milestone := 1; milestone <= 11; milestone++ {
 		id := fmt.Sprintf("M%d", milestone)
 		owner := S6PlannedOwner{ID: id, Layer: "milestone", Intent: "Run the disjoint " + id + " integration canary", Status: "planned", Budget: 5 * time.Minute, Blocking: true, Leaves: s6Leaves(id, s6MilestoneCategories[id])}
-		if id == "M1" || id == "M2" || id == "M3" || id == "M4" || id == "M5" || id == "M6" || id == "M7" || id == "M8" || id == "M9" {
+		if id == "M1" || id == "M2" || id == "M3" || id == "M4" || id == "M5" || id == "M6" || id == "M7" || id == "M8" || id == "M9" || id == "M10" {
 			owner.Status = "executable"
 		}
 		owner.DefinitionHash = s6OwnerHash(owner)
