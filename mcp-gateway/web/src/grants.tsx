@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
 import {
   type MutationController,
@@ -8,6 +8,7 @@ import {
 } from "./mutation";
 import {
   ComparisonTable,
+  ConfirmationDialog,
   FormField,
   InertJSON,
   StateNotice,
@@ -508,6 +509,351 @@ function GrantCreate({
   );
 }
 
+type GrantActionResult =
+  | { kind: "created"; grant: Grant }
+  | { kind: "deleted" };
+type GrantAction = "delete" | "create";
+type CorrectionPhase = "configure" | "create_second" | "delete_second";
+
+async function principalVisibility(
+  session: SessionClient,
+  principalID: string,
+): Promise<"requestable" | "allowed-only" | "all" | undefined> {
+  const result = await requestJSON(
+    session,
+    `/api/v1/principals/${principalID}`,
+  );
+  if (result === undefined || !result.response.ok) return undefined;
+  const value = record(result.value, [
+    "id",
+    "display_name",
+    "state",
+    "visibility",
+    "revision",
+    "credential_revision",
+    "credential",
+    "created_at",
+    "updated_at",
+  ]);
+  return value.visibility === "requestable" ||
+    value.visibility === "allowed-only" ||
+    value.visibility === "all"
+    ? value.visibility
+    : undefined;
+}
+
+function GrantActions({
+  session,
+  mutations,
+  grant,
+}: {
+  session: SessionClient;
+  mutations: MutationCoordinator;
+  grant: Grant;
+}) {
+  const [controller] = useState<MutationController<GrantActionResult>>(() =>
+    mutations.create<GrantActionResult>(),
+  );
+  const [mutation, setMutation] = useState<MutationSnapshot>(() =>
+    controller.snapshot(),
+  );
+  const [correction, setCorrection] = useState(false);
+  const [order, setOrder] = useState<"create_first" | "delete_first">(
+    "create_first",
+  );
+  const [replacementEffect, setReplacementEffect] = useState<Effect>(
+    grant.effect === "allow" ? "deny" : "allow",
+  );
+  const [phase, setPhase] = useState<CorrectionPhase>("configure");
+  const [replacementID, setReplacementID] = useState<string>();
+  const [action, setAction] = useState<GrantAction>("delete");
+  const [confirming, setConfirming] = useState(false);
+  const [visibility, setVisibility] = useState<
+    "requestable" | "allowed-only" | "all"
+  >();
+  const [notice, setNotice] = useState<string>();
+  const actionButton = useRef<HTMLButtonElement>(null);
+  const syntheticDefault = grant.serverID === "00000000000000000000000000";
+  useEffect(() => controller.subscribe(setMutation), [controller]);
+  useEffect(() => () => controller.close(), [controller]);
+  useEffect(() => {
+    if (!syntheticDefault) return;
+    let current = true;
+    void principalVisibility(session, grant.principalID).then((value) => {
+      if (current) setVisibility(value);
+    });
+    return () => {
+      current = false;
+    };
+  }, [grant.principalID, syntheticDefault]);
+
+  const createSpec = (): MutationSpec<GrantActionResult> => {
+    const body = JSON.stringify({
+      principal_id: grant.principalID,
+      effect: replacementEffect,
+      server_id: grant.serverID,
+      upstream_name: grant.upstreamName,
+      constraint: null,
+      expires_at: null,
+    });
+    return {
+      route: "/api/v1/grants",
+      method: "POST",
+      body,
+      precondition: null,
+      requiresPrecondition: false,
+      idempotency: "none",
+      successStatuses: [201],
+      decode: async (response) => ({
+        kind: "created",
+        grant: await decodeMutation(response),
+      }),
+    };
+  };
+  const deleteSpec = (): MutationSpec<GrantActionResult> => ({
+    route: `/api/v1/grants/${grant.id}`,
+    method: "DELETE",
+    body: null,
+    precondition: null,
+    requiresPrecondition: false,
+    idempotency: "none",
+    successStatuses: [204],
+    decode: async () => ({ kind: "deleted" }),
+  });
+  const review = (next: GrantAction) => {
+    setNotice(undefined);
+    setAction(next);
+    controller.begin(next === "create" ? createSpec() : deleteSpec());
+    setConfirming(true);
+  };
+  const refreshPolicy = () =>
+    readGrants(session, {
+      principal_id: grant.principalID,
+      ...(syntheticDefault ? {} : { server_id: grant.serverID }),
+    });
+  const confirm = async () => {
+    setConfirming(false);
+    const outcome = await controller.submit();
+    if (outcome.kind !== "acknowledged") return;
+    await refreshPolicy();
+    controller.abandon();
+    if (!correction) {
+      window.location.hash = `#/access/grants?principal_id=${grant.principalID}`;
+      return;
+    }
+    if (phase === "configure") {
+      if (outcome.value.kind === "created") {
+        setReplacementID(outcome.value.grant.id);
+        setPhase("delete_second");
+        setNotice(
+          "Step one was acknowledged and policy was refreshed. The replacement now overlaps until you explicitly confirm deletion as step two.",
+        );
+      } else {
+        setPhase("create_second");
+        setNotice(
+          "Step one was acknowledged and policy was refreshed. Authorization is absent until you explicitly confirm replacement creation as step two.",
+        );
+      }
+      return;
+    }
+    const destination =
+      outcome.value.kind === "created" ? outcome.value.grant.id : replacementID;
+    window.location.hash =
+      destination === undefined
+        ? `#/access/grants?principal_id=${grant.principalID}`
+        : `#/access/grants/${destination}`;
+  };
+  const cancelConfirmation = () => {
+    setConfirming(false);
+    controller.abandon();
+  };
+  const resetCorrection = () => {
+    setCorrection(false);
+    setPhase("configure");
+    setReplacementID(undefined);
+    setNotice(undefined);
+  };
+  const defaultWarning =
+    visibility === "allowed-only"
+      ? "This is the synthetic default ALLOW for an allowed-only principal. Deletion can remove both discovery and call authorization unless another ALLOW applies."
+      : visibility === "requestable"
+        ? "This is the synthetic default ALLOW for a requestable principal. Deletion removes broad call authorization; requestable discovery still follows current DENY policy."
+        : visibility === "all"
+          ? "This is the synthetic default ALLOW for an all-visible principal. Current tools may remain discoverable, but visibility never supplies call authorization."
+          : "This is a synthetic default ALLOW. Refresh principal visibility before relying on discovery consequences.";
+  const disabled =
+    mutation.state === "submitting" ||
+    mutation.availability === "storage_latched";
+  return (
+    <section
+      class="panel domain-panel"
+      aria-labelledby="grant-actions-title"
+      data-testid="grant-actions"
+    >
+      <div class="panel-heading">
+        <div>
+          <span class="panel-code">POLICY CHANGE</span>
+          <h2 id="grant-actions-title">Delete or correct this grant</h2>
+        </div>
+      </div>
+      <p>
+        Grants cannot be edited. Correction is exactly two independent operator
+        gestures; no composite mutation, force path, automatic second step, or
+        automatic replay exists.
+      </p>
+      {syntheticDefault && (
+        <StateNotice
+          state="warning"
+          title="Synthetic default-grant consequence"
+        >
+          <p>{defaultWarning}</p>
+        </StateNotice>
+      )}
+      {grant.state === "expired" && (
+        <StateNotice
+          state="warning"
+          title="Expired grant still consumes capacity"
+        >
+          <p>
+            Deletion releases its retained grant slot; expiry does not delete
+            evidence.
+          </p>
+        </StateNotice>
+      )}
+      {mutation.problem !== undefined && (
+        <StateNotice state="error" title={mutation.problem.title}>
+          <p>No later correction step was submitted.</p>
+        </StateNotice>
+      )}
+      {mutation.state === "uncertain" && (
+        <StateNotice state="warning" title="Grant mutation outcome is unknown">
+          <p>
+            Do not replay and do not submit the later correction step. Refresh
+            policy to investigate.
+          </p>
+        </StateNotice>
+      )}
+      {notice !== undefined && <StateNotice state="warning" title={notice} />}
+      {!correction ? (
+        <div class="inline-actions">
+          <button
+            ref={actionButton}
+            data-testid="grant-delete"
+            class="danger-action"
+            type="button"
+            disabled={disabled}
+            onClick={() => review("delete")}
+          >
+            Delete grant
+          </button>
+          <button
+            data-testid="grant-correct"
+            type="button"
+            disabled={disabled || grant.constraint !== null || syntheticDefault}
+            onClick={() => setCorrection(true)}
+          >
+            Correct grant
+          </button>
+        </div>
+      ) : (
+        <div data-testid="grant-correction">
+          {phase === "configure" && (
+            <>
+              <FormField id="correction-order" label="Correction order">
+                {(attributes) => (
+                  <select
+                    {...attributes}
+                    data-testid="correction-order"
+                    value={order}
+                    onChange={(event) =>
+                      setOrder(
+                        event.currentTarget.value as
+                          | "create_first"
+                          | "delete_first",
+                      )
+                    }
+                  >
+                    <option value="create_first">
+                      Create before delete — temporary overlap
+                    </option>
+                    <option value="delete_first">
+                      Delete before create — temporary loss
+                    </option>
+                  </select>
+                )}
+              </FormField>
+              <FormField id="correction-effect" label="Replacement effect">
+                {(attributes) => (
+                  <select
+                    {...attributes}
+                    data-testid="correction-effect"
+                    value={replacementEffect}
+                    onChange={(event) =>
+                      setReplacementEffect(event.currentTarget.value as Effect)
+                    }
+                  >
+                    <option value="allow">ALLOW</option>
+                    <option value="deny">DENY</option>
+                  </select>
+                )}
+              </FormField>
+              <p>
+                The replacement keeps the same principal and scope, is
+                unconstrained, and is permanent. Use Create grant for any other
+                policy shape.
+              </p>
+            </>
+          )}
+          <div class="inline-actions">
+            <button
+              ref={actionButton}
+              data-testid="grant-correction-step"
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                review(
+                  phase === "create_second" ||
+                    (phase === "configure" && order === "create_first")
+                    ? "create"
+                    : "delete",
+                )
+              }
+            >
+              {phase === "configure" ? "Confirm step one" : "Confirm step two"}
+            </button>
+            {phase === "configure" && (
+              <button type="button" onClick={resetCorrection}>
+                Cancel correction
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      <ConfirmationDialog
+        id="grant-action-confirm"
+        open={confirming}
+        title={
+          action === "create" ? "Create replacement grant?" : "Delete grant?"
+        }
+        consequence={
+          <p>
+            {action === "create"
+              ? "This creates one independent immutable policy record. It does not delete or modify the current grant."
+              : "This permanently removes this policy record. No replacement or later correction step is automatic."}
+          </p>
+        }
+        confirmLabel={
+          action === "create" ? "Create replacement" : "Delete grant"
+        }
+        destructive={action === "delete"}
+        returnFocus={actionButton}
+        onCancel={cancelConfirmation}
+        onConfirm={() => void confirm()}
+      />
+    </section>
+  );
+}
+
 export function Grants({
   session,
   mutations,
@@ -606,7 +952,11 @@ export function Grants({
             <div>
               <dt>Server</dt>
               <dd>
-                <a href={`#/servers/${detail.serverID}`}>{detail.serverID}</a>
+                {detail.serverID === "00000000000000000000000000" ? (
+                  "Synthetic default namespace"
+                ) : (
+                  <a href={`#/servers/${detail.serverID}`}>{detail.serverID}</a>
+                )}
               </dd>
             </div>
             <div>
@@ -630,6 +980,12 @@ export function Grants({
             <InertJSON value={detail.constraint} label="Grant constraint" />
           )}
         </section>
+        <GrantActions
+          key={detail.id}
+          session={session}
+          mutations={mutations}
+          grant={detail}
+        />
       </div>
     );
   }
@@ -680,11 +1036,15 @@ export function Grants({
                     </a>
                   </td>
                   <td>
-                    <a href={`#/servers/${grant.serverID}`}>
-                      {grant.upstreamName === null
-                        ? "Entire server"
-                        : grant.upstreamName}
-                    </a>
+                    {grant.serverID === "00000000000000000000000000" ? (
+                      "Synthetic default namespace"
+                    ) : (
+                      <a href={`#/servers/${grant.serverID}`}>
+                        {grant.upstreamName === null
+                          ? "Entire server"
+                          : grant.upstreamName}
+                      </a>
+                    )}
                   </td>
                   <td>
                     <StatusLabel

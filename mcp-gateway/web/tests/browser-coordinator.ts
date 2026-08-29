@@ -44,6 +44,7 @@ interface BridgeInput {
     | "principals"
     | "principal-credentials"
     | "grant-reads-create"
+    | "grant-correction"
     | "overview"
     | "invocations"
     | "system-status"
@@ -115,6 +116,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "principals" &&
       value.scenario !== "principal-credentials" &&
       value.scenario !== "grant-reads-create" &&
+      value.scenario !== "grant-correction" &&
       value.scenario !== "overview" &&
       value.scenario !== "invocations" &&
       value.scenario !== "system-status" &&
@@ -2768,6 +2770,315 @@ async function runGrantReadsCreate(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "grant_reads_create_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), attempts, creates, destinations: 4 })}\n`,
+  );
+}
+
+async function runGrantCorrection(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const serverID = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
+  const zero = "00000000000000000000000000";
+  const ids = Array.from(
+    { length: 15 },
+    (_, index) => `01ARZ3NDEKTSV4RRFFQ69G${String(index).padStart(4, "0")}`,
+  );
+  const principalIDs = ids.slice(0, 10);
+  const grantIDs = ids.slice(5, 15);
+  const grant = (
+    id: string,
+    principalID: string,
+    effect: "allow" | "deny",
+    target: string = serverID,
+    state: "active" | "expired" = "active",
+  ) => ({
+    id,
+    principal_id: principalID,
+    effect,
+    server_id: target,
+    upstream_name: null,
+    constraint: null,
+    expires_at: state === "expired" ? "2026-08-28T12:30:00Z" : null,
+    state,
+    created_at: "2026-08-28T12:00:00Z",
+  });
+  const grants = new Map<string, ReturnType<typeof grant>>([
+    [grantIDs[0]!, grant(grantIDs[0]!, principalIDs[0]!, "allow")],
+    [grantIDs[1]!, grant(grantIDs[1]!, principalIDs[1]!, "deny")],
+    [grantIDs[2]!, grant(grantIDs[2]!, principalIDs[2]!, "allow")],
+    [grantIDs[3]!, grant(grantIDs[3]!, principalIDs[3]!, "allow")],
+    [grantIDs[4]!, grant(grantIDs[4]!, principalIDs[4]!, "deny")],
+    [
+      grantIDs[5]!,
+      grant(grantIDs[5]!, principalIDs[5]!, "allow", serverID, "expired"),
+    ],
+    [grantIDs[6]!, grant(grantIDs[6]!, principalIDs[6]!, "allow")],
+    [grantIDs[7]!, grant(grantIDs[7]!, principalIDs[7]!, "allow", zero)],
+    [grantIDs[8]!, grant(grantIDs[8]!, principalIDs[8]!, "allow", zero)],
+    [grantIDs[9]!, grant(grantIDs[9]!, principalIDs[9]!, "allow", zero)],
+  ]);
+  const replacements = new Map<string, string>();
+  let creates = 0;
+  let deletes = 0;
+  const detailRequests: string[] = [];
+
+  await page.route("**/api/v1/principals/*", async (route) => {
+    const principalID = new URL(route.request().url()).pathname
+      .split("/")
+      .pop()!;
+    const index = principalIDs.indexOf(principalID);
+    const visibility =
+      index === 7 ? "allowed-only" : index === 8 ? "requestable" : "all";
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { ETag: `"principal-${principalID}-1"` },
+      body: JSON.stringify({
+        id: principalID,
+        display_name: `Principal ${index}`,
+        state: "active",
+        visibility,
+        revision: "1",
+        credential_revision: "0",
+        credential: null,
+        created_at: "2026-08-28T12:00:00Z",
+        updated_at: "2026-08-28T12:00:00Z",
+      }),
+    });
+  });
+  await page.route("**/api/v1/grants?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [...grants.values()], next_cursor: null }),
+    });
+  });
+  await page.route("**/api/v1/grants/*", async (route) => {
+    const id = new URL(route.request().url()).pathname.split("/").pop()!;
+    const request = route.request();
+    if (request.method() === "GET") {
+      detailRequests.push(id);
+      const item = grants.get(id);
+      if (item === undefined) {
+        await route.fulfill({
+          status: 404,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 404,
+            code: "not_found",
+            title: "Not found.",
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(item),
+      });
+      return;
+    }
+    if (request.method() !== "DELETE") fail("grant correction method changed");
+    deletes += 1;
+    const item = grants.get(id);
+    if (item?.principal_id === principalIDs[4]) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 503,
+          code: "storage_unavailable",
+          title: "Storage is unavailable.",
+        }),
+      });
+      return;
+    }
+    grants.delete(id);
+    await route.fulfill({ status: 204, body: "" });
+  });
+  await page.route(`${baseURL}/api/v1/grants`, async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    creates += 1;
+    const body = JSON.parse(route.request().postData() ?? "null") as Record<
+      string,
+      unknown
+    >;
+    const principalID = body.principal_id as string;
+    if (principalID === principalIDs[2]) {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 400,
+          code: "invalid_grant",
+          title: "The grant is invalid.",
+        }),
+      });
+      return;
+    }
+    if (principalID === principalIDs[3]) {
+      await route.fulfill({
+        status: 409,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 409,
+          code: "conflict",
+          title: "Policy changed concurrently.",
+        }),
+      });
+      return;
+    }
+    const replacementID = `01ARZ3NDEKTSV4RRFFQ69H${String(creates).padStart(4, "0")}`;
+    const item = grant(
+      replacementID,
+      principalID,
+      body.effect as "allow" | "deny",
+      body.server_id as string,
+    );
+    grants.set(replacementID, item);
+    replacements.set(principalID, replacementID);
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify(item),
+    });
+  });
+
+  const navigate = async (grantID: string) => {
+    await page.evaluate((id) => {
+      window.location.hash = `#/access/grants/${id}`;
+    }, grantID);
+    await page.locator('[data-testid="grant-actions"]').waitFor();
+    try {
+      await page
+        .getByRole("heading", { name: `Grant ${grantID}`, exact: true })
+        .waitFor({ timeout: 3000 });
+    } catch {
+      fail(
+        `grant navigation failed for ${grantID}; reads=${detailRequests.join(",")}; body=${((await page.locator("body").textContent()) ?? "").slice(0, 1200)}`,
+      );
+    }
+  };
+  const confirmAction = async () => {
+    await page.locator('[data-testid="grant-action-confirm-submit"]').click();
+  };
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/access/grants/${id}`;
+  }, grantIDs[0]);
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await navigate(grantIDs[0]!);
+
+  await page.locator('[data-testid="grant-correct"]').click();
+  await page.locator('[data-testid="grant-correction-step"]').click();
+  await confirmAction();
+  await page.getByText(/replacement now overlaps/).waitFor();
+  if (Number(creates) !== 1 || Number(deletes) !== 0)
+    fail("create-first auto-submitted deletion");
+  await page.locator('[data-testid="grant-correction-step"]').click();
+  await confirmAction();
+  await page.getByRole("heading", { name: /^Grant .*H/ }).waitFor();
+  if (Number(deletes) !== 1)
+    fail("create-first deletion did not remain step two");
+
+  await navigate(grantIDs[6]!);
+  await page.locator('[data-testid="grant-correct"]').click();
+  await page.locator('[data-testid="grant-correction-step"]').click();
+  await confirmAction();
+  await page.getByText(/replacement now overlaps/).waitFor();
+  const reloadDeletes = Number(deletes);
+  await navigate(grantIDs[3]!);
+  await navigate(grantIDs[6]!);
+  if (
+    (await page.locator('[data-testid="grant-correction"]').count()) !== 0 ||
+    Number(deletes) !== reloadDeletes
+  )
+    fail("reload retained or submitted an unconfirmed correction step");
+
+  await navigate(grantIDs[1]!);
+  await page.locator('[data-testid="grant-correct"]').click();
+  await page
+    .locator('[data-testid="correction-order"]')
+    .selectOption("delete_first");
+  await page.locator('[data-testid="grant-correction-step"]').click();
+  await confirmAction();
+  await page.getByText(/Authorization is absent/).waitFor();
+  const beforeCreate = Number(creates);
+  if (Number(deletes) !== reloadDeletes + 1)
+    fail("delete-first step one was not isolated");
+  await page.locator('[data-testid="grant-correction-step"]').click();
+  await confirmAction();
+  await page.getByRole("heading", { name: /^Grant .*H/ }).waitFor();
+  if (Number(creates) !== beforeCreate + 1)
+    fail("delete-first creation did not remain step two");
+
+  await navigate(grantIDs[2]!);
+  await page.locator('[data-testid="grant-correct"]').click();
+  await page.locator('[data-testid="grant-correction-step"]').click();
+  await confirmAction();
+  await page.getByText("The grant is invalid.", { exact: true }).waitFor();
+  const rejectedDeletes = Number(deletes);
+  if ((await page.getByText(/replacement now overlaps/).count()) !== 0)
+    fail("rejected correction advanced to step two");
+
+  await navigate(grantIDs[3]!);
+  await page.locator('[data-testid="grant-correct"]').click();
+  await page.locator('[data-testid="grant-correction-step"]').click();
+  await confirmAction();
+  await page
+    .getByText("Policy changed concurrently.", { exact: true })
+    .waitFor();
+  if (Number(deletes) !== rejectedDeletes)
+    fail("stale correction submitted deletion");
+
+  const defaultWarnings: Array<[string, string]> = [
+    [grantIDs[7]!, "remove both discovery and call authorization"],
+    [grantIDs[8]!, "requestable discovery still follows current DENY policy"],
+    [grantIDs[9]!, "visibility never supplies call authorization"],
+  ];
+  for (const [grantID, phrase] of defaultWarnings) {
+    await navigate(grantID);
+    await page.getByText(new RegExp(phrase)).waitFor();
+    if (
+      (await page.locator('[data-testid="grant-correct"]').isDisabled()) !==
+      true
+    )
+      fail("synthetic default grant exposed unsupported correction");
+  }
+
+  await navigate(grantIDs[5]!);
+  await page
+    .getByText("Expired grant still consumes capacity", { exact: true })
+    .waitFor();
+  await page.locator('[data-testid="grant-delete"]').click();
+  await confirmAction();
+  await page.locator('[data-testid="grants-view"]').waitFor();
+
+  await navigate(grantIDs[4]!);
+  await page.locator('[data-testid="grant-correct"]').click();
+  await page
+    .locator('[data-testid="correction-order"]')
+    .selectOption("delete_first");
+  await page.locator('[data-testid="grant-correction-step"]').click();
+  await confirmAction();
+  await page
+    .getByText("Grant mutation outcome is unknown", { exact: true })
+    .waitFor();
+  if ((await page.getByText(/Authorization is absent/).count()) !== 0)
+    fail("uncertain correction advanced to step two");
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "grant_correction_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), creates, deletes, destinations: 10 })}\n`,
   );
 }
 
@@ -6958,6 +7269,15 @@ try {
         initialBearer,
         () => requests,
       );
+    } else if (input.scenario === "grant-correction") {
+      await runGrantCorrection(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
     } else if (input.scenario === "overview") {
       await runOverview(
         browser.version(),
@@ -7069,6 +7389,13 @@ try {
       (input.scenario === "grant-reads-create" &&
         consoleFailures.length === 2 &&
         [400, 409].every((status) =>
+          consoleFailures.some((value) =>
+            value.includes(`server responded with a status of ${status}`),
+          ),
+        )) ||
+      (input.scenario === "grant-correction" &&
+        consoleFailures.length === 3 &&
+        [400, 409, 503].every((status) =>
           consoleFailures.some((value) =>
             value.includes(`server responded with a status of ${status}`),
           ),

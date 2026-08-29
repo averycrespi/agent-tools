@@ -439,6 +439,7 @@ function App() {
           ) : destination === "access" ? (
             resolved.location.segments[1] === "grants" ? (
               <Grants
+                key={resolved.canonicalFragment}
                 session={sessionClient}
                 mutations={mutationCoordinator}
                 resolved={resolved}
