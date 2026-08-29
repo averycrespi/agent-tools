@@ -163,6 +163,7 @@ func validOptionalHeader(value string, maximum int) bool {
 type OutputMode string
 
 const (
+	OutputHuman OutputMode = "human"
 	OutputTable OutputMode = "table"
 	OutputJSON  OutputMode = "json"
 )
@@ -173,11 +174,14 @@ type Table struct {
 }
 
 func ParseOutputMode(raw string) (OutputMode, error) {
-	mode := OutputMode(raw)
-	if mode != OutputTable && mode != OutputJSON {
+	switch OutputMode(raw) {
+	case OutputHuman, OutputTable:
+		return OutputHuman, nil
+	case OutputJSON:
+		return OutputJSON, nil
+	default:
 		return "", ErrInvalidInput
 	}
-	return mode, nil
 }
 
 func WriteSuccess(writer io.Writer, mode OutputMode, body []byte, table Table) error {
@@ -194,7 +198,7 @@ func WriteSuccess(writer io.Writer, mode OutputMode, body []byte, table Table) e
 		}
 		_, err := io.WriteString(writer, "\n")
 		return err
-	case OutputTable:
+	case OutputHuman, OutputTable:
 		return writeTable(writer, table)
 	default:
 		return ErrInvalidInput
@@ -263,6 +267,8 @@ type OnlineError struct {
 	Exit      int    `json:"exit_code"`
 	Uncertain bool   `json:"uncertain"`
 }
+
+type Problem = OnlineError
 
 func (failure *OnlineError) Error() string { return failure.Title }
 func (failure *OnlineError) ExitCode() int { return failure.Exit }
@@ -344,7 +350,7 @@ func WriteFailure(writer io.Writer, mode OutputMode, failure *OnlineError) error
 		encoded = append(encoded, '\n')
 		_, err = writer.Write(encoded)
 		return err
-	case OutputTable:
+	case OutputHuman, OutputTable:
 		_, err := io.WriteString(writer, terminalSafe(failure.Title)+"\n")
 		return err
 	default:

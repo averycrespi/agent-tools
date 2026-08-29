@@ -110,4 +110,67 @@ func TestS6CLISharedContract(t *testing.T) {
 	})
 }
 
+func TestCLIRenderPrimitives(t *testing.T) {
+	t.Run("human aliases and json remain closed", func(t *testing.T) {
+		for _, raw := range []string{"human", "table"} {
+			mode, err := ParseOutputMode(raw)
+			require.NoError(t, err)
+			assert.Equal(t, OutputHuman, mode)
+		}
+		mode, err := ParseOutputMode("json")
+		require.NoError(t, err)
+		assert.Equal(t, OutputJSON, mode)
+		_, err = ParseOutputMode("yaml")
+		assert.ErrorIs(t, err, ErrInvalidInput)
+	})
+
+	t.Run("finite output uses exact streams", func(t *testing.T) {
+		stdout := new(bytes.Buffer)
+		stderr := new(bytes.Buffer)
+		renderer, err := NewRenderer(OutputHuman, stdout, stderr)
+		require.NoError(t, err)
+		require.NoError(t, renderer.WriteFiniteSuccess([]byte(`{"ok":true}`), "Initialized at /safe/\x1b[31m"))
+		assert.Equal(t, `Initialized at /safe/\u001b[31m`+"\n", stdout.String())
+		assert.Empty(t, stderr.String())
+
+		problem := &OnlineError{Code: "client_invalid_input", Title: "Choose a valid path.", Exit: 2}
+		require.NoError(t, renderer.WriteProblem(problem))
+		assert.Equal(t, "Choose a valid path.\n", stderr.String())
+
+		stdout.Reset()
+		stderr.Reset()
+		renderer, err = NewRenderer(OutputJSON, stdout, stderr)
+		require.NoError(t, err)
+		require.NoError(t, renderer.WriteFiniteSuccess([]byte(`{"ok":true}`), "ignored"))
+		assert.Equal(t, "{\"ok\":true}\n", stdout.String())
+		require.NoError(t, renderer.WriteProblem(problem))
+		assert.Equal(t, "{\"status\":null,\"code\":\"client_invalid_input\",\"title\":\"Choose a valid path.\",\"exit_code\":2,\"uncertain\":false}\n", stderr.String())
+	})
+
+	t.Run("paths are escaped and bounded", func(t *testing.T) {
+		safe := TerminalSafePath("/tmp/unsafe\x1b[31m\n" + strings.Repeat("x", 2048))
+		assert.NotContains(t, safe, "\x1b")
+		assert.NotContains(t, safe, "\n")
+		assert.Contains(t, safe, `\u001b`)
+		assert.Contains(t, safe, `\n`)
+		assert.LessOrEqual(t, len(safe), MaxTerminalPathBytes)
+		assert.True(t, strings.HasSuffix(safe, "..."))
+	})
+
+	t.Run("serve acknowledgement is singular and terminal problems stay on stderr", func(t *testing.T) {
+		stdout := new(bytes.Buffer)
+		stderr := new(bytes.Buffer)
+		renderer, err := NewRenderer(OutputJSON, stdout, stderr)
+		require.NoError(t, err)
+		phases := NewServePhases(renderer)
+		assert.False(t, phases.Acknowledged())
+		require.NoError(t, phases.Acknowledge([]byte(`{"ok":true,"operation":"serve"}`), "Gateway started."))
+		assert.True(t, phases.Acknowledged())
+		assert.ErrorIs(t, phases.Acknowledge([]byte(`{"ok":true}`), "duplicate"), ErrInvalidInput)
+		require.NoError(t, phases.WriteProblem(&OnlineError{Code: "storage_unavailable", Title: "The Gateway stopped unexpectedly.", Exit: 7}))
+		assert.Equal(t, "{\"ok\":true,\"operation\":\"serve\"}\n", stdout.String())
+		assert.Equal(t, "{\"status\":null,\"code\":\"storage_unavailable\",\"title\":\"The Gateway stopped unexpectedly.\",\"exit_code\":7,\"uncertain\":false}\n", stderr.String())
+	})
+}
+
 func intPointer(value int) *int { return &value }

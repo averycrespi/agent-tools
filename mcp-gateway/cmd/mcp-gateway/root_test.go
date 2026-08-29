@@ -12,11 +12,42 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/composition"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/controlclient"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCLIExecutionOptionsResolveOnce(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     executionOptionInput
+		wantMode  controlclient.OutputMode
+		wantError bool
+	}{
+		{name: "default human", input: executionOptionInput{DataDir: "/data"}, wantMode: controlclient.OutputHuman},
+		{name: "explicit human", input: executionOptionInput{Output: "human", OutputSet: true}, wantMode: controlclient.OutputHuman},
+		{name: "table compatibility", input: executionOptionInput{Output: "table", OutputSet: true}, wantMode: controlclient.OutputHuman},
+		{name: "explicit json", input: executionOptionInput{Output: "json", OutputSet: true}, wantMode: controlclient.OutputJSON},
+		{name: "json shorthand", input: executionOptionInput{JSON: true}, wantMode: controlclient.OutputJSON},
+		{name: "matching selectors", input: executionOptionInput{Output: "json", OutputSet: true, JSON: true}, wantMode: controlclient.OutputJSON},
+		{name: "conflicting selectors", input: executionOptionInput{Output: "human", OutputSet: true, JSON: true}, wantError: true},
+		{name: "invalid output", input: executionOptionInput{Output: "yaml", OutputSet: true}, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolved, err := resolveExecutionOptions(test.input)
+			if test.wantError {
+				assert.ErrorIs(t, err, controlclient.ErrInvalidInput)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.input.DataDir, resolved.DataDir)
+			assert.Equal(t, test.wantMode, resolved.Output)
+		})
+	}
+}
 
 func TestRootCommandExposesOwnedOfflineCommands(t *testing.T) {
 	cmd := newRootCmd()
