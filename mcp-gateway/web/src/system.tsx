@@ -909,6 +909,7 @@ function AdminCredentials({
   const [revoke, setRevoke] = useState<AdminCredential>();
   const [detail, setDetail] = useState<AdminCredential>();
   const [notice, setNotice] = useState<string>();
+  const [expiryError, setExpiryError] = useState<string>();
   const createButton = useRef<HTMLButtonElement>(null);
   const revokeButton = useRef<HTMLButtonElement>(null);
   useEffect(() => controller.subscribe(setMutation), [controller]);
@@ -938,6 +939,7 @@ function AdminCredentials({
   };
   const beginCreate = async () => {
     setNotice(undefined);
+    setExpiryError(undefined);
     let expiresAt: string | null = null;
     if (expiry !== "") {
       const timestamp = Date.parse(expiry);
@@ -947,7 +949,7 @@ function AdminCredentials({
         delta < 5 * 60_000 ||
         delta > 365 * 24 * 60 * 60_000
       ) {
-        setNotice(
+        setExpiryError(
           "Expiry must be an RFC 3339 time from 5 minutes through 365 days in the future.",
         );
         return;
@@ -1071,6 +1073,7 @@ function AdminCredentials({
         id="admin-credential-expiry"
         label="Optional expiry (RFC 3339)"
         hint="Blank creates non-expiring authority. Expiry must be 5 minutes through 365 days ahead."
+        {...(expiryError === undefined ? {} : { error: expiryError })}
       >
         {(attributes) => (
           <input
@@ -1079,7 +1082,10 @@ function AdminCredentials({
             value={expiry}
             disabled={disabled}
             placeholder="2030-01-01T00:00:00Z"
-            onInput={(event) => setExpiry(event.currentTarget.value)}
+            onInput={(event) => {
+              setExpiry(event.currentTarget.value);
+              setExpiryError(undefined);
+            }}
           />
         )}
       </FormField>
@@ -1171,7 +1177,6 @@ function AdminCredentials({
                   <td>
                     {credential.status === "active" ? (
                       <button
-                        ref={revokeButton}
                         class="danger-action"
                         data-testid="admin-credential-revoke"
                         type="button"
@@ -1181,7 +1186,10 @@ function AdminCredentials({
                             ? "The last active non-expiring administrator authority cannot be revoked."
                             : undefined
                         }
-                        onClick={() => beginRevoke(credential)}
+                        onClick={(event) => {
+                          revokeButton.current = event.currentTarget;
+                          beginRevoke(credential);
+                        }}
                       >
                         Revoke
                       </button>

@@ -6,6 +6,7 @@ import {
   type Request,
   type Response as PlaywrightResponse,
 } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { createInterface } from "node:readline";
 import { MutationCoordinator, type MutationSpec } from "../src/mutation.ts";
 import {
@@ -37,6 +38,7 @@ interface BridgeInput {
     | "read-generation"
     | "mutation-state"
     | "shell-primitives"
+    | "accessibility-changed"
     | "secret-sinks"
     | "m3-canary"
     | "m5-canary"
@@ -116,6 +118,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "read-generation" &&
       value.scenario !== "mutation-state" &&
       value.scenario !== "shell-primitives" &&
+      value.scenario !== "accessibility-changed" &&
       value.scenario !== "secret-sinks" &&
       value.scenario !== "m3-canary" &&
       value.scenario !== "m5-canary" &&
@@ -2462,6 +2465,213 @@ async function runBackups(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "backups_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), creates, deletes, details })}\n`,
+  );
+}
+
+async function runAccessibilityChanged(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  let axeScans = 0;
+  let scriptedAssertions = 0;
+  const scan = async (state: string) => {
+    await page.waitForFunction(() =>
+      document
+        .getAnimations()
+        .every((animation) => animation.playState === "finished"),
+    );
+    const result = await new AxeBuilder({ page })
+      .withTags([
+        "wcag2a",
+        "wcag2aa",
+        "wcag21a",
+        "wcag21aa",
+        "wcag22aa",
+        "best-practice",
+      ])
+      .analyze();
+    axeScans += 1;
+    const blocking = result.violations.filter(
+      (violation) =>
+        violation.impact === "serious" || violation.impact === "critical",
+    );
+    if (blocking.length !== 0) {
+      fail(
+        `accessibility ${state} findings: ${blocking
+          .map(
+            (violation) =>
+              `${violation.id}:${violation.impact}:${violation.nodes
+                .slice(0, 3)
+                .map(
+                  (node) =>
+                    `${node.target.join(" ")}(${node.failureSummary ?? ""})`,
+                )
+                .join("|")}`,
+          )
+          .join(",")}`,
+      );
+    }
+  };
+
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]:enabled').waitFor();
+  await scan("signed-out");
+  await page.keyboard.press("Tab");
+  const skip = page.getByRole("link", { name: "Skip to main content" });
+  if (!(await skip.evaluate((node) => node === document.activeElement)))
+    fail("skip link was not first in keyboard order");
+  await page.keyboard.press("Enter");
+  if (
+    !(await page
+      .locator("#page-title")
+      .evaluate((node) => node === document.activeElement))
+  )
+    fail("skip link did not route focus to the page title");
+  scriptedAssertions += 2;
+
+  const invalidBearer = `${bearer.slice(0, -1)}${bearer.endsWith("X") ? "Y" : "X"}`;
+  await page.locator('[data-testid="admin-bearer-input"]').fill(invalidBearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await page.locator('[data-testid="session-message"][role="alert"]').waitFor();
+  await scan("sign-in-error");
+  scriptedAssertions += 1;
+
+  const ids = ["01ARZ3NDEKTSV4RRFFQ69G5FA0", "01ARZ3NDEKTSV4RRFFQ69G5FA1"];
+  await page.route("**/api/v1/admin-credentials**", async (route) => {
+    const request = route.request();
+    if (
+      request.method() !== "GET" ||
+      new URL(request.url()).pathname !== "/api/v1/admin-credentials"
+    )
+      fail("unexpected accessibility credential request");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: ids.map((id, index) => ({
+          id,
+          fingerprint: `${String(index + 1).padStart(16, "0")}`,
+          created_at: "2026-08-28T12:00:00Z",
+          expires_at: null,
+          non_expiring: true,
+          status: "active",
+          revision: "1",
+        })),
+        next_cursor: null,
+      }),
+    });
+  });
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=admin-credentials";
+  });
+  await page.locator('[data-testid="admin-credentials-view"]').waitFor();
+  await page.locator('[data-testid="admin-credential-row"]').first().waitFor();
+  await page
+    .locator('[data-testid="admin-credential-create"]:enabled')
+    .waitFor();
+  await scan("credential-table");
+
+  const table = page.locator(
+    '.table-region[role="region"][aria-label="Administrator credential authority"]',
+  );
+  if (
+    (await table.locator('th[scope="col"]').count()) !== 5 ||
+    (await table.locator('th[scope="row"]').count()) !== 2
+  )
+    fail("credential table semantics changed");
+  const expiry = page.locator('[data-testid="admin-credential-expiry"]');
+  await expiry.fill("invalid");
+  await page.locator('[data-testid="admin-credential-create"]').click();
+  await page.getByText(/Expiry must be an RFC 3339 time/).waitFor();
+  if (
+    (await expiry.getAttribute("aria-invalid")) !== "true" ||
+    !(await expiry.getAttribute("aria-describedby"))?.includes(
+      "admin-credential-expiry-error",
+    )
+  )
+    fail("field error was not associated with the expiry input");
+  await scan("form-error");
+  scriptedAssertions += 3;
+
+  const firstRevoke = page
+    .locator('[data-testid="admin-credential-revoke"]')
+    .first();
+  await firstRevoke.focus();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", {
+    name: "Revoke administrator credential?",
+  });
+  await dialog.waitFor();
+  if (!(await dialog.evaluate((node) => node.contains(document.activeElement))))
+    fail("destructive dialog did not receive focus");
+  await page.keyboard.press("Tab");
+  if (!(await dialog.evaluate((node) => node.contains(document.activeElement))))
+    fail("destructive dialog did not trap keyboard focus");
+  await scan("destructive-dialog");
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "hidden" });
+  if (!(await firstRevoke.evaluate((node) => node === document.activeElement)))
+    fail("dialog did not restore the invoking control focus");
+  scriptedAssertions += 3;
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const toggle = page.locator('[data-testid="navigation-toggle"]');
+  await toggle.focus();
+  await page.keyboard.press("Space");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true")
+    fail("mobile navigation did not expose its state");
+  const systemLink = page.locator('#primary-navigation a[href="#/system"]');
+  if ((await systemLink.getAttribute("aria-current")) !== "page")
+    fail("current navigation state relied on color alone");
+  for (const target of [
+    toggle,
+    systemLink,
+    page.locator('[data-testid="admin-credential-create"]'),
+  ]) {
+    const box = await target.boundingBox();
+    if (box === null || box.width < 24 || box.height < 24)
+      fail("interactive target is smaller than 24 CSS pixels");
+  }
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  if (
+    !(await page.evaluate(
+      () => matchMedia("(prefers-reduced-motion: reduce)").matches,
+    ))
+  )
+    fail("reduced-motion preference was not active");
+  const motion = await page
+    .locator(".panel")
+    .first()
+    .evaluate((node) => {
+      const style = getComputedStyle(node);
+      return `${style.animationDuration},${style.transitionDuration}`;
+    });
+  if (
+    !motion
+      .split(",")
+      .every(
+        (value) => value === "0s" || value === "0.01ms" || value === "1e-05s",
+      )
+  )
+    fail(`reduced-motion timing remained active: ${motion}`);
+  scriptedAssertions += 6;
+
+  await assertSecretAbsent(
+    page,
+    context,
+    baseURL,
+    [bearer, invalidBearer],
+    true,
+  );
+  process.stdout.write(
+    `${JSON.stringify({ event: "accessibility_changed_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), axe_scans: axeScans, serious_critical: 0, scripted_assertions: scriptedAssertions })}\n`,
   );
 }
 
@@ -8400,6 +8610,15 @@ try {
       );
     } else if (input.scenario === "shell-primitives") {
       await runShellPrimitives(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "accessibility-changed") {
+      await runAccessibilityChanged(
         browser.version(),
         context,
         page,
