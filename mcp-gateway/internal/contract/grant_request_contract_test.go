@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5SyntheticDescriptorsAreExactAndPinned(t *testing.T) {
+func TestSelfServiceSyntheticDescriptorsAreExactAndPinned(t *testing.T) {
 	t.Parallel()
 	expected := []struct {
 		id, upstream, external, title, description, input, fingerprint string
@@ -55,7 +55,7 @@ func TestS5SyntheticDescriptorsAreExactAndPinned(t *testing.T) {
 	require.Equal(t, expected[0].title, *fresh.Descriptor.Title)
 }
 
-func TestS5ClosedVocabularyRoutesProblemsAndLimitsAreExact(t *testing.T) {
+func TestGrantRequestRoutesProblemsAndLimitsAreExact(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, []GrantRequestState{RequestPending, RequestApproved, RequestRejected, RequestCancelled}, GrantRequestStates())
 	require.Equal(t, []PolicyScope{PolicyTool, PolicyServer}, PolicyScopes())
@@ -116,7 +116,7 @@ func TestS5ClosedVocabularyRoutesProblemsAndLimitsAreExact(t *testing.T) {
 	require.Equal(t, int64(2592000), GrantRequestDurationMaximumSeconds)
 }
 
-func TestS5ResourceShapesETagsMechanicsAndStatusAreExact(t *testing.T) {
+func TestGrantRequestResourceShapesETagsMechanicsAndStatusAreExact(t *testing.T) {
 	t.Parallel()
 	policy := Policy{Scope: PolicyTool, Target: "server.tool"}
 	request := AgentGrantRequest{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", State: RequestPending, Revision: "1", RequestedPolicy: policy}
@@ -169,7 +169,7 @@ func TestS5ResourceShapesETagsMechanicsAndStatusAreExact(t *testing.T) {
 	require.Equal(t, expectedMechanics, mechanics[start:start+len(expectedMechanics)])
 }
 
-func TestS5AcceptanceAndClauseManifestsAreCompleteAndCopySafe(t *testing.T) {
+func TestGrantRequestAcceptanceManifestsAreCompleteAndCopySafe(t *testing.T) {
 	t.Parallel()
 	criteria := S5AcceptanceEvidenceManifest()
 	require.Equal(t, []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5", "AC-6", "AC-7"}, criterionNames(criteria))

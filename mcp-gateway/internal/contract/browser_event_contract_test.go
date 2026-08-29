@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6PostEvents(t *testing.T) {
+func TestBrowserEventPostContract(t *testing.T) {
 	route, ok := RouteForPath("/api/v1/events")
 	require.True(t, ok)
 	assert.Equal(t, []string{"GET", "POST"}, route.Methods)

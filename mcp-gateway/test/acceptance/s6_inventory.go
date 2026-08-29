@@ -78,11 +78,11 @@ var s6MilestoneCategories = map[string][]S6LeafCategory{
 }
 
 var s6Selectors = map[string][]string{
-	"T2": {"ui:typecheck", "ui:verify-generated", "TestS6BrowserCoordinator"}, "T3": {"TestS6Bootstrap"}, "T4": {"TestS6PostEvents"}, "T5": {"TestS6BrowserProtocol"},
-	"T6": {"TestS6InvocationContract"}, "T7": {"TestS6InvocationRepositoryReads"}, "T8": {"TestS6InvocationAPI"}, "T9": {"TestS6E2EInvocationReadPrivacy"},
+	"T2": {"ui:typecheck", "ui:verify-generated", "TestS6BrowserCoordinator"}, "T3": {"Test(S6Bootstrap|AdminSessionBootstrapContract)"}, "T4": {"Test(S6PostEvents|BrowserEventPostContract)"}, "T5": {"TestS6BrowserProtocol"},
+	"T6": {"TestInvocationReadProjectionContract"}, "T7": {"TestS6InvocationRepositoryReads"}, "T8": {"TestS6InvocationAPI"}, "T9": {"TestS6E2EInvocationReadPrivacy"},
 	"T10": {"TestS6StaticDelivery", "TestS6BrowserFragmentStorage"}, "T11": {"TestS6BrowserAuthenticationEpoch"}, "T12": {"TestS6BrowserReadGeneration"},
 	"T13": {"TestS6BrowserMutationState"}, "T14": {"TestS6BrowserShellPrimitives"}, "T15": {"TestS6BrowserSecretSinks"},
-	"T16": {"TestS6ControlTransport"}, "T17": {"TestS6CLISharedContract"}, "T18": {"TestS6CLISensitiveSinks"}, "T19": {"TestS6CLIStatusInvocations"},
+	"T16": {"TestS6ControlTransport"}, "T17": {"TestS6CLISharedContract"}, "T18": {"Test(S6CLISensitiveSinks|CLISecretSinkBoundaries)"}, "T19": {"TestS6CLIStatusInvocations"},
 	"T20": {"TestS6BrowserOverview"}, "T21": {"TestS6BrowserInvocations"}, "T22": {"TestS6BrowserSystemStatus"}, "T23": {"TestS6BrowserServerCatalogReads"},
 	"T24": {"TestS6BrowserServerCreateUpdate"}, "T25": {"TestS6BrowserServerOperations"}, "T26": {"TestS6BrowserServerCredentials"},
 	"T27": {"TestS6BrowserAuthFlows"}, "T28": {"TestS6BrowserServerDisconnectDelete"}, "T29": {"TestS6BrowserPrincipals"},
@@ -94,8 +94,8 @@ var s6Selectors = map[string][]string{
 	"T46": {"TestS6CLIPrincipals"}, "T47": {"TestS6CLIPrincipalCredentials"}, "T48": {"TestS6CLIGrants"}, "T49": {"TestS6CLIGrantRequests"},
 	"T50": {"TestS6BrowserAccessibilityChanged"}, "T51": {"TestS6BrowserVisualChanged"}, "T52": {"TestS6SecurityCanaries", "TestS6BrowserPrivacyCanary"},
 	"T53": {"TestS6ExternalEvidenceContract"}, "T54": {"ui:verify-supply-chain", "TestS6StaticSupplyChain"},
-	"T55": {"Test(RoutesMatchTheS1Contract|S2RoutesAndMechanicsAreExact|S3RoutesAndMechanicsAreExact|S5ClosedVocabularyRoutesProblemsAndLimitsAreExact|S5ResourceShapesETagsMechanicsAndStatusAreExact|S6InvocationContract|S5GrantRequestStrictQueriesBodiesPreconditionsAndProblems|S6StaticDelivery|S6PostEvents|ProductionSourceOwnershipGuards|ProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners|AdmissionInputCannotCarryForbiddenPayloads|SinkFailureNeverActivatesUndisclosedAuthority|S5EventsPreserveIDFreeOrderOverflowLossAndReconnect|S6CLISharedContract|S5SchemaTenMigrationRollsBackAtomically)", "TestS5IntegrationRestoreAcceptedLineages"}, "T56": {"format:check", "TestS6DocumentationDrift"}, "T57": {"TestS6AcceptanceProfile"},
-	"M1": {"TestS6M1Gate", "TestS6BrowserM1Canary"}, "M2": {"TestS6M2Gate", "TestS6E2EM2Canary"}, "M3": {"TestS6BrowserM3Canary"},
+	"T55": {"Test(FoundationRoutesAndMechanicsAreExact|ServerRoutesAndMechanicsAreExact|AuthorizationRoutesAndMechanicsAreExact|GrantRequestRoutesProblemsAndLimitsAreExact|GrantRequestResourceShapesETagsMechanicsAndStatusAreExact|InvocationReadProjectionContract|S5GrantRequestStrictQueriesBodiesPreconditionsAndProblems|S6StaticDelivery|S6PostEvents|BrowserEventPostContract|ProductionSourceOwnershipGuards|ProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners|AdmissionInputCannotCarryForbiddenPayloads|SinkFailureNeverActivatesUndisclosedAuthority|S5EventsPreserveIDFreeOrderOverflowLossAndReconnect|S6CLISharedContract|RequestSchemaMigrationRollsBackAtomically)", "TestRestoreAcceptedSchemaLineages"}, "T56": {"format:check", "Test(S6DocumentationDrift|DocumentationContractDrift)"}, "T57": {"TestS6AcceptanceProfile"},
+	"M1": {"Test(S6M1Gate|SessionEventContractIntegration)", "TestS6BrowserM1Canary"}, "M2": {"TestS6M2Gate", "TestS6E2EM2Canary"}, "M3": {"TestS6BrowserM3Canary"},
 	"M4": {"TestS6M4Gate", "TestS6CLIM4Canary"}, "M5": {"TestS6BrowserM5Canary"}, "M6": {"TestS6BrowserM6Canary"},
 	"M7": {"TestS6BrowserM7Canary"}, "M8": {"TestS6BrowserM8Canary"}, "M9": {"TestS6CLIM9Canary"}, "M10": {"TestS6CLISharedContract", "TestS6CLIM10Canary"},
 	"M11": {"TestS6M11Gate", "TestS6BrowserM11Canary"},
@@ -284,7 +284,7 @@ func s6Leaves(owner string, categories []S6LeafCategory) []S6PlannedLeaf {
 			leaf.GatewayStarts = 1
 		}
 		if owner == "T1" {
-			leaf.Argv = []string{"go", "-C", "mcp-gateway", "test", "-race", "-count=1", "-timeout=2m", "-run", "^TestS6(Manifest|Inventory|PlannedCommand|Capability|Documentation)$", "./internal/contract", "./test/acceptance"}
+			leaf.Argv = []string{"go", "-C", "mcp-gateway", "test", "-race", "-count=1", "-timeout=2m", "-run", "^Test(LegacyControlPlaneManifest|S6(Inventory|PlannedCommand|Capability|Documentation))$", "./internal/contract", "./test/acceptance"}
 			leaf.ExpectedMatches = 5
 		}
 		if owner == "T2" && index < 2 {

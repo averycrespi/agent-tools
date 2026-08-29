@@ -6,6 +6,8 @@ var S5IntegrationTestManifest = []string{
 	"TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss",
 	"TestRepositoryRetainsNewest4096ByMonotonicSequence",
 	"TestRepositoryRollsBackEvictionWhenInsertFails",
+	"TestRequestSchemaMigrationUsesRealSQLite",
+	"TestRestoreAcceptedSchemaLineages",
 	"TestS5IntegrationApprovalVsPolicyAndCapacity",
 	"TestS5IntegrationAtomicApprovalAndPostCommitRecovery",
 	"TestS5IntegrationCatalogEvidenceReplacement",
@@ -13,8 +15,6 @@ var S5IntegrationTestManifest = []string{
 	"TestS5IntegrationCredentialAdmissionOrdering",
 	"TestS5IntegrationRequestLifecycle",
 	"TestS5IntegrationRequestRetentionAndEvidenceLimits",
-	"TestS5IntegrationRestoreAcceptedLineages",
-	"TestS5IntegrationSchemaNineMigratesToTenWithRealSQLite",
 }
 
 var S5StressTestManifest = []string{

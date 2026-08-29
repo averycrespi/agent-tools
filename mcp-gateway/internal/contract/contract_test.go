@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRoutesMatchTheS1Contract(t *testing.T) {
+func TestFoundationRoutesAndMechanicsAreExact(t *testing.T) {
 	t.Parallel()
 
 	expected := []Route{
@@ -164,7 +164,7 @@ func TestFixedLimitsAcceptNAndRejectNPlusOne(t *testing.T) {
 	require.False(t, ok)
 }
 
-func TestFixedDurationsAndRangesMatchTheS1Contract(t *testing.T) {
+func TestFoundationDurationsAndRangesAreExact(t *testing.T) {
 	t.Parallel()
 
 	require.Equal(t, 5*time.Second, HeaderReadDeadline)

@@ -17,11 +17,11 @@ import (
 )
 
 const (
-	s5IntegrationSelector    = `^(TestS5Integration.*|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$`
+	s5IntegrationSelector    = `^(TestS5Integration.*|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$`
 	cliUsabilityE2ESelector  = `^(TestCLI(FirstRun|XDGAndOverrides|ServeOutputPhases|AutomaticBearerSelection|CredentialFailureProblems|OutputMatrix|CommandErrors|HelpTree)|TestS6CLI(StatusInvocations|ServerCatalogReads|ServerCreateUpdate|ServerDelete|ServerOperations|ServerCredentials|AuthFlows|AdminCredentials|Backups|Principals|PrincipalCredentials|Grants|GrantRequests))$`
 	cliSourceSelector        = `^(TestProductionSourceOwnershipGuards|TestCLIControlBoundary)$`
-	cliDocumentationSelector = `^(TestCLIUsabilityDocumentationDrift|TestReadmeRelativeLinksResolve|TestS6DocumentationDrift)$`
-	cliIntegrationSelector   = `^(TestS6InvocationRepositoryReads|TestS5Integration.*|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$`
+	cliDocumentationSelector = `^(TestCLIUsabilityDocumentationDrift|TestReadmeRelativeLinksResolve|TestS6DocumentationDrift|TestDocumentationContractDrift)$`
+	cliIntegrationSelector   = `^(TestS6InvocationRepositoryReads|TestS5Integration.*|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$`
 )
 
 var s5IntegrationPackages = []string{
@@ -186,7 +186,7 @@ func TestCLIUsabilityFinalOwnerInventory(t *testing.T) {
 	selectedSource := selectedTests(t, cliSourceSelector, []string{"./internal/composition", "./cmd/mcp-gateway"})
 	assert.Equal(t, []string{"TestCLIControlBoundary", "TestProductionSourceOwnershipGuards"}, selectedSource)
 	selectedDocumentation := selectedTests(t, cliDocumentationSelector, []string{"./internal/contract"})
-	assert.Equal(t, []string{"TestCLIUsabilityDocumentationDrift", "TestReadmeRelativeLinksResolve", "TestS6DocumentationDrift"}, selectedDocumentation)
+	assert.Equal(t, []string{"TestCLIUsabilityDocumentationDrift", "TestDocumentationContractDrift", "TestReadmeRelativeLinksResolve", "TestS6DocumentationDrift"}, selectedDocumentation)
 
 	criterionPrimaryOwners := map[string]string{
 		"cli.AC-1": "cli_e2e", "cli.AC-2": "cli_e2e", "cli.AC-3": "cli_e2e",

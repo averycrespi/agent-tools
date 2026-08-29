@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5IntegrationRestoreAcceptedLineages(t *testing.T) {
+func TestRestoreAcceptedSchemaLineages(t *testing.T) {
 	t.Run("schemas 3 through 9 migrate to an empty valid request store", func(t *testing.T) {
 		for schema := 3; schema <= 9; schema++ {
 			t.Run(strconv.Itoa(schema), func(t *testing.T) {

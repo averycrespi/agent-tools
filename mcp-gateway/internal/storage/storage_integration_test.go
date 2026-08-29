@@ -39,7 +39,7 @@ func TestPopulatedSchemaEightMigratesToNineWithRealSQLite(t *testing.T) {
 	assert.Equal(t, 1, principals)
 }
 
-func TestS5IntegrationSchemaNineMigratesToTenWithRealSQLite(t *testing.T) {
+func TestRequestSchemaMigrationUsesRealSQLite(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
 	writePopulatedSchemaNineFixture(t, ctx, ownership)

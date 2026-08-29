@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS3RoutesAndMechanicsAreExact(t *testing.T) {
+func TestAuthorizationRoutesAndMechanicsAreExact(t *testing.T) {
 	t.Parallel()
 
 	expectedRoutes := []Route{
@@ -75,7 +75,7 @@ func TestS3RoutesAndMechanicsAreExact(t *testing.T) {
 	}
 }
 
-func TestS3ProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) {
+func TestAuthorizationProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) {
 	t.Parallel()
 
 	expectedProblems := []Problem{
@@ -113,7 +113,7 @@ func TestS3ProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) {
 	require.Equal(t, SecretSinkAgentCredentialCreation, ApprovedSecretSinks()[7], "S3 sink must retain its historical prefix position")
 }
 
-func TestS3ClosedStatesAndSyntheticIdentityAreExact(t *testing.T) {
+func TestAuthorizationClosedStatesAndSyntheticIdentityAreExact(t *testing.T) {
 	t.Parallel()
 
 	require.Equal(t, "00000000000000000000000000", SyntheticServerID)
@@ -142,7 +142,7 @@ func TestS3ClosedStatesAndSyntheticIdentityAreExact(t *testing.T) {
 	}
 }
 
-func TestS3ResourceShapesETagsAndStatusAreExact(t *testing.T) {
+func TestAuthorizationResourceShapesETagsAndStatusAreExact(t *testing.T) {
 	t.Parallel()
 
 	constraint := json.RawMessage(`{"equals":{"/count":1.0}}`)
@@ -175,7 +175,7 @@ func TestS3ResourceShapesETagsAndStatusAreExact(t *testing.T) {
 	)
 }
 
-func TestS3AcceptanceEvidenceManifestIsClosedAndCopySafe(t *testing.T) {
+func TestAuthorizationAcceptanceEvidenceManifestIsClosedAndCopySafe(t *testing.T) {
 	t.Parallel()
 
 	expected := []AcceptanceEvidence{

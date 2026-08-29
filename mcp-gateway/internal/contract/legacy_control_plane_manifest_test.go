@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6Manifest(t *testing.T) {
+func TestLegacyControlPlaneManifest(t *testing.T) {
 	assert.Equal(t, 1, S6ManifestVersion)
 	criteria := S6AcceptanceEvidenceManifest()
 	require.Len(t, criteria, 11)

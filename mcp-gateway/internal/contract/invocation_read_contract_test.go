@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6InvocationAPI(t *testing.T) {
+func TestInvocationReadRoutes(t *testing.T) {
 	t.Parallel()
 	for _, path := range []string{"/api/v1/invocations", "/api/v1/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAV"} {
 		route, ok := RouteForPath(path)
@@ -21,7 +21,7 @@ func TestS6InvocationAPI(t *testing.T) {
 	assert.Contains(t, mechanics, ResourceMechanic{Pattern: "/api/v1/invocations/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Invocation", SuccessStatuses: []int{200}})
 }
 
-func TestS6InvocationContract(t *testing.T) {
+func TestInvocationReadProjectionContract(t *testing.T) {
 	assert.Equal(t, []InvocationTargetKind{InvocationTargetDownstream, InvocationTargetGateway}, InvocationTargetKinds())
 	assert.Equal(t, []InvocationOutcomeClass{
 		InvocationOutcomeInvalidParams, InvocationOutcomeUnknownTool, InvocationOutcomeInvalidArguments,

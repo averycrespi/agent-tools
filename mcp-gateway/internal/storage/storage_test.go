@@ -177,7 +177,7 @@ func TestOpenMigratesCommittedKeyringSchemaFixture(t *testing.T) {
 	}
 }
 
-func TestOpenMigratesAcceptedS1SchemaThreeFixture(t *testing.T) {
+func TestOpenMigratesAcceptedSchemaThreeFixture(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
 	copyFixture(t, "testdata/schema-v3.db", ownership.Layout().Database)

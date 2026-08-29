@@ -43,7 +43,7 @@ func newBackupManager(t *testing.T, fault func(FaultPoint) error) (*Manager, *st
 	return manager, store, ownership
 }
 
-func TestS5SchemaTenBackupCompatibility(t *testing.T) {
+func TestRequestSchemaBackupCompatibility(t *testing.T) {
 	manager, _, ownership := newBackupManager(t, nil)
 	created, replay, err := manager.Create(context.Background(), "authority", "schema-ten")
 	require.NoError(t, err)

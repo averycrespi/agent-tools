@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS4ClosedVocabularyAndLimitsAreExact(t *testing.T) {
+func TestInvocationClosedVocabularyAndLimitsAreExact(t *testing.T) {
 	t.Parallel()
 
 	require.Equal(t, []InvocationAdmissionClass{
@@ -66,7 +66,7 @@ func TestS4ClosedVocabularyAndLimitsAreExact(t *testing.T) {
 	require.False(t, capture.Allows(8193))
 }
 
-func TestS4AgentErrorDataShapeIsClosed(t *testing.T) {
+func TestInvocationAgentErrorDataShapeIsClosed(t *testing.T) {
 	t.Parallel()
 
 	invocationID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
@@ -79,7 +79,7 @@ func TestS4AgentErrorDataShapeIsClosed(t *testing.T) {
 	require.JSONEq(t, `{"code":"call_rejected"}`, string(encoded))
 }
 
-func TestS4AuditRecordShapeCarriesOnlyBoundedEvidence(t *testing.T) {
+func TestInvocationAuditRecordCarriesOnlyBoundedEvidence(t *testing.T) {
 	t.Parallel()
 
 	recordType := InvocationAuditRecord{
@@ -95,7 +95,7 @@ func TestS4AuditRecordShapeCarriesOnlyBoundedEvidence(t *testing.T) {
 	require.Equal(t, AdmissionEvaluated, recordType.AdmissionClass)
 }
 
-func TestS4AcceptanceAndClauseManifestsAreCompleteAndCopySafe(t *testing.T) {
+func TestInvocationAcceptanceManifestsAreCompleteAndCopySafe(t *testing.T) {
 	t.Parallel()
 
 	criteria := S4AcceptanceEvidenceManifest()

@@ -130,7 +130,7 @@ func TestS6PlannedCommand(t *testing.T) {
 	require.Len(t, owner.Leaves, 1)
 	leaf := owner.Leaves[0]
 	assert.Equal(t, 5, leaf.ExpectedMatches)
-	assert.Contains(t, leaf.Argv, "^TestS6(Manifest|Inventory|PlannedCommand|Capability|Documentation)$")
+	assert.Contains(t, leaf.Argv, "^Test(LegacyControlPlaneManifest|S6(Inventory|PlannedCommand|Capability|Documentation))$")
 
 	anchored := regexp.MustCompile(`^\^.*\$$`)
 	for _, planned := range S6PlannedInventory() {

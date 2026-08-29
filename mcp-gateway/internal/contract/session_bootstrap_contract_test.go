@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6Bootstrap(t *testing.T) {
+func TestAdminSessionBootstrapContract(t *testing.T) {
 	route, ok := RouteForPath("/api/v1/admin-sessions/current")
 	require.True(t, ok)
 	assert.Equal(t, []string{"DELETE", "POST"}, route.Methods)

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6M1Gate(t *testing.T) {
+func TestSessionEventContractIntegration(t *testing.T) {
 	events, ok := RouteForPath("/api/v1/events")
 	require.True(t, ok)
 	assert.Equal(t, "GET, POST", events.Allow())

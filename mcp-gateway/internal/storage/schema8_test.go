@@ -23,7 +23,7 @@ func TestInitializePreservesExactSchemaEightAuthorityFoundation(t *testing.T) {
 	assert.Equal(t, expectedMigrationVersions(), mustMigrationVersions(t, store, ctx))
 }
 
-func TestOpenMigratesPopulatedSchemaSevenWithoutChangingS2Facts(t *testing.T) {
+func TestOpenMigratesPopulatedSchemaSevenWithoutChangingServerFacts(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
 	copyFixture(t, "testdata/schema-v7.db", ownership.Layout().Database)

@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestClosedStateSetsMatchTheS1Contract(t *testing.T) {
+func TestFoundationClosedStateSetsAreExact(t *testing.T) {
 	t.Parallel()
 
 	require.Equal(t, []CredentialStatus{CredentialActive, CredentialRevoked, CredentialExpired}, CredentialStatuses())

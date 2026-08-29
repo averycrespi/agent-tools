@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS2RoutesAndMechanicsAreExact(t *testing.T) {
+func TestServerRoutesAndMechanicsAreExact(t *testing.T) {
 	t.Parallel()
 
 	expectedRoutes := []Route{
@@ -74,7 +74,7 @@ func TestS2RoutesAndMechanicsAreExact(t *testing.T) {
 	require.Equal(t, expectedMechanics, mechanics[12:12+len(expectedMechanics)], "S2 mechanics must remain after the S1 prefix")
 }
 
-func TestS2ProblemsAreExact(t *testing.T) {
+func TestServerProblemsAreExact(t *testing.T) {
 	t.Parallel()
 
 	expected := []Problem{
@@ -92,7 +92,7 @@ func TestS2ProblemsAreExact(t *testing.T) {
 	require.Equal(t, expected, problems[21:21+len(expected)], "S2 problems must remain after the S1 prefix")
 }
 
-func TestS2ClosedVocabulariesRejectUnknownValues(t *testing.T) {
+func TestServerClosedVocabulariesRejectUnknownValues(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -151,7 +151,7 @@ func TestS2ClosedVocabulariesRejectUnknownValues(t *testing.T) {
 	}
 }
 
-func TestS2LimitsAndDeadlinesAreExact(t *testing.T) {
+func TestServerLimitsAndDeadlinesAreExact(t *testing.T) {
 	t.Parallel()
 
 	expected := map[string]int64{
@@ -201,7 +201,7 @@ func TestS2LimitsAndDeadlinesAreExact(t *testing.T) {
 	require.Equal(t, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 32 * time.Second, 60 * time.Second}, ReconciliationRetryDelays())
 }
 
-func TestS2EventsSecretSinksETagAndStatusOccupancies(t *testing.T) {
+func TestServerEventsSecretSinksETagsAndStatusOccupancies(t *testing.T) {
 	t.Parallel()
 
 	expectedInvalidations := []InvalidationKind{
@@ -232,7 +232,7 @@ func TestS2EventsSecretSinksETagAndStatusOccupancies(t *testing.T) {
 	}
 }
 
-func TestS2ResourceShapesAreExact(t *testing.T) {
+func TestServerResourceShapesAreExact(t *testing.T) {
 	t.Parallel()
 
 	stdio := StdioTransport{Kind: TransportStdio, Executable: "/bin/server", Arguments: []string{"--stdio"}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{}}

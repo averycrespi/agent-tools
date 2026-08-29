@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6DocumentationDrift(t *testing.T) {
+func TestDocumentationContractDrift(t *testing.T) {
 	t.Parallel()
 
 	documents := map[string][]string{

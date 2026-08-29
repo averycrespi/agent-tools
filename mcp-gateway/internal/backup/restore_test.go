@@ -193,7 +193,7 @@ func restoreTestEntropy(seed byte, size int) []byte {
 	return entropy
 }
 
-func TestRestorePreservesS2AuthorityAndInterruptsWorkBeforeReconstruction(t *testing.T) {
+func TestRestorePreservesServerAuthorityAndInterruptsWorkBeforeReconstruction(t *testing.T) {
 	ctx := context.Background()
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))
@@ -244,7 +244,7 @@ func TestRestorePreservesS2AuthorityAndInterruptsWorkBeforeReconstruction(t *tes
 	require.NoError(t, ownership.Close())
 }
 
-func TestRestoreMigratesAcceptedS1SchemaThreeBackupBeforePublication(t *testing.T) {
+func TestRestoreMigratesAcceptedSchemaThreeBackupBeforePublication(t *testing.T) {
 	ctx := context.Background()
 	root, originalBearer := installAcceptedS1BackupFixture(t)
 	replacementSink := new(captureSink)
@@ -272,7 +272,7 @@ func TestRestoreMigratesAcceptedS1SchemaThreeBackupBeforePublication(t *testing.
 	require.NoError(t, ownership.Close())
 }
 
-func TestAcceptedS1RestoreCrashPointsLeaveCurrentGenerationAuthoritative(t *testing.T) {
+func TestAcceptedSchemaThreeRestoreCrashPointsLeaveCurrentGenerationAuthoritative(t *testing.T) {
 	for _, point := range []restoreFaultPoint{
 		restoreFaultAfterCopy,
 		restoreFaultAfterMigration,

@@ -147,7 +147,7 @@ func TestAcquireRejectsUnsafeRootsAndFiles(t *testing.T) {
 	})
 }
 
-func TestS6CLISensitiveSinks(t *testing.T) {
+func TestCLISecretSinkBoundaries(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "prepared-secret")
 	file, err := CreateOwnerOnlyFile(path)

@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5SchemaTenInitializesExactRequestFoundation(t *testing.T) {
+func TestRequestSchemaInitializesExactFoundation(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
 	store, err := Initialize(ctx, ownership, testInstallationID)
@@ -24,7 +24,7 @@ func TestS5SchemaTenInitializesExactRequestFoundation(t *testing.T) {
 	assert.Equal(t, expectedMigrationVersions(), mustMigrationVersions(t, store, ctx))
 }
 
-func TestS5SchemaTenMigratesPopulatedNineAndReplacement(t *testing.T) {
+func TestRequestSchemaMigratesPopulatedPredecessorAndReplacement(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
 	writePopulatedSchemaNineFixture(t, ctx, ownership)
@@ -52,7 +52,7 @@ func TestS5SchemaTenMigratesPopulatedNineAndReplacement(t *testing.T) {
 	assertSchemaTenRequestFoundation(t, ctx, replacement.database)
 }
 
-func TestS5SchemaTenChecksTransitionsUniquenessAndEvidenceAccounting(t *testing.T) {
+func TestRequestSchemaEnforcesTransitionsUniquenessAndEvidenceAccounting(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
 	store, err := Initialize(ctx, ownership, testInstallationID)
@@ -104,7 +104,7 @@ func TestS5SchemaTenChecksTransitionsUniquenessAndEvidenceAccounting(t *testing.
 	assert.Greater(t, nextSequence, firstSequence, "request insertion sequence must never reuse an evicted value")
 }
 
-func TestS5SchemaTenRejectsMalformedRowsAndStructure(t *testing.T) {
+func TestRequestSchemaRejectsMalformedRowsAndStructure(t *testing.T) {
 	t.Run("malformed rows", func(t *testing.T) {
 		ctx := context.Background()
 		ownership := newOwnership(t)
@@ -153,7 +153,7 @@ func TestS5SchemaTenRejectsMalformedRowsAndStructure(t *testing.T) {
 	}
 }
 
-func TestS5SchemaTenMigrationRollsBackAtomically(t *testing.T) {
+func TestRequestSchemaMigrationRollsBackAtomically(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
 	writePopulatedSchemaNineFixture(t, ctx, ownership)
@@ -175,7 +175,7 @@ func TestS5SchemaTenMigrationRollsBackAtomically(t *testing.T) {
 	assert.Zero(t, migration)
 }
 
-func TestS5SchemaTenRequestColumnsExcludeForbiddenPayloads(t *testing.T) {
+func TestRequestSchemaColumnsExcludeForbiddenPayloads(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
 	store, err := Initialize(ctx, ownership, testInstallationID)
