@@ -1,5 +1,8 @@
+import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { createServer as createViteServer, type ViteDevServer } from "vite";
 
 const DEFAULT_LISTEN = "127.0.0.1:5173";
 const DEFAULT_GATEWAY = "http://127.0.0.1:8210";
@@ -111,29 +114,60 @@ export async function runDevelopmentServer(
   args: readonly string[] = process.argv.slice(2),
 ): Promise<void> {
   const config = parseDevelopmentConfig(environment, args);
-  const server = createServer((_request, response) => {
-    response.writeHead(503, {
-      "Cache-Control": "no-store",
-      "Content-Type": "text/plain; charset=utf-8",
+  const developmentRoot = await mkdtemp(
+    resolve(tmpdir(), "mcp-gateway-ui-development-"),
+  );
+  const server = createServer();
+  let vite: ViteDevServer | undefined;
+
+  try {
+    vite = await createViteServer({
+      configFile: false,
+      root: import.meta.dirname,
+      base: "/",
+      publicDir: false,
+      cacheDir: resolve(developmentRoot, "cache"),
+      appType: "spa",
+      clearScreen: false,
+      logLevel: "silent",
+      build: {
+        outDir: resolve(developmentRoot, "output"),
+        emptyOutDir: true,
+      },
+      server: {
+        middlewareMode: { server },
+        cors: false,
+        ws: {
+          server,
+          host: config.listen.host,
+          clientPort: config.listen.port,
+        },
+      },
     });
-    response.end("Frontend development source server is starting.\n");
-  });
+    server.on("request", vite.middlewares);
 
-  await listen(server, config);
-  process.stdout.write(`Frontend: ${config.frontendOrigin} (ready)\n`);
-  process.stdout.write(
-    `Gateway: ${config.gateway.origin} (independent process)\n`,
-  );
-  process.stdout.write(
-    "Development only: trusted local proxy handles administrator authentication and session traffic\n",
-  );
+    await listen(server, config);
+    process.stdout.write(`Frontend: ${config.frontendOrigin} (ready)\n`);
+    process.stdout.write(
+      `Gateway: ${config.gateway.origin} (independent process)\n`,
+    );
+    process.stdout.write(
+      "Development only: trusted local proxy handles administrator authentication and session traffic\n",
+    );
 
-  await new Promise<void>((resolveShutdown) => {
-    const shutdown = () => resolveShutdown();
-    process.once("SIGINT", shutdown);
-    process.once("SIGTERM", shutdown);
-  });
-  await close(server);
+    await new Promise<void>((resolveShutdown) => {
+      const shutdown = () => resolveShutdown();
+      process.once("SIGINT", shutdown);
+      process.once("SIGTERM", shutdown);
+    });
+    await close(server);
+    const activeVite = vite;
+    vite = undefined;
+    await activeVite.close();
+  } finally {
+    if (vite) await vite.close();
+    await rm(developmentRoot, { recursive: true, force: true });
+  }
 }
 
 if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {

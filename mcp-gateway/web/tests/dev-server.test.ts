@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { resolve } from "node:path";
 import test from "node:test";
@@ -82,6 +84,61 @@ function waitForOutput(
     child.stderr?.on("data", check);
     child.once("exit", exited);
     check();
+  });
+}
+
+async function staticDigest(): Promise<string> {
+  const staticRoot = resolve(repositoryRoot, "mcp-gateway/internal/api/static");
+  const hash = createHash("sha256");
+  for (const name of (await readdir(staticRoot)).sort()) {
+    hash.update(name);
+    hash.update(await readFile(resolve(staticRoot, name)));
+  }
+  return hash.digest("hex");
+}
+
+async function workspaceDigest(): Promise<string> {
+  const files = spawnSync("git", ["ls-files", "-z"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  });
+  assert.equal(files.status, 0, files.stderr);
+  const status = spawnSync(
+    "git",
+    ["status", "--porcelain=v1", "--untracked-files=all"],
+    { cwd: repositoryRoot, encoding: "utf8" },
+  );
+  assert.equal(status.status, 0, status.stderr);
+
+  const hash = createHash("sha256").update(status.stdout);
+  for (const path of files.stdout.split("\0").filter(Boolean)) {
+    hash.update(path);
+    hash.update(await readFile(resolve(repositoryRoot, path)));
+  }
+  return hash.digest("hex");
+}
+
+function waitForHmr(frontendOrigin: string, token: string): Promise<void> {
+  return new Promise((resolveHmr, reject) => {
+    const socket = new WebSocket(
+      `${frontendOrigin.replace("http://", "ws://")}?token=${token}`,
+      "vite-hmr",
+    );
+    const timeout = setTimeout(() => {
+      socket.close();
+      reject(new Error("timed out connecting to Vite HMR"));
+    }, 5_000);
+    socket.addEventListener("open", () => {
+      socket.close();
+    });
+    socket.addEventListener("close", () => {
+      clearTimeout(timeout);
+      resolveHmr();
+    });
+    socket.addEventListener("error", () => {
+      clearTimeout(timeout);
+      reject(new Error("Vite HMR connection failed"));
+    });
   });
 }
 
@@ -216,6 +273,57 @@ test("startup is strict, emits safe bounded output, and settles on SIGTERM", asy
       code: 0,
       signal: null,
     });
+  } finally {
+    if (process.child.exitCode === null) process.child.kill("SIGKILL");
+  }
+});
+
+test("source server serves authored modules and owns HMR without workspace output", async () => {
+  const workspaceBefore = await workspaceDigest();
+  const staticBefore = await staticDigest();
+  const reservation = createServer();
+  const port = await listen(reservation);
+  await close(reservation);
+
+  const process = launch(`127.0.0.1:${port}`);
+  const frontendOrigin = `http://127.0.0.1:${port}`;
+  try {
+    await waitForOutput(
+      process.child,
+      process.output,
+      /Development only: trusted local proxy/,
+    );
+    const indexResponse = await fetch(`${frontendOrigin}/`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    assert.equal(indexResponse.status, 200);
+    const index = await indexResponse.text();
+    assert.match(index, /\/@vite\/client/);
+    assert.match(index, /\/src\/main\.tsx/);
+
+    const clientResponse = await fetch(`${frontendOrigin}/@vite/client`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    assert.equal(clientResponse.status, 200);
+    const client = await clientResponse.text();
+    const token = /const wsToken = \"([^\"]+)\"/.exec(client)?.[1];
+    assert(token);
+
+    const sourceResponse = await fetch(`${frontendOrigin}/src/main.tsx`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    assert.equal(sourceResponse.status, 200);
+    assert.match(await sourceResponse.text(), /import \"\/src\/styles\.css\"/);
+    await waitForHmr(frontendOrigin, token);
+    assert.doesNotMatch(process.output(), /GET \/|\/src\/main\.tsx/);
+
+    process.child.kill("SIGTERM");
+    assert.deepEqual(await waitForExit(process.child), {
+      code: 0,
+      signal: null,
+    });
+    assert.equal(await staticDigest(), staticBefore);
+    assert.equal(await workspaceDigest(), workspaceBefore);
   } finally {
     if (process.child.exitCode === null) process.child.kill("SIGKILL");
   }
