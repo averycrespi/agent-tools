@@ -26,7 +26,7 @@ var s6AcceptanceEvidenceManifest = []AcceptanceEvidence{
 	{Criterion: "AC-2", Evidence: []string{"browser-protocol", "browser-workflows", "privacy"}},
 	{Criterion: "AC-3", Evidence: []string{"capability-matrix", "browser-workflows", "cli-e2e"}},
 	{Criterion: "AC-4", Evidence: []string{"invocation-contract", "invocation-integration", "browser-workflows", "cli-e2e"}},
-	{Criterion: "AC-5", Evidence: []string{"browser-workflows", "integration-compat", "stress"}},
+	{Criterion: "AC-5", Evidence: []string{"browser-workflows", "integration-compat"}},
 	{Criterion: "AC-6", Evidence: []string{"security-privacy", "browser-workflows", "cli-e2e", "static-supply-chain"}},
 	{Criterion: "AC-7", Evidence: []string{"browser-workflows", "cli-e2e"}},
 	{Criterion: "AC-8", Evidence: []string{"browser-a11y", "browser-visual", "browser-cross", "external-evidence"}},

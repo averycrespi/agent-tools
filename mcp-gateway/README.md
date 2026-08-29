@@ -26,6 +26,9 @@ make accept-s4          # compatibility S4 acceptance report
 make accept-s5 REPORT=/absolute/path/report.json # retained S5 compatibility report
 make test-task-s6 TASK=T<n>       # one executable bounded S6 owner
 make test-milestone-s6 MILESTONE=M<n> # one executable bounded S6 gate
+make qualify-external-s6              # validate exact-candidate external sidecars only
+make accept-s6 REPORT=/absolute/path/report.json # run the frozen clean S6 profile once
+go run ./test/acceptance/cmd --adopt /absolute/path/report.json --output /absolute/path/adoption.json # no-check adoption
 npm run ui:typecheck
 npm run ui:build
 npm run ui:verify-generated

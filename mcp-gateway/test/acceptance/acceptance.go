@@ -28,6 +28,7 @@ const (
 	ProfileS3  Profile = "s3"
 	ProfileS4  Profile = "s4"
 	ProfileS5  Profile = "s5"
+	ProfileS6  Profile = "s6"
 
 	s5ProfileTimeout = 15 * time.Minute
 	s5CleanupReserve = 15 * time.Second
@@ -71,6 +72,8 @@ type Report struct {
 	EvidenceManifest      []contract.AcceptanceEvidence `json:"evidence_manifest,omitempty"`
 	ClauseManifest        []contract.ClauseEvidence     `json:"clause_manifest,omitempty"`
 	Native                *keyringnative.Result         `json:"native,omitempty"`
+	ManifestHash          string                        `json:"manifest_hash,omitempty"`
+	ExternalEvidence      []S6ExternalEvidenceReference `json:"external_evidence,omitempty"`
 }
 
 type Command struct {
@@ -195,13 +198,15 @@ func ProfileCommands(profile Profile) ([]Command, error) {
 			{CheckName: "other_tools", Name: "make", Arguments: []string{"check-other-tools"}, Criteria: []string{"AC-6", "AC-7"}, Evidence: []string{"s5-other-tools"}, Artifacts: []string{"Makefile"}, Timeout: 15 * time.Second},
 			{CheckName: "diff_check", Name: "git", Arguments: []string{"diff", "--check", "85e81320d7aec44e6c8b4a6bee6f2208d539857f..HEAD", "--"}, Criteria: []string{"AC-6", "AC-7"}, Artifacts: []string{"README.md", "mcp-gateway/README.md", "mcp-gateway/DESIGN.md", "mcp-gateway/CLAUDE.md"}, Timeout: time.Second},
 		}, nil
+	case ProfileS6:
+		return s6ProfileCommands(), nil
 	default:
 		return nil, fmt.Errorf("unknown acceptance profile %q", profile)
 	}
 }
 
 func ProfileDeadline(profile Profile) (time.Duration, time.Duration, bool) {
-	if profile != ProfileS5 {
+	if profile != ProfileS5 && profile != ProfileS6 {
 		return 0, 0, false
 	}
 	return s5ProfileTimeout, s5CleanupReserve, true
@@ -230,6 +235,10 @@ func RunProfile(ctx context.Context, root string, executor Executor, profile Pro
 	case ProfileS5:
 		report.EvidenceManifest = contract.S5AcceptanceEvidenceManifest()
 		report.ClauseManifest = contract.S5ClauseEvidenceManifest()
+	case ProfileS6:
+		report.EvidenceManifest = contract.S6AcceptanceEvidenceManifest()
+		report.ClauseManifest = contract.S6ClauseEvidenceManifest()
+		report.ManifestHash = S6InventoryDefinitionHash()
 	}
 	if allowDirty {
 		report.DirtyPolicy = "allowed"
@@ -253,10 +262,16 @@ func RunProfile(ctx context.Context, root string, executor Executor, profile Pro
 	if report.Dirty && !allowDirty {
 		return finishReport(fail(report, "dirty_workspace"), started)
 	}
+	if profile == ProfileS6 {
+		report.ExternalEvidence, err = LoadS6ExternalEvidence(root, S6EvidenceBinding{CandidateHead: report.Revision, ManifestHash: report.ManifestHash, ProfileHash: "sha256:" + report.ProfileHash})
+		if err != nil {
+			return finishReport(fail(report, "external_evidence_invalid"), started)
+		}
+	}
 
 	profileCtx := ctx
 	profileCancel := func() {}
-	if profile == ProfileS5 {
+	if profile == ProfileS5 || profile == ProfileS6 {
 		profileCtx, profileCancel = context.WithTimeout(ctx, s5ProfileTimeout-s5CleanupReserve)
 	}
 	defer profileCancel()
@@ -373,6 +388,9 @@ func Parse(contents []byte) (Report, error) {
 			return Report{}, errors.New("acceptance cleanup failure must fail its check")
 		}
 	}
+	if report.Profile != ProfileS6 && (report.ManifestHash != "" || len(report.ExternalEvidence) != 0) {
+		return Report{}, errors.New("pre-S6 acceptance profile cannot contain S6 evidence bindings")
+	}
 	switch report.Profile {
 	case ProfileS3:
 		if !reflect.DeepEqual(report.EvidenceManifest, contract.AcceptanceEvidenceManifest()) {
@@ -395,6 +413,21 @@ func Parse(contents []byte) (Report, error) {
 		if !reflect.DeepEqual(report.ClauseManifest, contract.S5ClauseEvidenceManifest()) {
 			return Report{}, errors.New("S5 clause manifest does not match the closed contract")
 		}
+	case ProfileS6:
+		if !reflect.DeepEqual(report.EvidenceManifest, contract.S6AcceptanceEvidenceManifest()) {
+			return Report{}, errors.New("S6 evidence manifest does not match the closed contract")
+		}
+		if !reflect.DeepEqual(report.ClauseManifest, contract.S6ClauseEvidenceManifest()) {
+			return Report{}, errors.New("S6 clause manifest does not match the closed contract")
+		}
+		if report.ManifestHash != S6InventoryDefinitionHash() {
+			return Report{}, errors.New("S6 validation manifest hash does not match the closed inventory")
+		}
+		if report.Result == ResultPassed || len(report.ExternalEvidence) > 0 {
+			if err := validateS6ExternalEvidenceReferences(report.ExternalEvidence); err != nil {
+				return Report{}, err
+			}
+		}
 	case ProfileS21:
 		if len(report.EvidenceManifest) != 0 || len(report.ClauseManifest) != 0 {
 			return Report{}, errors.New("S2.1 profile cannot contain a later evidence manifest")
@@ -403,7 +436,7 @@ func Parse(contents []byte) (Report, error) {
 	if err := validateEvidenceCoverage(commands, report.EvidenceManifest); err != nil {
 		return Report{}, err
 	}
-	if report.Profile == ProfileS5 {
+	if report.Profile == ProfileS5 || report.Profile == ProfileS6 {
 		owners := make(map[string]int)
 		for _, command := range commands {
 			for _, evidence := range command.Evidence {
@@ -412,7 +445,7 @@ func Parse(contents []byte) (Report, error) {
 		}
 		for evidence, count := range owners {
 			if count != 1 {
-				return Report{}, fmt.Errorf("S5 evidence %q must have exactly one command owner", evidence)
+				return Report{}, fmt.Errorf("%s evidence %q must have exactly one command owner", report.Profile, evidence)
 			}
 		}
 	}

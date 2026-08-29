@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 )
 
@@ -17,6 +18,7 @@ var commandDefinitionPaths = []string{
 	"package.json",
 	"mcp-gateway/Makefile",
 	"mcp-gateway/internal/contract/s5_acceptance.go",
+	"mcp-gateway/internal/contract/s6_manifest.go",
 	"mcp-gateway/internal/testutil/cleanup_ledger.go",
 	"mcp-gateway/internal/testutil/process_supervisor.go",
 	"mcp-gateway/internal/testutil/runner.go",
@@ -25,22 +27,29 @@ var commandDefinitionPaths = []string{
 	"mcp-gateway/test/acceptance/report.schema.json",
 	"mcp-gateway/test/acceptance/report_metadata.go",
 	"mcp-gateway/test/acceptance/s5_inventory.go",
+	"mcp-gateway/test/acceptance/s6_external_evidence.go",
+	"mcp-gateway/test/acceptance/s6_inventory.go",
+	"mcp-gateway/test/acceptance/s6_profile.go",
+	"mcp-gateway/web/environments.json",
+	"mcp-gateway/web/tests/browser-coordinator.ts",
 	"mcp-gateway/test/keyring-native.sh",
 	"mcp-gateway/test/keyringnative/result.schema.json",
 }
 
 type Adoption struct {
-	SchemaVersion         int      `json:"schema_version"`
-	ReportSHA256          string   `json:"report_sha256"`
-	Revision              string   `json:"revision"`
-	Profile               Profile  `json:"profile"`
-	ProfileHash           string   `json:"profile_hash"`
-	CommandDefinitionHash string   `json:"command_definition_hash"`
-	CleanAfter            bool     `json:"clean_after"`
-	NativeResult          string   `json:"native_result"`
-	Criteria              []string `json:"criteria"`
-	Clauses               []string `json:"clauses"`
-	AdoptedAt             string   `json:"adopted_at"`
+	SchemaVersion         int                           `json:"schema_version"`
+	ReportSHA256          string                        `json:"report_sha256"`
+	Revision              string                        `json:"revision"`
+	Profile               Profile                       `json:"profile"`
+	ProfileHash           string                        `json:"profile_hash"`
+	CommandDefinitionHash string                        `json:"command_definition_hash"`
+	ManifestHash          string                        `json:"manifest_hash,omitempty"`
+	ExternalEvidence      []S6ExternalEvidenceReference `json:"external_evidence,omitempty"`
+	CleanAfter            bool                          `json:"clean_after"`
+	NativeResult          string                        `json:"native_result"`
+	Criteria              []string                      `json:"criteria"`
+	Clauses               []string                      `json:"clauses"`
+	AdoptedAt             string                        `json:"adopted_at"`
 }
 
 type profileDefinition struct {
@@ -154,6 +163,12 @@ func AdoptReport(root, reportPath, outputPath string, now func() time.Time) (Ado
 	if err := ValidateReportDefinitions(root, report); err != nil {
 		return Adoption{}, err
 	}
+	if report.Profile == ProfileS6 {
+		external, externalErr := LoadS6ExternalEvidence(root, S6EvidenceBinding{CandidateHead: report.Revision, ManifestHash: report.ManifestHash, ProfileHash: "sha256:" + report.ProfileHash})
+		if externalErr != nil || !reflect.DeepEqual(external, report.ExternalEvidence) {
+			return Adoption{}, errors.New("acceptance external evidence changed since report production")
+		}
+	}
 	sum := sha256.Sum256(contents)
 	criteria := make([]string, len(report.EvidenceManifest))
 	for index, entry := range report.EvidenceManifest {
@@ -166,6 +181,7 @@ func AdoptReport(root, reportPath, outputPath string, now func() time.Time) (Ado
 	adoption := Adoption{
 		SchemaVersion: 1, ReportSHA256: hex.EncodeToString(sum[:]), Revision: report.Revision,
 		Profile: report.Profile, ProfileHash: report.ProfileHash, CommandDefinitionHash: report.CommandDefinitionHash,
+		ManifestHash: report.ManifestHash, ExternalEvidence: append([]S6ExternalEvidenceReference(nil), report.ExternalEvidence...),
 		CleanAfter: report.CleanAfter, NativeResult: report.Native.Result, Criteria: criteria, Clauses: clauses,
 		AdoptedAt: now().UTC().Format(time.RFC3339Nano),
 	}

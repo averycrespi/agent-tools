@@ -137,6 +137,14 @@ var s6FinalArgv = map[string][]string{
 	"diff":                   {"git", "diff", "--check", "63618c0c7bac399c872d3b069ddd2e2b923cd12f..HEAD", "--"},
 }
 
+var s6FinalBudgets = map[string]time.Duration{
+	"format": 10 * time.Second, "gateway_verify": 10 * time.Second, "frontend": 40 * time.Second,
+	"go_unit": 110 * time.Second, "integration_compat": 60 * time.Second, "browser_workflows": 2 * time.Minute,
+	"browser_visual": 60 * time.Second, "browser_a11y": 45 * time.Second, "browser_cross": 45 * time.Second,
+	"cli_e2e": 90 * time.Second, "security_privacy": 30 * time.Second, "go_vulnerability": 15 * time.Second,
+	"frontend_vulnerability": 15 * time.Second, "native": 10 * time.Second, "other_tools": 15 * time.Second, "diff": 5 * time.Second,
+}
+
 var S6Baselines = []S6Baseline{
 	{ID: "unit", Duration: 85665 * time.Millisecond, Source: "S5 accepted profile"},
 	{ID: "integration", Duration: 24973 * time.Millisecond, Source: "S5 accepted profile"},
@@ -160,7 +168,7 @@ func S6PlannedInventory() []S6PlannedOwner {
 		case "T1":
 			owner.Status = "executable"
 			owner.Intent = "Validate the frozen S6 manifests and command inventory"
-		case "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12", "T13", "T14", "T15", "T16", "T17", "T18", "T19", "T20", "T21", "T22", "T23", "T24", "T25", "T26", "T27", "T28", "T29", "T30", "T31", "T32", "T33", "T34", "T35", "T36", "T37", "T38", "T39", "T40", "T41", "T42", "T43", "T44", "T45", "T46", "T47", "T48", "T49", "T50", "T51", "T52", "T53", "T54", "T55", "T56":
+		case "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12", "T13", "T14", "T15", "T16", "T17", "T18", "T19", "T20", "T21", "T22", "T23", "T24", "T25", "T26", "T27", "T28", "T29", "T30", "T31", "T32", "T33", "T34", "T35", "T36", "T37", "T38", "T39", "T40", "T41", "T42", "T43", "T44", "T45", "T46", "T47", "T48", "T49", "T50", "T51", "T52", "T53", "T54", "T55", "T56", "T57":
 			owner.Status = "executable"
 		}
 		owner.Leaves = s6Leaves(id, s6TaskCategories[id])
@@ -182,8 +190,8 @@ func S6PlannedInventory() []S6PlannedOwner {
 func S6FinalInventory() []S6PlannedOwner {
 	owners := make([]S6PlannedOwner, 0, len(S6FinalCheckIDs))
 	for _, id := range S6FinalCheckIDs {
-		owner := S6PlannedOwner{ID: id, Layer: "final", Intent: "Run the sole final " + id + " evidence owner", Status: "planned", Budget: 15 * time.Minute, Blocking: id != "native"}
-		owner.Leaves = []S6PlannedLeaf{{ID: "final." + id, Category: finalCategory(id), CWD: ".", Argv: append([]string(nil), s6FinalArgv[id]...), ExpectedMatches: 1}}
+		owner := S6PlannedOwner{ID: id, Layer: "final", Intent: "Run the sole final " + id + " evidence owner", Status: "executable", Budget: s6FinalBudgets[id], Blocking: true}
+		owner.Leaves = []S6PlannedLeaf{{ID: "final." + id, Category: finalCategory(id), CWD: ".", Argv: append([]string(nil), s6FinalArgv[id]...), ExpectedMatches: 1, Artifacts: []string{"acceptance report check metadata"}, Cleanup: []string{"processes", "listeners", "temporary roots"}}}
 		owner.DefinitionHash = s6OwnerHash(owner)
 		owners = append(owners, owner)
 	}

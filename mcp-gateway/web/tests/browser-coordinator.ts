@@ -1,5 +1,7 @@
 import {
   chromium,
+  firefox,
+  webkit,
   type Browser,
   type BrowserContext,
   type Page,
@@ -75,6 +77,7 @@ interface BridgeInput {
     | "auth-flows";
   base_url: string;
   admin_bearer: string;
+  browser_kind?: "chromium" | "firefox" | "webkit";
 }
 
 interface SessionBootstrap {
@@ -115,8 +118,10 @@ function parseInitialInput(value: unknown): BridgeInput {
     typeof value !== "object" ||
     value === null ||
     Array.isArray(value) ||
-    Object.keys(value).sort().join(",") !==
-      "admin_bearer,base_url,scenario,version" ||
+    (Object.keys(value).sort().join(",") !==
+      "admin_bearer,base_url,scenario,version" &&
+      Object.keys(value).sort().join(",") !==
+        "admin_bearer,base_url,browser_kind,scenario,version") ||
     !("version" in value) ||
     value.version !== 1 ||
     !("scenario" in value) ||
@@ -161,7 +166,11 @@ function parseInitialInput(value: unknown): BridgeInput {
     !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.base_url) ||
     !("admin_bearer" in value) ||
     typeof value.admin_bearer !== "string" ||
-    value.admin_bearer.length === 0
+    value.admin_bearer.length === 0 ||
+    ("browser_kind" in value &&
+      value.browser_kind !== "chromium" &&
+      value.browser_kind !== "firefox" &&
+      value.browser_kind !== "webkit")
   ) {
     fail("invalid bridge input");
   }
@@ -8776,7 +8785,13 @@ try {
   const baseURL = input.base_url;
   const initialBearer = input.admin_bearer;
   input = { ...input, admin_bearer: "" };
-  browser = await chromium.launch({ headless: true });
+  const browserType =
+    input.browser_kind === "firefox"
+      ? firefox
+      : input.browser_kind === "webkit"
+        ? webkit
+        : chromium;
+  browser = await browserType.launch({ headless: true });
   const context = await browser.newContext({
     baseURL,
     serviceWorkers: "block",

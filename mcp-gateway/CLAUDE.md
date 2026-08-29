@@ -17,6 +17,8 @@ make verify             # nonmutating tidy/format/lint checks
 make test-keyring-native # schema-validated passed/skipped/failed native evidence
 make test-task-s6 TASK=T<n> # one executable S6 task owner
 make test-milestone-s6 MILESTONE=M<n> # one executable S6 gate owner
+make qualify-external-s6 # exact-candidate sidecars only; no product suite
+make accept-s6 REPORT=/absolute/path/report.json # frozen clean S6 profile, once
 npm run ui:typecheck    # strict TypeScript check
 npm run ui:build        # regenerate the fixed embedded bundle
 npm run ui:verify-generated # two-build deterministic comparison

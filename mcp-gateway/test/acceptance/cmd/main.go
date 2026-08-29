@@ -25,13 +25,29 @@ func run() (exitCode int) {
 	adoptPath := flag.String("adopt", "", "immutable acceptance report to adopt without running checks")
 	taskID := flag.String("task", "", "executable S6 task owner")
 	milestoneID := flag.String("milestone", "", "executable S6 milestone owner")
+	qualifyExternal := flag.Bool("qualify-external", false, "validate exact-candidate S6 external evidence without running product checks")
 	flag.Parse()
 	root, err := repositoryRoot()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "resolve repository root")
 		return 1
 	}
+	if *qualifyExternal {
+		if *taskID != "" || *milestoneID != "" || *adoptPath != "" || *outputPath != "" || *profileName != string(acceptance.ProfileS21) {
+			fmt.Fprintln(os.Stderr, "external qualification cannot be combined with another mode")
+			return 1
+		}
+		if _, err := acceptance.QualifyS6ExternalEvidence(context.Background(), root); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
 	if *taskID != "" || *milestoneID != "" {
+		if *adoptPath != "" || *outputPath != "" || *profileName != string(acceptance.ProfileS21) {
+			fmt.Fprintln(os.Stderr, "S6 owner execution cannot be combined with report modes")
+			return 1
+		}
 		if *taskID != "" && *milestoneID != "" {
 			fmt.Fprintln(os.Stderr, "S6 task and milestone owners are mutually exclusive")
 			return 1
@@ -47,6 +63,10 @@ func run() (exitCode int) {
 		return 0
 	}
 	if *adoptPath != "" {
+		if *profileName != string(acceptance.ProfileS21) {
+			fmt.Fprintln(os.Stderr, "adoption cannot be combined with profile execution")
+			return 1
+		}
 		if *outputPath == "" {
 			fmt.Fprintln(os.Stderr, "adoption requires an output path")
 			return 1
