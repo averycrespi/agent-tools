@@ -117,7 +117,7 @@ func TestProductionSourceOwnershipGuards(t *testing.T) {
 	assert.NotContains(t, e2eHome, `os.Getenv("HOME")`, "internal/paths/home_e2e.go: test seam must not turn HOME into production fallback")
 }
 
-func TestS5RootUsesOneAtomicCompositionForControlAndAgentIngress(t *testing.T) {
+func TestRootUsesOneAtomicCompositionForControlAndAgentIngress(t *testing.T) {
 	root := gatewayModuleRoot(t)
 	rootSource := readProductionSource(t, root, "cmd/mcp-gateway/root.go")
 	compositionSource := readProductionSource(t, root, "internal/composition/composition.go")
@@ -156,7 +156,7 @@ func TestS5RootUsesOneAtomicCompositionForControlAndAgentIngress(t *testing.T) {
 	}
 }
 
-func TestS5DrainRootKeepsEventsAndStorageUntilCompositionSettles(t *testing.T) {
+func TestDrainRootKeepsEventsAndStorageUntilCompositionSettles(t *testing.T) {
 	root := gatewayModuleRoot(t)
 	rootSource := readProductionSource(t, root, "cmd/mcp-gateway/root.go")
 	compositionSource := readProductionSource(t, root, "internal/composition/composition.go")
@@ -198,7 +198,7 @@ func TestProductionPersistenceAndCapabilitySliceGuards(t *testing.T) {
 	}
 }
 
-func TestS5SourceOwnershipGuards(t *testing.T) {
+func TestSourceOwnershipGuards(t *testing.T) {
 	root := gatewayModuleRoot(t)
 	for _, source := range productionSources(t, root) {
 		for _, violation := range productionSliceViolations(source) {
@@ -225,7 +225,7 @@ func TestS5SourceOwnershipGuards(t *testing.T) {
 	assert.NotContains(t, recoverySource, "grants")
 }
 
-func TestS5SourceNegativeFixturesReportExactPathAndSymbol(t *testing.T) {
+func TestSourceNegativeFixturesReportExactPathAndSymbol(t *testing.T) {
 	fixtures := []struct {
 		name     string
 		path     string

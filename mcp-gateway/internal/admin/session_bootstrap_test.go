@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6Bootstrap(t *testing.T) {
+func TestAdminSessionBootstrapLifecycle(t *testing.T) {
 	ctx := context.Background()
 	store, _ := newStore(t)
 	clock := testutil.NewFakeClock(testNow)

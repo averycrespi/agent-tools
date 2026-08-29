@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestToolsCallClassificationKeepsS1AheadOfRecognition(t *testing.T) {
+func TestToolsCallClassificationKeepsFoundationAheadOfRecognition(t *testing.T) {
 	tests := []struct {
 		name     string
 		body     string
@@ -136,7 +136,7 @@ func TestToolsCallCodecEmitsExactSharedSuccessForBothEras(t *testing.T) {
 	}
 }
 
-func TestS5SelfServiceDualEraResultsPreserveAllFixedSummariesAndStructuredContent(t *testing.T) {
+func TestSelfServiceDualEraResultsPreserveAllFixedSummariesAndStructuredContent(t *testing.T) {
 	tests := []struct {
 		name, summary, structured string
 	}{

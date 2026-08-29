@@ -78,9 +78,9 @@ var s6MilestoneCategories = map[string][]S6LeafCategory{
 }
 
 var s6Selectors = map[string][]string{
-	"T2": {"ui:typecheck", "ui:verify-generated", "TestS6BrowserCoordinator"}, "T3": {"Test(S6Bootstrap|AdminSessionBootstrapContract)"}, "T4": {"Test(S6PostEvents|BrowserEventPostContract)"}, "T5": {"TestS6BrowserProtocol"},
-	"T6": {"TestInvocationReadProjectionContract"}, "T7": {"TestInvocationRepositoryReadsIntegration"}, "T8": {"TestS6InvocationAPI"}, "T9": {"TestS6E2EInvocationReadPrivacy"},
-	"T10": {"TestS6StaticDelivery", "TestS6BrowserFragmentStorage"}, "T11": {"TestS6BrowserAuthenticationEpoch"}, "T12": {"TestS6BrowserReadGeneration"},
+	"T2": {"ui:typecheck", "ui:verify-generated", "TestS6BrowserCoordinator"}, "T3": {"Test(AdminSessionBootstrapContract|AdminSessionBootstrapLifecycle|AdminSessionBootstrapAPI|AdminSessionBootstrapBoundary)"}, "T4": {"Test(BrowserEventPostContract|BrowserEventPostAPI|BrowserEventPostSubscription|BrowserEventPostBoundary)"}, "T5": {"TestS6BrowserProtocol"},
+	"T6": {"TestInvocationReadProjectionContract"}, "T7": {"TestInvocationRepositoryReadsIntegration"}, "T8": {"Test(S6InvocationAPI|InvocationReadAPI|InvocationReadComposition)"}, "T9": {"TestS6E2EInvocationReadPrivacy"},
+	"T10": {"TestStaticDelivery", "TestS6BrowserFragmentStorage"}, "T11": {"TestS6BrowserAuthenticationEpoch"}, "T12": {"TestS6BrowserReadGeneration"},
 	"T13": {"TestS6BrowserMutationState"}, "T14": {"TestS6BrowserShellPrimitives"}, "T15": {"TestS6BrowserSecretSinks"},
 	"T16": {"TestS6ControlTransport"}, "T17": {"TestS6CLISharedContract"}, "T18": {"Test(S6CLISensitiveSinks|CLISecretSinkBoundaries)"}, "T19": {"TestS6CLIStatusInvocations"},
 	"T20": {"TestS6BrowserOverview"}, "T21": {"TestS6BrowserInvocations"}, "T22": {"TestS6BrowserSystemStatus"}, "T23": {"TestS6BrowserServerCatalogReads"},
@@ -93,9 +93,9 @@ var s6Selectors = map[string][]string{
 	"T42": {"TestS6CLIServerCredentials"}, "T43": {"TestS6CLIAuthFlows"}, "T44": {"TestS6CLIAdminCredentials"}, "T45": {"TestS6CLIBackups"},
 	"T46": {"TestS6CLIPrincipals"}, "T47": {"TestS6CLIPrincipalCredentials"}, "T48": {"TestS6CLIGrants"}, "T49": {"TestS6CLIGrantRequests"},
 	"T50": {"TestS6BrowserAccessibilityChanged"}, "T51": {"TestS6BrowserVisualChanged"}, "T52": {"TestS6SecurityCanaries", "TestS6BrowserPrivacyCanary"},
-	"T53": {"TestS6ExternalEvidenceContract"}, "T54": {"ui:verify-supply-chain", "TestS6StaticSupplyChain"},
-	"T55": {"Test(FoundationRoutesAndMechanicsAreExact|ServerRoutesAndMechanicsAreExact|AuthorizationRoutesAndMechanicsAreExact|GrantRequestRoutesProblemsAndLimitsAreExact|GrantRequestResourceShapesETagsMechanicsAndStatusAreExact|InvocationReadProjectionContract|S5GrantRequestStrictQueriesBodiesPreconditionsAndProblems|S6StaticDelivery|S6PostEvents|BrowserEventPostContract|ProductionSourceOwnershipGuards|ProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners|AdmissionInputCannotCarryForbiddenPayloads|SinkFailureNeverActivatesUndisclosedAuthority|S5EventsPreserveIDFreeOrderOverflowLossAndReconnect|S6CLISharedContract|RequestSchemaMigrationRollsBackAtomically)", "TestRestoreAcceptedSchemaLineages"}, "T56": {"format:check", "Test(S6DocumentationDrift|DocumentationContractDrift)"}, "T57": {"TestS6AcceptanceProfile"},
-	"M1": {"Test(S6M1Gate|SessionEventContractIntegration)", "TestS6BrowserM1Canary"}, "M2": {"Test(S6M2Gate|InvocationReadPaginationIntegration)", "TestS6E2EM2Canary"}, "M3": {"TestS6BrowserM3Canary"},
+	"T53": {"TestS6ExternalEvidenceContract"}, "T54": {"ui:verify-supply-chain", "TestStaticSupplyChain"},
+	"T55": {"Test(FoundationRoutesAndMechanicsAreExact|ServerRoutesAndMechanicsAreExact|AuthorizationRoutesAndMechanicsAreExact|GrantRequestRoutesProblemsAndLimitsAreExact|GrantRequestResourceShapesETagsMechanicsAndStatusAreExact|InvocationReadProjectionContract|GrantRequestStrictQueriesBodiesPreconditionsAndProblems|StaticDelivery|BrowserEventPostContract|BrowserEventPostAPI|BrowserEventPostSubscription|BrowserEventPostBoundary|ProductionSourceOwnershipGuards|ProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners|AdmissionInputCannotCarryForbiddenPayloads|SinkFailureNeverActivatesUndisclosedAuthority|EventsPreserveIDFreeOrderOverflowLossAndReconnect|S6CLISharedContract|RequestSchemaMigrationRollsBackAtomically)", "TestRestoreAcceptedSchemaLineages"}, "T56": {"format:check", "Test(S6DocumentationDrift|DocumentationContractDrift)"}, "T57": {"TestS6AcceptanceProfile"},
+	"M1": {"Test(SessionEventContractIntegration|AdminSessionShutdownInvalidatesBrowserSession|StaticShellSecurityHeaders|EventHubClosesWithBrowserSessionAndShutdown|BoundaryRoutesSessionAndEventAuthorities)", "TestS6BrowserM1Canary"}, "M2": {"Test(InvocationReadPaginationIntegration|InvocationReadCompositionIntegration)", "TestS6E2EM2Canary"}, "M3": {"TestS6BrowserM3Canary"},
 	"M4": {"TestS6M4Gate", "TestS6CLIM4Canary"}, "M5": {"TestS6BrowserM5Canary"}, "M6": {"TestS6BrowserM6Canary"},
 	"M7": {"TestS6BrowserM7Canary"}, "M8": {"TestS6BrowserM8Canary"}, "M9": {"TestS6CLIM9Canary"}, "M10": {"TestS6CLISharedContract", "TestS6CLIM10Canary"},
 	"M11": {"TestS6M11Gate", "TestS6BrowserM11Canary"},

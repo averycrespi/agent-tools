@@ -170,7 +170,7 @@ func perform(handler http.Handler, method, target, body string, headers map[stri
 	return response
 }
 
-func TestS5StatusIsAuthenticatedNoStoreAndUsesSnapshot(t *testing.T) {
+func TestStatusIsAuthenticatedNoStoreAndUsesSnapshot(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
 	response := perform(handler, http.MethodGet, "/api/v1/system-status", "", map[string]string{"Authorization": "Bearer " + testBearer})
@@ -297,7 +297,7 @@ func (callback callbackFake) HandleCallback(context.Context, string) oauth.Callb
 	return callback.result
 }
 
-func TestS6StaticDelivery(t *testing.T) {
+func TestStaticDelivery(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
 	resources := map[string]string{
@@ -368,7 +368,7 @@ func TestS6StaticDelivery(t *testing.T) {
 	assert.Equal(t, 1, themeKeyCount, "the authored application must contain one storage-key literal")
 }
 
-func TestS6StaticSupplyChain(t *testing.T) {
+func TestStaticSupplyChain(t *testing.T) {
 	productionFiles, lock := productionFrontendInputs(t)
 	require.NoError(t, validateProductionFrontendSeparation(productionFiles, lock))
 
@@ -448,7 +448,7 @@ func (writer *streamWriter) snapshot() (int, string) {
 	return writer.status, writer.body.String()
 }
 
-func TestS5EventsStreamIsInvalidationOnlyAndRejectsReplay(t *testing.T) {
+func TestEventsStreamIsInvalidationOnlyAndRejectsReplay(t *testing.T) {
 	credentials := &fakeCredentials{items: []contract.AdminCredential{credential()}}
 	hub := events.New()
 	t.Cleanup(hub.Shutdown)

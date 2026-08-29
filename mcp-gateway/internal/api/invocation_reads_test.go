@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6InvocationAPI(t *testing.T) {
+func TestInvocationReadAPI(t *testing.T) {
 	service := &fakeInvocationReader{
 		page: contract.InvocationPage{Items: []contract.InvocationSummary{invocationSummaryFixture()}, NextCursor: stringPointer("next")},
 		item: contract.Invocation{InvocationSummary: invocationSummaryFixture(), RedactedArguments: json.RawMessage(`{"safe":"<script>alert(1)</script>"}`)},

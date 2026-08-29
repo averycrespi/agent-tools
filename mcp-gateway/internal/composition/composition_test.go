@@ -33,7 +33,7 @@ import (
 
 var compositionTime = time.Date(2026, 8, 25, 1, 0, 0, 0, time.UTC)
 
-func TestS6InvocationAPI(t *testing.T) {
+func TestInvocationReadComposition(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
 
@@ -76,7 +76,7 @@ func TestS6InvocationAPI(t *testing.T) {
 	assert.NotContains(t, rootSource, "/internal/invocation")
 }
 
-func TestS5CompositionBuildsOneAtomicProductionGraph(t *testing.T) {
+func TestCompositionBuildsOneAtomicProductionGraph(t *testing.T) {
 	assert.Nil(t, (*Composition)(nil).ListTools())
 	_, available := (*Composition)(nil).AgentIngress()
 	assert.False(t, available)
@@ -168,7 +168,7 @@ func TestS5CompositionBuildsOneAtomicProductionGraph(t *testing.T) {
 	built.callbacks.fence("server")
 }
 
-func TestS5StatusCompositionExposesActualRequestOwnerOccupancy(t *testing.T) {
+func TestStatusCompositionExposesActualRequestOwnerOccupancy(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
 	built, err := New(options)
@@ -217,7 +217,7 @@ func TestAuthorityOwnerExposesOccupancyAndDrainsBeforeCompositionCompletes(t *te
 	assert.ErrorIs(t, err, mcpingress.ErrToolsListAuthorizationUnavailable)
 }
 
-func TestS5CompositionPositiveAgentIngressUsesSyntheticLocalAndDrainFence(t *testing.T) {
+func TestCompositionPositiveAgentIngressUsesSyntheticLocalAndDrainFence(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
 	built, err := New(options)
@@ -327,7 +327,7 @@ func TestDiscoveryCursorEntropyFailureStopsConstruction(t *testing.T) {
 	assert.ErrorContains(t, err, "construct discovery_cursor")
 }
 
-func TestS5DrainWaitsForDetachedLocalCallThroughTerminalAnnotation(t *testing.T) {
+func TestDrainWaitsForDetachedLocalCallThroughTerminalAnnotation(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
 	built, err := New(options)
@@ -563,7 +563,7 @@ func TestStartBarrierFailureRunsNoReconstructionAndCannotRetry(t *testing.T) {
 	assert.ErrorIs(t, built.Start(context.Background()), ErrStartFailed)
 }
 
-func TestS5CompositionFailsEveryMandatoryConstructor(t *testing.T) {
+func TestCompositionFailsEveryMandatoryConstructor(t *testing.T) {
 	for _, stage := range mandatoryConstructorStages {
 		t.Run(stage, func(t *testing.T) {
 			options, cleanup := newCompositionOptions(t)
@@ -595,7 +595,7 @@ func TestConstructionRejectsInvalidAuthorizationStateBeforeStartup(t *testing.T)
 	assert.ErrorIs(t, err, authorization.ErrInvalidState)
 }
 
-func TestS5CompositionRejectsInvalidRequestStateBeforePublishingBundles(t *testing.T) {
+func TestCompositionRejectsInvalidRequestStateBeforePublishingBundles(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
 	require.NoError(t, options.Store.Mutate(context.Background(), func(transaction *sql.Tx) error {

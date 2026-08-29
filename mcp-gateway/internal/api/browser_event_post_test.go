@@ -28,7 +28,7 @@ func (postEventSessions) Authenticate(_ context.Context, bearer, session, csrf s
 	return credential(), nil
 }
 
-func TestS6PostEvents(t *testing.T) {
+func TestBrowserEventPostAPI(t *testing.T) {
 	hub := events.New()
 	t.Cleanup(hub.Shutdown)
 	keepalive := make(chan time.Time)

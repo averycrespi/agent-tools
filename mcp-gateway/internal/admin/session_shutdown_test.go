@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6M1Gate(t *testing.T) {
+func TestAdminSessionShutdownInvalidatesBrowserSession(t *testing.T) {
 	ctx := context.Background()
 	store, _ := newStore(t)
 	clock := testutil.NewFakeClock(testNow)

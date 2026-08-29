@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6M1Gate(t *testing.T) {
+func TestEventHubClosesWithBrowserSessionAndShutdown(t *testing.T) {
 	hub := New()
 	terminal := make(chan struct{})
 	subscription, err := hub.Subscribe("browser-parent", terminal)

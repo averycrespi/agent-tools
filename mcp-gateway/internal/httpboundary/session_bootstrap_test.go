@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6Bootstrap(t *testing.T) {
+func TestAdminSessionBootstrapBoundary(t *testing.T) {
 	lookups := 0
 	boundary, err := New(Options{
 		Authority: contract.DefaultAuthority,

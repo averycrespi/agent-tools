@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6M2Gate(t *testing.T) {
+func TestInvocationReadCompositionIntegration(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
 	built, err := New(options)

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6M1Gate(t *testing.T) {
+func TestBoundaryRoutesSessionAndEventAuthorities(t *testing.T) {
 	var authorities []contract.CredentialAuthority
 	boundary, err := New(Options{
 		Authority: contract.DefaultAuthority,

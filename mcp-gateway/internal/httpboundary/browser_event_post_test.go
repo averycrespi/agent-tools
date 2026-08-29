@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6PostEvents(t *testing.T) {
+func TestBrowserEventPostBoundary(t *testing.T) {
 	authorities := make([]contract.CredentialAuthority, 0, 2)
 	boundary, err := New(Options{
 		Authority: contract.DefaultAuthority,

@@ -9,7 +9,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 )
 
-func TestS5EventsPreserveIDFreeOrderOverflowLossAndReconnect(t *testing.T) {
+func TestEventsPreserveIDFreeOrderOverflowLossAndReconnect(t *testing.T) {
 	hub := New()
 	t.Cleanup(hub.Shutdown)
 	subscription, err := hub.Subscribe("credential", nil)

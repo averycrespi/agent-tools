@@ -18,7 +18,7 @@ test-integration:
 	go test -race -tags=integration ./...
 
 test-integration-s5:
-	go test -race -count=1 -tags=integration -timeout=30s -run '^(TestS5Integration.*|Test(AtomicApprovalAndPostCommitRecovery|RequestLifecycle|RequestRetentionAndEvidenceLimits)Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$$' ./internal/storage ./internal/backup ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition
+	go test -race -count=1 -tags=integration -timeout=30s -run '^(Test(ApprovalVsPolicyAndCapacity|AtomicApprovalAndPostCommitRecovery|CatalogEvidenceReplacement|CreateVsTargetAndPolicy|CredentialAdmissionOrdering|RequestLifecycle|RequestRetentionAndEvidenceLimits)Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$$' ./internal/storage ./internal/backup ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition
 
 test-security-s5:
 	go test -race -count=1 -tags=security -timeout=30s ./test/security/...
@@ -50,13 +50,13 @@ test-frontend-s6:
 	npm --prefix .. run ui:typecheck
 	npm --prefix .. run ui:verify-generated
 	npm --prefix .. run ui:verify-supply-chain
-	go test -race -count=1 -timeout=30s -run '^TestS6StaticSupplyChain$$' ./internal/api
+	go test -race -count=1 -timeout=30s -run '^TestStaticSupplyChain$$' ./internal/api
 
 test-unit-s6:
 	go test -race -count=1 -timeout=110s ./...
 
 test-integration-s6:
-	go test -race -count=1 -tags=integration -timeout=60s -run '^(TestInvocationRepositoryReadsIntegration|TestS5Integration.*|Test(AtomicApprovalAndPostCommitRecovery|RequestLifecycle|RequestRetentionAndEvidenceLimits)Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$$' ./internal/storage ./internal/backup ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition
+	go test -race -count=1 -tags=integration -timeout=60s -run '^(TestInvocationRepositoryReadsIntegration|Test(ApprovalVsPolicyAndCapacity|AtomicApprovalAndPostCommitRecovery|CatalogEvidenceReplacement|CreateVsTargetAndPolicy|CredentialAdmissionOrdering|RequestLifecycle|RequestRetentionAndEvidenceLimits)Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$$' ./internal/storage ./internal/backup ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition
 
 test-browser-s6-workflows:
 	go test -race -count=1 -tags=e2e,browser -timeout=2m -run '^TestS6Browser(Protocol|FragmentStorage|AuthenticationEpoch|ReadGeneration|MutationState|ShellPrimitives|SecretSinks|Overview|Invocations|SystemStatus|ServerCatalogReads|ServerCreateUpdate|ServerOperations|ServerCredentials|AuthFlows|ServerDisconnectDelete|Principals|PrincipalCredentials|GrantReadsCreate|GrantCorrection|RequestReads|RequestAdjudication|AdminCredentials|Backups|CapabilityAudit)$$' ./test/e2e

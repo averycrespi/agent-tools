@@ -15,7 +15,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 )
 
-func TestS5GrantRequestListItemApproveRejectAndPrivacy(t *testing.T) {
+func TestGrantRequestListItemApproveRejectAndPrivacy(t *testing.T) {
 	service := &fakeGrantRequestService{item: adminRequestFixture()}
 	state := contract.RequestPending
 	service.page = grantrequests.AdminPage{
@@ -65,7 +65,7 @@ func TestS5GrantRequestListItemApproveRejectAndPrivacy(t *testing.T) {
 	assert.Equal(t, contract.RejectionPolicyConflict, service.reason)
 }
 
-func TestS5GrantRequestStrictQueriesBodiesPreconditionsAndProblems(t *testing.T) {
+func TestGrantRequestStrictQueriesBodiesPreconditionsAndProblems(t *testing.T) {
 	service := &fakeGrantRequestService{item: adminRequestFixture()}
 	handler := newGrantRequestHandler(t, service)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer}
@@ -123,7 +123,7 @@ func TestS5GrantRequestStrictQueriesBodiesPreconditionsAndProblems(t *testing.T)
 	assert.Equal(t, http.StatusNotFound, missingRoute.Code)
 }
 
-func TestS5GrantRequestSessionOriginAndCSRFAreEnforced(t *testing.T) {
+func TestGrantRequestSessionOriginAndCSRFAreEnforced(t *testing.T) {
 	service := &fakeGrantRequestService{item: adminRequestFixture()}
 	handler := newGrantRequestHandler(t, service)
 	sessionHeaders := map[string]string{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin}

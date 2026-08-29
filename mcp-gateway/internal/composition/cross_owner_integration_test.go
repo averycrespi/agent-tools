@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5IntegrationCreateVsTargetAndPolicy(t *testing.T) {
+func TestCreateVsTargetAndPolicyIntegration(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	var armed atomic.Bool
 	options, cleanup := newCompositionOptionsWithFault(t, func(point storage.FaultPoint) error {
@@ -78,7 +78,7 @@ func TestS5IntegrationCreateVsTargetAndPolicy(t *testing.T) {
 	assert.Equal(t, contract.RequestDenyConflict, result.Outcome)
 }
 
-func TestS5IntegrationApprovalVsPolicyAndCapacity(t *testing.T) {
+func TestApprovalVsPolicyAndCapacityIntegration(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	var armed atomic.Bool
 	options, cleanup := newCompositionOptionsWithFault(t, func(point storage.FaultPoint) error {
@@ -171,7 +171,7 @@ func TestS5IntegrationApprovalVsPolicyAndCapacity(t *testing.T) {
 	assert.Equal(t, contract.RequestPending, pending.State)
 }
 
-func TestS5IntegrationCredentialAdmissionOrdering(t *testing.T) {
+func TestCredentialAdmissionOrderingIntegration(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
 	built, err := New(options)
@@ -217,7 +217,7 @@ func TestS5IntegrationCredentialAdmissionOrdering(t *testing.T) {
 	assert.Equal(t, string(contract.TerminalSucceeded), terminal)
 }
 
-func TestS5IntegrationCatalogEvidenceReplacement(t *testing.T) {
+func TestCatalogEvidenceReplacementIntegration(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	var armed atomic.Bool
 	options, cleanup := newCompositionOptionsWithFault(t, func(point storage.FaultPoint) error {

@@ -39,7 +39,7 @@ func (*bootstrapSessions) Subscribe(string) (<-chan struct{}, error) {
 }
 func (*bootstrapSessions) Status() contract.LimitStatus { return contract.LimitStatus{Limit: 128} }
 
-func TestS6Bootstrap(t *testing.T) {
+func TestAdminSessionBootstrapAPI(t *testing.T) {
 	sessions := new(bootstrapSessions)
 	handler := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: sessions})
 	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})

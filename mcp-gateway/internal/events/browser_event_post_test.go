@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6PostEvents(t *testing.T) {
+func TestBrowserEventPostSubscription(t *testing.T) {
 	hub := New()
 	t.Cleanup(hub.Shutdown)
 	getSubscription, err := hub.Subscribe("get-credential", nil)

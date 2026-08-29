@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6M1Gate(t *testing.T) {
+func TestStaticShellSecurityHeaders(t *testing.T) {
 	handler := newTestHandler(t)
 	shell := perform(handler, http.MethodGet, "/", "", nil)
 	require.Equal(t, http.StatusOK, shell.Code)
