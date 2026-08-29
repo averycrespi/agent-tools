@@ -92,6 +92,34 @@ func TestS5SelectorManifest(t *testing.T) {
 	assert.Equal(t, S5SecurityTestManifest, security)
 }
 
+func TestCLIUsabilityTarget(t *testing.T) {
+	const selector = `^(TestCLI(FirstRun|XDGAndOverrides|ServeOutputPhases|AutomaticBearerSelection|CredentialFailureProblems|OutputMatrix|CommandErrors|HelpTree)|TestS6CLI(StatusInvocations|ServerCatalogReads|ServerCreateUpdate|ServerDelete|ServerOperations|ServerCredentials|AuthFlows|AdminCredentials|Backups|Principals|PrincipalCredentials|Grants|GrantRequests))$`
+	makefile, err := os.ReadFile(filepath.Join(repositoryRoot(t), "mcp-gateway", "Makefile"))
+	require.NoError(t, err)
+	recipe := targetRecipe(string(makefile), "test-cli-usability-e2e")
+	assert.Equal(t, 1, strings.Count(recipe, "go test "))
+	assert.Contains(t, recipe, "-race -count=1 -tags=e2e -timeout=2m")
+	assert.Contains(t, recipe, "-run '"+strings.ReplaceAll(selector, "$", "$$")+"'")
+	assert.Equal(t, 1, strings.Count(recipe, "./test/e2e"))
+	assert.NotContains(t, recipe, "$(MAKE)")
+
+	matcher := regexp.MustCompile(selector)
+	selected := make([]string, 0)
+	for _, name := range discoverTests(t, repositoryRoot(t), []string{"./test/e2e"}) {
+		if matcher.MatchString(name) {
+			selected = append(selected, name)
+		}
+	}
+	sort.Strings(selected)
+	assert.Equal(t, []string{
+		"TestCLIAutomaticBearerSelection", "TestCLICommandErrors", "TestCLICredentialFailureProblems", "TestCLIFirstRun",
+		"TestCLIHelpTree", "TestCLIOutputMatrix", "TestCLIServeOutputPhases", "TestCLIXDGAndOverrides",
+		"TestS6CLIAdminCredentials", "TestS6CLIAuthFlows", "TestS6CLIBackups", "TestS6CLIGrantRequests", "TestS6CLIGrants",
+		"TestS6CLIPrincipalCredentials", "TestS6CLIPrincipals", "TestS6CLIServerCatalogReads", "TestS6CLIServerCreateUpdate",
+		"TestS6CLIServerCredentials", "TestS6CLIServerDelete", "TestS6CLIServerOperations", "TestS6CLIStatusInvocations",
+	}, selected)
+}
+
 func TestS5PackageMultiplicity(t *testing.T) {
 	makefile, err := os.ReadFile(filepath.Join(repositoryRoot(t), "mcp-gateway", "Makefile"))
 	require.NoError(t, err)
