@@ -41,6 +41,21 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ID is invalid."))
 		}
 		return runOnlineRead(command, options, "/api/v1/servers/"+args[0], serverItemTable)
+	case "server auth-flow list":
+		path, err := authFlowListPath(options, args)
+		if err != nil {
+			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
+		}
+		return runOnlineRead(command, options, path, authFlowListTable)
+	case "server auth-flow get":
+		if len(args) != 2 || !gatewayIDPattern.MatchString(args[0]) || !gatewayIDPattern.MatchString(args[1]) {
+			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server or auth-flow ID is invalid."))
+		}
+		return runOnlineRead(command, options, "/api/v1/servers/"+args[0]+"/auth-flows/"+args[1], authFlowItemTable)
+	case "server auth-flow start":
+		return runServerAuthFlowStart(command, options, args)
+	case "server auth-flow cancel":
+		return runServerAuthFlowCancel(command, options, args)
 	case "server credential replace":
 		return runServerCredentialReplace(command, options, args)
 	case "server operation list":
