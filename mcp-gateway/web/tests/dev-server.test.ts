@@ -329,7 +329,7 @@ test("source server serves authored modules and owns HMR without workspace outpu
   }
 });
 
-test("occupied frontend port fails clearly without selecting another port", async () => {
+test("startup fails clearly when the frontend port is occupied", async () => {
   const reservation = createServer();
   const port = await listen(reservation);
   const process = launch(`127.0.0.1:${port}`);
