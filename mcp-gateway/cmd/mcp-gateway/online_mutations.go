@@ -41,6 +41,26 @@ func runServerCreate(command *cobra.Command, options *onlineOptions) error {
 	})
 }
 
+func runServerDelete(command *cobra.Command, options *onlineOptions, args []string) error {
+	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
+		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ID is invalid."))
+	}
+	matches := serverETagPattern.FindStringSubmatch(options.etag)
+	if len(matches) != 3 || matches[1] != args[0] {
+		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ETag is invalid or belongs to another server."))
+	}
+	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{
+		Yes:         options.yes,
+		Consequence: "Permanently delete this server identity, withdraw its routes, invalidate local authority, and schedule cleanup? Remote revocation is best effort and cannot be guaranteed.",
+	}); err != nil {
+		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
+	}
+	return runServerMutation(command, options, serverMutationRequest{
+		method: http.MethodDelete, path: "/api/v1/servers/" + args[0], body: []byte("{}"), etag: options.etag,
+		successStatuses: map[int]struct{}{http.StatusOK: {}, http.StatusAccepted: {}}, serverID: args[0], delete: true,
+	})
+}
+
 func runServerUpdate(command *cobra.Command, options *onlineOptions, args []string) error {
 	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ID is invalid."))
@@ -76,6 +96,7 @@ type serverMutationRequest struct {
 	successStatuses map[int]struct{}
 	serverID        string
 	create          bool
+	delete          bool
 }
 
 func runServerMutation(command *cobra.Command, options *onlineOptions, request serverMutationRequest) error {
@@ -107,13 +128,14 @@ func runServerMutation(command *cobra.Command, options *onlineOptions, request s
 		}
 		return writeOnlineFailure(command, options.output, failure)
 	}
-	if failure := controlclient.EvaluateResponse(response); failure != nil {
-		if failure.Code == "storage_unavailable" || failure.Code == "client_response_invalid" {
+	if _, ok := request.successStatuses[response.StatusCode]; !ok {
+		failure := controlclient.EvaluateResponse(response)
+		if failure == nil || failure.Code == "storage_unavailable" || failure.Code == "client_response_invalid" {
 			failure = &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: mutationUncertainTitle(request), Exit: 8, Uncertain: true}
 		}
 		return writeOnlineFailure(command, options.output, failure)
 	}
-	if _, ok := request.successStatuses[response.StatusCode]; !ok {
+	if response.Header.Get("Content-Type") != contract.MediaTypeJSON || len(response.Body) == 0 {
 		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: mutationUncertainTitle(request), Exit: 8, Uncertain: true})
 	}
 	var mutation serverMutationWire
@@ -125,6 +147,9 @@ func runServerMutation(command *cobra.Command, options *onlineOptions, request s
 			return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: mutationUncertainTitle(request), Exit: 8, Uncertain: true})
 		}
 	} else if mutation.Server.ID != request.serverID {
+		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: mutationUncertainTitle(request), Exit: 8, Uncertain: true})
+	}
+	if request.delete && (mutation.Server.DesiredState != contract.DesiredServerDeleted || string(mutation.Server.Transport) != "null" || mutation.Operation == nil || mutation.Operation.ServerID != request.serverID || mutation.Operation.Kind != contract.OperationDelete) {
 		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: mutationUncertainTitle(request), Exit: 8, Uncertain: true})
 	}
 	if mode == controlclient.OutputJSON {
@@ -148,6 +173,9 @@ func mutationUncertainTitle(request serverMutationRequest) string {
 	digest := sha256.Sum256(request.body)
 	if request.create {
 		return fmt.Sprintf("The server create outcome is uncertain. Nothing was retried. To deliberately replay the same input, reuse idempotency key %s with input digest sha256:%s; inspect server reads first.", request.idempotencyKey, hex.EncodeToString(digest[:]))
+	}
+	if request.delete {
+		return fmt.Sprintf("The server delete outcome is uncertain. Nothing was retried. Inspect server get %s and its operations; do not blindly reuse ETag %s. Cleanup or remote revocation may remain incomplete.", request.serverID, request.etag)
 	}
 	return fmt.Sprintf("The server update outcome is uncertain. Nothing was retried. Inspect server get %s; do not blindly reuse ETag %s. Input digest sha256:%s.", request.serverID, request.etag, hex.EncodeToString(digest[:]))
 }

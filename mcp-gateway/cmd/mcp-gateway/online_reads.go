@@ -28,6 +28,8 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		return runServerCreate(command, options)
 	case "server update":
 		return runServerUpdate(command, options, args)
+	case "server delete":
+		return runServerDelete(command, options, args)
 	case "server list":
 		path, err := controlclient.BuildListPath("/api/v1/servers", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
 		if err != nil {
