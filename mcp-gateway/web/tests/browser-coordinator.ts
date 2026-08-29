@@ -47,6 +47,7 @@ interface BridgeInput {
     | "shell-primitives"
     | "accessibility-changed"
     | "visual-changed"
+    | "privacy-canary"
     | "secret-sinks"
     | "m3-canary"
     | "m5-canary"
@@ -128,6 +129,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "shell-primitives" &&
       value.scenario !== "accessibility-changed" &&
       value.scenario !== "visual-changed" &&
+      value.scenario !== "privacy-canary" &&
       value.scenario !== "secret-sinks" &&
       value.scenario !== "m3-canary" &&
       value.scenario !== "m5-canary" &&
@@ -2474,6 +2476,94 @@ async function runBackups(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "backups_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), creates, deletes, details })}\n`,
+  );
+}
+
+async function runPrivacyCanary(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await assertSensitiveSinkFoundation();
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  const screenshot = await page.screenshot({
+    fullPage: true,
+    animations: "disabled",
+  });
+  if (screenshot.includes(Buffer.from(bearer)))
+    fail("bearer reached screenshot bytes");
+
+  const state = await page.evaluate(() => ({
+    fragment: window.location.hash,
+    referrer: document.referrer,
+    opener: window.opener,
+    resources: performance
+      .getEntriesByType("resource")
+      .map((entry) => entry.name),
+    attributes: [...document.querySelectorAll("*")].flatMap((element) =>
+      [...element.attributes].map(
+        (attribute) => `${attribute.name}=${attribute.value}`,
+      ),
+    ),
+  }));
+  if (
+    !/^#\/[a-z/-]+(?:\?[a-z=&-]+)?$/.test(state.fragment) ||
+    state.fragment.includes(bearer) ||
+    state.referrer !== "" ||
+    state.opener !== null ||
+    state.resources.some((value) => value.includes(bearer)) ||
+    state.attributes.some((value) => value.includes(bearer))
+  )
+    fail(
+      "browser URL, resource, attribute, opener, or referrer boundary changed",
+    );
+
+  const oauthCanary = `oauth_privacy_${"P".repeat(32)}`;
+  await context.route("**/__privacy_oauth_target**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      headers: { "Referrer-Policy": "no-referrer" },
+      body: "<!doctype html><title>Privacy target</title>",
+    });
+  });
+  await page.evaluate(
+    (target) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.testid = "privacy-oauth";
+      button.textContent = "Open privacy target";
+      button.addEventListener("click", () => {
+        const opened = window.open(target, "_blank", "noopener,noreferrer");
+        if (opened !== null) opened.opener = null;
+      });
+      document.body.append(button);
+    },
+    `${new URL(baseURL).origin}/__privacy_oauth_target?state=${oauthCanary}`,
+  );
+  const popupPromise = context.waitForEvent("page");
+  await page.locator('[data-testid="privacy-oauth"]').click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState("domcontentloaded");
+  if (
+    (await popup.evaluate(() => window.opener)) !== null ||
+    (await popup.evaluate(() => document.referrer)) !== ""
+  )
+    fail("OAuth privacy target retained opener or referrer");
+  await popup.close();
+  await page
+    .locator('[data-testid="privacy-oauth"]')
+    .evaluate((element) => element.remove());
+
+  await assertSecretAbsent(page, context, baseURL, [bearer, oauthCanary], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "privacy_canary_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), sinks: 18, screenshot_sha256: createHash("sha256").update(screenshot).digest("hex") })}\n`,
   );
 }
 
@@ -8329,7 +8419,7 @@ async function runSecretSinks(
   }
 
   const oauthCanary = `oauth_sink_${"D".repeat(32)}`;
-  await page.route("**/__oauth_sink_target**", async (route) => {
+  await context.route("**/__oauth_sink_target**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "text/html",
@@ -8792,6 +8882,15 @@ try {
       );
     } else if (input.scenario === "shell-primitives") {
       await runShellPrimitives(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "privacy-canary") {
+      await runPrivacyCanary(
         browser.version(),
         context,
         page,

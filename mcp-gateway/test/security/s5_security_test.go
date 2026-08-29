@@ -76,6 +76,80 @@ func TestS5SecurityDurableSinkCanaries(t *testing.T) {
 	}
 }
 
+func TestS6SecurityCanaries(t *testing.T) {
+	type privacyOwner struct {
+		class string
+		owner string
+	}
+	owners := []privacyOwner{
+		{"browser stores", "assertSecretAbsent"}, {"URL fragments and attributes", "TestS6BrowserPrivacyCanary"},
+		{"DOM and input values", "TestS6BrowserPrivacyCanary"}, {"one-time display lifecycle", "assertSensitiveSinkFoundation"},
+		{"user-gesture clipboard", "runSecretSinks"}, {"OAuth opener and referrer", "TestS6BrowserPrivacyCanary"},
+		{"stale authentication epoch", "assertSensitiveSinkFoundation"}, {"post-response sink loss", "assertSensitiveSinkFoundation"},
+		{"CLI argv and environment", "TestS6CLISensitiveSinks"}, {"CLI stdout and stderr", "TestS6CLISensitiveSinks"},
+		{"logs and acceptance reports", "TestS5SecurityAcceptanceReportSinks"}, {"events", "TestS6E2EInvocationReadPrivacy"},
+		{"audit capture", "TestS6E2EInvocationReadPrivacy"}, {"SQLite and backups", "TestS5SecurityDurableSinkCanaries"},
+		{"generated frontend assets", "TestS6SecurityCanaries"}, {"screenshots and reports", "TestS6BrowserPrivacyCanary"},
+		{"process output", "TestS6E2EInvocationReadPrivacy"}, {"test artifacts", "TestS6SecurityCanaries"},
+	}
+	require.Len(t, owners, 18)
+	classes := make(map[string]struct{}, len(owners))
+	for _, owner := range owners {
+		assert.NotEmpty(t, owner.owner)
+		_, duplicate := classes[owner.class]
+		assert.False(t, duplicate, owner.class)
+		classes[owner.class] = struct{}{}
+	}
+
+	root := repositoryRoot(t)
+	webRoot := filepath.Join(root, "mcp-gateway", "web", "src")
+	var localStorageUses int
+	require.NoError(t, filepath.Walk(webRoot, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() || (filepath.Ext(path) != ".ts" && filepath.Ext(path) != ".tsx") {
+			return walkErr
+		}
+		contents, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		text := string(contents)
+		for _, forbidden := range []string{"sessionStorage", "indexedDB", "serviceWorker.register", "console.log", "console.debug", "document.cookie =", "dangerouslySetInnerHTML"} {
+			assert.NotContains(t, text, forbidden, path)
+		}
+		uses := strings.Count(text, "localStorage.")
+		if uses > 0 {
+			assert.Equal(t, "theme.ts", filepath.Base(path), path)
+			localStorageUses += uses
+		}
+		return nil
+	}))
+	assert.Equal(t, 3, localStorageUses, "only the closed theme preference may use browser storage")
+
+	staticRoot := filepath.Join(root, "mcp-gateway", "internal", "api", "static")
+	entries, err := os.ReadDir(staticRoot)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"app.css", "app.js", "index.html"}, func() []string {
+		names := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+			assert.False(t, strings.HasSuffix(entry.Name(), ".map"), entry.Name())
+		}
+		sort.Strings(names)
+		return names
+	}())
+	canary := []byte("s6-artifact-" + "privacy-canary-4f71ac")
+	scanner, err := testutil.NewCanaryScanner(canary)
+	require.NoError(t, err)
+	for _, path := range regularFiles(t, staticRoot) {
+		file, openErr := os.Open(path)
+		require.NoError(t, openErr)
+		scanErr := scanner.Scan(path, file)
+		closeErr := file.Close()
+		require.NoError(t, scanErr)
+		require.NoError(t, closeErr)
+	}
+}
+
 func TestS5SecurityStaticSinkClosure(t *testing.T) {
 	assert.Equal(t, []contract.SecretSink{
 		contract.SecretSinkControllingTerminal, contract.SecretSinkOwnerOnlyFile, contract.SecretSinkAdminCredentialReplacement,
