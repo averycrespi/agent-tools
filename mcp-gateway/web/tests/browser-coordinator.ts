@@ -43,6 +43,7 @@ interface BridgeInput {
     | "m6-canary"
     | "m7-canary"
     | "admin-credentials"
+    | "backups"
     | "principals"
     | "principal-credentials"
     | "grant-reads-create"
@@ -119,6 +120,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "m6-canary" &&
       value.scenario !== "m7-canary" &&
       value.scenario !== "admin-credentials" &&
+      value.scenario !== "backups" &&
       value.scenario !== "principals" &&
       value.scenario !== "principal-credentials" &&
       value.scenario !== "grant-reads-create" &&
@@ -2174,6 +2176,140 @@ async function runM7Canary(
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "m7_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length, mutations: mutationCount })}\n`,
+  );
+}
+
+async function runBackups(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const ids = ["01ARZ3NDEKTSV4RRFFQ69G5FB0", "01ARZ3NDEKTSV4RRFFQ69G5FB1"];
+  const backup = (index: number) => ({
+    id: ids[index],
+    created_at: "2026-08-28T12:00:00Z",
+    installation_id: "11111111-2222-3333-4444-555555555555",
+    schema_version: "10",
+    source_revision: String(index + 7),
+    size_bytes: 4096 + index,
+    sha256: String(index + 1).repeat(64),
+  });
+  let items = [backup(0)];
+  let creates = 0;
+  let deletes = 0;
+  let details = 0;
+  let recoveryKey: string | undefined;
+  await page.route("**/api/v1/backups**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const id =
+      url.pathname === "/api/v1/backups"
+        ? undefined
+        : url.pathname.split("/").pop();
+    if (request.method() === "GET" && id === undefined) {
+      if (url.searchParams.get("limit") !== "100")
+        fail("backup list changed shape");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items, next_cursor: null }),
+      });
+      return;
+    }
+    if (request.method() === "GET" && id !== undefined) {
+      details += 1;
+      const item = items.find((candidate) => candidate.id === id);
+      if (item === undefined) fail("unknown backup detail");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(item),
+      });
+      return;
+    }
+    if (request.method() === "POST" && id === undefined) {
+      creates += 1;
+      const headers = await request.allHeaders();
+      const key = headers["idempotency-key"];
+      if (request.postData() !== "{}" || key === undefined)
+        fail("backup create changed shape");
+      if (creates === 1) {
+        recoveryKey = key;
+        await route.abort("failed");
+        return;
+      }
+      if (creates === 2) {
+        if (key !== recoveryKey) fail("backup replay changed idempotency key");
+        const created = backup(1);
+        items = [...items, created];
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(created),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 503,
+          code: "storage_unavailable",
+          title: "Storage is unavailable.",
+        }),
+      });
+      return;
+    }
+    if (request.method() === "DELETE" && id !== undefined) {
+      deletes += 1;
+      const headers = await request.allHeaders();
+      if (
+        request.postData() !== "{}" ||
+        headers["idempotency-key"] !== undefined
+      )
+        fail("backup delete changed shape");
+      items = items.filter((item) => item.id !== id);
+      await route.fulfill({ status: 204, body: "" });
+      return;
+    }
+    fail("unexpected backup request");
+  });
+
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=backups";
+  });
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.locator('[data-testid="backups-view"]').waitFor();
+  await page.locator('[data-testid="backup-inspect"]').click();
+  await page.locator('[data-testid="backup-detail"]').waitFor();
+  await page.locator('[data-testid="backup-create"]').click();
+  await page.getByText("Backup outcome is unknown", { exact: true }).waitFor();
+  if (creates !== 1) fail("uncertain backup create replayed automatically");
+  await page.locator('[data-testid="backup-replay"]').click();
+  await page.getByText(/is durably published/).waitFor();
+  await page.locator('[data-testid="backup-delete"]').first().click();
+  await page.locator('[data-testid="backup-delete-confirm-submit"]').click();
+  await page.getByText(/Backup deleted/).waitFor();
+  await page.locator('[data-testid="backup-create"]').click();
+  await page.getByText("Backup outcome is unknown", { exact: true }).waitFor();
+  if (await page.locator('[data-testid="backup-create"]').isEnabled())
+    fail("storage latch left backup mutation enabled");
+  const body = (await page.locator("body").textContent()) ?? "";
+  for (const phrase of [
+    "cannot restore",
+    "stopped restore guidance",
+    "Nothing is replayed automatically",
+  ])
+    if (!body.includes(phrase)) fail(`backup boundary omitted ${phrase}`);
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "backups_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), creates, deletes, details })}\n`,
   );
 }
 
@@ -8173,6 +8309,15 @@ try {
         initialBearer,
         () => requests,
       );
+    } else if (input.scenario === "backups") {
+      await runBackups(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
     } else if (input.scenario === "principals") {
       await runPrincipals(
         browser.version(),
@@ -8353,6 +8498,11 @@ try {
         consoleFailures.length === 1 &&
         consoleFailures.some((value) =>
           value.includes("server responded with a status of 409"),
+        )) ||
+      (input.scenario === "backups" &&
+        consoleFailures.length === 2 &&
+        consoleFailures.some((value) =>
+          value.includes("server responded with a status of 503"),
         )) ||
       (input.scenario === "admin-credentials" &&
         consoleFailures.length === 1 &&

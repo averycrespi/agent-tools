@@ -19,6 +19,7 @@ import type { ViewCoordinator, ViewSnapshot } from "./view";
 
 type Listener = (status: StatusView | undefined) => void;
 type CredentialListener = (credentials: AdminCredential[] | undefined) => void;
+type BackupListener = (backups: Backup[] | undefined) => void;
 type SystemTab = "status" | "admin-credentials" | "backups" | "recovery";
 type CredentialStatus = "active" | "revoked" | "expired";
 type AdminCredential = {
@@ -31,6 +32,15 @@ type AdminCredential = {
   revision: string;
 };
 type CreatedAdminCredential = AdminCredential & { bearer: string };
+type Backup = {
+  id: string;
+  createdAt: string;
+  installationID: string;
+  schemaVersion: string;
+  sourceRevision: string;
+  sizeBytes: number;
+  sha256: string;
+};
 type JSONRecord = Record<string, unknown>;
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 function record(value: unknown, keys: readonly string[]): JSONRecord {
@@ -103,6 +113,37 @@ function decodeCreatedCredential(value: unknown): CreatedAdminCredential {
   return { ...credential, bearer };
 }
 
+function decodeBackup(value: unknown): Backup {
+  const item = record(value, [
+    "id",
+    "created_at",
+    "installation_id",
+    "schema_version",
+    "source_revision",
+    "size_bytes",
+    "sha256",
+  ]);
+  const id = text(item.id);
+  const sha256 = text(item.sha256);
+  if (
+    !gatewayID.test(id) ||
+    !/^[0-9a-f]{64}$/.test(sha256) ||
+    typeof item.size_bytes !== "number" ||
+    !Number.isSafeInteger(item.size_bytes) ||
+    item.size_bytes < 0
+  )
+    throw new Error("invalid response");
+  return {
+    id,
+    createdAt: text(item.created_at),
+    installationID: text(item.installation_id),
+    schemaVersion: text(item.schema_version),
+    sourceRevision: text(item.source_revision),
+    sizeBytes: item.size_bytes,
+    sha256,
+  };
+}
+
 async function readCredentials(
   csrfToken: string,
   signal: AbortSignal,
@@ -142,6 +183,45 @@ async function readCredentials(
   }
 }
 
+async function readBackups(
+  csrfToken: string,
+  signal: AbortSignal,
+): Promise<Backup[]> {
+  const backups: Backup[] = [];
+  let cursor: string | null = null;
+  let restarted = false;
+  for (;;) {
+    const params = new URLSearchParams({ limit: "100" });
+    if (cursor !== null) params.set("cursor", cursor);
+    const response = await fetch(`/api/v1/backups?${params}`, {
+      method: "GET",
+      headers: { "X-CSRF-Token": csrfToken },
+      credentials: "same-origin",
+      redirect: "error",
+      signal,
+    });
+    if (response.status === 409 && cursor !== null && !restarted) {
+      backups.length = 0;
+      cursor = null;
+      restarted = true;
+      continue;
+    }
+    if (
+      response.status !== 200 ||
+      response.headers.get("Content-Type") !== "application/json"
+    )
+      throw new Error("backup read failed");
+    const page = record((await response.json()) as unknown, [
+      "items",
+      "next_cursor",
+    ]);
+    if (!Array.isArray(page.items)) throw new Error("invalid response");
+    backups.push(...page.items.map(decodeBackup));
+    if (page.next_cursor === null) return backups;
+    cursor = text(page.next_cursor);
+  }
+}
+
 async function getStatus(
   csrfToken: string,
   signal: AbortSignal,
@@ -177,14 +257,26 @@ function tab(viewKey: string): SystemTab {
 export class SystemController {
   private readonly listeners = new Set<Listener>();
   private readonly credentialListeners = new Set<CredentialListener>();
+  private readonly backupListeners = new Set<BackupListener>();
   private value: StatusView | undefined;
   private credentials: AdminCredential[] | undefined;
+  private backups: Backup[] | undefined;
 
   constructor(
     session: SessionClient,
     views: ViewCoordinator,
     setStorageLatched: (latched: boolean) => void,
   ) {
+    views.registerPanel({
+      id: "backups",
+      matches: (viewKey) => viewKey === "#/system?tab=backups",
+      invalidations: ["backups"],
+      read: async (context) => readBackups(context.csrfToken, context.signal),
+      publish: (backups) => {
+        this.backups = backups;
+        this.emitBackups();
+      },
+    });
     views.registerPanel({
       id: "admin-credentials",
       matches: (viewKey) => viewKey === "#/system?tab=admin-credentials",
@@ -216,9 +308,11 @@ export class SystemController {
     session.registerProtectedState(() => {
       this.value = undefined;
       this.credentials = undefined;
+      this.backups = undefined;
       setStorageLatched(false);
       this.emit();
       this.emitCredentials();
+      this.emitBackups();
     });
   }
 
@@ -240,6 +334,20 @@ export class SystemController {
     this.credentialListeners.add(listener);
     listener(this.credentials);
     return () => this.credentialListeners.delete(listener);
+  }
+
+  backupSnapshot(): Backup[] | undefined {
+    return this.backups;
+  }
+
+  subscribeBackups(listener: BackupListener): () => void {
+    this.backupListeners.add(listener);
+    listener(this.backups);
+    return () => this.backupListeners.delete(listener);
+  }
+
+  private emitBackups(): void {
+    for (const listener of this.backupListeners) listener(this.backups);
   }
 
   private emitCredentials(): void {
@@ -487,6 +595,266 @@ function Recovery({ status }: { status: StatusView | undefined }) {
           result; it does not infer the fate of another uncertain write.
         </p>
       </StateNotice>
+    </section>
+  );
+}
+
+function Backups({
+  session,
+  backups,
+  view,
+  mutations,
+  onRefresh,
+}: {
+  session: SessionClient;
+  backups: Backup[] | undefined;
+  view: ViewSnapshot;
+  mutations: MutationCoordinator;
+  onRefresh: () => void;
+}) {
+  const [controller] = useState<MutationController<Backup | undefined>>(() =>
+    mutations.create<Backup | undefined>(),
+  );
+  const [mutation, setMutation] = useState<MutationSnapshot>(() =>
+    controller.snapshot(),
+  );
+  const [detail, setDetail] = useState<Backup>();
+  const [deleting, setDeleting] = useState<Backup>();
+  const [notice, setNotice] = useState<string>();
+  const deleteButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => controller.subscribe(setMutation), [controller]);
+  useEffect(() => () => controller.close(), [controller]);
+  const panelStatus = view.panels.backups?.status ?? "loading";
+  const disabled =
+    mutation.state === "submitting" ||
+    mutation.availability === "storage_latched";
+  const decodeCreate = async (response: Response) => {
+    if (response.headers.get("Content-Type") !== "application/json")
+      throw new Error("invalid response");
+    return decodeBackup((await response.json()) as unknown);
+  };
+  const decodeDelete = async (response: Response) => {
+    if (response.status !== 204) throw new Error("invalid response");
+    return undefined;
+  };
+  const settle = async (
+    outcome: Awaited<ReturnType<typeof controller.submit>>,
+  ) => {
+    if (outcome.kind === "acknowledged") {
+      setNotice(
+        outcome.value === undefined
+          ? "Backup deleted. Restore remains a stopped-process CLI operation."
+          : `Backup ${outcome.value.id} is durably published.`,
+      );
+      controller.abandon();
+      onRefresh();
+    }
+  };
+  const create = () => {
+    setNotice(undefined);
+    const spec: MutationSpec<Backup | undefined> = {
+      route: "/api/v1/backups",
+      method: "POST",
+      body: "{}",
+      precondition: null,
+      requiresPrecondition: false,
+      idempotency: "backup_create",
+      successStatuses: [200, 201],
+      decode: decodeCreate,
+    };
+    controller.begin(spec);
+    controller.confirm();
+    void controller.submit().then(settle);
+  };
+  const inspect = async (backupID: string) => {
+    const value = await session.runProtected(async (context) => {
+      const response = await fetch(`/api/v1/backups/${backupID}`, {
+        method: "GET",
+        headers: { "X-CSRF-Token": context.csrfToken },
+        credentials: "same-origin",
+        redirect: "error",
+        signal: context.signal,
+      });
+      if (await context.sessionLost(response)) return undefined;
+      if (
+        response.status !== 200 ||
+        response.headers.get("Content-Type") !== "application/json"
+      )
+        throw new Error("Backup detail is unavailable.");
+      return decodeBackup((await response.json()) as unknown);
+    });
+    setDetail(value);
+  };
+  const beginDelete = (backup: Backup) => {
+    setNotice(undefined);
+    setDeleting(backup);
+    const spec: MutationSpec<Backup | undefined> = {
+      route: `/api/v1/backups/${backup.id}`,
+      method: "DELETE",
+      body: "{}",
+      precondition: null,
+      requiresPrecondition: false,
+      idempotency: "none",
+      successStatuses: [204],
+      decode: decodeDelete,
+    };
+    controller.begin(spec);
+    controller.confirm();
+  };
+  const cancelDelete = () => {
+    setDeleting(undefined);
+    controller.abandon();
+  };
+  const confirmDelete = async () => {
+    setDeleting(undefined);
+    await settle(await controller.submit());
+  };
+  return (
+    <section
+      class="panel domain-panel"
+      aria-labelledby="backups-title"
+      data-testid="backups-view"
+    >
+      <div class="panel-heading">
+        <div>
+          <span class="panel-code">DURABLE RECOVERY</span>
+          <h2 id="backups-title">Backups</h2>
+        </div>
+        <StatusLabel state={panelStatus === "error" ? "error" : panelStatus}>
+          {panelStatus}
+        </StatusLabel>
+      </div>
+      <p>
+        Create publishes one owner-only artifact. The browser cannot restore,
+        reset, verify, or clear a storage latch.
+      </p>
+      <div class="inline-actions">
+        <button
+          data-testid="backup-create"
+          type="button"
+          disabled={disabled}
+          onClick={create}
+        >
+          Create backup
+        </button>
+        <a href="#/system?tab=recovery">Open stopped restore guidance</a>
+      </div>
+      {mutation.problem !== undefined && (
+        <StateNotice state="error" title={mutation.problem.title} />
+      )}
+      {mutation.state === "uncertain" && (
+        <StateNotice state="warning" title="Backup outcome is unknown">
+          <p>
+            Nothing is replayed automatically. Refresh records before choosing
+            an explicit same-intent replay.
+          </p>
+          {mutation.canReplay && (
+            <button
+              data-testid="backup-replay"
+              type="button"
+              onClick={() => void controller.replay().then(settle)}
+            >
+              Replay this same backup create
+            </button>
+          )}
+        </StateNotice>
+      )}
+      {notice !== undefined && <StateNotice state="empty" title={notice} />}
+      {panelStatus === "error" && backups === undefined ? (
+        <StateNotice state="error" title="Backups unavailable" />
+      ) : backups === undefined ? (
+        <StateNotice state="loading" title="Loading backups" />
+      ) : backups.length === 0 ? (
+        <StateNotice state="empty" title="No backups" />
+      ) : (
+        <ComparisonTable caption="Published backup artifacts">
+          <thead>
+            <tr>
+              <th scope="col">Backup</th>
+              <th scope="col">Source</th>
+              <th scope="col">Size</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {backups.map((backup) => (
+              <tr key={backup.id} data-testid="backup-row">
+                <th scope="row">
+                  <code>{backup.id}</code>
+                  <br />
+                  {backup.createdAt}
+                </th>
+                <td>
+                  Schema {backup.schemaVersion}
+                  <br />
+                  Revision {backup.sourceRevision}
+                </td>
+                <td>{backup.sizeBytes} bytes</td>
+                <td class="inline-actions">
+                  <button
+                    data-testid="backup-inspect"
+                    type="button"
+                    onClick={() => void inspect(backup.id)}
+                  >
+                    Inspect
+                  </button>
+                  <button
+                    ref={deleteButton}
+                    class="danger-action"
+                    data-testid="backup-delete"
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => beginDelete(backup)}
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </ComparisonTable>
+      )}
+      {detail !== undefined && (
+        <section class="subpanel" data-testid="backup-detail">
+          <h3>Backup {detail.id}</h3>
+          <dl class="fact-grid">
+            <div>
+              <dt>Installation</dt>
+              <dd>{detail.installationID}</dd>
+            </div>
+            <div>
+              <dt>Schema</dt>
+              <dd>{detail.schemaVersion}</dd>
+            </div>
+            <div>
+              <dt>Source revision</dt>
+              <dd>{detail.sourceRevision}</dd>
+            </div>
+            <div>
+              <dt>SHA-256</dt>
+              <dd>
+                <code>{detail.sha256}</code>
+              </dd>
+            </div>
+          </dl>
+        </section>
+      )}
+      <ConfirmationDialog
+        id="backup-delete-confirm"
+        open={deleting !== undefined && mutation.state === "confirming"}
+        title="Delete backup artifact?"
+        consequence={
+          <p>
+            Backup {deleting?.id} is permanently removed. This does not restore,
+            reset, or change the running database.
+          </p>
+        }
+        confirmLabel="Delete backup"
+        destructive
+        returnFocus={deleteButton}
+        onCancel={cancelDelete}
+        onConfirm={() => void confirmDelete()}
+      />
     </section>
   );
 }
@@ -874,11 +1242,13 @@ export function System({
   const [credentials, setCredentials] = useState(
     controller.credentialSnapshot(),
   );
+  const [backups, setBackups] = useState(controller.backupSnapshot());
   useEffect(() => controller.subscribe(setStatus), [controller]);
   useEffect(
     () => controller.subscribeCredentials(setCredentials),
     [controller],
   );
+  useEffect(() => controller.subscribeBackups(setBackups), [controller]);
   const current = tab(view.viewKey);
   return (
     <div class="system-view" data-testid="system-view">
@@ -906,6 +1276,14 @@ export function System({
           view={view}
           mutations={mutations}
           sinks={sinks}
+          onRefresh={onRefresh}
+        />
+      ) : current === "backups" ? (
+        <Backups
+          session={session}
+          backups={backups}
+          view={view}
+          mutations={mutations}
           onRefresh={onRefresh}
         />
       ) : current === "recovery" ? (
