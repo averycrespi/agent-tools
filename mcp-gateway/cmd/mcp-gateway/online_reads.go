@@ -41,6 +41,8 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ID is invalid."))
 		}
 		return runOnlineRead(command, options, "/api/v1/servers/"+args[0], serverItemTable)
+	case "server credential replace":
+		return runServerCredentialReplace(command, options, args)
 	case "server operation list":
 		path, err := operationListPath(options, args)
 		if err != nil {
