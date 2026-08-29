@@ -127,6 +127,80 @@ func TestS5StatusBaseIncludesGlobalRequestLimitsAndPositiveAgentAuth(t *testing.
 	assert.Equal(t, contract.AgentAuthPrincipalCredentials, status.Protocols.AgentAuth)
 }
 
+func TestInitializeDefaultsToXDGWithHumanNextSteps(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", xdg)
+	stdout := new(bytes.Buffer)
+	stderr := new(bytes.Buffer)
+	command := newRootCmd()
+	command.SetOut(stdout)
+	command.SetErr(stderr)
+	command.SetArgs([]string{"initialize"})
+	require.NoError(t, command.ExecuteContext(context.Background()))
+
+	root := filepath.Join(xdg, gatewaypaths.InstallationName)
+	bearerPath := filepath.Join(root, gatewaypaths.AdminBearerName)
+	bearer, err := os.ReadFile(bearerPath)
+	require.NoError(t, err)
+	info, err := os.Lstat(bearerPath)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	assert.Contains(t, stdout.String(), "Gateway initialized successfully.")
+	assert.Contains(t, stdout.String(), root)
+	assert.Contains(t, stdout.String(), bearerPath)
+	assert.Contains(t, stdout.String(), "mcp-gateway serve")
+	assert.Contains(t, stdout.String(), "http://127.0.0.1:8210/")
+	assert.NotContains(t, stdout.String(), string(bytes.TrimSpace(bearer)))
+	assert.Empty(t, stderr.String())
+
+	stdout.Reset()
+	command = newRootCmd()
+	command.SetOut(stdout)
+	command.SetErr(stderr)
+	command.SetArgs([]string{"initialize"})
+	err = command.ExecuteContext(context.Background())
+	require.Error(t, err)
+	assert.Empty(t, stdout.String())
+	assert.Contains(t, stderr.String(), "already initialized")
+	unchanged, readErr := os.ReadFile(bearerPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, bearer, unchanged)
+}
+
+func TestInitializeRejectsConflictingOutputBeforeMutation(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", xdg)
+	stdout := new(bytes.Buffer)
+	stderr := new(bytes.Buffer)
+	command := newRootCmd()
+	command.SetOut(stdout)
+	command.SetErr(stderr)
+	command.SetArgs([]string{"initialize", "--json", "--output", "human"})
+	err := command.ExecuteContext(context.Background())
+	require.Error(t, err)
+	assert.Equal(t, 2, commandExitCode(err))
+	assert.Empty(t, stdout.String())
+	assert.Contains(t, stderr.String(), "--output json")
+	_, statErr := os.Lstat(filepath.Join(xdg, gatewaypaths.InstallationName))
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+func TestInitializeRendersShellSafeCustomStartCommand(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "space ' quote\ncontrol", "gateway")
+	secret := filepath.Join(t.TempDir(), "secret")
+	stdout := new(bytes.Buffer)
+	command := newRootCmd()
+	command.SetOut(stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"initialize", "--data-dir", root, "--secret-output", secret})
+	require.NoError(t, command.ExecuteContext(context.Background()))
+	assert.NotContains(t, stdout.String(), "quote\ncontrol")
+	assert.Contains(t, stdout.String(), "printf '%b_'")
+	assert.Contains(t, stdout.String(), `\012`)
+	assert.Contains(t, stdout.String(), `'"'"'`)
+	assert.Contains(t, stdout.String(), "mcp-gateway serve --data-dir")
+}
+
 func TestInitializeAndResetEmitSafeResultsAndPublishSecretsOnce(t *testing.T) {
 	ctx := context.Background()
 	root := filepath.Join(t.TempDir(), "gateway")
@@ -135,7 +209,7 @@ func TestInitializeAndResetEmitSafeResultsAndPublishSecretsOnce(t *testing.T) {
 	command := newRootCmd()
 	command.SetOut(stdout)
 	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"initialize", "--data-dir", root, "--secret-output", initialSecret})
+	command.SetArgs([]string{"initialize", "--data-dir", root, "--secret-output", initialSecret, "--output", "json"})
 	require.NoError(t, command.ExecuteContext(ctx))
 
 	var initialized map[string]any
@@ -147,18 +221,41 @@ func TestInitializeAndResetEmitSafeResultsAndPublishSecretsOnce(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, stdout.String(), string(bytes.TrimSpace(initialBearer)))
 
+	stderr := new(bytes.Buffer)
+	command = newRootCmd()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(stderr)
+	command.SetArgs([]string{"admin-reset", "--data-dir", root, "--output", "json"})
+	err = command.ExecuteContext(ctx)
+	require.Error(t, err)
+	assert.Equal(t, 2, commandExitCode(err))
+	assert.Contains(t, stderr.String(), "--secret-output")
+
 	resetSecret := filepath.Join(t.TempDir(), "reset-secret")
 	stdout.Reset()
 	command = newRootCmd()
 	command.SetOut(stdout)
 	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"admin-reset", "--data-dir", root, "--secret-output", resetSecret})
+	command.SetArgs([]string{"admin-reset", "--data-dir", root, "--secret-output", resetSecret, "--output", "json"})
 	require.NoError(t, command.ExecuteContext(ctx))
 	assert.JSONEq(t, `{"ok":true,"operation":"admin-reset","installation_id":"`+initialized["installation_id"].(string)+`","revision":"2"}`, stdout.String())
 	resetBearer, err := os.ReadFile(resetSecret)
 	require.NoError(t, err)
 	assert.NotEqual(t, initialBearer, resetBearer)
 	assert.NotContains(t, stdout.String(), string(bytes.TrimSpace(resetBearer)))
+
+	guidanceSecret := filepath.Join(t.TempDir(), "guidance-secret")
+	stdout.Reset()
+	command = newRootCmd()
+	command.SetOut(stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"admin-reset", "--data-dir", root, "--secret-output", guidanceSecret})
+	require.NoError(t, command.ExecuteContext(ctx))
+	assert.Contains(t, stdout.String(), "--admin-bearer-file")
+	assert.Contains(t, stdout.String(), "printf '%b_'")
+	guidanceBearer, err := os.ReadFile(guidanceSecret)
+	require.NoError(t, err)
+	assert.NotContains(t, stdout.String(), string(bytes.TrimSpace(guidanceBearer)))
 }
 
 func TestRestoreVerifyCurrentEmitsOneSafeMachineResult(t *testing.T) {
@@ -175,7 +272,7 @@ func TestRestoreVerifyCurrentEmitsOneSafeMachineResult(t *testing.T) {
 	command := newRootCmd()
 	command.SetOut(stdout)
 	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"restore", "--verify-current", "--data-dir", root})
+	command.SetArgs([]string{"restore", "--verify-current", "--data-dir", root, "--output", "json"})
 	require.NoError(t, command.ExecuteContext(ctx))
 
 	var result map[string]any
@@ -210,12 +307,22 @@ func TestRestoreBackupEmitsSafeResultAndReplacementSecret(t *testing.T) {
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.Close())
 
+	stderr := new(bytes.Buffer)
+	command = newRootCmd()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(stderr)
+	command.SetArgs([]string{"restore", artifact.ID, "--data-dir", root, "--output", "json"})
+	err = command.ExecuteContext(ctx)
+	require.Error(t, err)
+	assert.Equal(t, 2, commandExitCode(err))
+	assert.Contains(t, stderr.String(), "--secret-output")
+
 	secret := filepath.Join(t.TempDir(), "replacement")
 	stdout := new(bytes.Buffer)
 	command = newRootCmd()
 	command.SetOut(stdout)
 	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"restore", artifact.ID, "--data-dir", root, "--secret-output", secret})
+	command.SetArgs([]string{"restore", artifact.ID, "--data-dir", root, "--secret-output", secret, "--output", "json"})
 	require.NoError(t, command.ExecuteContext(ctx))
 	var result map[string]any
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
@@ -228,9 +335,9 @@ func TestRestoreBackupEmitsSafeResultAndReplacementSecret(t *testing.T) {
 
 func TestRestoreRejectsInvalidInvocationWithSafeMachineResult(t *testing.T) {
 	for _, args := range [][]string{
-		{"restore"},
-		{"restore", "unexpected"},
-		{"restore", "--unknown-flag"},
+		{"restore", "--output", "json"},
+		{"restore", "unexpected", "--output", "json"},
+		{"restore", "--output", "json", "--unknown-flag"},
 	} {
 		stdout := new(bytes.Buffer)
 		stderr := new(bytes.Buffer)
@@ -238,9 +345,13 @@ func TestRestoreRejectsInvalidInvocationWithSafeMachineResult(t *testing.T) {
 		command.SetOut(stdout)
 		command.SetErr(stderr)
 		command.SetArgs(args)
-		assert.Error(t, command.ExecuteContext(context.Background()))
-		assert.JSONEq(t, `{"ok":false,"operation":"restore","code":"invalid_command"}`, stdout.String())
-		assert.Empty(t, stderr.String())
+		err := command.ExecuteContext(context.Background())
+		require.Error(t, err)
+		assert.Equal(t, 2, commandExitCode(err))
+		assert.Empty(t, stdout.String())
+		var problem controlclient.Problem
+		require.NoError(t, json.Unmarshal(stderr.Bytes(), &problem))
+		assert.Equal(t, "client_invalid_input", problem.Code)
 	}
 }
 
@@ -255,8 +366,12 @@ func TestRestoreVerifyCurrentFailureIsSafeAndNonzero(t *testing.T) {
 	command := newRootCmd()
 	command.SetOut(stdout)
 	command.SetErr(stderr)
-	command.SetArgs([]string{"restore", "--verify-current", "--data-dir", root})
-	assert.Error(t, command.ExecuteContext(context.Background()))
-	assert.JSONEq(t, `{"ok":false,"operation":"restore","code":"gateway_running"}`, stdout.String())
-	assert.Empty(t, stderr.String())
+	command.SetArgs([]string{"restore", "--verify-current", "--data-dir", root, "--output", "json"})
+	err = command.ExecuteContext(context.Background())
+	require.Error(t, err)
+	assert.Equal(t, 5, commandExitCode(err))
+	assert.Empty(t, stdout.String())
+	var problem controlclient.Problem
+	require.NoError(t, json.Unmarshal(stderr.Bytes(), &problem))
+	assert.Equal(t, "gateway_running", problem.Code)
 }

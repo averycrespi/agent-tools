@@ -68,7 +68,7 @@ func TestS6M4Gate(t *testing.T) {
 	command.SetArgs([]string{"restore"})
 	err := command.ExecuteContext(context.Background())
 	require.Error(t, err)
-	assert.Equal(t, 1, commandExitCode(err))
-	assert.JSONEq(t, `{"ok":false,"operation":"restore","code":"invalid_command"}`, stdout.String())
-	assert.Empty(t, stderr.String())
+	assert.Equal(t, 2, commandExitCode(err))
+	assert.Empty(t, stdout.String())
+	assert.Equal(t, "Use --verify-current with no backup ID, or provide exactly one valid backup ID.\n", stderr.String())
 }

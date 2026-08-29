@@ -104,6 +104,10 @@ func TestProductionSourceOwnershipGuards(t *testing.T) {
 	for _, required := range []string{"options.FilePath", "options.ReadStdin", "ProjectBearerProblem"} {
 		assert.Contains(t, bearerSource, required, "internal/controlclient/bearer.go: missing closed bearer boundary %s", required)
 	}
+	adminSink := readProductionSource(t, root, "internal/admin/sink.go")
+	for _, prohibited := range []string{"NewTerminalSecretSink", "/dev/tty"} {
+		assert.NotContains(t, adminSink, prohibited, "internal/admin/sink.go: administrator bearers require explicit owner-only files")
+	}
 }
 
 func TestS5RootUsesOneAtomicCompositionForControlAndAgentIngress(t *testing.T) {

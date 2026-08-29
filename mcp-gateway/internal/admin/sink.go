@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -72,32 +71,5 @@ func (sink *fileSecretSink) Publish(value string) error {
 		return fmt.Errorf("close secret output: %w", err)
 	}
 	published = true
-	return nil
-}
-
-type terminalSecretSink struct {
-	opener func() (io.WriteCloser, error)
-}
-
-func NewTerminalSecretSink() SecretSink {
-	return &terminalSecretSink{opener: func() (io.WriteCloser, error) {
-		return os.OpenFile("/dev/tty", os.O_WRONLY, 0)
-	}}
-}
-
-func (sink *terminalSecretSink) Publish(value string) error {
-	terminal, err := sink.opener()
-	if err != nil {
-		return fmt.Errorf("open controlling terminal: %w", err)
-	}
-	contents := value + contract.SecretOutputTerminator
-	count, writeErr := io.WriteString(terminal, contents)
-	if writeErr == nil && count != len(contents) {
-		writeErr = io.ErrShortWrite
-	}
-	closeErr := terminal.Close()
-	if writeErr != nil || closeErr != nil {
-		return fmt.Errorf("publish to controlling terminal: %w", errors.Join(writeErr, closeErr))
-	}
 	return nil
 }

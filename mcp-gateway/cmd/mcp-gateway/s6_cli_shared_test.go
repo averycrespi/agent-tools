@@ -36,7 +36,7 @@ func TestS6DocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:404e89da0f38d9b11150fbe553b2b4c9fc46e11364912a95cedd56155934e951", digest)
+	assert.Equal(t, "sha256:4311b674d079a556f598351af843417591bcc3f20f95417c31b0a27fc09fa753", digest)
 }
 
 func TestS6CLISharedContract(t *testing.T) {
@@ -68,9 +68,9 @@ func TestS6CLISharedContract(t *testing.T) {
 	t.Run("online flags remain command scoped", func(t *testing.T) {
 		assert.Nil(t, root.PersistentFlags().Lookup("address"))
 		for name, expectedFlags := range map[string][]string{
-			"initialize":  {"data-dir", "secret-output"},
-			"admin-reset": {"data-dir", "secret-output"},
-			"restore":     {"data-dir", "secret-output", "verify-current"},
+			"initialize":  {"data-dir", "json", "output", "secret-output"},
+			"admin-reset": {"data-dir", "json", "output", "secret-output"},
+			"restore":     {"data-dir", "json", "output", "secret-output", "verify-current"},
 			"serve":       {"data-dir", "listen"},
 		} {
 			command, _, err := root.Find([]string{name})

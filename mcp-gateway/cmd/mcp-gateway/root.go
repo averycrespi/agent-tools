@@ -18,6 +18,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/composition"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/controlclient"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/events"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
@@ -412,41 +413,67 @@ func serveErrorCode(err error) string {
 }
 
 func newAdminAuthorityCmd(operation string, dependencies offlineDependencies) *cobra.Command {
-	var dataDir string
-	var secretOutput string
+	var dataDir, secretOutput, output string
+	var jsonOutput bool
 	command := &cobra.Command{
 		Use:   operation,
 		Short: "Create and publish Gateway admin authority",
 		Args: func(command *cobra.Command, args []string) error {
 			if len(args) != 0 {
-				return writeCommandFailure(command, operation, "invalid_command")
+				return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), controlclient.NewInputError("This command does not accept positional arguments."))
 			}
 			return nil
 		},
 		RunE: func(command *cobra.Command, _ []string) error {
-			if dataDir == "" {
-				return writeCommandFailure(command, operation, "invalid_command")
-			}
-			sink := admin.NewTerminalSecretSink()
-			if secretOutput != "" {
-				sink = admin.NewFileSecretSink(secretOutput)
-			}
-			identity, err := executeAdminAuthority(command.Context(), operation, dataDir, sink, dependencies)
+			options, err := resolveExecutionOptions(executionOptionInput{DataDir: dataDir, Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
 			if err != nil {
-				return writeCommandFailure(command, operation, adminCommandErrorCode(err))
+				return writeOfflineProblem(command, controlclient.OutputHuman, controlclient.NewInputError("Choose either --output human or --output json; --json is the JSON shorthand."))
+			}
+			layout, err := gatewaypaths.Resolve(options.DataDir)
+			if err != nil {
+				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("The selected data directory is invalid."))
+			}
+			secretPath := secretOutput
+			if operation == "initialize" && secretPath == "" {
+				secretPath = layout.AdminBearer
+			}
+			if secretPath == "" {
+				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("--secret-output NEW_PATH is required for administrator authority replacement."))
+			}
+			startCommand, err := renderServeCommand(layout.Root, dataDir == "")
+			if err != nil {
+				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("The selected data directory is too long to render safely."))
+			}
+			identity, err := executeAdminAuthority(command.Context(), operation, layout.Root, admin.NewFileSecretSink(secretPath), dependencies)
+			if err != nil {
+				return writeOfflineProblem(command, options.Output, adminCommandProblem(operation, adminCommandErrorCode(err), layout.Root, secretPath, startCommand))
 			}
 			result := struct {
 				OK             bool   `json:"ok"`
 				Operation      string `json:"operation"`
 				InstallationID string `json:"installation_id"`
 				Revision       string `json:"revision"`
-			}{
-				OK:             true,
-				Operation:      operation,
-				InstallationID: identity.InstallationID,
-				Revision:       fmt.Sprintf("%d", identity.Revision),
+				DataDir        string `json:"data_dir,omitempty"`
+				BearerFile     string `json:"admin_bearer_file,omitempty"`
+			}{OK: true, Operation: operation, InstallationID: identity.InstallationID, Revision: fmt.Sprintf("%d", identity.Revision)}
+			if operation == "initialize" {
+				result.DataDir = layout.Root
+				result.BearerFile = secretPath
 			}
-			if err := json.NewEncoder(command.OutOrStdout()).Encode(result); err != nil {
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				return commandFailure{}
+			}
+			human := "Gateway initialized successfully.\nData directory: " + controlclient.TerminalSafePath(layout.Root) + "\nAdministrator bearer file: " + controlclient.TerminalSafePath(secretPath) + "\nStart the Gateway: " + startCommand + "\nOpen: http://127.0.0.1:8210/"
+			if operation != "initialize" {
+				bearerCommand, renderErr := renderBearerCommand("mcp-gateway status", secretPath)
+				if renderErr != nil {
+					return writeOfflineProblem(command, options.Output, controlclient.NewInputError("The secret output path is too long to render safely."))
+				}
+				human = "Administrator authority replaced successfully.\nNew bearer file: " + controlclient.TerminalSafePath(secretPath) + "\nUse the replacement explicitly: " + bearerCommand
+			}
+			renderer, err := controlclient.NewRenderer(options.Output, command.OutOrStdout(), command.ErrOrStderr())
+			if err != nil || renderer.WriteFiniteSuccess(encoded, human) != nil {
 				return commandFailure{}
 			}
 			return nil
@@ -454,8 +481,10 @@ func newAdminAuthorityCmd(operation string, dependencies offlineDependencies) *c
 	}
 	command.Flags().StringVar(&dataDir, "data-dir", "", "owner-only Gateway data directory")
 	command.Flags().StringVar(&secretOutput, "secret-output", "", "new owner-only file for the one-time admin bearer")
+	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
+	command.Flags().BoolVar(&jsonOutput, "json", false, "shorthand for --output json")
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
-		return writeCommandFailure(command, operation, "invalid_command")
+		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), controlclient.NewInputError("The command flags are invalid. See this command's usage."))
 	})
 	return command
 }
@@ -534,9 +563,50 @@ func adminCommandErrorCode(err error) string {
 	}
 }
 
+func selectedOutputMode(command *cobra.Command, output string, jsonOutput bool) controlclient.OutputMode {
+	options, err := resolveExecutionOptions(executionOptionInput{Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
+	if err != nil {
+		return controlclient.OutputHuman
+	}
+	return options.Output
+}
+
+func writeOfflineProblem(command *cobra.Command, mode controlclient.OutputMode, problem *controlclient.Problem) error {
+	renderer, err := controlclient.NewRenderer(mode, command.OutOrStdout(), command.ErrOrStderr())
+	if err != nil || renderer.WriteProblem(problem) != nil {
+		return commandFailure{}
+	}
+	return problem
+}
+
+func adminCommandProblem(operation, code, dataDir, secretPath, startCommand string) *controlclient.Problem {
+	safeDataDir := boundedProblemPath(dataDir, "the selected data directory")
+	safeSecretPath := boundedProblemPath(secretPath, "the selected output path")
+	switch code {
+	case "gateway_running":
+		return &controlclient.Problem{Code: code, Title: "The Gateway is running. Stop it before changing stopped-process administrator authority.", Exit: 5}
+	case "already_initialized":
+		return &controlclient.Problem{Code: code, Title: "The Gateway installation at " + safeDataDir + " is already initialized. Start it with: " + startCommand, Exit: 5}
+	case "not_initialized":
+		return &controlclient.Problem{Code: code, Title: "The Gateway installation at " + safeDataDir + " is not initialized. Run mcp-gateway initialize first.", Exit: 4}
+	case "secret_output_unavailable":
+		return &controlclient.Problem{Code: code, Title: "The administrator bearer could not be published to " + safeSecretPath + ". Choose a new nonexistent owner-only output path; authority was not activated.", Exit: 2}
+	default:
+		return &controlclient.Problem{Code: code, Title: "The stopped-process " + operation + " operation could not access the Gateway installation safely.", Exit: 7}
+	}
+}
+
+func boundedProblemPath(path, fallback string) string {
+	safe := controlclient.TerminalSafePath(path)
+	if len(safe) > 200 {
+		return fallback
+	}
+	return safe
+}
+
 func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
-	var dataDir, secretOutput string
-	var verify bool
+	var dataDir, secretOutput, output string
+	var verify, jsonOutput bool
 	command := &cobra.Command{
 		Use:   "restore [backup-id]",
 		Short: "Verify or restore a stopped Gateway database",
@@ -544,38 +614,35 @@ func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
 			validVerify := verify && len(args) == 0
 			validBackup := !verify && len(args) == 1 && backup.ValidID(args[0])
 			if !validVerify && !validBackup {
-				return writeCommandFailure(command, "restore", "invalid_command")
+				return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), controlclient.NewInputError("Use --verify-current with no backup ID, or provide exactly one valid backup ID."))
 			}
 			return nil
 		},
 		RunE: func(command *cobra.Command, args []string) error {
-			if dataDir == "" || (verify && secretOutput != "") {
-				return writeCommandFailure(command, "restore", "invalid_command")
+			options, err := resolveExecutionOptions(executionOptionInput{DataDir: dataDir, Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
+			if err != nil {
+				return writeOfflineProblem(command, controlclient.OutputHuman, controlclient.NewInputError("Choose either --output human or --output json; --json is the JSON shorthand."))
+			}
+			layout, err := gatewaypaths.Resolve(options.DataDir)
+			if err != nil {
+				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("The selected data directory is invalid."))
+			}
+			if verify && secretOutput != "" {
+				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("--secret-output cannot be used with --verify-current."))
+			}
+			if !verify && secretOutput == "" {
+				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("--secret-output NEW_PATH is required when restoring a backup."))
 			}
 			var identity storage.Identity
-			var err error
 			mode, backupID := "verify_current", ""
 			if verify {
-				identity, err = storage.VerifyCurrent(command.Context(), dataDir)
+				identity, err = storage.VerifyCurrent(command.Context(), layout.Root)
 			} else {
 				mode, backupID = "backup", args[0]
-				sink := admin.NewTerminalSecretSink()
-				if secretOutput != "" {
-					sink = admin.NewFileSecretSink(secretOutput)
-				}
-				identity, err = backup.Restore(command.Context(), backup.RestoreOptions{Root: dataDir, BackupID: backupID, Sink: sink, Clock: dependencies.clock, Entropy: dependencies.entropy})
+				identity, err = backup.Restore(command.Context(), backup.RestoreOptions{Root: layout.Root, BackupID: backupID, Sink: admin.NewFileSecretSink(secretOutput), Clock: dependencies.clock, Entropy: dependencies.entropy})
 			}
 			if err != nil {
-				code := "storage_unavailable"
-				switch {
-				case errors.Is(err, gatewaypaths.ErrInUse):
-					code = "gateway_running"
-				case errors.Is(err, backup.ErrNotFound), errors.Is(err, backup.ErrInvalidArtifact):
-					code = "invalid_backup"
-				case errors.Is(err, admin.ErrSecretPublication):
-					code = "secret_output_unavailable"
-				}
-				return writeCommandFailure(command, "restore", code)
+				return writeOfflineProblem(command, options.Output, restoreCommandProblem(err, layout.Root, secretOutput))
 			}
 			result := struct {
 				OK             bool   `json:"ok"`
@@ -585,7 +652,20 @@ func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
 				Revision       string `json:"revision"`
 				BackupID       string `json:"backup_id,omitempty"`
 			}{true, "restore", mode, identity.InstallationID, fmt.Sprintf("%d", identity.Revision), backupID}
-			if err := json.NewEncoder(command.OutOrStdout()).Encode(result); err != nil {
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				return commandFailure{}
+			}
+			human := "Gateway installation verified successfully.\nData directory: " + controlclient.TerminalSafePath(layout.Root)
+			if !verify {
+				bearerCommand, renderErr := renderBearerCommand("mcp-gateway status", secretOutput)
+				if renderErr != nil {
+					return writeOfflineProblem(command, options.Output, controlclient.NewInputError("The secret output path is too long to render safely."))
+				}
+				human = "Gateway backup " + backupID + " restored successfully.\nReplacement bearer file: " + controlclient.TerminalSafePath(secretOutput) + "\nUse the replacement explicitly: " + bearerCommand
+			}
+			renderer, err := controlclient.NewRenderer(options.Output, command.OutOrStdout(), command.ErrOrStderr())
+			if err != nil || renderer.WriteFiniteSuccess(encoded, human) != nil {
 				return commandFailure{}
 			}
 			return nil
@@ -594,10 +674,25 @@ func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
 	command.Flags().BoolVar(&verify, "verify-current", false, "verify and clear a stopped installation's storage latch")
 	command.Flags().StringVar(&dataDir, "data-dir", "", "owner-only Gateway data directory")
 	command.Flags().StringVar(&secretOutput, "secret-output", "", "new owner-only file for the replacement admin bearer")
+	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
+	command.Flags().BoolVar(&jsonOutput, "json", false, "shorthand for --output json")
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
-		return writeCommandFailure(command, "restore", "invalid_command")
+		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), controlclient.NewInputError("The command flags are invalid. See this command's usage."))
 	})
 	return command
+}
+
+func restoreCommandProblem(err error, dataDir, secretPath string) *controlclient.Problem {
+	switch {
+	case errors.Is(err, gatewaypaths.ErrInUse):
+		return &controlclient.Problem{Code: "gateway_running", Title: "The Gateway is running. Stop it before verifying or restoring the installation.", Exit: 5}
+	case errors.Is(err, backup.ErrNotFound), errors.Is(err, backup.ErrInvalidArtifact):
+		return &controlclient.Problem{Code: "invalid_backup", Title: "The selected backup is unavailable or invalid. List the installation's backups and choose a valid backup ID.", Exit: 4}
+	case errors.Is(err, admin.ErrSecretPublication):
+		return &controlclient.Problem{Code: "secret_output_unavailable", Title: "The replacement administrator bearer could not be published to " + boundedProblemPath(secretPath, "the selected output path") + ". Choose a new nonexistent owner-only output path; restored authority was not installed.", Exit: 2}
+	default:
+		return &controlclient.Problem{Code: "storage_unavailable", Title: "The Gateway installation at " + boundedProblemPath(dataDir, "the selected data directory") + " could not be verified or restored safely.", Exit: 7}
+	}
 }
 
 func writeCommandFailure(command *cobra.Command, operation, code string) error {
