@@ -106,20 +106,33 @@ func TestPurposeNamedRootForwardingAndOwnership(t *testing.T) {
 		require.NoError(t, dryRunErr, "%s: %s", target, output)
 		assert.Contains(t, string(output), "make -C mcp-gateway "+target, target)
 	}
+	assert.Equal(t, "\t$(MAKE) -C mcp-gateway accept REPORT=\"$(REPORT)\"", purposeMakeTargetRecipe(makefile, "accept"))
+	assert.Equal(t, "\t$(MAKE) -C mcp-gateway adopt-acceptance-report REPORT=\"$(REPORT)\" ADOPTION=\"$(ADOPTION)\"", purposeMakeTargetRecipe(makefile, "adopt-acceptance-report"))
+	assert.Equal(t, "\t$(MAKE) -C mcp-gateway qualify-external-evidence", purposeMakeTargetRecipe(makefile, "qualify-external-evidence"))
 	assert.NotContains(t, purposeMakeTargetRecipe(makefile, "check-other-tools"), "mcp-gateway")
 	assert.Contains(t, makefile, "OTHER_TOOLS := mcp-broker sandbox-manager local-git-mcp local-gomod-proxy telegram-mcp http-broker")
 }
 
-func TestPurposeNamedTargetsRetainUnpublishedLegacyEntryPoints(t *testing.T) {
+func TestPurposeNamedTargetsPublishOnlyFinalAcceptanceInterface(t *testing.T) {
 	root := purposeTargetModuleRoot(t)
 	makefile, err := os.ReadFile(filepath.Join(root, "Makefile"))
 	require.NoError(t, err)
 	text := string(makefile)
-	for _, target := range []string{
-		"test-integration-s5", "test-security-s5", "test-stress-s5", "test-task-s6", "test-milestone-s6",
-		"test-frontend-s6", "test-unit-s6", "test-integration-s6", "test-browser-s6-workflows", "accept-s6",
-	} {
+	for _, target := range []string{"accept", "adopt-acceptance-report", "qualify-external-evidence", "help"} {
 		assert.Contains(t, text, target+":", target)
+	}
+	help := purposeTargetDryRun(t, root, "help")
+	for _, fragment := range []string{"accept REPORT=<absolute-path>", "adopt-acceptance-report REPORT=<absolute-path> ADOPTION=<absolute-path>", "qualify-external-evidence"} {
+		assert.Contains(t, help, fragment)
+	}
+	for _, removed := range []string{
+		"test-integration-s5", "test-security-s5", "test-stress-s5", "test-task-s6", "test-milestone-s6",
+		"test-frontend-s6", "test-unit-s6", "test-integration-s6", "test-browser-s6-workflows", "test-browser-s6-visual", "test-browser-s6-a11y", "test-browser-s6-cross",
+		"test-cli-e2e-s6", "test-cli-usability-e2e", "test-security-s6", "accept-s6", "accept-s5", "accept-s4", "accept-s3", "accept-s2-1", "qualify-external-s6",
+	} {
+		assert.NotContains(t, text, removed+":", removed)
+		command := exec.Command("make", "-n", "-C", root, removed)
+		assert.Error(t, command.Run(), removed)
 	}
 	guidance, err := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
 	require.NoError(t, err)

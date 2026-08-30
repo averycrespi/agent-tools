@@ -31,6 +31,10 @@ go.work.sum
 # env files
 .env
 
+# Agent-owned acceptance evidence and migration work
+/.design/acceptance/
+/.design/work/
+
 # Agent tool scratch output (Playwright CLI page/console dumps)
 .playwright-cli/
 

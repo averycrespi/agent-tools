@@ -168,38 +168,3 @@ func TestGrantRequestResourceShapesETagsMechanicsAndStatusAreExact(t *testing.T)
 	require.GreaterOrEqual(t, start, 0)
 	require.Equal(t, expectedMechanics, mechanics[start:start+len(expectedMechanics)])
 }
-
-func TestGrantRequestAcceptanceManifestsAreCompleteAndCopySafe(t *testing.T) {
-	t.Parallel()
-	criteria := S5AcceptanceEvidenceManifest()
-	require.Equal(t, []string{"AC-1", "AC-2", "AC-3", "AC-4", "AC-5", "AC-6", "AC-7"}, criterionNames(criteria))
-	seenEvidence := map[string]bool{}
-	for _, entry := range criteria {
-		require.NotEmpty(t, entry.Evidence)
-		for _, evidence := range entry.Evidence {
-			require.Regexp(t, `^s5-[a-z0-9-]+$`, evidence)
-			seenEvidence[evidence] = true
-		}
-	}
-	clauses := S5ClauseEvidenceManifest()
-	require.Equal(t, requiredS5ClauseIDs(), clauseNames(clauses))
-	seenTasks := map[string]bool{}
-	for _, clause := range clauses {
-		require.NotEmpty(t, clause.Tasks, clause.Clause)
-		require.NotEmpty(t, clause.Evidence, clause.Clause)
-		for _, task := range clause.Tasks {
-			require.Regexp(t, `^T(?:[1-9]|1[0-9]|2[0-7])$`, task)
-			seenTasks[task] = true
-		}
-		for _, evidence := range clause.Evidence {
-			require.True(t, seenEvidence[evidence], "%s: %s", clause.Clause, evidence)
-		}
-	}
-	for task := 1; task <= 27; task++ {
-		require.True(t, seenTasks["T"+itoa(task)], "T%d has no S5 clause assignment", task)
-	}
-	criteria[0].Evidence[0] = "changed"
-	clauses[0].Tasks[0] = "changed"
-	require.NotEqual(t, "changed", S5AcceptanceEvidenceManifest()[0].Evidence[0])
-	require.NotEqual(t, "changed", S5ClauseEvidenceManifest()[0].Tasks[0])
-}

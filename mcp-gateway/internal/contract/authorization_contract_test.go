@@ -174,35 +174,3 @@ func TestAuthorizationResourceShapesETagsAndStatusAreExact(t *testing.T) {
 		"grant_requests", "grant_request_evidence_bytes",
 	)
 }
-
-func TestAuthorizationAcceptanceEvidenceManifestIsClosedAndCopySafe(t *testing.T) {
-	t.Parallel()
-
-	expected := []AcceptanceEvidence{
-		{Criterion: "AC-1", Evidence: []string{"contract", "authorization-race", "api-wire", "mcp-wire", "restore-canary", "e2e-lifecycle", "source-secret", "audit"}},
-		{Criterion: "AC-2", Evidence: []string{"contract", "authorization-race", "api-wire", "e2e-discovery", "source-slice", "audit"}},
-		{Criterion: "AC-3", Evidence: []string{"contract", "strictjson-generated", "authorization-fuzz", "discovery-race", "audit"}},
-		{Criterion: "AC-4", Evidence: []string{"authorization-race", "authorization-integration", "discovery-race", "ingress-race", "composition-race", "e2e-lifecycle", "audit"}},
-		{Criterion: "AC-5", Evidence: []string{"discovery-race", "ingress-race", "mcp-wire", "e2e-discovery", "source-slice", "audit"}},
-		{Criterion: "AC-6", Evidence: []string{"contract", "migration-restore", "integration", "e2e", "source-secret", "source-slice", "docs", "audit", "vulnerability", "native", "repository-check"}},
-	}
-	require.Equal(t, expected, AcceptanceEvidenceManifest())
-
-	manifest := AcceptanceEvidenceManifest()
-	manifest[0].Criterion = "changed"
-	manifest[0].Evidence[0] = "changed"
-	require.Equal(t, expected, AcceptanceEvidenceManifest())
-
-	seenEvidence := map[string]bool{}
-	for _, entry := range AcceptanceEvidenceManifest() {
-		require.Regexp(t, `^AC-[1-6]$`, entry.Criterion)
-		require.NotEmpty(t, entry.Evidence)
-		for _, evidence := range entry.Evidence {
-			require.NotEmpty(t, evidence)
-			seenEvidence[evidence] = true
-		}
-	}
-	for _, required := range []string{"contract", "authorization-race", "strictjson-generated", "authorization-fuzz", "authorization-integration", "discovery-race", "ingress-race", "composition-race", "api-wire", "mcp-wire", "migration-restore", "restore-canary", "integration", "e2e", "e2e-lifecycle", "e2e-discovery", "source-secret", "source-slice", "docs", "audit", "vulnerability", "native", "repository-check"} {
-		require.True(t, seenEvidence[required], required)
-	}
-}

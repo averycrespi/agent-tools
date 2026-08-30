@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5ProcessSupervisorKillsTermIgnoringProcessGroup(t *testing.T) {
+func TestProcessSupervisorKillsTermIgnoringProcessGroup(t *testing.T) {
 	runner, err := NewBinaryRunner(150*time.Millisecond, 1024)
 	require.NoError(t, err)
 
@@ -31,7 +31,7 @@ func TestS5ProcessSupervisorKillsTermIgnoringProcessGroup(t *testing.T) {
 	require.ErrorIs(t, syscall.Kill(-result.Cleanup.ProcessGroupID, 0), syscall.ESRCH)
 }
 
-func TestS5BinaryRunnerCancellationCleansProcessGroup(t *testing.T) {
+func TestBinaryRunnerCancellationCleansProcessGroup(t *testing.T) {
 	runner, err := NewBinaryRunner(2*time.Second, 1024)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -47,7 +47,7 @@ func TestS5BinaryRunnerCancellationCleansProcessGroup(t *testing.T) {
 	require.ErrorIs(t, syscall.Kill(-result.Cleanup.ProcessGroupID, 0), syscall.ESRCH)
 }
 
-func TestS5BinaryRunnerStartupOutputFailureCanStopOwnedGroup(t *testing.T) {
+func TestBinaryRunnerStartupOutputFailureCanStopOwnedGroup(t *testing.T) {
 	runner, err := NewBinaryRunner(2*time.Second, 1024)
 	require.NoError(t, err)
 	process, err := runner.Start(context.Background(), "sh", "-c", `trap '' TERM; sh -c 'trap "" TERM; while :; do :; done' & printf malformed; while :; do :; done`)
@@ -63,7 +63,7 @@ func TestS5BinaryRunnerStartupOutputFailureCanStopOwnedGroup(t *testing.T) {
 	require.ErrorIs(t, syscall.Kill(-result.Cleanup.ProcessGroupID, 0), syscall.ESRCH)
 }
 
-func TestS5BinaryRunnerReportsCommandFailureAfterReap(t *testing.T) {
+func TestBinaryRunnerReportsCommandFailureAfterReap(t *testing.T) {
 	runner, err := NewBinaryRunner(2*time.Second, 1024)
 	require.NoError(t, err)
 

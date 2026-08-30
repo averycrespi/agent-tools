@@ -2,7 +2,19 @@ STRESS_COUNT ?= 20
 
 .NOTPARALLEL: test test-browser test-frontend-development
 
-.PHONY: build install test test-unit test-integration test-e2e test-security test-stress test-keyring-native test-browser test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross test-frontend-development test-frontend-development-node test-frontend-development-browser frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit test-integration-s5 test-security-s5 test-stress-s5 test-task-s6 test-milestone-s6 test-frontend-s6 test-unit-s6 test-integration-s6 test-browser-s6-workflows test-browser-s6-visual test-browser-s6-a11y test-browser-s6-cross test-cli-e2e-s6 test-cli-usability-e2e test-security-s6 qualify-external-s6 accept-s2-1 accept-s3 accept-s4 accept-s5 accept-s6 lint fmt tidy verify audit
+.PHONY: help build install test test-unit test-integration test-e2e test-security test-stress test-keyring-native test-browser test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross test-frontend-development test-frontend-development-node test-frontend-development-browser frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report lint fmt tidy verify audit
+
+help:
+	@printf '%s\n' \
+		'test-unit | test-integration | test-e2e | test-security | test-stress | test-keyring-native' \
+		'test-browser-workflows | test-browser-privacy | test-browser-visual | test-browser-accessibility | test-browser-cross' \
+		'test-browser (developer aggregate)' \
+		'test-frontend-development-node | test-frontend-development-browser | test-frontend-development (developer aggregate)' \
+		'frontend-typecheck | frontend-build | frontend-verify-generated | frontend-verify-supply-chain | frontend-audit' \
+		'qualify-external-evidence' \
+		'accept REPORT=<absolute-path>' \
+		'adopt-acceptance-report REPORT=<absolute-path> ADOPTION=<absolute-path>' \
+		'build | install | lint | fmt | tidy | verify | audit'
 
 build:
 	go build -o mcp-gateway ./cmd/mcp-gateway
@@ -17,17 +29,6 @@ test-unit:
 
 test-integration:
 	go test -race -count=1 -tags=integration -timeout=60s -run '^(Test.*Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss|TestSchemaSevenFixtureMigratesWithRealSQLite|TestPopulatedSchemaEightMigratesToNineWithRealSQLite|TestServerSchemaAndBackupContainNoSecretOrTransientRepresentation|TestServerSnapshotWatermarkExcludesLaterInsert|TestServicePublishesOneCompleteStaticGenerationAndSafeOperation)$$' ./internal/storage ./internal/backup ./internal/servers ./internal/servercredentials ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition
-
-test-integration-s5:
-	go test -race -count=1 -tags=integration -timeout=30s -run '^(Test(ApprovalVsPolicyAndCapacity|AtomicApprovalAndPostCommitRecovery|CatalogEvidenceReplacement|CreateVsTargetAndPolicy|CredentialAdmissionOrdering|RequestLifecycle|RequestRetentionAndEvidenceLimits)Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss|TestServicePublishesOneCompleteStaticGenerationAndSafeOperation)$$' ./internal/storage ./internal/backup ./internal/servercredentials ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition
-
-test-security-s5:
-	go test -race -count=1 -tags=security -timeout=30s ./test/security/...
-
-test-stress-s5:
-	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=2m -run '^(TestConcurrentSemanticDeduplicationStress|TestApprovalCancellationPolicyLinearizationStress)$$' ./internal/grantrequests
-	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=90s -run '^(TestSyntheticSnapshotPaginationStress|TestLostLocalMutationResponseDeduplicatesExplicitRetryStress)$$' ./internal/selfservice
-	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=90s -run '^TestLocalInvocationDrainCleanupStress$$' ./internal/composition
 
 test-e2e:
 	go test -race -count=1 -tags=e2e -timeout=2m ./test/e2e/...
@@ -84,67 +85,17 @@ frontend-verify-supply-chain:
 frontend-audit:
 	npm --prefix .. run ui:audit
 
-test-task-s6:
-	@test -n "$(TASK)" || (echo "TASK is required" >&2; exit 2)
-	@go run ./test/acceptance/cmd --task "$(TASK)"
+qualify-external-evidence:
+	@go run ./test/acceptance/cmd qualify-external-evidence
 
-test-milestone-s6:
-	@test -n "$(MILESTONE)" || (echo "MILESTONE is required" >&2; exit 2)
-	@go run ./test/acceptance/cmd --milestone "$(MILESTONE)"
+accept:
+	@case "$(REPORT)" in /*) ;; *) echo 'REPORT must be an absolute path' >&2; exit 2;; esac
+	@go run ./test/acceptance/cmd accept --report "$(REPORT)"
 
-test-frontend-s6:
-	npm --prefix .. run ui:typecheck
-	npm --prefix .. run ui:verify-generated
-	npm --prefix .. run ui:verify-supply-chain
-	go test -race -count=1 -tags=frontend -timeout=30s -run '^TestStaticSupplyChain$$' ./internal/api
-
-test-unit-s6:
-	go test -race -count=1 -timeout=110s ./...
-
-test-integration-s6:
-	go test -race -count=1 -tags=integration -timeout=60s -run '^(TestInvocationRepositoryReadsIntegration|Test(ApprovalVsPolicyAndCapacity|AtomicApprovalAndPostCommitRecovery|CatalogEvidenceReplacement|CreateVsTargetAndPolicy|CredentialAdmissionOrdering|RequestLifecycle|RequestRetentionAndEvidenceLimits)Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss|TestServicePublishesOneCompleteStaticGenerationAndSafeOperation)$$' ./internal/storage ./internal/backup ./internal/servercredentials ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition
-
-test-browser-s6-workflows:
-	go test -race -count=1 -tags=e2e,browser -timeout=2m -run '^TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch|ReadGeneration|MutationState|ShellPrimitives|SecretSinks|Overview|Invocations|SystemStatus|ServerCatalogReads|ServerCreateUpdate|ServerOperations|ServerCredentials|AuthFlows|ServerDisconnectDelete|Principals|PrincipalCredentials|GrantReadsCreate|GrantCorrection|RequestReads|RequestAdjudication|AdminCredentials|Backups|CapabilityAudit)$$' ./test/e2e
-
-test-browser-s6-visual:
-	go test -race -count=1 -tags=e2e,browser -timeout=60s -run '^TestBrowserVisualResponsiveMatrix$$' ./test/e2e
-
-test-browser-s6-a11y:
-	go test -race -count=1 -tags=e2e,browser -timeout=45s -run '^TestBrowserAccessibility$$' ./test/e2e
-
-test-browser-s6-cross:
-	go test -race -count=1 -tags=e2e,browser -timeout=45s -run '^TestBrowserCrossCompatibility$$' ./test/e2e
-
-test-cli-e2e-s6:
-	go test -race -count=1 -tags=e2e -timeout=90s -run '^TestCLI(StatusInvocations|ServerCatalogReads|ServerCreateUpdate|ServerDelete|ServerOperations|ServerCredentials|AuthFlows|AdminCredentials|Backups|Principals|PrincipalCredentials|Grants|GrantRequests)$$' ./test/e2e
-
-test-cli-usability-e2e:
-	go test -race -count=1 -tags=e2e -timeout=2m -run '^(TestCLI(FirstRun|XDGAndOverrides|ServeOutputLifecycle|AutomaticBearerSelection|CredentialFailureProblems|OutputMatrix|CommandErrors|HelpTree)|TestCLI(StatusInvocations|ServerCatalogReads|ServerCreateUpdate|ServerDelete|ServerOperations|ServerCredentials|AuthFlows|AdminCredentials|Backups|Principals|PrincipalCredentials|Grants|GrantRequests))$$' ./test/e2e
-
-test-security-s6:
-	go test -race -count=1 -tags=security -timeout=30s -run '^TestSecurityEvidenceOwnerManifest$$' ./test/security
-	go test -race -count=1 -tags=e2e,browser -timeout=30s -run '^TestBrowserSecretStoragePrivacy$$' ./test/e2e
-
-qualify-external-s6:
-	@go run ./test/acceptance/cmd --qualify-external
-
-accept-s2-1:
-	@go run ./test/acceptance/cmd --profile s2_1
-
-accept-s3:
-	@go run ./test/acceptance/cmd --profile s3
-
-accept-s4:
-	@go run ./test/acceptance/cmd --profile s4
-
-accept-s5:
-	@test -n "$(REPORT)" || (echo "REPORT is required" >&2; exit 2)
-	@go run ./test/acceptance/cmd --profile s5 --output "$(REPORT)"
-
-accept-s6:
-	@test -n "$(REPORT)" || (echo "REPORT is required" >&2; exit 2)
-	@go run ./test/acceptance/cmd --profile s6 --output "$(REPORT)"
+adopt-acceptance-report:
+	@case "$(REPORT)" in /*) ;; *) echo 'REPORT must be an absolute path' >&2; exit 2;; esac
+	@case "$(ADOPTION)" in /*) ;; *) echo 'ADOPTION must be an absolute path' >&2; exit 2;; esac
+	@go run ./test/acceptance/cmd adopt-acceptance-report --report "$(REPORT)" --output "$(ADOPTION)"
 
 lint:
 	go tool golangci-lint run ./...
@@ -162,4 +113,4 @@ verify:
 	go tool golangci-lint run ./...
 
 audit: tidy fmt lint test
-	go tool govulncheck ./... || echo "govulncheck: review above (stdlib vulns require Go upgrade)"
+	go tool govulncheck ./...

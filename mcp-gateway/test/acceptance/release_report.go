@@ -147,8 +147,7 @@ func parseReleaseReport(contents []byte, definition releaseProfileDefinition) (r
 		Profile       string `json:"profile"`
 	}
 	if err := json.Unmarshal(contents, &discriminator); err == nil {
-		legacyProfile := map[string]bool{"s2_1": true, "s3": true, "s4": true, "s5": true, "s6": true}[discriminator.Profile]
-		if discriminator.SchemaVersion > 0 && discriminator.SchemaVersion < releaseReportSchemaVersion || legacyProfile {
+		if discriminator.SchemaVersion > 0 && discriminator.SchemaVersion < releaseReportSchemaVersion || discriminator.Profile != "" && discriminator.Profile != releaseProfile {
 			return releaseReport{}, errLegacyAcceptanceReport
 		}
 	}
@@ -284,8 +283,10 @@ func validateReleaseReport(report releaseReport, definition releaseProfileDefini
 		if report.Result != ResultFailed || report.Reason == "" || report.Reason == "all_checks_passed" {
 			return errors.New("failed release report requires a failure reason")
 		}
-		if len(report.Checks) > 0 && report.Checks[len(report.Checks)-1].Status != ResultFailed {
-			return errors.New("failed release report must end at its failed check")
+		checkFailed := len(report.Checks) > 0 && report.Checks[len(report.Checks)-1].Status == ResultFailed
+		postCheckFailure := report.Cleanup.Status == "failed" || !report.CleanAfter || report.Reason == "external_evidence_changed" || report.Reason == "candidate_state_changed"
+		if !checkFailed && !postCheckFailure {
+			return errors.New("failed release report requires check, cleanup, candidate, or external failure evidence")
 		}
 	}
 	return nil

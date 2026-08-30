@@ -225,9 +225,10 @@ func finalReleaseDefinitionFiles() ([]string, error) {
 		add(command.DefinitionFiles...)
 	}
 	add(
-		"Makefile", ".prettierignore", "package.json", "package-lock.json", "go.work", "go.work.sum", "mcp-gateway/Makefile", "mcp-gateway/go.mod", "mcp-gateway/go.sum", "mcp-gateway/.golangci.yml",
-		"mcp-gateway/internal/contract/product_behavior_manifest.go", "mcp-gateway/internal/contract/documentation_ownership.go",
-		"mcp-gateway/test/acceptance/purpose_dag.go", "mcp-gateway/test/acceptance/release_profile.go", "mcp-gateway/test/acceptance/release_report.go",
+		"Makefile", ".gitignore", ".prettierignore", "package.json", "package-lock.json", "mcp-gateway/Makefile", "mcp-gateway/go.mod", "mcp-gateway/go.sum", "mcp-gateway/.golangci.yml",
+		"mcp-gateway/internal/contract/product_behavior_manifest.go", "mcp-gateway/internal/contract/documentation_ownership.go", "mcp-gateway/internal/contract/control_plane_capabilities.go",
+		"mcp-gateway/test/acceptance/acceptance.go", "mcp-gateway/test/acceptance/cmd/main.go", "mcp-gateway/test/acceptance/purpose_dag.go",
+		"mcp-gateway/test/acceptance/release_profile.go", "mcp-gateway/test/acceptance/release_report.go", "mcp-gateway/test/acceptance/release_runner.go",
 		"mcp-gateway/test/acceptance/release_report.schema.json", "mcp-gateway/test/acceptance/release_external_evidence.go",
 		"mcp-gateway/test/acceptance/release_external_evidence.schema.json", "mcp-gateway/web/environments.json",
 		"mcp-gateway/internal/testutil/cleanup_ledger.go", "mcp-gateway/internal/testutil/cleanup_ledger_darwin.go", "mcp-gateway/internal/testutil/cleanup_ledger_linux.go",

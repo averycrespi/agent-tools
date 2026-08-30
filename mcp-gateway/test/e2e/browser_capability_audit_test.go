@@ -17,7 +17,7 @@ import (
 )
 
 func TestBrowserCapabilityAudit(t *testing.T) {
-	rows := contract.S6CapabilityManifest()
+	rows := contract.ControlPlaneCapabilityManifest()
 	require.Len(t, rows, 31)
 	ids, scenarios := map[string]struct{}{}, map[string]struct{}{}
 	mechanics := strings.Builder{}
@@ -35,12 +35,11 @@ func TestBrowserCapabilityAudit(t *testing.T) {
 	for _, marker := range []string{"confirmation", "one-time sink", "idempotency key", "ETag", "cursor/limit", "no replay"} {
 		assert.Contains(t, mechanics.String(), marker)
 	}
-	lifecycle := contract.S6LifecycleCapabilityManifest()
+	lifecycle := contract.ControlPlaneLifecycleManifest()
 	require.Len(t, lifecycle, 8)
 	for _, row := range lifecycle[4:] {
 		assert.Empty(t, row.WebScenario, "CLI/offline capability must have no web owner")
 	}
-	assert.Len(t, contract.S6DocumentationManifest(), 40)
 
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)

@@ -2,7 +2,10 @@ TOOLS := mcp-broker mcp-gateway sandbox-manager local-git-mcp local-gomod-proxy 
 OTHER_TOOLS := mcp-broker sandbox-manager local-git-mcp local-gomod-proxy telegram-mcp http-broker
 UNAME_S := $(shell uname -s)
 
-.PHONY: install install-dev setup build test lint fmt tidy check check-other-tools test-browser test-frontend-development frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit audit $(TOOLS)
+.PHONY: help install install-dev setup build test lint fmt tidy check check-other-tools test-browser test-frontend-development frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report audit $(TOOLS)
+
+help:
+	@$(MAKE) -s -C mcp-gateway help
 
 install:
 	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir install; done
@@ -62,6 +65,15 @@ frontend-verify-supply-chain:
 
 frontend-audit:
 	$(MAKE) -C mcp-gateway frontend-audit
+
+qualify-external-evidence:
+	$(MAKE) -C mcp-gateway qualify-external-evidence
+
+accept:
+	$(MAKE) -C mcp-gateway accept REPORT="$(REPORT)"
+
+adopt-acceptance-report:
+	$(MAKE) -C mcp-gateway adopt-acceptance-report REPORT="$(REPORT)" ADOPTION="$(ADOPTION)"
 
 audit:
 	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir audit; done

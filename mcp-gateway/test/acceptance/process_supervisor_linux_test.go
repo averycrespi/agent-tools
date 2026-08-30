@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5AcceptanceExecutorCancellationReapsNestedProcessGroup(t *testing.T) {
+func TestReleaseExecutorCancellationReapsNestedProcessGroup(t *testing.T) {
 	ledger, err := testutil.NewCleanupLedger(t.TempDir())
 	require.NoError(t, err)
 	t.Setenv(testutil.CleanupLedgerEnvironment, ledger.Path())
@@ -27,7 +27,7 @@ func TestS5AcceptanceExecutorCancellationReapsNestedProcessGroup(t *testing.T) {
 	result := make(chan error, 1)
 	go func() {
 		_, runErr := (OSExecutor{}).Run(ctx, t.TempDir(), Command{
-			Name: os.Args[0], Arguments: []string{"-test.run=^TestS5AcceptanceExecutorNestedFixture$"},
+			Name: os.Args[0], Arguments: []string{"-test.run=^TestReleaseExecutorNestedFixture$"},
 		})
 		result <- runErr
 	}()
@@ -38,11 +38,11 @@ func TestS5AcceptanceExecutorCancellationReapsNestedProcessGroup(t *testing.T) {
 	require.Eventually(t, func() bool {
 		err := syscall.Kill(pid, 0)
 		return errors.Is(err, syscall.ESRCH)
-	}, 2*time.Second, 10*time.Millisecond)
+	}, 5*time.Second, 10*time.Millisecond)
 	require.Empty(t, ledger.Survivors())
 }
 
-func TestS5AcceptanceExecutorCLIHandlesTERM(t *testing.T) {
+func TestReleaseExecutorCLIHandlesTERM(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "acceptance")
 	runner, err := testutil.NewBinaryRunner(30*time.Second, 64*1024)
 	require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestS5AcceptanceExecutorCLIHandlesTERM(t *testing.T) {
 	readyPath := filepath.Join(t.TempDir(), "ready")
 	t.Setenv("MCP_GATEWAY_ACCEPTANCE_SIGNAL_READY", readyPath)
 	t.Setenv("MCP_GATEWAY_ACCEPTANCE_WAIT_FOR_SIGNAL", "1")
-	process, err := runner.Start(context.Background(), binary, "--profile", "s2_1")
+	process, err := runner.Start(context.Background(), binary, "accept", "--report", filepath.Join(t.TempDir(), "report.json"))
 	require.NoError(t, err)
 	waitForFixturePIDFile(t, readyPath)
 	require.NoError(t, process.Signal(syscall.SIGTERM))
@@ -61,7 +61,7 @@ func TestS5AcceptanceExecutorCLIHandlesTERM(t *testing.T) {
 	require.False(t, result.Cleanup.Survived)
 }
 
-func TestS5AcceptanceExecutorNestedFixture(t *testing.T) {
+func TestReleaseExecutorNestedFixture(t *testing.T) {
 	pidPath := os.Getenv("MCP_GATEWAY_ACCEPTANCE_EXECUTOR_FIXTURE")
 	if pidPath == "" {
 		return

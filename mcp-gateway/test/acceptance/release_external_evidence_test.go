@@ -120,7 +120,8 @@ func TestReleaseExternalEvidenceRejectsCandidateArtifactAndLegacyPathDrift(t *te
 	_, err = parseReleaseExternalEvidence(contents, root, binding, definition, false)
 	assert.ErrorContains(t, err, "artifact digest")
 
-	assert.Error(t, validateReleaseExternalEvidenceReferences(root, binding, []releaseExternalEvidenceDefinition{definition}, []releaseExternalEvidenceReference{{ID: definition.BehaviorID, CellID: definition.CellID, Availability: "available", Result: "passed", Blocking: true, Path: ".design/acceptance/s6/external/real-safari.json", SHA256: releaseDigest(contents)}}))
+	err = validateReleaseExternalEvidenceReferences(root, binding, []releaseExternalEvidenceDefinition{definition}, []releaseExternalEvidenceReference{{ID: definition.BehaviorID, CellID: definition.CellID, Availability: "available", Result: "passed", Blocking: true, Path: ".design/acceptance/s6/external/real-safari.json", SHA256: releaseDigest(contents)}})
+	assert.ErrorIs(t, err, errLegacyExternalEvidence)
 }
 
 func TestReleaseExternalEvidenceQualifierRequiresExactCleanReferenceSet(t *testing.T) {

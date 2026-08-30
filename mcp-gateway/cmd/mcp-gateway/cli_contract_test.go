@@ -79,7 +79,7 @@ func TestCLISharedContract(t *testing.T) {
 
 	t.Run("frozen capability uses match Cobra leaves", func(t *testing.T) {
 		expected := make([]string, 0)
-		for _, row := range contract.S6CapabilityManifest() {
+		for _, row := range contract.ControlPlaneCapabilityManifest() {
 			expected = append(expected, row.CLIUses...)
 		}
 		sort.Strings(expected)

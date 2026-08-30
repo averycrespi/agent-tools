@@ -19,7 +19,7 @@ func TestDocumentationContractDrift(t *testing.T) {
 			"locally secure, deny-by-default service", "never queues or automatically replays", "mcp-gateway/docs/cli-local-administration.md",
 		},
 		"../../../CLAUDE.md": {
-			"mcp-gateway/docs/release-verification.md", "Gateway release acceptance is a separate owner", "npm run ui:verify-supply-chain", "npm run ui:audit",
+			"mcp-gateway/docs/release-verification.md", "Gateway release acceptance is a separate owner", "make frontend-verify-supply-chain", "make frontend-audit",
 		},
 		"../../README.md": {
 			"## Current capabilities", "## Common workflows", "docs/cli-local-administration.md", "docs/recovery.md",
@@ -62,7 +62,7 @@ func TestDocumentationContractDrift(t *testing.T) {
 		require.NoError(t, err, path)
 		text := string(contents)
 		for _, phrase := range required {
-			require.Contains(t, text, phrase, "%s: missing current S6 claim", path)
+			require.Contains(t, text, phrase, "%s: missing prohibited historical claim fixture", path)
 		}
 		for _, phrase := range prohibited {
 			require.NotContains(t, text, phrase, "%s: obsolete current-state claim", path)

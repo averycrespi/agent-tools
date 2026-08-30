@@ -2,10 +2,13 @@ package acceptance
 
 import (
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -21,6 +24,8 @@ const (
 	releaseExternalEvidenceSchemaVersion = 1
 	releaseExternalEvidenceDirectory     = ".design/acceptance/external"
 )
+
+var errLegacyExternalEvidence = errors.New("legacy external evidence is not compatible with the release profile")
 
 //go:embed release_external_evidence.schema.json
 var releaseExternalEvidenceSchema []byte
@@ -498,6 +503,9 @@ func validateReleaseExternalReferenceDefinitions(definitions []releaseExternalEv
 	}
 	for index, reference := range references {
 		definition := definitions[index]
+		if strings.HasPrefix(reference.Path, ".design/acceptance/s6/") {
+			return errLegacyExternalEvidence
+		}
 		if reference.ID != definition.BehaviorID || reference.CellID != definition.CellID || reference.Path != releaseExternalEvidencePath(definition.BehaviorID) || !digestPattern.MatchString(reference.SHA256) {
 			return errors.New("release external evidence reference is not closed or digest-bound")
 		}
@@ -536,6 +544,19 @@ func validateReleaseExternalDefinition(definition releaseExternalEvidenceDefinit
 
 func closedUnavailableReason(reason string) bool {
 	return reason == "platform_mismatch" || reason == "executable_not_found" || reason == "assistive_technology_unavailable"
+}
+
+func sha256File(path string) (string, error) {
+	file, err := os.Open(path) //nolint:gosec // Callers validate closed paths and reject symlinks before hashing.
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	digest := sha256.New()
+	if _, err := io.Copy(digest, file); err != nil {
+		return "", err
+	}
+	return "sha256:" + hex.EncodeToString(digest.Sum(nil)), nil
 }
 
 var headPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)

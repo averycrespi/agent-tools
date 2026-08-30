@@ -1,4 +1,4 @@
-// Package contract defines the fixed, test-visible S1–S6 boundary shared by Gateway packages.
+// Package contract defines the fixed, test-visible product boundary shared by Gateway packages.
 package contract
 
 import "strings"

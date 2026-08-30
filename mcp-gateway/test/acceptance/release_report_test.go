@@ -39,9 +39,8 @@ func TestReleaseReportRejectsSchemaSemanticsAndLegacyArtifacts(t *testing.T) {
 	root, definition := releaseReportTestRepository(t)
 	valid := validReleaseReport(t, root, definition)
 
-	legacy, err := json.Marshal(Report{SchemaVersion: 3, Profile: ProfileS6})
-	require.NoError(t, err)
-	_, err = parseReleaseReport(legacy, definition)
+	legacy := []byte(`{"schema_version":3,"profile":"retired-profile"}`)
+	_, err := parseReleaseReport(legacy, definition)
 	assert.ErrorIs(t, err, errLegacyAcceptanceReport)
 
 	mutations := map[string]func(*releaseReport){

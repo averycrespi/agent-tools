@@ -25,7 +25,7 @@ The public verification interface is organized by evidence purpose:
 
 `accept` invokes disjoint leaves directly and never invokes `test`, `test-browser`, `audit`, or another aggregate that would repeat evidence. The complete nonbrowser E2E suite runs once. Only the five named stress scenarios repeat; migration, retention, protocol, browser, and real-binary matrices remain count one. Transitive ownership keeps generated-asset verification from running under multiple names.
 
-Use generated Make help for exact target spelling and required variables. Do not preserve removed aliases in scripts; update CI to the purpose-based owner.
+Run `make help` for exact target spelling and required variables. Do not preserve removed aliases in scripts; update CI to the purpose-based owner.
 
 ## CI mapping
 
@@ -53,7 +53,7 @@ Before producing release evidence:
 3. Require a clean worktree and record the candidate revision.
 4. Freeze Make, npm, runner, profile, manifest, schema, and executable definitions.
 5. Prepare candidate-bound external evidence.
-6. Run `accept` once with an absolute report path.
+6. Run `make qualify-external-evidence`, then run `make accept REPORT=/absolute/path/report.json` once.
 
 The report records the exact clean revision, command and profile hashes, immutable definition inputs, command timings, timeout/termination facts, artifacts, and cleanup results. Any tracked change after evidence preparation creates a new candidate and invalidates candidate-bound evidence.
 
@@ -61,7 +61,7 @@ The report records the exact clean revision, command and profile hashes, immutab
 
 Native keyring evidence is typed `passed`, `skipped`, or `failed`. `skipped` is an explicit additive gap, never success. `failed` blocks. Do not enable a destructive native prerequisite on a non-disposable user account merely to remove a gap.
 
-External browser and accessibility evidence is prepared for the exact candidate, executable digest, checklist, and artifact set. Run `qualify-external-evidence` to validate its schema, paths, digests, provenance, and policy classification before acceptance.
+External browser and accessibility evidence is prepared for the exact candidate, executable digest, checklist, and artifact set. Run `make qualify-external-evidence` to create any missing deterministic templates and validate their schema, paths, digests, provenance, and policy classification before acceptance. Existing evidence is never overwritten. An available probe leaves a pending template for a named operator to complete with real evidence; a permitted unavailable probe can qualify immediately.
 
 A deterministic probe may emit only policy-permitted typed unavailability. Required blocking evidence cannot be synthesized. Additive unavailable evidence remains visible in the report; an available environment or human claim requires real artifacts and provenance. If required blocking evidence is unavailable, stop the release rather than writing a pass.
 
@@ -93,7 +93,7 @@ A second full failure in the same area requires reassessing the reproduction and
 
 ## Report adoption
 
-`adopt-acceptance-report` performs no-check adoption of one already-produced report. It reparses and hashes the immutable artifact, verifies the same candidate revision and clean worktree, rechecks profile/command/manifest definitions, native and external classifications, blocking results, and cleanup evidence, then writes a distinct adoption artifact.
+`make adopt-acceptance-report REPORT=/absolute/path/report.json ADOPTION=/absolute/path/adoption.json` performs no-check adoption of one already-produced report. It reparses and hashes the immutable artifact, verifies the same candidate revision and clean worktree, rechecks profile/command/manifest definitions, native and external classifications, blocking results, and cleanup evidence, then writes a distinct adoption artifact.
 
 Adoption does not rerun product checks and never converts a failure, unavailable blocking cell, stale candidate, dirty revision, or mismatched definition into success. Use it only when no tracked state or acceptance definition changed after report production.
 
