@@ -286,17 +286,17 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 	},
 	"server credential replace": {fileMembers: []string{"kind", "expected_revision", "values", "client_secret"}},
 	"principal create": {
-		fileMembers: []string{"display_name", "visibility"},
-		direct:      []onlineDirectFlag{{name: "display-name", required: true}, {name: "visibility", values: []string{"requestable", "allowed-only", "all"}, required: true}},
+		direct:        []onlineDirectFlag{{name: "display-name", required: true}, {name: "visibility", values: []string{"requestable", "allowed-only", "all"}, required: true}},
+		defaultDirect: true,
 		buildBody: func(values map[string]string, _ map[string]bool, _ map[string]bool) ([]byte, error) {
 			return marshalIntent(map[string]any{"display_name": values["display-name"], "visibility": values["visibility"]})
 		},
 	},
 	"principal update": {
-		fileMembers: []string{"display_name", "visibility", "state"},
 		direct: []onlineDirectFlag{
 			{name: "display-name"}, {name: "visibility", values: []string{"requestable", "allowed-only", "all"}}, {name: "state", values: []string{"active", "disabled"}},
 		},
+		defaultDirect: true,
 		buildBody: func(values map[string]string, _ map[string]bool, changed map[string]bool) ([]byte, error) {
 			body := make(map[string]any)
 			for flag, member := range map[string]string{"display-name": "display_name", "visibility": "visibility", "state": "state"} {
