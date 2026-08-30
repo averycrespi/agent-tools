@@ -644,7 +644,11 @@ func writeAtomicValidated(path string, contents []byte, validate func() error) e
 }
 
 func cloneReleaseCoverage(coverage releaseCoverage) releaseCoverage {
-	return releaseCoverage{ProductBehaviors: append([]string(nil), coverage.ProductBehaviors...), CleanupCriteria: append([]string(nil), coverage.CleanupCriteria...)}
+	productBehaviors := make([]string, len(coverage.ProductBehaviors))
+	copy(productBehaviors, coverage.ProductBehaviors)
+	cleanupCriteria := make([]string, len(coverage.CleanupCriteria))
+	copy(cleanupCriteria, coverage.CleanupCriteria)
+	return releaseCoverage{ProductBehaviors: productBehaviors, CleanupCriteria: cleanupCriteria}
 }
 
 func releaseDigest(contents []byte) string {

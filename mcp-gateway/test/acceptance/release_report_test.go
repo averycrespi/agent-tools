@@ -16,6 +16,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestReleaseCoverageClonePreservesClosedEmptyArrays(t *testing.T) {
+	original := releaseCoverage{ProductBehaviors: []string{}, CleanupCriteria: []string{}}
+	cloned := cloneReleaseCoverage(original)
+	assert.NotNil(t, cloned.ProductBehaviors)
+	assert.NotNil(t, cloned.CleanupCriteria)
+	assert.Equal(t, original, cloned)
+}
+
 func TestReleaseReportRoundTripPreservesClosedEvidence(t *testing.T) {
 	root, definition := releaseReportTestRepository(t)
 	report := validReleaseReport(t, root, definition)
