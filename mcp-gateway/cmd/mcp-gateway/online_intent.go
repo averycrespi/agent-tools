@@ -313,6 +313,7 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 		direct: []onlineDirectFlag{
 			{name: "principal-id", required: true}, {name: "effect", values: []string{"allow", "deny"}, required: true}, {name: "server-id", required: true}, {name: "upstream-name"}, {name: "expires-at"},
 		},
+		defaultDirect: true,
 		buildBody: func(values map[string]string, _ map[string]bool, changed map[string]bool) ([]byte, error) {
 			body := map[string]any{"principal_id": values["principal-id"], "effect": values["effect"], "server_id": values["server-id"], "upstream_name": nil, "constraint": nil, "expires_at": nil}
 			for _, flag := range []string{"upstream-name", "expires-at"} {
