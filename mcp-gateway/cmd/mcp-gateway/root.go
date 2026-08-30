@@ -118,7 +118,7 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 }
 
 func selectedDataDir(command *cobra.Command, local string) string {
-	if command != nil && command.Flags().Changed("data-dir") {
+	if command != nil && command.LocalNonPersistentFlags().Changed("data-dir") {
 		return local
 	}
 	if command != nil {
