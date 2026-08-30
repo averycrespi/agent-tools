@@ -260,9 +260,10 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 	},
 	"server create": {fileMembers: []string{"namespace", "display_name", "enabled", "transport"}},
 	"server update": {
-		fileMembers: []string{"display_name", "enabled", "transport"},
-		direct:      []onlineDirectFlag{{name: "display-name"}, {name: "enable", toggle: true}, {name: "disable", toggle: true}},
-		conflicts:   [][]string{{"enable", "disable"}},
+		fileMembers:   []string{"display_name", "enabled", "transport"},
+		direct:        []onlineDirectFlag{{name: "display-name"}, {name: "enable", toggle: true}, {name: "disable", toggle: true}},
+		conflicts:     [][]string{{"enable", "disable"}},
+		defaultDirect: true,
 		buildBody: func(values map[string]string, toggles map[string]bool, changed map[string]bool) ([]byte, error) {
 			body := make(map[string]any)
 			if changed["display-name"] {
