@@ -106,13 +106,23 @@
     "external": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "result", "blocking"],
+      "required": [
+        "id",
+        "cell_id",
+        "availability",
+        "result",
+        "blocking",
+        "path",
+        "sha256"
+      ],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]*$" },
+        "cell_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]*$" },
+        "availability": { "enum": ["available", "unavailable"] },
         "result": { "enum": ["passed", "failed", "unavailable"] },
         "blocking": { "type": "boolean" },
-        "path": { "type": "string" },
-        "sha256": { "type": "string" }
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/digest" }
       }
     },
     "cleanup": {

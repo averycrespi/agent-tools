@@ -75,7 +75,9 @@ func TestReleaseReportRejectsSchemaSemanticsAndLegacyArtifacts(t *testing.T) {
 	skipped := cloneReleaseReport(t, valid)
 	nativeSkipped := keyringnative.NewResult(keyringnative.ResultSkipped, "linux", "unavailable", keyringnative.ResultPassed, keyringnative.ResultSkipped)
 	skipped.Native = &nativeSkipped
-	skipped.ExternalEvidence[0] = releaseExternalEvidenceReference{ID: "external.safari", Result: "unavailable", Blocking: false}
+	skipped.ExternalEvidence[0].Availability = "unavailable"
+	skipped.ExternalEvidence[0].Result = "unavailable"
+	skipped.ExternalEvidence[0].Blocking = false
 	encoded, err := json.Marshal(skipped)
 	require.NoError(t, err)
 	_, err = parseReleaseReport(encoded, definition)
@@ -141,7 +143,7 @@ func TestReleaseReportAdoptionIsAtomicAndRunsNoChecks(t *testing.T) {
 	require.NoError(t, err)
 
 	output := filepath.Join(t.TempDir(), "adoption.json")
-	adoption, err := adoptReleaseReport(root, reportPath, output, definition, func(releaseExternalEvidenceReference) error { return nil }, func() time.Time {
+	adoption, err := adoptReleaseReport(root, reportPath, output, definition, func([]releaseExternalEvidenceReference) error { return nil }, func() time.Time {
 		return time.Date(2026, time.August, 30, 2, 0, 0, 0, time.UTC)
 	})
 	require.NoError(t, err)
@@ -180,9 +182,9 @@ func TestReleaseReportAdoptionPreservesOutputWhenFinalValidationFails(t *testing
 	require.NoError(t, os.WriteFile(output, []byte("sentinel"), 0o600))
 
 	calls := 0
-	validator := func(releaseExternalEvidenceReference) error {
+	validator := func([]releaseExternalEvidenceReference) error {
 		calls++
-		if calls > len(report.ExternalEvidence) {
+		if calls > 1 {
 			return errors.New("evidence changed during adoption")
 		}
 		return nil
@@ -213,7 +215,8 @@ func releaseReportTestRepository(t *testing.T) (string, releaseProfileDefinition
 			{ID: "unit", Argv: []string{"make", "-C", "mcp-gateway", "test-unit"}, Coverage: releaseCoverage{ProductBehaviors: []string{"product.interface.developer_first"}, CleanupCriteria: []string{"cleanup.AC-1"}}, TimeoutMillis: 90000, Artifacts: []string{"artifacts/unit.json"}, CleanupRequirements: []string{"processes", "listeners", "temporary roots"}},
 			{ID: "native", Argv: []string{"make", "-C", "mcp-gateway", "test-keyring-native"}, Coverage: releaseCoverage{ProductBehaviors: []string{"security.browser.storage"}, CleanupCriteria: []string{"cleanup.AC-5"}}, TimeoutMillis: 10000, Artifacts: []string{"artifacts/native.json"}, CleanupRequirements: []string{"processes", "temporary roots"}, Native: true},
 		},
-		DefinitionFiles: []string{"definitions/direct.txt", "definitions/transitive.txt"},
+		ExternalEvidence: []releaseExternalEvidenceDefinition{{BehaviorID: "tier.browser.cross", CellID: "macos-safari", TargetOS: "macos", Browser: "safari", AcceptanceClass: "blocking_when_available", UnavailableClass: "additive", ExecutableLocator: "/Applications/Safari.app", Checklist: []string{"sign-in-session"}}},
+		DefinitionFiles:  []string{"definitions/direct.txt", "definitions/transitive.txt"},
 	}
 }
 
@@ -230,7 +233,7 @@ func validReleaseReport(t *testing.T, root string, definition releaseProfileDefi
 		checkStart := start.Add(time.Duration(index) * time.Millisecond)
 		checks[index] = releaseCheck{ID: check.ID, Status: ResultPassed, Argv: append([]string(nil), check.Argv...), Coverage: check.Coverage, Artifacts: append([]string(nil), check.Artifacts...), StartedAt: checkStart.Format(time.RFC3339Nano), EndedAt: checkStart.Add(time.Millisecond).Format(time.RFC3339Nano), DurationMillis: 1, TimeoutMillis: check.TimeoutMillis, Termination: "none", Cleanup: "passed", CleanupRequirements: append([]string(nil), check.CleanupRequirements...), DiagnosticPaths: []string{}}
 	}
-	return releaseReport{SchemaVersion: releaseReportSchemaVersion, Profile: releaseProfile, ProfileHash: profileHash, CommandDefinitionHash: definitionHash, ManifestHash: manifestHash, Result: ResultPassed, Reason: "all_checks_passed", Revision: revision, Dirty: false, CleanBefore: true, CleanAfter: true, StartedAt: start.Format(time.RFC3339Nano), EndedAt: start.Add(2 * time.Millisecond).Format(time.RFC3339Nano), DurationMillis: 2, Coverage: definition.Coverage, Checks: checks, Native: &native, ExternalEvidence: []releaseExternalEvidenceReference{{ID: "external.safari", Result: "passed", Blocking: true, Path: "evidence/safari.json", SHA256: "sha256:" + strings.Repeat("a", 64)}}, Cleanup: releaseCleanup{Status: "passed", Processes: true, Listeners: true, TemporaryRoots: true}}
+	return releaseReport{SchemaVersion: releaseReportSchemaVersion, Profile: releaseProfile, ProfileHash: profileHash, CommandDefinitionHash: definitionHash, ManifestHash: manifestHash, Result: ResultPassed, Reason: "all_checks_passed", Revision: revision, Dirty: false, CleanBefore: true, CleanAfter: true, StartedAt: start.Format(time.RFC3339Nano), EndedAt: start.Add(2 * time.Millisecond).Format(time.RFC3339Nano), DurationMillis: 2, Coverage: definition.Coverage, Checks: checks, Native: &native, ExternalEvidence: []releaseExternalEvidenceReference{{ID: "tier.browser.cross", CellID: "macos-safari", Availability: "available", Result: "passed", Blocking: true, Path: releaseExternalEvidencePath("tier.browser.cross"), SHA256: "sha256:" + strings.Repeat("a", 64)}}, Cleanup: releaseCleanup{Status: "passed", Processes: true, Listeners: true, TemporaryRoots: true}}
 }
 
 func cloneReleaseReport(t *testing.T, report releaseReport) releaseReport {

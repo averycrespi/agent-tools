@@ -48,10 +48,11 @@ type releaseCheckDefinition struct {
 }
 
 type releaseProfileDefinition struct {
-	Profile         string                   `json:"profile"`
-	Coverage        releaseCoverage          `json:"coverage"`
-	Checks          []releaseCheckDefinition `json:"checks"`
-	DefinitionFiles []string                 `json:"-"`
+	Profile          string                              `json:"profile"`
+	Coverage         releaseCoverage                     `json:"coverage"`
+	Checks           []releaseCheckDefinition            `json:"checks"`
+	ExternalEvidence []releaseExternalEvidenceDefinition `json:"external_evidence"`
+	DefinitionFiles  []string                            `json:"-"`
 }
 
 type releaseCheck struct {
@@ -72,11 +73,13 @@ type releaseCheck struct {
 }
 
 type releaseExternalEvidenceReference struct {
-	ID       string `json:"id"`
-	Result   string `json:"result"`
-	Blocking bool   `json:"blocking"`
-	Path     string `json:"path,omitempty"`
-	SHA256   string `json:"sha256,omitempty"`
+	ID           string `json:"id"`
+	CellID       string `json:"cell_id"`
+	Availability string `json:"availability"`
+	Result       string `json:"result"`
+	Blocking     bool   `json:"blocking"`
+	Path         string `json:"path"`
+	SHA256       string `json:"sha256"`
 }
 
 type releaseCleanup struct {
@@ -249,10 +252,8 @@ func validateReleaseReport(report releaseReport, definition releaseProfileDefini
 			return fmt.Errorf("invalid release native evidence: %w", err)
 		}
 	}
-	for _, external := range report.ExternalEvidence {
-		if err := validateReleaseExternalReference(external); err != nil {
-			return err
-		}
+	if err := validateReleaseExternalReferenceDefinitions(definition.ExternalEvidence, report.ExternalEvidence); err != nil {
+		return err
 	}
 	if report.Result == ResultPassed {
 		if report.Reason != "all_checks_passed" || len(report.Checks) != len(definition.Checks) || report.Dirty || !report.CleanBefore || !report.CleanAfter {
@@ -328,6 +329,16 @@ func validateReleaseProfileDefinition(definition releaseProfileDefinition) error
 			return fmt.Errorf("release cleanup criterion %s has no check owner", id)
 		}
 	}
+	seenExternal := make(map[string]struct{}, len(definition.ExternalEvidence))
+	for _, external := range definition.ExternalEvidence {
+		if err := validateReleaseExternalDefinition(external); err != nil {
+			return err
+		}
+		if _, duplicate := seenExternal[external.BehaviorID]; duplicate {
+			return fmt.Errorf("duplicate release external behavior %s", external.BehaviorID)
+		}
+		seenExternal[external.BehaviorID] = struct{}{}
+	}
 	return nil
 }
 
@@ -383,27 +394,6 @@ func releaseBehaviorIDs() map[string]struct{} {
 		ids[row.ID] = struct{}{}
 	}
 	return ids
-}
-
-func validateReleaseExternalReference(reference releaseExternalEvidenceReference) error {
-	switch reference.Result {
-	case "passed":
-		if reference.Path == "" || !digestPattern.MatchString(reference.SHA256) {
-			return errors.New("passed external evidence requires a path and digest")
-		}
-		return validateReleaseRelativePath(reference.Path)
-	case "unavailable":
-		if reference.Blocking || reference.Path != "" || reference.SHA256 != "" {
-			return errors.New("only additive external evidence may be unavailable")
-		}
-	case "failed":
-		if reference.Path != "" {
-			return validateReleaseRelativePath(reference.Path)
-		}
-	default:
-		return errors.New("unknown release external evidence result")
-	}
-	return nil
 }
 
 func validateReleaseRelativePath(path string) error {
@@ -498,7 +488,7 @@ func writeReleaseReport(root, path string, report releaseReport, definition rele
 	return writeAtomic(path, contents)
 }
 
-func adoptReleaseReport(root, reportPath, outputPath string, definition releaseProfileDefinition, validateExternal func(releaseExternalEvidenceReference) error, now func() time.Time) (releaseAdoption, error) {
+func adoptReleaseReport(root, reportPath, outputPath string, definition releaseProfileDefinition, validateExternal func([]releaseExternalEvidenceReference) error, now func() time.Time) (releaseAdoption, error) {
 	if err := distinctReleasePaths(reportPath, outputPath); err != nil {
 		return releaseAdoption{}, err
 	}
@@ -533,10 +523,8 @@ func adoptReleaseReport(root, reportPath, outputPath string, definition releaseP
 			return errors.New("release report adoption requires a clean workspace")
 		}
 		if validateExternal != nil {
-			for _, reference := range report.ExternalEvidence {
-				if err := validateExternal(reference); err != nil {
-					return fmt.Errorf("release external evidence changed: %w", err)
-				}
+			if err := validateExternal(append([]releaseExternalEvidenceReference(nil), report.ExternalEvidence...)); err != nil {
+				return fmt.Errorf("release external evidence changed: %w", err)
 			}
 		}
 		return nil
